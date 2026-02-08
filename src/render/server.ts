@@ -107,6 +107,45 @@ export function generateViewerHTML(viewerData: object): string {
     const hemiLight = new THREE.HemisphereLight(0x8090c0, 0x302010, 0.4);
     scene.add(hemiLight);
 
+    // Procedural texture generator — creates 16x16 canvas textures
+    function makeBlockTexture(r, g, b) {
+      const size = 16;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      // Base fill
+      ctx.fillStyle = \`rgb(\${r},\${g},\${b})\`;
+      ctx.fillRect(0, 0, size, size);
+      // Noise overlay for depth
+      const imgData = ctx.getImageData(0, 0, size, size);
+      const d = imgData.data;
+      let seed = r * 1000 + g * 100 + b;
+      for (let i = 0; i < d.length; i += 4) {
+        seed = (seed * 16807 + 0) % 2147483647;
+        const noise = ((seed / 2147483647) - 0.5) * 18;
+        d[i]     = Math.max(0, Math.min(255, d[i] + noise));
+        d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + noise));
+        d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + noise));
+      }
+      // Subtle border/edge darkening
+      for (let x = 0; x < size; x++) {
+        for (let y = 0; y < size; y++) {
+          if (x === 0 || y === 0 || x === size - 1 || y === size - 1) {
+            const idx = (y * size + x) * 4;
+            d[idx]     = Math.max(0, d[idx] - 20);
+            d[idx + 1] = Math.max(0, d[idx + 1] - 20);
+            d[idx + 2] = Math.max(0, d[idx + 2] - 20);
+          }
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      return tex;
+    }
+
     // Build block meshes grouped by color
     const colorGroups = new Map();
     for (const block of data.blocks) {
@@ -121,8 +160,9 @@ export function generateViewerHTML(viewerData: object): string {
 
     for (const [key, group] of colorGroups) {
       const [r, g, b] = group.color;
+      const texture = makeBlockTexture(r, g, b);
       const material = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(r / 255, g / 255, b / 255),
+        map: texture,
         roughness: 0.85,
         metalness: 0.05,
       });
