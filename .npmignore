@@ -1,0 +1,8 @@
+src/
+*.test.ts
+.github/
+.eslintrc*
+tsconfig.json
+vitest.config.*
+coverage/
+.env*
