@@ -35,6 +35,9 @@ npx craftmatic export building.schem viewer.html
 
 # Generate a structure
 npx craftmatic gen house --floors 3 --style fantasy --seed 42
+
+# Build a procedural texture atlas
+npx craftmatic atlas textures.png
 ```
 
 ### Generation Options
@@ -76,6 +79,8 @@ import {
   exportHTML,
   schemToThree,
   threeToSchem,
+  getDefaultAtlas,
+  buildAtlasForBlocks,
 } from 'craftmatic';
 
 // Parse a schematic
@@ -107,6 +112,11 @@ const threeGroup = schemToThree(data);
 
 // Convert Three.js back to schematic
 const schemData = threeToSchem(threeGroup);
+
+// Build procedural texture atlas
+const atlas = getDefaultAtlas();
+const pngBuffer = await atlas.toPNG();
+const uvMap = atlas.toJSON();
 ```
 
 ## Development
