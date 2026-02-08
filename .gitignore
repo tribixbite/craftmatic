@@ -6,3 +6,8 @@ dist/
 coverage/
 .env
 .env.*
+*.schem
+*.png
+test-*.sh
+test-*.cjs
+test-*.txt
