@@ -24,6 +24,6 @@ Technical specifications and design documents for the craftmatic library.
 - [x] CLI (info, render, view, export, gen commands)
 - [x] README + docs/specs
 - [x] GitHub repo (tribixbite/craftmatic)
-- [ ] Texture atlas (TODO: procedural 16x16 generation)
-- [ ] Tests (TODO: vitest suite)
+- [x] Texture atlas (94 procedural 16x16 textures, 10 pattern types)
+- [x] Tests (59 tests, all passing)
 - [ ] npm publish
