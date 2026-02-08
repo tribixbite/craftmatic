@@ -279,6 +279,35 @@ program
     }
   });
 
+// ─── atlas command ──────────────────────────────────────────────────────────
+
+program
+  .command('atlas [output]')
+  .description('Build a procedural texture atlas PNG + JSON')
+  .action(async (output?: string) => {
+    const spinner = ora('Building texture atlas...').start();
+    try {
+      const { getDefaultAtlas } = await import('./render/texture-atlas.js');
+      const atlas = getDefaultAtlas();
+      const pngBuf = await atlas.toPNG();
+      const jsonData = atlas.toJSON();
+
+      const pngFile = output ?? 'atlas.png';
+      const jsonFile = pngFile.replace(/\.png$/, '.json');
+
+      writeFileSync(pngFile, pngBuf);
+      writeFileSync(jsonFile, JSON.stringify(jsonData, null, 2));
+
+      spinner.succeed(`Atlas built: ${chalk.cyan(pngFile)} (${atlas.width}x${atlas.height}, ${atlas.entries.size} textures)`);
+      console.log(`  ${chalk.green('+')} ${pngFile} (${pngBuf.length.toLocaleString()} bytes)`);
+      console.log(`  ${chalk.green('+')} ${jsonFile}`);
+    } catch (err) {
+      spinner.fail('Atlas build failed');
+      console.error(chalk.red(String(err)));
+      process.exit(1);
+    }
+  });
+
 // ─── Parse and run ───────────────────────────────────────────────────────────
 
 program.parse();

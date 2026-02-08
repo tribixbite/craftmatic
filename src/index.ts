@@ -63,6 +63,11 @@ export { buildScene, serializeForViewer } from './render/three-scene.js';
 export { startViewerServer, generateViewerHTML } from './render/server.js';
 export { exportHTML } from './render/export-html.js';
 
+// ─── Texture Atlas ──────────────────────────────────────────────────────────
+export {
+  ProceduralAtlas, getDefaultAtlas, getBlockFaceUV, getBlockUVs, buildAtlasForBlocks,
+} from './render/texture-atlas.js';
+
 // ─── Conversion ──────────────────────────────────────────────────────────────
 export { schemToThree, gridToThree } from './convert/schem-to-three.js';
 export { threeToSchem, threeToGrid } from './convert/three-to-schem.js';
