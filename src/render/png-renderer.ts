@@ -1,14 +1,48 @@
 /**
  * 2D PNG renderer — produces floor plans, cutaway isometrics,
  * and exterior views from schematic data.
- * Uses sharp for high-performance image generation.
+ * Uses pureimage (pure JS) for cross-platform PNG encoding.
+ * Falls back to sharp if available for better performance.
  */
 
-import sharp from 'sharp';
 import { BlockGrid } from '../schem/types.js';
 import { getBlockColor, FURNITURE_BLOCKS, LIGHT_BLOCKS, BED_BLOCKS, DOOR_BLOCKS } from '../blocks/colors.js';
 import { getBaseId } from '../blocks/registry.js';
 import type { RGB } from '../types/index.js';
+import { Writable } from 'node:stream';
+
+/**
+ * Encode a raw RGBA pixel buffer to PNG.
+ * Tries pureimage first (pure JS, works everywhere), falls back to sharp.
+ */
+async function encodePNG(pixels: Buffer, width: number, height: number): Promise<Buffer> {
+  try {
+    const pureimage = await import('pureimage');
+    // Create a Bitmap and copy our raw RGBA data into it
+    const img = pureimage.make(width, height);
+    const data = img.data;
+    // pureimage uses Uint32Array internally, but we can write via getContext
+    for (let i = 0; i < width * height * 4; i++) {
+      data[i] = pixels[i];
+    }
+    // Encode to PNG via stream
+    const chunks: Buffer[] = [];
+    const ws = new Writable({
+      write(chunk: Buffer, _encoding: string, callback: () => void) {
+        chunks.push(chunk);
+        callback();
+      },
+    });
+    await pureimage.encodePNGToStream(img, ws);
+    return Buffer.concat(chunks);
+  } catch {
+    // Fallback to sharp if pureimage not available
+    const sharp = (await import('sharp')).default;
+    return sharp(pixels, { raw: { width, height, channels: 4 } })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+  }
+}
 
 /** Maximum image dimension in pixels */
 const MAX_DIM = 1950;
@@ -161,9 +195,7 @@ export async function renderFloorDetail(
     drawLine(pixels, imgW, ox, oy + gz * scale, ox + w * scale, oy + gz * scale, gridColor);
   }
 
-  return sharp(pixels, { raw: { width: imgW, height: imgH, channels: 4 } })
-    .png({ compressionLevel: 9 })
-    .toBuffer();
+  return encodePNG(pixels, imgW, imgH);
 }
 
 /**
@@ -244,9 +276,7 @@ export async function renderCutawayIso(
     }
   }
 
-  return sharp(pixels, { raw: { width: imgW, height: imgH, channels: 4 } })
-    .png({ compressionLevel: 9 })
-    .toBuffer();
+  return encodePNG(pixels, imgW, imgH);
 }
 
 /**
@@ -313,9 +343,7 @@ export async function renderExterior(
     }
   }
 
-  return sharp(pixels, { raw: { width: imgW, height: imgH, channels: 4 } })
-    .png({ compressionLevel: 9 })
-    .toBuffer();
+  return encodePNG(pixels, imgW, imgH);
 }
 
 // ─── Pixel Drawing Helpers ───────────────────────────────────────────────────
