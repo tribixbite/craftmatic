@@ -1,20 +1,20 @@
 /**
  * Static HTML export — generates a self-contained HTML file
- * with embedded Three.js viewer and schematic data.
+ * with embedded Three.js viewer and schematic data (with textures).
  */
 
 import { writeFileSync } from 'node:fs';
 import { BlockGrid } from '../schem/types.js';
-import { serializeForViewer } from './three-scene.js';
+import { serializeForViewerTextured } from './three-scene.js';
 import { generateViewerHTML } from './server.js';
 
 /**
  * Export a standalone HTML file with embedded 3D viewer.
  * The file loads Three.js from CDN and embeds the schematic
- * data directly as JSON in a script tag.
+ * data with real texture PNGs as base64 data URIs.
  */
-export function exportHTML(grid: BlockGrid, outputPath: string): void {
-  const viewerData = serializeForViewer(grid);
+export async function exportHTML(grid: BlockGrid, outputPath: string): Promise<void> {
+  const viewerData = await serializeForViewerTextured(grid);
   const html = generateViewerHTML(viewerData);
   writeFileSync(outputPath, html, 'utf-8');
 }
