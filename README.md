@@ -36,7 +36,7 @@ npx craftmatic export building.schem viewer.html
 # Generate a structure
 npx craftmatic gen house --floors 3 --style fantasy --seed 42
 
-# Build a procedural texture atlas
+# Build texture atlas (real ProgrammerArt + procedural fallback)
 npx craftmatic atlas textures.png
 ```
 
@@ -79,7 +79,7 @@ import {
   exportHTML,
   schemToThree,
   threeToSchem,
-  getDefaultAtlas,
+  initDefaultAtlas,
   buildAtlasForBlocks,
 } from 'craftmatic';
 
@@ -113,11 +113,20 @@ const threeGroup = schemToThree(data);
 // Convert Three.js back to schematic
 const schemData = threeToSchem(threeGroup);
 
-// Build procedural texture atlas
-const atlas = getDefaultAtlas();
+// Build texture atlas (144 real textures + procedural fallback)
+const atlas = await initDefaultAtlas();
 const pngBuffer = await atlas.toPNG();
 const uvMap = atlas.toJSON();
 ```
+
+## Textures
+
+The bundled texture atlas uses a hybrid system:
+
+- **144 real block textures** from [ProgrammerArt](https://github.com/ProgrammerArt-Mods/ProgrammerArt) (CC-BY 4.0)
+- **Procedural fallback** for blocks without a real texture — generated with pattern-matched algorithms (grain, speckle, brick, etc.)
+
+See `textures/ATTRIBUTION.md` for license details.
 
 ## Development
 
@@ -128,6 +137,17 @@ npm install
 npm run build
 npm run typecheck
 ```
+
+## Specs
+
+Detailed technical documentation is in [`docs/specs/`](docs/specs/README.md):
+
+- [Architecture](docs/specs/architecture.md) — module layout and data flow
+- [Schematic Format](docs/specs/schematic-format.md) — Sponge Schematic v2 parsing
+- [Block Mapping](docs/specs/block-mapping.md) — block state to color/texture system
+- [Generation Styles](docs/specs/generation-styles.md) — style preset system
+- [Conversion](docs/specs/conversion-spec.md) — Three.js bidirectional conversion
+- [Rendering](docs/specs/rendering.md) — 2D PNG and 3D rendering pipeline
 
 ## License
 
