@@ -10,20 +10,49 @@ import { getBaseId } from './registry.js';
 /** Block ID -> RGB color mapping */
 const BLOCK_COLORS: Record<string, RGB> = {
   // Stone / brick
+  'minecraft:stone': [125, 125, 125],
   'minecraft:stone_bricks': [122, 122, 122],
-  'minecraft:stone_brick_slab': [130, 130, 130],
+  'minecraft:stone_brick_slab': [124, 124, 124],
   'minecraft:stone_brick_wall': [115, 115, 115],
-  'minecraft:stone_brick_stairs': [125, 125, 125],
+  'minecraft:stone_brick_stairs': [122, 122, 122],
+  'minecraft:cracked_stone_bricks': [118, 118, 118],
+  'minecraft:mossy_stone_bricks': [115, 127, 105],
+  'minecraft:mossy_stone_brick_stairs': [115, 127, 105],
+  'minecraft:mossy_stone_brick_slab': [115, 127, 105],
   'minecraft:chiseled_stone_bricks': [120, 118, 120],
+  'minecraft:cobblestone': [127, 127, 127],
+  'minecraft:cobblestone_stairs': [127, 127, 127],
+  'minecraft:cobblestone_slab': [127, 127, 127],
+  'minecraft:cobblestone_wall': [127, 127, 127],
+  'minecraft:mossy_cobblestone': [110, 126, 100],
   'minecraft:polished_andesite': [136, 136, 132],
+  'minecraft:andesite': [136, 136, 136],
   'minecraft:polished_deepslate': [72, 72, 76],
+  'minecraft:deepslate': [80, 80, 84],
+  'minecraft:deepslate_bricks': [76, 76, 80],
+  'minecraft:deepslate_brick_stairs': [76, 76, 80],
+  'minecraft:deepslate_brick_slab': [76, 76, 80],
+  'minecraft:deepslate_brick_wall': [74, 74, 78],
+  'minecraft:cracked_deepslate_bricks': [72, 72, 76],
+  'minecraft:deepslate_tiles': [54, 54, 58],
+  'minecraft:deepslate_tile_stairs': [54, 54, 58],
+  'minecraft:deepslate_tile_slab': [54, 54, 58],
+  'minecraft:cracked_deepslate_tiles': [52, 52, 56],
   'minecraft:smooth_stone_slab': [165, 165, 165],
   'minecraft:smooth_quartz': [235, 229, 222],
   'minecraft:smooth_quartz_slab': [232, 226, 219],
+  'minecraft:smooth_quartz_stairs': [232, 226, 219],
   'minecraft:quartz_block': [235, 230, 224],
   'minecraft:quartz_pillar': [230, 226, 220],
+  'minecraft:quartz_stairs': [230, 225, 218],
+  'minecraft:quartz_slab': [232, 226, 219],
   'minecraft:bricks': [150, 97, 83],
+  'minecraft:brick_stairs': [150, 97, 83],
+  'minecraft:brick_slab': [150, 97, 83],
   'minecraft:nether_bricks': [44, 22, 26],
+  'minecraft:nether_brick_fence': [44, 22, 26],
+  'minecraft:nether_brick_stairs': [44, 22, 26],
+  'minecraft:nether_brick_slab': [44, 22, 26],
 
   // Dark oak
   'minecraft:dark_oak_log': [60, 46, 26],
@@ -35,23 +64,45 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:stripped_dark_oak_log': [96, 76, 49],
 
   // Oak
+  'minecraft:oak_log': [109, 85, 50],
   'minecraft:oak_planks': [162, 130, 78],
   'minecraft:oak_slab': [162, 130, 78],
   'minecraft:oak_stairs': [162, 130, 78],
   'minecraft:oak_fence': [158, 126, 74],
+  'minecraft:oak_door': [126, 100, 55],
+  'minecraft:stripped_oak_log': [177, 144, 86],
 
   // Spruce
+  'minecraft:spruce_log': [58, 37, 16],
+  'minecraft:spruce_planks': [114, 85, 48],
   'minecraft:spruce_stairs': [114, 85, 48],
   'minecraft:spruce_slab': [114, 85, 48],
+  'minecraft:spruce_fence': [112, 83, 46],
+  'minecraft:spruce_door': [107, 78, 42],
+  'minecraft:stripped_spruce_log': [115, 89, 52],
+
+  // Birch
+  'minecraft:birch_log': [216, 208, 196],
+  'minecraft:birch_planks': [192, 175, 121],
+  'minecraft:birch_stairs': [192, 175, 121],
+  'minecraft:birch_slab': [192, 175, 121],
+  'minecraft:birch_fence': [188, 171, 117],
+  'minecraft:birch_door': [215, 200, 150],
+  'minecraft:stripped_birch_log': [198, 176, 118],
 
   // Glass
   'minecraft:glass_pane': [173, 203, 227],
+  'minecraft:glass': [175, 205, 230],
   'minecraft:tinted_glass': [40, 30, 40],
   'minecraft:blue_stained_glass_pane': [51, 76, 178],
   'minecraft:purple_stained_glass_pane': [127, 63, 178],
+  'minecraft:light_blue_stained_glass_pane': [102, 153, 216],
 
   // Concrete
   'minecraft:white_concrete': [207, 213, 214],
+  'minecraft:light_gray_concrete': [125, 125, 115],
+  'minecraft:gray_concrete': [54, 57, 61],
+  'minecraft:black_concrete': [8, 10, 15],
 
   // Lighting
   'minecraft:lantern': [210, 170, 80],
@@ -70,8 +121,11 @@ const BLOCK_COLORS: Record<string, RGB> = {
   // Metal
   'minecraft:iron_bars': [160, 160, 160],
   'minecraft:iron_block': [222, 222, 222],
+  'minecraft:iron_door': [195, 195, 195],
   'minecraft:iron_trapdoor': [190, 190, 190],
   'minecraft:dark_oak_trapdoor': [60, 40, 20],
+  'minecraft:spruce_trapdoor': [105, 76, 40],
+  'minecraft:oak_trapdoor': [148, 118, 68],
   'minecraft:lightning_rod': [200, 130, 80],
 
   // Carpet
@@ -83,6 +137,14 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:yellow_carpet': [252, 202, 42],
   'minecraft:cyan_carpet': [24, 142, 150],
   'minecraft:magenta_carpet': [195, 72, 185],
+  'minecraft:brown_carpet': [114, 72, 40],
+  'minecraft:green_carpet': [84, 109, 28],
+  'minecraft:light_gray_carpet': [142, 142, 135],
+  'minecraft:gray_carpet': [63, 68, 72],
+  'minecraft:orange_carpet': [240, 118, 20],
+  'minecraft:lime_carpet': [112, 185, 26],
+  'minecraft:pink_carpet': [237, 141, 172],
+  'minecraft:light_blue_carpet': [58, 175, 217],
 
   // Furniture
   'minecraft:bookshelf': [109, 90, 55],
@@ -146,6 +208,12 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:gilded_blackstone': [58, 45, 32],
   'minecraft:polished_blackstone': [56, 50, 60],
   'minecraft:polished_blackstone_bricks': [50, 45, 54],
+  'minecraft:polished_blackstone_brick_stairs': [50, 45, 54],
+  'minecraft:polished_blackstone_brick_slab': [50, 45, 54],
+  'minecraft:polished_blackstone_brick_wall': [50, 45, 54],
+  'minecraft:polished_blackstone_stairs': [56, 50, 60],
+  'minecraft:polished_blackstone_slab': [56, 50, 60],
+  'minecraft:blackstone': [42, 36, 46],
   'minecraft:prismarine': [102, 175, 162],
   'minecraft:prismarine_bricks': [102, 175, 148],
   'minecraft:dark_prismarine': [54, 95, 78],
