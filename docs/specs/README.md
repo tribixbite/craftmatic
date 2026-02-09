@@ -16,14 +16,15 @@ Technical specifications and design documents for the craftmatic library.
 ## Status
 
 - [x] Core schematic parse/write (prismarine-nbt + custom NBT writer)
-- [x] Block registry + colors (170+ entries with prefix matching)
+- [x] Block registry + colors (240+ entries with prefix matching)
 - [x] 2D PNG renderer (floor plans, cutaway iso, exterior via pureimage)
 - [x] 3D viewer (Three.js dev server + self-contained HTML export)
 - [x] Structure generator (5 styles, 16 room types, seeded PRNG)
 - [x] Cross-conversion (schem↔three bidirectional)
-- [x] CLI (info, render, view, export, gen commands)
+- [x] CLI (info, render, view, export, gen, atlas commands)
 - [x] README + docs/specs
 - [x] GitHub repo (tribixbite/craftmatic)
-- [x] Texture atlas (94 procedural 16x16 textures, 10 pattern types)
+- [x] Texture atlas — hybrid: 144 real ProgrammerArt CC-BY 4.0 textures + procedural fallback
 - [x] Tests (59 tests, all passing)
+- [x] Quality audit (all 5 styles × 3 floor counts, 75 renders verified)
 - [ ] npm publish
