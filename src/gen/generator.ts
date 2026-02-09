@@ -602,22 +602,103 @@ function generateDungeon(
 
   const grid = new BlockGrid(gw, gh, gl);
 
-  // Ground surface
+  // Ground surface — leave open only around entrance area, fill rest with foundation
   grid.fill(bx1, groundY, bz1, bx2, groundY, bz2, style.foundation);
 
-  // Surface entrance structure
-  const entrW = 7;
+  // Surface entrance — larger gatehouse-style structure with towers
+  const entrW = 11;
+  const entrD = 9;
   const ex1 = xMid - Math.floor(entrW / 2);
   const ex2 = ex1 + entrW - 1;
   const ez1 = bz1;
-  const ez2 = bz1 + entrW - 1;
-  for (let y = groundY + 1; y <= groundY + STORY_H; y++) {
+  const ez2 = bz1 + entrD - 1;
+  const entrH = STORY_H + 3; // Taller entrance
+
+  // Entrance walls
+  for (let y = groundY + 1; y <= groundY + entrH; y++) {
     exteriorWalls(grid, ex1, y, ez1, ex2, y, ez2, style);
   }
-  grid.fill(ex1, groundY + STORY_H, ez1, ex2, groundY + STORY_H, ez2, style.ceiling);
-  // Entrance door
-  grid.set(xMid, groundY + 1, ez1, style.doorLowerS);
-  grid.set(xMid, groundY + 2, ez1, style.doorUpperS);
+  // Floor inside
+  grid.fill(ex1 + 1, groundY, ez1 + 1, ex2 - 1, groundY, ez2 - 1, style.floorGround);
+  // Flat roof
+  grid.fill(ex1, groundY + entrH, ez1, ex2, groundY + entrH, ez2, style.ceiling);
+
+  // Battlements on entrance roof
+  for (let x = ex1; x <= ex2; x += 2) {
+    if (grid.inBounds(x, groundY + entrH + 1, ez1)) {
+      grid.set(x, groundY + entrH + 1, ez1, style.wall);
+    }
+    if (grid.inBounds(x, groundY + entrH + 1, ez2)) {
+      grid.set(x, groundY + entrH + 1, ez2, style.wall);
+    }
+  }
+  for (let z = ez1; z <= ez2; z += 2) {
+    if (grid.inBounds(ex1, groundY + entrH + 1, z)) {
+      grid.set(ex1, groundY + entrH + 1, z, style.wall);
+    }
+    if (grid.inBounds(ex2, groundY + entrH + 1, z)) {
+      grid.set(ex2, groundY + entrH + 1, z, style.wall);
+    }
+  }
+
+  // Mini towers at entrance corners
+  const towerR = 2;
+  for (const [tcx, tcz] of [[ex1, ez1], [ex2, ez1], [ex1, ez2], [ex2, ez2]] as [number, number][]) {
+    for (let y = groundY + 1; y <= groundY + entrH + 2; y++) {
+      for (let dx = -towerR; dx <= towerR; dx++) {
+        for (let dz = -towerR; dz <= towerR; dz++) {
+          if (Math.sqrt(dx * dx + dz * dz) <= towerR + 0.5) {
+            const tx = tcx + dx;
+            const tz = tcz + dz;
+            if (grid.inBounds(tx, y, tz)) {
+              grid.set(tx, y, tz, style.wall);
+            }
+          }
+        }
+      }
+    }
+    // Cone top on mini towers
+    for (let layer = 0; layer <= towerR; layer++) {
+      const ry = groundY + entrH + 3 + layer;
+      const rr = towerR - layer;
+      if (rr <= 0) break;
+      for (let dx = -rr; dx <= rr; dx++) {
+        for (let dz = -rr; dz <= rr; dz++) {
+          if (Math.sqrt(dx * dx + dz * dz) <= rr + 0.5) {
+            const tx = tcx + dx;
+            const tz = tcz + dz;
+            if (grid.inBounds(tx, ry, tz)) {
+              grid.set(tx, ry, tz, style.roofS);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Arch entrance (3 blocks wide, 4 tall)
+  grid.set(xMid - 1, groundY + 1, ez1, 'minecraft:air');
+  grid.set(xMid, groundY + 1, ez1, 'minecraft:air');
+  grid.set(xMid + 1, groundY + 1, ez1, 'minecraft:air');
+  grid.set(xMid - 1, groundY + 2, ez1, 'minecraft:air');
+  grid.set(xMid, groundY + 2, ez1, 'minecraft:air');
+  grid.set(xMid + 1, groundY + 2, ez1, 'minecraft:air');
+  grid.set(xMid - 1, groundY + 3, ez1, 'minecraft:air');
+  grid.set(xMid, groundY + 3, ez1, 'minecraft:air');
+  grid.set(xMid + 1, groundY + 3, ez1, 'minecraft:air');
+  grid.set(xMid, groundY + 4, ez1, 'minecraft:air');
+  // Iron bar gate flanks
+  grid.set(xMid - 2, groundY + 1, ez1, 'minecraft:iron_bars');
+  grid.set(xMid - 2, groundY + 2, ez1, 'minecraft:iron_bars');
+  grid.set(xMid + 2, groundY + 1, ez1, 'minecraft:iron_bars');
+  grid.set(xMid + 2, groundY + 2, ez1, 'minecraft:iron_bars');
+
+  // Entrance torches
+  grid.set(xMid - 2, groundY + 3, ez1 + 1, style.torchS);
+  grid.set(xMid + 2, groundY + 3, ez1 + 1, style.torchS);
+
+  // Windows on entrance sides
+  windows(grid, ex1, ez1, ex2, ez2, groundY + 3, groundY + 4, style, 4);
 
   // Underground levels
   for (let level = 0; level < floors; level++) {
@@ -726,8 +807,9 @@ function generateShip(
 
   const grid = new BlockGrid(gw, gh, gl);
 
-  // Hull shape: tapers at bow and stern
-  const hullBase = 2; // Y level of deck
+  // Hull shape: tapers at bow and stern, with solid fill below deck
+  const hullDepth = 3; // hull extends this many blocks below deck
+  const hullBase = hullDepth; // Y level of deck
   for (let z = sz1; z <= sz2; z++) {
     const zFrac = (z - sz1) / (sz2 - sz1); // 0=stern, 1=bow
     let halfWidth: number;
@@ -735,32 +817,50 @@ function generateShip(
       // Stern taper
       halfWidth = Math.round((zFrac / 0.15) * (shipW / 2));
     } else if (zFrac > 0.85) {
-      // Bow taper
+      // Bow taper — sharper point
       halfWidth = Math.round(((1 - zFrac) / 0.15) * (shipW / 2));
     } else {
       halfWidth = Math.floor(shipW / 2);
     }
     halfWidth = Math.max(1, halfWidth);
 
-    // Hull bottom (keel)
-    for (let dx = -halfWidth; dx <= halfWidth; dx++) {
-      const x = cx + dx;
-      if (!grid.inBounds(x, 0, z)) continue;
-      grid.set(x, 0, z, style.foundation);
+    // Hull layers from keel to deck
+    for (let y = 0; y <= hullBase; y++) {
+      // Hull narrows toward the keel (bottom) for a V-shape cross section
+      const depthFrac = y / hullBase; // 0=keel, 1=deck
+      const layerHalf = Math.max(1, Math.round(halfWidth * (0.5 + 0.5 * depthFrac)));
 
-      // Hull sides rising to deck level
-      if (Math.abs(dx) === halfWidth) {
-        for (let y = 1; y <= hullBase; y++) {
+      for (let dx = -layerHalf; dx <= layerHalf; dx++) {
+        const x = cx + dx;
+        if (!grid.inBounds(x, y, z)) continue;
+
+        if (Math.abs(dx) >= layerHalf - 1) {
+          // Hull shell (outer wall)
+          grid.set(x, y, z, style.wall);
+        } else if (y === 0) {
+          // Keel bottom
+          grid.set(x, y, z, style.foundation);
+        } else if (y < hullBase) {
+          // Below-deck hull interior fill (solid for structural look)
           grid.set(x, y, z, style.wall);
         }
       }
     }
 
-    // Deck
+    // Deck surface
     for (let dx = -halfWidth + 1; dx < halfWidth; dx++) {
       const x = cx + dx;
       if (grid.inBounds(x, hullBase, z)) {
         grid.set(x, hullBase, z, style.floorGround);
+      }
+    }
+    // Deck edge planks
+    if (halfWidth >= 1) {
+      if (grid.inBounds(cx - halfWidth, hullBase, z)) {
+        grid.set(cx - halfWidth, hullBase, z, style.wall);
+      }
+      if (grid.inBounds(cx + halfWidth, hullBase, z)) {
+        grid.set(cx + halfWidth, hullBase, z, style.wall);
       }
     }
 
@@ -773,6 +873,20 @@ function generateShip(
       }
       if (grid.inBounds(rightRail, hullBase + 1, z)) {
         grid.set(rightRail, hullBase + 1, z, style.fence);
+      }
+    }
+  }
+
+  // Clear hull interior space for cabins
+  for (let y = 1; y < hullBase; y++) {
+    const midZStart = sz1 + Math.floor(shipLen * 0.18);
+    const midZEnd = sz1 + Math.floor(shipLen * 0.82);
+    for (let z = midZStart; z <= midZEnd; z++) {
+      for (let dx = -(Math.floor(shipW / 2) - 2); dx <= Math.floor(shipW / 2) - 2; dx++) {
+        const x = cx + dx;
+        if (grid.inBounds(x, y, z)) {
+          grid.set(x, y, z, 'minecraft:air');
+        }
       }
     }
   }
@@ -818,7 +932,7 @@ function generateShip(
     }, style);
   }
 
-  // Mast
+  // Main mast (forward)
   const mastZ = sz1 + Math.floor(shipLen * 0.4);
   const mastH = 15;
   for (let y = hullBase; y < hullBase + mastH; y++) {
@@ -834,6 +948,26 @@ function generateShip(
       grid.set(cx + dx, yardY, mastZ, style.timberX);
     }
   }
+  // Main sail (white wool rectangle between yard arm and lower beam)
+  const sailTop = yardY - 1;
+  const sailBottom = hullBase + 3;
+  const sailHalf = yardHalf - 1;
+  for (let y = sailBottom; y <= sailTop; y++) {
+    // Sail width narrows slightly toward bottom for a billowed look
+    const sailFrac = (y - sailBottom) / (sailTop - sailBottom);
+    const rowHalf = Math.max(1, Math.round(sailHalf * (0.6 + 0.4 * sailFrac)));
+    for (let dx = -rowHalf; dx <= rowHalf; dx++) {
+      if (grid.inBounds(cx + dx, y, mastZ)) {
+        grid.set(cx + dx, y, mastZ, 'minecraft:white_wool');
+      }
+    }
+  }
+  // Restore mast through sail
+  for (let y = sailBottom; y <= sailTop; y++) {
+    if (grid.inBounds(cx, y, mastZ)) {
+      grid.set(cx, y, mastZ, style.timber);
+    }
+  }
 
   // Second mast (aft)
   const mast2Z = sz1 + Math.floor(shipLen * 0.7);
@@ -844,9 +978,27 @@ function generateShip(
     }
   }
   const yard2Y = hullBase + Math.floor(mast2H * 0.6);
-  for (let dx = -yardHalf + 1; dx <= yardHalf - 1; dx++) {
+  const yard2Half = yardHalf - 1;
+  for (let dx = -yard2Half; dx <= yard2Half; dx++) {
     if (grid.inBounds(cx + dx, yard2Y, mast2Z)) {
       grid.set(cx + dx, yard2Y, mast2Z, style.timberX);
+    }
+  }
+  // Aft sail
+  const sail2Top = yard2Y - 1;
+  const sail2Bottom = hullBase + 3;
+  for (let y = sail2Bottom; y <= sail2Top; y++) {
+    const sailFrac = (y - sail2Bottom) / (sail2Top - sail2Bottom);
+    const rowHalf = Math.max(1, Math.round((yard2Half - 1) * (0.6 + 0.4 * sailFrac)));
+    for (let dx = -rowHalf; dx <= rowHalf; dx++) {
+      if (grid.inBounds(cx + dx, y, mast2Z)) {
+        grid.set(cx + dx, y, mast2Z, 'minecraft:white_wool');
+      }
+    }
+  }
+  for (let y = sail2Bottom; y <= sail2Top; y++) {
+    if (grid.inBounds(cx, y, mast2Z)) {
+      grid.set(cx, y, mast2Z, style.timber);
     }
   }
 
