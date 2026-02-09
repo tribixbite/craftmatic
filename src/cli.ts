@@ -283,12 +283,12 @@ program
 
 program
   .command('atlas [output]')
-  .description('Build a procedural texture atlas PNG + JSON')
+  .description('Build texture atlas PNG + JSON (real textures + procedural fallback)')
   .action(async (output?: string) => {
     const spinner = ora('Building texture atlas...').start();
     try {
-      const { getDefaultAtlas } = await import('./render/texture-atlas.js');
-      const atlas = getDefaultAtlas();
+      const { initDefaultAtlas } = await import('./render/texture-atlas.js');
+      const atlas = await initDefaultAtlas();
       const pngBuf = await atlas.toPNG();
       const jsonData = atlas.toJSON();
 
