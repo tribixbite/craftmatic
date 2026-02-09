@@ -220,7 +220,7 @@ async function exportCommand(file: string, output?: string): Promise<void> {
   try {
     const grid = await parseToGrid(file);
     const outFile = output ?? basename(file, '.schem') + '.html';
-    exportHTML(grid, outFile);
+    await exportHTML(grid, outFile);
     spinner.succeed(`Exported to ${chalk.cyan(outFile)}`);
   } catch (err) {
     spinner.fail('Export failed');

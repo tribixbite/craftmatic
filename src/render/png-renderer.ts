@@ -2,30 +2,25 @@
  * 2D PNG renderer — produces floor plans, cutaway isometrics,
  * and exterior views from schematic data.
  * Uses pureimage (pure JS) for cross-platform PNG encoding.
- * Falls back to sharp if available for better performance.
  */
 
 import { BlockGrid } from '../schem/types.js';
 import { getBlockColor, FURNITURE_BLOCKS, LIGHT_BLOCKS, BED_BLOCKS, DOOR_BLOCKS } from '../blocks/colors.js';
-import { getBaseId } from '../blocks/registry.js';
+import { getBaseId, isSolidBlock } from '../blocks/registry.js';
 import type { RGB } from '../types/index.js';
 import { Writable } from 'node:stream';
 
 /**
  * Encode a raw RGBA pixel buffer to PNG.
- * Tries pureimage first (pure JS, works everywhere), falls back to sharp.
  */
 async function encodePNG(pixels: Buffer, width: number, height: number): Promise<Buffer> {
   try {
     const pureimage = await import('pureimage');
-    // Create a Bitmap and copy our raw RGBA data into it
     const img = pureimage.make(width, height);
     const data = img.data;
-    // pureimage uses Uint32Array internally, but we can write via getContext
     for (let i = 0; i < width * height * 4; i++) {
       data[i] = pixels[i];
     }
-    // Encode to PNG via stream
     const chunks: Buffer[] = [];
     const ws = new Writable({
       write(chunk: Buffer, _encoding: string, callback: () => void) {
@@ -36,7 +31,6 @@ async function encodePNG(pixels: Buffer, width: number, height: number): Promise
     await pureimage.encodePNGToStream(img, ws);
     return Buffer.concat(chunks);
   } catch {
-    // Fallback to sharp if pureimage not available
     const sharp = (await import('sharp')).default;
     return sharp(pixels, { raw: { width, height, channels: 4 } })
       .png({ compressionLevel: 9 })
@@ -54,8 +48,6 @@ function clamp(v: number): number {
 
 /**
  * Render a detailed top-down floor plan for a single story.
- * Each block is rendered as a colored square with markers for
- * furniture, lights, doors, etc.
  */
 export async function renderFloorDetail(
   grid: BlockGrid, story: number,
@@ -63,7 +55,7 @@ export async function renderFloorDetail(
 ): Promise<Buffer> {
   let { scale = 40 } = options;
   const { storyH = 5 } = options;
-  const { width: w, height: h, length: l } = grid;
+  const { width: w, length: l } = grid;
   const blocks = grid.to3DArray();
   const baseY = story * storyH;
 
@@ -72,7 +64,6 @@ export async function renderFloorDetail(
   let imgW = w * scale + margin * 2;
   let imgH = l * scale + margin * 2 + titleH;
 
-  // Enforce size limit
   if (Math.max(imgW, imgH) > MAX_DIM) {
     const ratio = MAX_DIM / Math.max(imgW, imgH);
     scale = Math.max(2, Math.round(scale * ratio));
@@ -82,31 +73,24 @@ export async function renderFloorDetail(
     imgH = l * scale + newMargin * 2 + newTitleH;
   }
 
-  // Create raw pixel buffer (RGBA)
   const pixels = Buffer.alloc(imgW * imgH * 4);
-
-  // Fill background
   fillRect(pixels, imgW, 0, 0, imgW, imgH, [22, 22, 28]);
-
-  // Title bar
   fillRect(pixels, imgW, 0, 0, imgW, titleH, [35, 35, 42]);
 
   const ox = margin;
   const oy = margin + titleH;
 
-  // Render each block position
   for (let z = 0; z < l; z++) {
     for (let x = 0; x < w; x++) {
       const px = ox + x * scale;
       const py = oy + z * scale;
 
-      // Scan story layers top-to-bottom to find visible block
       let color: RGB | null = null;
       let blockState = 'minecraft:air';
       let layer = 'air';
 
-      for (let y = Math.min(baseY + storyH - 1, h - 1); y >= Math.max(baseY - 1, 0); y--) {
-        if (y >= h) continue;
+      for (let y = Math.min(baseY + storyH - 1, grid.height - 1); y >= Math.max(baseY - 1, 0); y--) {
+        if (y >= grid.height) continue;
         const bs = blocks[y][z][x];
         if (bs === 'minecraft:air') continue;
         const c = getBlockColor(bs);
@@ -121,7 +105,6 @@ export async function renderFloorDetail(
       }
 
       if (color === null) {
-        // Empty column — draw void
         fillRect(pixels, imgW, px, py, scale, scale, [30, 30, 38]);
         continue;
       }
@@ -129,53 +112,44 @@ export async function renderFloorDetail(
       let [r, g, b] = color;
       const baseId = getBaseId(blockState);
 
-      // Dim floor blocks
       if (layer === 'floor') {
         r = Math.round(r * 0.7);
         g = Math.round(g * 0.7);
         b = Math.round(b * 0.7);
       }
 
-      // Draw block cell with 1px border
       fillRect(pixels, imgW, px + 1, py + 1, scale - 2, scale - 2, [r, g, b]);
       drawRectOutline(pixels, imgW, px, py, scale, scale,
         [clamp(r - 50), clamp(g - 50), clamp(b - 50)]);
 
-      // Special block markers
       const cx = px + Math.floor(scale / 2);
       const cy = py + Math.floor(scale / 2);
       const hs = Math.max(2, Math.floor(scale / 6));
 
-      // Furniture: white square
       if (FURNITURE_BLOCKS.has(baseId)) {
         const ms = Math.max(2, Math.floor(scale / 5));
         fillRect(pixels, imgW, cx - ms, cy - ms, ms * 2, ms * 2, [255, 255, 255]);
       }
 
-      // Chests: X marker
       if (baseId === 'minecraft:chest' || baseId === 'minecraft:trapped_chest' || baseId === 'minecraft:ender_chest') {
         drawLine(pixels, imgW, px + hs, py + hs, px + scale - hs, py + scale - hs, [255, 220, 50]);
         drawLine(pixels, imgW, px + scale - hs, py + hs, px + hs, py + scale - hs, [255, 220, 50]);
       }
 
-      // Lights: yellow dot
       if (LIGHT_BLOCKS.has(baseId)) {
         fillCircle(pixels, imgW, cx, cy, hs, [255, 240, 120]);
       }
 
-      // Beds: border
       if (BED_BLOCKS.has(baseId)) {
         const bm = Math.max(2, Math.floor(scale / 8));
         drawRectOutline(pixels, imgW, px + bm, py + bm, scale - bm * 2, scale - bm * 2,
           [clamp(r + 40), clamp(g + 40), clamp(b + 40)]);
       }
 
-      // Doors: vertical line
       if (DOOR_BLOCKS.has(baseId)) {
         fillRect(pixels, imgW, cx - 1, py + 2, 3, scale - 4, [100, 70, 35]);
       }
 
-      // Gold/diamond/emerald: diamond shape
       if (['minecraft:gold_block', 'minecraft:diamond_block', 'minecraft:emerald_block', 'minecraft:lapis_block'].includes(baseId)) {
         const ds = Math.max(3, Math.floor(scale / 4));
         drawLine(pixels, imgW, cx, cy - ds, cx + ds, cy, [255, 255, 255]);
@@ -186,7 +160,6 @@ export async function renderFloorDetail(
     }
   }
 
-  // Grid lines every 5 blocks
   const gridColor: RGB = [60, 60, 70];
   for (let gx = 0; gx <= w; gx += 5) {
     drawLine(pixels, imgW, ox + gx * scale, oy, ox + gx * scale, oy + l * scale, gridColor);
@@ -199,20 +172,36 @@ export async function renderFloorDetail(
 }
 
 /**
+ * Compute ambient occlusion factor (0.0=fully occluded, 1.0=fully open).
+ * Counts how many of the 6 neighbor positions are solid.
+ */
+function getAO(grid: BlockGrid, x: number, y: number, z: number): number {
+  let solidNeighbors = 0;
+  const checks: [number, number, number][] = [
+    [x+1,y,z], [x-1,y,z], [x,y+1,z], [x,y-1,z], [x,y,z+1], [x,y,z-1],
+    [x+1,y+1,z], [x-1,y+1,z], [x,y+1,z+1], [x,y+1,z-1],
+  ];
+  for (const [cx, cy, cz] of checks) {
+    if (isSolidBlock(grid.get(cx, cy, cz))) solidNeighbors++;
+  }
+  return 1.0 - (solidNeighbors / checks.length) * 0.4;
+}
+
+/**
  * Render a cutaway isometric view of a single story.
+ * Enhanced with ambient occlusion and higher default resolution.
  */
 export async function renderCutawayIso(
   grid: BlockGrid, story: number,
   options: { tile?: number; storyH?: number; output?: string; title?: string } = {}
 ): Promise<Buffer> {
-  let { tile = 12 } = options;
+  let { tile = 16 } = options;
   const { storyH = 5 } = options;
   const { width: w, height: h, length: l } = grid;
   const blocks = grid.to3DArray();
   const baseY = story * storyH;
   const topY = Math.min(baseY + storyH, h);
 
-  // Calculate image bounds from all corners
   const corners = [
     [0, baseY, 0], [w, baseY, 0], [0, topY, 0], [0, baseY, l],
     [w, topY, 0], [w, baseY, l], [0, topY, l], [w, topY, l],
@@ -228,7 +217,6 @@ export async function renderCutawayIso(
   let imgW = maxSx - minSx;
   let imgH = maxSy - minSy;
 
-  // Enforce size limit
   if (Math.max(imgW, imgH) > MAX_DIM) {
     const ratio = MAX_DIM / Math.max(imgW, imgH);
     tile = Math.max(2, Math.round(tile * ratio));
@@ -248,7 +236,6 @@ export async function renderCutawayIso(
   const pixels = Buffer.alloc(imgW * imgH * 4);
   fillRect(pixels, imgW, 0, 0, imgW, imgH, [22, 22, 28]);
 
-  // Render blocks in painter's order
   for (let y = baseY; y < topY; y++) {
     for (let z = l - 1; z >= 0; z--) {
       for (let x = 0; x < w; x++) {
@@ -256,22 +243,38 @@ export async function renderCutawayIso(
         const color = getBlockColor(bs);
         if (color === null) continue;
 
-        const [r, g, b] = color;
+        const ao = getAO(grid, x, y, z);
+        let [r, g, b] = color;
+        r = Math.round(r * ao);
+        g = Math.round(g * ao);
+        b = Math.round(b * ao);
+
         const sx = (x - z) * tile + cx;
         const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
         const halfT = Math.floor(tile / 2);
 
-        // Top face (brighter)
+        // Top face (bright)
         fillDiamond(pixels, imgW, sx, sy, tile, halfT,
-          [clamp(r + 35), clamp(g + 35), clamp(b + 35)]);
+          [clamp(r + 30), clamp(g + 30), clamp(b + 30)]);
 
-        // Left face (darker)
+        // Left face (medium)
         fillParallelogramLeft(pixels, imgW, sx - tile, sy + halfT, tile, tile,
-          [clamp(r - 20), clamp(g - 20), clamp(b - 20)]);
+          [clamp(r - 15), clamp(g - 15), clamp(b - 15)]);
 
-        // Right face (darkest)
+        // Right face (dark)
         fillParallelogramRight(pixels, imgW, sx, sy + tile, tile, tile,
-          [clamp(r - 40), clamp(g - 40), clamp(b - 40)]);
+          [clamp(r - 35), clamp(g - 35), clamp(b - 35)]);
+
+        // Edge outlines for definition at higher resolution
+        if (tile >= 8) {
+          const edgeColor: RGB = [clamp(r - 55), clamp(g - 55), clamp(b - 55)];
+          // Top diamond edges
+          drawLine(pixels, imgW, sx, sy, sx + tile, sy + halfT, edgeColor);
+          drawLine(pixels, imgW, sx, sy, sx - tile, sy + halfT, edgeColor);
+          // Bottom edges
+          drawLine(pixels, imgW, sx - tile, sy + halfT, sx, sy + tile, edgeColor);
+          drawLine(pixels, imgW, sx + tile, sy + halfT, sx, sy + tile, edgeColor);
+        }
       }
     }
   }
@@ -281,12 +284,13 @@ export async function renderCutawayIso(
 
 /**
  * Render a full exterior isometric view of the entire schematic.
+ * Enhanced with ambient occlusion and edge outlines.
  */
 export async function renderExterior(
   grid: BlockGrid,
   options: { tile?: number; output?: string } = {}
 ): Promise<Buffer> {
-  let { tile = 8 } = options;
+  let { tile = 10 } = options;
   const { width: w, height: h, length: l } = grid;
   const blocks = grid.to3DArray();
 
@@ -328,17 +332,36 @@ export async function renderExterior(
         const color = getBlockColor(bs);
         if (color === null) continue;
 
-        const [r, g, b] = color;
+        const ao = getAO(grid, x, y, z);
+        let [r, g, b] = color;
+        r = Math.round(r * ao);
+        g = Math.round(g * ao);
+        b = Math.round(b * ao);
+
         const sx = (x - z) * tile + cx;
         const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
         const halfT = Math.floor(tile / 2);
 
+        // Top face (bright)
         fillDiamond(pixels, imgW, sx, sy, tile, halfT,
-          [clamp(r + 35), clamp(g + 35), clamp(b + 35)]);
+          [clamp(r + 30), clamp(g + 30), clamp(b + 30)]);
+
+        // Left face (medium)
         fillParallelogramLeft(pixels, imgW, sx - tile, sy + halfT, tile, tile,
-          [clamp(r - 20), clamp(g - 20), clamp(b - 20)]);
+          [clamp(r - 15), clamp(g - 15), clamp(b - 15)]);
+
+        // Right face (dark)
         fillParallelogramRight(pixels, imgW, sx, sy + tile, tile, tile,
-          [clamp(r - 40), clamp(g - 40), clamp(b - 40)]);
+          [clamp(r - 35), clamp(g - 35), clamp(b - 35)]);
+
+        // Edge outlines
+        if (tile >= 6) {
+          const edgeColor: RGB = [clamp(r - 55), clamp(g - 55), clamp(b - 55)];
+          drawLine(pixels, imgW, sx, sy, sx + tile, sy + halfT, edgeColor);
+          drawLine(pixels, imgW, sx, sy, sx - tile, sy + halfT, edgeColor);
+          drawLine(pixels, imgW, sx - tile, sy + halfT, sx, sy + tile, edgeColor);
+          drawLine(pixels, imgW, sx + tile, sy + halfT, sx, sy + tile, edgeColor);
+        }
       }
     }
   }
@@ -403,7 +426,6 @@ function fillCircle(buf: Buffer, imgW: number, cx: number, cy: number, r: number
   }
 }
 
-/** Fill a diamond (top face of isometric block) */
 function fillDiamond(buf: Buffer, imgW: number, sx: number, sy: number, _tileW: number, halfH: number, color: RGB): void {
   for (let row = 0; row <= halfH * 2; row++) {
     const width = row <= halfH ? row : halfH * 2 - row;
@@ -415,7 +437,6 @@ function fillDiamond(buf: Buffer, imgW: number, sx: number, sy: number, _tileW: 
   }
 }
 
-/** Fill left face parallelogram of isometric block */
 function fillParallelogramLeft(buf: Buffer, imgW: number, sx: number, sy: number, w: number, h: number, color: RGB): void {
   for (let row = 0; row < h; row++) {
     const xStart = sx + Math.floor(row / 2);
@@ -425,7 +446,6 @@ function fillParallelogramLeft(buf: Buffer, imgW: number, sx: number, sy: number
   }
 }
 
-/** Fill right face parallelogram of isometric block */
 function fillParallelogramRight(buf: Buffer, imgW: number, sx: number, sy: number, w: number, h: number, color: RGB): void {
   for (let row = 0; row < h; row++) {
     const xStart = sx - Math.floor(row / 2);

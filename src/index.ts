@@ -59,7 +59,7 @@ export {
 export { renderFloorDetail, renderCutawayIso, renderExterior } from './render/png-renderer.js';
 
 // ─── 3D Rendering ────────────────────────────────────────────────────────────
-export { buildScene, serializeForViewer } from './render/three-scene.js';
+export { buildScene, serializeForViewer, serializeForViewerTextured } from './render/three-scene.js';
 export { startViewerServer, generateViewerHTML } from './render/server.js';
 export { exportHTML } from './render/export-html.js';
 
