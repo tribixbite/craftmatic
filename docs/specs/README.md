@@ -27,4 +27,8 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Texture atlas — hybrid: 144 real ProgrammerArt CC-BY 4.0 textures + procedural fallback
 - [x] Tests (59 tests, all passing)
 - [x] Quality audit (all 5 styles × 3 floor counts, 75 renders verified)
+- [x] 3D viewer with real embedded textures + improved procedural patterns
+- [x] 2D renderer with ambient occlusion + edge outlines
+- [x] All 5 structure types: house, tower, castle, dungeon, ship
+- [x] Comprehensive showcase: 10 structures, 60 PNGs, 10 HTML viewers
 - [ ] npm publish
