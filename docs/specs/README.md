@@ -31,4 +31,9 @@ Technical specifications and design documents for the craftmatic library.
 - [x] 2D renderer with ambient occlusion + edge outlines
 - [x] All 5 structure types: house, tower, castle, dungeon, ship
 - [x] Comprehensive showcase: 10 structures, 60 PNGs, 10 HTML viewers
+- [x] Gothic style overhaul: nether brick + dark prismarine palette for visible contrast
+- [x] Ship improvements: V-hull cross section, solid hull fill, white wool sails
+- [x] Dungeon gatehouse entrance: corner mini-towers, battlements, arched gate
+- [x] Solid gabled roofs (no more hollow/stripe rendering)
+- [x] Block color accuracy: 260+ entries with wool, stained glass, boosted dark blocks
 - [ ] npm publish
