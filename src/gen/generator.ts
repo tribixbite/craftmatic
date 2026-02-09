@@ -768,12 +768,12 @@ function generateDungeon(
       staircase(grid, xMid + 1, xMid + 2, bz1 + 3, by - STORY_H, by, gh);
     }
 
-    // Torches along corridors
-    for (let z = bz1 + 3; z < bz2; z += 4) {
+    // Torches along corridors (sparse — every 8 blocks)
+    for (let z = bz1 + 4; z < bz2 - 2; z += 8) {
       grid.set(xMid + halfC + 1, by + 3, z, style.torchW);
       grid.set(xMid - halfC - 1, by + 3, z, style.torchE);
     }
-    for (let x = bx1 + 3; x < bx2; x += 4) {
+    for (let x = bx1 + 4; x < bx2 - 2; x += 8) {
       grid.set(x, by + 3, zMid + halfC + 1, style.torchN);
       grid.set(x, by + 3, zMid - halfC - 1, style.torchS);
     }
