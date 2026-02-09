@@ -203,11 +203,20 @@ export function gabledRoof(
     if (zSouth >= zNorth) break;
 
     for (let x = x1 - 1; x <= x2 + 1; x++) {
+      // South slope stairs
       if (grid.inBounds(x, ry, zSouth)) {
         grid.set(x, ry, zSouth, style.roofS);
       }
+      // North slope stairs
       if (grid.inBounds(x, ry, zNorth)) {
         grid.set(x, ry, zNorth, style.roofN);
+      }
+      // Fill roof interior between south and north slopes with ceiling material
+      // This prevents the hollow/stripe appearance
+      for (let z = zSouth + 1; z < zNorth; z++) {
+        if (grid.inBounds(x, ry, z)) {
+          grid.set(x, ry, z, style.ceiling);
+        }
       }
     }
   }
@@ -222,7 +231,7 @@ export function gabledRoof(
     }
   }
 
-  // Gable end walls
+  // Gable end walls (overwrite the ceiling fill at the gable faces)
   for (let layer = 0; layer < maxLayers; layer++) {
     const ry = baseY + 1 + layer;
     if (!grid.inBounds(0, ry, 0)) break;
