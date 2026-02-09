@@ -8,6 +8,9 @@ coverage/
 .env.*
 *.schem
 *.png
+# But include bundled texture assets
+!textures/**/*.png
+!textures/*.png
 test-*.sh
 test-*.cjs
 test-*.txt

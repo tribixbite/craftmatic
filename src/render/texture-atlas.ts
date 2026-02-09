@@ -1,15 +1,19 @@
 /**
- * Procedural texture atlas — generates 16x16 pixel textures for
- * common Minecraft blocks and packs them into a single atlas image.
+ * Hybrid texture atlas — loads real open-source PNG textures where
+ * available (ProgrammerArt CC-BY 4.0), falling back to procedural
+ * 16x16 pixel textures for blocks without bundled assets.
  *
- * Each block gets a base color + subtle pattern (noise, grain, etc.)
- * to approximate the Minecraft look without requiring external assets.
+ * Procedural textures use seeded patterns (noise, grain, brick, etc.)
+ * to approximate the Minecraft look.
  */
 
 import type { AtlasUV, BlockFace, BlockFaceMap, RGB } from '../types/index.js';
 import { getBlockColor } from '../blocks/colors.js';
 import { getBlockTextures } from '../blocks/textures.js';
 import { Writable } from 'node:stream';
+import { existsSync, createReadStream } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const TILE = 16; // Texture resolution per block face
 
@@ -358,6 +362,98 @@ export class ProceduralAtlas {
     }
     return result;
   }
+
+  /**
+   * Load real PNG textures from a directory, replacing procedural entries.
+   * Files should be named `{textureName}.png` (e.g. `oak_planks.png`).
+   * Returns the number of textures successfully loaded.
+   */
+  async loadRealTextures(textureDir: string): Promise<number> {
+    let pureimage: typeof import('pureimage');
+    try {
+      pureimage = await import('pureimage');
+    } catch {
+      return 0; // pureimage not available
+    }
+
+    let loaded = 0;
+    for (const [name, entry] of this.entries) {
+      const filePath = join(textureDir, name + '.png');
+      if (!existsSync(filePath)) continue;
+
+      try {
+        const stream = createReadStream(filePath);
+        const img = await pureimage.decodePNGFromStream(stream);
+        const data = new Uint8Array(TILE * TILE * 4);
+
+        // Copy pixel data, handling potential size mismatch
+        const srcW = Math.min(TILE, img.width);
+        const srcH = Math.min(TILE, img.height);
+        for (let y = 0; y < srcH; y++) {
+          for (let x = 0; x < srcW; x++) {
+            const srcIdx = (y * img.width + x) * 4;
+            const dstIdx = (y * TILE + x) * 4;
+            data[dstIdx] = img.data[srcIdx];
+            data[dstIdx + 1] = img.data[srcIdx + 1];
+            data[dstIdx + 2] = img.data[srcIdx + 2];
+            data[dstIdx + 3] = img.data[srcIdx + 3];
+          }
+        }
+
+        entry.data = data;
+        loaded++;
+      } catch {
+        // Keep procedural fallback for this entry
+      }
+    }
+
+    // Clear cached pixel data so it gets rebuilt with real textures
+    this.pixelData = null;
+    return loaded;
+  }
+
+  /**
+   * Build a hybrid atlas: real textures where available, procedural fallback.
+   * Looks for PNG files in the bundled textures/blocks/ directory.
+   */
+  static async buildHybrid(
+    textureNames: string[],
+    blockColors: Map<string, RGB>,
+  ): Promise<ProceduralAtlas> {
+    const atlas = new ProceduralAtlas(textureNames, blockColors);
+    const textureDir = findTextureDir();
+    if (textureDir) {
+      const loaded = await atlas.loadRealTextures(textureDir);
+      if (loaded > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`  Loaded ${loaded} real textures from ${textureDir}`);
+      }
+    }
+    return atlas;
+  }
+}
+
+// ─── Texture Directory Discovery ─────────────────────────────────────────────
+
+/**
+ * Find the bundled textures/blocks/ directory.
+ * Searches relative to this module's location and the package root.
+ */
+function findTextureDir(): string | null {
+  // Try multiple paths relative to the package
+  const candidates = [
+    // When running from dist/ (compiled)
+    join(dirname(fileURLToPath(import.meta.url)), '../../textures/blocks'),
+    // When running from src/ (dev)
+    join(dirname(fileURLToPath(import.meta.url)), '../../textures/blocks'),
+    // Absolute fallback for common locations
+    join(process.cwd(), 'textures/blocks'),
+  ];
+
+  for (const dir of candidates) {
+    if (existsSync(dir)) return dir;
+  }
+  return null;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -418,13 +514,26 @@ function buildColorMap(): Map<string, RGB> {
 }
 
 /**
- * Build or get the default procedural texture atlas.
- * Generates 16x16 textures for ~80 common Minecraft blocks.
+ * Build or get the default texture atlas (procedural only, sync).
+ * Use `initDefaultAtlas()` first for hybrid real+procedural textures.
  */
 export function getDefaultAtlas(): ProceduralAtlas {
   if (!cachedAtlas) {
     const colors = buildColorMap();
     cachedAtlas = new ProceduralAtlas(COMMON_TEXTURES, colors);
+  }
+  return cachedAtlas;
+}
+
+/**
+ * Initialize the default atlas with real textures where available.
+ * Call this once before rendering for best quality output.
+ * Falls back gracefully to all-procedural if textures aren't found.
+ */
+export async function initDefaultAtlas(): Promise<ProceduralAtlas> {
+  if (!cachedAtlas) {
+    const colors = buildColorMap();
+    cachedAtlas = await ProceduralAtlas.buildHybrid(COMMON_TEXTURES, colors);
   }
   return cachedAtlas;
 }

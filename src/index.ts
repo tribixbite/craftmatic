@@ -65,7 +65,8 @@ export { exportHTML } from './render/export-html.js';
 
 // ─── Texture Atlas ──────────────────────────────────────────────────────────
 export {
-  ProceduralAtlas, getDefaultAtlas, getBlockFaceUV, getBlockUVs, buildAtlasForBlocks,
+  ProceduralAtlas, getDefaultAtlas, initDefaultAtlas,
+  getBlockFaceUV, getBlockUVs, buildAtlasForBlocks,
 } from './render/texture-atlas.js';
 
 // ─── Conversion ──────────────────────────────────────────────────────────────
