@@ -16,12 +16,14 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:web": "vite build --config web/vite.config.ts",
     "dev": "tsc --watch",
+    "dev:web": "vite --config web/vite.config.ts",
+    "preview:web": "vite preview --config web/vite.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/ --ext .ts",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist web/dist",
     "prepublishOnly": "npm run build"
   },
   "files": [
@@ -71,8 +73,11 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.1",
+    "@types/pako": "^2.0.4",
     "@types/three": "^0.172.0",
+    "pako": "^2.1.0",
     "typescript": "^5.7.3",
+    "vite": "^7.3.1",
     "vitest": "^3.0.5"
   }
 }
