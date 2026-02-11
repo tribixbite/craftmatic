@@ -98,28 +98,6 @@ export function initGenerator(
     </button>
 
     <div id="gen-info" class="info-panel" hidden></div>
-
-    <style>
-      .style-chip {
-        padding: 6px 14px;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        background: var(--bg-input);
-        color: var(--text-secondary);
-        font-family: var(--font);
-        font-size: 12px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 200ms;
-      }
-      .style-chip:hover { border-color: var(--chip-color); color: var(--chip-color); }
-      .style-chip.active {
-        border-color: var(--chip-color);
-        color: var(--chip-color);
-        background: color-mix(in srgb, var(--chip-color) 10%, var(--bg-input));
-        box-shadow: 0 0 8px color-mix(in srgb, var(--chip-color) 25%, transparent);
-      }
-    </style>
   `;
 
   // Type selector — update description

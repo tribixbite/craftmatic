@@ -102,21 +102,29 @@ export function initGallery(
   gridEl: HTMLElement,
   onSelect: (grid: BlockGrid, label: string) => void,
 ): void {
-  for (const entry of GALLERY_ENTRIES) {
+  GALLERY_ENTRIES.forEach((entry, idx) => {
     const card = document.createElement('div');
     card.className = 'gallery-card';
+    card.style.animationDelay = `${idx * 50}ms`;
 
-    card.innerHTML = `
-      <div class="gallery-preview"><canvas></canvas></div>
-      <div class="gallery-meta">
-        <div class="gallery-title">${entry.label}</div>
-        <div class="gallery-desc">${entry.floors} floors, seed ${entry.seed}</div>
-        <div class="gallery-tags">
-          <span class="tag tag-type">${entry.type}</span>
-          <span class="tag tag-style">${entry.style}</span>
-        </div>
+    const preview = document.createElement('div');
+    preview.className = 'gallery-preview loading';
+    preview.innerHTML = '<canvas></canvas>';
+
+    card.innerHTML = '';
+    card.appendChild(preview);
+
+    const meta = document.createElement('div');
+    meta.className = 'gallery-meta';
+    meta.innerHTML = `
+      <div class="gallery-title">${entry.label}</div>
+      <div class="gallery-desc">${entry.floors} floors, seed ${entry.seed}</div>
+      <div class="gallery-tags">
+        <span class="tag tag-type">${entry.type}</span>
+        <span class="tag tag-style">${entry.style}</span>
       </div>
     `;
+    card.appendChild(meta);
 
     gridEl.appendChild(card);
 
@@ -126,18 +134,23 @@ export function initGallery(
       if (entries[0].isIntersecting && !generated) {
         generated = true;
         observer.disconnect();
-        const grid = generateStructure({
-          type: entry.type,
-          floors: entry.floors,
-          style: entry.style,
-          seed: entry.seed,
-        });
-        const canvas = card.querySelector('canvas')!;
-        renderThumbnail(canvas, grid);
 
-        card.addEventListener('click', () => onSelect(grid, entry.label));
+        // Defer generation to next frame so shimmer is visible
+        requestAnimationFrame(() => {
+          const grid = generateStructure({
+            type: entry.type,
+            floors: entry.floors,
+            style: entry.style,
+            seed: entry.seed,
+          });
+          const canvas = card.querySelector('canvas')!;
+          renderThumbnail(canvas, grid);
+          preview.classList.remove('loading');
+
+          card.addEventListener('click', () => onSelect(grid, entry.label));
+        });
       }
     }, { threshold: 0.1 });
     observer.observe(card);
-  }
+  });
 }
