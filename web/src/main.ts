@@ -193,11 +193,11 @@ const generatorViewer = document.getElementById('generator-viewer')!;
 
 initGenerator(generatorControls, (grid: BlockGrid, _config: GeneratorConfig) => {
   showLoading('Building 3D view...');
-  // Defer viewer creation to let loading overlay paint
-  requestAnimationFrame(() => {
+  // Double-defer: rAF lets overlay paint, setTimeout yields for rendering
+  requestAnimationFrame(() => setTimeout(() => {
     showInlineViewer(generatorViewer, grid);
     hideLoading();
-  });
+  }, 0));
 });
 
 // ─── Upload ──────────────────────────────────────────────────────────────────
@@ -209,10 +209,10 @@ const uploadViewer = document.getElementById('upload-viewer')!;
 
 initUpload(uploadZone, fileInput, uploadInfo, (grid: BlockGrid, _filename: string) => {
   showLoading('Rendering schematic...');
-  requestAnimationFrame(() => {
+  requestAnimationFrame(() => setTimeout(() => {
     showInlineViewer(uploadViewer, grid);
     hideLoading();
-  });
+  }, 0));
 });
 
 // ─── Gallery ─────────────────────────────────────────────────────────────────
@@ -221,10 +221,10 @@ const galleryGrid = document.getElementById('gallery-grid')!;
 
 initGallery(galleryGrid, (grid: BlockGrid, _label: string) => {
   showLoading('Opening viewer...');
-  requestAnimationFrame(() => {
+  requestAnimationFrame(() => setTimeout(() => {
     openFullViewer(grid);
     hideLoading();
-  });
+  }, 0));
 });
 
 // ─── Startup ─────────────────────────────────────────────────────────────────
