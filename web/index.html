@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Craftmatic — Minecraft Schematic Toolkit</title>
+  <meta name="description" content="Generate, view, and export Minecraft schematics in your browser. Five building styles, sixteen room types, real block textures.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <!-- Navigation -->
+    <nav id="nav">
+      <div class="nav-brand">
+        <svg class="nav-logo" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        <span class="nav-title">Craftmatic</span>
+      </div>
+      <div class="nav-tabs">
+        <button class="nav-tab active" data-tab="generate">Generate</button>
+        <button class="nav-tab" data-tab="upload">Upload</button>
+        <button class="nav-tab" data-tab="gallery">Gallery</button>
+      </div>
+      <div class="nav-actions">
+        <a href="https://github.com/tribixbite/craftmatic" target="_blank" rel="noopener" class="nav-link" title="GitHub">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        </a>
+      </div>
+    </nav>
+
+    <!-- Tab Content -->
+    <main id="main">
+      <!-- Generate Tab -->
+      <section id="tab-generate" class="tab-content active">
+        <div class="panel-layout">
+          <aside class="control-panel" id="generator-controls"></aside>
+          <div class="viewer-panel" id="generator-viewer">
+            <div class="viewer-placeholder">
+              <div class="placeholder-icon">
+                <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                  <line x1="12" y1="22.08" x2="12" y2="12"/>
+                </svg>
+              </div>
+              <p>Configure and generate a structure</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Upload Tab -->
+      <section id="tab-upload" class="tab-content">
+        <div class="panel-layout">
+          <aside class="control-panel" id="upload-controls">
+            <div class="upload-zone" id="upload-zone">
+              <div class="upload-icon">
+                <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <p class="upload-text">Drop <code>.schem</code> file here</p>
+              <p class="upload-subtext">or click to browse</p>
+              <input type="file" id="file-input" accept=".schem,.schematic,.nbt" hidden>
+            </div>
+            <div id="upload-info" class="info-panel" hidden></div>
+          </aside>
+          <div class="viewer-panel" id="upload-viewer">
+            <div class="viewer-placeholder">
+              <div class="placeholder-icon">
+                <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <p>Upload a .schem file to view</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Gallery Tab -->
+      <section id="tab-gallery" class="tab-content">
+        <div class="gallery-grid" id="gallery-grid"></div>
+      </section>
+    </main>
+
+    <!-- 3D Viewer Overlay (full-screen) -->
+    <div id="viewer-overlay" class="viewer-overlay" hidden>
+      <div class="viewer-toolbar">
+        <div class="viewer-info" id="viewer-info"></div>
+        <div class="viewer-tools">
+          <button class="tool-btn" id="btn-cutaway" title="Cutaway slider">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v18M18 3v18M3 12h18"/></svg>
+          </button>
+          <button class="tool-btn" id="btn-export-glb" title="Export GLB">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+          <button class="tool-btn" id="btn-export-schem" title="Export .schem">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </button>
+          <button class="tool-btn" id="btn-export-html" title="Export HTML">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          </button>
+          <button class="tool-btn" id="btn-fullscreen" title="Fullscreen">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          </button>
+          <button class="tool-btn close-btn" id="btn-close-viewer" title="Close viewer">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="viewer-canvas" class="viewer-canvas"></div>
+      <div id="cutaway-panel" class="cutaway-panel" hidden>
+        <input type="range" id="cutaway-slider" class="cutaway-slider" min="0" step="1" value="999" orient="vertical">
+        <div id="cutaway-label" class="cutaway-label">All</div>
+      </div>
+      <div class="viewer-hint">Drag: rotate | Scroll: zoom | Right-drag: pan</div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loading" class="loading-overlay" hidden>
+      <div class="spinner"></div>
+      <p id="loading-text">Generating...</p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
