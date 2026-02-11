@@ -1,11 +1,12 @@
 /**
- * Express dev server for the 3D schematic viewer.
- * Serves the viewer HTML and provides REST API for block data.
+ * Express dev server for the 3D schematic viewer and web app.
+ * Serves the viewer HTML, static web app, and REST API for block data.
  */
 
 import express from 'express';
 import { BlockGrid } from '../schem/types.js';
 import { serializeForViewerTextured } from './three-scene.js';
+import chalk from 'chalk';
 
 /** Start the 3D viewer dev server */
 export function startViewerServer(
@@ -45,6 +46,49 @@ export function startViewerServer(
   return {
     close: () => server.close(),
   };
+}
+
+/** Serve the pre-built web app (Vite SPA) with static file serving */
+export function startWebAppServer(
+  webDistDir: string,
+  options: { port?: number; open?: boolean } = {}
+): { close: () => void } {
+  const { port = 3000, open: shouldOpen = true } = options;
+  const app = express();
+
+  // Serve static files from the web dist directory
+  app.use(express.static(webDistDir));
+
+  // SPA fallback — serve index.html for all non-file routes
+  app.get('*', (_req, res) => {
+    res.sendFile('index.html', { root: webDistDir });
+  });
+
+  const server = app.listen(port, async () => {
+    const url = `http://localhost:${port}`;
+    console.log(`  ${chalk.green('>')} Web app running at ${chalk.cyan(url)}`);
+    console.log(chalk.dim('  Press Ctrl+C to stop'));
+
+    if (shouldOpen) {
+      try {
+        const { default: openUrl } = await import('open' as string).catch(() => ({ default: null }));
+        if (openUrl) {
+          await openUrl(url);
+        } else {
+          // Fallback: use platform-specific open command
+          const { exec } = await import('node:child_process');
+          const cmd = process.platform === 'darwin' ? 'open'
+            : process.platform === 'win32' ? 'start'
+            : 'xdg-open';
+          exec(`${cmd} ${url}`);
+        }
+      } catch {
+        // Browser open is best-effort; server still runs
+      }
+    }
+  });
+
+  return { close: () => server.close() };
 }
 
 /**
