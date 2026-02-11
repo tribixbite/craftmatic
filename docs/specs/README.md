@@ -60,5 +60,6 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Playwright e2e tests (7 test scenarios, all passing)
 - [x] README + docs/specs
 
-### Pending
-- [ ] npm publish
+### Published
+- [x] npm publish — `craftmatic@0.1.0` on npmjs.org (maintainer: willstone)
+- [x] `npx craftmatic` CLI with 7 commands (info, render, view, export, gen, atlas)
