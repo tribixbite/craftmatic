@@ -24,10 +24,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rm -rf dist web/dist",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && npm run build:web"
   },
   "files": [
     "dist/",
+    "web/dist/",
     "bin/",
     "textures/",
     "templates/",

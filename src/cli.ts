@@ -5,7 +5,8 @@
 
 import { Command } from 'commander';
 import { writeFileSync, existsSync } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
 import ora from 'ora';
 import { parseSchematic, parseToGrid } from './schem/parse.js';
@@ -13,7 +14,7 @@ import { writeSchematic } from './schem/write.js';
 import { generateStructure } from './gen/generator.js';
 import { renderFloorDetail, renderCutawayIso, renderExterior } from './render/png-renderer.js';
 import { exportHTML } from './render/export-html.js';
-import { startViewerServer } from './render/server.js';
+import { startViewerServer, startWebAppServer } from './render/server.js';
 import type { SchematicInfo, GenerationOptions, RoomType, StyleName, StructureType } from './types/index.js';
 
 const program = new Command();
@@ -34,7 +35,11 @@ program
   .option('--no-open', 'Don\'t auto-open browser')
   .action(async (file: string | undefined, opts: Record<string, unknown>) => {
     if (!file) {
-      program.help();
+      // No file — show summary and launch local web app
+      printBanner();
+      const port = parseInt(opts['port'] as string ?? '3000', 10);
+      const open = opts['open'] !== false;
+      await launchWebApp(port, open);
       return;
     }
     if (!existsSync(file)) {
@@ -307,6 +312,46 @@ program
       process.exit(1);
     }
   });
+
+// ─── Default: serve web app ──────────────────────────────────────────────────
+
+function printBanner(): void {
+  console.log('');
+  console.log(chalk.bold('  Craftmatic') + chalk.dim(' — Minecraft Schematic Toolkit'));
+  console.log('');
+  console.log(chalk.bold('  Commands:'));
+  console.log(`    ${chalk.cyan('craftmatic')}                    Launch web app (generate, upload, view)`);
+  console.log(`    ${chalk.cyan('craftmatic <file>')}             Render PNGs + open 3D viewer`);
+  console.log(`    ${chalk.cyan('craftmatic info <file>')}        Print schematic metadata`);
+  console.log(`    ${chalk.cyan('craftmatic render <file>')}      Render 2D PNGs`);
+  console.log(`    ${chalk.cyan('craftmatic view <file>')}        Open 3D viewer in browser`);
+  console.log(`    ${chalk.cyan('craftmatic export <file>')}      Export standalone HTML viewer`);
+  console.log(`    ${chalk.cyan('craftmatic gen [type]')}         Generate a structure schematic`);
+  console.log(`    ${chalk.cyan('craftmatic atlas [output]')}     Build texture atlas`);
+  console.log('');
+  console.log(chalk.dim('  Run craftmatic --help for full options'));
+  console.log('');
+}
+
+async function launchWebApp(port: number, open: boolean): Promise<void> {
+  // Resolve web/dist relative to this package's install location
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const webDistDir = resolve(__dirname, '..', 'web', 'dist');
+
+  if (!existsSync(webDistDir)) {
+    // Fallback: try from repo root (development)
+    const devDir = resolve(__dirname, '..', '..', 'web', 'dist');
+    if (existsSync(devDir)) {
+      startWebAppServer(devDir, { port, open });
+    } else {
+      console.error(chalk.red('Web app not found. Run: npm run build:web'));
+      process.exit(1);
+    }
+    return;
+  }
+
+  startWebAppServer(webDistDir, { port, open });
+}
 
 // ─── Parse and run ───────────────────────────────────────────────────────────
 
