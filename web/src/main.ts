@@ -195,8 +195,11 @@ initGenerator(generatorControls, (grid: BlockGrid, _config: GeneratorConfig) => 
   showLoading('Building 3D view...');
   // Double-defer: rAF lets overlay paint, setTimeout yields for rendering
   requestAnimationFrame(() => setTimeout(() => {
-    showInlineViewer(generatorViewer, grid);
-    hideLoading();
+    try {
+      showInlineViewer(generatorViewer, grid);
+    } finally {
+      hideLoading();
+    }
   }, 0));
 });
 
@@ -210,8 +213,11 @@ const uploadViewer = document.getElementById('upload-viewer')!;
 initUpload(uploadZone, fileInput, uploadInfo, (grid: BlockGrid, _filename: string) => {
   showLoading('Rendering schematic...');
   requestAnimationFrame(() => setTimeout(() => {
-    showInlineViewer(uploadViewer, grid);
-    hideLoading();
+    try {
+      showInlineViewer(uploadViewer, grid);
+    } finally {
+      hideLoading();
+    }
   }, 0));
 });
 
@@ -222,8 +228,11 @@ const galleryGrid = document.getElementById('gallery-grid')!;
 initGallery(galleryGrid, (grid: BlockGrid, _label: string) => {
   showLoading('Opening viewer...');
   requestAnimationFrame(() => setTimeout(() => {
-    openFullViewer(grid);
-    hideLoading();
+    try {
+      openFullViewer(grid);
+    } finally {
+      hideLoading();
+    }
   }, 0));
 });
 
