@@ -364,9 +364,10 @@ html, body {
   inset: 0;
   z-index: 200;
   background: var(--bg-base);
-  display: flex;
+  display: none;
   flex-direction: column;
 }
+.viewer-overlay:not([hidden]) { display: flex; }
 
 .viewer-toolbar {
   display: flex;
@@ -480,7 +481,7 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: 300;
-  display: flex;
+  display: none;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -489,6 +490,7 @@ html, body {
   gap: 16px;
   color: var(--text-secondary);
 }
+.loading-overlay:not([hidden]) { display: flex; }
 
 .spinner {
   width: 40px;
