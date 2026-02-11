@@ -2,7 +2,6 @@
  * Gallery — pre-generated structure showcase with thumbnail previews.
  */
 
-import * as THREE from 'three';
 import type { StructureType, StyleName } from '@craft/types/index.js';
 import { generateStructure } from '@craft/gen/generator.js';
 import { BlockGrid } from '@craft/schem/types.js';
