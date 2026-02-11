@@ -45,9 +45,19 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Gallery with 12 pre-generated showcase structures
 - [x] Isometric canvas thumbnails for gallery cards
 
+### UI Polish
+- [x] CSS animations (fadeInUp, shimmer, slideInOverlay)
+- [x] Loading overlays for generation, upload, and gallery
+- [x] Three.js code-split into separate chunk (~120KB gzip)
+- [x] Export toolbar labels (GLB, .schem, HTML)
+- [x] Inline viewer layout fix (position:relative, not absolute)
+- [x] Loading overlay hidden-state fix (:not([hidden]) selector)
+- [x] try/finally guards on viewer callbacks
+
 ### CI/CD
 - [x] GitHub Actions CI (typecheck, test, build on Node 18/20/22)
 - [x] GitHub Pages deploy workflow for web app
+- [x] Playwright e2e tests (7 test scenarios, all passing)
 - [x] README + docs/specs
 
 ### Pending
