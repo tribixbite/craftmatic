@@ -547,10 +547,10 @@ html, body {
 /* ─── Inline viewer canvas (embedded in tab panels) ──────────────────── */
 
 .inline-viewer {
-  width: 100%;
-  height: 100%;
-  position: absolute;
-  inset: 0;
+  /* viewer-panel already provides flex:1 sizing and position:relative;
+     using absolute here would escape the flex layout and cover the control panel */
+  position: relative;
+  overflow: hidden;
 }
 
 .inline-viewer canvas { width: 100% !important; height: 100% !important; display: block; }
