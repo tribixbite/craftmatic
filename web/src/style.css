@@ -503,8 +503,25 @@ html, body {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ─── Focus Styles ──────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn:focus-visible, .tool-btn:focus-visible, .nav-tab:focus-visible, .style-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+
 /* ─── Scrollbar ──────────────────────────────────────────────────────── */
 
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+/* WebKit */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }

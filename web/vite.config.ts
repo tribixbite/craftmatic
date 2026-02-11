@@ -8,11 +8,12 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     target: 'es2022',
-    sourcemap: true,
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks: {
           three: ['three'],
+          pako: ['pako'],
         },
       },
     },

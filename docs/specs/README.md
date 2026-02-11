@@ -53,6 +53,18 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Inline viewer layout fix (position:relative, not absolute)
 - [x] Loading overlay hidden-state fix (:not([hidden]) selector)
 - [x] try/finally guards on viewer callbacks
+- [x] Focus-visible keyboard styles on buttons/tabs/chips
+- [x] Firefox scrollbar styling (scrollbar-width/scrollbar-color)
+- [x] Removed user-scalable=no (accessibility)
+- [x] theme-color meta + OG tags + noscript fallback
+
+### Quality & Security
+- [x] Three.js texture/material disposal in viewer cleanup
+- [x] NBT parser safety: array length bounds + recursion depth limits
+- [x] Upload file validation: type check, 50MB size limit, input reset
+- [x] XSS prevention: HTML-escaped filenames in upload info
+- [x] Export error feedback (toast on GLB/schem/HTML failures)
+- [x] Production source maps disabled, pako split to separate chunk
 
 ### CI/CD
 - [x] GitHub Actions CI (typecheck, test, build on Node 18/20/22)
@@ -63,3 +75,4 @@ Technical specifications and design documents for the craftmatic library.
 ### Published
 - [x] npm publish — `craftmatic@0.1.0` on npmjs.org (maintainer: willstone)
 - [x] `npx craftmatic` CLI with 7 commands (info, render, view, export, gen, atlas)
+- [x] `npx craftmatic` (no args) serves web app + prints command summary

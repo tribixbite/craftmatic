@@ -36,9 +36,14 @@ export interface NBTCompound {
   [key: string]: NBTValue;
 }
 
+/** Safety limits for untrusted NBT data */
+const MAX_ARRAY_LENGTH = 16 * 1024 * 1024; // 16M elements
+const MAX_COMPOUND_DEPTH = 64;
+
 /** Read cursor for tracking position in the byte stream */
 class ReadCursor {
   offset = 0;
+  depth = 0;
   constructor(readonly view: DataView) {}
 
   readByte(): number {
@@ -85,6 +90,7 @@ class ReadCursor {
 
   readByteArray(): Uint8Array {
     const length = this.readInt();
+    if (length < 0 || length > MAX_ARRAY_LENGTH) throw new Error(`ByteArray length out of bounds: ${length}`);
     const arr = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
     this.offset += length;
     return new Uint8Array(arr); // copy to avoid detached buffer issues
@@ -92,6 +98,7 @@ class ReadCursor {
 
   readIntArray(): Int32Array {
     const length = this.readInt();
+    if (length < 0 || length > MAX_ARRAY_LENGTH) throw new Error(`IntArray length out of bounds: ${length}`);
     const arr = new Int32Array(length);
     for (let i = 0; i < length; i++) {
       arr[i] = this.readInt();
@@ -101,6 +108,7 @@ class ReadCursor {
 
   readLongArray(): BigInt64Array {
     const length = this.readInt();
+    if (length < 0 || length > MAX_ARRAY_LENGTH) throw new Error(`LongArray length out of bounds: ${length}`);
     const arr = new BigInt64Array(length);
     for (let i = 0; i < length; i++) {
       arr[i] = this.readLong();
@@ -123,10 +131,14 @@ function readTag(cursor: ReadCursor, tagType: number): NBTValue {
     case TAG.List: {
       const itemType = cursor.readByte();
       const length = cursor.readInt();
+      if (length < 0 || length > MAX_ARRAY_LENGTH) throw new Error(`List length out of bounds: ${length}`);
+      cursor.depth++;
+      if (cursor.depth > MAX_COMPOUND_DEPTH) throw new Error('NBT nesting depth exceeded');
       const items: NBTValue[] = [];
       for (let i = 0; i < length; i++) {
         items.push(readTag(cursor, itemType));
       }
+      cursor.depth--;
       return items;
     }
     case TAG.Compound: return readCompound(cursor);
@@ -138,6 +150,8 @@ function readTag(cursor: ReadCursor, tagType: number): NBTValue {
 
 /** Read a compound tag (key-value pairs until TAG.End) */
 function readCompound(cursor: ReadCursor): NBTCompound {
+  cursor.depth++;
+  if (cursor.depth > MAX_COMPOUND_DEPTH) throw new Error('NBT nesting depth exceeded');
   const result: NBTCompound = {};
   while (true) {
     const tagType = cursor.readByte();
@@ -145,6 +159,7 @@ function readCompound(cursor: ReadCursor): NBTCompound {
     const name = cursor.readString();
     result[name] = readTag(cursor, tagType);
   }
+  cursor.depth--;
   return result;
 }
 

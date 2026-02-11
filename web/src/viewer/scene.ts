@@ -347,8 +347,10 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
       renderer.domElement.remove();
       geometry.dispose();
       meshes.forEach(m => {
-        (m.material as THREE.Material).dispose();
-        m.geometry.dispose();
+        const mat = m.material as THREE.MeshStandardMaterial;
+        mat.map?.dispose();
+        mat.dispose();
+        m.dispose();
       });
     },
   };

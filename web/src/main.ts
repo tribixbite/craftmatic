@@ -44,6 +44,13 @@ function hideLoading(): void {
   loadingEl.hidden = true;
 }
 
+/** Show a brief error toast on the loading overlay */
+function showError(message: string): void {
+  loadingText.textContent = message;
+  loadingEl.hidden = false;
+  setTimeout(() => { loadingEl.hidden = true; }, 2500);
+}
+
 // ─── Inline Viewer (embedded in tab panels) ──────────────────────────────────
 
 function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
@@ -154,6 +161,8 @@ document.getElementById('btn-export-glb')!.addEventListener('click', async () =>
     await exportGLB(activeViewer);
   } catch (err) {
     console.error('GLB export failed:', err);
+    showError('GLB export failed');
+    return;
   }
   hideLoading();
 });
@@ -161,13 +170,23 @@ document.getElementById('btn-export-glb')!.addEventListener('click', async () =>
 // Export .schem
 document.getElementById('btn-export-schem')!.addEventListener('click', () => {
   if (!activeGrid) return;
-  exportSchem(activeGrid);
+  try {
+    exportSchem(activeGrid);
+  } catch (err) {
+    console.error('.schem export failed:', err);
+    showError('Export failed');
+  }
 });
 
 // Export HTML
 document.getElementById('btn-export-html')!.addEventListener('click', () => {
   if (!activeViewer) return;
-  exportHTML(activeViewer);
+  try {
+    exportHTML(activeViewer);
+  } catch (err) {
+    console.error('HTML export failed:', err);
+    showError('Export failed');
+  }
 });
 
 // Fullscreen
