@@ -192,7 +192,12 @@ const generatorControls = document.getElementById('generator-controls')!;
 const generatorViewer = document.getElementById('generator-viewer')!;
 
 initGenerator(generatorControls, (grid: BlockGrid, _config: GeneratorConfig) => {
-  showInlineViewer(generatorViewer, grid);
+  showLoading('Building 3D view...');
+  // Defer viewer creation to let loading overlay paint
+  requestAnimationFrame(() => {
+    showInlineViewer(generatorViewer, grid);
+    hideLoading();
+  });
 });
 
 // ─── Upload ──────────────────────────────────────────────────────────────────
@@ -203,7 +208,11 @@ const uploadInfo = document.getElementById('upload-info')!;
 const uploadViewer = document.getElementById('upload-viewer')!;
 
 initUpload(uploadZone, fileInput, uploadInfo, (grid: BlockGrid, _filename: string) => {
-  showInlineViewer(uploadViewer, grid);
+  showLoading('Rendering schematic...');
+  requestAnimationFrame(() => {
+    showInlineViewer(uploadViewer, grid);
+    hideLoading();
+  });
 });
 
 // ─── Gallery ─────────────────────────────────────────────────────────────────
@@ -211,7 +220,11 @@ initUpload(uploadZone, fileInput, uploadInfo, (grid: BlockGrid, _filename: strin
 const galleryGrid = document.getElementById('gallery-grid')!;
 
 initGallery(galleryGrid, (grid: BlockGrid, _label: string) => {
-  openFullViewer(grid);
+  showLoading('Opening viewer...');
+  requestAnimationFrame(() => {
+    openFullViewer(grid);
+    hideLoading();
+  });
 });
 
 // ─── Startup ─────────────────────────────────────────────────────────────────

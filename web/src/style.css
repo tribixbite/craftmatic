@@ -387,7 +387,14 @@ html, body {
 .viewer-info b { color: var(--text-primary); font-weight: 600; }
 .viewer-info .accent { color: var(--accent); }
 
-.viewer-tools { display: flex; gap: 4px; }
+.viewer-tools {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.viewer-tools::-webkit-scrollbar { display: none; }
 
 .tool-btn {
   display: flex;
@@ -405,6 +412,18 @@ html, body {
 .tool-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
 .tool-btn.active { color: var(--accent); background: rgba(88, 101, 242, 0.1); }
 .close-btn:hover { color: var(--danger); background: rgba(240, 71, 71, 0.1); }
+
+.tool-btn-labeled {
+  width: auto;
+  gap: 5px;
+  padding: 0 10px;
+}
+.tool-label {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.3px;
+}
 
 .viewer-canvas {
   flex: 1;
@@ -549,4 +568,90 @@ html, body {
   color: var(--text-primary);
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
+}
+
+/* ─── Style Chips ────────────────────────────────────────────────────── */
+
+.style-chip {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.style-chip:hover { border-color: var(--chip-color); color: var(--chip-color); }
+.style-chip.active {
+  border-color: var(--chip-color);
+  color: var(--chip-color);
+  background: color-mix(in srgb, var(--chip-color) 10%, var(--bg-input));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--chip-color) 25%, transparent);
+}
+
+/* ─── Animations ─────────────────────────────────────────────────────── */
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes slideInOverlay {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Viewer overlay entrance animation */
+.viewer-overlay:not([hidden]) {
+  animation: slideInOverlay 250ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* Gallery card staggered entrance */
+.gallery-card {
+  animation: fadeInUp 400ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* Gallery thumbnail loading shimmer */
+.gallery-preview.loading {
+  background: linear-gradient(
+    90deg,
+    var(--bg-base) 0%,
+    var(--bg-elevated) 40%,
+    var(--bg-base) 80%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Info panel entrance */
+.info-panel:not([hidden]) {
+  animation: fadeInUp 300ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* Button press ripple effect */
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Inline viewer entrance */
+.inline-viewer {
+  animation: fadeIn 300ms ease both;
+}
+
+/* Loading overlay entrance */
+.loading-overlay:not([hidden]) {
+  animation: fadeIn 200ms ease both;
 }
