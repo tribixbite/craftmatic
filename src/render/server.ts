@@ -399,14 +399,17 @@ export function generateViewerHTML(viewerData: object): string {
           mesh.receiveShadow = true;
           const matrix = new THREE.Matrix4();
           const yPositions = [];
+          const originalMatrices = [];
           for (let i = 0; i < positions.length; i++) {
             const p = positions[i];
             matrix.setPosition(p.x - halfW, p.y, p.z - halfL);
             mesh.setMatrixAt(i, matrix);
             yPositions.push(p.y);
+            originalMatrices.push(new THREE.Matrix4().copy(matrix));
           }
           mesh.instanceMatrix.needsUpdate = true;
           mesh.userData.yPositions = yPositions;
+          mesh.userData.originalMatrices = originalMatrices;
           scene.add(mesh);
           allMeshes.push(mesh);
         }
@@ -467,23 +470,14 @@ export function generateViewerHTML(viewerData: object): string {
     });
 
     function applyCutaway(maxY) {
+      const hideMatrix = new THREE.Matrix4();
+      hideMatrix.setPosition(99999, 99999, 99999);
       for (const mesh of allMeshes) {
         if (!mesh.userData.yPositions) continue;
         const yArr = mesh.userData.yPositions;
-        const matrix = new THREE.Matrix4();
-        const hideMatrix = new THREE.Matrix4();
-        hideMatrix.setPosition(99999, 99999, 99999); // move out of view
+        const originals = mesh.userData.originalMatrices;
         for (let i = 0; i < yArr.length; i++) {
-          if (yArr[i] > maxY) {
-            mesh.setMatrixAt(i, hideMatrix);
-          } else {
-            const block = data.blocks.find((b, idx) => {
-              // Reconstruct — find the correct block for this instance
-              // Since blocks are grouped by palette, we need a lookup
-              return true; // simplified
-            });
-            // Restore original position from the initial build
-          }
+          mesh.setMatrixAt(i, yArr[i] > maxY ? hideMatrix : originals[i]);
         }
         mesh.instanceMatrix.needsUpdate = true;
       }
