@@ -36,11 +36,29 @@ export function initUpload(
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files?.[0];
     if (file) await handleFile(file);
+    fileInput.value = ''; // Reset so re-uploading the same file triggers change
   });
+
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
   async function handleFile(file: File): Promise<void> {
     const uploadText = zoneEl.querySelector('.upload-text') as HTMLElement;
     const uploadSubtext = zoneEl.querySelector('.upload-subtext') as HTMLElement;
+
+    // Validate file extension
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (!ext || !['schem', 'schematic', 'nbt'].includes(ext)) {
+      uploadText.textContent = 'Unsupported file type';
+      uploadSubtext.textContent = 'Please upload a .schem, .schematic, or .nbt file';
+      return;
+    }
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      uploadText.textContent = 'File too large';
+      uploadSubtext.textContent = `Maximum size is ${formatSize(MAX_FILE_SIZE)}, got ${formatSize(file.size)}`;
+      return;
+    }
 
     try {
       uploadText.textContent = 'Parsing...';
@@ -50,9 +68,10 @@ export function initUpload(
       const grid = await parseSchemFile(buffer);
 
       const nonAir = grid.countNonAir();
+      const safeName = escapeHtml(file.name);
       infoEl.hidden = false;
       infoEl.innerHTML = `
-        <div class="info-row"><span class="info-label">File</span><span class="info-value">${file.name}</span></div>
+        <div class="info-row"><span class="info-label">File</span><span class="info-value">${safeName}</span></div>
         <div class="info-row"><span class="info-label">Size</span><span class="info-value">${formatSize(file.size)}</span></div>
         <div class="info-row"><span class="info-label">Dimensions</span><span class="info-value">${grid.width} x ${grid.height} x ${grid.length}</span></div>
         <div class="info-row"><span class="info-label">Blocks</span><span class="info-value">${nonAir.toLocaleString()}</span></div>
@@ -60,7 +79,7 @@ export function initUpload(
         <div class="info-row"><span class="info-label">Entities</span><span class="info-value">${grid.blockEntities.length}</span></div>
       `;
 
-      uploadText.innerHTML = `Loaded <code>${file.name}</code>`;
+      uploadText.innerHTML = `Loaded <code>${safeName}</code>`;
       uploadSubtext.textContent = 'Drop another file to replace';
 
       onLoaded(grid, file.name);
@@ -76,4 +95,8 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

@@ -2,9 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#12121e">
   <title>Craftmatic — Minecraft Schematic Toolkit</title>
   <meta name="description" content="Generate, view, and export Minecraft schematics in your browser. Five building styles, sixteen room types, real block textures.">
+  <meta property="og:title" content="Craftmatic — Minecraft Schematic Toolkit">
+  <meta property="og:description" content="Generate, view, and export Minecraft schematics in your browser.">
+  <meta property="og:type" content="website">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -136,6 +140,11 @@
     </div>
   </div>
 
+  <noscript>
+    <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0a0a14;color:#e4e4ef;font-family:system-ui;text-align:center;padding:2rem;">
+      <p>Craftmatic requires JavaScript to run. Please enable JavaScript in your browser.</p>
+    </div>
+  </noscript>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
