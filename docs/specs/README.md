@@ -12,28 +12,43 @@ Technical specifications and design documents for the craftmatic library.
 | [Generation Styles](generation-styles.md) | Style preset system for structure generation |
 | [Conversion Spec](conversion-spec.md) | Bidirectional Three.js ↔ .schem conversion |
 | [Rendering](rendering.md) | 2D PNG and 3D rendering pipeline |
+| [Web Application](web-app.md) | Browser-based toolkit with Vite + Three.js |
 
 ## Status
 
+### Core Library
 - [x] Core schematic parse/write (prismarine-nbt + custom NBT writer)
-- [x] Block registry + colors (240+ entries with prefix matching)
+- [x] Block registry + colors (260+ entries with prefix matching)
 - [x] 2D PNG renderer (floor plans, cutaway iso, exterior via pureimage)
 - [x] 3D viewer (Three.js dev server + self-contained HTML export)
 - [x] Structure generator (5 styles, 16 room types, seeded PRNG)
 - [x] Cross-conversion (schem↔three bidirectional)
 - [x] CLI (info, render, view, export, gen, atlas commands)
-- [x] README + docs/specs
-- [x] GitHub repo (tribixbite/craftmatic)
 - [x] Texture atlas — hybrid: 144 real ProgrammerArt CC-BY 4.0 textures + procedural fallback
 - [x] Tests (59 tests, all passing)
 - [x] Quality audit (all 5 styles × 3 floor counts, 75 renders verified)
-- [x] 3D viewer with real embedded textures + improved procedural patterns
-- [x] 2D renderer with ambient occlusion + edge outlines
+- [x] Cutaway slider fix — proper instance matrix store/restore
+
+### Structure Types
 - [x] All 5 structure types: house, tower, castle, dungeon, ship
-- [x] Comprehensive showcase: 10 structures, 60 PNGs, 10 HTML viewers
-- [x] Gothic style overhaul: nether brick + dark prismarine palette for visible contrast
+- [x] Gothic style overhaul: nether brick + dark prismarine palette
 - [x] Ship improvements: V-hull cross section, solid hull fill, white wool sails
 - [x] Dungeon gatehouse entrance: corner mini-towers, battlements, arched gate
 - [x] Solid gabled roofs (no more hollow/stripe rendering)
-- [x] Block color accuracy: 260+ entries with wool, stained glass, boosted dark blocks
+
+### Web Application
+- [x] Vite-based SPA with dark mode UI (mobile-responsive)
+- [x] Structure generator UI with all 5 types, 5 styles, full controls
+- [x] .schem file upload with drag-and-drop + browser NBT parser (pako)
+- [x] Interactive Three.js 3D viewer with cutaway slider
+- [x] Export: GLB (binary glTF), .schem, standalone HTML
+- [x] Gallery with 12 pre-generated showcase structures
+- [x] Isometric canvas thumbnails for gallery cards
+
+### CI/CD
+- [x] GitHub Actions CI (typecheck, test, build on Node 18/20/22)
+- [x] GitHub Pages deploy workflow for web app
+- [x] README + docs/specs
+
+### Pending
 - [ ] npm publish
