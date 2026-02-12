@@ -118,6 +118,8 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:sea_lantern': [140, 210, 200],
   'minecraft:end_rod': [230, 225, 210],
   'minecraft:chain': [55, 60, 68],
+  'minecraft:cobweb': [228, 233, 234],
+  'minecraft:bone_block': [229, 225, 207],
   'minecraft:candle': [220, 190, 110],
   'minecraft:white_candle': [235, 235, 225],
   'minecraft:campfire': [220, 110, 30],

@@ -191,7 +191,7 @@ function generateTower(
   floors: number, style: StylePalette, rooms: RoomType[] | undefined,
   bwOpt: number | undefined, _blOpt: number | undefined, rng: () => number
 ): BlockGrid {
-  const radius = bwOpt ? Math.floor(bwOpt / 2) : 6;
+  const radius = bwOpt ? Math.floor(bwOpt / 2) : 8;
   const diam = radius * 2 + 1;
   const margin = 3;
   const gw = diam + margin * 2;
@@ -345,6 +345,46 @@ function generateTower(
     grid.set(cx, 1, doorZ, style.doorLowerS);
     grid.set(cx, 2, doorZ, style.doorUpperS);
     grid.set(cx, 3, doorZ, 'minecraft:air');
+  }
+
+  // ── Observation balcony on top floor ──
+  const balconyY = (floors - 1) * STORY_H + 2;
+  const balcR = radius + 2;
+  // Balcony floor ring (extends 2 blocks beyond wall)
+  for (let dx = -balcR; dx <= balcR; dx++) {
+    for (let dz = -balcR; dz <= balcR; dz++) {
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist >= radius + 0.5 && dist <= balcR + 0.5) {
+        if (grid.inBounds(cx + dx, balconyY, cz + dz))
+          grid.set(cx + dx, balconyY, cz + dz, style.slabBottom);
+      }
+    }
+  }
+  // Balcony fence railing
+  for (let dx = -balcR; dx <= balcR; dx++) {
+    for (let dz = -balcR; dz <= balcR; dz++) {
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist >= balcR - 0.5 && dist <= balcR + 0.5) {
+        if (grid.inBounds(cx + dx, balconyY + 1, cz + dz))
+          grid.set(cx + dx, balconyY + 1, cz + dz, style.fence);
+      }
+    }
+  }
+  // Clear wall openings for balcony access (at cardinal directions)
+  for (const [px, pz] of [[cx + radius, cz], [cx - radius, cz], [cx, cz + radius]] as [number, number][]) {
+    for (let y = balconyY + 1; y <= balconyY + 2; y++) {
+      if (grid.inBounds(px, y, pz)) grid.set(px, y, pz, 'minecraft:air');
+    }
+  }
+
+  // ── Exterior banners on every floor ──
+  for (let story = 0; story < floors; story++) {
+    const bannerY = story * STORY_H + 3;
+    // Banners at cardinal positions on exterior wall
+    if (grid.inBounds(cx, bannerY, cz - radius - 1))
+      grid.set(cx, bannerY, cz - radius - 1, style.bannerS);
+    if (grid.inBounds(cx, bannerY, cz + radius + 1))
+      grid.set(cx, bannerY, cz + radius + 1, style.bannerN);
   }
 
   return grid;
@@ -834,14 +874,69 @@ function generateDungeon(
       staircase(grid, xMid + 1, xMid + 2, bz1 + 3, by - STORY_H, by, gh);
     }
 
-    // Torches along corridors (sparse — every 8 blocks)
-    for (let z = bz1 + 4; z < bz2 - 2; z += 8) {
+    // Torches along corridors (dense — every 4 blocks)
+    for (let z = bz1 + 3; z < bz2 - 2; z += 4) {
       grid.set(xMid + halfC + 1, by + 3, z, style.torchW);
       grid.set(xMid - halfC - 1, by + 3, z, style.torchE);
     }
-    for (let x = bx1 + 4; x < bx2 - 2; x += 8) {
+    for (let x = bx1 + 3; x < bx2 - 2; x += 4) {
       grid.set(x, by + 3, zMid + halfC + 1, style.torchN);
       grid.set(x, by + 3, zMid - halfC - 1, style.torchS);
+    }
+
+    // Corridor atmosphere: cobwebs in upper corners
+    for (let z = bz1 + 2; z < bz2 - 1; z += 3) {
+      if (grid.inBounds(xMid + halfC, cy - 1, z))
+        grid.set(xMid + halfC, cy - 1, z, 'minecraft:cobweb');
+      if (grid.inBounds(xMid - halfC, cy - 1, z))
+        grid.set(xMid - halfC, cy - 1, z, 'minecraft:cobweb');
+    }
+    for (let x = bx1 + 2; x < bx2 - 1; x += 3) {
+      if (grid.inBounds(x, cy - 1, zMid + halfC))
+        grid.set(x, cy - 1, zMid + halfC, 'minecraft:cobweb');
+      if (grid.inBounds(x, cy - 1, zMid - halfC))
+        grid.set(x, cy - 1, zMid - halfC, 'minecraft:cobweb');
+    }
+
+    // Chains hanging from ceiling at corridor intersections
+    for (let y = by + 2; y < cy; y++) {
+      if (grid.inBounds(xMid + halfC, y, zMid))
+        grid.set(xMid + halfC, y, zMid, 'minecraft:chain');
+      if (grid.inBounds(xMid - halfC, y, zMid))
+        grid.set(xMid - halfC, y, zMid, 'minecraft:chain');
+    }
+
+    // Cracked stone floor patches in corridors
+    for (let z = bz1 + 3; z < bz2 - 2; z += 5) {
+      if (grid.inBounds(xMid, by, z))
+        grid.set(xMid, by, z, 'minecraft:cracked_stone_bricks');
+      if (grid.inBounds(xMid - 1, by, z + 1))
+        grid.set(xMid - 1, by, z + 1, 'minecraft:cracked_stone_bricks');
+    }
+    for (let x = bx1 + 3; x < bx2 - 2; x += 5) {
+      if (grid.inBounds(x, by, zMid))
+        grid.set(x, by, zMid, 'minecraft:cracked_stone_bricks');
+    }
+
+    // Iron bar cell doors along N-S corridor walls
+    for (let z = bz1 + 5; z < bz2 - 4; z += 7) {
+      for (const side of [halfC + 1, -(halfC + 1)]) {
+        const bx = xMid + side;
+        if (grid.inBounds(bx, by + 1, z)) {
+          grid.set(bx, by + 1, z, 'minecraft:iron_bars');
+          grid.set(bx, by + 2, z, 'minecraft:iron_bars');
+        }
+      }
+    }
+
+    // Skull/bone decorations near room entrances
+    for (const q of quadrants) {
+      const entrX = (q.x1 + q.x2) >> 1;
+      const entrZ = q.z1 < zMid ? q.z2 + 1 : q.z1 - 1;
+      if (grid.inBounds(entrX - 1, by + 1, entrZ))
+        grid.set(entrX - 1, by + 1, entrZ, 'minecraft:bone_block');
+      if (grid.inBounds(entrX + 1, by + 1, entrZ))
+        grid.set(entrX + 1, by + 1, entrZ, 'minecraft:bone_block');
     }
   }
 
@@ -954,6 +1049,46 @@ function generateShip(
           grid.set(x, y, z, 'minecraft:air');
         }
       }
+    }
+  }
+
+  // ── Cargo hold details (below deck, between rooms) ──
+  const holdY = 1; // just above keel
+  const holdZ1 = sz1 + Math.floor(shipLen * 0.20);
+  const holdZ2 = sz1 + Math.floor(shipLen * 0.80);
+  const holdHalf = Math.floor(shipW / 2) - 3;
+  // Barrel clusters along port/starboard walls
+  for (let z = holdZ1 + 2; z < holdZ2 - 2; z += 5) {
+    for (const side of [-1, 1]) {
+      const bx = cx + side * holdHalf;
+      if (grid.inBounds(bx, holdY, z))
+        grid.set(bx, holdY, z, 'minecraft:barrel[facing=up]');
+      if (grid.inBounds(bx, holdY + 1, z))
+        grid.set(bx, holdY + 1, z, 'minecraft:barrel[facing=up]');
+      if (grid.inBounds(bx, holdY, z + 1))
+        grid.set(bx, holdY, z + 1, 'minecraft:barrel[facing=up]');
+    }
+  }
+  // Chests in hold center
+  for (let z = holdZ1 + 4; z < holdZ2 - 4; z += 8) {
+    if (grid.inBounds(cx, holdY, z))
+      grid.set(cx, holdY, z, 'minecraft:chest[facing=south]');
+    if (grid.inBounds(cx + 1, holdY, z))
+      grid.set(cx + 1, holdY, z, 'minecraft:hay_block');
+  }
+  // Hanging lanterns in hold
+  for (let z = holdZ1 + 3; z < holdZ2 - 2; z += 6) {
+    if (grid.inBounds(cx, hullBase - 1, z))
+      grid.set(cx, hullBase - 1, z, style.lantern);
+  }
+  // Hay bale cargo stacks
+  for (let z = holdZ2 - 6; z <= holdZ2 - 3; z++) {
+    for (const side of [-1, 1]) {
+      const hx = cx + side * (holdHalf - 1);
+      if (grid.inBounds(hx, holdY, z))
+        grid.set(hx, holdY, z, 'minecraft:hay_block');
+      if (grid.inBounds(hx, holdY + 1, z))
+        grid.set(hx, holdY + 1, z, 'minecraft:hay_block');
     }
   }
 
@@ -1181,6 +1316,21 @@ function generateShip(
     grid.set(cx - 2, hullBase + 2, sz1, style.lanternFloor);
   if (grid.inBounds(cx + 2, hullBase + 2, sz1))
     grid.set(cx + 2, hullBase + 2, sz1, style.lanternFloor);
+
+  // Deck lanterns along railings (every 6 blocks)
+  for (let z = sz1 + 4; z < sz2 - 4; z += 6) {
+    for (const side of [-1, 1]) {
+      const lx = cx + side * (Math.floor(shipW / 2) - 1);
+      if (grid.inBounds(lx, deckY + 1, z))
+        grid.set(lx, deckY + 1, z, style.lanternFloor);
+    }
+  }
+  // Cargo hatch (trapdoor) on deck between masts
+  const hatchZ = Math.floor((mastZ + foremastZ) / 2);
+  for (let dx = -1; dx <= 1; dx++) {
+    if (grid.inBounds(cx + dx, hullBase, hatchZ))
+      grid.set(cx + dx, hullBase, hatchZ, 'minecraft:dark_oak_trapdoor[facing=south,half=top,open=false]');
+  }
 
   // Rigging — chains from mast tops down to deck edges
   const riggingPairs: [number, number, number][] = [
