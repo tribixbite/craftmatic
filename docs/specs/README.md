@@ -31,10 +31,19 @@ Technical specifications and design documents for the craftmatic library.
 
 ### Structure Types
 - [x] All 5 structure types: house, tower, castle, dungeon, ship
-- [x] Gothic style overhaul: nether brick + dark prismarine palette
-- [x] Ship improvements: V-hull cross section, solid hull fill, white wool sails
+- [x] Gothic style overhaul: purpur block walls + deepslate interiors + soul lanterns
+- [x] Ship overhaul: 3-mast rigging (main/foremast/mizzen), dual sail tiers, crow's nest, bowsprit, deck details (wheel, barrels, rigging, figurehead)
 - [x] Dungeon gatehouse entrance: corner mini-towers, battlements, arched gate
 - [x] Solid gabled roofs (no more hollow/stripe rendering)
+- [x] House/castle front-face lighting: porch moved to high-Z (lit) side
+- [x] Castle courtyard: cross-pattern paths, well, training grounds, market stalls
+- [x] Rustic palette: birch planks + cobblestone for readable contrast
+
+### Room Furnishing (v2)
+- [x] 6 new furniture primitives: storageCorner, wallShelf, couchSet, armorDisplay, rugWithBorder, wallDecoration
+- [x] 11 room generators densified: living, bedroom, kitchen, dining, foyer, study, library, throne, armory, forge, lab
+- [x] Checkerboard floors (kitchen), bordered rugs, L-shaped couches, wall-mounted shelving
+- [x] Castle-specific: raised 2-level dais in throne room, gold accents, multiple chandeliers
 
 ### Web Application
 - [x] Vite-based SPA with dark mode UI (mobile-responsive)
