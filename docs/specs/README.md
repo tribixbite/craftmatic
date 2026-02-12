@@ -45,6 +45,15 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Checkerboard floors (kitchen), bordered rugs, L-shaped couches, wall-mounted shelving
 - [x] Castle-specific: raised 2-level dais in throne room, gold accents, multiple chandeliers
 
+### Structure Detail (v3)
+- [x] Ship cargo holds: barrel clusters, chest storage, hay bale cargo, hanging lanterns
+- [x] Ship deck: railing lanterns (every 6 blocks), cargo hatch trapdoor
+- [x] Dungeon corridors: dense torches (4-block), cobwebs, chains, cracked stone floors
+- [x] Dungeon atmosphere: iron bar cell doors, bone block decorations near rooms
+- [x] Tower radius 6→8 (interior ~8×8 → ~12×12), observation balcony with fence railing
+- [x] Tower exterior banners on every floor at cardinal positions
+- [x] Visual critique: all 10 structure/style combos verified at A- grade
+
 ### Web Application
 - [x] Vite-based SPA with dark mode UI (mobile-responsive)
 - [x] Structure generator UI with all 5 types, 5 styles, full controls
