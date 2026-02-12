@@ -271,6 +271,10 @@ const BLOCK_COLORS: Record<string, RGB> = {
   // Misc blocks
   'minecraft:hay_block': [186, 162, 62],
   'minecraft:target': [200, 170, 150],
+  'minecraft:grass_block': [95, 159, 53],
+  'minecraft:armor_stand': [160, 130, 95],
+  'minecraft:stonecutter': [130, 130, 130],
+  'minecraft:carved_pumpkin': [198, 118, 24],
 };
 
 /** Blocks considered "furniture" — drawn with a marker in detailed view */

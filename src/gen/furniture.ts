@@ -135,3 +135,84 @@ export function sideTable(
     grid.set(x, y + 2, z, decoration);
   }
 }
+
+/** Place a storage corner (barrels + chest + crate stack) */
+export function storageCorner(
+  grid: BlockGrid, x: number, y: number, z: number,
+  _style: StylePalette, facing: 'north' | 'south' | 'east' | 'west' = 'north'
+): void {
+  grid.addBarrel(x, y, z, 'up', [
+    { slot: 0, id: 'minecraft:string', count: 16 },
+    { slot: 1, id: 'minecraft:leather', count: 8 },
+  ]);
+  grid.addBarrel(x, y + 1, z, 'up', []);
+  const dx = facing === 'east' ? 1 : facing === 'west' ? -1 : 0;
+  const dz = facing === 'south' ? 1 : facing === 'north' ? -1 : 0;
+  if (grid.inBounds(x + dx, y, z + dz))
+    grid.addChest(x + dx, y, z + dz, facing, [
+      { slot: 0, id: 'minecraft:torch', count: 32 },
+    ]);
+}
+
+/** Place wall shelves (trapdoors as shelves with items) */
+export function wallShelf(
+  grid: BlockGrid, x: number, y: number, z: number,
+  facing: 'north' | 'south' | 'east' | 'west', items: string[]
+): void {
+  grid.set(x, y, z, `minecraft:spruce_trapdoor[facing=${facing},half=top,open=true]`);
+  if (items.length > 0 && grid.inBounds(x, y + 1, z)) {
+    grid.set(x, y + 1, z, items[0]);
+  }
+}
+
+/** Place an L-shaped couch arrangement */
+export function couchSet(
+  grid: BlockGrid, x: number, y: number, z: number,
+  style: StylePalette, corner: 'ne' | 'nw' | 'se' | 'sw' = 'nw'
+): void {
+  // L-shaped sofa: 3 blocks on one axis, 2 on the other
+  const facingH = corner.includes('n') ? style.chairN : style.chairS;
+  const facingV = corner.includes('w') ? style.chairE : style.chairW;
+  const dxDir = corner.includes('w') ? 1 : -1;
+  const dzDir = corner.includes('n') ? 1 : -1;
+
+  // Horizontal run (3 blocks)
+  for (let i = 0; i < 3; i++) {
+    if (grid.inBounds(x + dxDir * i, y, z))
+      grid.set(x + dxDir * i, y, z, facingH);
+  }
+  // Vertical run (2 blocks, forming the L)
+  for (let i = 1; i <= 2; i++) {
+    if (grid.inBounds(x, y, z + dzDir * i))
+      grid.set(x, y, z + dzDir * i, facingV);
+  }
+}
+
+/** Place a weapon/armor display (armor stand area with items) */
+export function armorDisplay(
+  grid: BlockGrid, x: number, y: number, z: number
+): void {
+  grid.set(x, y, z, 'minecraft:polished_andesite');
+  grid.set(x, y + 1, z, 'minecraft:armor_stand');
+}
+
+/** Place a rug with border pattern */
+export function rugWithBorder(
+  grid: BlockGrid, x1: number, y: number, z1: number,
+  x2: number, z2: number, main: string, border: string
+): void {
+  for (let x = x1; x <= x2; x++) {
+    for (let z = z1; z <= z2; z++) {
+      const isEdge = x === x1 || x === x2 || z === z1 || z === z2;
+      grid.set(x, y, z, isEdge ? border : main);
+    }
+  }
+}
+
+/** Place a painting/map wall decoration (item frames) */
+export function wallDecoration(
+  grid: BlockGrid, x: number, y: number, z: number,
+  _facing: 'north' | 'south' | 'east' | 'west', block: string
+): void {
+  grid.set(x, y, z, block);
+}
