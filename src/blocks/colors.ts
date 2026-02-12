@@ -244,6 +244,8 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:dark_prismarine': [64, 108, 88],
   'minecraft:purpur_block': [175, 130, 175],
   'minecraft:purpur_pillar': [178, 135, 178],
+  'minecraft:purpur_stairs': [175, 130, 175],
+  'minecraft:purpur_slab': [175, 130, 175],
   'minecraft:end_stone_bricks': [222, 228, 168],
   'minecraft:beacon': [125, 235, 235],
   'minecraft:conduit': [165, 145, 105],
