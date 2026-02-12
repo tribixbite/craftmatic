@@ -127,12 +127,15 @@ export function doorway(
 
 /** Place a double door on the front wall */
 export function frontDoor(
-  grid: BlockGrid, dx: number, y: number, wallZ: number, style: StylePalette
+  grid: BlockGrid, dx: number, y: number, wallZ: number, style: StylePalette,
+  facing: 'north' | 'south' = 'south'
 ): void {
-  grid.set(dx - 1, y, wallZ, style.doorLowerS);
-  grid.set(dx - 1, y + 1, wallZ, style.doorUpperS);
-  grid.set(dx, y, wallZ, style.doorLowerS);
-  grid.set(dx, y + 1, wallZ, style.doorUpperS);
+  const lower = facing === 'south' ? style.doorLowerS : style.doorLowerN;
+  const upper = facing === 'south' ? style.doorUpperS : style.doorUpperN;
+  grid.set(dx - 1, y, wallZ, lower);
+  grid.set(dx - 1, y + 1, wallZ, upper);
+  grid.set(dx, y, wallZ, lower);
+  grid.set(dx, y + 1, wallZ, upper);
 }
 
 /** Build a staircase between stories */
@@ -279,28 +282,35 @@ export function wallTorches(
 
 /** Build a porch extending from the front of the building */
 export function porch(
-  grid: BlockGrid, cx: number, z: number, width: number,
-  storyH: number, style: StylePalette
+  grid: BlockGrid, cx: number, wallZ: number, width: number,
+  storyH: number, style: StylePalette, direction: 'north' | 'south' = 'north'
 ): void {
   const halfW = Math.floor(width / 2);
+  const dir = direction === 'north' ? -1 : 1;
+  const outerZ = wallZ + dir * 2;
+  const innerZ = wallZ + dir;
 
   // Platform
-  grid.fill(cx - halfW, 0, 0, cx + halfW, 0, z - 1, style.foundation);
-  grid.fill(cx - halfW + 1, 0, 0, cx + halfW - 1, 0, z - 1, 'minecraft:polished_deepslate');
+  grid.fill(cx - halfW, 0, Math.min(wallZ, outerZ), cx + halfW, 0, Math.max(wallZ, outerZ), style.foundation);
+  grid.fill(cx - halfW + 1, 0, Math.min(wallZ, outerZ), cx + halfW - 1, 0, Math.max(wallZ, outerZ), 'minecraft:polished_deepslate');
 
   // Columns
   for (let y = 0; y <= storyH; y++) {
-    grid.set(cx - halfW + 1, y, z - 1, style.pillar);
-    grid.set(cx + halfW - 1, y, z - 1, style.pillar);
-    grid.set(cx - halfW + 1, y, z, style.pillar);
-    grid.set(cx + halfW - 1, y, z, style.pillar);
+    grid.set(cx - halfW + 1, y, innerZ, style.pillar);
+    grid.set(cx + halfW - 1, y, innerZ, style.pillar);
+    grid.set(cx - halfW + 1, y, wallZ, style.pillar);
+    grid.set(cx + halfW - 1, y, wallZ, style.pillar);
   }
 
   // Porch roof slab
-  grid.fill(cx - halfW, storyH, z - 2, cx + halfW, storyH, z, style.slabBottom);
+  grid.fill(cx - halfW, storyH, Math.min(wallZ, outerZ), cx + halfW, storyH, Math.max(wallZ, outerZ), style.slabBottom);
 
   // Entrance steps
-  grid.set(cx - 1, 0, z - 2, 'minecraft:stone_brick_stairs[facing=south]');
-  grid.set(cx, 0, z - 2, 'minecraft:stone_brick_stairs[facing=south]');
-  grid.set(cx + 1, 0, z - 2, 'minecraft:stone_brick_stairs[facing=south]');
+  const stairFacing = direction === 'north' ? 'south' : 'north';
+  const stepZ = wallZ + dir * 3;
+  if (grid.inBounds(cx, 0, stepZ)) {
+    grid.set(cx - 1, 0, stepZ, `minecraft:stone_brick_stairs[facing=${stairFacing}]`);
+    grid.set(cx, 0, stepZ, `minecraft:stone_brick_stairs[facing=${stairFacing}]`);
+    grid.set(cx + 1, 0, stepZ, `minecraft:stone_brick_stairs[facing=${stairFacing}]`);
+  }
 }

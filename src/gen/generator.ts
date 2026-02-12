@@ -88,8 +88,9 @@ function generateHouse(
   const bw = bwOpt ?? 29;
   const bl = blOpt ?? 23;
   const margin = 3;
+  const porchDepth = 4;
   const gw = bw + 2 * margin;
-  const gl = bl + margin + 4;
+  const gl = bl + 2 * margin + porchDepth;
   const gh = floors * STORY_H + ROOF_H;
 
   const bx1 = margin;
@@ -143,8 +144,8 @@ function generateHouse(
   }
 
   const dx = xMid;
-  porch(grid, dx, bz1, 9, STORY_H, style);
-  frontDoor(grid, dx, 1, bz1, style);
+  porch(grid, dx, bz2, 9, STORY_H, style, 'south');
+  frontDoor(grid, dx, 1, bz2, style, 'north');
 
   const stairX = xMid + 3;
   const stairX2 = xMid + 4;
@@ -554,26 +555,91 @@ function generateCastle(
   // Keep roof (gabled)
   gabledRoof(grid, kx1, kz1, kx2, kz2, floors * STORY_H, ROOF_H, style);
 
-  // Gatehouse entrance
+  // Gatehouse entrance (on high-Z side to catch isometric light)
   const gateX = xMid;
-  grid.set(gateX - 1, 1, bz1, style.doorLowerS);
-  grid.set(gateX - 1, 2, bz1, style.doorUpperS);
-  grid.set(gateX, 1, bz1, style.doorLowerS);
-  grid.set(gateX, 2, bz1, style.doorUpperS);
-  grid.set(gateX + 1, 1, bz1, 'minecraft:air');
-  grid.set(gateX + 1, 2, bz1, 'minecraft:air');
-  grid.set(gateX + 1, 3, bz1, 'minecraft:air');
-  grid.set(gateX - 1, 3, bz1, 'minecraft:air');
-  grid.set(gateX, 3, bz1, 'minecraft:air');
+  grid.set(gateX - 1, 1, bz2, style.doorLowerN);
+  grid.set(gateX - 1, 2, bz2, style.doorUpperN);
+  grid.set(gateX, 1, bz2, style.doorLowerN);
+  grid.set(gateX, 2, bz2, style.doorUpperN);
+  grid.set(gateX + 1, 1, bz2, 'minecraft:air');
+  grid.set(gateX + 1, 2, bz2, 'minecraft:air');
+  grid.set(gateX + 1, 3, bz2, 'minecraft:air');
+  grid.set(gateX - 1, 3, bz2, 'minecraft:air');
+  grid.set(gateX, 3, bz2, 'minecraft:air');
 
   // Courtyard floor
   grid.fill(bx1 + 3, 0, bz1 + 3, bx2 - 3, 0, bz2 - 3, style.floorGround);
 
-  // Torches in courtyard
-  for (let x = bx1 + 5; x < bx2 - 3; x += 6) {
+  // Courtyard path (cross pattern from gate to keep)
+  for (let z = bz1 + 3; z <= bz2 - 3; z++) {
+    grid.set(xMid - 1, 0, z, 'minecraft:polished_deepslate');
+    grid.set(xMid, 0, z, 'minecraft:polished_deepslate');
+    grid.set(xMid + 1, 0, z, 'minecraft:polished_deepslate');
+  }
+  for (let x = bx1 + 3; x <= bx2 - 3; x++) {
+    grid.set(x, 0, zMid, 'minecraft:polished_deepslate');
+  }
+
+  // Well (center of courtyard near gate side)
+  const wellX = xMid;
+  const wellZ = bz2 - 6;
+  grid.fill(wellX - 1, 0, wellZ - 1, wellX + 1, 0, wellZ + 1, 'minecraft:stone_bricks');
+  grid.set(wellX, 0, wellZ, 'minecraft:water_cauldron[level=3]');
+  for (const [wx, wz] of [[wellX - 1, wellZ - 1], [wellX + 1, wellZ - 1],
+                            [wellX - 1, wellZ + 1], [wellX + 1, wellZ + 1]]) {
+    grid.set(wx, 1, wz, style.fence);
+    grid.set(wx, 2, wz, style.fence);
+  }
+  // Well roof
+  grid.fill(wellX - 1, 3, wellZ - 1, wellX + 1, 3, wellZ + 1, style.slabBottom);
+  grid.set(wellX, 2, wellZ, 'minecraft:chain');
+  grid.set(wellX, 1, wellZ, style.lanternFloor);
+
+  // Training grounds (NW quadrant of courtyard)
+  const trainX = bx1 + 6;
+  const trainZ = bz1 + 6;
+  // Training dummy (hay + target)
+  grid.set(trainX, 1, trainZ, 'minecraft:hay_block');
+  grid.set(trainX, 2, trainZ, 'minecraft:target');
+  grid.set(trainX, 3, trainZ, 'minecraft:carved_pumpkin[facing=south]');
+  // Weapon rack
+  grid.set(trainX + 2, 1, trainZ, 'minecraft:grindstone[face=floor,facing=north]');
+  grid.set(trainX + 3, 1, trainZ, 'minecraft:anvil[facing=north]');
+
+  // Market stalls (SE quadrant of courtyard)
+  const stallX = bx2 - 8;
+  const stallZ = bz2 - 8;
+  // Stall 1: merchant table
+  grid.set(stallX, 1, stallZ, style.fence);
+  grid.set(stallX, 2, stallZ, 'minecraft:white_carpet');
+  grid.set(stallX + 1, 1, stallZ, style.fence);
+  grid.set(stallX + 1, 2, stallZ, 'minecraft:white_carpet');
+  grid.set(stallX + 2, 1, stallZ, style.chairW);
+  // Stall roof
+  grid.fill(stallX - 1, 3, stallZ - 1, stallX + 2, 3, stallZ + 1, style.slabBottom);
+  // Stall 2: hay bales and barrels
+  grid.set(stallX, 1, stallZ + 3, 'minecraft:hay_block');
+  grid.set(stallX + 1, 1, stallZ + 3, 'minecraft:hay_block');
+  grid.set(stallX, 2, stallZ + 3, 'minecraft:hay_block');
+  grid.addBarrel(stallX + 2, 1, stallZ + 3, 'up', [
+    { slot: 0, id: 'minecraft:apple', count: 32 },
+  ]);
+
+  // Torches in courtyard (along paths)
+  for (let x = bx1 + 5; x < bx2 - 3; x += 5) {
     grid.set(x, 1, bz1 + 3, style.lanternFloor);
     grid.set(x, 1, bz2 - 3, style.lanternFloor);
   }
+  for (let z = bz1 + 5; z < bz2 - 3; z += 5) {
+    grid.set(bx1 + 3, 1, z, style.lanternFloor);
+    grid.set(bx2 - 3, 1, z, style.lanternFloor);
+  }
+
+  // Banners on courtyard walls
+  grid.set(xMid - 3, 4, bz1, style.bannerS);
+  grid.set(xMid + 3, 4, bz1, style.bannerS);
+  grid.set(xMid - 3, 4, bz2, style.bannerN);
+  grid.set(xMid + 3, 4, bz2, style.bannerN);
 
   return grid;
 }
@@ -799,7 +865,7 @@ function generateShip(
   const margin = 5;
   const gw = shipW + margin * 2;
   const gl = shipLen + margin * 2;
-  const gh = floors * STORY_H + 15;
+  const gh = floors * STORY_H + 25;
 
   const cx = margin + Math.floor(shipW / 2); // center X
   const sz1 = margin; // ship start Z (stern)
@@ -932,82 +998,137 @@ function generateShip(
     }, style);
   }
 
-  // Main mast (forward)
-  const mastZ = sz1 + Math.floor(shipLen * 0.4);
-  const mastH = 15;
-  for (let y = hullBase; y < hullBase + mastH; y++) {
-    if (grid.inBounds(cx, y, mastZ)) {
-      grid.set(cx, y, mastZ, style.timber);
-    }
-  }
-  // Yard arm (horizontal beam for sails)
-  const yardY = hullBase + Math.floor(mastH * 0.6);
+  // ── Main mast (midship, tallest) ──
+  const mastZ = sz1 + Math.floor(shipLen * 0.45);
+  const mastH = 20;
   const yardHalf = Math.floor(shipW / 2) + 1;
+  for (let y = hullBase; y < hullBase + mastH; y++) {
+    if (grid.inBounds(cx, y, mastZ)) grid.set(cx, y, mastZ, style.timber);
+  }
+
+  // Crow's nest at top of main mast
+  const nestY = hullBase + mastH - 2;
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      if (grid.inBounds(cx + dx, nestY, mastZ + dz))
+        grid.set(cx + dx, nestY, mastZ + dz, style.floorUpper);
+    }
+  }
+  for (let dx = -1; dx <= 1; dx++) {
+    if (grid.inBounds(cx + dx, nestY + 1, mastZ - 1))
+      grid.set(cx + dx, nestY + 1, mastZ - 1, style.fence);
+    if (grid.inBounds(cx + dx, nestY + 1, mastZ + 1))
+      grid.set(cx + dx, nestY + 1, mastZ + 1, style.fence);
+  }
+  if (grid.inBounds(cx - 1, nestY + 1, mastZ))
+    grid.set(cx - 1, nestY + 1, mastZ, style.fence);
+  if (grid.inBounds(cx + 1, nestY + 1, mastZ))
+    grid.set(cx + 1, nestY + 1, mastZ, style.fence);
+  // Restore mast through crow's nest
+  if (grid.inBounds(cx, nestY, mastZ)) grid.set(cx, nestY, mastZ, style.timber);
+  if (grid.inBounds(cx, nestY + 1, mastZ)) grid.set(cx, nestY + 1, mastZ, style.timber);
+
+  // Upper yard arm (80% height)
+  const yardY = hullBase + Math.floor(mastH * 0.8);
   for (let dx = -yardHalf; dx <= yardHalf; dx++) {
-    if (grid.inBounds(cx + dx, yardY, mastZ)) {
+    if (grid.inBounds(cx + dx, yardY, mastZ))
       grid.set(cx + dx, yardY, mastZ, style.timberX);
-    }
   }
-  // Main sail (white wool rectangle between yard arm and lower beam)
-  const sailTop = yardY - 1;
-  const sailBottom = hullBase + 3;
-  const sailHalf = yardHalf - 1;
-  for (let y = sailBottom; y <= sailTop; y++) {
-    // Sail width narrows slightly toward bottom for a billowed look
-    const sailFrac = (y - sailBottom) / (sailTop - sailBottom);
-    const rowHalf = Math.max(1, Math.round(sailHalf * (0.6 + 0.4 * sailFrac)));
+
+  // Lower yard arm (40% height)
+  const lowerYardY = hullBase + Math.floor(mastH * 0.4);
+  for (let dx = -yardHalf; dx <= yardHalf; dx++) {
+    if (grid.inBounds(cx + dx, lowerYardY, mastZ))
+      grid.set(cx + dx, lowerYardY, mastZ, style.timberX);
+  }
+
+  // Upper main sail (between upper and lower yard arms, 2 blocks deep)
+  for (let y = lowerYardY + 1; y < yardY; y++) {
+    const frac = (y - lowerYardY - 1) / Math.max(1, yardY - lowerYardY - 2);
+    const rowHalf = Math.max(1, Math.round(yardHalf * (0.8 + 0.2 * frac)));
     for (let dx = -rowHalf; dx <= rowHalf; dx++) {
-      if (grid.inBounds(cx + dx, y, mastZ)) {
+      if (grid.inBounds(cx + dx, y, mastZ))
         grid.set(cx + dx, y, mastZ, 'minecraft:white_wool');
-      }
-    }
-  }
-  // Restore mast through sail
-  for (let y = sailBottom; y <= sailTop; y++) {
-    if (grid.inBounds(cx, y, mastZ)) {
-      grid.set(cx, y, mastZ, style.timber);
+      if (grid.inBounds(cx + dx, y, mastZ + 1))
+        grid.set(cx + dx, y, mastZ + 1, 'minecraft:white_wool');
     }
   }
 
-  // Second mast (aft)
-  const mast2Z = sz1 + Math.floor(shipLen * 0.7);
-  const mast2H = 12;
-  for (let y = hullBase; y < hullBase + mast2H; y++) {
-    if (grid.inBounds(cx, y, mast2Z)) {
-      grid.set(cx, y, mast2Z, style.timber);
-    }
-  }
-  const yard2Y = hullBase + Math.floor(mast2H * 0.6);
-  const yard2Half = yardHalf - 1;
-  for (let dx = -yard2Half; dx <= yard2Half; dx++) {
-    if (grid.inBounds(cx + dx, yard2Y, mast2Z)) {
-      grid.set(cx + dx, yard2Y, mast2Z, style.timberX);
-    }
-  }
-  // Aft sail
-  const sail2Top = yard2Y - 1;
-  const sail2Bottom = hullBase + 3;
-  for (let y = sail2Bottom; y <= sail2Top; y++) {
-    const sailFrac = (y - sail2Bottom) / (sail2Top - sail2Bottom);
-    const rowHalf = Math.max(1, Math.round((yard2Half - 1) * (0.6 + 0.4 * sailFrac)));
+  // Lower main sail (lower yard to just above deck, 2 blocks deep)
+  for (let y = hullBase + 2; y < lowerYardY; y++) {
+    const frac = (y - hullBase - 2) / Math.max(1, lowerYardY - hullBase - 3);
+    const rowHalf = Math.max(1, Math.round(yardHalf * (0.8 + 0.2 * frac)));
     for (let dx = -rowHalf; dx <= rowHalf; dx++) {
-      if (grid.inBounds(cx + dx, y, mast2Z)) {
-        grid.set(cx + dx, y, mast2Z, 'minecraft:white_wool');
-      }
-    }
-  }
-  for (let y = sail2Bottom; y <= sail2Top; y++) {
-    if (grid.inBounds(cx, y, mast2Z)) {
-      grid.set(cx, y, mast2Z, style.timber);
+      if (grid.inBounds(cx + dx, y, mastZ))
+        grid.set(cx + dx, y, mastZ, 'minecraft:white_wool');
+      if (grid.inBounds(cx + dx, y, mastZ + 1))
+        grid.set(cx + dx, y, mastZ + 1, 'minecraft:white_wool');
     }
   }
 
-  // Bowsprit
-  const bowZ = sz2 + 1;
-  for (let dz = 0; dz < 5; dz++) {
-    if (grid.inBounds(cx, hullBase + 2, bowZ + dz)) {
-      grid.set(cx, hullBase + 2, bowZ + dz, style.timberZ);
+  // Restore mast through sails
+  for (let y = hullBase + 2; y < yardY; y++) {
+    if (grid.inBounds(cx, y, mastZ)) grid.set(cx, y, mastZ, style.timber);
+  }
+
+  // ── Foremast (near bow, shorter) ──
+  const foremastZ = sz1 + Math.floor(shipLen * 0.7);
+  const foremastH = 16;
+  for (let y = hullBase; y < hullBase + foremastH; y++) {
+    if (grid.inBounds(cx, y, foremastZ)) grid.set(cx, y, foremastZ, style.timber);
+  }
+  const foreYardY = hullBase + Math.floor(foremastH * 0.75);
+  const foreYardHalf = yardHalf - 1;
+  for (let dx = -foreYardHalf; dx <= foreYardHalf; dx++) {
+    if (grid.inBounds(cx + dx, foreYardY, foremastZ))
+      grid.set(cx + dx, foreYardY, foremastZ, style.timberX);
+  }
+  // Fore sail (2 blocks deep)
+  for (let y = hullBase + 2; y < foreYardY; y++) {
+    const frac = (y - hullBase - 2) / Math.max(1, foreYardY - hullBase - 3);
+    const rowHalf = Math.max(1, Math.round(foreYardHalf * (0.8 + 0.2 * frac)));
+    for (let dx = -rowHalf; dx <= rowHalf; dx++) {
+      if (grid.inBounds(cx + dx, y, foremastZ))
+        grid.set(cx + dx, y, foremastZ, 'minecraft:white_wool');
+      if (grid.inBounds(cx + dx, y, foremastZ + 1))
+        grid.set(cx + dx, y, foremastZ + 1, 'minecraft:white_wool');
     }
+  }
+  for (let y = hullBase + 2; y < foreYardY; y++) {
+    if (grid.inBounds(cx, y, foremastZ)) grid.set(cx, y, foremastZ, style.timber);
+  }
+
+  // ── Mizzen mast (near stern, shortest) ──
+  const mizzenZ = sz1 + Math.floor(shipLen * 0.18);
+  const mizzenH = 13;
+  for (let y = hullBase; y < hullBase + mizzenH; y++) {
+    if (grid.inBounds(cx, y, mizzenZ)) grid.set(cx, y, mizzenZ, style.timber);
+  }
+  const mizYardY = hullBase + Math.floor(mizzenH * 0.75);
+  const mizYardHalf = yardHalf - 2;
+  for (let dx = -mizYardHalf; dx <= mizYardHalf; dx++) {
+    if (grid.inBounds(cx + dx, mizYardY, mizzenZ))
+      grid.set(cx + dx, mizYardY, mizzenZ, style.timberX);
+  }
+  // Mizzen sail
+  for (let y = hullBase + 2; y < mizYardY; y++) {
+    const frac = (y - hullBase - 2) / Math.max(1, mizYardY - hullBase - 3);
+    const rowHalf = Math.max(1, Math.round(mizYardHalf * (0.8 + 0.2 * frac)));
+    for (let dx = -rowHalf; dx <= rowHalf; dx++) {
+      if (grid.inBounds(cx + dx, y, mizzenZ))
+        grid.set(cx + dx, y, mizzenZ, 'minecraft:white_wool');
+    }
+  }
+  for (let y = hullBase + 2; y < mizYardY; y++) {
+    if (grid.inBounds(cx, y, mizzenZ)) grid.set(cx, y, mizzenZ, style.timber);
+  }
+
+  // Bowsprit (extended, angled down toward water)
+  const bowZ = sz2 + 1;
+  for (let dz = 0; dz < 7; dz++) {
+    const by = hullBase + 2 - Math.floor(dz / 3);
+    if (grid.inBounds(cx, by, bowZ + dz))
+      grid.set(cx, by, bowZ + dz, style.timberZ);
   }
 
   // Stern cabin (captain's quarters)
@@ -1025,6 +1146,63 @@ function generateShip(
     x1: sternX1 + 1, y: sternY, z1: sternZ1 + 1,
     x2: sternX2 - 1, z2: sternZ2 - 1, height: 3,
   }, style);
+
+  // ── Deck details ──
+  // Ship wheel (between stern cabin and midship)
+  const wheelZ = sternZ2 + 2;
+  if (grid.inBounds(cx, hullBase + 1, wheelZ)) {
+    grid.set(cx, hullBase + 1, wheelZ, style.fence);
+    grid.set(cx, hullBase + 2, wheelZ, 'minecraft:dark_oak_trapdoor[facing=south,half=top,open=true]');
+  }
+
+  // Deck barrels and crates (scattered around masts)
+  const deckY = hullBase + 1;
+  const halfDeck = Math.floor(shipW / 2) - 2;
+  // Port side barrels near main mast
+  if (grid.inBounds(cx - halfDeck, deckY, mastZ + 3))
+    grid.set(cx - halfDeck, deckY, mastZ + 3, 'minecraft:barrel[facing=up]');
+  if (grid.inBounds(cx - halfDeck, deckY, mastZ + 4))
+    grid.set(cx - halfDeck, deckY, mastZ + 4, 'minecraft:barrel[facing=up]');
+  if (grid.inBounds(cx - halfDeck, deckY + 1, mastZ + 3))
+    grid.set(cx - halfDeck, deckY + 1, mastZ + 3, 'minecraft:barrel[facing=up]');
+  // Starboard side crates near foremast
+  if (grid.inBounds(cx + halfDeck, deckY, foremastZ - 2))
+    grid.set(cx + halfDeck, deckY, foremastZ - 2, 'minecraft:barrel[facing=up]');
+  if (grid.inBounds(cx + halfDeck, deckY, foremastZ - 3))
+    grid.set(cx + halfDeck, deckY, foremastZ - 3, 'minecraft:barrel[facing=up]');
+  // Rope coils (brown wool)
+  if (grid.inBounds(cx + 2, deckY, mastZ + 2))
+    grid.set(cx + 2, deckY, mastZ + 2, 'minecraft:brown_wool');
+  if (grid.inBounds(cx - 2, deckY, foremastZ - 1))
+    grid.set(cx - 2, deckY, foremastZ - 1, 'minecraft:brown_wool');
+
+  // Stern lanterns
+  if (grid.inBounds(cx - 2, hullBase + 2, sz1))
+    grid.set(cx - 2, hullBase + 2, sz1, style.lanternFloor);
+  if (grid.inBounds(cx + 2, hullBase + 2, sz1))
+    grid.set(cx + 2, hullBase + 2, sz1, style.lanternFloor);
+
+  // Rigging — chains from mast tops down to deck edges
+  const riggingPairs: [number, number, number][] = [
+    [mastZ, hullBase + mastH - 3, halfDeck],
+    [foremastZ, hullBase + foremastH - 3, halfDeck],
+  ];
+  for (const [rz, topY, rHalf] of riggingPairs) {
+    for (const side of [-1, 1]) {
+      const steps = topY - deckY;
+      for (let i = 0; i < steps; i++) {
+        const ry = topY - i;
+        const rx = cx + side * Math.round(rHalf * (i / steps));
+        if (grid.inBounds(rx, ry, rz) && grid.get(rx, ry, rz) === 'minecraft:air') {
+          grid.set(rx, ry, rz, 'minecraft:chain');
+        }
+      }
+    }
+  }
+
+  // Bow decoration (carved pumpkin figurehead)
+  if (grid.inBounds(cx, hullBase + 1, sz2))
+    grid.set(cx, hullBase + 1, sz2, 'minecraft:carved_pumpkin[facing=south]');
 
   return grid;
 }
