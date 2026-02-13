@@ -68,6 +68,11 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
   const controlsDiv = document.createElement('div');
   controlsDiv.className = 'inline-viewer-controls';
   controlsDiv.innerHTML = `
+    <div class="inline-cutaway-group">
+      <input type="range" id="inline-cutaway" class="inline-cutaway-slider"
+        min="0" max="${grid.height}" value="${grid.height}" step="1">
+      <span id="inline-cutaway-label" class="inline-cutaway-label">All</span>
+    </div>
     <button class="btn btn-secondary btn-sm" id="inline-expand" title="Expand to full viewer">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
@@ -80,6 +85,16 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
 
   // Create and mount viewer
   inlineViewer = createViewer(container, grid);
+
+  // Inline cutaway slider
+  const inlineCutaway = controlsDiv.querySelector('#inline-cutaway') as HTMLInputElement;
+  const inlineCutawayLabel = controlsDiv.querySelector('#inline-cutaway-label')!;
+  inlineCutaway.addEventListener('input', () => {
+    if (!inlineViewer) return;
+    const maxY = parseInt(inlineCutaway.value);
+    inlineCutawayLabel.textContent = maxY >= grid.height ? 'All' : `Y:${maxY}`;
+    applyCutaway(inlineViewer, maxY);
+  });
 
   // Expand button → opens full viewer overlay
   controlsDiv.querySelector('#inline-expand')!.addEventListener('click', () => {
