@@ -6,7 +6,7 @@
  */
 
 import { BlockGrid } from '../schem/types.js';
-import type { GenerationOptions, RoomType, RoomBounds } from '../types/index.js';
+import type { GenerationOptions, RoomType, RoomBounds, StructureType } from '../types/index.js';
 import { getStyle } from './styles.js';
 import { getRoomGenerator, getRoomTypes } from './rooms.js';
 import {
@@ -155,7 +155,7 @@ function generateHouse(
     staircase(grid, stairX, stairX2, bz1 + 2, by, nextY, gh);
   }
 
-  const roomAssignment = resolveRooms(floors, rooms, rng);
+  const roomAssignment = resolveRooms(floors, rooms, rng, 'house');
   for (let story = 0; story < floors; story++) {
     const by = story * STORY_H;
     const fy = by + 1;
@@ -576,7 +576,7 @@ function generateCastle(
   }
 
   // Keep rooms
-  const roomAssignment = resolveRooms(floors, rooms, rng);
+  const roomAssignment = resolveRooms(floors, rooms, rng, 'castle');
   for (let story = 0; story < floors; story++) {
     const by = story * STORY_H;
     const fy = by + 1;
@@ -1377,8 +1377,61 @@ function fillCircle(
   }
 }
 
+/** Structure-specific room constraints applied after initial assignment */
+function enforceStructureRooms(result: RoomType[][], structureType: StructureType): void {
+  switch (structureType) {
+    case 'house':
+      // Must include bedroom on floor 1 (index 1)
+      if (result.length > 1 && !result[1].includes('bedroom')) {
+        result[1][0] = 'bedroom';
+      }
+      break;
+    case 'ship':
+      // Must include captains_quarters (replace first study on floor 0)
+      if (result.length > 0) {
+        const f0 = result[0];
+        const studyIdx = f0.indexOf('study');
+        if (studyIdx >= 0) {
+          f0[studyIdx] = 'captains_quarters';
+        } else if (!f0.includes('captains_quarters')) {
+          f0[0] = 'captains_quarters';
+        }
+      }
+      break;
+    case 'castle':
+      // Must include throne on ground floor
+      if (result.length > 0 && !result[0].includes('throne')) {
+        result[0][0] = 'throne';
+      }
+      break;
+    case 'dungeon':
+      // Must include cell rooms on each level
+      for (const floorRooms of result) {
+        if (!floorRooms.includes('cell')) {
+          floorRooms[floorRooms.length - 1] = 'cell';
+        }
+      }
+      break;
+    case 'tower':
+      // Observatory on top floor (tower uses 1 room/floor, so replace the last)
+      if (result.length > 0) {
+        result[result.length - 1] = ['observatory'];
+      }
+      break;
+    case 'cathedral':
+      // Nave on ground floor, belfry on top
+      if (result.length > 0) {
+        result[0] = ['nave', 'nave', 'nave', 'nave'];
+      }
+      if (result.length > 1) {
+        result[result.length - 1] = ['belfry', 'belfry', 'belfry', 'belfry'];
+      }
+      break;
+  }
+}
+
 /** Resolve room assignments for each floor */
-function resolveRooms(floors: number, rooms: RoomType[] | undefined, rng: () => number): RoomType[][] {
+function resolveRooms(floors: number, rooms: RoomType[] | undefined, rng: () => number, structureType: StructureType = 'house'): RoomType[][] {
   if (rooms && rooms.length > 0) {
     const result: RoomType[][] = [];
     let ri = 0;
@@ -1394,6 +1447,7 @@ function resolveRooms(floors: number, rooms: RoomType[] | undefined, rng: () => 
       }
       result.push(floorRooms);
     }
+    enforceStructureRooms(result, structureType);
     return result;
   }
 
@@ -1402,5 +1456,6 @@ function resolveRooms(floors: number, rooms: RoomType[] | undefined, rng: () => 
     const defaultFloor = DEFAULT_FLOOR_ROOMS[f % DEFAULT_FLOOR_ROOMS.length];
     result.push([...defaultFloor]);
   }
+  enforceStructureRooms(result, structureType);
   return result;
 }

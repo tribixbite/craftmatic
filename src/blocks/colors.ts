@@ -90,6 +90,33 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:birch_door': [215, 200, 150],
   'minecraft:stripped_birch_log': [198, 176, 118],
 
+  // Acacia
+  'minecraft:acacia_log': [103, 97, 86],
+  'minecraft:acacia_planks': [168, 90, 50],
+  'minecraft:acacia_stairs': [168, 90, 50],
+  'minecraft:acacia_slab': [168, 90, 50],
+  'minecraft:acacia_fence': [164, 86, 46],
+  'minecraft:acacia_door': [120, 70, 40],
+  'minecraft:stripped_acacia_log': [174, 92, 52],
+
+  // Warped (nether)
+  'minecraft:warped_stem': [43, 105, 99],
+  'minecraft:warped_planks': [43, 105, 99],
+  'minecraft:warped_stairs': [43, 105, 99],
+  'minecraft:warped_slab': [43, 105, 99],
+  'minecraft:warped_fence': [40, 100, 94],
+  'minecraft:warped_door': [42, 100, 98],
+  'minecraft:stripped_warped_stem': [57, 150, 138],
+  'minecraft:warped_trapdoor': [42, 102, 96],
+
+  // Crimson (nether)
+  'minecraft:crimson_stem': [92, 25, 30],
+  'minecraft:crimson_planks': [101, 49, 71],
+  'minecraft:crimson_stairs': [101, 49, 71],
+  'minecraft:crimson_slab': [101, 49, 71],
+  'minecraft:crimson_fence': [98, 46, 68],
+  'minecraft:crimson_door': [95, 42, 65],
+
   // Glass
   'minecraft:glass_pane': [173, 203, 227],
   'minecraft:glass': [175, 205, 230],
@@ -260,6 +287,94 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:sculk': [14, 40, 45],
   'minecraft:sculk_catalyst': [18, 48, 55],
 
+  // Copper variants
+  'minecraft:copper_block': [198, 112, 82],
+  'minecraft:exposed_copper': [154, 121, 89],
+  'minecraft:weathered_copper': [109, 145, 107],
+  'minecraft:oxidized_copper': [85, 168, 138],
+  'minecraft:cut_copper': [192, 108, 78],
+  'minecraft:cut_copper_stairs': [192, 108, 78],
+  'minecraft:cut_copper_slab': [192, 108, 78],
+  'minecraft:exposed_cut_copper': [150, 117, 85],
+  'minecraft:exposed_cut_copper_stairs': [150, 117, 85],
+  'minecraft:weathered_cut_copper': [105, 141, 103],
+  'minecraft:weathered_cut_copper_stairs': [105, 141, 103],
+  'minecraft:oxidized_cut_copper': [81, 164, 134],
+  'minecraft:oxidized_cut_copper_stairs': [81, 164, 134],
+  'minecraft:copper_grate': [180, 100, 72],
+  'minecraft:copper_door': [188, 106, 76],
+  'minecraft:copper_trapdoor': [185, 104, 74],
+
+  // Prismarine variants
+  'minecraft:prismarine_stairs': [102, 175, 162],
+  'minecraft:prismarine_slab': [102, 175, 162],
+  'minecraft:prismarine_wall': [98, 170, 158],
+  'minecraft:prismarine_brick_stairs': [102, 175, 148],
+  'minecraft:prismarine_brick_slab': [102, 175, 148],
+  'minecraft:dark_prismarine_stairs': [64, 108, 88],
+  'minecraft:dark_prismarine_slab': [64, 108, 88],
+
+  // Sandstone variants
+  'minecraft:sandstone': [216, 203, 155],
+  'minecraft:sandstone_stairs': [216, 203, 155],
+  'minecraft:sandstone_slab': [216, 203, 155],
+  'minecraft:sandstone_wall': [210, 197, 149],
+  'minecraft:chiseled_sandstone': [216, 203, 155],
+  'minecraft:smooth_sandstone': [220, 207, 159],
+  'minecraft:smooth_sandstone_stairs': [220, 207, 159],
+  'minecraft:smooth_sandstone_slab': [220, 207, 159],
+  'minecraft:red_sandstone': [186, 99, 29],
+  'minecraft:red_sandstone_stairs': [186, 99, 29],
+  'minecraft:red_sandstone_slab': [186, 99, 29],
+  'minecraft:red_sandstone_wall': [180, 93, 25],
+  'minecraft:chiseled_red_sandstone': [186, 99, 29],
+  'minecraft:smooth_red_sandstone': [190, 103, 33],
+
+  // Terracotta colors
+  'minecraft:terracotta': [152, 94, 68],
+  'minecraft:white_terracotta': [210, 178, 161],
+  'minecraft:orange_terracotta': [162, 84, 38],
+  'minecraft:red_terracotta': [143, 61, 47],
+  'minecraft:brown_terracotta': [77, 51, 36],
+  'minecraft:yellow_terracotta': [186, 133, 35],
+  'minecraft:light_gray_terracotta': [135, 107, 98],
+  'minecraft:cyan_terracotta': [87, 91, 91],
+
+  // Coral blocks
+  'minecraft:tube_coral_block': [49, 88, 195],
+  'minecraft:brain_coral_block': [207, 91, 159],
+  'minecraft:bubble_coral_block': [165, 26, 162],
+  'minecraft:fire_coral_block': [164, 35, 47],
+  'minecraft:horn_coral_block': [216, 199, 66],
+  'minecraft:dead_tube_coral_block': [131, 124, 120],
+  'minecraft:dead_brain_coral_block': [125, 117, 110],
+  'minecraft:dead_coral_block': [131, 124, 120],
+
+  // Natural / terrain
+  'minecraft:moss_block': [89, 110, 42],
+  'minecraft:moss_carpet': [89, 110, 42],
+  'minecraft:azalea_leaves': [89, 128, 47],
+  'minecraft:flowering_azalea_leaves': [105, 128, 55],
+  'minecraft:tuff': [108, 108, 98],
+  'minecraft:tuff_bricks': [112, 112, 102],
+  'minecraft:calcite': [223, 224, 220],
+  'minecraft:mud_bricks': [137, 106, 82],
+  'minecraft:mud_brick_stairs': [137, 106, 82],
+  'minecraft:mud_brick_slab': [137, 106, 82],
+  'minecraft:packed_mud': [142, 107, 78],
+  'minecraft:dirt': [134, 96, 67],
+  'minecraft:rooted_dirt': [144, 106, 77],
+  'minecraft:water': [62, 118, 225],
+  'minecraft:oak_leaves': [60, 135, 25],
+  'minecraft:birch_leaves': [80, 143, 49],
+  'minecraft:spruce_leaves': [48, 75, 48],
+  'minecraft:dark_oak_leaves': [42, 88, 17],
+  'minecraft:acacia_leaves': [70, 140, 30],
+
+  // Decorative blocks
+  'minecraft:stone_pressure_plate': [125, 125, 125],
+  'minecraft:redstone_lamp': [165, 95, 50],
+
   // Banners
   'minecraft:red_wall_banner': [170, 42, 36],
   'minecraft:blue_wall_banner': [53, 57, 168],
@@ -291,7 +406,8 @@ export const FURNITURE_BLOCKS = new Set([
   'minecraft:smithing_table', 'minecraft:cartography_table', 'minecraft:loom',
   'minecraft:composter', 'minecraft:ender_chest', 'minecraft:beacon',
   'minecraft:conduit', 'minecraft:lodestone', 'minecraft:respawn_anchor',
-  'minecraft:dragon_egg',
+  'minecraft:dragon_egg', 'minecraft:stone_pressure_plate',
+  'minecraft:stonecutter', 'minecraft:armor_stand',
 ]);
 
 /** Light-emitting blocks — drawn with a glow marker */
@@ -300,6 +416,8 @@ export const LIGHT_BLOCKS = new Set([
   'minecraft:sea_lantern', 'minecraft:end_rod', 'minecraft:candle',
   'minecraft:white_candle', 'minecraft:campfire', 'minecraft:soul_campfire',
   'minecraft:wall_torch', 'minecraft:soul_wall_torch',
+  'minecraft:redstone_lamp', 'minecraft:amethyst_cluster',
+  'minecraft:waxed_copper_bulb',
 ]);
 
 /** Bed blocks */
@@ -310,7 +428,8 @@ export const BED_BLOCKS = new Set([
 /** Door blocks */
 export const DOOR_BLOCKS = new Set([
   'minecraft:dark_oak_door', 'minecraft:oak_door', 'minecraft:spruce_door',
-  'minecraft:iron_door',
+  'minecraft:iron_door', 'minecraft:birch_door', 'minecraft:acacia_door',
+  'minecraft:warped_door', 'minecraft:crimson_door', 'minecraft:copper_door',
 ]);
 
 /**
