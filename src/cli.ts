@@ -22,7 +22,7 @@ const program = new Command();
 program
   .name('craftmatic')
   .description('Minecraft schematic toolkit — parse, generate, render, and convert .schem files')
-  .version('0.1.0');
+  .version('0.2.0');
 
 // ─── Default command: open file with auto-detect ─────────────────────────────
 

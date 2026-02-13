@@ -1,6 +1,6 @@
 {
   "name": "craftmatic",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Minecraft schematic toolkit — parse, generate, render, and convert .schem files",
   "type": "module",
   "main": "dist/index.js",

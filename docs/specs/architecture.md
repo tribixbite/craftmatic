@@ -16,14 +16,14 @@ src/
 │   └── varint.ts         # Varint encode/decode
 ├── blocks/
 │   ├── registry.ts       # Block state parsing + queries
-│   ├── colors.ts         # Block → RGB color map (170+ entries)
+│   ├── colors.ts         # Block → RGB color map (280+ entries)
 │   └── textures.ts       # Block → texture face mapping
 ├── gen/
-│   ├── generator.ts      # Main generation orchestrator
-│   ├── styles.ts         # 5 style presets (fantasy, medieval, modern, gothic, rustic)
-│   ├── rooms.ts          # 16 room type generators
-│   ├── structures.ts     # Structural building primitives
-│   └── furniture.ts      # Furniture placement helpers
+│   ├── generator.ts      # Main generation orchestrator (10 structure types)
+│   ├── styles.ts         # 9 style presets (fantasy…underwater)
+│   ├── rooms.ts          # 20 room type generators
+│   ├── structures.ts     # Structural + terrain building primitives
+│   └── furniture.ts      # Furniture placement helpers (19 functions)
 ├── render/
 │   ├── png-renderer.ts   # 2D PNG (floor plan, cutaway iso, exterior)
 │   ├── three-scene.ts    # Three.js scene builder + viewer serializer
@@ -55,6 +55,13 @@ BlockGrid → SchematicData → NBT compound → gzip compress → .schem file
 GenerationOptions → calculateDimensions → BlockGrid.create()
   → foundation → walls → floors → stairs → rooms → roof → chimney
   → writeSchematic()
+
+Structure-specific generators (v0.2.0):
+  cathedral: nave + side aisles → rose window → apse → bell tower → flying buttresses
+  bridge: parabolic arch → deck + railings → end towers → water indicator
+  windmill: circular base → tapering floors → blade structure → conical roof
+  marketplace: perimeter wall → stall grid → central well → covered walkway
+  village: sub-structure generation → pasteGrid composition → path network → trees
 ```
 
 ### Render Pipeline (2D)

@@ -94,3 +94,17 @@ Technical specifications and design documents for the craftmatic library.
 - [x] npm publish — `craftmatic@0.1.0` on npmjs.org (maintainer: willstone)
 - [x] `npx craftmatic` CLI with 7 commands (info, render, view, export, gen, atlas)
 - [x] `npx craftmatic` (no args) serves web app + prints command summary
+
+### v0.2.0 — Major Feature Expansion
+- [x] 5 new structure types: cathedral, bridge, windmill, marketplace, village
+- [x] 4 new style palettes: steampunk, elven, desert, underwater
+- [x] 4 new room types: captains_quarters, cell, nave, belfry
+- [x] Structure-specific room defaults (ship gets captains_quarters, dungeon gets cells, etc.)
+- [x] 5 new furniture primitives: telescope, plateSet, mapTable, lightFixture, steeringWheel
+- [x] 5 terrain/landscaping primitives: placeTree, placeHill, placePond, placePath, placeGarden
+- [x] Village generator: 3-5 buildings + tower + marketplace, path network, trees
+- [x] ~80 new block colors (copper variants, prismarine, sandstone, terracotta, coral, terrain)
+- [x] Distinct 2D render markers for decorative items (telescope, lantern, candle, etc.)
+- [x] Test suite expanded: 59 → 86 tests (new types, styles, rooms, benchmarks)
+- [x] Web gallery expanded: 12 → 20 entries with new types/styles
+- [x] Generator UI: all 10 structure types, 9 style presets

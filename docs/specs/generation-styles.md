@@ -104,9 +104,49 @@ interface StylePalette {
 }
 ```
 
+### Steampunk (v0.2.0)
+Iron and copper, mechanical aesthetics, redstone lighting.
+- Walls: `iron_block`
+- Floor: `dark_oak_planks`
+- Roof: `cut_copper_stairs`
+- Accent: `exposed_copper`
+- Glass: `tinted_glass`
+- Lighting: `redstone_lamp`
+- Fence: `chain`
+
+### Elven (v0.2.0)
+Living wood and moss, natural materials, ethereal lighting.
+- Walls: `moss_block`
+- Floor: `birch_planks`
+- Roof: `warped_stairs`
+- Accent: `stripped_birch_log`
+- Glass: `glass_pane`
+- Lighting: `end_rod`, `glowstone`
+- Fence: `birch_fence`
+
+### Desert (v0.2.0)
+Sandstone construction, acacia wood, warm desert tones.
+- Walls: `sandstone`
+- Floor: `smooth_sandstone`
+- Roof: `sandstone_stairs`
+- Accent: `red_sandstone`
+- Glass: `glass_pane`
+- Lighting: `soul_lantern`
+- Fence: `acacia_fence`
+
+### Underwater (v0.2.0)
+Prismarine architecture, sea-themed, aquatic lighting.
+- Walls: `prismarine`
+- Floor: `prismarine_bricks`
+- Roof: `prismarine_brick_stairs`
+- Accent: `dark_prismarine`
+- Glass: `glass`
+- Lighting: `sea_lantern`
+- Fence: `warped_fence`
+
 ## Room Types
 
-16 room generators, each receiving `(grid, bounds, style)`:
+20 room generators, each receiving `(grid, bounds, style)`:
 
 | Room | Key Features |
 |------|-------------|
@@ -126,6 +166,23 @@ interface StylePalette {
 | throne | Throne, red carpet runner, banners |
 | forge | Blast furnace, anvil, lava |
 | greenhouse | Glass walls, composters, plants |
+| captains_quarters | Navigation desk, telescope, treasure chest, bed |
+| cell | Iron bars, single cot, bone decorations, chains |
+| nave | Pew rows, altar platform, stained glass, candle arrays |
+| belfry | Central bell, arched windows, corner pillars |
+
+## Structure-Specific Room Defaults (v0.2.0)
+
+The generator enforces certain rooms based on structure type:
+
+| Structure | Required Room | Floor |
+|-----------|--------------|-------|
+| house | bedroom | floor 1+ |
+| ship | captains_quarters | replaces first study |
+| castle | throne | ground floor |
+| dungeon | cell | each level |
+| tower | observatory | top floor |
+| cathedral | nave (ground), belfry (top) | assigned floors |
 
 ## Seeded Random
 
