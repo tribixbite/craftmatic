@@ -72,6 +72,7 @@ Custom parser (`web/src/engine/nbt.ts`) replaces prismarine-nbt for browser use:
 - OrbitControls with damping
 - Occlusion culling (skip blocks surrounded by 6 solid neighbors)
 - Cutaway slider with stored original matrices for restore
+- **Inline cutaway slider** in embedded preview (horizontal range input, resets per generation)
 - ResizeObserver for container-responsive sizing
 
 ## Export Formats
