@@ -328,8 +328,12 @@ function generateBathroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): 
     }
   }
 
-  // Lighting
+  // Lighting — two fixtures for even coverage
   chandelier(grid, Math.floor((x1 + x2) / 2), y + height - 1, z1 + 2, style, 1);
+  lightFixture(grid, x2, y + height - 1, z2, 1, 'lantern');
+
+  // Potted plant in corner
+  grid.set(x2, y, z2, 'minecraft:potted_fern');
 }
 
 function generateStudy(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -533,11 +537,15 @@ function generateArmory(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
   // Carpet with border
   rugWithBorder(grid, x1 + 1, y, z1 + 2, x2 - 2, z2 - 2, 'minecraft:black_carpet', 'minecraft:red_carpet');
 
-  // Chandelier
+  // Potted plant near entrance
+  grid.set(x1 + 1, y, z1, 'minecraft:potted_fern');
+
+  // Chandelier + secondary light
   chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
+  lightFixture(grid, x2 - 1, y + height - 1, z1 + 1, 1, 'lantern');
 }
 
-function generateObservatory(grid: BlockGrid, b: RoomBounds, _style: StylePalette): void {
+function generateObservatory(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
   const { x1, y, z1, x2, z2, height } = b;
   const cx = Math.floor((x1 + x2) / 2);
   const cz = Math.floor((z1 + z2) / 2);
@@ -577,6 +585,10 @@ function generateObservatory(grid: BlockGrid, b: RoomBounds, _style: StylePalett
     grid.set(cx + i, y, cz, 'minecraft:purple_carpet');
     grid.set(cx, y, cz + i, 'minecraft:purple_carpet');
   }
+
+  // Wall banner and shelf for decoration
+  grid.set(cx, y + 3, z1, style.bannerS);
+  wallShelf(grid, x2 - 1, y + 2, z2, 'north', ['minecraft:potted_allium']);
 }
 
 function generateLab(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -628,6 +640,12 @@ function generateLab(grid: BlockGrid, b: RoomBounds, style: StylePalette): void 
 
   // Purple carpet accent
   carpetArea(grid, cx - 1, y, cz - 1, cx + 1, cz + 1, 'minecraft:purple_carpet');
+
+  // Potted plant in open corner
+  grid.set(x1, y, z1 + 2, 'minecraft:potted_warped_fungus');
+
+  // Extra light near workbench
+  lightFixture(grid, x1 + 1, y + height - 1, z1 + 1, 1, 'lantern');
 
   // Chandelier
   chandelier(grid, cx, y + height - 1, cz, style, 1);
@@ -771,6 +789,12 @@ function generateForge(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
   // Stone floor for heat resistance
   grid.fill(x1, y - 1, z2 - 2, x2, y - 1, z2, 'minecraft:polished_blackstone');
 
+  // Carpet near entrance for warmth
+  carpetArea(grid, cx - 1, y, z1 + 1, cx + 1, z1 + 2, style.carpet);
+
+  // Banner on front wall
+  grid.set(cx, y + 3, z1, style.bannerS);
+
   // Chandelier
   chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 1);
 }
@@ -829,6 +853,12 @@ function generateGreenhouse(grid: BlockGrid, b: RoomBounds, style: StylePalette)
   grid.set(cx - 2, y + height - 1, cz - 2, 'minecraft:glowstone');
   grid.set(cx + 2, y + height - 1, cz + 2, 'minecraft:glowstone');
   grid.set(cx, y + height - 1, cz, 'minecraft:glowstone');
+
+  // Additional potted plants in corners
+  grid.set(x1 + 1, y, z1 + 1, 'minecraft:potted_bamboo');
+  grid.set(x2 - 1, y, z1 + 1, 'minecraft:potted_dead_bush');
+  grid.set(x1 + 1, y, z2 - 1, 'minecraft:potted_birch_sapling');
+  grid.set(x2 - 1, y, z2 - 1, 'minecraft:potted_crimson_fungus');
 
   // Hanging vines (chains + lanterns)
   chandelier(grid, cx - 2, y + height - 1, cz, style, 2);
@@ -913,6 +943,13 @@ function generateCell(grid: BlockGrid, b: RoomBounds, style: StylePalette): void
 
   // Single torch for dim lighting
   grid.set(cx, y + 2, z2, style.torchN);
+
+  // Floor lantern for additional dim light
+  grid.set(x1, y, z2 - 1, style.lanternFloor);
+
+  // Cobweb decoration in upper corner
+  if (grid.inBounds(x2, y + height - 1, z2))
+    grid.set(x2, y + height - 1, z2, 'minecraft:cobweb');
 
   // Cracked floor patches
   grid.set(cx, y - 1, Math.floor((z1 + z2) / 2), 'minecraft:cracked_stone_bricks');
