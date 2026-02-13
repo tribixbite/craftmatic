@@ -14,6 +14,7 @@ import {
   windows, interiorWall, doorway, frontDoor, staircase,
   gabledRoof, chimney, wallTorches, porch,
 } from './structures.js';
+import { chandelier } from './furniture.js';
 import type { StylePalette } from './styles.js';
 
 /** Seeded pseudo-random number generator (mulberry32) */
@@ -73,6 +74,16 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
       return generateDungeon(floors, style, rooms, width, length, rng);
     case 'ship':
       return generateShip(floors, style, rooms, width, length, rng);
+    case 'cathedral':
+      return generateCathedral(floors, style, rooms, width, length, rng);
+    case 'bridge':
+      return generateBridge(floors, style, rooms, width, length, rng);
+    case 'windmill':
+      return generateWindmill(floors, style, rooms, width, length, rng);
+    case 'marketplace':
+      return generateMarketplace(floors, style, rooms, width, length, rng);
+    case 'village':
+      return generateVillage(floors, style, rooms, width, length, rng);
     case 'house':
     default:
       return generateHouse(floors, style, rooms, width, length, rng);
@@ -1355,6 +1366,820 @@ function generateShip(
     grid.set(cx, hullBase + 1, sz2, 'minecraft:carved_pumpkin[facing=south]');
 
   return grid;
+}
+
+// ─── Cathedral ───────────────────────────────────────────────────────────────
+
+function generateCathedral(
+  floors: number, style: StylePalette, _rooms: RoomType[] | undefined,
+  bwOpt: number | undefined, blOpt: number | undefined, _rng: () => number
+): BlockGrid {
+  const bw = bwOpt ?? 45;
+  const bl = blOpt ?? 60;
+  const margin = 5;
+  const gw = bw + margin * 2;
+  const gl = bl + margin * 2;
+  const mainH = Math.max(floors, 2) * STORY_H;
+  const gh = mainH + ROOF_H + 15; // extra for bell tower
+
+  const bx1 = margin;
+  const bx2 = margin + bw - 1;
+  const bz1 = margin;
+  const bz2 = margin + bl - 1;
+  const xMid = margin + Math.floor(bw / 2);
+  const naveW = Math.floor(bw * 0.4); // central nave width
+  const aisleW = Math.floor((bw - naveW) / 2); // side aisle width
+
+  const grid = new BlockGrid(gw, gh, gl);
+
+  // Foundation
+  foundation(grid, bx1, bz1, bx2, bz2, style);
+
+  // Main nave floor
+  grid.fill(bx1 + 1, 0, bz1 + 1, bx2 - 1, 0, bz2 - 1, style.floorGround);
+
+  // Exterior walls — full height of nave
+  for (let y = 1; y <= mainH; y++) {
+    for (let x = bx1; x <= bx2; x++) {
+      grid.set(x, y, bz1, style.wall);
+      grid.set(x, y, bz2, style.wall);
+    }
+    for (let z = bz1; z <= bz2; z++) {
+      grid.set(bx1, y, z, style.wall);
+      grid.set(bx2, y, z, style.wall);
+    }
+  }
+
+  // Nave ceiling (higher than aisles)
+  const naveX1 = bx1 + aisleW;
+  const naveX2 = bx2 - aisleW;
+  grid.fill(naveX1, mainH, bz1, naveX2, mainH, bz2, style.ceiling);
+
+  // Side aisle ceilings (lower)
+  const aisleH = Math.floor(mainH * 0.6);
+  grid.fill(bx1 + 1, aisleH, bz1 + 1, naveX1 - 1, aisleH, bz2 - 1, style.ceiling);
+  grid.fill(naveX2 + 1, aisleH, bz1 + 1, bx2 - 1, aisleH, bz2 - 1, style.ceiling);
+
+  // Pillar rows separating nave from side aisles
+  for (let z = bz1 + 4; z < bz2 - 3; z += 4) {
+    for (let y = 1; y <= mainH; y++) {
+      grid.set(naveX1, y, z, style.pillar);
+      grid.set(naveX2, y, z, style.pillar);
+    }
+  }
+
+  // Stained glass windows — tall paired windows along sides
+  for (let z = bz1 + 3; z < bz2 - 2; z += 4) {
+    for (let y = 3; y <= mainH - 2; y++) {
+      // High clerestory windows above aisle roof
+      if (y > aisleH) {
+        grid.set(naveX1 - 1, y, z, style.windowAccent);
+        grid.set(naveX2 + 1, y, z, style.windowAccent);
+      }
+      // Aisle windows
+      if (y <= aisleH - 1) {
+        grid.set(bx1, y, z, style.windowAccent);
+        grid.set(bx2, y, z, style.windowAccent);
+      }
+    }
+  }
+
+  // Rose window on front (Z = bz1) — circular stained glass pattern
+  const roseY = Math.floor(mainH * 0.65);
+  const roseR = 3;
+  for (let dx = -roseR; dx <= roseR; dx++) {
+    for (let dy = -roseR; dy <= roseR; dy++) {
+      if (Math.sqrt(dx * dx + dy * dy) <= roseR + 0.5) {
+        const rx = xMid + dx;
+        const ry = roseY + dy;
+        if (grid.inBounds(rx, ry, bz1)) {
+          // Alternate colors in concentric rings
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const glassColor = dist <= 1.5 ? 'minecraft:yellow_stained_glass_pane'
+            : dist <= 2.5 ? 'minecraft:red_stained_glass'
+            : 'minecraft:blue_stained_glass_pane';
+          grid.set(rx, ry, bz1, glassColor);
+        }
+      }
+    }
+  }
+
+  // Front entrance — arched doorway
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dy = 1; dy <= 5; dy++) {
+      if (grid.inBounds(xMid + dx, dy, bz1))
+        grid.set(xMid + dx, dy, bz1, 'minecraft:air');
+    }
+  }
+  // Arch top
+  grid.set(xMid - 2, 5, bz1, style.wallAccent);
+  grid.set(xMid + 2, 5, bz1, style.wallAccent);
+  grid.set(xMid - 1, 6, bz1, style.wallAccent);
+  grid.set(xMid + 1, 6, bz1, style.wallAccent);
+  grid.set(xMid, 6, bz1, style.wallAccent);
+  // Doors
+  grid.set(xMid - 1, 1, bz1, style.doorLowerS);
+  grid.set(xMid - 1, 2, bz1, style.doorUpperS);
+  grid.set(xMid, 1, bz1, style.doorLowerS);
+  grid.set(xMid, 2, bz1, style.doorUpperS);
+
+  // Apse (semicircular altar end at high-Z)
+  const apseR = Math.floor(naveW / 2) - 1;
+  const apseCZ = bz2;
+  for (let dx = -apseR; dx <= apseR; dx++) {
+    for (let dz = 0; dz <= apseR; dz++) {
+      if (Math.sqrt(dx * dx + dz * dz) <= apseR + 0.5) {
+        const ax = xMid + dx;
+        const az = apseCZ + dz;
+        if (grid.inBounds(ax, 0, az)) {
+          grid.set(ax, 0, az, style.floorGround);
+          // Apse walls (outer ring)
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist >= apseR - 0.5) {
+            for (let y = 1; y <= mainH; y++) {
+              grid.set(ax, y, az, style.wall);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Flying buttresses (exterior supports along sides)
+  for (let z = bz1 + 6; z < bz2 - 4; z += 8) {
+    for (const side of [bx1, bx2]) {
+      const dir = side === bx1 ? -1 : 1;
+      // Buttress pillar extending outward
+      for (let y = 1; y <= aisleH + 2; y++) {
+        const bx = side + dir * 2;
+        if (grid.inBounds(bx, y, z)) grid.set(bx, y, z, style.wall);
+      }
+      // Arch from pillar to wall
+      for (let i = 0; i <= 2; i++) {
+        const bx = side + dir * (2 - i);
+        const by = aisleH + i;
+        if (grid.inBounds(bx, by, z)) grid.set(bx, by, z, style.wall);
+      }
+    }
+  }
+
+  // Interior: pew rows (stairs facing altar)
+  const pewZ1 = bz1 + 8;
+  const pewZ2 = bz2 - 10;
+  for (let z = pewZ1; z <= pewZ2; z += 2) {
+    // Left pew block
+    for (let x = naveX1 + 2; x <= xMid - 2; x++) {
+      grid.set(x, 1, z, style.chairN);
+    }
+    // Right pew block
+    for (let x = xMid + 2; x <= naveX2 - 2; x++) {
+      grid.set(x, 1, z, style.chairN);
+    }
+  }
+
+  // Central aisle carpet
+  for (let z = bz1 + 1; z <= bz2 - 1; z++) {
+    grid.set(xMid - 1, 0, z, style.carpet);
+    grid.set(xMid, 0, z, style.carpet);
+    grid.set(xMid + 1, 0, z, style.carpet);
+  }
+
+  // Altar platform
+  grid.fill(xMid - 3, 0, bz2 - 5, xMid + 3, 0, bz2 - 3, style.wallAccent);
+  grid.fill(xMid - 2, 1, bz2 - 5, xMid + 2, 1, bz2 - 3, style.wallAccent);
+  grid.set(xMid, 2, bz2 - 4, 'minecraft:enchanting_table');
+
+  // Candle arrays flanking altar
+  for (const dx of [-3, -2, 2, 3]) {
+    grid.set(xMid + dx, 1, bz2 - 4, 'minecraft:candle[candles=4,lit=true]');
+  }
+
+  // Banners along nave pillars
+  for (let z = bz1 + 6; z < bz2 - 4; z += 8) {
+    grid.set(naveX1 + 1, 4, z, style.bannerS);
+    grid.set(naveX2 - 1, 4, z, style.bannerN);
+  }
+
+  // Bell tower (reusing circular tower logic, at front-left corner)
+  const towerR = 4;
+  const towerCX = bx1 - 1;
+  const towerCZ = bz1 - 1;
+  const towerH = mainH + 12;
+  for (let y = 0; y <= towerH; y++) {
+    for (let dx = -towerR; dx <= towerR; dx++) {
+      for (let dz = -towerR; dz <= towerR; dz++) {
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist <= towerR + 0.5) {
+          const tx = towerCX + dx;
+          const tz = towerCZ + dz;
+          if (!grid.inBounds(tx, y, tz)) continue;
+          if (y === 0) {
+            grid.set(tx, y, tz, style.foundation);
+          } else if (dist >= towerR - 0.5) {
+            grid.set(tx, y, tz, style.wall);
+          }
+        }
+      }
+    }
+  }
+  // Tower cone
+  for (let layer = 0; layer <= towerR + 1; layer++) {
+    const ry = towerH + 1 + layer;
+    const rr = towerR - layer;
+    if (rr <= 0 || !grid.inBounds(0, ry, 0)) break;
+    for (let dx = -rr; dx <= rr; dx++) {
+      for (let dz = -rr; dz <= rr; dz++) {
+        if (Math.sqrt(dx * dx + dz * dz) <= rr + 0.5) {
+          const tx = towerCX + dx;
+          const tz = towerCZ + dz;
+          if (grid.inBounds(tx, ry, tz)) grid.set(tx, ry, tz, style.roofS);
+        }
+      }
+    }
+  }
+  // Bell at top of tower
+  grid.set(towerCX, towerH - 2, towerCZ, 'minecraft:bell[attachment=ceiling,facing=north]');
+
+  // Nave roof (gabled)
+  gabledRoof(grid, naveX1, bz1, naveX2, bz2 - 5, mainH, ROOF_H, style);
+
+  // Chandeliers along nave
+  for (let z = bz1 + 8; z < bz2 - 8; z += 8) {
+    chandelier(grid, xMid, mainH - 1, z, style, 3);
+  }
+
+  // Wall torches in side aisles
+  for (let z = bz1 + 4; z < bz2 - 3; z += 6) {
+    grid.set(bx1 + 1, 3, z, style.torchE);
+    grid.set(bx2 - 1, 3, z, style.torchW);
+  }
+
+  return grid;
+}
+
+// ─── Bridge ──────────────────────────────────────────────────────────────────
+
+function generateBridge(
+  _floors: number, style: StylePalette, _rooms: RoomType[] | undefined,
+  bwOpt: number | undefined, blOpt: number | undefined, _rng: () => number
+): BlockGrid {
+  const bridgeW = bwOpt ?? 7;
+  const bridgeL = blOpt ?? 35;
+  const margin = 5;
+  const towerSize = 5;
+  const gw = bridgeW + margin * 2;
+  const gl = bridgeL + margin * 2 + towerSize * 2;
+  const archH = 8; // height of arch underneath
+  const deckY = archH + 2;
+  const gh = deckY + 15; // extra for towers
+
+  const bx1 = margin;
+  const bx2 = margin + bridgeW - 1;
+  const bz1 = margin + towerSize;
+  const bz2 = bz1 + bridgeL - 1;
+  const cx = margin + Math.floor(bridgeW / 2);
+
+  const grid = new BlockGrid(gw, gh, gl);
+
+  // Bridge deck
+  grid.fill(bx1, deckY, bz1, bx2, deckY, bz2, style.floorGround);
+
+  // Parabolic arch underneath
+  const midZ = Math.floor((bz1 + bz2) / 2);
+  const halfSpan = (bz2 - bz1) / 2;
+  for (let z = bz1; z <= bz2; z++) {
+    const t = (z - midZ) / halfSpan; // -1 to 1
+    const archTop = deckY - 1 - Math.round(archH * (1 - t * t)); // parabola
+    // Arch ribs at edges
+    for (const x of [bx1, bx2]) {
+      for (let y = Math.max(0, archTop); y <= deckY - 1; y++) {
+        if (grid.inBounds(x, y, z)) grid.set(x, y, z, style.wall);
+      }
+    }
+    // Arch bottom face
+    if (archTop >= 0 && grid.inBounds(cx, archTop, z)) {
+      for (let x = bx1; x <= bx2; x++) {
+        if (grid.inBounds(x, archTop, z)) grid.set(x, archTop, z, style.wall);
+      }
+    }
+  }
+
+  // Fence railings along bridge deck
+  for (let z = bz1; z <= bz2; z++) {
+    grid.set(bx1, deckY + 1, z, style.fence);
+    grid.set(bx2, deckY + 1, z, style.fence);
+  }
+
+  // Lanterns every 4 blocks on railings
+  for (let z = bz1 + 2; z <= bz2 - 2; z += 4) {
+    grid.set(bx1, deckY + 2, z, style.lanternFloor);
+    grid.set(bx2, deckY + 2, z, style.lanternFloor);
+  }
+
+  // End towers (square, at both ends)
+  for (const tz of [bz1 - towerSize, bz2 + 1]) {
+    const tz2 = tz + towerSize - 1;
+    // Tower foundation and walls
+    grid.fill(bx1 - 1, 0, tz, bx2 + 1, 0, tz2, style.foundation);
+    for (let y = 1; y <= deckY + 8; y++) {
+      exteriorWalls(grid, bx1 - 1, y, tz, bx2 + 1, y, tz2, style);
+    }
+    // Tower floor at deck level
+    grid.fill(bx1, deckY, tz, bx2, deckY, tz2, style.floorGround);
+    // Tower battlements
+    for (let x = bx1 - 1; x <= bx2 + 1; x += 2) {
+      grid.set(x, deckY + 9, tz, style.wall);
+      grid.set(x, deckY + 9, tz2, style.wall);
+    }
+    for (let z = tz; z <= tz2; z += 2) {
+      grid.set(bx1 - 1, deckY + 9, z, style.wall);
+      grid.set(bx2 + 1, deckY + 9, z, style.wall);
+    }
+    // Flat roof
+    grid.fill(bx1 - 1, deckY + 8, tz, bx2 + 1, deckY + 8, tz2, style.ceiling);
+    // Doorway from bridge into tower
+    const doorZ = tz === bz1 - towerSize ? tz2 : tz;
+    grid.set(cx, deckY + 1, doorZ, 'minecraft:air');
+    grid.set(cx, deckY + 2, doorZ, 'minecraft:air');
+    grid.set(cx, deckY + 3, doorZ, 'minecraft:air');
+    // Windows
+    windows(grid, bx1 - 1, tz, bx2 + 1, tz2, deckY + 3, deckY + 5, style, 3);
+  }
+
+  // Water indicator (blue blocks along edges below bridge)
+  for (let z = bz1 + 2; z <= bz2 - 2; z++) {
+    for (let x = bx1 - 2; x <= bx2 + 2; x++) {
+      if (grid.inBounds(x, 0, z)) grid.set(x, 0, z, 'minecraft:water');
+    }
+  }
+
+  // Path on deck (accent center strip)
+  for (let z = bz1; z <= bz2; z++) {
+    grid.set(cx, deckY, z, 'minecraft:polished_deepslate');
+  }
+
+  return grid;
+}
+
+// ─── Windmill ────────────────────────────────────────────────────────────────
+
+function generateWindmill(
+  floors: number, style: StylePalette, _rooms: RoomType[] | undefined,
+  bwOpt: number | undefined, _blOpt: number | undefined, _rng: () => number
+): BlockGrid {
+  const baseR = bwOpt ? Math.floor(bwOpt / 2) : 6;
+  const numFloors = Math.max(floors, 3);
+  const margin = 5;
+  const diam = baseR * 2 + 1;
+  const gw = diam + margin * 2 + 10; // extra for blades
+  const gl = diam + margin * 2 + 10;
+  const gh = numFloors * STORY_H + 20; // extra for blades
+
+  const cx = Math.floor(gw / 2);
+  const cz = Math.floor(gl / 2);
+  const grid = new BlockGrid(gw, gh, gl);
+
+  // Tapering circular tower
+  for (let story = 0; story < numFloors; story++) {
+    const by = story * STORY_H;
+    const cy = by + STORY_H;
+    // Radius decreases per floor for taper
+    const r = Math.max(3, baseR - story);
+
+    // Floor
+    fillCircle(grid, cx, by, cz, r - 1, story === 0 ? style.floorGround : style.floorUpper);
+
+    // Walls
+    for (let y = by + 1; y < cy; y++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist >= r - 0.5 && dist <= r + 0.5) {
+            grid.set(cx + dx, y, cz + dz, style.wall);
+          }
+        }
+      }
+    }
+
+    // Ceiling
+    if (story === numFloors - 1) {
+      fillCircle(grid, cx, cy, cz, r, style.ceiling);
+    }
+
+    // Windows
+    for (const [dx, dz] of [[r, 0], [-r, 0], [0, r], [0, -r]]) {
+      if (grid.inBounds(cx + dx, by + 2, cz + dz)) {
+        grid.set(cx + dx, by + 2, cz + dz, style.window);
+        grid.set(cx + dx, by + 3, cz + dz, style.window);
+      }
+    }
+
+    // Spiral stairs (except top floor)
+    if (story < numFloors - 1) {
+      const angle = story * Math.PI * 0.5;
+      for (let step = 0; step < 5; step++) {
+        const sa = angle + (step / 5) * Math.PI * 0.5;
+        const sx = cx + Math.round(Math.cos(sa) * (r - 2));
+        const sz = cz + Math.round(Math.sin(sa) * (r - 2));
+        const sy = by + 1 + step;
+        if (grid.inBounds(sx, sy, sz)) {
+          grid.set(sx, sy, sz, 'minecraft:oak_stairs[facing=south]');
+          for (let cly = sy + 1; cly < sy + 4; cly++) {
+            if (grid.inBounds(sx, cly, sz)) grid.set(sx, cly, sz, 'minecraft:air');
+          }
+        }
+      }
+    }
+  }
+
+  // Ground floor: grindstone + hay storage
+  grid.set(cx + 2, 1, cz, 'minecraft:grindstone[face=floor,facing=north]');
+  grid.set(cx - 2, 1, cz, 'minecraft:hay_block');
+  grid.set(cx - 2, 2, cz, 'minecraft:hay_block');
+  grid.set(cx - 2, 1, cz + 1, 'minecraft:hay_block');
+  grid.addBarrel(cx + 2, 1, cz + 2, 'up', [
+    { slot: 0, id: 'minecraft:wheat', count: 64 },
+    { slot: 1, id: 'minecraft:bread', count: 32 },
+  ]);
+
+  // Front door
+  grid.set(cx, 1, cz - baseR, style.doorLowerS);
+  grid.set(cx, 2, cz - baseR, style.doorUpperS);
+  grid.set(cx, 3, cz - baseR, 'minecraft:air');
+
+  // Blade level — at the top floor
+  const bladeY = (numFloors - 1) * STORY_H + 3;
+  const topR = Math.max(3, baseR - (numFloors - 1));
+
+  // 4-arm blade structure extending from front face (z = cz - topR)
+  const bladeLen = baseR + 3;
+  const bladeFaceZ = cz - topR - 1;
+
+  // Blade hub
+  grid.set(cx, bladeY, bladeFaceZ, style.timber);
+
+  // 4 blades: up, down, left, right from hub
+  const bladeDirections: [number, number][] = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+  for (const [dx, dy] of bladeDirections) {
+    for (let i = 1; i <= bladeLen; i++) {
+      const bx = cx + dx * i;
+      const by = bladeY + dy * i;
+      if (grid.inBounds(bx, by, bladeFaceZ)) {
+        grid.set(bx, by, bladeFaceZ, style.fence);
+        // Wool sail on one side of each arm
+        if (i >= 2 && i <= bladeLen - 1) {
+          const sailX = bx + (dy !== 0 ? 1 : 0);
+          const sailY = by + (dx !== 0 ? 1 : 0);
+          if (grid.inBounds(sailX, sailY, bladeFaceZ))
+            grid.set(sailX, sailY, bladeFaceZ, 'minecraft:white_wool');
+        }
+      }
+    }
+  }
+
+  // Balcony at blade level (ring around tower)
+  const balcR = topR + 2;
+  for (let dx = -balcR; dx <= balcR; dx++) {
+    for (let dz = -balcR; dz <= balcR; dz++) {
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist >= topR + 0.5 && dist <= balcR + 0.5) {
+        if (grid.inBounds(cx + dx, bladeY - 1, cz + dz))
+          grid.set(cx + dx, bladeY - 1, cz + dz, style.slabBottom);
+      }
+      if (dist >= balcR - 0.5 && dist <= balcR + 0.5) {
+        if (grid.inBounds(cx + dx, bladeY, cz + dz))
+          grid.set(cx + dx, bladeY, cz + dz, style.fence);
+      }
+    }
+  }
+
+  // Conical roof
+  const roofBase = numFloors * STORY_H;
+  const roofR = Math.max(3, baseR - (numFloors - 1));
+  for (let layer = 0; layer <= roofR + 2; layer++) {
+    const ry = roofBase + 1 + layer;
+    const rr = roofR + 1 - layer;
+    if (rr <= 0 || !grid.inBounds(0, ry, 0)) break;
+    for (let dx = -rr; dx <= rr; dx++) {
+      for (let dz = -rr; dz <= rr; dz++) {
+        if (Math.sqrt(dx * dx + dz * dz) <= rr + 0.5) {
+          if (grid.inBounds(cx + dx, ry, cz + dz))
+            grid.set(cx + dx, ry, cz + dz, style.roofS);
+        }
+      }
+    }
+  }
+
+  // Torches inside
+  for (let story = 0; story < numFloors; story++) {
+    const r = Math.max(3, baseR - story);
+    for (const [tx, tz] of [[cx + r - 1, cz], [cx - r + 1, cz], [cx, cz + r - 1], [cx, cz - r + 1]]) {
+      if (grid.inBounds(tx, story * STORY_H + 3, tz))
+        grid.set(tx, story * STORY_H + 3, tz, style.lantern);
+    }
+  }
+
+  return grid;
+}
+
+// ─── Marketplace ─────────────────────────────────────────────────────────────
+
+function generateMarketplace(
+  _floors: number, style: StylePalette, _rooms: RoomType[] | undefined,
+  bwOpt: number | undefined, blOpt: number | undefined, _rng: () => number
+): BlockGrid {
+  const bw = bwOpt ?? 25;
+  const bl = blOpt ?? 20;
+  const margin = 3;
+  const gw = bw + margin * 2;
+  const gl = bl + margin * 2;
+  const gh = 12;
+
+  const bx1 = margin;
+  const bx2 = margin + bw - 1;
+  const bz1 = margin;
+  const bz2 = margin + bl - 1;
+  const xMid = margin + Math.floor(bw / 2);
+  const zMid = margin + Math.floor(bl / 2);
+
+  const grid = new BlockGrid(gw, gh, gl);
+
+  // Ground floor
+  grid.fill(bx1, 0, bz1, bx2, 0, bz2, style.floorGround);
+
+  // Perimeter low wall with fence posts
+  for (let x = bx1; x <= bx2; x++) {
+    grid.set(x, 1, bz1, style.wall);
+    grid.set(x, 1, bz2, style.wall);
+  }
+  for (let z = bz1; z <= bz2; z++) {
+    grid.set(bx1, 1, z, style.wall);
+    grid.set(bx2, 1, z, style.wall);
+  }
+  // Fence on top of low wall
+  for (let x = bx1; x <= bx2; x += 2) {
+    grid.set(x, 2, bz1, style.fence);
+    grid.set(x, 2, bz2, style.fence);
+  }
+  for (let z = bz1; z <= bz2; z += 2) {
+    grid.set(bx1, 2, z, style.fence);
+    grid.set(bx2, 2, z, style.fence);
+  }
+
+  // Gates (openings at mid-points)
+  for (let dy = 1; dy <= 2; dy++) {
+    grid.set(xMid, dy, bz1, 'minecraft:air');
+    grid.set(xMid - 1, dy, bz1, 'minecraft:air');
+    grid.set(xMid, dy, bz2, 'minecraft:air');
+    grid.set(xMid - 1, dy, bz2, 'minecraft:air');
+  }
+
+  // Covered central walkway (E-W through middle)
+  for (let x = bx1 + 2; x <= bx2 - 2; x++) {
+    grid.set(x, 0, zMid, 'minecraft:polished_deepslate');
+    // Roof over walkway
+    grid.set(x, 4, zMid - 1, style.slabBottom);
+    grid.set(x, 4, zMid, style.slabBottom);
+    grid.set(x, 4, zMid + 1, style.slabBottom);
+  }
+  // Walkway support columns
+  for (let x = bx1 + 3; x <= bx2 - 3; x += 4) {
+    for (let y = 1; y <= 3; y++) {
+      grid.set(x, y, zMid - 1, style.fence);
+      grid.set(x, y, zMid + 1, style.fence);
+    }
+  }
+
+  // Stall grid — 2 rows, north and south of walkway
+  const stallItems = [
+    'minecraft:apple', 'minecraft:bread', 'minecraft:emerald',
+    'minecraft:iron_ingot', 'minecraft:book', 'minecraft:golden_apple',
+    'minecraft:diamond', 'minecraft:potion',
+  ];
+  let stallIdx = 0;
+  for (const stallRow of [bz1 + 3, bz2 - 3]) {
+    for (let sx = bx1 + 3; sx <= bx2 - 5; sx += 6) {
+      // Stall posts
+      for (let y = 1; y <= 3; y++) {
+        grid.set(sx, y, stallRow, style.fence);
+        grid.set(sx + 3, y, stallRow, style.fence);
+      }
+      // Slab roof
+      grid.fill(sx, 4, stallRow - 1, sx + 3, 4, stallRow + 1, style.slabBottom);
+      // Counter / display table
+      grid.set(sx + 1, 1, stallRow, style.fence);
+      grid.set(sx + 1, 2, stallRow, style.carpet);
+      grid.set(sx + 2, 1, stallRow, style.fence);
+      grid.set(sx + 2, 2, stallRow, style.carpet);
+      // Display items
+      grid.addChest(sx + 1, 1, stallRow + 1, 'north', [
+        { slot: 0, id: stallItems[stallIdx % stallItems.length], count: 32 },
+      ]);
+      stallIdx++;
+      // Lantern
+      grid.set(sx + 2, 3, stallRow, style.lantern);
+    }
+  }
+
+  // Well/fountain in center
+  grid.fill(xMid - 1, 0, zMid - 1, xMid + 1, 0, zMid + 1, 'minecraft:stone_bricks');
+  grid.set(xMid, 0, zMid, 'minecraft:water_cauldron[level=3]');
+  for (const [wx, wz] of [[xMid - 1, zMid - 1], [xMid + 1, zMid - 1],
+                            [xMid - 1, zMid + 1], [xMid + 1, zMid + 1]]) {
+    grid.set(wx, 1, wz, style.fence);
+    grid.set(wx, 2, wz, style.fence);
+  }
+  grid.fill(xMid - 1, 3, zMid - 1, xMid + 1, 3, zMid + 1, style.slabBottom);
+  grid.set(xMid, 2, zMid, 'minecraft:chain');
+  grid.set(xMid, 1, zMid, style.lanternFloor);
+
+  // Path from gates to center
+  for (let z = bz1 + 1; z <= bz2 - 1; z++) {
+    grid.set(xMid, 0, z, 'minecraft:polished_deepslate');
+  }
+
+  // Corner lanterns
+  grid.set(bx1 + 1, 1, bz1 + 1, style.lanternFloor);
+  grid.set(bx2 - 1, 1, bz1 + 1, style.lanternFloor);
+  grid.set(bx1 + 1, 1, bz2 - 1, style.lanternFloor);
+  grid.set(bx2 - 1, 1, bz2 - 1, style.lanternFloor);
+
+  // Banners at gates
+  grid.set(xMid - 2, 3, bz1, style.bannerS);
+  grid.set(xMid + 1, 3, bz1, style.bannerS);
+  grid.set(xMid - 2, 3, bz2, style.bannerN);
+  grid.set(xMid + 1, 3, bz2, style.bannerN);
+
+  return grid;
+}
+
+// ─── Village ─────────────────────────────────────────────────────────────────
+
+function generateVillage(
+  floors: number, style: StylePalette, rooms: RoomType[] | undefined,
+  _bwOpt: number | undefined, _blOpt: number | undefined, rng: () => number
+): BlockGrid {
+  const gridSize = 80;
+  const margin = 5;
+  const gw = gridSize + margin * 2;
+  const gl = gridSize + margin * 2;
+  const gh = floors * STORY_H + ROOF_H + 15;
+
+  const grid = new BlockGrid(gw, gh, gl);
+
+  // Green ground layer
+  grid.fill(margin, 0, margin, margin + gridSize - 1, 0, margin + gridSize - 1, 'minecraft:grass_block');
+
+  // Building placement grid — evenly spaced positions avoiding overlap
+  const buildingSpots: { x: number; z: number; type: 'house' | 'tower' | 'marketplace' }[] = [];
+  const cx = margin + Math.floor(gridSize / 2);
+  const cz = margin + Math.floor(gridSize / 2);
+
+  // Central marketplace
+  buildingSpots.push({ x: cx - 12, z: cz - 10, type: 'marketplace' });
+
+  // Houses scattered around (3-5)
+  const housePositions: [number, number][] = [
+    [margin + 5, margin + 5],
+    [margin + gridSize - 30, margin + 5],
+    [margin + 5, margin + gridSize - 28],
+    [margin + gridSize - 30, margin + gridSize - 28],
+  ];
+  const numHouses = 3 + Math.floor(rng() * 2); // 3-4 houses
+  for (let i = 0; i < Math.min(numHouses, housePositions.length); i++) {
+    buildingSpots.push({ x: housePositions[i][0], z: housePositions[i][1], type: 'house' });
+  }
+
+  // One tower
+  buildingSpots.push({ x: cx + 15, z: cz - 5, type: 'tower' });
+
+  // Generate each building as a sub-structure and paste blocks
+  for (const spot of buildingSpots) {
+    let subGrid: BlockGrid;
+    switch (spot.type) {
+      case 'house':
+        subGrid = generateHouse(Math.min(floors, 2), style, rooms, 15, 13, rng);
+        break;
+      case 'tower':
+        subGrid = generateTower(Math.min(floors, 3), style, rooms, 10, undefined, rng);
+        break;
+      case 'marketplace':
+        subGrid = generateMarketplace(1, style, undefined, 20, 16, rng);
+        break;
+    }
+    // Paste sub-grid into main grid
+    pasteGrid(grid, subGrid, spot.x, 0, spot.z);
+  }
+
+  // Path network connecting buildings to center
+  const wellX = cx;
+  const wellZ = cz;
+  for (const spot of buildingSpots) {
+    const sx = spot.x + 8; // approximate center of each building
+    const sz = spot.z + 8;
+    // Horizontal path segment
+    const startX = Math.min(sx, wellX);
+    const endX = Math.max(sx, wellX);
+    for (let x = startX; x <= endX; x++) {
+      for (let dz = -1; dz <= 0; dz++) {
+        if (grid.inBounds(x, 0, sz + dz))
+          grid.set(x, 0, sz + dz, 'minecraft:cobblestone');
+      }
+    }
+    // Vertical path segment
+    const startZ = Math.min(sz, wellZ);
+    const endZ = Math.max(sz, wellZ);
+    for (let z = startZ; z <= endZ; z++) {
+      for (let dx = -1; dx <= 0; dx++) {
+        if (grid.inBounds(wellX + dx, 0, z))
+          grid.set(wellX + dx, 0, z, 'minecraft:cobblestone');
+      }
+    }
+  }
+
+  // Central well/fountain
+  grid.fill(wellX - 1, 0, wellZ - 1, wellX + 1, 0, wellZ + 1, 'minecraft:stone_bricks');
+  grid.set(wellX, 0, wellZ, 'minecraft:water_cauldron[level=3]');
+  for (const [wx, wz] of [[wellX - 1, wellZ - 1], [wellX + 1, wellZ - 1],
+                            [wellX - 1, wellZ + 1], [wellX + 1, wellZ + 1]]) {
+    grid.set(wx, 1, wz, style.fence);
+    grid.set(wx, 2, wz, style.fence);
+  }
+  grid.fill(wellX - 1, 3, wellZ - 1, wellX + 1, 3, wellZ + 1, style.slabBottom);
+  grid.set(wellX, 2, wellZ, 'minecraft:chain');
+  grid.set(wellX, 1, wellZ, style.lanternFloor);
+
+  // Perimeter fence
+  for (let x = margin; x <= margin + gridSize - 1; x++) {
+    grid.set(x, 1, margin, style.fence);
+    grid.set(x, 1, margin + gridSize - 1, style.fence);
+  }
+  for (let z = margin; z <= margin + gridSize - 1; z++) {
+    grid.set(margin, 1, z, style.fence);
+    grid.set(margin + gridSize - 1, 1, z, style.fence);
+  }
+
+  // Scattered trees (simple: 4-6h log + leaf canopy sphere)
+  const treePositions: [number, number][] = [
+    [cx - 20, cz + 15], [cx + 20, cz + 15],
+    [cx - 20, cz - 15], [cx + 25, cz - 20],
+    [cx + 5, cz + 25], [cx - 10, cz - 25],
+  ];
+  for (const [tx, tz] of treePositions) {
+    if (!grid.inBounds(tx, 0, tz)) continue;
+    const trunkH = 4 + Math.floor(rng() * 3);
+    // Trunk
+    for (let y = 1; y <= trunkH; y++) {
+      if (grid.inBounds(tx, y, tz)) grid.set(tx, y, tz, 'minecraft:oak_log');
+    }
+    // Leaf canopy (sphere radius 2-3)
+    const leafR = 2;
+    for (let dx = -leafR; dx <= leafR; dx++) {
+      for (let dy = -1; dy <= leafR; dy++) {
+        for (let dz = -leafR; dz <= leafR; dz++) {
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (dist <= leafR + 0.5) {
+            const lx = tx + dx;
+            const ly = trunkH + dy;
+            const lz = tz + dz;
+            if (grid.inBounds(lx, ly, lz) && grid.get(lx, ly, lz) === 'minecraft:air') {
+              grid.set(lx, ly, lz, 'minecraft:oak_leaves[persistent=true]');
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Lanterns along paths at intersections
+  for (let z = margin + 10; z < margin + gridSize - 10; z += 10) {
+    if (grid.inBounds(wellX + 2, 1, z))
+      grid.set(wellX + 2, 1, z, style.lanternFloor);
+  }
+
+  return grid;
+}
+
+/** Paste a source grid into a target grid at the given offset */
+function pasteGrid(
+  target: BlockGrid, source: BlockGrid,
+  offsetX: number, offsetY: number, offsetZ: number
+): void {
+  for (let x = 0; x < source.width; x++) {
+    for (let y = 0; y < source.height; y++) {
+      for (let z = 0; z < source.length; z++) {
+        const block = source.get(x, y, z);
+        if (block !== 'minecraft:air') {
+          const tx = x + offsetX;
+          const ty = y + offsetY;
+          const tz = z + offsetZ;
+          if (target.inBounds(tx, ty, tz)) {
+            target.set(tx, ty, tz, block);
+          }
+        }
+      }
+    }
+  }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
