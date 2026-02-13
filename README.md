@@ -2,6 +2,17 @@
 
 Minecraft schematic toolkit — parse, generate, render, and convert `.schem` files.
 
+<p align="center">
+  <img src="docs/images/castle_steampunk.png" width="400" alt="Steampunk Castle">
+  <img src="docs/images/village_desert.png" width="400" alt="Desert Village">
+</p>
+<p align="center">
+  <img src="docs/images/cathedral_elven.png" width="400" alt="Elven Cathedral">
+  <img src="docs/images/ship_fantasy.png" width="400" alt="Fantasy Ship">
+</p>
+
+> Textured isometric renders — 334 Faithful 32x textures, 10 structure types, 9 architectural styles
+
 ## Features
 
 - **Parse & Write** Sponge Schematic v2 (`.schem`) files
