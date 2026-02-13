@@ -43,6 +43,14 @@ export function startViewerServer(
     console.log(`  3D viewer running at http://localhost:${port}`);
   });
 
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(chalk.red(`  Port ${port} is already in use. Try: --port ${port + 1}`));
+      process.exit(1);
+    }
+    throw err;
+  });
+
   return {
     close: () => server.close(),
   };
@@ -86,6 +94,14 @@ export function startWebAppServer(
         // Browser open is best-effort; server still runs
       }
     }
+  });
+
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(chalk.red(`  Port ${port} is already in use. Try: --port ${port + 1}`));
+      process.exit(1);
+    }
+    throw err;
   });
 
   return { close: () => server.close() };
