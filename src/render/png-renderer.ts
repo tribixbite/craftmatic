@@ -2,13 +2,28 @@
  * 2D PNG renderer — produces floor plans, cutaway isometrics,
  * and exterior views from schematic data.
  * Uses pureimage (pure JS) for cross-platform PNG encoding.
+ *
+ * Supports textured rendering via the ProceduralAtlas (Faithful 32x + procedural
+ * fallback) and custom item sprites for furniture/decorative blocks.
  */
 
 import { BlockGrid } from '../schem/types.js';
-import { getBlockColor, FURNITURE_BLOCKS, LIGHT_BLOCKS, BED_BLOCKS, DOOR_BLOCKS } from '../blocks/colors.js';
+import { getBlockColor, FURNITURE_BLOCKS, LIGHT_BLOCKS, DOOR_BLOCKS } from '../blocks/colors.js';
 import { getBaseId, isSolidBlock } from '../blocks/registry.js';
+import { getBlockTextures } from '../blocks/textures.js';
+import { initDefaultAtlas, type ProceduralAtlas } from './texture-atlas.js';
+import { getItemSprite, ITEM_SPRITE_SIZE } from './item-sprites.js';
 import type { RGB } from '../types/index.js';
 import { Writable } from 'node:stream';
+
+/** Cached atlas instance for textured rendering */
+let atlas: ProceduralAtlas | null = null;
+
+/** Ensure atlas is loaded (called once per render session) */
+async function ensureAtlas(): Promise<ProceduralAtlas> {
+  if (!atlas) atlas = await initDefaultAtlas();
+  return atlas;
+}
 
 /**
  * Encode a raw RGBA pixel buffer to PNG.
@@ -46,13 +61,157 @@ function clamp(v: number): number {
   return Math.max(0, Math.min(255, Math.round(v)));
 }
 
+// ─── Texture Blitting Helpers ─────────────────────────────────────────────────
+
+/**
+ * Blit a texture tile (nearest-neighbor scale) to a rectangular cell.
+ * Applies RGB tint multiplier (0.0–1.0 per channel).
+ */
+function blitTextureTile(
+  buf: Buffer, imgW: number, px: number, py: number,
+  cellSize: number, textureData: Uint8Array, tileSize: number,
+  tintR = 1.0, tintG = 1.0, tintB = 1.0,
+): void {
+  for (let dy = 0; dy < cellSize; dy++) {
+    const ty = Math.min(Math.floor(dy * tileSize / cellSize), tileSize - 1);
+    for (let dx = 0; dx < cellSize; dx++) {
+      const tx = Math.min(Math.floor(dx * tileSize / cellSize), tileSize - 1);
+      const srcIdx = (ty * tileSize + tx) * 4;
+      const a = textureData[srcIdx + 3];
+      if (a < 128) continue; // Skip transparent pixels
+      const r = clamp(textureData[srcIdx] * tintR);
+      const g = clamp(textureData[srcIdx + 1] * tintG);
+      const b = clamp(textureData[srcIdx + 2] * tintB);
+      setPixel(buf, imgW, px + dx, py + dy, [r, g, b]);
+    }
+  }
+}
+
+/**
+ * Blit a 16x16 sprite centered in a cell, scaled to cellSize.
+ */
+function blitSprite(
+  buf: Buffer, imgW: number, px: number, py: number,
+  cellSize: number, spriteData: Uint8Array,
+): void {
+  const spriteSize = ITEM_SPRITE_SIZE;
+  for (let dy = 0; dy < cellSize; dy++) {
+    const sy = Math.min(Math.floor(dy * spriteSize / cellSize), spriteSize - 1);
+    for (let dx = 0; dx < cellSize; dx++) {
+      const sx = Math.min(Math.floor(dx * spriteSize / cellSize), spriteSize - 1);
+      const srcIdx = (sy * spriteSize + sx) * 4;
+      const a = spriteData[srcIdx + 3];
+      if (a < 128) continue;
+      setPixel(buf, imgW, px + dx, py + dy, [
+        spriteData[srcIdx], spriteData[srcIdx + 1], spriteData[srcIdx + 2],
+      ]);
+    }
+  }
+}
+
+/**
+ * Blit textured isometric top face (diamond shape).
+ * Maps diamond pixels back to texture UV and applies brightness tint.
+ */
+function blitTextureIsoTop(
+  buf: Buffer, imgW: number, sx: number, sy: number,
+  _tile: number, halfT: number, textureData: Uint8Array, tileSize: number,
+  brightness: number,
+): void {
+  for (let row = 0; row <= halfT * 2; row++) {
+    const width = row <= halfT ? row : halfT * 2 - row;
+    const y = sy + row;
+    for (let dx = 0; dx <= width * 2; dx++) {
+      const x = sx - width + dx;
+      // Map screen position to texture UV (0-1)
+      const u = (dx / (width * 2 + 1)) || 0;
+      const v = row / (halfT * 2);
+      const tx = Math.min(Math.floor(u * tileSize), tileSize - 1);
+      const ty = Math.min(Math.floor(v * tileSize), tileSize - 1);
+      const srcIdx = (ty * tileSize + tx) * 4;
+      if (textureData[srcIdx + 3] < 128) continue;
+      setPixel(buf, imgW, x, y, [
+        clamp(textureData[srcIdx] * brightness),
+        clamp(textureData[srcIdx + 1] * brightness),
+        clamp(textureData[srcIdx + 2] * brightness),
+      ]);
+    }
+  }
+}
+
+/**
+ * Blit textured isometric left face (parallelogram sloping down-right).
+ */
+function blitTextureIsoLeft(
+  buf: Buffer, imgW: number, sx: number, sy: number,
+  w: number, h: number, textureData: Uint8Array, tileSize: number,
+  brightness: number,
+): void {
+  for (let row = 0; row < h; row++) {
+    const xStart = sx + Math.floor(row / 2);
+    const v = row / h;
+    for (let dx = 0; dx < w; dx++) {
+      const u = dx / w;
+      const tx = Math.min(Math.floor(u * tileSize), tileSize - 1);
+      const ty = Math.min(Math.floor(v * tileSize), tileSize - 1);
+      const srcIdx = (ty * tileSize + tx) * 4;
+      if (textureData[srcIdx + 3] < 128) continue;
+      setPixel(buf, imgW, xStart + dx, sy + row, [
+        clamp(textureData[srcIdx] * brightness),
+        clamp(textureData[srcIdx + 1] * brightness),
+        clamp(textureData[srcIdx + 2] * brightness),
+      ]);
+    }
+  }
+}
+
+/**
+ * Blit textured isometric right face (parallelogram sloping down-left).
+ */
+function blitTextureIsoRight(
+  buf: Buffer, imgW: number, sx: number, sy: number,
+  w: number, h: number, textureData: Uint8Array, tileSize: number,
+  brightness: number,
+): void {
+  for (let row = 0; row < h; row++) {
+    const xStart = sx - Math.floor(row / 2);
+    const v = row / h;
+    for (let dx = 0; dx < w; dx++) {
+      const u = dx / w;
+      const tx = Math.min(Math.floor(u * tileSize), tileSize - 1);
+      const ty = Math.min(Math.floor(v * tileSize), tileSize - 1);
+      const srcIdx = (ty * tileSize + tx) * 4;
+      if (textureData[srcIdx + 3] < 128) continue;
+      setPixel(buf, imgW, xStart + dx, sy + row, [
+        clamp(textureData[srcIdx] * brightness),
+        clamp(textureData[srcIdx + 1] * brightness),
+        clamp(textureData[srcIdx + 2] * brightness),
+      ]);
+    }
+  }
+}
+
+/**
+ * Get texture data for a block face, falling back to null.
+ */
+function getTexData(atlas: ProceduralAtlas, blockState: string, face: 'top' | 'north' | 'south' | 'east' | 'west' | 'bottom'): Uint8Array | null {
+  const textures = getBlockTextures(blockState);
+  const texName = textures[face];
+  const entry = atlas.entries.get(texName);
+  return entry?.data ?? null;
+}
+
+// ─── Render Functions ─────────────────────────────────────────────────────────
+
 /**
  * Render a detailed top-down floor plan for a single story.
+ * Uses atlas textures with item sprite overlays.
  */
 export async function renderFloorDetail(
   grid: BlockGrid, story: number,
   options: { scale?: number; storyH?: number; output?: string; title?: string } = {}
 ): Promise<Buffer> {
+  const texAtlas = await ensureAtlas();
   let { scale = 40 } = options;
   const { storyH = 5 } = options;
   const { width: w, length: l } = grid;
@@ -109,90 +268,74 @@ export async function renderFloorDetail(
         continue;
       }
 
-      let [r, g, b] = color;
       const baseId = getBaseId(blockState);
+      const tint = layer === 'floor' ? 0.7 : 1.0;
 
-      if (layer === 'floor') {
-        r = Math.round(r * 0.7);
-        g = Math.round(g * 0.7);
-        b = Math.round(b * 0.7);
+      // Try textured rendering first
+      const texData = getTexData(texAtlas, blockState, 'top');
+      if (texData && scale >= 4) {
+        blitTextureTile(pixels, imgW, px + 1, py + 1, scale - 2,
+          texData, texAtlas.tileSize, tint, tint, tint);
+      } else {
+        let [r, g, b] = color;
+        if (layer === 'floor') {
+          r = Math.round(r * 0.7);
+          g = Math.round(g * 0.7);
+          b = Math.round(b * 0.7);
+        }
+        fillRect(pixels, imgW, px + 1, py + 1, scale - 2, scale - 2, [r, g, b]);
       }
 
-      fillRect(pixels, imgW, px + 1, py + 1, scale - 2, scale - 2, [r, g, b]);
+      // Cell outline
+      const [cr, cg, cb] = color;
       drawRectOutline(pixels, imgW, px, py, scale, scale,
-        [clamp(r - 50), clamp(g - 50), clamp(b - 50)]);
+        [clamp(cr * tint - 50), clamp(cg * tint - 50), clamp(cb * tint - 50)]);
 
-      const cx = px + Math.floor(scale / 2);
-      const cy = py + Math.floor(scale / 2);
-      const hs = Math.max(2, Math.floor(scale / 6));
+      // --- Item sprites and decorative overlays ---
+      const sprite = getItemSprite(baseId);
+      if (sprite) {
+        // Blit custom item sprite on top of texture
+        blitSprite(pixels, imgW, px + 1, py + 1, scale - 2, sprite);
+      } else {
+        // Fallback markers for items without sprites
+        const cx = px + Math.floor(scale / 2);
+        const cy = py + Math.floor(scale / 2);
+        const hs = Math.max(2, Math.floor(scale / 6));
 
-      // --- Item-specific decorative markers ---
-
-      // Telescope: gray vertical line + purple diamond on top
-      if (baseId === 'minecraft:end_rod') {
-        fillRect(pixels, imgW, cx - 1, cy - hs, 2, hs * 2, [180, 180, 190]);
-      } else if (baseId === 'minecraft:amethyst_cluster') {
-        const ds = Math.max(2, Math.floor(scale / 5));
-        fillCircle(pixels, imgW, cx, cy, ds, [170, 90, 220]);
-      // Cartography table: green/brown square with cross-lines
-      } else if (baseId === 'minecraft:cartography_table') {
-        const ms = Math.max(2, Math.floor(scale / 5));
-        fillRect(pixels, imgW, cx - ms, cy - ms, ms * 2, ms * 2, [90, 120, 60]);
-        drawLine(pixels, imgW, cx - ms, cy, cx + ms, cy, [60, 80, 40]);
-        drawLine(pixels, imgW, cx, cy - ms, cx, cy + ms, [60, 80, 40]);
-      // Candle: yellow flame triangle
-      } else if (baseId === 'minecraft:candle') {
-        const fs = Math.max(2, Math.floor(scale / 5));
-        fillRect(pixels, imgW, cx - 1, cy, 2, fs, [200, 160, 50]);
-        fillCircle(pixels, imgW, cx, cy - 1, Math.max(1, fs - 1), [255, 230, 80]);
-      // Plates: thin horizontal bar
-      } else if (baseId === 'minecraft:stone_pressure_plate') {
-        const pw = Math.max(3, Math.floor(scale / 3));
-        fillRect(pixels, imgW, cx - pw, cy - 1, pw * 2, 2, [160, 160, 160]);
-      // Lantern/soul_lantern: warm/cool circle + chain line above
-      } else if (baseId === 'minecraft:lantern') {
-        const lr = Math.max(2, Math.floor(scale / 6));
-        fillCircle(pixels, imgW, cx, cy + 1, lr, [255, 200, 70]);
-        fillRect(pixels, imgW, cx, cy - hs, 1, hs, [120, 120, 130]);
-      } else if (baseId === 'minecraft:soul_lantern') {
-        const lr = Math.max(2, Math.floor(scale / 6));
-        fillCircle(pixels, imgW, cx, cy + 1, lr, [80, 200, 220]);
-        fillRect(pixels, imgW, cx, cy - hs, 1, hs, [120, 120, 130]);
-      // Sea lantern: cyan glow circle
-      } else if (baseId === 'minecraft:sea_lantern') {
-        fillCircle(pixels, imgW, cx, cy, hs, [120, 220, 230]);
-      // Redstone lamp: warm orange glow
-      } else if (baseId === 'minecraft:redstone_lamp') {
-        fillCircle(pixels, imgW, cx, cy, hs, [230, 150, 60]);
-      // Other light blocks: default yellow glow
-      } else if (LIGHT_BLOCKS.has(baseId)) {
-        fillCircle(pixels, imgW, cx, cy, hs, [255, 240, 120]);
-      // Generic furniture fallback (white square)
-      } else if (FURNITURE_BLOCKS.has(baseId)) {
-        const ms = Math.max(2, Math.floor(scale / 5));
-        fillRect(pixels, imgW, cx - ms, cy - ms, ms * 2, ms * 2, [255, 255, 255]);
+        if (baseId === 'minecraft:end_rod') {
+          fillRect(pixels, imgW, cx - 1, cy - hs, 2, hs * 2, [180, 180, 190]);
+        } else if (baseId === 'minecraft:amethyst_cluster') {
+          const ds = Math.max(2, Math.floor(scale / 5));
+          fillCircle(pixels, imgW, cx, cy, ds, [170, 90, 220]);
+        } else if (baseId === 'minecraft:candle' || baseId === 'minecraft:white_candle') {
+          const fs = Math.max(2, Math.floor(scale / 5));
+          fillRect(pixels, imgW, cx - 1, cy, 2, fs, [200, 160, 50]);
+          fillCircle(pixels, imgW, cx, cy - 1, Math.max(1, fs - 1), [255, 230, 80]);
+        } else if (baseId === 'minecraft:stone_pressure_plate') {
+          const pw = Math.max(3, Math.floor(scale / 3));
+          fillRect(pixels, imgW, cx - pw, cy - 1, pw * 2, 2, [160, 160, 160]);
+        } else if (baseId === 'minecraft:sea_lantern') {
+          fillCircle(pixels, imgW, cx, cy, hs, [120, 220, 230]);
+        } else if (baseId === 'minecraft:redstone_lamp') {
+          fillCircle(pixels, imgW, cx, cy, hs, [230, 150, 60]);
+        } else if (LIGHT_BLOCKS.has(baseId) && !['minecraft:lantern', 'minecraft:soul_lantern'].includes(baseId)) {
+          fillCircle(pixels, imgW, cx, cy, hs, [255, 240, 120]);
+        } else if (FURNITURE_BLOCKS.has(baseId)) {
+          const ms = Math.max(2, Math.floor(scale / 5));
+          fillRect(pixels, imgW, cx - ms, cy - ms, ms * 2, ms * 2, [255, 255, 255]);
+        }
       }
 
-      // Chests: gold X overlay
-      if (baseId === 'minecraft:chest' || baseId === 'minecraft:trapped_chest' || baseId === 'minecraft:ender_chest') {
-        drawLine(pixels, imgW, px + hs, py + hs, px + scale - hs, py + scale - hs, [255, 220, 50]);
-        drawLine(pixels, imgW, px + scale - hs, py + hs, px + hs, py + scale - hs, [255, 220, 50]);
-      }
-
-      // Beds: inset outline
-      if (BED_BLOCKS.has(baseId)) {
-        const bm = Math.max(2, Math.floor(scale / 8));
-        drawRectOutline(pixels, imgW, px + bm, py + bm, scale - bm * 2, scale - bm * 2,
-          [clamp(r + 40), clamp(g + 40), clamp(b + 40)]);
-      }
-
-      // Doors: vertical bar
+      // Doors: vertical bar overlay
       if (DOOR_BLOCKS.has(baseId)) {
+        const cx = px + Math.floor(scale / 2);
         fillRect(pixels, imgW, cx - 1, py + 2, 3, scale - 4, [100, 70, 35]);
       }
 
       // Precious blocks: diamond outline
       if (['minecraft:gold_block', 'minecraft:diamond_block', 'minecraft:emerald_block', 'minecraft:lapis_block'].includes(baseId)) {
+        const cx = px + Math.floor(scale / 2);
+        const cy = py + Math.floor(scale / 2);
         const ds = Math.max(3, Math.floor(scale / 4));
         drawLine(pixels, imgW, cx, cy - ds, cx + ds, cy, [255, 255, 255]);
         drawLine(pixels, imgW, cx + ds, cy, cx, cy + ds, [255, 255, 255]);
@@ -215,7 +358,6 @@ export async function renderFloorDetail(
 
 /**
  * Compute ambient occlusion factor (0.0=fully occluded, 1.0=fully open).
- * Counts how many of the 6 neighbor positions are solid.
  */
 function getAO(grid: BlockGrid, x: number, y: number, z: number): number {
   let solidNeighbors = 0;
@@ -230,13 +372,72 @@ function getAO(grid: BlockGrid, x: number, y: number, z: number): number {
 }
 
 /**
+ * Render isometric blocks with texture support.
+ * Shared by renderCutawayIso and renderExterior.
+ */
+function renderIsoBlock(
+  pixels: Buffer, imgW: number,
+  texAtlas: ProceduralAtlas,
+  blockState: string, color: RGB, ao: number,
+  sx: number, sy: number, tile: number, halfT: number,
+): void {
+  let [r, g, b] = color;
+  r = Math.round(r * ao);
+  g = Math.round(g * ao);
+  b = Math.round(b * ao);
+
+  // Get face textures
+  const topTex = getTexData(texAtlas, blockState, 'top');
+  const westTex = getTexData(texAtlas, blockState, 'west');
+  const southTex = getTexData(texAtlas, blockState, 'south');
+  const ts = texAtlas.tileSize;
+
+  // Top face (bright): +30 brightness
+  const topBright = ao * 1.15;
+  if (topTex && tile >= 4) {
+    blitTextureIsoTop(pixels, imgW, sx, sy, tile, halfT, topTex, ts, topBright);
+  } else {
+    fillDiamond(pixels, imgW, sx, sy, tile, halfT,
+      [clamp(r + 30), clamp(g + 30), clamp(b + 30)]);
+  }
+
+  // Left face (medium): west texture, -15 brightness
+  const leftBright = ao * 0.85;
+  if (westTex && tile >= 4) {
+    blitTextureIsoLeft(pixels, imgW, sx - tile, sy + halfT, tile, tile, westTex, ts, leftBright);
+  } else {
+    fillParallelogramLeft(pixels, imgW, sx - tile, sy + halfT, tile, tile,
+      [clamp(r - 15), clamp(g - 15), clamp(b - 15)]);
+  }
+
+  // Right face (dark): south texture, -35 brightness
+  const rightBright = ao * 0.70;
+  if (southTex && tile >= 4) {
+    blitTextureIsoRight(pixels, imgW, sx, sy + tile, tile, tile, southTex, ts, rightBright);
+  } else {
+    fillParallelogramRight(pixels, imgW, sx, sy + tile, tile, tile,
+      [clamp(r - 35), clamp(g - 35), clamp(b - 35)]);
+  }
+
+  // Edge outlines for definition
+  if (tile >= 6) {
+    const edgeColor: RGB = [clamp(r - 55), clamp(g - 55), clamp(b - 55)];
+    drawLine(pixels, imgW, sx, sy, sx + tile, sy + halfT, edgeColor);
+    drawLine(pixels, imgW, sx, sy, sx - tile, sy + halfT, edgeColor);
+    drawLine(pixels, imgW, sx - tile, sy + halfT, sx, sy + tile, edgeColor);
+    drawLine(pixels, imgW, sx + tile, sy + halfT, sx, sy + tile, edgeColor);
+  }
+}
+
+/**
  * Render a cutaway isometric view of a single story.
- * Enhanced with ambient occlusion and higher default resolution.
+ * Enhanced with textured faces and ambient occlusion.
  */
 export async function renderCutawayIso(
   grid: BlockGrid, story: number,
   options: { tile?: number; storyH?: number; output?: string; title?: string } = {}
 ): Promise<Buffer> {
+  const texAtlas = await ensureAtlas();
   let { tile = 16 } = options;
   const { storyH = 5 } = options;
   const { width: w, height: h, length: l } = grid;
@@ -286,37 +487,11 @@ export async function renderCutawayIso(
         if (color === null) continue;
 
         const ao = getAO(grid, x, y, z);
-        let [r, g, b] = color;
-        r = Math.round(r * ao);
-        g = Math.round(g * ao);
-        b = Math.round(b * ao);
-
         const sx = (x - z) * tile + cx;
         const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
         const halfT = Math.floor(tile / 2);
 
-        // Top face (bright)
-        fillDiamond(pixels, imgW, sx, sy, tile, halfT,
-          [clamp(r + 30), clamp(g + 30), clamp(b + 30)]);
-
-        // Left face (medium)
-        fillParallelogramLeft(pixels, imgW, sx - tile, sy + halfT, tile, tile,
-          [clamp(r - 15), clamp(g - 15), clamp(b - 15)]);
-
-        // Right face (dark)
-        fillParallelogramRight(pixels, imgW, sx, sy + tile, tile, tile,
-          [clamp(r - 35), clamp(g - 35), clamp(b - 35)]);
-
-        // Edge outlines for definition at higher resolution
-        if (tile >= 8) {
-          const edgeColor: RGB = [clamp(r - 55), clamp(g - 55), clamp(b - 55)];
-          // Top diamond edges
-          drawLine(pixels, imgW, sx, sy, sx + tile, sy + halfT, edgeColor);
-          drawLine(pixels, imgW, sx, sy, sx - tile, sy + halfT, edgeColor);
-          // Bottom edges
-          drawLine(pixels, imgW, sx - tile, sy + halfT, sx, sy + tile, edgeColor);
-          drawLine(pixels, imgW, sx + tile, sy + halfT, sx, sy + tile, edgeColor);
-        }
+        renderIsoBlock(pixels, imgW, texAtlas, bs, color, ao, sx, sy, tile, halfT);
       }
     }
   }
@@ -326,12 +501,13 @@ export async function renderCutawayIso(
 
 /**
  * Render a full exterior isometric view of the entire schematic.
- * Enhanced with ambient occlusion and edge outlines.
+ * Enhanced with textured faces, ambient occlusion and edge outlines.
  */
 export async function renderExterior(
   grid: BlockGrid,
   options: { tile?: number; output?: string } = {}
 ): Promise<Buffer> {
+  const texAtlas = await ensureAtlas();
   let { tile = 10 } = options;
   const { width: w, height: h, length: l } = grid;
   const blocks = grid.to3DArray();
@@ -375,35 +551,11 @@ export async function renderExterior(
         if (color === null) continue;
 
         const ao = getAO(grid, x, y, z);
-        let [r, g, b] = color;
-        r = Math.round(r * ao);
-        g = Math.round(g * ao);
-        b = Math.round(b * ao);
-
         const sx = (x - z) * tile + cx;
         const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
         const halfT = Math.floor(tile / 2);
 
-        // Top face (bright)
-        fillDiamond(pixels, imgW, sx, sy, tile, halfT,
-          [clamp(r + 30), clamp(g + 30), clamp(b + 30)]);
-
-        // Left face (medium)
-        fillParallelogramLeft(pixels, imgW, sx - tile, sy + halfT, tile, tile,
-          [clamp(r - 15), clamp(g - 15), clamp(b - 15)]);
-
-        // Right face (dark)
-        fillParallelogramRight(pixels, imgW, sx, sy + tile, tile, tile,
-          [clamp(r - 35), clamp(g - 35), clamp(b - 35)]);
-
-        // Edge outlines
-        if (tile >= 6) {
-          const edgeColor: RGB = [clamp(r - 55), clamp(g - 55), clamp(b - 55)];
-          drawLine(pixels, imgW, sx, sy, sx + tile, sy + halfT, edgeColor);
-          drawLine(pixels, imgW, sx, sy, sx - tile, sy + halfT, edgeColor);
-          drawLine(pixels, imgW, sx - tile, sy + halfT, sx, sy + tile, edgeColor);
-          drawLine(pixels, imgW, sx + tile, sy + halfT, sx, sy + tile, edgeColor);
-        }
+        renderIsoBlock(pixels, imgW, texAtlas, bs, color, ao, sx, sy, tile, halfT);
       }
     }
   }
