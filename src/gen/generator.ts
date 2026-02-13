@@ -66,29 +66,58 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
   const rng = createRng(seed);
   const style = getStyle(styleName);
 
+  let grid: BlockGrid;
   switch (type) {
     case 'tower':
-      return generateTower(floors, style, rooms, width, length, rng);
+      grid = generateTower(floors, style, rooms, width, length, rng);
+      break;
     case 'castle':
-      return generateCastle(floors, style, rooms, width, length, rng);
+      grid = generateCastle(floors, style, rooms, width, length, rng);
+      break;
     case 'dungeon':
-      return generateDungeon(floors, style, rooms, width, length, rng);
+      grid = generateDungeon(floors, style, rooms, width, length, rng);
+      break;
     case 'ship':
-      return generateShip(floors, style, rooms, width, length, rng);
+      grid = generateShip(floors, style, rooms, width, length, rng);
+      break;
     case 'cathedral':
-      return generateCathedral(floors, style, rooms, width, length, rng);
+      grid = generateCathedral(floors, style, rooms, width, length, rng);
+      break;
     case 'bridge':
-      return generateBridge(floors, style, rooms, width, length, rng);
+      grid = generateBridge(floors, style, rooms, width, length, rng);
+      break;
     case 'windmill':
-      return generateWindmill(floors, style, rooms, width, length, rng);
+      grid = generateWindmill(floors, style, rooms, width, length, rng);
+      break;
     case 'marketplace':
-      return generateMarketplace(floors, style, rooms, width, length, rng);
+      grid = generateMarketplace(floors, style, rooms, width, length, rng);
+      break;
     case 'village':
-      return generateVillage(floors, style, rooms, width, length, rng);
+      grid = generateVillage(floors, style, rooms, width, length, rng);
+      break;
     case 'house':
     default:
-      return generateHouse(floors, style, rooms, width, length, rng);
+      grid = generateHouse(floors, style, rooms, width, length, rng);
+      break;
   }
+
+  // Add ground plane — grass for land structures, water for ships/bridges
+  // Village already has its own grass layer, skip it
+  if (type !== 'village') {
+    const groundBlock = (type === 'ship' || type === 'bridge')
+      ? 'minecraft:water'
+      : 'minecraft:grass_block';
+    for (let x = 0; x < grid.width; x++) {
+      for (let z = 0; z < grid.length; z++) {
+        // Only fill empty ground-level cells (y=0)
+        if (grid.get(x, 0, z) === 'minecraft:air') {
+          grid.set(x, 0, z, groundBlock);
+        }
+      }
+    }
+  }
+
+  return grid;
 }
 
 // ─── House ──────────────────────────────────────────────────────────────────
