@@ -5,8 +5,8 @@ Minecraft schematic toolkit — parse, generate, render, and convert `.schem` fi
 ## Features
 
 - **Parse & Write** Sponge Schematic v2 (`.schem`) files
-- **Generate** structures with 5 style presets and 16 room types
-- **Render** 2D PNG floor plans, cutaway isometrics, and exterior views
+- **Generate** structures with 10 types, 9 style presets, and 20 room types
+- **Render** textured 2D PNG floor plans, cutaway isometrics, and exterior views
 - **View** schematics in an interactive 3D viewer (Three.js)
 - **Export** standalone HTML viewers
 - **Convert** between Three.js scenes and `.schem` format
@@ -37,7 +37,7 @@ npx craftmatic export building.schem viewer.html
 # Generate a structure
 npx craftmatic gen house --floors 3 --style fantasy --seed 42
 
-# Build texture atlas (real ProgrammerArt + procedural fallback)
+# Build texture atlas (334 Faithful 32x textures + procedural fallback)
 npx craftmatic atlas textures.png
 ```
 
@@ -46,7 +46,7 @@ npx craftmatic atlas textures.png
 ```
 npx craftmatic gen [type] [options]
 
-Types: house, tower, castle, dungeon, ship
+Types: house, tower, castle, dungeon, ship, cathedral, bridge, windmill, marketplace, village
 
 Options:
   -f, --floors <n>     Number of floors (default: 2)
@@ -60,11 +60,11 @@ Options:
 
 ### Styles
 
-`fantasy` | `medieval` | `modern` | `gothic` | `rustic`
+`fantasy` | `medieval` | `modern` | `gothic` | `rustic` | `steampunk` | `elven` | `desert` | `underwater`
 
 ### Room Types
 
-`living` `dining` `kitchen` `foyer` `bedroom` `bathroom` `study` `library` `vault` `armory` `observatory` `lab` `gallery` `throne` `forge` `greenhouse`
+`living` `dining` `kitchen` `foyer` `bedroom` `bathroom` `study` `library` `vault` `armory` `observatory` `lab` `gallery` `throne` `forge` `greenhouse` `captains_quarters` `cell` `nave` `belfry`
 
 ## Library API
 
@@ -114,7 +114,7 @@ const threeGroup = schemToThree(data);
 // Convert Three.js back to schematic
 const schemData = threeToSchem(threeGroup);
 
-// Build texture atlas (144 real textures + procedural fallback)
+// Build texture atlas (334 Faithful 32x textures + procedural fallback)
 const atlas = await initDefaultAtlas();
 const pngBuffer = await atlas.toPNG();
 const uvMap = atlas.toJSON();
@@ -131,10 +131,10 @@ npm run preview:web  # Preview production build
 ```
 
 **Features:**
-- Generate any structure type with all 5 styles, full parameter controls, and live 3D preview
+- Generate any of 10 structure types with 9 styles, full parameter controls, and live 3D preview
 - Upload `.schem` files with drag-and-drop — browser-native NBT parsing (no server required)
-- Gallery of 12 pre-generated showcase structures with isometric thumbnails
-- Interactive Three.js viewer with cutaway slider, orbit controls, and shadows
+- Gallery of 20 pre-generated showcase structures with isometric thumbnails
+- Interactive Three.js viewer with cutaway slider, orbit controls, non-cube geometries, and Faithful 32x textures
 - Export to GLB (binary glTF), `.schem`, or standalone HTML
 - Responsive dark-mode UI optimized for mobile and desktop
 
@@ -142,10 +142,11 @@ npm run preview:web  # Preview production build
 
 The bundled texture atlas uses a hybrid system:
 
-- **144 real block textures** from [ProgrammerArt](https://github.com/ProgrammerArt-Mods/ProgrammerArt) (CC-BY 4.0)
+- **334 real block textures** from [Faithful 32x](https://faithfulpack.net) (CC-BY-SA) at 32x32 resolution
 - **Procedural fallback** for blocks without a real texture — generated with pattern-matched algorithms (grain, speckle, brick, etc.)
+- **17 custom item sprites** — hand-drawn 16x16 furniture sprites for floor plan rendering (beds, chests, lanterns, flower pots, etc.)
 
-See `textures/ATTRIBUTION.md` for license details.
+Both 2D renderers (floor plans, isometric) and the 3D viewer use the texture atlas for per-block, per-face texture mapping. See `textures/ATTRIBUTION.md` for license details.
 
 ## Development
 
@@ -156,7 +157,7 @@ npm install
 npm run build        # Build library
 npm run build:web    # Build web app
 npm run typecheck    # Type-check all code
-npm test             # Run test suite (59 tests)
+npm test             # Run test suite (93 tests)
 ```
 
 ## Specs
