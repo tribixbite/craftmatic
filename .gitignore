@@ -9,9 +9,10 @@ coverage/
 .env.*
 *.schem
 *.png
-# But include bundled texture assets
+# But include bundled texture assets and docs images
 !textures/**/*.png
 !textures/*.png
+!docs/images/*.png
 test-*.sh
 test-*.cjs
 test-*.txt
