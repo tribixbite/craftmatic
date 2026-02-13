@@ -47,66 +47,77 @@ export function initGenerator(
   onGenerate: (grid: BlockGrid, config: GeneratorConfig) => void,
 ): void {
   container.innerHTML = `
-    <div class="section-title">Structure Generator</div>
+    <div class="gen-options-header" id="gen-toggle">
+      <div class="section-title" style="border:none;padding:0;">Structure Generator</div>
+      <button class="gen-collapse-btn" id="gen-collapse-btn" title="Toggle options">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+    </div>
 
-    <div class="form-group">
-      <label class="form-label">Type</label>
-      <select id="gen-type" class="form-select">
-        ${STRUCTURE_TYPES.map(t => `<option value="${t.value}">${t.label}</option>`).join('')}
-      </select>
-      <div id="gen-type-desc" class="form-hint" style="font-size:11px;color:var(--text-muted);margin-top:2px;">
-        ${STRUCTURE_TYPES[0].desc}
+    <div class="gen-options-body" id="gen-options-body">
+      <div class="form-group">
+        <label class="form-label">Type</label>
+        <select id="gen-type" class="form-select">
+          ${STRUCTURE_TYPES.map(t => `<option value="${t.value}">${t.label}</option>`).join('')}
+        </select>
+        <div id="gen-type-desc" class="form-hint" style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+          ${STRUCTURE_TYPES[0].desc}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Style</label>
+        <div id="gen-style-chips" style="display:flex;gap:6px;flex-wrap:wrap;">
+          ${STYLE_PRESETS.map(s => `
+            <button class="style-chip ${s.value === 'fantasy' ? 'active' : ''}" data-style="${s.value}"
+                    style="--chip-color:${s.color};">
+              ${s.label}
+            </button>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Floors</label>
+          <input id="gen-floors" type="number" class="form-input" value="2" min="1" max="8">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Seed</label>
+          <input id="gen-seed" type="number" class="form-input" placeholder="Random">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Width</label>
+          <input id="gen-width" type="number" class="form-input" placeholder="Auto">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Length</label>
+          <input id="gen-length" type="number" class="form-input" placeholder="Auto">
+        </div>
       </div>
     </div>
 
-    <div class="form-group">
-      <label class="form-label">Style</label>
-      <div id="gen-style-chips" style="display:flex;gap:6px;flex-wrap:wrap;">
-        ${STYLE_PRESETS.map(s => `
-          <button class="style-chip ${s.value === 'fantasy' ? 'active' : ''}" data-style="${s.value}"
-                  style="--chip-color:${s.color};">
-            ${s.label}
-          </button>
-        `).join('')}
-      </div>
+    <div class="gen-actions">
+      <div class="divider"></div>
+
+      <button id="gen-btn" class="btn btn-primary btn-full">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        Generate
+      </button>
+
+      <button id="gen-random-btn" class="btn btn-secondary btn-full btn-sm">
+        Randomize & Generate
+      </button>
+
+      <div id="gen-info" class="info-panel" hidden></div>
     </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Floors</label>
-        <input id="gen-floors" type="number" class="form-input" value="2" min="1" max="8">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Seed</label>
-        <input id="gen-seed" type="number" class="form-input" placeholder="Random">
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Width</label>
-        <input id="gen-width" type="number" class="form-input" placeholder="Auto">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Length</label>
-        <input id="gen-length" type="number" class="form-input" placeholder="Auto">
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <button id="gen-btn" class="btn btn-primary btn-full">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-        <polygon points="5 3 19 12 5 21 5 3"/>
-      </svg>
-      Generate
-    </button>
-
-    <button id="gen-random-btn" class="btn btn-secondary btn-full btn-sm">
-      Randomize & Generate
-    </button>
-
-    <div id="gen-info" class="info-panel" hidden></div>
   `;
 
   // Type selector — update description
@@ -182,4 +193,12 @@ export function initGenerator(
 
   genBtn.addEventListener('click', () => doGenerate(false));
   randomBtn.addEventListener('click', () => doGenerate(true));
+
+  // Collapse/expand options panel
+  const collapseBtn = container.querySelector('#gen-collapse-btn') as HTMLButtonElement;
+  const optionsBody = container.querySelector('#gen-options-body') as HTMLElement;
+  collapseBtn.addEventListener('click', () => {
+    const collapsed = optionsBody.classList.toggle('collapsed');
+    collapseBtn.classList.toggle('collapsed', collapsed);
+  });
 }

@@ -620,6 +620,54 @@ html, body {
   border-bottom: 1px solid var(--border);
 }
 
+/* ─── Generator Collapsible Controls ────────────────────────────────── */
+
+.gen-options-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gen-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.gen-collapse-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
+.gen-collapse-btn svg { transition: transform var(--transition); }
+.gen-collapse-btn.collapsed svg { transform: rotate(-90deg); }
+
+.gen-options-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+  transition: max-height 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease;
+  max-height: 500px;
+  opacity: 1;
+}
+
+.gen-options-body.collapsed {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gen-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 /* ─── Style Chips ────────────────────────────────────────────────────── */
 
 .style-chip {
