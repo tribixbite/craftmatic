@@ -10,6 +10,7 @@ import {
   chandelier, tableAndChairs, longDiningTable, bookshelfWall,
   carpetArea, endRodPillar, fireplace, placeBed, sideTable,
   storageCorner, couchSet, rugWithBorder, wallShelf, armorDisplay,
+  telescope, plateSet, mapTable, lightFixture,
 } from './furniture.js';
 
 /** Room generator function signature */
@@ -33,6 +34,10 @@ const ROOM_GENERATORS: Record<RoomType, RoomGenerator> = {
   throne: generateThroneRoom,
   forge: generateForge,
   greenhouse: generateGreenhouse,
+  captains_quarters: generateCaptainsQuarters,
+  cell: generateCell,
+  nave: generateNave,
+  belfry: generateBelfry,
 };
 
 /** Get a room generator by type */
@@ -828,4 +833,211 @@ function generateGreenhouse(grid: BlockGrid, b: RoomBounds, style: StylePalette)
   // Hanging vines (chains + lanterns)
   chandelier(grid, cx - 2, y + height - 1, cz, style, 2);
   chandelier(grid, cx + 2, y + height - 1, cz, style, 2);
+}
+
+// ─── New Room Types (v0.2.0) ────────────────────────────────────────────────
+
+function generateCaptainsQuarters(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+  const rw = x2 - x1;
+
+  // Captain's bed against back wall
+  placeBed(grid, x1 + 2, y, z1 + 1, 'south', 'red');
+  grid.set(x1 + 2, y + 2, z1, style.bannerS);
+
+  // Nightstand
+  grid.addBarrel(x1 + 1, y, z1 + 1, 'up', [
+    { slot: 0, id: 'minecraft:compass', count: 1 },
+    { slot: 1, id: 'minecraft:clock', count: 1 },
+  ]);
+  grid.set(x1 + 1, y + 1, z1 + 1, 'minecraft:candle[candles=1,lit=true]');
+
+  // Navigation desk with maps
+  mapTable(grid, x2, y, z1, style);
+  grid.set(x2 - 1, y, z1, style.chairW);
+
+  // Telescope by window
+  telescope(grid, x2, y, z2 - 1, 3);
+
+  // Plate set on desk area (dining surface)
+  if (rw >= 6) {
+    grid.set(cx, y, z1 + 3, style.fence);
+    grid.set(cx, y + 1, z1 + 3, style.carpet);
+    plateSet(grid, cx - 1, y + 2, z1 + 3, 3, 'x');
+  }
+
+  // Wardrobe / treasure chest
+  grid.addChest(x1, y, z2, 'east', [
+    { slot: 0, id: 'minecraft:map', count: 3 },
+    { slot: 1, id: 'minecraft:spyglass', count: 1 },
+    { slot: 2, id: 'minecraft:gold_ingot', count: 32 },
+  ]);
+
+  // Bookshelf accent
+  grid.set(x2, y, z2, 'minecraft:bookshelf');
+  grid.set(x2, y + 1, z2, 'minecraft:bookshelf');
+
+  // Rug
+  rugWithBorder(grid, x1 + 1, y, z1 + 3, x2 - 1, z2 - 1, 'minecraft:red_carpet', 'minecraft:yellow_carpet');
+
+  // Chandelier
+  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
+}
+
+function generateCell(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+
+  // Iron bar front wall (replace doorway side)
+  for (let x = x1; x <= x2; x++) {
+    for (let vy = y; vy < y + height - 1; vy++) {
+      grid.set(x, vy, z1, 'minecraft:iron_bars');
+    }
+  }
+  // Gap for "door"
+  grid.set(cx, y, z1, 'minecraft:air');
+  grid.set(cx, y + 1, z1, 'minecraft:air');
+
+  // Single cot against wall
+  placeBed(grid, x1 + 1, y, z2 - 1, 'north', 'cyan');
+
+  // Bone block atmosphere
+  grid.set(x2, y, z2, 'minecraft:bone_block');
+  grid.set(x2, y + 1, z2, 'minecraft:skeleton_skull');
+
+  // Chain from ceiling
+  for (let vy = y + 1; vy < y + height; vy++) {
+    grid.set(x1, vy, z1 + 2, 'minecraft:chain');
+  }
+
+  // Single torch for dim lighting
+  grid.set(cx, y + 2, z2, style.torchN);
+
+  // Cracked floor patches
+  grid.set(cx, y - 1, Math.floor((z1 + z2) / 2), 'minecraft:cracked_stone_bricks');
+  grid.set(cx + 1, y - 1, Math.floor((z1 + z2) / 2) + 1, 'minecraft:cracked_stone_bricks');
+}
+
+function generateNave(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+  const rw = x2 - x1;
+  const rl = z2 - z1;
+
+  // Pew rows (stairs facing altar/back wall)
+  const pewStart = z1 + 2;
+  const pewEnd = z2 - 4;
+  for (let z = pewStart; z <= pewEnd; z += 2) {
+    // Left pew row
+    for (let x = x1 + 1; x <= cx - 2; x++) {
+      grid.set(x, y, z, style.chairN);
+    }
+    // Right pew row
+    for (let x = cx + 2; x <= x2 - 1; x++) {
+      grid.set(x, y, z, style.chairN);
+    }
+  }
+
+  // Central aisle carpet
+  for (let z = z1; z <= z2; z++) {
+    grid.set(cx, y, z, style.carpet);
+    if (rw >= 8) {
+      grid.set(cx - 1, y, z, style.carpet);
+      grid.set(cx + 1, y, z, style.carpet);
+    }
+  }
+
+  // Altar platform at back
+  grid.fill(cx - 2, y, z2 - 2, cx + 2, y, z2 - 1, style.wallAccent);
+  grid.fill(cx - 1, y + 1, z2 - 2, cx + 1, y + 1, z2 - 1, style.wallAccent);
+  // Altar table
+  grid.set(cx, y + 2, z2 - 2, 'minecraft:enchanting_table');
+
+  // Candle arrays flanking altar
+  grid.set(cx - 2, y + 1, z2 - 1, 'minecraft:candle[candles=4,lit=true]');
+  grid.set(cx + 2, y + 1, z2 - 1, 'minecraft:candle[candles=4,lit=true]');
+
+  // Stained glass windows along walls
+  for (let z = z1 + 3; z < z2 - 2; z += 3) {
+    grid.set(x1, y + 2, z, style.windowAccent);
+    grid.set(x1, y + 3, z, style.windowAccent);
+    grid.set(x2, y + 2, z, style.windowAccent);
+    grid.set(x2, y + 3, z, style.windowAccent);
+  }
+
+  // Pillar rows along aisles
+  for (let z = z1 + 2; z < z2 - 2; z += 4) {
+    for (let py = y; py < y + height; py++) {
+      if (rw >= 8) {
+        grid.set(cx - 2, py, z, style.pillar);
+        grid.set(cx + 2, py, z, style.pillar);
+      }
+    }
+  }
+
+  // Banners
+  grid.set(cx - 1, y + 3, z2, style.bannerN);
+  grid.set(cx + 1, y + 3, z2, style.bannerN);
+
+  // Light fixtures along nave — chain + lantern
+  if (rl >= 10) {
+    lightFixture(grid, cx - 3, y + height - 1, z1 + 4, 2, 'lantern');
+    lightFixture(grid, cx + 3, y + height - 1, z1 + 4, 2, 'lantern');
+    lightFixture(grid, cx - 3, y + height - 1, z2 - 5, 2, 'lantern');
+    lightFixture(grid, cx + 3, y + height - 1, z2 - 5, 2, 'lantern');
+  }
+  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
+}
+
+function generateBelfry(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+  const cz = Math.floor((z1 + z2) / 2);
+
+  // Central bell
+  grid.set(cx, y + 1, cz, 'minecraft:bell[attachment=ceiling,facing=north]');
+  // Chain suspending bell
+  for (let vy = y + 2; vy < y + height; vy++) {
+    grid.set(cx, vy, cz, 'minecraft:chain');
+  }
+
+  // Open arched windows on all sides (clear walls and place window accents)
+  for (let x = x1 + 1; x <= x2 - 1; x++) {
+    for (let vy = y + 1; vy < y + height - 1; vy++) {
+      grid.set(x, vy, z1, 'minecraft:air');
+      grid.set(x, vy, z2, 'minecraft:air');
+    }
+    // Arch tops
+    grid.set(x, y + height - 1, z1, style.wallAccent);
+    grid.set(x, y + height - 1, z2, style.wallAccent);
+  }
+  for (let z = z1 + 1; z <= z2 - 1; z++) {
+    for (let vy = y + 1; vy < y + height - 1; vy++) {
+      grid.set(x1, vy, z, 'minecraft:air');
+      grid.set(x2, vy, z, 'minecraft:air');
+    }
+    grid.set(x1, y + height - 1, z, style.wallAccent);
+    grid.set(x2, y + height - 1, z, style.wallAccent);
+  }
+
+  // Restore corner pillars
+  for (const [px, pz] of [[x1, z1], [x1, z2], [x2, z1], [x2, z2]] as [number, number][]) {
+    for (let vy = y; vy < y + height; vy++) {
+      grid.set(px, vy, pz, style.pillar);
+    }
+  }
+
+  // Low fence railing at openings
+  for (let x = x1 + 1; x <= x2 - 1; x++) {
+    grid.set(x, y + 1, z1, style.fence);
+    grid.set(x, y + 1, z2, style.fence);
+  }
+  for (let z = z1 + 1; z <= z2 - 1; z++) {
+    grid.set(x1, y + 1, z, style.fence);
+    grid.set(x2, y + 1, z, style.fence);
+  }
+
+  // Floor (stone)
+  grid.fill(x1 + 1, y - 1, z1 + 1, x2 - 1, y - 1, z2 - 1, style.floorGround);
 }

@@ -216,3 +216,62 @@ export function wallDecoration(
 ): void {
   grid.set(x, y, z, block);
 }
+
+/** Place a telescope — end rod pillar with amethyst cluster on top */
+export function telescope(
+  grid: BlockGrid, x: number, yBase: number, z: number, height = 3
+): void {
+  for (let i = 0; i < height; i++) {
+    grid.set(x, yBase + i, z, 'minecraft:end_rod[facing=up]');
+  }
+  grid.set(x, yBase + height, z, 'minecraft:amethyst_cluster[facing=up]');
+}
+
+/** Place a set of plates on a table surface (stone pressure plates) */
+export function plateSet(
+  grid: BlockGrid, x1: number, y: number, z: number,
+  count: number, direction: 'x' | 'z' = 'x'
+): void {
+  for (let i = 0; i < count; i++) {
+    const px = direction === 'x' ? x1 + i : x1;
+    const pz = direction === 'z' ? z + i : z;
+    if (grid.inBounds(px, y, pz)) {
+      grid.set(px, y, pz, 'minecraft:stone_pressure_plate');
+    }
+  }
+}
+
+/** Place a map/navigation table — cartography table with lantern */
+export function mapTable(
+  grid: BlockGrid, x: number, y: number, z: number,
+  style: StylePalette
+): void {
+  grid.set(x, y, z, 'minecraft:cartography_table');
+  grid.set(x, y + 1, z, style.lanternFloor);
+}
+
+/** Place a parameterized light fixture — chain + light source variant */
+export function lightFixture(
+  grid: BlockGrid, x: number, yTop: number, z: number,
+  chainLen: number, source: 'lantern' | 'candle' | 'end_rod' | 'soul_lantern' = 'lantern'
+): void {
+  for (let i = 0; i < chainLen; i++) {
+    grid.set(x, yTop - i, z, 'minecraft:chain');
+  }
+  const sourceBlock: Record<string, string> = {
+    lantern: 'minecraft:lantern[hanging=true]',
+    candle: 'minecraft:candle[candles=4,lit=true]',
+    end_rod: 'minecraft:end_rod[facing=down]',
+    soul_lantern: 'minecraft:soul_lantern[hanging=true]',
+  };
+  grid.set(x, yTop - chainLen, z, sourceBlock[source]);
+}
+
+/** Place a ship steering wheel (fence post + open trapdoor) */
+export function steeringWheel(
+  grid: BlockGrid, x: number, y: number, z: number,
+  facing: 'north' | 'south' | 'east' | 'west' = 'south'
+): void {
+  grid.set(x, y, z, 'minecraft:oak_fence');
+  grid.set(x, y + 1, z, `minecraft:dark_oak_trapdoor[facing=${facing},half=top,open=true]`);
+}

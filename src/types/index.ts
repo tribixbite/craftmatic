@@ -75,13 +75,19 @@ export type RoomType =
   | 'throne'
   | 'forge'
   | 'greenhouse'
-  | 'foyer';
+  | 'foyer'
+  | 'captains_quarters'
+  | 'cell'
+  | 'nave'
+  | 'belfry';
 
 /** Building style presets */
-export type StyleName = 'fantasy' | 'medieval' | 'modern' | 'gothic' | 'rustic';
+export type StyleName = 'fantasy' | 'medieval' | 'modern' | 'gothic' | 'rustic'
+  | 'steampunk' | 'elven' | 'desert' | 'underwater';
 
 /** Structure types the generator can produce */
-export type StructureType = 'house' | 'tower' | 'castle' | 'dungeon' | 'ship';
+export type StructureType = 'house' | 'tower' | 'castle' | 'dungeon' | 'ship'
+  | 'cathedral' | 'bridge' | 'windmill' | 'marketplace' | 'village';
 
 /** Generation parameters */
 export interface GenerationOptions {
