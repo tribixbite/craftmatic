@@ -133,3 +133,10 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Marketplace (B → B+): awnings on alternating stalls, oak bench seating, flower pots, expanded goods (fletching/loom/composter/smoker), perimeter banners
 - [x] Dungeon (B → B+): 5-wide main corridor, paired/single torch wayfinding, redstone markers, water drainage channel, asymmetric room sizes, mossy floor palette
 - [x] Bridge (B+ → A-): inner arch ribs (wallAccent), alternating fence/stone railings, stone stair benches, stone brick center path with accent strips
+
+### UI & Rendering Fixes
+- [x] Gallery layout: flex:1 + min-height:0 constrains cards within tab, nav stays visible
+- [x] Block seam gaps: 0.2% oversize on full/slab geometries eliminates anti-alias gaps
+- [x] Collapsible generator: arrow toggle on options, sticky Generate/Randomize buttons
+- [x] Ground plane: grass_block for land structures, water for ships/bridges (auto-fill y=0)
+- [x] Village path routing: paths connect to door locations (house porch, tower entrance, marketplace gate)
