@@ -73,6 +73,12 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
         min="0" max="${grid.height}" value="${grid.height}" step="1">
       <span id="inline-cutaway-label" class="inline-cutaway-label">All</span>
     </div>
+    <button class="btn btn-secondary btn-sm" id="inline-export-schem" title="Export .schem">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      .schem
+    </button>
     <button class="btn btn-secondary btn-sm" id="inline-expand" title="Expand to full viewer">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
@@ -83,10 +89,7 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
   `;
   container.appendChild(controlsDiv);
 
-  // Create and mount viewer
-  inlineViewer = createViewer(container, grid);
-
-  // Inline cutaway slider
+  // Wire up controls before createViewer — these must work even if WebGL fails
   const inlineCutaway = controlsDiv.querySelector('#inline-cutaway') as HTMLInputElement;
   const inlineCutawayLabel = controlsDiv.querySelector('#inline-cutaway-label')!;
   inlineCutaway.addEventListener('input', () => {
@@ -96,10 +99,23 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
     applyCutaway(inlineViewer, maxY);
   });
 
+  // Export .schem (works without WebGL)
+  controlsDiv.querySelector('#inline-export-schem')!.addEventListener('click', () => {
+    try {
+      exportSchem(grid);
+    } catch (err) {
+      console.error('.schem export failed:', err);
+      showError('Export failed');
+    }
+  });
+
   // Expand button → opens full viewer overlay
   controlsDiv.querySelector('#inline-expand')!.addEventListener('click', () => {
     openFullViewer(grid);
   });
+
+  // Create and mount 3D viewer (may fail without WebGL — controls still work)
+  inlineViewer = createViewer(container, grid);
 }
 
 // ─── Full Viewer Overlay ─────────────────────────────────────────────────────
@@ -243,8 +259,12 @@ initGenerator(generatorControls, (grid: BlockGrid, _config: GeneratorConfig) => 
     try {
       showInlineViewer(generatorViewer, grid);
     } catch (err) {
+      // Controls already attached by showInlineViewer — just add fallback message
       console.warn('3D viewer failed:', err);
-      generatorViewer.innerHTML = '<div style="padding:1em;color:#999;text-align:center;">3D preview unavailable. Your structure was generated successfully.</div>';
+      const fallback = document.createElement('div');
+      fallback.className = 'viewer-fallback';
+      fallback.textContent = '3D preview unavailable. Your structure was generated successfully.';
+      generatorViewer.appendChild(fallback);
     } finally {
       hideLoading();
     }
@@ -265,7 +285,10 @@ initUpload(uploadZone, fileInput, uploadInfo, (grid: BlockGrid, _filename: strin
       showInlineViewer(uploadViewer, grid);
     } catch (err) {
       console.warn('3D viewer failed:', err);
-      uploadViewer.innerHTML = '<div style="padding:1em;color:#999;text-align:center;">3D preview unavailable. Upload succeeded.</div>';
+      const fallback = document.createElement('div');
+      fallback.className = 'viewer-fallback';
+      fallback.textContent = '3D preview unavailable. Upload succeeded.';
+      uploadViewer.appendChild(fallback);
     } finally {
       hideLoading();
     }
