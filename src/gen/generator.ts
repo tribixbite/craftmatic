@@ -615,9 +615,7 @@ function generateCastle(
         for (let z = kz1; z <= kz2; z++) {
           const onOuterWall = x === kx1 || x === kx2 || z === kz1 || z === kz2;
           const onInnerWall = x === kx1 + 1 || x === kx2 - 1 || z === kz1 + 1 || z === kz2 - 1;
-          if (onOuterWall) {
-            grid.set(x, y, z, style.wall);
-          } else if (onInnerWall && (x <= kx1 + 1 || x >= kx2 - 1 || z <= kz1 + 1 || z >= kz2 - 1)) {
+          if (onOuterWall || onInnerWall) {
             grid.set(x, y, z, style.wall);
           }
         }
@@ -1345,8 +1343,11 @@ function generateShip(
 
   // ── Main mast (midship, tallest) ──
   const mastZ = sz1 + Math.floor(shipLen * 0.45);
-  // Mast must be tall enough for two sail tiers each at least minSailH
-  const mastH = Math.max(20, sailStartY - hullBase + minSailH * 2 + 8);
+  // Mast must be tall enough for two sail tiers each at least minSailH, but capped to grid height
+  const mastH = Math.min(
+    Math.max(20, sailStartY - hullBase + minSailH * 2 + 8),
+    gh - hullBase - 1,
+  );
   const yardHalf = Math.floor(shipW / 2) + 1;
   for (let y = hullBase; y < hullBase + mastH; y++) {
     if (grid.inBounds(cx, y, mastZ)) grid.set(cx, y, mastZ, style.timber);
@@ -2344,8 +2345,8 @@ function generateVillage(
   const buildingSpots: { x: number; z: number; w: number; l: number; type: 'house' | 'tower' | 'marketplace'; doorX: number; doorZ: number; flipZ: boolean }[] = [];
 
   const bldgMargin = 3; // internal margin in sub-grids
-  // Ring radius: center of buildings from village center
-  const ringR = 25;
+  // Ring radius: center of buildings from village center (28 prevents overlap)
+  const ringR = 28;
 
   // Place buildings at 6 angular positions around the plaza (clock positions)
   // Position 0 (north): marketplace
