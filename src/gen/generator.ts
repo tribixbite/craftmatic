@@ -1703,16 +1703,22 @@ function generateBridge(
   // Bridge deck
   grid.fill(bx1, deckY, bz1, bx2, deckY, bz2, style.floorGround);
 
-  // Parabolic arch underneath
+  // Parabolic arch underneath with inner ribs for depth
   const midZ = Math.floor((bz1 + bz2) / 2);
   const halfSpan = (bz2 - bz1) / 2;
   for (let z = bz1; z <= bz2; z++) {
     const t = (z - midZ) / halfSpan; // -1 to 1
     const archTop = deckY - 1 - Math.round(archH * (1 - t * t)); // parabola
-    // Arch ribs at edges
+    // Outer arch ribs at edges
     for (const x of [bx1, bx2]) {
       for (let y = Math.max(0, archTop); y <= deckY - 1; y++) {
         if (grid.inBounds(x, y, z)) grid.set(x, y, z, style.wall);
+      }
+    }
+    // Inner arch ribs at bx1+1 and bx2-1 for structural depth from side view
+    for (const x of [bx1 + 1, bx2 - 1]) {
+      for (let y = Math.max(0, archTop); y <= deckY - 1; y++) {
+        if (grid.inBounds(x, y, z)) grid.set(x, y, z, style.wallAccent);
       }
     }
     // Arch bottom face
@@ -1723,10 +1729,13 @@ function generateBridge(
     }
   }
 
-  // Fence railings along bridge deck
+  // Varied railings — alternating fence and stone wall accent posts
   for (let z = bz1; z <= bz2; z++) {
-    grid.set(bx1, deckY + 1, z, style.fence);
-    grid.set(bx2, deckY + 1, z, style.fence);
+    // Every 4th block is a stone wall accent post, rest are fence
+    const isAccent = (z - bz1) % 4 === 0;
+    const railBlock = isAccent ? style.wallAccent : style.fence;
+    grid.set(bx1, deckY + 1, z, railBlock);
+    grid.set(bx2, deckY + 1, z, railBlock);
   }
 
   // Lamp posts every 4 blocks on railings — fence post topped with lantern
@@ -1735,6 +1744,16 @@ function generateBridge(
     grid.set(bx1, deckY + 3, z, style.lanternFloor);
     grid.set(bx2, deckY + 2, z, style.fence);
     grid.set(bx2, deckY + 3, z, style.lanternFloor);
+  }
+
+  // Bench seating — stair-block benches facing outward, pairs every 8 blocks
+  for (let z = bz1 + 4; z <= bz2 - 4; z += 8) {
+    // Bench facing west (left side of bridge)
+    if (grid.inBounds(bx1 + 1, deckY + 1, z))
+      grid.set(bx1 + 1, deckY + 1, z, 'minecraft:stone_brick_stairs[facing=west]');
+    // Bench facing east (right side of bridge)
+    if (grid.inBounds(bx2 - 1, deckY + 1, z))
+      grid.set(bx2 - 1, deckY + 1, z, 'minecraft:stone_brick_stairs[facing=east]');
   }
 
   // End towers (square, at both ends)
@@ -1774,9 +1793,14 @@ function generateBridge(
     }
   }
 
-  // Path on deck (accent center strip)
+  // Center path accent — stone brick center strip with wallAccent side strips
   for (let z = bz1; z <= bz2; z++) {
-    grid.set(cx, deckY, z, 'minecraft:polished_deepslate');
+    grid.set(cx, deckY, z, 'minecraft:stone_bricks');
+    // Side accent strips flanking center
+    if (grid.inBounds(cx - 1, deckY, z))
+      grid.set(cx - 1, deckY, z, style.wallAccent);
+    if (grid.inBounds(cx + 1, deckY, z))
+      grid.set(cx + 1, deckY, z, style.wallAccent);
   }
 
   return grid;
