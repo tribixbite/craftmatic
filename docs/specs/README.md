@@ -59,7 +59,7 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Structure generator UI with all 5 types, 5 styles, full controls
 - [x] .schem file upload with drag-and-drop + browser NBT parser (pako)
 - [x] Interactive Three.js 3D viewer with cutaway slider
-- [x] Export: GLB (binary glTF), .schem, standalone HTML
+- [x] Export: GLB (binary glTF), .schem, standalone HTML, Three.js JSON (ObjectLoader)
 - [x] Gallery with 12 pre-generated showcase structures
 - [x] Isometric canvas thumbnails for gallery cards
 
