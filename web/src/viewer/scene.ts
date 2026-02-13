@@ -1,13 +1,14 @@
 /**
  * Three.js 3D viewer for BlockGrid schematics.
- * Creates an interactive scene with textured blocks, lighting, and controls.
+ * Creates an interactive scene with textured blocks, non-cube geometries,
+ * and Faithful 32x texture loading with procedural fallback.
  */
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { getBlockColor } from '@craft/blocks/colors.js';
-import { isAir, isSolidBlock, getBlockName } from '@craft/blocks/registry.js';
+import { isAir, isSolidBlock, getBlockName, getFacing } from '@craft/blocks/registry.js';
 import type { RGB } from '@craft/types/index.js';
 
 export interface ViewerState {
@@ -20,15 +21,117 @@ export interface ViewerState {
   dispose: () => void;
 }
 
+// ─── Geometry Types ─────────────────────────────────────────────────────────
+
+type GeometryKind = 'cube' | 'slab' | 'carpet' | 'fence' | 'torch' | 'lantern'
+  | 'chain' | 'door' | 'pane' | 'rod';
+
+/** Determine the geometry type for a block */
+function getGeometryKind(name: string): GeometryKind {
+  if (name.includes('carpet') || name.includes('moss_carpet')) return 'carpet';
+  if (name.includes('_slab')) return 'slab';
+  if (name.includes('_fence') && !name.includes('gate')) return 'fence';
+  if (name.includes('torch') && !name.includes('redstone')) return 'torch';
+  if (name === 'lantern' || name === 'soul_lantern') return 'lantern';
+  if (name === 'chain') return 'chain';
+  if (name.includes('_door')) return 'door';
+  if (name.includes('_pane') || name === 'iron_bars') return 'pane';
+  if (name === 'end_rod' || name === 'lightning_rod') return 'rod';
+  return 'cube';
+}
+
+/** Geometry cache by kind */
+const geoCache = new Map<GeometryKind, THREE.BufferGeometry>();
+
+/** Get or create geometry for a block kind */
+function getGeometry(kind: GeometryKind): THREE.BufferGeometry {
+  if (geoCache.has(kind)) return geoCache.get(kind)!;
+  let geo: THREE.BufferGeometry;
+  switch (kind) {
+    case 'slab':
+      geo = new THREE.BoxGeometry(1, 0.5, 1);
+      geo.translate(0, -0.25, 0);
+      break;
+    case 'carpet':
+      geo = new THREE.BoxGeometry(1, 0.0625, 1);
+      geo.translate(0, -0.47, 0);
+      break;
+    case 'fence':
+      geo = new THREE.BoxGeometry(0.25, 1, 0.25);
+      break;
+    case 'torch':
+      geo = new THREE.BoxGeometry(0.15, 0.6, 0.15);
+      geo.translate(0, -0.2, 0);
+      break;
+    case 'lantern':
+      geo = new THREE.BoxGeometry(0.35, 0.4, 0.35);
+      geo.translate(0, -0.1, 0);
+      break;
+    case 'chain':
+      geo = new THREE.BoxGeometry(0.1, 1, 0.1);
+      break;
+    case 'door':
+      geo = new THREE.BoxGeometry(1, 1, 0.2);
+      break;
+    case 'pane':
+      geo = new THREE.BoxGeometry(0.1, 1, 1);
+      break;
+    case 'rod':
+      geo = new THREE.BoxGeometry(0.12, 1, 0.12);
+      break;
+    default:
+      geo = new THREE.BoxGeometry(1, 1, 1);
+      break;
+  }
+  geoCache.set(kind, geo);
+  return geo;
+}
+
+// ─── Texture System ─────────────────────────────────────────────────────────
+
 /** Seeded RNG for procedural textures */
 function createRng(r: number, g: number, b: number): () => number {
   let seed = (r * 7919 + g * 6271 + b * 4447) | 0;
   return () => { seed = (seed * 16807 + 1) % 2147483647; return seed / 2147483647; };
 }
 
-/** Generate a procedural block texture on a Canvas */
+/** Load real texture PNGs from textures/blocks/ via Vite glob import */
+const textureImages: Record<string, string> = import.meta.glob(
+  '../../../textures/blocks/*.png',
+  { eager: true, import: 'default', query: '?url' },
+) as Record<string, string>;
+
+/** Normalize glob paths to texture names */
+const textureUrlMap = new Map<string, string>();
+for (const [path, url] of Object.entries(textureImages)) {
+  const name = path.split('/').pop()?.replace('.png', '') ?? '';
+  if (name) textureUrlMap.set(name, url);
+}
+
+/** Cache for loaded THREE.Texture objects */
+const loadedTextures = new Map<string, THREE.Texture>();
+
+/** Load a real PNG texture or fall back to procedural */
+function loadBlockTexture(blockName: string, r: number, g: number, b: number): THREE.Texture {
+  // Try real texture first
+  const url = textureUrlMap.get(blockName);
+  if (url) {
+    if (loadedTextures.has(blockName)) return loadedTextures.get(blockName)!;
+    const tex = new THREE.TextureLoader().load(url);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    loadedTextures.set(blockName, tex);
+    return tex;
+  }
+
+  // Fall back to procedural texture
+  return makeProceduralTexture(r, g, b, blockName);
+}
+
+/** Generate a procedural block texture on a Canvas (fallback) */
 function makeProceduralTexture(r: number, g: number, b: number, blockName: string): THREE.CanvasTexture {
-  const size = 16;
+  const size = 32;
   const c = document.createElement('canvas');
   c.width = size; c.height = size;
   const ctx = c.getContext('2d')!;
@@ -45,14 +148,14 @@ function makeProceduralTexture(r: number, g: number, b: number, blockName: strin
       const lineVar = (rand() - 0.5) * 16;
       for (let x = 0; x < size; x++) {
         const idx = (y * size + x) * 4;
-        const grain = Math.sin(y * 1.2 + rand() * 0.3) * 8 + lineVar * 0.3;
+        const grain = Math.sin(y * 0.6 + rand() * 0.3) * 8 + lineVar * 0.3;
         d[idx] = Math.max(0, Math.min(255, d[idx] + grain + (rand() - 0.5) * 6));
         d[idx+1] = Math.max(0, Math.min(255, d[idx+1] + grain + (rand() - 0.5) * 6));
         d[idx+2] = Math.max(0, Math.min(255, d[idx+2] + grain * 0.5 + (rand() - 0.5) * 4));
       }
     }
     for (let x = 0; x < size; x++) {
-      if (x % 4 === 0) {
+      if (x % 8 === 0) {
         for (let y = 0; y < size; y++) {
           const idx = (y * size + x) * 4;
           d[idx] = Math.max(0, d[idx] - 18);
@@ -61,7 +164,7 @@ function makeProceduralTexture(r: number, g: number, b: number, blockName: strin
         }
       }
     }
-  } else if (name.includes('log') || name.includes('wood')) {
+  } else if (name.includes('log') || name.includes('wood') || name.includes('stem')) {
     for (let x = 0; x < size; x++) {
       const streak = (rand() - 0.5) * 22;
       for (let y = 0; y < size; y++) {
@@ -74,17 +177,17 @@ function makeProceduralTexture(r: number, g: number, b: number, blockName: strin
     }
   } else if (name.includes('stone') || name.includes('cobble') || name.includes('andesite')
               || name.includes('diorite') || name.includes('granite') || name.includes('deepslate')
-              || name.includes('blackstone')) {
+              || name.includes('blackstone') || name.includes('tuff')) {
     for (let i = 0; i < d.length; i += 4) {
       const n = (rand() - 0.5) * 28;
       d[i] = Math.max(0, Math.min(255, d[i] + n));
       d[i+1] = Math.max(0, Math.min(255, d[i+1] + n));
       d[i+2] = Math.max(0, Math.min(255, d[i+2] + n * 0.8));
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       const sx = Math.floor(rand() * size);
       const sy = Math.floor(rand() * size);
-      const len = 3 + Math.floor(rand() * 6);
+      const len = 4 + Math.floor(rand() * 8);
       for (let j = 0; j < len; j++) {
         const px = Math.min(size-1, sx + j);
         const py = Math.min(size-1, sy + Math.floor(rand() * 2));
@@ -96,11 +199,11 @@ function makeProceduralTexture(r: number, g: number, b: number, blockName: strin
     }
   } else if (name.includes('brick')) {
     for (let y = 0; y < size; y++) {
-      const row = Math.floor(y / 4);
-      const offset = (row % 2) * 4;
+      const row = Math.floor(y / 8);
+      const offset = (row % 2) * 8;
       for (let x = 0; x < size; x++) {
         const idx = (y * size + x) * 4;
-        const isMortar = (y % 4 === 0) || ((x + offset) % 8 === 0 && y % 4 !== 0);
+        const isMortar = (y % 8 <= 1) || ((x + offset) % 16 === 0 && y % 8 > 1);
         if (isMortar) {
           d[idx] = Math.max(0, d[idx] - 30);
           d[idx+1] = Math.max(0, d[idx+1] - 25);
@@ -118,7 +221,7 @@ function makeProceduralTexture(r: number, g: number, b: number, blockName: strin
     for (let x = 0; x < size; x++) {
       for (let y = 0; y < size; y++) {
         const idx = (y * size + x) * 4;
-        if (x === 0 || y === 0) {
+        if (x <= 1 || y <= 1) {
           d[idx] = Math.min(255, d[idx] + 50);
           d[idx+1] = Math.min(255, d[idx+1] + 50);
           d[idx+2] = Math.min(255, d[idx+2] + 50);
@@ -137,7 +240,7 @@ function makeProceduralTexture(r: number, g: number, b: number, blockName: strin
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const idx = (y * size + x) * 4;
-        const n = (rand() - 0.5) * 6 + Math.sin(y * 0.5) * 3;
+        const n = (rand() - 0.5) * 6 + Math.sin(y * 0.25) * 3;
         d[idx] = Math.max(0, Math.min(255, d[idx] + n));
         d[idx+1] = Math.max(0, Math.min(255, d[idx+1] + n));
         d[idx+2] = Math.max(0, Math.min(255, d[idx+2] + n));
@@ -157,7 +260,7 @@ function makeProceduralTexture(r: number, g: number, b: number, blockName: strin
       && !name.includes('torch') && !name.includes('lantern')) {
     for (let x = 0; x < size; x++) {
       for (let y = 0; y < size; y++) {
-        if (x === 0 || y === 0 || x === size-1 || y === size-1) {
+        if (x <= 1 || y <= 1 || x >= size-2 || y >= size-2) {
           const idx = (y * size + x) * 4;
           d[idx] = Math.max(0, d[idx] - 15);
           d[idx+1] = Math.max(0, d[idx+1] - 15);
@@ -175,6 +278,8 @@ function makeProceduralTexture(r: number, g: number, b: number, blockName: strin
   return tex;
 }
 
+// ─── Scene Builder ──────────────────────────────────────────────────────────
+
 /** Check if a block is fully surrounded by solid blocks (occlusion culling) */
 function isFullyOccluded(grid: BlockGrid, x: number, y: number, z: number): boolean {
   return (
@@ -185,6 +290,16 @@ function isFullyOccluded(grid: BlockGrid, x: number, y: number, z: number): bool
     isSolidBlock(grid.get(x, y, z + 1)) &&
     isSolidBlock(grid.get(x, y, z - 1))
   );
+}
+
+/** Get rotation angle in radians for a facing direction */
+function facingToAngle(facing: string | null): number {
+  switch (facing) {
+    case 'east': return Math.PI / 2;
+    case 'south': return Math.PI;
+    case 'west': return -Math.PI / 2;
+    default: return 0; // north or no facing
+  }
 }
 
 /** Build a Three.js scene from a BlockGrid and mount it on a container element */
@@ -233,14 +348,17 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Build blocks grouped by color for instanced rendering
-  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  // Build blocks grouped by color+geometry for instanced rendering
   const halfW = width / 2;
   const halfL = length / 2;
   const meshes: THREE.InstancedMesh[] = [];
+  const geometries: THREE.BufferGeometry[] = [];
 
-  interface BlockEntry { x: number; y: number; z: number; color: RGB; name: string }
-  const colorGroups = new Map<string, BlockEntry[]>();
+  interface BlockEntry {
+    x: number; y: number; z: number;
+    color: RGB; name: string; blockState: string;
+  }
+  const groups = new Map<string, BlockEntry[]>();
 
   for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
@@ -253,16 +371,22 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
         if (!color) continue;
 
         const name = getBlockName(bs);
-        const key = `${color[0]},${color[1]},${color[2]}:${name}`;
-        if (!colorGroups.has(key)) colorGroups.set(key, []);
-        colorGroups.get(key)!.push({ x, y, z, color, name });
+        const kind = getGeometryKind(name);
+        // Group by color + name + geometry kind
+        const key = `${color[0]},${color[1]},${color[2]}:${name}:${kind}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push({ x, y, z, color, name, blockState: bs });
       }
     }
   }
 
-  for (const [, entries] of colorGroups) {
+  for (const [, entries] of groups) {
     const { color: [r, g, b], name } = entries[0];
-    const texture = makeProceduralTexture(r, g, b, name);
+    const kind = getGeometryKind(name);
+    const geo = getGeometry(kind);
+
+    // Try real texture, fall back to procedural
+    const texture = loadBlockTexture(name, r, g, b);
 
     const isTransparent = name.includes('glass') || name.includes('pane')
       || name.includes('bars') || name.includes('torch')
@@ -271,23 +395,44 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
     const material = new THREE.MeshStandardMaterial({
       map: texture,
       roughness: name.includes('quartz') || name.includes('concrete') ? 0.6 : 0.88,
-      metalness: name.includes('iron') || name.includes('gold') ? 0.5 : 0.02,
+      metalness: name.includes('iron') || name.includes('gold') || name.includes('copper') ? 0.5 : 0.02,
       transparent: isTransparent,
       opacity: isTransparent ? 0.85 : 1.0,
       alphaTest: 0.1,
     });
 
-    const mesh = new THREE.InstancedMesh(geometry, material, entries.length);
+    // Emissive glow for light-emitting blocks
+    if (name.includes('lantern') || name.includes('glowstone') || name === 'sea_lantern'
+        || name === 'redstone_lamp' || name.includes('campfire')) {
+      material.emissive = new THREE.Color(r / 255, g / 255, b / 255);
+      material.emissiveIntensity = 0.3;
+    }
+
+    const mesh = new THREE.InstancedMesh(geo, material, entries.length);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
 
     const matrix = new THREE.Matrix4();
+    const rotMatrix = new THREE.Matrix4();
     const yPositions: number[] = [];
     const originals: THREE.Matrix4[] = [];
 
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
-      matrix.setPosition(e.x - halfW, e.y, e.z - halfL);
+
+      // Apply rotation for directional blocks (doors, panes)
+      if (kind === 'door' || kind === 'pane') {
+        const facing = getFacing(e.blockState);
+        const angle = facingToAngle(facing);
+        rotMatrix.makeRotationY(angle);
+        matrix.identity();
+        matrix.multiply(rotMatrix);
+        matrix.setPosition(e.x - halfW, e.y, e.z - halfL);
+      } else {
+        matrix.identity();
+        matrix.setPosition(e.x - halfW, e.y, e.z - halfL);
+      }
+
       mesh.setMatrixAt(i, matrix);
       yPositions.push(e.y);
       originals.push(new THREE.Matrix4().copy(matrix));
@@ -345,7 +490,7 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
       controls.dispose();
       renderer.dispose();
       renderer.domElement.remove();
-      geometry.dispose();
+      geometries.forEach(g => g.dispose());
       meshes.forEach(m => {
         const mat = m.material as THREE.MeshStandardMaterial;
         mat.map?.dispose();
