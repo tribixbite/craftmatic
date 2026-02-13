@@ -15,7 +15,7 @@ import { existsSync, createReadStream } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const TILE = 16; // Texture resolution per block face
+const TILE = 32; // Texture resolution per block face (Faithful 32x)
 
 /** Seeded PRNG for deterministic texture generation */
 function mulberry32(seed: number): () => number {
@@ -33,7 +33,7 @@ function mulberry32(seed: number): () => number {
 /** Pattern type for a texture */
 type PatternType = 'solid' | 'noise' | 'grain' | 'brick' | 'speckle' | 'plank' | 'checkerboard' | 'cross' | 'dots' | 'shelf';
 
-/** Generate a 16x16 RGBA pixel array for a given color and pattern */
+/** Generate a 32x32 RGBA pixel array for a given color and pattern */
 function generateTexture(baseColor: RGB, pattern: PatternType, seed: number = 0): Uint8Array {
   const data = new Uint8Array(TILE * TILE * 4);
   const rng = mulberry32(seed);
@@ -46,7 +46,6 @@ function generateTexture(baseColor: RGB, pattern: PatternType, seed: number = 0)
 
       switch (pattern) {
         case 'noise': {
-          // Subtle random noise (stone, dirt, gravel)
           const n = (rng() - 0.5) * 20;
           pr = clamp(r + n);
           pg = clamp(g + n);
@@ -54,29 +53,27 @@ function generateTexture(baseColor: RGB, pattern: PatternType, seed: number = 0)
           break;
         }
         case 'grain': {
-          // Vertical grain pattern (wood planks)
-          const grainX = Math.sin(x * 1.5 + seed * 0.1) * 8;
+          // Vertical grain pattern (wood bark) — scaled for 32px
+          const grainX = Math.sin(x * 0.75 + seed * 0.1) * 8;
           const n2 = (rng() - 0.5) * 10;
           const brightness = grainX + n2;
           pr = clamp(r + brightness);
           pg = clamp(g + brightness);
           pb = clamp(b + brightness);
-          // Plank edge lines
-          if (y === 0 || y === TILE - 1) {
+          if (y <= 1 || y >= TILE - 2) {
             pr = clamp(r - 25); pg = clamp(g - 25); pb = clamp(b - 25);
           }
           break;
         }
         case 'brick': {
-          // Brick pattern with mortar lines
-          const brickH = 4;
-          const brickW = 8;
+          // Brick pattern with mortar — doubled dimensions for 32px
+          const brickH = 8;
+          const brickW = 16;
           const row = Math.floor(y / brickH);
           const offset = (row % 2) * (brickW / 2);
           const localY = y % brickH;
           const localX = (x + offset) % brickW;
-          if (localY === 0 || localX === 0) {
-            // Mortar
+          if (localY <= 1 || localX === 0) {
             pr = clamp(r + 40); pg = clamp(g + 40); pb = clamp(b + 40);
           } else {
             const n3 = (rng() - 0.5) * 12;
@@ -87,7 +84,6 @@ function generateTexture(baseColor: RGB, pattern: PatternType, seed: number = 0)
           break;
         }
         case 'speckle': {
-          // Random speckle pattern (granite, diorite)
           const n4 = (rng() - 0.5) * 30;
           pr = clamp(r + n4);
           pg = clamp(g + n4 * 0.8);
@@ -95,13 +91,12 @@ function generateTexture(baseColor: RGB, pattern: PatternType, seed: number = 0)
           break;
         }
         case 'plank': {
-          // Horizontal plank pattern with grain and joints
-          const plankH = 4;
+          // Horizontal plank pattern — doubled for 32px
+          const plankH = 8;
           const localPY = y % plankH;
-          const grainVal = Math.sin(x * 0.8 + Math.floor(y / plankH) * 3.7) * 6;
+          const grainVal = Math.sin(x * 0.4 + Math.floor(y / plankH) * 3.7) * 6;
           const n5 = (rng() - 0.5) * 8;
-          if (localPY === 0) {
-            // Joint line
+          if (localPY <= 1) {
             pr = clamp(r - 30); pg = clamp(g - 30); pb = clamp(b - 30);
           } else {
             pr = clamp(r + grainVal + n5);
@@ -111,20 +106,20 @@ function generateTexture(baseColor: RGB, pattern: PatternType, seed: number = 0)
           break;
         }
         case 'checkerboard': {
-          // Subtle checkerboard (polished stone)
-          const check = ((Math.floor(x / 2) + Math.floor(y / 2)) % 2 === 0) ? 5 : -5;
+          // Subtle checkerboard — scaled for 32px
+          const check = ((Math.floor(x / 4) + Math.floor(y / 4)) % 2 === 0) ? 5 : -5;
           pr = clamp(r + check);
           pg = clamp(g + check);
           pb = clamp(b + check);
           break;
         }
         case 'cross': {
-          // Cross/plus pattern (chiseled blocks)
+          // Cross/plus pattern — scaled for 32px
           const cx = TILE / 2, cy = TILE / 2;
           const dx = Math.abs(x - cx), dy = Math.abs(y - cy);
-          if ((dx < 2 && dy < 6) || (dy < 2 && dx < 6)) {
+          if ((dx < 4 && dy < 12) || (dy < 4 && dx < 12)) {
             pr = clamp(r + 20); pg = clamp(g + 20); pb = clamp(b + 20);
-          } else if (x === 0 || x === TILE - 1 || y === 0 || y === TILE - 1) {
+          } else if (x <= 1 || x >= TILE - 2 || y <= 1 || y >= TILE - 2) {
             pr = clamp(r - 20); pg = clamp(g - 20); pb = clamp(b - 20);
           } else {
             const n6 = (rng() - 0.5) * 8;
@@ -133,9 +128,10 @@ function generateTexture(baseColor: RGB, pattern: PatternType, seed: number = 0)
           break;
         }
         case 'dots': {
-          // Small dot pattern (end stone, prismarine)
-          const dotSpacing = 4;
-          const isDot = (x % dotSpacing === 1) && (y % dotSpacing === 1);
+          // Dot pattern — scaled for 32px
+          const dotSpacing = 8;
+          const isDot = (x % dotSpacing >= 1 && x % dotSpacing <= 2)
+                     && (y % dotSpacing >= 1 && y % dotSpacing <= 2);
           if (isDot) {
             pr = clamp(r + 25); pg = clamp(g + 25); pb = clamp(b + 25);
           } else {
@@ -145,30 +141,25 @@ function generateTexture(baseColor: RGB, pattern: PatternType, seed: number = 0)
           break;
         }
         case 'shelf': {
-          // Bookshelf pattern — books on middle rows
-          if (y < 2 || y > 13) {
-            // Wood planks (top/bottom shelf)
-            const grainS = Math.sin(x * 0.9) * 4;
+          // Bookshelf — scaled for 32px
+          if (y < 4 || y > 27) {
+            const grainS = Math.sin(x * 0.45) * 4;
             pr = clamp(162 + grainS); pg = clamp(130 + grainS); pb = clamp(78 + grainS);
-          } else if (y === 2 || y === 8 || y === 13) {
-            // Shelf divider
+          } else if (y === 4 || y === 16 || y === 27) {
             pr = clamp(r - 40); pg = clamp(g - 40); pb = clamp(b - 40);
           } else {
-            // Book spines — varying colors
-            const bookIdx = Math.floor(x / 2) + Math.floor((y - 3) / 5) * 8;
+            const bookIdx = Math.floor(x / 4) + Math.floor((y - 5) / 11) * 8;
             const bookRng = mulberry32(bookIdx + seed);
             const hue = bookRng() * 360;
             const bookColor = hslToRgb(hue, 0.4, 0.35);
             pr = bookColor[0]; pg = bookColor[1]; pb = bookColor[2];
-            // Book edge
-            if (x % 2 === 0 && x > 0) {
+            if (x % 4 === 0 && x > 0) {
               pr = clamp(pr - 15); pg = clamp(pg - 15); pb = clamp(pb - 15);
             }
           }
           break;
         }
         default:
-          // Solid color
           pr = r; pg = g; pb = b;
           break;
       }
@@ -245,7 +236,7 @@ interface AtlasEntry {
   x: number;   // Pixel position in atlas
   y: number;
   uv: AtlasUV;
-  data: Uint8Array;  // 16x16 RGBA pixel data
+  data: Uint8Array;  // 32x32 RGBA pixel data
 }
 
 /** Pre-built atlas containing all textures */
@@ -386,12 +377,14 @@ export class ProceduralAtlas {
         const img = await pureimage.decodePNGFromStream(stream);
         const data = new Uint8Array(TILE * TILE * 4);
 
-        // Copy pixel data, handling potential size mismatch
-        const srcW = Math.min(TILE, img.width);
-        const srcH = Math.min(TILE, img.height);
-        for (let y = 0; y < srcH; y++) {
-          for (let x = 0; x < srcW; x++) {
-            const srcIdx = (y * img.width + x) * 4;
+        // Nearest-neighbor scale source PNG to TILE×TILE
+        const srcW = img.width;
+        const srcH = img.height;
+        for (let y = 0; y < TILE; y++) {
+          const sy = Math.min(Math.floor(y * srcH / TILE), srcH - 1);
+          for (let x = 0; x < TILE; x++) {
+            const sx = Math.min(Math.floor(x * srcW / TILE), srcW - 1);
+            const srcIdx = (sy * srcW + sx) * 4;
             const dstIdx = (y * TILE + x) * 4;
             data[dstIdx] = img.data[srcIdx];
             data[dstIdx + 1] = img.data[srcIdx + 1];
@@ -462,50 +455,131 @@ function findTextureDir(): string | null {
 const COMMON_TEXTURES = [
   // Stone variants
   'stone', 'cobblestone', 'stone_bricks', 'chiseled_stone_bricks', 'mossy_stone_bricks',
+  'cracked_stone_bricks', 'mossy_cobblestone',
   'polished_andesite', 'polished_diorite', 'polished_granite',
   'andesite', 'diorite', 'granite',
-  'deepslate', 'deepslate_bricks', 'polished_deepslate', 'polished_blackstone', 'polished_blackstone_bricks',
+  'deepslate', 'deepslate_bricks', 'polished_deepslate',
+  'polished_blackstone', 'polished_blackstone_bricks',
+  'deepslate_tiles', 'cracked_deepslate_bricks', 'cracked_deepslate_tiles',
+  'blackstone', 'gilded_blackstone',
   // Wood planks
-  'oak_planks', 'spruce_planks', 'birch_planks', 'dark_oak_planks', 'acacia_planks', 'jungle_planks',
+  'oak_planks', 'spruce_planks', 'birch_planks', 'dark_oak_planks',
+  'acacia_planks', 'jungle_planks', 'warped_planks', 'crimson_planks',
   // Logs
   'oak_log', 'oak_log_top', 'spruce_log', 'spruce_log_top',
   'birch_log', 'birch_log_top', 'dark_oak_log', 'dark_oak_log_top',
+  'acacia_log', 'acacia_log_top', 'jungle_log', 'jungle_log_top',
+  'warped_stem', 'warped_stem_top', 'crimson_stem', 'crimson_stem_top',
   // Stripped logs
-  'stripped_oak_log', 'stripped_oak_log_top', 'stripped_dark_oak_log', 'stripped_dark_oak_log_top',
+  'stripped_oak_log', 'stripped_oak_log_top',
+  'stripped_dark_oak_log', 'stripped_dark_oak_log_top',
   'stripped_spruce_log', 'stripped_spruce_log_top',
-  // Concrete
+  'stripped_birch_log', 'stripped_birch_log_top',
+  'stripped_acacia_log', 'stripped_acacia_log_top',
+  'stripped_warped_stem', 'stripped_crimson_stem',
+  // Concrete (all 16)
   'white_concrete', 'gray_concrete', 'light_gray_concrete', 'black_concrete',
   'red_concrete', 'blue_concrete', 'green_concrete', 'yellow_concrete',
   'orange_concrete', 'cyan_concrete', 'purple_concrete', 'pink_concrete',
+  'brown_concrete', 'lime_concrete', 'magenta_concrete', 'light_blue_concrete',
   // Bricks & terracotta
   'bricks', 'nether_bricks', 'red_nether_bricks', 'end_stone_bricks',
-  'terracotta', 'white_terracotta',
+  'terracotta', 'white_terracotta', 'orange_terracotta', 'red_terracotta',
+  'brown_terracotta', 'yellow_terracotta', 'light_gray_terracotta', 'cyan_terracotta',
+  'black_terracotta', 'blue_terracotta', 'gray_terracotta', 'green_terracotta',
+  'light_blue_terracotta', 'lime_terracotta', 'magenta_terracotta',
+  'pink_terracotta', 'purple_terracotta',
   // Glass
   'glass',
   // Quartz
-  'quartz_block_side', 'quartz_block_top', 'quartz_block_bottom', 'quartz_pillar', 'smooth_quartz',
-  // Functional
+  'quartz_block_side', 'quartz_block_top', 'quartz_block_bottom',
+  'quartz_pillar', 'quartz_pillar_top', 'smooth_quartz',
+  // Functional blocks
   'bookshelf', 'crafting_table_top', 'crafting_table_side',
-  'furnace_top', 'furnace_front',
-  // Misc
-  'obsidian', 'glowstone', 'sea_lantern', 'prismarine',
+  'furnace_top', 'furnace_front', 'furnace_side',
+  'enchanting_table_top', 'enchanting_table_side', 'enchanting_table_bottom',
+  'anvil', 'anvil_top', 'lectern_top', 'lectern_sides', 'lectern_front',
+  'cartography_table_top', 'cartography_table_side1',
+  'smithing_table_top', 'smithing_table_side', 'smithing_table_front',
+  'loom_top', 'loom_side', 'loom_front',
+  'note_block', 'jukebox_top', 'jukebox_side',
+  'stonecutter_top', 'stonecutter_side',
+  'grindstone_side', 'grindstone_round',
+  'brewing_stand', 'brewing_stand_base',
+  'composter_top', 'composter_side',
+  'smoker_top', 'smoker_side', 'smoker_front',
+  'blast_furnace_top', 'blast_furnace_side', 'blast_furnace_front',
+  'barrel_top', 'barrel_side', 'barrel_bottom',
+  // Precious / ore blocks
+  'obsidian', 'glowstone', 'sea_lantern',
   'gold_block', 'diamond_block', 'emerald_block', 'lapis_block', 'iron_block',
-  'netherrack', 'gilded_blackstone',
-  // Ground
-  'dirt', 'sand', 'gravel', 'clay',
-  // Wool
-  'white_wool', 'red_wool', 'blue_wool',
-  // Carpet
+  'copper_block', 'redstone_block', 'amethyst_block',
+  'netherrack',
+  // Prismarine
+  'prismarine', 'prismarine_bricks', 'dark_prismarine',
+  // Sandstone
+  'sandstone', 'sandstone_top', 'sandstone_bottom', 'chiseled_sandstone',
+  'smooth_sandstone', 'smooth_sandstone_top',
+  'red_sandstone', 'red_sandstone_top', 'red_sandstone_bottom',
+  'chiseled_red_sandstone', 'smooth_red_sandstone',
+  // Copper variants
+  'exposed_copper', 'weathered_copper', 'oxidized_copper',
+  'cut_copper', 'exposed_cut_copper', 'weathered_cut_copper', 'oxidized_cut_copper',
+  // Coral blocks
+  'tube_coral_block', 'brain_coral_block', 'bubble_coral_block',
+  'fire_coral_block', 'horn_coral_block',
+  'dead_tube_coral_block', 'dead_brain_coral_block',
+  // Natural / terrain
+  'dirt', 'sand', 'gravel', 'clay', 'grass_block_top', 'grass_block_side',
+  'moss_block', 'tuff', 'tuff_bricks', 'calcite',
+  'mud_bricks', 'packed_mud', 'podzol',
+  // Leaves
+  'oak_leaves', 'birch_leaves', 'spruce_leaves', 'dark_oak_leaves', 'acacia_leaves',
+  'azalea_leaves', 'flowering_azalea_leaves',
+  // Wool (all 16)
+  'white_wool', 'orange_wool', 'red_wool', 'blue_wool', 'light_blue_wool',
+  'yellow_wool', 'black_wool', 'brown_wool', 'green_wool', 'gray_wool',
+  'light_gray_wool', 'purple_wool', 'cyan_wool', 'magenta_wool', 'pink_wool', 'lime_wool',
+  // Carpet (uses wool textures but listed for atlas coverage)
   'red_carpet', 'blue_carpet', 'cyan_carpet', 'yellow_carpet', 'white_carpet',
   'black_carpet', 'purple_carpet', 'green_carpet', 'brown_carpet', 'gray_carpet',
-  'light_gray_carpet',
+  'light_gray_carpet', 'orange_carpet', 'lime_carpet', 'pink_carpet',
+  'magenta_carpet', 'light_blue_carpet',
+  // Nether
+  'soul_sand',
+  // End
+  'end_stone', 'end_stone_bricks', 'purpur_block', 'purpur_pillar', 'purpur_pillar_top',
+  // Misc blocks
+  'hay_block_side', 'hay_block_top', 'bone_block_side', 'bone_block_top',
+  'redstone_lamp', 'beacon', 'flower_pot', 'cobweb',
+  'ice', 'packed_ice', 'dragon_egg',
+  // Doors
+  'oak_door_top', 'oak_door_bottom', 'spruce_door_top', 'spruce_door_bottom',
+  'birch_door_top', 'birch_door_bottom', 'dark_oak_door_top', 'dark_oak_door_bottom',
+  'acacia_door_top', 'acacia_door_bottom', 'iron_door_top', 'iron_door_bottom',
+  'warped_door_top', 'warped_door_bottom', 'crimson_door_top', 'crimson_door_bottom',
+  // Trapdoors
+  'oak_trapdoor', 'spruce_trapdoor', 'birch_trapdoor', 'dark_oak_trapdoor',
+  'iron_trapdoor', 'warped_trapdoor',
+  // Metal / utility
+  'iron_bars', 'chain', 'cauldron_side', 'cauldron_top', 'cauldron_inner',
+  // Lighting
+  'lantern', 'soul_lantern', 'end_rod', 'torch', 'soul_torch',
+  'campfire_log_lit', 'soul_campfire_log_lit',
 ];
 
 /** Build a color map from block colors for texture generation */
 function buildColorMap(): Map<string, RGB> {
   const map = new Map<string, RGB>();
   for (const name of COMMON_TEXTURES) {
-    const color = getBlockColor(`minecraft:${name}`);
+    // Try exact match first, then strip common suffixes to find the base block
+    let color = getBlockColor(`minecraft:${name}`);
+    if (!color) {
+      // Strip face suffixes like _top, _side, _front, _bottom, _side1, etc.
+      const baseName = name
+        .replace(/_(top|bottom|side\d?|front|inner|round|pivot|base|sides)$/, '');
+      color = getBlockColor(`minecraft:${baseName}`);
+    }
     if (color) {
       map.set(name, color);
     }

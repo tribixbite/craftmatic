@@ -7,7 +7,7 @@ describe('texture atlas', () => {
     expect(atlas.entries.size).toBeGreaterThan(50);
     expect(atlas.width).toBeGreaterThan(0);
     expect(atlas.height).toBeGreaterThan(0);
-    expect(atlas.tileSize).toBe(16);
+    expect(atlas.tileSize).toBe(32);
   });
 
   it('returns same cached atlas on repeated calls', () => {
