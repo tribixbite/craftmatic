@@ -126,3 +126,10 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Gallery thumbnails: proper isometric diamond/parallelogram shapes
 - [x] Server EADDRINUSE: helpful error message instead of crash
 - [x] Comprehensive e2e test suite: 81 checks across 14 sections (Playwright)
+
+### Structure Quality Pass
+- [x] Inline cutaway slider in embedded 3D preview (horizontal range, resets per generation)
+- [x] Village (B- → B+): stone brick plaza (r=6), upgraded paths, varied house sizes (13-18×11-16), garden plots, fence gate openings
+- [x] Marketplace (B → B+): awnings on alternating stalls, oak bench seating, flower pots, expanded goods (fletching/loom/composter/smoker), perimeter banners
+- [x] Dungeon (B → B+): 5-wide main corridor, paired/single torch wayfinding, redstone markers, water drainage channel, asymmetric room sizes, mossy floor palette
+- [x] Bridge (B+ → A-): inner arch ribs (wallAccent), alternating fence/stone railings, stone stair benches, stone brick center path with accent strips
