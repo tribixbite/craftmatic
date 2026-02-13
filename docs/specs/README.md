@@ -24,8 +24,8 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Structure generator (5 styles, 16 room types, seeded PRNG)
 - [x] Cross-conversion (schem↔three bidirectional)
 - [x] CLI (info, render, view, export, gen, atlas commands)
-- [x] Texture atlas — hybrid: 144 real ProgrammerArt CC-BY 4.0 textures + procedural fallback
-- [x] Tests (59 tests, all passing)
+- [x] Texture atlas — 334 Faithful 32x CC-BY-SA textures + procedural fallback (230+ entries)
+- [x] Tests (93 tests, all passing)
 - [x] Quality audit (all 5 styles × 3 floor counts, 75 renders verified)
 - [x] Cutaway slider fix — proper instance matrix store/restore
 
@@ -108,3 +108,16 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Test suite expanded: 59 → 86 tests (new types, styles, rooms, benchmarks)
 - [x] Web gallery expanded: 12 → 20 entries with new types/styles
 - [x] Generator UI: all 10 structure types, 9 style presets
+
+### v0.2.1 — Glorious Rendering
+- [x] Faithful 32x textures: 334 block PNGs at 32×32 replacing 16×16 ProgrammerArt (CC-BY-SA)
+- [x] Textured 2D rendering: atlas connected to floor plans, cutaway iso, and exterior iso
+- [x] Texture blitting: nearest-neighbor sampling for top-down and isometric face projections
+- [x] 17 hand-drawn item sprites: beds, chests, lanterns, flower pots, armor stands, etc.
+- [x] 3D viewer: 10 non-cube geometry shapes (slab, fence, torch, lantern, chain, door, pane, etc.)
+- [x] 3D viewer: Faithful 32x texture loading via Vite + emissive glow for lights
+- [x] Style palette contrast fixes: elven foundation, desert wallAccent, gothic pillar
+- [x] Room furnishing density: extra lights, plants, carpets, banners in 7 sparse rooms
+- [x] Generator enrichment: exterior lanterns, courtyard trees, deck barrels, altar candles, lamp posts, varied stall goods
+- [x] Test suite: 86 → 93 tests (item sprites, textured rendering, atlas coverage)
+- [x] Showcase v3: 20 structures × 10 types × 9 styles with textured renders (102 PNGs)

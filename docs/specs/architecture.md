@@ -29,7 +29,8 @@ src/
 │   ├── three-scene.ts    # Three.js scene builder + viewer serializer
 │   ├── server.ts         # Express dev server for 3D viewer
 │   ├── export-html.ts    # Self-contained HTML export
-│   ├── texture-atlas.ts  # Texture atlas UV lookup (placeholder)
+│   ├── texture-atlas.ts  # ProceduralAtlas — 230+ textures (Faithful 32x + procedural)
+│   ├── item-sprites.ts   # 17 hand-drawn 16x16 furniture sprites
 │   └── block-mesh.ts     # Block mesh (re-exports three-scene)
 ├── convert/
 │   ├── schem-to-three.ts # .schem → Three.js Object3D
@@ -66,13 +67,31 @@ Structure-specific generators (v0.2.0):
 
 ### Render Pipeline (2D)
 ```
-BlockGrid → to3DArray() → pixel buffer (RGBA) → pureimage encodePNG → Buffer
+BlockGrid → to3DArray() → ensureAtlas() → per-block texture lookup
+  → blitTextureTile / blitTextureIso* (nearest-neighbor sampling from 32x32 atlas)
+  → item sprite overlay (16x16 furniture shapes)
+  → pureimage encodePNG → Buffer
+```
+
+### Texture Pipeline
+```
+textures/blocks/*.png (334 Faithful 32x32 CC-BY-SA)
+  → initDefaultAtlas() loads + scales to tileSize
+  → ProceduralAtlas (230+ entries, hybrid: real PNG + procedural fallback)
+  → getBlockTextures(blockState) → per-face texture names (top/bottom/north/south/east/west)
+  → atlas.entries.get(textureName)?.data → 32x32 RGBA pixel array
+  → item-sprites.ts: 17 hand-drawn 16x16 sprites for furniture (beds, chests, lanterns, etc.)
 ```
 
 ### Render Pipeline (3D)
 ```
 BlockGrid → serializeForViewer() → JSON → HTML template (Three.js from CDN)
-  → InstancedMesh per color group → OrbitControls → WebGL canvas
+  → getGeometryKind() classifies block shape (10 types: cube, slab, fence, torch, etc.)
+  → InstancedMesh per color+geometry group
+  → loadBlockTexture() → Faithful 32x PNG via Vite import.meta.glob (fallback: procedural)
+  → NearestFilter for crisp pixel-art look
+  → Emissive glow for light-emitting blocks
+  → OrbitControls → WebGL canvas
 ```
 
 ## Key Classes
