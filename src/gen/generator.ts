@@ -2007,6 +2007,16 @@ function generateMarketplace(
     'minecraft:iron_ingot', 'minecraft:book', 'minecraft:golden_apple',
     'minecraft:diamond', 'minecraft:potion',
   ];
+  // Expanded stall goods — more workstation variety
+  const stallGoods = [
+    'minecraft:barrel', 'minecraft:crafting_table', 'minecraft:anvil', 'minecraft:cauldron',
+    'minecraft:fletching_table', 'minecraft:loom', 'minecraft:composter', 'minecraft:smoker',
+  ];
+  // Flower pots for stall corner decoration
+  const stallFlowers = [
+    'minecraft:potted_poppy', 'minecraft:potted_dandelion', 'minecraft:potted_blue_orchid',
+    'minecraft:potted_allium', 'minecraft:potted_cornflower', 'minecraft:potted_red_tulip',
+  ];
   let stallIdx = 0;
   for (const stallRow of [bz1 + 3, bz2 - 3]) {
     for (let sx = bx1 + 3; sx <= bx2 - 5; sx += 6) {
@@ -2017,6 +2027,18 @@ function generateMarketplace(
       }
       // Slab roof
       grid.fill(sx, 4, stallRow - 1, sx + 3, 4, stallRow + 1, style.slabBottom);
+
+      // Awnings on alternating stalls — second-story slab extension with support
+      if (stallIdx % 2 === 0) {
+        const awningZ = stallRow < zMid ? stallRow - 2 : stallRow + 2;
+        if (grid.inBounds(sx, 5, awningZ)) {
+          grid.fill(sx, 5, Math.min(stallRow, awningZ), sx + 3, 5, Math.max(stallRow, awningZ), style.slabBottom);
+          // Support posts for awning
+          grid.set(sx, 4, awningZ, style.fence);
+          grid.set(sx + 3, 4, awningZ, style.fence);
+        }
+      }
+
       // Counter / display table
       grid.set(sx + 1, 1, stallRow, style.fence);
       grid.set(sx + 1, 2, stallRow, style.carpet);
@@ -2027,12 +2049,28 @@ function generateMarketplace(
         { slot: 0, id: stallItems[stallIdx % stallItems.length], count: 32 },
       ]);
       // Varied stall goods on counter
-      const stallGoods = ['minecraft:barrel', 'minecraft:crafting_table', 'minecraft:anvil', 'minecraft:cauldron'];
       grid.set(sx + 1, 3, stallRow, stallGoods[stallIdx % stallGoods.length]);
-      stallIdx++;
       // Lantern
       grid.set(sx + 2, 3, stallRow, style.lantern);
+
+      // Flower pots at stall corners
+      if (grid.inBounds(sx, 1, stallRow - 1))
+        grid.set(sx, 1, stallRow - 1, stallFlowers[stallIdx % stallFlowers.length]);
+      if (grid.inBounds(sx + 3, 1, stallRow + 1))
+        grid.set(sx + 3, 1, stallRow + 1, stallFlowers[(stallIdx + 1) % stallFlowers.length]);
+
+      stallIdx++;
     }
+  }
+
+  // Seating benches — stair blocks along central walkway, every 6 blocks
+  for (let x = bx1 + 4; x <= bx2 - 4; x += 6) {
+    // North-facing bench on south side of walkway
+    if (grid.inBounds(x, 1, zMid + 2))
+      grid.set(x, 1, zMid + 2, 'minecraft:oak_stairs[facing=north]');
+    // South-facing bench on north side of walkway
+    if (grid.inBounds(x, 1, zMid - 2))
+      grid.set(x, 1, zMid - 2, 'minecraft:oak_stairs[facing=south]');
   }
 
   // Well/fountain in center
@@ -2063,6 +2101,12 @@ function generateMarketplace(
   grid.set(xMid + 1, 3, bz1, style.bannerS);
   grid.set(xMid - 2, 3, bz2, style.bannerN);
   grid.set(xMid + 1, 3, bz2, style.bannerN);
+
+  // Perimeter banners — decorative banners on fence posts every 8 blocks
+  for (let x = bx1 + 4; x <= bx2 - 4; x += 8) {
+    if (grid.inBounds(x, 2, bz1)) grid.set(x, 2, bz1, style.bannerS);
+    if (grid.inBounds(x, 2, bz2)) grid.set(x, 2, bz2, style.bannerN);
+  }
 
   return grid;
 }
