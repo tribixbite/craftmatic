@@ -139,7 +139,8 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Gallery cards: min-height:240px prevents blank bars during lazy thumbnail generation
 - [x] Block seam gaps: 0.2% oversize on full/slab geometries eliminates anti-alias gaps
 - [x] Tower wall gaps: fill-then-hollow approach for gap-free 2-thick walls (main + castle corner towers)
-- [x] Collapsible generator: display:none toggle, 40vh mobile max-height with flex-shrink
+- [x] Collapsible generator: display:none toggle, 50vh mobile max-height, auto-collapse after generate
+- [x] Mobile form rows: 2-column grid preserved on narrow screens (Floors/Seed, Width/Length side by side)
 - [x] Ground plane: grass_block for land structures, water for ships/bridges (auto-fill y=0)
 - [x] Village radial layout: 6 buildings at 60° intervals around plaza, all facing inward
 - [x] Village path routing: paths connect to door locations via L-shaped stone brick paths
