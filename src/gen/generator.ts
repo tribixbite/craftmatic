@@ -849,37 +849,71 @@ function generateDungeon(
     grid.fill(bx1, cy, bz1, bx2, cy, bz2, style.ceiling);
     exteriorWalls(grid, bx1, by + 1, bz1, bx2, cy - 1, bz2, style);
 
-    // Corridors — cross shaped
-    const corridorW = 3;
-    const halfC = Math.floor(corridorW / 2);
-    // N-S corridor
+    // Corridors — cross shaped, main N-S corridor is wider (5 blocks)
+    const mainHalfC = 2;  // 5-wide main corridor
+    const sideHalfC = 1;  // 3-wide side corridors
+    // N-S main corridor (wider)
     for (let z = bz1 + 1; z <= bz2 - 1; z++) {
-      for (let dx = -halfC; dx <= halfC; dx++) {
+      for (let dx = -mainHalfC; dx <= mainHalfC; dx++) {
         for (let y = by + 1; y < cy; y++) {
           grid.set(xMid + dx, y, z, 'minecraft:air');
         }
       }
     }
-    // E-W corridor
+    // E-W side corridors (standard width)
     for (let x = bx1 + 1; x <= bx2 - 1; x++) {
-      for (let dz = -halfC; dz <= halfC; dz++) {
+      for (let dz = -sideHalfC; dz <= sideHalfC; dz++) {
         for (let y = by + 1; y < cy; y++) {
           grid.set(x, y, zMid + dz, 'minecraft:air');
         }
       }
     }
 
-    // Room chambers in each quadrant
-    const chamberInset = 2;
+    // Mossy stone brick floor in corridors
+    const floorBlocks = ['minecraft:mossy_stone_bricks', style.floorGround, 'minecraft:cracked_stone_bricks'];
+    for (let z = bz1 + 1; z <= bz2 - 1; z++) {
+      for (let dx = -mainHalfC; dx <= mainHalfC; dx++) {
+        const fx = xMid + dx;
+        if (grid.inBounds(fx, by, z)) {
+          grid.set(fx, by, z, floorBlocks[(z + dx) % floorBlocks.length]);
+        }
+      }
+    }
+    for (let x = bx1 + 1; x <= bx2 - 1; x++) {
+      for (let dz = -sideHalfC; dz <= sideHalfC; dz++) {
+        const fz = zMid + dz;
+        if (grid.inBounds(x, by, fz)) {
+          grid.set(x, by, fz, floorBlocks[(x + dz) % floorBlocks.length]);
+        }
+      }
+    }
+
+    // Water drainage channel — water strip along east side of main corridor
+    for (let z = bz1 + 3; z <= bz2 - 3; z++) {
+      const drainX = xMid + mainHalfC;
+      if (grid.inBounds(drainX, by, z)) {
+        // Alternate between water and slab covers
+        if (z % 3 === 0) {
+          grid.set(drainX, by, z, style.slabBottom);
+        } else {
+          grid.set(drainX, by, z, 'minecraft:water');
+        }
+      }
+    }
+
+    // Varied room sizes — asymmetric quadrant insets (2 large, 2 small)
+    const smallInset = 3;
+    const largeInset = 1;
+    // Quadrants 0,2 are large; 1,3 are small for spatial hierarchy
     const quadrants: RoomBounds[] = [
-      { x1: bx1 + chamberInset, y: by + 1, z1: bz1 + chamberInset,
-        x2: xMid - halfC - 1, z2: zMid - halfC - 1, height: STORY_H - 1 },
-      { x1: bx1 + chamberInset, y: by + 1, z1: zMid + halfC + 1,
-        x2: xMid - halfC - 1, z2: bz2 - chamberInset, height: STORY_H - 1 },
-      { x1: xMid + halfC + 1, y: by + 1, z1: zMid + halfC + 1,
-        x2: bx2 - chamberInset, z2: bz2 - chamberInset, height: STORY_H - 1 },
-      { x1: xMid + halfC + 1, y: by + 1, z1: bz1 + chamberInset,
-        x2: bx2 - chamberInset, z2: zMid - halfC - 1, height: STORY_H - 1 },
+      { x1: bx1 + largeInset, y: by + 1, z1: bz1 + largeInset,
+        x2: xMid - mainHalfC - 1, z2: zMid - sideHalfC - 1, height: STORY_H - 1 },
+      { x1: bx1 + smallInset, y: by + 1, z1: zMid + sideHalfC + 1,
+        x2: xMid - mainHalfC - 1, z2: bz2 - smallInset, height: STORY_H - 1 },
+      { x1: xMid + mainHalfC + 1, y: by + 1, z1: zMid + sideHalfC + 1,
+        x2: bx2 - largeInset, z2: bz2 - largeInset, height: STORY_H - 1 },
+      { x1: xMid + mainHalfC + 1, y: by + 1, z1: bz1 + smallInset,
+        x2: bx2 - smallInset, z2: zMid - sideHalfC - 1, height: STORY_H - 1 },
     ];
 
     // Clear chamber interiors
@@ -906,61 +940,42 @@ function generateDungeon(
       staircase(grid, xMid + 1, xMid + 2, bz1 + 3, by - STORY_H, by, gh);
     }
 
-    // Torches along corridors (dense — every 4 blocks)
+    // Torch wayfinding — paired torches in main corridor, single in side
     for (let z = bz1 + 3; z < bz2 - 2; z += 4) {
-      grid.set(xMid + halfC + 1, by + 3, z, style.torchW);
-      grid.set(xMid - halfC - 1, by + 3, z, style.torchE);
+      // Paired torches on main corridor walls
+      grid.set(xMid + mainHalfC + 1, by + 3, z, style.torchW);
+      grid.set(xMid - mainHalfC - 1, by + 3, z, style.torchE);
     }
-    for (let x = bx1 + 3; x < bx2 - 2; x += 4) {
-      grid.set(x, by + 3, zMid + halfC + 1, style.torchN);
-      grid.set(x, by + 3, zMid - halfC - 1, style.torchS);
+    for (let x = bx1 + 3; x < bx2 - 2; x += 6) {
+      // Single torches in side corridors (sparser)
+      grid.set(x, by + 3, zMid + sideHalfC + 1, style.torchN);
+      grid.set(x, by + 3, zMid - sideHalfC - 1, style.torchS);
+    }
+    // Redstone torch markers every 9 blocks in main corridor
+    for (let z = bz1 + 5; z < bz2 - 4; z += 9) {
+      if (grid.inBounds(xMid - mainHalfC - 1, by + 2, z))
+        grid.set(xMid - mainHalfC - 1, by + 2, z, 'minecraft:redstone_wall_torch[facing=east]');
     }
 
-    // Corridor atmosphere: cobwebs in upper corners
-    for (let z = bz1 + 2; z < bz2 - 1; z += 3) {
-      if (grid.inBounds(xMid + halfC, cy - 1, z))
-        grid.set(xMid + halfC, cy - 1, z, 'minecraft:cobweb');
-      if (grid.inBounds(xMid - halfC, cy - 1, z))
-        grid.set(xMid - halfC, cy - 1, z, 'minecraft:cobweb');
-    }
+    // Corridor atmosphere: cobwebs in upper corners (side corridors only)
     for (let x = bx1 + 2; x < bx2 - 1; x += 3) {
-      if (grid.inBounds(x, cy - 1, zMid + halfC))
-        grid.set(x, cy - 1, zMid + halfC, 'minecraft:cobweb');
-      if (grid.inBounds(x, cy - 1, zMid - halfC))
-        grid.set(x, cy - 1, zMid - halfC, 'minecraft:cobweb');
+      if (grid.inBounds(x, cy - 1, zMid + sideHalfC))
+        grid.set(x, cy - 1, zMid + sideHalfC, 'minecraft:cobweb');
+      if (grid.inBounds(x, cy - 1, zMid - sideHalfC))
+        grid.set(x, cy - 1, zMid - sideHalfC, 'minecraft:cobweb');
     }
 
     // Chains hanging from ceiling at corridor intersections
     for (let y = by + 2; y < cy; y++) {
-      if (grid.inBounds(xMid + halfC, y, zMid))
-        grid.set(xMid + halfC, y, zMid, 'minecraft:chain');
-      if (grid.inBounds(xMid - halfC, y, zMid))
-        grid.set(xMid - halfC, y, zMid, 'minecraft:chain');
+      if (grid.inBounds(xMid + mainHalfC, y, zMid))
+        grid.set(xMid + mainHalfC, y, zMid, 'minecraft:chain');
+      if (grid.inBounds(xMid - mainHalfC, y, zMid))
+        grid.set(xMid - mainHalfC, y, zMid, 'minecraft:chain');
     }
-
-    // Cracked stone floor patches in corridors
-    for (let z = bz1 + 3; z < bz2 - 2; z += 5) {
-      if (grid.inBounds(xMid, by, z))
-        grid.set(xMid, by, z, 'minecraft:cracked_stone_bricks');
-      if (grid.inBounds(xMid - 1, by, z + 1))
-        grid.set(xMid - 1, by, z + 1, 'minecraft:cracked_stone_bricks');
-    }
-    for (let x = bx1 + 3; x < bx2 - 2; x += 5) {
-      if (grid.inBounds(x, by, zMid))
-        grid.set(x, by, zMid, 'minecraft:cracked_stone_bricks');
-    }
-
-    // Water puddles in corridors
-    for (let z = bz1 + 7; z < bz2 - 6; z += 9) {
-      if (grid.inBounds(xMid, by + 1, z))
-        grid.set(xMid, by + 1, z, 'minecraft:water_cauldron[level=1]');
-    }
-    if (grid.inBounds(bx1 + 5, by + 1, zMid))
-      grid.set(bx1 + 5, by + 1, zMid, 'minecraft:water_cauldron[level=1]');
 
     // Iron bar cell doors along N-S corridor walls
     for (let z = bz1 + 5; z < bz2 - 4; z += 7) {
-      for (const side of [halfC + 1, -(halfC + 1)]) {
+      for (const side of [mainHalfC + 1, -(mainHalfC + 1)]) {
         const bx = xMid + side;
         if (grid.inBounds(bx, by + 1, z)) {
           grid.set(bx, by + 1, z, 'minecraft:iron_bars');
