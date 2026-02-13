@@ -189,10 +189,11 @@ export function initGenerator(
     `;
 
     onGenerate(grid, config);
-  }
 
-  genBtn.addEventListener('click', () => doGenerate(false));
-  randomBtn.addEventListener('click', () => doGenerate(true));
+    // Auto-collapse options after generating to maximize viewer space on mobile
+    optionsBody.classList.add('collapsed');
+    collapseBtn.classList.add('collapsed');
+  }
 
   // Collapse/expand options panel
   const collapseBtn = container.querySelector('#gen-collapse-btn') as HTMLButtonElement;
@@ -201,4 +202,7 @@ export function initGenerator(
     const collapsed = optionsBody.classList.toggle('collapsed');
     collapseBtn.classList.toggle('collapsed', collapsed);
   });
+
+  genBtn.addEventListener('click', () => doGenerate(false));
+  randomBtn.addEventListener('click', () => doGenerate(true));
 }
