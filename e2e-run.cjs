@@ -59,6 +59,15 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
     // ─── 2. Generator Controls ─────────────────────────────────────────
     console.log('\n[2] Generator Controls');
     const typeSelect = page.locator('#gen-type');
+    // Helper: expand options if collapsed (auto-collapse happens after generate)
+    async function ensureExpanded() {
+      const optionsBody = page.locator('#gen-options-body');
+      const isCollapsed = await optionsBody.evaluate(el => el.classList.contains('collapsed'));
+      if (isCollapsed) {
+        await page.locator('#gen-collapse-btn').click();
+        await optionsBody.waitFor({ state: 'visible', timeout: 3000 });
+      }
+    }
     await typeSelect.waitFor({ state: 'visible', timeout: 5000 });
     const types = await typeSelect.locator('option').allTextContents();
     console.log('  Types: ' + types.join(', '));
@@ -90,6 +99,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
     console.log('\n[3] Generate Each Type');
     const allTypes = ['house','tower','castle','dungeon','ship','cathedral','bridge','windmill','marketplace','village'];
     for (const t of allTypes) {
+      await ensureExpanded();
       await typeSelect.selectOption(t);
       await page.locator('#gen-btn').click();
       await page.waitForTimeout(2000);
@@ -111,9 +121,11 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
 
     // ─── 4. Style Variations (castle) ──────────────────────────────────
     console.log('\n[4] Style Variations (castle)');
+    await ensureExpanded();
     await typeSelect.selectOption('castle');
     const styleNames = ['fantasy','medieval','modern','gothic','rustic','steampunk','elven','desert','underwater'];
     for (const s of styleNames) {
+      await ensureExpanded();
       await page.locator('.style-chip[data-style="' + s + '"]').click();
       await page.locator('#gen-btn').click();
       await page.waitForTimeout(1500);
@@ -127,6 +139,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
 
     // ─── 5. Seed Determinism ───────────────────────────────────────────
     console.log('\n[5] Seed Determinism');
+    await ensureExpanded();
     await typeSelect.selectOption('castle');
     await page.locator('#gen-seed').fill('42');
     await page.locator('#gen-btn').click();
@@ -138,6 +151,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
     check('Same seed = same output', info1 === info2);
 
     // Different type + seed — guaranteed different dimensions
+    await ensureExpanded();
     await typeSelect.selectOption('ship');
     await page.locator('#gen-seed').fill('777');
     await page.locator('#gen-btn').click();
@@ -215,6 +229,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
     const randomBtn = page.locator('#gen-random-btn');
     if (await randomBtn.isVisible()) {
       // Record current type before randomize
+      await ensureExpanded();
       const beforeType = await typeSelect.inputValue();
       await randomBtn.click();
       await page.waitForTimeout(2000);
@@ -222,12 +237,14 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
       check('Randomize generates structure', infoVisible);
 
       // Verify controls were updated
+      await ensureExpanded();
       const afterSeed = await page.locator('#gen-seed').inputValue();
       check('Randomize fills seed', afterSeed.length > 0);
     }
 
     // ─── 9. Type Description Updates ───────────────────────────────────
     console.log('\n[9] Type Description Updates');
+    await ensureExpanded();
     await typeSelect.selectOption('cathedral');
     await page.waitForTimeout(200);
     const desc = await page.locator('#gen-type-desc').textContent();
@@ -246,6 +263,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
     // Generate tab
     await page.locator('.nav-tab[data-tab="generate"]').click();
     await page.waitForTimeout(300);
+    await ensureExpanded();
     check('Mobile: type select visible', await page.locator('#gen-type').isVisible());
     check('Mobile: generate btn visible', await page.locator('#gen-btn').isVisible());
     check('Mobile: style chips visible', await page.locator('.style-chip').first().isVisible());
@@ -265,6 +283,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.waitForTimeout(500);
     await page.locator('.nav-tab[data-tab="generate"]').click();
+    await ensureExpanded();
     check('Tablet: generate tab visible', await page.locator('#gen-type').isVisible());
     await page.locator('.nav-tab[data-tab="gallery"]').click();
     await page.waitForTimeout(500);
@@ -275,6 +294,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.waitForTimeout(500);
     await page.locator('.nav-tab[data-tab="generate"]').click();
+    await ensureExpanded();
     check('Wide: generate tab visible', await page.locator('#gen-type').isVisible());
     check('Wide: gallery tab exists', (await page.locator('.nav-tab[data-tab="gallery"]').count()) === 1);
 
@@ -315,6 +335,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
     console.log('\n[15] Generator Collapse/Expand');
     await page.locator('.nav-tab[data-tab="generate"]').click();
     await page.waitForTimeout(500);
+    await ensureExpanded();
     // All style chips should be visible when expanded
     const allChipsVisible = await page.locator('.style-chip').last().isVisible();
     check('All style chips visible when expanded', allChipsVisible);
@@ -347,6 +368,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
     console.log('\n[16] Inline Cutaway Slider');
     await page.locator('.nav-tab[data-tab="generate"]').click();
     await page.waitForTimeout(300);
+    await ensureExpanded();
     await page.locator('#gen-type').selectOption('house');
     await page.locator('#gen-seed').fill('42');
     await page.locator('#gen-btn').click();
@@ -368,6 +390,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
 
     // ─── 17. Ship Sails (visual check — generates without errors) ────
     console.log('\n[17] Ship Generation (sail clearance)');
+    await ensureExpanded();
     await page.locator('#gen-type').selectOption('ship');
     await page.locator('#gen-floors').fill('2');
     await page.locator('#gen-seed').fill('500');
@@ -384,6 +407,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
 
     // ─── 18. Castle Keep (generates without errors) ──────────────────
     console.log('\n[18] Castle Keep (great hall)');
+    await ensureExpanded();
     await page.locator('#gen-type').selectOption('castle');
     await page.locator('#gen-floors').fill('2');
     await page.locator('#gen-seed').fill('200');
@@ -394,6 +418,7 @@ const URL = process.env.TEST_URL || `http://localhost:${process.env.PORT || 3302
 
     // ─── 19. Village (generates without errors) ──────────────────────
     console.log('\n[19] Village (inward orientation)');
+    await ensureExpanded();
     await page.locator('#gen-type').selectOption('village');
     await page.locator('#gen-seed').fill('42');
     await page.locator('#gen-btn').click();
