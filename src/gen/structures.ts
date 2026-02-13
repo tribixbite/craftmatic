@@ -314,3 +314,146 @@ export function porch(
     grid.set(cx + 1, 0, stepZ, `minecraft:stone_brick_stairs[facing=${stairFacing}]`);
   }
 }
+
+// ─── Terrain / Landscaping Primitives ──────────────────────────────
+
+type TreeType = 'oak' | 'birch' | 'spruce' | 'dark_oak';
+
+/** Place a tree with trunk and spherical leaf canopy */
+export function placeTree(
+  grid: BlockGrid, x: number, y: number, z: number,
+  type: TreeType = 'oak', trunkHeight = 5
+): void {
+  const log = `minecraft:${type}_log`;
+  const leaves = `minecraft:${type}_leaves[persistent=true]`;
+
+  // Trunk
+  for (let i = 0; i < trunkHeight; i++) {
+    if (grid.inBounds(x, y + i, z)) grid.set(x, y + i, z, log);
+  }
+
+  // Leaf canopy (sphere, radius based on tree size)
+  const leafR = type === 'dark_oak' ? 3 : 2;
+  const canopyBase = y + trunkHeight - 1;
+  for (let dx = -leafR; dx <= leafR; dx++) {
+    for (let dy = -1; dy <= leafR; dy++) {
+      for (let dz = -leafR; dz <= leafR; dz++) {
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist <= leafR + 0.5) {
+          const lx = x + dx, ly = canopyBase + dy, lz = z + dz;
+          if (grid.inBounds(lx, ly, lz) && grid.get(lx, ly, lz) === 'minecraft:air') {
+            grid.set(lx, ly, lz, leaves);
+          }
+        }
+      }
+    }
+  }
+}
+
+/** Place a natural-looking hill/mound of grass and dirt */
+export function placeHill(
+  grid: BlockGrid, cx: number, cz: number,
+  radius: number, height: number, baseY = 0
+): void {
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dz = -radius; dz <= radius; dz++) {
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > radius) continue;
+      // Height tapers with distance from center (cosine falloff)
+      const h = Math.max(1, Math.round(height * Math.cos((dist / radius) * (Math.PI / 2))));
+      const x = cx + dx, z = cz + dz;
+      for (let y = baseY + 1; y <= baseY + h; y++) {
+        if (!grid.inBounds(x, y, z)) continue;
+        // Top layer is grass, rest is dirt
+        grid.set(x, y, z, y === baseY + h ? 'minecraft:grass_block' : 'minecraft:dirt');
+      }
+    }
+  }
+}
+
+/** Place a water pond depression with grass border */
+export function placePond(
+  grid: BlockGrid, cx: number, cz: number,
+  radius: number, baseY = 0
+): void {
+  for (let dx = -radius - 1; dx <= radius + 1; dx++) {
+    for (let dz = -radius - 1; dz <= radius + 1; dz++) {
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const x = cx + dx, z = cz + dz;
+      if (!grid.inBounds(x, baseY, z)) continue;
+      if (dist <= radius) {
+        // Water interior
+        grid.set(x, baseY, z, 'minecraft:water');
+      } else if (dist <= radius + 1.2) {
+        // Grass border ring
+        grid.set(x, baseY, z, 'minecraft:grass_block');
+      }
+    }
+  }
+}
+
+/** Place a flat path between a series of waypoints */
+export function placePath(
+  grid: BlockGrid, points: [number, number][],
+  width: number, material: string, baseY = 0
+): void {
+  const halfW = Math.floor(width / 2);
+  for (let i = 0; i < points.length - 1; i++) {
+    const [x0, z0] = points[i];
+    const [x1, z1] = points[i + 1];
+    const dx = x1 - x0, dz = z1 - z0;
+    const steps = Math.max(Math.abs(dx), Math.abs(dz));
+    if (steps === 0) continue;
+    for (let s = 0; s <= steps; s++) {
+      const px = Math.round(x0 + (dx * s) / steps);
+      const pz = Math.round(z0 + (dz * s) / steps);
+      // Place path strip perpendicular to dominant direction
+      if (Math.abs(dx) >= Math.abs(dz)) {
+        // Path runs along X, widen along Z
+        for (let w = -halfW; w <= halfW; w++) {
+          if (grid.inBounds(px, baseY, pz + w)) grid.set(px, baseY, pz + w, material);
+        }
+      } else {
+        // Path runs along Z, widen along X
+        for (let w = -halfW; w <= halfW; w++) {
+          if (grid.inBounds(px + w, baseY, pz)) grid.set(px + w, baseY, pz, material);
+        }
+      }
+    }
+  }
+}
+
+/** Place a garden with flower beds and potted plants */
+export function placeGarden(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  baseY = 0, rng: () => number = Math.random
+): void {
+  const flowers = [
+    'minecraft:potted_poppy', 'minecraft:potted_dandelion',
+    'minecraft:potted_blue_orchid', 'minecraft:potted_allium',
+    'minecraft:potted_azure_bluet', 'minecraft:potted_red_tulip',
+    'minecraft:potted_oxeye_daisy', 'minecraft:potted_cornflower',
+    'minecraft:potted_lily_of_the_valley', 'minecraft:potted_wither_rose',
+  ];
+  const groundCovers = [
+    'minecraft:grass_block', 'minecraft:moss_block',
+    'minecraft:podzol', 'minecraft:coarse_dirt',
+  ];
+
+  const xMin = Math.min(x1, x2), xMax = Math.max(x1, x2);
+  const zMin = Math.min(z1, z2), zMax = Math.max(z1, z2);
+
+  for (let x = xMin; x <= xMax; x++) {
+    for (let z = zMin; z <= zMax; z++) {
+      if (!grid.inBounds(x, baseY, z)) continue;
+      // Ground layer
+      const gi = Math.floor(rng() * groundCovers.length);
+      grid.set(x, baseY, z, groundCovers[gi]);
+      // ~30% chance of a potted flower on top
+      if (rng() < 0.3 && grid.inBounds(x, baseY + 1, z)) {
+        const fi = Math.floor(rng() * flowers.length);
+        grid.set(x, baseY + 1, z, flowers[fi]);
+      }
+    }
+  }
+}
