@@ -87,7 +87,7 @@ Technical specifications and design documents for the craftmatic library.
 ### CI/CD
 - [x] GitHub Actions CI (typecheck, test, build on Node 18/20/22)
 - [x] GitHub Pages deploy workflow for web app
-- [x] Playwright e2e tests (7 test scenarios, all passing)
+- [x] Playwright e2e tests (81 checks across 14 sections, all passing)
 - [x] README + docs/specs
 
 ### Published
@@ -121,3 +121,8 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Generator enrichment: exterior lanterns, courtyard trees, deck barrels, altar candles, lamp posts, varied stall goods
 - [x] Test suite: 86 → 93 tests (item sprites, textured rendering, atlas coverage)
 - [x] Showcase v3: 20 structures × 10 types × 9 styles with textured renders (102 PNGs)
+- [x] WebGL graceful degradation: try/catch around renderer with fallback message
+- [x] WebGL context loss/restore handling
+- [x] Gallery thumbnails: proper isometric diamond/parallelogram shapes
+- [x] Server EADDRINUSE: helpful error message instead of crash
+- [x] Comprehensive e2e test suite: 81 checks across 14 sections (Playwright)
