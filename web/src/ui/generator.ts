@@ -22,6 +22,11 @@ const STRUCTURE_TYPES: { value: StructureType; label: string; desc: string }[] =
   { value: 'castle', label: 'Castle', desc: 'Curtain walls, corner towers, and central keep' },
   { value: 'dungeon', label: 'Dungeon', desc: 'Underground chambers with gatehouse entrance' },
   { value: 'ship', label: 'Ship', desc: 'Sailing vessel with hull, masts, and cabins' },
+  { value: 'cathedral', label: 'Cathedral', desc: 'Grand nave with apse, rose window, and bell tower' },
+  { value: 'bridge', label: 'Bridge', desc: 'Arched stone span with end towers' },
+  { value: 'windmill', label: 'Windmill', desc: 'Circular tapering tower with rotating blades' },
+  { value: 'marketplace', label: 'Marketplace', desc: 'Open-air stall grid with central well' },
+  { value: 'village', label: 'Village', desc: 'Multiple buildings with paths and landscaping' },
 ];
 
 const STYLE_PRESETS: { value: StyleName; label: string; color: string }[] = [
@@ -30,6 +35,10 @@ const STYLE_PRESETS: { value: StyleName; label: string; color: string }[] = [
   { value: 'modern', label: 'Modern', color: '#87ceeb' },
   { value: 'gothic', label: 'Gothic', color: '#cc4444' },
   { value: 'rustic', label: 'Rustic', color: '#8b7355' },
+  { value: 'steampunk', label: 'Steampunk', color: '#cd7f32' },
+  { value: 'elven', label: 'Elven', color: '#7cbb5f' },
+  { value: 'desert', label: 'Desert', color: '#deb887' },
+  { value: 'underwater', label: 'Underwater', color: '#5f9ea0' },
 ];
 
 /** Initialize the generator controls UI */

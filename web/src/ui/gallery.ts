@@ -17,6 +17,7 @@ interface GalleryEntry {
 }
 
 const GALLERY_ENTRIES: GalleryEntry[] = [
+  // Original 12
   { type: 'house', style: 'fantasy', floors: 2, seed: 42, label: 'Fantasy Cottage' },
   { type: 'house', style: 'medieval', floors: 3, seed: 100, label: 'Medieval Manor' },
   { type: 'tower', style: 'gothic', floors: 4, seed: 77, label: 'Gothic Tower' },
@@ -29,6 +30,15 @@ const GALLERY_ENTRIES: GalleryEntry[] = [
   { type: 'house', style: 'rustic', floors: 2, seed: 900, label: 'Rustic Cabin' },
   { type: 'dungeon', style: 'medieval', floors: 3, seed: 1000, label: 'Stone Dungeon' },
   { type: 'ship', style: 'fantasy', floors: 2, seed: 1100, label: 'Fantasy Galleon' },
+  // v0.2.0 — new structure types + styles
+  { type: 'cathedral', style: 'gothic', floors: 1, seed: 7, label: 'Gothic Cathedral' },
+  { type: 'bridge', style: 'medieval', floors: 1, seed: 42, label: 'Stone Bridge' },
+  { type: 'windmill', style: 'rustic', floors: 1, seed: 33, label: 'Rustic Windmill' },
+  { type: 'marketplace', style: 'desert', floors: 1, seed: 55, label: 'Desert Bazaar' },
+  { type: 'village', style: 'medieval', floors: 1, seed: 42, label: 'Medieval Village' },
+  { type: 'house', style: 'steampunk', floors: 2, seed: 42, label: 'Steampunk Workshop' },
+  { type: 'tower', style: 'elven', floors: 4, seed: 88, label: 'Elven Spire' },
+  { type: 'castle', style: 'underwater', floors: 2, seed: 150, label: 'Undersea Citadel' },
 ];
 
 /** Render a tiny isometric thumbnail of a BlockGrid onto a canvas */
