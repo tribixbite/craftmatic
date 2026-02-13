@@ -131,7 +131,7 @@ html, body {
   overflow: auto;
 }
 
-.tab-content.active { display: flex; overflow: hidden; }
+.tab-content.active { display: flex; flex-direction: column; overflow: hidden; }
 
 /* ─── Panel Layout ───────────────────────────────────────────────────── */
 
@@ -309,6 +309,7 @@ html, body {
   overflow: hidden;
   cursor: pointer;
   transition: all var(--transition);
+  min-height: 240px;
 }
 
 .gallery-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow); }
@@ -651,7 +652,7 @@ html, body {
   gap: 16px;
   overflow: hidden;
   transition: max-height 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease;
-  max-height: 500px;
+  max-height: 800px;
   opacity: 1;
 }
 

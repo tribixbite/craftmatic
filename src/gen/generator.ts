@@ -259,12 +259,12 @@ function generateTower(
     // Circular floor
     fillCircle(grid, cx, by, cz, radius - 1, story === 0 ? style.floorGround : style.floorUpper);
 
-    // Circular walls
+    // Circular walls — thicker shell (0.7 tolerance) prevents diagonal gaps
     for (let y = by + 1; y < cy; y++) {
       for (let dx = -radius; dx <= radius; dx++) {
         for (let dz = -radius; dz <= radius; dz++) {
           const dist = Math.sqrt(dx * dx + dz * dz);
-          if (dist >= radius - 0.5 && dist <= radius + 0.5) {
+          if (dist >= radius - 0.7 && dist <= radius + 0.5) {
             grid.set(cx + dx, y, cz + dz, style.wall);
           }
         }
@@ -524,7 +524,7 @@ function generateCastle(
 
             if (y === 0) {
               grid.set(tx, y, tz, style.foundation);
-            } else if (dist >= towerRadius - 0.5) {
+            } else if (dist >= towerRadius - 0.7) {
               grid.set(tx, y, tz, style.wall);
             } else if (y % STORY_H === 0) {
               grid.set(tx, y, tz, style.floorUpper);
@@ -586,27 +586,67 @@ function generateCastle(
     // Keep walls
     exteriorWalls(grid, kx1, by + 1, kz1, kx2, cy - 1, kz2, style);
 
-    // Timber columns at corners and mid-points
-    const keepCols: [number, number][] = [
+    // Corner columns
+    const keepCorners: [number, number][] = [
       [kx1, kz1], [kx2, kz1], [kx1, kz2], [kx2, kz2],
-      [xMid, kz1], [xMid, kz2], [kx1, zMid], [kx2, zMid],
     ];
-    timberColumns(grid, keepCols, by, cy, style);
+    timberColumns(grid, keepCorners, by, cy, style);
     timberBeams(grid, kx1, by, kz1, kx2, kz2, style);
     timberBeams(grid, kx1, cy, kz1, kx2, kz2, style);
 
     // Windows
     windows(grid, kx1, kz1, kx2, kz2, by + 2, by + 3, style);
 
-    // Interior: divide keep into rooms
-    interiorWall(grid, 'z', xMid, kz1 + 1, kz2 - 1, by + 1, cy - 1, style);
-    doorway(grid, xMid, by + 1, zMid - 1, xMid, by + 3, zMid + 1);
+    if (story === 0) {
+      // ── Ground floor: Open Great Hall ──
+      // Interior colonnade — two rows of pillars along the hall
+      const colSpacing = Math.max(3, Math.floor(keepW / 5));
+      for (let x = kx1 + colSpacing; x < kx2 - 1; x += colSpacing) {
+        for (const pz of [kz1 + 3, kz2 - 3]) {
+          timberColumns(grid, [[x, pz]], by, cy, style);
+        }
+      }
 
-    if (keepL > 12) {
-      interiorWall(grid, 'x', zMid, kx1 + 1, xMid - 1, by + 1, cy - 1, style);
-      interiorWall(grid, 'x', zMid, xMid + 1, kx2 - 1, by + 1, cy - 1, style);
-      doorway(grid, kx1 + 3, by + 1, zMid, kx1 + 5, by + 3, zMid);
-      doorway(grid, kx2 - 5, by + 1, zMid, kx2 - 3, by + 3, zMid);
+      // Raised dais at far end (high-Z, 2 blocks high platform)
+      const daisZ1 = kz2 - 4;
+      grid.fill(kx1 + 2, by, daisZ1, kx2 - 2, by + 1, kz2 - 1, style.floorGround);
+      // Throne on dais
+      grid.set(xMid, by + 2, kz2 - 2, style.chairN);
+      // Gold accents flanking throne
+      if (grid.inBounds(xMid - 2, by + 2, kz2 - 2))
+        grid.set(xMid - 2, by + 2, kz2 - 2, 'minecraft:gold_block');
+      if (grid.inBounds(xMid + 2, by + 2, kz2 - 2))
+        grid.set(xMid + 2, by + 2, kz2 - 2, 'minecraft:gold_block');
+      // Banner backdrop behind throne
+      grid.set(xMid, by + 3, kz2 - 1, style.bannerN);
+      if (grid.inBounds(xMid - 1, by + 3, kz2 - 1))
+        grid.set(xMid - 1, by + 3, kz2 - 1, style.bannerN);
+      if (grid.inBounds(xMid + 1, by + 3, kz2 - 1))
+        grid.set(xMid + 1, by + 3, kz2 - 1, style.bannerN);
+
+      // Carpet runner down center of hall
+      for (let z = kz1 + 2; z < daisZ1; z++) {
+        if (grid.inBounds(xMid, by, z))
+          grid.set(xMid, by, z, 'minecraft:red_carpet');
+        if (grid.inBounds(xMid - 1, by, z))
+          grid.set(xMid - 1, by, z, 'minecraft:red_carpet');
+      }
+
+      // Chandeliers over the hall
+      chandelier(grid, xMid, cy - 1, kz1 + Math.floor(keepL / 4), style, 2);
+      chandelier(grid, xMid, cy - 1, kz2 - Math.floor(keepL / 4), style, 2);
+
+      // Grand entrance doorway (wide opening on low-Z face toward courtyard)
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = by + 1; dy <= by + 3; dy++) {
+          if (grid.inBounds(xMid + dx, dy, kz1))
+            grid.set(xMid + dx, dy, kz1, 'minecraft:air');
+        }
+      }
+    } else {
+      // ── Upper floors: two halves separated by a single wall ──
+      interiorWall(grid, 'z', xMid, kz1 + 1, kz2 - 1, by + 1, cy - 1, style);
+      doorway(grid, xMid, by + 1, zMid - 1, xMid, by + 3, zMid + 1);
     }
 
     // Ceiling on top floor
@@ -622,20 +662,19 @@ function generateCastle(
     staircase(grid, xMid + 2, xMid + 3, kz1 + 2, story * STORY_H, (story + 1) * STORY_H, gh);
   }
 
-  // Keep rooms
+  // Keep rooms — upper floors only (ground floor is open great hall)
   const roomAssignment = resolveRooms(floors, rooms, rng, 'castle');
-  for (let story = 0; story < floors; story++) {
+  for (let story = 1; story < floors; story++) {
     const by = story * STORY_H;
     const fy = by + 1;
     const storyRooms = roomAssignment[story];
-    const quadrants: RoomBounds[] = [
-      { x1: kx1 + 1, y: fy, z1: kz1 + 1, x2: xMid - 1, z2: zMid - 1, height: STORY_H - 1 },
-      { x1: kx1 + 1, y: fy, z1: zMid + 1, x2: xMid - 1, z2: kz2 - 1, height: STORY_H - 1 },
-      { x1: xMid + 1, y: fy, z1: zMid + 1, x2: kx2 - 1, z2: kz2 - 1, height: STORY_H - 1 },
-      { x1: xMid + 1, y: fy, z1: kz1 + 1, x2: kx2 - 1, z2: zMid - 1, height: STORY_H - 1 },
+    // Two halves (left/right of center wall)
+    const halves: RoomBounds[] = [
+      { x1: kx1 + 1, y: fy, z1: kz1 + 1, x2: xMid - 1, z2: kz2 - 1, height: STORY_H - 1 },
+      { x1: xMid + 1, y: fy, z1: kz1 + 1, x2: kx2 - 1, z2: kz2 - 1, height: STORY_H - 1 },
     ];
-    for (let q = 0; q < Math.min(storyRooms.length, quadrants.length); q++) {
-      getRoomGenerator(storyRooms[q])(grid, quadrants[q], style);
+    for (let h = 0; h < Math.min(storyRooms.length, halves.length); h++) {
+      getRoomGenerator(storyRooms[h])(grid, halves[h], style);
     }
   }
 
@@ -1044,7 +1083,7 @@ function generateShip(
   const margin = 5;
   const gw = shipW + margin * 2;
   const gl = shipLen + margin * 2;
-  const gh = floors * STORY_H + 25;
+  const gh = floors * STORY_H + 35;
 
   const cx = margin + Math.floor(shipW / 2); // center X
   const sz1 = margin; // ship start Z (stern)
@@ -1217,9 +1256,15 @@ function generateShip(
     }, style);
   }
 
+  // ── Compute sail clearance — sails must start above highest cabin ──
+  const cabinStories = Math.min(floors, 2);
+  const cabinTopY = hullBase + 1 + cabinStories * STORY_H - 1;
+  const sternTopY = hullBase + 1 + 4; // stern cabin ceiling
+  const sailStartY = Math.max(cabinTopY, sternTopY) + 1;
+
   // ── Main mast (midship, tallest) ──
   const mastZ = sz1 + Math.floor(shipLen * 0.45);
-  const mastH = 20;
+  const mastH = Math.max(20, sailStartY - hullBase + 12); // ensure mast is tall enough
   const yardHalf = Math.floor(shipW / 2) + 1;
   for (let y = hullBase; y < hullBase + mastH; y++) {
     if (grid.inBounds(cx, y, mastZ)) grid.set(cx, y, mastZ, style.timber);
@@ -1273,9 +1318,9 @@ function generateShip(
     }
   }
 
-  // Lower main sail (lower yard to just above deck, 2 blocks deep)
-  for (let y = hullBase + 2; y < lowerYardY; y++) {
-    const frac = (y - hullBase - 2) / Math.max(1, lowerYardY - hullBase - 3);
+  // Lower main sail (lower yard to above cabins, 2 blocks deep)
+  for (let y = sailStartY; y < lowerYardY; y++) {
+    const frac = (y - sailStartY) / Math.max(1, lowerYardY - sailStartY - 1);
     const rowHalf = Math.max(1, Math.round(yardHalf * (0.8 + 0.2 * frac)));
     for (let dx = -rowHalf; dx <= rowHalf; dx++) {
       if (grid.inBounds(cx + dx, y, mastZ))
@@ -1286,13 +1331,13 @@ function generateShip(
   }
 
   // Restore mast through sails
-  for (let y = hullBase + 2; y < yardY; y++) {
+  for (let y = sailStartY; y < yardY; y++) {
     if (grid.inBounds(cx, y, mastZ)) grid.set(cx, y, mastZ, style.timber);
   }
 
   // ── Foremast (near bow, shorter) ──
   const foremastZ = sz1 + Math.floor(shipLen * 0.7);
-  const foremastH = 16;
+  const foremastH = Math.max(16, sailStartY - hullBase + 8);
   for (let y = hullBase; y < hullBase + foremastH; y++) {
     if (grid.inBounds(cx, y, foremastZ)) grid.set(cx, y, foremastZ, style.timber);
   }
@@ -1302,9 +1347,9 @@ function generateShip(
     if (grid.inBounds(cx + dx, foreYardY, foremastZ))
       grid.set(cx + dx, foreYardY, foremastZ, style.timberX);
   }
-  // Fore sail (2 blocks deep)
-  for (let y = hullBase + 2; y < foreYardY; y++) {
-    const frac = (y - hullBase - 2) / Math.max(1, foreYardY - hullBase - 3);
+  // Fore sail (2 blocks deep, starts above cabins)
+  for (let y = sailStartY; y < foreYardY; y++) {
+    const frac = (y - sailStartY) / Math.max(1, foreYardY - sailStartY - 1);
     const rowHalf = Math.max(1, Math.round(foreYardHalf * (0.8 + 0.2 * frac)));
     for (let dx = -rowHalf; dx <= rowHalf; dx++) {
       if (grid.inBounds(cx + dx, y, foremastZ))
@@ -1313,13 +1358,13 @@ function generateShip(
         grid.set(cx + dx, y, foremastZ + 1, 'minecraft:white_wool');
     }
   }
-  for (let y = hullBase + 2; y < foreYardY; y++) {
+  for (let y = sailStartY; y < foreYardY; y++) {
     if (grid.inBounds(cx, y, foremastZ)) grid.set(cx, y, foremastZ, style.timber);
   }
 
   // ── Mizzen mast (near stern, shortest) ──
   const mizzenZ = sz1 + Math.floor(shipLen * 0.18);
-  const mizzenH = 13;
+  const mizzenH = Math.max(13, sailStartY - hullBase + 6);
   for (let y = hullBase; y < hullBase + mizzenH; y++) {
     if (grid.inBounds(cx, y, mizzenZ)) grid.set(cx, y, mizzenZ, style.timber);
   }
@@ -1329,16 +1374,17 @@ function generateShip(
     if (grid.inBounds(cx + dx, mizYardY, mizzenZ))
       grid.set(cx + dx, mizYardY, mizzenZ, style.timberX);
   }
-  // Mizzen sail
-  for (let y = hullBase + 2; y < mizYardY; y++) {
-    const frac = (y - hullBase - 2) / Math.max(1, mizYardY - hullBase - 3);
+  // Mizzen sail (starts above cabins)
+  const mizSailStart = Math.max(sailStartY, sternTopY + 1);
+  for (let y = mizSailStart; y < mizYardY; y++) {
+    const frac = (y - mizSailStart) / Math.max(1, mizYardY - mizSailStart - 1);
     const rowHalf = Math.max(1, Math.round(mizYardHalf * (0.8 + 0.2 * frac)));
     for (let dx = -rowHalf; dx <= rowHalf; dx++) {
       if (grid.inBounds(cx + dx, y, mizzenZ))
         grid.set(cx + dx, y, mizzenZ, 'minecraft:white_wool');
     }
   }
-  for (let y = hullBase + 2; y < mizYardY; y++) {
+  for (let y = mizSailStart; y < mizYardY; y++) {
     if (grid.inBounds(cx, y, mizzenZ)) grid.set(cx, y, mizzenZ, style.timber);
   }
 
@@ -2215,25 +2261,28 @@ function generateVillage(
 
   // Building placement grid — varied house sizes
   // doorX/doorZ store the village-coordinate of each building's front door
-  const buildingSpots: { x: number; z: number; w: number; l: number; type: 'house' | 'tower' | 'marketplace'; doorX: number; doorZ: number }[] = [];
+  // flipZ: true means building is mirrored to face north (toward center from south side)
+  const buildingSpots: { x: number; z: number; w: number; l: number; type: 'house' | 'tower' | 'marketplace'; doorX: number; doorZ: number; flipZ: boolean }[] = [];
 
-  // Central marketplace — gate at mid-Z south face (bz2 in subgrid)
+  // Central marketplace — placed north of center, door faces south toward plaza
   const mpW = 20, mpL = 16, mpMargin = 3;
   const mpX = cx - 12, mpZ = cz - 10;
   buildingSpots.push({
     x: mpX, z: mpZ, w: mpW, l: mpL, type: 'marketplace',
     doorX: mpX + mpMargin + Math.floor(mpW / 2),
     doorZ: mpZ + mpMargin + mpL - 1,
+    flipZ: false,
   });
 
   // Houses with varied dimensions (width 13-18, length 11-16, some 2-story)
-  // House door is on high-Z face: subgrid (margin + bw/2, margin + bl - 1 + porchDepth/2)
+  // House door is generated on high-Z face (south). Buildings south of center
+  // get Z-flipped so their door faces north (inward toward plaza).
   const houseMargin = 3;
   const housePositions: [number, number][] = [
-    [margin + 5, margin + 5],
-    [margin + gridSize - 30, margin + 5],
-    [margin + 5, margin + gridSize - 28],
-    [margin + gridSize - 30, margin + gridSize - 28],
+    [margin + 5, margin + 5],                    // NW — door faces south (toward center) ✓
+    [margin + gridSize - 30, margin + 5],         // NE — door faces south (toward center) ✓
+    [margin + 5, margin + gridSize - 28],         // SW — flip so door faces north (toward center)
+    [margin + gridSize - 30, margin + gridSize - 28], // SE — flip so door faces north
   ];
   const numHouses = 3 + Math.floor(rng() * 2); // 3-4 houses
   for (let i = 0; i < Math.min(numHouses, housePositions.length); i++) {
@@ -2241,14 +2290,20 @@ function generateVillage(
     const hl = 11 + Math.floor(rng() * 6);  // 11-16
     const hx = housePositions[i][0];
     const hz = housePositions[i][1];
+    const needFlip = hz + hl / 2 > cz; // south of center
+    // When flipped, door moves from high-Z to low-Z side of subgrid
+    const doorZLocal = needFlip
+      ? hz + houseMargin                     // flipped: door now on low-Z side
+      : hz + houseMargin + hl;               // normal: porch extends past bz2
     buildingSpots.push({
       x: hx, z: hz, w: hw, l: hl, type: 'house',
       doorX: hx + houseMargin + Math.floor(hw / 2),
-      doorZ: hz + houseMargin + hl,  // porch extends past bz2
+      doorZ: doorZLocal,
+      flipZ: needFlip,
     });
   }
 
-  // Tower — door is on low-Z face: subgrid (margin + radius, margin)
+  // Tower — door is on low-Z face; place east of center so low-Z points toward center
   const twRadius = Math.floor(10 / 2);
   const twMargin = 3;
   const twX = cx + 15, twZ = cz - 5;
@@ -2256,6 +2311,7 @@ function generateVillage(
     x: twX, z: twZ, w: 10, l: 10, type: 'tower',
     doorX: twX + twMargin + twRadius,
     doorZ: twZ + twMargin,
+    flipZ: false,
   });
 
   // Generate each building as a sub-structure and paste blocks
@@ -2273,7 +2329,11 @@ function generateVillage(
         subGrid = generateMarketplace(1, style, undefined, spot.w, spot.l, rng);
         break;
     }
-    pasteGrid(grid, subGrid, spot.x, 0, spot.z);
+    if (spot.flipZ) {
+      pasteGridFlipZ(grid, subGrid, spot.x, 0, spot.z);
+    } else {
+      pasteGrid(grid, subGrid, spot.x, 0, spot.z);
+    }
   }
 
   // ── Upgraded paths — route from each building's door to the center well ──
@@ -2396,6 +2456,36 @@ function pasteGrid(
           const tz = z + offsetZ;
           if (target.inBounds(tx, ty, tz)) {
             target.set(tx, ty, tz, block);
+          }
+        }
+      }
+    }
+  }
+}
+
+/** Flip north↔south facing in a block state string */
+function flipFacingZ(block: string): string {
+  if (block.includes('facing=north')) return block.replace('facing=north', 'facing=south');
+  if (block.includes('facing=south')) return block.replace('facing=south', 'facing=north');
+  return block;
+}
+
+/** Paste a source grid mirrored along its Z axis (flips door orientation north↔south) */
+function pasteGridFlipZ(
+  target: BlockGrid, source: BlockGrid,
+  offsetX: number, offsetY: number, offsetZ: number
+): void {
+  const maxZ = source.length - 1;
+  for (let x = 0; x < source.width; x++) {
+    for (let y = 0; y < source.height; y++) {
+      for (let z = 0; z < source.length; z++) {
+        const block = source.get(x, y, z);
+        if (block !== 'minecraft:air') {
+          const tx = x + offsetX;
+          const ty = y + offsetY;
+          const tz = (maxZ - z) + offsetZ;
+          if (target.inBounds(tx, ty, tz)) {
+            target.set(tx, ty, tz, flipFacingZ(block));
           }
         }
       }
