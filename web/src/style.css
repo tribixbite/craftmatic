@@ -554,6 +554,8 @@ html, body {
 
   .cutaway-panel { right: 10px; }
   .cutaway-slider { height: 140px; }
+
+  .inline-cutaway-slider { width: 70px; }
 }
 
 @media (max-width: 480px) {
@@ -577,8 +579,34 @@ html, body {
   bottom: 12px;
   right: 12px;
   display: flex;
+  align-items: center;
   gap: 6px;
   z-index: 5;
+}
+
+.inline-cutaway-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(10, 10, 20, 0.6);
+  backdrop-filter: blur(8px);
+  padding: 4px 10px;
+  border-radius: var(--radius);
+}
+
+.inline-cutaway-slider {
+  width: 100px;
+  height: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.inline-cutaway-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 28px;
+  text-align: right;
 }
 
 .section-title {
