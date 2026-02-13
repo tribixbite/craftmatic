@@ -87,7 +87,7 @@ Technical specifications and design documents for the craftmatic library.
 ### CI/CD
 - [x] GitHub Actions CI (typecheck, test, build on Node 18/20/22)
 - [x] GitHub Pages deploy workflow for web app
-- [x] Playwright e2e tests (81 checks across 14 sections, all passing)
+- [x] Playwright e2e tests (100 checks across 20 sections, all passing)
 - [x] README + docs/specs
 
 ### Published
@@ -125,7 +125,7 @@ Technical specifications and design documents for the craftmatic library.
 - [x] WebGL context loss/restore handling
 - [x] Gallery thumbnails: proper isometric diamond/parallelogram shapes
 - [x] Server EADDRINUSE: helpful error message instead of crash
-- [x] Comprehensive e2e test suite: 81 checks across 14 sections (Playwright)
+- [x] Comprehensive e2e test suite: 100 checks across 20 sections (Playwright)
 
 ### Structure Quality Pass
 - [x] Inline cutaway slider in embedded 3D preview (horizontal range, resets per generation)
