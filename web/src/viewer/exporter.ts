@@ -143,6 +143,14 @@ export function exportSchem(grid: BlockGrid, filename = 'craftmatic.schem'): voi
   downloadBlob(blob, filename);
 }
 
+/** Export the Three.js scene as JSON (loadable via THREE.ObjectLoader) */
+export function exportThreeJSON(viewer: ViewerState, filename = 'craftmatic-scene.json'): void {
+  const json = viewer.scene.toJSON();
+  const str = JSON.stringify(json);
+  const blob = new Blob([str], { type: 'application/json' });
+  downloadBlob(blob, filename);
+}
+
 /** Export as standalone HTML with embedded viewer */
 export function exportHTML(viewer: ViewerState, filename = 'craftmatic.html'): void {
   const { grid } = viewer;

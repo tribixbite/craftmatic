@@ -6,7 +6,7 @@
 import './style.css';
 import { BlockGrid } from '@craft/schem/types.js';
 import { createViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
-import { exportGLB, exportSchem, exportHTML } from '@viewer/exporter.js';
+import { exportGLB, exportSchem, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initUpload } from '@ui/upload.js';
 import { initGallery } from '@ui/gallery.js';
@@ -200,6 +200,17 @@ document.getElementById('btn-export-html')!.addEventListener('click', () => {
     exportHTML(activeViewer);
   } catch (err) {
     console.error('HTML export failed:', err);
+    showError('Export failed');
+  }
+});
+
+// Export Three.js JSON
+document.getElementById('btn-export-three')!.addEventListener('click', () => {
+  if (!activeViewer) return;
+  try {
+    exportThreeJSON(activeViewer);
+  } catch (err) {
+    console.error('Three.js JSON export failed:', err);
     showError('Export failed');
   }
 });
