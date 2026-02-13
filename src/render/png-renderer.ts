@@ -126,30 +126,72 @@ export async function renderFloorDetail(
       const cy = py + Math.floor(scale / 2);
       const hs = Math.max(2, Math.floor(scale / 6));
 
-      if (FURNITURE_BLOCKS.has(baseId)) {
+      // --- Item-specific decorative markers ---
+
+      // Telescope: gray vertical line + purple diamond on top
+      if (baseId === 'minecraft:end_rod') {
+        fillRect(pixels, imgW, cx - 1, cy - hs, 2, hs * 2, [180, 180, 190]);
+      } else if (baseId === 'minecraft:amethyst_cluster') {
+        const ds = Math.max(2, Math.floor(scale / 5));
+        fillCircle(pixels, imgW, cx, cy, ds, [170, 90, 220]);
+      // Cartography table: green/brown square with cross-lines
+      } else if (baseId === 'minecraft:cartography_table') {
+        const ms = Math.max(2, Math.floor(scale / 5));
+        fillRect(pixels, imgW, cx - ms, cy - ms, ms * 2, ms * 2, [90, 120, 60]);
+        drawLine(pixels, imgW, cx - ms, cy, cx + ms, cy, [60, 80, 40]);
+        drawLine(pixels, imgW, cx, cy - ms, cx, cy + ms, [60, 80, 40]);
+      // Candle: yellow flame triangle
+      } else if (baseId === 'minecraft:candle') {
+        const fs = Math.max(2, Math.floor(scale / 5));
+        fillRect(pixels, imgW, cx - 1, cy, 2, fs, [200, 160, 50]);
+        fillCircle(pixels, imgW, cx, cy - 1, Math.max(1, fs - 1), [255, 230, 80]);
+      // Plates: thin horizontal bar
+      } else if (baseId === 'minecraft:stone_pressure_plate') {
+        const pw = Math.max(3, Math.floor(scale / 3));
+        fillRect(pixels, imgW, cx - pw, cy - 1, pw * 2, 2, [160, 160, 160]);
+      // Lantern/soul_lantern: warm/cool circle + chain line above
+      } else if (baseId === 'minecraft:lantern') {
+        const lr = Math.max(2, Math.floor(scale / 6));
+        fillCircle(pixels, imgW, cx, cy + 1, lr, [255, 200, 70]);
+        fillRect(pixels, imgW, cx, cy - hs, 1, hs, [120, 120, 130]);
+      } else if (baseId === 'minecraft:soul_lantern') {
+        const lr = Math.max(2, Math.floor(scale / 6));
+        fillCircle(pixels, imgW, cx, cy + 1, lr, [80, 200, 220]);
+        fillRect(pixels, imgW, cx, cy - hs, 1, hs, [120, 120, 130]);
+      // Sea lantern: cyan glow circle
+      } else if (baseId === 'minecraft:sea_lantern') {
+        fillCircle(pixels, imgW, cx, cy, hs, [120, 220, 230]);
+      // Redstone lamp: warm orange glow
+      } else if (baseId === 'minecraft:redstone_lamp') {
+        fillCircle(pixels, imgW, cx, cy, hs, [230, 150, 60]);
+      // Other light blocks: default yellow glow
+      } else if (LIGHT_BLOCKS.has(baseId)) {
+        fillCircle(pixels, imgW, cx, cy, hs, [255, 240, 120]);
+      // Generic furniture fallback (white square)
+      } else if (FURNITURE_BLOCKS.has(baseId)) {
         const ms = Math.max(2, Math.floor(scale / 5));
         fillRect(pixels, imgW, cx - ms, cy - ms, ms * 2, ms * 2, [255, 255, 255]);
       }
 
+      // Chests: gold X overlay
       if (baseId === 'minecraft:chest' || baseId === 'minecraft:trapped_chest' || baseId === 'minecraft:ender_chest') {
         drawLine(pixels, imgW, px + hs, py + hs, px + scale - hs, py + scale - hs, [255, 220, 50]);
         drawLine(pixels, imgW, px + scale - hs, py + hs, px + hs, py + scale - hs, [255, 220, 50]);
       }
 
-      if (LIGHT_BLOCKS.has(baseId)) {
-        fillCircle(pixels, imgW, cx, cy, hs, [255, 240, 120]);
-      }
-
+      // Beds: inset outline
       if (BED_BLOCKS.has(baseId)) {
         const bm = Math.max(2, Math.floor(scale / 8));
         drawRectOutline(pixels, imgW, px + bm, py + bm, scale - bm * 2, scale - bm * 2,
           [clamp(r + 40), clamp(g + 40), clamp(b + 40)]);
       }
 
+      // Doors: vertical bar
       if (DOOR_BLOCKS.has(baseId)) {
         fillRect(pixels, imgW, cx - 1, py + 2, 3, scale - 4, [100, 70, 35]);
       }
 
+      // Precious blocks: diamond outline
       if (['minecraft:gold_block', 'minecraft:diamond_block', 'minecraft:emerald_block', 'minecraft:lapis_block'].includes(baseId)) {
         const ds = Math.max(3, Math.floor(scale / 4));
         drawLine(pixels, imgW, cx, cy - ds, cx + ds, cy, [255, 255, 255]);
