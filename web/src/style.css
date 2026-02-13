@@ -617,6 +617,16 @@ html, body {
   text-align: right;
 }
 
+.viewer-fallback {
+  padding: 1em;
+  color: var(--text-muted);
+  text-align: center;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
 .section-title {
   font-size: 14px;
   font-weight: 600;
