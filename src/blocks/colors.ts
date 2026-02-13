@@ -137,6 +137,9 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:light_gray_concrete': [125, 125, 115],
   'minecraft:gray_concrete': [54, 57, 61],
   'minecraft:black_concrete': [8, 10, 15],
+  'minecraft:blue_concrete': [45, 47, 143],
+  'minecraft:cyan_concrete': [21, 119, 136],
+  'minecraft:light_blue_concrete': [36, 137, 199],
 
   // Lighting
   'minecraft:lantern': [210, 170, 80],
