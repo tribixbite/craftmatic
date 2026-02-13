@@ -213,7 +213,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     doorUpperN: 'minecraft:dark_oak_door[half=upper,facing=north,open=false,hinge=left]',
     doorLowerS: 'minecraft:dark_oak_door[half=lower,facing=south,open=false,hinge=left]',
     doorUpperS: 'minecraft:dark_oak_door[half=upper,facing=south,open=false,hinge=left]',
-    pillar: 'minecraft:purpur_pillar',
+    pillar: 'minecraft:polished_blackstone_bricks',
     chairN: 'minecraft:dark_oak_stairs[facing=north]',
     chairS: 'minecraft:dark_oak_stairs[facing=south]',
     chairE: 'minecraft:dark_oak_stairs[facing=east]',
@@ -326,7 +326,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofN: 'minecraft:warped_stairs[facing=north]',
     roofS: 'minecraft:warped_stairs[facing=south]',
     roofCap: 'minecraft:warped_slab[type=bottom]',
-    foundation: 'minecraft:moss_block',
+    foundation: 'minecraft:stone_bricks',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:green_stained_glass_pane',
     doorLowerN: 'minecraft:birch_door[half=lower,facing=north,open=false,hinge=left]',
@@ -355,7 +355,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
 
   desert: {
     wall: 'minecraft:sandstone',
-    wallAccent: 'minecraft:red_sandstone',
+    wallAccent: 'minecraft:white_terracotta',
     interiorWall: 'minecraft:smooth_sandstone',
     floorGround: 'minecraft:smooth_sandstone',
     floorUpper: 'minecraft:sandstone',
