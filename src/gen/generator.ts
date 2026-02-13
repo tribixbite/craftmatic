@@ -2214,12 +2214,21 @@ function generateVillage(
   }
 
   // Building placement grid — varied house sizes
-  const buildingSpots: { x: number; z: number; w: number; l: number; type: 'house' | 'tower' | 'marketplace' }[] = [];
+  // doorX/doorZ store the village-coordinate of each building's front door
+  const buildingSpots: { x: number; z: number; w: number; l: number; type: 'house' | 'tower' | 'marketplace'; doorX: number; doorZ: number }[] = [];
 
-  // Central marketplace
-  buildingSpots.push({ x: cx - 12, z: cz - 10, w: 20, l: 16, type: 'marketplace' });
+  // Central marketplace — gate at mid-Z south face (bz2 in subgrid)
+  const mpW = 20, mpL = 16, mpMargin = 3;
+  const mpX = cx - 12, mpZ = cz - 10;
+  buildingSpots.push({
+    x: mpX, z: mpZ, w: mpW, l: mpL, type: 'marketplace',
+    doorX: mpX + mpMargin + Math.floor(mpW / 2),
+    doorZ: mpZ + mpMargin + mpL - 1,
+  });
 
   // Houses with varied dimensions (width 13-18, length 11-16, some 2-story)
+  // House door is on high-Z face: subgrid (margin + bw/2, margin + bl - 1 + porchDepth/2)
+  const houseMargin = 3;
   const housePositions: [number, number][] = [
     [margin + 5, margin + 5],
     [margin + gridSize - 30, margin + 5],
@@ -2230,11 +2239,24 @@ function generateVillage(
   for (let i = 0; i < Math.min(numHouses, housePositions.length); i++) {
     const hw = 13 + Math.floor(rng() * 6);  // 13-18
     const hl = 11 + Math.floor(rng() * 6);  // 11-16
-    buildingSpots.push({ x: housePositions[i][0], z: housePositions[i][1], w: hw, l: hl, type: 'house' });
+    const hx = housePositions[i][0];
+    const hz = housePositions[i][1];
+    buildingSpots.push({
+      x: hx, z: hz, w: hw, l: hl, type: 'house',
+      doorX: hx + houseMargin + Math.floor(hw / 2),
+      doorZ: hz + houseMargin + hl,  // porch extends past bz2
+    });
   }
 
-  // One tower
-  buildingSpots.push({ x: cx + 15, z: cz - 5, w: 10, l: 10, type: 'tower' });
+  // Tower — door is on low-Z face: subgrid (margin + radius, margin)
+  const twRadius = Math.floor(10 / 2);
+  const twMargin = 3;
+  const twX = cx + 15, twZ = cz - 5;
+  buildingSpots.push({
+    x: twX, z: twZ, w: 10, l: 10, type: 'tower',
+    doorX: twX + twMargin + twRadius,
+    doorZ: twZ + twMargin,
+  });
 
   // Generate each building as a sub-structure and paste blocks
   for (const spot of buildingSpots) {
@@ -2254,13 +2276,13 @@ function generateVillage(
     pasteGrid(grid, subGrid, spot.x, 0, spot.z);
   }
 
-  // ── Upgraded paths — stone_bricks instead of cobblestone ──
+  // ── Upgraded paths — route from each building's door to the center well ──
   const wellX = cx;
   const wellZ = cz;
   for (const spot of buildingSpots) {
-    const sx = spot.x + Math.floor(spot.w / 2);
-    const sz = spot.z + Math.floor(spot.l / 2);
-    // Horizontal path segment
+    const sx = spot.doorX;
+    const sz = spot.doorZ;
+    // L-shaped path: first move horizontally (X) to align with well, then vertically (Z)
     const startX = Math.min(sx, wellX);
     const endX = Math.max(sx, wellX);
     for (let x = startX; x <= endX; x++) {
@@ -2269,7 +2291,7 @@ function generateVillage(
           grid.set(x, 0, sz + dz, 'minecraft:stone_bricks');
       }
     }
-    // Vertical path segment
+    // Vertical segment from door-Z to well-Z
     const startZ = Math.min(sz, wellZ);
     const endZ = Math.max(sz, wellZ);
     for (let z = startZ; z <= endZ; z++) {
