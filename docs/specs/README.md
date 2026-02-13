@@ -135,8 +135,13 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Bridge (B+ → A-): inner arch ribs (wallAccent), alternating fence/stone railings, stone stair benches, stone brick center path with accent strips
 
 ### UI & Rendering Fixes
-- [x] Gallery layout: flex:1 + min-height:0 constrains cards within tab, nav stays visible
+- [x] Gallery layout: flex-direction:column + min-height:0 constrains cards within tab, nav stays visible
+- [x] Gallery cards: min-height:240px prevents blank bars during lazy thumbnail generation
 - [x] Block seam gaps: 0.2% oversize on full/slab geometries eliminates anti-alias gaps
-- [x] Collapsible generator: arrow toggle on options, sticky Generate/Randomize buttons
+- [x] Tower wall gaps: thicker circular shell (0.7 tolerance) prevents diagonal block gaps
+- [x] Collapsible generator: max-height:800px shows all style chips and form fields
 - [x] Ground plane: grass_block for land structures, water for ships/bridges (auto-fill y=0)
 - [x] Village path routing: paths connect to door locations (house porch, tower entrance, marketplace gate)
+- [x] Village building orientation: southern-half buildings Z-flipped to face inward toward plaza
+- [x] Ship sails: start above highest cabin roof (dynamic sailStartY clearance calculation)
+- [x] Castle keep overhaul: ground floor open great hall with colonnade, raised dais, throne, carpet runner, chandeliers; upper floors use two-half layout instead of four-quadrant house pattern
