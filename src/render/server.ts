@@ -393,35 +393,84 @@ export function generateViewerHTML(viewerData: object): string {
       return tex;
     }
 
+    // ─── Geometry helpers ──────────────────────────────────────────────
+
+    function getGeoKind(name) {
+      if (name.includes('carpet') || name.includes('moss_carpet')) return 'carpet';
+      if (name.includes('_slab')) return 'slab';
+      if (name.includes('_fence') && !name.includes('gate')) return 'fence';
+      if (name.includes('torch') && !name.includes('redstone')) return 'torch';
+      if (name === 'lantern' || name === 'soul_lantern') return 'lantern';
+      if (name === 'chain') return 'chain';
+      if (name.includes('_door')) return 'door';
+      if (name.includes('_pane') || name === 'iron_bars') return 'pane';
+      if (name === 'end_rod' || name === 'lightning_rod') return 'rod';
+      return 'cube';
+    }
+
+    const geoCache = {};
+    function getGeo(kind) {
+      if (geoCache[kind]) return geoCache[kind];
+      let g;
+      switch (kind) {
+        case 'slab':    g = new THREE.BoxGeometry(1, 0.5, 1); break;
+        case 'carpet':  g = new THREE.BoxGeometry(1, 0.0625, 1); break;
+        case 'fence':   g = new THREE.BoxGeometry(0.25, 1, 0.25); break;
+        case 'torch':   g = new THREE.BoxGeometry(0.15, 0.6, 0.15); break;
+        case 'lantern': g = new THREE.BoxGeometry(0.35, 0.4, 0.35); break;
+        case 'chain':   g = new THREE.BoxGeometry(0.1, 1, 0.1); break;
+        case 'door':    g = new THREE.BoxGeometry(1, 1, 0.2); break;
+        case 'pane':    g = new THREE.BoxGeometry(0.1, 1, 1); break;
+        case 'rod':     g = new THREE.BoxGeometry(0.12, 1, 0.12); break;
+        default:        g = new THREE.BoxGeometry(1, 1, 1);
+      }
+      geoCache[kind] = g;
+      return g;
+    }
+
+    function getFacingAngle(fullName) {
+      const m = fullName.match(/facing=(\\w+)/);
+      if (!m) return 0;
+      switch (m[1]) {
+        case 'south': return 0;
+        case 'west':  return Math.PI / 2;
+        case 'north': return Math.PI;
+        case 'east':  return -Math.PI / 2;
+        default: return 0;
+      }
+    }
+
     // ─── Build meshes ──────────────────────────────────────────────────
 
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
     const halfW = data.width / 2;
     const halfL = data.length / 2;
     let allMeshes = []; // for cutaway filtering
 
     async function buildScene() {
       if (hasPalette) {
-        // New textured palette format
-        // Group blocks by palette index
+        // Group blocks by palette index + geometry kind
         const groups = new Map();
         for (const block of data.blocks) {
-          if (!groups.has(block.p)) groups.set(block.p, []);
-          groups.get(block.p).push(block);
+          const entry = data.palette[block.p];
+          const blockName = (entry.name || '').replace('minecraft:', '').replace(/\\[.*\\]/, '');
+          const kind = getGeoKind(blockName);
+          const key = block.p + ':' + kind;
+          if (!groups.has(key)) groups.set(key, { pIdx: block.p, kind, blocks: [] });
+          groups.get(key).blocks.push(block);
         }
 
-        for (const [pIdx, positions] of groups) {
-          const entry = data.palette[pIdx];
+        for (const [, group] of groups) {
+          const entry = data.palette[group.pIdx];
           const [r, g, b] = entry.color;
-          const blockName = (entry.name || '').replace('minecraft:', '').replace(/\\[.*\\]/, '');
+          const fullName = entry.name || '';
+          const blockName = fullName.replace('minecraft:', '').replace(/\\[.*\\]/, '');
+          const kind = group.kind;
 
           let texture;
           if (entry.texture) {
-            // Load real texture
             texture = await loadBase64Texture(entry.texture);
           }
           if (!texture) {
-            // Procedural fallback
             texture = makeProceduralTexture(r, g, b, blockName);
           }
 
@@ -438,15 +487,36 @@ export function generateViewerHTML(viewerData: object): string {
             alphaTest: 0.1,
           });
 
-          const mesh = new THREE.InstancedMesh(geometry, material, positions.length);
+          // Emissive glow for light-emitting blocks
+          if (blockName.includes('lantern') || blockName.includes('glowstone')
+              || blockName === 'sea_lantern' || blockName === 'redstone_lamp'
+              || blockName.includes('campfire')) {
+            material.emissive = new THREE.Color(r / 255, g / 255, b / 255);
+            material.emissiveIntensity = 0.3;
+          }
+
+          const geo = getGeo(kind);
+          const positions = group.blocks;
+          const mesh = new THREE.InstancedMesh(geo, material, positions.length);
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           const matrix = new THREE.Matrix4();
+          const rotMatrix = new THREE.Matrix4();
           const yPositions = [];
           const originalMatrices = [];
           for (let i = 0; i < positions.length; i++) {
             const p = positions[i];
-            matrix.setPosition(p.x - halfW, p.y, p.z - halfL);
+            // Apply rotation for directional blocks
+            if (kind === 'door' || kind === 'pane') {
+              const angle = getFacingAngle(fullName);
+              rotMatrix.makeRotationY(angle);
+              matrix.identity();
+              matrix.multiply(rotMatrix);
+              matrix.setPosition(p.x - halfW, p.y, p.z - halfL);
+            } else {
+              matrix.identity();
+              matrix.setPosition(p.x - halfW, p.y, p.z - halfL);
+            }
             mesh.setMatrixAt(i, matrix);
             yPositions.push(p.y);
             originalMatrices.push(new THREE.Matrix4().copy(matrix));
