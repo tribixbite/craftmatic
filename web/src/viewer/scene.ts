@@ -49,7 +49,7 @@ function getGeometry(kind: GeometryKind): THREE.BufferGeometry {
   let geo: THREE.BufferGeometry;
   switch (kind) {
     case 'slab':
-      geo = new THREE.BoxGeometry(1, 0.5, 1);
+      geo = new THREE.BoxGeometry(1.002, 0.5, 1.002);
       geo.translate(0, -0.25, 0);
       break;
     case 'carpet':
@@ -80,7 +80,8 @@ function getGeometry(kind: GeometryKind): THREE.BufferGeometry {
       geo = new THREE.BoxGeometry(0.12, 1, 0.12);
       break;
     default:
-      geo = new THREE.BoxGeometry(1, 1, 1);
+      // Slight oversize (1.002) eliminates anti-alias seam gaps between adjacent blocks
+      geo = new THREE.BoxGeometry(1.002, 1.002, 1.002);
       break;
   }
   geoCache.set(kind, geo);
