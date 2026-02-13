@@ -312,7 +312,26 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
   scene.fog = new THREE.FogExp2(0x1a1a2e, 0.006);
 
   const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 1000);
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+
+  let renderer: THREE.WebGLRenderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  } catch {
+    // WebGL not available — show fallback message
+    const fallback = document.createElement('div');
+    fallback.style.cssText = 'display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#999;font:14px/1.4 system-ui;text-align:center;padding:1em;';
+    fallback.textContent = '3D viewer requires WebGL. Try a different browser or enable hardware acceleration.';
+    container.appendChild(fallback);
+    // Return a no-op viewer state
+    return {
+      scene, camera,
+      renderer: null as unknown as THREE.WebGLRenderer,
+      controls: null as unknown as OrbitControls,
+      meshes: [], grid,
+      dispose: () => { fallback.remove(); },
+    };
+  }
+
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
@@ -320,6 +339,24 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
   container.appendChild(renderer.domElement);
+
+  // Render loop (declared early for context loss handler)
+  let animId = 0;
+  let controls: OrbitControls;
+  function animate() {
+    animId = requestAnimationFrame(animate);
+    controls?.update();
+    renderer.render(scene, camera);
+  }
+
+  // Handle WebGL context loss gracefully
+  renderer.domElement.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    cancelAnimationFrame(animId);
+  });
+  renderer.domElement.addEventListener('webglcontextrestored', () => {
+    animate();
+  });
 
   // Lighting
   scene.add(new THREE.AmbientLight(0x606080, 0.5));
@@ -352,7 +389,6 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
   const halfW = width / 2;
   const halfL = length / 2;
   const meshes: THREE.InstancedMesh[] = [];
-  const geometries: THREE.BufferGeometry[] = [];
 
   interface BlockEntry {
     x: number; y: number; z: number;
@@ -450,20 +486,14 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
   camera.position.set(maxDim * 0.9, maxDim * 0.65, maxDim * 0.9);
   camera.lookAt(0, height / 3, 0);
 
-  const controls = new OrbitControls(camera, renderer.domElement);
+  controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(0, height / 3, 0);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.maxDistance = maxDim * 3;
   controls.update();
 
-  // Render loop
-  let animId = 0;
-  function animate() {
-    animId = requestAnimationFrame(animate);
-    controls.update();
-    renderer.render(scene, camera);
-  }
+  // Start render loop
   animate();
 
   // Resize handler
@@ -490,7 +520,6 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
       controls.dispose();
       renderer.dispose();
       renderer.domElement.remove();
-      geometries.forEach(g => g.dispose());
       meshes.forEach(m => {
         const mat = m.material as THREE.MeshStandardMaterial;
         mat.map?.dispose();

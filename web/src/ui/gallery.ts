@@ -90,17 +90,35 @@ function renderThumbnail(canvas: HTMLCanvasElement, grid: BlockGrid): void {
         const sx = (x - z) * tile + cx;
         const sy = -(y * tile) + (x + z) * halfT + cy;
 
-        // Top face
+        // Top face (diamond)
         ctx.fillStyle = `rgb(${Math.min(255, r + 30)},${Math.min(255, g + 30)},${Math.min(255, b + 30)})`;
-        ctx.fillRect(sx - tile, sy, tile * 2, halfT);
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + tile, sy + halfT);
+        ctx.lineTo(sx, sy + tile);
+        ctx.lineTo(sx - tile, sy + halfT);
+        ctx.closePath();
+        ctx.fill();
 
-        // Left face
+        // Left face (parallelogram)
         ctx.fillStyle = `rgb(${Math.max(0, r - 15)},${Math.max(0, g - 15)},${Math.max(0, b - 15)})`;
-        ctx.fillRect(sx - tile, sy + halfT, tile, tile);
+        ctx.beginPath();
+        ctx.moveTo(sx - tile, sy + halfT);
+        ctx.lineTo(sx, sy + tile);
+        ctx.lineTo(sx, sy + tile + tile);
+        ctx.lineTo(sx - tile, sy + halfT + tile);
+        ctx.closePath();
+        ctx.fill();
 
-        // Right face
+        // Right face (parallelogram)
         ctx.fillStyle = `rgb(${Math.max(0, r - 35)},${Math.max(0, g - 35)},${Math.max(0, b - 35)})`;
-        ctx.fillRect(sx, sy + halfT, tile, tile);
+        ctx.beginPath();
+        ctx.moveTo(sx + tile, sy + halfT);
+        ctx.lineTo(sx, sy + tile);
+        ctx.lineTo(sx, sy + tile + tile);
+        ctx.lineTo(sx + tile, sy + halfT + tile);
+        ctx.closePath();
+        ctx.fill();
       }
     }
   }

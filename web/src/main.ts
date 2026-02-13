@@ -216,6 +216,9 @@ initGenerator(generatorControls, (grid: BlockGrid, _config: GeneratorConfig) => 
   requestAnimationFrame(() => setTimeout(() => {
     try {
       showInlineViewer(generatorViewer, grid);
+    } catch (err) {
+      console.warn('3D viewer failed:', err);
+      generatorViewer.innerHTML = '<div style="padding:1em;color:#999;text-align:center;">3D preview unavailable. Your structure was generated successfully.</div>';
     } finally {
       hideLoading();
     }
@@ -234,6 +237,9 @@ initUpload(uploadZone, fileInput, uploadInfo, (grid: BlockGrid, _filename: strin
   requestAnimationFrame(() => setTimeout(() => {
     try {
       showInlineViewer(uploadViewer, grid);
+    } catch (err) {
+      console.warn('3D viewer failed:', err);
+      uploadViewer.innerHTML = '<div style="padding:1em;color:#999;text-align:center;">3D preview unavailable. Upload succeeded.</div>';
     } finally {
       hideLoading();
     }
@@ -249,6 +255,9 @@ initGallery(galleryGrid, (grid: BlockGrid, _label: string) => {
   requestAnimationFrame(() => setTimeout(() => {
     try {
       openFullViewer(grid);
+    } catch (err) {
+      console.warn('3D viewer failed:', err);
+      showError('3D viewer requires WebGL');
     } finally {
       hideLoading();
     }
