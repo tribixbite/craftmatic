@@ -364,6 +364,8 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:packed_mud': [142, 107, 78],
   'minecraft:dirt': [134, 96, 67],
   'minecraft:rooted_dirt': [144, 106, 77],
+  'minecraft:coarse_dirt': [119, 85, 59],
+  'minecraft:podzol': [91, 63, 24],
   'minecraft:water': [62, 118, 225],
   'minecraft:oak_leaves': [60, 135, 25],
   'minecraft:birch_leaves': [80, 143, 49],

@@ -13,6 +13,7 @@ import {
   foundation, floor, exteriorWalls, timberColumns, timberBeams,
   windows, interiorWall, doorway, frontDoor, staircase,
   gabledRoof, chimney, wallTorches, porch,
+  placeTree,
 } from './structures.js';
 import { chandelier } from './furniture.js';
 import type { StylePalette } from './styles.js';
@@ -2119,7 +2120,7 @@ function generateVillage(
     grid.set(margin + gridSize - 1, 1, z, style.fence);
   }
 
-  // Scattered trees (simple: 4-6h log + leaf canopy sphere)
+  // Scattered trees using terrain primitive
   const treePositions: [number, number][] = [
     [cx - 20, cz + 15], [cx + 20, cz + 15],
     [cx - 20, cz - 15], [cx + 25, cz - 20],
@@ -2128,27 +2129,7 @@ function generateVillage(
   for (const [tx, tz] of treePositions) {
     if (!grid.inBounds(tx, 0, tz)) continue;
     const trunkH = 4 + Math.floor(rng() * 3);
-    // Trunk
-    for (let y = 1; y <= trunkH; y++) {
-      if (grid.inBounds(tx, y, tz)) grid.set(tx, y, tz, 'minecraft:oak_log');
-    }
-    // Leaf canopy (sphere radius 2-3)
-    const leafR = 2;
-    for (let dx = -leafR; dx <= leafR; dx++) {
-      for (let dy = -1; dy <= leafR; dy++) {
-        for (let dz = -leafR; dz <= leafR; dz++) {
-          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          if (dist <= leafR + 0.5) {
-            const lx = tx + dx;
-            const ly = trunkH + dy;
-            const lz = tz + dz;
-            if (grid.inBounds(lx, ly, lz) && grid.get(lx, ly, lz) === 'minecraft:air') {
-              grid.set(lx, ly, lz, 'minecraft:oak_leaves[persistent=true]');
-            }
-          }
-        }
-      }
-    }
+    placeTree(grid, tx, 1, tz, 'oak', trunkH);
   }
 
   // Lanterns along paths at intersections
