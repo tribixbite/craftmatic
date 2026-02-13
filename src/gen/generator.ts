@@ -13,7 +13,7 @@ import {
   foundation, floor, exteriorWalls, timberColumns, timberBeams,
   windows, interiorWall, doorway, frontDoor, staircase,
   gabledRoof, chimney, wallTorches, porch,
-  placeTree,
+  placeTree, placeGarden,
 } from './structures.js';
 import { chandelier } from './furniture.js';
 import type { StylePalette } from './styles.js';
@@ -2084,15 +2084,30 @@ function generateVillage(
   // Green ground layer
   grid.fill(margin, 0, margin, margin + gridSize - 1, 0, margin + gridSize - 1, 'minecraft:grass_block');
 
-  // Building placement grid — evenly spaced positions avoiding overlap
-  const buildingSpots: { x: number; z: number; type: 'house' | 'tower' | 'marketplace' }[] = [];
   const cx = margin + Math.floor(gridSize / 2);
   const cz = margin + Math.floor(gridSize / 2);
 
-  // Central marketplace
-  buildingSpots.push({ x: cx - 12, z: cz - 10, type: 'marketplace' });
+  // ── Village plaza — stone brick circle (radius 6) around center well ──
+  const plazaR = 6;
+  fillCircle(grid, cx, 0, cz, plazaR, 'minecraft:stone_bricks');
+  // Plaza rim accent ring
+  for (let dx = -plazaR; dx <= plazaR; dx++) {
+    for (let dz = -plazaR; dz <= plazaR; dz++) {
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > plazaR - 0.5 && dist <= plazaR + 0.5) {
+        if (grid.inBounds(cx + dx, 0, cz + dz))
+          grid.set(cx + dx, 0, cz + dz, 'minecraft:polished_deepslate');
+      }
+    }
+  }
 
-  // Houses scattered around (3-5)
+  // Building placement grid — varied house sizes
+  const buildingSpots: { x: number; z: number; w: number; l: number; type: 'house' | 'tower' | 'marketplace' }[] = [];
+
+  // Central marketplace
+  buildingSpots.push({ x: cx - 12, z: cz - 10, w: 20, l: 16, type: 'marketplace' });
+
+  // Houses with varied dimensions (width 13-18, length 11-16, some 2-story)
   const housePositions: [number, number][] = [
     [margin + 5, margin + 5],
     [margin + gridSize - 30, margin + 5],
@@ -2101,43 +2116,45 @@ function generateVillage(
   ];
   const numHouses = 3 + Math.floor(rng() * 2); // 3-4 houses
   for (let i = 0; i < Math.min(numHouses, housePositions.length); i++) {
-    buildingSpots.push({ x: housePositions[i][0], z: housePositions[i][1], type: 'house' });
+    const hw = 13 + Math.floor(rng() * 6);  // 13-18
+    const hl = 11 + Math.floor(rng() * 6);  // 11-16
+    buildingSpots.push({ x: housePositions[i][0], z: housePositions[i][1], w: hw, l: hl, type: 'house' });
   }
 
   // One tower
-  buildingSpots.push({ x: cx + 15, z: cz - 5, type: 'tower' });
+  buildingSpots.push({ x: cx + 15, z: cz - 5, w: 10, l: 10, type: 'tower' });
 
   // Generate each building as a sub-structure and paste blocks
   for (const spot of buildingSpots) {
     let subGrid: BlockGrid;
+    const houseFloors = rng() < 0.5 ? 1 : 2; // random 1-2 stories
     switch (spot.type) {
       case 'house':
-        subGrid = generateHouse(Math.min(floors, 2), style, rooms, 15, 13, rng);
+        subGrid = generateHouse(Math.min(floors, houseFloors), style, rooms, spot.w, spot.l, rng);
         break;
       case 'tower':
-        subGrid = generateTower(Math.min(floors, 3), style, rooms, 10, undefined, rng);
+        subGrid = generateTower(Math.min(floors, 3), style, rooms, spot.w, undefined, rng);
         break;
       case 'marketplace':
-        subGrid = generateMarketplace(1, style, undefined, 20, 16, rng);
+        subGrid = generateMarketplace(1, style, undefined, spot.w, spot.l, rng);
         break;
     }
-    // Paste sub-grid into main grid
     pasteGrid(grid, subGrid, spot.x, 0, spot.z);
   }
 
-  // Path network connecting buildings to center
+  // ── Upgraded paths — stone_bricks instead of cobblestone ──
   const wellX = cx;
   const wellZ = cz;
   for (const spot of buildingSpots) {
-    const sx = spot.x + 8; // approximate center of each building
-    const sz = spot.z + 8;
+    const sx = spot.x + Math.floor(spot.w / 2);
+    const sz = spot.z + Math.floor(spot.l / 2);
     // Horizontal path segment
     const startX = Math.min(sx, wellX);
     const endX = Math.max(sx, wellX);
     for (let x = startX; x <= endX; x++) {
       for (let dz = -1; dz <= 0; dz++) {
         if (grid.inBounds(x, 0, sz + dz))
-          grid.set(x, 0, sz + dz, 'minecraft:cobblestone');
+          grid.set(x, 0, sz + dz, 'minecraft:stone_bricks');
       }
     }
     // Vertical path segment
@@ -2146,13 +2163,13 @@ function generateVillage(
     for (let z = startZ; z <= endZ; z++) {
       for (let dx = -1; dx <= 0; dx++) {
         if (grid.inBounds(wellX + dx, 0, z))
-          grid.set(wellX + dx, 0, z, 'minecraft:cobblestone');
+          grid.set(wellX + dx, 0, z, 'minecraft:stone_bricks');
       }
     }
   }
 
-  // Central well/fountain
-  grid.fill(wellX - 1, 0, wellZ - 1, wellX + 1, 0, wellZ + 1, 'minecraft:stone_bricks');
+  // Central well/fountain on plaza
+  grid.fill(wellX - 1, 0, wellZ - 1, wellX + 1, 0, wellZ + 1, 'minecraft:chiseled_stone_bricks');
   grid.set(wellX, 0, wellZ, 'minecraft:water_cauldron[level=3]');
   for (const [wx, wz] of [[wellX - 1, wellZ - 1], [wellX + 1, wellZ - 1],
                             [wellX - 1, wellZ + 1], [wellX + 1, wellZ + 1]]) {
@@ -2162,15 +2179,41 @@ function generateVillage(
   grid.fill(wellX - 1, 3, wellZ - 1, wellX + 1, 3, wellZ + 1, style.slabBottom);
   grid.set(wellX, 2, wellZ, 'minecraft:chain');
   grid.set(wellX, 1, wellZ, style.lanternFloor);
-
-  // Perimeter fence
-  for (let x = margin; x <= margin + gridSize - 1; x++) {
-    grid.set(x, 1, margin, style.fence);
-    grid.set(x, 1, margin + gridSize - 1, style.fence);
+  // Lanterns on plaza rim
+  for (const [lx, lz] of [[cx - plazaR, cz], [cx + plazaR, cz], [cx, cz - plazaR], [cx, cz + plazaR]]) {
+    if (grid.inBounds(lx, 1, lz)) grid.set(lx, 1, lz, style.lanternFloor);
   }
-  for (let z = margin; z <= margin + gridSize - 1; z++) {
-    grid.set(margin, 1, z, style.fence);
-    grid.set(margin + gridSize - 1, 1, z, style.fence);
+
+  // ── Perimeter fence with gate openings at cardinal midpoints ──
+  const fenceMin = margin;
+  const fenceMax = margin + gridSize - 1;
+  const fenceMidX = margin + Math.floor(gridSize / 2);
+  const fenceMidZ = margin + Math.floor(gridSize / 2);
+  for (let x = fenceMin; x <= fenceMax; x++) {
+    // North and south fence — skip 3-block gap at midpoint
+    if (Math.abs(x - fenceMidX) > 1) {
+      grid.set(x, 1, fenceMin, style.fence);
+      grid.set(x, 1, fenceMax, style.fence);
+    }
+  }
+  for (let z = fenceMin; z <= fenceMax; z++) {
+    // East and west fence — skip 3-block gap at midpoint
+    if (Math.abs(z - fenceMidZ) > 1) {
+      grid.set(fenceMin, 1, z, style.fence);
+      grid.set(fenceMax, 1, z, style.fence);
+    }
+  }
+
+  // ── Garden plots in gaps between buildings ──
+  const gardenSpots: [number, number, number, number][] = [
+    [cx - 8, cz + 12, cx - 4, cz + 16],
+    [cx + 8, cz - 16, cx + 12, cz - 12],
+    [cx - 18, cz - 4, cx - 14, cz],
+  ];
+  for (const [gx1, gz1, gx2, gz2] of gardenSpots) {
+    if (grid.inBounds(gx1, 0, gz1) && grid.inBounds(gx2, 0, gz2)) {
+      placeGarden(grid, gx1, gz1, gx2, gz2, 0, rng);
+    }
   }
 
   // Scattered trees using terrain primitive
