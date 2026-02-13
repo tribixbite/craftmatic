@@ -548,7 +548,7 @@ html, body {
     width: 100%;
     border-right: none;
     border-bottom: 1px solid var(--border);
-    max-height: 40vh;
+    max-height: 50vh;
     overflow-y: auto;
     flex-shrink: 1;
   }
@@ -568,7 +568,6 @@ html, body {
 }
 
 @media (max-width: 480px) {
-  .form-row { grid-template-columns: 1fr; }
   .gallery-grid { grid-template-columns: 1fr; }
 }
 
