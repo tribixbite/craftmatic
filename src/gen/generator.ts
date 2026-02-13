@@ -159,6 +159,12 @@ function generateHouse(
   porch(grid, dx, bz2, 9, STORY_H, style, 'south');
   frontDoor(grid, dx, 1, bz2, style, 'north');
 
+  // Exterior lanterns flanking the front door
+  if (grid.inBounds(dx - 2, 1, bz2 + 1))
+    grid.set(dx - 2, 1, bz2 + 1, style.lanternFloor);
+  if (grid.inBounds(dx + 2, 1, bz2 + 1))
+    grid.set(dx + 2, 1, bz2 + 1, style.lanternFloor);
+
   const stairX = xMid + 3;
   const stairX2 = xMid + 4;
   for (let story = 0; story < floors - 1; story++) {
@@ -693,6 +699,20 @@ function generateCastle(
   grid.set(xMid - 3, 4, bz2, style.bannerN);
   grid.set(xMid + 3, 4, bz2, style.bannerN);
 
+  // Courtyard trees for greenery
+  const treePosC: [number, number][] = [
+    [bx1 + 8, bz2 - 6], [bx2 - 8, bz1 + 8],
+  ];
+  for (const [tx, tz] of treePosC) {
+    if (grid.inBounds(tx, 1, tz)) placeTree(grid, tx, 1, tz, 'oak', 4);
+  }
+
+  // Guard armor stands near tower bases
+  for (const [tcx, tcz] of [[bx1 + 2, bz1 + 2], [bx2 - 2, bz1 + 2], [bx2 - 2, bz2 - 2]] as [number, number][]) {
+    if (grid.inBounds(tcx, 1, tcz))
+      grid.set(tcx, 1, tcz, 'minecraft:armor_stand');
+  }
+
   return grid;
 }
 
@@ -929,6 +949,14 @@ function generateDungeon(
       if (grid.inBounds(x, by, zMid))
         grid.set(x, by, zMid, 'minecraft:cracked_stone_bricks');
     }
+
+    // Water puddles in corridors
+    for (let z = bz1 + 7; z < bz2 - 6; z += 9) {
+      if (grid.inBounds(xMid, by + 1, z))
+        grid.set(xMid, by + 1, z, 'minecraft:water_cauldron[level=1]');
+    }
+    if (grid.inBounds(bx1 + 5, by + 1, zMid))
+      grid.set(bx1 + 5, by + 1, zMid, 'minecraft:water_cauldron[level=1]');
 
     // Iron bar cell doors along N-S corridor walls
     for (let z = bz1 + 5; z < bz2 - 4; z += 7) {
@@ -1362,6 +1390,18 @@ function generateShip(
     }
   }
 
+  // Additional deck barrels near stern
+  if (grid.inBounds(cx - 2, deckY, sternZ2 + 3))
+    grid.set(cx - 2, deckY, sternZ2 + 3, 'minecraft:barrel[facing=up]');
+  if (grid.inBounds(cx - 2, deckY, sternZ2 + 4))
+    grid.set(cx - 2, deckY, sternZ2 + 4, 'minecraft:barrel[facing=up]');
+
+  // Coiled rope (chains) near bow
+  if (grid.inBounds(cx + 1, deckY, sz2 - 3))
+    grid.set(cx + 1, deckY, sz2 - 3, 'minecraft:chain');
+  if (grid.inBounds(cx - 1, deckY, sz2 - 2))
+    grid.set(cx - 1, deckY, sz2 - 2, 'minecraft:chain');
+
   // Bow decoration (carved pumpkin figurehead)
   if (grid.inBounds(cx, hullBase + 1, sz2))
     grid.set(cx, hullBase + 1, sz2, 'minecraft:carved_pumpkin[facing=south]');
@@ -1550,10 +1590,13 @@ function generateCathedral(
   grid.fill(xMid - 2, 1, bz2 - 5, xMid + 2, 1, bz2 - 3, style.wallAccent);
   grid.set(xMid, 2, bz2 - 4, 'minecraft:enchanting_table');
 
-  // Candle arrays flanking altar
+  // Candle arrays flanking altar (double row for grandeur)
   for (const dx of [-3, -2, 2, 3]) {
     grid.set(xMid + dx, 1, bz2 - 4, 'minecraft:candle[candles=4,lit=true]');
   }
+  // Additional candle pairs on the altar steps
+  grid.set(xMid - 2, 2, bz2 - 5, 'minecraft:candle[candles=4,lit=true]');
+  grid.set(xMid + 2, 2, bz2 - 5, 'minecraft:candle[candles=4,lit=true]');
 
   // Banners along nave pillars
   for (let z = bz1 + 6; z < bz2 - 4; z += 8) {
@@ -1671,10 +1714,12 @@ function generateBridge(
     grid.set(bx2, deckY + 1, z, style.fence);
   }
 
-  // Lanterns every 4 blocks on railings
+  // Lamp posts every 4 blocks on railings — fence post topped with lantern
   for (let z = bz1 + 2; z <= bz2 - 2; z += 4) {
-    grid.set(bx1, deckY + 2, z, style.lanternFloor);
-    grid.set(bx2, deckY + 2, z, style.lanternFloor);
+    grid.set(bx1, deckY + 2, z, style.fence);
+    grid.set(bx1, deckY + 3, z, style.lanternFloor);
+    grid.set(bx2, deckY + 2, z, style.fence);
+    grid.set(bx2, deckY + 3, z, style.lanternFloor);
   }
 
   // End towers (square, at both ends)
@@ -1798,6 +1843,11 @@ function generateWindmill(
   grid.set(cx - 2, 1, cz, 'minecraft:hay_block');
   grid.set(cx - 2, 2, cz, 'minecraft:hay_block');
   grid.set(cx - 2, 1, cz + 1, 'minecraft:hay_block');
+  // Extra grain storage along wall
+  if (grid.inBounds(cx - 2, 1, cz - 1))
+    grid.set(cx - 2, 1, cz - 1, 'minecraft:hay_block');
+  if (grid.inBounds(cx + 2, 1, cz - 2))
+    grid.set(cx + 2, 1, cz - 2, 'minecraft:hay_block');
   grid.addBarrel(cx + 2, 1, cz + 2, 'up', [
     { slot: 0, id: 'minecraft:wheat', count: 64 },
     { slot: 1, id: 'minecraft:bread', count: 32 },
@@ -1976,6 +2026,9 @@ function generateMarketplace(
       grid.addChest(sx + 1, 1, stallRow + 1, 'north', [
         { slot: 0, id: stallItems[stallIdx % stallItems.length], count: 32 },
       ]);
+      // Varied stall goods on counter
+      const stallGoods = ['minecraft:barrel', 'minecraft:crafting_table', 'minecraft:anvil', 'minecraft:cauldron'];
+      grid.set(sx + 1, 3, stallRow, stallGoods[stallIdx % stallGoods.length]);
       stallIdx++;
       // Lantern
       grid.set(sx + 2, 3, stallRow, style.lantern);
@@ -2130,6 +2183,16 @@ function generateVillage(
     if (!grid.inBounds(tx, 0, tz)) continue;
     const trunkH = 4 + Math.floor(rng() * 3);
     placeTree(grid, tx, 1, tz, 'oak', trunkH);
+  }
+
+  // Additional trees between buildings for a lived-in feel
+  const extraTrees: [number, number][] = [
+    [cx - 5, cz + 5], [cx + 12, cz + 10], [cx - 15, cz],
+  ];
+  for (const [tx, tz] of extraTrees) {
+    if (grid.inBounds(tx, 0, tz) && grid.get(tx, 0, tz) === 'minecraft:grass_block') {
+      placeTree(grid, tx, 1, tz, 'birch', 4 + Math.floor(rng() * 2));
+    }
   }
 
   // Lanterns along paths at intersections
