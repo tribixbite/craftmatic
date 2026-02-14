@@ -795,6 +795,23 @@ html, body {
   border-radius: var(--radius);
 }
 
+.import-api-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+/* Auto-fill highlight pulse on Parcl data population */
+.import-field-filled {
+  animation: importFieldPulse 1.5s ease-out;
+}
+
+@keyframes importFieldPulse {
+  0% { border-color: var(--success); box-shadow: 0 0 8px rgba(67, 181, 129, 0.3); }
+  100% { border-color: var(--border); box-shadow: none; }
+}
+
 /* ─── Style Chips ────────────────────────────────────────────────────── */
 
 .style-chip {
