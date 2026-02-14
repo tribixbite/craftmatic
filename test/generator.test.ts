@@ -235,6 +235,55 @@ describe('import-style generation (rooms + custom dimensions)', () => {
   });
 });
 
+describe('import end-to-end: 600 Broadway Ave NW, Grand Rapids MI 49504', () => {
+  // Real geocoding result: lat=42.973766, lng=-85.679793
+  // Property: ~3000sqft, 2 stories, 3 bed, 2 bath, built ~1920
+  function fnv1a(str: string): number {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0) % 999999;
+  }
+
+  const address = '600 BROADWAY AVE NW, GRAND RAPIDS, MI, 49504';
+  const seed = fnv1a(address);
+
+  it('generates a valid structure from real property data', () => {
+    const grid = generateStructure({
+      type: 'house',
+      floors: 2,
+      style: 'fantasy', // inferStyle(1920) → fantasy
+      rooms: ['foyer', 'living', 'kitchen', 'dining', 'bedroom', 'bedroom', 'bedroom', 'bathroom', 'bathroom', 'study', 'laundry', 'mudroom'],
+      width: 13,
+      length: 10,
+      seed,
+    });
+    expect(grid.countNonAir()).toBeGreaterThan(500);
+    expect(grid.height).toBeGreaterThan(10);
+    expect(grid.palette.size).toBeGreaterThan(10);
+  });
+
+  it('produces deterministic output from address seed', () => {
+    const opts = {
+      type: 'house' as StructureType,
+      floors: 2,
+      style: 'fantasy' as StyleName,
+      rooms: ['foyer', 'living', 'kitchen', 'dining', 'bedroom', 'bedroom', 'bedroom', 'bathroom', 'bathroom', 'study', 'laundry', 'mudroom'] as import('../src/types/index.js').RoomType[],
+      width: 13,
+      length: 10,
+      seed,
+    };
+    const a = generateStructure(opts);
+    const b = generateStructure(opts);
+    expect(a.countNonAir()).toBe(b.countNonAir());
+    expect(a.width).toBe(b.width);
+    expect(a.height).toBe(b.height);
+    expect(a.length).toBe(b.length);
+  });
+});
+
 describe('performance benchmarks', () => {
   const cases: { type: StructureType; style: StyleName; label: string }[] = [
     { type: 'house', style: 'fantasy', label: 'house/fantasy' },
