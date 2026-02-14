@@ -457,3 +457,119 @@ export function placeGarden(
     }
   }
 }
+
+// ─── Exterior House Features ────────────────────────────────────────
+
+/** Add a fenced backyard with garden, bench, and optional tree (low-Z side of house) */
+export function addBackyard(
+  grid: BlockGrid, bx1: number, bx2: number, bz1: number,
+  style: StylePalette, rng: () => number
+): void {
+  const yardZ1 = Math.max(0, bz1 - 8);
+  const yardZ2 = bz1 - 1;
+  if (yardZ2 - yardZ1 < 3) return; // not enough space
+
+  // Fence perimeter (U-shape behind house)
+  for (let x = bx1; x <= bx2; x++) {
+    if (grid.inBounds(x, 1, yardZ1)) grid.set(x, 1, yardZ1, style.fence);
+  }
+  for (let z = yardZ1; z <= yardZ2; z++) {
+    if (grid.inBounds(bx1, 1, z)) grid.set(bx1, 1, z, style.fence);
+    if (grid.inBounds(bx2, 1, z)) grid.set(bx2, 1, z, style.fence);
+  }
+
+  // Fence gate at center back
+  const gateCx = Math.floor((bx1 + bx2) / 2);
+  if (grid.inBounds(gateCx, 1, yardZ1))
+    grid.set(gateCx, 1, yardZ1, `minecraft:oak_fence_gate[facing=south,open=false]`);
+
+  // Garden flower bed
+  const gardenX1 = bx1 + 2;
+  const gardenX2 = Math.min(bx1 + 6, bx2 - 2);
+  const gardenZ = yardZ1 + 2;
+  if (gardenX2 > gardenX1 && grid.inBounds(gardenX2, 0, gardenZ + 2))
+    placeGarden(grid, gardenX1, gardenZ, gardenX2, gardenZ + 2, 0, rng);
+
+  // Bench (stair blocks facing garden)
+  const benchX = Math.floor((bx1 + bx2) / 2);
+  const benchZ = yardZ2 - 1;
+  if (grid.inBounds(benchX, 1, benchZ)) {
+    grid.set(benchX, 1, benchZ, `minecraft:oak_stairs[facing=north]`);
+    if (grid.inBounds(benchX + 1, 1, benchZ))
+      grid.set(benchX + 1, 1, benchZ, `minecraft:oak_stairs[facing=north]`);
+  }
+
+  // Tree if space allows
+  const treeX = bx2 - 2;
+  const treeZ = yardZ1 + 2;
+  if (grid.inBounds(treeX, 0, treeZ) && treeX > gardenX2 + 1)
+    placeTree(grid, treeX, 1, treeZ, 'birch', 4);
+}
+
+/** Add a stone brick driveway extending from the front door */
+export function addDriveway(
+  grid: BlockGrid, doorX: number, bz2: number, porchDepth: number
+): void {
+  const driveStart = bz2 + porchDepth + 1;
+  const driveEnd = driveStart + 6;
+  const halfW = 1; // 3-wide path
+
+  for (let z = driveStart; z <= driveEnd; z++) {
+    for (let dx = -halfW; dx <= halfW; dx++) {
+      if (grid.inBounds(doorX + dx, 0, z))
+        grid.set(doorX + dx, 0, z, 'minecraft:stone_bricks');
+    }
+    // Slab borders
+    if (grid.inBounds(doorX - halfW - 1, 0, z))
+      grid.set(doorX - halfW - 1, 0, z, 'minecraft:stone_brick_slab[type=bottom]');
+    if (grid.inBounds(doorX + halfW + 1, 0, z))
+      grid.set(doorX + halfW + 1, 0, z, 'minecraft:stone_brick_slab[type=bottom]');
+  }
+}
+
+/** Add a property fence around the full perimeter with gates at front and back */
+export function addPropertyFence(
+  grid: BlockGrid, bx1: number, bz1: number, bx2: number, bz2: number,
+  doorX: number, style: StylePalette
+): void {
+  // Expand fence 2 blocks out from building footprint
+  const fx1 = Math.max(0, bx1 - 2);
+  const fz1 = Math.max(0, bz1 - 10); // back yard side
+  const fx2 = Math.min(grid.width - 1, bx2 + 2);
+  const fz2 = Math.min(grid.length - 1, bz2 + 8); // front yard side
+
+  // North and south fence runs
+  for (let x = fx1; x <= fx2; x++) {
+    if (grid.inBounds(x, 1, fz1)) grid.set(x, 1, fz1, style.fence);
+    if (grid.inBounds(x, 1, fz2)) grid.set(x, 1, fz2, style.fence);
+  }
+  // East and west fence runs
+  for (let z = fz1; z <= fz2; z++) {
+    if (grid.inBounds(fx1, 1, z)) grid.set(fx1, 1, z, style.fence);
+    if (grid.inBounds(fx2, 1, z)) grid.set(fx2, 1, z, style.fence);
+  }
+
+  // Corner posts (double height)
+  for (const [px, pz] of [[fx1, fz1], [fx1, fz2], [fx2, fz1], [fx2, fz2]] as [number, number][]) {
+    if (grid.inBounds(px, 2, pz)) grid.set(px, 2, pz, style.fence);
+  }
+
+  // Interval posts every 4 blocks
+  for (let x = fx1 + 4; x < fx2; x += 4) {
+    if (grid.inBounds(x, 2, fz1)) grid.set(x, 2, fz1, style.fence);
+    if (grid.inBounds(x, 2, fz2)) grid.set(x, 2, fz2, style.fence);
+  }
+  for (let z = fz1 + 4; z < fz2; z += 4) {
+    if (grid.inBounds(fx1, 2, z)) grid.set(fx1, 2, z, style.fence);
+    if (grid.inBounds(fx2, 2, z)) grid.set(fx2, 2, z, style.fence);
+  }
+
+  // Front gate (at driveway)
+  if (grid.inBounds(doorX, 1, fz2))
+    grid.set(doorX, 1, fz2, `minecraft:oak_fence_gate[facing=north,open=false]`);
+
+  // Back gate
+  const backGateX = Math.floor((bx1 + bx2) / 2);
+  if (grid.inBounds(backGateX, 1, fz1))
+    grid.set(backGateX, 1, fz1, `minecraft:oak_fence_gate[facing=south,open=false]`);
+}

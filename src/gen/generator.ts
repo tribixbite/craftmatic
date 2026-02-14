@@ -14,6 +14,7 @@ import {
   windows, interiorWall, doorway, frontDoor, staircase,
   gabledRoof, chimney, wallTorches, porch,
   placeTree, placeGarden,
+  addBackyard, addDriveway, addPropertyFence,
 } from './structures.js';
 import { chandelier } from './furniture.js';
 import type { StylePalette } from './styles.js';
@@ -228,6 +229,11 @@ function generateHouse(
   const chimX = Math.floor((bx1 + 1 + xMid - 1) / 2);
   const chimTop = roofBase + ROOF_H - 2;
   chimney(grid, chimX, bz1, STORY_H, chimTop);
+
+  // Exterior features: backyard, driveway, property fence
+  addBackyard(grid, bx1, bx2, bz1, style, rng);
+  addDriveway(grid, xMid, bz2, porchDepth);
+  addPropertyFence(grid, bx1, bz1, bx2, bz2, xMid, style);
 
   return grid;
 }
