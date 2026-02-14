@@ -38,6 +38,13 @@ const ROOM_GENERATORS: Record<RoomType, RoomGenerator> = {
   cell: generateCell,
   nave: generateNave,
   belfry: generateBelfry,
+  attic: generateAttic,
+  basement: generateBasement,
+  sunroom: generateSunroom,
+  closet: generateCloset,
+  laundry: generateLaundry,
+  pantry: generatePantry,
+  mudroom: generateMudroom,
 };
 
 /** Get a room generator by type */
@@ -1077,4 +1084,303 @@ function generateBelfry(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
 
   // Floor (stone)
   grid.fill(x1 + 1, y - 1, z1 + 1, x2 - 1, y - 1, z2 - 1, style.floorGround);
+}
+
+// ─── New Room Types ─────────────────────────────────────────────────────────
+
+function generateAttic(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+
+  // Auto-floor: upper story planks
+  grid.fill(x1, y - 1, z1, x2, y - 1, z2, style.floorUpper);
+
+  // Storage chests along back wall
+  grid.addChest(x1, y, z2, 'north', [
+    { slot: 0, id: 'minecraft:leather_boots', count: 1 },
+    { slot: 1, id: 'minecraft:book', count: 12 },
+    { slot: 2, id: 'minecraft:map', count: 3 },
+  ]);
+  grid.addChest(x1 + 1, y, z2, 'north', [
+    { slot: 0, id: 'minecraft:painting', count: 4 },
+    { slot: 1, id: 'minecraft:flower_pot', count: 6 },
+  ]);
+
+  // Stacked barrels (old keepsakes)
+  grid.addBarrel(x2, y, z2, 'up', [
+    { slot: 0, id: 'minecraft:string', count: 32 },
+    { slot: 1, id: 'minecraft:candle', count: 16 },
+  ]);
+  grid.addBarrel(x2, y + 1, z2, 'up', []);
+  grid.addBarrel(x2 - 1, y, z2, 'up', [
+    { slot: 0, id: 'minecraft:glass_bottle', count: 8 },
+  ]);
+
+  // Jukebox — old music player
+  grid.set(x1, y, z1 + 2, 'minecraft:jukebox');
+
+  // Cobwebs in upper corners (dusty attic feel)
+  grid.set(x1, y + height - 1, z1, 'minecraft:cobweb');
+  grid.set(x2, y + height - 1, z2, 'minecraft:cobweb');
+  grid.set(x2, y + height - 1, z1, 'minecraft:cobweb');
+  if (height >= 4) {
+    grid.set(x1, y + height - 2, z2, 'minecraft:cobweb');
+  }
+
+  // Old furniture — a chair and side table
+  grid.set(cx, y, z1 + 1, style.chairS);
+  sideTable(grid, cx + 1, y, z1 + 1, style, 'minecraft:potted_dead_bush');
+
+  // Single dim lantern (attic ambiance)
+  grid.set(cx, y, Math.floor((z1 + z2) / 2), style.lanternFloor);
+}
+
+function generateBasement(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+
+  // Auto-floor: stone bricks
+  grid.fill(x1, y - 1, z1, x2, y - 1, z2, 'minecraft:stone_bricks');
+
+  // Brewing station in corner
+  grid.set(x1, y, z2, 'minecraft:brewing_stand');
+  grid.set(x1 + 1, y, z2, 'minecraft:water_cauldron[level=3]');
+
+  // Anvil for repairs
+  grid.set(x2, y, z2, 'minecraft:anvil[facing=north]');
+
+  // Storage barrels along side wall
+  for (let z = z1; z <= Math.min(z1 + 3, z2 - 1); z++) {
+    grid.addBarrel(x2, y, z, 'up', []);
+    if (z <= z1 + 1) grid.addBarrel(x2, y + 1, z, 'up', []);
+  }
+
+  // Chest with supplies
+  grid.addChest(x1, y, z1, 'south', [
+    { slot: 0, id: 'minecraft:iron_ingot', count: 32 },
+    { slot: 1, id: 'minecraft:coal', count: 64 },
+    { slot: 2, id: 'minecraft:redstone', count: 32 },
+    { slot: 3, id: 'minecraft:glass_bottle', count: 16 },
+  ]);
+
+  // Cobwebs in upper corners (dark basement)
+  grid.set(x1, y + height - 1, z1, 'minecraft:cobweb');
+  grid.set(x2, y + height - 1, z2, 'minecraft:cobweb');
+
+  // Cracked floor patches
+  grid.set(cx, y - 1, Math.floor((z1 + z2) / 2), 'minecraft:cracked_stone_bricks');
+  grid.set(cx + 1, y - 1, Math.floor((z1 + z2) / 2) + 1, 'minecraft:cracked_stone_bricks');
+  grid.set(cx - 1, y - 1, z2 - 1, 'minecraft:cracked_stone_bricks');
+
+  // Single torch for dim lighting
+  grid.set(cx, y + 2, z1, style.torchS);
+  grid.set(cx, y + 2, z2, style.torchN);
+
+  // Floor lantern near work area
+  grid.set(x1 + 2, y, z2 - 1, style.lanternFloor);
+}
+
+function generateSunroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+  const cz = Math.floor((z1 + z2) / 2);
+
+  // Auto-floor: birch planks (bright, airy)
+  grid.fill(x1, y - 1, z1, x2, y - 1, z2, 'minecraft:birch_planks');
+
+  // Glass pane walls on two sides (east + south) for sunlight
+  for (let vy = y; vy < y + height - 1; vy++) {
+    for (let z = z1 + 1; z <= z2 - 1; z++) {
+      grid.set(x2, vy, z, 'minecraft:glass_pane');
+    }
+    for (let x = x1 + 1; x <= x2 - 1; x++) {
+      grid.set(x, vy, z2, 'minecraft:glass_pane');
+    }
+  }
+
+  // Potted plants along the glass walls
+  const plants = [
+    'minecraft:potted_fern', 'minecraft:potted_blue_orchid',
+    'minecraft:potted_allium', 'minecraft:potted_lily_of_the_valley',
+    'minecraft:potted_red_tulip', 'minecraft:potted_azure_bluet',
+  ];
+  let pi = 0;
+  for (let z = z1 + 1; z <= z2 - 1; z += 2) {
+    grid.set(x2 - 1, y, z, plants[pi % plants.length]);
+    pi++;
+  }
+  for (let x = x1 + 1; x <= x2 - 1; x += 2) {
+    grid.set(x, y, z2 - 1, plants[pi % plants.length]);
+    pi++;
+  }
+
+  // L-shaped couch for lounging
+  couchSet(grid, x1 + 1, y, z1 + 2, style, 'nw');
+
+  // Side table with candle
+  sideTable(grid, x1 + 1, y, z1 + 1, style, 'minecraft:candle[candles=1,lit=true]');
+
+  // Small reading table
+  grid.set(cx, y, cz, style.fence);
+  grid.set(cx, y + 1, cz, style.carpet);
+  grid.set(cx, y + 2, cz, 'minecraft:potted_oxeye_daisy');
+  grid.set(cx - 1, y, cz, style.chairE);
+
+  // Bright lantern lights
+  chandelier(grid, cx, y + height - 1, cz, style, 1);
+}
+
+function generateCloset(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2 } = b;
+
+  // Auto-floor: full carpet
+  carpetArea(grid, x1, y, z1, x2, z2, style.carpet);
+
+  // Armor stand — coat hooks
+  grid.set(x1, y, z1, 'minecraft:polished_andesite');
+  grid.set(x1, y + 1, z1, 'minecraft:armor_stand');
+
+  // Stacked chests along back wall (clothes storage)
+  grid.addChest(x2, y, z1, 'west', [
+    { slot: 0, id: 'minecraft:leather_chestplate', count: 1 },
+    { slot: 1, id: 'minecraft:leather_leggings', count: 1 },
+    { slot: 2, id: 'minecraft:leather_boots', count: 1 },
+  ]);
+  grid.addChest(x2, y + 1, z1, 'west', [
+    { slot: 0, id: 'minecraft:leather_helmet', count: 1 },
+  ]);
+
+  // Additional storage if room allows
+  if (x2 - x1 >= 4) {
+    grid.addChest(x2, y, z2, 'west', [
+      { slot: 0, id: 'minecraft:book', count: 4 },
+      { slot: 1, id: 'minecraft:paper', count: 16 },
+    ]);
+  }
+
+  // Barrel for miscellaneous items
+  grid.addBarrel(x1, y, z2, 'up', [
+    { slot: 0, id: 'minecraft:string', count: 16 },
+    { slot: 1, id: 'minecraft:feather', count: 8 },
+  ]);
+
+  // Single lantern — small space
+  grid.set(Math.floor((x1 + x2) / 2), y, Math.floor((z1 + z2) / 2), style.lanternFloor);
+}
+
+function generateLaundry(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+
+  // Auto-floor: checkerboard tile (white + gray)
+  for (let x = x1; x <= x2; x++) {
+    for (let z = z1; z <= z2; z++) {
+      grid.set(x, y - 1, z, (x + z) % 2 === 0
+        ? 'minecraft:smooth_quartz'
+        : 'minecraft:polished_andesite');
+    }
+  }
+
+  // Water cauldrons (wash basins) along back wall
+  grid.set(x1, y, z2, 'minecraft:water_cauldron[level=3]');
+  grid.set(x1 + 1, y, z2, 'minecraft:water_cauldron[level=3]');
+
+  // Smoker (for drying/heating)
+  grid.set(x2, y, z2, 'minecraft:smoker[facing=north,lit=false]');
+
+  // Storage barrels (soap, supplies)
+  grid.addBarrel(x2, y, z1, 'up', [
+    { slot: 0, id: 'minecraft:slime_ball', count: 8 },
+    { slot: 1, id: 'minecraft:honeycomb', count: 4 },
+  ]);
+  grid.addBarrel(x2, y + 1, z1, 'up', []);
+
+  // Clothesline — chains with banners hanging from them
+  if (height >= 4) {
+    for (let x = x1 + 1; x <= x2 - 1; x++) {
+      grid.set(x, y + height - 2, Math.floor((z1 + z2) / 2), 'minecraft:chain');
+    }
+    // Hanging banners as "clothes"
+    grid.set(x1 + 1, y + height - 3, Math.floor((z1 + z2) / 2), style.bannerN);
+    if (x2 - x1 >= 4) {
+      grid.set(x2 - 1, y + height - 3, Math.floor((z1 + z2) / 2), style.bannerN);
+    }
+  }
+
+  // Folding table
+  grid.set(cx, y, z1 + 1, style.fence);
+  grid.set(cx, y + 1, z1 + 1, 'minecraft:white_carpet');
+
+  // Single lantern
+  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 1);
+}
+
+function generatePantry(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2 } = b;
+  const rw = x2 - x1;
+
+  // Auto-floor: cobblestone (cool storage)
+  grid.fill(x1, y - 1, z1, x2, y - 1, z2, 'minecraft:cobblestone');
+
+  // Stacked barrels along both side walls (2 high)
+  for (let z = z1; z <= z2; z += 2) {
+    grid.addBarrel(x1, y, z, 'up', [
+      { slot: 0, id: 'minecraft:wheat', count: 64 },
+      { slot: 1, id: 'minecraft:potato', count: 32 },
+    ]);
+    grid.addBarrel(x1, y + 1, z, 'up', []);
+    if (rw >= 4) {
+      grid.addBarrel(x2, y, z, 'up', [
+        { slot: 0, id: 'minecraft:apple', count: 32 },
+        { slot: 1, id: 'minecraft:carrot', count: 32 },
+      ]);
+      grid.addBarrel(x2, y + 1, z, 'up', []);
+    }
+  }
+
+  // Food chest at back
+  grid.addChest(Math.floor((x1 + x2) / 2), y, z2, 'north', [
+    { slot: 0, id: 'minecraft:bread', count: 64 },
+    { slot: 1, id: 'minecraft:cooked_beef', count: 32 },
+    { slot: 2, id: 'minecraft:golden_apple', count: 8 },
+    { slot: 3, id: 'minecraft:cookie', count: 64 },
+    { slot: 4, id: 'minecraft:dried_kelp', count: 32 },
+  ]);
+
+  // Composter (for scraps)
+  grid.set(Math.floor((x1 + x2) / 2), y, z1, 'minecraft:composter[level=3]');
+
+  // Single floor lantern
+  grid.set(Math.floor((x1 + x2) / 2), y, Math.floor((z1 + z2) / 2), style.lanternFloor);
+}
+
+function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+
+  // Auto-floor: cobblestone (durable, easy to clean)
+  grid.fill(x1, y - 1, z1, x2, y - 1, z2, 'minecraft:cobblestone');
+
+  // Boot mat carpet near entrance (front wall)
+  carpetArea(grid, x1 + 1, y, z1, x2 - 1, z1 + 1, 'minecraft:brown_carpet');
+
+  // Armor stands as coat hooks along side wall
+  armorDisplay(grid, x1, y, z1 + 2);
+  if (x2 - x1 >= 6) {
+    armorDisplay(grid, x1, y, z1 + 4);
+  }
+
+  // Storage corner (boots, tools)
+  storageCorner(grid, x2, y, z2, style, 'west');
+
+  // Wall shelf for keys/gloves
+  wallShelf(grid, cx, y + 2, z1, 'south', ['minecraft:potted_dead_bush']);
+
+  // Bench (stair blocks for seating)
+  for (let x = x1 + 2; x <= Math.min(x1 + 4, x2 - 1); x++) {
+    grid.set(x, y, z1 + 2, style.chairS);
+  }
+
+  // Single lantern
+  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 1);
 }

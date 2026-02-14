@@ -79,7 +79,14 @@ export type RoomType =
   | 'captains_quarters'
   | 'cell'
   | 'nave'
-  | 'belfry';
+  | 'belfry'
+  | 'attic'
+  | 'basement'
+  | 'sunroom'
+  | 'closet'
+  | 'laundry'
+  | 'pantry'
+  | 'mudroom';
 
 /** Building style presets */
 export type StyleName = 'fantasy' | 'medieval' | 'modern' | 'gothic' | 'rustic'
@@ -98,6 +105,12 @@ export interface GenerationOptions {
   width?: number;
   length?: number;
   seed?: number;
+  /** Override wall material (house color) */
+  wallOverride?: BlockState;
+  /** Override trim/accent material */
+  trimOverride?: BlockState;
+  /** Override door wood type (e.g. 'spruce', 'dark_oak', 'iron') */
+  doorOverride?: string;
 }
 
 /** 2D render mode */

@@ -36,11 +36,11 @@ function pick<T>(arr: T[], rng: () => number): T {
 
 /** Default room assignments per floor when none specified */
 const DEFAULT_FLOOR_ROOMS: RoomType[][] = [
-  ['living', 'dining', 'kitchen', 'foyer'],
-  ['bedroom', 'bedroom', 'bathroom', 'study'],
-  ['library', 'library', 'vault', 'armory'],
+  ['living', 'kitchen', 'dining', 'foyer'],
+  ['bedroom', 'bathroom', 'closet', 'laundry'],
+  ['bedroom', 'study', 'sunroom', 'pantry'],
+  ['library', 'bedroom', 'bathroom', 'mudroom'],
   ['observatory', 'gallery', 'gallery', 'gallery'],
-  ['throne', 'throne', 'lab', 'forge'],
 ];
 
 /** Per-story height in blocks */
