@@ -138,6 +138,103 @@ describe('bed verification', () => {
   });
 });
 
+describe('import-style generation (rooms + custom dimensions)', () => {
+  it('generates a house with explicit room list', () => {
+    const grid = generateStructure({
+      type: 'house',
+      floors: 2,
+      style: 'modern',
+      rooms: ['foyer', 'living', 'kitchen', 'dining', 'bedroom', 'bedroom', 'bedroom', 'bathroom', 'bathroom'],
+      width: 20,
+      length: 16,
+      seed: 12345,
+    });
+    // Generator may expand dimensions for exterior features (porch, yard, driveway)
+    expect(grid.width).toBeGreaterThanOrEqual(20);
+    expect(grid.length).toBeGreaterThanOrEqual(16);
+    expect(grid.countNonAir()).toBeGreaterThan(500);
+  });
+
+  it('generates a castle from mansion-type property', () => {
+    const grid = generateStructure({
+      type: 'castle',
+      floors: 3,
+      style: 'gothic',
+      rooms: ['foyer', 'living', 'kitchen', 'dining', 'bedroom', 'bedroom', 'bedroom', 'bedroom', 'bathroom', 'bathroom', 'bathroom', 'study', 'library', 'sunroom'],
+      seed: 67890,
+    });
+    expect(grid.countNonAir()).toBeGreaterThan(1000);
+    expect(grid.height).toBeGreaterThan(10);
+  });
+
+  it('auto-style inference produces valid structures for each era', () => {
+    // Mapping mirrors import-tab inferStyle(): <1700→medieval, <1850→gothic, <1920→rustic, <1970→fantasy, else→modern
+    const eraStyles: [number, StyleName][] = [
+      [1650, 'medieval'],
+      [1800, 'gothic'],
+      [1900, 'rustic'],
+      [1960, 'fantasy'],
+      [2020, 'modern'],
+    ];
+    for (const [_year, style] of eraStyles) {
+      const grid = generateStructure({
+        type: 'house',
+        floors: 2,
+        style,
+        rooms: ['foyer', 'living', 'kitchen', 'bedroom', 'bathroom'],
+        seed: 42,
+      });
+      expect(grid.countNonAir()).toBeGreaterThan(100);
+    }
+  });
+
+  it('FNV-1a-seeded generation is deterministic', () => {
+    // Simulate the FNV-1a hash from import module
+    function fnv1a(str: string): number {
+      let hash = 0x811c9dc5;
+      for (let i = 0; i < str.length; i++) {
+        hash ^= str.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+      }
+      return (hash >>> 0) % 999999;
+    }
+    const seed = fnv1a('123 Main St, Springfield, IL 62701');
+    const a = generateStructure({ type: 'house', floors: 2, style: 'modern', seed });
+    const b = generateStructure({ type: 'house', floors: 2, style: 'modern', seed });
+    expect(a.countNonAir()).toBe(b.countNonAir());
+    expect(a.width).toBe(b.width);
+    expect(a.length).toBe(b.length);
+  });
+
+  it('small and large requested dimensions produce valid structures', () => {
+    // Small: generator may expand for structural minimums (porch, yard, etc.)
+    const small = generateStructure({
+      type: 'house',
+      floors: 1,
+      style: 'rustic',
+      width: 10,
+      length: 10,
+      seed: 1,
+    });
+    expect(small.width).toBeGreaterThanOrEqual(10);
+    expect(small.length).toBeGreaterThanOrEqual(10);
+    expect(small.countNonAir()).toBeGreaterThan(100);
+
+    // Large: castle with big footprint
+    const large = generateStructure({
+      type: 'castle',
+      floors: 2,
+      style: 'fantasy',
+      width: 60,
+      length: 60,
+      seed: 2,
+    });
+    expect(large.width).toBeGreaterThanOrEqual(60);
+    expect(large.length).toBeGreaterThanOrEqual(60);
+    expect(large.countNonAir()).toBeGreaterThan(1000);
+  });
+});
+
 describe('performance benchmarks', () => {
   const cases: { type: StructureType; style: StyleName; label: string }[] = [
     { type: 'house', style: 'fantasy', label: 'house/fantasy' },
