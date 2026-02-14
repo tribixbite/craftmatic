@@ -8,6 +8,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { createViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
 import { exportGLB, exportSchem, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
+import { initImport, type PropertyData } from '@ui/import.js';
 import { initUpload } from '@ui/upload.js';
 import { initGallery } from '@ui/gallery.js';
 
@@ -265,6 +266,28 @@ initGenerator(generatorControls, (grid: BlockGrid, _config: GeneratorConfig) => 
       fallback.className = 'viewer-fallback';
       fallback.textContent = '3D preview unavailable. Your structure was generated successfully.';
       generatorViewer.appendChild(fallback);
+    } finally {
+      hideLoading();
+    }
+  }, 0));
+});
+
+// ─── Import ─────────────────────────────────────────────────────────────────
+
+const importControls = document.getElementById('import-controls')!;
+const importViewer = document.getElementById('import-viewer')!;
+
+initImport(importControls, importViewer, (grid: BlockGrid, _property: PropertyData) => {
+  showLoading('Building 3D view...');
+  requestAnimationFrame(() => setTimeout(() => {
+    try {
+      showInlineViewer(importViewer, grid);
+    } catch (err) {
+      console.warn('3D viewer failed:', err);
+      const fallback = document.createElement('div');
+      fallback.className = 'viewer-fallback';
+      fallback.textContent = '3D preview unavailable. Your structure was generated successfully.';
+      importViewer.appendChild(fallback);
     } finally {
       hideLoading();
     }
