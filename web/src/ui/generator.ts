@@ -14,6 +14,9 @@ export interface GeneratorConfig {
   width?: number;
   length?: number;
   seed?: number;
+  wallOverride?: string;
+  trimOverride?: string;
+  doorOverride?: string;
 }
 
 const STRUCTURE_TYPES: { value: StructureType; label: string; desc: string }[] = [
@@ -100,6 +103,55 @@ export function initGenerator(
           <input id="gen-length" type="number" class="form-input" placeholder="Auto">
         </div>
       </div>
+
+      <details class="customize-section" id="gen-customize">
+        <summary class="customize-summary">Customize Colors</summary>
+        <div class="customize-body">
+          <div class="form-group">
+            <label class="form-label">House Color</label>
+            <select id="gen-wall" class="form-select">
+              <option value="">Default (from style)</option>
+              <option value="minecraft:white_concrete">White Concrete</option>
+              <option value="minecraft:stone_bricks">Stone Bricks</option>
+              <option value="minecraft:bricks">Bricks</option>
+              <option value="minecraft:oak_planks">Oak Planks</option>
+              <option value="minecraft:spruce_planks">Spruce Planks</option>
+              <option value="minecraft:birch_planks">Birch Planks</option>
+              <option value="minecraft:dark_oak_planks">Dark Oak Planks</option>
+              <option value="minecraft:sandstone">Sandstone</option>
+              <option value="minecraft:terracotta">Terracotta</option>
+              <option value="minecraft:iron_block">Iron Block</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Trim Color</label>
+            <select id="gen-trim" class="form-select">
+              <option value="">Default (from style)</option>
+              <option value="minecraft:dark_oak_log">Dark Oak Log</option>
+              <option value="minecraft:oak_log">Oak Log</option>
+              <option value="minecraft:spruce_log">Spruce Log</option>
+              <option value="minecraft:birch_log">Birch Log</option>
+              <option value="minecraft:stone_bricks">Stone Bricks</option>
+              <option value="minecraft:deepslate_bricks">Deepslate Bricks</option>
+              <option value="minecraft:quartz_pillar">Quartz Pillar</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Door</label>
+            <select id="gen-door" class="form-select">
+              <option value="">Default (from style)</option>
+              <option value="oak">Oak</option>
+              <option value="spruce">Spruce</option>
+              <option value="birch">Birch</option>
+              <option value="dark_oak">Dark Oak</option>
+              <option value="acacia">Acacia</option>
+              <option value="crimson">Crimson</option>
+              <option value="warped">Warped</option>
+              <option value="iron">Iron</option>
+            </select>
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="gen-actions">
@@ -145,6 +197,10 @@ export function initGenerator(
   const infoPanel = container.querySelector('#gen-info') as HTMLElement;
 
   function doGenerate(randomize = false): void {
+    const wallSel = container.querySelector('#gen-wall') as HTMLSelectElement;
+    const trimSel = container.querySelector('#gen-trim') as HTMLSelectElement;
+    const doorSel = container.querySelector('#gen-door') as HTMLSelectElement;
+
     const config: GeneratorConfig = {
       type: typeSelect.value as StructureType,
       style: randomize ? STYLE_PRESETS[Math.floor(Math.random() * STYLE_PRESETS.length)].value : selectedStyle,
@@ -152,6 +208,9 @@ export function initGenerator(
       seed: randomize ? Math.floor(Math.random() * 999999) : (parseInt((container.querySelector('#gen-seed') as HTMLInputElement).value) || undefined),
       width: parseInt((container.querySelector('#gen-width') as HTMLInputElement).value) || undefined,
       length: parseInt((container.querySelector('#gen-length') as HTMLInputElement).value) || undefined,
+      wallOverride: wallSel.value || undefined,
+      trimOverride: trimSel.value || undefined,
+      doorOverride: doorSel.value || undefined,
     };
 
     if (randomize) {
@@ -176,6 +235,9 @@ export function initGenerator(
       width: config.width,
       length: config.length,
       seed: config.seed,
+      wallOverride: config.wallOverride,
+      trimOverride: config.trimOverride,
+      doorOverride: config.doorOverride,
     });
 
     // Show info
