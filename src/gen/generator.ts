@@ -65,7 +65,30 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
   } = options;
 
   const rng = createRng(seed);
-  const style = getStyle(styleName);
+  const style = { ...getStyle(styleName) };
+
+  // Apply color overrides from options
+  if (options.wallOverride) {
+    style.wall = options.wallOverride;
+    style.interiorWall = options.wallOverride;
+  }
+  if (options.trimOverride) {
+    style.wallAccent = options.trimOverride;
+    style.pillar = options.trimOverride;
+    style.timber = options.trimOverride;
+    // Derive axis-specific timber variants with axis property
+    const base = options.trimOverride.replace(/\[.*\]$/, '');
+    style.timberX = base.includes('log') ? `${base}[axis=x]` : options.trimOverride;
+    style.timberZ = base.includes('log') ? `${base}[axis=z]` : options.trimOverride;
+  }
+  if (options.doorOverride) {
+    const wood = options.doorOverride;
+    const prefix = wood === 'iron' ? 'minecraft:iron_door' : `minecraft:${wood}_door`;
+    style.doorLowerN = `${prefix}[facing=north,half=lower,hinge=left,open=false]`;
+    style.doorUpperN = `${prefix}[facing=north,half=upper,hinge=left,open=false]`;
+    style.doorLowerS = `${prefix}[facing=south,half=lower,hinge=left,open=false]`;
+    style.doorUpperS = `${prefix}[facing=south,half=upper,hinge=left,open=false]`;
+  }
 
   let grid: BlockGrid;
   switch (type) {

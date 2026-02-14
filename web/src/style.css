@@ -677,6 +677,47 @@ html, body {
   flex-shrink: 0;
 }
 
+/* ─── Customize Colors Section ──────────────────────────────────────── */
+
+.customize-section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0;
+  margin-top: 4px;
+}
+
+.customize-summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: var(--font);
+  user-select: none;
+  list-style: none;
+}
+
+.customize-summary::before {
+  content: '\25B6';
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+
+.customize-section[open] .customize-summary::before {
+  transform: rotate(90deg);
+}
+
+.customize-summary::-webkit-details-marker { display: none; }
+
+.customize-body {
+  padding: 8px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+}
+
 /* ─── Style Chips ────────────────────────────────────────────────────── */
 
 .style-chip {
