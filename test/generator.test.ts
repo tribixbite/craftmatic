@@ -284,6 +284,50 @@ describe('import end-to-end: 600 Broadway Ave NW, Grand Rapids MI 49504', () => 
   });
 });
 
+describe('import end-to-end: 917 Pinecrest Ave SE, Grand Rapids MI 49506', () => {
+  // Real geocoding result: lat=42.946224, lng=-85.615624
+  // East GR single-family: ~2400sqft, 2 stories, 4 bed, 2.5 bath, built ~1950
+  function fnv1a(str: string): number {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0) % 999999;
+  }
+
+  const address = '917 PINECREST AVE SE, GRAND RAPIDS, MI, 49506';
+  const seed = fnv1a(address);
+
+  it('generates a valid structure from property data', () => {
+    // 2400sqft / 2 stories / 10.76 = ~111 blocks/floor
+    // aspect 1.3 → width=12, length=9
+    const sqftPerFloor = 2400 / 2 / 10.76;
+    const width = Math.max(10, Math.min(60, Math.round(Math.sqrt(sqftPerFloor * 1.3))));
+    const length = Math.max(10, Math.min(60, Math.round(Math.sqrt(sqftPerFloor / 1.3))));
+
+    const grid = generateStructure({
+      type: 'house',
+      floors: 2,
+      style: 'fantasy', // inferStyle(1950) → fantasy
+      rooms: ['foyer', 'living', 'kitchen', 'dining', 'bedroom', 'bedroom', 'bedroom', 'bedroom', 'bathroom', 'bathroom', 'bathroom'],
+      width,
+      length,
+      seed,
+    });
+    expect(grid.countNonAir()).toBeGreaterThan(500);
+    expect(grid.height).toBeGreaterThan(10);
+    expect(grid.palette.size).toBeGreaterThan(10);
+    expect(width).toBe(12);
+    expect(length).toBe(10);
+  });
+
+  it('seed differs from 600 Broadway', () => {
+    const otherSeed = fnv1a('600 BROADWAY AVE NW, GRAND RAPIDS, MI, 49504');
+    expect(seed).not.toBe(otherSeed);
+  });
+});
+
 describe('performance benchmarks', () => {
   const cases: { type: StructureType; style: StyleName; label: string }[] = [
     { type: 'house', style: 'fantasy', label: 'house/fantasy' },
