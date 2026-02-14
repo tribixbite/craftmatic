@@ -718,6 +718,83 @@ html, body {
   border-top: 1px solid var(--border);
 }
 
+/* ─── Import Tab ─────────────────────────────────────────────────────── */
+
+.import-address-row {
+  display: flex;
+  gap: 8px;
+}
+
+.import-address-row .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.import-status {
+  font-size: 11px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+.import-status-success {
+  color: var(--success);
+  background: rgba(67, 181, 129, 0.1);
+}
+
+.import-status-error {
+  color: var(--danger);
+  background: rgba(240, 71, 71, 0.1);
+}
+
+.import-status-loading {
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+}
+
+.import-floorplan-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: center;
+  min-height: 60px;
+}
+
+.import-floorplan-drop:hover,
+.import-floorplan-drop.dragover {
+  border-color: var(--accent);
+  background: rgba(88, 101, 242, 0.05);
+}
+
+.import-satellite-wrapper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-base);
+}
+
+.import-satellite-overlay {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  padding: 4px 10px;
+  border-radius: var(--radius);
+}
+
 /* ─── Style Chips ────────────────────────────────────────────────────── */
 
 .style-chip {

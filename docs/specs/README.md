@@ -155,3 +155,12 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Color customization UI: collapsible "Customize Colors" section with wall (10 materials), trim (7 materials), and door (8 wood types) dropdowns
 - [x] Style palette overrides: wallOverride, trimOverride, doorOverride applied after getStyle()
 - [x] Updated DEFAULT_FLOOR_ROOMS to distribute new room types across 5 floor layouts
+
+### Import Tab — Address-to-Structure Generation
+- [x] Geocoding module: US Census Bureau primary + Nominatim OSM fallback (free, no API key)
+- [x] Satellite tile compositor: ESRI World Imagery 3x3 grid at zoom 18, crosshair marker
+- [x] Floor plan analysis: canvas-based room detection (grayscale → Otsu threshold → BFS flood fill)
+- [x] Property-to-generation conversion: sqft→dimensions, year→style, rooms from bed/bath count
+- [x] Import tab UI: address lookup, property form, style chips with "Auto", floor plan upload
+- [x] FNV-1a address hashing for deterministic seed generation
+- [x] Zero external dependencies — native fetch, Canvas, FileReader only
