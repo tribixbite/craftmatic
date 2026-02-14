@@ -163,4 +163,10 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Property-to-generation conversion: sqft→dimensions, year→style, rooms from bed/bath count
 - [x] Import tab UI: address lookup, property form, style chips with "Auto", floor plan upload
 - [x] FNV-1a address hashing for deterministic seed generation
-- [x] Zero external dependencies — native fetch, Canvas, FileReader only
+- [x] Parcl Labs API integration: auto-fill beds, baths, sqft, year, property type from address
+- [x] API key management: localStorage persistence with masked display, collapsible settings panel
+- [x] Session persistence: all form fields saved to sessionStorage, restored on tab revisit
+- [x] Seasonal weather overlay: snow/spring/summer/fall tint on satellite based on date + latitude
+- [x] Clipboard paste support: Ctrl+V image paste for floor plan (in addition to drag-and-drop)
+- [x] New construction detection: yearBuilt >= 2020 or Parcl flag → forces modern style
+- [x] Zero external dependencies — native fetch, Canvas, FileReader, sessionStorage only
