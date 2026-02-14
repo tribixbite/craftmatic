@@ -147,3 +147,11 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Village path routing: paths connect to door locations via L-shaped stone brick paths
 - [x] Ship sails: 1-block width, minimum height = cabin height, start above highest cabin
 - [x] Castle keep: thick 2-block stone walls, pillar buttresses, slit windows, flat battlement roof (not gabled), grand 5-wide arched entrance, front/back chamber layout on upper floors
+
+### v0.3.0 — Interior & Exterior Expansion
+- [x] 7 new room types: attic, basement, sunroom, closet, laundry, pantry, mudroom
+- [x] Auto-flooring per room type (stone bricks, birch planks, checkerboard tile, carpet, cobblestone)
+- [x] Exterior house features: fenced backyard (garden, bench, tree), stone brick driveway, property perimeter fence with gates
+- [x] Color customization UI: collapsible "Customize Colors" section with wall (10 materials), trim (7 materials), and door (8 wood types) dropdowns
+- [x] Style palette overrides: wallOverride, trimOverride, doorOverride applied after getStyle()
+- [x] Updated DEFAULT_FLOOR_ROOMS to distribute new room types across 5 floor layouts
