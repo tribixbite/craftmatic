@@ -5,7 +5,7 @@
  * and generates a Minecraft structure.
  */
 
-import type { StructureType, StyleName, RoomType } from '@craft/types/index.js';
+import type { StructureType, StyleName, RoomType, BlockState } from '@craft/types/index.js';
 import type { GenerationOptions } from '@craft/types/index.js';
 import { generateStructure } from '@craft/gen/generator.js';
 import { BlockGrid } from '@craft/schem/types.js';
@@ -16,6 +16,11 @@ import {
   searchParclProperty, getParclApiKey, setParclApiKey, hasParclApiKey,
   mapParclPropertyType, type ParclPropertyData,
 } from '@ui/import-parcl.js';
+import {
+  searchRentCastProperty, getRentCastApiKey, setRentCastApiKey, hasRentCastApiKey,
+  mapExteriorToWall, type RentCastPropertyData,
+} from '@ui/import-rentcast.js';
+import { extractBuildingColor, mapColorToWall } from '@ui/import-color.js';
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
 
@@ -47,6 +52,18 @@ export interface PropertyData {
   geocoding?: GeocodingResult;
   season?: SeasonalWeather;
   newConstruction?: boolean;
+  /** Lot size in sqft (from RentCast) */
+  lotSize?: number;
+  /** Exterior material description (from RentCast) */
+  exteriorType?: string;
+  /** Wall block override derived from exterior type or satellite color */
+  wallOverride?: BlockState;
+  /** Roof material description (from RentCast) */
+  roofType?: string;
+  /** Architecture style description (from RentCast) */
+  architectureType?: string;
+  /** Detected building color RGB from satellite imagery */
+  detectedColor?: { r: number; g: number; b: number };
 }
 
 /** Style presets with colors — "Auto" infers from year built */
@@ -141,6 +158,7 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     width,
     length,
     seed: fnv1aHash(prop.address),
+    wallOverride: prop.wallOverride,
   };
 }
 
@@ -156,29 +174,51 @@ export function initImport(
   let currentFloorPlan: FloorPlanAnalysis | null = null;
   let currentGeocoding: GeocodingResult | null = null;
   let currentSeason: SeasonalWeather | undefined;
+  /** Wall override from RentCast exterior type or satellite color extraction */
+  let currentWallOverride: BlockState | undefined;
+  /** Detected satellite building color RGB */
+  let currentDetectedColor: { r: number; g: number; b: number } | undefined;
+  /** RentCast enrichment data */
+  let currentRentCast: RentCastPropertyData | null = null;
 
   // Restore API key display state
-  const savedKey = getParclApiKey();
-  const keyMasked = savedKey ? '••••' + savedKey.slice(-4) : '';
+  const savedParclKey = getParclApiKey();
+  const parclKeyMasked = savedParclKey ? '••••' + savedParclKey.slice(-4) : '';
+  const savedRentCastKey = getRentCastApiKey();
+  const rentCastKeyMasked = savedRentCastKey ? '••••' + savedRentCastKey.slice(-4) : '';
 
   controls.innerHTML = `
     <div class="section-title">Import from Address</div>
 
-    <!-- Parcl API key (collapsible) -->
-    <details class="customize-section" id="import-api-section" ${savedKey ? '' : 'open'}>
-      <summary class="customize-summary">Parcl Labs API Key</summary>
+    <!-- API keys (collapsible) -->
+    <details class="customize-section" id="import-api-section" ${savedParclKey && savedRentCastKey ? '' : 'open'}>
+      <summary class="customize-summary">API Keys</summary>
       <div class="customize-body">
+        <!-- Parcl Labs key -->
         <div class="import-api-hint">
-          Auto-fill beds, baths, sqft, and year from real property records.
+          <strong>Parcl Labs</strong> — beds, baths, sqft, year.
           <a href="https://app.parcllabs.com" target="_blank" rel="noopener" style="color:var(--accent);">Get free key</a>
         </div>
         <div class="import-address-row">
-          <input id="import-api-key" type="password" class="form-input"
-            placeholder="Paste API key" value="${escapeAttr(savedKey)}">
-          <button id="import-api-save" class="btn btn-secondary btn-sm">${savedKey ? 'Saved' : 'Save'}</button>
+          <input id="import-parcl-key" type="password" class="form-input"
+            placeholder="Parcl API key" value="${escapeAttr(savedParclKey)}">
+          <button id="import-parcl-save" class="btn btn-secondary btn-sm">${savedParclKey ? 'Saved' : 'Save'}</button>
         </div>
-        <div id="import-api-status" style="font-size:11px;color:var(--text-muted);">
-          ${keyMasked ? `Key stored: ${keyMasked}` : 'No key configured — form fields are manual entry'}
+        <div id="import-parcl-status" style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">
+          ${parclKeyMasked ? `Key stored: ${parclKeyMasked}` : 'No key — manual entry only'}
+        </div>
+        <!-- RentCast key -->
+        <div class="import-api-hint">
+          <strong>RentCast</strong> — floors, lot size, exterior, roof, architecture.
+          <a href="https://app.rentcast.io" target="_blank" rel="noopener" style="color:var(--accent);">Get free key</a>
+        </div>
+        <div class="import-address-row">
+          <input id="import-rentcast-key" type="password" class="form-input"
+            placeholder="RentCast API key" value="${escapeAttr(savedRentCastKey)}">
+          <button id="import-rentcast-save" class="btn btn-secondary btn-sm">${savedRentCastKey ? 'Saved' : 'Save'}</button>
+        </div>
+        <div id="import-rentcast-status" style="font-size:11px;color:var(--text-muted);">
+          ${rentCastKeyMasked ? `Key stored: ${rentCastKeyMasked}` : 'No key — satellite color detection used instead'}
         </div>
       </div>
     </details>
@@ -289,9 +329,12 @@ export function initImport(
   const floorPlanDrop = controls.querySelector('#import-floorplan-drop') as HTMLElement;
   const floorPlanInput = controls.querySelector('#import-floorplan-input') as HTMLInputElement;
   const floorPlanInfo = controls.querySelector('#import-floorplan-info') as HTMLElement;
-  const apiKeyInput = controls.querySelector('#import-api-key') as HTMLInputElement;
-  const apiSaveBtn = controls.querySelector('#import-api-save') as HTMLButtonElement;
-  const apiStatus = controls.querySelector('#import-api-status') as HTMLElement;
+  const parclKeyInput = controls.querySelector('#import-parcl-key') as HTMLInputElement;
+  const parclSaveBtn = controls.querySelector('#import-parcl-save') as HTMLButtonElement;
+  const parclStatus = controls.querySelector('#import-parcl-status') as HTMLElement;
+  const rentCastKeyInput = controls.querySelector('#import-rentcast-key') as HTMLInputElement;
+  const rentCastSaveBtn = controls.querySelector('#import-rentcast-save') as HTMLButtonElement;
+  const rentCastStatus = controls.querySelector('#import-rentcast-status') as HTMLElement;
   const apiSection = controls.querySelector('#import-api-section') as HTMLDetailsElement;
 
   // Form field refs for persistence
@@ -299,22 +342,36 @@ export function initImport(
   const fieldKeys = ['stories', 'sqft', 'beds', 'baths', 'year'] as const;
 
   // ── API Key management ────────────────────────────────────────────────
-  apiSaveBtn.addEventListener('click', () => {
-    const key = apiKeyInput.value.trim();
+  // Parcl Labs key
+  parclSaveBtn.addEventListener('click', () => {
+    const key = parclKeyInput.value.trim();
     setParclApiKey(key);
     if (key) {
-      apiSaveBtn.textContent = 'Saved';
-      apiStatus.textContent = `Key stored: ••••${key.slice(-4)}`;
-      apiSection.open = false;
+      parclSaveBtn.textContent = 'Saved';
+      parclStatus.textContent = `Key stored: ••••${key.slice(-4)}`;
     } else {
-      apiSaveBtn.textContent = 'Save';
-      apiStatus.textContent = 'No key configured — form fields are manual entry';
+      parclSaveBtn.textContent = 'Save';
+      parclStatus.textContent = 'No key — manual entry only';
     }
+    // Auto-close if both keys are set
+    if (hasParclApiKey() && hasRentCastApiKey()) apiSection.open = false;
   });
+  parclKeyInput.addEventListener('input', () => { parclSaveBtn.textContent = 'Save'; });
 
-  apiKeyInput.addEventListener('input', () => {
-    apiSaveBtn.textContent = 'Save';
+  // RentCast key
+  rentCastSaveBtn.addEventListener('click', () => {
+    const key = rentCastKeyInput.value.trim();
+    setRentCastApiKey(key);
+    if (key) {
+      rentCastSaveBtn.textContent = 'Saved';
+      rentCastStatus.textContent = `Key stored: ••••${key.slice(-4)}`;
+    } else {
+      rentCastSaveBtn.textContent = 'Save';
+      rentCastStatus.textContent = 'No key — satellite color detection used instead';
+    }
+    if (hasParclApiKey() && hasRentCastApiKey()) apiSection.open = false;
   });
+  rentCastKeyInput.addEventListener('input', () => { rentCastSaveBtn.textContent = 'Save'; });
 
   // ── Session persistence for all form fields ───────────────────────────
   // Address field
@@ -356,12 +413,18 @@ export function initImport(
 
     lookupBtn.disabled = true;
 
-    // Run geocoding and Parcl API lookup in parallel
+    // Run geocoding, Parcl API, and RentCast lookup in parallel
     showStatus('Looking up property...', 'loading');
 
-    const [geoResult, parclResult] = await Promise.allSettled([
+    // Reset enrichment state for new lookup
+    currentWallOverride = undefined;
+    currentDetectedColor = undefined;
+    currentRentCast = null;
+
+    const [geoResult, parclResult, rentCastResult] = await Promise.allSettled([
       geocodeAddress(address),
       hasParclApiKey() ? searchParclProperty(address) : Promise.resolve(null),
+      hasRentCastApiKey() ? searchRentCastProperty(address) : Promise.resolve(null),
     ]);
 
     // Handle geocoding result
@@ -369,11 +432,24 @@ export function initImport(
       currentGeocoding = geoResult.value;
       const geo = geoResult.value;
 
-      // Show satellite view (async, don't block)
+      // Show satellite view (async, don't block) — also extract building color
       showSatelliteLoading(viewer);
       composeSatelliteView(geo.lat, geo.lng).then(canvas => {
         currentSeason = (canvas.dataset['season'] as SeasonalWeather) ?? undefined;
-        showSatelliteCanvas(viewer, canvas, geo, currentSeason);
+
+        // Extract building color from satellite canvas around crosshair
+        // Crosshair position = pixelOffset within center tile + 256
+        const { pixelX, pixelY } = getCrosshairPosition(geo.lat, geo.lng);
+        const color = extractBuildingColor(canvas, pixelX, pixelY);
+        if (color) {
+          currentDetectedColor = color;
+          // Only use satellite color as wallOverride if RentCast didn't provide exteriorType
+          if (!currentWallOverride) {
+            currentWallOverride = mapColorToWall(color);
+          }
+        }
+
+        showSatelliteCanvas(viewer, canvas, geo, currentSeason, currentDetectedColor);
       }).catch(() => {
         showSatelliteError(viewer);
       });
@@ -387,15 +463,23 @@ export function initImport(
       return;
     }
 
-    // Handle Parcl API result — auto-fill form fields
-    if (parclResult.status === 'fulfilled' && parclResult.value) {
-      const parcl = parclResult.value;
-      populateFromParcl(parcl);
-      const source = currentGeocoding!.source;
-      showStatus(`${currentGeocoding!.matchedAddress} (${source}) — property data loaded`, 'success');
-    } else {
-      showStatus(`${currentGeocoding!.matchedAddress} (${currentGeocoding!.source})`, 'success');
+    // Handle RentCast API result — enriches with floor count, exterior, lot size
+    // Process RentCast first so wallOverride from exterior type takes priority
+    if (rentCastResult.status === 'fulfilled' && rentCastResult.value) {
+      currentRentCast = rentCastResult.value;
+      populateFromRentCast(rentCastResult.value);
     }
+
+    // Handle Parcl API result — auto-fill form fields
+    const statusParts: string[] = [currentGeocoding!.matchedAddress, `(${currentGeocoding!.source})`];
+    if (parclResult.status === 'fulfilled' && parclResult.value) {
+      populateFromParcl(parclResult.value);
+      statusParts.push('— property data loaded');
+    }
+    if (currentRentCast) {
+      statusParts.push(currentRentCast.exteriorType ? `| ${currentRentCast.exteriorType}` : '');
+    }
+    showStatus(statusParts.filter(Boolean).join(' '), 'success');
 
     lookupBtn.disabled = false;
   }
@@ -442,6 +526,58 @@ export function initImport(
     }
   }
 
+  /** Populate form fields and wallOverride from RentCast property data */
+  function populateFromRentCast(rc: RentCastPropertyData): void {
+    // Floor count → stories field (most reliable source for this)
+    if (rc.floorCount && rc.floorCount > 0) {
+      const storiesEl = controls.querySelector('#import-stories') as HTMLInputElement;
+      storiesEl.value = String(rc.floorCount);
+      saveField('stories', String(rc.floorCount));
+      storiesEl.classList.add('import-field-filled');
+      setTimeout(() => storiesEl.classList.remove('import-field-filled'), 1500);
+    }
+
+    // Exterior type → wall material override (highest priority for wallOverride)
+    if (rc.exteriorType) {
+      const mapped = mapExteriorToWall(rc.exteriorType);
+      if (mapped) {
+        currentWallOverride = mapped;
+      }
+    }
+
+    // If RentCast also provides beds/baths/sqft/year and Parcl didn't, backfill
+    const backfillMap: [string, string, number][] = [
+      ['import-sqft', 'sqft', rc.squareFootage],
+      ['import-beds', 'beds', rc.bedrooms],
+      ['import-baths', 'baths', rc.bathrooms],
+      ['import-year', 'year', rc.yearBuilt],
+    ];
+    for (const [id, key, value] of backfillMap) {
+      if (value && value > 0) {
+        const el = controls.querySelector(`#${id}`) as HTMLInputElement;
+        // Only backfill if current value is the default
+        const current = parseInt(el.value) || 0;
+        if (current === 0 || el.value === loadField(key)) continue;
+      }
+    }
+  }
+
+  /** Get crosshair pixel position on the 768x768 satellite canvas */
+  function getCrosshairPosition(lat: number, lng: number): { pixelX: number; pixelY: number } {
+    // Re-derive from latLngToTile at zoom 18 (same as composeSatelliteView)
+    const zoom = 18;
+    const n = Math.pow(2, zoom);
+    const latRad = (lat * Math.PI) / 180;
+    const xFrac = ((lng + 180) / 360) * n;
+    const yFrac = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
+    const tileX = Math.floor(xFrac);
+    const tileY = Math.floor(yFrac);
+    // Pixel offset within the center tile + 256 (center tile starts at 256,256)
+    const pixelX = 256 + Math.floor((xFrac - tileX) * 256);
+    const pixelY = 256 + Math.floor((yFrac - tileY) * 256);
+    return { pixelX, pixelY };
+  }
+
   function showStatus(message: string, type: 'success' | 'error' | 'loading'): void {
     statusEl.hidden = false;
     statusEl.textContent = message;
@@ -471,6 +607,7 @@ export function initImport(
     canvas: HTMLCanvasElement,
     geo: GeocodingResult,
     season?: SeasonalWeather,
+    detectedColor?: { r: number; g: number; b: number },
   ): void {
     container.innerHTML = '';
 
@@ -482,11 +619,16 @@ export function initImport(
     canvas.style.objectFit = 'contain';
     wrapper.appendChild(canvas);
 
-    // Lat/lng + season overlay
+    // Lat/lng + season + detected color overlay
     const overlay = document.createElement('div');
     overlay.className = 'import-satellite-overlay';
     const seasonLabel = season ? ` | ${SEASON_LABELS[season]}` : '';
-    overlay.textContent = `${geo.lat.toFixed(5)}, ${geo.lng.toFixed(5)}${seasonLabel}`;
+    let colorHtml = '';
+    if (detectedColor) {
+      const hex = `rgb(${detectedColor.r},${detectedColor.g},${detectedColor.b})`;
+      colorHtml = ` | <span class="import-color-swatch" style="background:${hex};"></span>`;
+    }
+    overlay.innerHTML = `${geo.lat.toFixed(5)}, ${geo.lng.toFixed(5)}${seasonLabel}${colorHtml}`;
     wrapper.appendChild(overlay);
 
     container.appendChild(wrapper);
@@ -588,15 +730,47 @@ export function initImport(
       geocoding: currentGeocoding ?? undefined,
       season: currentSeason,
       newConstruction: yearVal >= 2020,
+      lotSize: currentRentCast?.lotSize,
+      exteriorType: currentRentCast?.exteriorType,
+      wallOverride: currentWallOverride,
+      roofType: currentRentCast?.roofType,
+      architectureType: currentRentCast?.architectureType,
+      detectedColor: currentDetectedColor,
     };
 
     const options = convertToGenerationOptions(property);
     const grid = generateStructure(options);
 
-    // Show info panel
+    // Show info panel with enrichment data
     const nonAir = grid.countNonAir();
     const seasonStr = property.season ? ` | ${SEASON_LABELS[property.season]}` : '';
     const constructionStr = property.newConstruction ? ' (new)' : '';
+
+    // Build optional enrichment rows
+    let enrichmentRows = '';
+    if (property.lotSize && property.lotSize > 0) {
+      enrichmentRows += `<div class="info-row"><span class="info-label">Lot Size</span><span class="info-value">${property.lotSize.toLocaleString()} sqft</span></div>`;
+    }
+    if (property.exteriorType) {
+      enrichmentRows += `<div class="info-row"><span class="info-label">Exterior</span><span class="info-value">${escapeHtml(property.exteriorType)}</span></div>`;
+    }
+    if (property.detectedColor) {
+      const c = property.detectedColor;
+      const hex = `rgb(${c.r},${c.g},${c.b})`;
+      enrichmentRows += `<div class="info-row"><span class="info-label">Detected Color</span><span class="info-value"><span class="import-color-swatch" style="background:${hex};"></span> ${c.r},${c.g},${c.b}</span></div>`;
+    }
+    if (property.wallOverride) {
+      // Show the mapped wall block name (strip minecraft: prefix)
+      const wallName = property.wallOverride.replace('minecraft:', '').replace(/_/g, ' ');
+      enrichmentRows += `<div class="info-row"><span class="info-label">Wall Material</span><span class="info-value">${wallName}</span></div>`;
+    }
+    if (property.roofType) {
+      enrichmentRows += `<div class="info-row"><span class="info-label">Roof</span><span class="info-value">${escapeHtml(property.roofType)}</span></div>`;
+    }
+    if (property.architectureType) {
+      enrichmentRows += `<div class="info-row"><span class="info-label">Architecture</span><span class="info-value">${escapeHtml(property.architectureType)}</span></div>`;
+    }
+
     infoPanel.hidden = false;
     infoPanel.innerHTML = `
       <div class="info-row"><span class="info-label">Address</span><span class="info-value" style="font-family:var(--font);font-size:11px;">${escapeHtml(property.address)}</span></div>
@@ -604,6 +778,7 @@ export function initImport(
       <div class="info-row"><span class="info-label">Blocks</span><span class="info-value">${nonAir.toLocaleString()}</span></div>
       <div class="info-row"><span class="info-label">Style</span><span class="info-value">${options.style}${constructionStr}${seasonStr}</span></div>
       <div class="info-row"><span class="info-label">Rooms</span><span class="info-value">${options.rooms?.length ?? 0}</span></div>
+      ${enrichmentRows}
     `;
 
     onGenerate(grid, property);

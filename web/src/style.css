@@ -802,6 +802,17 @@ html, body {
   margin-bottom: 4px;
 }
 
+/* Inline color swatch — small square preview next to detected color label */
+.import-color-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  vertical-align: middle;
+  margin: 0 2px;
+}
+
 /* Auto-fill highlight pulse on Parcl data population */
 .import-field-filled {
   animation: importFieldPulse 1.5s ease-out;
