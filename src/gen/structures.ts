@@ -248,6 +248,244 @@ export function gabledRoof(
   }
 }
 
+/**
+ * Build a hip roof — all four sides slope inward, no vertical gable end walls.
+ * Each layer shrinks both X and Z ranges, forming a pyramid-like top.
+ */
+export function hipRoof(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  baseY: number, maxHeight: number, style: StylePalette
+): void {
+  const xSpan = x2 - x1;
+  const zSpan = z2 - z1;
+  const maxLayers = Math.min(Math.floor(Math.min(xSpan, zSpan) / 2), maxHeight - 1);
+
+  for (let layer = 0; layer < maxLayers; layer++) {
+    const ry = baseY + 1 + layer;
+    if (!grid.inBounds(0, ry, 0)) break;
+
+    const zSouth = z1 + layer;
+    const zNorth = z2 - layer;
+    const xWest = x1 - 1 + layer;
+    const xEast = x2 + 1 - layer;
+    if (zSouth >= zNorth || xWest >= xEast) break;
+
+    // South and north slopes (full width at this layer)
+    for (let x = xWest; x <= xEast; x++) {
+      if (grid.inBounds(x, ry, zSouth)) grid.set(x, ry, zSouth, style.roofS);
+      if (grid.inBounds(x, ry, zNorth)) grid.set(x, ry, zNorth, style.roofN);
+    }
+
+    // East and west slopes (between south and north, using stair blocks rotated)
+    // Use ceiling material for side slopes (stairs only face N/S in palette)
+    for (let z = zSouth + 1; z < zNorth; z++) {
+      if (grid.inBounds(xWest, ry, z)) grid.set(xWest, ry, z, style.roofCap);
+      if (grid.inBounds(xEast, ry, z)) grid.set(xEast, ry, z, style.roofCap);
+    }
+
+    // Fill interior between slopes with ceiling material
+    for (let x = xWest + 1; x < xEast; x++) {
+      for (let z = zSouth + 1; z < zNorth; z++) {
+        if (grid.inBounds(x, ry, z)) grid.set(x, ry, z, style.ceiling);
+      }
+    }
+  }
+
+  // Ridge cap along the center (runs along X since Z converges first for typical houses)
+  const ridgeY = baseY + maxLayers;
+  const ridgeZ = z1 + Math.floor(zSpan / 2);
+  const ridgeX1 = x1 - 1 + maxLayers;
+  const ridgeX2 = x2 + 1 - maxLayers;
+  if (ridgeX1 <= ridgeX2 && grid.inBounds(0, ridgeY, ridgeZ)) {
+    for (let x = ridgeX1; x <= ridgeX2; x++) {
+      if (grid.inBounds(x, ridgeY, ridgeZ)) grid.set(x, ridgeY, ridgeZ, style.roofCap);
+    }
+  }
+}
+
+/**
+ * Build a flat roof — simple slab layer on top with a parapet wall around the edge.
+ * Common for modern, desert, and Mediterranean architecture.
+ */
+export function flatRoof(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  baseY: number, _maxHeight: number, style: StylePalette
+): void {
+  // Flat roof surface (2 layers thick for solidity)
+  grid.fill(x1, baseY + 1, z1, x2, baseY + 1, z2, style.ceiling);
+  grid.fill(x1, baseY + 2, z1, x2, baseY + 2, z2, style.roofCap);
+
+  // Parapet wall (1 block high around the perimeter)
+  const py = baseY + 3;
+  for (let x = x1; x <= x2; x++) {
+    if (grid.inBounds(x, py, z1)) grid.set(x, py, z1, style.wallAccent);
+    if (grid.inBounds(x, py, z2)) grid.set(x, py, z2, style.wallAccent);
+  }
+  for (let z = z1; z <= z2; z++) {
+    if (grid.inBounds(x1, py, z)) grid.set(x1, py, z, style.wallAccent);
+    if (grid.inBounds(x2, py, z)) grid.set(x2, py, z, style.wallAccent);
+  }
+}
+
+/**
+ * Build a gambrel roof — "barn roof" with two slopes per side.
+ * Lower slope is steep (nearly vertical), upper slope is shallow.
+ * Common for colonial, Dutch colonial, and farmhouse styles.
+ */
+export function gambrelRoof(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  baseY: number, maxHeight: number, style: StylePalette
+): void {
+  const zSpan = z2 - z1;
+  const halfZ = Math.floor(zSpan / 2);
+  const steepLayers = Math.min(Math.floor(halfZ * 0.4), 3); // Lower steep section
+  const shallowLayers = Math.min(halfZ - steepLayers, maxHeight - steepLayers - 1);
+
+  // Lower steep section — advances 1 Z per 2 layers (steep angle)
+  let currentLayer = 0;
+  for (let i = 0; i < steepLayers; i++) {
+    const ry = baseY + 1 + currentLayer;
+    if (!grid.inBounds(0, ry, 0)) break;
+    const zS = z1 + i;
+    const zN = z2 - i;
+    if (zS >= zN) break;
+
+    for (let x = x1 - 1; x <= x2 + 1; x++) {
+      if (grid.inBounds(x, ry, zS)) grid.set(x, ry, zS, style.roofS);
+      if (grid.inBounds(x, ry, zN)) grid.set(x, ry, zN, style.roofN);
+      // Fill interior
+      for (let z = zS + 1; z < zN; z++) {
+        if (grid.inBounds(x, ry, z)) grid.set(x, ry, z, style.ceiling);
+      }
+    }
+    currentLayer++;
+  }
+
+  // Upper shallow section — advances 1 Z per layer (normal gable angle)
+  const zOffset = steepLayers;
+  for (let i = 0; i < shallowLayers; i++) {
+    const ry = baseY + 1 + currentLayer;
+    if (!grid.inBounds(0, ry, 0)) break;
+    const zS = z1 + zOffset + i;
+    const zN = z2 - zOffset - i;
+    if (zS >= zN) break;
+
+    for (let x = x1 - 1; x <= x2 + 1; x++) {
+      if (grid.inBounds(x, ry, zS)) grid.set(x, ry, zS, style.roofS);
+      if (grid.inBounds(x, ry, zN)) grid.set(x, ry, zN, style.roofN);
+      for (let z = zS + 1; z < zN; z++) {
+        if (grid.inBounds(x, ry, z)) grid.set(x, ry, z, style.ceiling);
+      }
+    }
+    currentLayer++;
+  }
+
+  // Ridge cap
+  const ridgeZ = z1 + Math.floor(zSpan / 2);
+  const ridgeY = baseY + 1 + currentLayer;
+  if (grid.inBounds(0, ridgeY, ridgeZ)) {
+    for (let x = x1 - 1; x <= x2 + 1; x++) {
+      if (grid.inBounds(x, ridgeY, ridgeZ)) grid.set(x, ridgeY, ridgeZ, style.roofCap);
+    }
+  }
+
+  // Gable end walls
+  for (let layer = 0; layer < currentLayer; layer++) {
+    const ry = baseY + 1 + layer;
+    if (!grid.inBounds(0, ry, 0)) break;
+    // Determine Z bounds at this layer
+    let zS: number, zN: number;
+    if (layer < steepLayers) {
+      zS = z1 + layer;
+      zN = z2 - layer;
+    } else {
+      const shallow = layer - steepLayers;
+      zS = z1 + steepLayers + shallow;
+      zN = z2 - steepLayers - shallow;
+    }
+    if (zS >= zN) break;
+    for (let z = zS + 1; z < zN; z++) {
+      grid.set(x1, ry, z, style.wall);
+      grid.set(x2, ry, z, style.wall);
+    }
+  }
+}
+
+/**
+ * Build a mansard roof — steep lower slopes on all four sides, then a flat or
+ * low-slope top section. Classic French Second Empire style.
+ * The steep lower portion provides usable attic space.
+ */
+export function mansardRoof(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  baseY: number, maxHeight: number, style: StylePalette
+): void {
+  const xSpan = x2 - x1;
+  const zSpan = z2 - z1;
+  // Steep lower section: 3-4 layers that each shrink 1 block on all sides
+  const steepLayers = Math.min(4, Math.floor(Math.min(xSpan, zSpan) / 3), maxHeight - 2);
+
+  for (let layer = 0; layer < steepLayers; layer++) {
+    const ry = baseY + 1 + layer;
+    if (!grid.inBounds(0, ry, 0)) break;
+
+    const zS = z1 + layer;
+    const zN = z2 - layer;
+    const xW = x1 - 1 + layer;
+    const xE = x2 + 1 - layer;
+    if (zS >= zN || xW >= xE) break;
+
+    // South and north slopes
+    for (let x = xW; x <= xE; x++) {
+      if (grid.inBounds(x, ry, zS)) grid.set(x, ry, zS, style.roofS);
+      if (grid.inBounds(x, ry, zN)) grid.set(x, ry, zN, style.roofN);
+    }
+    // East and west slopes
+    for (let z = zS + 1; z < zN; z++) {
+      if (grid.inBounds(xW, ry, z)) grid.set(xW, ry, z, style.roofCap);
+      if (grid.inBounds(xE, ry, z)) grid.set(xE, ry, z, style.roofCap);
+    }
+    // Fill interior
+    for (let x = xW + 1; x < xE; x++) {
+      for (let z = zS + 1; z < zN; z++) {
+        if (grid.inBounds(x, ry, z)) grid.set(x, ry, z, style.ceiling);
+      }
+    }
+
+    // Dormer windows on the steep section (layer 1 and 2)
+    if (layer >= 1 && layer <= 2) {
+      const midX = Math.floor((xW + xE) / 2);
+      if (grid.inBounds(midX, ry, zS)) grid.set(midX, ry, zS, style.window);
+      if (grid.inBounds(midX, ry, zN)) grid.set(midX, ry, zN, style.window);
+    }
+  }
+
+  // Flat top section
+  const topY = baseY + 1 + steepLayers;
+  const topZ1 = z1 + steepLayers;
+  const topZ2 = z2 - steepLayers;
+  const topX1 = x1 - 1 + steepLayers;
+  const topX2 = x2 + 1 - steepLayers;
+  if (topX1 < topX2 && topZ1 < topZ2 && grid.inBounds(topX1, topY, topZ1)) {
+    // Flat roof cap with parapet
+    for (let x = topX1; x <= topX2; x++) {
+      for (let z = topZ1; z <= topZ2; z++) {
+        if (grid.inBounds(x, topY, z)) grid.set(x, topY, z, style.roofCap);
+      }
+    }
+    // Small parapet on the flat section
+    const parapetY = topY + 1;
+    for (let x = topX1; x <= topX2; x++) {
+      if (grid.inBounds(x, parapetY, topZ1)) grid.set(x, parapetY, topZ1, style.wallAccent);
+      if (grid.inBounds(x, parapetY, topZ2)) grid.set(x, parapetY, topZ2, style.wallAccent);
+    }
+    for (let z = topZ1; z <= topZ2; z++) {
+      if (grid.inBounds(topX1, parapetY, z)) grid.set(topX1, parapetY, z, style.wallAccent);
+      if (grid.inBounds(topX2, parapetY, z)) grid.set(topX2, parapetY, z, style.wallAccent);
+    }
+  }
+}
+
 /** Build a chimney rising from a given position */
 export function chimney(
   grid: BlockGrid, x: number, z: number,

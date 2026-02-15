@@ -45,6 +45,7 @@ const ROOM_GENERATORS: Record<RoomType, RoomGenerator> = {
   laundry: generateLaundry,
   pantry: generatePantry,
   mudroom: generateMudroom,
+  garage: generateGarage,
 };
 
 /** Get a room generator by type */
@@ -1383,4 +1384,45 @@ function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
 
   // Single lantern
   chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 1);
+}
+
+/** Garage — concrete floor, workbench, storage, wide door opening */
+function generateGarage(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+  const cz = Math.floor((z1 + z2) / 2);
+
+  // Concrete floor
+  grid.fill(x1, y - 1, z1, x2, y - 1, z2, 'minecraft:smooth_stone');
+
+  // Wide garage door opening on the front wall (z2 side)
+  const doorWidth = Math.min(x2 - x1 - 2, 4);
+  const doorLeft = cx - Math.floor(doorWidth / 2);
+  for (let x = doorLeft; x <= doorLeft + doorWidth; x++) {
+    for (let dy = 0; dy < Math.min(height - 1, 3); dy++) {
+      if (grid.inBounds(x, y + dy, z2)) {
+        grid.set(x, y + dy, z2, 'minecraft:air');
+      }
+    }
+  }
+
+  // Workbench along back wall
+  if (grid.inBounds(x1 + 1, y, z1)) {
+    grid.set(x1 + 1, y, z1, 'minecraft:crafting_table');
+    if (grid.inBounds(x1 + 2, y, z1))
+      grid.set(x1 + 2, y, z1, 'minecraft:smithing_table');
+  }
+
+  // Storage chests along side wall
+  storageCorner(grid, x2, y, z1, style, 'west');
+
+  // Tool rack — tripwire hooks as "hung tools"
+  for (let z = z1 + 2; z <= Math.min(z1 + 4, z2 - 1); z++) {
+    if (grid.inBounds(x1, y + 2, z))
+      grid.set(x1, y + 2, z, 'minecraft:tripwire_hook[facing=east]');
+  }
+
+  // Redstone lamp (bright workshop lighting)
+  if (grid.inBounds(cx, y + height - 1, cz))
+    grid.set(cx, y + height - 1, cz, 'minecraft:redstone_lamp');
 }

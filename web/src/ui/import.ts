@@ -5,7 +5,7 @@
  * and generates a Minecraft structure.
  */
 
-import type { StructureType, StyleName, RoomType, BlockState } from '@craft/types/index.js';
+import type { StructureType, StyleName, RoomType, BlockState, RoofShape, FeatureFlags } from '@craft/types/index.js';
 import type { GenerationOptions } from '@craft/types/index.js';
 import { generateStructure } from '@craft/gen/generator.js';
 import { BlockGrid } from '@craft/schem/types.js';
@@ -86,6 +86,16 @@ export interface PropertyData {
   osmMaterial?: string;
   /** OSM roof shape (normalized label) */
   osmRoofShape?: string;
+  /** OSM roof material tag (e.g. 'tile', 'slate', 'metal') */
+  osmRoofMaterial?: string;
+  /** OSM roof colour as hex string */
+  osmRoofColour?: string;
+  /** OSM building colour as hex string */
+  osmBuildingColour?: string;
+  /** OSM building:architecture tag (e.g. 'victorian', 'colonial', 'art_deco') */
+  osmArchitecture?: string;
+  /** Whether property has a garage (from RentCast or inference) */
+  hasGarage?: boolean;
   /** Street View image URL */
   streetViewUrl?: string;
 }
@@ -134,20 +144,256 @@ function inferStyle(year: number, newConstruction = false): StyleName {
   return 'modern';
 }
 
+/**
+ * Map OSM building:architecture or RentCast architectureType to StyleName.
+ * Returns undefined if no mapping is found (will fall back to year-based inference).
+ */
+function mapArchitectureToStyle(arch: string | undefined): StyleName | undefined {
+  if (!arch) return undefined;
+  const a = arch.trim().toLowerCase();
+  const MAP: [RegExp, StyleName][] = [
+    [/\bvictorian|queen\s*anne|second\s*empire/i, 'gothic'],
+    [/\bcraftsman|arts?\s*&?\s*crafts|bungalow/i, 'rustic'],
+    [/\bcolonial|georgian|federal|cape\s*cod/i, 'fantasy'],
+    [/\bmodern|contemporary|mid.?century|minimalist|international/i, 'modern'],
+    [/\bmediterranean|spanish|mission|pueblo/i, 'desert'],
+    [/\btudor|half.?timber|english/i, 'medieval'],
+    [/\bart\s*deco|art\s*nouveau|beaux.?arts/i, 'steampunk'],
+    [/\bjapanese|asian|zen/i, 'elven'],
+    [/\bgothic|romanesque|revival/i, 'gothic'],
+    [/\bfarmhouse|ranch|country/i, 'rustic'],
+    [/\bcastle|chateau|palatial|manor/i, 'fantasy'],
+  ];
+  for (const [pattern, style] of MAP) {
+    if (pattern.test(a)) return style;
+  }
+  return undefined;
+}
+
+/**
+ * Map OSM roof:shape tag to generator RoofShape.
+ * Normalizes the various OSM values to one of our 5 supported roof shapes.
+ */
+function mapOSMRoofToShape(osmRoofShape: string | undefined): RoofShape | undefined {
+  if (!osmRoofShape) return undefined;
+  const s = osmRoofShape.trim().toLowerCase();
+  const MAP: Record<string, RoofShape> = {
+    gabled: 'gable', gable: 'gable', saltbox: 'gable', sawtooth: 'gable',
+    hipped: 'hip', hip: 'hip', half_hipped: 'hip', 'half-hipped': 'hip', pyramidal: 'hip',
+    flat: 'flat', skillion: 'flat',
+    gambrel: 'gambrel',
+    mansard: 'mansard',
+  };
+  return MAP[s];
+}
+
+/**
+ * Map OSM roof:material to Minecraft stair/slab blocks for roof overrides.
+ * Returns {north, south, cap} override or undefined if unmapped.
+ */
+function mapRoofMaterialToBlocks(
+  material: string | undefined, colour: string | undefined
+): { north: BlockState; south: BlockState; cap: BlockState } | undefined {
+  if (!material && !colour) return undefined;
+
+  // Material-based mapping (priority 1)
+  if (material) {
+    const m = material.trim().toLowerCase();
+    const ROOF_MAP: [RegExp, { base: string; slab: string }][] = [
+      [/\bslate/i, { base: 'minecraft:deepslate_tile', slab: 'minecraft:deepslate_tile_slab' }],
+      [/\btile|clay|terracotta/i, { base: 'minecraft:brick', slab: 'minecraft:brick_slab' }],
+      [/\bmetal|steel|tin|copper/i, { base: 'minecraft:cut_copper', slab: 'minecraft:cut_copper_slab' }],
+      [/\bwood|shingle|shake/i, { base: 'minecraft:spruce', slab: 'minecraft:spruce_slab' }],
+      [/\basphalt|tar|bitumen/i, { base: 'minecraft:blackstone', slab: 'minecraft:blackstone_slab' }],
+      [/\bconcrete|cement/i, { base: 'minecraft:smooth_stone', slab: 'minecraft:smooth_stone_slab' }],
+      [/\bthatch|reed|straw/i, { base: 'minecraft:oak', slab: 'minecraft:oak_slab' }],
+    ];
+    for (const [pattern, { base, slab }] of ROOF_MAP) {
+      if (pattern.test(m)) {
+        return {
+          north: `${base}_stairs[facing=north]`,
+          south: `${base}_stairs[facing=south]`,
+          cap: `${slab}[type=bottom]`,
+        };
+      }
+    }
+  }
+
+  // Colour-based mapping fallback (priority 2) — match hex to nearest terracotta
+  if (colour) {
+    const roofBlock = hexToRoofBlock(colour);
+    if (roofBlock) {
+      return {
+        north: `minecraft:${roofBlock}_stairs[facing=north]`,
+        south: `minecraft:${roofBlock}_stairs[facing=south]`,
+        cap: `minecraft:${roofBlock}_slab[type=bottom]`,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+/** Map a hex colour to the nearest Minecraft block with stair/slab variants for roofs */
+function hexToRoofBlock(hex: string): string | undefined {
+  // Parse hex to RGB
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return undefined;
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+
+  // Candidate roof blocks with representative RGB values
+  const CANDIDATES: [string, number, number, number][] = [
+    ['dark_oak', 60, 42, 22],       // dark brown
+    ['spruce', 115, 85, 49],        // warm brown
+    ['brick', 150, 74, 58],         // red/terracotta
+    ['stone_brick', 128, 128, 128], // gray
+    ['sandstone', 216, 200, 157],   // cream/tan
+    ['cobblestone', 100, 100, 100], // dark gray
+    ['deepslate_tile', 54, 54, 62], // charcoal
+    ['blackstone', 34, 28, 32],     // near-black
+    ['prismarine', 76, 127, 115],   // blue-green
+    ['nether_brick', 44, 21, 26],   // dark red
+  ];
+
+  let bestBlock = 'dark_oak';
+  let bestDist = Infinity;
+  for (const [block, cr, cg, cb] of CANDIDATES) {
+    const dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestBlock = block;
+    }
+  }
+  return bestBlock;
+}
+
+/**
+ * Infer door wood type from architecture style or era.
+ * Returns a Minecraft wood type string for doorOverride.
+ */
+function inferDoorType(
+  archType: string | undefined, style: StyleName, year: number
+): string | undefined {
+  // Architecture-specific door overrides
+  if (archType) {
+    const a = archType.toLowerCase();
+    if (/modern|contemporary|minimalist/.test(a)) return 'iron';
+    if (/tudor|english|medieval/.test(a)) return 'dark_oak';
+    if (/craftsman|arts.*crafts|rustic/.test(a)) return 'spruce';
+    if (/victorian|colonial|georgian/.test(a)) return 'dark_oak';
+    if (/farmhouse|ranch|country/.test(a)) return 'oak';
+    if (/mediterranean|spanish|mission/.test(a)) return 'acacia';
+  }
+
+  // Style fallbacks
+  const STYLE_DOORS: Partial<Record<StyleName, string>> = {
+    modern: 'iron',
+    gothic: 'dark_oak',
+    rustic: 'spruce',
+    medieval: 'oak',
+    desert: 'acacia',
+    elven: 'birch',
+    steampunk: 'iron',
+  };
+  if (STYLE_DOORS[style]) return STYLE_DOORS[style];
+
+  // Era-based fallback
+  if (year >= 2000) return 'iron';
+  if (year < 1900) return 'dark_oak';
+  return undefined;
+}
+
+/**
+ * Map a building colour hex to a Minecraft trim/accent block.
+ * Used for trimOverride when OSM building:colour is available.
+ */
+function hexToTrimBlock(hex: string): BlockState | undefined {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return undefined;
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+
+  // Map to accent blocks (pillars, timber, trim)
+  const CANDIDATES: [BlockState, number, number, number][] = [
+    ['minecraft:white_concrete', 255, 255, 255],
+    ['minecraft:light_gray_concrete', 160, 160, 160],
+    ['minecraft:dark_oak_log', 60, 42, 22],
+    ['minecraft:spruce_log', 115, 85, 49],
+    ['minecraft:oak_log', 170, 136, 78],
+    ['minecraft:birch_log', 196, 187, 153],
+    ['minecraft:quartz_pillar', 235, 229, 222],
+    ['minecraft:sandstone', 216, 200, 157],
+    ['minecraft:stone_bricks', 128, 128, 128],
+    ['minecraft:deepslate_bricks', 54, 54, 62],
+  ];
+
+  let bestBlock: BlockState = 'minecraft:dark_oak_log';
+  let bestDist = Infinity;
+  for (const [block, cr, cg, cb] of CANDIDATES) {
+    const dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestBlock = block;
+    }
+  }
+  return bestBlock;
+}
+
+/**
+ * Infer feature flags from property data.
+ * Uses lot size, sqft, property type, and year to determine which
+ * exterior features should be generated.
+ */
+function inferFeatures(prop: PropertyData): FeatureFlags {
+  const lotSize = prop.lotSize ?? 0;
+  const sqft = prop.sqft;
+  const year = prop.yearBuilt;
+
+  return {
+    // Chimney: common in older houses, less common in modern ones
+    chimney: year < 1990 || sqft > 3000,
+    // Porch: most houses have some form of covered entrance
+    porch: true,
+    // Backyard: needs lot size > 4000 sqft (or assume true if no lot data)
+    backyard: lotSize === 0 || lotSize > 4000,
+    // Driveway: most suburban houses
+    driveway: true,
+    // Fence: larger properties or older neighborhoods
+    fence: lotSize > 3000 || sqft > 2500,
+    // Trees: suburban lots with space
+    trees: lotSize === 0 || lotSize > 3000,
+    // Garden: larger lots or older houses
+    garden: lotSize > 5000 || (year < 1960 && sqft > 2000),
+  };
+}
+
 /** Convert property data into GenerationOptions for the core generator */
 export function convertToGenerationOptions(prop: PropertyData): GenerationOptions {
-  const style: StyleName = prop.style === 'auto'
-    ? inferStyle(prop.yearBuilt, prop.newConstruction)
-    : prop.style;
+  // ── Style resolution ──────────────────────────────────────────────
+  // Priority: user selection > OSM architecture > RentCast architecture > year-based
+  let style: StyleName;
+  if (prop.style !== 'auto') {
+    style = prop.style;
+  } else {
+    const archStyle = mapArchitectureToStyle(prop.osmArchitecture)
+      ?? mapArchitectureToStyle(prop.architectureType);
+    style = archStyle ?? inferStyle(prop.yearBuilt, prop.newConstruction);
+  }
 
-  // Determine structure type
+  // Force rustic for cabin property type
+  if (prop.propertyType === 'cabin') style = 'rustic';
+
+  // ── Structure type ────────────────────────────────────────────────
   let type: StructureType = 'house';
   if (prop.propertyType === 'mansion' || prop.sqft > 5000) {
     type = 'castle';
   }
 
-  // Use OSM footprint dimensions when available (real building outline),
-  // otherwise estimate from sqft (1 block ≈ 1 meter ≈ 10.76 sqft)
+  // ── Dimensions ────────────────────────────────────────────────────
+  // Priority: OSM footprint (real) > sqft estimate
   let width: number;
   let length: number;
 
@@ -160,36 +406,58 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     width = Math.round(Math.sqrt(areaPerFloor * aspectRatio));
     length = Math.round(Math.sqrt(areaPerFloor / aspectRatio));
   }
-
-  // Clamp to reasonable Minecraft dimensions
   width = Math.max(10, Math.min(60, width));
   length = Math.max(10, Math.min(60, length));
 
-  // Build room list
+  // ── Rooms ─────────────────────────────────────────────────────────
   const rooms: RoomType[] = ['foyer', 'living', 'kitchen', 'dining'];
   for (let i = 0; i < Math.min(prop.bedrooms, 8); i++) rooms.push('bedroom');
   for (let i = 0; i < Math.min(prop.bathrooms, 6); i++) rooms.push('bathroom');
 
-  // Utility rooms for larger homes
-  if (prop.sqft > 2500) {
-    rooms.push('study', 'laundry', 'mudroom');
-  }
-  if (prop.sqft > 3500) {
-    rooms.push('library', 'sunroom', 'pantry');
-  }
+  if (prop.sqft > 2500) rooms.push('study', 'laundry', 'mudroom');
+  if (prop.sqft > 3500) rooms.push('library', 'sunroom', 'pantry');
 
-  // Force rustic for cabin property type
-  const finalStyle: StyleName = prop.propertyType === 'cabin' ? 'rustic' : style;
+  // Auto-add garage if property data indicates one
+  if (prop.hasGarage) rooms.push('garage');
+
+  // ── Roof shape ────────────────────────────────────────────────────
+  // Priority: OSM roof:shape > style-default > gable
+  const roofShape: RoofShape = mapOSMRoofToShape(prop.osmRoofShape)
+    ?? (style === 'modern' ? 'flat' : style === 'gothic' ? 'mansard' : 'gable');
+
+  // ── Roof material override ────────────────────────────────────────
+  const roofOverride = mapRoofMaterialToBlocks(prop.osmRoofMaterial, prop.osmRoofColour);
+
+  // ── Door override ─────────────────────────────────────────────────
+  const doorOverride = inferDoorType(
+    prop.osmArchitecture ?? prop.architectureType,
+    style,
+    prop.yearBuilt
+  );
+
+  // ── Trim override ─────────────────────────────────────────────────
+  // Priority: OSM building:colour > none (use style default)
+  const trimOverride = prop.osmBuildingColour
+    ? hexToTrimBlock(prop.osmBuildingColour)
+    : undefined;
+
+  // ── Feature flags ─────────────────────────────────────────────────
+  const features = inferFeatures(prop);
 
   return {
     type,
     floors: prop.stories,
-    style: finalStyle,
+    style,
     rooms,
     width,
     length,
     seed: fnv1aHash(prop.address),
     wallOverride: prop.wallOverride,
+    trimOverride,
+    doorOverride,
+    roofShape,
+    roofOverride,
+    features,
   };
 }
 
@@ -987,6 +1255,11 @@ export function initImport(
       osmLevels: currentOSM?.levels,
       osmMaterial: currentOSM?.material,
       osmRoofShape: currentOSM?.roofShape ? mapOSMRoofShape(currentOSM.roofShape) : undefined,
+      osmRoofMaterial: currentOSM?.roofMaterial,
+      osmRoofColour: currentOSM?.roofColour,
+      osmBuildingColour: currentOSM?.buildingColour,
+      osmArchitecture: currentOSM?.tags?.['building:architecture'],
+      hasGarage: currentRentCast?.garageSpaces != null && currentRentCast.garageSpaces > 0,
       streetViewUrl: currentStreetViewUrl ?? undefined,
     };
 
@@ -1030,6 +1303,22 @@ export function initImport(
     }
     if (property.osmRoofShape) {
       enrichmentRows += `<div class="info-row"><span class="info-label">Roof Shape</span><span class="info-value">${escapeHtml(property.osmRoofShape)} (OSM)</span></div>`;
+    }
+
+    // Show inferred generation options
+    if (options.roofShape && options.roofShape !== 'gable') {
+      enrichmentRows += `<div class="info-row"><span class="info-label">Roof Type</span><span class="info-value">${options.roofShape}</span></div>`;
+    }
+    if (options.doorOverride) {
+      enrichmentRows += `<div class="info-row"><span class="info-label">Door</span><span class="info-value">${options.doorOverride}</span></div>`;
+    }
+    if (options.features) {
+      const feats = Object.entries(options.features)
+        .filter(([_, v]) => v === true)
+        .map(([k]) => k);
+      if (feats.length > 0 && feats.length < 7) {
+        enrichmentRows += `<div class="info-row"><span class="info-label">Features</span><span class="info-value">${feats.join(', ')}</span></div>`;
+      }
     }
 
     infoPanel.hidden = false;
