@@ -696,6 +696,50 @@ export function placeGarden(
   }
 }
 
+/** Place a rectangular swimming pool with water, stone border, and diving board */
+export function placePool(
+  grid: BlockGrid, cx: number, cz: number,
+  poolW = 5, poolL = 8, baseY = 0
+): void {
+  const x1 = cx - Math.floor(poolW / 2);
+  const x2 = x1 + poolW - 1;
+  const z1 = cz - Math.floor(poolL / 2);
+  const z2 = z1 + poolL - 1;
+
+  // Stone brick border (1 block wide)
+  for (let x = x1 - 1; x <= x2 + 1; x++) {
+    if (grid.inBounds(x, baseY, z1 - 1)) grid.set(x, baseY, z1 - 1, 'minecraft:smooth_stone');
+    if (grid.inBounds(x, baseY, z2 + 1)) grid.set(x, baseY, z2 + 1, 'minecraft:smooth_stone');
+  }
+  for (let z = z1; z <= z2; z++) {
+    if (grid.inBounds(x1 - 1, baseY, z)) grid.set(x1 - 1, baseY, z, 'minecraft:smooth_stone');
+    if (grid.inBounds(x2 + 1, baseY, z)) grid.set(x2 + 1, baseY, z, 'minecraft:smooth_stone');
+  }
+
+  // Pool interior — water at ground level, looks like a depression
+  for (let x = x1; x <= x2; x++) {
+    for (let z = z1; z <= z2; z++) {
+      if (grid.inBounds(x, baseY, z)) {
+        grid.set(x, baseY, z, 'minecraft:water');
+      }
+    }
+  }
+
+  // Diving board on one end (spruce slab extending over the water)
+  const boardX = cx;
+  const boardZ = z2 + 1;
+  if (grid.inBounds(boardX, baseY + 1, boardZ)) {
+    grid.set(boardX, baseY + 1, boardZ, 'minecraft:spruce_slab[type=bottom]');
+    if (grid.inBounds(boardX, baseY + 1, boardZ + 1))
+      grid.set(boardX, baseY + 1, boardZ + 1, 'minecraft:spruce_slab[type=bottom]');
+  }
+
+  // Pool ladder (iron bars on one side)
+  if (grid.inBounds(x2, baseY + 1, cz)) {
+    grid.set(x2, baseY + 1, cz, 'minecraft:iron_bars');
+  }
+}
+
 // ─── Exterior House Features ────────────────────────────────────────
 
 /** Add a fenced backyard with garden, bench, and optional tree (low-Z side of house) */

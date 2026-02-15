@@ -5,7 +5,7 @@
  * and generates a Minecraft structure.
  */
 
-import type { StructureType, StyleName, RoomType, BlockState, RoofShape, FeatureFlags } from '@craft/types/index.js';
+import type { StructureType, StyleName, RoomType, BlockState, RoofShape, FeatureFlags, FloorPlanShape } from '@craft/types/index.js';
 import type { GenerationOptions } from '@craft/types/index.js';
 import { generateStructure } from '@craft/gen/generator.js';
 import { BlockGrid } from '@craft/schem/types.js';
@@ -20,10 +20,10 @@ import {
   searchRentCastProperty, getRentCastApiKey, setRentCastApiKey, hasRentCastApiKey,
   mapExteriorToWall, type RentCastPropertyData,
 } from '@ui/import-rentcast.js';
-import { extractBuildingColor, mapColorToWall } from '@ui/import-color.js';
+import { extractBuildingColor, mapColorToWall, detectPool } from '@ui/import-color.js';
 import {
   searchOSMBuilding, mapOSMMaterialToWall, mapOSMRoofShape,
-  type OSMBuildingData,
+  analyzePolygonShape, type OSMBuildingData,
 } from '@ui/import-osm.js';
 import {
   getStreetViewApiKey, setStreetViewApiKey, hasStreetViewApiKey,
@@ -96,6 +96,10 @@ export interface PropertyData {
   osmArchitecture?: string;
   /** Whether property has a garage (from RentCast or inference) */
   hasGarage?: boolean;
+  /** Swimming pool detected in satellite imagery */
+  hasPool?: boolean;
+  /** Floor plan shape derived from OSM polygon analysis */
+  floorPlanShape?: FloorPlanShape;
   /** Street View image URL */
   streetViewUrl?: string;
 }
@@ -367,6 +371,8 @@ function inferFeatures(prop: PropertyData): FeatureFlags {
     trees: lotSize === 0 || lotSize > 3000,
     // Garden: larger lots or older houses
     garden: lotSize > 5000 || (year < 1960 && sqft > 2000),
+    // Pool: detected from satellite imagery
+    pool: prop.hasPool ?? false,
   };
 }
 
@@ -458,6 +464,7 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     roofShape,
     roofOverride,
     features,
+    floorPlanShape: prop.floorPlanShape,
   };
 }
 
@@ -481,6 +488,8 @@ export function initImport(
   let currentRentCast: RentCastPropertyData | null = null;
   /** OSM building footprint data */
   let currentOSM: OSMBuildingData | null = null;
+  /** Whether a pool was detected from satellite imagery */
+  let currentPoolDetected = false;
   /** Street View image URL (if available) */
   let currentStreetViewUrl: string | null = null;
 
@@ -796,6 +805,7 @@ export function initImport(
     currentDetectedColor = undefined;
     currentRentCast = null;
     currentOSM = null;
+    currentPoolDetected = false;
     currentStreetViewUrl = null;
 
     const [geoResult, parclResult, rentCastResult] = await Promise.allSettled([
@@ -847,6 +857,9 @@ export function initImport(
             currentWallOverride = mapColorToWall(color);
           }
         }
+
+        // Pool detection — scan ring around building for cyan/blue pixels
+        currentPoolDetected = detectPool(canvas, pixelX, pixelY);
 
         // Draw OSM building polygon overlay on satellite canvas
         if (currentOSM && currentOSM.polygon.length >= 3) {
@@ -1260,6 +1273,9 @@ export function initImport(
       osmBuildingColour: currentOSM?.buildingColour,
       osmArchitecture: currentOSM?.tags?.['building:architecture'],
       hasGarage: currentRentCast?.garageSpaces != null && currentRentCast.garageSpaces > 0,
+      hasPool: currentPoolDetected,
+      floorPlanShape: currentOSM?.polygon
+        ? analyzePolygonShape(currentOSM.polygon) : undefined,
       streetViewUrl: currentStreetViewUrl ?? undefined,
     };
 

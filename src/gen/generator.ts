@@ -6,7 +6,7 @@
  */
 
 import { BlockGrid } from '../schem/types.js';
-import type { GenerationOptions, RoomType, RoomBounds, StructureType, RoofShape, FeatureFlags } from '../types/index.js';
+import type { GenerationOptions, RoomType, RoomBounds, StructureType, RoofShape, FeatureFlags, FloorPlanShape } from '../types/index.js';
 import { getStyle } from './styles.js';
 import { getRoomGenerator, getRoomTypes } from './rooms.js';
 import {
@@ -14,7 +14,7 @@ import {
   windows, interiorWall, doorway, frontDoor, staircase,
   gabledRoof, hipRoof, flatRoof, gambrelRoof, mansardRoof,
   chimney, wallTorches, porch,
-  placeTree, placeGarden,
+  placeTree, placeGarden, placePool,
   addBackyard, addDriveway, addPropertyFence,
 } from './structures.js';
 import { chandelier } from './furniture.js';
@@ -127,7 +127,7 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
       break;
     case 'house':
     default:
-      grid = generateHouse(floors, style, rooms, width, length, rng, options.roofShape, options.features);
+      grid = generateHouse(floors, style, rooms, width, length, rng, options.roofShape, options.features, options.floorPlanShape);
       break;
   }
 
@@ -155,18 +155,26 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
 function generateHouse(
   floors: number, style: StylePalette, rooms: RoomType[] | undefined,
   bwOpt: number | undefined, blOpt: number | undefined, rng: () => number,
-  roofShape: RoofShape = 'gable', features?: FeatureFlags
+  roofShape: RoofShape = 'gable', features?: FeatureFlags,
+  planShape: FloorPlanShape = 'rect'
 ): BlockGrid {
   const bw = bwOpt ?? 29;
   const bl = blOpt ?? 23;
   const margin = 3;
   const porchDepth = 4;
-  const gw = bw + 2 * margin;
+  // For L/T/U plans, allocate extra width for the wing(s)
+  const wingW = (planShape !== 'rect') ? Math.max(8, Math.floor(bw * 0.45)) : 0;
+  const wingL = (planShape !== 'rect') ? Math.max(6, Math.floor(bl * 0.4)) : 0;
+  // U-shape needs extra space on both sides; L/T only on one side
+  const extraEast = (planShape !== 'rect') ? wingW : 0;
+  const extraWest = (planShape === 'U') ? wingW : 0;
+  const gw = bw + 2 * margin + extraEast + extraWest;
   const gl = bl + 2 * margin + porchDepth;
   const gh = floors * STORY_H + ROOF_H;
 
-  const bx1 = margin;
-  const bx2 = margin + bw - 1;
+  // Shift main building right for U-shape to make room for west wing
+  const bx1 = margin + extraWest;
+  const bx2 = margin + extraWest + bw - 1;
   const bz1 = margin;
   const bz2 = margin + bl - 1;
   const xMid = margin + Math.floor(bw / 2);
@@ -266,6 +274,61 @@ function generateHouse(
     default:        gabledRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
   }
 
+  // ── L/T/U-shaped wing ──────────────────────────────────────────────
+  if (planShape !== 'rect' && wingW > 0 && wingL > 0) {
+    // Wing extends off the east side of the main building
+    const wx1 = bx2 + 1;
+    const wx2 = wx1 + wingW - 1;
+    // L-shape: wing on back half; T-shape: wing centered; U-shape: two wings
+    const wz1 = planShape === 'T' ? zMid - Math.floor(wingL / 2) : bz1;
+    const wz2 = wz1 + wingL - 1;
+
+    // Wing shell (ground floor only for simplicity)
+    foundation(grid, wx1, wz1, wx2, wz2, style);
+    floor(grid, wx1 + 1, 0, wz1 + 1, wx2 - 1, wz2 - 1, style, true);
+    exteriorWalls(grid, wx1, 1, wz1, wx2, STORY_H - 1, wz2, style);
+    windows(grid, wx1, wz1, wx2, wz2, 3, 4, style);
+    grid.fill(wx1, STORY_H, wz1, wx2, STORY_H, wz2, style.ceiling);
+    wallTorches(grid, wx1, wz1, wx2, wz2, 3, style);
+
+    // Roof over wing
+    const wingRoofBase = STORY_H;
+    gabledRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, ROOF_H, style);
+
+    // Connecting doorway between main body and wing
+    const connectZ = Math.max(bz1 + 1, Math.min(wz1 + Math.floor(wingL / 2), bz2 - 1));
+    doorway(grid, bx2, 1, connectZ - 1, bx2, 3, connectZ + 1);
+
+    // Wing rooms (use remaining rooms from assignment or defaults)
+    const wingBounds: RoomBounds = {
+      x1: wx1 + 1, y: 1, z1: wz1 + 1, x2: wx2 - 1, z2: wz2 - 1, height: STORY_H - 1,
+    };
+    // Pick a sensible room for the wing
+    const wingRoom = rooms?.find(r => r === 'garage' || r === 'sunroom' || r === 'study') ?? 'study';
+    const wingGen = getRoomGenerator(wingRoom);
+    wingGen(grid, wingBounds, style);
+
+    // U-shape: second wing on the west side
+    if (planShape === 'U') {
+      const wx1b = Math.max(0, bx1 - wingW);
+      const wx2b = bx1 - 1;
+      if (wx2b > wx1b) {
+        foundation(grid, wx1b, wz1, wx2b, wz2, style);
+        floor(grid, wx1b + 1, 0, wz1 + 1, wx2b - 1, wz2 - 1, style, true);
+        exteriorWalls(grid, wx1b, 1, wz1, wx2b, STORY_H - 1, wz2, style);
+        windows(grid, wx1b, wz1, wx2b, wz2, 3, 4, style);
+        grid.fill(wx1b, STORY_H, wz1, wx2b, STORY_H, wz2, style.ceiling);
+        gabledRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, ROOF_H, style);
+        doorway(grid, bx1, 1, connectZ - 1, bx1, 3, connectZ + 1);
+        const wing2Bounds: RoomBounds = {
+          x1: wx1b + 1, y: 1, z1: wz1 + 1, x2: wx2b - 1, z2: wz2 - 1, height: STORY_H - 1,
+        };
+        const wing2Room = rooms?.find(r => r === 'library' || r === 'laundry') ?? 'living';
+        getRoomGenerator(wing2Room)(grid, wing2Bounds, style);
+      }
+    }
+  }
+
   // ── Feature flags (default: all enabled for houses) ───────────────
   // Note: porch is handled earlier (before staircases) for grid layout ordering
   const f = {
@@ -275,6 +338,7 @@ function generateHouse(
     fence:    features?.fence    ?? true,
     trees:    features?.trees    ?? true,
     garden:   features?.garden   ?? true,
+    pool:     features?.pool     ?? false,
   };
 
   // Chimney (skip for flat roofs — no peak to rise through)
@@ -288,6 +352,14 @@ function generateHouse(
   if (f.backyard) addBackyard(grid, bx1, bx2, bz1, style, rng);
   if (f.driveway) addDriveway(grid, xMid, bz2, porchDepth);
   if (f.fence)    addPropertyFence(grid, bx1, bz1, bx2, bz2, xMid, style);
+
+  // Swimming pool in backyard area
+  if (f.pool) {
+    const poolX = Math.floor((bx1 + bx2) / 2);
+    const poolZ = Math.max(3, bz1 - 6);
+    if (grid.inBounds(poolX, 0, poolZ))
+      placePool(grid, poolX, poolZ);
+  }
 
   // Additional trees in front/side yard
   if (f.trees) {

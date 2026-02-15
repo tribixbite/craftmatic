@@ -100,6 +100,9 @@ export type StructureType = 'house' | 'tower' | 'castle' | 'dungeon' | 'ship'
 /** Roof shape variants for house generation */
 export type RoofShape = 'gable' | 'hip' | 'flat' | 'gambrel' | 'mansard';
 
+/** Floor plan shape — rectangular (default) or L/T/U from OSM polygon analysis */
+export type FloorPlanShape = 'rect' | 'L' | 'T' | 'U';
+
 /** Exterior feature flags — each controls whether a feature is generated */
 export interface FeatureFlags {
   /** Brick chimney rising through roof (default: true for houses) */
@@ -116,6 +119,8 @@ export interface FeatureFlags {
   trees?: boolean;
   /** Flower garden beds in side/back yard */
   garden?: boolean;
+  /** Swimming pool in backyard (detected from satellite blue pixels) */
+  pool?: boolean;
 }
 
 /** Generation parameters */
@@ -139,6 +144,8 @@ export interface GenerationOptions {
   roofOverride?: { north: BlockState; south: BlockState; cap: BlockState };
   /** Exterior feature flags — omitted fields use generator defaults */
   features?: FeatureFlags;
+  /** Floor plan shape derived from OSM polygon analysis */
+  floorPlanShape?: FloorPlanShape;
 }
 
 /** 2D render mode */

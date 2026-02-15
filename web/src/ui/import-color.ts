@@ -188,5 +188,75 @@ export function mapColorToWall(rgb: { r: number; g: number; b: number }): BlockS
   return best.block;
 }
 
+/**
+ * Detect swimming pool from satellite imagery.
+ * Scans a ring-shaped region around the building center (outside the building
+ * footprint, within the property boundary) looking for cyan/turquoise pixels
+ * that indicate a pool.
+ *
+ * @param canvas    The 768x768 satellite composite canvas
+ * @param centerX   Building center X on canvas
+ * @param centerY   Building center Y on canvas
+ * @param innerR    Inner radius (skip building footprint), default 60px
+ * @param outerR    Outer radius (property boundary estimate), default 120px
+ * @param threshold Minimum percentage of cyan pixels to confirm pool (0-1), default 0.02
+ * @returns true if a pool-like cluster of blue pixels is detected
+ */
+export function detectPool(
+  canvas: HTMLCanvasElement,
+  centerX: number,
+  centerY: number,
+  innerR = 60,
+  outerR = 120,
+  threshold = 0.02,
+): boolean {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return false;
+
+  // Sample the outer ring region
+  const x0 = Math.max(0, Math.floor(centerX - outerR));
+  const y0 = Math.max(0, Math.floor(centerY - outerR));
+  const x1 = Math.min(canvas.width, Math.ceil(centerX + outerR));
+  const y1 = Math.min(canvas.height, Math.ceil(centerY + outerR));
+  const w = x1 - x0;
+  const h = y1 - y0;
+  if (w <= 0 || h <= 0) return false;
+
+  const imageData = ctx.getImageData(x0, y0, w, h);
+  const data = imageData.data;
+  const innerR2 = innerR * innerR;
+  const outerR2 = outerR * outerR;
+
+  let totalRingPixels = 0;
+  let cyanPixels = 0;
+
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      const dx = (x0 + px) - centerX;
+      const dy = (y0 + py) - centerY;
+      const d2 = dx * dx + dy * dy;
+
+      // Only sample the ring between inner and outer radius
+      if (d2 < innerR2 || d2 > outerR2) continue;
+      totalRingPixels++;
+
+      const idx = (py * w + px) * 4;
+      const rr = data[idx];
+      const gg = data[idx + 1];
+      const bb = data[idx + 2];
+
+      const [hh, ss, ll] = rgbToHsl(rr, gg, bb);
+
+      // Pool detection: cyan/turquoise hue band (160-220°), moderate-high saturation
+      if (hh >= 160 && hh <= 220 && ss > 0.25 && ll > 0.25 && ll < 0.75) {
+        cyanPixels++;
+      }
+    }
+  }
+
+  if (totalRingPixels < 100) return false;
+  return (cyanPixels / totalRingPixels) >= threshold;
+}
+
 /** Exposed for testing — the wall material palette */
 export const WALL_MATERIAL_PALETTE = WALL_MATERIALS;
