@@ -6,13 +6,14 @@
  */
 
 import { BlockGrid } from '../schem/types.js';
-import type { GenerationOptions, RoomType, RoomBounds, StructureType } from '../types/index.js';
+import type { GenerationOptions, RoomType, RoomBounds, StructureType, RoofShape, FeatureFlags } from '../types/index.js';
 import { getStyle } from './styles.js';
 import { getRoomGenerator, getRoomTypes } from './rooms.js';
 import {
   foundation, floor, exteriorWalls, timberColumns, timberBeams,
   windows, interiorWall, doorway, frontDoor, staircase,
-  gabledRoof, chimney, wallTorches, porch,
+  gabledRoof, hipRoof, flatRoof, gambrelRoof, mansardRoof,
+  chimney, wallTorches, porch,
   placeTree, placeGarden,
   addBackyard, addDriveway, addPropertyFence,
 } from './structures.js';
@@ -89,6 +90,11 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
     style.doorLowerS = `${prefix}[facing=south,half=lower,hinge=left,open=false]`;
     style.doorUpperS = `${prefix}[facing=south,half=upper,hinge=left,open=false]`;
   }
+  if (options.roofOverride) {
+    style.roofN = options.roofOverride.north;
+    style.roofS = options.roofOverride.south;
+    style.roofCap = options.roofOverride.cap;
+  }
 
   let grid: BlockGrid;
   switch (type) {
@@ -121,7 +127,7 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
       break;
     case 'house':
     default:
-      grid = generateHouse(floors, style, rooms, width, length, rng);
+      grid = generateHouse(floors, style, rooms, width, length, rng, options.roofShape, options.features);
       break;
   }
 
@@ -148,7 +154,8 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
 
 function generateHouse(
   floors: number, style: StylePalette, rooms: RoomType[] | undefined,
-  bwOpt: number | undefined, blOpt: number | undefined, rng: () => number
+  bwOpt: number | undefined, blOpt: number | undefined, rng: () => number,
+  roofShape: RoofShape = 'gable', features?: FeatureFlags
 ): BlockGrid {
   const bw = bwOpt ?? 29;
   const bl = blOpt ?? 23;
@@ -209,14 +216,16 @@ function generateHouse(
   }
 
   const dx = xMid;
-  porch(grid, dx, bz2, 9, STORY_H, style, 'south');
+  // Porch is gated by features flag (default: true)
+  if (features?.porch !== false) {
+    porch(grid, dx, bz2, 9, STORY_H, style, 'south');
+    // Exterior lanterns flanking the front door
+    if (grid.inBounds(dx - 2, 1, bz2 + 1))
+      grid.set(dx - 2, 1, bz2 + 1, style.lanternFloor);
+    if (grid.inBounds(dx + 2, 1, bz2 + 1))
+      grid.set(dx + 2, 1, bz2 + 1, style.lanternFloor);
+  }
   frontDoor(grid, dx, 1, bz2, style, 'north');
-
-  // Exterior lanterns flanking the front door
-  if (grid.inBounds(dx - 2, 1, bz2 + 1))
-    grid.set(dx - 2, 1, bz2 + 1, style.lanternFloor);
-  if (grid.inBounds(dx + 2, 1, bz2 + 1))
-    grid.set(dx + 2, 1, bz2 + 1, style.lanternFloor);
 
   const stairX = xMid + 3;
   const stairX2 = xMid + 4;
@@ -246,17 +255,57 @@ function generateHouse(
     }
   }
 
+  // ── Roof ───────────────────────────────────────────────────────────
   const roofBase = floors * STORY_H;
-  gabledRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style);
+  switch (roofShape) {
+    case 'hip':     hipRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
+    case 'flat':    flatRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
+    case 'gambrel': gambrelRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
+    case 'mansard': mansardRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
+    case 'gable':
+    default:        gabledRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
+  }
 
-  const chimX = Math.floor((bx1 + 1 + xMid - 1) / 2);
-  const chimTop = roofBase + ROOF_H - 2;
-  chimney(grid, chimX, bz1, STORY_H, chimTop);
+  // ── Feature flags (default: all enabled for houses) ───────────────
+  // Note: porch is handled earlier (before staircases) for grid layout ordering
+  const f = {
+    chimney:  features?.chimney  ?? true,
+    backyard: features?.backyard ?? true,
+    driveway: features?.driveway ?? true,
+    fence:    features?.fence    ?? true,
+    trees:    features?.trees    ?? true,
+    garden:   features?.garden   ?? true,
+  };
 
-  // Exterior features: backyard, driveway, property fence
-  addBackyard(grid, bx1, bx2, bz1, style, rng);
-  addDriveway(grid, xMid, bz2, porchDepth);
-  addPropertyFence(grid, bx1, bz1, bx2, bz2, xMid, style);
+  // Chimney (skip for flat roofs — no peak to rise through)
+  if (f.chimney && roofShape !== 'flat') {
+    const chimX = Math.floor((bx1 + 1 + xMid - 1) / 2);
+    const chimTop = roofBase + ROOF_H - 2;
+    chimney(grid, chimX, bz1, STORY_H, chimTop);
+  }
+
+  // Exterior features, each gated by its flag
+  if (f.backyard) addBackyard(grid, bx1, bx2, bz1, style, rng);
+  if (f.driveway) addDriveway(grid, xMid, bz2, porchDepth);
+  if (f.fence)    addPropertyFence(grid, bx1, bz1, bx2, bz2, xMid, style);
+
+  // Additional trees in front/side yard
+  if (f.trees) {
+    const treeX = Math.max(0, bx1 - 1);
+    const treeZ = bz2 + porchDepth + 4;
+    if (grid.inBounds(treeX, 1, treeZ)) placeTree(grid, treeX, 1, treeZ, 'oak', 5);
+    const treeX2 = Math.min(grid.width - 1, bx2 + 1);
+    if (grid.inBounds(treeX2, 1, treeZ)) placeTree(grid, treeX2, 1, treeZ, 'birch', 4);
+  }
+
+  // Side garden
+  if (f.garden) {
+    const gardenX1 = Math.max(0, bx1 - 1);
+    const gardenZ1 = bz1 + 2;
+    const gardenZ2 = Math.min(gardenZ1 + 3, bz2 - 2);
+    if (gardenZ2 > gardenZ1 && grid.inBounds(gardenX1, 0, gardenZ2))
+      placeGarden(grid, gardenX1 - 1, gardenZ1, gardenX1, gardenZ2, 0, rng);
+  }
 
   return grid;
 }

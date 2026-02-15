@@ -86,7 +86,8 @@ export type RoomType =
   | 'closet'
   | 'laundry'
   | 'pantry'
-  | 'mudroom';
+  | 'mudroom'
+  | 'garage';
 
 /** Building style presets */
 export type StyleName = 'fantasy' | 'medieval' | 'modern' | 'gothic' | 'rustic'
@@ -95,6 +96,27 @@ export type StyleName = 'fantasy' | 'medieval' | 'modern' | 'gothic' | 'rustic'
 /** Structure types the generator can produce */
 export type StructureType = 'house' | 'tower' | 'castle' | 'dungeon' | 'ship'
   | 'cathedral' | 'bridge' | 'windmill' | 'marketplace' | 'village';
+
+/** Roof shape variants for house generation */
+export type RoofShape = 'gable' | 'hip' | 'flat' | 'gambrel' | 'mansard';
+
+/** Exterior feature flags — each controls whether a feature is generated */
+export interface FeatureFlags {
+  /** Brick chimney rising through roof (default: true for houses) */
+  chimney?: boolean;
+  /** Covered front porch with columns and steps */
+  porch?: boolean;
+  /** Fenced backyard with garden, bench, tree */
+  backyard?: boolean;
+  /** Stone brick driveway path from front door */
+  driveway?: boolean;
+  /** Full perimeter property fence with gates */
+  fence?: boolean;
+  /** Decorative trees placed around the property */
+  trees?: boolean;
+  /** Flower garden beds in side/back yard */
+  garden?: boolean;
+}
 
 /** Generation parameters */
 export interface GenerationOptions {
@@ -111,6 +133,12 @@ export interface GenerationOptions {
   trimOverride?: BlockState;
   /** Override door wood type (e.g. 'spruce', 'dark_oak', 'iron') */
   doorOverride?: string;
+  /** Roof shape variant (default: 'gable') */
+  roofShape?: RoofShape;
+  /** Override roof block materials */
+  roofOverride?: { north: BlockState; south: BlockState; cap: BlockState };
+  /** Exterior feature flags — omitted fields use generator defaults */
+  features?: FeatureFlags;
 }
 
 /** 2D render mode */

@@ -25,6 +25,8 @@ export interface RentCastPropertyData {
   bathrooms: number;
   yearBuilt: number;
   propertyType: string;
+  /** Number of garage spaces (0 = no garage) */
+  garageSpaces: number;
 }
 
 // ─── API Key Management ──────────────────────────────────────────────────────
@@ -102,6 +104,7 @@ export async function searchRentCastProperty(
       bathrooms: item.bathrooms ?? 0,
       yearBuilt: item.yearBuilt ?? 0,
       propertyType: item.propertyType ?? '',
+      garageSpaces: features.garageSpaces ?? item.garageSpaces ?? 0,
     };
   } catch (err) {
     // CORS, network, or timeout — fall back to manual entry silently
