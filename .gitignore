@@ -18,3 +18,4 @@ test-*.cjs
 test-*.txt
 audit*
 showcase/
+bunfig.toml
