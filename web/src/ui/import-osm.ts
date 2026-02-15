@@ -54,29 +54,52 @@ export async function searchOSMBuilding(
   radius = 50,
 ): Promise<OSMBuildingData | null> {
   const query = `[out:json][timeout:15];(way[building](around:${radius},${lat},${lng}););out geom;`;
+  const body = `data=${encodeURIComponent(query)}`;
 
-  try {
-    const resp = await fetch(OVERPASS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `data=${encodeURIComponent(query)}`,
-      signal: AbortSignal.timeout(15000),
-    });
+  // Retry with exponential backoff for 429 (rate limit) and 504 (gateway timeout)
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const resp = await fetch(OVERPASS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: AbortSignal.timeout(15000),
+      });
 
-    if (!resp.ok) {
-      console.warn(`OSM Overpass: HTTP ${resp.status}`);
+      if (resp.status === 429 || resp.status === 504) {
+        if (attempt < MAX_RETRIES) {
+          const delay = (attempt + 1) * 2000; // 2s, 4s, 6s
+          console.warn(`OSM Overpass: HTTP ${resp.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        console.warn(`OSM Overpass: HTTP ${resp.status} after ${MAX_RETRIES} retries`);
+        return null;
+      }
+
+      if (!resp.ok) {
+        console.warn(`OSM Overpass: HTTP ${resp.status}`);
+        return null;
+      }
+
+      const data = await resp.json();
+      const elements = data.elements;
+      if (!Array.isArray(elements) || elements.length === 0) return null;
+
+      return parseClosestBuilding(elements, lat, lng);
+    } catch (err) {
+      if (attempt < MAX_RETRIES) {
+        const delay = (attempt + 1) * 2000;
+        console.warn(`OSM Overpass: error, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      console.warn('OSM Overpass request failed:', err);
       return null;
     }
-
-    const data = await resp.json();
-    const elements = data.elements;
-    if (!Array.isArray(elements) || elements.length === 0) return null;
-
-    return parseClosestBuilding(elements, lat, lng);
-  } catch (err) {
-    console.warn('OSM Overpass request failed:', err);
-    return null;
   }
+  return null;
 }
 
 /**
