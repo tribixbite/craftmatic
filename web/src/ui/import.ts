@@ -21,6 +21,18 @@ import {
   mapExteriorToWall, type RentCastPropertyData,
 } from '@ui/import-rentcast.js';
 import { extractBuildingColor, mapColorToWall } from '@ui/import-color.js';
+import {
+  searchOSMBuilding, mapOSMMaterialToWall, mapOSMRoofShape,
+  type OSMBuildingData,
+} from '@ui/import-osm.js';
+import {
+  getStreetViewApiKey, setStreetViewApiKey, hasStreetViewApiKey,
+  getStreetViewUrl, checkStreetViewAvailability, STREETVIEW_SIGNUP_URL,
+} from '@ui/import-streetview.js';
+import {
+  getMapboxToken, setMapboxToken, hasMapboxToken,
+  createMapboxTileFetcher, MAPBOX_SIGNUP_URL,
+} from '@ui/import-mapbox.js';
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
 
@@ -64,6 +76,18 @@ export interface PropertyData {
   architectureType?: string;
   /** Detected building color RGB from satellite imagery */
   detectedColor?: { r: number; g: number; b: number };
+  /** Building footprint width from OSM (in blocks, 1 block ≈ 1m) */
+  osmWidth?: number;
+  /** Building footprint length from OSM (in blocks) */
+  osmLength?: number;
+  /** OSM building levels if available */
+  osmLevels?: number;
+  /** OSM building material */
+  osmMaterial?: string;
+  /** OSM roof shape (normalized label) */
+  osmRoofShape?: string;
+  /** Street View image URL */
+  streetViewUrl?: string;
 }
 
 /** Style presets with colors — "Auto" infers from year built */
@@ -122,13 +146,20 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     type = 'castle';
   }
 
-  // Calculate dimensions from sqft
-  // sqft / stories → area per floor, 1 block ≈ 1 meter ≈ 10.76 sqft
-  const areaPerFloor = prop.sqft / prop.stories / 10.76;
-  const aspectRatio = prop.floorPlan?.aspectRatio ?? 1.3;
+  // Use OSM footprint dimensions when available (real building outline),
+  // otherwise estimate from sqft (1 block ≈ 1 meter ≈ 10.76 sqft)
+  let width: number;
+  let length: number;
 
-  let width = Math.round(Math.sqrt(areaPerFloor * aspectRatio));
-  let length = Math.round(Math.sqrt(areaPerFloor / aspectRatio));
+  if (prop.osmWidth && prop.osmLength) {
+    width = prop.osmWidth;
+    length = prop.osmLength;
+  } else {
+    const areaPerFloor = prop.sqft / prop.stories / 10.76;
+    const aspectRatio = prop.floorPlan?.aspectRatio ?? 1.3;
+    width = Math.round(Math.sqrt(areaPerFloor * aspectRatio));
+    length = Math.round(Math.sqrt(areaPerFloor / aspectRatio));
+  }
 
   // Clamp to reasonable Minecraft dimensions
   width = Math.max(10, Math.min(60, width));
@@ -174,18 +205,26 @@ export function initImport(
   let currentFloorPlan: FloorPlanAnalysis | null = null;
   let currentGeocoding: GeocodingResult | null = null;
   let currentSeason: SeasonalWeather | undefined;
-  /** Wall override from RentCast exterior type or satellite color extraction */
+  /** Wall override from RentCast exterior type, OSM material, or satellite color */
   let currentWallOverride: BlockState | undefined;
   /** Detected satellite building color RGB */
   let currentDetectedColor: { r: number; g: number; b: number } | undefined;
   /** RentCast enrichment data */
   let currentRentCast: RentCastPropertyData | null = null;
+  /** OSM building footprint data */
+  let currentOSM: OSMBuildingData | null = null;
+  /** Street View image URL (if available) */
+  let currentStreetViewUrl: string | null = null;
 
   // Restore API key display state
   const savedParclKey = getParclApiKey();
   const parclKeyMasked = savedParclKey ? '••••' + savedParclKey.slice(-4) : '';
   const savedRentCastKey = getRentCastApiKey();
   const rentCastKeyMasked = savedRentCastKey ? '••••' + savedRentCastKey.slice(-4) : '';
+  const savedStreetViewKey = getStreetViewApiKey();
+  const svKeyMasked = savedStreetViewKey ? '••••' + savedStreetViewKey.slice(-4) : '';
+  const savedMapboxToken = getMapboxToken();
+  const mbTokenMasked = savedMapboxToken ? '••••' + savedMapboxToken.slice(-4) : '';
 
   controls.innerHTML = `
     <div class="section-title">Import from Address</div>
@@ -193,32 +232,66 @@ export function initImport(
     <!-- API keys (collapsible) -->
     <details class="customize-section" id="import-api-section" ${savedParclKey && savedRentCastKey ? '' : 'open'}>
       <summary class="customize-summary">API Keys</summary>
-      <div class="customize-body">
+      <div class="customize-body import-api-grid">
         <!-- Parcl Labs key -->
-        <div class="import-api-hint">
-          <strong>Parcl Labs</strong> — beds, baths, sqft, year.
-          <a href="https://app.parcllabs.com" target="_blank" rel="noopener" style="color:var(--accent);">Get free key</a>
-        </div>
-        <div class="import-address-row">
-          <input id="import-parcl-key" type="password" class="form-input"
-            placeholder="Parcl API key" value="${escapeAttr(savedParclKey)}">
-          <button id="import-parcl-save" class="btn btn-secondary btn-sm">${savedParclKey ? 'Saved' : 'Save'}</button>
-        </div>
-        <div id="import-parcl-status" style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">
-          ${parclKeyMasked ? `Key stored: ${parclKeyMasked}` : 'No key — manual entry only'}
+        <div class="import-api-entry">
+          <div class="import-api-hint">
+            <strong>Parcl Labs</strong> — beds, baths, sqft, year.
+            <a href="https://app.parcllabs.com" target="_blank" rel="noopener" style="color:var(--accent);">Get free key</a>
+          </div>
+          <div class="import-address-row">
+            <input id="import-parcl-key" type="password" class="form-input"
+              placeholder="Parcl API key" value="${escapeAttr(savedParclKey)}">
+            <button id="import-parcl-save" class="btn btn-secondary btn-sm">${savedParclKey ? 'Saved' : 'Save'}</button>
+          </div>
+          <div id="import-parcl-status" style="font-size:11px;color:var(--text-muted);">
+            ${parclKeyMasked ? `Key stored: ${parclKeyMasked}` : 'No key — manual entry only'}
+          </div>
         </div>
         <!-- RentCast key -->
-        <div class="import-api-hint">
-          <strong>RentCast</strong> — floors, lot size, exterior, roof, architecture.
-          <a href="https://app.rentcast.io" target="_blank" rel="noopener" style="color:var(--accent);">Get free key</a>
+        <div class="import-api-entry">
+          <div class="import-api-hint">
+            <strong>RentCast</strong> — floors, lot size, exterior, roof, architecture.
+            <a href="https://app.rentcast.io" target="_blank" rel="noopener" style="color:var(--accent);">Get free key</a>
+          </div>
+          <div class="import-address-row">
+            <input id="import-rentcast-key" type="password" class="form-input"
+              placeholder="RentCast API key" value="${escapeAttr(savedRentCastKey)}">
+            <button id="import-rentcast-save" class="btn btn-secondary btn-sm">${savedRentCastKey ? 'Saved' : 'Save'}</button>
+          </div>
+          <div id="import-rentcast-status" style="font-size:11px;color:var(--text-muted);">
+            ${rentCastKeyMasked ? `Key stored: ${rentCastKeyMasked}` : 'No key — satellite color detection used instead'}
+          </div>
         </div>
-        <div class="import-address-row">
-          <input id="import-rentcast-key" type="password" class="form-input"
-            placeholder="RentCast API key" value="${escapeAttr(savedRentCastKey)}">
-          <button id="import-rentcast-save" class="btn btn-secondary btn-sm">${savedRentCastKey ? 'Saved' : 'Save'}</button>
+        <!-- Google Street View key -->
+        <div class="import-api-entry">
+          <div class="import-api-hint">
+            <strong>Google Street View</strong> — exterior property photo.
+            <a href="${STREETVIEW_SIGNUP_URL}" target="_blank" rel="noopener" style="color:var(--accent);">Get free key</a>
+          </div>
+          <div class="import-address-row">
+            <input id="import-sv-key" type="password" class="form-input"
+              placeholder="Google API key" value="${escapeAttr(savedStreetViewKey)}">
+            <button id="import-sv-save" class="btn btn-secondary btn-sm">${savedStreetViewKey ? 'Saved' : 'Save'}</button>
+          </div>
+          <div id="import-sv-status" style="font-size:11px;color:var(--text-muted);">
+            ${svKeyMasked ? `Key stored: ${svKeyMasked}` : 'No key — no exterior photo'}
+          </div>
         </div>
-        <div id="import-rentcast-status" style="font-size:11px;color:var(--text-muted);">
-          ${rentCastKeyMasked ? `Key stored: ${rentCastKeyMasked}` : 'No key — satellite color detection used instead'}
+        <!-- Mapbox token -->
+        <div class="import-api-entry">
+          <div class="import-api-hint">
+            <strong>Mapbox</strong> — high-res satellite (30cm).
+            <a href="${MAPBOX_SIGNUP_URL}" target="_blank" rel="noopener" style="color:var(--accent);">Get free token</a>
+          </div>
+          <div class="import-address-row">
+            <input id="import-mb-token" type="password" class="form-input"
+              placeholder="Mapbox access token" value="${escapeAttr(savedMapboxToken)}">
+            <button id="import-mb-save" class="btn btn-secondary btn-sm">${savedMapboxToken ? 'Saved' : 'Save'}</button>
+          </div>
+          <div id="import-mb-status" style="font-size:11px;color:var(--text-muted);">
+            ${mbTokenMasked ? `Token stored: ${mbTokenMasked}` : 'No token — using ESRI satellite'}
+          </div>
         </div>
       </div>
     </details>
@@ -335,6 +408,12 @@ export function initImport(
   const rentCastKeyInput = controls.querySelector('#import-rentcast-key') as HTMLInputElement;
   const rentCastSaveBtn = controls.querySelector('#import-rentcast-save') as HTMLButtonElement;
   const rentCastStatus = controls.querySelector('#import-rentcast-status') as HTMLElement;
+  const svKeyInput = controls.querySelector('#import-sv-key') as HTMLInputElement;
+  const svSaveBtn = controls.querySelector('#import-sv-save') as HTMLButtonElement;
+  const svStatus = controls.querySelector('#import-sv-status') as HTMLElement;
+  const mbTokenInput = controls.querySelector('#import-mb-token') as HTMLInputElement;
+  const mbSaveBtn = controls.querySelector('#import-mb-save') as HTMLButtonElement;
+  const mbStatus = controls.querySelector('#import-mb-status') as HTMLElement;
   const apiSection = controls.querySelector('#import-api-section') as HTMLDetailsElement;
 
   // Form field refs for persistence
@@ -354,7 +433,7 @@ export function initImport(
       parclStatus.textContent = 'No key — manual entry only';
     }
     // Auto-close if both keys are set
-    if (hasParclApiKey() && hasRentCastApiKey()) apiSection.open = false;
+    if (hasParclApiKey() && hasRentCastApiKey()) { apiSection.open = false; }
   });
   parclKeyInput.addEventListener('input', () => { parclSaveBtn.textContent = 'Save'; });
 
@@ -369,9 +448,37 @@ export function initImport(
       rentCastSaveBtn.textContent = 'Save';
       rentCastStatus.textContent = 'No key — satellite color detection used instead';
     }
-    if (hasParclApiKey() && hasRentCastApiKey()) apiSection.open = false;
+    if (hasParclApiKey() && hasRentCastApiKey()) { apiSection.open = false; }
   });
   rentCastKeyInput.addEventListener('input', () => { rentCastSaveBtn.textContent = 'Save'; });
+
+  // Google Street View key
+  svSaveBtn.addEventListener('click', () => {
+    const key = svKeyInput.value.trim();
+    setStreetViewApiKey(key);
+    if (key) {
+      svSaveBtn.textContent = 'Saved';
+      svStatus.textContent = `Key stored: ••••${key.slice(-4)}`;
+    } else {
+      svSaveBtn.textContent = 'Save';
+      svStatus.textContent = 'No key — no exterior photo';
+    }
+  });
+  svKeyInput.addEventListener('input', () => { svSaveBtn.textContent = 'Save'; });
+
+  // Mapbox token
+  mbSaveBtn.addEventListener('click', () => {
+    const token = mbTokenInput.value.trim();
+    setMapboxToken(token);
+    if (token) {
+      mbSaveBtn.textContent = 'Saved';
+      mbStatus.textContent = `Token stored: ••••${token.slice(-4)}`;
+    } else {
+      mbSaveBtn.textContent = 'Save';
+      mbStatus.textContent = 'No token — using ESRI satellite';
+    }
+  });
+  mbTokenInput.addEventListener('input', () => { mbSaveBtn.textContent = 'Save'; });
 
   // ── Session persistence for all form fields ───────────────────────────
   // Address field
@@ -420,6 +527,8 @@ export function initImport(
     currentWallOverride = undefined;
     currentDetectedColor = undefined;
     currentRentCast = null;
+    currentOSM = null;
+    currentStreetViewUrl = null;
 
     const [geoResult, parclResult, rentCastResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -432,24 +541,56 @@ export function initImport(
       currentGeocoding = geoResult.value;
       const geo = geoResult.value;
 
+      // Fire OSM + Street View checks in parallel (don't block satellite)
+      const [osmResult, svResult] = await Promise.allSettled([
+        searchOSMBuilding(geo.lat, geo.lng),
+        hasStreetViewApiKey()
+          ? checkStreetViewAvailability(geo.lat, geo.lng, getStreetViewApiKey())
+          : Promise.resolve(false),
+      ]);
+
+      // Process OSM result
+      if (osmResult.status === 'fulfilled' && osmResult.value) {
+        currentOSM = osmResult.value;
+      }
+
+      // Process Street View result
+      if (svResult.status === 'fulfilled' && svResult.value === true) {
+        currentStreetViewUrl = getStreetViewUrl(geo.lat, geo.lng, getStreetViewApiKey());
+      }
+
+      // Build Mapbox tile fetcher if token is configured
+      const tileFetcher = hasMapboxToken()
+        ? createMapboxTileFetcher(getMapboxToken())
+        : undefined;
+
       // Show satellite view (async, don't block) — also extract building color
       showSatelliteLoading(viewer);
-      composeSatelliteView(geo.lat, geo.lng).then(canvas => {
+      composeSatelliteView(geo.lat, geo.lng, 18, tileFetcher).then(canvas => {
         currentSeason = (canvas.dataset['season'] as SeasonalWeather) ?? undefined;
 
         // Extract building color from satellite canvas around crosshair
-        // Crosshair position = pixelOffset within center tile + 256
         const { pixelX, pixelY } = getCrosshairPosition(geo.lat, geo.lng);
         const color = extractBuildingColor(canvas, pixelX, pixelY);
         if (color) {
           currentDetectedColor = color;
-          // Only use satellite color as wallOverride if RentCast didn't provide exteriorType
+          // Only use satellite color as wallOverride if higher-priority sources didn't set it
           if (!currentWallOverride) {
             currentWallOverride = mapColorToWall(color);
           }
         }
 
+        // Draw OSM building polygon overlay on satellite canvas
+        if (currentOSM && currentOSM.polygon.length >= 3) {
+          drawBuildingOutline(canvas, geo, currentOSM.polygon);
+        }
+
         showSatelliteCanvas(viewer, canvas, geo, currentSeason, currentDetectedColor);
+
+        // Append Street View image below satellite if available
+        if (currentStreetViewUrl) {
+          appendStreetViewImage(viewer, currentStreetViewUrl);
+        }
       }).catch(() => {
         showSatelliteError(viewer);
       });
@@ -464,10 +605,15 @@ export function initImport(
     }
 
     // Handle RentCast API result — enriches with floor count, exterior, lot size
-    // Process RentCast first so wallOverride from exterior type takes priority
+    // Process RentCast first so wallOverride from exterior type takes priority (priority 1)
     if (rentCastResult.status === 'fulfilled' && rentCastResult.value) {
       currentRentCast = rentCastResult.value;
       populateFromRentCast(rentCastResult.value);
+    }
+
+    // Handle OSM enrichment — wallOverride priority 2 (below RentCast, above satellite color)
+    if (currentOSM) {
+      populateFromOSM(currentOSM);
     }
 
     // Handle Parcl API result — auto-fill form fields
@@ -478,6 +624,9 @@ export function initImport(
     }
     if (currentRentCast) {
       statusParts.push(currentRentCast.exteriorType ? `| ${currentRentCast.exteriorType}` : '');
+    }
+    if (currentOSM) {
+      statusParts.push(`| ${currentOSM.widthMeters}m × ${currentOSM.lengthMeters}m (OSM)`);
     }
     showStatus(statusParts.filter(Boolean).join(' '), 'success');
 
@@ -560,6 +709,103 @@ export function initImport(
         if (current === 0 || el.value === loadField(key)) continue;
       }
     }
+  }
+
+  /** Populate form fields and wallOverride from OSM building data */
+  function populateFromOSM(osm: OSMBuildingData): void {
+    // Stories from OSM building:levels — only use if RentCast didn't provide floorCount
+    if (osm.levels && osm.levels > 0 && !currentRentCast?.floorCount) {
+      const storiesEl = controls.querySelector('#import-stories') as HTMLInputElement;
+      storiesEl.value = String(osm.levels);
+      saveField('stories', String(osm.levels));
+      storiesEl.classList.add('import-field-filled');
+      setTimeout(() => storiesEl.classList.remove('import-field-filled'), 1500);
+    }
+
+    // Wall material from OSM — priority 2 (below RentCast exteriorType, above satellite color)
+    if (osm.material && !currentWallOverride) {
+      const mapped = mapOSMMaterialToWall(osm.material);
+      if (mapped) {
+        currentWallOverride = mapped;
+      }
+    }
+  }
+
+  /**
+   * Draw the OSM building polygon outline on the satellite canvas.
+   * Converts lat/lng polygon vertices to canvas pixel coordinates.
+   */
+  function drawBuildingOutline(
+    canvas: HTMLCanvasElement,
+    geo: GeocodingResult,
+    polygon: { lat: number; lon: number }[],
+  ): void {
+    const ctx = canvas.getContext('2d');
+    if (!ctx || polygon.length < 3) return;
+
+    const zoom = 18;
+    const n = Math.pow(2, zoom);
+    const { tileX, tileY } = getTileCoords(geo.lat, geo.lng, zoom);
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(88, 101, 242, 0.8)';
+    ctx.fillStyle = 'rgba(88, 101, 242, 0.12)';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+
+    ctx.beginPath();
+    for (let i = 0; i < polygon.length; i++) {
+      const pt = polygon[i];
+      const latRad = (pt.lat * Math.PI) / 180;
+      const xFrac = ((pt.lon + 180) / 360) * n;
+      const yFrac = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
+      // Canvas position: offset from center tile origin (tile at index 1,1 in the 3x3 grid)
+      const px = (xFrac - tileX + 1) * 256;
+      const py = (yFrac - tileY + 1) * 256;
+
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Helper to get tile coordinates without pixel offset */
+  function getTileCoords(lat: number, lng: number, zoom: number): { tileX: number; tileY: number } {
+    const n = Math.pow(2, zoom);
+    const latRad = (lat * Math.PI) / 180;
+    const xFrac = ((lng + 180) / 360) * n;
+    const yFrac = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
+    return { tileX: Math.floor(xFrac), tileY: Math.floor(yFrac) };
+  }
+
+  /** Append a Street View image below the satellite canvas in the viewer */
+  function appendStreetViewImage(container: HTMLElement, url: string): void {
+    const wrapper = container.querySelector('.import-satellite-wrapper');
+    if (!wrapper) return;
+
+    const svContainer = document.createElement('div');
+    svContainer.className = 'import-streetview-container';
+
+    const label = document.createElement('div');
+    label.className = 'import-satellite-overlay';
+    label.style.top = '12px';
+    label.style.bottom = 'auto';
+    label.textContent = 'Street View';
+
+    const img = document.createElement('img');
+    img.className = 'import-streetview-img';
+    img.src = url;
+    img.alt = 'Street View';
+    img.loading = 'lazy';
+
+    svContainer.appendChild(label);
+    svContainer.appendChild(img);
+
+    // Insert after the satellite wrapper
+    wrapper.parentElement?.appendChild(svContainer);
   }
 
   /** Get crosshair pixel position on the 768x768 satellite canvas */
@@ -736,6 +982,12 @@ export function initImport(
       roofType: currentRentCast?.roofType,
       architectureType: currentRentCast?.architectureType,
       detectedColor: currentDetectedColor,
+      osmWidth: currentOSM?.widthBlocks,
+      osmLength: currentOSM?.lengthBlocks,
+      osmLevels: currentOSM?.levels,
+      osmMaterial: currentOSM?.material,
+      osmRoofShape: currentOSM?.roofShape ? mapOSMRoofShape(currentOSM.roofShape) : undefined,
+      streetViewUrl: currentStreetViewUrl ?? undefined,
     };
 
     const options = convertToGenerationOptions(property);
@@ -769,6 +1021,15 @@ export function initImport(
     }
     if (property.architectureType) {
       enrichmentRows += `<div class="info-row"><span class="info-label">Architecture</span><span class="info-value">${escapeHtml(property.architectureType)}</span></div>`;
+    }
+    if (property.osmWidth && property.osmLength) {
+      enrichmentRows += `<div class="info-row"><span class="info-label">Footprint</span><span class="info-value">${currentOSM?.widthMeters}m × ${currentOSM?.lengthMeters}m (OSM)</span></div>`;
+    }
+    if (property.osmMaterial) {
+      enrichmentRows += `<div class="info-row"><span class="info-label">Material</span><span class="info-value">${escapeHtml(property.osmMaterial)} (OSM)</span></div>`;
+    }
+    if (property.osmRoofShape) {
+      enrichmentRows += `<div class="info-row"><span class="info-label">Roof Shape</span><span class="info-value">${escapeHtml(property.osmRoofShape)} (OSM)</span></div>`;
     }
 
     infoPanel.hidden = false;
