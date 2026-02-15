@@ -9,6 +9,9 @@
 /** Seasonal weather type derived from date and location */
 export type SeasonalWeather = 'snow' | 'spring' | 'summer' | 'fall';
 
+/** Tile fetcher function signature — used to swap ESRI/Mapbox tile sources */
+export type TileFetcher = (x: number, y: number, z: number) => Promise<HTMLImageElement>;
+
 /** Convert lat/lng to slippy map tile coordinates at a given zoom level */
 export function latLngToTile(
   lat: number,
@@ -73,6 +76,7 @@ export async function composeSatelliteView(
   lat: number,
   lng: number,
   zoom = 18,
+  tileFetcher?: TileFetcher,
 ): Promise<HTMLCanvasElement> {
   const { tileX, tileY, pixelX, pixelY } = latLngToTile(lat, lng, zoom);
 
@@ -94,8 +98,9 @@ export async function composeSatelliteView(
       const dx = (col + 1) * 256;
       const dy = (row + 1) * 256;
 
+      const fetcher = tileFetcher ?? fetchEsriTile;
       tilePromises.push(
-        fetchTile(tx, ty, zoom)
+        fetcher(tx, ty, zoom)
           .then(img => ({ img, dx, dy }))
           .catch(() => null),
       );
@@ -163,7 +168,7 @@ function drawSeasonOverlay(
 }
 
 /** Fetch a single ESRI World Imagery tile as an HTMLImageElement */
-function fetchTile(x: number, y: number, z: number): Promise<HTMLImageElement> {
+export function fetchEsriTile(x: number, y: number, z: number): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
