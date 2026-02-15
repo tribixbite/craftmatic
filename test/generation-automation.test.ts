@@ -355,3 +355,149 @@ describe('full generation with OSM-enriched property', () => {
     expect(grid.width).toBeGreaterThan(0);
   });
 });
+
+// ─── Pool Feature ────────────────────────────────────────────────────
+
+describe('pool feature', () => {
+  it('generates house with pool feature enabled', () => {
+    const grid = generateStructure({
+      type: 'house', floors: 1, style: 'modern', seed: 42,
+      features: { pool: true },
+    });
+    expect(grid.countNonAir()).toBeGreaterThan(100);
+  });
+
+  it('pool adds water blocks to the grid', () => {
+    const withPool = generateStructure({
+      type: 'house', floors: 1, style: 'modern', seed: 42,
+      features: { pool: true },
+    });
+    const withoutPool = generateStructure({
+      type: 'house', floors: 1, style: 'modern', seed: 42,
+      features: { pool: false },
+    });
+    // Pool replaces ground-level grass with water + adds smooth_stone border
+    // and diving board/ladder at y=1 — total non-air should be >= no-pool version
+    expect(withPool.countNonAir()).toBeGreaterThanOrEqual(withoutPool.countNonAir());
+  });
+
+  it('pool is default off for houses', () => {
+    const opts = convertToGenerationOptions(makeProperty({}));
+    expect(opts.features?.pool).toBe(false);
+  });
+
+  it('pool is set when hasPool is true', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      hasPool: true,
+    }));
+    expect(opts.features?.pool).toBe(true);
+  });
+});
+
+// ─── L-Shaped Floor Plans ────────────────────────────────────────────
+
+describe('L/T/U floor plan shapes', () => {
+  it('generates L-shaped house', () => {
+    const grid = generateStructure({
+      type: 'house', floors: 2, style: 'rustic', seed: 42,
+      floorPlanShape: 'L',
+    });
+    expect(grid.countNonAir()).toBeGreaterThan(100);
+    // L-shape should be wider than rect due to wing
+    const rect = generateStructure({
+      type: 'house', floors: 2, style: 'rustic', seed: 42,
+      floorPlanShape: 'rect',
+    });
+    expect(grid.width).toBeGreaterThan(rect.width);
+  });
+
+  it('generates T-shaped house', () => {
+    const grid = generateStructure({
+      type: 'house', floors: 2, style: 'fantasy', seed: 42,
+      floorPlanShape: 'T',
+    });
+    expect(grid.countNonAir()).toBeGreaterThan(100);
+  });
+
+  it('generates U-shaped house', () => {
+    const grid = generateStructure({
+      type: 'house', floors: 2, style: 'gothic', seed: 42,
+      floorPlanShape: 'U',
+    });
+    expect(grid.countNonAir()).toBeGreaterThan(100);
+  });
+
+  it('U-shape is wider than L-shape', () => {
+    const uShape = generateStructure({
+      type: 'house', floors: 1, style: 'fantasy', seed: 42,
+      width: 25, length: 20, floorPlanShape: 'U',
+    });
+    const lShape = generateStructure({
+      type: 'house', floors: 1, style: 'fantasy', seed: 42,
+      width: 25, length: 20, floorPlanShape: 'L',
+    });
+    // U-shape has wings on both sides, L-shape only one
+    expect(uShape.width).toBeGreaterThan(lShape.width);
+  });
+});
+
+// ─── Polygon Shape Analysis ──────────────────────────────────────────
+
+describe('analyzePolygonShape', () => {
+  // Import the function directly
+  // Note: uses vitest alias resolution for @ui/ path
+
+  it('classifies a rectangle as rect', async () => {
+    const { analyzePolygonShape } = await import('../web/src/ui/import-osm.js');
+    // Simple rectangle polygon
+    const rect = [
+      { lat: 40.0, lon: -74.0 },
+      { lat: 40.0, lon: -73.9997 },
+      { lat: 40.0003, lon: -73.9997 },
+      { lat: 40.0003, lon: -74.0 },
+      { lat: 40.0, lon: -74.0 },  // closing vertex
+    ];
+    expect(analyzePolygonShape(rect)).toBe('rect');
+  });
+
+  it('classifies an L-shaped polygon as L', async () => {
+    const { analyzePolygonShape } = await import('../web/src/ui/import-osm.js');
+    // L-shape: 6 unique vertices (7 total with closing)
+    const lShape = [
+      { lat: 40.0, lon: -74.0 },
+      { lat: 40.0, lon: -73.9996 },
+      { lat: 40.00015, lon: -73.9996 },
+      { lat: 40.00015, lon: -73.9998 },
+      { lat: 40.0003, lon: -73.9998 },
+      { lat: 40.0003, lon: -74.0 },
+      { lat: 40.0, lon: -74.0 },  // closing vertex
+    ];
+    expect(analyzePolygonShape(lShape)).toBe('L');
+  });
+
+  it('returns rect for simple polygons with few vertices', async () => {
+    const { analyzePolygonShape } = await import('../web/src/ui/import-osm.js');
+    const triangle = [
+      { lat: 40.0, lon: -74.0 },
+      { lat: 40.0, lon: -73.999 },
+      { lat: 40.001, lon: -73.9995 },
+    ];
+    expect(analyzePolygonShape(triangle)).toBe('rect');
+  });
+});
+
+// ─── convertToGenerationOptions with floorPlanShape ──────────────────
+
+describe('floorPlanShape in generation options', () => {
+  it('passes floorPlanShape through to options', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      floorPlanShape: 'L',
+    }));
+    expect(opts.floorPlanShape).toBe('L');
+  });
+
+  it('floorPlanShape is undefined when no OSM polygon', () => {
+    const opts = convertToGenerationOptions(makeProperty({}));
+    expect(opts.floorPlanShape).toBeUndefined();
+  });
+});

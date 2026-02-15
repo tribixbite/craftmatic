@@ -222,6 +222,77 @@ export function polygonBoundingDimensions(
   return { widthMeters: a, lengthMeters: b };
 }
 
+// ─── Polygon Shape Analysis ─────────────────────────────────────────────────
+
+import type { FloorPlanShape } from '@craft/types/index.js';
+
+/**
+ * Analyze an OSM building polygon to determine if it's rectangular, L-shaped,
+ * T-shaped, or U-shaped. Uses the polygon's axis-aligned bounding box fill ratio
+ * and vertex count as heuristics.
+ *
+ * Method: compute polygon area vs bounding box area. A rectangle fills ~95%+.
+ * Non-rectangular shapes (L, T, U) fill 50-80%. Vertex count helps distinguish:
+ * - L-shape: 6-8 vertices (one notch)
+ * - T-shape: 8-10 vertices (one protrusion)
+ * - U-shape: 10-12 vertices (two protrusions)
+ *
+ * @param polygon OSM building polygon vertices
+ * @returns Detected floor plan shape
+ */
+export function analyzePolygonShape(
+  polygon: { lat: number; lon: number }[]
+): FloorPlanShape {
+  if (polygon.length < 5) return 'rect';
+
+  // Compute polygon area using shoelace formula (in projected meters)
+  const centerLat = polygon.reduce((s, p) => s + p.lat, 0) / polygon.length;
+  const latScale = 111320; // meters per degree latitude
+  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180); // meters per degree longitude
+
+  // Project to meters
+  const projected = polygon.map(p => ({
+    x: (p.lon - polygon[0].lon) * lonScale,
+    y: (p.lat - polygon[0].lat) * latScale,
+  }));
+
+  // Shoelace polygon area
+  let polyArea = 0;
+  for (let i = 0; i < projected.length; i++) {
+    const j = (i + 1) % projected.length;
+    polyArea += projected[i].x * projected[j].y;
+    polyArea -= projected[j].x * projected[i].y;
+  }
+  polyArea = Math.abs(polyArea) / 2;
+
+  // Bounding box area
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of projected) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const bboxArea = (maxX - minX) * (maxY - minY);
+  if (bboxArea <= 0) return 'rect';
+
+  const fillRatio = polyArea / bboxArea;
+
+  // Deduplicate closing vertex (OSM polygons repeat first vertex as last)
+  const uniqueVerts = polygon.length > 3 &&
+    polygon[0].lat === polygon[polygon.length - 1].lat &&
+    polygon[0].lon === polygon[polygon.length - 1].lon
+    ? polygon.length - 1
+    : polygon.length;
+
+  // Classification heuristics
+  if (fillRatio > 0.88) return 'rect'; // Nearly rectangular
+
+  if (uniqueVerts <= 8) return 'L';     // Simple notch = L
+  if (uniqueVerts <= 10) return 'T';    // One protrusion = T
+  return 'U';                            // Two protrusions or complex = U
+}
+
 // ─── Material Mapping ───────────────────────────────────────────────────────
 
 /** Map OSM building:material values to Minecraft wall blocks */
