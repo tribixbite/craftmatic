@@ -170,3 +170,15 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Clipboard paste support: Ctrl+V image paste for floor plan (in addition to drag-and-drop)
 - [x] New construction detection: yearBuilt >= 2020 or Parcl flag → forces modern style
 - [x] Zero external dependencies — native fetch, Canvas, FileReader, sessionStorage only
+
+### Property Data Enrichment
+- [x] RentCast API integration: floor count, lot size, exterior type, roof type, architecture style
+- [x] RentCast API key management: localStorage persistence, masked display, side-by-side with Parcl key
+- [x] Satellite color extraction: dominant building color from 50px radius around crosshair
+- [x] HSL pixel filtering: removes grass (H=80-160), sky/water (H=180-250), shadows (L<15%), glare (L>92%)
+- [x] Hue bucket clustering: 12 bins + gray bucket, returns average RGB of largest cluster
+- [x] Color→wall mapping: Euclidean RGB distance to 10 Minecraft wall materials
+- [x] Exterior→wall mapping: regex-based RentCast exterior type to block state (brick, stone, wood, etc.)
+- [x] wallOverride priority chain: RentCast exterior (best) → satellite color (fallback) → manual style chips
+- [x] Info panel enrichment: lot size, exterior type, detected color swatch, wall material, roof, architecture
+- [x] Test suite: 102 → 132 tests (color mapping, exterior mapping, enrichment pipeline)
