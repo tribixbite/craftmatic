@@ -887,7 +887,7 @@ export function weatherWalls(
  */
 export function addCobwebs(
   grid: BlockGrid,
-  x1: number, y1: number, z1: number,
+  x1: number, _y1: number, z1: number,
   x2: number, y2: number, z2: number,
   rng: () => number,
   chance = 0.15,
