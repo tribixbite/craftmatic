@@ -164,7 +164,7 @@ describe('OSM Overpass live integration — 10 notable houses', () => {
       if (result.roofShape) {
         expect(mapOSMRoofShape(result.roofShape).length).toBeGreaterThan(0);
       }
-    }, 30000); // 30s timeout (accounts for retries in the client)
+    }, 60000); // 60s timeout (accounts for retries + CI latency)
   }
 
   // Summary: at least 7/10 should have returned actual building data
