@@ -806,6 +806,26 @@ function generateCastle(
     grid.set(bx2, wallH + 1, z, style.wall);
   }
 
+  // ── Wall buttresses — pilasters every 5 blocks for facade depth ──
+  for (let x = bx1 + 5; x <= bx2 - 5; x += 5) {
+    for (let y = 1; y <= wallH; y++) {
+      // North wall buttress (protrudes outward)
+      if (grid.inBounds(x, y, bz1 - 1))
+        grid.set(x, y, bz1 - 1, style.wallAccent);
+      // South wall buttress
+      if (grid.inBounds(x, y, bz2 + 1))
+        grid.set(x, y, bz2 + 1, style.wallAccent);
+    }
+  }
+  for (let z = bz1 + 5; z <= bz2 - 5; z += 5) {
+    for (let y = 1; y <= wallH; y++) {
+      if (grid.inBounds(bx1 - 1, y, z))
+        grid.set(bx1 - 1, y, z, style.wallAccent);
+      if (grid.inBounds(bx2 + 1, y, z))
+        grid.set(bx2 + 1, y, z, style.wallAccent);
+    }
+  }
+
   // Walkway along wall tops
   grid.fill(bx1 + 1, wallH, bz1, bx1 + 2, wallH, bz2, style.floorUpper);
   grid.fill(bx2 - 2, wallH, bz1, bx2 - 1, wallH, bz2, style.floorUpper);
@@ -1501,6 +1521,25 @@ function generateDungeon(
     addCobwebs(grid, bx1 + 1, by + 1, bz1 + 1, bx2 - 1, by + STORY_H - 1, bz2 - 1, rng, 0.12);
     addChains(grid, bx1 + 2, by + STORY_H - 1, bz1 + 2, bx2 - 2, bz2 - 2, rng, 0.06);
   }
+
+  // ── Edge-defining accent blocks — high-contrast pilasters on entrance corners ──
+  // Polished blackstone/deepslate trim on entrance vertical edges for silhouette definition
+  const edgeBlock = style.wall === 'minecraft:deepslate_bricks'
+    ? 'minecraft:polished_blackstone' : 'minecraft:polished_deepslate';
+  for (let y = groundY + 1; y <= groundY + entrH; y++) {
+    // Entrance building vertical corners
+    for (const [ex, ez] of [[ex1, ez1], [ex2, ez1], [ex1, ez2], [ex2, ez2]] as [number, number][]) {
+      if (grid.inBounds(ex, y, ez))
+        grid.set(ex, y, ez, edgeBlock);
+    }
+  }
+  // Accent band along entrance roofline
+  accentBand(grid, ex1, groundY + entrH, ez1, ex2, ez2, style.wallAccent);
+  // Lanterns flanking entrance gate
+  if (grid.inBounds(xMid - 3, groundY + 3, ez1 - 1))
+    grid.set(xMid - 3, groundY + 3, ez1 - 1, style.lanternFloor);
+  if (grid.inBounds(xMid + 3, groundY + 3, ez1 - 1))
+    grid.set(xMid + 3, groundY + 3, ez1 - 1, style.lanternFloor);
 
   return grid;
 }
