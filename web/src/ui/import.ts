@@ -506,67 +506,79 @@ export function initImport(
   controls.innerHTML = `
     <div class="section-title">Import from Address</div>
 
-    <!-- API keys (collapsible) -->
-    <details class="customize-section" id="import-api-section" ${savedParclKey && savedRentCastKey ? '' : 'open'}>
-      <summary class="customize-summary">API Keys</summary>
-      <div class="customize-body import-api-grid">
+    <!-- API keys (collapsible, defaults closed — expand via button) -->
+    <details class="customize-section" id="import-api-section">
+      <summary class="customize-summary">API Keys
+        <span class="import-api-badge" id="import-api-badge">${
+          [savedParclKey, savedRentCastKey, savedStreetViewKey, savedMapboxToken].filter(Boolean).length
+        }/4</span>
+      </summary>
+      <div class="customize-body import-api-list">
         <!-- Parcl Labs key -->
-        <div class="import-api-entry">
-          <div class="import-api-hint">
-            <strong>Parcl Labs</strong> — beds, baths, sqft, year.
-            <a href="https://app.parcllabs.com" target="_blank" rel="noopener" style="color:var(--accent);">Get free key</a>
+        <div class="import-api-row">
+          <div class="import-api-label">
+            <strong>Parcl Labs</strong>
+            <span class="import-api-desc">beds, baths, sqft, year</span>
           </div>
-          <div class="import-address-row">
-            <input id="import-parcl-key" type="password" class="form-input"
-              placeholder="Parcl API key" value="${escapeAttr(savedParclKey)}">
+          <div class="import-api-input-row">
+            <input id="import-parcl-key" type="password" class="form-input import-api-key-input"
+              placeholder="Paste API key" value="${escapeAttr(savedParclKey)}">
             <button id="import-parcl-save" class="btn btn-secondary btn-sm">${savedParclKey ? 'Saved' : 'Save'}</button>
+            <a href="https://app.parcllabs.com" target="_blank" rel="noopener"
+              class="import-api-link" title="Get free key">Get key</a>
           </div>
-          <div id="import-parcl-status" style="font-size:11px;color:var(--text-muted);">
+          <div id="import-parcl-status" class="import-api-status">
             ${parclKeyMasked ? `Key stored: ${parclKeyMasked}` : 'No key — manual entry only'}
           </div>
         </div>
         <!-- RentCast key -->
-        <div class="import-api-entry">
-          <div class="import-api-hint">
-            <strong>RentCast</strong> — floors, lot size, exterior, roof, architecture.
-            <a href="https://app.rentcast.io" target="_blank" rel="noopener" style="color:var(--accent);">Get free key</a>
+        <div class="import-api-row">
+          <div class="import-api-label">
+            <strong>RentCast</strong>
+            <span class="import-api-desc">floors, lot size, exterior, roof</span>
           </div>
-          <div class="import-address-row">
-            <input id="import-rentcast-key" type="password" class="form-input"
-              placeholder="RentCast API key" value="${escapeAttr(savedRentCastKey)}">
+          <div class="import-api-input-row">
+            <input id="import-rentcast-key" type="password" class="form-input import-api-key-input"
+              placeholder="Paste API key" value="${escapeAttr(savedRentCastKey)}">
             <button id="import-rentcast-save" class="btn btn-secondary btn-sm">${savedRentCastKey ? 'Saved' : 'Save'}</button>
+            <a href="https://app.rentcast.io" target="_blank" rel="noopener"
+              class="import-api-link" title="Get free key">Get key</a>
           </div>
-          <div id="import-rentcast-status" style="font-size:11px;color:var(--text-muted);">
-            ${rentCastKeyMasked ? `Key stored: ${rentCastKeyMasked}` : 'No key — satellite color detection used instead'}
+          <div id="import-rentcast-status" class="import-api-status">
+            ${rentCastKeyMasked ? `Key stored: ${rentCastKeyMasked}` : 'No key — satellite color used instead'}
           </div>
         </div>
         <!-- Google Street View key -->
-        <div class="import-api-entry">
-          <div class="import-api-hint">
-            <strong>Google Street View</strong> — exterior property photo.
-            <a href="${STREETVIEW_SIGNUP_URL}" target="_blank" rel="noopener" style="color:var(--accent);">Get free key</a>
+        <div class="import-api-row">
+          <div class="import-api-label">
+            <strong>Street View</strong>
+            <span class="import-api-desc">exterior property photo</span>
           </div>
-          <div class="import-address-row">
-            <input id="import-sv-key" type="password" class="form-input"
-              placeholder="Google API key" value="${escapeAttr(savedStreetViewKey)}">
+          <div class="import-api-input-row">
+            <input id="import-sv-key" type="password" class="form-input import-api-key-input"
+              placeholder="Paste API key" value="${escapeAttr(savedStreetViewKey)}">
             <button id="import-sv-save" class="btn btn-secondary btn-sm">${savedStreetViewKey ? 'Saved' : 'Save'}</button>
+            <a href="${STREETVIEW_SIGNUP_URL}" target="_blank" rel="noopener"
+              class="import-api-link" title="Get free key">Get key</a>
           </div>
-          <div id="import-sv-status" style="font-size:11px;color:var(--text-muted);">
+          <div id="import-sv-status" class="import-api-status">
             ${svKeyMasked ? `Key stored: ${svKeyMasked}` : 'No key — no exterior photo'}
           </div>
         </div>
         <!-- Mapbox token -->
-        <div class="import-api-entry">
-          <div class="import-api-hint">
-            <strong>Mapbox</strong> — high-res satellite (30cm).
-            <a href="${MAPBOX_SIGNUP_URL}" target="_blank" rel="noopener" style="color:var(--accent);">Get free token</a>
+        <div class="import-api-row">
+          <div class="import-api-label">
+            <strong>Mapbox</strong>
+            <span class="import-api-desc">high-res satellite (30cm)</span>
           </div>
-          <div class="import-address-row">
-            <input id="import-mb-token" type="password" class="form-input"
-              placeholder="Mapbox access token" value="${escapeAttr(savedMapboxToken)}">
+          <div class="import-api-input-row">
+            <input id="import-mb-token" type="password" class="form-input import-api-key-input"
+              placeholder="Paste access token" value="${escapeAttr(savedMapboxToken)}">
             <button id="import-mb-save" class="btn btn-secondary btn-sm">${savedMapboxToken ? 'Saved' : 'Save'}</button>
+            <a href="${MAPBOX_SIGNUP_URL}" target="_blank" rel="noopener"
+              class="import-api-link" title="Get free token">Get token</a>
           </div>
-          <div id="import-mb-status" style="font-size:11px;color:var(--text-muted);">
+          <div id="import-mb-status" class="import-api-status">
             ${mbTokenMasked ? `Token stored: ${mbTokenMasked}` : 'No token — using ESRI satellite'}
           </div>
         </div>
@@ -698,6 +710,15 @@ export function initImport(
   const fieldKeys = ['stories', 'sqft', 'beds', 'baths', 'year'] as const;
 
   // ── API Key management ────────────────────────────────────────────────
+  const apiBadge = controls.querySelector('#import-api-badge') as HTMLElement;
+
+  /** Update the N/4 badge count after any key save */
+  function updateApiBadge(): void {
+    const count = [hasParclApiKey(), hasRentCastApiKey(), hasStreetViewApiKey(), hasMapboxToken()]
+      .filter(Boolean).length;
+    apiBadge.textContent = `${count}/4`;
+  }
+
   // Parcl Labs key
   parclSaveBtn.addEventListener('click', () => {
     const key = parclKeyInput.value.trim();
@@ -709,8 +730,7 @@ export function initImport(
       parclSaveBtn.textContent = 'Save';
       parclStatus.textContent = 'No key — manual entry only';
     }
-    // Auto-close if both keys are set
-    if (hasParclApiKey() && hasRentCastApiKey()) { apiSection.open = false; }
+    updateApiBadge();
   });
   parclKeyInput.addEventListener('input', () => { parclSaveBtn.textContent = 'Save'; });
 
@@ -723,9 +743,9 @@ export function initImport(
       rentCastStatus.textContent = `Key stored: ••••${key.slice(-4)}`;
     } else {
       rentCastSaveBtn.textContent = 'Save';
-      rentCastStatus.textContent = 'No key — satellite color detection used instead';
+      rentCastStatus.textContent = 'No key — satellite color used instead';
     }
-    if (hasParclApiKey() && hasRentCastApiKey()) { apiSection.open = false; }
+    updateApiBadge();
   });
   rentCastKeyInput.addEventListener('input', () => { rentCastSaveBtn.textContent = 'Save'; });
 
@@ -740,6 +760,7 @@ export function initImport(
       svSaveBtn.textContent = 'Save';
       svStatus.textContent = 'No key — no exterior photo';
     }
+    updateApiBadge();
   });
   svKeyInput.addEventListener('input', () => { svSaveBtn.textContent = 'Save'; });
 
@@ -754,6 +775,7 @@ export function initImport(
       mbSaveBtn.textContent = 'Save';
       mbStatus.textContent = 'No token — using ESRI satellite';
     }
+    updateApiBadge();
   });
   mbTokenInput.addEventListener('input', () => { mbSaveBtn.textContent = 'Save'; });
 

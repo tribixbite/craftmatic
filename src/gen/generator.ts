@@ -134,14 +134,16 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
   // Add ground plane — grass for land structures, water for ships/bridges
   // Village already has its own grass layer, skip it
   if (type !== 'village') {
-    const groundBlock = (type === 'ship' || type === 'bridge')
-      ? 'minecraft:water'
-      : 'minecraft:grass_block';
+    const isWaterType = type === 'ship' || type === 'bridge';
+    const groundBlock = isWaterType ? 'minecraft:water' : 'minecraft:grass_block';
+    // Ships get a waterline at ~40% hull depth so they look immersed
+    const waterHeight = isWaterType ? 2 : 0;
     for (let x = 0; x < grid.width; x++) {
       for (let z = 0; z < grid.length; z++) {
-        // Only fill empty ground-level cells (y=0)
-        if (grid.get(x, 0, z) === 'minecraft:air') {
-          grid.set(x, 0, z, groundBlock);
+        for (let y = 0; y <= waterHeight; y++) {
+          if (grid.get(x, y, z) === 'minecraft:air') {
+            grid.set(x, y, z, groundBlock);
+          }
         }
       }
     }
@@ -1318,41 +1320,44 @@ function generateShip(
 
   const grid = new BlockGrid(gw, gh, gl);
 
-  // Hull shape: tapers at bow and stern, with solid fill below deck
-  const hullDepth = 3; // hull extends this many blocks below deck
+  // Hull shape: deeper V-hull with smooth bow/stern curvature
+  const hullDepth = 5; // deeper hull for realistic ship profile
   const hullBase = hullDepth; // Y level of deck
   for (let z = sz1; z <= sz2; z++) {
     const zFrac = (z - sz1) / (sz2 - sz1); // 0=stern, 1=bow
     let halfWidth: number;
-    if (zFrac < 0.15) {
-      // Stern taper
-      halfWidth = Math.round((zFrac / 0.15) * (shipW / 2));
-    } else if (zFrac > 0.85) {
-      // Bow taper — sharper point
-      halfWidth = Math.round(((1 - zFrac) / 0.15) * (shipW / 2));
+    if (zFrac < 0.18) {
+      // Stern taper — smooth cosine curve for rounded transom
+      const t = zFrac / 0.18;
+      halfWidth = Math.round((0.5 - 0.5 * Math.cos(Math.PI * t)) * (shipW / 2));
+    } else if (zFrac > 0.82) {
+      // Bow taper — sharper cosine curve for pointed prow
+      const t = (1 - zFrac) / 0.18;
+      halfWidth = Math.round((0.5 - 0.5 * Math.cos(Math.PI * t)) * (shipW / 2));
     } else {
       halfWidth = Math.floor(shipW / 2);
     }
     halfWidth = Math.max(1, halfWidth);
 
-    // Hull layers from keel to deck
+    // Hull layers from keel to deck with pronounced V-shape
     for (let y = 0; y <= hullBase; y++) {
-      // Hull narrows toward the keel (bottom) for a V-shape cross section
+      // Keel narrows to ~25% of deck width using smoothstep for round hull curvature
       const depthFrac = y / hullBase; // 0=keel, 1=deck
-      const layerHalf = Math.max(1, Math.round(halfWidth * (0.5 + 0.5 * depthFrac)));
+      const curveFrac = depthFrac * depthFrac * (3 - 2 * depthFrac);
+      const layerHalf = Math.max(1, Math.round(halfWidth * (0.25 + 0.75 * curveFrac)));
 
       for (let dx = -layerHalf; dx <= layerHalf; dx++) {
         const x = cx + dx;
         if (!grid.inBounds(x, y, z)) continue;
 
         if (Math.abs(dx) >= layerHalf - 1) {
-          // Hull shell (outer wall)
+          // Hull shell (outer planking)
           grid.set(x, y, z, style.wall);
         } else if (y === 0) {
           // Keel bottom
           grid.set(x, y, z, style.foundation);
         } else if (y < hullBase) {
-          // Below-deck hull interior fill (solid for structural look)
+          // Below-deck hull interior (solid for structure)
           grid.set(x, y, z, style.wall);
         }
       }
