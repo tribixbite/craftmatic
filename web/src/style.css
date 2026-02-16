@@ -795,6 +795,83 @@ html, body {
   border-radius: var(--radius);
 }
 
+/* Compact per-row API key entries */
+.import-api-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.import-api-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.import-api-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.import-api-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.import-api-label strong {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.import-api-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.import-api-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.import-api-key-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.import-api-link {
+  font-size: 11px;
+  color: var(--accent);
+  white-space: nowrap;
+  text-decoration: none;
+  opacity: 0.8;
+}
+
+.import-api-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.import-api-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Badge showing N/4 keys configured */
+.import-api-badge {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-light);
+  border-radius: 8px;
+  padding: 1px 6px;
+  margin-left: 6px;
+}
+
 .import-api-hint {
   font-size: 11px;
   color: var(--text-muted);
@@ -813,7 +890,7 @@ html, body {
   margin: 0 2px;
 }
 
-/* API key grid — 2-column layout on wider screens for 4 key entries */
+/* Legacy import-api-grid kept for backward compat */
 .import-api-grid {
   display: flex;
   flex-direction: column;
@@ -824,14 +901,6 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-@media (min-width: 600px) {
-  .import-api-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-  }
 }
 
 /* Street View image in the satellite viewer area */

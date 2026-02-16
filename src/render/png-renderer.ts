@@ -392,31 +392,31 @@ function renderIsoBlock(
   const southTex = getTexData(texAtlas, blockState, 'south');
   const ts = texAtlas.tileSize;
 
-  // Top face (bright): +30 brightness
-  const topBright = ao * 1.15;
+  // Top face (sunlit): strong brightness for overhead light
+  const topBright = ao * 1.2;
   if (topTex && tile >= 4) {
     blitTextureIsoTop(pixels, imgW, sx, sy, tile, halfT, topTex, ts, topBright);
   } else {
     fillDiamond(pixels, imgW, sx, sy, tile, halfT,
-      [clamp(r + 30), clamp(g + 30), clamp(b + 30)]);
+      [clamp(r + 35), clamp(g + 35), clamp(b + 35)]);
   }
 
-  // Left face (medium): west texture, -15 brightness
-  const leftBright = ao * 0.85;
+  // Left face (side-lit): west texture, moderate shadow
+  const leftBright = ao * 0.78;
   if (westTex && tile >= 4) {
     blitTextureIsoLeft(pixels, imgW, sx - tile, sy + halfT, tile, tile, westTex, ts, leftBright);
   } else {
     fillParallelogramLeft(pixels, imgW, sx - tile, sy + halfT, tile, tile,
-      [clamp(r - 15), clamp(g - 15), clamp(b - 15)]);
+      [clamp(r - 25), clamp(g - 25), clamp(b - 25)]);
   }
 
-  // Right face (dark): south texture, -35 brightness
-  const rightBright = ao * 0.70;
+  // Right face (shadowed): south texture, deep shadow for depth
+  const rightBright = ao * 0.60;
   if (southTex && tile >= 4) {
     blitTextureIsoRight(pixels, imgW, sx, sy + tile, tile, tile, southTex, ts, rightBright);
   } else {
     fillParallelogramRight(pixels, imgW, sx, sy + tile, tile, tile,
-      [clamp(r - 35), clamp(g - 35), clamp(b - 35)]);
+      [clamp(r - 50), clamp(g - 50), clamp(b - 50)]);
   }
 
   // Edge outlines for definition
