@@ -2,7 +2,7 @@
  * Gallery — pre-generated structure showcase with thumbnail previews.
  */
 
-import type { StructureType, StyleName } from '@craft/types/index.js';
+import type { StructureType, StyleName, RoofShape, FloorPlanShape } from '@craft/types/index.js';
 import { generateStructure } from '@craft/gen/generator.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { getBlockColor } from '@craft/blocks/colors.js';
@@ -14,17 +14,21 @@ interface GalleryEntry {
   floors: number;
   seed: number;
   label: string;
+  /** Optional roof shape override for the gallery preset */
+  roofShape?: RoofShape;
+  /** Optional floor plan shape for non-rectangular houses */
+  planShape?: FloorPlanShape;
 }
 
 const GALLERY_ENTRIES: GalleryEntry[] = [
   // Original 12
   { type: 'house', style: 'fantasy', floors: 2, seed: 42, label: 'Fantasy Cottage' },
-  { type: 'house', style: 'medieval', floors: 3, seed: 100, label: 'Medieval Manor' },
+  { type: 'house', style: 'medieval', floors: 3, seed: 100, label: 'Medieval Manor', planShape: 'L' },
   { type: 'tower', style: 'gothic', floors: 4, seed: 77, label: 'Gothic Tower' },
   { type: 'castle', style: 'medieval', floors: 2, seed: 200, label: 'Medieval Castle' },
   { type: 'dungeon', style: 'gothic', floors: 2, seed: 300, label: 'Gothic Dungeon' },
   { type: 'ship', style: 'rustic', floors: 2, seed: 500, label: 'Rustic Ship' },
-  { type: 'house', style: 'modern', floors: 2, seed: 600, label: 'Modern House' },
+  { type: 'house', style: 'modern', floors: 2, seed: 600, label: 'Modern House', roofShape: 'flat' },
   { type: 'tower', style: 'fantasy', floors: 5, seed: 700, label: 'Wizard Tower' },
   { type: 'castle', style: 'gothic', floors: 3, seed: 800, label: 'Dark Fortress' },
   { type: 'house', style: 'rustic', floors: 2, seed: 900, label: 'Rustic Cabin' },
@@ -36,7 +40,7 @@ const GALLERY_ENTRIES: GalleryEntry[] = [
   { type: 'windmill', style: 'rustic', floors: 1, seed: 33, label: 'Rustic Windmill' },
   { type: 'marketplace', style: 'desert', floors: 1, seed: 55, label: 'Desert Bazaar' },
   { type: 'village', style: 'medieval', floors: 1, seed: 42, label: 'Medieval Village' },
-  { type: 'house', style: 'steampunk', floors: 2, seed: 42, label: 'Steampunk Workshop' },
+  { type: 'house', style: 'steampunk', floors: 2, seed: 42, label: 'Steampunk Workshop', planShape: 'T' },
   { type: 'tower', style: 'elven', floors: 4, seed: 88, label: 'Elven Spire' },
   { type: 'castle', style: 'underwater', floors: 2, seed: 150, label: 'Undersea Citadel' },
 ];
@@ -169,6 +173,8 @@ export function initGallery(
             floors: entry.floors,
             style: entry.style,
             seed: entry.seed,
+            ...(entry.roofShape ? { roofShape: entry.roofShape } : {}),
+            ...(entry.planShape ? { floorPlanShape: entry.planShape } : {}),
           });
           const canvas = card.querySelector('canvas')!;
           renderThumbnail(canvas, grid);
