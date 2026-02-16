@@ -855,3 +855,120 @@ export function addPropertyFence(
   if (grid.inBounds(backGateX, 1, fz1))
     grid.set(backGateX, 1, fz1, `minecraft:oak_fence_gate[facing=south,open=false]`);
 }
+
+// ─── Building Enhancement Utilities ─────────────────────────────────────────
+
+/**
+ * Randomly weather wall blocks by mixing in cracked/mossy variants.
+ * Only replaces exact matches of the target block.
+ */
+export function weatherWalls(
+  grid: BlockGrid,
+  x1: number, y1: number, z1: number,
+  x2: number, y2: number, z2: number,
+  targetBlock: string,
+  variants: string[],
+  rng: () => number,
+  chance = 0.2,
+): void {
+  for (let x = x1; x <= x2; x++) {
+    for (let y = y1; y <= y2; y++) {
+      for (let z = z1; z <= z2; z++) {
+        if (grid.get(x, y, z) === targetBlock && rng() < chance) {
+          grid.set(x, y, z, variants[Math.floor(rng() * variants.length)]);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Scatter cobwebs in corners and ceiling edges of a room volume.
+ */
+export function addCobwebs(
+  grid: BlockGrid,
+  x1: number, y1: number, z1: number,
+  x2: number, y2: number, z2: number,
+  rng: () => number,
+  chance = 0.15,
+): void {
+  // Ceiling corners and edges
+  for (let x = x1; x <= x2; x++) {
+    for (let z = z1; z <= z2; z++) {
+      // Only place in corner/edge positions
+      const isEdge = x === x1 || x === x2 || z === z1 || z === z2;
+      if (isEdge && rng() < chance) {
+        // Place at ceiling level if air
+        if (grid.inBounds(x, y2, z) && grid.get(x, y2, z) === 'minecraft:air') {
+          grid.set(x, y2, z, 'minecraft:cobweb');
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Add hanging chains from ceiling at random positions.
+ */
+export function addChains(
+  grid: BlockGrid,
+  x1: number, ceilY: number, z1: number,
+  x2: number, z2: number,
+  rng: () => number,
+  chance = 0.08,
+  maxLen = 2,
+): void {
+  for (let x = x1; x <= x2; x++) {
+    for (let z = z1; z <= z2; z++) {
+      if (rng() < chance) {
+        const len = 1 + Math.floor(rng() * maxLen);
+        for (let dy = 0; dy < len; dy++) {
+          const y = ceilY - dy;
+          if (grid.inBounds(x, y, z) && grid.get(x, y, z) === 'minecraft:air') {
+            grid.set(x, y, z, 'minecraft:chain');
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Add horizontal accent band between floors (for modern facade depth).
+ */
+export function accentBand(
+  grid: BlockGrid,
+  x1: number, y: number, z1: number,
+  x2: number, z2: number,
+  block: string,
+): void {
+  // North and south walls
+  for (let x = x1; x <= x2; x++) {
+    if (grid.inBounds(x, y, z1)) grid.set(x, y, z1, block);
+    if (grid.inBounds(x, y, z2)) grid.set(x, y, z2, block);
+  }
+  // East and west walls
+  for (let z = z1; z <= z2; z++) {
+    if (grid.inBounds(x1, y, z)) grid.set(x1, y, z, block);
+    if (grid.inBounds(x2, y, z)) grid.set(x2, y, z, block);
+  }
+}
+
+/**
+ * Add glass curtain wall section — replace wall blocks with glass on a facade.
+ * Operates on a single wall face (north or south).
+ */
+export function glassCurtainWall(
+  grid: BlockGrid,
+  x1: number, y1: number, y2: number,
+  z: number, x2: number,
+  glassBlock: string,
+): void {
+  for (let x = x1 + 1; x < x2; x++) {
+    for (let y = y1; y <= y2; y++) {
+      if (grid.inBounds(x, y, z)) {
+        grid.set(x, y, z, glassBlock);
+      }
+    }
+  }
+}
