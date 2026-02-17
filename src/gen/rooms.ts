@@ -459,7 +459,7 @@ function generateVault(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
     }
   }
 
-  // Gold pyramid
+  // Gold pyramid centerpiece
   grid.set(cx, y, cz, 'minecraft:gold_block');
   grid.set(cx + 1, y, cz, 'minecraft:gold_block');
   grid.set(cx - 1, y, cz, 'minecraft:gold_block');
@@ -470,29 +470,61 @@ function generateVault(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
   // Dragon egg on top
   grid.set(cx, y + 2, cz, 'minecraft:dragon_egg');
 
-  // Diamond/emerald pedestals
+  // Diamond/emerald pedestals on both sides
   grid.set(x2 - 2, y, z1 + 2, 'minecraft:diamond_block');
   grid.set(x2 - 2, y + 1, z1 + 2, 'minecraft:diamond_block');
   grid.set(x2 - 2, y, z2 - 2, 'minecraft:emerald_block');
   grid.set(x2 - 2, y + 1, z2 - 2, 'minecraft:emerald_block');
+  // Lapis/netherite pedestals on the other side
+  grid.set(x1 + 2, y, z1 + 2, 'minecraft:lapis_block');
+  grid.set(x1 + 2, y + 1, z1 + 2, 'minecraft:lapis_block');
+  grid.set(x1 + 2, y, z2 - 2, 'minecraft:netherite_block');
+  grid.set(x1 + 2, y + 1, z2 - 2, 'minecraft:netherite_block');
 
-  // Treasure chests
+  // Treasure chests (multiple)
   grid.addChest(x2 - 1, y, z1 + 1, 'south', [
     { slot: 0, id: 'minecraft:diamond', count: 64 },
     { slot: 1, id: 'minecraft:emerald', count: 64 },
     { slot: 2, id: 'minecraft:gold_ingot', count: 64 },
     { slot: 3, id: 'minecraft:netherite_ingot', count: 16 },
   ]);
+  grid.addChest(x1 + 1, y, z2 - 1, 'north', [
+    { slot: 0, id: 'minecraft:enchanted_golden_apple', count: 8 },
+    { slot: 1, id: 'minecraft:nether_star', count: 1 },
+  ]);
 
-  // Soul lanterns
-  chandelier(grid, cx - 2, y + height - 1, z1 + 2, { ...style, lantern: 'minecraft:soul_lantern[hanging=true]' }, 1);
-  chandelier(grid, cx + 2, y + height - 1, z2 - 2, { ...style, lantern: 'minecraft:soul_lantern[hanging=true]' }, 1);
+  // Carpet paths connecting displays in a cross pattern
+  for (let x = x1 + 1; x <= x2 - 1; x++) {
+    grid.set(x, y, cz, 'minecraft:black_carpet');
+  }
+  for (let z = z1 + 1; z <= z2 - 1; z++) {
+    grid.set(cx, y, z, 'minecraft:black_carpet');
+  }
 
-  // Crying obsidian corners
+  // Redstone lamp accent lighting at midpoints along paths
+  grid.set(cx - 2, y - 1, cz, 'minecraft:redstone_lamp[lit=true]');
+  grid.set(cx + 2, y - 1, cz, 'minecraft:redstone_lamp[lit=true]');
+  grid.set(cx, y - 1, cz - 2, 'minecraft:redstone_lamp[lit=true]');
+  grid.set(cx, y - 1, cz + 2, 'minecraft:redstone_lamp[lit=true]');
+
+  // Soul lanterns (four for even coverage)
+  const soulStyle = { ...style, lantern: 'minecraft:soul_lantern[hanging=true]' };
+  chandelier(grid, cx - 2, y + height - 1, z1 + 2, soulStyle, 1);
+  chandelier(grid, cx + 2, y + height - 1, z2 - 2, soulStyle, 1);
+  chandelier(grid, cx + 2, y + height - 1, z1 + 2, soulStyle, 1);
+  chandelier(grid, cx - 2, y + height - 1, z2 - 2, soulStyle, 1);
+
+  // Crying obsidian corners with candle accents
   grid.set(x1, y, z1, 'minecraft:crying_obsidian');
   grid.set(x2, y, z1, 'minecraft:crying_obsidian');
   grid.set(x1, y, z2, 'minecraft:crying_obsidian');
   grid.set(x2, y, z2, 'minecraft:crying_obsidian');
+  grid.set(x1, y + 1, z1, 'minecraft:candle[candles=1,lit=true]');
+  grid.set(x2, y + 1, z2, 'minecraft:candle[candles=1,lit=true]');
+
+  // Wall torches for atmosphere
+  grid.set(cx, y + 2, z1, style.torchS);
+  grid.set(cx, y + 2, z2, style.torchN);
 }
 
 function generateArmory(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1047,6 +1079,10 @@ function generateBelfry(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
     grid.set(cx, vy, cz, 'minecraft:chain');
   }
 
+  // Bell rope hanging down to floor level (pull chain)
+  grid.set(cx + 1, y, cz, 'minecraft:chain');
+  grid.set(cx + 1, y + 1, cz, 'minecraft:chain');
+
   // Open arched windows on all sides (clear walls and place window accents)
   for (let x = x1 + 1; x <= x2 - 1; x++) {
     for (let vy = y + 1; vy < y + height - 1; vy++) {
@@ -1083,8 +1119,28 @@ function generateBelfry(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
     grid.set(x2, y + 1, z, style.fence);
   }
 
-  // Floor (stone)
+  // Floor (stone) with carpet cross pattern under bell
   grid.fill(x1 + 1, y - 1, z1 + 1, x2 - 1, y - 1, z2 - 1, style.floorGround);
+  for (let i = -1; i <= 1; i++) {
+    if (grid.inBounds(cx + i, y, cz)) grid.set(cx + i, y, cz, style.carpet);
+    if (grid.inBounds(cx, y, cz + i)) grid.set(cx, y, cz + i, style.carpet);
+  }
+
+  // Lanterns on corner pillar bases for warm glow
+  grid.set(x1 + 1, y, z1 + 1, style.lanternFloor);
+  grid.set(x2 - 1, y, z1 + 1, style.lanternFloor);
+  grid.set(x1 + 1, y, z2 - 1, style.lanternFloor);
+  grid.set(x2 - 1, y, z2 - 1, style.lanternFloor);
+
+  // Maintenance workbench in one corner
+  grid.set(x1 + 1, y, z2 - 2, 'minecraft:crafting_table');
+  grid.set(x1 + 1, y + 1, z2 - 2, 'minecraft:candle[candles=1,lit=true]');
+
+  // Storage barrel for bell rope/supplies
+  grid.addBarrel(x2 - 1, y, z2 - 2, 'up', [
+    { slot: 0, id: 'minecraft:chain', count: 16 },
+    { slot: 1, id: 'minecraft:iron_ingot', count: 4 },
+  ]);
 }
 
 // ─── New Room Types ─────────────────────────────────────────────────────────
@@ -1232,14 +1288,20 @@ function generateSunroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
 }
 
 function generateCloset(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2 } = b;
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+  const cz = Math.floor((z1 + z2) / 2);
 
   // Auto-floor: full carpet
   carpetArea(grid, x1, y, z1, x2, z2, style.carpet);
 
-  // Armor stand — coat hooks
+  // Armor stands — coat hooks (two if space allows)
   grid.set(x1, y, z1, 'minecraft:polished_andesite');
   grid.set(x1, y + 1, z1, 'minecraft:armor_stand');
+  if (z2 - z1 >= 4) {
+    grid.set(x1, y, z1 + 2, 'minecraft:polished_andesite');
+    grid.set(x1, y + 1, z1 + 2, 'minecraft:armor_stand');
+  }
 
   // Stacked chests along back wall (clothes storage)
   grid.addChest(x2, y, z1, 'west', [
@@ -1265,13 +1327,36 @@ function generateCloset(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
     { slot: 1, id: 'minecraft:feather', count: 8 },
   ]);
 
+  // Mirror above shoe shelf
+  if (grid.inBounds(cx, y + 2, z1)) {
+    grid.set(cx, y + 2, z1, 'minecraft:glass_pane');
+  }
+
+  // Shoe shelf (slab as low shelf) along front wall
+  grid.set(cx, y, z1, 'minecraft:smooth_stone_slab[type=bottom]');
+  if (grid.inBounds(cx + 1, y, z1)) {
+    grid.set(cx + 1, y, z1, 'minecraft:smooth_stone_slab[type=bottom]');
+  }
+
+  // Wall hook shelves for accessories
+  wallShelf(grid, x1, y + 2, z2, 'north', ['minecraft:potted_azure_bluet']);
+  if (x2 - x1 >= 4) {
+    wallShelf(grid, x2, y + 2, z2, 'north', ['minecraft:chain']);
+  }
+
   // Single lantern — small space
-  grid.set(Math.floor((x1 + x2) / 2), y, Math.floor((z1 + z2) / 2), style.lanternFloor);
+  grid.set(cx, y, cz, style.lanternFloor);
+
+  // Candle on shelf for warmth
+  if (height >= 4) {
+    grid.set(x2, y + height - 2, z1, 'minecraft:candle[candles=1,lit=true]');
+  }
 }
 
 function generateLaundry(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
   const { x1, y, z1, x2, z2, height } = b;
   const cx = Math.floor((x1 + x2) / 2);
+  const cz = Math.floor((z1 + z2) / 2);
 
   // Auto-floor: checkerboard tile (white + gray)
   for (let x = x1; x <= x2; x++) {
@@ -1282,42 +1367,70 @@ function generateLaundry(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
     }
   }
 
-  // Water cauldrons (wash basins) along back wall
+  // Water cauldrons (wash basins) along back wall — wider array
   grid.set(x1, y, z2, 'minecraft:water_cauldron[level=3]');
   grid.set(x1 + 1, y, z2, 'minecraft:water_cauldron[level=3]');
+  if (x2 - x1 >= 5) {
+    grid.set(x1 + 2, y, z2, 'minecraft:water_cauldron[level=3]');
+  }
 
   // Smoker (for drying/heating)
   grid.set(x2, y, z2, 'minecraft:smoker[facing=north,lit=false]');
 
-  // Storage barrels (soap, supplies)
+  // Storage barrels (soap, supplies) — stacked
   grid.addBarrel(x2, y, z1, 'up', [
     { slot: 0, id: 'minecraft:slime_ball', count: 8 },
     { slot: 1, id: 'minecraft:honeycomb', count: 4 },
   ]);
   grid.addBarrel(x2, y + 1, z1, 'up', []);
 
+  // Laundry basket (composter as wicker basket)
+  grid.set(x2 - 1, y, z2, 'minecraft:composter[level=5]');
+
   // Clothesline — chains with banners hanging from them
   if (height >= 4) {
     for (let x = x1 + 1; x <= x2 - 1; x++) {
-      grid.set(x, y + height - 2, Math.floor((z1 + z2) / 2), 'minecraft:chain');
+      grid.set(x, y + height - 2, cz, 'minecraft:chain');
     }
     // Hanging banners as "clothes"
-    grid.set(x1 + 1, y + height - 3, Math.floor((z1 + z2) / 2), style.bannerN);
+    grid.set(x1 + 1, y + height - 3, cz, style.bannerN);
     if (x2 - x1 >= 4) {
-      grid.set(x2 - 1, y + height - 3, Math.floor((z1 + z2) / 2), style.bannerN);
+      grid.set(x2 - 1, y + height - 3, cz, style.bannerN);
+    }
+    // Additional clothing items
+    if (x2 - x1 >= 6) {
+      grid.set(cx, y + height - 3, cz, 'minecraft:white_banner[rotation=0]');
     }
   }
 
-  // Folding table
+  // Folding table with iron for pressing
   grid.set(cx, y, z1 + 1, style.fence);
   grid.set(cx, y + 1, z1 + 1, 'minecraft:white_carpet');
+  grid.set(cx, y + 2, z1 + 1, 'minecraft:heavy_weighted_pressure_plate');
 
-  // Single lantern
-  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 1);
+  // Drying rack — fence posts with carpet as draped fabric
+  grid.set(x1, y, cz + 1, style.fence);
+  grid.set(x1, y + 1, cz + 1, style.carpet);
+  if (z2 - z1 >= 5) {
+    grid.set(x1, y, cz - 1, style.fence);
+    grid.set(x1, y + 1, cz - 1, style.carpet);
+  }
+
+  // Floor mat near wash basins
+  carpetArea(grid, x1, y, z2 - 1, x1 + 1, z2 - 1, 'minecraft:light_gray_carpet');
+
+  // Bucket of water (cauldron near center)
+  grid.set(cx + 1, y, cz, 'minecraft:water_cauldron[level=2]');
+
+  // Lanterns (two for better coverage)
+  chandelier(grid, cx, y + height - 1, z1 + 1, style, 1);
+  chandelier(grid, cx, y + height - 1, z2 - 1, style, 1);
 }
 
 function generatePantry(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2 } = b;
+  const { x1, y, z1, x2, z2, height } = b;
+  const cx = Math.floor((x1 + x2) / 2);
+  const cz = Math.floor((z1 + z2) / 2);
   const rw = x2 - x1;
 
   // Auto-floor: cobblestone (cool storage)
@@ -1340,7 +1453,7 @@ function generatePantry(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
   }
 
   // Food chest at back
-  grid.addChest(Math.floor((x1 + x2) / 2), y, z2, 'north', [
+  grid.addChest(cx, y, z2, 'north', [
     { slot: 0, id: 'minecraft:bread', count: 64 },
     { slot: 1, id: 'minecraft:cooked_beef', count: 32 },
     { slot: 2, id: 'minecraft:golden_apple', count: 8 },
@@ -1348,11 +1461,37 @@ function generatePantry(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
     { slot: 4, id: 'minecraft:dried_kelp', count: 32 },
   ]);
 
-  // Composter (for scraps)
-  grid.set(Math.floor((x1 + x2) / 2), y, z1, 'minecraft:composter[level=3]');
+  // Center prep table for food sorting
+  grid.set(cx, y, cz, style.fence);
+  grid.set(cx, y + 1, cz, 'minecraft:smooth_stone_slab[type=bottom]');
+  grid.set(cx, y + 2, cz, 'minecraft:candle[candles=1,lit=true]');
 
-  // Single floor lantern
-  grid.set(Math.floor((x1 + x2) / 2), y, Math.floor((z1 + z2) / 2), style.lanternFloor);
+  // Ice blocks for cold storage in back corner
+  grid.set(x2 - 1, y, z2, 'minecraft:packed_ice');
+  if (rw >= 5) {
+    grid.set(x2 - 2, y, z2, 'minecraft:packed_ice');
+  }
+
+  // Composter (for scraps)
+  grid.set(cx, y, z1, 'minecraft:composter[level=3]');
+
+  // Hanging chains with items (meat hooks / drying herbs)
+  if (height >= 4) {
+    grid.set(cx - 1, y + height - 1, cz, 'minecraft:chain');
+    grid.set(cx - 1, y + height - 2, cz, 'minecraft:chain');
+    grid.set(cx + 1, y + height - 1, cz, 'minecraft:chain');
+    grid.set(cx + 1, y + height - 2, cz, 'minecraft:chain');
+  }
+
+  // Potted herbs near entrance
+  grid.set(cx + 1, y, z1, 'minecraft:potted_fern');
+  if (rw >= 5) {
+    grid.set(cx - 1, y, z1, 'minecraft:potted_azure_bluet');
+  }
+
+  // Floor lantern + wall shelf
+  grid.set(cx, y, cz + 1, style.lanternFloor);
+  wallShelf(grid, cx, y + 2, z2, 'north', ['minecraft:potted_dead_bush']);
 }
 
 function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1365,6 +1504,11 @@ function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   // Boot mat carpet near entrance (front wall)
   carpetArea(grid, x1 + 1, y, z1, x2 - 1, z1 + 1, 'minecraft:brown_carpet');
 
+  // Carpet runner through center
+  for (let z = z1 + 2; z <= z2 - 1; z++) {
+    grid.set(cx, y, z, 'minecraft:brown_carpet');
+  }
+
   // Armor stands as coat hooks along side wall
   armorDisplay(grid, x1, y, z1 + 2);
   if (x2 - x1 >= 6) {
@@ -1374,16 +1518,32 @@ function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   // Storage corner (boots, tools)
   storageCorner(grid, x2, y, z2, style, 'west');
 
-  // Wall shelf for keys/gloves
+  // Umbrella stand (flower pot) and key hooks
+  grid.set(x2, y, z1 + 2, 'minecraft:potted_bamboo');
   wallShelf(grid, cx, y + 2, z1, 'south', ['minecraft:potted_dead_bush']);
+  wallShelf(grid, x1 + 1, y + 2, z1, 'south', ['minecraft:chain']);
+
+  // Mirror by entrance
+  if (height >= 4) {
+    grid.set(x2 - 1, y + 2, z1, 'minecraft:glass_pane');
+    grid.set(x2 - 1, y + 3, z1, 'minecraft:glass_pane');
+  }
 
   // Bench (stair blocks for seating)
   for (let x = x1 + 2; x <= Math.min(x1 + 4, x2 - 1); x++) {
     grid.set(x, y, z1 + 2, style.chairS);
   }
 
-  // Single lantern
-  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 1);
+  // Side table with candle near back
+  sideTable(grid, x1 + 1, y, z2 - 1, style, 'minecraft:candle[candles=1,lit=true]');
+
+  // Shoe shelf (slabs along back wall)
+  grid.set(cx, y, z2, 'minecraft:smooth_stone_slab[type=bottom]');
+  grid.set(cx + 1, y, z2, 'minecraft:smooth_stone_slab[type=bottom]');
+
+  // Two lanterns for better coverage
+  chandelier(grid, cx, y + height - 1, z1 + 2, style, 1);
+  chandelier(grid, cx, y + height - 1, z2 - 1, style, 1);
 }
 
 /** Garage — concrete floor, workbench, storage, wide door opening */
@@ -1394,6 +1554,11 @@ function generateGarage(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
 
   // Concrete floor
   grid.fill(x1, y - 1, z1, x2, y - 1, z2, 'minecraft:smooth_stone');
+
+  // Oil stain patches (dark floor variation)
+  grid.set(cx, y - 1, cz, 'minecraft:polished_blackstone');
+  grid.set(cx + 1, y - 1, cz, 'minecraft:polished_blackstone');
+  grid.set(cx, y - 1, cz + 1, 'minecraft:polished_blackstone');
 
   // Wide garage door opening on the front wall (z2 side)
   const doorWidth = Math.min(x2 - x1 - 2, 4);
@@ -1406,15 +1571,24 @@ function generateGarage(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
     }
   }
 
-  // Workbench along back wall
+  // Workbench along back wall (wider)
   if (grid.inBounds(x1 + 1, y, z1)) {
     grid.set(x1 + 1, y, z1, 'minecraft:crafting_table');
     if (grid.inBounds(x1 + 2, y, z1))
       grid.set(x1 + 2, y, z1, 'minecraft:smithing_table');
+    if (grid.inBounds(x1 + 3, y, z1))
+      grid.set(x1 + 3, y, z1, 'minecraft:stonecutter[facing=south]');
   }
 
   // Storage chests along side wall
   storageCorner(grid, x2, y, z1, style, 'west');
+
+  // Additional barrel storage along other side
+  grid.addBarrel(x1, y, z2 - 1, 'up', [
+    { slot: 0, id: 'minecraft:iron_ingot', count: 16 },
+    { slot: 1, id: 'minecraft:redstone', count: 32 },
+  ]);
+  grid.addBarrel(x1, y + 1, z2 - 1, 'up', []);
 
   // Tool rack — tripwire hooks as "hung tools"
   for (let z = z1 + 2; z <= Math.min(z1 + 4, z2 - 1); z++) {
@@ -1422,7 +1596,16 @@ function generateGarage(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
       grid.set(x1, y + 2, z, 'minecraft:tripwire_hook[facing=east]');
   }
 
-  // Redstone lamp (bright workshop lighting)
+  // Center vehicle area — minecart rails as visual reference
+  if (z2 - z1 >= 5) {
+    grid.set(cx, y, cz - 1, 'minecraft:rail[shape=north_south]');
+    grid.set(cx, y, cz, 'minecraft:rail[shape=north_south]');
+    grid.set(cx, y, cz + 1, 'minecraft:rail[shape=north_south]');
+  }
+
+  // Work lamp above bench + main redstone lamp
   if (grid.inBounds(cx, y + height - 1, cz))
-    grid.set(cx, y + height - 1, cz, 'minecraft:redstone_lamp');
+    grid.set(cx, y + height - 1, cz, 'minecraft:redstone_lamp[lit=true]');
+  if (grid.inBounds(x1 + 2, y + height - 1, z1))
+    grid.set(x1 + 2, y + height - 1, z1, 'minecraft:glowstone');
 }
