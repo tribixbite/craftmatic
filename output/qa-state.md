@@ -5,7 +5,7 @@
 > Update after completing each task.
 
 ## Current Phase: 2 — Re-score with Gemini
-## Current Task: Deploy, screenshot, and re-score all 20 buildings
+## Current Task: Round 2 generator upgrades — fix 18 buildings below 9
 
 ---
 
@@ -71,12 +71,46 @@ All 11 failing buildings upgraded:
 - [x] Gothic Cathedral — 30% taller bell tower, cross atop spire, second smaller tower
 
 ## Phase 2: Re-score with Gemini
-- [ ] Re-add all 20 buildings to gallery
-- [ ] Deploy to GH Pages
-- [ ] Take gallery screenshots
-- [ ] Score with gemini-3-pro-preview
-- [ ] Identify any still below 9
+- [x] Re-add all 20 buildings to gallery
+- [x] Deploy to GH Pages (09627b7)
+- [x] Take gallery screenshots (gallery-v2-top.png, gallery-v2-bottom.png)
+- [x] Score with gemini-3-pro-preview — Round 1 results below
+- [ ] Round 2 generator upgrades targeting 9+ (in progress)
+- [ ] Re-deploy, re-screenshot, re-score
 - [ ] Fix and re-score until all 9+
+
+### Round 1 Re-score Results (Gemini 3 Pro, 2026-02-16)
+
+| # | Building | Old | New | Delta | Status |
+|---|----------|-----|-----|-------|--------|
+| 1 | Fantasy Cottage | 8.3 | 5 | -3.3 | FAIL — "decorated box with no depth" |
+| 2 | Medieval Manor | 7.0 | 5 | -2.0 | FAIL — "big box, roof overwhelming, repetitive windows" |
+| 3 | Gothic Tower | 8.0 | 8 | 0 | FAIL — "strong cylindrical geometry, good accents" |
+| 4 | Medieval Castle | 7.0 | 5 | -2.0 | FAIL — "paper-thin walls, barren courtyard" |
+| 5 | Gothic Dungeon | 8.7 | 7 | -1.7 | FAIL — "good terrain integration, hard to parse" |
+| 6 | Rustic Ship | 7.0 | 6 | -1.0 | FAIL — "hull lacks curvature, sails too planar" |
+| 7 | Modern House | 6.3 | 6 | -0.3 | FAIL — "accurate style but uninspired, blocky" |
+| 8 | Wizard Tower | 7.7 | 6 | -1.7 | FAIL — "lacks magical flair, feels utilitarian" |
+| 9 | Dark Fortress | 7.3 | 8 | +0.7 | FAIL — "soul fire hides geometric simplicity well" |
+| 10 | Rustic Cabin | 6.3 | 5 | -1.3 | FAIL — "same issues as Manor, big rectangle" |
+| 11 | Stone Dungeon | 4.0 | 4 | 0 | FAIL — "random noise, not deliberate structure" |
+| 12 | Fantasy Galleon | 8.7 | 8 | -0.7 | FAIL — "complex rigging, good contrast" |
+| 13 | Gothic Cathedral | 7.7 | 8 | +0.3 | FAIL — "convincing buttresses and nave" |
+| 14 | Stone Bridge | 7.0 | 6 | -1.0 | FAIL — "functional but basic, lacks supports" |
+| 15 | Rustic Windmill | 8.3 | 8 | -0.3 | FAIL — "excellent proportions, distinct blades" |
+| 16 | Desert Bazaar | 8.7 | 9 | +0.3 | PASS — "multiple sub-structures, varied heights, organic" |
+| 17 | Medieval Village | 9.0 | 9 | 0 | PASS — "coherent buildings with paths, sense of scale" |
+| 18 | Steampunk Workshop | 5.7 | 4 | -1.7 | FAIL — "no visible gears/pipes/industrial at thumbnail" |
+| 19 | Elven Spire | 8.0 | 8 | 0 | FAIL — "green palette communicates theme well" |
+| 20 | Undersea Citadel | 8.0 | 7 | -1.0 | FAIL — "prismarine sells theme, geometry repetitive" |
+
+**Passing (9+):** 2 — Desert Bazaar, Medieval Village
+**Near (8):** 6 — Gothic Tower, Dark Fortress, Fantasy Galleon, Gothic Cathedral, Rustic Windmill, Elven Spire
+**Failing (4-7):** 12 — all others
+
+### Key Insight: Multi-structure compositions score 9+
+Buildings with multiple sub-structures (Village, Bazaar) score highest. Single buildings max around 8.
+**Strategy for Round 2:** Add outbuildings, garden structures, paths, and compositional variety to all generators.
 
 ## Phase 3: Room Interior Quality Test
 - [ ] Click each building in gallery, switch to cutaway/floor view
