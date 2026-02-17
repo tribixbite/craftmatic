@@ -5,7 +5,7 @@
 > Update after completing each task.
 
 ## Current Phase: 2 — Re-score with Gemini
-## Current Task: Round 2 generator upgrades — fix 18 buildings below 9
+## Current Task: Round 3 generator upgrades — compound compositions for all buildings
 
 ---
 
@@ -75,7 +75,9 @@ All 11 failing buildings upgraded:
 - [x] Deploy to GH Pages (09627b7)
 - [x] Take gallery screenshots (gallery-v2-top.png, gallery-v2-bottom.png)
 - [x] Score with gemini-3-pro-preview — Round 1 results below
-- [ ] Round 2 generator upgrades targeting 9+ (in progress)
+- [x] Round 2 generator upgrades — compositional outbuildings (7bcd30a)
+- [x] Re-deploy, re-screenshot, re-score — Round 2 results below
+- [ ] Round 3 generator upgrades — compound site compositions (in progress)
 - [ ] Re-deploy, re-screenshot, re-score
 - [ ] Fix and re-score until all 9+
 
@@ -111,6 +113,47 @@ All 11 failing buildings upgraded:
 ### Key Insight: Multi-structure compositions score 9+
 Buildings with multiple sub-structures (Village, Bazaar) score highest. Single buildings max around 8.
 **Strategy for Round 2:** Add outbuildings, garden structures, paths, and compositional variety to all generators.
+
+### Round 2 Re-score Results (Gemini 3 Pro, 2026-02-16)
+After adding outbuildings, perimeter walls, docks, graveyards, boiler towers, wheat fields, etc.
+
+| # | Building | R1 | R2 | Delta | Status |
+|---|----------|-----|-----|-------|--------|
+| 1 | Fantasy Cottage | 5 | 5 | 0 | FAIL — "boxy silhouette, outbuildings too small" |
+| 2 | Medieval Manor | 5 | 6 | +1 | FAIL — "good texture but massing heavy/rectangular" |
+| 3 | Gothic Tower | 8 | 7 | -1 | FAIL — "strong verticality, isolated without base" |
+| 4 | Medieval Castle | 5 | 8 | +3 | FAIL — "good wall/tower hierarchy, courtyard flat" |
+| 5 | Gothic Dungeon | 7 | 7 | 0 | FAIL — "interesting ruined aesthetic, small scale" |
+| 6 | Rustic Ship | 6 | 8 | +2 | FAIL — "non-rectangular silhouette, water context" |
+| 7 | Modern House | 6 | 3 | -3 | FAIL — "flat box with no geometric interest" |
+| 8 | Wizard Tower | 6 | 7 | +1 | FAIL — "classic shape, lacks ground-level complexity" |
+| 9 | Dark Fortress | 8 | 8 | 0 | FAIL — "strong theme/lighting, empty courtyard" |
+| 10 | Rustic Cabin | 5 | 5 | 0 | FAIL — "too similar to Manor, lacks character" |
+| 11 | Stone Dungeon | 4 | 4 | 0 | FAIL — "solid noise-cube, poor silhouette" |
+| 12 | Fantasy Galleon | 8 | 8 | 0 | FAIL — "good rigging/sail complexity" |
+| 13 | Gothic Cathedral | 8 | 7 | -1 | FAIL — "monolithic, repetitive geometry" |
+| 14 | Stone Bridge | 6 | 6 | 0 | FAIL — "linear and simple despite context" |
+| 15 | Rustic Windmill | 8 | 7 | -1 | FAIL — "great blades, generic base" |
+| 16 | Desert Bazaar | 9 | 9 | 0 | PASS — "excellent multi-structure composition" |
+| 17 | Medieval Village | 9 | 10 | +1 | PASS — "organic paths, multiple structures" |
+| 18 | Steampunk Workshop | 4 | 7 | +3 | FAIL — "detailed roofline, heavy single block" |
+| 19 | Elven Spire | 8 | 7 | -1 | FAIL — "distinct palette, simple cylinder stack" |
+| 20 | Undersea Citadel | 7 | 8 | +1 | FAIL — "strong color theme, needs interior structures" |
+
+**Passing (9+):** 2 — Desert Bazaar (9), Medieval Village (10)
+**Near (8):** 5 — Medieval Castle, Rustic Ship, Dark Fortress, Fantasy Galleon, Undersea Citadel
+**Mid (6-7):** 10 — Manor, Tower, Dungeon, Wizard, Cathedral, Bridge, Windmill, Workshop, Spire, Cabin→Cottage area
+**Critical (3-5):** 3 — Modern House (3), Stone Dungeon (4), Fantasy Cottage (5)
+
+### Key Insight: Outbuildings too small relative to main building
+Round 2 outbuildings (sheds, guard huts, docks) are visible but too small (10% of main building).
+Village/Bazaar succeed because sub-structures are COMPARABLE size (30-50% each).
+**Strategy for Round 3:** Transform each generator into a compound/site composition:
+- Main building should be 40-60% of total composition (not 90%)
+- 2-3 secondary buildings of 20-30% size each
+- Clear connecting paths/roads
+- Environmental elements (gardens, water, fences, trees)
+- Think "building complex" not "building + tiny shed"
 
 ## Phase 3: Room Interior Quality Test
 - [ ] Click each building in gallery, switch to cutaway/floor view
