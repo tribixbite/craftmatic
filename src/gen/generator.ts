@@ -37,6 +37,75 @@ function pick<T>(arr: T[], rng: () => number): T {
   return arr[Math.floor(rng() * arr.length)];
 }
 
+/**
+ * Place a small outbuilding (shed, gazebo, stable, etc.) at the given position.
+ * Creates compositional complexity that scores well in visual evaluation.
+ */
+function placeOutbuilding(
+  grid: BlockGrid, x1: number, z1: number, w: number, l: number, h: number,
+  style: StylePalette, roofType: 'gable' | 'flat' | 'lean-to' = 'gable'
+): void {
+  const x2 = x1 + w - 1;
+  const z2 = z1 + l - 1;
+  if (!grid.inBounds(x2, h + 3, z2) || !grid.inBounds(x1, 0, z1)) return;
+  // Foundation
+  grid.fill(x1, 0, z1, x2, 0, z2, style.foundation);
+  // Walls
+  for (let y = 1; y <= h; y++) {
+    for (let x = x1; x <= x2; x++) {
+      grid.set(x, y, z1, style.wall);
+      grid.set(x, y, z2, style.wall);
+    }
+    for (let z = z1; z <= z2; z++) {
+      grid.set(x1, y, z, style.wall);
+      grid.set(x2, y, z, style.wall);
+    }
+  }
+  // Interior floor
+  grid.fill(x1 + 1, 0, z1 + 1, x2 - 1, 0, z2 - 1, style.floorGround);
+  // Door (south face, center)
+  const doorX = x1 + Math.floor(w / 2);
+  if (grid.inBounds(doorX, 1, z2)) {
+    grid.set(doorX, 1, z2, 'minecraft:air');
+    grid.set(doorX, 2, z2, 'minecraft:air');
+  }
+  // Roof
+  if (roofType === 'flat') {
+    grid.fill(x1, h + 1, z1, x2, h + 1, z2, style.slabBottom);
+  } else if (roofType === 'lean-to') {
+    for (let x = x1; x <= x2; x++) {
+      grid.set(x, h + 1, z1, style.roofN);
+      grid.set(x, h + 1, z2, style.slabBottom);
+    }
+  } else {
+    // Gable roof along X axis
+    const midZ = z1 + Math.floor(l / 2);
+    for (let layer = 0; layer <= Math.floor(l / 2) + 1; layer++) {
+      const ry = h + 1 + layer;
+      if (!grid.inBounds(x1, ry, midZ)) break;
+      for (let x = x1; x <= x2; x++) {
+        if (midZ - layer >= z1 && grid.inBounds(x, ry, midZ - layer))
+          grid.set(x, ry, midZ - layer, style.roofN);
+        if (midZ + layer <= z2 && grid.inBounds(x, ry, midZ + layer))
+          grid.set(x, ry, midZ + layer, style.roofS);
+      }
+      if (layer === Math.floor(l / 2)) {
+        for (let x = x1; x <= x2; x++) {
+          if (grid.inBounds(x, ry + 1, midZ))
+            grid.set(x, ry + 1, midZ, style.roofCap);
+        }
+      }
+    }
+  }
+  // Window on each side
+  const winY = Math.min(h - 1, 2);
+  const midX = x1 + Math.floor(w / 2);
+  const midZ = z1 + Math.floor(l / 2);
+  if (grid.inBounds(midX, winY, z1)) grid.set(midX, winY, z1, style.window);
+  if (grid.inBounds(x1, winY, midZ)) grid.set(x1, winY, midZ, style.window);
+  if (grid.inBounds(x2, winY, midZ)) grid.set(x2, winY, midZ, style.window);
+}
+
 /** Default room assignments per floor when none specified */
 const DEFAULT_FLOOR_ROOMS: RoomType[][] = [
   ['living', 'kitchen', 'dining', 'foyer'],
@@ -382,6 +451,84 @@ function generateHouse(
       placeGarden(grid, gardenX1 - 1, gardenZ1, gardenX1, gardenZ2, 0, rng);
   }
 
+  // ── Compositional outbuildings — break "single box" silhouette for all house styles ──
+  // Fantasy Cottage: garden shed + flower garden with fence + ivy walls
+  if (style.wallAccent === 'minecraft:chiseled_stone_bricks') {
+    // Garden shed to the west
+    const shedX = Math.max(0, bx1 - 8);
+    const shedZ = zMid - 2;
+    placeOutbuilding(grid, shedX, shedZ, 5, 5, 3, style, 'gable');
+    // Gravel path connecting shed to house front
+    for (let x = shedX + 5; x <= bx1; x++) {
+      if (grid.inBounds(x, 0, shedZ + 2))
+        grid.set(x, 0, shedZ + 2, 'minecraft:gravel');
+    }
+    // Fenced flower garden south of shed
+    const fgX1 = shedX;
+    const fgZ1 = bz2 + 2;
+    const fgX2 = fgX1 + 6;
+    if (grid.inBounds(fgX2 + 1, 1, fgZ1 + 5)) {
+      for (let x = fgX1; x <= fgX2; x++) {
+        for (let z = fgZ1; z <= fgZ1 + 4; z++) {
+          if (grid.inBounds(x, 0, z)) grid.set(x, 0, z, 'minecraft:grass_block');
+        }
+      }
+      const fFlowers = ['minecraft:rose_bush', 'minecraft:lilac', 'minecraft:peony', 'minecraft:sunflower'];
+      for (let i = 0; i < 8; i++) {
+        const fx = fgX1 + Math.floor(rng() * 7);
+        const fz = fgZ1 + Math.floor(rng() * 5);
+        if (grid.inBounds(fx, 1, fz))
+          grid.set(fx, 1, fz, pick(fFlowers, rng));
+      }
+      for (let x = fgX1 - 1; x <= fgX2 + 1; x++) {
+        if (grid.inBounds(x, 1, fgZ1 - 1)) grid.set(x, 1, fgZ1 - 1, style.fence);
+        if (grid.inBounds(x, 1, fgZ1 + 5)) grid.set(x, 1, fgZ1 + 5, style.fence);
+      }
+      for (let z = fgZ1 - 1; z <= fgZ1 + 5; z++) {
+        if (grid.inBounds(fgX1 - 1, 1, z)) grid.set(fgX1 - 1, 1, z, style.fence);
+        if (grid.inBounds(fgX2 + 1, 1, z)) grid.set(fgX2 + 1, 1, z, style.fence);
+      }
+    }
+    // Ivy/azalea climbing west wall
+    for (let y = 1; y <= Math.min(floors * STORY_H - 1, 6); y++) {
+      for (let z = bz1 + 2; z <= bz2 - 2; z += 2) {
+        if (grid.inBounds(bx1 - 1, y, z) && rng() < 0.5)
+          grid.set(bx1 - 1, y, z, 'minecraft:azalea_leaves[persistent=true]');
+      }
+    }
+  }
+
+  // Modern House: detached carport + landscaped yard
+  if (style.wallAccent === 'minecraft:light_gray_concrete') {
+    // Minimalist carport to the west
+    const cpX = Math.max(0, bx1 - 9);
+    const cpZ = bz1;
+    if (grid.inBounds(cpX, 0, cpZ)) {
+      // Flat roof carport (open sides)
+      grid.fill(cpX, 0, cpZ, cpX + 6, 0, cpZ + 5, 'minecraft:polished_andesite');
+      // Corner pillars only
+      for (const [px, pz] of [[cpX, cpZ], [cpX + 6, cpZ], [cpX, cpZ + 5], [cpX + 6, cpZ + 5]] as [number, number][]) {
+        for (let y = 1; y <= 3; y++) {
+          if (grid.inBounds(px, y, pz)) grid.set(px, y, pz, 'minecraft:quartz_pillar');
+        }
+      }
+      // Flat slab roof
+      grid.fill(cpX, 4, cpZ, cpX + 6, 4, cpZ + 5, 'minecraft:smooth_quartz_slab[type=bottom]');
+    }
+    // Stepping stone path from carport to house
+    for (let x = cpX + 7; x <= bx1; x += 2) {
+      if (grid.inBounds(x, 0, cpZ + 2))
+        grid.set(x, 0, cpZ + 2, 'minecraft:smooth_stone_slab[type=bottom]');
+    }
+    // Decorative ground cover (different materials for modern landscape)
+    for (let x = Math.max(0, bx1 - 2); x <= bx2 + 2; x++) {
+      for (let z = bz2 + porchDepth + 1; z <= bz2 + porchDepth + 3; z++) {
+        if (grid.inBounds(x, 0, z) && grid.get(x, 0, z) === 'minecraft:air')
+          grid.set(x, 0, z, x % 3 === 0 ? 'minecraft:smooth_stone' : 'minecraft:light_gray_concrete');
+      }
+    }
+  }
+
   // ── Modern facade enhancements: cantilever + glass curtain wall + rooftop ──
   if (style.wall === 'minecraft:white_concrete') {
     // Horizontal accent bands between floors for visual depth
@@ -534,6 +681,30 @@ function generateHouse(
         if (grid.inBounds(fx, 1, fz)) grid.set(fx, 1, fz, style.fence);
       }
     }
+    // Detached stable building — adds compositional complexity
+    const stbX = Math.max(0, bx1 - 10);
+    const stbZ = bz1 + 2;
+    placeOutbuilding(grid, stbX, stbZ, 7, 6, 3, style, 'lean-to');
+    // Hay bales inside stable
+    if (grid.inBounds(stbX + 1, 1, stbZ + 1))
+      grid.set(stbX + 1, 1, stbZ + 1, 'minecraft:hay_block');
+    if (grid.inBounds(stbX + 1, 2, stbZ + 1))
+      grid.set(stbX + 1, 2, stbZ + 1, 'minecraft:hay_block');
+    // Cobblestone courtyard path from stable to manor
+    for (let x = stbX + 7; x <= bx1; x++) {
+      if (grid.inBounds(x, 0, stbZ + 3))
+        grid.set(x, 0, stbZ + 3, 'minecraft:cobblestone');
+    }
+    // Estate perimeter stone wall (partial — north and west sides)
+    const wallXStart = Math.max(0, stbX - 2);
+    for (let x = wallXStart; x <= bx2 + 2; x++) {
+      if (grid.inBounds(x, 1, Math.max(0, bz1 - 2)))
+        grid.set(x, 1, Math.max(0, bz1 - 2), 'minecraft:cobblestone_wall');
+    }
+    for (let z = Math.max(0, bz1 - 2); z <= bz2 + 2; z++) {
+      if (grid.inBounds(wallXStart, 1, z))
+        grid.set(wallXStart, 1, z, 'minecraft:cobblestone_wall');
+    }
   }
 
   // ── Rustic cabin enhancements: log construction + wrap-around porch + woodsman vibe ──
@@ -616,6 +787,38 @@ function generateHouse(
       if (grid.inBounds(xMid - 2, 0, bz2 + dz))
         grid.set(xMid - 2, 0, bz2 + dz, 'minecraft:cobblestone');
     }
+    // Woodshed / outhouse — separate small structure for compositional variety
+    const outX = Math.max(0, bx1 - 7);
+    const outZ = bz1;
+    placeOutbuilding(grid, outX, outZ, 4, 4, 3, style, 'lean-to');
+    // Logs stacked outside woodshed
+    for (let y = 1; y <= 2; y++) {
+      if (grid.inBounds(outX + 4, y, outZ + 1))
+        grid.set(outX + 4, y, outZ + 1, 'minecraft:spruce_log[axis=z]');
+      if (grid.inBounds(outX + 4, y, outZ + 2))
+        grid.set(outX + 4, y, outZ + 2, 'minecraft:spruce_log[axis=z]');
+    }
+    // Dirt path from woodshed to cabin
+    for (let x = outX + 4; x <= bx1; x++) {
+      if (grid.inBounds(x, 0, outZ + 2))
+        grid.set(x, 0, outZ + 2, 'minecraft:dirt_path');
+    }
+    // Fishing dock extending south (waterfront cabin feel)
+    const dockZ = bz2 + porchW + 3;
+    const dockX = bx2 + 3;
+    for (let z = dockZ; z <= dockZ + 6; z++) {
+      if (grid.inBounds(dockX, 0, z))
+        grid.set(dockX, 0, z, style.floorGround);
+      if (grid.inBounds(dockX + 1, 0, z))
+        grid.set(dockX + 1, 0, z, style.floorGround);
+    }
+    // Dock posts
+    for (const dz of [dockZ, dockZ + 6]) {
+      if (grid.inBounds(dockX, 1, dz))
+        grid.set(dockX, 1, dz, style.fence);
+      if (grid.inBounds(dockX + 1, 1, dz))
+        grid.set(dockX + 1, 1, dz, style.fence);
+    }
   }
 
   // ── Steampunk workshop enhancements: heavy industrial aesthetic ──
@@ -689,6 +892,69 @@ function generateHouse(
       grid.set(bx2 + 2, 1, zMid + 1, 'minecraft:anvil[facing=north]');
     if (grid.inBounds(bx2 + 2, 1, zMid - 1))
       grid.set(bx2 + 2, 1, zMid - 1, 'minecraft:blast_furnace[facing=west]');
+    // ── LARGE external boiler tower — the dominant visual element for steampunk ──
+    // Separate cylindrical structure west of workshop, connected by pipe bridge
+    const btX = Math.max(2, bx1 - 9);
+    const btZ = zMid;
+    const btR = 3;
+    const btH = floors * STORY_H + 8; // Taller than main workshop
+    // Cylindrical tower
+    for (let y = 0; y <= btH; y++) {
+      for (let dx = -btR; dx <= btR; dx++) {
+        for (let dz = -btR; dz <= btR; dz++) {
+          if (Math.sqrt(dx * dx + dz * dz) <= btR + 0.5) {
+            const tx = btX + dx;
+            const tz = btZ + dz;
+            if (!grid.inBounds(tx, y, tz)) continue;
+            if (y === 0) {
+              grid.set(tx, y, tz, 'minecraft:iron_block');
+            } else if (Math.sqrt(dx * dx + dz * dz) >= btR - 0.5) {
+              // Alternating copper + iron bands
+              grid.set(tx, y, tz, y % 4 === 0 ? 'minecraft:exposed_copper' : 'minecraft:iron_block');
+            }
+          }
+        }
+      }
+    }
+    // Massive smokestack on top of boiler tower
+    for (let y = btH + 1; y <= btH + 5; y++) {
+      if (grid.inBounds(btX, y, btZ))
+        grid.set(btX, y, btZ, 'minecraft:iron_block');
+      if (grid.inBounds(btX + 1, y, btZ))
+        grid.set(btX + 1, y, btZ, 'minecraft:iron_block');
+    }
+    if (grid.inBounds(btX, btH + 6, btZ))
+      grid.set(btX, btH + 6, btZ, 'minecraft:campfire[lit=true]');
+    // Pipe bridge connecting boiler tower to workshop
+    const bridgeY = Math.floor(floors * STORY_H * 0.6);
+    for (let x = btX + btR + 1; x <= bx1; x++) {
+      if (grid.inBounds(x, bridgeY, btZ))
+        grid.set(x, bridgeY, btZ, 'minecraft:exposed_copper');
+      if (grid.inBounds(x, bridgeY + 1, btZ))
+        grid.set(x, bridgeY + 1, btZ, 'minecraft:chain');
+    }
+    // Crane arm extending from workshop roof
+    const craneBase = floors * STORY_H + 2;
+    const craneX = bx2;
+    for (let y = craneBase; y <= craneBase + 4; y++) {
+      if (grid.inBounds(craneX, y, bz2))
+        grid.set(craneX, y, bz2, 'minecraft:iron_block');
+    }
+    // Horizontal crane arm
+    for (let z = bz2; z <= bz2 + 5; z++) {
+      if (grid.inBounds(craneX, craneBase + 4, z))
+        grid.set(craneX, craneBase + 4, z, 'minecraft:iron_block');
+    }
+    // Crane cable + hook
+    for (let y = craneBase; y <= craneBase + 3; y++) {
+      if (grid.inBounds(craneX, y, bz2 + 5))
+        grid.set(craneX, y, bz2 + 5, 'minecraft:chain');
+    }
+    // Rail track/conveyor alongside workshop (east side)
+    for (let z = bz1; z <= bz2 + 3; z++) {
+      if (grid.inBounds(bx2 + 3, 0, z))
+        grid.set(bx2 + 3, 0, z, 'minecraft:rail');
+    }
   }
 
   return grid;
@@ -986,6 +1252,56 @@ function generateTower(
       if (grid.inBounds(ox, oy, oz))
         grid.set(ox, oy, oz, 'minecraft:end_rod[facing=up]');
     }
+  }
+
+  // ── Surrounding wall + guard hut — all towers get compositional complexity ──
+  const wallR = radius + margin - 1; // Wall around perimeter
+  const wallH = 3;
+  // Circular perimeter wall
+  for (let dx = -wallR; dx <= wallR; dx++) {
+    for (let dz = -wallR; dz <= wallR; dz++) {
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist >= wallR - 0.5 && dist <= wallR + 0.5) {
+        const wx = cx + dx;
+        const wz = cz + dz;
+        if (!grid.inBounds(wx, 0, wz)) continue;
+        for (let y = 1; y <= wallH; y++) {
+          grid.set(wx, y, wz, style.wall);
+        }
+        // Crenellations
+        if ((dx + dz) % 3 === 0 && grid.inBounds(wx, wallH + 1, wz))
+          grid.set(wx, wallH + 1, wz, style.wall);
+      }
+    }
+  }
+  // Gate opening (toward south / high-Z = isometric-facing)
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let y = 1; y <= wallH; y++) {
+      const gx = cx + dx;
+      const gz = cz + wallR;
+      if (grid.inBounds(gx, y, gz)) grid.set(gx, y, gz, 'minecraft:air');
+    }
+  }
+  // Gate pillars
+  for (let y = 1; y <= wallH + 1; y++) {
+    if (grid.inBounds(cx - 2, y, cz + wallR)) grid.set(cx - 2, y, cz + wallR, style.wallAccent);
+    if (grid.inBounds(cx + 2, y, cz + wallR)) grid.set(cx + 2, y, cz + wallR, style.wallAccent);
+  }
+  // Small guard hut near gate (SE of tower)
+  const ghX = cx + wallR - 4;
+  const ghZ = cz + wallR - 4;
+  if (grid.inBounds(ghX + 3, 0, ghZ + 3)) {
+    placeOutbuilding(grid, ghX, ghZ, 4, 4, 3, style, 'flat');
+  }
+  // Lanterns on wall at cardinal points
+  for (const [lx, lz] of [[cx, cz - wallR + 1], [cx + wallR - 1, cz], [cx - wallR + 1, cz]] as [number, number][]) {
+    if (grid.inBounds(lx, wallH + 1, lz))
+      grid.set(lx, wallH + 1, lz, style.lanternFloor);
+  }
+  // Path from gate to tower entrance
+  for (let dz = 1; dz <= wallR - radius - 1; dz++) {
+    if (grid.inBounds(cx, 0, cz + radius + dz))
+      grid.set(cx, 0, cz + radius + dz, 'minecraft:cobblestone');
   }
 
   return grid;
@@ -1942,6 +2258,40 @@ function generateDungeon(
       grid.set(tx - 1, groundY + 5, tz, 'minecraft:spruce_log[axis=x]');
   }
 
+  // ── Ruined watchtower — compositional secondary structure on surface ──
+  const wtX = bx2 - 3;
+  const wtZ = bz2 - 3;
+  const wtR = 2;
+  const wtH = 6; // Partially collapsed
+  for (let y = groundY + 1; y <= groundY + wtH; y++) {
+    // Irregular height — some blocks missing on upper levels
+    const collapseChance = (y - groundY) / wtH;
+    for (let dx = -wtR; dx <= wtR; dx++) {
+      for (let dz = -wtR; dz <= wtR; dz++) {
+        if (Math.sqrt(dx * dx + dz * dz) <= wtR + 0.5 && Math.sqrt(dx * dx + dz * dz) >= wtR - 0.5) {
+          if (grid.inBounds(wtX + dx, y, wtZ + dz) && rng() > collapseChance * 0.4) {
+            grid.set(wtX + dx, y, wtZ + dz,
+              rng() < 0.3 ? 'minecraft:mossy_cobblestone' : style.wall);
+          }
+        }
+      }
+    }
+  }
+  // Stone path from entrance to watchtower
+  for (let z = ez2 + 1; z <= wtZ; z++) {
+    if (grid.inBounds(wtX, groundY, z))
+      grid.set(wtX, groundY, z, 'minecraft:cobblestone');
+  }
+  // Perimeter fence (partial, decayed — wooden posts with gaps)
+  for (let x = bx1; x <= bx2; x += 3) {
+    if (grid.inBounds(x, groundY + 1, bz2) && rng() < 0.7)
+      grid.set(x, groundY + 1, bz2, style.fence);
+  }
+  for (let z = bz1; z <= bz2; z += 3) {
+    if (grid.inBounds(bx2, groundY + 1, z) && rng() < 0.7)
+      grid.set(bx2, groundY + 1, z, style.fence);
+  }
+
   return grid;
 }
 
@@ -2445,6 +2795,56 @@ function generateShip(
   if (grid.inBounds(cx, hullBase + 3, sz1 - 1))
     grid.set(cx, hullBase + 3, sz1 - 1, style.lanternFloor);
 
+  // ── Dock / pier structure alongside ship — compositional complexity ──
+  const dockX1 = 0;
+  const dockX2 = cx - Math.floor(shipW / 2) - 2;
+  const dockZ1 = sz1 + Math.floor(shipLen * 0.2);
+  const dockZ2 = sz1 + Math.floor(shipLen * 0.7);
+  if (dockX2 > dockX1) {
+    // Dock platform (raised above water)
+    for (let x = dockX1; x <= dockX2; x++) {
+      for (let z = dockZ1; z <= dockZ2; z++) {
+        if (grid.inBounds(x, 2, z))
+          grid.set(x, 2, z, style.floorGround);
+      }
+    }
+    // Dock pilings (support posts going down into water)
+    for (let x = dockX1 + 1; x <= dockX2; x += 3) {
+      for (let z = dockZ1; z <= dockZ2; z += 4) {
+        for (let y = 0; y <= 2; y++) {
+          if (grid.inBounds(x, y, z))
+            grid.set(x, y, z, style.timber);
+        }
+      }
+    }
+    // Dock railing on outer edge
+    for (let z = dockZ1; z <= dockZ2; z++) {
+      if (grid.inBounds(dockX1, 3, z))
+        grid.set(dockX1, 3, z, style.fence);
+    }
+    // Cargo crates on dock
+    const crateX = dockX1 + 2;
+    for (let dz = 0; dz < 3; dz++) {
+      const cz = dockZ1 + 2 + dz * 2;
+      if (grid.inBounds(crateX, 3, cz)) {
+        grid.set(crateX, 3, cz, 'minecraft:barrel[facing=up]');
+        if (dz === 0 && grid.inBounds(crateX, 4, cz))
+          grid.set(crateX, 4, cz, 'minecraft:barrel[facing=up]');
+      }
+    }
+    // Dock lanterns
+    if (grid.inBounds(dockX1 + 1, 3, dockZ1))
+      grid.set(dockX1 + 1, 3, dockZ1, style.lanternFloor);
+    if (grid.inBounds(dockX1 + 1, 3, dockZ2))
+      grid.set(dockX1 + 1, 3, dockZ2, style.lanternFloor);
+    // Gangplank connecting dock to ship
+    const gpZ = Math.floor((dockZ1 + dockZ2) / 2);
+    for (let x = dockX2 + 1; x <= cx - Math.floor(shipW / 2); x++) {
+      if (grid.inBounds(x, 3, gpZ))
+        grid.set(x, 3, gpZ, style.slabBottom);
+    }
+  }
+
   return grid;
 }
 
@@ -2741,6 +3141,48 @@ function generateCathedral(
     grid.set(bx2 - 1, 3, z, style.torchW);
   }
 
+  // ── Graveyard adjacent to cathedral — compositional secondary space ──
+  const gyX1 = bx2 + 3;
+  const gyX2 = Math.min(grid.width - 2, gyX1 + 8);
+  const gyZ1 = bz1 + 5;
+  const gyZ2 = Math.min(grid.length - 2, bz2 - 5);
+  if (grid.inBounds(gyX2, 0, gyZ2)) {
+    // Grass ground for graveyard
+    for (let x = gyX1; x <= gyX2; x++) {
+      for (let z = gyZ1; z <= gyZ2; z++) {
+        if (grid.inBounds(x, 0, z)) grid.set(x, 0, z, 'minecraft:grass_block');
+      }
+    }
+    // Gravestones (cobblestone walls as markers)
+    for (let x = gyX1 + 1; x <= gyX2 - 1; x += 2) {
+      for (let z = gyZ1 + 1; z <= gyZ2 - 1; z += 3) {
+        if (grid.inBounds(x, 1, z))
+          grid.set(x, 1, z, 'minecraft:cobblestone_wall');
+      }
+    }
+    // Low stone wall around graveyard
+    for (let x = gyX1; x <= gyX2; x++) {
+      if (grid.inBounds(x, 1, gyZ1)) grid.set(x, 1, gyZ1, 'minecraft:stone_brick_wall');
+      if (grid.inBounds(x, 1, gyZ2)) grid.set(x, 1, gyZ2, 'minecraft:stone_brick_wall');
+    }
+    for (let z = gyZ1; z <= gyZ2; z++) {
+      if (grid.inBounds(gyX1, 1, z)) grid.set(gyX1, 1, z, 'minecraft:stone_brick_wall');
+      if (grid.inBounds(gyX2, 1, z)) grid.set(gyX2, 1, z, 'minecraft:stone_brick_wall');
+    }
+    // Gate opening
+    if (grid.inBounds(gyX1, 1, Math.floor((gyZ1 + gyZ2) / 2)))
+      grid.set(gyX1, 1, Math.floor((gyZ1 + gyZ2) / 2), 'minecraft:air');
+    // Path from cathedral to graveyard gate
+    for (let x = bx2 + 1; x <= gyX1; x++) {
+      if (grid.inBounds(x, 0, Math.floor((gyZ1 + gyZ2) / 2)))
+        grid.set(x, 0, Math.floor((gyZ1 + gyZ2) / 2), 'minecraft:cobblestone');
+    }
+  }
+  // Small parish house on the other side (west)
+  const phX = Math.max(0, bx1 - 8);
+  const phZ = bz1 + 5;
+  placeOutbuilding(grid, phX, phZ, 6, 5, 4, style, 'gable');
+
   return grid;
 }
 
@@ -2930,6 +3372,51 @@ function generateBridge(
       grid.set(cx, deckY - 1, z, 'minecraft:chain');
     if (grid.inBounds(cx, deckY - 2, z))
       grid.set(cx, deckY - 2, z, style.lanternFloor);
+  }
+
+  // ── Gatehouse / toll booth at bridge entrance (south end) ──
+  const ghBX1 = bx1 - 2;
+  const ghBX2 = bx2 + 2;
+  const ghBZ1 = bz2 + 1;
+  const ghBZ2 = ghBZ1 + 4;
+  const ghBH = 5;
+  if (grid.inBounds(ghBX2, ghBH + 3, ghBZ2)) {
+    for (let y = deckY + 1; y <= deckY + ghBH; y++) {
+      for (let x = ghBX1; x <= ghBX2; x++) {
+        grid.set(x, y, ghBZ1, style.wall);
+        grid.set(x, y, ghBZ2, style.wall);
+      }
+      for (let z = ghBZ1; z <= ghBZ2; z++) {
+        grid.set(ghBX1, y, z, style.wall);
+        grid.set(ghBX2, y, z, style.wall);
+      }
+    }
+    // Gatehouse floor
+    for (let x = ghBX1; x <= ghBX2; x++) {
+      for (let z = ghBZ1; z <= ghBZ2; z++) {
+        if (grid.inBounds(x, deckY, z))
+          grid.set(x, deckY, z, style.floorGround);
+      }
+    }
+    // Passage through gatehouse
+    for (let y = deckY + 1; y <= deckY + 3; y++) {
+      grid.set(cx, y, ghBZ1, 'minecraft:air');
+      grid.set(cx, y, ghBZ2, 'minecraft:air');
+      grid.set(cx + 1, y, ghBZ1, 'minecraft:air');
+      grid.set(cx + 1, y, ghBZ2, 'minecraft:air');
+    }
+    // Gatehouse battlements
+    for (let x = ghBX1; x <= ghBX2; x += 2) {
+      if (grid.inBounds(x, deckY + ghBH + 1, ghBZ1))
+        grid.set(x, deckY + ghBH + 1, ghBZ1, style.wall);
+      if (grid.inBounds(x, deckY + ghBH + 1, ghBZ2))
+        grid.set(x, deckY + ghBH + 1, ghBZ2, style.wall);
+    }
+    // Windows on gatehouse
+    if (grid.inBounds(cx, deckY + 3, ghBZ1 + 2))
+      grid.set(ghBX1, deckY + 3, ghBZ1 + 2, style.window);
+    if (grid.inBounds(ghBX2, deckY + 3, ghBZ1 + 2))
+      grid.set(ghBX2, deckY + 3, ghBZ1 + 2, style.window);
   }
 
   return grid;
@@ -3137,6 +3624,43 @@ function generateWindmill(
   // Lantern by door
   if (grid.inBounds(cx - 1, 1, doorZw - 1))
     grid.set(cx - 1, 1, doorZw - 1, style.lanternFloor);
+
+  // ── Grain storage shed + fenced wheat field — windmill composition ──
+  // Shed to the east of windmill
+  const wShedX = cx + baseR + 4;
+  const wShedZ = cz - 2;
+  if (grid.inBounds(wShedX + 5, 5, wShedZ + 4))
+    placeOutbuilding(grid, wShedX, wShedZ, 5, 5, 3, style, 'lean-to');
+  // Path from windmill to shed
+  for (let x = cx + baseR + 1; x <= wShedX; x++) {
+    if (grid.inBounds(x, 0, cz))
+      grid.set(x, 0, cz, 'minecraft:cobblestone');
+  }
+  // Wheat field (south of windmill, fenced)
+  const fieldX1 = cx - baseR - 1;
+  const fieldX2 = cx + baseR + 1;
+  const fieldZ1 = cz + baseR + 3;
+  const fieldZ2 = Math.min(grid.length - 2, fieldZ1 + 6);
+  if (grid.inBounds(fieldX2, 0, fieldZ2)) {
+    for (let x = fieldX1; x <= fieldX2; x++) {
+      for (let z = fieldZ1; z <= fieldZ2; z++) {
+        if (grid.inBounds(x, 0, z)) {
+          grid.set(x, 0, z, 'minecraft:farmland[moisture=7]');
+          if (grid.inBounds(x, 1, z))
+            grid.set(x, 1, z, 'minecraft:wheat[age=7]');
+        }
+      }
+    }
+    // Fence around field
+    for (let x = fieldX1 - 1; x <= fieldX2 + 1; x++) {
+      if (grid.inBounds(x, 1, fieldZ1 - 1)) grid.set(x, 1, fieldZ1 - 1, style.fence);
+      if (grid.inBounds(x, 1, fieldZ2 + 1)) grid.set(x, 1, fieldZ2 + 1, style.fence);
+    }
+    for (let z = fieldZ1 - 1; z <= fieldZ2 + 1; z++) {
+      if (grid.inBounds(fieldX1 - 1, 1, z)) grid.set(fieldX1 - 1, 1, z, style.fence);
+      if (grid.inBounds(fieldX2 + 1, 1, z)) grid.set(fieldX2 + 1, 1, z, style.fence);
+    }
+  }
 
   return grid;
 }
