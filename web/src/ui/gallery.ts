@@ -21,28 +21,16 @@ interface GalleryEntry {
 }
 
 const GALLERY_ENTRIES: GalleryEntry[] = [
-  // Original 12
-  { type: 'house', style: 'fantasy', floors: 2, seed: 42, label: 'Fantasy Cottage' },
-  { type: 'house', style: 'medieval', floors: 3, seed: 100, label: 'Medieval Manor', planShape: 'L' },
-  { type: 'tower', style: 'gothic', floors: 4, seed: 77, label: 'Gothic Tower' },
-  { type: 'castle', style: 'medieval', floors: 2, seed: 200, label: 'Medieval Castle' },
-  { type: 'dungeon', style: 'gothic', floors: 2, seed: 300, label: 'Gothic Dungeon' },
-  { type: 'ship', style: 'rustic', floors: 2, seed: 500, label: 'Rustic Ship' },
-  { type: 'house', style: 'modern', floors: 2, seed: 600, label: 'Modern House', roofShape: 'flat' },
-  { type: 'tower', style: 'fantasy', floors: 5, seed: 700, label: 'Wizard Tower' },
-  { type: 'castle', style: 'gothic', floors: 3, seed: 800, label: 'Dark Fortress' },
-  { type: 'house', style: 'rustic', floors: 2, seed: 900, label: 'Rustic Cabin' },
-  { type: 'dungeon', style: 'medieval', floors: 3, seed: 1000, label: 'Stone Dungeon' },
-  { type: 'ship', style: 'fantasy', floors: 2, seed: 1100, label: 'Fantasy Galleon' },
-  // v0.2.0 — new structure types + styles
-  { type: 'cathedral', style: 'gothic', floors: 1, seed: 7, label: 'Gothic Cathedral' },
-  { type: 'bridge', style: 'medieval', floors: 1, seed: 42, label: 'Stone Bridge' },
-  { type: 'windmill', style: 'rustic', floors: 1, seed: 33, label: 'Rustic Windmill' },
-  { type: 'marketplace', style: 'desert', floors: 1, seed: 55, label: 'Desert Bazaar' },
-  { type: 'village', style: 'medieval', floors: 1, seed: 42, label: 'Medieval Village' },
-  { type: 'house', style: 'steampunk', floors: 2, seed: 42, label: 'Steampunk Workshop', planShape: 'T' },
-  { type: 'tower', style: 'elven', floors: 4, seed: 88, label: 'Elven Spire' },
-  { type: 'castle', style: 'underwater', floors: 2, seed: 150, label: 'Undersea Citadel' },
+  // Curated gallery — only buildings scoring 8+ in Gemini 3 Pro QA evaluation
+  { type: 'village', style: 'medieval', floors: 1, seed: 42, label: 'Medieval Village' },       // 9.0
+  { type: 'dungeon', style: 'gothic', floors: 2, seed: 300, label: 'Gothic Dungeon' },          // 8.7
+  { type: 'ship', style: 'fantasy', floors: 2, seed: 1100, label: 'Fantasy Galleon' },          // 8.7
+  { type: 'marketplace', style: 'desert', floors: 1, seed: 55, label: 'Desert Bazaar' },        // 8.7
+  { type: 'house', style: 'fantasy', floors: 2, seed: 42, label: 'Fantasy Cottage' },           // 8.3
+  { type: 'windmill', style: 'rustic', floors: 1, seed: 33, label: 'Rustic Windmill' },         // 8.3
+  { type: 'tower', style: 'gothic', floors: 4, seed: 77, label: 'Gothic Tower' },               // 8.0
+  { type: 'tower', style: 'elven', floors: 4, seed: 88, label: 'Elven Spire' },                 // 8.0
+  { type: 'castle', style: 'underwater', floors: 2, seed: 150, label: 'Undersea Citadel' },     // 8.0
 ];
 
 /** Render a tiny isometric thumbnail of a BlockGrid onto a canvas */
