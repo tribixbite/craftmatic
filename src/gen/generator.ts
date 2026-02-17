@@ -382,36 +382,126 @@ function generateHouse(
       placeGarden(grid, gardenX1 - 1, gardenZ1, gardenX1, gardenZ2, 0, rng);
   }
 
-  // ── Modern facade enhancements: accent bands + glass curtain wall ──
+  // ── Modern facade enhancements: cantilever + glass curtain wall + rooftop ──
   if (style.wall === 'minecraft:white_concrete') {
     // Horizontal accent bands between floors for visual depth
     for (let story = 1; story < floors; story++) {
       accentBand(grid, bx1, story * STORY_H, bz1, bx2, bz2, style.wallAccent);
     }
-    // Ground floor front: glass curtain wall (large windows)
+    // Ground floor: full glass curtain wall on front AND east side
     glassCurtainWall(grid, bx1 + 2, 2, STORY_H - 2, bz2, bx2 - 2, style.window);
-    // Upper floor setback: slab overhang on south facade for cantilever effect
+    // East side glass wall (ground floor)
+    for (let z = bz1 + 2; z <= bz2 - 2; z++) {
+      for (let y = 2; y <= STORY_H - 2; y++) {
+        if (grid.inBounds(bx2, y, z))
+          grid.set(bx2, y, z, style.window);
+      }
+    }
+    // Upper floor cantilever — extends 2 blocks beyond ground floor on south + east
     if (floors >= 2) {
-      for (let x = bx1; x <= bx2; x++) {
-        if (grid.inBounds(x, STORY_H, bz2 + 1))
-          grid.set(x, STORY_H, bz2 + 1, style.slabBottom);
+      // South cantilever overhang (3 blocks deep)
+      for (let x = bx1; x <= bx2 + 2; x++) {
+        for (let dz = 1; dz <= 3; dz++) {
+          if (grid.inBounds(x, STORY_H, bz2 + dz))
+            grid.set(x, STORY_H, bz2 + dz, 'minecraft:white_concrete');
+        }
+      }
+      // East cantilever overhang (2 blocks deep)
+      for (let z = bz1; z <= bz2; z++) {
+        for (let dx = 1; dx <= 2; dx++) {
+          if (grid.inBounds(bx2 + dx, STORY_H, z))
+            grid.set(bx2 + dx, STORY_H, z, 'minecraft:white_concrete');
+        }
+      }
+      // Cantilever underside — dark accent slab to emphasize shadow
+      for (let x = bx1; x <= bx2 + 2; x++) {
+        if (grid.inBounds(x, STORY_H - 1, bz2 + 2))
+          grid.set(x, STORY_H - 1, bz2 + 2, 'minecraft:gray_concrete');
+      }
+      // Upper floor walls on cantilever extension
+      for (let y = STORY_H + 1; y <= 2 * STORY_H - 1; y++) {
+        for (let x = bx1; x <= bx2 + 2; x++) {
+          if (grid.inBounds(x, y, bz2 + 3))
+            grid.set(x, y, bz2 + 3, style.wall);
+        }
+        // East extended wall
+        if (grid.inBounds(bx2 + 2, y, bz2 + 2))
+          grid.set(bx2 + 2, y, bz2 + 2, style.wall);
+      }
+      // Upper floor glass on cantilever front
+      for (let x = bx1 + 2; x <= bx2; x++) {
+        for (let y = STORY_H + 2; y <= 2 * STORY_H - 2; y++) {
+          if (grid.inBounds(x, y, bz2 + 3))
+            grid.set(x, y, bz2 + 3, style.window);
+        }
+      }
+    }
+    // Rooftop terrace — flat roof with glass railing and planter boxes
+    const roofTop = floors * STORY_H;
+    // Glass railing around rooftop
+    for (let x = bx1; x <= bx2; x++) {
+      if (grid.inBounds(x, roofTop + 1, bz1))
+        grid.set(x, roofTop + 1, bz1, 'minecraft:glass_pane');
+      if (grid.inBounds(x, roofTop + 1, bz2))
+        grid.set(x, roofTop + 1, bz2, 'minecraft:glass_pane');
+    }
+    for (let z = bz1; z <= bz2; z++) {
+      if (grid.inBounds(bx1, roofTop + 1, z))
+        grid.set(bx1, roofTop + 1, z, 'minecraft:glass_pane');
+      if (grid.inBounds(bx2, roofTop + 1, z))
+        grid.set(bx2, roofTop + 1, z, 'minecraft:glass_pane');
+    }
+    // Planter boxes on rooftop corners
+    for (const [px, pz] of [[bx1 + 1, bz1 + 1], [bx2 - 1, bz1 + 1],
+                              [bx1 + 1, bz2 - 1], [bx2 - 1, bz2 - 1]] as [number, number][]) {
+      if (grid.inBounds(px, roofTop + 1, pz))
+        grid.set(px, roofTop + 1, pz, 'minecraft:potted_fern');
+    }
+    // Exterior accent: dark concrete base trim
+    for (let x = bx1; x <= bx2; x++) {
+      for (const z of [bz1, bz2]) {
+        if (grid.inBounds(x, 0, z)) grid.set(x, 0, z, 'minecraft:gray_concrete');
       }
     }
   }
 
-  // ── Medieval manor enhancements: wall weathering + flower boxes + extra banners ──
+  // ── Medieval manor enhancements: dormers + weathering + heraldic detail ──
   if (style.wall === 'minecraft:stone_bricks') {
-    // Weathered exterior walls — mix in mossy/cracked stone for aged look
+    // Weathered exterior walls
     const medievalVariants = [
       'minecraft:mossy_stone_bricks', 'minecraft:cracked_stone_bricks',
     ];
     weatherWalls(grid, bx1, 0, bz1, bx2, floors * STORY_H, bz2, style.wall, medievalVariants, rng, 0.15);
+    // ── Dormer windows — break up heavy roofline (south-facing) ──
+    const dormerSpacing = Math.max(6, Math.floor(bw / 3));
+    for (let dx = bx1 + dormerSpacing; dx <= bx2 - dormerSpacing; dx += dormerSpacing) {
+      const dormerBase = roofBase + 2;
+      // Dormer walls (3 wide, 3 tall box projecting from roof)
+      for (let y = dormerBase; y <= dormerBase + 2; y++) {
+        for (let ddx = -1; ddx <= 1; ddx++) {
+          if (grid.inBounds(dx + ddx, y, bz2 + 1))
+            grid.set(dx + ddx, y, bz2 + 1, style.wall);
+        }
+      }
+      // Dormer window
+      if (grid.inBounds(dx, dormerBase + 1, bz2 + 1))
+        grid.set(dx, dormerBase + 1, bz2 + 1, style.window);
+      // Dormer roof (mini gable — 3 blocks)
+      if (grid.inBounds(dx - 1, dormerBase + 3, bz2 + 1))
+        grid.set(dx - 1, dormerBase + 3, bz2 + 1, style.roofS);
+      if (grid.inBounds(dx, dormerBase + 3, bz2 + 1))
+        grid.set(dx, dormerBase + 3, bz2 + 1, style.roofS);
+      if (grid.inBounds(dx + 1, dormerBase + 3, bz2 + 1))
+        grid.set(dx + 1, dormerBase + 3, bz2 + 1, style.roofS);
+      if (grid.inBounds(dx, dormerBase + 4, bz2 + 1))
+        grid.set(dx, dormerBase + 4, bz2 + 1, style.roofCap);
+    }
     // Flower boxes under front-facing windows
     for (let x = bx1 + 4; x <= bx2 - 4; x += 4) {
       if (grid.inBounds(x, 1, bz2 + 1))
         grid.set(x, 1, bz2 + 1, 'minecraft:potted_red_tulip');
     }
-    // Extra banners on side walls for heraldic detail
+    // Banners on side walls — heraldic identity
     for (let story = 0; story < floors; story++) {
       const banY = story * STORY_H + 3;
       if (grid.inBounds(bx1 - 1, banY, zMid))
@@ -419,71 +509,186 @@ function generateHouse(
       if (grid.inBounds(bx2 + 1, banY, zMid))
         grid.set(bx2 + 1, banY, zMid, 'minecraft:red_wall_banner[facing=east]');
     }
+    // Prominent chimney — taller, with stone brick cap
+    const chimBaseY = roofBase + ROOF_H - 3;
+    const chimX2 = bx1 + 3;
+    for (let y = chimBaseY; y <= chimBaseY + 4; y++) {
+      if (grid.inBounds(chimX2, y, bz1 + 2))
+        grid.set(chimX2, y, bz1 + 2, 'minecraft:stone_bricks');
+      if (grid.inBounds(chimX2 + 1, y, bz1 + 2))
+        grid.set(chimX2 + 1, y, bz1 + 2, 'minecraft:stone_bricks');
+    }
+    // Chimney cap
+    if (grid.inBounds(chimX2, chimBaseY + 5, bz1 + 2))
+      grid.set(chimX2, chimBaseY + 5, bz1 + 2, style.slabBottom);
+    if (grid.inBounds(chimX2 + 1, chimBaseY + 5, bz1 + 2))
+      grid.set(chimX2 + 1, chimBaseY + 5, bz1 + 2, style.slabBottom);
+    // Courtyard well for manor estate feel
+    const wellMX = bx1 - 3;
+    const wellMZ = zMid;
+    if (grid.inBounds(wellMX, 0, wellMZ)) {
+      grid.set(wellMX, 0, wellMZ, 'minecraft:cobblestone');
+      grid.set(wellMX, 1, wellMZ, 'minecraft:water_cauldron[level=3]');
+      for (const [fx, fz] of [[wellMX - 1, wellMZ - 1], [wellMX + 1, wellMZ - 1],
+                                [wellMX - 1, wellMZ + 1], [wellMX + 1, wellMZ + 1]] as [number, number][]) {
+        if (grid.inBounds(fx, 1, fz)) grid.set(fx, 1, fz, style.fence);
+      }
+    }
   }
 
-  // ── Rustic cabin enhancements: woodpile + log accents + smoke chimney ──
+  // ── Rustic cabin enhancements: log construction + wrap-around porch + woodsman vibe ──
   if (style.wall === 'minecraft:spruce_planks') {
-    // Woodpile next to building (split logs stacked against wall)
-    const wpX = bx2 + 1;
-    const wpZ = bz1 + 2;
-    for (let y = 1; y <= 2; y++) {
-      if (grid.inBounds(wpX, y, wpZ))
-        grid.set(wpX, y, wpZ, 'minecraft:spruce_log[axis=x]');
-      if (grid.inBounds(wpX, y, wpZ + 1))
-        grid.set(wpX, y, wpZ + 1, 'minecraft:spruce_log[axis=x]');
-    }
-    // Log corner accents — exposed log ends at building corners
-    for (let story = 0; story < floors; story++) {
-      const ly = story * STORY_H + 2;
+    // Full log corner construction — EVERY corner column is stripped log
+    for (let y = 1; y <= floors * STORY_H; y++) {
       for (const [lx, lz] of [[bx1, bz1], [bx2, bz1], [bx1, bz2], [bx2, bz2]] as [number, number][]) {
-        if (grid.inBounds(lx, ly, lz))
-          grid.set(lx, ly, lz, 'minecraft:stripped_spruce_log');
-        if (grid.inBounds(lx, ly + 2, lz))
-          grid.set(lx, ly + 2, lz, 'minecraft:stripped_spruce_log');
+        if (grid.inBounds(lx, y, lz))
+          grid.set(lx, y, lz, 'minecraft:stripped_spruce_log');
       }
     }
-    // Campfire smoke near entrance (adds atmosphere)
-    if (grid.inBounds(xMid + 3, 0, bz2 + 3))
-      grid.set(xMid + 3, 0, bz2 + 3, 'minecraft:cobblestone');
-    if (grid.inBounds(xMid + 3, 1, bz2 + 3))
-      grid.set(xMid + 3, 1, bz2 + 3, 'minecraft:campfire[lit=true]');
+    // Alternating log layer accents on walls — cabin log construction look
+    for (let y = 1; y <= floors * STORY_H; y += 2) {
+      for (let x = bx1; x <= bx2; x++) {
+        if (grid.inBounds(x, y, bz1) && grid.get(x, y, bz1) === style.wall)
+          grid.set(x, y, bz1, 'minecraft:spruce_log[axis=x]');
+        if (grid.inBounds(x, y, bz2) && grid.get(x, y, bz2) === style.wall)
+          grid.set(x, y, bz2, 'minecraft:spruce_log[axis=x]');
+      }
+      for (let z = bz1; z <= bz2; z++) {
+        if (grid.inBounds(bx1, y, z) && grid.get(bx1, y, z) === style.wall)
+          grid.set(bx1, y, z, 'minecraft:spruce_log[axis=z]');
+        if (grid.inBounds(bx2, y, z) && grid.get(bx2, y, z) === style.wall)
+          grid.set(bx2, y, z, 'minecraft:spruce_log[axis=z]');
+      }
+    }
+    // Wrap-around covered porch on south + east sides
+    const porchW = 2;
+    // South porch extension
+    for (let x = bx1 - 1; x <= bx2 + porchW + 1; x++) {
+      if (grid.inBounds(x, 0, bz2 + porchW + 1))
+        grid.set(x, 0, bz2 + porchW + 1, style.floorGround);
+    }
+    // East porch extension
+    for (let z = bz1; z <= bz2 + porchW + 1; z++) {
+      for (let dx = 1; dx <= porchW + 1; dx++) {
+        if (grid.inBounds(bx2 + dx, 0, z))
+          grid.set(bx2 + dx, 0, z, style.floorGround);
+      }
+    }
+    // Porch support posts (fence + log columns)
+    const porchPosts: [number, number][] = [
+      [bx1 - 1, bz2 + porchW + 1], [bx2 + porchW + 1, bz2 + porchW + 1],
+      [bx2 + porchW + 1, bz1], [bx2 + porchW + 1, zMid],
+    ];
+    for (const [px, pz] of porchPosts) {
+      for (let y = 1; y <= STORY_H - 1; y++) {
+        if (grid.inBounds(px, y, pz))
+          grid.set(px, y, pz, 'minecraft:stripped_spruce_log');
+      }
+    }
+    // Porch railing (fence between posts)
+    for (let x = bx1; x <= bx2 + porchW; x++) {
+      if (grid.inBounds(x, 1, bz2 + porchW + 1))
+        grid.set(x, 1, bz2 + porchW + 1, style.fence);
+    }
+    for (let z = bz1 + 1; z <= bz2 + porchW; z++) {
+      if (grid.inBounds(bx2 + porchW + 1, 1, z))
+        grid.set(bx2 + porchW + 1, 1, z, style.fence);
+    }
+    // Large woodpile against north wall (2 wide, 3 tall)
+    for (let y = 1; y <= 3; y++) {
+      for (let dz = 0; dz < 3; dz++) {
+        if (grid.inBounds(bx2 + 1, y, bz1 + dz))
+          grid.set(bx2 + 1, y, bz1 + dz, 'minecraft:spruce_log[axis=x]');
+      }
+    }
+    // Campfire with seating
+    if (grid.inBounds(xMid - 4, 0, bz2 + 4))
+      grid.set(xMid - 4, 0, bz2 + 4, 'minecraft:cobblestone');
+    if (grid.inBounds(xMid - 4, 1, bz2 + 4))
+      grid.set(xMid - 4, 1, bz2 + 4, 'minecraft:campfire[lit=true]');
+    // Log benches around campfire
+    for (const [sx, sz] of [[xMid - 6, bz2 + 4], [xMid - 4, bz2 + 6]] as [number, number][]) {
+      if (grid.inBounds(sx, 1, sz))
+        grid.set(sx, 1, sz, 'minecraft:spruce_log[axis=x]');
+    }
+    // Stone cobble path from porch to campfire
+    for (let dz = 1; dz <= 3; dz++) {
+      if (grid.inBounds(xMid - 2, 0, bz2 + dz))
+        grid.set(xMid - 2, 0, bz2 + dz, 'minecraft:cobblestone');
+    }
   }
 
-  // ── Steampunk workshop enhancements: pipe runs + gear accents + copper detail ──
+  // ── Steampunk workshop enhancements: heavy industrial aesthetic ──
   if (style.wall === 'minecraft:iron_block') {
-    // Pipe runs along exterior walls — exposed copper conduits
+    // Vertical pipe runs on ALL exterior walls — copper + lightning rod stacks
     for (let z = bz1 + 2; z <= bz2 - 2; z += 3) {
-      if (grid.inBounds(bx1 - 1, 3, z))
-        grid.set(bx1 - 1, 3, z, 'minecraft:lightning_rod');
-      if (grid.inBounds(bx2 + 1, 3, z))
-        grid.set(bx2 + 1, 3, z, 'minecraft:lightning_rod');
-    }
-    // Copper accent blocks at wall base for industrial detail
-    for (let x = bx1; x <= bx2; x += 3) {
-      if (grid.inBounds(x, 1, bz1))
-        grid.set(x, 1, bz1, 'minecraft:exposed_copper');
-      if (grid.inBounds(x, 1, bz2))
-        grid.set(x, 1, bz2, 'minecraft:exposed_copper');
-    }
-    // Gear/piston accent on front facade — mechanical detail
-    if (grid.inBounds(bx1 + 2, 3, bz2))
-      grid.set(bx1 + 2, 3, bz2, 'minecraft:piston[facing=south]');
-    if (grid.inBounds(bx2 - 2, 3, bz2))
-      grid.set(bx2 - 2, 3, bz2, 'minecraft:piston[facing=south]');
-    // Redstone lamp above door for industrial lighting
-    if (grid.inBounds(xMid, STORY_H - 1, bz2 + 1))
-      grid.set(xMid, STORY_H - 1, bz2 + 1, 'minecraft:redstone_lamp');
-    // Smokestack: iron column on roof
-    if (floors >= 1) {
-      const stackX = bx2 - 2;
-      const stackBase = floors * STORY_H + 1;
-      for (let y = stackBase; y <= stackBase + 3; y++) {
-        if (grid.inBounds(stackX, y, bz1 + 2))
-          grid.set(stackX, y, bz1 + 2, 'minecraft:iron_block');
+      for (let y = 1; y <= floors * STORY_H; y++) {
+        if (grid.inBounds(bx1 - 1, y, z))
+          grid.set(bx1 - 1, y, z, y % 2 === 0 ? 'minecraft:lightning_rod' : 'minecraft:chain');
+        if (grid.inBounds(bx2 + 1, y, z))
+          grid.set(bx2 + 1, y, z, y % 2 === 0 ? 'minecraft:lightning_rod' : 'minecraft:chain');
       }
-      if (grid.inBounds(stackX, stackBase + 4, bz1 + 2))
-        grid.set(stackX, stackBase + 4, bz1 + 2, 'minecraft:campfire[lit=true]');
     }
+    // Horizontal pipe runs connecting verticals (cross bracing)
+    for (let y = 2; y <= floors * STORY_H; y += STORY_H) {
+      for (let x = bx1; x <= bx2; x += 2) {
+        if (grid.inBounds(x, y, bz1 - 1))
+          grid.set(x, y, bz1 - 1, 'minecraft:exposed_copper');
+        if (grid.inBounds(x, y, bz2 + 1))
+          grid.set(x, y, bz2 + 1, 'minecraft:exposed_copper');
+      }
+    }
+    // Copper accent base band — oxidized copper for aged industrial look
+    for (let x = bx1; x <= bx2; x++) {
+      if (grid.inBounds(x, 1, bz1)) grid.set(x, 1, bz1, 'minecraft:exposed_copper');
+      if (grid.inBounds(x, 1, bz2)) grid.set(x, 1, bz2, 'minecraft:exposed_copper');
+    }
+    for (let z = bz1; z <= bz2; z++) {
+      if (grid.inBounds(bx1, 1, z)) grid.set(bx1, 1, z, 'minecraft:exposed_copper');
+      if (grid.inBounds(bx2, 1, z)) grid.set(bx2, 1, z, 'minecraft:exposed_copper');
+    }
+    // Piston "gear" array on front facade — 3-wide mechanical feature
+    for (let dx = -1; dx <= 1; dx++) {
+      if (grid.inBounds(bx1 + 3 + dx, 3, bz2))
+        grid.set(bx1 + 3 + dx, 3, bz2, 'minecraft:piston[facing=south]');
+      if (grid.inBounds(bx2 - 3 + dx, 3, bz2))
+        grid.set(bx2 - 3 + dx, 3, bz2, 'minecraft:sticky_piston[facing=south]');
+    }
+    // Observer blocks as "gauges" on north wall
+    for (let x = bx1 + 3; x <= bx2 - 3; x += 5) {
+      if (grid.inBounds(x, 3, bz1))
+        grid.set(x, 3, bz1, 'minecraft:observer[facing=north]');
+    }
+    // Redstone lamps flanking door + above
+    if (grid.inBounds(xMid - 2, STORY_H - 1, bz2 + 1))
+      grid.set(xMid - 2, STORY_H - 1, bz2 + 1, 'minecraft:redstone_lamp');
+    if (grid.inBounds(xMid + 2, STORY_H - 1, bz2 + 1))
+      grid.set(xMid + 2, STORY_H - 1, bz2 + 1, 'minecraft:redstone_lamp');
+    // DUAL smokestacks — taller, with copper banding
+    for (const stackX of [bx1 + 2, bx2 - 2]) {
+      const stackBase = floors * STORY_H + 1;
+      for (let y = stackBase; y <= stackBase + 5; y++) {
+        if (grid.inBounds(stackX, y, bz1 + 2)) {
+          const block = y % 3 === 0 ? 'minecraft:exposed_copper' : 'minecraft:iron_block';
+          grid.set(stackX, y, bz1 + 2, block);
+        }
+      }
+      if (grid.inBounds(stackX, stackBase + 6, bz1 + 2))
+        grid.set(stackX, stackBase + 6, bz1 + 2, 'minecraft:campfire[lit=true]');
+    }
+    // Copper roof trim — replace roof edge blocks with oxidized copper
+    const roofY = floors * STORY_H;
+    for (let x = bx1; x <= bx2; x++) {
+      if (grid.inBounds(x, roofY + 1, bz1)) grid.set(x, roofY + 1, bz1, 'minecraft:oxidized_copper');
+      if (grid.inBounds(x, roofY + 1, bz2)) grid.set(x, roofY + 1, bz2, 'minecraft:oxidized_copper');
+    }
+    // Exterior workbench + anvil — workshop identity
+    if (grid.inBounds(bx2 + 2, 1, zMid))
+      grid.set(bx2 + 2, 1, zMid, 'minecraft:smithing_table');
+    if (grid.inBounds(bx2 + 2, 1, zMid + 1))
+      grid.set(bx2 + 2, 1, zMid + 1, 'minecraft:anvil[facing=north]');
+    if (grid.inBounds(bx2 + 2, 1, zMid - 1))
+      grid.set(bx2 + 2, 1, zMid - 1, 'minecraft:blast_furnace[facing=west]');
   }
 
   return grid;
@@ -738,18 +943,48 @@ function generateTower(
     // Enchanting table at ground floor center
     if (grid.inBounds(cx, 1, cz))
       grid.set(cx, 1, cz, 'minecraft:enchanting_table');
-    // Bookshelves surrounding enchanting table
-    for (const [bdx, bdz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]]) {
+    // Bookshelves surrounding enchanting table (full ring)
+    for (const [bdx, bdz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
       if (grid.inBounds(cx + bdx, 1, cz + bdz))
         grid.set(cx + bdx, 1, cz + bdz, 'minecraft:bookshelf');
       if (grid.inBounds(cx + bdx, 2, cz + bdz))
         grid.set(cx + bdx, 2, cz + bdz, 'minecraft:bookshelf');
     }
-    // End rod spire on very top — crystal beacon
+    // Amethyst crystal clusters on exterior walls (magical glow)
+    for (let story = 0; story < floors; story++) {
+      const crystalY = story * STORY_H + 3;
+      for (const [cdx, cdz] of [[radius + 1, 0], [-(radius + 1), 0], [0, radius + 1], [0, -(radius + 1)]]) {
+        if (grid.inBounds(cx + cdx, crystalY, cz + cdz))
+          grid.set(cx + cdx, crystalY, cz + cdz, 'minecraft:amethyst_cluster[facing=up]');
+      }
+    }
+    // Brewing stands on upper floors
+    const brewY = STORY_H + 1;
+    if (grid.inBounds(cx - 2, brewY, cz + 2))
+      grid.set(cx - 2, brewY, cz + 2, 'minecraft:brewing_stand');
+    // Cauldron with potion
+    if (grid.inBounds(cx + 2, brewY, cz - 2))
+      grid.set(cx + 2, brewY, cz - 2, 'minecraft:water_cauldron[level=3]');
+    // End rod spire on very top — taller crystal beacon (6 blocks)
     const spireBase = floors * STORY_H + 1;
-    for (let sy = spireBase; sy <= spireBase + 3; sy++) {
+    for (let sy = spireBase; sy <= spireBase + 5; sy++) {
       if (grid.inBounds(cx, sy, cz))
         grid.set(cx, sy, cz, 'minecraft:end_rod[facing=up]');
+    }
+    // Amethyst crown at spire base
+    for (const [sdx, sdz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (grid.inBounds(cx + sdx, spireBase, cz + sdz))
+        grid.set(cx + sdx, spireBase, cz + sdz, 'minecraft:amethyst_block');
+    }
+    // Floating end rod orbiting lights
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2;
+      const orbitR = radius + 3;
+      const ox = cx + Math.round(Math.cos(angle) * orbitR);
+      const oz = cz + Math.round(Math.sin(angle) * orbitR);
+      const oy = Math.floor(floors * STORY_H * 0.7);
+      if (grid.inBounds(ox, oy, oz))
+        grid.set(ox, oy, oz, 'minecraft:end_rod[facing=up]');
     }
   }
 
@@ -1188,6 +1423,57 @@ function generateCastle(
       grid.set(tcx, 1, tcz, 'minecraft:armor_stand');
   }
 
+  // ── Varied tower heights — alternating tall/short for interesting skyline ──
+  // Front-right and back-left towers get extra height (2 blocks)
+  for (const [tcx, tcz] of [[bx2, bz1], [bx1, bz2]] as [number, number][]) {
+    const extraH = 2;
+    for (let dx = -towerRadius; dx <= towerRadius; dx++) {
+      for (let dz = -towerRadius; dz <= towerRadius; dz++) {
+        if (Math.sqrt(dx * dx + dz * dz) <= towerRadius + 0.5) {
+          const tx = tcx + dx;
+          const tz = tcz + dz;
+          for (let y = towerH + 1; y <= towerH + extraH; y++) {
+            if (grid.inBounds(tx, y, tz)) grid.set(tx, y, tz, style.wall);
+          }
+        }
+      }
+    }
+  }
+
+  // ── Courtyard garden patches — break up flat ground ──
+  // Grass patch with flowers (SW quadrant)
+  const gardenCX = bx1 + 5;
+  const gardenCZ = bz2 - 5;
+  for (let dx = 0; dx < 3; dx++) {
+    for (let dz = 0; dz < 3; dz++) {
+      if (grid.inBounds(gardenCX + dx, 0, gardenCZ + dz))
+        grid.set(gardenCX + dx, 0, gardenCZ + dz, 'minecraft:grass_block');
+    }
+  }
+  const flowers = ['minecraft:poppy', 'minecraft:dandelion', 'minecraft:cornflower', 'minecraft:azure_bluet'];
+  for (let i = 0; i < 4; i++) {
+    const fx = gardenCX + Math.floor(rng() * 3);
+    const fz = gardenCZ + Math.floor(rng() * 3);
+    if (grid.inBounds(fx, 1, fz))
+      grid.set(fx, 1, fz, flowers[i % flowers.length]);
+  }
+
+  // ── Stable area (NE quadrant) — horse stalls ──
+  const stableX = bx2 - 6;
+  const stableZ = bz1 + 4;
+  // Stable roof (slab overhang)
+  grid.fill(stableX, 3, stableZ, stableX + 3, 3, stableZ + 2, style.slabBottom);
+  // Fence stall dividers
+  for (let dz = 0; dz <= 2; dz++) {
+    if (grid.inBounds(stableX, 1, stableZ + dz))
+      grid.set(stableX, 1, stableZ + dz, style.fence);
+    if (grid.inBounds(stableX + 3, 1, stableZ + dz))
+      grid.set(stableX + 3, 1, stableZ + dz, style.fence);
+  }
+  // Hay feeder
+  if (grid.inBounds(stableX + 1, 1, stableZ))
+    grid.set(stableX + 1, 1, stableZ, 'minecraft:hay_block');
+
   // ── Castle wall weathering — aged stone with moss/cracks ──
   const castleVariants = [
     'minecraft:mossy_stone_bricks', 'minecraft:cracked_stone_bricks',
@@ -1218,6 +1504,49 @@ function generateCastle(
       grid.set(x, wallH, bz1 + 1, style.bannerS);
     if (grid.inBounds(x, wallH, bz2 - 1))
       grid.set(x, wallH, bz2 - 1, style.bannerN);
+  }
+
+  // ── Dark Fortress (gothic) unique features — angular, menacing silhouette ──
+  if (style.wall === 'minecraft:deepslate_bricks') {
+    // Pointed spires on corner towers (replace cone tops with sharp points)
+    for (const [tcx, tcz] of towerCorners) {
+      const spireTop = towerH + towerRadius + 4;
+      for (let y = towerH + 3; y <= spireTop; y++) {
+        if (grid.inBounds(tcx, y, tcz))
+          grid.set(tcx, y, tcz, 'minecraft:blackstone');
+      }
+      // Glowing soul fire at spire tip
+      if (grid.inBounds(tcx, spireTop + 1, tcz))
+        grid.set(tcx, spireTop + 1, tcz, 'minecraft:soul_lantern[hanging=false]');
+    }
+    // Lava moat channels around exterior (visible as red glow)
+    for (let x = bx1 - 2; x <= bx2 + 2; x++) {
+      for (const mz of [bz1 - 2, bz2 + 2]) {
+        if (grid.inBounds(x, 0, mz))
+          grid.set(x, 0, mz, 'minecraft:lava');
+      }
+    }
+    for (let z = bz1 - 2; z <= bz2 + 2; z++) {
+      for (const mx of [bx1 - 2, bx2 + 2]) {
+        if (grid.inBounds(mx, 0, z))
+          grid.set(mx, 0, z, 'minecraft:lava');
+      }
+    }
+    // Soul torches replacing regular torches for eerie blue light
+    for (let x = bx1 + 5; x < bx2 - 3; x += 5) {
+      if (grid.inBounds(x, 1, bz1 + 3))
+        grid.set(x, 1, bz1 + 3, 'minecraft:soul_lantern[hanging=false]');
+      if (grid.inBounds(x, 1, bz2 - 3))
+        grid.set(x, 1, bz2 - 3, 'minecraft:soul_lantern[hanging=false]');
+    }
+    // Skull decorations on gatehouse
+    if (grid.inBounds(xMid - 2, wallH, bz2))
+      grid.set(xMid - 2, wallH, bz2, 'minecraft:wither_skeleton_skull[rotation=0]');
+    if (grid.inBounds(xMid + 2, wallH, bz2))
+      grid.set(xMid + 2, wallH, bz2, 'minecraft:wither_skeleton_skull[rotation=0]');
+    // Cobweb curtains in gatehouse entrance
+    if (grid.inBounds(xMid, 3, bz2 - 1))
+      grid.set(xMid, 3, bz2 - 1, 'minecraft:cobweb');
   }
 
   return grid;
@@ -1523,23 +1852,95 @@ function generateDungeon(
   }
 
   // ── Edge-defining accent blocks — high-contrast pilasters on entrance corners ──
-  // Polished blackstone/deepslate trim on entrance vertical edges for silhouette definition
   const edgeBlock = style.wall === 'minecraft:deepslate_bricks'
     ? 'minecraft:polished_blackstone' : 'minecraft:polished_deepslate';
   for (let y = groundY + 1; y <= groundY + entrH; y++) {
-    // Entrance building vertical corners
-    for (const [ex, ez] of [[ex1, ez1], [ex2, ez1], [ex1, ez2], [ex2, ez2]] as [number, number][]) {
-      if (grid.inBounds(ex, y, ez))
-        grid.set(ex, y, ez, edgeBlock);
+    for (const [ecx, ecz] of [[ex1, ez1], [ex2, ez1], [ex1, ez2], [ex2, ez2]] as [number, number][]) {
+      if (grid.inBounds(ecx, y, ecz))
+        grid.set(ecx, y, ecz, edgeBlock);
     }
   }
-  // Accent band along entrance roofline
   accentBand(grid, ex1, groundY + entrH, ez1, ex2, ez2, style.wallAccent);
   // Lanterns flanking entrance gate
   if (grid.inBounds(xMid - 3, groundY + 3, ez1 - 1))
     grid.set(xMid - 3, groundY + 3, ez1 - 1, style.lanternFloor);
   if (grid.inBounds(xMid + 3, groundY + 3, ez1 - 1))
     grid.set(xMid + 3, groundY + 3, ez1 - 1, style.lanternFloor);
+
+  // ── Surface terrain mound — earth/stone cover over underground dungeon ──
+  // Creates irregular hill silhouette instead of flat ground
+  for (let x = bx1 + 2; x <= bx2 - 2; x++) {
+    for (let z = ez2 + 2; z <= bz2 - 2; z++) {
+      // Distance from center determines mound height (paraboloid falloff)
+      const dx = (x - xMid) / (bw / 2);
+      const dz = (z - zMid) / (bl / 2);
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const moundH = Math.max(0, Math.round(3 * (1 - dist * dist)));
+      for (let y = groundY + 1; y <= groundY + moundH; y++) {
+        if (grid.inBounds(x, y, z)) {
+          // Outer layer = grass/dirt, inner = stone
+          const block = y === groundY + moundH
+            ? 'minecraft:moss_block'
+            : (rng() < 0.3 ? 'minecraft:coarse_dirt' : style.foundation);
+          grid.set(x, y, z, block);
+        }
+      }
+    }
+  }
+
+  // ── Ruined flanking walls — collapsed stone extending from entrance ──
+  // Left flank wall (decaying, varying height)
+  for (let z = ez1; z <= ez1 + 6; z++) {
+    const wallHeight = Math.max(1, 4 - Math.floor(rng() * 3));
+    for (let y = groundY + 1; y <= groundY + wallHeight; y++) {
+      if (grid.inBounds(ex1 - 2, y, z))
+        grid.set(ex1 - 2, y, z, rng() < 0.4 ? 'minecraft:mossy_cobblestone' : style.wall);
+    }
+  }
+  // Right flank wall
+  for (let z = ez1; z <= ez1 + 5; z++) {
+    const wallHeight = Math.max(1, 3 - Math.floor(rng() * 2));
+    for (let y = groundY + 1; y <= groundY + wallHeight; y++) {
+      if (grid.inBounds(ex2 + 2, y, z))
+        grid.set(ex2 + 2, y, z, rng() < 0.4 ? 'minecraft:mossy_cobblestone' : style.wall);
+    }
+  }
+
+  // ── Rubble scatter around entrance — broken stone debris ──
+  const rubbleBlocks = ['minecraft:cobblestone', 'minecraft:gravel', 'minecraft:mossy_cobblestone'];
+  for (let x = ex1 - 3; x <= ex2 + 3; x++) {
+    for (let z = ez1 - 3; z <= ez1 - 1; z++) {
+      if (grid.inBounds(x, groundY, z) && rng() < 0.35) {
+        grid.set(x, groundY, z, pick(rubbleBlocks, rng));
+        // Occasional tall rubble piece
+        if (rng() < 0.2 && grid.inBounds(x, groundY + 1, z))
+          grid.set(x, groundY + 1, z, pick(rubbleBlocks, rng));
+      }
+    }
+  }
+
+  // ── Exposed shaft grate — visible from surface, hints at depth below ──
+  const grateX = xMid + 6;
+  const grateZ = zMid + 3;
+  for (let dx = 0; dx <= 2; dx++) {
+    for (let dz = 0; dz <= 2; dz++) {
+      if (grid.inBounds(grateX + dx, groundY, grateZ + dz))
+        grid.set(grateX + dx, groundY, grateZ + dz, 'minecraft:iron_bars');
+    }
+  }
+
+  // ── Dead trees flanking entrance path — ominous atmosphere ──
+  for (const [tx, tz] of [[ex1 - 4, ez1 + 2], [ex2 + 4, ez1 + 3]] as [number, number][]) {
+    for (let ty = groundY + 1; ty <= groundY + 5; ty++) {
+      if (grid.inBounds(tx, ty, tz))
+        grid.set(tx, ty, tz, 'minecraft:spruce_log');
+    }
+    // Sparse bare branches
+    if (grid.inBounds(tx + 1, groundY + 4, tz))
+      grid.set(tx + 1, groundY + 4, tz, 'minecraft:spruce_log[axis=x]');
+    if (grid.inBounds(tx - 1, groundY + 5, tz))
+      grid.set(tx - 1, groundY + 5, tz, 'minecraft:spruce_log[axis=x]');
+  }
 
   return grid;
 }
@@ -2002,6 +2403,48 @@ function generateShip(
   if (grid.inBounds(cx + 2, deckY + 1, wheelZ))
     grid.set(cx + 2, deckY + 1, wheelZ, 'minecraft:cartography_table');
 
+  // ── Hull reinforcement trim — darker accent stripe at waterline ──
+  for (let z = sz1; z <= sz2; z++) {
+    const zFrac = (z - sz1) / (sz2 - sz1);
+    let halfWidth: number;
+    if (zFrac < 0.18) {
+      const t = zFrac / 0.18;
+      halfWidth = Math.round((0.5 - 0.5 * Math.cos(Math.PI * t)) * (shipW / 2));
+    } else if (zFrac > 0.82) {
+      const t = (1 - zFrac) / 0.18;
+      halfWidth = Math.round((0.5 - 0.5 * Math.cos(Math.PI * t)) * (shipW / 2));
+    } else {
+      halfWidth = Math.floor(shipW / 2);
+    }
+    halfWidth = Math.max(1, halfWidth);
+    // Waterline accent at y=2 (hull stripe)
+    for (const side of [-1, 1]) {
+      const hx = cx + side * halfWidth;
+      if (grid.inBounds(hx, 2, z))
+        grid.set(hx, 2, z, style.wallAccent);
+    }
+  }
+
+  // ── Cannon ports (dark openings) along midship hull ──
+  const portZStart = sz1 + Math.floor(shipLen * 0.25);
+  const portZEnd = sz1 + Math.floor(shipLen * 0.75);
+  for (let z = portZStart; z <= portZEnd; z += 5) {
+    for (const side of [-1, 1]) {
+      const px = cx + side * Math.floor(shipW / 2);
+      if (grid.inBounds(px, hullBase - 1, z))
+        grid.set(px, hullBase - 1, z, 'minecraft:air'); // cannon port hole
+    }
+  }
+
+  // ── Stern decoration — ornate name plate and railing ──
+  for (let dx = -2; dx <= 2; dx++) {
+    if (grid.inBounds(cx + dx, hullBase + 1, sz1))
+      grid.set(cx + dx, hullBase + 1, sz1, style.fence); // stern railing
+  }
+  // Stern lantern cluster
+  if (grid.inBounds(cx, hullBase + 3, sz1 - 1))
+    grid.set(cx, hullBase + 3, sz1 - 1, style.lanternFloor);
+
   return grid;
 }
 
@@ -2200,11 +2643,11 @@ function generateCathedral(
     grid.set(naveX2 - 1, 4, z, style.bannerN);
   }
 
-  // Bell tower (reusing circular tower logic, at front-left corner)
+  // Bell tower (reusing circular tower logic, at front-left corner) — TALL steeple
   const towerR = 4;
   const towerCX = bx1 - 1;
   const towerCZ = bz1 - 1;
-  const towerH = mainH + 12;
+  const towerH = mainH + 18; // Extra tall for dramatic skyline
   for (let y = 0; y <= towerH; y++) {
     for (let dx = -towerR; dx <= towerR; dx++) {
       for (let dz = -towerR; dz <= towerR; dz++) {
@@ -2239,6 +2682,50 @@ function generateCathedral(
   }
   // Bell at top of tower
   grid.set(towerCX, towerH - 2, towerCZ, 'minecraft:bell[attachment=ceiling,facing=north]');
+  // Cross atop bell tower spire
+  const crossY = towerH + towerR + 3;
+  if (grid.inBounds(towerCX, crossY, towerCZ))
+    grid.set(towerCX, crossY, towerCZ, 'minecraft:end_rod[facing=up]');
+  if (grid.inBounds(towerCX, crossY + 1, towerCZ))
+    grid.set(towerCX, crossY + 1, towerCZ, 'minecraft:end_rod[facing=up]');
+  if (grid.inBounds(towerCX - 1, crossY + 1, towerCZ))
+    grid.set(towerCX - 1, crossY + 1, towerCZ, 'minecraft:end_rod[facing=up]');
+  if (grid.inBounds(towerCX + 1, crossY + 1, towerCZ))
+    grid.set(towerCX + 1, crossY + 1, towerCZ, 'minecraft:end_rod[facing=up]');
+
+  // Second smaller tower at front-right for asymmetric facade
+  const tower2CX = bx2 + 1;
+  const tower2CZ = bz1 - 1;
+  const tower2H = mainH + 8; // Shorter than main bell tower
+  const tower2R = 3;
+  for (let y = 0; y <= tower2H; y++) {
+    for (let dx = -tower2R; dx <= tower2R; dx++) {
+      for (let dz = -tower2R; dz <= tower2R; dz++) {
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist <= tower2R + 0.5) {
+          const tx = tower2CX + dx;
+          const tz = tower2CZ + dz;
+          if (!grid.inBounds(tx, y, tz)) continue;
+          if (y === 0) grid.set(tx, y, tz, style.foundation);
+          else if (dist >= tower2R - 0.5) grid.set(tx, y, tz, style.wall);
+        }
+      }
+    }
+  }
+  // Smaller tower cone
+  for (let layer = 0; layer <= tower2R + 1; layer++) {
+    const ry = tower2H + 1 + layer;
+    const rr = tower2R - layer;
+    if (rr <= 0 || !grid.inBounds(0, ry, 0)) break;
+    for (let dx = -rr; dx <= rr; dx++) {
+      for (let dz = -rr; dz <= rr; dz++) {
+        if (Math.sqrt(dx * dx + dz * dz) <= rr + 0.5) {
+          if (grid.inBounds(tower2CX + dx, ry, tower2CZ + dz))
+            grid.set(tower2CX + dx, ry, tower2CZ + dz, style.roofS);
+        }
+      }
+    }
+  }
 
   // Nave roof (gabled)
   gabledRoof(grid, naveX1, bz1, naveX2, bz2 - 5, mainH, ROOF_H, style);
@@ -2417,6 +2904,33 @@ function generateBridge(
   // ── Arch keystone — accent block at the peak of each arch rib ──
   grid.set(bx1, deckY - 1, midZ, style.wallAccent);
   grid.set(bx2, deckY - 1, midZ, style.wallAccent);
+
+  // ── Deck surface variation — cobblestone/brick pattern instead of flat ──
+  for (let z = bz1; z <= bz2; z++) {
+    for (let x = bx1 + 1; x <= bx2 - 1; x++) {
+      if (grid.inBounds(x, deckY, z)) {
+        // Checkerboard pattern of two stone types
+        const block = (x + z) % 2 === 0 ? 'minecraft:stone_bricks' : 'minecraft:polished_andesite';
+        grid.set(x, deckY, z, block);
+      }
+    }
+  }
+
+  // ── Statue pedestals at bridge midpoint — guardian figures ──
+  for (const sx of [bx1 + 1, bx2 - 1]) {
+    if (grid.inBounds(sx, deckY + 1, midZ))
+      grid.set(sx, deckY + 1, midZ, style.wallAccent); // pedestal
+    if (grid.inBounds(sx, deckY + 2, midZ))
+      grid.set(sx, deckY + 2, midZ, 'minecraft:armor_stand'); // statue
+  }
+
+  // ── Hanging chain lanterns beneath deck for underside detail ──
+  for (let z = bz1 + 4; z <= bz2 - 4; z += 6) {
+    if (grid.inBounds(cx, deckY - 1, z))
+      grid.set(cx, deckY - 1, z, 'minecraft:chain');
+    if (grid.inBounds(cx, deckY - 2, z))
+      grid.set(cx, deckY - 2, z, style.lanternFloor);
+  }
 
   return grid;
 }
