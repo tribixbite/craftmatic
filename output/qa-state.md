@@ -1,0 +1,131 @@
+# QA Orchestrator State
+
+> This file tracks progress across the quality assessment pipeline.
+> Read this file at the start of every `/qa` invocation or after context compaction.
+> Update after completing each task.
+
+## Current Phase: 0 — Gallery Curation
+## Current Task: Filter gallery to 8+ scored buildings
+
+---
+
+## Baseline Scores (Gemini 3 Pro, 2026-02-15)
+
+| # | Gallery Entry | Type | Style | Score | Status |
+|---|---|---|---|---|---|
+| 1 | Fantasy Cottage | house | fantasy | 8.3 | KEEP (8+) |
+| 2 | Medieval Manor | house | medieval | 7.0 | REMOVE (<8) |
+| 3 | Gothic Tower | tower | gothic | 8.0 | KEEP (8+) |
+| 4 | Medieval Castle | castle | medieval | 7.0 | REMOVE (<8) |
+| 5 | Gothic Dungeon | dungeon | gothic | 8.7 | KEEP (8+) |
+| 6 | Rustic Ship | ship | rustic | 7.0 | REMOVE (<8) |
+| 7 | Modern House | house | modern | 6.3 | REMOVE (<8) |
+| 8 | Wizard Tower | tower | fantasy | 7.7 | REMOVE (<8) |
+| 9 | Dark Fortress | castle | gothic | 7.3 | REMOVE (<8) |
+| 10 | Rustic Cabin | house | rustic | 6.3 | REMOVE (<8) |
+| 11 | Stone Dungeon | dungeon | medieval | 4.0 | REMOVE (<8) |
+| 12 | Fantasy Galleon | ship | fantasy | 8.7 | KEEP (8+) |
+| 13 | Gothic Cathedral | cathedral | gothic | 7.7 | REMOVE (<8) |
+| 14 | Stone Bridge | bridge | medieval | 7.0 | REMOVE (<8) |
+| 15 | Rustic Windmill | windmill | rustic | 8.3 | KEEP (8+) |
+| 16 | Desert Bazaar | marketplace | desert | 8.7 | KEEP (8+) |
+| 17 | Medieval Village | village | medieval | 9.0 | KEEP (8+) |
+| 18 | Steampunk Workshop | house | steampunk | 5.7 | REMOVE (<8) |
+| 19 | Elven Spire | tower | elven | 8.0 | KEEP (8+) |
+| 20 | Undersea Citadel | castle | underwater | 8.0 | KEEP (8+) |
+
+**Passing (8+):** 9 buildings — Cottage, Gothic Tower, Gothic Dungeon, Fantasy Galleon, Windmill, Desert Bazaar, Medieval Village, Elven Spire, Undersea Citadel
+**Failing (<8):** 11 buildings — Manor, Castle, Ship, Modern House, Wizard Tower, Dark Fortress, Rustic Cabin, Stone Dungeon, Cathedral, Stone Bridge, Steampunk Workshop
+
+### Gemini Feedback Summary (key issues to fix in Phase 1)
+- **Stone Dungeon (4.0)**: "Two stacked boxes, no architectural depth" — needs complete rework
+- **Steampunk Workshop (5.7)**: "Looks like rustic house with chimney, lacks gears/copper/pipes" — needs visible steampunk elements
+- **Modern House (6.3)**: "Boring box silhouette" — needs cantilevered sections, large windows, rooftop features
+- **Rustic Cabin (6.3)**: "Palette-swap of Manor, overwhelming roof" — needs distinct cabin identity, porch, woodpile
+- **Medieval Manor (7.0)**: "Roof too heavy/uniform, needs dormers" — add dormers, break up roofline
+- **Medieval Castle (7.0)**: "Courtyard barren and flat" — add courtyard furniture, well, training dummy
+- **Rustic Ship (7.0)**: "Hull blocky/tub-like" — taper bow, add figurehead detail
+- **Stone Bridge (7.0)**: "Deck is flat" — add parapets, lamp posts, deck detail
+- **Wizard Tower (7.7)**: "Good but needs more distinction from Gothic Tower"
+- **Gothic Cathedral (7.7)**: "Good buttressing, needs more height/steeple presence"
+- **Dark Fortress (7.3)**: "Similar geometry to Medieval Castle, needs more uniqueness"
+
+---
+
+## Phase 0: Gallery Curation
+- [ ] Remove 11 failing buildings from GALLERY_ENTRIES
+- [ ] Keep 9 passing buildings (8+)
+- [ ] Build, push, verify CI
+- [ ] Deploy confirms on GH Pages
+
+## Phase 1: Generator Upgrades (target all 20 buildings at 9+)
+Upgrade generators so ALL 20 original buildings score 9+, then re-add them to gallery.
+
+### Priority order (worst first):
+- [ ] Stone Dungeon — complete rework of dungeon/medieval generator
+- [ ] Steampunk Workshop — add visible steampunk elements (copper, pistons, gears, pipes)
+- [ ] Modern House — cantilevered sections, large glass curtain walls, rooftop deck
+- [ ] Rustic Cabin — distinct cabin identity, wrap-around porch, log construction
+- [ ] Medieval Manor — dormers, varied roofline, courtyard
+- [ ] Medieval Castle — courtyard furniture, well, training dummies, varied wall heights
+- [ ] Rustic Ship — hull tapering, bow shaping, more rigging detail
+- [ ] Stone Bridge — parapets, lamp posts, varied deck surface
+- [ ] Dark Fortress — unique silhouette differentiation from Medieval Castle
+- [ ] Wizard Tower — more magical elements, crystal/enchanting details
+- [ ] Gothic Cathedral — taller steeple, more window detail
+
+### Also verify these 8+ buildings don't regress:
+- Fantasy Cottage (8.3), Gothic Tower (8.0), Gothic Dungeon (8.7)
+- Fantasy Galleon (8.7), Rustic Windmill (8.3), Desert Bazaar (8.7)
+- Medieval Village (9.0), Elven Spire (8.0), Undersea Citadel (8.0)
+
+## Phase 2: Re-score with Gemini
+- [ ] Re-add all 20 buildings to gallery
+- [ ] Deploy to GH Pages
+- [ ] Take gallery screenshots
+- [ ] Score with gemini-3-pro-preview
+- [ ] Identify any still below 9
+- [ ] Fix and re-score until all 9+
+
+## Phase 3: Room Interior Quality Test
+- [ ] Click each building in gallery, switch to cutaway/floor view
+- [ ] Screenshot each floor of 5 representative buildings
+- [ ] Score room furnishing quality with Gemini
+- [ ] Fix any empty/sparse rooms
+
+## Phase 4: Multi-Style Matrix Test
+- [ ] Generate House in all 9 styles, screenshot grid
+- [ ] Generate Tower in all 9 styles, screenshot grid
+- [ ] Score style differentiation with Gemini
+- [ ] Fix any styles that look too similar
+
+## Phase 5: Scale Variation Test
+- [ ] Generate House at 1, 2, 3, 5 floors
+- [ ] Generate Tower at 2, 4, 6, 8 floors
+- [ ] Score proportional scaling with Gemini
+- [ ] Fix any that stretch or look wrong at extremes
+
+## Phase 6: Seed Stability Test
+- [ ] Generate same config with seeds 1-10
+- [ ] Score variety and consistency with Gemini
+- [ ] Ensure different seeds produce meaningfully different results
+
+## Phase 7: L/T/U Floor Plan Test
+- [ ] Generate House with each plan shape (rect, L, T, U)
+- [ ] Screenshot and score with Gemini
+- [ ] Verify non-rectangular geometry is visually distinct
+
+## Phase 8: Feature Flags Test
+- [ ] Generate House with each feature flag toggled
+- [ ] Screenshot: chimney on/off, porch on/off, pool on/off, fence on/off
+- [ ] Score visibility of each feature with Gemini
+
+## Phase 9: Final Report
+- [ ] Compile all scores into summary table
+- [ ] Document any remaining issues
+- [ ] Final commit with all improvements
+
+---
+
+## Completion Log
+<!-- Append results here as phases complete -->
