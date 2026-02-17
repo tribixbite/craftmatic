@@ -48,7 +48,9 @@ const GALLERY_ENTRIES: GalleryEntry[] = [
 function renderThumbnail(canvas: HTMLCanvasElement, grid: BlockGrid): void {
   const ctx = canvas.getContext('2d')!;
   const { width, height, length } = grid;
-  const tile = Math.max(1, Math.min(4, Math.floor(180 / Math.max(width, length))));
+  // Higher tile = sharper thumbnails. Compound grids (~65-100 blocks) need ≥3px tiles to
+  // show companion buildings clearly. Cap at 6 to avoid oversized canvases for small grids.
+  const tile = Math.max(2, Math.min(6, Math.floor(300 / Math.max(width, length))));
   const halfT = Math.floor(tile / 2);
 
   // Calculate bounds

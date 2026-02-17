@@ -6,6 +6,7 @@
  */
 
 import { BlockGrid } from '../schem/types.js';
+import { isAir } from '../blocks/registry.js';
 import type { GenerationOptions, RoomType, RoomBounds, StructureType, RoofShape, FeatureFlags, FloorPlanShape } from '../types/index.js';
 import { getStyle } from './styles.js';
 import { getRoomGenerator, getRoomTypes } from './rooms.js';
@@ -121,6 +122,51 @@ const STORY_H = 5;
 const ROOF_H = 10;
 
 /**
+ * Crop a BlockGrid to the tightest axis-aligned bounding box around all non-air
+ * blocks, with a small padding. Reduces wasted tile budget in the thumbnail renderer.
+ */
+function trimGrid(grid: BlockGrid, padding = 1): BlockGrid {
+  let minX = grid.width, minY = grid.height, minZ = grid.length;
+  let maxX = -1, maxY = -1, maxZ = -1;
+  for (let x = 0; x < grid.width; x++) {
+    for (let z = 0; z < grid.length; z++) {
+      for (let y = 0; y < grid.height; y++) {
+        if (!isAir(grid.get(x, y, z))) {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+          if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+        }
+      }
+    }
+  }
+  if (maxX < 0) return grid; // all air — return as-is
+  // Apply padding, clamped to grid bounds
+  minX = Math.max(0, minX - padding); minY = Math.max(0, minY - padding); minZ = Math.max(0, minZ - padding);
+  maxX = Math.min(grid.width - 1, maxX + padding); maxY = Math.min(grid.height - 1, maxY + padding); maxZ = Math.min(grid.length - 1, maxZ + padding);
+  const tw = maxX - minX + 1;
+  const th = maxY - minY + 1;
+  const tl = maxZ - minZ + 1;
+  // Skip trim if savings < 10% — not worth the copy cost
+  if (tw * tl > grid.width * grid.length * 0.9) return grid;
+  const trimmed = new BlockGrid(tw, th, tl);
+  for (let x = minX; x <= maxX; x++) {
+    for (let z = minZ; z <= maxZ; z++) {
+      for (let y = minY; y <= maxY; y++) {
+        trimmed.set(x - minX, y - minY, z - minZ, grid.get(x, y, z));
+      }
+    }
+  }
+  // Copy block entities with offset
+  for (const be of grid.blockEntities) {
+    const [bx, by, bz] = be.pos;
+    if (bx >= minX && bx <= maxX && by >= minY && by <= maxY && bz >= minZ && bz <= maxZ) {
+      trimmed.blockEntities.push({ ...be, pos: [bx - minX, by - minY, bz - minZ] });
+    }
+  }
+  return trimmed;
+}
+
+/**
  * Expand a building grid into a compound site with real companion buildings.
  * Uses the actual generator functions (generateHouse, generateTower) to create
  * substantial secondary structures — the same approach the Village generator uses.
@@ -152,9 +198,10 @@ function compoundify(
   const bxMid = Math.floor((bx1 + bx2) / 2);
   const bzMid = Math.floor((bz1 + bz2) / 2);
 
-  // Helper: generate a real house companion and paste it at position
-  const placeCompanionHouse = (ox: number, oz: number, w: number, l: number) => {
-    const sub = generateHouse(1, style, undefined, w, l, rng);
+  // Helper: generate a real companion building and paste it at position.
+  // 2-story companions create taller silhouettes that are visible at thumbnail scale.
+  const placeCompanionHouse = (ox: number, oz: number, w: number, l: number, floors = 2) => {
+    const sub = generateHouse(floors, style, undefined, w, l, rng);
     pasteGrid(compound, sub, ox, 0, oz);
     return sub;
   };
@@ -184,65 +231,67 @@ function compoundify(
   // ── Type-specific compound compositions ─────────────────────────────
 
   if (type === 'house') {
-    // West: workshop cottage (15x11)
-    placeCompanionHouse(0, bz1, 15, 11);
-    // East: guest house (13x11)
+    // West: workshop (20x15, 2 stories — nearly as large as main)
+    placeCompanionHouse(0, bz1, 20, 15);
+    // East: guest house (18x14, 2 stories)
     const ehX = bx2 + 2;
-    placeCompanionHouse(ehX, bz1 + 2, 13, 11);
-    // Paths connecting buildings
+    placeCompanionHouse(ehX, bz1 + 2, 18, 14);
+    // South: garden cottage (16x12, 1 story — smaller accent)
+    const gcZ = bz2 + 3;
+    if (compound.inBounds(bxMid + 8, 0, gcZ + 18))
+      placeCompanionHouse(bxMid - 8, gcZ, 16, 12, 1);
+    // Paths connecting all buildings
     connectPath(bx1, bzMid, 0, bzMid);
     connectPath(bx2, bzMid, ehX, bzMid);
-    // Garden area south of main building (no fence, just mixed flowers + grass)
-    const gardenZ = bz2 + 2;
+    connectPath(bxMid, bz2, bxMid, gcZ);
+    // Flower garden between south cottage and main
     const flowers = ['minecraft:rose_bush', 'minecraft:lilac', 'minecraft:peony', 'minecraft:sunflower'];
-    for (let x = bx1; x <= bx2 && x < gw; x++) {
-      for (let z = gardenZ; z < gardenZ + 8 && z < gl; z++) {
+    for (let x = bxMid - 5; x <= bxMid + 5 && x < gw; x++) {
+      for (let z = bz2 + 1; z < gcZ && z < gl; z++) {
         if (compound.inBounds(x, 0, z) && compound.get(x, 0, z) === 'minecraft:air') {
           compound.set(x, 0, z, 'minecraft:grass_block');
-          if (rng() < 0.4 && compound.inBounds(x, 1, z))
+          if (rng() < 0.5 && compound.inBounds(x, 1, z))
             compound.set(x, 1, z, pick(flowers, rng));
         }
       }
     }
 
   } else if (type === 'tower') {
-    // West: library/study house (14x11)
-    placeCompanionHouse(0, bzMid - 5, 14, 11);
-    // East: guard barracks (14x11)
-    placeCompanionHouse(bx2 + 2, bzMid - 5, 14, 11);
+    // West: library/study (18x14, 2 stories)
+    placeCompanionHouse(0, bzMid - 7, 18, 14);
+    // East: guard barracks (18x14, 2 stories)
+    placeCompanionHouse(bx2 + 2, bzMid - 7, 18, 14);
+    // South: armory (16x12, 1 story)
+    const armZ = bz2 + 3;
+    if (compound.inBounds(bxMid + 8, 0, armZ + 18))
+      placeCompanionHouse(bxMid - 8, armZ, 16, 12, 1);
     // Paths
     connectPath(bx1, bzMid, 0, bzMid);
     connectPath(bx2, bzMid, bx2 + 2, bzMid);
-    // South path to "gate" area
-    for (let z = bzMid; z < gl; z++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (compound.inBounds(bxMid + dx, 0, z))
-          compound.set(bxMid + dx, 0, z, 'minecraft:cobblestone');
-      }
-    }
+    connectPath(bxMid, bz2, bxMid, armZ);
 
   } else if (type === 'castle') {
-    // West: stable house (15x12)
-    placeCompanionHouse(0, bzMid - 6, 15, 12);
-    // East: armory/barracks (15x12)
-    placeCompanionHouse(bx2 + 2, bzMid - 6, 15, 12);
-    // South: chapel (13x11)
-    const chapelX = bxMid - 6;
+    // West: stable house (20x16, 2 stories)
+    placeCompanionHouse(0, bzMid - 8, 20, 16);
+    // East: armory/barracks (20x16, 2 stories)
+    placeCompanionHouse(bx2 + 2, bzMid - 8, 20, 16);
+    // South: chapel (18x14, 2 stories)
+    const chapelX = bxMid - 9;
     const chapelZ = bz2 + 3;
-    if (compound.inBounds(chapelX + 12, 0, chapelZ + 10))
-      placeCompanionHouse(chapelX, chapelZ, 13, 11);
+    if (compound.inBounds(chapelX + 24, 0, chapelZ + 20))
+      placeCompanionHouse(chapelX, chapelZ, 18, 14);
     // Stone paths connecting
     connectPath(bx1, bzMid, 0, bzMid, 'minecraft:stone_bricks');
     connectPath(bx2, bzMid, bx2 + 2, bzMid, 'minecraft:stone_bricks');
     connectPath(bxMid, bz2, bxMid, chapelZ, 'minecraft:stone_bricks');
 
   } else if (type === 'dungeon') {
-    // West: ruined guard house (generate house then weather it)
-    const ruinSub = generateHouse(1, style, undefined, 14, 11, rng);
-    pasteGrid(compound, ruinSub, 0, 0, bzMid - 5);
+    // West: ruined guard house (18x14, 2 stories — then weathered)
+    const ruinSub = generateHouse(2, style, undefined, 18, 14, rng);
+    pasteGrid(compound, ruinSub, 0, 0, bzMid - 7);
     // Weather the ruin: randomly remove blocks above y=2
-    for (let x = 0; x < 14 + 6; x++) {
-      for (let z = bzMid - 5; z < bzMid + 6 + 6; z++) {
+    for (let x = 0; x < 18 + 6; x++) {
+      for (let z = bzMid - 7; z < bzMid + 7 + 6; z++) {
         for (let y = 3; y < gh; y++) {
           if (compound.inBounds(x, y, z) && compound.get(x, y, z) !== 'minecraft:air') {
             if (rng() < 0.4) compound.set(x, y, z, 'minecraft:air');
@@ -296,12 +345,12 @@ function compoundify(
     }
 
   } else if (type === 'ship') {
-    // Harbor: warehouse building south (15x12)
+    // Harbor: warehouse building south (20x16, 2 stories)
     const whZ = bz2 + 4;
-    if (compound.inBounds(bxMid + 7, 0, whZ + 12))
-      placeCompanionHouse(bxMid - 7, whZ, 15, 12);
-    // Harbor master office west (13x10)
-    placeCompanionHouse(0, bzMid - 5, 13, 10);
+    if (compound.inBounds(bxMid + 10, 0, whZ + 22))
+      placeCompanionHouse(bxMid - 10, whZ, 20, 16);
+    // Harbor master office west (18x14, 2 stories)
+    placeCompanionHouse(0, bzMid - 7, 18, 14);
     // Dock platform connecting ship to harbor (timber)
     for (let x = bx1; x <= bx2 && x < gw; x++) {
       for (let z = bz2 + 1; z < whZ && z < gl; z++) {
@@ -316,10 +365,10 @@ function compoundify(
     connectPath(bxMid, bz2 + 3, bxMid, whZ, 'minecraft:spruce_planks');
 
   } else if (type === 'cathedral') {
-    // West: parish house (15x12)
-    placeCompanionHouse(0, bzMid - 6, 15, 12);
-    // East: bell tower / chapel (13x11)
-    placeCompanionHouse(bx2 + 2, bzMid - 5, 13, 11);
+    // West: parish house (20x16, 2 stories)
+    placeCompanionHouse(0, bzMid - 8, 20, 16);
+    // East: chapter house / chapel (18x14, 2 stories)
+    placeCompanionHouse(bx2 + 2, bzMid - 7, 18, 14);
     // Connecting stone paths
     connectPath(bx1, bzMid, 0, bzMid, 'minecraft:stone_bricks');
     connectPath(bx2, bzMid, bx2 + 2, bzMid, 'minecraft:stone_bricks');
@@ -338,21 +387,21 @@ function compoundify(
     }
 
   } else if (type === 'bridge') {
-    // South settlement: toll house (15x12)
+    // South settlement: toll house (20x15, 2 stories)
     const thZ = bz2 + 3;
-    if (compound.inBounds(bxMid + 7, 0, thZ + 12))
-      placeCompanionHouse(bxMid - 7, thZ, 15, 12);
-    // North settlement: guard barracks (14x11)
-    placeCompanionHouse(bxMid - 7, 0, 14, 11);
+    if (compound.inBounds(bxMid + 10, 0, thZ + 21))
+      placeCompanionHouse(bxMid - 10, thZ, 20, 15);
+    // North settlement: guard barracks (18x14, 2 stories)
+    placeCompanionHouse(bxMid - 9, 0, 18, 14);
     // Paths from settlements to bridge ends
     connectPath(bxMid, bz2, bxMid, thZ, 'minecraft:cobblestone');
     connectPath(bxMid, bz1, bxMid, 11, 'minecraft:cobblestone');
 
   } else if (type === 'windmill') {
-    // West: grain barn (15x11)
-    placeCompanionHouse(0, bzMid - 5, 15, 11);
-    // East: farmer's cottage (14x11)
-    placeCompanionHouse(bx2 + 2, bzMid - 5, 14, 11);
+    // West: grain barn (20x15, 2 stories)
+    placeCompanionHouse(0, bzMid - 7, 20, 15);
+    // East: farmer's cottage (18x14, 2 stories)
+    placeCompanionHouse(bx2 + 2, bzMid - 7, 18, 14);
     // Paths
     connectPath(bx1, bzMid, 0, bzMid);
     connectPath(bx2, bzMid, bx2 + 2, bzMid);
@@ -369,7 +418,8 @@ function compoundify(
     }
   }
 
-  return compound;
+  // Trim to occupied bounding box so the thumbnail renderer gets tighter tile sizes
+  return trimGrid(compound, 2);
 }
 
 /**
