@@ -268,6 +268,53 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 
 ## Phase 9: Final Report — DONE
 
+## Phase 10: Visual Deep-Dive (Gemini via CFC+ADB) — DONE
+
+### Style Matrix Visual Scoring (gallery 2D thumbnails, all 20 buildings)
+
+| Criterion | Score | Notes |
+|-----------|-------|-------|
+| Block Palette Variety | 9/10 | Strongest feature; clear material themes per style |
+| Structural Type Variety | 8/10 | Ship ≠ Tower ≠ Village; good topology diversity |
+| Style Visual Distinctiveness | 7/10 | Relies on palette swaps, not geometric changes |
+| Overall Visual Quality | 7/10 | Clean renders, but walls lack micro-detailing (stairs/slabs) |
+| Compound Complexity | 6/10 | Castles multi-wing; houses still boxy footprint |
+| **Weighted Average** | **7.4/10** | |
+
+**Standouts:** Undersea Citadel (prismarine palette), Desert Bazaar (multi-structure), Medieval Village (organic cluster)
+**Weakest:** Steampunk Workshop (no visible gears/pipes), Fantasy Cottage (rectangular), Elven Spire (noisy leaves)
+
+**Top improvements identified:**
+1. Style-specific shape grammars (geometry, not just palette)
+2. Micro-detailing pass (stairs/walls for depth on flat surfaces)
+3. Distinct roof algorithms per style
+
+### Room Interior Visual Scoring (WebGL cutaway via CFC+ADB, Elven + Medieval houses)
+
+| Criterion | Score | Notes |
+|-----------|-------|-------|
+| Floor Layout Logic | 8/10 | Rooms connect logically, navigable flow |
+| Room Variety | 6/10 | Bedroom, workshop, kitchen identified; many ambiguous |
+| Room Differentiation | 6/10 | Functional but basic; all rooms are square boxes |
+| Furniture Density | 5/10 | Pushed to walls; room centers empty |
+| Style Consistency | 4/10 | Medieval 7/10, Elven 2/10 — generic furniture clashes |
+| **Weighted Average** | **6.2/10** | |
+
+**Key finding:** Identical floor plans across styles — interiors don't adapt to architectural style.
+**Medieval works** because default Minecraft blocks (crafting table, chest, furnace) are inherently rustic.
+**Elven fails** because standard wooden furniture + checkered floor clashes with organic prismarine exterior.
+
+**Top improvements identified:**
+1. Style-specific furniture schematics (Elven: moss carpet, composter tables, spore blossom lights)
+2. Center-of-room anchors (dining table, fireplace, chandelier for rooms >5 blocks wide)
+3. Context-aware flooring tied to room type AND style (not universal checkerboard)
+
+### CFC + WebGL Status
+- WebGL2 works on Edge Android (confirmed via CFC + ADB screenshots)
+- `preserveDrawingBuffer` not set — JS canvas export returns blank pixels
+- Workaround: ADB `screencap` after switching Edge to foreground
+- CFC connection stable (ext v1.5.0, bridge v1.5.0)
+
 ---
 
 ## Final Summary
@@ -323,7 +370,10 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 
 1. **Pool feature flag on default grids**: Pool placement coordinates fall outside grid bounds or get overwritten by compoundify. Works only with explicitly large grids (30×30+).
 2. **House height plateau**: 3-floor and 5-floor houses may have identical grid height due to compound trimming. Block count still increases correctly.
-3. **WebGL in Playwright on Android**: 3D viewer shader compilation fails — all Phase 3 visual scoring deferred to code-level assessment.
+3. **WebGL in Playwright on Android**: 3D viewer shader compilation fails in headless Chromium. Workaround: CFC + ADB screencap on Edge Android (WebGL2 works there).
+4. **Style-agnostic interiors (6.2/10)**: Room furniture/flooring does not adapt to architectural style. Elven interiors use generic medieval furniture. Needs style-specific furniture schematics.
+5. **Room centers empty (5/10 density)**: Furniture pushed to walls; rooms >5 blocks wide have barren centers. Needs center-of-room anchor features.
+6. **Geometry uniform across styles (7/10)**: Style differences are palette-only; silhouettes/rooflines identical. Needs style-specific shape grammars.
 
 ### Commits (QA pipeline)
 
@@ -355,3 +405,4 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 - **Phase 7**: rect/L/T/U all generate, ≥2/3 non-rect shapes differ
 - **Phase 8**: 4/4 flags toggle correctly (pool needs large grid)
 - **Phase 9**: Final report compiled, 266 tests, all pass
+- **Phase 10**: Gemini visual deep-dive — style matrix 7.4/10, room interiors 6.2/10 via CFC+ADB
