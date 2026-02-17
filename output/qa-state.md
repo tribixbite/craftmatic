@@ -4,8 +4,8 @@
 > Read this file at the start of every `/qa` invocation or after context compaction.
 > Update after completing each task.
 
-## Current Phase: 0 — Gallery Curation
-## Current Task: Filter gallery to 8+ scored buildings
+## Current Phase: 2 — Re-score with Gemini
+## Current Task: Deploy, screenshot, and re-score all 20 buildings
 
 ---
 
@@ -52,32 +52,23 @@
 
 ---
 
-## Phase 0: Gallery Curation
-- [ ] Remove 11 failing buildings from GALLERY_ENTRIES
-- [ ] Keep 9 passing buildings (8+)
-- [ ] Build, push, verify CI
-- [ ] Deploy confirms on GH Pages
+## Phase 0: Gallery Curation — DONE
+- [x] Removed 11 failing buildings, kept 9 passing (8+)
+- [x] Pushed, CI green (91bc44f)
 
-## Phase 1: Generator Upgrades (target all 20 buildings at 9+)
-Upgrade generators so ALL 20 original buildings score 9+, then re-add them to gallery.
-
-### Priority order (worst first):
-- [ ] Stone Dungeon — complete rework of dungeon/medieval generator
-- [ ] Steampunk Workshop — add visible steampunk elements (copper, pistons, gears, pipes)
-- [ ] Modern House — cantilevered sections, large glass curtain walls, rooftop deck
-- [ ] Rustic Cabin — distinct cabin identity, wrap-around porch, log construction
-- [ ] Medieval Manor — dormers, varied roofline, courtyard
-- [ ] Medieval Castle — courtyard furniture, well, training dummies, varied wall heights
-- [ ] Rustic Ship — hull tapering, bow shaping, more rigging detail
-- [ ] Stone Bridge — parapets, lamp posts, varied deck surface
-- [ ] Dark Fortress — unique silhouette differentiation from Medieval Castle
-- [ ] Wizard Tower — more magical elements, crystal/enchanting details
-- [ ] Gothic Cathedral — taller steeple, more window detail
-
-### Also verify these 8+ buildings don't regress:
-- Fantasy Cottage (8.3), Gothic Tower (8.0), Gothic Dungeon (8.7)
-- Fantasy Galleon (8.7), Rustic Windmill (8.3), Desert Bazaar (8.7)
-- Medieval Village (9.0), Elven Spire (8.0), Undersea Citadel (8.0)
+## Phase 1: Generator Upgrades — DONE
+All 11 failing buildings upgraded:
+- [x] Stone Dungeon — terrain mound, ruined flanking walls, rubble scatter, shaft grate, dead trees
+- [x] Steampunk Workshop — full vertical pipe runs, dual smokestacks, copper bands, pistons, observers, exterior workbench
+- [x] Modern House — cantilever upper floor (south+east), rooftop terrace with glass railing, full glass walls
+- [x] Rustic Cabin — log corner construction, alternating log layers, wrap-around porch, woodpile, campfire
+- [x] Medieval Manor — dormer windows, taller chimney, estate well
+- [x] Medieval Castle — varied tower heights, garden patches, stable area
+- [x] Rustic Ship — waterline accent stripe, cannon ports, stern decoration
+- [x] Stone Bridge — checkerboard deck pattern, statue pedestals, under-deck lanterns
+- [x] Dark Fortress — pointed spires with soul fire, lava moat, skull decorations, cobwebs
+- [x] Wizard Tower — amethyst crystals, brewing stand, taller spire, floating end rod orbits
+- [x] Gothic Cathedral — 30% taller bell tower, cross atop spire, second smaller tower
 
 ## Phase 2: Re-score with Gemini
 - [ ] Re-add all 20 buildings to gallery
