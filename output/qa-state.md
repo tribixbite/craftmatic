@@ -4,8 +4,8 @@
 > Read this file at the start of every `/qa` invocation or after context compaction.
 > Update after completing each task.
 
-## Current Phase: 2 — Re-score with Gemini
-## Current Task: Round 3 generator upgrades — compound compositions for all buildings
+## Current Phase: 2 — COMPLETE (20/20 at 9+)
+## Current Task: Phase 3 — Room Interior Quality Test
 
 ---
 
@@ -77,9 +77,14 @@ All 11 failing buildings upgraded:
 - [x] Score with gemini-3-pro-preview — Round 1 results below
 - [x] Round 2 generator upgrades — compositional outbuildings (7bcd30a)
 - [x] Re-deploy, re-screenshot, re-score — Round 2 results below
-- [ ] Round 3 generator upgrades — compound site compositions (in progress)
-- [ ] Re-deploy, re-screenshot, re-score
-- [ ] Fix and re-score until all 9+
+- [x] Round 3 generator upgrades — compound site compositions (d07804e)
+- [x] Re-deploy, re-screenshot, re-score — Round 3 still 2/20 (companions too small)
+- [x] Round 4 generator upgrades — real generateHouse() companions (dc33feb)
+- [x] Re-deploy, re-screenshot, re-score — Round 4 still 2/20 (thumbnail too small)
+- [x] Round 5: sharper thumbnails (300/max, cap 6) + 2-story 18-20 block companions + trimGrid (5b8a565)
+- [x] Re-deploy, re-screenshot, re-score — Round 5: **15/20 at 9+**
+- [x] Round 6: archetype fixes for 5 remaining (modern pool, dungeon excavation, cathedral bell tower, bridge gatehouses) (efd7441)
+- [x] Re-deploy, re-screenshot, re-score — Round 6: **20/20 at 9+** — PHASE COMPLETE
 
 ### Round 1 Re-score Results (Gemini 3 Pro, 2026-02-16)
 
@@ -154,6 +159,64 @@ Village/Bazaar succeed because sub-structures are COMPARABLE size (30-50% each).
 - Clear connecting paths/roads
 - Environmental elements (gardens, water, fences, trees)
 - Think "building complex" not "building + tiny shed"
+
+### Round 5 Re-score Results (Gemini 3 Pro, 2026-02-16)
+After sharper thumbnails (300/max, tile cap 6), 2-story 18-20 block companions, grid trimming.
+
+| # | Building | R2 | R5 | Delta | Status |
+|---|----------|-----|-----|-------|--------|
+| 1 | Fantasy Cottage | 5 | 9 | +4 | PASS |
+| 2 | Medieval Manor | 6 | 9 | +3 | PASS |
+| 3 | Gothic Tower | 7 | 9 | +2 | PASS |
+| 4 | Medieval Castle | 8 | 9 | +1 | PASS |
+| 5 | Gothic Dungeon | 7 | 8 | +1 | FAIL — "ruin pile" |
+| 6 | Rustic Ship | 8 | 9 | +1 | PASS |
+| 7 | Modern House | 3 | 7 | +4 | FAIL — "companion = another box" |
+| 8 | Wizard Tower | 7 | 9 | +2 | PASS |
+| 9 | Dark Fortress | 8 | 9 | +1 | PASS |
+| 10 | Rustic Cabin | 5 | 9 | +4 | PASS |
+| 11 | Stone Dungeon | 4 | 6 | +2 | FAIL — "noise cluster" |
+| 12 | Fantasy Galleon | 8 | 9 | +1 | PASS |
+| 13 | Gothic Cathedral | 7 | 8 | +1 | FAIL — "monolithic" |
+| 14 | Stone Bridge | 6 | 8 | +2 | FAIL — "linear" |
+| 15 | Rustic Windmill | 7 | 9 | +2 | PASS |
+| 16 | Desert Bazaar | 9 | 10 | +1 | PASS |
+| 17 | Medieval Village | 10 | 10 | 0 | PASS |
+| 18 | Steampunk Workshop | 7 | 9 | +2 | PASS |
+| 19 | Elven Spire | 7 | 9 | +2 | PASS |
+| 20 | Undersea Citadel | 8 | 9 | +1 | PASS |
+
+**Passing (9+):** 15/20
+**Failing:** 5 — Gothic Dungeon (8), Modern House (7), Stone Dungeon (6), Gothic Cathedral (8), Stone Bridge (8)
+
+### Round 6 Final Results (Gemini 3 Pro, 2026-02-16)
+After archetype-specific compounds: modern pool/garage, dungeon excavation site, cathedral bell tower, bridge gatehouses.
+
+| # | Building | R5 | R6 | Delta | Status |
+|---|----------|-----|-----|-------|--------|
+| 1 | Fantasy Cottage | 9 | 9 | 0 | PASS |
+| 2 | Medieval Manor | 9 | 9 | 0 | PASS |
+| 3 | Gothic Tower | 9 | 9 | 0 | PASS |
+| 4 | Medieval Castle | 9 | 10 | +1 | PASS |
+| 5 | Gothic Dungeon | 8 | 9 | +1 | PASS |
+| 6 | Rustic Ship | 9 | 9 | 0 | PASS |
+| 7 | Modern House | 7 | 9 | +2 | PASS |
+| 8 | Wizard Tower | 9 | 9 | 0 | PASS |
+| 9 | Dark Fortress | 9 | 9 | 0 | PASS |
+| 10 | Rustic Cabin | 9 | 9 | 0 | PASS |
+| 11 | Stone Dungeon | 6 | 9 | +3 | PASS |
+| 12 | Fantasy Galleon | 9 | 9 | 0 | PASS |
+| 13 | Gothic Cathedral | 8 | 9 | +1 | PASS |
+| 14 | Stone Bridge | 8 | 9 | +1 | PASS |
+| 15 | Rustic Windmill | 9 | 9 | 0 | PASS |
+| 16 | Desert Bazaar | 10 | 10 | 0 | PASS |
+| 17 | Medieval Village | 10 | 10 | 0 | PASS |
+| 18 | Steampunk Workshop | 9 | 9 | 0 | PASS |
+| 19 | Elven Spire | 9 | 9 | 0 | PASS |
+| 20 | Undersea Citadel | 9 | 9 | 0 | PASS |
+
+**Passing (9+):** 20/20 — ALL BUILDINGS PASS
+**Key wins:** Medieval Castle (10), Desert Bazaar (10), Medieval Village (10)
 
 ## Phase 3: Room Interior Quality Test
 - [ ] Click each building in gallery, switch to cutaway/floor view
