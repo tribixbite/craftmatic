@@ -4,8 +4,8 @@
 > Read this file at the start of every `/qa` invocation or after context compaction.
 > Update after completing each task.
 
-## Current Phase: 2 — COMPLETE (20/20 at 9+)
-## Current Task: Phase 3 — Room Interior Quality Test
+## Current Phase: 3 — Room Interior Quality (code-level)
+## Current Task: Phase 4 — Multi-Style Matrix Test
 
 ---
 
@@ -218,11 +218,18 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 **Passing (9+):** 20/20 — ALL BUILDINGS PASS
 **Key wins:** Medieval Castle (10), Desert Bazaar (10), Medieval Village (10)
 
-## Phase 3: Room Interior Quality Test
-- [ ] Click each building in gallery, switch to cutaway/floor view
-- [ ] Screenshot each floor of 5 representative buildings
-- [ ] Score room furnishing quality with Gemini
-- [ ] Fix any empty/sparse rooms
+## Phase 3: Room Interior Quality Test — DONE (code-level)
+- [x] Code review of all 28 room types — assessed furniture density
+- [x] Identified 6 sparse rooms: belfry, vault, closet, laundry, pantry, mudroom (+garage)
+- [x] Fixed belfry: added bell rope, carpet cross, corner lanterns, workbench, supply barrel
+- [x] Fixed vault: added lapis/netherite pedestals, carpet path cross, 4 soul lanterns, extra chest, candle + torch accents, redstone lamp floor
+- [x] Fixed closet: added 2nd armor stand, shoe shelf, mirror, wall hook shelves, candle
+- [x] Fixed laundry: added 3rd cauldron, laundry basket, ironing press, drying rack, floor mat, water bucket, extra clothesline banner
+- [x] Fixed pantry: added center prep table, ice cold storage, hanging chains (meat hooks), potted herbs, wall shelf
+- [x] Fixed mudroom: added carpet runner, umbrella stand, mirror, extra wall shelf, side table, shoe shelf, 2nd lantern
+- [x] Fixed garage: added oil stain floor, stonecutter, barrel storage, minecart rails, glowstone work lamp
+- [x] WebGL cutaway not available in Playwright on Android — adapted to code-level assessment
+- **Note**: Visual scoring deferred; no cutaway view available in headless Playwright on this device
 
 ## Phase 4: Multi-Style Matrix Test
 - [ ] Generate House in all 9 styles, screenshot grid
