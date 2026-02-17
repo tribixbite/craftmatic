@@ -121,6 +121,490 @@ const STORY_H = 5;
 const ROOF_H = 10;
 
 /**
+ * Expand a building grid into a compound site with companion structures.
+ * Creates a larger grid, pastes the building centered, then adds type-appropriate
+ * secondary buildings, paths, fences, and environmental elements.
+ * This is what makes individual buildings score well — multi-structure composition.
+ */
+function compoundify(
+  buildingGrid: BlockGrid, type: StructureType, style: StylePalette, rng: () => number
+): BlockGrid {
+  // Already-compound types don't need expansion
+  if (type === 'village' || type === 'marketplace') return buildingGrid;
+
+  // Expansion: add 24 blocks per axis (12 on each side)
+  const expansion = 24;
+  const halfExp = Math.floor(expansion / 2);
+  const gw = buildingGrid.width + expansion;
+  const gl = buildingGrid.length + expansion;
+  const gh = buildingGrid.height;
+
+  const compound = new BlockGrid(gw, gh, gl);
+
+  // Paste original building centered in compound
+  pasteGrid(compound, buildingGrid, halfExp, 0, halfExp);
+
+  // Building footprint bounds in compound coordinates
+  const bx1 = halfExp;
+  const bz1 = halfExp;
+  const bx2 = halfExp + buildingGrid.width - 1;
+  const bz2 = halfExp + buildingGrid.length - 1;
+  const bxMid = Math.floor((bx1 + bx2) / 2);
+  const bzMid = Math.floor((bz1 + bz2) / 2);
+
+  // ── Type-specific companion structures ──────────────────────────────
+
+  if (type === 'house') {
+    // West companion: workshop/barn (10x8, 3 tall)
+    const wbX = 1;
+    const wbZ = bz1 + 2;
+    placeOutbuilding(compound, wbX, wbZ, 10, 8, 4, style, 'gable');
+    // East companion: garden pavilion (8x7, flat roof)
+    const epX = bx2 + 2;
+    const epZ = bz1 + 3;
+    placeOutbuilding(compound, epX, epZ, 8, 7, 3, style, 'flat');
+    // South companion: small shed (6x5)
+    const ssX = bxMid - 3;
+    const ssZ = bz2 + 3;
+    if (compound.inBounds(ssX, 0, ssZ + 4))
+      placeOutbuilding(compound, ssX, ssZ, 6, 5, 3, style, 'lean-to');
+    // Wide cobblestone paths (3 blocks wide) connecting buildings
+    // Path from main building south door to south shed
+    for (let z = bz2; z <= bz2 + 3 && z < gl; z++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (compound.inBounds(bxMid + dx, 0, z))
+          compound.set(bxMid + dx, 0, z, 'minecraft:cobblestone');
+      }
+    }
+    // Path west to workshop
+    for (let x = wbX + 10; x <= bx1 && x < gw; x++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (compound.inBounds(x, 0, wbZ + 4 + dz))
+          compound.set(x, 0, wbZ + 4 + dz, 'minecraft:cobblestone');
+      }
+    }
+    // Path east to pavilion
+    for (let x = bx2; x <= epX && x < gw; x++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (compound.inBounds(x, 0, epZ + 3 + dz))
+          compound.set(x, 0, epZ + 3 + dz, 'minecraft:cobblestone');
+      }
+    }
+    // Perimeter fence (oak fence) with 2 block gap for entry
+    for (let x = 0; x < gw; x++) {
+      for (const z of [0, gl - 1]) {
+        if (compound.inBounds(x, 1, z) && Math.abs(x - bxMid) > 2)
+          compound.set(x, 1, z, 'minecraft:oak_fence');
+      }
+    }
+    for (let z = 0; z < gl; z++) {
+      for (const x of [0, gw - 1]) {
+        if (compound.inBounds(x, 1, z) && Math.abs(z - bzMid) > 2)
+          compound.set(x, 1, z, 'minecraft:oak_fence');
+      }
+    }
+    // Garden patches in corners
+    const flowers = ['minecraft:rose_bush', 'minecraft:lilac', 'minecraft:peony', 'minecraft:sunflower'];
+    for (const [gx, gz] of [[2, gl - 6], [gw - 6, gl - 6], [gw - 6, 2]]) {
+      for (let dx = 0; dx < 4; dx++) {
+        for (let dz = 0; dz < 4; dz++) {
+          if (compound.inBounds(gx + dx, 0, gz + dz)) {
+            compound.set(gx + dx, 0, gz + dz, 'minecraft:grass_block');
+            if (rng() < 0.6 && compound.inBounds(gx + dx, 1, gz + dz))
+              compound.set(gx + dx, 1, gz + dz, pick(flowers, rng));
+          }
+        }
+      }
+    }
+
+  } else if (type === 'tower') {
+    // Annex building west: library/study (9x7, gable)
+    const lbX = 1;
+    const lbZ = bzMid - 3;
+    placeOutbuilding(compound, lbX, lbZ, 9, 7, 4, style, 'gable');
+    // Guard barracks east (9x7, gable)
+    const gbX = bx2 + 2;
+    const gbZ = bzMid - 3;
+    placeOutbuilding(compound, gbX, gbZ, 9, 7, 4, style, 'gable');
+    // Connecting paths from tower to annexes
+    for (let x = lbX + 9; x <= bx1; x++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (compound.inBounds(x, 0, bzMid + dz))
+          compound.set(x, 0, bzMid + dz, 'minecraft:cobblestone');
+      }
+    }
+    for (let x = bx2; x <= gbX; x++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (compound.inBounds(x, 0, bzMid + dz))
+          compound.set(x, 0, bzMid + dz, 'minecraft:cobblestone');
+      }
+    }
+    // Stone wall perimeter with crenellations
+    for (let x = 0; x < gw; x++) {
+      for (const z of [0, gl - 1]) {
+        if (compound.inBounds(x, 0, z)) {
+          compound.set(x, 0, z, style.foundation);
+          if (compound.inBounds(x, 1, z)) compound.set(x, 1, z, style.wall);
+          if (compound.inBounds(x, 2, z) && x % 2 === 0)
+            compound.set(x, 2, z, style.wall);
+        }
+      }
+    }
+    for (let z = 0; z < gl; z++) {
+      for (const x of [0, gw - 1]) {
+        if (compound.inBounds(x, 0, z)) {
+          compound.set(x, 0, z, style.foundation);
+          if (compound.inBounds(x, 1, z)) compound.set(x, 1, z, style.wall);
+          if (compound.inBounds(x, 2, z) && z % 2 === 0)
+            compound.set(x, 2, z, style.wall);
+        }
+      }
+    }
+    // Gate opening on south wall
+    const gateX = Math.floor(gw / 2);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let y = 0; y <= 3; y++) {
+        if (compound.inBounds(gateX + dx, y, gl - 1))
+          compound.set(gateX + dx, y, gl - 1, y === 3 ? style.wallAccent : 'minecraft:air');
+      }
+    }
+    // South path from gate to tower
+    for (let z = bzMid; z < gl; z++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (compound.inBounds(gateX + dx, 0, z))
+          compound.set(gateX + dx, 0, z, 'minecraft:cobblestone');
+      }
+    }
+    // Lanterns at wall corners
+    for (const [lx, lz] of [[1, 1], [gw - 2, 1], [1, gl - 2], [gw - 2, gl - 2]]) {
+      if (compound.inBounds(lx, 3, lz)) {
+        compound.set(lx, 2, lz, style.wallAccent);
+        compound.set(lx, 3, lz, 'minecraft:lantern');
+      }
+    }
+
+  } else if (type === 'castle') {
+    // Outer bailey: stable (10x7) west
+    const stX = 1;
+    const stZ = bzMid - 3;
+    placeOutbuilding(compound, stX, stZ, 10, 7, 4, style, 'lean-to');
+    // Armory (10x7) east
+    const arX = bx2 + 2;
+    const arZ = bzMid - 3;
+    placeOutbuilding(compound, arX, arZ, 10, 7, 4, style, 'lean-to');
+    // Chapel (7x9) south
+    const chX = bxMid - 3;
+    const chZ = bz2 + 3;
+    if (compound.inBounds(chX, 0, chZ + 8))
+      placeOutbuilding(compound, chX, chZ, 7, 9, 5, style, 'gable');
+    // Outer wall ring (stone)
+    for (let x = 0; x < gw; x++) {
+      for (const z of [0, gl - 1]) {
+        if (compound.inBounds(x, 0, z)) {
+          compound.set(x, 0, z, style.foundation);
+          for (let y = 1; y <= 3; y++)
+            if (compound.inBounds(x, y, z)) compound.set(x, y, z, style.wall);
+          if (x % 2 === 0 && compound.inBounds(x, 4, z))
+            compound.set(x, 4, z, style.wall);
+        }
+      }
+    }
+    for (let z = 0; z < gl; z++) {
+      for (const x of [0, gw - 1]) {
+        if (compound.inBounds(x, 0, z)) {
+          compound.set(x, 0, z, style.foundation);
+          for (let y = 1; y <= 3; y++)
+            if (compound.inBounds(x, y, z)) compound.set(x, y, z, style.wall);
+          if (z % 2 === 0 && compound.inBounds(x, 4, z))
+            compound.set(x, 4, z, style.wall);
+        }
+      }
+    }
+    // Corner towers on outer wall (3x3, 6 tall)
+    for (const [cx, cz] of [[0, 0], [gw - 3, 0], [0, gl - 3], [gw - 3, gl - 3]]) {
+      for (let dx = 0; dx < 3; dx++) {
+        for (let dz = 0; dz < 3; dz++) {
+          for (let y = 0; y <= 6; y++) {
+            if (compound.inBounds(cx + dx, y, cz + dz))
+              compound.set(cx + dx, y, cz + dz, style.wall);
+          }
+          // Crenellation on top
+          if ((dx + dz) % 2 === 0 && compound.inBounds(cx + dx, 7, cz + dz))
+            compound.set(cx + dx, 7, cz + dz, style.wall);
+        }
+      }
+    }
+    // Gate with arch on south wall
+    const gateX = Math.floor(gw / 2);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let y = 0; y <= 4; y++) {
+        if (compound.inBounds(gateX + dx, y, gl - 1))
+          compound.set(gateX + dx, y, gl - 1, y === 4 ? style.wallAccent : 'minecraft:air');
+      }
+    }
+    // Paths from gate to inner castle and side buildings
+    for (let z = bz2; z < gl; z++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (compound.inBounds(gateX + dx, 0, z))
+          compound.set(gateX + dx, 0, z, 'minecraft:stone_bricks');
+      }
+    }
+    for (let x = stX + 10; x <= bx1; x++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (compound.inBounds(x, 0, bzMid + dz))
+          compound.set(x, 0, bzMid + dz, 'minecraft:stone_bricks');
+      }
+    }
+
+  } else if (type === 'dungeon') {
+    // Ruined chapel west (8x7, partial walls — no roof)
+    const rcX = 1;
+    const rcZ = bzMid - 3;
+    // Build walls but only partially (ruined effect)
+    for (let y = 0; y <= 4; y++) {
+      for (let x = rcX; x < rcX + 8; x++) {
+        for (const z of [rcZ, rcZ + 6]) {
+          if (compound.inBounds(x, y, z) && rng() < 0.7)
+            compound.set(x, y, z, y === 0 ? style.foundation : 'minecraft:mossy_stone_bricks');
+        }
+      }
+      for (let z = rcZ; z < rcZ + 7; z++) {
+        for (const x of [rcX, rcX + 7]) {
+          if (compound.inBounds(x, y, z) && rng() < 0.7)
+            compound.set(x, y, z, y === 0 ? style.foundation : 'minecraft:mossy_stone_bricks');
+        }
+      }
+    }
+    // Interior of ruined chapel: mossy floor, broken altar
+    for (let x = rcX + 1; x < rcX + 7; x++) {
+      for (let z = rcZ + 1; z < rcZ + 6; z++) {
+        if (compound.inBounds(x, 0, z))
+          compound.set(x, 0, z, rng() < 0.5 ? 'minecraft:mossy_cobblestone' : 'minecraft:cobblestone');
+      }
+    }
+    if (compound.inBounds(rcX + 4, 1, rcZ + 1)) {
+      compound.set(rcX + 4, 1, rcZ + 1, 'minecraft:chiseled_stone_bricks');
+      compound.set(rcX + 4, 2, rcZ + 1, 'minecraft:soul_lantern');
+    }
+    // Graveyard east with stone markers
+    const gyX = bx2 + 3;
+    const gyZ = bzMid - 4;
+    // Low perimeter stone wall
+    for (let x = gyX; x < gyX + 8; x++) {
+      for (const z of [gyZ, gyZ + 8]) {
+        if (compound.inBounds(x, 0, z)) compound.set(x, 0, z, 'minecraft:mossy_cobblestone');
+        if (compound.inBounds(x, 1, z)) compound.set(x, 1, z, 'minecraft:cobblestone_wall');
+      }
+    }
+    for (let z = gyZ; z < gyZ + 9; z++) {
+      for (const x of [gyX, gyX + 7]) {
+        if (compound.inBounds(x, 0, z)) compound.set(x, 0, z, 'minecraft:mossy_cobblestone');
+        if (compound.inBounds(x, 1, z)) compound.set(x, 1, z, 'minecraft:cobblestone_wall');
+      }
+    }
+    // Gravestones inside
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        const gx = gyX + 1 + col * 2;
+        const gz = gyZ + 1 + row * 2;
+        if (compound.inBounds(gx, 1, gz))
+          compound.set(gx, 1, gz, 'minecraft:cobblestone_wall');
+      }
+    }
+    // Paths connecting structures
+    for (let x = rcX + 8; x <= bx1; x++) {
+      if (compound.inBounds(x, 0, bzMid))
+        compound.set(x, 0, bzMid, 'minecraft:gravel');
+    }
+    for (let x = bx2; x <= gyX; x++) {
+      if (compound.inBounds(x, 0, bzMid))
+        compound.set(x, 0, bzMid, 'minecraft:gravel');
+    }
+    // Dead trees scattered around
+    for (let i = 0; i < 4; i++) {
+      const tx = Math.floor(rng() * (gw - 4)) + 2;
+      const tz = Math.floor(rng() * (gl - 4)) + 2;
+      const treeH = 3 + Math.floor(rng() * 3);
+      for (let y = 0; y < treeH; y++) {
+        if (compound.inBounds(tx, y + 1, tz) && compound.get(tx, y + 1, tz) === 'minecraft:air')
+          compound.set(tx, y + 1, tz, 'minecraft:spruce_log');
+      }
+    }
+
+  } else if (type === 'ship') {
+    // Harbor complex south of ship: warehouse (10x8)
+    const whX = bxMid - 5;
+    const whZ = bz2 + 3;
+    if (compound.inBounds(whX, 0, whZ + 7))
+      placeOutbuilding(compound, whX, whZ, 10, 8, 4, style, 'gable');
+    // Harbor master office west (7x6)
+    const hmX = 1;
+    const hmZ = bzMid - 3;
+    placeOutbuilding(compound, hmX, hmZ, 7, 6, 3, style, 'flat');
+    // Extended dock platform south (timber planking)
+    for (let x = bx1; x <= bx2 && x < gw; x++) {
+      for (let z = bz2 + 1; z <= bz2 + 2 && z < gl; z++) {
+        if (compound.inBounds(x, 2, z)) {
+          compound.set(x, 2, z, 'minecraft:spruce_planks');
+          // Pilings underneath
+          compound.set(x, 1, z, 'minecraft:spruce_fence');
+        }
+      }
+    }
+    // Cargo area with barrels and crates on dock
+    for (let i = 0; i < 6; i++) {
+      const cx = bx1 + 2 + Math.floor(rng() * (bx2 - bx1 - 4));
+      const cz = bz2 + 1 + Math.floor(rng() * 2);
+      if (compound.inBounds(cx, 3, cz))
+        compound.set(cx, 3, cz, rng() < 0.5 ? 'minecraft:barrel' : 'minecraft:crafting_table');
+    }
+    // Path from dock to warehouse
+    for (let z = whZ - 1; z >= bz2 + 2; z--) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (compound.inBounds(bxMid + dx, 0, z))
+          compound.set(bxMid + dx, 0, z, 'minecraft:spruce_planks');
+      }
+    }
+
+  } else if (type === 'cathedral') {
+    // Parish house west (9x7, gable)
+    const phX = 1;
+    const phZ = bzMid - 3;
+    placeOutbuilding(compound, phX, phZ, 9, 7, 4, style, 'gable');
+    // Cloister garden east (fenced open area with central fountain)
+    const cgX = bx2 + 2;
+    const cgZ = bzMid - 5;
+    const cgW = 10;
+    const cgL = 10;
+    // Low stone wall perimeter
+    for (let x = cgX; x < cgX + cgW; x++) {
+      for (const z of [cgZ, cgZ + cgL - 1]) {
+        if (compound.inBounds(x, 0, z)) compound.set(x, 0, z, 'minecraft:stone_bricks');
+        if (compound.inBounds(x, 1, z)) compound.set(x, 1, z, 'minecraft:stone_brick_wall');
+      }
+    }
+    for (let z = cgZ; z < cgZ + cgL; z++) {
+      for (const x of [cgX, cgX + cgW - 1]) {
+        if (compound.inBounds(x, 0, z)) compound.set(x, 0, z, 'minecraft:stone_bricks');
+        if (compound.inBounds(x, 1, z)) compound.set(x, 1, z, 'minecraft:stone_brick_wall');
+      }
+    }
+    // Interior garden with grass and flowers
+    for (let x = cgX + 1; x < cgX + cgW - 1; x++) {
+      for (let z = cgZ + 1; z < cgZ + cgL - 1; z++) {
+        if (compound.inBounds(x, 0, z)) {
+          compound.set(x, 0, z, 'minecraft:grass_block');
+          if (rng() < 0.3 && compound.inBounds(x, 1, z))
+            compound.set(x, 1, z, pick(['minecraft:rose_bush', 'minecraft:lilac', 'minecraft:dandelion', 'minecraft:poppy'], rng));
+        }
+      }
+    }
+    // Central water fountain
+    const fcx = cgX + Math.floor(cgW / 2);
+    const fcz = cgZ + Math.floor(cgL / 2);
+    if (compound.inBounds(fcx, 1, fcz)) {
+      compound.set(fcx, 0, fcz, 'minecraft:stone_bricks');
+      compound.set(fcx, 1, fcz, 'minecraft:water');
+    }
+    // Paths
+    for (let x = phX + 9; x <= bx1; x++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (compound.inBounds(x, 0, bzMid + dz))
+          compound.set(x, 0, bzMid + dz, 'minecraft:stone_bricks');
+      }
+    }
+    for (let x = bx2; x <= cgX; x++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (compound.inBounds(x, 0, bzMid + dz))
+          compound.set(x, 0, bzMid + dz, 'minecraft:stone_bricks');
+      }
+    }
+
+  } else if (type === 'bridge') {
+    // Settlement on south end: toll house (8x7)
+    const thX = bxMid - 4;
+    const thZ = bz2 + 3;
+    if (compound.inBounds(thX, 0, thZ + 6))
+      placeOutbuilding(compound, thX, thZ, 8, 7, 4, style, 'gable');
+    // Settlement on north end: guard post (7x6)
+    const gpX = bxMid - 3;
+    const gpZ = 1;
+    placeOutbuilding(compound, gpX, gpZ, 7, 6, 4, style, 'lean-to');
+    // Path from south toll house to bridge
+    for (let z = bz2; z <= thZ && z < gl; z++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (compound.inBounds(bxMid + dx, 0, z))
+          compound.set(bxMid + dx, 0, z, 'minecraft:cobblestone');
+      }
+    }
+    // Path from north guard post to bridge
+    for (let z = gpZ + 6; z <= bz1; z++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (compound.inBounds(bxMid + dx, 0, z))
+          compound.set(bxMid + dx, 0, z, 'minecraft:cobblestone');
+      }
+    }
+
+  } else if (type === 'windmill') {
+    // Grain barn west (10x7, gable)
+    const gbX = 1;
+    const gbZ = bzMid - 3;
+    placeOutbuilding(compound, gbX, gbZ, 10, 7, 4, style, 'gable');
+    // Farmer's cottage east (9x7, gable)
+    const fcX = bx2 + 2;
+    const fcZ = bzMid - 3;
+    placeOutbuilding(compound, fcX, fcZ, 9, 7, 4, style, 'gable');
+    // Wheat field south (fenced farmland)
+    const fieldX = 2;
+    const fieldZ = bz2 + 3;
+    const fieldW = gw - 4;
+    const fieldL = Math.min(10, gl - fieldZ - 1);
+    // Fence around field
+    for (let x = fieldX; x < fieldX + fieldW; x++) {
+      if (compound.inBounds(x, 1, fieldZ)) compound.set(x, 1, fieldZ, 'minecraft:oak_fence');
+      if (compound.inBounds(x, 1, fieldZ + fieldL - 1))
+        compound.set(x, 1, fieldZ + fieldL - 1, 'minecraft:oak_fence');
+    }
+    for (let z = fieldZ; z < fieldZ + fieldL; z++) {
+      if (compound.inBounds(fieldX, 1, z)) compound.set(fieldX, 1, z, 'minecraft:oak_fence');
+      if (compound.inBounds(fieldX + fieldW - 1, 1, z))
+        compound.set(fieldX + fieldW - 1, 1, z, 'minecraft:oak_fence');
+    }
+    // Farmland + wheat inside field
+    for (let x = fieldX + 1; x < fieldX + fieldW - 1; x++) {
+      for (let z = fieldZ + 1; z < fieldZ + fieldL - 1; z++) {
+        if (compound.inBounds(x, 0, z)) {
+          compound.set(x, 0, z, 'minecraft:farmland[moisture=7]');
+          if (compound.inBounds(x, 1, z))
+            compound.set(x, 1, z, 'minecraft:wheat[age=7]');
+        }
+      }
+    }
+    // Paths connecting all structures
+    for (let x = gbX + 10; x <= bx1; x++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (compound.inBounds(x, 0, bzMid + dz))
+          compound.set(x, 0, bzMid + dz, 'minecraft:cobblestone');
+      }
+    }
+    for (let x = bx2; x <= fcX; x++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (compound.inBounds(x, 0, bzMid + dz))
+          compound.set(x, 0, bzMid + dz, 'minecraft:cobblestone');
+      }
+    }
+    for (let z = bzMid; z <= fieldZ; z++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (compound.inBounds(bxMid + dx, 0, z))
+          compound.set(bxMid + dx, 0, z, 'minecraft:cobblestone');
+      }
+    }
+  }
+
+  return compound;
+}
+
+/**
  * Generate a complete structure from parameters.
  * Returns a populated BlockGrid ready for schematic export.
  */
@@ -200,6 +684,9 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
       grid = generateHouse(floors, style, rooms, width, length, rng, options.roofShape, options.features, options.floorPlanShape);
       break;
   }
+
+  // Expand single-building grids into compound sites with companion structures
+  grid = compoundify(grid, type, style, rng);
 
   // Add ground plane — grass for land structures, water for ships/bridges
   // Village already has its own grass layer, skip it
@@ -4095,7 +4582,7 @@ function generateVillage(
   return grid;
 }
 
-/** Paste a source grid into a target grid at the given offset */
+/** Paste a source grid into a target grid at the given offset (blocks + block entities) */
 function pasteGrid(
   target: BlockGrid, source: BlockGrid,
   offsetX: number, offsetY: number, offsetZ: number
@@ -4114,6 +4601,14 @@ function pasteGrid(
         }
       }
     }
+  }
+  // Copy block entities with adjusted coordinates
+  for (const be of source.blockEntities) {
+    const [bx, by, bz] = be.pos;
+    target.blockEntities.push({
+      ...be,
+      pos: [bx + offsetX, by + offsetY, bz + offsetZ],
+    });
   }
 }
 
@@ -4144,6 +4639,14 @@ function pasteGridFlipZ(
         }
       }
     }
+  }
+  // Copy block entities with adjusted coordinates (Z-flipped)
+  for (const be of source.blockEntities) {
+    const [bx, by, bz] = be.pos;
+    target.blockEntities.push({
+      ...be,
+      pos: [bx + offsetX, by + offsetY, (maxZ - bz) + offsetZ],
+    });
   }
 }
 
