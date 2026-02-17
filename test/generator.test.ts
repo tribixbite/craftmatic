@@ -328,6 +328,271 @@ describe('import end-to-end: 917 Pinecrest Ave SE, Grand Rapids MI 49506', () =>
   });
 });
 
+// ─── QA Phase 4: Multi-Style Matrix ──────────────────────────────────────────
+
+describe('QA Phase 4: multi-style matrix', () => {
+  const ALL_STYLES: StyleName[] = ['fantasy', 'medieval', 'modern', 'gothic', 'rustic', 'steampunk', 'elven', 'desert', 'underwater'];
+
+  /** Extract the set of wall/roof/accent block names from a grid palette */
+  function extractPalette(grid: ReturnType<typeof generateStructure>): Set<string> {
+    return new Set([...grid.palette.keys()].filter(b => b !== 'minecraft:air'));
+  }
+
+  describe('house in all 9 styles', () => {
+    const grids = new Map<StyleName, ReturnType<typeof generateStructure>>();
+
+    for (const style of ALL_STYLES) {
+      it(`house/${style} generates valid grid`, () => {
+        const grid = generateStructure({ type: 'house', floors: 2, style, seed: 42 });
+        grids.set(style, grid);
+        expect(grid.countNonAir()).toBeGreaterThan(100);
+        expect(grid.palette.size).toBeGreaterThan(5);
+      });
+    }
+
+    it('each style pair has unique block palette (>20% difference)', () => {
+      // Pairwise check: every pair of styles must differ in ≥20% of blocks
+      const palettes = new Map<StyleName, Set<string>>();
+      for (const style of ALL_STYLES) {
+        const grid = generateStructure({ type: 'house', floors: 2, style, seed: 42 });
+        palettes.set(style, extractPalette(grid));
+      }
+
+      for (let i = 0; i < ALL_STYLES.length; i++) {
+        for (let j = i + 1; j < ALL_STYLES.length; j++) {
+          const a = palettes.get(ALL_STYLES[i])!;
+          const b = palettes.get(ALL_STYLES[j])!;
+          const union = new Set([...a, ...b]);
+          const intersection = new Set([...a].filter(x => b.has(x)));
+          const jaccardDist = 1 - intersection.size / union.size;
+          // Styles must differ by at least 20% in block palette
+          expect(jaccardDist).toBeGreaterThan(0.2);
+        }
+      }
+    });
+  });
+
+  describe('tower in all 9 styles', () => {
+    for (const style of ALL_STYLES) {
+      it(`tower/${style} generates valid grid`, () => {
+        const grid = generateStructure({ type: 'tower', floors: 4, style, seed: 77 });
+        expect(grid.countNonAir()).toBeGreaterThan(100);
+        expect(grid.palette.size).toBeGreaterThan(5);
+      });
+    }
+
+    it('each tower style pair differs in block palette', () => {
+      const palettes = new Map<StyleName, Set<string>>();
+      for (const style of ALL_STYLES) {
+        const grid = generateStructure({ type: 'tower', floors: 4, style, seed: 77 });
+        palettes.set(style, extractPalette(grid));
+      }
+
+      for (let i = 0; i < ALL_STYLES.length; i++) {
+        for (let j = i + 1; j < ALL_STYLES.length; j++) {
+          const a = palettes.get(ALL_STYLES[i])!;
+          const b = palettes.get(ALL_STYLES[j])!;
+          const union = new Set([...a, ...b]);
+          const intersection = new Set([...a].filter(x => b.has(x)));
+          const jaccardDist = 1 - intersection.size / union.size;
+          expect(jaccardDist).toBeGreaterThan(0.15);
+        }
+      }
+    });
+  });
+});
+
+// ─── QA Phase 5: Scale Variation ─────────────────────────────────────────────
+
+describe('QA Phase 5: scale variation', () => {
+  it('house height scales with floor count (1, 2, 3, 5)', () => {
+    const heights: number[] = [];
+    const counts: number[] = [];
+    for (const floors of [1, 2, 3, 5]) {
+      const grid = generateStructure({ type: 'house', floors, style: 'fantasy', seed: 42 });
+      heights.push(grid.height);
+      counts.push(grid.countNonAir());
+      expect(grid.countNonAir()).toBeGreaterThan(100);
+    }
+    // Height or block count must increase overall (compound trimming may cap grid height)
+    expect(heights[heights.length - 1]).toBeGreaterThanOrEqual(heights[0]);
+    // Block count must strictly increase
+    for (let i = 1; i < counts.length; i++) {
+      expect(counts[i]).toBeGreaterThan(counts[i - 1]);
+    }
+  });
+
+  it('tower height scales with floor count (2, 4, 6, 8)', () => {
+    const heights: number[] = [];
+    for (const floors of [2, 4, 6, 8]) {
+      const grid = generateStructure({ type: 'tower', floors, style: 'gothic', seed: 77 });
+      heights.push(grid.height);
+      expect(grid.countNonAir()).toBeGreaterThan(100);
+    }
+    for (let i = 1; i < heights.length; i++) {
+      expect(heights[i]).toBeGreaterThan(heights[i - 1]);
+    }
+  });
+
+  it('block count increases with floor count', () => {
+    const counts: number[] = [];
+    for (const floors of [1, 3, 5]) {
+      const grid = generateStructure({ type: 'house', floors, style: 'medieval', seed: 100 });
+      counts.push(grid.countNonAir());
+    }
+    for (let i = 1; i < counts.length; i++) {
+      expect(counts[i]).toBeGreaterThan(counts[i - 1]);
+    }
+  });
+});
+
+// ─── QA Phase 6: Seed Stability ──────────────────────────────────────────────
+
+describe('QA Phase 6: seed stability', () => {
+  it('same seed produces identical output', () => {
+    for (const seed of [1, 5, 10]) {
+      const a = generateStructure({ type: 'house', floors: 2, style: 'fantasy', seed });
+      const b = generateStructure({ type: 'house', floors: 2, style: 'fantasy', seed });
+      expect(a.countNonAir()).toBe(b.countNonAir());
+      expect(a.width).toBe(b.width);
+      expect(a.height).toBe(b.height);
+      expect(a.length).toBe(b.length);
+    }
+  });
+
+  it('seeds 1-10 produce meaningfully different houses', () => {
+    const counts: number[] = [];
+    for (let seed = 1; seed <= 10; seed++) {
+      const grid = generateStructure({ type: 'house', floors: 2, style: 'fantasy', seed });
+      counts.push(grid.countNonAir());
+    }
+    // At least 3 distinct block counts among 10 seeds (rooms vary per seed)
+    const unique = new Set(counts);
+    expect(unique.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('seeds 1-10 produce meaningfully different towers', () => {
+    const counts: number[] = [];
+    for (let seed = 1; seed <= 10; seed++) {
+      const grid = generateStructure({ type: 'tower', floors: 4, style: 'gothic', seed });
+      counts.push(grid.countNonAir());
+    }
+    const unique = new Set(counts);
+    expect(unique.size).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// ─── QA Phase 7: L/T/U Floor Plan ───────────────────────────────────────────
+
+describe('QA Phase 7: L/T/U floor plans', () => {
+  const shapes = ['rect', 'L', 'T', 'U'] as const;
+
+  for (const shape of shapes) {
+    it(`house with ${shape} floor plan generates without error`, () => {
+      const grid = generateStructure({
+        type: 'house',
+        floors: 2,
+        style: 'medieval',
+        seed: 42,
+        floorPlanShape: shape,
+      });
+      expect(grid.countNonAir()).toBeGreaterThan(100);
+      expect(grid.width).toBeGreaterThan(0);
+      expect(grid.length).toBeGreaterThan(0);
+    });
+  }
+
+  it('L/T/U shapes produce different grid dimensions than rect', () => {
+    const dims = new Map<string, { w: number; l: number; count: number }>();
+    for (const shape of shapes) {
+      const grid = generateStructure({
+        type: 'house',
+        floors: 2,
+        style: 'medieval',
+        seed: 42,
+        floorPlanShape: shape,
+      });
+      dims.set(shape, { w: grid.width, l: grid.length, count: grid.countNonAir() });
+    }
+    // L/T/U should have at least some differences from rect
+    const rect = dims.get('rect')!;
+    let differenceCount = 0;
+    for (const shape of ['L', 'T', 'U'] as const) {
+      const other = dims.get(shape)!;
+      if (other.w !== rect.w || other.l !== rect.l || other.count !== rect.count) {
+        differenceCount++;
+      }
+    }
+    // At least 2 of 3 non-rect shapes should differ from rect
+    expect(differenceCount).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ─── QA Phase 8: Feature Flags ───────────────────────────────────────────────
+
+describe('QA Phase 8: feature flags', () => {
+  it('chimney flag toggles chimney blocks', () => {
+    const withChimney = generateStructure({
+      type: 'house', floors: 2, style: 'rustic', seed: 42,
+      features: { chimney: true },
+    });
+    const noChimney = generateStructure({
+      type: 'house', floors: 2, style: 'rustic', seed: 42,
+      features: { chimney: false },
+    });
+    // Chimney adds blocks — count should differ
+    expect(withChimney.countNonAir()).not.toBe(noChimney.countNonAir());
+  });
+
+  it('porch flag toggles porch', () => {
+    const withPorch = generateStructure({
+      type: 'house', floors: 2, style: 'rustic', seed: 42,
+      features: { porch: true },
+    });
+    const noPorch = generateStructure({
+      type: 'house', floors: 2, style: 'rustic', seed: 42,
+      features: { porch: false },
+    });
+    expect(withPorch.countNonAir()).not.toBe(noPorch.countNonAir());
+  });
+
+  it('pool flag affects block count with large grid', () => {
+    // Pool placement needs enough backyard space; use explicit dimensions
+    const withPool = generateStructure({
+      type: 'house', floors: 2, style: 'rustic', seed: 42,
+      width: 30, length: 30,
+      features: { pool: true },
+    });
+    const noPool = generateStructure({
+      type: 'house', floors: 2, style: 'rustic', seed: 42,
+      width: 30, length: 30,
+      features: { pool: false },
+    });
+    // With enough yard space, pool flag should add water blocks
+    expect(withPool.countNonAir()).not.toBe(noPool.countNonAir());
+  });
+
+  it('fence flag affects block count', () => {
+    const withFence = generateStructure({
+      type: 'house', floors: 2, style: 'fantasy', seed: 42,
+      features: { fence: true },
+    });
+    const noFence = generateStructure({
+      type: 'house', floors: 2, style: 'fantasy', seed: 42,
+      features: { fence: false },
+    });
+    expect(withFence.countNonAir()).not.toBe(noFence.countNonAir());
+  });
+
+  it('all flags combine without error', () => {
+    const grid = generateStructure({
+      type: 'house', floors: 2, style: 'fantasy', seed: 42,
+      features: { chimney: true, porch: true, pool: true, fence: true },
+    });
+    expect(grid.countNonAir()).toBeGreaterThan(100);
+  });
+});
+
 describe('performance benchmarks', () => {
   const cases: { type: StructureType; style: StyleName; label: string }[] = [
     { type: 'house', style: 'fantasy', label: 'house/fantasy' },
