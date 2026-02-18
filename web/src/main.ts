@@ -17,6 +17,29 @@ import { initGallery } from '@ui/gallery.js';
 let activeViewer: ViewerState | null = null;
 let activeGrid: BlockGrid | null = null;
 let inlineViewer: ViewerState | null = null;
+/** Base filename (no extension) for exports — derived from address or generator config */
+let exportBasename = 'craftmatic';
+
+// ─── Export Filename Helpers ─────────────────────────────────────────────────
+
+/** Slugify a string: lowercase, replace non-alphanumeric runs with hyphens, trim */
+function slugify(str: string): string {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+/** Build export basename from generator config: type_style_Nf[_seedN] */
+function basenameFromConfig(config: GeneratorConfig): string {
+  const parts = [config.type, config.style, `${config.floors}f`];
+  if (config.seed != null) parts.push(`seed${config.seed}`);
+  return parts.join('_');
+}
+
+/** Build export basename from property address */
+function basenameFromAddress(address: string): string {
+  const slug = slugify(address);
+  // Cap at 80 chars to avoid filesystem issues
+  return slug.length > 80 ? slug.slice(0, 80).replace(/-$/, '') : slug;
+}
 
 // ─── Tab Navigation ──────────────────────────────────────────────────────────
 
@@ -103,7 +126,7 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
   // Export .schem (works without WebGL)
   controlsDiv.querySelector('#inline-export-schem')!.addEventListener('click', () => {
     try {
-      exportSchem(grid);
+      exportSchem(grid, `${exportBasename}.schem`);
     } catch (err) {
       console.error('.schem export failed:', err);
       showError('Export failed');
@@ -190,7 +213,7 @@ document.getElementById('btn-export-glb')!.addEventListener('click', async () =>
   if (!activeViewer) return;
   showLoading('Exporting GLB...');
   try {
-    await exportGLB(activeViewer);
+    await exportGLB(activeViewer, `${exportBasename}.glb`);
   } catch (err) {
     console.error('GLB export failed:', err);
     showError('GLB export failed');
@@ -203,7 +226,7 @@ document.getElementById('btn-export-glb')!.addEventListener('click', async () =>
 document.getElementById('btn-export-schem')!.addEventListener('click', () => {
   if (!activeGrid) return;
   try {
-    exportSchem(activeGrid);
+    exportSchem(activeGrid, `${exportBasename}.schem`);
   } catch (err) {
     console.error('.schem export failed:', err);
     showError('Export failed');
@@ -214,7 +237,7 @@ document.getElementById('btn-export-schem')!.addEventListener('click', () => {
 document.getElementById('btn-export-html')!.addEventListener('click', () => {
   if (!activeViewer) return;
   try {
-    exportHTML(activeViewer);
+    exportHTML(activeViewer, `${exportBasename}.html`);
   } catch (err) {
     console.error('HTML export failed:', err);
     showError('Export failed');
@@ -225,7 +248,7 @@ document.getElementById('btn-export-html')!.addEventListener('click', () => {
 document.getElementById('btn-export-three')!.addEventListener('click', () => {
   if (!activeViewer) return;
   try {
-    exportThreeJSON(activeViewer);
+    exportThreeJSON(activeViewer, `${exportBasename}-scene.json`);
   } catch (err) {
     console.error('Three.js JSON export failed:', err);
     showError('Export failed');
@@ -254,6 +277,7 @@ const generatorControls = document.getElementById('generator-controls')!;
 const generatorViewer = document.getElementById('generator-viewer')!;
 
 initGenerator(generatorControls, (grid: BlockGrid, _config: GeneratorConfig) => {
+  exportBasename = basenameFromConfig(_config);
   showLoading('Building 3D view...');
   // Double-defer: rAF lets overlay paint, setTimeout yields for rendering
   requestAnimationFrame(() => setTimeout(() => {
@@ -278,6 +302,7 @@ const importControls = document.getElementById('import-controls')!;
 const importViewer = document.getElementById('import-viewer')!;
 
 initImport(importControls, importViewer, (grid: BlockGrid, _property: PropertyData) => {
+  exportBasename = basenameFromAddress(_property.address);
   showLoading('Building 3D view...');
   requestAnimationFrame(() => setTimeout(() => {
     try {
@@ -302,6 +327,8 @@ const uploadInfo = document.getElementById('upload-info')!;
 const uploadViewer = document.getElementById('upload-viewer')!;
 
 initUpload(uploadZone, fileInput, uploadInfo, (grid: BlockGrid, _filename: string) => {
+  // Use the uploaded filename (sans extension) as export basename
+  exportBasename = _filename.replace(/\.[^.]+$/, '') || 'upload';
   showLoading('Rendering schematic...');
   requestAnimationFrame(() => setTimeout(() => {
     try {
@@ -323,6 +350,7 @@ initUpload(uploadZone, fileInput, uploadInfo, (grid: BlockGrid, _filename: strin
 const galleryGrid = document.getElementById('gallery-grid')!;
 
 initGallery(galleryGrid, (grid: BlockGrid, _label: string) => {
+  exportBasename = slugify(_label) || 'gallery';
   showLoading('Opening viewer...');
   requestAnimationFrame(() => setTimeout(() => {
     try {
