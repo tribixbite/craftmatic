@@ -69,6 +69,25 @@ export interface StylePalette {
   /** Banner colors */
   bannerN: BlockState;
   bannerS: BlockState;
+  // ─── Style-specific furniture ─────────────────────────────────────────────
+  /** Bed color name (used in bed block IDs) */
+  bedColor: 'red' | 'blue' | 'cyan' | 'white' | 'green' | 'brown' | 'black' | 'gray' | 'orange' | 'light_blue';
+  /** Fireplace surround block */
+  fireplaceBlock: BlockState;
+  /** Fireplace accent block (side columns) */
+  fireplaceAccent: BlockState;
+  /** Table surface material (placed on top of fence posts) */
+  tableSurface: BlockState;
+  /** Candle style for table decorations */
+  candle: BlockState;
+  /** Counter/workbench surface block */
+  counterBlock: BlockState;
+  /** Counter surface slab */
+  counterSlab: BlockState;
+  /** Decorative potted plants — 3 variants per style */
+  plant1: BlockState;
+  plant2: BlockState;
+  plant3: BlockState;
 }
 
 /** All style presets */
@@ -111,6 +130,16 @@ export const STYLES: Record<StyleName, StylePalette> = {
     slabTop: 'minecraft:dark_oak_slab[type=top]',
     bannerN: 'minecraft:red_wall_banner[facing=north]',
     bannerS: 'minecraft:red_wall_banner[facing=south]',
+    bedColor: 'red',
+    fireplaceBlock: 'minecraft:bricks',
+    fireplaceAccent: 'minecraft:nether_bricks',
+    tableSurface: 'minecraft:white_carpet',
+    candle: 'minecraft:candle[candles=3,lit=true]',
+    counterBlock: 'minecraft:polished_andesite',
+    counterSlab: 'minecraft:smooth_stone_slab[type=bottom]',
+    plant1: 'minecraft:potted_allium',
+    plant2: 'minecraft:potted_azure_bluet',
+    plant3: 'minecraft:potted_red_tulip',
   },
 
   medieval: {
@@ -151,6 +180,16 @@ export const STYLES: Record<StyleName, StylePalette> = {
     slabTop: 'minecraft:oak_slab[type=top]',
     bannerN: 'minecraft:red_wall_banner[facing=north]',
     bannerS: 'minecraft:red_wall_banner[facing=south]',
+    bedColor: 'red',
+    fireplaceBlock: 'minecraft:cobblestone',
+    fireplaceAccent: 'minecraft:mossy_cobblestone',
+    tableSurface: 'minecraft:red_carpet',
+    candle: 'minecraft:candle[candles=3,lit=true]',
+    counterBlock: 'minecraft:cobblestone',
+    counterSlab: 'minecraft:cobblestone_slab[type=bottom]',
+    plant1: 'minecraft:potted_fern',
+    plant2: 'minecraft:potted_oak_sapling',
+    plant3: 'minecraft:potted_red_tulip',
   },
 
   modern: {
@@ -191,6 +230,16 @@ export const STYLES: Record<StyleName, StylePalette> = {
     slabTop: 'minecraft:smooth_quartz_slab[type=top]',
     bannerN: 'minecraft:white_wall_banner[facing=north]',
     bannerS: 'minecraft:white_wall_banner[facing=south]',
+    bedColor: 'white',
+    fireplaceBlock: 'minecraft:polished_andesite',
+    fireplaceAccent: 'minecraft:smooth_stone',
+    tableSurface: 'minecraft:light_gray_carpet',
+    candle: 'minecraft:candle[candles=1,lit=true]',
+    counterBlock: 'minecraft:smooth_quartz',
+    counterSlab: 'minecraft:smooth_quartz_slab[type=bottom]',
+    plant1: 'minecraft:potted_bamboo',
+    plant2: 'minecraft:potted_fern',
+    plant3: 'minecraft:potted_lily_of_the_valley',
   },
 
   gothic: {
@@ -231,6 +280,16 @@ export const STYLES: Record<StyleName, StylePalette> = {
     slabTop: 'minecraft:deepslate_brick_slab[type=top]',
     bannerN: 'minecraft:gray_wall_banner[facing=north]',
     bannerS: 'minecraft:gray_wall_banner[facing=south]',
+    bedColor: 'black',
+    fireplaceBlock: 'minecraft:polished_blackstone_bricks',
+    fireplaceAccent: 'minecraft:crying_obsidian',
+    tableSurface: 'minecraft:black_carpet',
+    candle: 'minecraft:soul_lantern[hanging=false]',
+    counterBlock: 'minecraft:polished_deepslate',
+    counterSlab: 'minecraft:polished_deepslate_slab[type=bottom]',
+    plant1: 'minecraft:potted_wither_rose',
+    plant2: 'minecraft:potted_dead_bush',
+    plant3: 'minecraft:potted_crimson_fungus',
   },
 
   rustic: {
@@ -271,6 +330,16 @@ export const STYLES: Record<StyleName, StylePalette> = {
     slabTop: 'minecraft:spruce_slab[type=top]',
     bannerN: 'minecraft:red_wall_banner[facing=north]',
     bannerS: 'minecraft:red_wall_banner[facing=south]',
+    bedColor: 'brown',
+    fireplaceBlock: 'minecraft:cobblestone',
+    fireplaceAccent: 'minecraft:stone_bricks',
+    tableSurface: 'minecraft:brown_carpet',
+    candle: 'minecraft:candle[candles=3,lit=true]',
+    counterBlock: 'minecraft:cobblestone',
+    counterSlab: 'minecraft:cobblestone_slab[type=bottom]',
+    plant1: 'minecraft:potted_fern',
+    plant2: 'minecraft:potted_dandelion',
+    plant3: 'minecraft:potted_poppy',
   },
 
   steampunk: {
@@ -311,6 +380,16 @@ export const STYLES: Record<StyleName, StylePalette> = {
     slabTop: 'minecraft:dark_oak_slab[type=top]',
     bannerN: 'minecraft:black_wall_banner[facing=north]',
     bannerS: 'minecraft:black_wall_banner[facing=south]',
+    bedColor: 'gray',
+    fireplaceBlock: 'minecraft:iron_block',
+    fireplaceAccent: 'minecraft:exposed_copper',
+    tableSurface: 'minecraft:orange_carpet',
+    candle: 'minecraft:redstone_lamp',
+    counterBlock: 'minecraft:iron_block',
+    counterSlab: 'minecraft:smooth_stone_slab[type=bottom]',
+    plant1: 'minecraft:potted_dead_bush',
+    plant2: 'minecraft:potted_cactus',
+    plant3: 'minecraft:potted_crimson_fungus',
   },
 
   elven: {
@@ -351,6 +430,16 @@ export const STYLES: Record<StyleName, StylePalette> = {
     slabTop: 'minecraft:birch_slab[type=top]',
     bannerN: 'minecraft:white_wall_banner[facing=north]',
     bannerS: 'minecraft:white_wall_banner[facing=south]',
+    bedColor: 'green',
+    fireplaceBlock: 'minecraft:moss_block',
+    fireplaceAccent: 'minecraft:mossy_cobblestone',
+    tableSurface: 'minecraft:green_carpet',
+    candle: 'minecraft:glowstone',
+    counterBlock: 'minecraft:moss_block',
+    counterSlab: 'minecraft:birch_slab[type=bottom]',
+    plant1: 'minecraft:potted_birch_sapling',
+    plant2: 'minecraft:potted_azalea_bush',
+    plant3: 'minecraft:potted_flowering_azalea_bush',
   },
 
   desert: {
@@ -391,6 +480,16 @@ export const STYLES: Record<StyleName, StylePalette> = {
     slabTop: 'minecraft:sandstone_slab[type=top]',
     bannerN: 'minecraft:red_wall_banner[facing=north]',
     bannerS: 'minecraft:red_wall_banner[facing=south]',
+    bedColor: 'orange',
+    fireplaceBlock: 'minecraft:sandstone',
+    fireplaceAccent: 'minecraft:red_sandstone',
+    tableSurface: 'minecraft:orange_carpet',
+    candle: 'minecraft:candle[candles=3,lit=true]',
+    counterBlock: 'minecraft:smooth_sandstone',
+    counterSlab: 'minecraft:sandstone_slab[type=bottom]',
+    plant1: 'minecraft:potted_dead_bush',
+    plant2: 'minecraft:potted_cactus',
+    plant3: 'minecraft:potted_red_tulip',
   },
 
   underwater: {
@@ -431,6 +530,16 @@ export const STYLES: Record<StyleName, StylePalette> = {
     slabTop: 'minecraft:warped_slab[type=top]',
     bannerN: 'minecraft:blue_wall_banner[facing=north]',
     bannerS: 'minecraft:blue_wall_banner[facing=south]',
+    bedColor: 'cyan',
+    fireplaceBlock: 'minecraft:prismarine_bricks',
+    fireplaceAccent: 'minecraft:dark_prismarine',
+    tableSurface: 'minecraft:cyan_carpet',
+    candle: 'minecraft:sea_lantern',
+    counterBlock: 'minecraft:dark_prismarine',
+    counterSlab: 'minecraft:dark_prismarine_slab[type=bottom]',
+    plant1: 'minecraft:potted_warped_fungus',
+    plant2: 'minecraft:potted_crimson_fungus',
+    plant3: 'minecraft:potted_fern',
   },
 };
 

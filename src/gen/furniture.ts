@@ -35,21 +35,19 @@ export function longDiningTable(
   if (direction === 'z') {
     for (let i = 0; i < length; i++) {
       grid.set(xStart, y, z + i, style.fence);
-      grid.set(xStart, y + 1, z + i, 'minecraft:white_carpet');
-      // Candle every other spot
+      grid.set(xStart, y + 1, z + i, style.tableSurface);
       if (i % 2 === 0) {
-        grid.set(xStart, y + 2, z + i, 'minecraft:candle[candles=3,lit=true]');
+        grid.set(xStart, y + 2, z + i, style.candle);
       }
-      // Chairs on both sides
       grid.set(xStart - 1, y, z + i, style.chairE);
       grid.set(xStart + 1, y, z + i, style.chairW);
     }
   } else {
     for (let i = 0; i < length; i++) {
       grid.set(xStart + i, y, z, style.fence);
-      grid.set(xStart + i, y + 1, z, 'minecraft:white_carpet');
+      grid.set(xStart + i, y + 1, z, style.tableSurface);
       if (i % 2 === 0) {
-        grid.set(xStart + i, y + 2, z, 'minecraft:candle[candles=3,lit=true]');
+        grid.set(xStart + i, y + 2, z, style.candle);
       }
       grid.set(xStart + i, y, z - 1, style.chairS);
       grid.set(xStart + i, y, z + 1, style.chairN);
@@ -96,24 +94,24 @@ export function endRodPillar(
 
 /** Place a fireplace against a wall (z = wallZ) */
 export function fireplace(
-  grid: BlockGrid, cx: number, y: number, wallZ: number, _style: StylePalette
+  grid: BlockGrid, cx: number, y: number, wallZ: number, style: StylePalette
 ): void {
-  // Brick surround
-  grid.fill(cx - 1, y, wallZ, cx + 1, y + 2, wallZ, 'minecraft:bricks');
+  // Style-specific surround
+  grid.fill(cx - 1, y, wallZ, cx + 1, y + 2, wallZ, style.fireplaceBlock);
   grid.set(cx, y, wallZ, 'minecraft:campfire[lit=true]'); // fire
   grid.set(cx, y + 1, wallZ, 'minecraft:air'); // opening
-  grid.set(cx, y + 2, wallZ, 'minecraft:bricks'); // mantle top
-  grid.set(cx - 2, y, wallZ, 'minecraft:nether_bricks');
-  grid.set(cx + 2, y, wallZ, 'minecraft:nether_bricks');
+  grid.set(cx, y + 2, wallZ, style.fireplaceBlock); // mantle top
+  grid.set(cx - 2, y, wallZ, style.fireplaceAccent);
+  grid.set(cx + 2, y, wallZ, style.fireplaceAccent);
   // Mantle decorations
-  grid.set(cx - 1, y + 3, wallZ, 'minecraft:candle[candles=3,lit=true]');
-  grid.set(cx + 1, y + 3, wallZ, 'minecraft:potted_wither_rose');
+  grid.set(cx - 1, y + 3, wallZ, style.candle);
+  grid.set(cx + 1, y + 3, wallZ, style.plant1);
 }
 
 /** Place a bed (2-block structure) */
 export function placeBed(
   grid: BlockGrid, x: number, y: number, z: number,
-  facing: 'north' | 'south', color: 'red' | 'blue' | 'cyan' = 'red'
+  facing: 'north' | 'south', color: string = 'red'
 ): void {
   if (facing === 'south') {
     grid.set(x, y, z, `minecraft:${color}_bed[facing=south,part=foot]`);
@@ -130,7 +128,7 @@ export function sideTable(
   style: StylePalette, decoration?: string
 ): void {
   grid.set(x, y, z, style.fence);
-  grid.set(x, y + 1, z, 'minecraft:white_carpet');
+  grid.set(x, y + 1, z, style.tableSurface);
   if (decoration) {
     grid.set(x, y + 2, z, decoration);
   }
