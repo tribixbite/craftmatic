@@ -273,3 +273,38 @@ export function steeringWheel(
   grid.set(x, y, z, 'minecraft:oak_fence');
   grid.set(x, y + 1, z, `minecraft:dark_oak_trapdoor[facing=${facing},half=top,open=true]`);
 }
+
+/** Place a bench (row of stairs) with optional storage underneath */
+export function bench(
+  grid: BlockGrid, x: number, y: number, z: number,
+  length: number, style: StylePalette,
+  facing: 'north' | 'south' | 'east' | 'west' = 'south',
+  direction: 'x' | 'z' = 'x'
+): void {
+  const chair = facing === 'north' ? style.chairN :
+                facing === 'south' ? style.chairS :
+                facing === 'east' ? style.chairE : style.chairW;
+  for (let i = 0; i < length; i++) {
+    const bx = direction === 'x' ? x + i : x;
+    const bz = direction === 'z' ? z + i : z;
+    if (grid.inBounds(bx, y, bz)) grid.set(bx, y, bz, chair);
+  }
+}
+
+/** Place a display pedestal — base block with item on top */
+export function displayPedestal(
+  grid: BlockGrid, x: number, y: number, z: number,
+  baseBlock: string, displayItem: string
+): void {
+  grid.set(x, y, z, baseBlock);
+  grid.set(x, y + 1, z, displayItem);
+}
+
+/** Place a towel rack — fence post with banner as towel */
+export function towelRack(
+  grid: BlockGrid, x: number, y: number, z: number,
+  style: StylePalette
+): void {
+  grid.set(x, y, z, style.fence);
+  grid.set(x, y + 1, z, style.bannerN);
+}
