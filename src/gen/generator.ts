@@ -625,9 +625,13 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
 function generateHouse(
   floors: number, style: StylePalette, rooms: RoomType[] | undefined,
   bwOpt: number | undefined, blOpt: number | undefined, rng: () => number,
-  roofShape: RoofShape = 'gable', features?: FeatureFlags,
+  roofShapeOpt?: RoofShape, features?: FeatureFlags,
   planShape: FloorPlanShape = 'rect'
 ): BlockGrid {
+  // Use style's preferred roof shape when no explicit override
+  const roofShape: RoofShape = roofShapeOpt ?? style.defaultRoofShape;
+  // Use style's preferred roof height (overrides global ROOF_H constant)
+  const effectiveRoofH = style.roofHeight;
   const bw = bwOpt ?? 29;
   const bl = blOpt ?? 23;
   const margin = 3;
@@ -640,7 +644,7 @@ function generateHouse(
   const extraWest = (planShape === 'U') ? wingW : 0;
   const gw = bw + 2 * margin + extraEast + extraWest;
   const gl = bl + 2 * margin + porchDepth;
-  const gh = floors * STORY_H + ROOF_H;
+  const gh = floors * STORY_H + effectiveRoofH;
 
   // Shift main building right for U-shape to make room for west wing
   const bx1 = margin + extraWest;
@@ -736,12 +740,12 @@ function generateHouse(
   // ── Roof ───────────────────────────────────────────────────────────
   const roofBase = floors * STORY_H;
   switch (roofShape) {
-    case 'hip':     hipRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
-    case 'flat':    flatRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
-    case 'gambrel': gambrelRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
-    case 'mansard': mansardRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
+    case 'hip':     hipRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style); break;
+    case 'flat':    flatRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style); break;
+    case 'gambrel': gambrelRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style); break;
+    case 'mansard': mansardRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style); break;
     case 'gable':
-    default:        gabledRoof(grid, bx1, bz1, bx2, bz2, roofBase, ROOF_H, style); break;
+    default:        gabledRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style); break;
   }
 
   // ── L/T/U-shaped wing ──────────────────────────────────────────────
@@ -761,9 +765,17 @@ function generateHouse(
     grid.fill(wx1, STORY_H, wz1, wx2, STORY_H, wz2, style.ceiling);
     wallTorches(grid, wx1, wz1, wx2, wz2, 3, style);
 
-    // Roof over wing
+    // Roof over wing — uses style's preferred shape
     const wingRoofBase = STORY_H;
-    gabledRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, ROOF_H, style);
+    const wingRoofH = effectiveRoofH;
+    switch (roofShape) {
+      case 'hip':     hipRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, wingRoofH, style); break;
+      case 'flat':    flatRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, wingRoofH, style); break;
+      case 'gambrel': gambrelRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, wingRoofH, style); break;
+      case 'mansard': mansardRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, wingRoofH, style); break;
+      case 'gable':
+      default:        gabledRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, wingRoofH, style); break;
+    }
 
     // Connecting doorway between main body and wing
     const connectZ = Math.max(bz1 + 1, Math.min(wz1 + Math.floor(wingL / 2), bz2 - 1));
@@ -788,7 +800,15 @@ function generateHouse(
         exteriorWalls(grid, wx1b, 1, wz1, wx2b, STORY_H - 1, wz2, style);
         windows(grid, wx1b, wz1, wx2b, wz2, 3, 4, style);
         grid.fill(wx1b, STORY_H, wz1, wx2b, STORY_H, wz2, style.ceiling);
-        gabledRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, ROOF_H, style);
+        // U-shape west wing roof — same shape as main
+        switch (roofShape) {
+          case 'hip':     hipRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, wingRoofH, style); break;
+          case 'flat':    flatRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, wingRoofH, style); break;
+          case 'gambrel': gambrelRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, wingRoofH, style); break;
+          case 'mansard': mansardRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, wingRoofH, style); break;
+          case 'gable':
+          default:        gabledRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, wingRoofH, style); break;
+        }
         doorway(grid, bx1, 1, connectZ - 1, bx1, 3, connectZ + 1);
         const wing2Bounds: RoomBounds = {
           x1: wx1b + 1, y: 1, z1: wz1 + 1, x2: wx2b - 1, z2: wz2 - 1, height: STORY_H - 1,
@@ -814,7 +834,7 @@ function generateHouse(
   // Chimney (skip for flat roofs — no peak to rise through)
   if (f.chimney && roofShape !== 'flat') {
     const chimX = Math.floor((bx1 + 1 + xMid - 1) / 2);
-    const chimTop = roofBase + ROOF_H - 2;
+    const chimTop = roofBase + effectiveRoofH - 2;
     chimney(grid, chimX, bz1, STORY_H, chimTop);
   }
 
@@ -1055,7 +1075,7 @@ function generateHouse(
         grid.set(bx2 + 1, banY, zMid, 'minecraft:red_wall_banner[facing=east]');
     }
     // Prominent chimney — taller, with stone brick cap
-    const chimBaseY = roofBase + ROOF_H - 3;
+    const chimBaseY = roofBase + effectiveRoofH - 3;
     const chimX2 = bx1 + 3;
     for (let y = chimBaseY; y <= chimBaseY + 4; y++) {
       if (grid.inBounds(chimX2, y, bz1 + 2))

@@ -4,7 +4,7 @@
  * timber, accents, lighting, and carpets.
  */
 
-import type { StyleName, BlockState } from '../types/index.js';
+import type { StyleName, BlockState, RoofShape } from '../types/index.js';
 
 /** Material palette for a building style */
 export interface StylePalette {
@@ -30,6 +30,10 @@ export interface StylePalette {
   roofS: BlockState;
   /** Roof ridge cap */
   roofCap: BlockState;
+  /** Default roof shape for this style */
+  defaultRoofShape: RoofShape;
+  /** Preferred roof height in blocks (controls pitch steepness) */
+  roofHeight: number;
   /** Foundation material */
   foundation: BlockState;
   /** Window material */
@@ -105,6 +109,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofN: 'minecraft:dark_oak_stairs[facing=north]',
     roofS: 'minecraft:dark_oak_stairs[facing=south]',
     roofCap: 'minecraft:dark_oak_slab[type=bottom]',
+    defaultRoofShape: 'gambrel',
+    roofHeight: 10,
     foundation: 'minecraft:stone_bricks',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:purple_stained_glass_pane',
@@ -155,6 +161,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofN: 'minecraft:cobblestone_stairs[facing=north]',
     roofS: 'minecraft:cobblestone_stairs[facing=south]',
     roofCap: 'minecraft:cobblestone_slab[type=bottom]',
+    defaultRoofShape: 'gable',
+    roofHeight: 10,
     foundation: 'minecraft:cobblestone',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:glass_pane',
@@ -205,6 +213,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofN: 'minecraft:smooth_quartz_stairs[facing=north]',
     roofS: 'minecraft:smooth_quartz_stairs[facing=south]',
     roofCap: 'minecraft:smooth_quartz_slab[type=bottom]',
+    defaultRoofShape: 'flat',
+    roofHeight: 4,
     foundation: 'minecraft:polished_andesite',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:light_blue_stained_glass_pane',
@@ -255,6 +265,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofN: 'minecraft:dark_oak_stairs[facing=north]',
     roofS: 'minecraft:dark_oak_stairs[facing=south]',
     roofCap: 'minecraft:dark_oak_slab[type=bottom]',
+    defaultRoofShape: 'mansard',
+    roofHeight: 12,
     foundation: 'minecraft:polished_blackstone_bricks',
     window: 'minecraft:gray_stained_glass_pane',
     windowAccent: 'minecraft:red_stained_glass_pane',
@@ -305,6 +317,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofN: 'minecraft:spruce_stairs[facing=north]',
     roofS: 'minecraft:spruce_stairs[facing=south]',
     roofCap: 'minecraft:spruce_slab[type=bottom]',
+    defaultRoofShape: 'gambrel',
+    roofHeight: 10,
     foundation: 'minecraft:cobblestone',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:glass_pane',
@@ -355,6 +369,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofN: 'minecraft:cut_copper_stairs[facing=north]',
     roofS: 'minecraft:cut_copper_stairs[facing=south]',
     roofCap: 'minecraft:cut_copper_slab[type=bottom]',
+    defaultRoofShape: 'mansard',
+    roofHeight: 10,
     foundation: 'minecraft:polished_deepslate',
     window: 'minecraft:tinted_glass',
     windowAccent: 'minecraft:orange_stained_glass_pane',
@@ -405,6 +421,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofN: 'minecraft:warped_stairs[facing=north]',
     roofS: 'minecraft:warped_stairs[facing=south]',
     roofCap: 'minecraft:warped_slab[type=bottom]',
+    defaultRoofShape: 'hip',
+    roofHeight: 8,
     foundation: 'minecraft:stone_bricks',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:green_stained_glass_pane',
@@ -455,6 +473,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofN: 'minecraft:sandstone_stairs[facing=north]',
     roofS: 'minecraft:sandstone_stairs[facing=south]',
     roofCap: 'minecraft:sandstone_slab[type=bottom]',
+    defaultRoofShape: 'flat',
+    roofHeight: 4,
     foundation: 'minecraft:sandstone',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:orange_stained_glass_pane',
@@ -505,6 +525,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofN: 'minecraft:dark_prismarine_stairs[facing=north]',
     roofS: 'minecraft:dark_prismarine_stairs[facing=south]',
     roofCap: 'minecraft:dark_prismarine_slab[type=bottom]',
+    defaultRoofShape: 'hip',
+    roofHeight: 8,
     foundation: 'minecraft:prismarine',
     window: 'minecraft:light_blue_stained_glass_pane',
     windowAccent: 'minecraft:blue_stained_glass_pane',
