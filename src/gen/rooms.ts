@@ -10,7 +10,8 @@ import {
   chandelier, tableAndChairs, longDiningTable, bookshelfWall,
   carpetArea, endRodPillar, fireplace, placeBed, sideTable,
   storageCorner, couchSet, rugWithBorder, wallShelf, armorDisplay,
-  telescope, plateSet, mapTable, lightFixture,
+  telescope, plateSet, mapTable, lightFixture, bench,
+  displayPedestal, towelRack,
 } from './furniture.js';
 
 /** Room generator function signature */
@@ -95,6 +96,14 @@ function generateLivingRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette)
   // Storage corner (opposite side from bookshelves)
   if (rw >= 8) storageCorner(grid, x2, y, z2, style, 'west');
 
+  // Extra center features for large living rooms
+  if (rw >= 10 && rl >= 8) {
+    // Second seating area on opposite side
+    couchSet(grid, cx - 2, y, z2 - 3, style, 'se');
+    // Reading nook side table
+    sideTable(grid, cx - 3, y, z2 - 3, style, style.plant3);
+  }
+
   // Wall shelf with decorations
   wallShelf(grid, x1 + 2, y + 2, z1, 'south', [style.plant1]);
   wallShelf(grid, x2 - 1, y + 2, z1, 'south', [style.plant2]);
@@ -144,6 +153,16 @@ function generateDiningRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette)
   grid.set(cx + 2, y + 3, z2, style.bannerN);
   if (rw >= 8) {
     grid.set(cx, y + 3, z1, style.bannerS);
+  }
+
+  // Center display cabinet for large dining rooms
+  if (rw >= 10) {
+    // Display cabinet on far side wall
+    for (let z = z1 + 2; z <= Math.min(z1 + 4, z2 - 2); z++) {
+      grid.set(x2, y, z, 'minecraft:bookshelf');
+      grid.set(x2, y + 1, z, 'minecraft:bookshelf');
+    }
+    grid.set(x2, y + 2, z1 + 2, style.plant2);
   }
 
   // Chandeliers (multiple for grand feel)
@@ -253,8 +272,20 @@ function generateFoyer(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
     armorDisplay(grid, x2 - 1, y, z1 + 1);
   }
 
+  // Center display table for grand foyers
+  const fCz = Math.floor((z1 + z2) / 2);
+  if (x2 - x1 >= 8 && z2 - z1 >= 6) {
+    // Center pedestal with flower arrangement
+    displayPedestal(grid, cx, y, fCz, style.pillar, style.plant1);
+    // Flanking candles
+    grid.set(cx - 1, y, fCz, style.fence);
+    grid.set(cx - 1, y + 1, fCz, style.candle);
+    grid.set(cx + 1, y, fCz, style.fence);
+    grid.set(cx + 1, y + 1, fCz, style.candle);
+  }
+
   // Chandelier
-  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
+  chandelier(grid, cx, y + height - 1, fCz, style, 2);
 }
 
 function generateBedroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -308,6 +339,18 @@ function generateBedroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   // Area rug with border
   rugWithBorder(grid, x1 + 1, y, z1 + 3, x2 - 1, z2 - 1, style.carpet, style.carpetAccent);
 
+  // Center anchors for larger bedrooms
+  const rl = z2 - z1;
+  if (rw >= 6 && rl >= 6) {
+    // Bench at foot of bed (facing out toward center)
+    bench(grid, x1 + 2, y, z1 + 3, Math.min(3, rw - 3), style, 'south');
+    // Reading chair + side table opposite bed
+    if (rw >= 8) {
+      grid.set(x2 - 1, y, Math.floor((z1 + z2) / 2), style.chairW);
+      sideTable(grid, x2, y, Math.floor((z1 + z2) / 2), style, style.plant3);
+    }
+  }
+
   // Chandelier
   chandelier(grid, Math.floor((x1 + x2) / 2), y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
 }
@@ -334,6 +377,21 @@ function generateBathroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): 
         grid.set(x, b.y - 1, z, 'minecraft:smooth_quartz');
       }
     }
+  }
+
+  // Center anchors for bathrooms with enough space
+  const bRw = x2 - x1;
+  const bRl = z2 - z1;
+  if (bRw >= 5 && bRl >= 5) {
+    const bcx = Math.floor((x1 + x2) / 2);
+    const bcz = Math.floor((z1 + z2) / 2);
+    // Bath mat (carpet area in center)
+    carpetArea(grid, bcx - 1, b.y, bcz, bcx + 1, bcz + 1, style.carpet);
+    // Towel rack between bathtub and sink
+    towelRack(grid, bcx, b.y, bcz - 1, style);
+  } else if (bRl >= 4) {
+    // Smaller bathroom: at least place a bath mat
+    carpetArea(grid, x1 + 1, b.y, z1 + 2, Math.min(x1 + 2, x2 - 1), z1 + 2, style.carpet);
   }
 
   // Lighting — two fixtures for even coverage
@@ -573,6 +631,18 @@ function generateArmory(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
   // Banners
   grid.set(cx, y + 3, z1, style.bannerS);
   grid.set(cx, y + 3, z2, style.bannerN);
+
+  // Center anchor features for larger armories
+  const aCz = Math.floor((z1 + z2) / 2);
+  if (rw >= 6) {
+    // Weapon display pedestal (center)
+    displayPedestal(grid, cx, y, aCz, style.pillar, 'minecraft:chain');
+    // Training post opposite (fence + target)
+    if (rw >= 8) {
+      grid.set(cx - 2, y, aCz, style.fence);
+      grid.set(cx - 2, y + 1, aCz, 'minecraft:target');
+    }
+  }
 
   // Carpet with border
   rugWithBorder(grid, x1 + 1, y, z1 + 2, x2 - 2, z2 - 2, style.carpet, style.carpetAccent);
@@ -948,11 +1018,21 @@ function generateCaptainsQuarters(grid: BlockGrid, b: RoomBounds, style: StylePa
   grid.set(x2, y, z2, 'minecraft:bookshelf');
   grid.set(x2, y + 1, z2, 'minecraft:bookshelf');
 
+  // Center anchor for larger captain's quarters — globe display
+  const cCz = Math.floor((z1 + z2) / 2);
+  if (rw >= 8 && z2 - z1 >= 6) {
+    // Navigation globe (end rod + amethyst = globe)
+    displayPedestal(grid, cx, y, cCz, style.pillar, 'minecraft:sea_lantern');
+    // Flanking chairs for meetings
+    grid.set(cx - 1, y, cCz + 1, style.chairN);
+    grid.set(cx + 1, y, cCz + 1, style.chairN);
+  }
+
   // Rug
   rugWithBorder(grid, x1 + 1, y, z1 + 3, x2 - 1, z2 - 1, style.carpet, style.carpetAccent);
 
   // Chandelier
-  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
+  chandelier(grid, cx, y + height - 1, cCz, style, 2);
 }
 
 function generateCell(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1188,8 +1268,25 @@ function generateAttic(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
   grid.set(cx, y, z1 + 1, style.chairS);
   sideTable(grid, cx + 1, y, z1 + 1, style, style.plant1);
 
-  // Single dim lantern (attic ambiance)
-  grid.set(cx, y, Math.floor((z1 + z2) / 2), style.lanternFloor);
+  // Center anchor for larger attics — old trunk + reading spot
+  const aCz = Math.floor((z1 + z2) / 2);
+  if (x2 - x1 >= 6 && z2 - z1 >= 6) {
+    // Old trunk (chest) as center piece
+    grid.addChest(cx, y, aCz, 'south', [
+      { slot: 0, id: 'minecraft:book', count: 8 },
+      { slot: 1, id: 'minecraft:map', count: 2 },
+      { slot: 2, id: 'minecraft:clock', count: 1 },
+    ]);
+    // Rocking chair equivalent (facing trunk)
+    grid.set(cx, y, aCz + 2, style.chairN);
+    // Small rug under reading area
+    carpetArea(grid, cx - 1, y, aCz + 1, cx + 1, aCz + 2, style.carpet);
+    // Lantern beside trunk
+    grid.set(cx + 1, y, aCz, style.lanternFloor);
+  } else {
+    // Single dim lantern (attic ambiance)
+    grid.set(cx, y, aCz, style.lanternFloor);
+  }
 }
 
 function generateBasement(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1228,6 +1325,20 @@ function generateBasement(grid: BlockGrid, b: RoomBounds, style: StylePalette): 
   grid.set(cx, y - 1, Math.floor((z1 + z2) / 2), 'minecraft:cracked_stone_bricks');
   grid.set(cx + 1, y - 1, Math.floor((z1 + z2) / 2) + 1, 'minecraft:cracked_stone_bricks');
   grid.set(cx - 1, y - 1, z2 - 1, 'minecraft:cracked_stone_bricks');
+
+  // Center anchor for larger basements — workbench area
+  const bCz = Math.floor((z1 + z2) / 2);
+  if (x2 - x1 >= 6 && z2 - z1 >= 5) {
+    // Center work table
+    grid.set(cx, y, bCz, 'minecraft:crafting_table');
+    grid.set(cx - 1, y, bCz, style.chairE);
+    // Lantern on table
+    grid.set(cx, y + 1, bCz, style.lanternFloor);
+    // Small carpet to define workspace
+    carpetArea(grid, cx - 1, y, bCz - 1, cx + 1, bCz + 1, style.carpet);
+    // Re-place crafting table over carpet
+    grid.set(cx, y, bCz, 'minecraft:crafting_table');
+  }
 
   // Single torch for dim lighting
   grid.set(cx, y + 2, z1, style.torchS);
