@@ -77,7 +77,7 @@ function generateLivingRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette)
   grid.set(cx - 1, y, z1 + 2, style.fence);
   grid.set(cx, y + 1, z1 + 2, style.carpet);
   grid.set(cx - 1, y + 1, z1 + 2, style.carpet);
-  grid.set(cx, y + 2, z1 + 2, 'minecraft:candle[candles=1,lit=true]');
+  grid.set(cx, y + 2, z1 + 2, style.candle);
 
   // Area rug with border under seating
   if (rw >= 6 && rl >= 6) {
@@ -90,19 +90,19 @@ function generateLivingRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette)
   bookshelfWall(grid, x1, y, z2, Math.min(x1 + 4, x2), 3);
 
   // Side table with lamp near couch
-  sideTable(grid, x2, y, z1 + 3, style, 'minecraft:candle[candles=3,lit=true]');
+  sideTable(grid, x2, y, z1 + 3, style, style.candle);
 
   // Storage corner (opposite side from bookshelves)
   if (rw >= 8) storageCorner(grid, x2, y, z2, style, 'west');
 
   // Wall shelf with decorations
-  wallShelf(grid, x1 + 2, y + 2, z1, 'south', ['minecraft:potted_fern']);
-  wallShelf(grid, x2 - 1, y + 2, z1, 'south', ['minecraft:potted_allium']);
+  wallShelf(grid, x1 + 2, y + 2, z1, 'south', [style.plant1]);
+  wallShelf(grid, x2 - 1, y + 2, z1, 'south', [style.plant2]);
 
   // Flower pots in corners
-  grid.set(x1, y, z1, 'minecraft:potted_fern');
-  grid.set(x2, y, z1, 'minecraft:potted_allium');
-  grid.set(x1, y, z2, 'minecraft:potted_blue_orchid');
+  grid.set(x1, y, z1, style.plant1);
+  grid.set(x2, y, z1, style.plant2);
+  grid.set(x1, y, z2, style.plant3);
 
   // Banners
   grid.set(x1 + 2, y + 3, z1, style.bannerS);
@@ -126,11 +126,11 @@ function generateDiningRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette)
 
   // Sideboard / buffet along side wall
   for (let z = z1; z <= z1 + 3 && z < z2; z++) {
-    grid.set(x1, y, z, 'minecraft:polished_andesite');
-    grid.set(x1, y + 1, z, 'minecraft:smooth_stone_slab[type=bottom]');
+    grid.set(x1, y, z, style.counterBlock);
+    grid.set(x1, y + 1, z, style.counterSlab);
   }
-  grid.set(x1, y + 2, z1, 'minecraft:candle[candles=3,lit=true]');
-  grid.set(x1, y + 2, z1 + 2, 'minecraft:potted_red_tulip');
+  grid.set(x1, y + 2, z1, style.candle);
+  grid.set(x1, y + 2, z1 + 2, style.plant3);
 
   // Wine storage (barrels) on opposite wall
   grid.addBarrel(x2, y, z1, 'up', [
@@ -161,8 +161,8 @@ function generateKitchen(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
 
   // Full counter along back wall
   for (let x = x1; x <= x2; x++) {
-    grid.set(x, y, z2, 'minecraft:polished_andesite');
-    grid.set(x, y + 1, z2, 'minecraft:smooth_stone_slab[type=bottom]');
+    grid.set(x, y, z2, style.counterBlock);
+    grid.set(x, y + 1, z2, style.counterSlab);
   }
   // Cooking stations
   grid.set(x1, y, z2, 'minecraft:furnace[facing=north,lit=false]');
@@ -175,8 +175,8 @@ function generateKitchen(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
 
   // Counter along side wall
   for (let z = z1; z <= z1 + 3 && z < z2; z++) {
-    grid.set(x2, y, z, 'minecraft:polished_andesite');
-    grid.set(x2, y + 1, z, 'minecraft:smooth_stone_slab[type=bottom]');
+    grid.set(x2, y, z, style.counterBlock);
+    grid.set(x2, y + 1, z, style.counterSlab);
   }
   // Hanging pots above counter (use chains and iron trapdoors)
   grid.set(x1, y + 3, z2, 'minecraft:chain');
@@ -200,13 +200,13 @@ function generateKitchen(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   grid.addBarrel(x1 + 1, y + 1, z1, 'up', []);
 
   // Flower pot on counter
-  if (rw >= 6) grid.set(cx, y + 2, z2, 'minecraft:potted_red_tulip');
+  if (rw >= 6) grid.set(cx, y + 2, z2, style.plant3);
 
   // Checkerboard accent floor
   for (let x = x1 + 2; x <= x2 - 2; x++) {
     for (let z = z1 + 2; z <= z2 - 2; z++) {
       if ((x + z) % 2 === 0) {
-        grid.set(x, y - 1, z, 'minecraft:polished_andesite');
+        grid.set(x, y - 1, z, style.counterBlock);
       }
     }
   }
@@ -237,10 +237,10 @@ function generateFoyer(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
   grid.set(cx, y, z1 + 1, 'minecraft:bell[attachment=floor,facing=north]');
 
   // Console tables on both sides
-  sideTable(grid, x2 - 1, y, z1 + 3, style, 'minecraft:candle[candles=3,lit=true]');
-  sideTable(grid, x1 + 1, y, z1 + 3, style, 'minecraft:potted_red_tulip');
-  sideTable(grid, x2 - 1, y, z2 - 2, style, 'minecraft:potted_azure_bluet');
-  sideTable(grid, x1 + 1, y, z2 - 2, style, 'minecraft:potted_lily_of_the_valley');
+  sideTable(grid, x2 - 1, y, z1 + 3, style, style.candle);
+  sideTable(grid, x1 + 1, y, z1 + 3, style, style.plant1);
+  sideTable(grid, x2 - 1, y, z2 - 2, style, style.plant2);
+  sideTable(grid, x1 + 1, y, z2 - 2, style, style.plant3);
 
   // Wall banners (both sides)
   grid.set(x1 + 2, y + 3, z1, style.bannerS);
@@ -262,7 +262,7 @@ function generateBedroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   const rw = x2 - x1;
 
   // Bed against wall with headboard
-  placeBed(grid, x1 + 3, y, z1 + 1, 'south');
+  placeBed(grid, x1 + 3, y, z1 + 1, 'south', style.bedColor);
   // Headboard wall decoration
   grid.set(x1 + 3, y + 2, z1, style.bannerS);
 
@@ -271,15 +271,15 @@ function generateBedroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
     { slot: 0, id: 'minecraft:book', count: 1 },
     { slot: 1, id: 'minecraft:clock', count: 1 },
   ]);
-  grid.set(x1 + 2, y + 1, z1 + 1, 'minecraft:candle[candles=1,lit=true]');
+  grid.set(x1 + 2, y + 1, z1 + 1, style.candle);
   if (rw >= 6) {
     grid.addBarrel(x1 + 4, y, z1 + 1, 'up', []);
-    grid.set(x1 + 4, y + 1, z1 + 1, 'minecraft:potted_azure_bluet');
+    grid.set(x1 + 4, y + 1, z1 + 1, style.plant2);
   }
 
   // Second bed if room is wide enough
   if (rw >= 10) {
-    placeBed(grid, x2 - 3, y, z1 + 1, 'south');
+    placeBed(grid, x2 - 3, y, z1 + 1, 'south', style.bedColor);
     grid.set(x2 - 3, y + 2, z1, style.bannerS);
   }
 
@@ -296,17 +296,17 @@ function generateBedroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
 
   // Vanity / desk area
   grid.set(x2, y, z1, 'minecraft:crafting_table');
-  grid.set(x2, y + 1, z1, 'minecraft:potted_azure_bluet');
+  grid.set(x2, y + 1, z1, style.plant2);
   grid.set(x2 - 1, y, z1, style.chairW);
   // Mirror above vanity
-  grid.set(x2, y + 2, z1, 'minecraft:glass_pane');
+  grid.set(x2, y + 2, z1, style.window);
 
   // Bookshelf accent
   grid.set(x2, y, z2, 'minecraft:bookshelf');
   grid.set(x2, y + 1, z2, 'minecraft:bookshelf');
 
   // Area rug with border
-  rugWithBorder(grid, x1 + 1, y, z1 + 3, x2 - 1, z2 - 1, 'minecraft:blue_carpet', 'minecraft:light_blue_carpet');
+  rugWithBorder(grid, x1 + 1, y, z1 + 3, x2 - 1, z2 - 1, style.carpet, style.carpetAccent);
 
   // Chandelier
   chandelier(grid, Math.floor((x1 + x2) / 2), y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
@@ -341,7 +341,7 @@ function generateBathroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): 
   lightFixture(grid, x2, y + height - 1, z2, 1, 'lantern');
 
   // Potted plant in corner
-  grid.set(x2, y, z2, 'minecraft:potted_fern');
+  grid.set(x2, y, z2, style.plant1);
 }
 
 function generateStudy(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -367,7 +367,7 @@ function generateStudy(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
   // Desk area along back wall
   grid.set(x1, y, z1, 'minecraft:crafting_table');
   grid.set(x1 + 1, y, z1, 'minecraft:cartography_table');
-  grid.set(x1, y + 1, z1, 'minecraft:candle[candles=3,lit=true]');
+  grid.set(x1, y + 1, z1, style.candle);
   grid.set(x1 + 2, y, z1, style.chairS);
 
   // Brewing corner with storage
@@ -388,7 +388,7 @@ function generateStudy(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
   endRodPillar(grid, cx + 2, y, cz + 2, 3);
 
   // Carpet with border
-  rugWithBorder(grid, cx - 1, y, cz - 1, cx + 1, cz + 1, 'minecraft:purple_carpet', 'minecraft:magenta_carpet');
+  rugWithBorder(grid, cx - 1, y, cz - 1, cx + 1, cz + 1, style.carpet, style.carpetAccent);
 
   // Wall banner
   grid.set(cx, y + 3, z1, style.bannerS);
@@ -575,10 +575,10 @@ function generateArmory(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
   grid.set(cx, y + 3, z2, style.bannerN);
 
   // Carpet with border
-  rugWithBorder(grid, x1 + 1, y, z1 + 2, x2 - 2, z2 - 2, 'minecraft:black_carpet', 'minecraft:red_carpet');
+  rugWithBorder(grid, x1 + 1, y, z1 + 2, x2 - 2, z2 - 2, style.carpet, style.carpetAccent);
 
   // Potted plant near entrance
-  grid.set(x1 + 1, y, z1, 'minecraft:potted_fern');
+  grid.set(x1 + 1, y, z1, style.plant1);
 
   // Chandelier + secondary light
   chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
@@ -628,7 +628,7 @@ function generateObservatory(grid: BlockGrid, b: RoomBounds, style: StylePalette
 
   // Wall banner and shelf for decoration
   grid.set(cx, y + 3, z1, style.bannerS);
-  wallShelf(grid, x2 - 1, y + 2, z2, 'north', ['minecraft:potted_allium']);
+  wallShelf(grid, x2 - 1, y + 2, z2, 'north', [style.plant2]);
 }
 
 function generateLab(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -652,8 +652,8 @@ function generateLab(grid: BlockGrid, b: RoomBounds, style: StylePalette): void 
 
   // Experiment table (center)
   grid.set(cx, y, cz, style.fence);
-  grid.set(cx, y + 1, cz, 'minecraft:white_carpet');
-  grid.set(cx, y + 2, cz, 'minecraft:candle[candles=1,lit=true]');
+  grid.set(cx, y + 1, cz, style.tableSurface);
+  grid.set(cx, y + 2, cz, style.candle);
 
   // Cauldron array
   grid.set(x1, y, z2, 'minecraft:water_cauldron[level=3]');
@@ -678,11 +678,11 @@ function generateLab(grid: BlockGrid, b: RoomBounds, style: StylePalette): void 
   endRodPillar(grid, x1 + 2, y, z1 + 2, 3);
   endRodPillar(grid, x2 - 2, y, z2 - 2, 3);
 
-  // Purple carpet accent
-  carpetArea(grid, cx - 1, y, cz - 1, cx + 1, cz + 1, 'minecraft:purple_carpet');
+  // Carpet accent
+  carpetArea(grid, cx - 1, y, cz - 1, cx + 1, cz + 1, style.carpet);
 
   // Potted plant in open corner
-  grid.set(x1, y, z1 + 2, 'minecraft:potted_warped_fungus');
+  grid.set(x1, y, z1 + 2, style.plant3);
 
   // Extra light near workbench
   lightFixture(grid, x1 + 1, y + height - 1, z1 + 1, 1, 'lantern');
@@ -714,12 +714,12 @@ function generateGallery(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
 
   // Display pedestals
   grid.set(cx - 3, y, cz + 2, 'minecraft:quartz_block');
-  grid.set(cx - 3, y + 1, cz + 2, 'minecraft:potted_crimson_fungus');
+  grid.set(cx - 3, y + 1, cz + 2, style.plant1);
   grid.set(cx + 3, y, cz + 2, 'minecraft:quartz_block');
   grid.set(cx + 3, y + 1, cz + 2, 'minecraft:amethyst_cluster[facing=up]');
 
   // Carpet
-  carpetArea(grid, x1 + 1, y, z1 + 2, x2 - 1, z2 - 1, 'minecraft:cyan_carpet');
+  carpetArea(grid, x1 + 1, y, z1 + 2, x2 - 1, z2 - 1, style.carpet);
 
   // Soul lanterns
   chandelier(grid, cx - 3, y + height - 1, cz, { ...style, lantern: 'minecraft:soul_lantern[hanging=true]' }, 1);
@@ -913,7 +913,7 @@ function generateCaptainsQuarters(grid: BlockGrid, b: RoomBounds, style: StylePa
   const rw = x2 - x1;
 
   // Captain's bed against back wall
-  placeBed(grid, x1 + 2, y, z1 + 1, 'south', 'red');
+  placeBed(grid, x1 + 2, y, z1 + 1, 'south', style.bedColor);
   grid.set(x1 + 2, y + 2, z1, style.bannerS);
 
   // Nightstand
@@ -921,7 +921,7 @@ function generateCaptainsQuarters(grid: BlockGrid, b: RoomBounds, style: StylePa
     { slot: 0, id: 'minecraft:compass', count: 1 },
     { slot: 1, id: 'minecraft:clock', count: 1 },
   ]);
-  grid.set(x1 + 1, y + 1, z1 + 1, 'minecraft:candle[candles=1,lit=true]');
+  grid.set(x1 + 1, y + 1, z1 + 1, style.candle);
 
   // Navigation desk with maps
   mapTable(grid, x2, y, z1, style);
@@ -949,7 +949,7 @@ function generateCaptainsQuarters(grid: BlockGrid, b: RoomBounds, style: StylePa
   grid.set(x2, y + 1, z2, 'minecraft:bookshelf');
 
   // Rug
-  rugWithBorder(grid, x1 + 1, y, z1 + 3, x2 - 1, z2 - 1, 'minecraft:red_carpet', 'minecraft:yellow_carpet');
+  rugWithBorder(grid, x1 + 1, y, z1 + 3, x2 - 1, z2 - 1, style.carpet, style.carpetAccent);
 
   // Chandelier
   chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
@@ -970,7 +970,7 @@ function generateCell(grid: BlockGrid, b: RoomBounds, style: StylePalette): void
   grid.set(cx, y + 1, z1, 'minecraft:air');
 
   // Single cot against wall
-  placeBed(grid, x1 + 1, y, z2 - 1, 'north', 'cyan');
+  placeBed(grid, x1 + 1, y, z2 - 1, 'north', style.bedColor);
 
   // Bone block atmosphere
   grid.set(x2, y, z2, 'minecraft:bone_block');
@@ -1134,7 +1134,7 @@ function generateBelfry(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
 
   // Maintenance workbench in one corner
   grid.set(x1 + 1, y, z2 - 2, 'minecraft:crafting_table');
-  grid.set(x1 + 1, y + 1, z2 - 2, 'minecraft:candle[candles=1,lit=true]');
+  grid.set(x1 + 1, y + 1, z2 - 2, style.candle);
 
   // Storage barrel for bell rope/supplies
   grid.addBarrel(x2 - 1, y, z2 - 2, 'up', [
@@ -1186,7 +1186,7 @@ function generateAttic(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
 
   // Old furniture — a chair and side table
   grid.set(cx, y, z1 + 1, style.chairS);
-  sideTable(grid, cx + 1, y, z1 + 1, style, 'minecraft:potted_dead_bush');
+  sideTable(grid, cx + 1, y, z1 + 1, style, style.plant1);
 
   // Single dim lantern (attic ambiance)
   grid.set(cx, y, Math.floor((z1 + z2) / 2), style.lanternFloor);
@@ -1256,11 +1256,7 @@ function generateSunroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   }
 
   // Potted plants along the glass walls
-  const plants = [
-    'minecraft:potted_fern', 'minecraft:potted_blue_orchid',
-    'minecraft:potted_allium', 'minecraft:potted_lily_of_the_valley',
-    'minecraft:potted_red_tulip', 'minecraft:potted_azure_bluet',
-  ];
+  const plants = [style.plant1, style.plant2, style.plant3];
   let pi = 0;
   for (let z = z1 + 1; z <= z2 - 1; z += 2) {
     grid.set(x2 - 1, y, z, plants[pi % plants.length]);
@@ -1275,12 +1271,12 @@ function generateSunroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   couchSet(grid, x1 + 1, y, z1 + 2, style, 'nw');
 
   // Side table with candle
-  sideTable(grid, x1 + 1, y, z1 + 1, style, 'minecraft:candle[candles=1,lit=true]');
+  sideTable(grid, x1 + 1, y, z1 + 1, style, style.candle);
 
   // Small reading table
   grid.set(cx, y, cz, style.fence);
   grid.set(cx, y + 1, cz, style.carpet);
-  grid.set(cx, y + 2, cz, 'minecraft:potted_oxeye_daisy');
+  grid.set(cx, y + 2, cz, style.plant3);
   grid.set(cx - 1, y, cz, style.chairE);
 
   // Bright lantern lights
@@ -1333,13 +1329,13 @@ function generateCloset(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
   }
 
   // Shoe shelf (slab as low shelf) along front wall
-  grid.set(cx, y, z1, 'minecraft:smooth_stone_slab[type=bottom]');
+  grid.set(cx, y, z1, style.counterSlab);
   if (grid.inBounds(cx + 1, y, z1)) {
-    grid.set(cx + 1, y, z1, 'minecraft:smooth_stone_slab[type=bottom]');
+    grid.set(cx + 1, y, z1, style.counterSlab);
   }
 
   // Wall hook shelves for accessories
-  wallShelf(grid, x1, y + 2, z2, 'north', ['minecraft:potted_azure_bluet']);
+  wallShelf(grid, x1, y + 2, z2, 'north', [style.plant2]);
   if (x2 - x1 >= 4) {
     wallShelf(grid, x2, y + 2, z2, 'north', ['minecraft:chain']);
   }
@@ -1349,7 +1345,7 @@ function generateCloset(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
 
   // Candle on shelf for warmth
   if (height >= 4) {
-    grid.set(x2, y + height - 2, z1, 'minecraft:candle[candles=1,lit=true]');
+    grid.set(x2, y + height - 2, z1, style.candle);
   }
 }
 
@@ -1405,7 +1401,7 @@ function generateLaundry(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
 
   // Folding table with iron for pressing
   grid.set(cx, y, z1 + 1, style.fence);
-  grid.set(cx, y + 1, z1 + 1, 'minecraft:white_carpet');
+  grid.set(cx, y + 1, z1 + 1, style.tableSurface);
   grid.set(cx, y + 2, z1 + 1, 'minecraft:heavy_weighted_pressure_plate');
 
   // Drying rack — fence posts with carpet as draped fabric
@@ -1463,8 +1459,8 @@ function generatePantry(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
 
   // Center prep table for food sorting
   grid.set(cx, y, cz, style.fence);
-  grid.set(cx, y + 1, cz, 'minecraft:smooth_stone_slab[type=bottom]');
-  grid.set(cx, y + 2, cz, 'minecraft:candle[candles=1,lit=true]');
+  grid.set(cx, y + 1, cz, style.counterSlab);
+  grid.set(cx, y + 2, cz, style.candle);
 
   // Ice blocks for cold storage in back corner
   grid.set(x2 - 1, y, z2, 'minecraft:packed_ice');
@@ -1484,14 +1480,14 @@ function generatePantry(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
   }
 
   // Potted herbs near entrance
-  grid.set(cx + 1, y, z1, 'minecraft:potted_fern');
+  grid.set(cx + 1, y, z1, style.plant1);
   if (rw >= 5) {
-    grid.set(cx - 1, y, z1, 'minecraft:potted_azure_bluet');
+    grid.set(cx - 1, y, z1, style.plant2);
   }
 
   // Floor lantern + wall shelf
   grid.set(cx, y, cz + 1, style.lanternFloor);
-  wallShelf(grid, cx, y + 2, z2, 'north', ['minecraft:potted_dead_bush']);
+  wallShelf(grid, cx, y + 2, z2, 'north', [style.plant3]);
 }
 
 function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1502,11 +1498,11 @@ function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   grid.fill(x1, y - 1, z1, x2, y - 1, z2, 'minecraft:cobblestone');
 
   // Boot mat carpet near entrance (front wall)
-  carpetArea(grid, x1 + 1, y, z1, x2 - 1, z1 + 1, 'minecraft:brown_carpet');
+  carpetArea(grid, x1 + 1, y, z1, x2 - 1, z1 + 1, style.carpet);
 
   // Carpet runner through center
   for (let z = z1 + 2; z <= z2 - 1; z++) {
-    grid.set(cx, y, z, 'minecraft:brown_carpet');
+    grid.set(cx, y, z, style.carpet);
   }
 
   // Armor stands as coat hooks along side wall
@@ -1519,8 +1515,8 @@ function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   storageCorner(grid, x2, y, z2, style, 'west');
 
   // Umbrella stand (flower pot) and key hooks
-  grid.set(x2, y, z1 + 2, 'minecraft:potted_bamboo');
-  wallShelf(grid, cx, y + 2, z1, 'south', ['minecraft:potted_dead_bush']);
+  grid.set(x2, y, z1 + 2, style.plant1);
+  wallShelf(grid, cx, y + 2, z1, 'south', [style.plant3]);
   wallShelf(grid, x1 + 1, y + 2, z1, 'south', ['minecraft:chain']);
 
   // Mirror by entrance
@@ -1535,11 +1531,11 @@ function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   }
 
   // Side table with candle near back
-  sideTable(grid, x1 + 1, y, z2 - 1, style, 'minecraft:candle[candles=1,lit=true]');
+  sideTable(grid, x1 + 1, y, z2 - 1, style, style.candle);
 
   // Shoe shelf (slabs along back wall)
-  grid.set(cx, y, z2, 'minecraft:smooth_stone_slab[type=bottom]');
-  grid.set(cx + 1, y, z2, 'minecraft:smooth_stone_slab[type=bottom]');
+  grid.set(cx, y, z2, style.counterSlab);
+  grid.set(cx + 1, y, z2, style.counterSlab);
 
   // Two lanterns for better coverage
   chandelier(grid, cx, y + height - 1, z1 + 2, style, 1);
