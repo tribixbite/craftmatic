@@ -264,7 +264,7 @@ export function inferClimateZone(state: string | undefined): 'cold' | 'hot' | 't
  * @param sqft Total square footage (all floors combined, from Parcl)
  * @param footprintWidthM OSM footprint width in meters
  * @param footprintLengthM OSM footprint length in meters
- * @returns Estimated story count, clamped to [1, 8]
+ * @returns Estimated story count, clamped to [1, 100]
  */
 export function estimateStoriesFromFootprint(
   sqft: number,
@@ -275,7 +275,7 @@ export function estimateStoriesFromFootprint(
   if (footprintSqm <= 0) return 2; // fallback
   const totalSqm = sqft / 10.76; // sqft to sqm
   const rawFloors = totalSqm / footprintSqm;
-  return Math.max(1, Math.min(8, Math.round(rawFloors)));
+  return Math.max(1, Math.min(100, Math.round(rawFloors)));
 }
 
 // ─── Roof Mapping ───────────────────────────────────────────────────────────

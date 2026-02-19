@@ -807,8 +807,9 @@ describe('estimateStoriesFromFootprint', () => {
     expect(estimateStoriesFromFootprint(2000, 0, 0)).toBe(2);
   });
 
-  it('clamps at 8 maximum', () => {
-    expect(estimateStoriesFromFootprint(50000, 5, 5)).toBe(8);
+  it('clamps at 100 maximum', () => {
+    // 50000 sqft / (5*5 sqm * 10.76) = ~186 → clamped to 100
+    expect(estimateStoriesFromFootprint(50000, 5, 5)).toBe(100);
   });
 
   it('clamps at 1 minimum', () => {
