@@ -106,8 +106,14 @@ export interface PropertyData {
   county?: string;
   /** State abbreviation (from Parcl Labs) — used for climate-aware features */
   stateAbbreviation?: string;
+  /** City name (from Parcl Labs) — used for city-level style hints and display */
+  city?: string;
+  /** ZIP code (from Parcl Labs) — used for density inference and display */
+  zipCode?: string;
   /** Owner-occupied flag (from Parcl Labs) — modifies feature density */
   ownerOccupied?: boolean;
+  /** Currently on market (from Parcl Labs) — on-market homes generate neater/staged */
+  onMarket?: boolean;
   /** Parcl property ID — contributes to deterministic seed */
   parclPropertyId?: number;
 }
@@ -205,6 +211,49 @@ function inferStyleFromCounty(county: string | undefined, year: number): StyleNa
   // Prairie/Rustic — Midwest
   if (/\bhennepin|ramsey|dane|milwaukee/.test(c) && year < 1950) return 'rustic';
   return undefined;
+}
+
+/**
+ * Infer architectural style from city name for pre-1980 homes.
+ * More specific than county — targets cities with extremely distinctive architecture.
+ * Returns undefined for unknown cities (falls through to county > year-based).
+ */
+function inferStyleFromCity(city: string | undefined, year: number): StyleName | undefined {
+  if (!city || year >= 1980) return undefined;
+  const c = city.toLowerCase().trim();
+  // Santa Fe — adobe/pueblo style
+  if (/^santa\s*fe$/i.test(c)) return 'desert';
+  // New Orleans — French/Creole ironwork (maps to gothic for ornamental detail)
+  if (/^new\s*orleans$/i.test(c) && year < 1940) return 'gothic';
+  // Savannah — antebellum/colonial
+  if (/^savannah$/i.test(c) && year < 1900) return 'fantasy';
+  // Charleston — Georgian/Federal
+  if (/^charleston$/i.test(c) && year < 1900) return 'fantasy';
+  // Key West — Caribbean/tropical timber
+  if (/^key\s*west$/i.test(c)) return 'rustic';
+  // Portland/Seattle — craftsman prevalence
+  if (/^portland|^seattle$/i.test(c) && year < 1950) return 'rustic';
+  return undefined;
+}
+
+/**
+ * Infer neighborhood density from ZIP code.
+ * Urban core ZIP codes (low ranges, dense areas) get smaller lots and less yard.
+ * Returns 'urban' | 'suburban' | 'rural' — used for feature flag tuning.
+ */
+function inferDensityFromZip(zip: string | undefined): 'urban' | 'suburban' | 'rural' {
+  if (!zip || zip.length !== 5) return 'suburban';
+  // First 3 digits = sectional center facility (SCF) — rough density proxy
+  const scf = parseInt(zip.substring(0, 3));
+  if (isNaN(scf)) return 'suburban';
+  // Dense urban cores: Manhattan (100-102), Chicago loop (606), SF (941), Boston (021)
+  // These ZIP prefixes correlate with walkable, high-density neighborhoods
+  const URBAN_SCFS = [100, 101, 102, 103, 104, 111, 112, 606, 941, 21, 22, 200, 201, 900, 901];
+  if (URBAN_SCFS.includes(scf)) return 'urban';
+  // Very low population density indicators — rural western states
+  const RURAL_SCFS = [590, 591, 592, 593, 820, 821, 822, 823, 824, 830, 831, 832, 833, 838, 840];
+  if (RURAL_SCFS.includes(scf)) return 'rural';
+  return 'suburban';
 }
 
 /**
@@ -403,24 +452,27 @@ function inferFeatures(prop: PropertyData): FeatureFlags {
   const sqft = prop.sqft;
   const year = prop.yearBuilt;
   const climate = inferClimateZone(prop.stateAbbreviation);
+  const density = inferDensityFromZip(prop.zipCode);
   // Owner-occupied homes tend to have more residential features (gardens, porches)
   const residential = prop.ownerOccupied !== false; // Default to true if unknown
+  // On-market homes are staged/maintained — boost garden and landscaping
+  const staged = prop.onMarket === true;
 
   return {
     // Chimney: common in older houses, cold climates boost likelihood
     chimney: (year < 1990 || sqft > 3000) && climate !== 'hot',
-    // Porch: most owner-occupied homes have covered entrance
-    porch: residential,
-    // Backyard: needs lot size > 4000 sqft (or assume true if no lot data)
-    backyard: lotSize === 0 || lotSize > 4000,
-    // Driveway: most suburban houses
-    driveway: true,
+    // Porch: most owner-occupied homes; urban condos less likely
+    porch: residential && density !== 'urban',
+    // Backyard: needs lot size > 4000 sqft (or assume true if no lot data); urban skips
+    backyard: density !== 'urban' && (lotSize === 0 || lotSize > 4000),
+    // Driveway: suburban/rural — urban properties typically don't have driveways
+    driveway: density !== 'urban',
     // Fence: larger properties or older neighborhoods
     fence: lotSize > 3000 || sqft > 2500,
-    // Trees: suburban lots with space
-    trees: lotSize === 0 || lotSize > 3000,
-    // Garden: owner-occupied homes on larger lots or older houses
-    garden: residential && (lotSize > 5000 || (year < 1960 && sqft > 2000)),
+    // Trees: suburban lots with space; on-market homes get extra landscaping
+    trees: (lotSize === 0 || lotSize > 3000) || staged,
+    // Garden: owner-occupied or staged homes on larger lots or older houses
+    garden: (residential || staged) && (lotSize > 5000 || (year < 1960 && sqft > 2000) || staged),
     // Pool: satellite detection; hot climates lower threshold for lot-size inference
     pool: prop.hasPool ?? (climate === 'hot' && lotSize > 6000),
   };
@@ -429,15 +481,16 @@ function inferFeatures(prop: PropertyData): FeatureFlags {
 /** Convert property data into GenerationOptions for the core generator */
 export function convertToGenerationOptions(prop: PropertyData): GenerationOptions {
   // ── Style resolution ──────────────────────────────────────────────
-  // Priority: user selection > OSM architecture > RentCast architecture > county hint > year-based
+  // Priority: user selection > OSM architecture > RentCast architecture > city hint > county hint > year-based
   let style: StyleName;
   if (prop.style !== 'auto') {
     style = prop.style;
   } else {
     const archStyle = mapArchitectureToStyle(prop.osmArchitecture)
       ?? mapArchitectureToStyle(prop.architectureType);
+    const cityStyle = inferStyleFromCity(prop.city, prop.yearBuilt);
     const countyStyle = inferStyleFromCounty(prop.county, prop.yearBuilt);
-    style = archStyle ?? countyStyle ?? inferStyle(prop.yearBuilt, prop.newConstruction);
+    style = archStyle ?? cityStyle ?? countyStyle ?? inferStyle(prop.yearBuilt, prop.newConstruction);
   }
 
   // Force rustic for cabin property type
@@ -891,10 +944,26 @@ export function initImport(
       hasRentCastApiKey() ? searchRentCastProperty(address) : Promise.resolve(null),
     ]);
 
-    // Handle geocoding result
-    if (geoResult.status === 'fulfilled' && geoResult.value) {
+    // Handle geocoding result — fall back to Parcl lat/lng if geocoders fail
+    let parclGeoFallback = false;
+    if (geoResult.status !== 'fulfilled' || !geoResult.value) {
+      // Check if Parcl returned valid coordinates as geocoding fallback
+      const parclData = parclResult.status === 'fulfilled' ? parclResult.value : null;
+      if (parclData && parclData.latitude !== 0 && parclData.longitude !== 0) {
+        currentGeocoding = {
+          lat: parclData.latitude,
+          lng: parclData.longitude,
+          matchedAddress: parclData.address || address,
+          source: 'nominatim', // closest match — Parcl uses address matching
+        };
+        parclGeoFallback = true;
+      }
+    } else {
       currentGeocoding = geoResult.value;
-      const geo = geoResult.value;
+    }
+
+    if (currentGeocoding) {
+      const geo = currentGeocoding;
 
       // Fire OSM + Street View checks in parallel (don't block satellite)
       const [osmResult, svResult] = await Promise.allSettled([
@@ -953,6 +1022,7 @@ export function initImport(
         showSatelliteError(viewer);
       });
     } else {
+      // No geocoding and no Parcl fallback — abort
       currentGeocoding = null;
       const msg = geoResult.status === 'rejected'
         ? (geoResult.reason instanceof Error ? geoResult.reason.message : 'Geocoding failed')
@@ -975,7 +1045,8 @@ export function initImport(
     }
 
     // Handle Parcl API result — auto-fill form fields
-    const statusParts: string[] = [currentGeocoding!.matchedAddress, `(${currentGeocoding!.source})`];
+    const geoSource = parclGeoFallback ? 'parcl' : currentGeocoding!.source;
+    const statusParts: string[] = [currentGeocoding!.matchedAddress, `(${geoSource})`];
     if (parclResult.status === 'fulfilled' && parclResult.value) {
       currentParcl = parclResult.value;
       populateFromParcl(parclResult.value);
@@ -1356,7 +1427,10 @@ export function initImport(
       streetViewUrl: currentStreetViewUrl ?? undefined,
       county: currentParcl?.county,
       stateAbbreviation: currentParcl?.stateAbbreviation,
+      city: currentParcl?.city,
+      zipCode: currentParcl?.zipCode,
       ownerOccupied: currentParcl?.ownerOccupied,
+      onMarket: currentParcl?.onMarket,
       parclPropertyId: currentParcl?.parclPropertyId,
     };
 
@@ -1402,17 +1476,28 @@ export function initImport(
       enrichmentRows += `<div class="info-row"><span class="info-label">Roof Shape</span><span class="info-value">${escapeHtml(property.osmRoofShape)} (OSM)</span></div>`;
     }
 
-    // Parcl enrichment rows
+    // Parcl enrichment rows — all 17 fields consumed
+    if (property.city) {
+      const loc = property.city + (property.stateAbbreviation ? `, ${property.stateAbbreviation}` : '')
+        + (property.zipCode ? ` ${property.zipCode}` : '');
+      enrichmentRows += `<div class="info-row"><span class="info-label">Location</span><span class="info-value">${escapeHtml(loc)}</span></div>`;
+    }
     if (property.county) {
       enrichmentRows += `<div class="info-row"><span class="info-label">County</span><span class="info-value">${escapeHtml(property.county)}</span></div>`;
     }
     if (property.ownerOccupied != null) {
-      enrichmentRows += `<div class="info-row"><span class="info-label">Occupancy</span><span class="info-value">${property.ownerOccupied ? 'Owner-occupied' : 'Rental/Investment'}</span></div>`;
+      const occupancy = property.ownerOccupied ? 'Owner-occupied' : 'Rental/Investment';
+      const marketStatus = property.onMarket === true ? ' (on market)' : '';
+      enrichmentRows += `<div class="info-row"><span class="info-label">Occupancy</span><span class="info-value">${occupancy}${marketStatus}</span></div>`;
     }
     if (property.stateAbbreviation) {
       const climate = inferClimateZone(property.stateAbbreviation);
-      if (climate !== 'temperate') {
-        enrichmentRows += `<div class="info-row"><span class="info-label">Climate</span><span class="info-value">${climate === 'cold' ? 'Cold' : 'Hot'} zone</span></div>`;
+      const density = inferDensityFromZip(property.zipCode);
+      const parts: string[] = [];
+      if (climate !== 'temperate') parts.push(`${climate === 'cold' ? 'Cold' : 'Hot'} zone`);
+      if (density !== 'suburban') parts.push(density);
+      if (parts.length > 0) {
+        enrichmentRows += `<div class="info-row"><span class="info-label">Climate/Density</span><span class="info-value">${parts.join(' | ')}</span></div>`;
       }
     }
 
