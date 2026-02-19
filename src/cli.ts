@@ -253,6 +253,13 @@ program
   .option('-l, --length <n>', 'Building length')
   .option('-o, --output <path>', 'Output .schem file path')
   .option('--seed <n>', 'Random seed for deterministic generation')
+  .option('--property-type <type>', 'Override property type (house, condo, townhouse)')
+  .option('--county <county>', 'Override county name (affects style inference)')
+  .option('--zip <zip>', 'Override ZIP code (affects density inference)')
+  .option('--beds <n>', 'Override bedroom count')
+  .option('--baths <n>', 'Override bathroom count')
+  .option('--sqft <n>', 'Override square footage')
+  .option('--year <n>', 'Override year built')
   .action(async (type: string | undefined, opts: Record<string, string | undefined>) => {
     // Address-based generation: full pipeline
     if (opts['address']) {
@@ -328,15 +335,15 @@ async function genFromAddress(
       process.exit(1);
     }
 
-    // Step 3: Assemble PropertyData
-    const yearBuilt = parcl.yearBuilt || 2000;
-    const yearUncertain = !parcl.yearBuilt || parcl.yearBuilt === 0;
-    const sqft = parcl.squareFootage || 2000;
+    // Step 3: Assemble PropertyData (CLI overrides take priority)
+    const yearBuilt = opts['year'] ? parseInt(opts['year'], 10) : (parcl.yearBuilt || 2000);
+    const yearUncertain = !opts['year'] && (!parcl.yearBuilt || parcl.yearBuilt === 0);
+    const sqft = opts['sqft'] ? parseInt(opts['sqft'], 10) : (parcl.squareFootage || 2000);
 
-    // Bedroom disambiguation
-    let bedrooms = parcl.bedrooms;
+    // Bedroom disambiguation (CLI override bypasses entirely)
+    let bedrooms = opts['beds'] ? parseInt(opts['beds'], 10) : parcl.bedrooms;
     let bedroomsUncertain = false;
-    if (parcl.bedrooms === 0) {
+    if (!opts['beds'] && parcl.bedrooms === 0) {
       const pType = (parcl.propertyType || '').toUpperCase();
       const isStudio = sqft < 800 || pType.includes('CONDO') || pType.includes('STUDIO');
       if (!isStudio) {
@@ -344,6 +351,7 @@ async function genFromAddress(
         bedroomsUncertain = true;
       }
     }
+    const bathrooms = opts['baths'] ? parseInt(opts['baths'], 10) : (parcl.bathrooms || 2);
 
     // Stories: priority chain
     let stories = 2;
@@ -371,15 +379,15 @@ async function genFromAddress(
       stories: floorsOverride ?? stories,
       sqft,
       bedrooms,
-      bathrooms: parcl.bathrooms || 2,
+      bathrooms,
       yearBuilt: yearUncertain ? (osm?.tags?.['start_date'] ? parseInt(osm.tags['start_date'], 10) || 2000 : 2000) : yearBuilt,
-      propertyType: mapParclPropertyType(parcl.propertyType),
+      propertyType: opts['propertyType'] ?? mapParclPropertyType(parcl.propertyType),
       style: styleOverride ?? 'auto',
       newConstruction: parcl.newConstruction || yearBuilt >= 2020,
       city: parcl.city,
       stateAbbreviation: parcl.stateAbbreviation,
-      zipCode: parcl.zipCode,
-      county: parcl.county,
+      zipCode: opts['zip'] ?? parcl.zipCode,
+      county: opts['county'] ?? parcl.county,
       ownerOccupied: parcl.ownerOccupied,
       onMarket: parcl.onMarket,
       parclPropertyId: parcl.parclPropertyId,
@@ -421,7 +429,7 @@ async function genFromAddress(
     console.log(`  Address:    ${chalk.white(parcl.address || address)}`);
     console.log(`  Location:   ${parcl.city}, ${parcl.stateAbbreviation} ${parcl.zipCode}`);
     console.log(`  Type:       ${parcl.propertyType}`);
-    console.log(`  SqFt:       ${sqft.toLocaleString()}  Beds: ${bedrooms}  Baths: ${parcl.bathrooms}`);
+    console.log(`  SqFt:       ${sqft.toLocaleString()}  Beds: ${bedrooms}  Baths: ${bathrooms}`);
     console.log(`  Year Built: ${yearBuilt}${yearUncertain ? chalk.dim(' (uncertain)') : ''}`);
     if (osm) {
       console.log(`  OSM:        ${osm.widthBlocks}x${osm.lengthBlocks} blocks (${osm.widthMeters}x${osm.lengthMeters}m)`);
