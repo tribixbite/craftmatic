@@ -501,3 +501,171 @@ describe('floorPlanShape in generation options', () => {
     expect(opts.floorPlanShape).toBeUndefined();
   });
 });
+
+// ─── Parcl Labs Integration ────────────────────────────────────────
+
+describe('Parcl Labs enrichment', () => {
+  it('county-based style hint overrides year-based for pre-1980 SF Victorian', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1905,
+      county: 'San Francisco',
+    }));
+    // SF county pre-1980 → gothic (Victorian prevalence)
+    expect(opts.style).toBe('gothic');
+  });
+
+  it('county hint ignored for post-1980 homes', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1990,
+      county: 'San Francisco',
+    }));
+    // Post-1980 → year-based (modern)
+    expect(opts.style).toBe('modern');
+  });
+
+  it('county hint for Miami-Dade → desert style', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1950,
+      county: 'Miami-Dade',
+    }));
+    expect(opts.style).toBe('desert');
+  });
+
+  it('county hint for Cook County Chicago → steampunk (Art Deco era)', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1925,
+      county: 'Cook',
+    }));
+    expect(opts.style).toBe('steampunk');
+  });
+
+  it('county hint for Hennepin County Minneapolis → rustic', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1935,
+      county: 'Hennepin',
+    }));
+    expect(opts.style).toBe('rustic');
+  });
+
+  it('architecture type takes priority over county hint', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1920,
+      county: 'San Francisco',
+      architectureType: 'Craftsman',
+    }));
+    // Craftsman → rustic (architecture > county)
+    expect(opts.style).toBe('rustic');
+  });
+
+  it('user-selected style overrides county hint', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'elven',
+      yearBuilt: 1910,
+      county: 'San Francisco',
+    }));
+    expect(opts.style).toBe('elven');
+  });
+
+  it('newConstruction flag forces modern style', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 2024,
+      newConstruction: true,
+    }));
+    expect(opts.style).toBe('modern');
+  });
+
+  it('ownerOccupied=false disables garden and porch', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      ownerOccupied: false,
+      lotSize: 10000,
+      yearBuilt: 1940,
+      sqft: 3000,
+    }));
+    expect(opts.features?.garden).toBe(false);
+    expect(opts.features?.porch).toBe(false);
+  });
+
+  it('ownerOccupied=true keeps residential features', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      ownerOccupied: true,
+      lotSize: 10000,
+      yearBuilt: 1940,
+      sqft: 3000,
+    }));
+    expect(opts.features?.garden).toBe(true);
+    expect(opts.features?.porch).toBe(true);
+  });
+
+  it('hot climate (FL) disables chimney', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      stateAbbreviation: 'FL',
+      yearBuilt: 1960,
+      sqft: 2000,
+    }));
+    expect(opts.features?.chimney).toBe(false);
+  });
+
+  it('cold climate (MN) keeps chimney for older homes', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      stateAbbreviation: 'MN',
+      yearBuilt: 1960,
+      sqft: 2000,
+    }));
+    expect(opts.features?.chimney).toBe(true);
+  });
+
+  it('hot climate infers pool for large lots without satellite detection', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      stateAbbreviation: 'AZ',
+      lotSize: 8000,
+    }));
+    expect(opts.features?.pool).toBe(true);
+  });
+
+  it('cold climate does not infer pool without satellite', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      stateAbbreviation: 'MN',
+      lotSize: 8000,
+    }));
+    expect(opts.features?.pool).toBe(false);
+  });
+
+  it('parclPropertyId changes seed for same address', () => {
+    const opts1 = convertToGenerationOptions(makeProperty({
+      parclPropertyId: 12345,
+    }));
+    const opts2 = convertToGenerationOptions(makeProperty({
+      parclPropertyId: 67890,
+    }));
+    // Different parclPropertyId → different seed
+    expect(opts1.seed).not.toBe(opts2.seed);
+  });
+
+  it('missing parclPropertyId falls back to address-only seed', () => {
+    const opts1 = convertToGenerationOptions(makeProperty({}));
+    const opts2 = convertToGenerationOptions(makeProperty({}));
+    // Same address, no ID → same seed
+    expect(opts1.seed).toBe(opts2.seed);
+  });
+
+  it('unknown county has no effect on style', () => {
+    const withCounty = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1950,
+      county: 'Nonexistent County',
+    }));
+    const withoutCounty = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1950,
+    }));
+    // Both should fall through to year-based inference
+    expect(withCounty.style).toBe(withoutCounty.style);
+  });
+});

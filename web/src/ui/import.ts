@@ -102,6 +102,14 @@ export interface PropertyData {
   floorPlanShape?: FloorPlanShape;
   /** Street View image URL */
   streetViewUrl?: string;
+  /** County name (from Parcl Labs) — used for regional style hints */
+  county?: string;
+  /** State abbreviation (from Parcl Labs) — used for climate-aware features */
+  stateAbbreviation?: string;
+  /** Owner-occupied flag (from Parcl Labs) — modifies feature density */
+  ownerOccupied?: boolean;
+  /** Parcl property ID — contributes to deterministic seed */
+  parclPropertyId?: number;
 }
 
 /** Style presets with colors — "Auto" infers from year built */
@@ -172,6 +180,45 @@ function mapArchitectureToStyle(arch: string | undefined): StyleName | undefined
     if (pattern.test(a)) return style;
   }
   return undefined;
+}
+
+/**
+ * Infer architectural style from county name for pre-1980 homes.
+ * Maps historically distinctive regions to likely architectural styles.
+ * Returns undefined for unknown counties (falls through to year-based inference).
+ */
+function inferStyleFromCounty(county: string | undefined, year: number): StyleName | undefined {
+  if (!county || year >= 1980) return undefined; // Only for older homes
+  const c = county.toLowerCase();
+  // Victorian/Gothic prevalence areas
+  if (/\bsan\s*francisco|alameda|marin/.test(c)) return 'gothic';
+  // Mediterranean/Desert style regions
+  if (/\bmiami.?dade|palm\s*beach|broward/.test(c)) return 'desert';
+  // Tudor/Medieval style areas
+  if (/\bwestchester|dutchess|suffolk/.test(c) && year < 1940) return 'medieval';
+  // Art Deco / Steampunk — industrial-era cities
+  if (/\bcook|wayne|allegheny/.test(c) && year >= 1900 && year < 1940) return 'steampunk';
+  // Colonial/Fantasy — East Coast historic
+  if (/\bfairfax|arlington|montgomery/.test(c) && year < 1900) return 'fantasy';
+  // Spanish Colonial / Desert — Southwest
+  if (/\bmaricopa|pima|bernalillo|clark/.test(c)) return 'desert';
+  // Prairie/Rustic — Midwest
+  if (/\bhennepin|ramsey|dane|milwaukee/.test(c) && year < 1950) return 'rustic';
+  return undefined;
+}
+
+/**
+ * Infer climate zone from state abbreviation.
+ * Returns a simplified climate hint used for feature flag tuning.
+ */
+function inferClimateZone(state: string | undefined): 'cold' | 'hot' | 'temperate' {
+  if (!state) return 'temperate';
+  const s = state.toUpperCase();
+  // Cold-climate states — more chimney likelihood, steeper roofs
+  if (['MN', 'WI', 'MI', 'ND', 'SD', 'MT', 'VT', 'NH', 'ME', 'AK', 'WY'].includes(s)) return 'cold';
+  // Hot-climate states — pool more likely, flat roofs, less chimney
+  if (['FL', 'AZ', 'NV', 'HI', 'TX', 'NM', 'LA', 'MS', 'AL'].includes(s)) return 'hot';
+  return 'temperate';
 }
 
 /**
@@ -355,12 +402,15 @@ function inferFeatures(prop: PropertyData): FeatureFlags {
   const lotSize = prop.lotSize ?? 0;
   const sqft = prop.sqft;
   const year = prop.yearBuilt;
+  const climate = inferClimateZone(prop.stateAbbreviation);
+  // Owner-occupied homes tend to have more residential features (gardens, porches)
+  const residential = prop.ownerOccupied !== false; // Default to true if unknown
 
   return {
-    // Chimney: common in older houses, less common in modern ones
-    chimney: year < 1990 || sqft > 3000,
-    // Porch: most houses have some form of covered entrance
-    porch: true,
+    // Chimney: common in older houses, cold climates boost likelihood
+    chimney: (year < 1990 || sqft > 3000) && climate !== 'hot',
+    // Porch: most owner-occupied homes have covered entrance
+    porch: residential,
     // Backyard: needs lot size > 4000 sqft (or assume true if no lot data)
     backyard: lotSize === 0 || lotSize > 4000,
     // Driveway: most suburban houses
@@ -369,24 +419,25 @@ function inferFeatures(prop: PropertyData): FeatureFlags {
     fence: lotSize > 3000 || sqft > 2500,
     // Trees: suburban lots with space
     trees: lotSize === 0 || lotSize > 3000,
-    // Garden: larger lots or older houses
-    garden: lotSize > 5000 || (year < 1960 && sqft > 2000),
-    // Pool: detected from satellite imagery
-    pool: prop.hasPool ?? false,
+    // Garden: owner-occupied homes on larger lots or older houses
+    garden: residential && (lotSize > 5000 || (year < 1960 && sqft > 2000)),
+    // Pool: satellite detection; hot climates lower threshold for lot-size inference
+    pool: prop.hasPool ?? (climate === 'hot' && lotSize > 6000),
   };
 }
 
 /** Convert property data into GenerationOptions for the core generator */
 export function convertToGenerationOptions(prop: PropertyData): GenerationOptions {
   // ── Style resolution ──────────────────────────────────────────────
-  // Priority: user selection > OSM architecture > RentCast architecture > year-based
+  // Priority: user selection > OSM architecture > RentCast architecture > county hint > year-based
   let style: StyleName;
   if (prop.style !== 'auto') {
     style = prop.style;
   } else {
     const archStyle = mapArchitectureToStyle(prop.osmArchitecture)
       ?? mapArchitectureToStyle(prop.architectureType);
-    style = archStyle ?? inferStyle(prop.yearBuilt, prop.newConstruction);
+    const countyStyle = inferStyleFromCounty(prop.county, prop.yearBuilt);
+    style = archStyle ?? countyStyle ?? inferStyle(prop.yearBuilt, prop.newConstruction);
   }
 
   // Force rustic for cabin property type
@@ -457,7 +508,8 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     rooms,
     width,
     length,
-    seed: fnv1aHash(prop.address),
+    // Include parclPropertyId in seed for better per-property reproducibility
+    seed: fnv1aHash(prop.address + (prop.parclPropertyId ? `#${prop.parclPropertyId}` : '')),
     wallOverride: prop.wallOverride,
     trimOverride,
     doorOverride,
@@ -492,6 +544,8 @@ export function initImport(
   let currentPoolDetected = false;
   /** Street View image URL (if available) */
   let currentStreetViewUrl: string | null = null;
+  /** Parcl Labs property data — stored for generation-time access */
+  let currentParcl: ParclPropertyData | null = null;
 
   // Restore API key display state
   const savedParclKey = getParclApiKey();
@@ -829,6 +883,7 @@ export function initImport(
     currentOSM = null;
     currentPoolDetected = false;
     currentStreetViewUrl = null;
+    currentParcl = null;
 
     const [geoResult, parclResult, rentCastResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -922,6 +977,7 @@ export function initImport(
     // Handle Parcl API result — auto-fill form fields
     const statusParts: string[] = [currentGeocoding!.matchedAddress, `(${currentGeocoding!.source})`];
     if (parclResult.status === 'fulfilled' && parclResult.value) {
+      currentParcl = parclResult.value;
       populateFromParcl(parclResult.value);
       statusParts.push('— property data loaded');
     }
@@ -956,12 +1012,17 @@ export function initImport(
       }
     }
 
-    // Stories: estimate from sqft + bedrooms if not directly available
-    // Parcl doesn't provide stories directly — infer from sqft
-    if (parcl.squareFootage > 2500 && parcl.bedrooms > 3) {
-      const storiesEl = controls.querySelector('#import-stories') as HTMLInputElement;
-      storiesEl.value = '2';
-      saveField('stories', '2');
+    // Stories: estimate from sqft + bedrooms + property type
+    // Parcl doesn't provide stories directly — use heuristics:
+    //   - Condos/townhouses often multi-story regardless of sqft
+    //   - Large single-family homes (>2500sqft with >3 beds) likely 2+
+    //   - Very large (>4000sqft) likely 3+
+    const storiesEl = controls.querySelector('#import-stories') as HTMLInputElement;
+    const pType = (parcl.propertyType || '').toUpperCase();
+    if (pType.includes('TOWN') || (parcl.squareFootage > 2500 && parcl.bedrooms > 3)) {
+      const estimatedStories = parcl.squareFootage > 4000 ? 3 : 2;
+      storiesEl.value = String(estimatedStories);
+      saveField('stories', String(estimatedStories));
     }
 
     // Property type mapping
@@ -969,12 +1030,6 @@ export function initImport(
       const mapped = mapParclPropertyType(parcl.propertyType);
       propTypeEl.value = mapped;
       saveField('proptype', mapped);
-    }
-
-    // Auto-select style based on year + new construction
-    if (parcl.yearBuilt && selectedStyle === 'auto') {
-      // Style inference happens at generation time — nothing to select here
-      // But if new construction, hint this in the style
     }
   }
 
@@ -1278,7 +1333,7 @@ export function initImport(
       floorPlan: currentFloorPlan ?? undefined,
       geocoding: currentGeocoding ?? undefined,
       season: currentSeason,
-      newConstruction: yearVal >= 2020,
+      newConstruction: currentParcl?.newConstruction ?? yearVal >= 2020,
       lotSize: currentRentCast?.lotSize,
       exteriorType: currentRentCast?.exteriorType,
       wallOverride: currentWallOverride,
@@ -1299,6 +1354,10 @@ export function initImport(
       floorPlanShape: currentOSM?.polygon
         ? analyzePolygonShape(currentOSM.polygon) : undefined,
       streetViewUrl: currentStreetViewUrl ?? undefined,
+      county: currentParcl?.county,
+      stateAbbreviation: currentParcl?.stateAbbreviation,
+      ownerOccupied: currentParcl?.ownerOccupied,
+      parclPropertyId: currentParcl?.parclPropertyId,
     };
 
     const options = convertToGenerationOptions(property);
@@ -1341,6 +1400,20 @@ export function initImport(
     }
     if (property.osmRoofShape) {
       enrichmentRows += `<div class="info-row"><span class="info-label">Roof Shape</span><span class="info-value">${escapeHtml(property.osmRoofShape)} (OSM)</span></div>`;
+    }
+
+    // Parcl enrichment rows
+    if (property.county) {
+      enrichmentRows += `<div class="info-row"><span class="info-label">County</span><span class="info-value">${escapeHtml(property.county)}</span></div>`;
+    }
+    if (property.ownerOccupied != null) {
+      enrichmentRows += `<div class="info-row"><span class="info-label">Occupancy</span><span class="info-value">${property.ownerOccupied ? 'Owner-occupied' : 'Rental/Investment'}</span></div>`;
+    }
+    if (property.stateAbbreviation) {
+      const climate = inferClimateZone(property.stateAbbreviation);
+      if (climate !== 'temperate') {
+        enrichmentRows += `<div class="info-row"><span class="info-label">Climate</span><span class="info-value">${climate === 'cold' ? 'Cold' : 'Hot'} zone</span></div>`;
+      }
     }
 
     // Show inferred generation options
