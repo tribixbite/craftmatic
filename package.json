@@ -21,8 +21,11 @@
     "dev:web": "vite --config web/vite.config.ts",
     "preview:web": "vite preview --config web/vite.config.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "clean": "rm -rf dist web/dist",
     "prepublishOnly": "npm run build && npm run build:web"
   },
@@ -72,12 +75,16 @@
     "sharp": "^0.33.5"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.1",
     "@types/pako": "^2.0.4",
     "@types/three": "^0.172.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^10.0.0",
     "pako": "^2.1.0",
     "typescript": "^5.7.3",
+    "typescript-eslint": "^8.56.0",
     "vite": "^7.3.1",
     "vitest": "^3.0.5"
   }
