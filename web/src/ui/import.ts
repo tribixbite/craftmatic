@@ -5,11 +5,9 @@
  * and generates a Minecraft structure.
  */
 
-import type { StyleName, BlockState, RoofShape } from '@craft/types/index.js';
-import type { GenerationOptions } from '@craft/types/index.js';
+import type { StyleName, BlockState } from '@craft/types/index.js';
 import {
-  convertToGenerationOptions, inferDensityFromZip, inferClimateZone,
-  estimateStoriesFromFootprint,
+  convertToGenerationOptions, estimateStoriesFromFootprint,
   type PropertyData,
 } from '@craft/gen/address-pipeline.js';
 import { generateStructure } from '@craft/gen/generator.js';
@@ -38,6 +36,10 @@ import {
   getMapboxToken, setMapboxToken, hasMapboxToken,
   createMapboxTileFetcher, MAPBOX_SIGNUP_URL,
 } from '@ui/import-mapbox.js';
+import {
+  drawBuildingOutline, getCrosshairPosition, appendStreetViewImage,
+} from '@ui/import-geometry.js';
+import { buildInfoPanelHtml, escapeHtml } from '@ui/import-info-panel.js';
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
 
@@ -336,65 +338,28 @@ export function initImport(
     apiBadge.textContent = `${count}/4`;
   }
 
-  // Parcl Labs key
-  parclSaveBtn.addEventListener('click', () => {
-    const key = parclKeyInput.value.trim();
-    setParclApiKey(key);
-    if (key) {
-      parclSaveBtn.textContent = 'Saved';
-      parclStatus.textContent = `Key stored: ••••${key.slice(-4)}`;
-    } else {
-      parclSaveBtn.textContent = 'Save';
-      parclStatus.textContent = 'No key — manual entry only';
-    }
-    updateApiBadge();
-  });
-  parclKeyInput.addEventListener('input', () => { parclSaveBtn.textContent = 'Save'; });
+  // Data-driven API key save handlers — DRY replacement for 4 identical patterns
+  const apiKeyConfigs = [
+    { input: parclKeyInput, btn: parclSaveBtn, status: parclStatus,
+      set: setParclApiKey, noKeyMsg: 'No key — manual entry only' },
+    { input: rentCastKeyInput, btn: rentCastSaveBtn, status: rentCastStatus,
+      set: setRentCastApiKey, noKeyMsg: 'No key — satellite color used instead' },
+    { input: svKeyInput, btn: svSaveBtn, status: svStatus,
+      set: setStreetViewApiKey, noKeyMsg: 'No key — no exterior photo' },
+    { input: mbTokenInput, btn: mbSaveBtn, status: mbStatus,
+      set: setMapboxToken, noKeyMsg: 'No token — using ESRI satellite' },
+  ];
 
-  // RentCast key
-  rentCastSaveBtn.addEventListener('click', () => {
-    const key = rentCastKeyInput.value.trim();
-    setRentCastApiKey(key);
-    if (key) {
-      rentCastSaveBtn.textContent = 'Saved';
-      rentCastStatus.textContent = `Key stored: ••••${key.slice(-4)}`;
-    } else {
-      rentCastSaveBtn.textContent = 'Save';
-      rentCastStatus.textContent = 'No key — satellite color used instead';
-    }
-    updateApiBadge();
-  });
-  rentCastKeyInput.addEventListener('input', () => { rentCastSaveBtn.textContent = 'Save'; });
-
-  // Google Street View key
-  svSaveBtn.addEventListener('click', () => {
-    const key = svKeyInput.value.trim();
-    setStreetViewApiKey(key);
-    if (key) {
-      svSaveBtn.textContent = 'Saved';
-      svStatus.textContent = `Key stored: ••••${key.slice(-4)}`;
-    } else {
-      svSaveBtn.textContent = 'Save';
-      svStatus.textContent = 'No key — no exterior photo';
-    }
-    updateApiBadge();
-  });
-  svKeyInput.addEventListener('input', () => { svSaveBtn.textContent = 'Save'; });
-
-  // Mapbox token
-  mbSaveBtn.addEventListener('click', () => {
-    const token = mbTokenInput.value.trim();
-    setMapboxToken(token);
-    if (token) {
-      mbSaveBtn.textContent = 'Saved';
-      mbStatus.textContent = `Token stored: ••••${token.slice(-4)}`;
-    } else {
-      mbSaveBtn.textContent = 'Save';
-      mbStatus.textContent = 'No token — using ESRI satellite';
-    }
-    updateApiBadge();
-  });
-  mbTokenInput.addEventListener('input', () => { mbSaveBtn.textContent = 'Save'; });
+  for (const cfg of apiKeyConfigs) {
+    cfg.btn.addEventListener('click', () => {
+      const key = cfg.input.value.trim();
+      cfg.set(key);
+      cfg.btn.textContent = key ? 'Saved' : 'Save';
+      cfg.status.textContent = key ? `Key stored: ••••${key.slice(-4)}` : cfg.noKeyMsg;
+      updateApiBadge();
+    });
+    cfg.input.addEventListener('input', () => { cfg.btn.textContent = 'Save'; });
+  }
 
   // ── Session persistence for all form fields ───────────────────────────
   // Address field
@@ -731,99 +696,6 @@ export function initImport(
     }
   }
 
-  /**
-   * Draw the OSM building polygon outline on the satellite canvas.
-   * Converts lat/lng polygon vertices to canvas pixel coordinates.
-   */
-  function drawBuildingOutline(
-    canvas: HTMLCanvasElement,
-    geo: GeocodingResult,
-    polygon: { lat: number; lon: number }[],
-  ): void {
-    const ctx = canvas.getContext('2d');
-    if (!ctx || polygon.length < 3) return;
-
-    const zoom = 18;
-    const n = Math.pow(2, zoom);
-    const { tileX, tileY } = getTileCoords(geo.lat, geo.lng, zoom);
-
-    ctx.save();
-    ctx.strokeStyle = 'rgba(88, 101, 242, 0.8)';
-    ctx.fillStyle = 'rgba(88, 101, 242, 0.12)';
-    ctx.lineWidth = 2;
-    ctx.lineJoin = 'round';
-
-    ctx.beginPath();
-    for (let i = 0; i < polygon.length; i++) {
-      const pt = polygon[i];
-      const latRad = (pt.lat * Math.PI) / 180;
-      const xFrac = ((pt.lon + 180) / 360) * n;
-      const yFrac = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
-      // Canvas position: offset from center tile origin (tile at index 1,1 in the 3x3 grid)
-      const px = (xFrac - tileX + 1) * 256;
-      const py = (yFrac - tileY + 1) * 256;
-
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  /** Helper to get tile coordinates without pixel offset */
-  function getTileCoords(lat: number, lng: number, zoom: number): { tileX: number; tileY: number } {
-    const n = Math.pow(2, zoom);
-    const latRad = (lat * Math.PI) / 180;
-    const xFrac = ((lng + 180) / 360) * n;
-    const yFrac = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
-    return { tileX: Math.floor(xFrac), tileY: Math.floor(yFrac) };
-  }
-
-  /** Append a Street View image below the satellite canvas in the viewer */
-  function appendStreetViewImage(container: HTMLElement, url: string): void {
-    const wrapper = container.querySelector('.import-satellite-wrapper');
-    if (!wrapper) return;
-
-    const svContainer = document.createElement('div');
-    svContainer.className = 'import-streetview-container';
-
-    const label = document.createElement('div');
-    label.className = 'import-satellite-overlay';
-    label.style.top = '12px';
-    label.style.bottom = 'auto';
-    label.textContent = 'Street View';
-
-    const img = document.createElement('img');
-    img.className = 'import-streetview-img';
-    img.src = url;
-    img.alt = 'Street View';
-    img.loading = 'lazy';
-
-    svContainer.appendChild(label);
-    svContainer.appendChild(img);
-
-    // Insert after the satellite wrapper
-    wrapper.parentElement?.appendChild(svContainer);
-  }
-
-  /** Get crosshair pixel position on the 768x768 satellite canvas */
-  function getCrosshairPosition(lat: number, lng: number): { pixelX: number; pixelY: number } {
-    // Re-derive from latLngToTile at zoom 18 (same as composeSatelliteView)
-    const zoom = 18;
-    const n = Math.pow(2, zoom);
-    const latRad = (lat * Math.PI) / 180;
-    const xFrac = ((lng + 180) / 360) * n;
-    const yFrac = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
-    const tileX = Math.floor(xFrac);
-    const tileY = Math.floor(yFrac);
-    // Pixel offset within the center tile + 256 (center tile starts at 256,256)
-    const pixelX = 256 + Math.floor((xFrac - tileX) * 256);
-    const pixelY = 256 + Math.floor((yFrac - tileY) * 256);
-    return { pixelX, pixelY };
-  }
-
   function showStatus(message: string, type: 'success' | 'error' | 'loading'): void {
     statusEl.hidden = false;
     statusEl.textContent = message;
@@ -1011,102 +883,11 @@ export function initImport(
     const grid = generateStructure(options);
 
     // Show info panel with enrichment data
-    const nonAir = grid.countNonAir();
-    const seasonStr = property.season ? ` | ${SEASON_LABELS[property.season]}` : '';
-    const constructionStr = property.newConstruction ? ' (new)' : '';
-
-    // Build optional enrichment rows
-    let enrichmentRows = '';
-    if (property.lotSize && property.lotSize > 0) {
-      enrichmentRows += `<div class="info-row"><span class="info-label">Lot Size</span><span class="info-value">${property.lotSize.toLocaleString()} sqft</span></div>`;
-    }
-    if (property.exteriorType) {
-      enrichmentRows += `<div class="info-row"><span class="info-label">Exterior</span><span class="info-value">${escapeHtml(property.exteriorType)}</span></div>`;
-    }
-    if (property.detectedColor) {
-      const c = property.detectedColor;
-      const hex = `rgb(${c.r},${c.g},${c.b})`;
-      enrichmentRows += `<div class="info-row"><span class="info-label">Detected Color</span><span class="info-value"><span class="import-color-swatch" style="background:${hex};"></span> ${c.r},${c.g},${c.b}</span></div>`;
-    }
-    if (property.wallOverride) {
-      // Show the mapped wall block name (strip minecraft: prefix)
-      const wallName = property.wallOverride.replace('minecraft:', '').replace(/_/g, ' ');
-      enrichmentRows += `<div class="info-row"><span class="info-label">Wall Material</span><span class="info-value">${wallName}</span></div>`;
-    }
-    if (property.roofType) {
-      enrichmentRows += `<div class="info-row"><span class="info-label">Roof</span><span class="info-value">${escapeHtml(property.roofType)}</span></div>`;
-    }
-    if (property.architectureType) {
-      enrichmentRows += `<div class="info-row"><span class="info-label">Architecture</span><span class="info-value">${escapeHtml(property.architectureType)}</span></div>`;
-    }
-    if (property.osmWidth && property.osmLength) {
-      enrichmentRows += `<div class="info-row"><span class="info-label">Footprint</span><span class="info-value">${currentOSM?.widthMeters}m × ${currentOSM?.lengthMeters}m (OSM)</span></div>`;
-    }
-    if (property.osmMaterial) {
-      enrichmentRows += `<div class="info-row"><span class="info-label">Material</span><span class="info-value">${escapeHtml(property.osmMaterial)} (OSM)</span></div>`;
-    }
-    if (property.osmRoofShape) {
-      enrichmentRows += `<div class="info-row"><span class="info-label">Roof Shape</span><span class="info-value">${escapeHtml(property.osmRoofShape)} (OSM)</span></div>`;
-    }
-
-    // Parcl enrichment rows — all 17 fields consumed
-    if (property.city) {
-      const loc = property.city + (property.stateAbbreviation ? `, ${property.stateAbbreviation}` : '')
-        + (property.zipCode ? ` ${property.zipCode}` : '');
-      enrichmentRows += `<div class="info-row"><span class="info-label">Location</span><span class="info-value">${escapeHtml(loc)}</span></div>`;
-    }
-    if (property.county) {
-      enrichmentRows += `<div class="info-row"><span class="info-label">County</span><span class="info-value">${escapeHtml(property.county)}</span></div>`;
-    }
-    if (property.ownerOccupied != null) {
-      const occupancy = property.ownerOccupied ? 'Owner-occupied' : 'Rental/Investment';
-      const marketStatus = property.onMarket === true ? ' (on market)' : '';
-      enrichmentRows += `<div class="info-row"><span class="info-label">Occupancy</span><span class="info-value">${occupancy}${marketStatus}</span></div>`;
-    }
-    if (property.stateAbbreviation) {
-      const climate = inferClimateZone(property.stateAbbreviation);
-      const density = inferDensityFromZip(property.zipCode);
-      const parts: string[] = [];
-      if (climate !== 'temperate') parts.push(`${climate === 'cold' ? 'Cold' : 'Hot'} zone`);
-      if (density !== 'suburban') parts.push(density);
-      if (parts.length > 0) {
-        enrichmentRows += `<div class="info-row"><span class="info-label">Climate/Density</span><span class="info-value">${parts.join(' | ')}</span></div>`;
-      }
-    }
-
-    // Show inferred generation options
-    if (options.roofShape && options.roofShape !== 'gable') {
-      enrichmentRows += `<div class="info-row"><span class="info-label">Roof Type</span><span class="info-value">${options.roofShape}</span></div>`;
-    }
-    if (options.doorOverride) {
-      enrichmentRows += `<div class="info-row"><span class="info-label">Door</span><span class="info-value">${options.doorOverride}</span></div>`;
-    }
-    if (options.features) {
-      const feats = Object.entries(options.features)
-        .filter(([_, v]) => v === true)
-        .map(([k]) => k);
-      if (feats.length > 0 && feats.length < 7) {
-        enrichmentRows += `<div class="info-row"><span class="info-label">Features</span><span class="info-value">${feats.join(', ')}</span></div>`;
-      }
-    }
-
     infoPanel.hidden = false;
-    infoPanel.innerHTML = `
-      <div class="info-row"><span class="info-label">Address</span><span class="info-value" style="font-family:var(--font);font-size:11px;">${escapeHtml(property.address)}</span></div>
-      <div class="info-row"><span class="info-label">Dimensions</span><span class="info-value">${grid.width} x ${grid.height} x ${grid.length}</span></div>
-      <div class="info-row"><span class="info-label">Blocks</span><span class="info-value">${nonAir.toLocaleString()}</span></div>
-      <div class="info-row"><span class="info-label">Style</span><span class="info-value">${options.style}${constructionStr}${seasonStr}</span></div>
-      <div class="info-row"><span class="info-label">Rooms</span><span class="info-value">${options.rooms?.length ?? 0}</span></div>
-      ${enrichmentRows}
-    `;
+    infoPanel.innerHTML = buildInfoPanelHtml(grid, property, options, currentOSM);
 
     onGenerate(grid, property);
   }
-}
-
-/** Escape HTML to prevent XSS in address display */
-function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /** Escape for HTML attribute values */
