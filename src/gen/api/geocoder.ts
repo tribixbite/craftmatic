@@ -13,6 +13,27 @@ export interface GeocodingResult {
   source: 'census' | 'nominatim';
 }
 
+// ─── API Response Types ─────────────────────────────────────────────────────
+
+/** Census Bureau geocoder JSON response */
+interface CensusGeocoderResponse {
+  result?: {
+    addressMatches?: Array<{
+      matchedAddress?: string;
+      coordinates?: { x: number; y: number };
+    }>;
+  };
+}
+
+/** Nominatim search result item */
+interface NominatimResult {
+  lat: string;
+  lon: string;
+  display_name?: string;
+}
+
+// ─── Public API ─────────────────────────────────────────────────────────────
+
 /**
  * Geocode a US address to lat/lng coordinates.
  * Tries Census Bureau first, falls back to Nominatim OSM.
@@ -40,6 +61,8 @@ export async function geocodeAddress(address: string): Promise<GeocodingResult> 
   throw new Error('Could not geocode address. Check the address and try again.');
 }
 
+// ─── Providers ──────────────────────────────────────────────────────────────
+
 /** US Census Bureau geocoder — free, no API key, CORS-friendly */
 async function geocodeCensus(address: string): Promise<GeocodingResult | null> {
   const enc = encodeURIComponent(address);
@@ -48,7 +71,7 @@ async function geocodeCensus(address: string): Promise<GeocodingResult | null> {
   const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
   if (!resp.ok) return null;
 
-  const data: any = await resp.json();
+  const data = await resp.json() as CensusGeocoderResponse;
   const matches = data?.result?.addressMatches;
   if (!Array.isArray(matches) || matches.length === 0) return null;
 
@@ -75,7 +98,7 @@ async function geocodeNominatim(address: string): Promise<GeocodingResult | null
   });
   if (!resp.ok) return null;
 
-  const data = await resp.json();
+  const data = await resp.json() as NominatimResult[];
   if (!Array.isArray(data) || data.length === 0) return null;
 
   const result = data[0];

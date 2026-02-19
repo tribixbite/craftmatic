@@ -27,6 +27,35 @@ export interface ParclPropertyData {
   onMarket: boolean;
 }
 
+// ─── API Response Types ─────────────────────────────────────────────────────
+
+/** Parcl Labs property search response */
+interface ParclSearchResponse {
+  items?: ParclPropertyItem[];
+}
+
+/** Individual property item from Parcl Labs API */
+interface ParclPropertyItem {
+  parcl_property_id?: number;
+  address?: string;
+  city?: string;
+  state_abbreviation?: string;
+  zip_code?: string;
+  county?: string;
+  latitude?: number;
+  longitude?: number;
+  property_type?: string;
+  bedrooms?: number;
+  bathrooms?: number;
+  square_footage?: number;
+  year_built?: number;
+  current_new_construction_flag?: number;
+  current_owner_occupied_flag?: number;
+  current_on_market_flag?: number;
+}
+
+// ─── Key Management ─────────────────────────────────────────────────────────
+
 /** Get Parcl API key from PARCL_API_KEY environment variable */
 export function getParclApiKey(): string {
   return process.env.PARCL_API_KEY ?? '';
@@ -36,6 +65,8 @@ export function getParclApiKey(): string {
 export function hasParclApiKey(): boolean {
   return getParclApiKey().length > 0;
 }
+
+// ─── Address Parsing ────────────────────────────────────────────────────────
 
 /**
  * Parse a freeform address string into structured components.
@@ -111,9 +142,14 @@ export function parseAddress(raw: string): {
   };
 }
 
+// ─── API Client ─────────────────────────────────────────────────────────────
+
+const MAX_RETRIES = 3;
+
 /**
  * Search Parcl Labs API for property data by address.
  * Returns null if API key is missing or request fails gracefully.
+ * Retries with exponential backoff on 429/504 responses.
  */
 export async function searchParclProperty(
   rawAddress: string,
@@ -124,57 +160,78 @@ export async function searchParclProperty(
   const parsed = parseAddress(rawAddress);
   if (!parsed.address) return null;
 
-  try {
-    const resp = await fetch(`${API_BASE}/v1/property/search_address`, {
-      method: 'POST',
-      headers: {
-        'accept': 'application/json',
-        'content-type': 'application/json',
-        'Authorization': apiKey,
-      },
-      body: JSON.stringify([{
-        address: parsed.address,
-        city: parsed.city || undefined,
-        state_abbreviation: parsed.stateAbbreviation || undefined,
-        zip_code: parsed.zipCode || undefined,
-      }]),
-      signal: AbortSignal.timeout(10000),
-    });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const resp = await fetch(`${API_BASE}/v1/property/search_address`, {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'content-type': 'application/json',
+          'Authorization': apiKey,
+        },
+        body: JSON.stringify([{
+          address: parsed.address,
+          city: parsed.city || undefined,
+          state_abbreviation: parsed.stateAbbreviation || undefined,
+          zip_code: parsed.zipCode || undefined,
+        }]),
+        signal: AbortSignal.timeout(10000),
+      });
 
-    if (!resp.ok) {
-      if (resp.status === 401 || resp.status === 403) {
-        console.warn('Parcl API: invalid or expired key');
+      // Retry on rate limit or gateway timeout
+      if (resp.status === 429 || resp.status === 504) {
+        if (attempt < MAX_RETRIES) {
+          const delay = (attempt + 1) * 2000;
+          console.warn(`Parcl API: HTTP ${resp.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        console.warn(`Parcl API: HTTP ${resp.status} after ${MAX_RETRIES} retries`);
+        return null;
       }
+
+      if (!resp.ok) {
+        if (resp.status === 401 || resp.status === 403) {
+          console.warn('Parcl API: invalid or expired key');
+        }
+        return null;
+      }
+
+      const data = await resp.json() as ParclSearchResponse;
+      const items = data?.items;
+      if (!Array.isArray(items) || items.length === 0) return null;
+
+      const item = items[0];
+      return {
+        parclPropertyId: item.parcl_property_id ?? 0,
+        address: item.address ?? '',
+        city: item.city ?? '',
+        stateAbbreviation: item.state_abbreviation ?? '',
+        zipCode: item.zip_code ?? '',
+        county: item.county ?? '',
+        latitude: item.latitude ?? 0,
+        longitude: item.longitude ?? 0,
+        propertyType: item.property_type ?? '',
+        bedrooms: item.bedrooms ?? 0,
+        bathrooms: item.bathrooms ?? 0,
+        squareFootage: item.square_footage ?? 0,
+        yearBuilt: item.year_built ?? 0,
+        newConstruction: item.current_new_construction_flag === 1,
+        ownerOccupied: item.current_owner_occupied_flag === 1,
+        onMarket: item.current_on_market_flag === 1,
+      };
+    } catch (err) {
+      if (attempt < MAX_RETRIES) {
+        const delay = (attempt + 1) * 2000;
+        console.warn(`Parcl API: error, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      console.warn('Parcl API request failed:', err);
       return null;
     }
-
-    const data: any = await resp.json();
-    const items = data?.items;
-    if (!Array.isArray(items) || items.length === 0) return null;
-
-    const item = items[0];
-    return {
-      parclPropertyId: item.parcl_property_id ?? 0,
-      address: item.address ?? '',
-      city: item.city ?? '',
-      stateAbbreviation: item.state_abbreviation ?? '',
-      zipCode: item.zip_code ?? '',
-      county: item.county ?? '',
-      latitude: item.latitude ?? 0,
-      longitude: item.longitude ?? 0,
-      propertyType: item.property_type ?? '',
-      bedrooms: item.bedrooms ?? 0,
-      bathrooms: item.bathrooms ?? 0,
-      squareFootage: item.square_footage ?? 0,
-      yearBuilt: item.year_built ?? 0,
-      newConstruction: item.current_new_construction_flag === 1,
-      ownerOccupied: item.current_owner_occupied_flag === 1,
-      onMarket: item.current_on_market_flag === 1,
-    };
-  } catch (err) {
-    console.warn('Parcl API request failed:', err);
-    return null;
   }
+  return null;
 }
 
 /**

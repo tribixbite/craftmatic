@@ -85,7 +85,7 @@ export async function searchOSMBuilding(
         return null;
       }
 
-      const data: any = await resp.json();
+      const data = await resp.json() as { elements?: OverpassElement[] };
       const elements = data.elements;
       if (!Array.isArray(elements) || elements.length === 0) return null;
 
