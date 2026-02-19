@@ -72,3 +72,24 @@ export {
 // ─── Conversion ──────────────────────────────────────────────────────────────
 export { schemToThree, gridToThree } from './convert/schem-to-three.js';
 export { threeToSchem, threeToGrid } from './convert/three-to-schem.js';
+
+// ─── Address Pipeline ────────────────────────────────────────────────────────
+export {
+  convertToGenerationOptions, resolveStyle, estimateStoriesFromFootprint,
+  inferStyle, inferFeatures, inferDensityFromZip, inferClimateZone, fnv1aHash,
+  mapArchitectureToStyle, mapOSMRoofToShape, mapRoofMaterialToBlocks,
+} from './gen/address-pipeline.js';
+export type { PropertyData } from './gen/address-pipeline.js';
+
+// ─── API Clients ─────────────────────────────────────────────────────────────
+export { geocodeAddress, type GeocodingResult } from './gen/api/geocoder.js';
+export {
+  searchParclProperty, mapParclPropertyType, parseAddress,
+  hasParclApiKey, getParclApiKey,
+  type ParclPropertyData,
+} from './gen/api/parcl.js';
+export {
+  searchOSMBuilding, analyzePolygonShape, mapOSMMaterialToWall, mapOSMRoofShape,
+  haversineDistance, polygonBoundingDimensions, parseClosestBuilding,
+  type OSMBuildingData, type OverpassElement,
+} from './gen/api/osm.js';

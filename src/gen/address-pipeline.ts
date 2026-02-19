@@ -284,7 +284,7 @@ export function estimateStoriesFromFootprint(
  * Map OSM roof:shape tag to generator RoofShape.
  * Normalizes the various OSM values to one of our 5 supported roof shapes.
  */
-function mapOSMRoofToShape(osmRoofShape: string | undefined): RoofShape | undefined {
+export function mapOSMRoofToShape(osmRoofShape: string | undefined): RoofShape | undefined {
   if (!osmRoofShape) return undefined;
   const s = osmRoofShape.trim().toLowerCase();
   const MAP: Record<string, RoofShape> = {
@@ -301,7 +301,7 @@ function mapOSMRoofToShape(osmRoofShape: string | undefined): RoofShape | undefi
  * Map OSM roof:material to Minecraft stair/slab blocks for roof overrides.
  * Returns {north, south, cap} override or undefined if unmapped.
  */
-function mapRoofMaterialToBlocks(
+export function mapRoofMaterialToBlocks(
   material: string | undefined, colour: string | undefined
 ): { north: BlockState; south: BlockState; cap: BlockState } | undefined {
   if (!material && !colour) return undefined;
