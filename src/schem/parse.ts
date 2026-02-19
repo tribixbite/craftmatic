@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { parse as parseNbt } from 'prismarine-nbt';
-import type { SchematicData, BlockEntity, Vec3 } from '../types/index.js';
+import type { SchematicData, BlockEntity, ItemSlot, Vec3 } from '../types/index.js';
 import { BlockGrid } from './types.js';
 import { decodeAllVarints } from './varint.js';
 
@@ -76,11 +76,28 @@ export async function parseSchematic(filepath: string): Promise<SchematicData> {
       for (const entity of entities) {
         const ent = unwrap(entity) as Record<string, unknown>;
         const pos = unwrap(ent['Pos']) as number[] | Int32Array;
+        // Parse inventory items (chests, barrels, hoppers, etc.)
+        const items: ItemSlot[] = [];
+        const rawItems = ent['Items'];
+        if (rawItems) {
+          const itemList = unwrap(rawItems) as unknown[];
+          if (Array.isArray(itemList)) {
+            for (const item of itemList) {
+              const it = unwrap(item) as Record<string, unknown>;
+              items.push({
+                slot: Number(it['Slot'] ?? 0),
+                id: String(it['id'] ?? it['Id'] ?? ''),
+                count: Number(it['Count'] ?? 1),
+              });
+            }
+          }
+        }
+
         blockEntities.push({
           type: String(unwrap(ent['Id']) ?? ''),
           pos: [Number(pos?.[0]) || 0, Number(pos?.[1]) || 0, Number(pos?.[2]) || 0],
           id: String(unwrap(ent['Id']) ?? ''),
-          // TODO: parse items from entity NBT
+          ...(items.length > 0 ? { items } : {}),
         });
       }
     }
