@@ -2,11 +2,14 @@
  * Style presets for structure generation.
  * Each style defines the block palette used for walls, floors, roofs,
  * timber, accents, lighting, and carpets.
+ *
+ * Uses CompactStyle specs — directional variants (facing, axis, half, type)
+ * are derived automatically by createPalette() to eliminate duplication.
  */
 
 import type { StyleName, BlockState, RoofShape } from '../types/index.js';
 
-/** Material palette for a building style */
+/** Material palette for a building style (fully expanded) */
 export interface StylePalette {
   /** Primary exterior/interior wall material */
   wall: BlockState;
@@ -94,9 +97,155 @@ export interface StylePalette {
   plant3: BlockState;
 }
 
+// ─── Compact Style Spec ──────────────────────────────────────────────────────
+
+/**
+ * Compact style definition — directional block variants (facing, axis, half,
+ * type) are derived automatically by createPalette(). Reduces each style from
+ * ~95 fields to ~34 unique values.
+ */
+interface CompactStyle {
+  // ─── Core materials ─────────────────────────────────────────────
+  wall: BlockState;
+  wallAccent: BlockState;
+  interiorWall: BlockState;
+  floorGround: BlockState;
+  floorUpper: BlockState;
+  ceiling: BlockState;
+  foundation: BlockState;
+  pillar: BlockState;
+  window: BlockState;
+  windowAccent: BlockState;
+  fence: BlockState;
+  carpet: BlockState;
+  carpetAccent: BlockState;
+
+  // ─── Timber (axis=x/z auto-derived if block name contains '_log') ────
+  timber: BlockState;
+
+  // ─── Roof stairs base (e.g. 'minecraft:dark_oak_stairs') ─────────────
+  /** Full block ID without [facing=...] — north/south variants derived */
+  roofStairs: string;
+  roofCap: BlockState;
+  defaultRoofShape: RoofShape;
+  roofHeight: number;
+
+  // ─── Door base (e.g. 'minecraft:dark_oak_door') ─────────────────────
+  /** Full block ID without [half=...,facing=...] — 4 variants derived */
+  door: string;
+
+  // ─── Chair stairs base (e.g. 'minecraft:spruce_stairs') ─────────────
+  /** Full block ID without [facing=...] — N/S/E/W derived */
+  chairStairs: string;
+
+  // ─── Torch type: 'wall_torch' or 'soul_wall_torch' (default: wall_torch)
+  torch?: 'wall_torch' | 'soul_wall_torch';
+
+  // ─── Slab base (e.g. 'minecraft:dark_oak_slab') ────────────────────
+  /** Full block ID without [type=...] — top/bottom derived */
+  slab: string;
+
+  // ─── Banner color (e.g. 'red', 'white') ────────────────────────────
+  bannerColor: string;
+
+  // ─── Lighting ──────────────────────────────────────────────────────
+  lantern: BlockState;
+  lanternFloor: BlockState;
+
+  // ─── Furniture ─────────────────────────────────────────────────────
+  bedColor: StylePalette['bedColor'];
+  fireplaceBlock: BlockState;
+  fireplaceAccent: BlockState;
+  tableSurface: BlockState;
+  candle: BlockState;
+  counterBlock: BlockState;
+  counterSlab: BlockState;
+  plant1: BlockState;
+  plant2: BlockState;
+  plant3: BlockState;
+}
+
+/**
+ * Expand a CompactStyle spec into a full StylePalette by deriving all
+ * directional variants (facing, axis, half, type) from base block IDs.
+ */
+function createPalette(spec: CompactStyle): StylePalette {
+  const torch = spec.torch ?? 'wall_torch';
+  // Logs support [axis=x/z], non-log blocks (quartz_pillar, concrete) don't
+  const hasAxis = spec.timber.includes('_log');
+
+  return {
+    wall: spec.wall,
+    wallAccent: spec.wallAccent,
+    interiorWall: spec.interiorWall,
+    floorGround: spec.floorGround,
+    floorUpper: spec.floorUpper,
+    ceiling: spec.ceiling,
+    foundation: spec.foundation,
+    pillar: spec.pillar,
+    window: spec.window,
+    windowAccent: spec.windowAccent,
+    fence: spec.fence,
+    carpet: spec.carpet,
+    carpetAccent: spec.carpetAccent,
+    lantern: spec.lantern,
+    lanternFloor: spec.lanternFloor,
+    roofCap: spec.roofCap,
+    defaultRoofShape: spec.defaultRoofShape,
+    roofHeight: spec.roofHeight,
+    bedColor: spec.bedColor,
+    fireplaceBlock: spec.fireplaceBlock,
+    fireplaceAccent: spec.fireplaceAccent,
+    tableSurface: spec.tableSurface,
+    candle: spec.candle,
+    counterBlock: spec.counterBlock,
+    counterSlab: spec.counterSlab,
+    plant1: spec.plant1,
+    plant2: spec.plant2,
+    plant3: spec.plant3,
+
+    // ─── Derived: timber axis variants ──────────────────────────────
+    timber: spec.timber,
+    timberX: hasAxis ? `${spec.timber}[axis=x]` : spec.timber,
+    timberZ: hasAxis ? `${spec.timber}[axis=z]` : spec.timber,
+
+    // ─── Derived: roof facing ───────────────────────────────────────
+    roofN: `${spec.roofStairs}[facing=north]`,
+    roofS: `${spec.roofStairs}[facing=south]`,
+
+    // ─── Derived: door half × facing ────────────────────────────────
+    doorLowerN: `${spec.door}[half=lower,facing=north,open=false,hinge=left]`,
+    doorUpperN: `${spec.door}[half=upper,facing=north,open=false,hinge=left]`,
+    doorLowerS: `${spec.door}[half=lower,facing=south,open=false,hinge=left]`,
+    doorUpperS: `${spec.door}[half=upper,facing=south,open=false,hinge=left]`,
+
+    // ─── Derived: chair facing ──────────────────────────────────────
+    chairN: `${spec.chairStairs}[facing=north]`,
+    chairS: `${spec.chairStairs}[facing=south]`,
+    chairE: `${spec.chairStairs}[facing=east]`,
+    chairW: `${spec.chairStairs}[facing=west]`,
+
+    // ─── Derived: torch facing ──────────────────────────────────────
+    torchN: `minecraft:${torch}[facing=north]`,
+    torchS: `minecraft:${torch}[facing=south]`,
+    torchE: `minecraft:${torch}[facing=east]`,
+    torchW: `minecraft:${torch}[facing=west]`,
+
+    // ─── Derived: slab type ─────────────────────────────────────────
+    slabBottom: `${spec.slab}[type=bottom]`,
+    slabTop: `${spec.slab}[type=top]`,
+
+    // ─── Derived: banner facing ─────────────────────────────────────
+    bannerN: `minecraft:${spec.bannerColor}_wall_banner[facing=north]`,
+    bannerS: `minecraft:${spec.bannerColor}_wall_banner[facing=south]`,
+  };
+}
+
+// ─── Style Definitions ───────────────────────────────────────────────────────
+
 /** All style presets */
 export const STYLES: Record<StyleName, StylePalette> = {
-  fantasy: {
+  fantasy: createPalette({
     wall: 'minecraft:white_concrete',
     wallAccent: 'minecraft:chiseled_stone_bricks',
     interiorWall: 'minecraft:white_concrete',
@@ -104,38 +253,23 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:oak_planks',
     ceiling: 'minecraft:dark_oak_planks',
     timber: 'minecraft:dark_oak_log',
-    timberX: 'minecraft:dark_oak_log[axis=x]',
-    timberZ: 'minecraft:dark_oak_log[axis=z]',
-    roofN: 'minecraft:dark_oak_stairs[facing=north]',
-    roofS: 'minecraft:dark_oak_stairs[facing=south]',
+    roofStairs: 'minecraft:dark_oak_stairs',
     roofCap: 'minecraft:dark_oak_slab[type=bottom]',
     defaultRoofShape: 'gambrel',
     roofHeight: 10,
     foundation: 'minecraft:stone_bricks',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:purple_stained_glass_pane',
-    doorLowerN: 'minecraft:dark_oak_door[half=lower,facing=north,open=false,hinge=left]',
-    doorUpperN: 'minecraft:dark_oak_door[half=upper,facing=north,open=false,hinge=left]',
-    doorLowerS: 'minecraft:dark_oak_door[half=lower,facing=south,open=false,hinge=left]',
-    doorUpperS: 'minecraft:dark_oak_door[half=upper,facing=south,open=false,hinge=left]',
+    door: 'minecraft:dark_oak_door',
     pillar: 'minecraft:quartz_pillar',
-    chairN: 'minecraft:spruce_stairs[facing=north]',
-    chairS: 'minecraft:spruce_stairs[facing=south]',
-    chairE: 'minecraft:spruce_stairs[facing=east]',
-    chairW: 'minecraft:spruce_stairs[facing=west]',
+    chairStairs: 'minecraft:spruce_stairs',
     fence: 'minecraft:dark_oak_fence',
     carpet: 'minecraft:red_carpet',
     carpetAccent: 'minecraft:purple_carpet',
     lantern: 'minecraft:lantern[hanging=true]',
     lanternFloor: 'minecraft:lantern[hanging=false]',
-    torchN: 'minecraft:wall_torch[facing=north]',
-    torchS: 'minecraft:wall_torch[facing=south]',
-    torchE: 'minecraft:wall_torch[facing=east]',
-    torchW: 'minecraft:wall_torch[facing=west]',
-    slabBottom: 'minecraft:dark_oak_slab[type=bottom]',
-    slabTop: 'minecraft:dark_oak_slab[type=top]',
-    bannerN: 'minecraft:red_wall_banner[facing=north]',
-    bannerS: 'minecraft:red_wall_banner[facing=south]',
+    slab: 'minecraft:dark_oak_slab',
+    bannerColor: 'red',
     bedColor: 'red',
     fireplaceBlock: 'minecraft:bricks',
     fireplaceAccent: 'minecraft:nether_bricks',
@@ -146,9 +280,9 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_allium',
     plant2: 'minecraft:potted_azure_bluet',
     plant3: 'minecraft:potted_red_tulip',
-  },
+  }),
 
-  medieval: {
+  medieval: createPalette({
     wall: 'minecraft:stone_bricks',
     wallAccent: 'minecraft:mossy_stone_bricks',
     interiorWall: 'minecraft:stone_bricks',
@@ -156,38 +290,23 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:oak_planks',
     ceiling: 'minecraft:oak_planks',
     timber: 'minecraft:oak_log',
-    timberX: 'minecraft:oak_log[axis=x]',
-    timberZ: 'minecraft:oak_log[axis=z]',
-    roofN: 'minecraft:cobblestone_stairs[facing=north]',
-    roofS: 'minecraft:cobblestone_stairs[facing=south]',
+    roofStairs: 'minecraft:cobblestone_stairs',
     roofCap: 'minecraft:cobblestone_slab[type=bottom]',
     defaultRoofShape: 'gable',
     roofHeight: 10,
     foundation: 'minecraft:cobblestone',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:glass_pane',
-    doorLowerN: 'minecraft:oak_door[half=lower,facing=north,open=false,hinge=left]',
-    doorUpperN: 'minecraft:oak_door[half=upper,facing=north,open=false,hinge=left]',
-    doorLowerS: 'minecraft:oak_door[half=lower,facing=south,open=false,hinge=left]',
-    doorUpperS: 'minecraft:oak_door[half=upper,facing=south,open=false,hinge=left]',
+    door: 'minecraft:oak_door',
     pillar: 'minecraft:oak_log',
-    chairN: 'minecraft:oak_stairs[facing=north]',
-    chairS: 'minecraft:oak_stairs[facing=south]',
-    chairE: 'minecraft:oak_stairs[facing=east]',
-    chairW: 'minecraft:oak_stairs[facing=west]',
+    chairStairs: 'minecraft:oak_stairs',
     fence: 'minecraft:oak_fence',
     carpet: 'minecraft:red_carpet',
     carpetAccent: 'minecraft:yellow_carpet',
     lantern: 'minecraft:lantern[hanging=true]',
     lanternFloor: 'minecraft:lantern[hanging=false]',
-    torchN: 'minecraft:wall_torch[facing=north]',
-    torchS: 'minecraft:wall_torch[facing=south]',
-    torchE: 'minecraft:wall_torch[facing=east]',
-    torchW: 'minecraft:wall_torch[facing=west]',
-    slabBottom: 'minecraft:oak_slab[type=bottom]',
-    slabTop: 'minecraft:oak_slab[type=top]',
-    bannerN: 'minecraft:red_wall_banner[facing=north]',
-    bannerS: 'minecraft:red_wall_banner[facing=south]',
+    slab: 'minecraft:oak_slab',
+    bannerColor: 'red',
     bedColor: 'red',
     fireplaceBlock: 'minecraft:cobblestone',
     fireplaceAccent: 'minecraft:mossy_cobblestone',
@@ -198,9 +317,9 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_fern',
     plant2: 'minecraft:potted_oak_sapling',
     plant3: 'minecraft:potted_red_tulip',
-  },
+  }),
 
-  modern: {
+  modern: createPalette({
     wall: 'minecraft:white_concrete',
     wallAccent: 'minecraft:light_gray_concrete',
     interiorWall: 'minecraft:white_concrete',
@@ -208,38 +327,23 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:polished_andesite',
     ceiling: 'minecraft:smooth_quartz',
     timber: 'minecraft:quartz_pillar',
-    timberX: 'minecraft:quartz_pillar',
-    timberZ: 'minecraft:quartz_pillar',
-    roofN: 'minecraft:smooth_quartz_stairs[facing=north]',
-    roofS: 'minecraft:smooth_quartz_stairs[facing=south]',
+    roofStairs: 'minecraft:smooth_quartz_stairs',
     roofCap: 'minecraft:smooth_quartz_slab[type=bottom]',
     defaultRoofShape: 'flat',
     roofHeight: 4,
     foundation: 'minecraft:polished_andesite',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:light_blue_stained_glass_pane',
-    doorLowerN: 'minecraft:iron_door[half=lower,facing=north,open=false,hinge=left]',
-    doorUpperN: 'minecraft:iron_door[half=upper,facing=north,open=false,hinge=left]',
-    doorLowerS: 'minecraft:iron_door[half=lower,facing=south,open=false,hinge=left]',
-    doorUpperS: 'minecraft:iron_door[half=upper,facing=south,open=false,hinge=left]',
+    door: 'minecraft:iron_door',
     pillar: 'minecraft:quartz_pillar',
-    chairN: 'minecraft:quartz_stairs[facing=north]',
-    chairS: 'minecraft:quartz_stairs[facing=south]',
-    chairE: 'minecraft:quartz_stairs[facing=east]',
-    chairW: 'minecraft:quartz_stairs[facing=west]',
+    chairStairs: 'minecraft:quartz_stairs',
     fence: 'minecraft:iron_bars',
     carpet: 'minecraft:white_carpet',
     carpetAccent: 'minecraft:light_gray_carpet',
     lantern: 'minecraft:sea_lantern',
     lanternFloor: 'minecraft:sea_lantern',
-    torchN: 'minecraft:wall_torch[facing=north]',
-    torchS: 'minecraft:wall_torch[facing=south]',
-    torchE: 'minecraft:wall_torch[facing=east]',
-    torchW: 'minecraft:wall_torch[facing=west]',
-    slabBottom: 'minecraft:smooth_quartz_slab[type=bottom]',
-    slabTop: 'minecraft:smooth_quartz_slab[type=top]',
-    bannerN: 'minecraft:white_wall_banner[facing=north]',
-    bannerS: 'minecraft:white_wall_banner[facing=south]',
+    slab: 'minecraft:smooth_quartz_slab',
+    bannerColor: 'white',
     bedColor: 'white',
     fireplaceBlock: 'minecraft:polished_andesite',
     fireplaceAccent: 'minecraft:smooth_stone',
@@ -250,9 +354,9 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_bamboo',
     plant2: 'minecraft:potted_fern',
     plant3: 'minecraft:potted_lily_of_the_valley',
-  },
+  }),
 
-  gothic: {
+  gothic: createPalette({
     wall: 'minecraft:deepslate_bricks',
     wallAccent: 'minecraft:polished_blackstone_bricks',
     interiorWall: 'minecraft:deepslate_tiles',
@@ -260,38 +364,24 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:deepslate_tiles',
     ceiling: 'minecraft:deepslate_bricks',
     timber: 'minecraft:dark_oak_log',
-    timberX: 'minecraft:dark_oak_log[axis=x]',
-    timberZ: 'minecraft:dark_oak_log[axis=z]',
-    roofN: 'minecraft:dark_oak_stairs[facing=north]',
-    roofS: 'minecraft:dark_oak_stairs[facing=south]',
+    roofStairs: 'minecraft:dark_oak_stairs',
     roofCap: 'minecraft:dark_oak_slab[type=bottom]',
     defaultRoofShape: 'mansard',
     roofHeight: 12,
     foundation: 'minecraft:polished_blackstone_bricks',
     window: 'minecraft:gray_stained_glass_pane',
     windowAccent: 'minecraft:red_stained_glass_pane',
-    doorLowerN: 'minecraft:dark_oak_door[half=lower,facing=north,open=false,hinge=left]',
-    doorUpperN: 'minecraft:dark_oak_door[half=upper,facing=north,open=false,hinge=left]',
-    doorLowerS: 'minecraft:dark_oak_door[half=lower,facing=south,open=false,hinge=left]',
-    doorUpperS: 'minecraft:dark_oak_door[half=upper,facing=south,open=false,hinge=left]',
+    door: 'minecraft:dark_oak_door',
     pillar: 'minecraft:polished_blackstone_bricks',
-    chairN: 'minecraft:dark_oak_stairs[facing=north]',
-    chairS: 'minecraft:dark_oak_stairs[facing=south]',
-    chairE: 'minecraft:dark_oak_stairs[facing=east]',
-    chairW: 'minecraft:dark_oak_stairs[facing=west]',
+    chairStairs: 'minecraft:dark_oak_stairs',
     fence: 'minecraft:dark_oak_fence',
     carpet: 'minecraft:red_carpet',
     carpetAccent: 'minecraft:black_carpet',
     lantern: 'minecraft:soul_lantern[hanging=true]',
     lanternFloor: 'minecraft:soul_lantern[hanging=false]',
-    torchN: 'minecraft:soul_wall_torch[facing=north]',
-    torchS: 'minecraft:soul_wall_torch[facing=south]',
-    torchE: 'minecraft:soul_wall_torch[facing=east]',
-    torchW: 'minecraft:soul_wall_torch[facing=west]',
-    slabBottom: 'minecraft:deepslate_brick_slab[type=bottom]',
-    slabTop: 'minecraft:deepslate_brick_slab[type=top]',
-    bannerN: 'minecraft:gray_wall_banner[facing=north]',
-    bannerS: 'minecraft:gray_wall_banner[facing=south]',
+    torch: 'soul_wall_torch',
+    slab: 'minecraft:deepslate_brick_slab',
+    bannerColor: 'gray',
     bedColor: 'black',
     fireplaceBlock: 'minecraft:polished_blackstone_bricks',
     fireplaceAccent: 'minecraft:crying_obsidian',
@@ -302,9 +392,9 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_wither_rose',
     plant2: 'minecraft:potted_dead_bush',
     plant3: 'minecraft:potted_crimson_fungus',
-  },
+  }),
 
-  rustic: {
+  rustic: createPalette({
     wall: 'minecraft:spruce_planks',
     wallAccent: 'minecraft:stripped_spruce_log',
     interiorWall: 'minecraft:birch_planks',
@@ -312,38 +402,23 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:birch_planks',
     ceiling: 'minecraft:spruce_planks',
     timber: 'minecraft:spruce_log',
-    timberX: 'minecraft:spruce_log[axis=x]',
-    timberZ: 'minecraft:spruce_log[axis=z]',
-    roofN: 'minecraft:spruce_stairs[facing=north]',
-    roofS: 'minecraft:spruce_stairs[facing=south]',
+    roofStairs: 'minecraft:spruce_stairs',
     roofCap: 'minecraft:spruce_slab[type=bottom]',
     defaultRoofShape: 'gambrel',
     roofHeight: 10,
     foundation: 'minecraft:cobblestone',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:glass_pane',
-    doorLowerN: 'minecraft:spruce_door[half=lower,facing=north,open=false,hinge=left]',
-    doorUpperN: 'minecraft:spruce_door[half=upper,facing=north,open=false,hinge=left]',
-    doorLowerS: 'minecraft:spruce_door[half=lower,facing=south,open=false,hinge=left]',
-    doorUpperS: 'minecraft:spruce_door[half=upper,facing=south,open=false,hinge=left]',
+    door: 'minecraft:spruce_door',
     pillar: 'minecraft:spruce_log',
-    chairN: 'minecraft:spruce_stairs[facing=north]',
-    chairS: 'minecraft:spruce_stairs[facing=south]',
-    chairE: 'minecraft:spruce_stairs[facing=east]',
-    chairW: 'minecraft:spruce_stairs[facing=west]',
+    chairStairs: 'minecraft:spruce_stairs',
     fence: 'minecraft:spruce_fence',
     carpet: 'minecraft:brown_carpet',
     carpetAccent: 'minecraft:yellow_carpet',
     lantern: 'minecraft:lantern[hanging=true]',
     lanternFloor: 'minecraft:lantern[hanging=false]',
-    torchN: 'minecraft:wall_torch[facing=north]',
-    torchS: 'minecraft:wall_torch[facing=south]',
-    torchE: 'minecraft:wall_torch[facing=east]',
-    torchW: 'minecraft:wall_torch[facing=west]',
-    slabBottom: 'minecraft:spruce_slab[type=bottom]',
-    slabTop: 'minecraft:spruce_slab[type=top]',
-    bannerN: 'minecraft:red_wall_banner[facing=north]',
-    bannerS: 'minecraft:red_wall_banner[facing=south]',
+    slab: 'minecraft:spruce_slab',
+    bannerColor: 'red',
     bedColor: 'brown',
     fireplaceBlock: 'minecraft:cobblestone',
     fireplaceAccent: 'minecraft:stone_bricks',
@@ -354,9 +429,9 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_fern',
     plant2: 'minecraft:potted_dandelion',
     plant3: 'minecraft:potted_poppy',
-  },
+  }),
 
-  steampunk: {
+  steampunk: createPalette({
     wall: 'minecraft:iron_block',
     wallAccent: 'minecraft:exposed_copper',
     interiorWall: 'minecraft:iron_block',
@@ -364,38 +439,23 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:dark_oak_planks',
     ceiling: 'minecraft:dark_oak_planks',
     timber: 'minecraft:dark_oak_log',
-    timberX: 'minecraft:dark_oak_log[axis=x]',
-    timberZ: 'minecraft:dark_oak_log[axis=z]',
-    roofN: 'minecraft:cut_copper_stairs[facing=north]',
-    roofS: 'minecraft:cut_copper_stairs[facing=south]',
+    roofStairs: 'minecraft:cut_copper_stairs',
     roofCap: 'minecraft:cut_copper_slab[type=bottom]',
     defaultRoofShape: 'mansard',
     roofHeight: 10,
     foundation: 'minecraft:polished_deepslate',
     window: 'minecraft:tinted_glass',
     windowAccent: 'minecraft:orange_stained_glass_pane',
-    doorLowerN: 'minecraft:iron_door[half=lower,facing=north,open=false,hinge=left]',
-    doorUpperN: 'minecraft:iron_door[half=upper,facing=north,open=false,hinge=left]',
-    doorLowerS: 'minecraft:iron_door[half=lower,facing=south,open=false,hinge=left]',
-    doorUpperS: 'minecraft:iron_door[half=upper,facing=south,open=false,hinge=left]',
+    door: 'minecraft:iron_door',
     pillar: 'minecraft:iron_block',
-    chairN: 'minecraft:dark_oak_stairs[facing=north]',
-    chairS: 'minecraft:dark_oak_stairs[facing=south]',
-    chairE: 'minecraft:dark_oak_stairs[facing=east]',
-    chairW: 'minecraft:dark_oak_stairs[facing=west]',
+    chairStairs: 'minecraft:dark_oak_stairs',
     fence: 'minecraft:chain',
     carpet: 'minecraft:gray_carpet',
     carpetAccent: 'minecraft:orange_carpet',
     lantern: 'minecraft:redstone_lamp',
     lanternFloor: 'minecraft:redstone_lamp',
-    torchN: 'minecraft:wall_torch[facing=north]',
-    torchS: 'minecraft:wall_torch[facing=south]',
-    torchE: 'minecraft:wall_torch[facing=east]',
-    torchW: 'minecraft:wall_torch[facing=west]',
-    slabBottom: 'minecraft:dark_oak_slab[type=bottom]',
-    slabTop: 'minecraft:dark_oak_slab[type=top]',
-    bannerN: 'minecraft:black_wall_banner[facing=north]',
-    bannerS: 'minecraft:black_wall_banner[facing=south]',
+    slab: 'minecraft:dark_oak_slab',
+    bannerColor: 'black',
     bedColor: 'gray',
     fireplaceBlock: 'minecraft:iron_block',
     fireplaceAccent: 'minecraft:exposed_copper',
@@ -406,9 +466,9 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_dead_bush',
     plant2: 'minecraft:potted_cactus',
     plant3: 'minecraft:potted_crimson_fungus',
-  },
+  }),
 
-  elven: {
+  elven: createPalette({
     wall: 'minecraft:moss_block',
     wallAccent: 'minecraft:stripped_birch_log',
     interiorWall: 'minecraft:birch_planks',
@@ -416,38 +476,23 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:birch_planks',
     ceiling: 'minecraft:birch_planks',
     timber: 'minecraft:birch_log',
-    timberX: 'minecraft:birch_log[axis=x]',
-    timberZ: 'minecraft:birch_log[axis=z]',
-    roofN: 'minecraft:warped_stairs[facing=north]',
-    roofS: 'minecraft:warped_stairs[facing=south]',
+    roofStairs: 'minecraft:warped_stairs',
     roofCap: 'minecraft:warped_slab[type=bottom]',
     defaultRoofShape: 'hip',
     roofHeight: 8,
     foundation: 'minecraft:stone_bricks',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:green_stained_glass_pane',
-    doorLowerN: 'minecraft:birch_door[half=lower,facing=north,open=false,hinge=left]',
-    doorUpperN: 'minecraft:birch_door[half=upper,facing=north,open=false,hinge=left]',
-    doorLowerS: 'minecraft:birch_door[half=lower,facing=south,open=false,hinge=left]',
-    doorUpperS: 'minecraft:birch_door[half=upper,facing=south,open=false,hinge=left]',
+    door: 'minecraft:birch_door',
     pillar: 'minecraft:birch_log',
-    chairN: 'minecraft:birch_stairs[facing=north]',
-    chairS: 'minecraft:birch_stairs[facing=south]',
-    chairE: 'minecraft:birch_stairs[facing=east]',
-    chairW: 'minecraft:birch_stairs[facing=west]',
+    chairStairs: 'minecraft:birch_stairs',
     fence: 'minecraft:birch_fence',
     carpet: 'minecraft:green_carpet',
     carpetAccent: 'minecraft:lime_carpet',
     lantern: 'minecraft:end_rod[facing=down]',
     lanternFloor: 'minecraft:glowstone',
-    torchN: 'minecraft:wall_torch[facing=north]',
-    torchS: 'minecraft:wall_torch[facing=south]',
-    torchE: 'minecraft:wall_torch[facing=east]',
-    torchW: 'minecraft:wall_torch[facing=west]',
-    slabBottom: 'minecraft:birch_slab[type=bottom]',
-    slabTop: 'minecraft:birch_slab[type=top]',
-    bannerN: 'minecraft:white_wall_banner[facing=north]',
-    bannerS: 'minecraft:white_wall_banner[facing=south]',
+    slab: 'minecraft:birch_slab',
+    bannerColor: 'white',
     bedColor: 'green',
     fireplaceBlock: 'minecraft:moss_block',
     fireplaceAccent: 'minecraft:mossy_cobblestone',
@@ -458,9 +503,9 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_birch_sapling',
     plant2: 'minecraft:potted_azalea_bush',
     plant3: 'minecraft:potted_flowering_azalea_bush',
-  },
+  }),
 
-  desert: {
+  desert: createPalette({
     wall: 'minecraft:sandstone',
     wallAccent: 'minecraft:white_terracotta',
     interiorWall: 'minecraft:smooth_sandstone',
@@ -468,38 +513,24 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:sandstone',
     ceiling: 'minecraft:chiseled_sandstone',
     timber: 'minecraft:acacia_log',
-    timberX: 'minecraft:acacia_log[axis=x]',
-    timberZ: 'minecraft:acacia_log[axis=z]',
-    roofN: 'minecraft:sandstone_stairs[facing=north]',
-    roofS: 'minecraft:sandstone_stairs[facing=south]',
+    roofStairs: 'minecraft:sandstone_stairs',
     roofCap: 'minecraft:sandstone_slab[type=bottom]',
     defaultRoofShape: 'flat',
     roofHeight: 4,
     foundation: 'minecraft:sandstone',
     window: 'minecraft:glass_pane',
     windowAccent: 'minecraft:orange_stained_glass_pane',
-    doorLowerN: 'minecraft:acacia_door[half=lower,facing=north,open=false,hinge=left]',
-    doorUpperN: 'minecraft:acacia_door[half=upper,facing=north,open=false,hinge=left]',
-    doorLowerS: 'minecraft:acacia_door[half=lower,facing=south,open=false,hinge=left]',
-    doorUpperS: 'minecraft:acacia_door[half=upper,facing=south,open=false,hinge=left]',
+    door: 'minecraft:acacia_door',
     pillar: 'minecraft:sandstone_wall',
-    chairN: 'minecraft:acacia_stairs[facing=north]',
-    chairS: 'minecraft:acacia_stairs[facing=south]',
-    chairE: 'minecraft:acacia_stairs[facing=east]',
-    chairW: 'minecraft:acacia_stairs[facing=west]',
+    chairStairs: 'minecraft:acacia_stairs',
     fence: 'minecraft:acacia_fence',
     carpet: 'minecraft:orange_carpet',
     carpetAccent: 'minecraft:red_carpet',
     lantern: 'minecraft:soul_lantern[hanging=true]',
     lanternFloor: 'minecraft:soul_lantern[hanging=false]',
-    torchN: 'minecraft:soul_wall_torch[facing=north]',
-    torchS: 'minecraft:soul_wall_torch[facing=south]',
-    torchE: 'minecraft:soul_wall_torch[facing=east]',
-    torchW: 'minecraft:soul_wall_torch[facing=west]',
-    slabBottom: 'minecraft:sandstone_slab[type=bottom]',
-    slabTop: 'minecraft:sandstone_slab[type=top]',
-    bannerN: 'minecraft:red_wall_banner[facing=north]',
-    bannerS: 'minecraft:red_wall_banner[facing=south]',
+    torch: 'soul_wall_torch',
+    slab: 'minecraft:sandstone_slab',
+    bannerColor: 'red',
     bedColor: 'orange',
     fireplaceBlock: 'minecraft:sandstone',
     fireplaceAccent: 'minecraft:red_sandstone',
@@ -510,9 +541,9 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_dead_bush',
     plant2: 'minecraft:potted_cactus',
     plant3: 'minecraft:potted_red_tulip',
-  },
+  }),
 
-  underwater: {
+  underwater: createPalette({
     wall: 'minecraft:prismarine_bricks',
     wallAccent: 'minecraft:blue_concrete',
     interiorWall: 'minecraft:dark_prismarine',
@@ -520,38 +551,24 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:warped_planks',
     ceiling: 'minecraft:dark_prismarine',
     timber: 'minecraft:blue_concrete',
-    timberX: 'minecraft:blue_concrete',
-    timberZ: 'minecraft:blue_concrete',
-    roofN: 'minecraft:dark_prismarine_stairs[facing=north]',
-    roofS: 'minecraft:dark_prismarine_stairs[facing=south]',
+    roofStairs: 'minecraft:dark_prismarine_stairs',
     roofCap: 'minecraft:dark_prismarine_slab[type=bottom]',
     defaultRoofShape: 'hip',
     roofHeight: 8,
     foundation: 'minecraft:prismarine',
     window: 'minecraft:light_blue_stained_glass_pane',
     windowAccent: 'minecraft:blue_stained_glass_pane',
-    doorLowerN: 'minecraft:iron_door[half=lower,facing=north,open=false,hinge=left]',
-    doorUpperN: 'minecraft:iron_door[half=upper,facing=north,open=false,hinge=left]',
-    doorLowerS: 'minecraft:iron_door[half=lower,facing=south,open=false,hinge=left]',
-    doorUpperS: 'minecraft:iron_door[half=upper,facing=south,open=false,hinge=left]',
+    door: 'minecraft:iron_door',
     pillar: 'minecraft:warped_fence',
-    chairN: 'minecraft:warped_stairs[facing=north]',
-    chairS: 'minecraft:warped_stairs[facing=south]',
-    chairE: 'minecraft:warped_stairs[facing=east]',
-    chairW: 'minecraft:warped_stairs[facing=west]',
+    chairStairs: 'minecraft:warped_stairs',
     fence: 'minecraft:warped_fence',
     carpet: 'minecraft:cyan_carpet',
     carpetAccent: 'minecraft:light_blue_carpet',
     lantern: 'minecraft:sea_lantern',
     lanternFloor: 'minecraft:sea_lantern',
-    torchN: 'minecraft:soul_wall_torch[facing=north]',
-    torchS: 'minecraft:soul_wall_torch[facing=south]',
-    torchE: 'minecraft:soul_wall_torch[facing=east]',
-    torchW: 'minecraft:soul_wall_torch[facing=west]',
-    slabBottom: 'minecraft:warped_slab[type=bottom]',
-    slabTop: 'minecraft:warped_slab[type=top]',
-    bannerN: 'minecraft:blue_wall_banner[facing=north]',
-    bannerS: 'minecraft:blue_wall_banner[facing=south]',
+    torch: 'soul_wall_torch',
+    slab: 'minecraft:warped_slab',
+    bannerColor: 'blue',
     bedColor: 'cyan',
     fireplaceBlock: 'minecraft:prismarine_bricks',
     fireplaceAccent: 'minecraft:dark_prismarine',
@@ -562,7 +579,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_warped_fungus',
     plant2: 'minecraft:potted_crimson_fungus',
     plant3: 'minecraft:potted_fern',
-  },
+  }),
 };
 
 /** Get a style palette by name */
