@@ -59,10 +59,39 @@ export function getRoomTypes(): RoomType[] {
   return Object.keys(ROOM_GENERATORS) as RoomType[];
 }
 
+// ─── Shared Layout Helpers ───────────────────────────────────────────────────
+
+/**
+ * Place a counter line (block + slab) along an axis.
+ * axis='x' iterates x from start to end at fixed z;
+ * axis='z' iterates z from start to end at fixed x.
+ */
+function counterLine(
+  grid: BlockGrid, axis: 'x' | 'z', start: number, end: number,
+  fixedCoord: number, y: number, style: StylePalette,
+): void {
+  for (let i = start; i <= end; i++) {
+    const [px, pz] = axis === 'x' ? [i, fixedCoord] : [fixedCoord, i];
+    grid.set(px, y, pz, style.counterBlock);
+    grid.set(px, y + 1, pz, style.counterSlab);
+  }
+}
+
+/**
+ * Place a centered chandelier at ceiling height.
+ * Shorthand for the common: chandelier(grid, cx, y+height-1, cz, style, size).
+ */
+function ceilingChandelier(
+  grid: BlockGrid, b: RoomBounds, style: StylePalette,
+  cx: number, cz: number, size: 1 | 2 = 1,
+): void {
+  chandelier(grid, cx, b.y + b.height - 1, cz, style, size);
+}
+
 // ─── Room Implementations ────────────────────────────────────────────────────
 
 function generateLivingRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2, height } = b;
+  const { x1, y, z1, x2, z2 } = b;
   const cx = Math.floor((x1 + x2) / 2);
   const rw = x2 - x1;
   const rl = z2 - z1;
@@ -119,11 +148,11 @@ function generateLivingRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette)
   if (rw >= 8) grid.set(cx, y + 3, z2, style.bannerN);
 
   // Chandelier
-  chandelier(grid, cx, y + height - 1, z1 + 3, style, 2);
+  ceilingChandelier(grid, b, style, cx, z1 + 3, 2);
 }
 
 function generateDiningRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2, height } = b;
+  const { x1, y, z1, x2, z2 } = b;
   const cx = Math.floor((x1 + x2) / 2);
   const rw = x2 - x1;
 
@@ -134,10 +163,7 @@ function generateDiningRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette)
   grid.set(cx, y, z2 - 1, style.chairN);
 
   // Sideboard / buffet along side wall
-  for (let z = z1; z <= z1 + 3 && z < z2; z++) {
-    grid.set(x1, y, z, style.counterBlock);
-    grid.set(x1, y + 1, z, style.counterSlab);
-  }
+  counterLine(grid, 'z', z1, Math.min(z1 + 3, z2 - 1), x1, y, style);
   grid.set(x1, y + 2, z1, style.candle);
   grid.set(x1, y + 2, z1 + 2, style.plant3);
 
@@ -166,23 +192,20 @@ function generateDiningRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette)
   }
 
   // Chandeliers (multiple for grand feel)
-  chandelier(grid, cx, y + height - 1, z1 + 3, style, 2);
-  chandelier(grid, cx, y + height - 1, z2 - 2, style, 2);
+  ceilingChandelier(grid, b, style, cx, z1 + 3, 2);
+  ceilingChandelier(grid, b, style, cx, z2 - 2, 2);
 
   // Carpet runner under table with border
   rugWithBorder(grid, cx - 2, y, z1 + 1, cx + 2, z2 - 1, style.carpet, style.carpetAccent);
 }
 
 function generateKitchen(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2, height } = b;
+  const { x1, y, z1, x2, z2 } = b;
   const rw = x2 - x1;
   const cx = Math.floor((x1 + x2) / 2);
 
   // Full counter along back wall
-  for (let x = x1; x <= x2; x++) {
-    grid.set(x, y, z2, style.counterBlock);
-    grid.set(x, y + 1, z2, style.counterSlab);
-  }
+  counterLine(grid, 'x', x1, x2, z2, y, style);
   // Cooking stations
   grid.set(x1, y, z2, 'minecraft:furnace[facing=north,lit=false]');
   grid.set(x1 + 1, y, z2, 'minecraft:smoker[facing=north,lit=false]');
@@ -193,10 +216,7 @@ function generateKitchen(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   grid.set(x2 - 1, y, z2, 'minecraft:water_cauldron[level=3]');
 
   // Counter along side wall
-  for (let z = z1; z <= z1 + 3 && z < z2; z++) {
-    grid.set(x2, y, z, style.counterBlock);
-    grid.set(x2, y + 1, z, style.counterSlab);
-  }
+  counterLine(grid, 'z', z1, Math.min(z1 + 3, z2 - 1), x2, y, style);
   // Hanging pots above counter (use chains and iron trapdoors)
   grid.set(x1, y + 3, z2, 'minecraft:chain');
   grid.set(x1 + 1, y + 3, z2, 'minecraft:chain');
@@ -231,12 +251,12 @@ function generateKitchen(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   }
 
   // Ceiling lights
-  chandelier(grid, cx, y + height - 1, z1 + 3, style, 1);
-  if (rw >= 8) chandelier(grid, cx, y + height - 1, z2 - 2, style, 1);
+  ceilingChandelier(grid, b, style, cx, z1 + 3);
+  if (rw >= 8) ceilingChandelier(grid, b, style, cx, z2 - 2);
 }
 
 function generateFoyer(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2, height } = b;
+  const { x1, y, z1, x2, z2 } = b;
   const cx = Math.floor((x1 + x2) / 2);
 
   // Grand carpet runner with border (full depth)
@@ -285,7 +305,7 @@ function generateFoyer(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
   }
 
   // Chandelier
-  chandelier(grid, cx, y + height - 1, fCz, style, 2);
+  ceilingChandelier(grid, b, style, cx, fCz, 2);
 }
 
 function generateBedroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -403,7 +423,7 @@ function generateBathroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): 
 }
 
 function generateStudy(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2, height } = b;
+  const { x1, y, z1, x2, z2 } = b;
   const cx = Math.floor((x1 + x2) / 2);
   const cz = Math.floor((z1 + z2) / 2);
 
@@ -452,11 +472,11 @@ function generateStudy(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
   grid.set(cx, y + 3, z1, style.bannerS);
 
   // Chandelier
-  chandelier(grid, cx, y + height - 1, cz, style, 2);
+  ceilingChandelier(grid, b, style, cx, cz, 2);
 }
 
 function generateLibrary(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2, height } = b;
+  const { x1, y, z1, x2, z2 } = b;
   const cx = Math.floor((x1 + x2) / 2);
   const cz = Math.floor((z1 + z2) / 2);
   const rw = x2 - x1;
@@ -494,8 +514,8 @@ function generateLibrary(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   rugWithBorder(grid, x1 + 2, y, z1 + 1, x2 - 2, z2 - 1, style.carpet, style.carpetAccent);
 
   // Chandeliers (multiple)
-  chandelier(grid, cx, y + height - 1, z1 + 3, style, 2);
-  chandelier(grid, cx, y + height - 1, z2 - 3, style, 2);
+  ceilingChandelier(grid, b, style, cx, z1 + 3, 2);
+  ceilingChandelier(grid, b, style, cx, z2 - 3, 2);
 }
 
 function generateVault(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -586,7 +606,7 @@ function generateVault(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
 }
 
 function generateArmory(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2, height } = b;
+  const { x1, y, z1, x2, z2 } = b;
   const cx = Math.floor((x1 + x2) / 2);
   const rw = x2 - x1;
 
@@ -651,8 +671,8 @@ function generateArmory(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
   grid.set(x1 + 1, y, z1, style.plant1);
 
   // Chandelier + secondary light
-  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
-  lightFixture(grid, x2 - 1, y + height - 1, z1 + 1, 1, 'lantern');
+  ceilingChandelier(grid, b, style, cx, Math.floor((z1 + z2) / 2), 2);
+  lightFixture(grid, x2 - 1, b.y + b.height - 1, z1 + 1, 1, 'lantern');
 }
 
 function generateObservatory(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -758,7 +778,7 @@ function generateLab(grid: BlockGrid, b: RoomBounds, style: StylePalette): void 
   lightFixture(grid, x1 + 1, y + height - 1, z1 + 1, 1, 'lantern');
 
   // Chandelier
-  chandelier(grid, cx, y + height - 1, cz, style, 1);
+  ceilingChandelier(grid, b, style, cx, cz);
 }
 
 function generateGallery(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -847,15 +867,15 @@ function generateThroneRoom(grid: BlockGrid, b: RoomBounds, style: StylePalette)
   grid.set(cx + 2, y + 2, z2 - 1, style.torchN);
 
   // Grand chandelier
-  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
+  ceilingChandelier(grid, b, style, cx, Math.floor((z1 + z2) / 2), 2);
   if (rw >= 8) {
-    chandelier(grid, cx - 3, y + height - 1, z1 + 3, style, 1);
-    chandelier(grid, cx + 3, y + height - 1, z1 + 3, style, 1);
+    ceilingChandelier(grid, b, style, cx - 3, z1 + 3);
+    ceilingChandelier(grid, b, style, cx + 3, z1 + 3);
   }
 }
 
 function generateForge(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2, height } = b;
+  const { x1, y, z1, x2, z2 } = b;
   const cx = Math.floor((x1 + x2) / 2);
 
   // Forge stations along back wall
@@ -906,7 +926,7 @@ function generateForge(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
   grid.set(cx, y + 3, z1, style.bannerS);
 
   // Chandelier
-  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 1);
+  ceilingChandelier(grid, b, style, cx, Math.floor((z1 + z2) / 2));
 }
 
 function generateGreenhouse(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -978,7 +998,7 @@ function generateGreenhouse(grid: BlockGrid, b: RoomBounds, style: StylePalette)
 // ─── New Room Types (v0.2.0) ────────────────────────────────────────────────
 
 function generateCaptainsQuarters(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
-  const { x1, y, z1, x2, z2, height } = b;
+  const { x1, y, z1, x2, z2 } = b;
   const cx = Math.floor((x1 + x2) / 2);
   const rw = x2 - x1;
 
@@ -1032,7 +1052,7 @@ function generateCaptainsQuarters(grid: BlockGrid, b: RoomBounds, style: StylePa
   }
 
   // Chandelier
-  chandelier(grid, cx, y + height - 1, cCz, style, 2);
+  ceilingChandelier(grid, b, style, cx, cCz, 2);
 }
 
 function generateCell(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1144,7 +1164,7 @@ function generateNave(grid: BlockGrid, b: RoomBounds, style: StylePalette): void
     lightFixture(grid, cx - 3, y + height - 1, z2 - 5, 2, 'lantern');
     lightFixture(grid, cx + 3, y + height - 1, z2 - 5, 2, 'lantern');
   }
-  chandelier(grid, cx, y + height - 1, Math.floor((z1 + z2) / 2), style, 2);
+  ceilingChandelier(grid, b, style, cx, Math.floor((z1 + z2) / 2), 2);
 }
 
 function generateBelfry(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1392,7 +1412,7 @@ function generateSunroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   grid.set(cx - 1, y, cz, style.chairE);
 
   // Bright lantern lights
-  chandelier(grid, cx, y + height - 1, cz, style, 1);
+  ceilingChandelier(grid, b, style, cx, cz);
 }
 
 function generateCloset(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1531,8 +1551,8 @@ function generateLaundry(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   grid.set(cx + 1, y, cz, 'minecraft:water_cauldron[level=2]');
 
   // Lanterns (two for better coverage)
-  chandelier(grid, cx, y + height - 1, z1 + 1, style, 1);
-  chandelier(grid, cx, y + height - 1, z2 - 1, style, 1);
+  ceilingChandelier(grid, b, style, cx, z1 + 1);
+  ceilingChandelier(grid, b, style, cx, z2 - 1);
 }
 
 function generatePantry(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1650,8 +1670,8 @@ function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   grid.set(cx + 1, y, z2, style.counterSlab);
 
   // Two lanterns for better coverage
-  chandelier(grid, cx, y + height - 1, z1 + 2, style, 1);
-  chandelier(grid, cx, y + height - 1, z2 - 1, style, 1);
+  ceilingChandelier(grid, b, style, cx, z1 + 2);
+  ceilingChandelier(grid, b, style, cx, z2 - 1);
 }
 
 /** Garage — concrete floor, workbench, storage, wide door opening */
