@@ -221,7 +221,7 @@ export function initImport(
       <div class="form-group">
         <label class="form-label">Stories</label>
         <input id="import-stories" type="number" class="form-input"
-          value="${loadField('stories') || '2'}" min="1" max="8">
+          value="${loadField('stories') || '2'}" min="1" max="100">
       </div>
       <div class="form-group">
         <label class="form-label">Sq. Ft.</label>
