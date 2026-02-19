@@ -35,6 +35,8 @@ export interface OSMBuildingData {
   buildingColour?: string;
   /** OSM roof:colour as hex RGB */
   roofColour?: string;
+  /** Actual polygon area in square meters (shoelace formula) */
+  footprintAreaSqm: number;
   /** Raw OSM tags object */
   tags: Record<string, string>;
 }
@@ -140,7 +142,23 @@ export function parseClosestBuilding(
 
   const polygon = bestElement.geometry.map(pt => ({ lat: pt.lat, lon: pt.lon }));
   const { widthMeters, lengthMeters } = polygonBoundingDimensions(polygon);
+  const footprintAreaSqm = polygonArea(polygon);
   const tags = bestElement.tags ?? {};
+
+  // For non-rectangular shapes, derive block dimensions from actual area
+  // instead of bounding box to avoid inflating L/T/U buildings
+  const bboxArea = widthMeters * lengthMeters;
+  const fillRatio = bboxArea > 0 ? footprintAreaSqm / bboxArea : 1;
+  const aspectRatio = lengthMeters > 0 ? widthMeters / lengthMeters : 1;
+
+  // Scale bbox dimensions down to match actual area: area = w * l, w/l = aspectRatio
+  // So: w = sqrt(area * aspectRatio), l = sqrt(area / aspectRatio)
+  let effectiveWidth = widthMeters;
+  let effectiveLength = lengthMeters;
+  if (fillRatio < 0.88 && footprintAreaSqm > 0) {
+    effectiveWidth = Math.sqrt(footprintAreaSqm * aspectRatio);
+    effectiveLength = Math.sqrt(footprintAreaSqm / aspectRatio);
+  }
 
   // Parse levels — OSM uses "building:levels" as a string
   const levelsRaw = tags['building:levels'];
@@ -148,10 +166,11 @@ export function parseClosestBuilding(
 
   return {
     polygon,
-    widthMeters: Math.round(widthMeters * 10) / 10,
-    lengthMeters: Math.round(lengthMeters * 10) / 10,
-    widthBlocks: Math.max(6, Math.min(60, Math.round(widthMeters))),
-    lengthBlocks: Math.max(6, Math.min(60, Math.round(lengthMeters))),
+    widthMeters: Math.round(effectiveWidth * 10) / 10,
+    lengthMeters: Math.round(effectiveLength * 10) / 10,
+    widthBlocks: Math.max(6, Math.min(60, Math.round(effectiveWidth))),
+    lengthBlocks: Math.max(6, Math.min(60, Math.round(effectiveLength))),
+    footprintAreaSqm: Math.round(footprintAreaSqm * 10) / 10,
     levels: levels && !isNaN(levels) ? levels : undefined,
     material: tags['building:material'] || undefined,
     roofShape: tags['roof:shape'] || undefined,
@@ -222,6 +241,33 @@ export function polygonBoundingDimensions(
   const a = Math.min(nsMeters, ewMeters);
   const b = Math.max(nsMeters, ewMeters);
   return { widthMeters: a, lengthMeters: b };
+}
+
+/**
+ * Compute actual polygon area in square meters using the shoelace formula.
+ * Projects lat/lng to meters before calculating.
+ */
+export function polygonArea(polygon: { lat: number; lon: number }[]): number {
+  if (polygon.length < 3) return 0;
+
+  const centerLat = polygon.reduce((s, p) => s + p.lat, 0) / polygon.length;
+  const latScale = 111320; // meters per degree latitude
+  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180);
+
+  // Project to meters
+  const projected = polygon.map(p => ({
+    x: (p.lon - polygon[0].lon) * lonScale,
+    y: (p.lat - polygon[0].lat) * latScale,
+  }));
+
+  // Shoelace formula
+  let area = 0;
+  for (let i = 0; i < projected.length; i++) {
+    const j = (i + 1) % projected.length;
+    area += projected[i].x * projected[j].y;
+    area -= projected[j].x * projected[i].y;
+  }
+  return Math.abs(area) / 2;
 }
 
 // ─── Polygon Shape Analysis ─────────────────────────────────────────────────

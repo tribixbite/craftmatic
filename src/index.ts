@@ -90,6 +90,6 @@ export {
 } from './gen/api/parcl.js';
 export {
   searchOSMBuilding, analyzePolygonShape, mapOSMMaterialToWall, mapOSMRoofShape,
-  haversineDistance, polygonBoundingDimensions, parseClosestBuilding,
+  haversineDistance, polygonBoundingDimensions, polygonArea, parseClosestBuilding,
   type OSMBuildingData, type OverpassElement,
 } from './gen/api/osm.js';
