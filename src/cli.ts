@@ -16,6 +16,11 @@ import { renderFloorDetail, renderCutawayIso, renderExterior } from './render/pn
 import { exportHTML } from './render/export-html.js';
 import { startViewerServer, startWebAppServer } from './render/server.js';
 import type { SchematicInfo, GenerationOptions, RoomType, StyleName, StructureType } from './types/index.js';
+import { convertToGenerationOptions, estimateStoriesFromFootprint } from './gen/address-pipeline.js';
+import type { PropertyData } from './gen/address-pipeline.js';
+import { geocodeAddress } from './gen/api/geocoder.js';
+import { searchParclProperty, mapParclPropertyType, hasParclApiKey } from './gen/api/parcl.js';
+import { searchOSMBuilding, analyzePolygonShape, mapOSMRoofShape } from './gen/api/osm.js';
 
 const program = new Command();
 
@@ -240,6 +245,7 @@ async function exportCommand(file: string, output?: string): Promise<void> {
 program
   .command('gen [type]')
   .description('Generate a structure schematic')
+  .option('-a, --address <address>', 'Real property address (requires PARCL_API_KEY)')
   .option('-f, --floors <n>', 'Number of floors', '2')
   .option('-s, --style <style>', 'Building style', 'fantasy')
   .option('-r, --rooms <rooms>', 'Comma-separated room list')
@@ -248,6 +254,12 @@ program
   .option('-o, --output <path>', 'Output .schem file path')
   .option('--seed <n>', 'Random seed for deterministic generation')
   .action(async (type: string | undefined, opts: Record<string, string | undefined>) => {
+    // Address-based generation: full pipeline
+    if (opts['address']) {
+      await genFromAddress(opts['address'], opts);
+      return;
+    }
+
     const structType = (type ?? 'house') as StructureType;
     const floors = parseInt(opts['floors'] ?? '2', 10);
     const styleName = (opts['style'] ?? 'fantasy') as StyleName;
@@ -284,6 +296,151 @@ program
       process.exit(1);
     }
   });
+
+/**
+ * Generate from a real address: geocode → Parcl → OSM → PropertyData → generate → .schem
+ */
+async function genFromAddress(
+  address: string, opts: Record<string, string | undefined>,
+): Promise<void> {
+  if (!hasParclApiKey()) {
+    console.error(chalk.red('PARCL_API_KEY environment variable is required.'));
+    console.error(chalk.dim('Get a free key at https://app.parcllabs.com'));
+    console.error(chalk.dim('Then: export PARCL_API_KEY=your_key_here'));
+    process.exit(1);
+  }
+
+  const spinner = ora('Geocoding address...').start();
+  try {
+    // Step 1: Geocode
+    const geo = await geocodeAddress(address);
+    spinner.text = `Geocoded → ${chalk.dim(`${geo.lat.toFixed(5)}, ${geo.lng.toFixed(5)}`)} (${geo.source})`;
+
+    // Step 2: Parcl + OSM in parallel
+    spinner.text = 'Fetching property data + building footprint...';
+    const [parcl, osm] = await Promise.all([
+      searchParclProperty(address),
+      searchOSMBuilding(geo.lat, geo.lng),
+    ]);
+
+    if (!parcl) {
+      spinner.fail('No property data found in Parcl Labs');
+      process.exit(1);
+    }
+
+    // Step 3: Assemble PropertyData
+    const yearBuilt = parcl.yearBuilt || 2000;
+    const yearUncertain = !parcl.yearBuilt || parcl.yearBuilt === 0;
+    const sqft = parcl.squareFootage || 2000;
+
+    // Bedroom disambiguation
+    let bedrooms = parcl.bedrooms;
+    let bedroomsUncertain = false;
+    if (parcl.bedrooms === 0) {
+      const pType = (parcl.propertyType || '').toUpperCase();
+      const isStudio = sqft < 800 || pType.includes('CONDO') || pType.includes('STUDIO');
+      if (!isStudio) {
+        bedrooms = 3;
+        bedroomsUncertain = true;
+      }
+    }
+
+    // Stories: priority chain
+    let stories = 2;
+    if (osm?.levels && osm.levels > 0) {
+      stories = osm.levels;
+    } else if (osm && osm.widthMeters > 0 && osm.lengthMeters > 0 && sqft > 0) {
+      stories = estimateStoriesFromFootprint(sqft, osm.widthMeters, osm.lengthMeters);
+    } else {
+      // Heuristic fallback
+      const pType = (parcl.propertyType || '').toUpperCase();
+      if (pType.includes('TOWN') || (sqft > 2500 && parcl.bedrooms > 3)) {
+        stories = sqft > 4000 ? 3 : 2;
+      }
+    }
+
+    // CLI overrides
+    const styleOverride = opts['style'] as StyleName | undefined;
+    const floorsOverride = opts['floors'] !== '2' ? parseInt(opts['floors'] ?? '2', 10) : undefined;
+    const widthOverride = opts['width'] ? parseInt(opts['width'], 10) : undefined;
+    const lengthOverride = opts['length'] ? parseInt(opts['length'], 10) : undefined;
+    const seedOverride = opts['seed'] ? parseInt(opts['seed'], 10) : undefined;
+
+    const property: PropertyData = {
+      address: parcl.address || address,
+      stories: floorsOverride ?? stories,
+      sqft,
+      bedrooms,
+      bathrooms: parcl.bathrooms || 2,
+      yearBuilt: yearUncertain ? (osm?.tags?.['start_date'] ? parseInt(osm.tags['start_date'], 10) || 2000 : 2000) : yearBuilt,
+      propertyType: mapParclPropertyType(parcl.propertyType),
+      style: styleOverride ?? 'auto',
+      newConstruction: parcl.newConstruction || yearBuilt >= 2020,
+      city: parcl.city,
+      stateAbbreviation: parcl.stateAbbreviation,
+      zipCode: parcl.zipCode,
+      county: parcl.county,
+      ownerOccupied: parcl.ownerOccupied,
+      onMarket: parcl.onMarket,
+      parclPropertyId: parcl.parclPropertyId,
+      geocoding: { lat: geo.lat, lng: geo.lng, matchedAddress: geo.matchedAddress, source: geo.source },
+      osmWidth: widthOverride ?? osm?.widthBlocks,
+      osmLength: lengthOverride ?? osm?.lengthBlocks,
+      osmLevels: osm?.levels,
+      osmMaterial: osm?.material,
+      osmRoofShape: osm?.roofShape ? mapOSMRoofShape(osm.roofShape) : undefined,
+      osmRoofMaterial: osm?.roofMaterial,
+      osmRoofColour: osm?.roofColour,
+      osmBuildingColour: osm?.buildingColour,
+      osmArchitecture: osm?.tags?.['building:architecture'],
+      floorPlanShape: osm?.polygon ? analyzePolygonShape(osm.polygon) : undefined,
+      yearUncertain,
+      bedroomsUncertain,
+    };
+
+    // Step 4: Convert and generate
+    spinner.text = 'Generating structure...';
+    const genOpts = convertToGenerationOptions(property);
+
+    // Apply seed override (or use address-based deterministic seed)
+    if (seedOverride != null) genOpts.seed = seedOverride;
+
+    const grid = generateStructure(genOpts);
+
+    // Step 5: Write schematic
+    const slug = address.replace(/[^a-zA-Z0-9]+/g, '_').toLowerCase().slice(0, 60);
+    const output = opts['output'] ?? `${slug}_${genOpts.style}_${genOpts.floors}f_${genOpts.seed}.schem`;
+    writeSchematic(grid, output);
+
+    const nonAir = grid.countNonAir();
+    spinner.succeed(`Generated ${chalk.cyan(output)}`);
+
+    // Print summary
+    console.log('');
+    console.log(chalk.bold('  Property'));
+    console.log(`  Address:    ${chalk.white(parcl.address || address)}`);
+    console.log(`  Location:   ${parcl.city}, ${parcl.stateAbbreviation} ${parcl.zipCode}`);
+    console.log(`  Type:       ${parcl.propertyType}`);
+    console.log(`  SqFt:       ${sqft.toLocaleString()}  Beds: ${bedrooms}  Baths: ${parcl.bathrooms}`);
+    console.log(`  Year Built: ${yearBuilt}${yearUncertain ? chalk.dim(' (uncertain)') : ''}`);
+    if (osm) {
+      console.log(`  OSM:        ${osm.widthBlocks}x${osm.lengthBlocks} blocks (${osm.widthMeters}x${osm.lengthMeters}m)`);
+      if (osm.levels) console.log(`  OSM Levels: ${osm.levels}`);
+      if (osm.material) console.log(`  Material:   ${osm.material}`);
+    }
+    console.log('');
+    console.log(chalk.bold('  Generation'));
+    console.log(`  Style:      ${genOpts.style}`);
+    console.log(`  Floors:     ${genOpts.floors}`);
+    console.log(`  Grid:       ${chalk.yellow(`${grid.width}x${grid.height}x${grid.length}`)}`);
+    console.log(`  Blocks:     ${chalk.green(nonAir.toLocaleString())}`);
+    console.log(`  Seed:       ${genOpts.seed}`);
+  } catch (err) {
+    spinner.fail('Address generation failed');
+    console.error(chalk.red(String(err)));
+    process.exit(1);
+  }
+}
 
 // ─── atlas command ──────────────────────────────────────────────────────────
 
@@ -328,6 +485,7 @@ function printBanner(): void {
   console.log(`    ${chalk.cyan('craftmatic view <file>')}        Open 3D viewer in browser`);
   console.log(`    ${chalk.cyan('craftmatic export <file>')}      Export standalone HTML viewer`);
   console.log(`    ${chalk.cyan('craftmatic gen [type]')}         Generate a structure schematic`);
+  console.log(`    ${chalk.cyan('craftmatic gen -a "addr"')}      Generate from real property address`);
   console.log(`    ${chalk.cyan('craftmatic atlas [output]')}     Build texture atlas`);
   console.log('');
   console.log(chalk.dim('  Run craftmatic --help for full options'));
