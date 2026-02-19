@@ -668,4 +668,111 @@ describe('Parcl Labs enrichment', () => {
     // Both should fall through to year-based inference
     expect(withCounty.style).toBe(withoutCounty.style);
   });
+
+  // ── City-based style inference (new field: city) ────────────────
+  it('Santa Fe city → desert style for pre-1980', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1940,
+      city: 'Santa Fe',
+    }));
+    expect(opts.style).toBe('desert');
+  });
+
+  it('New Orleans city → gothic for pre-1940', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1920,
+      city: 'New Orleans',
+    }));
+    expect(opts.style).toBe('gothic');
+  });
+
+  it('Key West city → rustic', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1960,
+      city: 'Key West',
+    }));
+    expect(opts.style).toBe('rustic');
+  });
+
+  it('city hint ignored for post-1980 homes', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1995,
+      city: 'Santa Fe',
+    }));
+    // Post-1980 → year-based
+    expect(opts.style).toBe('modern');
+  });
+
+  it('city hint has lower priority than architecture type', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1925,
+      city: 'Santa Fe',
+      architectureType: 'Victorian',
+    }));
+    // Architecture → gothic overrides city → desert
+    expect(opts.style).toBe('gothic');
+  });
+
+  it('city hint has higher priority than county hint', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1930,
+      city: 'Key West',
+      county: 'Miami-Dade',
+    }));
+    // City Key West → rustic overrides county Miami-Dade → desert
+    expect(opts.style).toBe('rustic');
+  });
+
+  // ── ZIP-based density inference (new field: zipCode) ────────────
+  it('Manhattan ZIP (100xx) disables porch, driveway, backyard', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      zipCode: '10001',
+    }));
+    expect(opts.features?.porch).toBe(false);
+    expect(opts.features?.driveway).toBe(false);
+    expect(opts.features?.backyard).toBe(false);
+  });
+
+  it('suburban ZIP keeps porch, driveway, backyard', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      zipCode: '60540', // Naperville IL — suburban SCF 605, not in urban list
+    }));
+    expect(opts.features?.porch).toBe(true);
+    expect(opts.features?.driveway).toBe(true);
+  });
+
+  it('unknown ZIP defaults to suburban', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      zipCode: '45678',
+    }));
+    expect(opts.features?.driveway).toBe(true);
+  });
+
+  // ── On-market staging (new field: onMarket) ─────────────────────
+  it('onMarket=true boosts garden and trees even without large lot', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      onMarket: true,
+      lotSize: 3000,
+      yearBuilt: 2000,
+      sqft: 1500,
+    }));
+    expect(opts.features?.garden).toBe(true);
+    expect(opts.features?.trees).toBe(true);
+  });
+
+  it('onMarket=false with small lot and recent year — no garden', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      onMarket: false,
+      lotSize: 3000,
+      yearBuilt: 2000,
+      sqft: 1500,
+    }));
+    expect(opts.features?.garden).toBe(false);
+  });
 });
