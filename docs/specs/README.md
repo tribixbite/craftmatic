@@ -13,6 +13,7 @@ Technical specifications and design documents for the craftmatic library.
 | [Conversion Spec](conversion-spec.md) | Bidirectional Three.js ↔ .schem conversion |
 | [Rendering](rendering.md) | 2D PNG and 3D rendering pipeline |
 | [Web Application](web-app.md) | Browser-based toolkit with Vite + Three.js |
+| [Import Pipeline](import-pipeline.md) | Address-to-structure generation pipeline, API integrations, and conversion logic |
 
 ## Status
 
@@ -21,11 +22,11 @@ Technical specifications and design documents for the craftmatic library.
 - [x] Block registry + colors (260+ entries with prefix matching)
 - [x] 2D PNG renderer (floor plans, cutaway iso, exterior via pureimage)
 - [x] 3D viewer (Three.js dev server + self-contained HTML export)
-- [x] Structure generator (5 styles, 16 room types, seeded PRNG)
+- [x] Structure generator (9 styles, 23 room types, seeded PRNG)
 - [x] Cross-conversion (schem↔three bidirectional)
 - [x] CLI (info, render, view, export, gen, atlas commands)
 - [x] Texture atlas — 334 Faithful 32x CC-BY-SA textures + procedural fallback (230+ entries)
-- [x] Tests (93 tests, all passing)
+- [x] Tests (382 tests, all passing)
 - [x] Quality audit (all 5 styles × 3 floor counts, 75 renders verified)
 - [x] Cutaway slider fix — proper instance matrix store/restore
 
@@ -182,3 +183,15 @@ Technical specifications and design documents for the craftmatic library.
 - [x] wallOverride priority chain: RentCast exterior (best) → satellite color (fallback) → manual style chips
 - [x] Info panel enrichment: lot size, exterior type, detected color swatch, wall material, roof, architecture
 - [x] Test suite: 102 → 132 tests (color mapping, exterior mapping, enrichment pipeline)
+
+### Shared Pipeline Module & CLI Address Generation
+- [x] Extracted `src/gen/address-pipeline.ts`: PropertyData, convertToGenerationOptions, 20+ inference functions
+- [x] Node API clients: `src/gen/api/{geocoder,parcl,osm}.ts` (Bun/Node-compatible, no browser APIs)
+- [x] CLI `gen --address`: full pipeline from address string to .schem file
+- [x] Footprint-aware stories estimation: `estimateStoriesFromFootprint(sqft, widthM, lengthM)`
+- [x] Style-aware porch override: gothic/rustic/fantasy pre-1950 always get porches (owner-occupied)
+- [x] yearBuilt=0 handling: OSM `start_date` fallback, `yearUncertain` flag, dashed orange border
+- [x] bedrooms=0 disambiguation: studio (<800sqft/condo) vs missing data
+- [x] resolveStyle() shared helper: unified style priority chain for conversion + feature inference
+- [x] npm library exports: PropertyData, convertToGenerationOptions, API clients, all inference functions
+- [x] Test suite: 356 → 382 tests (pipeline integration, accuracy fixes)
