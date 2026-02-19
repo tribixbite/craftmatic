@@ -574,6 +574,10 @@ export function initImport(
   }
 
   /** Populate form fields from Parcl Labs property data */
+  /** Track whether yearBuilt or bedrooms came from uncertain data */
+  let yearUncertain = false;
+  let bedroomsUncertain = false;
+
   function populateFromParcl(parcl: ParclPropertyData): void {
     const fieldMap: [string, string, number][] = [
       ['import-sqft', 'sqft', parcl.squareFootage],
@@ -587,10 +591,37 @@ export function initImport(
         const el = controls.querySelector(`#${id}`) as HTMLInputElement;
         el.value = String(value);
         saveField(key, String(value));
-        // Brief highlight animation to show auto-filled fields
         el.classList.add('import-field-filled');
         setTimeout(() => el.classList.remove('import-field-filled'), 1500);
       }
+    }
+
+    // ── yearBuilt=0 handling ──
+    // Parcl sometimes returns 0 when data is missing — mark uncertain and
+    // default to 2000 (will be overridden by OSM start_date if available)
+    if (!parcl.yearBuilt || parcl.yearBuilt === 0) {
+      yearUncertain = true;
+      const yearEl = controls.querySelector('#import-year') as HTMLInputElement;
+      yearEl.value = '2000';
+      saveField('year', '2000');
+      yearEl.classList.add('import-field-uncertain');
+    }
+
+    // ── bedrooms=0 disambiguation ──
+    // 0 bedrooms: studio (sqft<800 or condo type) vs missing data
+    if (parcl.bedrooms === 0) {
+      const pType = (parcl.propertyType || '').toUpperCase();
+      const isStudio = parcl.squareFootage < 800
+        || pType.includes('CONDO') || pType.includes('STUDIO');
+      if (!isStudio) {
+        // Likely missing data — default to 3 and mark uncertain
+        bedroomsUncertain = true;
+        const bedsEl = controls.querySelector('#import-beds') as HTMLInputElement;
+        bedsEl.value = '3';
+        saveField('beds', '3');
+        bedsEl.classList.add('import-field-uncertain');
+      }
+      // else: real studio, keep bedrooms=0
     }
 
     // Stories: estimate from sqft + bedrooms + property type
@@ -652,13 +683,43 @@ export function initImport(
 
   /** Populate form fields and wallOverride from OSM building data */
   function populateFromOSM(osm: OSMBuildingData): void {
-    // Stories from OSM building:levels — only use if RentCast didn't provide floorCount
-    if (osm.levels && osm.levels > 0 && !currentRentCast?.floorCount) {
-      const storiesEl = controls.querySelector('#import-stories') as HTMLInputElement;
-      storiesEl.value = String(osm.levels);
-      saveField('stories', String(osm.levels));
-      storiesEl.classList.add('import-field-filled');
-      setTimeout(() => storiesEl.classList.remove('import-field-filled'), 1500);
+    const storiesEl = controls.querySelector('#import-stories') as HTMLInputElement;
+
+    // Stories priority: RentCast floorCount (already set) > OSM levels > footprint calc
+    if (!currentRentCast?.floorCount) {
+      if (osm.levels && osm.levels > 0) {
+        // OSM building:levels tag — second most reliable source
+        storiesEl.value = String(osm.levels);
+        saveField('stories', String(osm.levels));
+        storiesEl.classList.add('import-field-filled');
+        setTimeout(() => storiesEl.classList.remove('import-field-filled'), 1500);
+      } else if (osm.widthMeters > 0 && osm.lengthMeters > 0) {
+        // Footprint-based estimation: total sqft / footprint area
+        const sqft = parseInt((controls.querySelector('#import-sqft') as HTMLInputElement).value) || 0;
+        if (sqft > 0) {
+          const estimated = estimateStoriesFromFootprint(sqft, osm.widthMeters, osm.lengthMeters);
+          storiesEl.value = String(estimated);
+          saveField('stories', String(estimated));
+          storiesEl.classList.add('import-field-filled');
+          setTimeout(() => storiesEl.classList.remove('import-field-filled'), 1500);
+        }
+      }
+    }
+
+    // yearBuilt fallback: if Parcl returned 0, try OSM start_date / building:start_date
+    const yearEl = controls.querySelector('#import-year') as HTMLInputElement;
+    const currentYear = parseInt(yearEl.value) || 0;
+    if (currentYear === 0 || currentYear === 2000) {
+      const startDate = osm.tags['start_date'] || osm.tags['building:start_date'];
+      if (startDate) {
+        const parsed = parseInt(startDate, 10);
+        if (parsed > 1600 && parsed < 2100) {
+          yearEl.value = String(parsed);
+          saveField('year', String(parsed));
+          yearEl.classList.add('import-field-filled');
+          setTimeout(() => yearEl.classList.remove('import-field-filled'), 1500);
+        }
+      }
     }
 
     // Wall material from OSM — priority 2 (below RentCast exteriorType, above satellite color)
@@ -942,6 +1003,8 @@ export function initImport(
       ownerOccupied: currentParcl?.ownerOccupied,
       onMarket: currentParcl?.onMarket,
       parclPropertyId: currentParcl?.parclPropertyId,
+      yearUncertain,
+      bedroomsUncertain,
     };
 
     const options = convertToGenerationOptions(property);

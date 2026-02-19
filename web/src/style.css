@@ -939,6 +939,11 @@ html, body {
   100% { border-color: var(--border); box-shadow: none; }
 }
 
+.import-field-uncertain {
+  border-color: var(--warning, #f0a030) !important;
+  border-style: dashed;
+}
+
 /* ─── Style Chips ────────────────────────────────────────────────────── */
 
 .style-chip {
