@@ -632,6 +632,9 @@ function generateArmory(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
   grid.set(cx, y + 3, z1, style.bannerS);
   grid.set(cx, y + 3, z2, style.bannerN);
 
+  // Carpet with border (before center features so they aren't overwritten)
+  rugWithBorder(grid, x1 + 1, y, z1 + 2, x2 - 2, z2 - 2, style.carpet, style.carpetAccent);
+
   // Center anchor features for larger armories
   const aCz = Math.floor((z1 + z2) / 2);
   if (rw >= 6) {
@@ -643,9 +646,6 @@ function generateArmory(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
       grid.set(cx - 2, y + 1, aCz, 'minecraft:target');
     }
   }
-
-  // Carpet with border
-  rugWithBorder(grid, x1 + 1, y, z1 + 2, x2 - 2, z2 - 2, style.carpet, style.carpetAccent);
 
   // Potted plant near entrance
   grid.set(x1 + 1, y, z1, style.plant1);
@@ -1018,8 +1018,11 @@ function generateCaptainsQuarters(grid: BlockGrid, b: RoomBounds, style: StylePa
   grid.set(x2, y, z2, 'minecraft:bookshelf');
   grid.set(x2, y + 1, z2, 'minecraft:bookshelf');
 
-  // Center anchor for larger captain's quarters — globe display
+  // Rug (before center features so they aren't overwritten)
   const cCz = Math.floor((z1 + z2) / 2);
+  rugWithBorder(grid, x1 + 1, y, z1 + 3, x2 - 1, z2 - 1, style.carpet, style.carpetAccent);
+
+  // Center anchor for larger captain's quarters — globe display
   if (rw >= 8 && z2 - z1 >= 6) {
     // Navigation globe (end rod + amethyst = globe)
     displayPedestal(grid, cx, y, cCz, style.pillar, 'minecraft:sea_lantern');
@@ -1027,9 +1030,6 @@ function generateCaptainsQuarters(grid: BlockGrid, b: RoomBounds, style: StylePa
     grid.set(cx - 1, y, cCz + 1, style.chairN);
     grid.set(cx + 1, y, cCz + 1, style.chairN);
   }
-
-  // Rug
-  rugWithBorder(grid, x1 + 1, y, z1 + 3, x2 - 1, z2 - 1, style.carpet, style.carpetAccent);
 
   // Chandelier
   chandelier(grid, cx, y + height - 1, cCz, style, 2);
@@ -1277,10 +1277,10 @@ function generateAttic(grid: BlockGrid, b: RoomBounds, style: StylePalette): voi
       { slot: 1, id: 'minecraft:map', count: 2 },
       { slot: 2, id: 'minecraft:clock', count: 1 },
     ]);
-    // Rocking chair equivalent (facing trunk)
-    grid.set(cx, y, aCz + 2, style.chairN);
-    // Small rug under reading area
+    // Small rug under reading area (before chair so it isn't overwritten)
     carpetArea(grid, cx - 1, y, aCz + 1, cx + 1, aCz + 2, style.carpet);
+    // Rocking chair equivalent (facing trunk) — placed after rug
+    grid.set(cx, y, aCz + 2, style.chairN);
     // Lantern beside trunk
     grid.set(cx + 1, y, aCz, style.lanternFloor);
   } else {
@@ -1336,8 +1336,9 @@ function generateBasement(grid: BlockGrid, b: RoomBounds, style: StylePalette): 
     grid.set(cx, y + 1, bCz, style.lanternFloor);
     // Small carpet to define workspace
     carpetArea(grid, cx - 1, y, bCz - 1, cx + 1, bCz + 1, style.carpet);
-    // Re-place crafting table over carpet
+    // Re-place furniture over carpet
     grid.set(cx, y, bCz, 'minecraft:crafting_table');
+    grid.set(cx - 1, y, bCz, style.chairE);
   }
 
   // Single torch for dim lighting
