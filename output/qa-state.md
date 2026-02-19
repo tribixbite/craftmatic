@@ -406,9 +406,16 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 | 01e15ef | Exterior micro-detailing — window sills, base trim, eave overhang | Gemini exterior visual quality |
 | 00ba61a | Full Parcl API integration — county style hints, climate zones, owner-occupied features | Import pipeline data utilization |
 | 68918a8 | Complete Parcl data utilization — city style hints, ZIP density, on-market staging, Parcl geocoding fallback | All 17/17 Parcl fields consumed |
-| (new) | Full pipeline integration test — Parcl + OSM + geocoding → generate → .schem | Pipeline verification (382 tests) |
+| 655cf77 | Full pipeline integration test — Parcl + OSM + geocoding → generate → .schem | Pipeline verification (382 tests) |
+| 9f6c6dd | Extract address-pipeline.ts shared module from web/src/ui/import.ts | Shared module (CLI + npm) |
+| ea14f93 | Pipeline accuracy fixes — footprint stories, yearBuilt=0, bedrooms=0 | Accuracy improvements |
+| 819f63b | Node API clients for geocoder, Parcl, OSM | CLI-compatible API layer |
+| df34fdf | CLI gen --address for real property generation | CLI address pipeline |
+| 2570a24 | Import pipeline spec + README status update | Documentation |
+| 74a01ab | Import-refinement skill for pipeline maintenance | Skill file |
+| 851ddc1 | Accuracy unit tests — stories, resolveStyle, porch, uncertain | Test coverage (382 → 401) |
 
-**All 4 Gemini-feedback improvements + 4 follow-up tasks complete.** 382 tests.
+**Pipeline extraction complete.** 401 tests (375 passing + 26 skipped API).
 
 ---
 
@@ -429,3 +436,4 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 - **Post-QA 2**: Gemini re-score exterior 8.1/10, 62 new tests, micro-detailing, Parcl API refactor
 - **Post-QA 3**: Complete Parcl utilization — city style hints, ZIP density, on-market staging, geocoding fallback (17/17 fields)
 - **Post-QA 4**: Full pipeline integration test — geocode + Parcl + OSM → PropertyData → generate → .schem (26 tests, 382 total)
+- **Post-QA 5**: Pipeline extraction — shared module, Node API clients, CLI --address, accuracy fixes (footprint stories, yearBuilt=0, bedrooms=0, style-aware porch), docs, skill (401 tests)
