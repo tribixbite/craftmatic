@@ -393,6 +393,23 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 
 ---
 
+## Post-QA Improvements (Gemini Feedback-Driven)
+
+| Commit | Description | Addresses |
+|--------|-------------|-----------|
+| 08f880b | Smart export filenames — address slug or type_style_floors_seed | UX |
+| 0be5dfb | Style-specific furniture palettes — 11 new StylePalette fields, ~80 block replacements in 28 rooms | Known Issue #4 (style-agnostic interiors, was 4/10 style consistency) |
+| af4b659 | Center-of-room anchor features — 8 room types get size-gated center furniture; 3 new furniture primitives | Known Issue #5 (empty centers, was 5/10 density) |
+| 21f76bb | Style-specific roof profiles — defaultRoofShape + roofHeight per style; wings match main roof | Known Issue #6 (geometry uniform across styles, was 7/10 distinctiveness) |
+
+| 16c2ea0 | 57 tests for furniture, roof dispatch, center anchors + fix 4 rug overwrite bugs | Test coverage (266 → 328) |
+| 01e15ef | Exterior micro-detailing — window sills, base trim, eave overhang | Gemini exterior visual quality |
+| 00ba61a | Full Parcl API integration — county style hints, climate zones, owner-occupied features | Import pipeline data utilization |
+
+**All 4 Gemini-feedback improvements + 3 follow-up tasks complete.** 345 tests.
+
+---
+
 ## Completion Log
 
 - **Phase 0**: Gallery curated to 9/20 passing (8+ threshold)
@@ -406,3 +423,5 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 - **Phase 8**: 4/4 flags toggle correctly (pool needs large grid)
 - **Phase 9**: Final report compiled, 266 tests, all pass
 - **Phase 10**: Gemini visual deep-dive — style matrix 7.4/10, room interiors 6.2/10 via CFC+ADB
+- **Post-QA**: Style-specific furniture (0be5dfb), center anchors (af4b659), export filenames (08f880b)
+- **Post-QA 2**: Gemini re-score exterior 8.1/10, 62 new tests, micro-detailing, Parcl API refactor
