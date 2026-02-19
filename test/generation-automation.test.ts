@@ -12,6 +12,9 @@
 import { describe, it, expect } from 'vitest';
 import { generateStructure } from '../src/gen/generator.js';
 import { convertToGenerationOptions, type PropertyData } from '../web/src/ui/import.js';
+import {
+  estimateStoriesFromFootprint, resolveStyle, inferFeatures,
+} from '../src/gen/address-pipeline.js';
 import type { RoofShape, FeatureFlags, GenerationOptions } from '../src/types/index.js';
 
 // ─── Helper ──────────────────────────────────────────────────────────
@@ -774,5 +777,151 @@ describe('Parcl Labs enrichment', () => {
       sqft: 1500,
     }));
     expect(opts.features?.garden).toBe(false);
+  });
+});
+
+// ─── Footprint-aware stories estimation ─────────────────────────────
+
+describe('estimateStoriesFromFootprint', () => {
+  it('single-story ranch: 1500 sqft on 15x10m footprint', () => {
+    // 1500/10.76 = 139.4 sqm; footprint = 150 sqm → ratio 0.93 → 1 floor
+    expect(estimateStoriesFromFootprint(1500, 15, 10)).toBe(1);
+  });
+
+  it('two-story home: 2500 sqft on 12x10m footprint', () => {
+    // 2500/10.76 = 232.3 sqm; footprint = 120 sqm → ratio 1.94 → 2 floors
+    expect(estimateStoriesFromFootprint(2500, 12, 10)).toBe(2);
+  });
+
+  it('tall building: 13905 sqft on 10.5x20.7m footprint', () => {
+    // 13905/10.76 = 1292.5 sqm; footprint = 217.35 sqm → ratio 5.95 → 6 floors
+    expect(estimateStoriesFromFootprint(13905, 10.5, 20.7)).toBe(6);
+  });
+
+  it('large footprint single-story: 9094 sqft on 19.7x24.1m', () => {
+    // 9094/10.76 = 845.1 sqm; footprint = 474.77 sqm → ratio 1.78 → 2 floors
+    expect(estimateStoriesFromFootprint(9094, 19.7, 24.1)).toBe(2);
+  });
+
+  it('zero footprint defaults to 2', () => {
+    expect(estimateStoriesFromFootprint(2000, 0, 0)).toBe(2);
+  });
+
+  it('clamps at 8 maximum', () => {
+    expect(estimateStoriesFromFootprint(50000, 5, 5)).toBe(8);
+  });
+
+  it('clamps at 1 minimum', () => {
+    expect(estimateStoriesFromFootprint(100, 20, 20)).toBe(1);
+  });
+});
+
+// ─── resolveStyle ───────────────────────────────────────────────────
+
+describe('resolveStyle', () => {
+  it('returns user-selected style when not auto', () => {
+    expect(resolveStyle(makeProperty({ style: 'gothic' }))).toBe('gothic');
+  });
+
+  it('auto with OSM architecture takes priority over year', () => {
+    expect(resolveStyle(makeProperty({
+      style: 'auto', yearBuilt: 2020, osmArchitecture: 'colonial',
+    }))).toBe('fantasy');
+  });
+
+  it('auto without architecture falls through to year', () => {
+    expect(resolveStyle(makeProperty({
+      style: 'auto', yearBuilt: 1820,
+    }))).toBe('gothic');
+  });
+
+  it('yearUncertain skips year-based inference for neutral default', () => {
+    const style = resolveStyle(makeProperty({
+      style: 'auto', yearBuilt: 0, yearUncertain: true,
+    }));
+    // yearUncertain → year treated as 1970 → 'modern'
+    expect(style).toBe('modern');
+  });
+
+  it('yearUncertain still respects architecture tags', () => {
+    const style = resolveStyle(makeProperty({
+      style: 'auto', yearBuilt: 0, yearUncertain: true,
+      osmArchitecture: 'victorian',
+    }));
+    expect(style).toBe('gothic');
+  });
+});
+
+// ─── Style-aware porch override ─────────────────────────────────────
+
+describe('style-aware porch override', () => {
+  it('gothic style gets porch even in urban ZIP', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'gothic',
+      zipCode: '10001', // NYC — urban
+      ownerOccupied: true,
+    }));
+    expect(opts.features?.porch).toBe(true);
+  });
+
+  it('rustic style gets porch even in urban ZIP', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'rustic',
+      zipCode: '10001', // NYC — urban
+      ownerOccupied: true,
+    }));
+    expect(opts.features?.porch).toBe(true);
+  });
+
+  it('fantasy pre-1950 gets porch in urban ZIP', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1940, // → fantasy style
+      zipCode: '10001', // NYC — urban
+      ownerOccupied: true,
+    }));
+    expect(opts.features?.porch).toBe(true);
+  });
+
+  it('modern style in urban ZIP does NOT get porch', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'modern',
+      zipCode: '10001', // NYC — urban
+      ownerOccupied: true,
+    }));
+    expect(opts.features?.porch).toBe(false);
+  });
+
+  it('gothic style + ownerOccupied=false does NOT get porch override', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'gothic',
+      zipCode: '10001', // NYC — urban
+      ownerOccupied: false,
+    }));
+    expect(opts.features?.porch).toBe(false);
+  });
+});
+
+// ─── yearUncertain + bedroomsUncertain in conversion ────────────────
+
+describe('uncertain data flags', () => {
+  it('yearUncertain property gets modern style (neutral default)', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 2000,
+      yearUncertain: true,
+    }));
+    expect(opts.style).toBe('modern');
+  });
+
+  it('bedroomsUncertain does not affect generation output', () => {
+    // bedroomsUncertain is informational — conversion uses the bedrooms value as-is
+    const opts = convertToGenerationOptions(makeProperty({
+      bedrooms: 3,
+      bedroomsUncertain: true,
+    }));
+    // Should still generate 3 bedroom rooms
+    const bedroomCount = opts.rooms?.filter(r => r === 'bedroom').length ?? 0;
+    expect(bedroomCount).toBe(3);
   });
 });
