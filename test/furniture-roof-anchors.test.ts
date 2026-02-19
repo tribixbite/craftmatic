@@ -10,6 +10,7 @@ import { BlockGrid } from '../src/schem/types.js';
 import { getStyle, getStyleNames, STYLES } from '../src/gen/styles.js';
 import type { StylePalette } from '../src/gen/styles.js';
 import { bench, displayPedestal, towelRack, chandelier, carpetArea } from '../src/gen/furniture.js';
+import { windowSills, baseTrim, eaveTrim } from '../src/gen/structures.js';
 import { getRoomGenerator } from '../src/gen/rooms.js';
 import { generateStructure } from '../src/gen/generator.js';
 import type { StyleName, RoomBounds, RoofShape } from '../src/types/index.js';
@@ -492,4 +493,83 @@ describe('center features work across all 9 styles', () => {
       }
     });
   }
+});
+
+// ─── Exterior Micro-Detailing (Trim) ───────────────────────────────
+
+describe('windowSills() primitive', () => {
+  it('places top-slabs below window positions', () => {
+    const grid = makeGrid(20, 10, 20);
+    const style = fantasyStyle();
+    // Windows at spacing=3 on a 15-wide wall: x=3, 6, 9, 12
+    windowSills(grid, 0, 0, 15, 15, 1, style, 3);
+    // Sill at x=3, y=1, z=0 (front wall)
+    expect(grid.get(3, 1, 0)).toBe(style.slabTop);
+    expect(grid.get(6, 1, 0)).toBe(style.slabTop);
+    // Back wall
+    expect(grid.get(3, 1, 15)).toBe(style.slabTop);
+    // Side wall
+    expect(grid.get(0, 1, 3)).toBe(style.slabTop);
+    expect(grid.get(15, 1, 3)).toBe(style.slabTop);
+  });
+});
+
+describe('baseTrim() primitive', () => {
+  it('places wallAccent blocks around perimeter', () => {
+    const grid = makeGrid(20, 10, 20);
+    const style = fantasyStyle();
+    baseTrim(grid, 2, 2, 12, 12, 1, style);
+    // Front wall
+    expect(grid.get(5, 1, 2)).toBe(style.wallAccent);
+    // Back wall
+    expect(grid.get(5, 1, 12)).toBe(style.wallAccent);
+    // Side walls
+    expect(grid.get(2, 1, 5)).toBe(style.wallAccent);
+    expect(grid.get(12, 1, 5)).toBe(style.wallAccent);
+  });
+});
+
+describe('eaveTrim() primitive', () => {
+  it('places slabs one block outside the perimeter', () => {
+    const grid = makeGrid(20, 10, 20);
+    const style = fantasyStyle();
+    eaveTrim(grid, 3, 3, 12, 12, 5, style);
+    // Front eave — one block south of z1
+    expect(grid.get(5, 5, 2)).toBe(style.slabBottom);
+    // Back eave — one block north of z2
+    expect(grid.get(5, 5, 13)).toBe(style.slabBottom);
+    // Side eaves
+    expect(grid.get(2, 5, 5)).toBe(style.slabBottom);
+    expect(grid.get(13, 5, 5)).toBe(style.slabBottom);
+    // Corners
+    expect(grid.get(2, 5, 2)).toBe(style.slabBottom);
+    expect(grid.get(13, 5, 13)).toBe(style.slabBottom);
+  });
+});
+
+describe('exterior trim in generated houses', () => {
+  it('houses have more blocks with trim than without', () => {
+    // Generate two identical houses — trim adds block count
+    const house = generateStructure({
+      type: 'house', floors: 2, style: 'medieval', seed: 42,
+    });
+    // House should have wallAccent blocks (base trim)
+    expect(hasBlock(house, b => b === getStyle('medieval').wallAccent)).toBe(true);
+    // House should have slabTop blocks (window sills)
+    expect(hasBlock(house, b => b === getStyle('medieval').slabTop)).toBe(true);
+    // House should have slabBottom blocks (eave trim)
+    expect(hasBlock(house, b => b === getStyle('medieval').slabBottom)).toBe(true);
+  });
+
+  it('all 9 styles produce trim blocks', () => {
+    for (const name of getStyleNames()) {
+      const style = getStyle(name);
+      const grid = generateStructure({ type: 'house', floors: 2, style: name, seed: 42 });
+      // Every style should have slab blocks from window sills or eave trim
+      const hasSlabs = hasBlock(grid, b =>
+        b === style.slabTop || b === style.slabBottom
+      );
+      expect(hasSlabs).toBe(true);
+    }
+  });
 });

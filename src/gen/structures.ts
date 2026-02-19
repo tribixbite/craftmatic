@@ -955,6 +955,69 @@ export function accentBand(
 }
 
 /**
+ * Add window sills below each window on exterior walls.
+ * Places top-slabs one block below each window position for architectural depth.
+ */
+export function windowSills(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  sillY: number, style: StylePalette, spacing = 3
+): void {
+  const sill = style.slabTop;
+  // Front and back walls — place sill on the outside face
+  for (let x = x1 + spacing; x < x2; x += spacing) {
+    if (grid.inBounds(x, sillY, z1)) grid.set(x, sillY, z1, sill);
+    if (grid.inBounds(x, sillY, z2)) grid.set(x, sillY, z2, sill);
+  }
+  // Side walls
+  for (let z = z1 + spacing; z < z2; z += spacing) {
+    if (grid.inBounds(x1, sillY, z)) grid.set(x1, sillY, z, sill);
+    if (grid.inBounds(x2, sillY, z)) grid.set(x2, sillY, z, sill);
+  }
+}
+
+/**
+ * Add foundation base trim — accent blocks at the bottom course of walls.
+ * Creates a visible plinth/baseboard using wallAccent blocks.
+ */
+export function baseTrim(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  y: number, style: StylePalette
+): void {
+  const block = style.wallAccent;
+  // Front and back walls
+  for (let x = x1; x <= x2; x++) {
+    if (grid.inBounds(x, y, z1)) grid.set(x, y, z1, block);
+    if (grid.inBounds(x, y, z2)) grid.set(x, y, z2, block);
+  }
+  // Side walls
+  for (let z = z1 + 1; z < z2; z++) {
+    if (grid.inBounds(x1, y, z)) grid.set(x1, y, z, block);
+    if (grid.inBounds(x2, y, z)) grid.set(x2, y, z, block);
+  }
+}
+
+/**
+ * Add eave trim — slab overhang at the roofline for visual depth.
+ * Places bottom-slabs extending one block outward from the building perimeter.
+ */
+export function eaveTrim(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  y: number, style: StylePalette
+): void {
+  const slab = style.slabBottom;
+  // Front and back eave — one block outward
+  for (let x = x1 - 1; x <= x2 + 1; x++) {
+    if (grid.inBounds(x, y, z1 - 1)) grid.set(x, y, z1 - 1, slab);
+    if (grid.inBounds(x, y, z2 + 1)) grid.set(x, y, z2 + 1, slab);
+  }
+  // Side eaves
+  for (let z = z1; z <= z2; z++) {
+    if (grid.inBounds(x1 - 1, y, z)) grid.set(x1 - 1, y, z, slab);
+    if (grid.inBounds(x2 + 1, y, z)) grid.set(x2 + 1, y, z, slab);
+  }
+}
+
+/**
  * Add glass curtain wall section — replace wall blocks with glass on a facade.
  * Operates on a single wall face (north or south).
  */

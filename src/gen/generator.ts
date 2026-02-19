@@ -18,6 +18,7 @@ import {
   placeTree, placeGarden, placePool,
   addBackyard, addDriveway, addPropertyFence,
   weatherWalls, addCobwebs, addChains, accentBand, glassCurtainWall,
+  windowSills, baseTrim, eaveTrim,
 } from './structures.js';
 import { chandelier } from './furniture.js';
 import type { StylePalette } from './styles.js';
@@ -681,6 +682,8 @@ function generateHouse(
     timberBeams(grid, bx1, cy, bz1, bx2, bz2, style);
 
     windows(grid, bx1, bz1, bx2, bz2, by + 2, by + 3, style);
+    // Window sills — top-slab below each window for depth
+    windowSills(grid, bx1, bz1, bx2, bz2, by + 1, style);
 
     interiorWall(grid, 'z', xMid, bz1 + 1, bz2 - 1, by + 1, cy - 1, style);
     doorway(grid, xMid, by + 1, zMid - 1, xMid, by + 3, zMid + 1);
@@ -690,8 +693,15 @@ function generateHouse(
     doorway(grid, bx1 + 4, by + 1, zMid, bx1 + 6, by + 3, zMid);
     doorway(grid, bx2 - 6, by + 1, zMid, bx2 - 4, by + 3, zMid);
 
+    // Foundation base trim on ground story
+    if (story === 0) {
+      baseTrim(grid, bx1, bz1, bx2, bz2, by + 1, style);
+    }
+
     if (story === floors - 1) {
       grid.fill(bx1, cy, bz1, bx2, cy, bz2, style.ceiling);
+      // Eave overhang at roofline
+      eaveTrim(grid, bx1, bz1, bx2, bz2, cy, style);
     }
 
     wallTorches(grid, bx1, bz1, bx2, bz2, by + 3, style);
