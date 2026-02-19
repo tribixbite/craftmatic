@@ -405,9 +405,10 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 | 16c2ea0 | 57 tests for furniture, roof dispatch, center anchors + fix 4 rug overwrite bugs | Test coverage (266 → 328) |
 | 01e15ef | Exterior micro-detailing — window sills, base trim, eave overhang | Gemini exterior visual quality |
 | 00ba61a | Full Parcl API integration — county style hints, climate zones, owner-occupied features | Import pipeline data utilization |
-| (pending) | Complete Parcl data utilization — city style hints, ZIP density, on-market staging, Parcl geocoding fallback | All 17/17 Parcl fields consumed |
+| 68918a8 | Complete Parcl data utilization — city style hints, ZIP density, on-market staging, Parcl geocoding fallback | All 17/17 Parcl fields consumed |
+| (new) | Full pipeline integration test — Parcl + OSM + geocoding → generate → .schem | Pipeline verification (382 tests) |
 
-**All 4 Gemini-feedback improvements + 4 follow-up tasks complete.** 356 tests.
+**All 4 Gemini-feedback improvements + 4 follow-up tasks complete.** 382 tests.
 
 ---
 
@@ -427,3 +428,4 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 - **Post-QA**: Style-specific furniture (0be5dfb), center anchors (af4b659), export filenames (08f880b)
 - **Post-QA 2**: Gemini re-score exterior 8.1/10, 62 new tests, micro-detailing, Parcl API refactor
 - **Post-QA 3**: Complete Parcl utilization — city style hints, ZIP density, on-market staging, geocoding fallback (17/17 fields)
+- **Post-QA 4**: Full pipeline integration test — geocode + Parcl + OSM → PropertyData → generate → .schem (26 tests, 382 total)
