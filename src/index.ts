@@ -93,3 +93,8 @@ export {
   haversineDistance, polygonBoundingDimensions, polygonArea, parseClosestBuilding,
   type OSMBuildingData, type OverpassElement,
 } from './gen/api/osm.js';
+export {
+  searchMapillaryImages, searchMapillaryFeatures, pickBestImage, analyzeFeatures,
+  hasMapillaryApiKey, getMapillaryApiKey,
+  type MapillaryImageData, type MapillaryFeatureData,
+} from './gen/api/mapillary.js';

@@ -40,6 +40,12 @@ import {
   drawBuildingOutline, getCrosshairPosition, appendStreetViewImage,
 } from '@ui/import-geometry.js';
 import { buildInfoPanelHtml, escapeHtml } from '@ui/import-info-panel.js';
+import {
+  getMapillaryMlyToken, setMapillaryMlyToken, hasMapillaryMlyToken,
+  searchMapillaryImages, searchMapillaryFeatures,
+  pickBestImage, analyzeFeatures, MAPILLARY_SIGNUP_URL,
+  type MapillaryImageData, type MapillaryFeatureData,
+} from '@ui/import-mapillary.js';
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
 
@@ -111,6 +117,9 @@ export function initImport(
   let currentStreetViewUrl: string | null = null;
   /** Parcl Labs property data — stored for generation-time access */
   let currentParcl: ParclPropertyData | null = null;
+  /** Mapillary best image + features */
+  let currentMapillaryImage: MapillaryImageData | null = null;
+  let currentMapillaryFeatures: MapillaryFeatureData[] = [];
 
   // Restore API key display state
   const savedParclKey = getParclApiKey();
@@ -121,6 +130,8 @@ export function initImport(
   const svKeyMasked = savedStreetViewKey ? '••••' + savedStreetViewKey.slice(-4) : '';
   const savedMapboxToken = getMapboxToken();
   const mbTokenMasked = savedMapboxToken ? '••••' + savedMapboxToken.slice(-4) : '';
+  const savedMlyToken = getMapillaryMlyToken();
+  const mlyTokenMasked = savedMlyToken ? '••••' + savedMlyToken.slice(-4) : '';
 
   controls.innerHTML = `
     <div class="section-title">Import from Address</div>
@@ -129,8 +140,8 @@ export function initImport(
     <details class="customize-section" id="import-api-section">
       <summary class="customize-summary">API Keys
         <span class="import-api-badge" id="import-api-badge">${
-          [savedParclKey, savedRentCastKey, savedStreetViewKey, savedMapboxToken].filter(Boolean).length
-        }/4</span>
+          [savedParclKey, savedRentCastKey, savedStreetViewKey, savedMapboxToken, savedMlyToken].filter(Boolean).length
+        }/5</span>
       </summary>
       <div class="customize-body import-api-list">
         <!-- Parcl Labs key -->
@@ -199,6 +210,23 @@ export function initImport(
           </div>
           <div id="import-mb-status" class="import-api-status">
             ${mbTokenMasked ? `Token stored: ${mbTokenMasked}` : 'No token — using ESRI satellite'}
+          </div>
+        </div>
+        <!-- Mapillary token -->
+        <div class="import-api-row">
+          <div class="import-api-label">
+            <strong>Mapillary</strong>
+            <span class="import-api-desc">free street photos + features</span>
+          </div>
+          <div class="import-api-input-row">
+            <input id="import-mly-token" type="password" class="form-input import-api-key-input"
+              placeholder="Paste client token" value="${escapeAttr(savedMlyToken)}">
+            <button id="import-mly-save" class="btn btn-secondary btn-sm">${savedMlyToken ? 'Saved' : 'Save'}</button>
+            <a href="${MAPILLARY_SIGNUP_URL}" target="_blank" rel="noopener"
+              class="import-api-link" title="Get free token">Get token</a>
+          </div>
+          <div id="import-mly-status" class="import-api-status">
+            ${mlyTokenMasked ? `Token stored: ${mlyTokenMasked}` : 'No token — no Mapillary street view'}
           </div>
         </div>
       </div>
@@ -322,6 +350,9 @@ export function initImport(
   const mbTokenInput = controls.querySelector('#import-mb-token') as HTMLInputElement;
   const mbSaveBtn = controls.querySelector('#import-mb-save') as HTMLButtonElement;
   const mbStatus = controls.querySelector('#import-mb-status') as HTMLElement;
+  const mlyTokenInput = controls.querySelector('#import-mly-token') as HTMLInputElement;
+  const mlySaveBtn = controls.querySelector('#import-mly-save') as HTMLButtonElement;
+  const mlyStatus = controls.querySelector('#import-mly-status') as HTMLElement;
   const apiSection = controls.querySelector('#import-api-section') as HTMLDetailsElement;
 
   // Form field refs for persistence
@@ -331,14 +362,14 @@ export function initImport(
   // ── API Key management ────────────────────────────────────────────────
   const apiBadge = controls.querySelector('#import-api-badge') as HTMLElement;
 
-  /** Update the N/4 badge count after any key save */
+  /** Update the N/5 badge count after any key save */
   function updateApiBadge(): void {
-    const count = [hasParclApiKey(), hasRentCastApiKey(), hasStreetViewApiKey(), hasMapboxToken()]
+    const count = [hasParclApiKey(), hasRentCastApiKey(), hasStreetViewApiKey(), hasMapboxToken(), hasMapillaryMlyToken()]
       .filter(Boolean).length;
-    apiBadge.textContent = `${count}/4`;
+    apiBadge.textContent = `${count}/5`;
   }
 
-  // Data-driven API key save handlers — DRY replacement for 4 identical patterns
+  // Data-driven API key save handlers — DRY replacement for 5 identical patterns
   const apiKeyConfigs = [
     { input: parclKeyInput, btn: parclSaveBtn, status: parclStatus,
       set: setParclApiKey, noKeyMsg: 'No key — manual entry only' },
@@ -348,6 +379,8 @@ export function initImport(
       set: setStreetViewApiKey, noKeyMsg: 'No key — no exterior photo' },
     { input: mbTokenInput, btn: mbSaveBtn, status: mbStatus,
       set: setMapboxToken, noKeyMsg: 'No token — using ESRI satellite' },
+    { input: mlyTokenInput, btn: mlySaveBtn, status: mlyStatus,
+      set: setMapillaryMlyToken, noKeyMsg: 'No token — no Mapillary street view' },
   ];
 
   for (const cfg of apiKeyConfigs) {
@@ -412,6 +445,8 @@ export function initImport(
     currentPoolDetected = false;
     currentStreetViewUrl = null;
     currentParcl = null;
+    currentMapillaryImage = null;
+    currentMapillaryFeatures = [];
 
     const [geoResult, parclResult, rentCastResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -440,12 +475,15 @@ export function initImport(
     if (currentGeocoding) {
       const geo = currentGeocoding;
 
-      // Fire OSM + Street View checks in parallel (don't block satellite)
-      const [osmResult, svResult] = await Promise.allSettled([
+      // Fire OSM + Street View + Mapillary checks in parallel (don't block satellite)
+      const mlyToken = getMapillaryMlyToken();
+      const [osmResult, svResult, mlyImgResult, mlyFeatResult] = await Promise.allSettled([
         searchOSMBuilding(geo.lat, geo.lng),
         hasStreetViewApiKey()
           ? checkStreetViewAvailability(geo.lat, geo.lng, getStreetViewApiKey())
           : Promise.resolve(false),
+        mlyToken ? searchMapillaryImages(geo.lat, geo.lng, mlyToken) : Promise.resolve(null),
+        mlyToken ? searchMapillaryFeatures(geo.lat, geo.lng, mlyToken) : Promise.resolve(null),
       ]);
 
       // Process OSM result
@@ -456,6 +494,19 @@ export function initImport(
       // Process Street View result
       if (svResult.status === 'fulfilled' && svResult.value === true) {
         currentStreetViewUrl = getStreetViewUrl(geo.lat, geo.lng, getStreetViewApiKey());
+      }
+
+      // Process Mapillary results
+      if (mlyImgResult.status === 'fulfilled' && mlyImgResult.value) {
+        const best = pickBestImage(mlyImgResult.value, geo.lat, geo.lng);
+        if (best) currentMapillaryImage = best;
+        // Use Mapillary as street view fallback if Google SV unavailable
+        if (!currentStreetViewUrl && best?.thumbUrl) {
+          currentStreetViewUrl = best.thumbUrl;
+        }
+      }
+      if (mlyFeatResult.status === 'fulfilled' && mlyFeatResult.value) {
+        currentMapillaryFeatures = mlyFeatResult.value;
       }
 
       // Build Mapbox tile fetcher if token is configured
@@ -877,6 +928,18 @@ export function initImport(
       parclPropertyId: currentParcl?.parclPropertyId,
       yearUncertain,
       bedroomsUncertain,
+      // Mapillary enrichment
+      mapillaryImageUrl: currentMapillaryImage?.thumbUrl,
+      mapillaryHeading: currentMapillaryImage?.compassAngle,
+      mapillaryCaptureDate: currentMapillaryImage?.capturedAt
+        ? new Date(currentMapillaryImage.capturedAt).toISOString() : undefined,
+      ...(currentMapillaryFeatures.length > 0 ? (() => {
+        const { hasDriveway, hasFence } = analyzeFeatures(currentMapillaryFeatures);
+        return {
+          mapillaryHasDriveway: hasDriveway || undefined,
+          mapillaryHasFence: hasFence || undefined,
+        };
+      })() : {}),
     };
 
     const options = convertToGenerationOptions(property);

@@ -70,6 +70,17 @@ export function buildInfoPanelHtml(
   if (property.osmRoofShape) {
     enrichmentRows += `<div class="info-row"><span class="info-label">Roof Shape</span><span class="info-value">${escapeHtml(property.osmRoofShape)} (OSM)</span></div>`;
   }
+  if (property.mapillaryImageUrl) {
+    const heading = property.mapillaryHeading != null ? ` | ${Math.round(property.mapillaryHeading)}°` : '';
+    const date = property.mapillaryCaptureDate ? ` | ${property.mapillaryCaptureDate.split('T')[0]}` : '';
+    enrichmentRows += `<div class="info-row"><span class="info-label">Street View</span><span class="info-value">Mapillary${heading}${date}</span></div>`;
+  }
+  if (property.mapillaryHasDriveway || property.mapillaryHasFence) {
+    const parts: string[] = [];
+    if (property.mapillaryHasDriveway) parts.push('driveway');
+    if (property.mapillaryHasFence) parts.push('fence');
+    enrichmentRows += `<div class="info-row"><span class="info-label">Detected</span><span class="info-value">${parts.join(', ')} (Mapillary)</span></div>`;
+  }
 
   // Parcl enrichment rows — all 17 fields consumed
   if (property.city) {
