@@ -103,6 +103,16 @@ export interface PropertyData {
   yearUncertain?: boolean;
   /** True when bedrooms=0 might mean missing data rather than studio */
   bedroomsUncertain?: boolean;
+  /** Mapillary street-level image URL (free alternative to Google Street View) */
+  mapillaryImageUrl?: string;
+  /** Mapillary image compass heading (0=north, 90=east, 180=south, 270=west) */
+  mapillaryHeading?: number;
+  /** Mapillary capture date as ISO string */
+  mapillaryCaptureDate?: string;
+  /** Driveway detected via Mapillary map features */
+  mapillaryHasDriveway?: boolean;
+  /** Fence detected via Mapillary map features */
+  mapillaryHasFence?: boolean;
 }
 
 // ─── Hash ───────────────────────────────────────────────────────────────────
@@ -485,6 +495,11 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
     // Pool: satellite detection; hot climates lower threshold for lot-size inference
     pool: prop.hasPool ?? (climate === 'hot' && lotSize > 6000),
   };
+
+  // ── Mapillary feature overrides ──
+  // If Mapillary detected a driveway or fence near the property, enable those flags
+  if (prop.mapillaryHasDriveway) flags.driveway = true;
+  if (prop.mapillaryHasFence) flags.fence = true;
 
   // ── Style-aware overrides ──
   // Victorian/Gothic and Craftsman/Rustic homes always have porches, even in urban areas

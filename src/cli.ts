@@ -21,6 +21,10 @@ import type { PropertyData } from './gen/address-pipeline.js';
 import { geocodeAddress } from './gen/api/geocoder.js';
 import { searchParclProperty, mapParclPropertyType, hasParclApiKey } from './gen/api/parcl.js';
 import { searchOSMBuilding, analyzePolygonShape, mapOSMRoofShape } from './gen/api/osm.js';
+import {
+  searchMapillaryImages, searchMapillaryFeatures,
+  pickBestImage, analyzeFeatures, getMapillaryApiKey,
+} from './gen/api/mapillary.js';
 
 const program = new Command();
 
@@ -323,11 +327,14 @@ async function genFromAddress(
     const geo = await geocodeAddress(address);
     spinner.text = `Geocoded → ${chalk.dim(`${geo.lat.toFixed(5)}, ${geo.lng.toFixed(5)}`)} (${geo.source})`;
 
-    // Step 2: Parcl + OSM in parallel
+    // Step 2: Parcl + OSM + Mapillary in parallel
     spinner.text = 'Fetching property data + building footprint...';
-    const [parcl, osm] = await Promise.all([
+    const mapillaryKey = getMapillaryApiKey();
+    const [parcl, osm, mlyImages, mlyFeatures] = await Promise.all([
       searchParclProperty(address),
       searchOSMBuilding(geo.lat, geo.lng),
+      mapillaryKey ? searchMapillaryImages(geo.lat, geo.lng, mapillaryKey) : Promise.resolve(null),
+      mapillaryKey ? searchMapillaryFeatures(geo.lat, geo.lng, mapillaryKey) : Promise.resolve(null),
     ]);
 
     if (!parcl) {
@@ -404,6 +411,22 @@ async function genFromAddress(
       floorPlanShape: osm?.polygon ? analyzePolygonShape(osm.polygon) : undefined,
       yearUncertain,
       bedroomsUncertain,
+      // Mapillary enrichment
+      ...(mlyImages && mlyImages.length > 0 ? (() => {
+        const best = pickBestImage(mlyImages, geo.lat, geo.lng);
+        return best ? {
+          mapillaryImageUrl: best.thumbUrl,
+          mapillaryHeading: best.compassAngle,
+          mapillaryCaptureDate: best.capturedAt > 0 ? new Date(best.capturedAt).toISOString() : undefined,
+        } : {};
+      })() : {}),
+      ...(mlyFeatures && mlyFeatures.length > 0 ? (() => {
+        const { hasDriveway, hasFence } = analyzeFeatures(mlyFeatures);
+        return {
+          mapillaryHasDriveway: hasDriveway || undefined,
+          mapillaryHasFence: hasFence || undefined,
+        };
+      })() : {}),
     };
 
     // Step 4: Convert and generate
@@ -435,6 +458,16 @@ async function genFromAddress(
       console.log(`  OSM:        ${osm.widthBlocks}x${osm.lengthBlocks} blocks (${osm.widthMeters}x${osm.lengthMeters}m)`);
       if (osm.levels) console.log(`  OSM Levels: ${osm.levels}`);
       if (osm.material) console.log(`  Material:   ${osm.material}`);
+    }
+    if (mlyImages && mlyImages.length > 0) {
+      console.log(`  Mapillary:  ${mlyImages.length} images found`);
+    }
+    if (mlyFeatures && mlyFeatures.length > 0) {
+      const { hasDriveway, hasFence } = analyzeFeatures(mlyFeatures);
+      const parts: string[] = [];
+      if (hasDriveway) parts.push('driveway');
+      if (hasFence) parts.push('fence');
+      if (parts.length > 0) console.log(`  Features:   ${parts.join(', ')} (Mapillary)`);
     }
     console.log('');
     console.log(chalk.bold('  Generation'));
