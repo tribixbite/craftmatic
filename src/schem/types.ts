@@ -120,6 +120,21 @@ export class BlockGrid {
     });
   }
 
+  /** Place a wall sign with text lines (up to 4) */
+  addSign(x: number, y: number, z: number, facing: string, text: string[]): void {
+    const blockState: BlockState = `minecraft:oak_wall_sign[facing=${facing}]`;
+    this.set(x, y, z, blockState);
+    // Pad to 4 lines
+    const lines = [...text.slice(0, 4)];
+    while (lines.length < 4) lines.push('');
+    this._blockEntities.push({
+      type: 'sign',
+      pos: [x, y, z],
+      id: 'minecraft:oak_wall_sign',
+      text: lines,
+    });
+  }
+
   /** Encode block data as varint byte array for .schem format */
   encodeBlockData(): Uint8Array {
     const result: number[] = [];

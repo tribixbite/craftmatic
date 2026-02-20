@@ -22,6 +22,8 @@ export interface BlockEntity {
   pos: Vec3;
   id: string;
   items?: ItemSlot[];
+  /** Sign text lines (up to 4), used for wall_sign and standing sign entities */
+  text?: string[];
 }
 
 /** Raw schematic data as parsed from .schem files */

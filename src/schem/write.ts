@@ -143,6 +143,41 @@ function writeBlockEntities(w: NBTWriter, entities: BlockEntity[]): void {
       }
     }
 
+    // Sign text (if present — wall_sign / standing sign)
+    if (entity.text && entity.text.length > 0) {
+      const lines = entity.text.slice(0, 4);
+      while (lines.length < 4) lines.push('');
+      // Modern format (1.20+): front_text compound with messages list
+      writeSignFace(w, 'front_text', lines);
+      writeSignFace(w, 'back_text', ['', '', '', '']);
+      // Legacy format: Text1-Text4 string tags (pre-1.20 compatibility)
+      for (let i = 0; i < 4; i++) {
+        w.writeTagHeader(TAG.STRING, `Text${i + 1}`);
+        w.writeString(JSON.stringify({ text: lines[i] }));
+      }
+    }
+
     w.writeEnd(); // end entity compound
   }
+}
+
+/** Write a sign face compound (front_text or back_text) with 4 message lines */
+function writeSignFace(w: NBTWriter, name: string, lines: string[]): void {
+  w.writeTagHeader(TAG.COMPOUND, name);
+
+  // messages: list of 4 strings (JSON text components)
+  w.writeTagHeader(TAG.LIST, 'messages');
+  w.writeByte(TAG.STRING);
+  w.writeInt(4);
+  for (let i = 0; i < 4; i++) {
+    w.writeString(JSON.stringify({ text: lines[i] || '' }));
+  }
+
+  w.writeTagHeader(TAG.STRING, 'color');
+  w.writeString('black');
+
+  w.writeTagHeader(TAG.BYTE, 'has_glowing_text');
+  w.writeByte(0);
+
+  w.writeEnd(); // end face compound
 }

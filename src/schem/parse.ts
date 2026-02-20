@@ -93,11 +93,31 @@ export async function parseSchematic(filepath: string): Promise<SchematicData> {
           }
         }
 
+        // Parse sign text (modern front_text.messages or legacy Text1-4)
+        let text: string[] | undefined;
+        const frontText = ent['front_text'] as Record<string, unknown> | undefined;
+        if (frontText) {
+          const msgs = unwrap((unwrap(frontText) as Record<string, unknown>)?.['messages']) as unknown[];
+          if (Array.isArray(msgs)) {
+            text = msgs.map(m => {
+              const s = String(unwrap(m) ?? '');
+              try { return JSON.parse(s).text ?? s; } catch { return s; }
+            });
+          }
+        } else if (ent['Text1'] != null) {
+          // Legacy format (pre-1.20)
+          text = [1, 2, 3, 4].map(i => {
+            const raw = String(unwrap(ent[`Text${i}`]) ?? '');
+            try { return JSON.parse(raw).text ?? raw; } catch { return raw; }
+          });
+        }
+
         blockEntities.push({
           type: String(unwrap(ent['Id']) ?? ''),
           pos: [Number(pos?.[0]) || 0, Number(pos?.[1]) || 0, Number(pos?.[2]) || 0],
           id: String(unwrap(ent['Id']) ?? ''),
           ...(items.length > 0 ? { items } : {}),
+          ...(text ? { text } : {}),
         });
       }
     }

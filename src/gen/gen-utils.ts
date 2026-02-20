@@ -4,7 +4,7 @@
  */
 
 import { BlockGrid } from '../schem/types.js';
-import { isAir } from '../blocks/registry.js';
+import { isAir, isSolidBlock } from '../blocks/registry.js';
 import type { RoomType, StructureType } from '../types/index.js';
 import type { StylePalette } from './styles.js';
 import { getRoomTypes } from './rooms.js';
@@ -320,4 +320,76 @@ export function resolveRooms(floors: number, rooms: RoomType[] | undefined, rng:
   }
   enforceStructureRooms(result, structureType);
   return result;
+}
+
+// ─── Version stamp ─────────────────────────────────────────────────────────
+
+/** Build version string from current date: v2026.02.20 */
+const CRAFTMATIC_VERSION = `v${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}`;
+
+/** Cardinal direction offsets: [dx, dz] for the block in front of a wall face */
+const FACING_OFFSETS: Record<string, [number, number]> = {
+  north: [0, -1],
+  south: [0, 1],
+  east: [1, 0],
+  west: [-1, 0],
+};
+
+/**
+ * Place a wall sign in the foundation/basement level of a generated structure.
+ * Scans y=1..3 for an interior wall face (solid block with air in front).
+ * Sign text: Craftmatic | version | style type floors | seed
+ */
+export function stampSign(
+  grid: BlockGrid,
+  type: string,
+  style: string,
+  floors: number,
+  seed: number | undefined,
+): void {
+  const mintDate = new Date().toISOString().slice(0, 16); // 2026-02-20T15:58
+  const lines = [
+    'Craftmatic',
+    CRAFTMATIC_VERSION,
+    `${style} ${type} ${floors}f`,
+    seed != null ? `seed:${seed}` : mintDate,
+  ];
+
+  // Try y=1 (foundation), then y=2, y=3
+  for (let y = 1; y <= 3; y++) {
+    if (tryPlaceSign(grid, y, lines)) return;
+  }
+}
+
+/** Attempt to place a sign at the given y level, returns true on success */
+function tryPlaceSign(grid: BlockGrid, y: number, lines: string[]): boolean {
+  // Scan for an interior wall face: solid block with air in front
+  // Start from center and spiral outward for a natural-looking placement
+  const cx = Math.floor(grid.width / 2);
+  const cz = Math.floor(grid.length / 2);
+  const maxR = Math.max(grid.width, grid.length);
+
+  for (let r = 0; r < maxR; r++) {
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dz = -r; dz <= r; dz++) {
+        if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue; // only perimeter of ring
+        const x = cx + dx;
+        const z = cz + dz;
+        if (!grid.inBounds(x, y, z)) continue;
+
+        // Check each facing: wall behind, air in front
+        for (const [facing, [fx, fz]] of Object.entries(FACING_OFFSETS)) {
+          const wallX = x - fx;
+          const wallZ = z - fz;
+          if (!grid.inBounds(wallX, y, wallZ)) continue;
+          if (!isSolidBlock(grid.get(wallX, y, wallZ))) continue;
+          if (!isAir(grid.get(x, y, z))) continue;
+
+          grid.addSign(x, y, z, facing, lines);
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }

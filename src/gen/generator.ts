@@ -9,7 +9,7 @@ import { BlockGrid } from '../schem/types.js';
 import type { GenerationOptions, StructureType } from '../types/index.js';
 import { getStyle } from './styles.js';
 import type { StylePalette } from './styles.js';
-import { createRng, STORY_H, ROOF_H, trimGrid, pasteGrid, pick } from './gen-utils.js';
+import { createRng, STORY_H, ROOF_H, trimGrid, pasteGrid, pick, stampSign } from './gen-utils.js';
 import { generateHouse } from './gen-house.js';
 import {
   generateTower, generateCastle, generateDungeon, generateShip,
@@ -467,6 +467,9 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
       }
     }
   }
+
+  // Stamp a wall sign with version, mint date, and structure metadata
+  stampSign(grid, type, styleName, floors, options.seed);
 
   return grid;
 }
