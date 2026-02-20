@@ -47,15 +47,15 @@ export interface PropertyData {
   geocoding?: GeocodingResult;
   season?: SeasonalWeather;
   newConstruction?: boolean;
-  /** Lot size in sqft (from RentCast) */
+  /** Lot size in sqft (from Smarty) */
   lotSize?: number;
-  /** Exterior material description (from RentCast) */
+  /** Exterior wall material description (from Smarty) */
   exteriorType?: string;
   /** Wall block override derived from exterior type or satellite color */
   wallOverride?: BlockState;
-  /** Roof material description (from RentCast) */
+  /** Roof covering material (from Smarty) */
   roofType?: string;
-  /** Architecture style description (from RentCast) */
+  /** Architecture style description (from Smarty) */
   architectureType?: string;
   /** Detected building color RGB from satellite imagery */
   detectedColor?: { r: number; g: number; b: number };
@@ -77,7 +77,7 @@ export interface PropertyData {
   osmBuildingColour?: string;
   /** OSM building:architecture tag (e.g. 'victorian', 'colonial', 'art_deco') */
   osmArchitecture?: string;
-  /** Whether property has a garage (from RentCast or inference) */
+  /** Whether property has a garage (from Smarty assessor data) */
   hasGarage?: boolean;
   /** Swimming pool detected in satellite imagery */
   hasPool?: boolean;
@@ -103,6 +103,26 @@ export interface PropertyData {
   yearUncertain?: boolean;
   /** True when bedrooms=0 might mean missing data rather than studio */
   bedroomsUncertain?: boolean;
+  /** Construction type from assessor: "Frame", "Masonry", "Concrete" (Smarty) */
+  constructionType?: string;
+  /** Foundation type: "Slab", "Crawl Space", "Basement" (Smarty) */
+  foundation?: string;
+  /** Roof frame shape: "Gable", "Hip", "Flat" (Smarty) */
+  roofFrame?: string;
+  /** Fireplace detected in assessor records (Smarty) */
+  hasFireplace?: boolean;
+  /** Deck detected in assessor records (Smarty) */
+  hasDeck?: boolean;
+  /** Porch detected in assessor records — overrides inference (Smarty) */
+  smartyHasPorch?: boolean;
+  /** Pool detected in assessor records — overrides inference (Smarty) */
+  smartyHasPool?: boolean;
+  /** Fence detected in assessor records (Smarty) */
+  smartyHasFence?: boolean;
+  /** Driveway type: "Asphalt", "Concrete", "Gravel" (Smarty) */
+  drivewayType?: string;
+  /** County assessed property value (Smarty) */
+  assessedValue?: number;
   /** Mapillary street-level image URL (free alternative to Google Street View) */
   mapillaryImageUrl?: string;
   /** Mapillary image compass heading (0=north, 90=east, 180=south, 270=west) */
@@ -140,7 +160,7 @@ export function inferStyle(year: number, newConstruction = false): StyleName {
 }
 
 /**
- * Map OSM building:architecture or RentCast architectureType to StyleName.
+ * Map OSM building:architecture or Smarty architectureType to StyleName.
  * Returns undefined if no mapping is found (will fall back to year-based inference).
  */
 export function mapArchitectureToStyle(arch: string | undefined): StyleName | undefined {
@@ -217,7 +237,7 @@ export function inferStyleFromCity(city: string | undefined, year: number): Styl
  * Resolve the effective style for a property, applying the full priority chain.
  * Used by both convertToGenerationOptions and inferFeatures.
  *
- * Priority: user selection > OSM architecture > RentCast architecture > city > county > year
+ * Priority: user selection > OSM architecture > Smarty architecture > city > county > year
  */
 export function resolveStyle(prop: PropertyData): StyleName {
   if (prop.style !== 'auto') return prop.style;
@@ -496,8 +516,14 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
     pool: prop.hasPool ?? (climate === 'hot' && lotSize > 6000),
   };
 
-  // ── Mapillary feature overrides ──
-  // If Mapillary detected a driveway or fence near the property, enable those flags
+  // ── Smarty assessor overrides (highest confidence — from county records) ──
+  if (prop.smartyHasPool) flags.pool = true;
+  if (prop.smartyHasFence) flags.fence = true;
+  if (prop.smartyHasPorch) flags.porch = true;
+  if (prop.drivewayType) flags.driveway = true;
+  if (prop.hasFireplace) flags.chimney = true;
+
+  // ── Mapillary feature overrides (crowd-sourced street-level detection) ──
   if (prop.mapillaryHasDriveway) flags.driveway = true;
   if (prop.mapillaryHasFence) flags.fence = true;
 

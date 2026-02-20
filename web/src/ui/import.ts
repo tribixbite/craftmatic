@@ -20,9 +20,9 @@ import {
   mapParclPropertyType, type ParclPropertyData,
 } from '@ui/import-parcl.js';
 import {
-  searchRentCastProperty, getRentCastApiKey, setRentCastApiKey, hasRentCastApiKey,
-  mapExteriorToWall, type RentCastPropertyData,
-} from '@ui/import-rentcast.js';
+  searchSmartyProperty, getSmartyKey, setSmartyKey, hasSmartyKey, hasCustomSmartyKey,
+  mapSmartyExteriorToWall, type SmartyPropertyData,
+} from '@ui/import-smarty.js';
 import { extractBuildingColor, mapColorToWall, detectPool } from '@ui/import-color.js';
 import {
   searchOSMBuilding, mapOSMMaterialToWall, mapOSMRoofShape,
@@ -103,12 +103,12 @@ export function initImport(
   let currentFloorPlan: FloorPlanAnalysis | null = null;
   let currentGeocoding: GeocodingResult | null = null;
   let currentSeason: SeasonalWeather | undefined;
-  /** Wall override from RentCast exterior type, OSM material, or satellite color */
+  /** Wall override from Smarty exterior type, OSM material, or satellite color */
   let currentWallOverride: BlockState | undefined;
   /** Detected satellite building color RGB */
   let currentDetectedColor: { r: number; g: number; b: number } | undefined;
-  /** RentCast enrichment data */
-  let currentRentCast: RentCastPropertyData | null = null;
+  /** Smarty enrichment data */
+  let currentSmarty: SmartyPropertyData | null = null;
   /** OSM building footprint data */
   let currentOSM: OSMBuildingData | null = null;
   /** Whether a pool was detected from satellite imagery */
@@ -124,8 +124,8 @@ export function initImport(
   // Restore API key display state
   const savedParclKey = getParclApiKey();
   const parclKeyMasked = savedParclKey ? '••••' + savedParclKey.slice(-4) : '';
-  const savedRentCastKey = getRentCastApiKey();
-  const rentCastKeyMasked = savedRentCastKey ? '••••' + savedRentCastKey.slice(-4) : '';
+  const smartyCustomKey = hasCustomSmartyKey();
+  const smartyKeyDisplay = smartyCustomKey ? '••••' + getSmartyKey().slice(-4) : 'Built-in';
   const savedStreetViewKey = getStreetViewApiKey();
   const svKeyMasked = savedStreetViewKey ? '••••' + savedStreetViewKey.slice(-4) : '';
   const savedMapboxToken = getMapboxToken();
@@ -140,7 +140,7 @@ export function initImport(
     <details class="customize-section" id="import-api-section">
       <summary class="customize-summary">API Keys
         <span class="import-api-badge" id="import-api-badge">${
-          [savedParclKey, savedRentCastKey, savedStreetViewKey, savedMapboxToken, savedMlyToken].filter(Boolean).length
+          [savedParclKey, true /* Smarty embedded */, savedStreetViewKey, savedMapboxToken, savedMlyToken].filter(Boolean).length
         }/5</span>
       </summary>
       <div class="customize-body import-api-list">
@@ -161,21 +161,21 @@ export function initImport(
             ${parclKeyMasked ? `Key stored: ${parclKeyMasked}` : 'No key — manual entry only'}
           </div>
         </div>
-        <!-- RentCast key -->
+        <!-- Smarty property data (embedded key, user can override) -->
         <div class="import-api-row">
           <div class="import-api-label">
-            <strong>RentCast</strong>
-            <span class="import-api-desc">floors, lot size, exterior, roof</span>
+            <strong>Smarty</strong>
+            <span class="import-api-desc">construction, roof, amenities, assessor</span>
           </div>
           <div class="import-api-input-row">
-            <input id="import-rentcast-key" type="password" class="form-input import-api-key-input"
-              placeholder="Paste API key" value="${escapeAttr(savedRentCastKey)}">
-            <button id="import-rentcast-save" class="btn btn-secondary btn-sm">${savedRentCastKey ? 'Saved' : 'Save'}</button>
-            <a href="https://app.rentcast.io" target="_blank" rel="noopener"
+            <input id="import-smarty-key" type="password" class="form-input import-api-key-input"
+              placeholder="Built-in key active" value="${smartyCustomKey ? escapeAttr(getSmartyKey()) : ''}">
+            <button id="import-smarty-save" class="btn btn-secondary btn-sm">${smartyCustomKey ? 'Saved' : 'Save'}</button>
+            <a href="https://www.smarty.com/account/create" target="_blank" rel="noopener"
               class="import-api-link" title="Get free key">Get key</a>
           </div>
-          <div id="import-rentcast-status" class="import-api-status">
-            ${rentCastKeyMasked ? `Key stored: ${rentCastKeyMasked}` : 'No key — satellite color used instead'}
+          <div id="import-smarty-status" class="import-api-status">
+            ${smartyKeyDisplay === 'Built-in' ? 'Built-in key active (IP-restricted)' : `Custom key: ${smartyKeyDisplay}`}
           </div>
         </div>
         <!-- Google Street View key -->
@@ -341,9 +341,9 @@ export function initImport(
   const parclKeyInput = controls.querySelector('#import-parcl-key') as HTMLInputElement;
   const parclSaveBtn = controls.querySelector('#import-parcl-save') as HTMLButtonElement;
   const parclStatus = controls.querySelector('#import-parcl-status') as HTMLElement;
-  const rentCastKeyInput = controls.querySelector('#import-rentcast-key') as HTMLInputElement;
-  const rentCastSaveBtn = controls.querySelector('#import-rentcast-save') as HTMLButtonElement;
-  const rentCastStatus = controls.querySelector('#import-rentcast-status') as HTMLElement;
+  const smartyKeyInput = controls.querySelector('#import-smarty-key') as HTMLInputElement;
+  const smartySaveBtn = controls.querySelector('#import-smarty-save') as HTMLButtonElement;
+  const smartyStatus = controls.querySelector('#import-smarty-status') as HTMLElement;
   const svKeyInput = controls.querySelector('#import-sv-key') as HTMLInputElement;
   const svSaveBtn = controls.querySelector('#import-sv-save') as HTMLButtonElement;
   const svStatus = controls.querySelector('#import-sv-status') as HTMLElement;
@@ -364,7 +364,7 @@ export function initImport(
 
   /** Update the N/5 badge count after any key save */
   function updateApiBadge(): void {
-    const count = [hasParclApiKey(), hasRentCastApiKey(), hasStreetViewApiKey(), hasMapboxToken(), hasMapillaryMlyToken()]
+    const count = [hasParclApiKey(), hasSmartyKey(), hasStreetViewApiKey(), hasMapboxToken(), hasMapillaryMlyToken()]
       .filter(Boolean).length;
     apiBadge.textContent = `${count}/5`;
   }
@@ -373,8 +373,8 @@ export function initImport(
   const apiKeyConfigs = [
     { input: parclKeyInput, btn: parclSaveBtn, status: parclStatus,
       set: setParclApiKey, noKeyMsg: 'No key — manual entry only' },
-    { input: rentCastKeyInput, btn: rentCastSaveBtn, status: rentCastStatus,
-      set: setRentCastApiKey, noKeyMsg: 'No key — satellite color used instead' },
+    { input: smartyKeyInput, btn: smartySaveBtn, status: smartyStatus,
+      set: setSmartyKey, noKeyMsg: 'Built-in key active (IP-restricted)' },
     { input: svKeyInput, btn: svSaveBtn, status: svStatus,
       set: setStreetViewApiKey, noKeyMsg: 'No key — no exterior photo' },
     { input: mbTokenInput, btn: mbSaveBtn, status: mbStatus,
@@ -434,13 +434,13 @@ export function initImport(
 
     lookupBtn.disabled = true;
 
-    // Run geocoding, Parcl API, and RentCast lookup in parallel
+    // Run geocoding, Parcl API, and Smarty lookup in parallel
     showStatus('Looking up property...', 'loading');
 
     // Reset enrichment state for new lookup
     currentWallOverride = undefined;
     currentDetectedColor = undefined;
-    currentRentCast = null;
+    currentSmarty = null;
     currentOSM = null;
     currentPoolDetected = false;
     currentStreetViewUrl = null;
@@ -448,10 +448,10 @@ export function initImport(
     currentMapillaryImage = null;
     currentMapillaryFeatures = [];
 
-    const [geoResult, parclResult, rentCastResult] = await Promise.allSettled([
+    const [geoResult, parclResult, smartyResult] = await Promise.allSettled([
       geocodeAddress(address),
       hasParclApiKey() ? searchParclProperty(address) : Promise.resolve(null),
-      hasRentCastApiKey() ? searchRentCastProperty(address) : Promise.resolve(null),
+      searchSmartyProperty(address),
     ]);
 
     // Handle geocoding result — fall back to Parcl lat/lng if geocoders fail
@@ -558,14 +558,14 @@ export function initImport(
       return;
     }
 
-    // Handle RentCast API result — enriches with floor count, exterior, lot size
-    // Process RentCast first so wallOverride from exterior type takes priority (priority 1)
-    if (rentCastResult.status === 'fulfilled' && rentCastResult.value) {
-      currentRentCast = rentCastResult.value;
-      populateFromRentCast(rentCastResult.value);
+    // Handle Smarty API result — enriches with construction details, amenities
+    // Process Smarty first so wallOverride from exterior type takes priority (priority 1)
+    if (smartyResult.status === 'fulfilled' && smartyResult.value) {
+      currentSmarty = smartyResult.value;
+      populateFromSmarty(smartyResult.value);
     }
 
-    // Handle OSM enrichment — wallOverride priority 2 (below RentCast, above satellite color)
+    // Handle OSM enrichment — wallOverride priority 2 (below Smarty, above satellite color)
     if (currentOSM) {
       populateFromOSM(currentOSM);
     }
@@ -578,8 +578,8 @@ export function initImport(
       populateFromParcl(parclResult.value);
       statusParts.push('— property data loaded');
     }
-    if (currentRentCast) {
-      statusParts.push(currentRentCast.exteriorType ? `| ${currentRentCast.exteriorType}` : '');
+    if (currentSmarty) {
+      statusParts.push(currentSmarty.exteriorWalls ? `| ${currentSmarty.exteriorWalls}` : '');
     }
     if (currentOSM) {
       statusParts.push(`| ${currentOSM.widthMeters}m × ${currentOSM.lengthMeters}m (OSM)`);
@@ -661,36 +661,38 @@ export function initImport(
     }
   }
 
-  /** Populate form fields and wallOverride from RentCast property data */
-  function populateFromRentCast(rc: RentCastPropertyData): void {
-    // Floor count → stories field (most reliable source for this)
-    if (rc.floorCount && rc.floorCount > 0) {
+  /** Populate form fields and wallOverride from Smarty property data */
+  function populateFromSmarty(sm: SmartyPropertyData): void {
+    // Stories from assessor records (most reliable source)
+    if (sm.storiesNumber && sm.storiesNumber > 0) {
       const storiesEl = controls.querySelector('#import-stories') as HTMLInputElement;
-      storiesEl.value = String(rc.floorCount);
-      saveField('stories', String(rc.floorCount));
+      storiesEl.value = String(sm.storiesNumber);
+      saveField('stories', String(sm.storiesNumber));
       storiesEl.classList.add('import-field-filled');
       setTimeout(() => storiesEl.classList.remove('import-field-filled'), 1500);
     }
 
-    // Exterior type → wall material override (highest priority for wallOverride)
-    if (rc.exteriorType) {
-      const mapped = mapExteriorToWall(rc.exteriorType);
+    // Exterior walls → wall material override (highest priority for wallOverride)
+    if (sm.exteriorWalls) {
+      const mapped = mapSmartyExteriorToWall(sm.exteriorWalls);
       if (mapped) {
         currentWallOverride = mapped;
       }
     }
 
-    // If RentCast also provides beds/baths/sqft/year and Parcl didn't, backfill
+    // Pool detection from assessor records (overrides satellite inference)
+    if (sm.hasPool) currentPoolDetected = true;
+
+    // Backfill beds/baths/sqft/year if Parcl didn't provide them
     const backfillMap: [string, string, number][] = [
-      ['import-sqft', 'sqft', rc.squareFootage],
-      ['import-beds', 'beds', rc.bedrooms],
-      ['import-baths', 'baths', rc.bathrooms],
-      ['import-year', 'year', rc.yearBuilt],
+      ['import-sqft', 'sqft', sm.buildingSqft],
+      ['import-beds', 'beds', sm.bedrooms],
+      ['import-baths', 'baths', sm.bathroomsTotal],
+      ['import-year', 'year', sm.yearBuilt],
     ];
     for (const [id, key, value] of backfillMap) {
       if (value && value > 0) {
         const el = controls.querySelector(`#${id}`) as HTMLInputElement;
-        // Only backfill if current value is the default
         const current = parseInt(el.value) || 0;
         if (current === 0 || el.value === loadField(key)) continue;
       }
@@ -701,8 +703,8 @@ export function initImport(
   function populateFromOSM(osm: OSMBuildingData): void {
     const storiesEl = controls.querySelector('#import-stories') as HTMLInputElement;
 
-    // Stories priority: RentCast floorCount (already set) > OSM levels > footprint calc
-    if (!currentRentCast?.floorCount) {
+    // Stories priority: Smarty storiesNumber (already set) > OSM levels > footprint calc
+    if (!currentSmarty?.storiesNumber) {
       if (osm.levels && osm.levels > 0) {
         // OSM building:levels tag — second most reliable source
         storiesEl.value = String(osm.levels);
@@ -738,7 +740,7 @@ export function initImport(
       }
     }
 
-    // Wall material from OSM — priority 2 (below RentCast exteriorType, above satellite color)
+    // Wall material from OSM — priority 2 (below Smarty exteriorWalls, above satellite color)
     if (osm.material && !currentWallOverride) {
       const mapped = mapOSMMaterialToWall(osm.material);
       if (mapped) {
@@ -899,11 +901,11 @@ export function initImport(
       geocoding: currentGeocoding ?? undefined,
       season: currentSeason,
       newConstruction: currentParcl?.newConstruction ?? yearVal >= 2020,
-      lotSize: currentRentCast?.lotSize,
-      exteriorType: currentRentCast?.exteriorType,
+      lotSize: currentSmarty?.lotSqft || undefined,
+      exteriorType: currentSmarty?.exteriorWalls || undefined,
       wallOverride: currentWallOverride,
-      roofType: currentRentCast?.roofType,
-      architectureType: currentRentCast?.architectureType,
+      roofType: currentSmarty?.roofCover || undefined,
+      architectureType: currentSmarty?.structureStyle || undefined,
       detectedColor: currentDetectedColor,
       osmWidth: currentOSM?.widthBlocks,
       osmLength: currentOSM?.lengthBlocks,
@@ -914,7 +916,18 @@ export function initImport(
       osmRoofColour: currentOSM?.roofColour,
       osmBuildingColour: currentOSM?.buildingColour,
       osmArchitecture: currentOSM?.tags?.['building:architecture'],
-      hasGarage: currentRentCast?.garageSpaces != null && currentRentCast.garageSpaces > 0,
+      hasGarage: currentSmarty?.hasGarage,
+      // Smarty assessor amenities
+      constructionType: currentSmarty?.constructionType || undefined,
+      foundation: currentSmarty?.foundation || undefined,
+      roofFrame: currentSmarty?.roofFrame || undefined,
+      hasFireplace: currentSmarty?.hasFireplace || undefined,
+      hasDeck: currentSmarty?.hasDeck || undefined,
+      smartyHasPorch: currentSmarty?.hasPorch || undefined,
+      smartyHasPool: currentSmarty?.hasPool || undefined,
+      smartyHasFence: currentSmarty?.hasFence || undefined,
+      drivewayType: currentSmarty?.drivewayType || undefined,
+      assessedValue: currentSmarty?.assessedValue || undefined,
       hasPool: currentPoolDetected,
       floorPlanShape: currentOSM?.polygon
         ? analyzePolygonShape(currentOSM.polygon) : undefined,

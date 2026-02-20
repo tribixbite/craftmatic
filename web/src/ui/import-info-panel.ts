@@ -56,10 +56,30 @@ export function buildInfoPanelHtml(
     enrichmentRows += `<div class="info-row"><span class="info-label">Wall Material</span><span class="info-value">${wallName}</span></div>`;
   }
   if (property.roofType) {
-    enrichmentRows += `<div class="info-row"><span class="info-label">Roof</span><span class="info-value">${escapeHtml(property.roofType)}</span></div>`;
+    const roofFrame = property.roofFrame ? ` (${property.roofFrame})` : '';
+    enrichmentRows += `<div class="info-row"><span class="info-label">Roof</span><span class="info-value">${escapeHtml(property.roofType)}${escapeHtml(roofFrame)}</span></div>`;
+  }
+  if (property.constructionType) {
+    enrichmentRows += `<div class="info-row"><span class="info-label">Construction</span><span class="info-value">${escapeHtml(property.constructionType)}</span></div>`;
+  }
+  if (property.foundation) {
+    enrichmentRows += `<div class="info-row"><span class="info-label">Foundation</span><span class="info-value">${escapeHtml(property.foundation)}</span></div>`;
   }
   if (property.architectureType) {
     enrichmentRows += `<div class="info-row"><span class="info-label">Architecture</span><span class="info-value">${escapeHtml(property.architectureType)}</span></div>`;
+  }
+  if (property.hasFireplace || property.hasDeck || property.smartyHasPorch || property.smartyHasPool || property.smartyHasFence) {
+    const amenities: string[] = [];
+    if (property.hasFireplace) amenities.push('fireplace');
+    if (property.smartyHasPool) amenities.push('pool');
+    if (property.smartyHasPorch) amenities.push('porch');
+    if (property.hasDeck) amenities.push('deck');
+    if (property.smartyHasFence) amenities.push('fence');
+    if (property.drivewayType) amenities.push(`driveway (${property.drivewayType})`);
+    enrichmentRows += `<div class="info-row"><span class="info-label">Amenities</span><span class="info-value">${amenities.join(', ')}</span></div>`;
+  }
+  if (property.assessedValue && property.assessedValue > 0) {
+    enrichmentRows += `<div class="info-row"><span class="info-label">Assessed</span><span class="info-value">$${property.assessedValue.toLocaleString()}</span></div>`;
   }
   if (property.osmWidth && property.osmLength) {
     enrichmentRows += `<div class="info-row"><span class="info-label">Footprint</span><span class="info-value">${osmData?.widthMeters}m × ${osmData?.lengthMeters}m (OSM)</span></div>`;

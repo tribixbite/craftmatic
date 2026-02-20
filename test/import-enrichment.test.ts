@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateStructure } from '../src/gen/generator.js';
 import { mapColorToWall } from '../web/src/ui/import-color.js';
-import { mapExteriorToWall } from '../web/src/ui/import-rentcast.js';
+import { mapSmartyExteriorToWall as mapExteriorToWall } from '../src/gen/api/smarty.js';
 
 describe('wallOverride enrichment pipeline', () => {
   it('generates a house with wallOverride from exterior type mapping', () => {
@@ -36,11 +36,11 @@ describe('wallOverride enrichment pipeline', () => {
   });
 
   it('exterior type wall takes priority over satellite color', () => {
-    // Simulate: RentCast says "Brick", satellite detects a gray color
+    // Simulate: Smarty says "Brick", satellite detects a gray color
     const exteriorWall = mapExteriorToWall('Brick');
     const colorWall = mapColorToWall({ r: 125, g: 125, b: 125 });
 
-    // RentCast should win — brick, not stone_bricks
+    // Smarty should win — brick, not stone_bricks
     expect(exteriorWall).toBe('minecraft:bricks');
     expect(colorWall).toBe('minecraft:stone_bricks');
 
