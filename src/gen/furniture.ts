@@ -308,3 +308,79 @@ export function towelRack(
   grid.set(x, y, z, style.fence);
   grid.set(x, y + 1, z, style.bannerN);
 }
+
+/** Place a brewing station — brewing stand, cauldron, potion ingredients */
+export function brewingStation(
+  grid: BlockGrid, x: number, y: number, z: number,
+  facing: 'north' | 'south' | 'east' | 'west' = 'south'
+): void {
+  grid.set(x, y, z, 'minecraft:brewing_stand');
+  const [dx, dz] = facing === 'north' ? [0, -1] : facing === 'south' ? [0, 1]
+    : facing === 'east' ? [1, 0] : [-1, 0];
+  grid.set(x + dx, y, z + dz, 'minecraft:cauldron[level=3]');
+  // Ingredient shelf perpendicular to facing
+  const [px, pz] = dx === 0 ? [1, 0] : [0, 1];
+  if (grid.inBounds(x + px, y, z + pz))
+    grid.set(x + px, y, z + pz, 'minecraft:soul_sand');
+  if (grid.inBounds(x - px, y, z - pz))
+    grid.set(x - px, y, z - pz, 'minecraft:nether_wart_block');
+}
+
+/** Place an enchanting setup — enchanting table surrounded by bookshelves */
+export function enchantingSetup(
+  grid: BlockGrid, cx: number, y: number, cz: number
+): void {
+  grid.set(cx, y, cz, 'minecraft:enchanting_table');
+  // Ring of bookshelves at distance 2, with air gap at distance 1
+  for (const [dx, dz] of [[-2, 0], [2, 0], [0, -2], [0, 2], [-2, -2], [2, -2], [-2, 2], [2, 2]]) {
+    if (grid.inBounds(cx + dx, y, cz + dz)) {
+      grid.set(cx + dx, y, cz + dz, 'minecraft:bookshelf');
+      grid.set(cx + dx, y + 1, cz + dz, 'minecraft:bookshelf');
+    }
+  }
+  // Candles for atmosphere
+  grid.set(cx, y + 1, cz, 'minecraft:candle[candles=3,lit=true]');
+}
+
+/** Place a small aquarium — glass walls with water */
+export function aquarium(
+  grid: BlockGrid, x: number, y: number, z: number,
+  width: number, depth: number
+): void {
+  // Glass enclosure
+  for (let dx = 0; dx < width; dx++) {
+    for (let dz = 0; dz < depth; dz++) {
+      const isEdge = dx === 0 || dx === width - 1 || dz === 0 || dz === depth - 1;
+      grid.set(x + dx, y, z + dz, isEdge ? 'minecraft:glass' : 'minecraft:water');
+      grid.set(x + dx, y + 1, z + dz, isEdge ? 'minecraft:glass' : 'minecraft:water');
+      grid.set(x + dx, y + 2, z + dz, 'minecraft:glass'); // lid
+    }
+  }
+  // Sea lantern underneath for glow
+  grid.set(x + Math.floor(width / 2), y - 1, z + Math.floor(depth / 2), 'minecraft:sea_lantern');
+}
+
+/** Place kitchen appliances — smoker + blast furnace as modern cooking pair */
+export function kitchenAppliances(
+  grid: BlockGrid, x: number, y: number, z: number,
+  facing: 'north' | 'south' | 'east' | 'west' = 'south'
+): void {
+  grid.set(x, y, z, `minecraft:smoker[facing=${facing},lit=false]`);
+  const [dx, dz] = facing === 'north' || facing === 'south' ? [1, 0] : [0, 1];
+  if (grid.inBounds(x + dx, y, z + dz))
+    grid.set(x + dx, y, z + dz, `minecraft:blast_furnace[facing=${facing},lit=false]`);
+}
+
+/** Place a weapon rack — armor stand on polished base with item frames */
+export function weaponRack(
+  grid: BlockGrid, x: number, y: number, z: number,
+  facing: 'north' | 'south' | 'east' | 'west' = 'south', count = 3
+): void {
+  const [dx, dz] = facing === 'north' || facing === 'south' ? [1, 0] : [0, 1];
+  for (let i = 0; i < count; i++) {
+    const px = x + dx * i, pz = z + dz * i;
+    if (!grid.inBounds(px, y, pz)) break;
+    grid.set(px, y, pz, 'minecraft:polished_deepslate');
+    grid.set(px, y + 1, pz, 'minecraft:armor_stand');
+  }
+}

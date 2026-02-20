@@ -4,18 +4,23 @@
  */
 
 import { describe, it, expect, afterAll } from 'vitest';
-import { existsSync, unlinkSync } from 'node:fs';
+import { existsSync, unlinkSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { BlockGrid } from '@craft/schem/types.js';
 import { writeSchematicData, gridToSchematic } from '@craft/schem/write.js';
 import { parseSchematic, parseToGrid } from '@craft/schem/parse.js';
 import { stampSign } from '@craft/gen/gen-utils.js';
+
+/** Temp dir under project output/ to avoid /tmp EACCES on Android/Termux */
+const TEMP_DIR = join(import.meta.dirname!, '..', 'output', '.test-tmp');
+mkdirSync(TEMP_DIR, { recursive: true });
 
 /** Temp files created during tests, cleaned up in afterAll */
 const tempFiles: string[] = [];
 
 /** Helper: write a grid to a temp .schem file and track for cleanup */
 function writeTemp(grid: BlockGrid, name: string): string {
-  const filepath = `/tmp/craftmatic-test-${name}-${Date.now()}.schem`;
+  const filepath = join(TEMP_DIR, `craftmatic-test-${name}-${Date.now()}.schem`);
   const data = gridToSchematic(grid);
   writeSchematicData(data, filepath);
   tempFiles.push(filepath);

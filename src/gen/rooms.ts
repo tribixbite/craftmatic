@@ -11,7 +11,8 @@ import {
   carpetArea, endRodPillar, fireplace, placeBed, sideTable,
   storageCorner, couchSet, rugWithBorder, wallShelf, armorDisplay,
   telescope, plateSet, mapTable, lightFixture, bench,
-  displayPedestal, towelRack,
+  displayPedestal, towelRack, brewingStation, enchantingSetup,
+  aquarium, weaponRack,
 } from './furniture.js';
 
 /** Room generator function signature */
@@ -503,6 +504,11 @@ function generateLibrary(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   grid.set(cx + 2, y, z1 + 2, 'minecraft:lectern[facing=south]');
   grid.set(cx - 2, y, z2 - 2, 'minecraft:lectern[facing=north]');
 
+  // Enchanting nook if wide enough (overrides some bookshelves — intentional)
+  if (rw >= 10) {
+    enchantingSetup(grid, cx - 4, y, cz);
+  }
+
   // Map/globe display
   grid.set(cx, y, z1 + 2, 'minecraft:cartography_table');
 
@@ -636,6 +642,9 @@ function generateArmory(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
   armorDisplay(grid, x1, y, z2 - 3);
   if (rw >= 8) armorDisplay(grid, x1, y, z2 - 5);
 
+  // Weapon rack row along opposite wall
+  if (rw >= 8) weaponRack(grid, x2, y, z1 + 2, 'west', 3);
+
   // Training targets (two targets)
   grid.set(x2 - 1, y, z1 + 3, 'minecraft:hay_block');
   grid.set(x2 - 1, y + 1, z1 + 3, 'minecraft:target');
@@ -726,11 +735,9 @@ function generateLab(grid: BlockGrid, b: RoomBounds, style: StylePalette): void 
   const cx = Math.floor((x1 + x2) / 2);
   const cz = Math.floor((z1 + z2) / 2);
 
-  // Brewing station (expanded)
-  grid.set(x2, y, z1, 'minecraft:brewing_stand');
-  grid.set(x2 - 1, y, z1, 'minecraft:brewing_stand');
-  grid.set(x2, y, z1 + 1, 'minecraft:water_cauldron[level=3]');
-  grid.set(x2 - 1, y, z1 + 1, 'minecraft:water_cauldron[level=3]');
+  // Brewing stations (dual setup)
+  brewingStation(grid, x2, y, z1, 'south');
+  brewingStation(grid, x2 - 2, y, z1, 'south');
   // Reagent shelves above
   wallShelf(grid, x2, y + 2, z1, 'south', ['minecraft:chain']);
   wallShelf(grid, x2 - 1, y + 2, z1, 'south', ['minecraft:chain']);
@@ -807,6 +814,12 @@ function generateGallery(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   grid.set(cx - 3, y + 1, cz + 2, style.plant1);
   grid.set(cx + 3, y, cz + 2, 'minecraft:quartz_block');
   grid.set(cx + 3, y + 1, cz + 2, 'minecraft:amethyst_cluster[facing=up]');
+
+  // Aquarium feature if room is wide enough
+  const gRw = x2 - x1;
+  if (gRw >= 10) {
+    aquarium(grid, cx - 2, y, z2 - 3, 4, 3);
+  }
 
   // Carpet
   carpetArea(grid, x1 + 1, y, z1 + 2, x2 - 1, z2 - 1, style.carpet);
@@ -1410,6 +1423,12 @@ function generateSunroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   grid.set(cx, y + 1, cz, style.carpet);
   grid.set(cx, y + 2, cz, style.plant3);
   grid.set(cx - 1, y, cz, style.chairE);
+
+  // Aquarium feature along interior wall if wide enough
+  const srW = x2 - x1;
+  if (srW >= 8) {
+    aquarium(grid, x1 + 2, y, z1 + 1, 3, 2);
+  }
 
   // Bright lantern lights
   ceilingChandelier(grid, b, style, cx, cz);
