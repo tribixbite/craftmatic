@@ -139,7 +139,11 @@ function mapAttributes(a: Record<string, unknown>): SmartyPropertyData {
   const bool = (key: string) => {
     const v = a[key];
     if (typeof v === 'boolean') return v;
-    if (typeof v === 'string') return v.toLowerCase() === 'yes' || v.toLowerCase() === 'true' || v.length > 0;
+    if (typeof v === 'string') {
+      const s = v.trim().toLowerCase();
+      if (s === 'no' || s === 'false' || s === '0' || s === 'none' || s === 'n') return false;
+      return s === 'yes' || s === 'true' || s.length > 0;
+    }
     return !!v;
   };
 

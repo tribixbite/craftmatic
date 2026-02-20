@@ -1,9 +1,15 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
+/** Build-time version string: v2026.02.20 */
+const appVersion = `v${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}`;
+
 export default defineConfig({
   root: resolve(__dirname),
   base: './',
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

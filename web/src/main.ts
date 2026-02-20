@@ -364,5 +364,14 @@ initGallery(galleryGrid, (grid: BlockGrid, _label: string) => {
   }, 0));
 });
 
+// ─── Version Badge ──────────────────────────────────────────────────────────
+
+declare const __APP_VERSION__: string;
+const versionEl = document.getElementById('app-version');
+if (versionEl) {
+  versionEl.textContent = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+  versionEl.style.cssText = 'font-family:var(--font-mono,"JetBrains Mono",monospace);font-size:0.7rem;opacity:0.45;letter-spacing:0.02em;';
+}
+
 // ─── Startup ─────────────────────────────────────────────────────────────────
 // Ready — user can generate structures, upload files, or browse the gallery.
