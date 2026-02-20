@@ -98,3 +98,7 @@ export {
   hasMapillaryApiKey, getMapillaryApiKey,
   type MapillaryImageData, type MapillaryFeatureData,
 } from './gen/api/mapillary.js';
+export {
+  searchSmartyProperty, hasSmartyAuth, mapSmartyExteriorToWall,
+  type SmartyPropertyData,
+} from './gen/api/smarty.js';

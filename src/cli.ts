@@ -25,6 +25,7 @@ import {
   searchMapillaryImages, searchMapillaryFeatures,
   pickBestImage, analyzeFeatures, getMapillaryApiKey,
 } from './gen/api/mapillary.js';
+import { searchSmartyProperty, hasSmartyAuth, mapSmartyExteriorToWall } from './gen/api/smarty.js';
 
 const program = new Command();
 
@@ -327,12 +328,13 @@ async function genFromAddress(
     const geo = await geocodeAddress(address);
     spinner.text = `Geocoded → ${chalk.dim(`${geo.lat.toFixed(5)}, ${geo.lng.toFixed(5)}`)} (${geo.source})`;
 
-    // Step 2: Parcl + OSM + Mapillary in parallel
+    // Step 2: Parcl + OSM + Smarty + Mapillary in parallel
     spinner.text = 'Fetching property data + building footprint...';
     const mapillaryKey = getMapillaryApiKey();
-    const [parcl, osm, mlyImages, mlyFeatures] = await Promise.all([
+    const [parcl, osm, smarty, mlyImages, mlyFeatures] = await Promise.all([
       searchParclProperty(address),
       searchOSMBuilding(geo.lat, geo.lng),
+      hasSmartyAuth() ? searchSmartyProperty(address) : Promise.resolve(null),
       mapillaryKey ? searchMapillaryImages(geo.lat, geo.lng, mapillaryKey) : Promise.resolve(null),
       mapillaryKey ? searchMapillaryFeatures(geo.lat, geo.lng, mapillaryKey) : Promise.resolve(null),
     ]);
@@ -409,6 +411,23 @@ async function genFromAddress(
       osmBuildingColour: osm?.buildingColour,
       osmArchitecture: osm?.tags?.['building:architecture'],
       floorPlanShape: osm?.polygon ? analyzePolygonShape(osm.polygon) : undefined,
+      // Smarty assessor enrichment
+      lotSize: smarty?.lotSqft || undefined,
+      exteriorType: smarty?.exteriorWalls || undefined,
+      wallOverride: smarty?.exteriorWalls ? mapSmartyExteriorToWall(smarty.exteriorWalls) : undefined,
+      roofType: smarty?.roofCover || undefined,
+      architectureType: smarty?.structureStyle || undefined,
+      hasGarage: smarty?.hasGarage,
+      constructionType: smarty?.constructionType || undefined,
+      foundation: smarty?.foundation || undefined,
+      roofFrame: smarty?.roofFrame || undefined,
+      hasFireplace: smarty?.hasFireplace || undefined,
+      hasDeck: smarty?.hasDeck || undefined,
+      smartyHasPorch: smarty?.hasPorch || undefined,
+      smartyHasPool: smarty?.hasPool || undefined,
+      smartyHasFence: smarty?.hasFence || undefined,
+      drivewayType: smarty?.drivewayType || undefined,
+      assessedValue: smarty?.assessedValue || undefined,
       yearUncertain,
       bedroomsUncertain,
       // Mapillary enrichment
@@ -458,6 +477,20 @@ async function genFromAddress(
       console.log(`  OSM:        ${osm.widthBlocks}x${osm.lengthBlocks} blocks (${osm.widthMeters}x${osm.lengthMeters}m)`);
       if (osm.levels) console.log(`  OSM Levels: ${osm.levels}`);
       if (osm.material) console.log(`  Material:   ${osm.material}`);
+    }
+    if (smarty) {
+      const parts: string[] = [];
+      if (smarty.exteriorWalls) parts.push(smarty.exteriorWalls);
+      if (smarty.roofCover) parts.push(`roof: ${smarty.roofCover}`);
+      if (smarty.structureStyle) parts.push(smarty.structureStyle);
+      console.log(`  Smarty:     ${parts.join(' | ') || 'data found'}`);
+      const amenities: string[] = [];
+      if (smarty.hasGarage) amenities.push('garage');
+      if (smarty.hasPool) amenities.push('pool');
+      if (smarty.hasFireplace) amenities.push('fireplace');
+      if (smarty.hasFence) amenities.push('fence');
+      if (smarty.hasPorch) amenities.push('porch');
+      if (amenities.length > 0) console.log(`  Amenities:  ${amenities.join(', ')} (Smarty)`);
     }
     if (mlyImages && mlyImages.length > 0) {
       console.log(`  Mapillary:  ${mlyImages.length} images found`);
