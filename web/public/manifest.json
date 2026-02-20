@@ -1,0 +1,12 @@
+{
+  "name": "Craftmatic",
+  "short_name": "Craftmatic",
+  "description": "Generate, view, and export Minecraft schematics",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0a0a14",
+  "theme_color": "#12121e",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

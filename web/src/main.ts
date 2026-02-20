@@ -373,5 +373,10 @@ if (versionEl) {
   versionEl.style.cssText = 'font-family:var(--font-mono,"JetBrains Mono",monospace);font-size:0.7rem;opacity:0.45;letter-spacing:0.02em;';
 }
 
+// ─── Service Worker ─────────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 // ─── Startup ─────────────────────────────────────────────────────────────────
 // Ready — user can generate structures, upload files, or browse the gallery.
