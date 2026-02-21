@@ -25,10 +25,12 @@ export function generateHouse(
   floors: number, style: StylePalette, rooms: RoomType[] | undefined,
   bwOpt: number | undefined, blOpt: number | undefined, rng: () => number,
   roofShapeOpt?: RoofShape, features?: FeatureFlags,
-  planShape: FloorPlanShape = 'rect'
+  planShape?: FloorPlanShape
 ): BlockGrid {
   // Use style's preferred roof shape when no explicit override
   const roofShape: RoofShape = roofShapeOpt ?? style.defaultRoofShape;
+  // Use style's preferred plan shape when no explicit override
+  const effectivePlanShape: FloorPlanShape = planShape ?? style.defaultPlanShape;
   // Use style's preferred roof height (overrides global ROOF_H constant)
   const effectiveRoofH = style.roofHeight;
   const bw = bwOpt ?? 29;
@@ -36,11 +38,11 @@ export function generateHouse(
   const margin = 3;
   const porchDepth = 4;
   // For L/T/U plans, allocate extra width for the wing(s)
-  const wingW = (planShape !== 'rect') ? Math.max(8, Math.floor(bw * 0.45)) : 0;
-  const wingL = (planShape !== 'rect') ? Math.max(6, Math.floor(bl * 0.4)) : 0;
+  const wingW = (effectivePlanShape !== 'rect') ? Math.max(8, Math.floor(bw * 0.45)) : 0;
+  const wingL = (effectivePlanShape !== 'rect') ? Math.max(6, Math.floor(bl * 0.4)) : 0;
   // U-shape needs extra space on both sides; L/T only on one side
-  const extraEast = (planShape !== 'rect') ? wingW : 0;
-  const extraWest = (planShape === 'U') ? wingW : 0;
+  const extraEast = (effectivePlanShape !== 'rect') ? wingW : 0;
+  const extraWest = (effectivePlanShape === 'U') ? wingW : 0;
   const gw = bw + 2 * margin + extraEast + extraWest;
   const gl = bl + 2 * margin + porchDepth;
   const gh = floors * STORY_H + effectiveRoofH;
@@ -157,12 +159,12 @@ export function generateHouse(
   }
 
   // ── L/T/U-shaped wing ──────────────────────────────────────────────
-  if (planShape !== 'rect' && wingW > 0 && wingL > 0) {
+  if (effectivePlanShape !== 'rect' && wingW > 0 && wingL > 0) {
     // Wing extends off the east side of the main building
     const wx1 = bx2 + 1;
     const wx2 = wx1 + wingW - 1;
     // L-shape: wing on back half; T-shape: wing centered; U-shape: two wings
-    const wz1 = planShape === 'T' ? zMid - Math.floor(wingL / 2) : bz1;
+    const wz1 = effectivePlanShape === 'T' ? zMid - Math.floor(wingL / 2) : bz1;
     const wz2 = wz1 + wingL - 1;
 
     // Wing shell (ground floor only for simplicity)
@@ -199,7 +201,7 @@ export function generateHouse(
     wingGen(grid, wingBounds, style);
 
     // U-shape: second wing on the west side
-    if (planShape === 'U') {
+    if (effectivePlanShape === 'U') {
       const wx1b = Math.max(0, bx1 - wingW);
       const wx2b = bx1 - 1;
       if (wx2b > wx1b) {
@@ -251,12 +253,17 @@ export function generateHouse(
   if (f.driveway) addDriveway(grid, xMid, bz2, porchDepth);
   if (f.fence)    addPropertyFence(grid, bx1, bz1, bx2, bz2, xMid, style);
 
-  // Swimming pool in backyard area
+  // Swimming pool in backyard area — check full extent including border + diving board
   if (f.pool) {
+    const poolW = 5, poolL = 8;
     const poolX = Math.floor((bx1 + bx2) / 2);
-    const poolZ = Math.max(3, bz1 - 6);
-    if (grid.inBounds(poolX, 0, poolZ))
-      placePool(grid, poolX, poolZ);
+    const poolZ = Math.max(Math.floor(poolL / 2) + 2, bz1 - 6);
+    const px1 = poolX - Math.floor(poolW / 2) - 1; // border
+    const px2 = poolX + Math.floor(poolW / 2) + 1;
+    const pz1 = poolZ - Math.floor(poolL / 2) - 1;
+    const pz2 = poolZ + Math.floor(poolL / 2) + 2; // diving board extends +1
+    if (grid.inBounds(px1, 0, pz1) && grid.inBounds(px2, 0, pz2))
+      placePool(grid, poolX, poolZ, poolW, poolL);
   }
 
   // Additional trees in front/side yard
