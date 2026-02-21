@@ -360,16 +360,15 @@ function generateBedroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   // Area rug with border
   rugWithBorder(grid, x1 + 1, y, z1 + 3, x2 - 1, z2 - 1, style.carpet, style.carpetAccent);
 
-  // Center anchors for larger bedrooms
   const rl = z2 - z1;
+
+  // Center anchors for larger bedrooms
   if (rw >= 6 && rl >= 6) {
     // Bench at foot of bed (facing out toward center)
     bench(grid, x1 + 2, y, z1 + 3, Math.min(3, rw - 3), style, 'south');
     // Reading chair + side table opposite bed
-    if (rw >= 8) {
-      grid.set(x2 - 1, y, Math.floor((z1 + z2) / 2), style.chairW);
-      sideTable(grid, x2, y, Math.floor((z1 + z2) / 2), style, style.plant3);
-    }
+    grid.set(x2 - 1, y, Math.floor((z1 + z2) / 2), style.chairW);
+    sideTable(grid, x2, y, Math.floor((z1 + z2) / 2), style, style.plant3);
   }
 
   // Chandelier
@@ -1107,6 +1106,19 @@ function generateCell(grid: BlockGrid, b: RoomBounds, style: StylePalette): void
   // Cracked floor patches
   grid.set(cx, y - 1, Math.floor((z1 + z2) / 2), 'minecraft:cracked_stone_bricks');
   grid.set(cx + 1, y - 1, Math.floor((z1 + z2) / 2) + 1, 'minecraft:cracked_stone_bricks');
+
+  // Center cage bars for larger cells
+  const rw = x2 - x1;
+  const rl = z2 - z1;
+  if (rw >= 4 && rl >= 4) {
+    const cz = Math.floor((z1 + z2) / 2);
+    // Iron bars column in center — oppressive atmosphere
+    for (let vy = y; vy < y + Math.min(height, 3); vy++) {
+      grid.set(cx, vy, cz, 'minecraft:iron_bars');
+    }
+    // Cauldron at base (water bucket / torture device)
+    grid.set(cx + 1, y, cz, 'minecraft:cauldron[level=2]');
+  }
 }
 
 function generateNave(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1178,6 +1190,15 @@ function generateNave(grid: BlockGrid, b: RoomBounds, style: StylePalette): void
     lightFixture(grid, cx + 3, y + height - 1, z2 - 5, 2, 'lantern');
   }
   ceilingChandelier(grid, b, style, cx, Math.floor((z1 + z2) / 2), 2);
+
+  // Center lectern/podium for larger naves
+  if (rw >= 6 && rl >= 8) {
+    const midZ = Math.floor((z1 + z2) / 2);
+    grid.set(cx, y, midZ, 'minecraft:lectern[facing=north,has_book=true]');
+    // Carpet around lectern
+    grid.set(cx - 1, y, midZ, style.carpet);
+    grid.set(cx + 1, y, midZ, style.carpet);
+  }
 }
 
 function generateBelfry(grid: BlockGrid, b: RoomBounds, style: StylePalette): void {
@@ -1688,6 +1709,16 @@ function generateMudroom(grid: BlockGrid, b: RoomBounds, style: StylePalette): v
   grid.set(cx, y, z2, style.counterSlab);
   grid.set(cx + 1, y, z2, style.counterSlab);
 
+  // Center boot tray + coat rack for larger mudrooms
+  const rw = x2 - x1;
+  const rl = z2 - z1;
+  if (rw >= 5 && rl >= 5) {
+    const cz = Math.floor((z1 + z2) / 2);
+    // Boot tray (slab) with shoe rack
+    grid.set(cx, y, cz, style.counterSlab);
+    grid.set(cx, y + 1, cz, style.lanternFloor);
+  }
+
   // Two lanterns for better coverage
   ceilingChandelier(grid, b, style, cx, z1 + 2);
   ceilingChandelier(grid, b, style, cx, z2 - 1);
@@ -1748,6 +1779,14 @@ function generateGarage(grid: BlockGrid, b: RoomBounds, style: StylePalette): vo
     grid.set(cx, y, cz - 1, 'minecraft:rail[shape=north_south]');
     grid.set(cx, y, cz, 'minecraft:rail[shape=north_south]');
     grid.set(cx, y, cz + 1, 'minecraft:rail[shape=north_south]');
+  }
+
+  // Center anvil workstation for larger garages
+  const rw = x2 - x1;
+  const rl = z2 - z1;
+  if (rw >= 6 && rl >= 6) {
+    grid.set(cx + 1, y, cz, 'minecraft:anvil[facing=west]');
+    grid.set(cx - 1, y, cz, 'minecraft:grindstone[facing=east]');
   }
 
   // Work lamp above bench + main redstone lamp

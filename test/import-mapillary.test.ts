@@ -192,7 +192,7 @@ describe.skipIf(!MLY_KEY)('Mapillary live API', () => {
       expect(typeof first.lat).toBe('number');
       expect(typeof first.lng).toBe('number');
       expect(typeof first.isPano).toBe('boolean');
-    }, 20000);
+    }, 45000);
 
     it('pickBestImage returns a non-null result', async () => {
       const images = await searchMapillaryImages(SF.lat, SF.lng, MLY_KEY);
@@ -202,7 +202,7 @@ describe.skipIf(!MLY_KEY)('Mapillary live API', () => {
       expect(best).not.toBeNull();
       expect(best!.id).toBeDefined();
       expect(best!.thumbUrl).toBeDefined();
-    }, 20000);
+    }, 45000);
 
     it('searches features (may be empty)', async () => {
       const features = await searchMapillaryFeatures(SF.lat, SF.lng, MLY_KEY);
@@ -213,7 +213,7 @@ describe.skipIf(!MLY_KEY)('Mapillary live API', () => {
           expect(typeof f.type).toBe('string');
         }
       }
-    }, 20000);
+    }, 45000);
   });
 
   // Sparse-coverage addresses — verify API calls don't crash, coverage may be null
@@ -225,14 +225,14 @@ describe.skipIf(!MLY_KEY)('Mapillary live API', () => {
           expect(Array.isArray(images)).toBe(true);
           expect(images[0].id).toBeDefined();
         }
-      }, 20000);
+      }, 45000);
 
       it('feature search returns array or null', async () => {
         const features = await searchMapillaryFeatures(addr.lat, addr.lng, MLY_KEY, 0.005);
         if (features !== null) {
           expect(Array.isArray(features)).toBe(true);
         }
-      }, 20000);
+      }, 45000);
     });
   }
 });

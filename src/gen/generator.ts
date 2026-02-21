@@ -25,7 +25,7 @@ import {
  */
 function compoundify(
   buildingGrid: BlockGrid, type: StructureType, style: StylePalette, rng: () => number,
-  styleName?: string
+  styleName?: string, mainFloors?: number
 ): BlockGrid {
   // Already-compound types don't need expansion
   if (type === 'village' || type === 'marketplace') return buildingGrid;
@@ -35,7 +35,8 @@ function compoundify(
   const halfExp = Math.floor(expansion / 2);
   const gw = buildingGrid.width + expansion;
   const gl = buildingGrid.length + expansion;
-  const gh = Math.max(buildingGrid.height, STORY_H * 2 + ROOF_H);
+  const compFloors = Math.max(1, Math.min((mainFloors ?? 2) - 1, 3));
+  const gh = Math.max(buildingGrid.height, STORY_H * compFloors + ROOF_H);
 
   const compound = new BlockGrid(gw, gh, gl);
 
@@ -51,9 +52,11 @@ function compoundify(
   const bzMid = Math.floor((bz1 + bz2) / 2);
 
   // Helper: generate a real companion building and paste it at position.
-  // 2-story companions create taller silhouettes that are visible at thumbnail scale.
-  const placeCompanionHouse = (ox: number, oz: number, w: number, l: number, floors = 2) => {
-    const sub = generateHouse(floors, style, undefined, w, l, rng);
+  // Companion height scales with main building — proportional silhouettes.
+  const companionFloors = Math.max(1, Math.min((mainFloors ?? 2) - 1, 3));
+  const placeCompanionHouse = (ox: number, oz: number, w: number, l: number, floors = companionFloors) => {
+    // Companions always use rect plan to keep compact footprints and avoid overlap
+    const sub = generateHouse(floors, style, undefined, w, l, rng, undefined, undefined, 'rect');
     pasteGrid(compound, sub, ox, 0, oz);
     return sub;
   };
@@ -448,7 +451,7 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
   }
 
   // Expand single-building grids into compound sites with companion structures
-  grid = compoundify(grid, type, style, rng, styleName);
+  grid = compoundify(grid, type, style, rng, styleName, floors);
 
   // Add ground plane — grass for land structures, water for ships/bridges
   // Village already has its own grass layer, skip it

@@ -7,7 +7,7 @@
  * are derived automatically by createPalette() to eliminate duplication.
  */
 
-import type { StyleName, BlockState, RoofShape } from '../types/index.js';
+import type { StyleName, BlockState, RoofShape, FloorPlanShape } from '../types/index.js';
 
 /** Material palette for a building style (fully expanded) */
 export interface StylePalette {
@@ -35,6 +35,8 @@ export interface StylePalette {
   roofCap: BlockState;
   /** Default roof shape for this style */
   defaultRoofShape: RoofShape;
+  /** Default floor plan shape for houses in this style */
+  defaultPlanShape: FloorPlanShape;
   /** Preferred roof height in blocks (controls pitch steepness) */
   roofHeight: number;
   /** Foundation material */
@@ -128,6 +130,7 @@ interface CompactStyle {
   roofStairs: string;
   roofCap: BlockState;
   defaultRoofShape: RoofShape;
+  defaultPlanShape: FloorPlanShape;
   roofHeight: number;
 
   // ─── Door base (e.g. 'minecraft:dark_oak_door') ─────────────────────
@@ -192,6 +195,7 @@ function createPalette(spec: CompactStyle): StylePalette {
     lanternFloor: spec.lanternFloor,
     roofCap: spec.roofCap,
     defaultRoofShape: spec.defaultRoofShape,
+    defaultPlanShape: spec.defaultPlanShape,
     roofHeight: spec.roofHeight,
     bedColor: spec.bedColor,
     fireplaceBlock: spec.fireplaceBlock,
@@ -256,6 +260,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofStairs: 'minecraft:dark_oak_stairs',
     roofCap: 'minecraft:dark_oak_slab[type=bottom]',
     defaultRoofShape: 'gambrel',
+    defaultPlanShape: 'L',
     roofHeight: 10,
     foundation: 'minecraft:stone_bricks',
     window: 'minecraft:glass_pane',
@@ -293,6 +298,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofStairs: 'minecraft:cobblestone_stairs',
     roofCap: 'minecraft:cobblestone_slab[type=bottom]',
     defaultRoofShape: 'gable',
+    defaultPlanShape: 'L',
     roofHeight: 10,
     foundation: 'minecraft:cobblestone',
     window: 'minecraft:glass_pane',
@@ -330,6 +336,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofStairs: 'minecraft:smooth_quartz_stairs',
     roofCap: 'minecraft:smooth_quartz_slab[type=bottom]',
     defaultRoofShape: 'flat',
+    defaultPlanShape: 'rect',
     roofHeight: 4,
     foundation: 'minecraft:polished_andesite',
     window: 'minecraft:glass_pane',
@@ -367,6 +374,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofStairs: 'minecraft:dark_oak_stairs',
     roofCap: 'minecraft:dark_oak_slab[type=bottom]',
     defaultRoofShape: 'mansard',
+    defaultPlanShape: 'T',
     roofHeight: 12,
     foundation: 'minecraft:polished_blackstone_bricks',
     window: 'minecraft:gray_stained_glass_pane',
@@ -405,6 +413,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofStairs: 'minecraft:spruce_stairs',
     roofCap: 'minecraft:spruce_slab[type=bottom]',
     defaultRoofShape: 'gambrel',
+    defaultPlanShape: 'L',
     roofHeight: 10,
     foundation: 'minecraft:cobblestone',
     window: 'minecraft:glass_pane',
@@ -442,6 +451,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofStairs: 'minecraft:cut_copper_stairs',
     roofCap: 'minecraft:cut_copper_slab[type=bottom]',
     defaultRoofShape: 'mansard',
+    defaultPlanShape: 'T',
     roofHeight: 10,
     foundation: 'minecraft:polished_deepslate',
     window: 'minecraft:tinted_glass',
@@ -479,6 +489,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofStairs: 'minecraft:warped_stairs',
     roofCap: 'minecraft:warped_slab[type=bottom]',
     defaultRoofShape: 'hip',
+    defaultPlanShape: 'rect',
     roofHeight: 8,
     foundation: 'minecraft:stone_bricks',
     window: 'minecraft:glass_pane',
@@ -516,6 +527,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofStairs: 'minecraft:sandstone_stairs',
     roofCap: 'minecraft:sandstone_slab[type=bottom]',
     defaultRoofShape: 'flat',
+    defaultPlanShape: 'rect',
     roofHeight: 4,
     foundation: 'minecraft:sandstone',
     window: 'minecraft:glass_pane',
@@ -554,6 +566,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     roofStairs: 'minecraft:dark_prismarine_stairs',
     roofCap: 'minecraft:dark_prismarine_slab[type=bottom]',
     defaultRoofShape: 'hip',
+    defaultPlanShape: 'rect',
     roofHeight: 8,
     foundation: 'minecraft:prismarine',
     window: 'minecraft:light_blue_stained_glass_pane',
