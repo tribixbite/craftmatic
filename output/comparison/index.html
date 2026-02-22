@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Craftmatic — API Data Comparison</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #0a0a14;
+      color: #e4e4ef;
+      min-height: 100vh;
+      padding: 20px;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    h1 {
+      text-align: center;
+      font-size: 22px;
+      font-weight: 700;
+      color: #5865f2;
+      margin-bottom: 4px;
+    }
+    .subtitle {
+      text-align: center;
+      font-size: 12px;
+      color: #8888a8;
+      margin-bottom: 20px;
+    }
+
+    /* ─── Location Nav ─── */
+    .nav { display: flex; justify-content: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .nav-btn {
+      background: #16162a;
+      border: 1px solid #2a2a44;
+      color: #b0b0c8;
+      padding: 8px 16px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.15s;
+      line-height: 1.3;
+      text-align: center;
+    }
+    .nav-btn:hover { border-color: #5865f2; color: #e4e4ef; }
+    .nav-btn.active { background: #5865f2; border-color: #5865f2; color: #fff; }
+    .nav-label { font-weight: 600; font-size: 13px; display: block; }
+    .nav-addr { font-size: 10px; opacity: 0.7; display: block; margin-top: 2px; }
+
+    /* ─── View Tabs ─── */
+    .tabs { display: flex; justify-content: center; gap: 4px; margin-bottom: 12px; }
+    .tab-btn {
+      background: #16162a;
+      border: 1px solid #2a2a44;
+      color: #b0b0c8;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .tab-btn:hover { border-color: #5865f2; }
+    .tab-btn.active { background: #2a2a44; border-color: #5865f2; color: #e4e4ef; }
+
+    /* ─── Layer Selector ─── */
+    .layers { display: flex; justify-content: center; gap: 4px; margin-bottom: 12px; min-height: 28px; }
+    .layers.hidden { display: none; }
+    .layer-btn {
+      width: 28px; height: 28px;
+      background: #16162a;
+      border: 1px solid #2a2a44;
+      color: #b0b0c8;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      transition: all 0.15s;
+    }
+    .layer-btn:hover { border-color: #5865f2; }
+    .layer-btn.active { background: #5865f2; border-color: #5865f2; color: #fff; }
+
+    /* ─── Slider Container ─── */
+    .slider-wrap {
+      position: relative;
+      max-width: 1200px;
+      margin: 0 auto 20px;
+      background: #0d0d1a;
+      border: 1px solid #2a2a44;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .slider-area {
+      position: relative;
+      width: 100%;
+      /* Height set dynamically based on loaded images */
+      min-height: 300px;
+      touch-action: none;
+      cursor: col-resize;
+    }
+    .slider-area img {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: contain;
+      pointer-events: none;
+    }
+    .img-noapi { z-index: 1; }
+    .img-api { z-index: 2; }
+
+    /* ─── Divider ─── */
+    .divider {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 3px;
+      background: #5865f2;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .divider-handle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 36px; height: 36px;
+      background: #5865f2;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      z-index: 11;
+      pointer-events: auto;
+      cursor: col-resize;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .divider-handle::before {
+      content: '◄ ►';
+      color: #fff;
+      font-size: 10px;
+      letter-spacing: -1px;
+    }
+
+    /* ─── Side Labels ─── */
+    .label-left, .label-right {
+      position: absolute;
+      top: 10px;
+      z-index: 15;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 4px;
+      pointer-events: none;
+    }
+    .label-left {
+      left: 10px;
+      background: rgba(220, 60, 60, 0.85);
+      color: #fff;
+    }
+    .label-right {
+      right: 10px;
+      background: rgba(40, 167, 69, 0.85);
+      color: #fff;
+    }
+
+    /* ─── Stats Panel ─── */
+    .stats {
+      max-width: 800px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .stat-card {
+      background: #16162a;
+      border: 1px solid #2a2a44;
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .stat-card h4 {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #2a2a44;
+    }
+    .stat-card.noapi h4 { color: #dc3c3c; }
+    .stat-card.api h4 { color: #28a745; }
+    .stat-card table { width: 100%; font-size: 11px; border-collapse: collapse; }
+    .stat-card td { padding: 3px 0; vertical-align: top; }
+    .stat-card td:first-child { color: #8888a8; width: 90px; font-weight: 500; }
+    .stat-card td:last-child {
+      color: #e4e4ef;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 11px;
+    }
+
+    @media (max-width: 600px) {
+      body { padding: 10px; }
+      .stats { grid-template-columns: 1fr; }
+      .nav-btn { padding: 6px 12px; }
+      .slider-area { min-height: 200px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Craftmatic — API Data Comparison</h1>
+  <p class="subtitle">Drag the slider to compare default generation vs real property data enrichment</p>
+
+  <div class="nav" id="nav"></div>
+  <div class="tabs" id="tabs"></div>
+  <div class="layers" id="layers"></div>
+
+  <div class="slider-wrap">
+    <div class="slider-area" id="slider">
+      <img class="img-noapi" id="imgNoapi" alt="Default (no API)">
+      <img class="img-api" id="imgApi" alt="API Enriched">
+      <div class="label-left">Default</div>
+      <div class="label-right">API Enriched</div>
+      <div class="divider" id="divider">
+        <div class="divider-handle" id="handle"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+<script>
+// ─── Data ───────────────────────────────────────────────────────────────────
+
+const LOCATIONS = {
+  sf: {
+    label: 'San Francisco',
+    address: '2340 Francisco St, San Francisco, CA 94123',
+    api: {
+      style: 'fantasy', floors: 9, grid: '50\u00d757\u00d735', blocks: '20,948',
+      sqft: '13,905', beds: 12, baths: 8, year: 1929,
+      sources: 'Parcl + OSM + Mapillary',
+      notes: 'OSM 8\u00d717 footprint, driveway detected'
+    },
+    noapi: {
+      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
+      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
+      sources: 'none', notes: 'Generic L-shape compound'
+    },
+    views: {
+      exterior: { api: 'sf-api_exterior.png', noapi: 'sf-noapi_exterior.png' },
+      cutaway: {
+        api: [0,1,2,3,4,5,6,7,8].map(i => `sf-api_cutaway_${i}.png`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.png`),
+      },
+      floor: {
+        api: [0,1,2,3,4,5,6,7,8].map(i => `sf-api_floor_${i}.png`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.png`),
+      },
+    },
+  },
+  newton: {
+    label: 'Newton',
+    address: '240 Highland St, Newton, MA 02465',
+    api: {
+      style: 'medieval', floors: 2, grid: '57\u00d722\u00d738', blocks: '11,145',
+      sqft: '9,094', beds: 9, baths: 5, year: 1899,
+      sources: 'Parcl + OSM + Mapillary',
+      notes: 'OSM 17\u00d721 footprint, 3 Mapillary images'
+    },
+    noapi: {
+      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
+      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
+      sources: 'none', notes: 'Generic L-shape compound'
+    },
+    views: {
+      exterior: { api: 'newton-api_exterior.png', noapi: 'newton-noapi_exterior.png' },
+      cutaway: {
+        api: [0,1,2,3].map(i => `newton-api_cutaway_${i}.png`),
+        noapi: [0,1,2,3].map(i => `newton-noapi_cutaway_${i}.png`),
+      },
+      floor: {
+        api: [0,1,2,3].map(i => `newton-api_floor_${i}.png`),
+        noapi: [0,1,2,3].map(i => `newton-noapi_floor_${i}.png`),
+      },
+    },
+  },
+  sanjose: {
+    label: 'San Jose',
+    address: '525 S Winchester Blvd, San Jose, CA 95128',
+    api: {
+      style: 'fantasy', floors: 9, grid: '93\u00d757\u00d777', blocks: '43,953',
+      sqft: '24,000', beds: 3, baths: 2, year: 1901,
+      sources: 'Parcl + OSM + Mapillary',
+      notes: 'Winchester Mystery House \u2014 OSM 53\u00d760, 9 levels'
+    },
+    noapi: {
+      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
+      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
+      sources: 'none', notes: 'Generic L-shape compound'
+    },
+    views: {
+      exterior: { api: 'sanjose-api_exterior.png', noapi: 'sanjose-noapi_exterior.png' },
+      cutaway: {
+        api: [0,1,2,3,4,5,6,7,8].map(i => `sanjose-api_cutaway_${i}.png`),
+        noapi: [0,1,2,3].map(i => `sanjose-noapi_cutaway_${i}.png`),
+      },
+      floor: {
+        api: [0,1,2,3,4,5,6,7,8].map(i => `sanjose-api_floor_${i}.png`),
+        noapi: [0,1,2,3].map(i => `sanjose-noapi_floor_${i}.png`),
+      },
+    },
+  },
+};
+
+const VIEW_TYPES = ['exterior', 'cutaway', 'floor'];
+const VIEW_LABELS = { exterior: 'Exterior', cutaway: 'Cutaway', floor: 'Floor Plan' };
+
+// ─── State ──────────────────────────────────────────────────────────────────
+
+let currentLoc = 'sf';
+let currentView = 'exterior';
+let currentLayer = 0;
+let sliderPos = 0.5; // 0..1, fraction from left
+
+// ─── DOM refs ───────────────────────────────────────────────────────────────
+
+const navEl = document.getElementById('nav');
+const tabsEl = document.getElementById('tabs');
+const layersEl = document.getElementById('layers');
+const sliderEl = document.getElementById('slider');
+const imgNoapi = document.getElementById('imgNoapi');
+const imgApi = document.getElementById('imgApi');
+const dividerEl = document.getElementById('divider');
+const handleEl = document.getElementById('handle');
+const statsEl = document.getElementById('stats');
+
+// ─── Build nav ──────────────────────────────────────────────────────────────
+
+function buildNav() {
+  navEl.innerHTML = '';
+  for (const [key, loc] of Object.entries(LOCATIONS)) {
+    const btn = document.createElement('button');
+    btn.className = 'nav-btn' + (key === currentLoc ? ' active' : '');
+    btn.innerHTML = `<span class="nav-label">${loc.label}</span><span class="nav-addr">${loc.address}</span>`;
+    btn.onclick = () => { currentLoc = key; currentLayer = 0; render(); };
+    navEl.appendChild(btn);
+  }
+}
+
+function buildTabs() {
+  tabsEl.innerHTML = '';
+  for (const vt of VIEW_TYPES) {
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn' + (vt === currentView ? ' active' : '');
+    btn.textContent = VIEW_LABELS[vt];
+    btn.onclick = () => { currentView = vt; currentLayer = 0; render(); };
+    tabsEl.appendChild(btn);
+  }
+}
+
+function buildLayers() {
+  layersEl.innerHTML = '';
+  if (currentView === 'exterior') {
+    layersEl.classList.add('hidden');
+    return;
+  }
+  layersEl.classList.remove('hidden');
+  const loc = LOCATIONS[currentLoc];
+  const viewData = loc.views[currentView];
+  const maxLayers = Math.max(viewData.api.length, viewData.noapi.length);
+  for (let i = 0; i < maxLayers; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'layer-btn' + (i === currentLayer ? ' active' : '');
+    btn.textContent = i;
+    btn.onclick = () => { currentLayer = i; render(); };
+    layersEl.appendChild(btn);
+  }
+}
+
+// ─── Image loading + slider ─────────────────────────────────────────────────
+
+function getImagePaths() {
+  const loc = LOCATIONS[currentLoc];
+  const viewData = loc.views[currentView];
+  if (currentView === 'exterior') {
+    return { api: viewData.api, noapi: viewData.noapi };
+  }
+  // For layered views, clamp to available range per side
+  const apiIdx = Math.min(currentLayer, viewData.api.length - 1);
+  const noapiIdx = Math.min(currentLayer, viewData.noapi.length - 1);
+  return { api: viewData.api[apiIdx], noapi: viewData.noapi[noapiIdx] };
+}
+
+function updateImages() {
+  const paths = getImagePaths();
+  imgNoapi.src = paths.noapi;
+  imgApi.src = paths.api;
+
+  // Determine container height from the taller image once loaded
+  let loaded = 0;
+  const checkHeight = () => {
+    loaded++;
+    if (loaded >= 2) {
+      // Use natural aspect ratio of the larger image to set container height
+      const containerW = sliderEl.offsetWidth;
+      const ratioA = imgApi.naturalHeight / (imgApi.naturalWidth || 1);
+      const ratioB = imgNoapi.naturalHeight / (imgNoapi.naturalWidth || 1);
+      const maxRatio = Math.max(ratioA, ratioB);
+      const h = Math.min(containerW * maxRatio, 800);
+      sliderEl.style.height = Math.max(h, 250) + 'px';
+      updateSlider();
+    }
+  };
+  imgApi.onload = checkHeight;
+  imgNoapi.onload = checkHeight;
+  // If images are cached, onload fires synchronously in some browsers
+  if (imgApi.complete) { loaded++; }
+  if (imgNoapi.complete) { loaded++; }
+  if (loaded >= 2) checkHeight();
+}
+
+function updateSlider() {
+  const w = sliderEl.offsetWidth;
+  const x = Math.round(sliderPos * w);
+  // API image clips from the left — show only the right portion
+  imgApi.style.clipPath = `inset(0 0 0 ${x}px)`;
+  dividerEl.style.left = x + 'px';
+}
+
+// ─── Stats panel ────────────────────────────────────────────────────────────
+
+function buildStats() {
+  const loc = LOCATIONS[currentLoc];
+  const rows = [
+    ['Style', loc.noapi.style, loc.api.style],
+    ['Floors', loc.noapi.floors, loc.api.floors],
+    ['Grid', loc.noapi.grid, loc.api.grid],
+    ['Blocks', loc.noapi.blocks, loc.api.blocks],
+    ['Sq Ft', loc.noapi.sqft, loc.api.sqft],
+    ['Beds / Baths', `${loc.noapi.beds} / ${loc.noapi.baths}`, `${loc.api.beds} / ${loc.api.baths}`],
+    ['Year Built', loc.noapi.year, loc.api.year],
+    ['Data Sources', loc.noapi.sources, loc.api.sources],
+    ['Notes', loc.noapi.notes, loc.api.notes],
+  ];
+  const makeTable = (data, side) => {
+    let html = `<div class="stat-card ${side}"><h4>${side === 'noapi' ? 'Default (No API Data)' : 'API Enriched'}</h4><table>`;
+    for (const [label, noapi, api] of data) {
+      html += `<tr><td>${label}</td><td>${side === 'noapi' ? noapi : api}</td></tr>`;
+    }
+    html += '</table></div>';
+    return html;
+  };
+  statsEl.innerHTML = makeTable(rows, 'noapi') + makeTable(rows, 'api');
+}
+
+// ─── Full render ────────────────────────────────────────────────────────────
+
+function render() {
+  buildNav();
+  buildTabs();
+  buildLayers();
+  updateImages();
+  buildStats();
+}
+
+// ─── Drag handling ──────────────────────────────────────────────────────────
+
+let dragging = false;
+
+function startDrag(e) {
+  e.preventDefault();
+  dragging = true;
+}
+
+function moveDrag(e) {
+  if (!dragging) return;
+  e.preventDefault();
+  const rect = sliderEl.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  sliderPos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  updateSlider();
+}
+
+function endDrag() {
+  dragging = false;
+}
+
+// Also allow clicking anywhere in the slider area to jump
+function jumpSlider(e) {
+  if (e.target === handleEl) return;
+  const rect = sliderEl.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  sliderPos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  updateSlider();
+  dragging = true;
+}
+
+handleEl.addEventListener('mousedown', startDrag);
+handleEl.addEventListener('touchstart', startDrag, { passive: false });
+sliderEl.addEventListener('mousedown', jumpSlider);
+sliderEl.addEventListener('touchstart', jumpSlider, { passive: false });
+document.addEventListener('mousemove', moveDrag);
+document.addEventListener('touchmove', moveDrag, { passive: false });
+document.addEventListener('mouseup', endDrag);
+document.addEventListener('touchend', endDrag);
+
+// Recalculate on resize
+window.addEventListener('resize', () => {
+  updateSlider();
+  // Recalculate height
+  const containerW = sliderEl.offsetWidth;
+  const ratioA = imgApi.naturalHeight / (imgApi.naturalWidth || 1);
+  const ratioB = imgNoapi.naturalHeight / (imgNoapi.naturalWidth || 1);
+  const maxRatio = Math.max(ratioA, ratioB);
+  const h = Math.min(containerW * maxRatio, 800);
+  sliderEl.style.height = Math.max(h, 250) + 'px';
+});
+
+// ─── Init ───────────────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
