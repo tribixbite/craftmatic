@@ -273,14 +273,17 @@ export function inferStyleFromPropertyType(
  */
 export function resolveStyle(prop: PropertyData): StyleName {
   if (prop.style !== 'auto') return prop.style;
-  // When year is uncertain, skip year-based inference — rely on other signals
-  const year = prop.yearUncertain ? 1970 : prop.yearBuilt; // 1970 → 'modern' as neutral default
+  // When year is uncertain, use actual yearBuilt for upstream signals but
+  // fall back to 'rustic' instead of year-based inference — most US homes
+  // with missing dates are pre-war wood-frame construction
+  const year = prop.yearBuilt;
   const archStyle = mapArchitectureToStyle(prop.osmArchitecture)
     ?? mapArchitectureToStyle(prop.architectureType);
   const propTypeStyle = inferStyleFromPropertyType(prop.propertyType, year);
   const cityStyle = inferStyleFromCity(prop.city, year);
   const countyStyle = inferStyleFromCounty(prop.county, year);
-  return archStyle ?? propTypeStyle ?? cityStyle ?? countyStyle ?? inferStyle(year, prop.newConstruction);
+  const fallback = prop.yearUncertain ? 'rustic' as StyleName : inferStyle(year, prop.newConstruction);
+  return archStyle ?? propTypeStyle ?? cityStyle ?? countyStyle ?? fallback;
 }
 
 // ─── Density & Climate ──────────────────────────────────────────────────────
