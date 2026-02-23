@@ -341,7 +341,11 @@ export function estimateStoriesFromFootprint(
   if (footprintSqm <= 0) return 2; // fallback
   const totalSqm = sqft / 10.76; // sqft to sqm
   const rawFloors = totalSqm / footprintSqm;
-  return Math.max(1, Math.min(100, Math.round(rawFloors)));
+  // Use ceil for large homes — OSM bounding boxes overestimate the footprint
+  // area vs actual buildable area (Victorian wings, setbacks, irregular shapes),
+  // so sqft/footprint underestimates floor count
+  const rounding = sqft >= 5000 ? Math.ceil : Math.round;
+  return Math.max(1, Math.min(100, rounding(rawFloors)));
 }
 
 // ─── Roof Mapping ───────────────────────────────────────────────────────────
@@ -595,6 +599,7 @@ function getDimensionLimits(propertyType: string, sqft: number): DimensionLimits
   if (pt === 'condo')           return { minW: 10, maxW: 50, minL: 10, maxL: 60 };
   if (pt === 'townhouse')       return { minW: 8,  maxW: 20, minL: 10, maxL: 50 };
   if (sqft > 10000)             return { minW: 15, maxW: 80, minL: 15, maxL: 80 }; // Mansions/estates
+  if (sqft > 5000)              return { minW: 12, maxW: 55, minL: 12, maxL: 55 }; // Large homes
   return                                { minW: 10, maxW: 45, minL: 10, maxL: 45 }; // Standard residential
 }
 
@@ -623,7 +628,12 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   const maxFloors = isMultiUnit(prop.propertyType) ? 8
     : prop.sqft > 10000 ? 5   // large mansions (e.g. Winchester)
     : 4;                        // standard single-family
-  const floors = Math.max(1, Math.min(maxFloors, prop.stories));
+  // Minimum floors for large single-family — a 5000+ sqft house is always 2+ stories,
+  // and 6000+ sqft is virtually always 3 stories (Victorian estates, colonials, etc.)
+  const minFloors = !isMultiUnit(prop.propertyType) && prop.sqft >= 6000 ? 3
+    : !isMultiUnit(prop.propertyType) && prop.sqft >= 3000 ? 2
+    : 1;
+  const floors = Math.max(minFloors, Math.min(maxFloors, prop.stories));
 
   // ── Dimensions ────────────────────────────────────────────────────
   // Priority: OSM footprint (real) > sqft estimate
@@ -644,6 +654,15 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   const limits = getDimensionLimits(prop.propertyType, prop.sqft);
   width = Math.max(limits.minW, Math.min(limits.maxW, width));
   length = Math.max(limits.minL, Math.min(limits.maxL, length));
+
+  // Clamp aspect ratio to max 2:1 to avoid elongated "longhouse" shapes.
+  // Real residential buildings rarely exceed 2:1 aspect ratio.
+  const ratio = width / length;
+  if (ratio > 2) {
+    width = Math.round(length * 2);
+  } else if (ratio < 0.5) {
+    length = Math.round(width * 2);
+  }
 
   // ── Rooms ─────────────────────────────────────────────────────────
   const rooms: RoomType[] = ['foyer', 'living', 'kitchen', 'dining'];
