@@ -242,6 +242,6 @@ export function mapParclPropertyType(parclType: string): string {
   const normalized = (parclType || '').toUpperCase().replace(/[^A-Z]/g, '');
   if (normalized.includes('CONDO')) return 'condo';
   if (normalized.includes('TOWN')) return 'townhouse';
-  if (normalized.includes('MULTI')) return 'condo'; // Multi-family → condo for generation
+  if (normalized.includes('MULTI')) return 'multi_family'; // Preserve multi-unit signal for pipeline
   return 'house';
 }

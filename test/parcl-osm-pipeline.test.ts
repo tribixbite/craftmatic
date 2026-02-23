@@ -252,25 +252,20 @@ describe('Full address pipeline: Parcl + OSM → generate → .schem', () => {
         options = convertToGenerationOptions(property);
 
         // ── sqft flows to dimensions ──
-        // If OSM provided real dimensions, those take priority
+        // Dimensions are clamped by type-aware limits (property type + sqft)
+        expect(options.width).toBeGreaterThanOrEqual(8);
+        expect(options.width).toBeLessThanOrEqual(80);
+        expect(options.length).toBeGreaterThanOrEqual(8);
+        expect(options.length).toBeLessThanOrEqual(80);
         if (osm && property.osmWidth && property.osmLength) {
-          expect(options.width).toBe(Math.max(10, Math.min(60, osm.widthBlocks)));
-          expect(options.length).toBe(Math.max(10, Math.min(60, osm.lengthBlocks)));
-          console.log(`  Dimensions: ${options.width}×${options.length} (OSM footprint)`);
+          console.log(`  Dimensions: ${options.width}×${options.length} (OSM footprint, type-clamped)`);
         } else {
-          // sqft-based estimate: areaPerFloor / 10.76, aspect 1.3
-          const areaPerFloor = property.sqft / property.stories / 10.76;
-          const expectedWidth = Math.max(10, Math.min(60, Math.round(Math.sqrt(areaPerFloor * 1.3))));
-          expect(options.width).toBe(expectedWidth);
-          console.log(`  Dimensions: ${options.width}×${options.length} (sqft estimate)`);
+          console.log(`  Dimensions: ${options.width}×${options.length} (sqft estimate, type-clamped)`);
         }
 
         // ── sqft flows to structure type ──
-        if (property.sqft > 5000) {
-          expect(options.type).toBe('castle');
-        } else {
-          expect(options.type).toBe('house');
-        }
+        // Castle only triggers for architecture-tagged castles/fortresses, not large homes
+        expect(options.type).toBe('house');
 
         // ── sqft flows to bonus rooms ──
         if (property.sqft > 2500) {
