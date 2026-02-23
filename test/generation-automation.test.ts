@@ -844,12 +844,12 @@ describe('resolveStyle', () => {
     }))).toBe('gothic');
   });
 
-  it('yearUncertain skips year-based inference for neutral default', () => {
+  it('yearUncertain falls back to rustic instead of year-based inference', () => {
     const style = resolveStyle(makeProperty({
       style: 'auto', yearBuilt: 0, yearUncertain: true,
     }));
-    // yearUncertain → year treated as 1970 → 'modern'
-    expect(style).toBe('modern');
+    // yearUncertain → 'rustic' fallback (most missing-year US homes are pre-war)
+    expect(style).toBe('rustic');
   });
 
   it('yearUncertain still respects architecture tags', () => {
@@ -914,13 +914,13 @@ describe('style-aware porch override', () => {
 // ─── yearUncertain + bedroomsUncertain in conversion ────────────────
 
 describe('uncertain data flags', () => {
-  it('yearUncertain property gets modern style (neutral default)', () => {
+  it('yearUncertain property gets rustic style (pre-war fallback)', () => {
     const opts = convertToGenerationOptions(makeProperty({
       style: 'auto',
       yearBuilt: 2000,
       yearUncertain: true,
     }));
-    expect(opts.style).toBe('modern');
+    expect(opts.style).toBe('rustic');
   });
 
   it('bedroomsUncertain does not affect generation output', () => {
