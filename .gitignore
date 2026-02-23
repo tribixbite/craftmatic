@@ -13,6 +13,7 @@ coverage/
 !textures/**/*.png
 !textures/*.png
 !docs/images/*.png
+!web/public/comparison/*.jpg
 test-*.sh
 test-*.cjs
 test-*.txt
