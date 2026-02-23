@@ -2,6 +2,7 @@
 
 > Minecraft generation accuracy vs. real-world street-view reference
 > Graded by Gemini 3 Pro Preview (2026-02-23)
+> Newton re-graded 2026-02-23 after rustic fallback fix
 > Comparison renders: [GitHub Pages viewer](https://tribixbite.github.io/craftmatic/comparison/)
 
 ---
@@ -26,10 +27,12 @@ Spanish/Mediterranean influence, flat roof, cream/beige stucco.
 
 ## Building 2: 240 Highland St, Newton, MA 02465
 
-**Real building:** 1899 Queen Anne Victorian estate, 9 bedrooms, 3 stories, 9,020 sqft, 1 acre lot.
-Complex roofline, turrets/towers, wraparound porch, wood clapboard/shingle siding.
+**Real building:** 1899 Queen Anne Victorian estate, 9 bedrooms, 5 baths, 3 stories, 9,094 sqft, 1 acre lot.
+Complex roofline, turrets/towers, wraparound porch, wood clapboard/shingle siding, bay windows, ornate Victorian trim.
 
-**Generation config:** Modern style, 2 floors, 69x15 grid. (Build year uncertain -- style mapping failed.)
+### v1 — Modern Style (FIXED)
+
+**Generation config:** Modern style, 2 floors, 69x15 grid. (Build year uncertain — style mapping defaulted to "modern".)
 
 | Criteria | Grade | Notes |
 |---|---|---|
@@ -38,11 +41,35 @@ Complex roofline, turrets/towers, wraparound porch, wood clapboard/shingle sidin
 | **Type Accuracy** | **C-** | Looks like a house, but a contemporary suburban one, not a historic estate. |
 | **Overall Realism** | **D** | Visual dissonance between historic Newton address and modern box output. |
 
-**Overall: D**
+**v1 Overall: D**
 
 **Root cause:** Build year uncertain in data, system defaulted to "Modern" fallback.
 
-**Recommendation:** If `year_built` is null, query `neighborhood_avg_year` or default to "Traditional/Rustic" rather than "Modern" (statistically unlikely for most residential datasets).
+### v2 — Rustic Style (CURRENT)
+
+**Generation config:** Rustic style, 2 floors, 69x20x38 grid, 11,204 blocks, spruce/dark oak palette with gabled roofs.
+
+**Fix applied:** When `year_built` is uncertain, fallback changed from "modern" to "rustic".
+
+| Criteria | Grade | Notes |
+|---|---|---|
+| **Scale Accuracy** | **B-** | Total volume improved, but 69x20 footprint creates a 3.5:1 "longhouse" aspect ratio. Real Queen Anne is boxier (~40x40 or L-shape). 2 floors misses the distinct 3-story grandeur of a 9,094 sqft estate. |
+| **Style Accuracy** | **B** | Massive improvement. Spruce/dark oak palette correctly evokes "historic" and "residential." Gabled roof directionally correct. Gap: "rustic" is a generic bucket — lacks Queen Anne vocabulary (turrets, bay windows, wraparound porch, asymmetry). Reads more "grand hunting lodge" than "Victorian manor." |
+| **Type Accuracy** | **A-** | Successfully reads as a large, expensive, historic residential property. No longer looks like a tech office or modern art museum. The "estate" feel is present. |
+| **Overall Realism** | **B** | Coherent and aesthetically pleasing as a Minecraft structure. If you didn't know the specific address, you'd accept it as a plausible large house. The "uncanny valley" of the glass box is gone. |
+
+**v2 Overall: B** (up from D)
+
+### v1 vs v2 Comparison
+
+| Feature | Old "Modern" (v1) | New "Rustic" (v2) | Impact |
+|---|---|---|---|
+| **Materiality** | White concrete, cyan stained glass. Cold, sterile. | Spruce planks, dark oak logs, cobblestone. Warm, organic. | **High.** Immediate fix to the "time travel" error. |
+| **Roofline** | Flat roof with parapets. | Gabled roof with overhangs. | **Medium.** Better fits New England context. |
+| **Vibe** | Commercial / Tech Office. | Residential / Lodge. | **High.** Aligns with property usage. |
+| **Geometry** | Boxy, modular. | Still somewhat boxy, softened by wood textures. | **Low.** Underlying 69x20 grid issue persists. |
+
+**Summary:** Fix moved from "Wrong Building" (glass box for a Victorian) to "Right Building, Wrong Shape" (correct materials, needs geometric tuning).
 
 ---
 
@@ -66,11 +93,29 @@ Redwood construction, complex irregular roofline, cupolas, turrets, fish-scale s
 
 ## Summary Grades
 
-| Building | Scale | Style | Type | Realism | Overall |
-|---|---|---|---|---|---|
-| SF Apartment (2340 Francisco) | A | A- | A | A | **A** |
-| Newton Victorian (240 Highland) | C | F | C- | D | **D** |
-| Winchester House (525 Winchester) | A- | B+ | A | B+ | **B+** |
+| Building | Scale | Style | Type | Realism | Overall | Change |
+|---|---|---|---|---|---|---|
+| SF Apartment (2340 Francisco) | A | A- | A | A | **A** | — |
+| Newton Victorian (240 Highland) | B- | B | A- | B | **B** | up from D |
+| Winchester House (525 Winchester) | A- | B+ | A | B+ | **B+** | — |
+
+**Average: B+ (up from B- with the Modern failure dragging it down)**
+
+---
+
+## Remaining Recommendations (Newton B → A Path)
+
+### 1. Aspect Ratio Constraints ("Shoebox" Fix)
+The 69x20 grid is too linear for a Victorian estate. If `property_type == 'single_family'` and `sqft > 4000`, penalize aspect ratios > 2:1. Force width expansion or L-shapes rather than lengthening the primary axis.
+
+### 2. Verticality Heuristic
+9,094 sqft squeezed into 2 floors forces a massive footprint. If `sqft > 5000` AND `lot_coverage < 40%`, force `floors = 3`. This would shrink the footprint and create the towering silhouette typical of Queen Anne homes.
+
+### 3. Victorian Turret Sub-routine
+"Rustic" is too flat. Create a `Victorian` modifier: if style is Rustic and era pre-1920, randomly replace one corner of the grid with a cylinder or octagon stack (turret) extending above the roofline. Single highest-ROI change to signal "Victorian."
+
+### 4. Porch Wrap
+For Rustic/Victorian styles, generate a 3-block deep perimeter of fence/slabs around 50% of the ground floor to represent wraparound porches.
 
 ---
 
@@ -83,17 +128,10 @@ The previous approach generated 9-floor fantasy castles with battlements and tow
 ### Key improvements:
 1. **Scale:** Verticality problem solved. Francisco St (4 floors) vs Newton (2 floors) proves height logic reads data correctly.
 2. **Materiality:** Moving from stone bricks (castle) to sandstone (SF) and spruce (Winchester) adds geographic grounding.
-3. **The "Castle" problem:**
+3. **Style fallback:** The "Modern" default for unknown year_built has been replaced with "Rustic," preventing anachronistic generations.
+4. **The "Castle" problem:**
    - *Old:* 2340 Francisco St looked like a fortress (Grade: F)
    - *New:* 2340 Francisco St looks like an apartment (Grade: A)
-
-### Strategic Recommendations
-
-1. **Fix the "Modern" fallback:** Building 2 failed because of a logic gap. Never default to "Modern" unless data explicitly confirms post-1950 construction. Default to "Rustic" or "Brick" for unknown dates in US datasets.
-2. **Roofing logic:** The next quality leap will come from roof shapes:
-   - *Flat* for Modern/Spanish (Building 1 -- working)
-   - *A-Frame/Gabled* for Victorian/Rustic (Buildings 2 & 3 -- missing)
-   - If "Victorian" detected in style mapping, force gabled roof generation.
 
 ---
 
