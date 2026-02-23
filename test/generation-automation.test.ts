@@ -312,9 +312,17 @@ describe('convertToGenerationOptions', () => {
     expect(opts.style).toBe('rustic');
   });
 
-  it('mansion property type maps to castle structure', () => {
+  it('mansion property type maps to house (castle only for architecture-tagged castles)', () => {
     const opts = convertToGenerationOptions(makeProperty({
       propertyType: 'mansion',
+    }));
+    // Castle type only triggers for architecture-tagged castles/fortresses, not large mansions
+    expect(opts.type).toBe('house');
+  });
+
+  it('castle architecture tag triggers castle type', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      osmArchitecture: 'castle',
     }));
     expect(opts.type).toBe('castle');
   });

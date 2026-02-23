@@ -16,7 +16,10 @@ import { renderFloorDetail, renderCutawayIso, renderExterior } from './render/pn
 import { exportHTML } from './render/export-html.js';
 import { startViewerServer, startWebAppServer } from './render/server.js';
 import type { SchematicInfo, GenerationOptions, RoomType, StyleName, StructureType } from './types/index.js';
-import { convertToGenerationOptions, estimateStoriesFromFootprint } from './gen/address-pipeline.js';
+import {
+  convertToGenerationOptions, estimateStoriesFromFootprint,
+  isMultiUnit, inferDensityFromZip,
+} from './gen/address-pipeline.js';
 import type { PropertyData } from './gen/address-pipeline.js';
 import { geocodeAddress } from './gen/api/geocoder.js';
 import { searchParclProperty, mapParclPropertyType, hasParclApiKey } from './gen/api/parcl.js';
@@ -362,10 +365,18 @@ async function genFromAddress(
     }
     const bathrooms = opts['baths'] ? parseInt(opts['baths'], 10) : (parcl.bathrooms || 2);
 
-    // Stories: priority chain
+    // Stories: priority chain — multi-unit buildings need special handling because
+    // Parcl sqft = total all units combined, making sqft/footprint ratio unreliable
     let stories = 2;
+    const mappedPropType = opts['propertyType'] ?? mapParclPropertyType(parcl.propertyType);
+
     if (osm?.levels && osm.levels > 0) {
+      // OSM building:levels — ground truth from mapping data
       stories = osm.levels;
+    } else if (isMultiUnit(mappedPropType)) {
+      // Multi-unit: do NOT use sqft/footprint — Parcl sqft is sum of all units, not building gross
+      const density = inferDensityFromZip(opts['zip'] ?? parcl.zipCode);
+      stories = density === 'urban' ? 4 : 3;
     } else if (osm && osm.widthMeters > 0 && osm.lengthMeters > 0 && sqft > 0) {
       stories = estimateStoriesFromFootprint(sqft, osm.widthMeters, osm.lengthMeters);
     } else {
@@ -373,6 +384,15 @@ async function genFromAddress(
       const pType = (parcl.propertyType || '').toUpperCase();
       if (pType.includes('TOWN') || (sqft > 2500 && parcl.bedrooms > 3)) {
         stories = sqft > 4000 ? 3 : 2;
+      }
+    }
+
+    // Condo unit detection: small sqft but large building footprint → unit-level address
+    if (osm?.widthMeters && osm?.lengthMeters && !osm?.levels) {
+      const footprintSqm = osm.widthMeters * osm.lengthMeters;
+      if (sqft < 1500 && footprintSqm > 200 && mappedPropType === 'condo') {
+        // Unit-level address — estimate stories from footprint size, not sqft ratio
+        stories = Math.max(2, Math.min(6, Math.round(footprintSqm / 100)));
       }
     }
 

@@ -147,6 +147,13 @@ export function fnv1aHash(str: string): number {
   return (hash >>> 0) % 999999;
 }
 
+// ─── Property Type Helpers ───────────────────────────────────────────────────
+
+/** Returns true for property types that represent multi-unit buildings (apartments, condos, townhouses) */
+export function isMultiUnit(propertyType: string): boolean {
+  return /^(condo|multi_family|townhouse)$/i.test(propertyType);
+}
+
 // ─── Style Resolution ───────────────────────────────────────────────────────
 
 /** Infer architectural style from year built + new construction flag */
@@ -234,10 +241,35 @@ export function inferStyleFromCity(city: string | undefined, year: number): Styl
 }
 
 /**
+ * Infer architectural style from property type for multi-unit buildings.
+ * Apartments and condos have fundamentally different aesthetics than single-family homes.
+ * Returns undefined for types that should fall through to location/year-based inference.
+ */
+export function inferStyleFromPropertyType(
+  propertyType: string, year: number
+): StyleName | undefined {
+  const pt = propertyType.toLowerCase();
+
+  // Multi-family apartments: boxy, flat/low-pitch roofs, stucco or brick
+  if (/multi_family|apartment/.test(pt)) {
+    if (year >= 1970) return 'modern';     // Modern apartment buildings
+    if (year >= 1920) return 'desert';      // Pre-war low-rise (stucco, flat roof like SF Marina)
+    return 'gothic';                         // Pre-1920 tenement/brownstone
+  }
+
+  // Individual condo units: usually in modern buildings
+  if (pt === 'condo') {
+    return year >= 1970 ? 'modern' : undefined; // Older condos fall through
+  }
+
+  return undefined; // single-family, townhouse, etc. fall through to existing logic
+}
+
+/**
  * Resolve the effective style for a property, applying the full priority chain.
  * Used by both convertToGenerationOptions and inferFeatures.
  *
- * Priority: user selection > OSM architecture > Smarty architecture > city > county > year
+ * Priority: user selection > OSM architecture > Smarty architecture > propertyType > city > county > year
  */
 export function resolveStyle(prop: PropertyData): StyleName {
   if (prop.style !== 'auto') return prop.style;
@@ -245,9 +277,10 @@ export function resolveStyle(prop: PropertyData): StyleName {
   const year = prop.yearUncertain ? 1970 : prop.yearBuilt; // 1970 → 'modern' as neutral default
   const archStyle = mapArchitectureToStyle(prop.osmArchitecture)
     ?? mapArchitectureToStyle(prop.architectureType);
+  const propTypeStyle = inferStyleFromPropertyType(prop.propertyType, year);
   const cityStyle = inferStyleFromCity(prop.city, year);
   const countyStyle = inferStyleFromCounty(prop.county, year);
-  return archStyle ?? cityStyle ?? countyStyle ?? inferStyle(year, prop.newConstruction);
+  return archStyle ?? propTypeStyle ?? cityStyle ?? countyStyle ?? inferStyle(year, prop.newConstruction);
 }
 
 // ─── Density & Climate ──────────────────────────────────────────────────────
@@ -544,6 +577,24 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
   return flags;
 }
 
+// ─── Dimension Limits ────────────────────────────────────────────────────────
+
+interface DimensionLimits { minW: number; maxW: number; minL: number; maxL: number }
+
+/**
+ * Get realistic dimension limits based on property type and size.
+ * Prevents absurd builds while allowing genuine large properties (e.g. Winchester House)
+ * to use their full OSM footprint.
+ */
+function getDimensionLimits(propertyType: string, sqft: number): DimensionLimits {
+  const pt = propertyType.toLowerCase();
+  if (/multi_family/.test(pt))  return { minW: 12, maxW: 50, minL: 12, maxL: 60 };
+  if (pt === 'condo')           return { minW: 10, maxW: 50, minL: 10, maxL: 60 };
+  if (pt === 'townhouse')       return { minW: 8,  maxW: 20, minL: 10, maxL: 50 };
+  if (sqft > 10000)             return { minW: 15, maxW: 80, minL: 15, maxL: 80 }; // Mansions/estates
+  return                                { minW: 10, maxW: 45, minL: 10, maxL: 45 }; // Standard residential
+}
+
 // ─── Core Conversion ────────────────────────────────────────────────────────
 
 /** Convert property data into GenerationOptions for the core generator */
@@ -555,10 +606,21 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   if (prop.propertyType === 'cabin') style = 'rustic';
 
   // ── Structure type ────────────────────────────────────────────────
+  // Only use castle for actual castles/fortresses identified by architecture tags.
+  // Large residential buildings (mansions, apartments) use 'house' — scale comes
+  // from dimensions and floor count, not medieval fortress generation.
   let type: StructureType = 'house';
-  if (prop.propertyType === 'mansion' || prop.sqft > 5000) {
+  const archStr = (prop.osmArchitecture ?? prop.architectureType ?? '').toLowerCase();
+  if (/\bcastle|chateau|fortress|keep\b/.test(archStr)) {
     type = 'castle';
   }
+
+  // ── Floor clamping ───────────────────────────────────────────────
+  // Clamp floors to realistic per-type limits to prevent inflated story counts
+  const maxFloors = isMultiUnit(prop.propertyType) ? 8
+    : prop.sqft > 10000 ? 5   // large mansions (e.g. Winchester)
+    : 4;                        // standard single-family
+  const floors = Math.max(1, Math.min(maxFloors, prop.stories));
 
   // ── Dimensions ────────────────────────────────────────────────────
   // Priority: OSM footprint (real) > sqft estimate
@@ -569,13 +631,16 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     width = prop.osmWidth;
     length = prop.osmLength;
   } else {
-    const areaPerFloor = prop.sqft / prop.stories / 10.76;
+    const areaPerFloor = prop.sqft / floors / 10.76;
     const aspectRatio = prop.floorPlan?.aspectRatio ?? 1.3;
     width = Math.round(Math.sqrt(areaPerFloor * aspectRatio));
     length = Math.round(Math.sqrt(areaPerFloor / aspectRatio));
   }
-  width = Math.max(10, Math.min(60, width));
-  length = Math.max(10, Math.min(60, length));
+
+  // Type-aware dimension limits — larger allowance for mansions/estates
+  const limits = getDimensionLimits(prop.propertyType, prop.sqft);
+  width = Math.max(limits.minW, Math.min(limits.maxW, width));
+  length = Math.max(limits.minL, Math.min(limits.maxL, length));
 
   // ── Rooms ─────────────────────────────────────────────────────────
   const rooms: RoomType[] = ['foyer', 'living', 'kitchen', 'dining'];
@@ -589,9 +654,14 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   if (prop.hasGarage) rooms.push('garage');
 
   // ── Roof shape ────────────────────────────────────────────────────
-  // Priority: OSM roof:shape > style-default > gable
-  const roofShape: RoofShape = mapOSMRoofToShape(prop.osmRoofShape)
+  // Priority: OSM roof:shape > multi-unit flat override > style-default > gable
+  let roofShape: RoofShape = mapOSMRoofToShape(prop.osmRoofShape)
     ?? (style === 'modern' ? 'flat' : style === 'gothic' ? 'mansard' : 'gable');
+
+  // Multi-unit buildings are overwhelmingly flat-roofed
+  if (isMultiUnit(prop.propertyType) && !prop.osmRoofShape) {
+    roofShape = 'flat';
+  }
 
   // ── Roof material override ────────────────────────────────────────
   const roofOverride = mapRoofMaterialToBlocks(prop.osmRoofMaterial, prop.osmRoofColour);
@@ -613,7 +683,7 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
 
   return {
     type,
-    floors: prop.stories,
+    floors,
     style,
     rooms,
     width,
