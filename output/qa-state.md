@@ -446,3 +446,14 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 - **Post-QA 12**: Split gen-structures.ts (3112 lines) into 9 per-generator modules — gen-tower.ts (346), gen-castle.ts (513), gen-dungeon.ts (426), gen-ship.ts (552), gen-cathedral.ts (337), gen-bridge.ts (235), gen-windmill.ts (242), gen-marketplace.ts (208), gen-village.ts (220) + barrel re-export. Mechanical extraction via one-time script with per-function import analysis. CI green (2c1d5e3).
 - **Post-QA 13**: 5 known-issue fixes: (1) Mapillary test timeout 20s→45s. (2) Pool feature flag bounds check — verify full pool extent including border+diving board before placement. (3) House height plateau — companion floors scale with main building (max(1, min(floors-1, 3))). (4) Style-specific geometry — defaultPlanShape per style (fantasy/medieval/rustic=L, gothic/steampunk=T, modern/elven/desert/underwater=rect); companions forced rect to prevent overlap. (5) Interior center density — cell gets iron bars cage+cauldron (≥4x4), nave gets center lectern (≥6x8), mudroom gets center boot tray (≥5x5), garage gets anvil+grindstone (≥6x6), bedroom reading chair gate lowered rw≥8→6. 467 tests pass.
 - **Post-QA 14**: Newton Victorian re-graded by Gemini 3 Pro after rustic fallback fix. Style accuracy F→B, overall D→B. SF Apartment stays A, Winchester stays B+. Remaining Newton gaps: aspect ratio (69x20 longhouse vs ~40x40), 2 vs 3 floors, missing Queen Anne features (turrets, bay windows, wraparound porch). Recommendations: aspect ratio constraints, verticality heuristic, Victorian turret sub-routine, porch wrap.
+- **Post-QA 15**: Newton v3 re-graded by Gemini 3 Pro (rustic 3-floor). Three fixes applied: 3 floors (was 2), aspect ratio clamped 2:1 (grid 69×25 vs 69×20), 13,425 blocks (was 11,204). Gemini grades: Scale A, Style B+, Type A, Overall A-. Up from v2 B and v1 D. Remaining gaps for full A: turret definition (round→square in voxels), porch detailing (fence/wall blocks vs solid), color palette (Queen Anne "Painted Lady" colors vs brown rustic).
+
+### Newton Version Grading Summary (Gemini 3 Pro)
+
+| Version | Scale | Style | Type | Overall | Notes |
+|---------|-------|-------|------|---------|-------|
+| v1 (modern 2f) | F | F | D | **D** | Wrong style entirely, wrong floor count |
+| v2 (rustic 2f) | C | B | B+ | **B** | Correct materials, 2 floors (needs 3), elongated |
+| v3 (rustic 3f) | **A** | **B+** | **A** | **A-** | Correct 3-story height, fixed aspect ratio, accurate massing |
+
+**Path to A**: (1) Turret smoothing via stair-block configs, (2) Wraparound porch with fence/wall supports instead of solid blocks, (3) Victorian "Painted Lady" color palette (terracotta, colored wool/concrete) instead of raw rustic wood/stone.
