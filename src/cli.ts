@@ -254,8 +254,8 @@ program
   .command('gen [type]')
   .description('Generate a structure schematic')
   .option('-a, --address <address>', 'Real property address (requires PARCL_API_KEY)')
-  .option('-f, --floors <n>', 'Number of floors', '2')
-  .option('-s, --style <style>', 'Building style', 'fantasy')
+  .option('-f, --floors <n>', 'Number of floors (default: 2 for manual, auto-inferred for --address)')
+  .option('-s, --style <style>', 'Building style (default: fantasy for manual, auto-inferred for --address)')
   .option('-r, --rooms <rooms>', 'Comma-separated room list')
   .option('-w, --width <n>', 'Building width')
   .option('-l, --length <n>', 'Building length')
@@ -368,7 +368,15 @@ async function genFromAddress(
     // Stories: priority chain — multi-unit buildings need special handling because
     // Parcl sqft = total all units combined, making sqft/footprint ratio unreliable
     let stories = 2;
-    const mappedPropType = opts['propertyType'] ?? mapParclPropertyType(parcl.propertyType);
+    let mappedPropType = opts['propertyType'] ?? mapParclPropertyType(parcl.propertyType);
+
+    // Heuristic: Parcl sometimes labels multi-family as 'OTHER' — detect from bedroom count.
+    // Only apply when Parcl returned 'OTHER' (mapped to 'house'). If Parcl explicitly says
+    // SINGLE_FAMILY, trust it — large single-family estates genuinely have 8+ bedrooms.
+    const rawParcl = (parcl.propertyType || '').toUpperCase();
+    if (mappedPropType === 'house' && bedrooms >= 8 && !rawParcl.includes('SINGLE')) {
+      mappedPropType = 'multi_family';
+    }
 
     if (osm?.levels && osm.levels > 0) {
       // OSM building:levels — ground truth from mapping data
@@ -398,7 +406,7 @@ async function genFromAddress(
 
     // CLI overrides
     const styleOverride = opts['style'] as StyleName | undefined;
-    const floorsOverride = opts['floors'] !== '2' ? parseInt(opts['floors'] ?? '2', 10) : undefined;
+    const floorsOverride = opts['floors'] ? parseInt(opts['floors'], 10) : undefined;
     const widthOverride = opts['width'] ? parseInt(opts['width'], 10) : undefined;
     const lengthOverride = opts['length'] ? parseInt(opts['length'], 10) : undefined;
     const seedOverride = opts['seed'] ? parseInt(opts['seed'], 10) : undefined;
@@ -410,7 +418,7 @@ async function genFromAddress(
       bedrooms,
       bathrooms,
       yearBuilt: yearUncertain ? (osm?.tags?.['start_date'] ? parseInt(osm.tags['start_date'], 10) || 2000 : 2000) : yearBuilt,
-      propertyType: opts['propertyType'] ?? mapParclPropertyType(parcl.propertyType),
+      propertyType: mappedPropType,
       style: styleOverride ?? 'auto',
       newConstruction: parcl.newConstruction || yearBuilt >= 2020,
       city: parcl.city,
