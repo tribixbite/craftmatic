@@ -448,6 +448,7 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 - **Post-QA 14**: Newton Victorian re-graded by Gemini 3 Pro after rustic fallback fix. Style accuracy F→B, overall D→B. SF Apartment stays A, Winchester stays B+. Remaining Newton gaps: aspect ratio (69x20 longhouse vs ~40x40), 2 vs 3 floors, missing Queen Anne features (turrets, bay windows, wraparound porch). Recommendations: aspect ratio constraints, verticality heuristic, Victorian turret sub-routine, porch wrap.
 - **Post-QA 15**: Newton v3 re-graded by Gemini 3 Pro (rustic 3-floor). Three fixes applied: 3 floors (was 2), aspect ratio clamped 2:1 (grid 69×25 vs 69×20), 13,425 blocks (was 11,204). Gemini grades: Scale A, Style B+, Type A, Overall A-. Up from v2 B and v1 D. Remaining gaps for full A: turret definition (round→square in voxels), porch detailing (fence/wall blocks vs solid), color palette (Queen Anne "Painted Lady" colors vs brown rustic).
 - **Post-QA 16**: 3 new addresses graded by Gemini 3 Pro with visual analysis. Vinalhaven ME: A (rustic fits coastal Maine). Grand Rapids MI: C- (4 floors too tall, rustic wrong for Foursquare). Walpole NH: D (rustic lodge vs white Federal — total style mismatch). Key finding: rustic fallback works for rural/coastal but fails for historic village/urban contexts. Recommendations: density-aware style fallback, road-type heuristic, attic-aware floor counting, New England White palette variant.
+- **Post-QA 17**: Full 6-address re-grade after pipeline improvements (inferStyle fantasy 1890-1970, formal road heuristic, floor cap fix). 4/6 changed rustic→fantasy. Results: SF A, Newton A-, Winchester A- (up from B+), Grand Rapids A- (up from C-), Walpole B- (up from D), Vinalhaven A. Average B-→A-. Scale straight A's. Remaining gaps: missing Colonial/Federal white palette (Walpole C+ style), Colonial box constraint for Queen Anne geometry, roofline simplification.
 
 ### Newton Version Grading Summary (Gemini 3 Pro)
 
@@ -515,3 +516,49 @@ Graded 3 new addresses with Gemini 3 Pro (visual + metadata analysis). Renders o
    - Add road-type heuristic: "St/Ave/Dr/Blvd" = formal, "Rd/Point/Cove/Lane" = rustic
    - Implement attic-aware floor counting: if stories > 2 and roof != flat, top floor = half-height attic
    - Add "New England White" palette variant for NH/VT/MA/CT + year < 1950 + village density
+
+---
+
+## Post-QA 17: Full 6-Address Re-Grade After Pipeline Improvements (Gemini 3 Pro, 2026-02-23)
+
+Re-graded all 6 test addresses after pipeline improvements: fantasy palette for 1890-1970 era via `inferStyle()`, formal road heuristic (NE + St/Ave/Blvd/Dr → fantasy colonial fallback), and small-footprint floor cap fix. 4 of 6 buildings changed palette from rustic to fantasy. Renders live on GH Pages.
+
+### Grade Table
+
+| Address | Palette | Floors | Scale | Style | Type | Overall | Previous | Delta |
+|:--------|:--------|:-------|:------|:------|:-----|:--------|:---------|:------|
+| **SF** (2340 Francisco St) | Desert | 4f | **A** | **A** | **A** | **A** | A | — |
+| **Newton** (240 Highland St) | Fantasy | 3f | **A** | **B+** | **A-** | **A-** | A- (rustic) | Palette improved |
+| **Winchester** (525 S Winchester Blvd) | Fantasy | 5f | **A** | **A-** | **B+** | **A-** | B+ (rustic) | +1 tier |
+| **Grand Rapids** (215 Boltwood Dr NE) | Fantasy | 3f | **A** | **B+** | **A** | **A-** | C- (rustic 4f) | +3 tiers |
+| **Walpole** (13 Union St) | Fantasy | 3f | **A** | **C+** | **B** | **B-** | D (rustic) | +2 tiers |
+| **Vinalhaven** (216 Zekes Point Rd) | Rustic | 2f | **A** | **A** | **A** | **A** | A (rustic) | — |
+
+**Average Overall: A- (was B-). Scale: straight A's across all 6.**
+
+### Fantasy vs Rustic Verdict
+
+**Decision: ADOPT FANTASY PALETTE for formal/suburban/Victorian addresses.**
+
+| Building | Rustic Grade | Fantasy Grade | Verdict |
+|:---------|:-------------|:--------------|:--------|
+| Newton (Queen Anne Victorian) | A- | A- | Fantasy maintains quality; "manor" vs "cabin" feel is better for formal Newton address |
+| Winchester (Queen Anne Victorian) | B+ | A- | Fantasy superior — captures ornate painted-lady Victorian better than muted rustic tones |
+| Grand Rapids (Colonial Revival) | C- (4f) | A- (3f) | Major improvement — floor cap fix + fantasy palette rescued this from tower/fortress look |
+| Walpole (Federal/Greek Revival) | D | B- | Significant improvement — rustic lodge was antithesis of white clapboard Federal; fantasy at least reads as "manor" |
+
+**Key insight**: Rustic palette reads as "rural/decayed/survival base" — wrong for high-value historic addresses. Fantasy (stone brick, deepslate, dark oak) conveys "manor/estate/constructed architecture." The shift from rustic→fantasy for 1890-1970 era homes rescued Grand Rapids (C-→A-) and Walpole (D→B-).
+
+**Rustic remains correct** for rural/coastal addresses like Vinalhaven (A, unchanged).
+
+### Top 3 Remaining Issues
+
+1. **Missing "Colonial/Federal" palette** — Fantasy is a proxy, not a match. Walpole's white clapboard Federal home (Style C+) needs white blocks (Quartz, White Concrete, Birch Planks, Brick) not dark stone/deepslate. Fantasy solves the "shape" problem but not the "color" problem. A dedicated NE Colonial palette would push Walpole from B- to A-.
+
+2. **Colonial box constraint** — The NE + formal road → "Colonial" geometry fallback forces symmetric boxes onto asymmetric Queen Anne Victorians. Newton (Style B+) and Walpole (Style C+) suffer from this. Pre-1910 homes > 5,000 sqft need a "Complex Victorian" geometry profile allowing turrets and asymmetry.
+
+3. **Roofline simplification** — Complex Victorian/Queen Anne rooflines (intersecting gables, dormers, cupolas) are being flattened into basic peaks. Winchester's "cupola forest" is reduced to a single large peak. Style grades suffer (Winchester A- not A, Walpole C+).
+
+### Overall Pipeline Grade: A-
+
+Scale logic is flawless (6/6 straight A's). Palette logic is now solved for desert and rustic contexts, and the fantasy proxy handles formal/Victorian addresses adequately. Remaining friction is purely geometric style matching for complex historical architecture and a missing white-clapboard palette for New England Federal homes.
