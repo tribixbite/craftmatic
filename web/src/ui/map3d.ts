@@ -7,7 +7,7 @@
  */
 
 import * as THREE from 'three';
-import { TilesRenderer, WGS84_ELLIPSOID } from '3d-tiles-renderer';
+import { TilesRenderer } from '3d-tiles-renderer';
 import {
   GoogleCloudAuthPlugin,
   TileCompressionPlugin,
@@ -189,21 +189,6 @@ function initViewer(container: HTMLElement, apiKey: string, lat: number, lng: nu
   isInitialized = true;
 }
 
-/** Fly camera to new lat/lng by repositioning the reorientation plugin */
-function flyTo(lat: number, lng: number): void {
-  if (!reorientation || !tiles || !camera || !controls) return;
-
-  // Update the reorientation plugin origin
-  reorientation.lat = lat * THREE.MathUtils.DEG2RAD;
-  reorientation.lon = lng * THREE.MathUtils.DEG2RAD;
-  reorientation.height = 0;
-
-  // Reset camera position to a good aerial view
-  camera.position.set(200, 200, 200);
-  controls.target.set(0, 0, 0);
-  controls.update();
-}
-
 function disposeViewer(): void {
   if (animFrameId) cancelAnimationFrame(animFrameId);
   animFrameId = 0;
@@ -294,20 +279,17 @@ function buildUI(): void {
     addrInput.value = result.formattedAddress;
     setStatus(`${result.formattedAddress} — ${result.lat.toFixed(5)}, ${result.lng.toFixed(5)}`, 'info');
 
+    // Always reinitialize viewer for new location (plugin property updates alone
+    // don't cause tiles to reload at the new origin)
     const viewerEl = document.getElementById('map3d-viewer')!;
-    if (!isInitialized) {
-      viewerEl.innerHTML = '';
-      setStatus('Loading 3D tiles...', 'info');
-      try {
-        initViewer(viewerEl, getApiKey(), result.lat, result.lng);
-        setStatus(`Loaded — ${result.formattedAddress}`, 'success');
-      } catch (err) {
-        console.error('3D tiles init failed:', err);
-        setStatus('3D tiles failed to load', 'error');
-      }
-    } else {
-      flyTo(result.lat, result.lng);
-      setStatus(`Moved to ${result.formattedAddress}`, 'success');
+    viewerEl.innerHTML = '';
+    setStatus('Loading 3D tiles...', 'info');
+    try {
+      initViewer(viewerEl, getApiKey(), result.lat, result.lng);
+      setStatus(`Loaded — ${result.formattedAddress}`, 'success');
+    } catch (err) {
+      console.error('3D tiles init failed:', err);
+      setStatus('3D tiles failed to load', 'error');
     }
   };
 
