@@ -150,6 +150,8 @@ export interface GenerationOptions {
   floorPlanShape?: FloorPlanShape;
   /** Override roof height in blocks (derived from Solar API pitch data) */
   roofHeightOverride?: number;
+  /** Window spacing in blocks (derived from SV fenestration analysis, default 3) */
+  windowSpacing?: number;
 }
 
 /** 2D render mode */

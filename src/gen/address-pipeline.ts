@@ -151,6 +151,44 @@ export interface PropertyData {
   streetViewDate?: string;
   /** Street View camera heading toward building (0-360°) */
   streetViewHeading?: number;
+
+  // ─── SV Image Analysis (Tier 1: Colors) ────────────────────────────────────
+  /** Wall block override from SV color extraction */
+  svWallOverride?: BlockState;
+  /** Roof block override from SV color extraction */
+  svRoofOverride?: { north: BlockState; south: BlockState; cap: BlockState };
+  /** Trim block override from SV color extraction */
+  svTrimOverride?: BlockState;
+
+  // ─── SV Image Analysis (Tier 2: Structural Heuristics) ─────────────────────
+  /** Story count from horizontal projection analysis */
+  svStoryCount?: number;
+  /** Wall texture class from Sobel entropy analysis */
+  svTextureClass?: string;
+  /** Suggested wall block from texture classification */
+  svTextureBlock?: BlockState;
+  /** Roof pitch category from diagonal edge detection */
+  svRoofPitch?: 'flat' | 'moderate' | 'steep';
+  /** Roof height override from pitch analysis (0.3 flat, 0.5 moderate, 0.8 steep) */
+  svRoofHeightOverride?: number;
+  /** Whether facade appears symmetric */
+  svSymmetric?: boolean;
+  /** Suggested plan shape from symmetry analysis */
+  svPlanShape?: 'rect' | 'L' | 'T';
+  /** Windows per floor from fenestration density analysis */
+  svWindowsPerFloor?: number;
+  /** Window spacing in blocks (2=dense, 3=normal, 5=sparse) */
+  svWindowSpacing?: number;
+  /** Feature flags inferred from setback/lawn analysis */
+  svSetbackFeatures?: Partial<import('../types/index.js').FeatureFlags>;
+
+  // ─── SV Image Analysis (Tier 3: Vision, opt-in) ────────────────────────────
+  /** Door wood type from vision analysis */
+  svDoorOverride?: string;
+  /** Feature flags from vision analysis */
+  svFeatures?: Partial<import('../types/index.js').FeatureFlags>;
+  /** Architecture style label from vision analysis */
+  svArchitectureLabel?: string;
 }
 
 // ─── Hash ───────────────────────────────────────────────────────────────────
@@ -296,7 +334,8 @@ export function resolveStyle(prop: PropertyData): StyleName {
   // with missing dates are pre-war wood-frame construction
   const year = prop.yearBuilt;
   const archStyle = mapArchitectureToStyle(prop.osmArchitecture)
-    ?? mapArchitectureToStyle(prop.architectureType);
+    ?? mapArchitectureToStyle(prop.architectureType)
+    ?? mapArchitectureToStyle(prop.svArchitectureLabel);
   const propTypeStyle = inferStyleFromPropertyType(prop.propertyType, year);
   const cityStyle = inferStyleFromCity(prop.city, year);
   const countyStyle = inferStyleFromCounty(prop.county, year);
@@ -729,32 +768,70 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   }
 
   // ── Roof material override ────────────────────────────────────────
-  const roofOverride = mapRoofMaterialToBlocks(prop.osmRoofMaterial, prop.osmRoofColour);
+  // Priority: OSM roof material/colour > SV color > style default
+  const roofOverride = mapRoofMaterialToBlocks(prop.osmRoofMaterial, prop.osmRoofColour)
+    ?? prop.svRoofOverride;
+
+  // ── Wall override ───────────────────────────────────────────────
+  // Priority: Smarty exteriorType / satellite / OSM > SV color > SV texture > style
+  // prop.wallOverride is already set by the satellite/Smarty chain in CLI
+  const wallOverride = prop.wallOverride ?? prop.svWallOverride ?? prop.svTextureBlock;
 
   // ── Door override ─────────────────────────────────────────────────
+  // Priority: architecture-type inference > SV vision > style/era
   const doorOverride = inferDoorType(
-    prop.osmArchitecture ?? prop.architectureType,
+    prop.osmArchitecture ?? prop.architectureType ?? prop.svArchitectureLabel,
     style,
     prop.yearBuilt
-  );
+  ) ?? prop.svDoorOverride;
 
   // ── Trim override ─────────────────────────────────────────────────
+  // Priority: OSM building:colour > SV color > style default
   const trimOverride = prop.osmBuildingColour
     ? hexToTrimBlock(prop.osmBuildingColour)
-    : undefined;
+    : prop.svTrimOverride;
 
   // ── Feature flags ─────────────────────────────────────────────────
+  // Priority: inferFeatures (Smarty/Mapillary) > SV vision > SV setback > defaults
   const features = inferFeatures(prop);
+  // Merge SV setback-derived features (lower priority — don't override existing)
+  if (prop.svSetbackFeatures) {
+    for (const [key, val] of Object.entries(prop.svSetbackFeatures)) {
+      const k = key as keyof FeatureFlags;
+      if (features[k] === undefined && val) features[k] = val;
+    }
+  }
+  // Merge SV vision features (lower priority than Smarty/Mapillary but higher than setback)
+  if (prop.svFeatures) {
+    for (const [key, val] of Object.entries(prop.svFeatures)) {
+      const k = key as keyof FeatureFlags;
+      if (features[k] === undefined && val) features[k] = val;
+    }
+  }
 
-  // ── Roof height override from Solar API pitch data ──────────────
-  // Maps real-world roof pitch degrees to Minecraft roof height in blocks
+  // ── Roof height override ────────────────────────────────────────
+  // Priority: Solar API pitch > SV pitch analysis > style default
   let roofHeightOverride: number | undefined;
   if (prop.solarRoofPitch != null && prop.solarRoofPitch > 0) {
     if (prop.solarRoofPitch < 15) roofHeightOverride = 4;       // nearly flat
     else if (prop.solarRoofPitch < 30) roofHeightOverride = 8;  // moderate pitch
     else if (prop.solarRoofPitch < 45) roofHeightOverride = 12; // steep
     else roofHeightOverride = 14;                                // very steep
+  } else if (prop.svRoofHeightOverride != null) {
+    // SV pitch analysis gives a ratio (0.3/0.5/0.8) — convert to block count
+    roofHeightOverride = Math.round(prop.svRoofHeightOverride * 14);
   }
+
+  // ── Window spacing from SV fenestration ─────────────────────────
+  const windowSpacing = prop.svWindowSpacing;
+
+  // ── Floor plan shape ────────────────────────────────────────────
+  // Priority: OSM polygon > SV symmetry > undefined (generator default)
+  const floorPlanShape = prop.floorPlanShape ?? prop.svPlanShape;
+
+  // ── Architecture style integration ──────────────────────────────
+  // If SV vision gave us an architecture label, feed it into the existing style chain
+  // (already handled above via doorOverride — svArchitectureLabel used in resolveStyle)
 
   return {
     type,
@@ -765,13 +842,14 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     length,
     // Include parclPropertyId in seed for better per-property reproducibility
     seed: fnv1aHash(prop.address + (prop.parclPropertyId ? `#${prop.parclPropertyId}` : '')),
-    wallOverride: prop.wallOverride,
+    wallOverride,
     trimOverride,
     doorOverride,
     roofShape,
     roofOverride,
     features,
-    floorPlanShape: prop.floorPlanShape,
+    floorPlanShape,
     roofHeightOverride,
+    windowSpacing,
   };
 }
