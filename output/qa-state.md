@@ -768,6 +768,10 @@ Rewrote gen-comparison.ts to call all 7 APIs: Parcl, OSM (with patient retries),
 - GenerationOptions fields impacted (blue tags)
 - Generation summary with changed values highlighted in green
 
+### Post-QA 22: SPA Comparison Tab Integration (2026-02-24)
+
+Integrated standalone comparison viewer into main SPA as a proper tab. Replaced `web/public/comparison/index.html` with `web/src/ui/comparison.ts` TypeScript module following the existing `initX()` pattern. Added "Comparison" nav tab, scoped CSS (`.cmp-*` prefix), and auto-sync from `output/comparison/` to `web/public/comparison/` in gen-comparison.ts. Removed old someapis/allapis image format, now uses `*-api_*.jpg` naming. Deployed to GitHub Pages — comparison tab live at tribixbite.github.io/craftmatic/.
+
 ### Remaining work / known issues
 
 - Story count heuristic needs tuning — tree rejection via green pixel % in wall zone before Sobel analysis
@@ -788,3 +792,4 @@ Rewrote gen-comparison.ts to call all 7 APIs: Parcl, OSM (with patient retries),
 | 15a76a1 | test: add SV analysis, color-blocks, and generation priority chain tests |
 | 9c20d7a | feat: regenerate comparison images with SV analysis pipeline |
 | 09e2dc3 | feat: full API comparison viewer + OSM rate limit fix |
+| de34f7f | feat: integrate comparison viewer as SPA tab |
