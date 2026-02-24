@@ -841,7 +841,7 @@ describe('resolveStyle', () => {
   it('auto with OSM architecture takes priority over year', () => {
     expect(resolveStyle(makeProperty({
       style: 'auto', yearBuilt: 2020, osmArchitecture: 'colonial',
-    }))).toBe('fantasy');
+    }))).toBe('colonial');
   });
 
   it('auto without architecture falls through to year', () => {
@@ -852,11 +852,11 @@ describe('resolveStyle', () => {
 
   it('yearUncertain uses density-aware fallback', () => {
     // Default makeProperty: address='123 Test St' (formal road), state=IL (suburban)
-    // → suburban + formal road → 'fantasy' (colonial proxy)
+    // → suburban + formal road → 'colonial' (white clapboard fallback)
     const style = resolveStyle(makeProperty({
       style: 'auto', yearBuilt: 0, yearUncertain: true,
     }));
-    expect(style).toBe('fantasy');
+    expect(style).toBe('colonial');
   });
 
   it('yearUncertain falls back to rustic for rural roads', () => {
@@ -931,13 +931,13 @@ describe('style-aware porch override', () => {
 
 describe('uncertain data flags', () => {
   it('yearUncertain property gets density-aware style fallback', () => {
-    // Default makeProperty: suburban + formal road → 'fantasy'
+    // Default makeProperty: suburban + formal road → 'colonial'
     const opts = convertToGenerationOptions(makeProperty({
       style: 'auto',
       yearBuilt: 2000,
       yearUncertain: true,
     }));
-    expect(opts.style).toBe('fantasy');
+    expect(opts.style).toBe('colonial');
   });
 
   it('bedroomsUncertain does not affect generation output', () => {

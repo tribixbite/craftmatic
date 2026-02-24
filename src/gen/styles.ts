@@ -593,6 +593,47 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant2: 'minecraft:potted_crimson_fungus',
     plant3: 'minecraft:potted_fern',
   }),
+
+  // Colonial/Federal/Georgian — white clapboard, brick foundation, gable roof.
+  // Represents pre-Revolutionary through Colonial Revival (1700–1950s) American homes.
+  // Key visual: symmetrical facade, white walls, dark shutters, brick chimney, simple gable.
+  colonial: createPalette({
+    wall: 'minecraft:smooth_quartz',           // white clapboard siding
+    wallAccent: 'minecraft:bricks',            // red brick accents/chimney
+    interiorWall: 'minecraft:birch_planks',    // light wood wainscoting
+    floorGround: 'minecraft:birch_planks',     // wide-plank hardwood
+    floorUpper: 'minecraft:birch_planks',
+    ceiling: 'minecraft:stripped_birch_log',    // exposed beam ceiling
+    timber: 'minecraft:birch_log',             // light structural timber
+    roofStairs: 'minecraft:stone_brick_stairs', // slate-colored roof shingles
+    roofCap: 'minecraft:stone_brick_slab[type=bottom]',
+    defaultRoofShape: 'gable',                 // simple symmetric gable
+    defaultPlanShape: 'rect',                  // strict rectangular box
+    roofHeight: 8,                             // moderate pitch
+    foundation: 'minecraft:bricks',            // brick foundation
+    window: 'minecraft:glass_pane',            // clear multipaned windows
+    windowAccent: 'minecraft:glass_pane',      // no stained glass
+    door: 'minecraft:birch_door',              // paneled wood door
+    pillar: 'minecraft:quartz_pillar',         // white porch columns
+    chairStairs: 'minecraft:birch_stairs',
+    fence: 'minecraft:birch_fence',            // white picket fence
+    carpet: 'minecraft:blue_carpet',           // colonial blue
+    carpetAccent: 'minecraft:red_carpet',      // traditional red accent
+    lantern: 'minecraft:lantern[hanging=true]',
+    lanternFloor: 'minecraft:lantern[hanging=false]',
+    slab: 'minecraft:birch_slab',
+    bannerColor: 'blue',
+    bedColor: 'blue',
+    fireplaceBlock: 'minecraft:bricks',        // traditional brick fireplace
+    fireplaceAccent: 'minecraft:bricks',
+    tableSurface: 'minecraft:white_carpet',
+    candle: 'minecraft:candle[candles=3,lit=true]',
+    counterBlock: 'minecraft:smooth_quartz',
+    counterSlab: 'minecraft:birch_slab[type=bottom]',
+    plant1: 'minecraft:potted_lily_of_the_valley',
+    plant2: 'minecraft:potted_blue_orchid',
+    plant3: 'minecraft:potted_dandelion',
+  }),
 };
 
 /** Get a style palette by name */

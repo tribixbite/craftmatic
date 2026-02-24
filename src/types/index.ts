@@ -93,7 +93,7 @@ export type RoomType =
 
 /** Building style presets */
 export type StyleName = 'fantasy' | 'medieval' | 'modern' | 'gothic' | 'rustic'
-  | 'steampunk' | 'elven' | 'desert' | 'underwater';
+  | 'steampunk' | 'elven' | 'desert' | 'underwater' | 'colonial';
 
 /** Structure types the generator can produce */
 export type StructureType = 'house' | 'tower' | 'castle' | 'dungeon' | 'ship'
