@@ -41,6 +41,9 @@ import {
 } from '@ui/import-geometry.js';
 import { buildInfoPanelHtml, escapeHtml } from '@ui/import-info-panel.js';
 import {
+  extractFootprint, drawFootprintOverlay, type FootprintResult,
+} from '@ui/import-satellite-footprint.js';
+import {
   getMapillaryMlyToken, setMapillaryMlyToken, hasMapillaryMlyToken,
   searchMapillaryImages, searchMapillaryFeatures,
   pickBestImage, analyzeFeatures, MAPILLARY_SIGNUP_URL,
@@ -120,6 +123,8 @@ export function initImport(
   /** Mapillary best image + features */
   let currentMapillaryImage: MapillaryImageData | null = null;
   let currentMapillaryFeatures: MapillaryFeatureData[] = [];
+  /** Satellite footprint extraction result */
+  let currentSatFootprint: FootprintResult | null = null;
 
   // Restore API key display state
   const savedParclKey = getParclApiKey();
@@ -447,6 +452,7 @@ export function initImport(
     currentParcl = null;
     currentMapillaryImage = null;
     currentMapillaryFeatures = [];
+    currentSatFootprint = null;
 
     const [geoResult, parclResult, smartyResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -532,6 +538,12 @@ export function initImport(
 
         // Pool detection — scan ring around building for cyan/blue pixels
         currentPoolDetected = detectPool(canvas, pixelX, pixelY);
+
+        // Footprint extraction — detect building shape + dimensions from satellite pixels
+        currentSatFootprint = extractFootprint(canvas, pixelX, pixelY, geo.lat);
+        if (currentSatFootprint && currentSatFootprint.confidence >= 0.6) {
+          drawFootprintOverlay(canvas, currentSatFootprint, pixelX, pixelY);
+        }
 
         // Draw OSM building polygon overlay on satellite canvas
         if (currentOSM && currentOSM.polygon.length >= 3) {
@@ -930,7 +942,14 @@ export function initImport(
       assessedValue: currentSmarty?.assessedValue || undefined,
       hasPool: currentPoolDetected,
       floorPlanShape: currentOSM?.polygon
-        ? analyzePolygonShape(currentOSM.polygon) : undefined,
+        ? analyzePolygonShape(currentOSM.polygon)
+        : (currentSatFootprint?.confidence ?? 0) >= 0.6
+          ? currentSatFootprint!.shape
+          : undefined,
+      // Satellite footprint dimensions (fallback when OSM footprint unavailable)
+      satFootprintWidth: currentSatFootprint?.widthMeters,
+      satFootprintLength: currentSatFootprint?.lengthMeters,
+      satFootprintConfidence: currentSatFootprint?.confidence,
       streetViewUrl: currentStreetViewUrl ?? undefined,
       county: currentParcl?.county,
       stateAbbreviation: currentParcl?.stateAbbreviation,
