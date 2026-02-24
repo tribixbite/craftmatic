@@ -447,6 +447,7 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 - **Post-QA 13**: 5 known-issue fixes: (1) Mapillary test timeout 20s→45s. (2) Pool feature flag bounds check — verify full pool extent including border+diving board before placement. (3) House height plateau — companion floors scale with main building (max(1, min(floors-1, 3))). (4) Style-specific geometry — defaultPlanShape per style (fantasy/medieval/rustic=L, gothic/steampunk=T, modern/elven/desert/underwater=rect); companions forced rect to prevent overlap. (5) Interior center density — cell gets iron bars cage+cauldron (≥4x4), nave gets center lectern (≥6x8), mudroom gets center boot tray (≥5x5), garage gets anvil+grindstone (≥6x6), bedroom reading chair gate lowered rw≥8→6. 467 tests pass.
 - **Post-QA 14**: Newton Victorian re-graded by Gemini 3 Pro after rustic fallback fix. Style accuracy F→B, overall D→B. SF Apartment stays A, Winchester stays B+. Remaining Newton gaps: aspect ratio (69x20 longhouse vs ~40x40), 2 vs 3 floors, missing Queen Anne features (turrets, bay windows, wraparound porch). Recommendations: aspect ratio constraints, verticality heuristic, Victorian turret sub-routine, porch wrap.
 - **Post-QA 15**: Newton v3 re-graded by Gemini 3 Pro (rustic 3-floor). Three fixes applied: 3 floors (was 2), aspect ratio clamped 2:1 (grid 69×25 vs 69×20), 13,425 blocks (was 11,204). Gemini grades: Scale A, Style B+, Type A, Overall A-. Up from v2 B and v1 D. Remaining gaps for full A: turret definition (round→square in voxels), porch detailing (fence/wall blocks vs solid), color palette (Queen Anne "Painted Lady" colors vs brown rustic).
+- **Post-QA 16**: 3 new addresses graded by Gemini 3 Pro with visual analysis. Vinalhaven ME: A (rustic fits coastal Maine). Grand Rapids MI: C- (4 floors too tall, rustic wrong for Foursquare). Walpole NH: D (rustic lodge vs white Federal — total style mismatch). Key finding: rustic fallback works for rural/coastal but fails for historic village/urban contexts. Recommendations: density-aware style fallback, road-type heuristic, attic-aware floor counting, New England White palette variant.
 
 ### Newton Version Grading Summary (Gemini 3 Pro)
 
@@ -457,3 +458,60 @@ After archetype-specific compounds: modern pool/garage, dungeon excavation site,
 | v3 (rustic 3f) | **A** | **B+** | **A** | **A-** | Correct 3-story height, fixed aspect ratio, accurate massing |
 
 **Path to A**: (1) Turret smoothing via stair-block configs, (2) Wraparound porch with fence/wall supports instead of solid blocks, (3) Victorian "Painted Lady" color palette (terracotta, colored wool/concrete) instead of raw rustic wood/stone.
+
+### Post-QA 16: 3 New Address Grading (Gemini 3 Pro, 2026-02-23)
+
+Graded 3 new addresses with Gemini 3 Pro (visual + metadata analysis). Renders on GH Pages.
+
+#### 1. Grand Rapids, MI — 215 Boltwood Dr NE, Grand Rapids, MI 49505
+- **Generated**: rustic style, 4 floors, 56x30x30 grid, 10,282 blocks
+- **Property**: 1906, single-family, 5,905 sqft, 6 bed, 4 bath, OSM 11x12
+- **Real building**: ~2.5-story American Foursquare / Colonial Revival, light siding, hipped roof, brick porch foundation
+- **Grades**: Scale **D**, Style **D**, Type **B-**, Overall **C-**
+- **Issues**: (1) 4 full floors is critically too tall for a 2.5-story home — attic/basement counted as full floors. (2) Rustic palette (dark spruce/cobble) misses the light-siding Foursquare aesthetic. (3) The building reads as a fortress/tower rather than a suburban home.
+- **Fixes needed**: Attic handling (half-floor for hipped/gabled roofs), stories inference from OSM footprint vs sqft (OSM 11x12 = 132sqm footprint, 548sqm total = ~4.15 raw floors but should round to 3 with attic), siding heuristic for 1900-1940 suburban homes.
+
+#### 2. Walpole, NH — 13 Union St, Walpole, NH 03608
+- **Generated**: rustic style, 3 floors, 59x25x30 grid, 9,129 blocks
+- **Property**: year uncertain, single-family, 5,860 sqft, 5 bed, 5 bath, no OSM data
+- **Real building**: Classic New England Federal / Greek Revival, white clapboard siding, dark shutters, gabled roof, historic village center
+- **Grades**: Scale **B**, Style **F**, Type **A**, Overall **D**
+- **Issues**: (1) Severe style mismatch — "rustic" (dark spruce lodge) is the opposite of a white Federal estate. (2) yearUncertain fallback to 'rustic' fails for historic New England village centers. (3) Without OSM data or architecture tags, the pipeline has no signal to override the fallback.
+- **Fixes needed**: Regional white-clapboard heuristic for NH/VT/MA village centers, density-aware fallback (village street addresses should not default to rustic lodge aesthetic).
+
+#### 3. Vinalhaven, ME — 216 Zekes Point Rd, Vinalhaven, ME 04863
+- **Generated**: rustic style, 2 floors, 55x17x30 grid, 6,634 blocks
+- **Property**: year uncertain, type OTHER, 2,000 sqft, 3 bed, 2 bath, no OSM data
+- **Real building**: Coastal shingle-style / vernacular island home, weathered cedar shingles (dark grey/brown), stone foundation, natural wood trim
+- **Grades**: Scale **A**, Style **A**, Type **A**, Overall **A**
+- **Issues**: None significant. The rustic palette (spruce/cobble) is an excellent proxy for weathered cedar shingles on granite. The 2-floor compound shape captures the "added-on-over-time" feel of coastal cottages.
+- **Note**: This is a validation case — the yearUncertain 'rustic' fallback works perfectly for rural/coastal New England.
+
+### All-Address Grading Summary (Gemini 3 Pro)
+
+| # | Address | Scale | Style | Type | Overall | Notes |
+|---|---------|-------|-------|------|---------|-------|
+| 1 | 401 Jersey St, San Francisco, CA | A | A | A | **A** | Perfect match for Bay Area Victorian |
+| 2 | 216 Zekes Point Rd, Vinalhaven, ME | A | A | A | **A** | Rustic palette perfect for coastal Maine |
+| 3 | 40 Cabot St, Newton, MA (v3) | A | B+ | A | **A-** | Good massing, style slightly generic |
+| 4 | 158 Forest St, Winchester, MA | B+ | B+ | A | **B+** | Solid build, minor scale quirks |
+| 5 | 215 Boltwood Dr NE, Grand Rapids, MI | D | D | B- | **C-** | 4 floors too tall, palette too dark for Foursquare |
+| 6 | 13 Union St, Walpole, NH | B | F | A | **D** | Rustic lodge vs white Federal — total style miss |
+
+**Average Overall: B- (2 A-tier, 2 B-tier, 2 below-C)**
+
+### Key Engineering Findings
+
+1. **Rustic Bias Problem**: The 'rustic' style works for rural/coastal (Vinalhaven A) but fails for historic urban/village centers (Grand Rapids C-, Walpole D). The pipeline defaults to rustic too aggressively.
+
+2. **Floor Count Inflation**: Grand Rapids shows 4 floors when the real building is 2.5 stories. The estimateStoriesFromFootprint() function divides total sqft by OSM footprint area, which can overcount when attics and basements are included in the sqft figure.
+
+3. **Missing Density/Context Signal**: The pipeline lacks a way to distinguish between:
+   - Rural/coastal addresses (Road, Point, Cove) where 'rustic' is correct
+   - Village/urban addresses (Street, Avenue, Drive) where formal styles are needed
+
+4. **Recommended Fixes**:
+   - Split 'rustic' fallback by density: `rural/coastal → rustic`, `village/urban pre-1950 → fantasy (colonial proxy)`
+   - Add road-type heuristic: "St/Ave/Dr/Blvd" = formal, "Rd/Point/Cove/Lane" = rustic
+   - Implement attic-aware floor counting: if stories > 2 and roof != flat, top floor = half-height attic
+   - Add "New England White" palette variant for NH/VT/MA/CT + year < 1950 + village density
