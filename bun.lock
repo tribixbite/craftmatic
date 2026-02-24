@@ -12,6 +12,7 @@
         "prismarine-nbt": "^2.7.0",
         "pureimage": "^0.4.18",
         "three": "^0.172.0",
+        "3d-tiles-renderer": "^0.4.21",
       },
       "devDependencies": {
         "@eslint/js": "^10.0.1",
@@ -33,6 +34,8 @@
     },
   },
   "packages": {
+    "3d-tiles-renderer": ["3d-tiles-renderer@0.4.21", "", { "peerDependencies": { "three": ">=0.167.0" } }, "sha512-tpXt8sGeQRst94jepL2LXZunQZD0x6zKaSsQX+OxeFsDjOTxfv3UK10xlqnD/j7MZH7jlBjiFur6jb3w3NKoeg=="],
+
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],
 
     "@babel/helper-string-parser": ["@babel/helper-string-parser@7.27.1", "", {}, "sha512-qMlSxKbpRlAridDExk92nSobyDdpPijUq2DW6oDnUqd0iOGxmQjyqhMIihI9+zv4LPyZdRje2cavWPbCbWm3eA=="],
