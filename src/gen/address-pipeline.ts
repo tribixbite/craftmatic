@@ -139,6 +139,14 @@ export interface PropertyData {
   mapboxHeight?: number;
   /** Building type from Mapbox vector tiles: 'house', 'apartments', 'detached', etc. */
   mapboxBuildingType?: string;
+
+  // ─── Satellite Footprint Extraction ───────────────────────────────────────
+  /** Building footprint width from satellite image analysis (meters) */
+  satFootprintWidth?: number;
+  /** Building footprint length from satellite image analysis (meters) */
+  satFootprintLength?: number;
+  /** Satellite footprint extraction confidence (0-1) */
+  satFootprintConfidence?: number;
   /** Primary roof pitch from Google Solar in degrees (0=flat, 45=steep) */
   solarRoofPitch?: number;
   /** Number of roof segments from Google Solar — 2=gable, 4=hip, 1+flat=flat */
@@ -721,9 +729,18 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   let length: number;
 
   if (prop.osmWidth && prop.osmLength) {
+    // Priority 1: OSM polygon (real building footprint from OpenStreetMap)
     width = prop.osmWidth;
     length = prop.osmLength;
+  } else if (
+    prop.satFootprintWidth && prop.satFootprintLength &&
+    (prop.satFootprintConfidence ?? 0) >= 0.6
+  ) {
+    // Priority 2: Satellite image footprint extraction (meters → blocks ≈ 1:1)
+    width = Math.round(prop.satFootprintWidth);
+    length = Math.round(prop.satFootprintLength);
   } else {
+    // Priority 3: Estimate from sqft + floor count
     const areaPerFloor = prop.sqft / floors / 10.76;
     const aspectRatio = prop.floorPlan?.aspectRatio ?? 1.3;
     width = Math.round(Math.sqrt(areaPerFloor * aspectRatio));
