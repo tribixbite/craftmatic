@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Craftmatic — API Data Comparison</title>
+  <title>Craftmatic — 3-Tier API Comparison</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -95,7 +95,6 @@
     .slider-area {
       position: relative;
       width: 100%;
-      /* Height set dynamically based on loaded images */
       min-height: 300px;
       touch-action: none;
       cursor: col-resize;
@@ -108,24 +107,25 @@
       pointer-events: none;
     }
     .img-noapi { z-index: 1; }
-    .img-api { z-index: 2; }
+    .img-someapis { z-index: 2; }
+    .img-allapis { z-index: 3; }
 
-    /* ─── Divider ─── */
+    /* ─── Dividers ─── */
     .divider {
       position: absolute;
       top: 0; bottom: 0;
       width: 3px;
-      background: #5865f2;
       z-index: 10;
       pointer-events: none;
     }
+    .divider-1 { background: #f59e0b; }
+    .divider-2 { background: #28a745; }
     .divider-handle {
       position: absolute;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 36px; height: 36px;
-      background: #5865f2;
+      width: 32px; height: 32px;
       border: 2px solid #fff;
       border-radius: 50%;
       z-index: 11;
@@ -135,30 +135,37 @@
       align-items: center;
       justify-content: center;
     }
+    .divider-1 .divider-handle { background: #f59e0b; }
+    .divider-2 .divider-handle { background: #28a745; }
     .divider-handle::before {
-      content: '◄ ►';
+      content: '◄►';
       color: #fff;
-      font-size: 10px;
+      font-size: 9px;
       letter-spacing: -1px;
     }
 
-    /* ─── Side Labels ─── */
-    .label-left, .label-right {
+    /* ─── Tier Labels ─── */
+    .tier-label {
       position: absolute;
       top: 10px;
       z-index: 15;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
-      padding: 4px 10px;
+      padding: 3px 8px;
       border-radius: 4px;
       pointer-events: none;
+      white-space: nowrap;
     }
-    .label-left {
+    .label-noapi {
       left: 10px;
       background: rgba(220, 60, 60, 0.85);
       color: #fff;
     }
-    .label-right {
+    .label-someapis {
+      background: rgba(245, 158, 11, 0.85);
+      color: #fff;
+    }
+    .label-allapis {
       right: 10px;
       background: rgba(40, 167, 69, 0.85);
       color: #fff;
@@ -166,47 +173,55 @@
 
     /* ─── Stats Panel ─── */
     .stats {
-      max-width: 800px;
+      max-width: 1100px;
       margin: 0 auto;
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
     }
     .stat-card {
       background: #16162a;
       border: 1px solid #2a2a44;
       border-radius: 8px;
-      padding: 14px;
+      padding: 12px;
     }
     .stat-card h4 {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
-      margin-bottom: 10px;
-      padding-bottom: 6px;
+      margin-bottom: 8px;
+      padding-bottom: 5px;
       border-bottom: 1px solid #2a2a44;
     }
     .stat-card.noapi h4 { color: #dc3c3c; }
-    .stat-card.api h4 { color: #28a745; }
-    .stat-card table { width: 100%; font-size: 11px; border-collapse: collapse; }
-    .stat-card td { padding: 3px 0; vertical-align: top; }
-    .stat-card td:first-child { color: #8888a8; width: 90px; font-weight: 500; }
+    .stat-card.someapis h4 { color: #f59e0b; }
+    .stat-card.allapis h4 { color: #28a745; }
+    .stat-card table { width: 100%; font-size: 10px; border-collapse: collapse; }
+    .stat-card td { padding: 2px 0; vertical-align: top; }
+    .stat-card td:first-child { color: #8888a8; width: 80px; font-weight: 500; }
     .stat-card td:last-child {
       color: #e4e4ef;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
-      font-size: 11px;
+      font-size: 10px;
+    }
+    /* Highlight cells that differ from the tier to the left */
+    .stat-card td.changed {
+      color: #5865f2;
+      font-weight: 600;
     }
 
+    @media (max-width: 900px) {
+      .stats { grid-template-columns: 1fr; }
+    }
     @media (max-width: 600px) {
       body { padding: 10px; }
-      .stats { grid-template-columns: 1fr; }
       .nav-btn { padding: 6px 12px; }
       .slider-area { min-height: 200px; }
     }
   </style>
 </head>
 <body>
-  <h1>Craftmatic — API Data Comparison</h1>
-  <p class="subtitle">Drag the slider to compare default generation vs real property data enrichment</p>
+  <h1>Craftmatic — 3-Tier API Comparison</h1>
+  <p class="subtitle">Drag the two handles to compare: No API / Basic APIs / All APIs</p>
 
   <div class="nav" id="nav"></div>
   <div class="tabs" id="tabs"></div>
@@ -214,12 +229,17 @@
 
   <div class="slider-wrap">
     <div class="slider-area" id="slider">
-      <img class="img-noapi" id="imgNoapi" alt="Default (no API)">
-      <img class="img-api" id="imgApi" alt="API Enriched">
-      <div class="label-left">Default</div>
-      <div class="label-right">API Enriched</div>
-      <div class="divider" id="divider">
-        <div class="divider-handle" id="handle"></div>
+      <img class="img-noapi" id="imgNoapi" alt="No API">
+      <img class="img-someapis" id="imgSomeapis" alt="Basic APIs">
+      <img class="img-allapis" id="imgAllapis" alt="All APIs">
+      <div class="tier-label label-noapi">No API</div>
+      <div class="tier-label label-someapis" id="labelSome">Basic APIs</div>
+      <div class="tier-label label-allapis">All APIs</div>
+      <div class="divider divider-1" id="divider1">
+        <div class="divider-handle" id="handle1"></div>
+      </div>
+      <div class="divider divider-2" id="divider2">
+        <div class="divider-handle" id="handle2"></div>
       </div>
     </div>
   </div>
@@ -228,166 +248,251 @@
 
 <script>
 // ─── Data ───────────────────────────────────────────────────────────────────
+// Each location has 3 tiers: noapi, someapis (Parcl+OSM+Smarty+Mapillary), allapis (+Mapbox+Solar+StreetView)
 
 const LOCATIONS = {
   sf: {
     label: 'San Francisco',
     address: '2340 Francisco St, San Francisco, CA 94123',
-    api: {
-      style: 'desert', floors: 4, grid: '56\u00d725\u00d734', blocks: '9,901',
-      sqft: '13,905', beds: 12, baths: 12, year: 1929,
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'Multi-family detected (12 beds), flat roof, OSM 8\u00d717 footprint'
-    },
     noapi: {
       style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
       sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
       sources: 'none', notes: 'Generic L-shape compound'
     },
+    someapis: {
+      style: 'desert', floors: 4, grid: '56\u00d725\u00d734', blocks: '9,901',
+      sqft: '13,905', beds: 12, baths: 12, year: 1929,
+      sources: 'Parcl + OSM + Mapillary',
+      notes: 'Multi-family detected, flat roof, OSM 8\u00d717 footprint'
+    },
+    allapis: {
+      style: 'desert', floors: 4, grid: '56\u00d725\u00d734', blocks: '9,901',
+      sqft: '13,905', beds: 12, baths: 12, year: 1929,
+      sources: '+ Mapbox (13.0m) + StreetView',
+      notes: 'Mapbox confirms 4f (13m/3.5=3.7), OSM levels take priority'
+    },
     views: {
-      exterior: { api: 'sf-api_exterior.jpg', noapi: 'sf-noapi_exterior.jpg' },
+      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'sf-someapis_exterior.jpg', allapis: 'sf-allapis_exterior.jpg' },
       cutaway: {
-        api: [0,1,2,3].map(i => `sf-api_cutaway_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
+        someapis: [0,1,2,3].map(i => `sf-someapis_cutaway_${i}.jpg`),
+        allapis: [0,1,2,3].map(i => `sf-allapis_cutaway_${i}.jpg`),
       },
       floor: {
-        api: [0,1,2,3].map(i => `sf-api_floor_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
+        someapis: [0,1,2,3].map(i => `sf-someapis_floor_${i}.jpg`),
+        allapis: [0,1,2,3].map(i => `sf-allapis_floor_${i}.jpg`),
       },
     },
   },
   newton: {
     label: 'Newton',
     address: '240 Highland St, Newton, MA 02465',
-    api: {
-      style: 'fantasy', floors: 3, grid: '69\u00d725\u00d738', blocks: '14,313',
-      sqft: '9,094', beds: 9, baths: 5, year: '? (uncertain)',
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'Year uncertain \u2014 fantasy 3f + turret + bay window (Victorian proxy), OSM 17\u00d721'
-    },
     noapi: {
       style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
       sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
       sources: 'none', notes: 'Generic L-shape compound'
     },
+    someapis: {
+      style: 'fantasy', floors: 3, grid: '69\u00d725\u00d738', blocks: '14,313',
+      sqft: '9,094', beds: 9, baths: 5, year: '? (uncertain)',
+      sources: 'Parcl + OSM + Mapillary',
+      notes: 'Victorian proxy: fantasy 3f + turret + bay window, OSM 17\u00d721'
+    },
+    allapis: {
+      style: 'fantasy', floors: 3, grid: '69\u00d725\u00d738', blocks: '14,313',
+      sqft: '9,094', beds: 9, baths: 5, year: '? (uncertain)',
+      sources: '+ Mapbox (7.5m) + StreetView',
+      notes: 'OSM levels (3) overrides Mapbox height (7.5m\u21922f)'
+    },
     views: {
-      exterior: { api: 'newton-api_exterior.jpg', noapi: 'newton-noapi_exterior.jpg' },
+      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'newton-someapis_exterior.jpg', allapis: 'newton-allapis_exterior.jpg' },
       cutaway: {
-        api: [0,1,2].map(i => `newton-api_cutaway_${i}.jpg`),
-        noapi: [0,1,2,3].map(i => `newton-noapi_cutaway_${i}.jpg`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
+        someapis: [0,1,2].map(i => `newton-someapis_cutaway_${i}.jpg`),
+        allapis: [0,1,2].map(i => `newton-allapis_cutaway_${i}.jpg`),
       },
       floor: {
-        api: [0,1,2].map(i => `newton-api_floor_${i}.jpg`),
-        noapi: [0,1,2,3].map(i => `newton-noapi_floor_${i}.jpg`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
+        someapis: [0,1,2].map(i => `newton-someapis_floor_${i}.jpg`),
+        allapis: [0,1,2].map(i => `newton-allapis_floor_${i}.jpg`),
       },
     },
   },
   sanjose: {
-    label: 'San Jose',
+    label: 'Winchester',
     address: '525 S Winchester Blvd, San Jose, CA 95128',
-    api: {
-      style: 'fantasy', floors: 5, grid: '135\u00d735\u00d777', blocks: '77,895',
-      sqft: '24,000', beds: 3, baths: 2, year: 1901,
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'Winchester Mystery House \u2014 OSM 53\u00d760, fantasy colonial proxy'
-    },
     noapi: {
       style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
       sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
       sources: 'none', notes: 'Generic L-shape compound'
     },
+    someapis: {
+      style: 'fantasy', floors: 5, grid: '135\u00d735\u00d777', blocks: '77,895',
+      sqft: '24,000', beds: 3, baths: 2, year: 1901,
+      sources: 'Parcl + OSM + Mapillary',
+      notes: 'Winchester Mystery House \u2014 OSM 53\u00d760'
+    },
+    allapis: {
+      style: 'fantasy', floors: 5, grid: '135\u00d735\u00d777', blocks: '79,442',
+      sqft: '24,000', beds: 3, baths: 2, year: 1901,
+      sources: '+ Mapbox (27.9m) + StreetView',
+      notes: 'Mapbox 27.9m (8f) capped at 5f by OSM levels'
+    },
     views: {
-      exterior: { api: 'sanjose-api_exterior.jpg', noapi: 'sanjose-noapi_exterior.jpg' },
+      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'sanjose-someapis_exterior.jpg', allapis: 'sanjose-allapis_exterior.jpg' },
       cutaway: {
-        api: [0,1,2,3,4].map(i => `sanjose-api_cutaway_${i}.jpg`),
-        noapi: [0,1,2,3].map(i => `sanjose-noapi_cutaway_${i}.jpg`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
+        someapis: [0,1,2,3,4].map(i => `sanjose-someapis_cutaway_${i}.jpg`),
+        allapis: [0,1,2,3,4].map(i => `sanjose-allapis_cutaway_${i}.jpg`),
       },
       floor: {
-        api: [0,1,2,3,4].map(i => `sanjose-api_floor_${i}.jpg`),
-        noapi: [0,1,2,3].map(i => `sanjose-noapi_floor_${i}.jpg`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
+        someapis: [0,1,2,3,4].map(i => `sanjose-someapis_floor_${i}.jpg`),
+        allapis: [0,1,2,3,4].map(i => `sanjose-allapis_floor_${i}.jpg`),
       },
     },
   },
   walpole: {
     label: 'Walpole',
     address: '13 Union St, Walpole, NH 03608',
-    api: {
-      style: 'colonial', floors: 3, grid: '51\u00d723\u00d730', blocks: '8,739',
-      sqft: '5,860', beds: 5, baths: 5, year: '? (uncertain)',
-      sources: 'Parcl + OSM',
-      notes: 'Year uncertain \u2014 colonial 3f (NE Federal fallback), white quartz + brick'
-    },
     noapi: {
       style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
       sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
       sources: 'none', notes: 'Generic L-shape compound'
     },
+    someapis: {
+      style: 'colonial', floors: 3, grid: '51\u00d723\u00d730', blocks: '8,739',
+      sqft: '5,860', beds: 5, baths: 5, year: '? (uncertain)',
+      sources: 'Parcl + OSM',
+      notes: 'Colonial 3f (NE Federal fallback), white quartz + brick'
+    },
+    allapis: {
+      style: 'colonial', floors: 2, grid: '55\u00d718\u00d731', blocks: '8,042',
+      sqft: '5,860', beds: 5, baths: 5, year: '? (uncertain)',
+      sources: '+ Mapbox (8.5m) + StreetView',
+      notes: 'Mapbox 8.5m \u2192 2f (was 3f from heuristic) \u2014 more accurate for Federal'
+    },
     views: {
-      exterior: { api: 'walpole-api_exterior.jpg', noapi: 'sf-noapi_exterior.jpg' },
+      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'walpole-someapis_exterior.jpg', allapis: 'walpole-allapis_exterior.jpg' },
       cutaway: {
-        api: [0,1,2].map(i => `walpole-api_cutaway_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
+        someapis: [0,1,2].map(i => `walpole-someapis_cutaway_${i}.jpg`),
+        allapis: [0,1].map(i => `walpole-allapis_cutaway_${i}.jpg`),
       },
       floor: {
-        api: [0,1,2].map(i => `walpole-api_floor_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
+        someapis: [0,1,2].map(i => `walpole-someapis_floor_${i}.jpg`),
+        allapis: [0,1].map(i => `walpole-allapis_floor_${i}.jpg`),
       },
     },
   },
   byron: {
     label: 'Byron Center',
     address: '2431 72nd St SW, Byron Center, MI 49315',
-    api: {
-      style: 'modern', floors: 2, grid: '66\u00d715\u00d738', blocks: '7,807',
-      sqft: '3,040', beds: 2, baths: 2, year: 1980,
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'Modern 2f \u2014 OSM 14\u00d716 footprint, flat roof + cantilever'
-    },
     noapi: {
       style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
       sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
       sources: 'none', notes: 'Generic L-shape compound'
     },
+    someapis: {
+      style: 'modern', floors: 2, grid: '66\u00d715\u00d738', blocks: '7,807',
+      sqft: '3,040', beds: 2, baths: 2, year: 1980,
+      sources: 'Parcl + OSM + Mapillary',
+      notes: 'Modern 2f \u2014 OSM 14\u00d716, flat roof + cantilever'
+    },
+    allapis: {
+      style: 'modern', floors: 2, grid: '66\u00d715\u00d738', blocks: '7,807',
+      sqft: '3,040', beds: 2, baths: 2, year: 1980,
+      sources: '+ StreetView (2025-05)',
+      notes: 'OSM levels present, no additional Mapbox height data'
+    },
     views: {
-      exterior: { api: 'byron-api_exterior.jpg', noapi: 'sf-noapi_exterior.jpg' },
+      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'byron-someapis_exterior.jpg', allapis: 'byron-allapis_exterior.jpg' },
       cutaway: {
-        api: [0,1].map(i => `byron-api_cutaway_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
+        someapis: [0,1].map(i => `byron-someapis_cutaway_${i}.jpg`),
+        allapis: [0,1].map(i => `byron-allapis_cutaway_${i}.jpg`),
       },
       floor: {
-        api: [0,1].map(i => `byron-api_floor_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
+        someapis: [0,1].map(i => `byron-someapis_floor_${i}.jpg`),
+        allapis: [0,1].map(i => `byron-allapis_floor_${i}.jpg`),
+      },
+    },
+  },
+  vinalhaven: {
+    label: 'Vinalhaven',
+    address: '216 Zekes Point Rd, Vinalhaven, ME 04863',
+    noapi: {
+      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
+      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
+      sources: 'none', notes: 'Generic L-shape compound'
+    },
+    someapis: {
+      style: 'rustic', floors: 2, grid: '55\u00d717\u00d730', blocks: '6,673',
+      sqft: '2,000', beds: 3, baths: 2, year: '? (uncertain)',
+      sources: 'Parcl',
+      notes: 'Rustic 2f (island ME fallback), spruce + cobble'
+    },
+    allapis: {
+      style: 'rustic', floors: 2, grid: '55\u00d717\u00d730', blocks: '6,673',
+      sqft: '2,000', beds: 3, baths: 2, year: '? (uncertain)',
+      sources: 'Parcl only',
+      notes: 'No Mapbox/StreetView coverage (remote island)'
+    },
+    views: {
+      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'vinalhaven-someapis_exterior.jpg', allapis: 'vinalhaven-allapis_exterior.jpg' },
+      cutaway: {
+        noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
+        someapis: [0,1].map(i => `vinalhaven-someapis_cutaway_${i}.jpg`),
+        allapis: [0,1].map(i => `vinalhaven-allapis_cutaway_${i}.jpg`),
+      },
+      floor: {
+        noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
+        someapis: [0,1].map(i => `vinalhaven-someapis_floor_${i}.jpg`),
+        allapis: [0,1].map(i => `vinalhaven-allapis_floor_${i}.jpg`),
       },
     },
   },
   suttonsbay: {
     label: 'Suttons Bay',
     address: '5835 S Bridget Rose Ln, Suttons Bay, MI 49682',
-    api: {
-      style: 'rustic', floors: 2, grid: '55\u00d717\u00d730', blocks: '6,669',
-      sqft: '2,000', beds: 3, baths: 2, year: '? (uncertain)',
-      sources: 'Parcl + Mapillary',
-      notes: 'Year uncertain \u2014 rustic 2f (rural MI fallback), spruce + cobble'
-    },
     noapi: {
       style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
       sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
       sources: 'none', notes: 'Generic L-shape compound'
     },
+    someapis: {
+      style: 'rustic', floors: 2, grid: '55\u00d717\u00d730', blocks: '6,669',
+      sqft: '2,000', beds: 3, baths: 2, year: '? (uncertain)',
+      sources: 'Parcl + Mapillary',
+      notes: 'Rustic 2f (rural MI fallback), spruce + cobble'
+    },
+    allapis: {
+      style: 'rustic', floors: 2, grid: '55\u00d717\u00d730', blocks: '6,669',
+      sqft: '2,000', beds: 3, baths: 2, year: '? (uncertain)',
+      sources: '+ Mapillary',
+      notes: 'No Mapbox/StreetView coverage (rural MI)'
+    },
     views: {
-      exterior: { api: 'suttonsbay-api_exterior.jpg', noapi: 'sf-noapi_exterior.jpg' },
+      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'suttonsbay-someapis_exterior.jpg', allapis: 'suttonsbay-allapis_exterior.jpg' },
       cutaway: {
-        api: [0,1].map(i => `suttonsbay-api_cutaway_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
+        someapis: [0,1].map(i => `suttonsbay-someapis_cutaway_${i}.jpg`),
+        allapis: [0,1].map(i => `suttonsbay-allapis_cutaway_${i}.jpg`),
       },
       floor: {
-        api: [0,1].map(i => `suttonsbay-api_floor_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
+        someapis: [0,1].map(i => `suttonsbay-someapis_floor_${i}.jpg`),
+        allapis: [0,1].map(i => `suttonsbay-allapis_floor_${i}.jpg`),
       },
     },
   },
 };
 
+const TIERS = ['noapi', 'someapis', 'allapis'];
+const TIER_LABELS = { noapi: 'No API Data', someapis: 'Basic APIs', allapis: 'All APIs' };
 const VIEW_TYPES = ['exterior', 'cutaway', 'floor'];
 const VIEW_LABELS = { exterior: 'Exterior', cutaway: 'Cutaway', floor: 'Floor Plan' };
 
@@ -396,7 +501,8 @@ const VIEW_LABELS = { exterior: 'Exterior', cutaway: 'Cutaway', floor: 'Floor Pl
 let currentLoc = 'sf';
 let currentView = 'exterior';
 let currentLayer = 0;
-let sliderPos = 0.5; // 0..1, fraction from left
+let pos1 = 0.33; // left divider position (0..1)
+let pos2 = 0.66; // right divider position (0..1)
 
 // ─── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -405,9 +511,13 @@ const tabsEl = document.getElementById('tabs');
 const layersEl = document.getElementById('layers');
 const sliderEl = document.getElementById('slider');
 const imgNoapi = document.getElementById('imgNoapi');
-const imgApi = document.getElementById('imgApi');
-const dividerEl = document.getElementById('divider');
-const handleEl = document.getElementById('handle');
+const imgSomeapis = document.getElementById('imgSomeapis');
+const imgAllapis = document.getElementById('imgAllapis');
+const divider1 = document.getElementById('divider1');
+const divider2 = document.getElementById('divider2');
+const handle1 = document.getElementById('handle1');
+const handle2 = document.getElementById('handle2');
+const labelSome = document.getElementById('labelSome');
 const statsEl = document.getElementById('stats');
 
 // ─── Build nav ──────────────────────────────────────────────────────────────
@@ -443,7 +553,9 @@ function buildLayers() {
   layersEl.classList.remove('hidden');
   const loc = LOCATIONS[currentLoc];
   const viewData = loc.views[currentView];
-  const maxLayers = Math.max(viewData.api.length, viewData.noapi.length);
+  const maxLayers = Math.max(
+    viewData.noapi.length, viewData.someapis.length, viewData.allapis.length
+  );
   for (let i = 0; i < maxLayers; i++) {
     const btn = document.createElement('button');
     btn.className = 'layer-btn' + (i === currentLayer ? ' active' : '');
@@ -455,78 +567,88 @@ function buildLayers() {
 
 // ─── Image loading + slider ─────────────────────────────────────────────────
 
-function getImagePaths() {
+function getImagePath(tier) {
   const loc = LOCATIONS[currentLoc];
   const viewData = loc.views[currentView];
-  if (currentView === 'exterior') {
-    return { api: viewData.api, noapi: viewData.noapi };
-  }
-  // For layered views, clamp to available range per side
-  const apiIdx = Math.min(currentLayer, viewData.api.length - 1);
-  const noapiIdx = Math.min(currentLayer, viewData.noapi.length - 1);
-  return { api: viewData.api[apiIdx], noapi: viewData.noapi[noapiIdx] };
+  if (currentView === 'exterior') return viewData[tier];
+  const arr = viewData[tier];
+  const idx = Math.min(currentLayer, arr.length - 1);
+  return arr[idx];
 }
 
 function updateImages() {
-  const paths = getImagePaths();
-  imgNoapi.src = paths.noapi;
-  imgApi.src = paths.api;
+  imgNoapi.src = getImagePath('noapi');
+  imgSomeapis.src = getImagePath('someapis');
+  imgAllapis.src = getImagePath('allapis');
 
-  // Determine container height from the taller image once loaded
   let loaded = 0;
   const checkHeight = () => {
     loaded++;
-    if (loaded >= 2) {
-      // Use natural aspect ratio of the larger image to set container height
+    if (loaded >= 3) {
       const containerW = sliderEl.offsetWidth;
-      const ratioA = imgApi.naturalHeight / (imgApi.naturalWidth || 1);
-      const ratioB = imgNoapi.naturalHeight / (imgNoapi.naturalWidth || 1);
-      const maxRatio = Math.max(ratioA, ratioB);
+      const ratios = [imgNoapi, imgSomeapis, imgAllapis].map(
+        img => img.naturalHeight / (img.naturalWidth || 1)
+      );
+      const maxRatio = Math.max(...ratios);
       const h = Math.min(containerW * maxRatio, 800);
       sliderEl.style.height = Math.max(h, 250) + 'px';
       updateSlider();
     }
   };
-  imgApi.onload = checkHeight;
   imgNoapi.onload = checkHeight;
-  // If images are cached, onload fires synchronously in some browsers
-  if (imgApi.complete) { loaded++; }
-  if (imgNoapi.complete) { loaded++; }
-  if (loaded >= 2) checkHeight();
+  imgSomeapis.onload = checkHeight;
+  imgAllapis.onload = checkHeight;
+  if (imgNoapi.complete) loaded++;
+  if (imgSomeapis.complete) loaded++;
+  if (imgAllapis.complete) loaded++;
+  if (loaded >= 3) checkHeight();
 }
 
 function updateSlider() {
   const w = sliderEl.offsetWidth;
-  const x = Math.round(sliderPos * w);
-  // API image clips from the left — show only the right portion
-  imgApi.style.clipPath = `inset(0 0 0 ${x}px)`;
-  dividerEl.style.left = x + 'px';
+  const x1 = Math.round(pos1 * w);
+  const x2 = Math.round(pos2 * w);
+
+  imgSomeapis.style.clipPath = `inset(0 0 0 ${x1}px)`;
+  imgAllapis.style.clipPath = `inset(0 0 0 ${x2}px)`;
+  divider1.style.left = x1 + 'px';
+  divider2.style.left = x2 + 'px';
+
+  // Position the "Basic APIs" label between the two dividers
+  const midX = (x1 + x2) / 2;
+  labelSome.style.left = midX + 'px';
+  labelSome.style.transform = 'translateX(-50%)';
 }
 
 // ─── Stats panel ────────────────────────────────────────────────────────────
 
 function buildStats() {
   const loc = LOCATIONS[currentLoc];
-  const rows = [
-    ['Style', loc.noapi.style, loc.api.style],
-    ['Floors', loc.noapi.floors, loc.api.floors],
-    ['Grid', loc.noapi.grid, loc.api.grid],
-    ['Blocks', loc.noapi.blocks, loc.api.blocks],
-    ['Sq Ft', loc.noapi.sqft, loc.api.sqft],
-    ['Beds / Baths', `${loc.noapi.beds} / ${loc.noapi.baths}`, `${loc.api.beds} / ${loc.api.baths}`],
-    ['Year Built', loc.noapi.year, loc.api.year],
-    ['Data Sources', loc.noapi.sources, loc.api.sources],
-    ['Notes', loc.noapi.notes, loc.api.notes],
-  ];
-  const makeTable = (data, side) => {
-    let html = `<div class="stat-card ${side}"><h4>${side === 'noapi' ? 'Default (No API Data)' : 'API Enriched'}</h4><table>`;
-    for (const [label, noapi, api] of data) {
-      html += `<tr><td>${label}</td><td>${side === 'noapi' ? noapi : api}</td></tr>`;
+  const fields = ['style', 'floors', 'grid', 'blocks', 'sqft', 'beds', 'baths', 'year', 'sources', 'notes'];
+  const labels = {
+    style: 'Style', floors: 'Floors', grid: 'Grid', blocks: 'Blocks',
+    sqft: 'Sq Ft', beds: 'Beds', baths: 'Baths', year: 'Year Built',
+    sources: 'Sources', notes: 'Notes'
+  };
+
+  const makeTable = (tier, prevTier) => {
+    const data = loc[tier];
+    const prev = prevTier ? loc[prevTier] : null;
+    let html = `<div class="stat-card ${tier}"><h4>${TIER_LABELS[tier]}</h4><table>`;
+    for (const field of fields) {
+      const val = field === 'beds' || field === 'baths'
+        ? `${data.beds} / ${data.baths}` : String(data[field] ?? '\u2014');
+      if (field === 'baths') continue; // combined with beds
+      const prevVal = prev ? (field === 'beds' ? `${prev.beds} / ${prev.baths}` : String(prev[field] ?? '\u2014')) : null;
+      const changed = prevVal && val !== prevVal ? ' class="changed"' : '';
+      const label = field === 'beds' ? 'Beds / Baths' : labels[field];
+      html += `<tr><td>${label}</td><td${changed}>${val}</td></tr>`;
     }
     html += '</table></div>';
     return html;
   };
-  statsEl.innerHTML = makeTable(rows, 'noapi') + makeTable(rows, 'api');
+
+  statsEl.innerHTML = makeTable('noapi', null) + makeTable('someapis', 'noapi') + makeTable('allapis', 'someapis');
 }
 
 // ─── Full render ────────────────────────────────────────────────────────────
@@ -541,38 +663,57 @@ function render() {
 
 // ─── Drag handling ──────────────────────────────────────────────────────────
 
-let dragging = false;
+let activeDivider = 0; // 0=none, 1=left, 2=right
+const MIN_GAP = 0.05;  // minimum gap between dividers (5% of width)
 
-function startDrag(e) {
+function startDrag(e, divNum) {
   e.preventDefault();
-  dragging = true;
+  e.stopPropagation();
+  activeDivider = divNum;
 }
 
 function moveDrag(e) {
-  if (!dragging) return;
+  if (!activeDivider) return;
   e.preventDefault();
   const rect = sliderEl.getBoundingClientRect();
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  sliderPos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const raw = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+
+  if (activeDivider === 1) {
+    pos1 = Math.min(raw, pos2 - MIN_GAP);
+  } else {
+    pos2 = Math.max(raw, pos1 + MIN_GAP);
+  }
   updateSlider();
 }
 
 function endDrag() {
-  dragging = false;
+  activeDivider = 0;
 }
 
-// Also allow clicking anywhere in the slider area to jump
+// Jump on click — pick nearest divider
 function jumpSlider(e) {
-  if (e.target === handleEl) return;
+  if (e.target === handle1 || e.target === handle2) return;
   const rect = sliderEl.getBoundingClientRect();
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  sliderPos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const raw = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  // Pick whichever divider is closest
+  const d1 = Math.abs(raw - pos1);
+  const d2 = Math.abs(raw - pos2);
+  if (d1 <= d2) {
+    pos1 = Math.min(raw, pos2 - MIN_GAP);
+    activeDivider = 1;
+  } else {
+    pos2 = Math.max(raw, pos1 + MIN_GAP);
+    activeDivider = 2;
+  }
   updateSlider();
-  dragging = true;
 }
 
-handleEl.addEventListener('mousedown', startDrag);
-handleEl.addEventListener('touchstart', startDrag, { passive: false });
+handle1.addEventListener('mousedown', e => startDrag(e, 1));
+handle1.addEventListener('touchstart', e => startDrag(e, 1), { passive: false });
+handle2.addEventListener('mousedown', e => startDrag(e, 2));
+handle2.addEventListener('touchstart', e => startDrag(e, 2), { passive: false });
 sliderEl.addEventListener('mousedown', jumpSlider);
 sliderEl.addEventListener('touchstart', jumpSlider, { passive: false });
 document.addEventListener('mousemove', moveDrag);
@@ -580,16 +721,15 @@ document.addEventListener('touchmove', moveDrag, { passive: false });
 document.addEventListener('mouseup', endDrag);
 document.addEventListener('touchend', endDrag);
 
-// Recalculate on resize
 window.addEventListener('resize', () => {
-  updateSlider();
-  // Recalculate height
   const containerW = sliderEl.offsetWidth;
-  const ratioA = imgApi.naturalHeight / (imgApi.naturalWidth || 1);
-  const ratioB = imgNoapi.naturalHeight / (imgNoapi.naturalWidth || 1);
-  const maxRatio = Math.max(ratioA, ratioB);
+  const ratios = [imgNoapi, imgSomeapis, imgAllapis].map(
+    img => img.naturalHeight / (img.naturalWidth || 1)
+  );
+  const maxRatio = Math.max(...ratios);
   const h = Math.min(containerW * maxRatio, 800);
   sliderEl.style.height = Math.max(h, 250) + 'px';
+  updateSlider();
 });
 
 // ─── Init ───────────────────────────────────────────────────────────────────
