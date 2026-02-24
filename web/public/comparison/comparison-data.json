@@ -1,0 +1,766 @@
+[
+  {
+    "key": "sf",
+    "address": "2340 Francisco St, San Francisco, CA 94123",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 13905,
+          "bedrooms": 12,
+          "bathrooms": 12,
+          "yearBuilt": 1929,
+          "propertyType": "OTHER",
+          "lat": 37.801086,
+          "lng": -122.443895,
+          "city": "SAN FRANCISCO",
+          "state": "CA"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "width": "15.9m",
+          "length": "27.0m",
+          "footprint": "429 sqm",
+          "polygonVertices": 33
+        },
+        "fieldsSet": [
+          "osmWidth",
+          "osmLength",
+          "osmLevels",
+          "osmMaterial",
+          "osmRoofShape",
+          "osmRoofMaterial",
+          "osmRoofColour",
+          "osmBuildingColour",
+          "osmArchitecture"
+        ],
+        "impactedGenFields": [
+          "width",
+          "length",
+          "floors",
+          "wallOverride",
+          "roofShape",
+          "roofOverride",
+          "trimOverride",
+          "floorPlanShape",
+          "style"
+        ]
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "13m",
+          "minHeight": "0m",
+          "buildingType": "building",
+          "extrude": true,
+          "distance": "0.0m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "0.2°",
+          "roofAzimuth": "0°",
+          "roofSegments": 12,
+          "roofArea": "463 sqm",
+          "footprintArea": "551 sqm",
+          "planeHeight": "17.0m",
+          "imageryQuality": "HIGH"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 18,
+          "bestImageId": "1195418191102498",
+          "bestImageDate": "2023-04-01",
+          "bestImageHeading": "266°",
+          "isPano": false,
+          "featuresFound": 74,
+          "hasDriveway": true,
+          "hasFence": false
+        },
+        "fieldsSet": [
+          "mapillaryImageUrl",
+          "mapillaryHeading",
+          "mapillaryCaptureDate",
+          "mapillaryHasDriveway"
+        ],
+        "impactedGenFields": [
+          "features.driveway"
+        ]
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "panoId": "yX9x-El7mRm1Bsw5LSit2A",
+          "date": "2025-01",
+          "heading": "343°",
+          "panoLat": "37.80083",
+          "panoLng": "-122.44379"
+        },
+        "fieldsSet": [
+          "streetViewUrl",
+          "streetViewDate",
+          "streetViewHeading"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "wallColor": "rgb(137,125,94)",
+          "wallBlock": "jungle_planks",
+          "roofColor": "rgb(122,111,77)",
+          "roofBlock": "cobblestone_slab[type=bottom]",
+          "trimColor": "rgb(170,160,138)",
+          "trimBlock": "light_gray_concrete",
+          "storyCount": 1,
+          "storyConfidence": "0.30",
+          "textureClass": "shingle",
+          "textureBlock": "spruce_planks",
+          "textureEntropy": "25300",
+          "roofPitch": "moderate",
+          "roofPitchDegrees": "15°",
+          "roofHeightOverride": 0.5,
+          "symmetryScore": "0.12",
+          "isSymmetric": false,
+          "planShape": "L",
+          "windowsPerFloor": 10,
+          "windowSpacing": 2,
+          "windowWallRatio": "0.624",
+          "lawnDepth": "0%",
+          "hasDriveway": false,
+          "hasPath": true
+        },
+        "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
+          "svStoryCount",
+          "svTextureClass",
+          "svTextureBlock",
+          "svRoofPitch",
+          "svRoofHeightOverride",
+          "svSymmetric",
+          "svPlanShape",
+          "svWindowsPerFloor",
+          "svWindowSpacing",
+          "svSetbackFeatures"
+        ],
+        "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
+          "floors",
+          "wallOverride",
+          "roofHeightOverride",
+          "floorPlanShape",
+          "windowSpacing",
+          "features"
+        ]
+      }
+    ],
+    "property": {
+      "sqft": 13905,
+      "bedrooms": 12,
+      "bathrooms": 12,
+      "yearBuilt": 1929,
+      "propertyType": "house",
+      "stories": 4,
+      "yearUncertain": false
+    },
+    "genOptions": {
+      "style": "gothic",
+      "floors": 4,
+      "width": 16,
+      "length": 27,
+      "wallOverride": "minecraft:jungle_planks",
+      "trimOverride": "minecraft:light_gray_concrete",
+      "doorOverride": "dark_oak",
+      "roofShape": "gambrel",
+      "roofOverride": {
+        "north": "minecraft:cobblestone_stairs[facing=north]",
+        "south": "minecraft:cobblestone_stairs[facing=south]",
+        "cap": "minecraft:cobblestone_slab[type=bottom]"
+      },
+      "floorPlanShape": "L",
+      "windowSpacing": 2,
+      "roofHeightOverride": 4,
+      "features": {
+        "chimney": true,
+        "porch": true,
+        "backyard": false,
+        "driveway": true,
+        "fence": true,
+        "trees": true,
+        "garden": true,
+        "pool": false
+      }
+    },
+    "grid": {
+      "width": 60,
+      "height": 25,
+      "blocks": 14435
+    },
+    "views": {
+      "exterior": {
+        "api": "sf-api_exterior.jpg"
+      },
+      "cutaway": [
+        "sf-api_cutaway_0.jpg",
+        "sf-api_cutaway_1.jpg",
+        "sf-api_cutaway_2.jpg",
+        "sf-api_cutaway_3.jpg"
+      ],
+      "floor": [
+        "sf-api_floor_0.jpg",
+        "sf-api_floor_1.jpg",
+        "sf-api_floor_2.jpg",
+        "sf-api_floor_3.jpg"
+      ]
+    }
+  },
+  {
+    "key": "newton",
+    "address": "240 Highland St, Newton, MA 02465",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 9094,
+          "bedrooms": 9,
+          "bathrooms": 5,
+          "yearBuilt": 0,
+          "propertyType": "SINGLE_FAMILY",
+          "lat": 42.343574,
+          "lng": -71.221481,
+          "city": "NEWTON",
+          "state": "MA"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "width": "17.1m",
+          "length": "20.8m",
+          "footprint": "356 sqm",
+          "polygonVertices": 17
+        },
+        "fieldsSet": [
+          "osmWidth",
+          "osmLength",
+          "osmLevels",
+          "osmMaterial",
+          "osmRoofShape",
+          "osmRoofMaterial",
+          "osmRoofColour",
+          "osmBuildingColour",
+          "osmArchitecture"
+        ],
+        "impactedGenFields": [
+          "width",
+          "length",
+          "floors",
+          "wallOverride",
+          "roofShape",
+          "roofOverride",
+          "trimOverride",
+          "floorPlanShape",
+          "style"
+        ]
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "7.5m",
+          "minHeight": "0m",
+          "buildingType": "building",
+          "extrude": true,
+          "distance": "0.0m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "35.1°",
+          "roofAzimuth": "173°",
+          "roofSegments": 22,
+          "roofArea": "481 sqm",
+          "footprintArea": "611 sqm",
+          "planeHeight": "65.7m",
+          "imageryQuality": "HIGH"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 9,
+          "bestImageId": "171230948156116",
+          "bestImageDate": "2018-03-28",
+          "bestImageHeading": "103°",
+          "isPano": false,
+          "featuresFound": 36,
+          "hasDriveway": true,
+          "hasFence": false
+        },
+        "fieldsSet": [
+          "mapillaryImageUrl",
+          "mapillaryHeading",
+          "mapillaryCaptureDate",
+          "mapillaryHasDriveway"
+        ],
+        "impactedGenFields": [
+          "features.driveway"
+        ]
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "panoId": "T_AX_m7bpXRGMI4DQFe1SQ",
+          "date": "2011-10",
+          "heading": "251°",
+          "panoLat": "42.34368",
+          "panoLng": "-71.22105"
+        },
+        "fieldsSet": [
+          "streetViewUrl",
+          "streetViewDate",
+          "streetViewHeading"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "wallColor": "rgb(113,118,113)",
+          "wallBlock": "stone_bricks",
+          "roofColor": "rgb(113,103,60)",
+          "roofBlock": "spruce_slab[type=bottom]",
+          "trimColor": "rgb(80,86,50)",
+          "trimBlock": "stripped_dark_oak_log",
+          "storyCount": 2,
+          "storyConfidence": "0.17",
+          "textureClass": "stone",
+          "textureBlock": "stone_bricks",
+          "textureEntropy": "20035",
+          "roofPitch": "moderate",
+          "roofPitchDegrees": "30°",
+          "roofHeightOverride": 0.5,
+          "symmetryScore": "0.06",
+          "isSymmetric": false,
+          "planShape": "L",
+          "windowsPerFloor": 10,
+          "windowSpacing": 2,
+          "windowWallRatio": "1.041",
+          "lawnDepth": "17%",
+          "hasDriveway": false,
+          "hasPath": true
+        },
+        "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
+          "svStoryCount",
+          "svTextureClass",
+          "svTextureBlock",
+          "svRoofPitch",
+          "svRoofHeightOverride",
+          "svSymmetric",
+          "svPlanShape",
+          "svWindowsPerFloor",
+          "svWindowSpacing",
+          "svSetbackFeatures"
+        ],
+        "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
+          "floors",
+          "wallOverride",
+          "roofHeightOverride",
+          "floorPlanShape",
+          "windowSpacing",
+          "features"
+        ]
+      }
+    ],
+    "property": {
+      "sqft": 9094,
+      "bedrooms": 9,
+      "bathrooms": 5,
+      "yearBuilt": 2000,
+      "propertyType": "house",
+      "stories": 3,
+      "yearUncertain": true
+    },
+    "genOptions": {
+      "style": "fantasy",
+      "floors": 3,
+      "width": 17,
+      "length": 21,
+      "wallOverride": "minecraft:stone_bricks",
+      "trimOverride": "minecraft:stripped_dark_oak_log",
+      "doorOverride": "iron",
+      "roofShape": "gambrel",
+      "roofOverride": {
+        "north": "minecraft:spruce_stairs[facing=north]",
+        "south": "minecraft:spruce_stairs[facing=south]",
+        "cap": "minecraft:spruce_slab[type=bottom]"
+      },
+      "floorPlanShape": "L",
+      "windowSpacing": 2,
+      "roofHeightOverride": 12,
+      "features": {
+        "chimney": true,
+        "porch": true,
+        "backyard": true,
+        "driveway": true,
+        "fence": true,
+        "trees": true,
+        "garden": false,
+        "pool": false
+      }
+    },
+    "grid": {
+      "width": 61,
+      "height": 27,
+      "blocks": 12831
+    },
+    "views": {
+      "exterior": {
+        "api": "newton-api_exterior.jpg"
+      },
+      "cutaway": [
+        "newton-api_cutaway_0.jpg",
+        "newton-api_cutaway_1.jpg",
+        "newton-api_cutaway_2.jpg"
+      ],
+      "floor": [
+        "newton-api_floor_0.jpg",
+        "newton-api_floor_1.jpg",
+        "newton-api_floor_2.jpg"
+      ]
+    }
+  },
+  {
+    "key": "sanjose",
+    "address": "525 S Winchester Blvd, San Jose, CA 95128",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 0,
+          "bedrooms": 0,
+          "bathrooms": 0,
+          "yearBuilt": 0,
+          "propertyType": "OTHER",
+          "lat": 37.318316,
+          "lng": -121.950945,
+          "city": "SAN JOSE",
+          "state": "CA"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "width": "3.2m",
+          "length": "4.1m",
+          "footprint": "13 sqm",
+          "polygonVertices": 7
+        },
+        "fieldsSet": [
+          "osmWidth",
+          "osmLength",
+          "osmLevels",
+          "osmMaterial",
+          "osmRoofShape",
+          "osmRoofMaterial",
+          "osmRoofColour",
+          "osmBuildingColour",
+          "osmArchitecture"
+        ],
+        "impactedGenFields": [
+          "width",
+          "length",
+          "floors",
+          "wallOverride",
+          "roofShape",
+          "roofOverride",
+          "trimOverride",
+          "floorPlanShape",
+          "style"
+        ]
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "10m",
+          "minHeight": "0m",
+          "buildingType": "building",
+          "extrude": true,
+          "distance": "0.0m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "1.7°",
+          "roofAzimuth": "326°",
+          "roofSegments": 115,
+          "roofArea": "1977 sqm",
+          "footprintArea": "2745 sqm",
+          "planeHeight": "46.6m",
+          "imageryQuality": "HIGH"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 19,
+          "bestImageId": "1037404647273444",
+          "bestImageDate": "2023-09-24",
+          "bestImageHeading": "313°",
+          "isPano": false,
+          "featuresFound": 45,
+          "hasDriveway": true,
+          "hasFence": false
+        },
+        "fieldsSet": [
+          "mapillaryImageUrl",
+          "mapillaryHeading",
+          "mapillaryCaptureDate",
+          "mapillaryHasDriveway"
+        ],
+        "impactedGenFields": [
+          "features.driveway"
+        ]
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "panoId": "CAoSF0NJSE0wb2dLRUlDQWdJQ2k0TkQ4dGdF",
+          "date": "2020-10",
+          "heading": "30°",
+          "panoLat": "37.31829",
+          "panoLng": "-121.95097"
+        },
+        "fieldsSet": [
+          "streetViewUrl",
+          "streetViewDate",
+          "streetViewHeading"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": true,
+        "status": "skipped",
+        "data": {
+          "isIndoor": true
+        },
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "Indoor panorama detected"
+      }
+    ],
+    "property": {
+      "sqft": 2500,
+      "bedrooms": 3,
+      "bathrooms": 2,
+      "yearBuilt": 2000,
+      "propertyType": "house",
+      "stories": 3,
+      "yearUncertain": true
+    },
+    "genOptions": {
+      "style": "colonial",
+      "floors": 3,
+      "width": 10,
+      "length": 10,
+      "doorOverride": "iron",
+      "roofShape": "gambrel",
+      "roofHeightOverride": 4,
+      "features": {
+        "chimney": false,
+        "porch": true,
+        "backyard": true,
+        "driveway": true,
+        "fence": false,
+        "trees": true,
+        "garden": false,
+        "pool": false
+      }
+    },
+    "grid": {
+      "width": 46,
+      "height": 20,
+      "blocks": 7518
+    },
+    "views": {
+      "exterior": {
+        "api": "sanjose-api_exterior.jpg"
+      },
+      "cutaway": [
+        "sanjose-api_cutaway_0.jpg",
+        "sanjose-api_cutaway_1.jpg",
+        "sanjose-api_cutaway_2.jpg"
+      ],
+      "floor": [
+        "sanjose-api_floor_0.jpg",
+        "sanjose-api_floor_1.jpg",
+        "sanjose-api_floor_2.jpg"
+      ]
+    }
+  }
+]

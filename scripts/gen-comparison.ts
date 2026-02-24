@@ -624,4 +624,22 @@ for (const { key, address } of ADDRESSES) {
 const jsonPath = join(OUT_DIR, 'comparison-data.json');
 await writeFile(jsonPath, JSON.stringify(allResults, null, 2));
 console.log(`\n+ Wrote ${jsonPath}`);
+
+// ─── Copy to web/public/comparison/ for SPA build ──────────────────────────
+
+const WEB_DIR = 'web/public/comparison';
+await mkdir(WEB_DIR, { recursive: true });
+
+// Copy JSON
+await writeFile(join(WEB_DIR, 'comparison-data.json'), JSON.stringify(allResults, null, 2));
+
+// Copy all api images
+const { readdir, copyFile } = await import('fs/promises');
+const outFiles = await readdir(OUT_DIR);
+for (const f of outFiles) {
+  if (f.endsWith('.jpg') && f.includes('-api_')) {
+    await copyFile(join(OUT_DIR, f), join(WEB_DIR, f));
+  }
+}
+console.log(`+ Synced to ${WEB_DIR}/`);
 console.log('+ Comparison regeneration complete');
