@@ -234,10 +234,10 @@ const LOCATIONS = {
     label: 'San Francisco',
     address: '2340 Francisco St, San Francisco, CA 94123',
     api: {
-      style: 'fantasy', floors: 9, grid: '50\u00d757\u00d735', blocks: '20,948',
-      sqft: '13,905', beds: 12, baths: 8, year: 1929,
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'OSM 8\u00d717 footprint, driveway detected'
+      style: 'gothic', floors: 3, grid: '70\u00d722\u00d7?', blocks: '12,232',
+      sqft: '13,905', beds: 12, baths: 12, year: 1929,
+      sources: 'Parcl + SV Colors + SV Structure',
+      notes: 'SV: jungle_planks wall, cobblestone roof, L-shape, 10 win/floor \u2192 spacing 2'
     },
     noapi: {
       style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
@@ -247,11 +247,11 @@ const LOCATIONS = {
     views: {
       exterior: { api: 'sf-api_exterior.jpg', noapi: 'sf-noapi_exterior.jpg' },
       cutaway: {
-        api: [0,1,2,3,4,5,6,7,8].map(i => `sf-api_cutaway_${i}.jpg`),
+        api: [0,1,2].map(i => `sf-api_cutaway_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
       },
       floor: {
-        api: [0,1,2,3,4,5,6,7,8].map(i => `sf-api_floor_${i}.jpg`),
+        api: [0,1,2].map(i => `sf-api_floor_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
       },
     },
@@ -260,10 +260,10 @@ const LOCATIONS = {
     label: 'Newton',
     address: '240 Highland St, Newton, MA 02465',
     api: {
-      style: 'medieval', floors: 2, grid: '57\u00d722\u00d738', blocks: '11,145',
-      sqft: '9,094', beds: 9, baths: 5, year: 1899,
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'OSM 17\u00d721 footprint, 3 Mapillary images'
+      style: 'fantasy', floors: 3, grid: '63\u00d722\u00d7?', blocks: '10,769',
+      sqft: '9,094', beds: 9, baths: 5, year: '\u2014',
+      sources: 'Parcl + SV Colors + SV Structure',
+      notes: 'SV: stone_bricks wall, spruce roof, L-shape, 17% lawn, 10 win/floor \u2192 spacing 2'
     },
     noapi: {
       style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
@@ -273,11 +273,11 @@ const LOCATIONS = {
     views: {
       exterior: { api: 'newton-api_exterior.jpg', noapi: 'newton-noapi_exterior.jpg' },
       cutaway: {
-        api: [0,1,2,3].map(i => `newton-api_cutaway_${i}.jpg`),
+        api: [0,1,2].map(i => `newton-api_cutaway_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `newton-noapi_cutaway_${i}.jpg`),
       },
       floor: {
-        api: [0,1,2,3].map(i => `newton-api_floor_${i}.jpg`),
+        api: [0,1,2].map(i => `newton-api_floor_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `newton-noapi_floor_${i}.jpg`),
       },
     },
@@ -286,10 +286,10 @@ const LOCATIONS = {
     label: 'San Jose',
     address: '525 S Winchester Blvd, San Jose, CA 95128',
     api: {
-      style: 'fantasy', floors: 9, grid: '93\u00d757\u00d777', blocks: '43,953',
-      sqft: '24,000', beds: 3, baths: 2, year: 1901,
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'Winchester Mystery House \u2014 OSM 53\u00d760, 9 levels'
+      style: 'colonial', floors: 2, grid: '48\u00d718\u00d7?', blocks: '6,260',
+      sqft: '0', beds: 0, baths: 0, year: '\u2014',
+      sources: 'Parcl (minimal) + SV (indoor \u2192 skipped)',
+      notes: 'Winchester Mystery House \u2014 SV returned indoor panorama, analysis skipped'
     },
     noapi: {
       style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
@@ -299,11 +299,11 @@ const LOCATIONS = {
     views: {
       exterior: { api: 'sanjose-api_exterior.jpg', noapi: 'sanjose-noapi_exterior.jpg' },
       cutaway: {
-        api: [0,1,2,3,4,5,6,7,8].map(i => `sanjose-api_cutaway_${i}.jpg`),
+        api: [0,1].map(i => `sanjose-api_cutaway_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sanjose-noapi_cutaway_${i}.jpg`),
       },
       floor: {
-        api: [0,1,2,3,4,5,6,7,8].map(i => `sanjose-api_floor_${i}.jpg`),
+        api: [0,1].map(i => `sanjose-api_floor_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sanjose-noapi_floor_${i}.jpg`),
       },
     },
