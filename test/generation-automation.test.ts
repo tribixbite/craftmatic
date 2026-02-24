@@ -951,3 +951,186 @@ describe('uncertain data flags', () => {
     expect(bedroomCount).toBe(3);
   });
 });
+
+// ─── Street View Image Analysis Fields ──────────────────────────────
+
+describe('SV analysis fields in convertToGenerationOptions', () => {
+  it('svWallOverride feeds into wallOverride', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      svWallOverride: 'minecraft:bricks',
+    }));
+    expect(opts.wallOverride).toBe('minecraft:bricks');
+  });
+
+  it('satellite/OSM wall override takes priority over SV wall', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      wallOverride: 'minecraft:stone_bricks',
+      svWallOverride: 'minecraft:bricks',
+    }));
+    // Existing wallOverride (from satellite/OSM) > SV wall
+    expect(opts.wallOverride).toBe('minecraft:stone_bricks');
+  });
+
+  it('svRoofOverride feeds into roofOverride when no OSM roof', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      svRoofOverride: {
+        north: 'minecraft:dark_oak_stairs[facing=north]',
+        south: 'minecraft:dark_oak_stairs[facing=south]',
+        cap: 'minecraft:dark_oak_slab[type=bottom]',
+      },
+    }));
+    expect(opts.roofOverride?.north).toContain('dark_oak');
+  });
+
+  it('OSM roof material takes priority over SV roof color', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      osmRoofMaterial: 'slate',
+      svRoofOverride: {
+        north: 'minecraft:dark_oak_stairs[facing=north]',
+        south: 'minecraft:dark_oak_stairs[facing=south]',
+        cap: 'minecraft:dark_oak_slab[type=bottom]',
+      },
+    }));
+    // OSM roof material → deepslate_tile, overrides SV
+    expect(opts.roofOverride?.north).not.toContain('dark_oak');
+  });
+
+  it('svTrimOverride feeds into trimOverride', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      svTrimOverride: 'minecraft:spruce_log',
+    }));
+    expect(opts.trimOverride).toBe('minecraft:spruce_log');
+  });
+
+  it('svDoorOverride feeds into doorOverride as fallback', () => {
+    // inferDoorType returns undefined for year 1950 + fantasy style (no match)
+    // → svDoorOverride kicks in as fallback
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'fantasy',
+      yearBuilt: 1950,
+      svDoorOverride: 'dark_oak',
+    }));
+    expect(opts.doorOverride).toBe('dark_oak');
+  });
+
+  it('svWindowSpacing feeds into windowSpacing', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      svWindowSpacing: 2,
+    }));
+    expect(opts.windowSpacing).toBe(2);
+  });
+
+  it('svRoofHeightOverride feeds into roofHeightOverride when no Solar pitch', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      svRoofHeightOverride: 0.8,
+    }));
+    // 0.8 × 14 = 11.2 → 11 blocks
+    expect(opts.roofHeightOverride).toBe(Math.round(0.8 * 14));
+  });
+
+  it('Solar pitch takes priority over SV roof pitch', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      solarRoofPitch: 30,
+      svRoofHeightOverride: 0.3, // flat — should be overridden
+    }));
+    // Solar pitch 30° → some height based on tan(30°) formula — definitely not 0.3 * 14
+    expect(opts.roofHeightOverride).not.toBe(Math.round(0.3 * 14));
+  });
+
+  it('svSetbackFeatures merge into features (lower priority)', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      svSetbackFeatures: { garden: true, driveway: true },
+      lotSize: 3000, // small lot would normally disable garden
+      yearBuilt: 2010,
+      sqft: 1500,
+    }));
+    // SV setback should enable driveway
+    expect(opts.features?.driveway).toBe(true);
+  });
+
+  it('svArchitectureLabel feeds into resolveStyle', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1950,
+      svArchitectureLabel: 'Victorian Queen Anne',
+    }));
+    // "Victorian" in the label → gothic style
+    expect(opts.style).toBe('gothic');
+  });
+
+  it('OSM architecture takes priority over SV architecture label', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      yearBuilt: 1950,
+      osmArchitecture: 'colonial',
+      svArchitectureLabel: 'Victorian Queen Anne',
+    }));
+    // OSM > SV
+    expect(opts.style).toBe('colonial');
+  });
+
+  it('svPlanShape feeds into floorPlanShape', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      svPlanShape: 'L',
+    }));
+    expect(opts.floorPlanShape).toBe('L');
+  });
+
+  it('OSM polygon shape takes priority over SV symmetry shape', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      floorPlanShape: 'T',
+      svPlanShape: 'L',
+    }));
+    // Explicit OSM polygon > SV symmetry-derived
+    expect(opts.floorPlanShape).toBe('T');
+  });
+
+  it('svTextureBlock used as fallback wall when no color override', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      svTextureBlock: 'minecraft:stone_bricks',
+    }));
+    // Texture block is lowest priority in wall chain
+    expect(opts.wallOverride).toBe('minecraft:stone_bricks');
+  });
+
+  it('svWallOverride takes priority over svTextureBlock', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      svWallOverride: 'minecraft:bricks',
+      svTextureBlock: 'minecraft:stone_bricks',
+    }));
+    expect(opts.wallOverride).toBe('minecraft:bricks');
+  });
+});
+
+// ─── windowSpacing in generation ────────────────────────────────────
+
+describe('windowSpacing generation', () => {
+  it('generates house with windowSpacing=2', () => {
+    const grid = generateStructure({
+      type: 'house', floors: 2, style: 'colonial', seed: 42,
+      windowSpacing: 2,
+    });
+    expect(grid.countNonAir()).toBeGreaterThan(100);
+  });
+
+  it('generates house with windowSpacing=5', () => {
+    const grid = generateStructure({
+      type: 'house', floors: 2, style: 'colonial', seed: 42,
+      windowSpacing: 5,
+    });
+    expect(grid.countNonAir()).toBeGreaterThan(100);
+  });
+
+  it('different windowSpacing produces different block counts', () => {
+    const dense = generateStructure({
+      type: 'house', floors: 2, style: 'colonial', seed: 42,
+      windowSpacing: 2,
+    });
+    const sparse = generateStructure({
+      type: 'house', floors: 2, style: 'colonial', seed: 42,
+      windowSpacing: 5,
+    });
+    // Dense windows = more glass blocks, sparse = fewer
+    expect(dense.countNonAir()).not.toBe(sparse.countNonAir());
+  });
+});
