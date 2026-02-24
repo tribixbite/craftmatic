@@ -649,17 +649,11 @@ function hashCode(s: string): number {
   return Math.abs(h);
 }
 
-/** Generate a BlockGrid for the given tier, with loading state */
+/** Generate a BlockGrid for the given tier using LOCATIONS tier data.
+ *  Always uses tier stats (style, floors, grid) to match the displayed images/cards. */
 function generateForTier(tier: typeof TIERS[number]): BlockGrid {
   const loc = LOCATIONS[currentLoc];
   const tierData = loc[tier];
-
-  // If we have detailed genOptions from comparison-data.json, use those
-  const locData = apiData.get(currentLoc);
-  if (locData && tier === 'allapis') {
-    return generateStructure(locData.genOptions as GenerationOptions);
-  }
-
   return generateStructure(tierToGenOptions(tierData, currentLoc + '-' + tier));
 }
 
