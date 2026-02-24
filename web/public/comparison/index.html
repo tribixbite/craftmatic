@@ -360,6 +360,32 @@ const LOCATIONS = {
       },
     },
   },
+  suttonsbay: {
+    label: 'Suttons Bay',
+    address: '5835 S Bridget Rose Ln, Suttons Bay, MI 49682',
+    api: {
+      style: 'rustic', floors: 2, grid: '55\u00d717\u00d730', blocks: '6,669',
+      sqft: '2,000', beds: 3, baths: 2, year: '? (uncertain)',
+      sources: 'Parcl + Mapillary',
+      notes: 'Year uncertain \u2014 rustic 2f (rural MI fallback), spruce + cobble'
+    },
+    noapi: {
+      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
+      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
+      sources: 'none', notes: 'Generic L-shape compound'
+    },
+    views: {
+      exterior: { api: 'suttonsbay-api_exterior.jpg', noapi: 'sf-noapi_exterior.jpg' },
+      cutaway: {
+        api: [0,1].map(i => `suttonsbay-api_cutaway_${i}.jpg`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
+      },
+      floor: {
+        api: [0,1].map(i => `suttonsbay-api_floor_${i}.jpg`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
+      },
+    },
+  },
 };
 
 const VIEW_TYPES = ['exterior', 'cutaway', 'floor'];
