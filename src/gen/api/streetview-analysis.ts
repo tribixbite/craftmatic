@@ -142,7 +142,8 @@ async function downloadImage(url: string): Promise<{
  * sky pixels in the top portion. Outdoor SV images almost always have
  * some sky visible above the building.
  */
-function isIndoorPanorama(pixels: Uint8Array, w: number, h: number): boolean {
+/** @internal Exported for unit testing */
+export function isIndoorPanorama(pixels: Uint8Array, w: number, h: number): boolean {
   const topBound = Math.floor(h * 0.15); // top 15%
   let totalPixels = 0;
   let skyPixels = 0;
@@ -171,7 +172,8 @@ function isIndoorPanorama(pixels: Uint8Array, w: number, h: number): boolean {
 
 // ─── Tier 1: Zone-based Color Extraction ─────────────────────────────────────
 
-function extractColors(
+/** @internal Exported for unit testing */
+export function extractColors(
   pixels: Uint8Array, w: number, h: number,
 ): SvColorAnalysis | null {
   // Zone definitions for 640×480 (or proportional)
@@ -229,7 +231,8 @@ function extractColors(
  * Convert pixels to grayscale and compute Sobel edge magnitude.
  * Returns a Float32Array of per-pixel edge magnitudes for a given zone.
  */
-function sobelEdges(
+/** @internal Exported for unit testing */
+export function sobelEdges(
   pixels: Uint8Array, w: number,
   startY: number, endY: number, startX: number, endX: number,
 ): { magnitudes: Float32Array; zoneW: number; zoneH: number } {
@@ -268,7 +271,8 @@ function sobelEdges(
   return { magnitudes, zoneW, zoneH };
 }
 
-function detectStories(
+/** @internal Exported for unit testing */
+export function detectStories(
   pixels: Uint8Array, w: number, h: number,
 ): StoryAnalysis {
   // Analyze wall zone: middle 60% vertically, center 70% horizontally
@@ -342,7 +346,8 @@ function detectStories(
 
 // --- 2b. Wall texture classification via visual entropy ---
 
-function classifyTexture(
+/** @internal Exported for unit testing */
+export function classifyTexture(
   pixels: Uint8Array, w: number, h: number,
 ): TextureAnalysis {
   const startY = Math.floor(h * 0.25);
@@ -403,7 +408,8 @@ function classifyTexture(
 
 // --- 2c. Roof pitch estimation ---
 
-function estimateRoofPitch(
+/** @internal Exported for unit testing */
+export function estimateRoofPitch(
   pixels: Uint8Array, w: number, h: number,
 ): RoofPitchAnalysis {
   // Analyze top 30% for diagonal edges
@@ -502,7 +508,8 @@ function estimateRoofPitch(
 
 // --- 2d. Facade symmetry analysis ---
 
-function analyzeSymmetry(
+/** @internal Exported for unit testing */
+export function analyzeSymmetry(
   pixels: Uint8Array, w: number, h: number,
 ): SymmetryAnalysis {
   const startY = Math.floor(h * 0.20);
@@ -563,7 +570,8 @@ function analyzeSymmetry(
 
 // --- 2e. Setback / lawn depth estimation ---
 
-function analyzeSetback(
+/** @internal Exported for unit testing */
+export function analyzeSetback(
   pixels: Uint8Array, w: number, h: number,
 ): SetbackAnalysis {
   // Bottom 25% of image
@@ -618,7 +626,8 @@ function analyzeSetback(
 
 // --- 2f. Fenestration density ---
 
-function analyzeFenestration(
+/** @internal Exported for unit testing */
+export function analyzeFenestration(
   pixels: Uint8Array, w: number, h: number,
   storyCount: number,
 ): FenestrationAnalysis {
@@ -733,7 +742,8 @@ function analyzeFenestration(
 }
 
 /** Run all Tier 2 structural heuristics on the pixel buffer */
-function analyzeStructure(
+/** @internal Exported for unit testing */
+export function analyzeStructure(
   pixels: Uint8Array, w: number, h: number,
 ): SvStructuralAnalysis {
   const stories = detectStories(pixels, w, h);
