@@ -555,6 +555,96 @@ function hexToRoofBlock(hex: string): string | undefined {
   return bestBase;
 }
 
+// ─── Smarty Roof Type → Roof Material ────────────────────────────────────────
+
+/**
+ * Map Smarty assessor roofCover/roofType to Minecraft roof block override.
+ * Assessor records have roof cover info (tile, slate, metal, asphalt, shake, etc.)
+ * that's more specific than OSM roof:material for most US properties.
+ */
+export function mapSmartyRoofTypeToBlocks(
+  roofType: string | undefined,
+): { north: BlockState; south: BlockState; cap: BlockState } | undefined {
+  if (!roofType) return undefined;
+  const rt = roofType.toLowerCase();
+  const MAP: [RegExp, { stair: string; slab: string }][] = [
+    [/\btile|clay/i, { stair: 'minecraft:brick_stairs', slab: 'minecraft:brick_slab' }],
+    [/\bslate/i, { stair: 'minecraft:deepslate_tile_stairs', slab: 'minecraft:deepslate_tile_slab' }],
+    [/\bmetal|standing.*seam/i, { stair: 'minecraft:cut_copper_stairs', slab: 'minecraft:cut_copper_slab' }],
+    [/\bshake|wood/i, { stair: 'minecraft:spruce_stairs', slab: 'minecraft:spruce_slab' }],
+    [/\basphalt|comp/i, { stair: 'minecraft:blackstone_stairs', slab: 'minecraft:blackstone_slab' }],
+    [/\bconcrete|built.*up|flat/i, { stair: 'minecraft:smooth_stone_stairs', slab: 'minecraft:smooth_stone_slab' }],
+    [/\brubber|membrane/i, { stair: 'minecraft:smooth_stone_stairs', slab: 'minecraft:smooth_stone_slab' }],
+  ];
+  for (const [pattern, { stair, slab }] of MAP) {
+    if (pattern.test(rt)) {
+      return {
+        north: `${stair}[facing=north]`,
+        south: `${stair}[facing=south]`,
+        cap: `${slab}[type=bottom]`,
+      };
+    }
+  }
+  return undefined;
+}
+
+// ─── OSM Material & Construction Type → Wall ─────────────────────────────────
+
+/**
+ * Map OSM building:material tag to Minecraft wall block.
+ * OSM tags like brick, stone, wood, concrete → appropriate block.
+ */
+export function mapOSMMaterialToWall(material: string | undefined): BlockState | undefined {
+  if (!material) return undefined;
+  const m = material.toLowerCase();
+  if (/\bbrick/i.test(m)) return 'minecraft:bricks';
+  if (/\bstone|limestone|granite|marble/i.test(m)) return 'minecraft:stone_bricks';
+  if (/\bsandstone/i.test(m)) return 'minecraft:sandstone';
+  if (/\bwood|timber|log/i.test(m)) return 'minecraft:oak_planks';
+  if (/\bconcrete|cement/i.test(m)) return 'minecraft:smooth_stone';
+  if (/\bglass|curtain/i.test(m)) return 'minecraft:light_blue_stained_glass';
+  if (/\bstucco|plaster|render/i.test(m)) return 'minecraft:smooth_quartz';
+  if (/\bmetal|steel|aluminum/i.test(m)) return 'minecraft:iron_block';
+  if (/\bcob|adobe/i.test(m)) return 'minecraft:mud_bricks';
+  return undefined;
+}
+
+/**
+ * Map Smarty constructionType to Minecraft wall block.
+ * Assessor records categorize buildings as Frame, Masonry, Concrete, Steel, etc.
+ * Lower priority than OSM material or Smarty exteriorType.
+ */
+export function mapConstructionTypeToWall(constructionType: string | undefined): BlockState | undefined {
+  if (!constructionType) return undefined;
+  const ct = constructionType.toLowerCase();
+  if (/\bmasonry|brick/i.test(ct)) return 'minecraft:bricks';
+  if (/\bconcrete|cmu/i.test(ct)) return 'minecraft:smooth_stone';
+  if (/\bsteel|metal/i.test(ct)) return 'minecraft:iron_block';
+  if (/\bframe|wood/i.test(ct)) return 'minecraft:oak_planks';
+  if (/\bstone/i.test(ct)) return 'minecraft:stone_bricks';
+  if (/\blog/i.test(ct)) return 'minecraft:stripped_oak_log';
+  return undefined;
+}
+
+/**
+ * Apply year-based material aging to wall override.
+ * Pre-1920: weathered/mossy materials. Post-2000: smooth/modern.
+ */
+function applyYearBasedWallAging(wall: BlockState | undefined, yearBuilt: number): BlockState | undefined {
+  if (!wall) return undefined;
+  if (yearBuilt > 0 && yearBuilt < 1920) {
+    // Age stone bricks → cracked variant for pre-1920 buildings
+    if (wall === 'minecraft:stone_bricks') return 'minecraft:cracked_stone_bricks';
+    if (wall === 'minecraft:bricks') return 'minecraft:bricks'; // real brick ages well, keep it
+  }
+  if (yearBuilt >= 2000) {
+    // Modern buildings → polished/smooth materials
+    if (wall === 'minecraft:stone_bricks') return 'minecraft:polished_andesite';
+    if (wall === 'minecraft:oak_planks') return 'minecraft:smooth_quartz';
+  }
+  return wall;
+}
+
 // ─── Door & Trim Mapping ────────────────────────────────────────────────────
 
 /**
@@ -641,6 +731,10 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
     pool: prop.hasPool ?? (climate === 'hot' && lotSize > 6000),
   };
 
+  // ── Year-based aging (Phase 2.9) ──
+  // Pre-1920 buildings virtually always had chimneys; force it
+  if (year > 0 && year < 1920) flags.chimney = true;
+
   // ── Smarty assessor overrides (highest confidence — from county records) ──
   if (prop.smartyHasPool) flags.pool = true;
   if (prop.smartyHasFence) flags.fence = true;
@@ -711,15 +805,20 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     type = 'castle';
   }
 
+  // Mapbox building type can reveal apartments/commercial when Parcl data is missing
+  const mbType = prop.mapboxBuildingType?.toLowerCase() ?? '';
+  const isMapboxMultiUnit = /apartment|dormitor|hotel|commercial/.test(mbType);
+
   // ── Floor clamping ───────────────────────────────────────────────
   // Clamp floors to realistic per-type limits to prevent inflated story counts
-  const maxFloors = isMultiUnit(prop.propertyType) ? 8
+  const effectiveMultiUnit = isMultiUnit(prop.propertyType) || isMapboxMultiUnit;
+  const maxFloors = effectiveMultiUnit ? 8
     : prop.sqft > 10000 ? 5   // large mansions (e.g. Winchester)
     : 4;                        // standard single-family
   // Minimum floors for large single-family — a 5000+ sqft house is always 2+ stories,
   // and 6000+ sqft is virtually always 3 stories (Victorian estates, colonials, etc.)
-  const minFloors = !isMultiUnit(prop.propertyType) && prop.sqft >= 6000 ? 3
-    : !isMultiUnit(prop.propertyType) && prop.sqft >= 3000 ? 2
+  const minFloors = !effectiveMultiUnit && prop.sqft >= 6000 ? 3
+    : !effectiveMultiUnit && prop.sqft >= 3000 ? 2
     : 1;
   const floors = Math.max(minFloors, Math.min(maxFloors, prop.stories));
 
@@ -780,19 +879,26 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     ?? (style === 'modern' ? 'flat' : style === 'gothic' ? 'mansard' : 'gable');
 
   // Multi-unit buildings are overwhelmingly flat-roofed
-  if (isMultiUnit(prop.propertyType) && !prop.osmRoofShape) {
+  if (effectiveMultiUnit && !prop.osmRoofShape) {
     roofShape = 'flat';
   }
 
   // ── Roof material override ────────────────────────────────────────
-  // Priority: OSM roof material/colour > SV color > style default
+  // Priority: OSM roof material/colour > Smarty roofType > SV color > style default
   const roofOverride = mapRoofMaterialToBlocks(prop.osmRoofMaterial, prop.osmRoofColour)
+    ?? mapSmartyRoofTypeToBlocks(prop.roofType)
     ?? prop.svRoofOverride;
 
   // ── Wall override ───────────────────────────────────────────────
-  // Priority: Smarty exteriorType / satellite / OSM > SV color > SV texture > style
+  // Priority: Smarty exteriorType / satellite > OSM material > construction type > SV color > SV texture > style
   // prop.wallOverride is already set by the satellite/Smarty chain in CLI
-  const wallOverride = prop.wallOverride ?? prop.svWallOverride ?? prop.svTextureBlock;
+  const rawWall = prop.wallOverride
+    ?? mapOSMMaterialToWall(prop.osmMaterial)
+    ?? mapConstructionTypeToWall(prop.constructionType)
+    ?? prop.svWallOverride
+    ?? prop.svTextureBlock;
+  // Apply year-based material aging (pre-1920 → weathered, post-2000 → modern)
+  const wallOverride = applyYearBasedWallAging(rawWall, prop.yearBuilt);
 
   // ── Door override ─────────────────────────────────────────────────
   // Priority: architecture-type inference > SV vision > style/era
@@ -849,6 +955,11 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // ── Architecture style integration ──────────────────────────────
   // If SV vision gave us an architecture label, feed it into the existing style chain
   // (already handled above via doorOverride — svArchitectureLabel used in resolveStyle)
+
+  // TODO: Street View heading → facade orientation (Phase 1.6)
+  // prop.streetViewHeading (0-360°) tells us which direction the camera faces toward
+  // the building. Mapping heading → cardinal direction for door placement requires
+  // generator support for orientation (currently door is always south-facing).
 
   return {
     type,

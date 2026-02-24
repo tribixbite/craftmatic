@@ -58,24 +58,22 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - **Files:** `web/src/ui/import-osm.ts`, `src/gen/api/osm.ts`
 
 ### 1.3 Solar Building Area → Floor Estimation
-- [ ] Use `solarBuildingArea` to refine `estimateStoriesFromFootprint()`
-- [ ] When OSM footprint missing, solar area / sqft gives better story count
-- **Fields:** `solarBuildingArea`, `solarRoofArea` (collected, unused)
+- [x] CLI story chain: solar footprint area / sqft → story count (between OSM+sqft and heuristic)
+- **Files:** `src/cli.ts` (story estimation chain)
 
 ### 1.4 Mapbox Height → Story Fallback
-- [ ] Use `mapboxHeight` (meters) as fallback for OSM levels
-- [ ] Convert: height / 3.0 = approximate stories
-- **Fields:** `mapboxHeight` (collected, unused)
+- [x] Already wired in CLI: `mapboxHeight / 3.5` → story count (priority 2 after OSM levels)
+- **Files:** `src/cli.ts:394-396`
 
 ### 1.5 Mapbox Building Type → Structure Type
-- [ ] Use `mapboxBuildingType` to distinguish apartments/houses/commercial
-- [ ] Apartments → force multi-unit dimensions + flat roof
-- **Fields:** `mapboxBuildingType` (collected, unused)
+- [x] `mapboxBuildingType` (apartments/dormitory/hotel/commercial) → effectiveMultiUnit flag
+- [x] Influences floor clamping (maxFloors=8), minFloors, and forces flat roof
+- **Files:** `src/gen/address-pipeline.ts` (convertToGenerationOptions)
 
 ### 1.6 Street View Facade Orientation
-- [ ] Use `streetViewHeading` (0-360°) to orient front door toward street
-- [ ] Map heading to cardinal direction for block placement
-- **Fields:** `streetViewHeading` (collected, unused — quick win)
+- [~] TODO in pipeline — requires generator support for building orientation
+- [ ] Add `orientation` field to GenerationOptions + rotate door placement in generator
+- **Fields:** `streetViewHeading` (collected, wiring blocked on generator)
 
 ---
 
@@ -102,13 +100,13 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - **Ref:** `craftmatic_improvements.md` §3A
 
 ### 2.4 Smarty Roof Type → Roof Material Variety
-- [ ] Use `roofType` (tile, slate, metal, asphalt, shake) for roof block palette
-- [ ] Map: tile→terracotta, slate→deepslate_tiles, metal→iron_block, asphalt→gray_concrete
-- **Fields:** `roofType` (collected, unused)
+- [x] `mapSmartyRoofTypeToBlocks()` — tile→brick, slate→deepslate, metal→copper, asphalt→blackstone
+- [x] Wired into roof material chain: OSM > Smarty roofType > SV color
+- **Files:** `src/gen/address-pipeline.ts`
 
 ### 2.5 Smarty Roof Frame → Roof Shape Fallback
-- [ ] Insert into priority chain: OSM > Smarty roofFrame > Solar segments > style default
-- **Fields:** `roofFrame` (collected, unused)
+- [x] Already wired: `inferRoofFromSmartyFrame()` in roof shape chain
+- **Files:** `src/gen/address-pipeline.ts:464`
 
 ### 2.6 Procedural Accent Banding (from Arnis)
 - [ ] Add `accent_frequency` to style config (e.g., every 5 blocks vertically)
@@ -118,19 +116,19 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - **Files:** `src/gen/structures.ts`
 
 ### 2.7 OSM Material → Wall Texture
-- [ ] Use `osmMaterial` (brick, stone, wood, concrete) in generation
-- [ ] Priority: after Smarty exterior, before satellite color
-- **Fields:** `osmMaterial` (collected, unused)
+- [x] `mapOSMMaterialToWall()` — brick→bricks, stone→stone_bricks, wood→oak_planks, etc.
+- [x] Wired into wall chain: Smarty exterior > OSM material > construction type > SV
+- **Files:** `src/gen/address-pipeline.ts`
 
 ### 2.8 Smarty Construction Type → Wall Selection
-- [ ] Use `constructionType` (Frame, Masonry, Concrete, Steel) to influence material
-- **Fields:** `constructionType` (collected, unused)
+- [x] `mapConstructionTypeToWall()` — Masonry→bricks, Concrete→smooth_stone, Steel→iron_block
+- [x] Lowest priority in wall chain (before SV, after OSM material)
+- **Files:** `src/gen/address-pipeline.ts`
 
 ### 2.9 Year-Based Material Aging
-- [ ] If `yearBuilt < 1920`: use weathered materials (cracked_stone_bricks, mossy variants)
-- [ ] Force `chimney: true` for pre-1920 buildings
-- [ ] Modern (post-2000): use smooth concrete, glass panes, polished materials
-- **Ref:** `craftmatic_improvements.md` §3C
+- [x] `applyYearBasedWallAging()` — pre-1920: stone_bricks→cracked, post-2000: stone→polished_andesite
+- [x] Force `chimney: true` for pre-1920 in `inferFeatures()`
+- **Files:** `src/gen/address-pipeline.ts`
 
 ---
 
