@@ -83,6 +83,10 @@ html, body {
   gap: 4px;
   flex: 1;
   justify-content: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
 }
 
 .nav-tab {
@@ -98,6 +102,8 @@ html, body {
   transition: all var(--transition);
   white-space: nowrap;
 }
+
+.nav-tabs::-webkit-scrollbar { display: none; }
 
 .nav-tab:hover { color: var(--text-primary); background: var(--bg-elevated); }
 .nav-tab.active { color: var(--text-primary); background: var(--accent); }
@@ -538,8 +544,8 @@ html, body {
 /* ─── Mobile Responsive ──────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
-  .nav-tabs { gap: 2px; }
-  .nav-tab { padding: 6px 12px; font-size: 12px; }
+  .nav-tabs { gap: 2px; justify-content: flex-start; }
+  .nav-tab { padding: 6px 10px; font-size: 11px; flex-shrink: 0; }
   .nav-title { display: none; }
 
   .panel-layout { flex-direction: column; }
