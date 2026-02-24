@@ -26,6 +26,7 @@ export function generateHouse(
   bwOpt: number | undefined, blOpt: number | undefined, rng: () => number,
   roofShapeOpt?: RoofShape, features?: FeatureFlags,
   planShape?: FloorPlanShape, roofHeightOverride?: number,
+  windowSpacing?: number,
 ): BlockGrid {
   // Use style's preferred roof shape when no explicit override
   const roofShape: RoofShape = roofShapeOpt ?? style.defaultRoofShape;
@@ -81,9 +82,9 @@ export function generateHouse(
     timberBeams(grid, bx1, by, bz1, bx2, bz2, style);
     timberBeams(grid, bx1, cy, bz1, bx2, bz2, style);
 
-    windows(grid, bx1, bz1, bx2, bz2, by + 2, by + 3, style);
+    windows(grid, bx1, bz1, bx2, bz2, by + 2, by + 3, style, windowSpacing ?? 3);
     // Window sills — top-slab below each window for depth
-    windowSills(grid, bx1, bz1, bx2, bz2, by + 1, style);
+    windowSills(grid, bx1, bz1, bx2, bz2, by + 1, style, windowSpacing ?? 3);
 
     interiorWall(grid, 'z', xMid, bz1 + 1, bz2 - 1, by + 1, cy - 1, style);
     doorway(grid, xMid, by + 1, zMid - 1, xMid, by + 3, zMid + 1);
