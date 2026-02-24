@@ -161,8 +161,8 @@ export function inferStyle(year: number, newConstruction = false): StyleName {
   if (newConstruction || year >= 2010) return 'modern';
   if (year < 1700) return 'medieval';
   if (year < 1850) return 'gothic';
-  if (year < 1920) return 'rustic';
-  if (year < 1970) return 'fantasy';
+  if (year < 1890) return 'rustic';   // Victorian-era wood-frame (pre-Colonial Revival)
+  if (year < 1970) return 'fantasy';  // Colonial Revival, Foursquare, mid-century — formal trim
   return 'modern';
 }
 
@@ -282,7 +282,22 @@ export function resolveStyle(prop: PropertyData): StyleName {
   const propTypeStyle = inferStyleFromPropertyType(prop.propertyType, year);
   const cityStyle = inferStyleFromCity(prop.city, year);
   const countyStyle = inferStyleFromCounty(prop.county, year);
-  const fallback = prop.yearUncertain ? 'rustic' as StyleName : inferStyle(year, prop.newConstruction);
+  // When year is uncertain, use density + region to pick a reasonable default:
+  // - Rural/coastal → 'rustic' (wood-frame, natural materials)
+  // - Village/suburban → 'fantasy' (colonial/traditional — white clapboard, formal trim)
+  // - Urban → 'gothic' (brownstone, brick rowhouse)
+  const uncertainFallback = (): StyleName => {
+    const density = inferDensityFromZip(prop.zipCode);
+    if (density === 'urban') return 'gothic';
+    // New England village homes (NH, VT, MA, CT, ME, RI) with formal road types
+    // are overwhelmingly white colonial/Federal, not rustic lodges
+    const ne = ['NH', 'VT', 'MA', 'CT', 'ME', 'RI'].includes(prop.stateAbbreviation?.toUpperCase() ?? '');
+    const formalRoad = /\b(st|ave|blvd|dr|ct|pl|sq|way)\b/i.test(prop.address);
+    if (ne && formalRoad) return 'fantasy'; // Colonial/Federal proxy
+    if (density === 'suburban' && formalRoad) return 'fantasy';
+    return 'rustic';
+  };
+  const fallback = prop.yearUncertain ? uncertainFallback() : inferStyle(year, prop.newConstruction);
   return archStyle ?? propTypeStyle ?? cityStyle ?? countyStyle ?? fallback;
 }
 
@@ -341,9 +356,15 @@ export function estimateStoriesFromFootprint(
   if (footprintSqm <= 0) return 2; // fallback
   const totalSqm = sqft / 10.76; // sqft to sqm
   const rawFloors = totalSqm / footprintSqm;
-  // Use ceil for large homes — OSM bounding boxes overestimate the footprint
-  // area vs actual buildable area (Victorian wings, setbacks, irregular shapes),
-  // so sqft/footprint underestimates floor count
+  // When the footprint is small (< 200 sqm) but sqft is large, the listing
+  // likely includes finished basement/attic in the total. Parcl sqft commonly
+  // counts all "finished" area. Cap the raw estimate to avoid inflated floors.
+  // For larger footprints, use ceil since OSM bounding boxes overestimate
+  // area vs actual buildable area (wings, setbacks, irregular shapes).
+  if (footprintSqm < 200 && rawFloors > 3) {
+    // Small footprint: clamp to 3 floors max — extra sqft is likely basement/attic
+    return 3;
+  }
   const rounding = sqft >= 5000 ? Math.ceil : Math.round;
   return Math.max(1, Math.min(100, rounding(rawFloors)));
 }
