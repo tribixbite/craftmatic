@@ -747,12 +747,34 @@ Walpole is the standout: Mapbox LiDAR height (8.5m ÷ 3.5 = 2.4 → 2f) corrects
 - **Window density**: Fenestration analysis tends to overcount due to tree branches creating dark patches that pass the aspect ratio filter
 - **Heading quality matters**: SF heading=343° aims at the building but includes neighboring structures; Newton heading=251° captures the building well
 
+### Post-QA 21b: Full API Comparison Viewer (2026-02-23)
+
+Rewrote gen-comparison.ts to call all 7 APIs: Parcl, OSM (with patient retries), Mapbox, Solar, Mapillary, Street View, SV Analysis. Outputs per-address JSON (comparison-data.json) consumed by the viewer.
+
+**OSM fix**: Increased retries from 3 to 5, backoff from 2s to 3s per step (max 15s wait vs 6s). OSM now returns data for all 3 addresses.
+
+**New API data with Mapbox + Solar**:
+
+| Location | Mapbox Height | Mapbox Floors | Solar Pitch | Solar Segments | Solar Area | Mapillary |
+|---|---|---|---|---|---|---|
+| SF | 13m | 4f | 0.2° (flat) | 12 | 551 sqm | 18 imgs, driveway |
+| Newton | 7.5m | 3f | 35.1° (steep) | 22 | 611 sqm | 9 imgs, driveway |
+| Winchester | 10m | 3f | 1.7° (flat) | 115 | 2745 sqm | 19 imgs, driveway |
+
+**Comparison viewer**: Now loads comparison-data.json and shows:
+- Per-API card with status badge (ok/error/skipped/unavailable)
+- Full returned data fields from each API
+- PropertyData fields set by each API (green tags)
+- GenerationOptions fields impacted (blue tags)
+- Generation summary with changed values highlighted in green
+
 ### Remaining work / known issues
 
-- OSM data didn't propagate in comparison regen (rate limiting / env var issues with grun); need full CLI run for complete data
 - Story count heuristic needs tuning — tree rejection via green pixel % in wall zone before Sobel analysis
 - Tier 3 (Claude Vision) not tested end-to-end yet — needs ANTHROPIC_API_KEY
 - grun argument splitting prevents CLI testing with addresses containing spaces (workaround: gen-comparison.ts script)
+- SF Solar says 0.2° pitch (flat) but building actually has a roof — may be detecting a different structure or the flat roof section
+- Winchester OSM returns a very small polygon (3.2x4.1m) — likely hitting a small outbuilding, not the main house
 
 ### Commits
 
@@ -765,3 +787,4 @@ Walpole is the standout: Mapbox LiDAR height (8.5m ÷ 3.5 = 2.4 → 2f) corrects
 | 1e8b942 | feat: wire Street View image analysis into CLI pipeline |
 | 15a76a1 | test: add SV analysis, color-blocks, and generation priority chain tests |
 | 9c20d7a | feat: regenerate comparison images with SV analysis pipeline |
+| 09e2dc3 | feat: full API comparison viewer + OSM rate limit fix |
