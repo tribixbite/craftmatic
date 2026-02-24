@@ -697,3 +697,71 @@ Walpole is the standout: Mapbox LiDAR height (8.5m ÷ 3.5 = 2.4 → 2f) corrects
 - **Solar API**: Returns 401 — needs explicit enablement in GCP console (user action, not a code issue)
 - **Rural coverage**: Mapbox/StreetView absent for Vinalhaven (island) and Suttons Bay (rural MI)
 - **Vinalhaven someapis**: Sparse (only cutaway + exterior from prior session), copied allapis images as proxy since both tiers are identical for this location
+
+---
+
+## Post-QA 21: Street View Image Analysis Pipeline
+
+**Date**: 2026-02-23
+**Scope**: 3-tier SV image analysis (colors, structural heuristics, Claude Vision)
+
+### What was implemented
+
+**Phase 1 — color-blocks.ts** (new, ~270 lines): Shared RGB-to-Minecraft-block palette module consolidating palettes from address-pipeline.ts and web/src/ui/import-color.ts. 20 wall, 13 roof, 12 trim palette entries with Euclidean RGB distance matching and HSL pixel filters.
+
+**Phase 2 — streetview-analysis.ts** (new, ~900 lines): 3-tier SV image analysis:
+- **Tier 1 (Colors)**: Zone-based color extraction — roof (top 25%), wall (middle 40% center 70%), trim (edge strips 12%). Hue bucketing with 12 bins + gray bucket, non-building pixel rejection (sky/grass/shadow/glare).
+- **Tier 2 (Structural Heuristics, pure JS)**: 6 algorithms:
+  1. **Story count**: Horizontal projection of Sobel edge magnitudes → peak/valley detection
+  2. **Texture classification**: Sobel gradient variance (entropy) → brick/stone/wood_siding/smooth/shingle
+  3. **Roof pitch**: Simplified Hough-like diagonal edge voting in 8 angle bins
+  4. **Facade symmetry**: Pearson correlation of L/R edge density per row
+  5. **Setback analysis**: Bottom-zone green/gray/brown pixel ratios → feature flags
+  6. **Fenestration density**: Dark patch connected-component labeling (BFS flood fill)
+- **Tier 3 (Claude Vision, opt-in)**: Structured JSON prompt for door style, architecture label, feature checklist
+- **Indoor panorama detection**: Sky pixel ratio < 5% in top 15% → skip analysis
+
+**Phase 3 — PropertyData + priority chains**: 15 new sv* fields, priority chain updates for wall, roof, trim, door, features, roof height, window spacing, plan shape, style.
+
+**Phase 4 — windowSpacing threading**: Added `windowSpacing?: number` to GenerationOptions, threaded through generateHouse() → windows() / windowSills().
+
+**Phase 5 — CLI wiring**: Step 3b after API fetch, populates sv* fields, console output for all 3 tiers.
+
+**Phase 6 — Tests**: 49 color-blocks + 42 streetview-analysis + 18 generation-automation = 109 new tests (all pass).
+
+**Phase 7 — Comparison regeneration**: Re-ran SF, Newton, Winchester with SV analysis active.
+
+### SV Analysis Results
+
+| Location | SV Wall | SV Roof | SV Trim | Stories | Texture | Pitch | Win/Floor | Lawn |
+|---|---|---|---|---|---|---|---|---|
+| SF | jungle_planks | cobblestone | light_gray_concrete | 1 | shingle | moderate 15° | 10 → spacing 2 | 1% |
+| Newton | stone_bricks | spruce | stripped_dark_oak_log | 2 | stone | moderate 30° | 10 → spacing 2 | 17% |
+| Winchester | — (indoor) | — | — | — | — | — | — | — |
+
+### Key observations
+
+- **Indoor pano guard works**: Winchester Mystery House SV returned interior tourist photo → correctly detected and skipped
+- **Tree occlusion**: SV images at computed heading often include significant tree coverage, affecting color accuracy (SF wall detected as jungle_planks instead of actual building color)
+- **Story count inflated**: With trees and foliage in the image, the horizontal edge projection detects more peaks than actual floors
+- **Window density**: Fenestration analysis tends to overcount due to tree branches creating dark patches that pass the aspect ratio filter
+- **Heading quality matters**: SF heading=343° aims at the building but includes neighboring structures; Newton heading=251° captures the building well
+
+### Remaining work / known issues
+
+- OSM data didn't propagate in comparison regen (rate limiting / env var issues with grun); need full CLI run for complete data
+- Story count heuristic needs tuning — tree rejection via green pixel % in wall zone before Sobel analysis
+- Tier 3 (Claude Vision) not tested end-to-end yet — needs ANTHROPIC_API_KEY
+- grun argument splitting prevents CLI testing with addresses containing spaces (workaround: gen-comparison.ts script)
+
+### Commits
+
+| Hash | Description |
+|---|---|
+| 943cf5f | feat: add shared color-blocks.ts palette module |
+| b1a4068 | feat: 3-tier Street View image analysis pipeline |
+| 90c0bc7 | feat: integrate SV analysis into PropertyData + priority chains |
+| 502959f | feat: thread windowSpacing through generator pipeline |
+| 1e8b942 | feat: wire Street View image analysis into CLI pipeline |
+| 15a76a1 | test: add SV analysis, color-blocks, and generation priority chain tests |
+| 9c20d7a | feat: regenerate comparison images with SV analysis pipeline |
