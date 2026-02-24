@@ -17,9 +17,9 @@ import type { RoomType, StyleName } from '../src/types/index.js';
 // ─── Style Palette Tests ──────────────────────────────────────────────
 
 describe('style registry', () => {
-  it('getStyleNames returns all 9 styles', () => {
+  it('getStyleNames returns all 10 styles', () => {
     const names = getStyleNames();
-    expect(names).toHaveLength(9);
+    expect(names).toHaveLength(10);
     expect(names).toContain('fantasy');
     expect(names).toContain('medieval');
     expect(names).toContain('modern');
@@ -29,10 +29,11 @@ describe('style registry', () => {
     expect(names).toContain('elven');
     expect(names).toContain('desert');
     expect(names).toContain('underwater');
+    expect(names).toContain('colonial');
   });
 
-  it('STYLES record has 9 entries', () => {
-    expect(Object.keys(STYLES).length).toBe(9);
+  it('STYLES record has 10 entries', () => {
+    expect(Object.keys(STYLES).length).toBe(10);
   });
 
   it('getStyle returns a valid palette for each style', () => {
@@ -141,8 +142,8 @@ describe('createPalette derivation', () => {
     for (const name of getStyleNames()) {
       walls.add(getStyle(name).wall);
     }
-    // 8 unique walls — fantasy and modern share minecraft:white_concrete
-    expect(walls.size).toBe(8);
+    // 9 unique walls — fantasy and modern share minecraft:white_concrete
+    expect(walls.size).toBe(9);
   });
 
   it('all derived fields are valid Minecraft block states', () => {

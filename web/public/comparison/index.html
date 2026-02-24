@@ -260,10 +260,10 @@ const LOCATIONS = {
     label: 'Newton',
     address: '240 Highland St, Newton, MA 02465',
     api: {
-      style: 'fantasy', floors: 3, grid: '69\u00d725\u00d738', blocks: '13,425',
+      style: 'fantasy', floors: 3, grid: '69\u00d725\u00d738', blocks: '14,313',
       sqft: '9,094', beds: 9, baths: 5, year: '? (uncertain)',
       sources: 'Parcl + OSM + Mapillary',
-      notes: 'Year uncertain \u2014 fantasy 3f (NE colonial fallback), OSM 17\u00d721'
+      notes: 'Year uncertain \u2014 fantasy 3f + turret + bay window (Victorian proxy), OSM 17\u00d721'
     },
     noapi: {
       style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
@@ -305,6 +305,58 @@ const LOCATIONS = {
       floor: {
         api: [0,1,2,3,4].map(i => `sanjose-api_floor_${i}.jpg`),
         noapi: [0,1,2,3].map(i => `sanjose-noapi_floor_${i}.jpg`),
+      },
+    },
+  },
+  walpole: {
+    label: 'Walpole',
+    address: '13 Union St, Walpole, NH 03608',
+    api: {
+      style: 'colonial', floors: 3, grid: '51\u00d723\u00d730', blocks: '8,739',
+      sqft: '5,860', beds: 5, baths: 5, year: '? (uncertain)',
+      sources: 'Parcl + OSM',
+      notes: 'Year uncertain \u2014 colonial 3f (NE Federal fallback), white quartz + brick'
+    },
+    noapi: {
+      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
+      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
+      sources: 'none', notes: 'Generic L-shape compound'
+    },
+    views: {
+      exterior: { api: 'walpole-api_exterior.jpg', noapi: 'sf-noapi_exterior.jpg' },
+      cutaway: {
+        api: [0,1,2].map(i => `walpole-api_cutaway_${i}.jpg`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
+      },
+      floor: {
+        api: [0,1,2].map(i => `walpole-api_floor_${i}.jpg`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
+      },
+    },
+  },
+  byron: {
+    label: 'Byron Center',
+    address: '2431 72nd St SW, Byron Center, MI 49315',
+    api: {
+      style: 'modern', floors: 2, grid: '66\u00d715\u00d738', blocks: '7,807',
+      sqft: '3,040', beds: 2, baths: 2, year: 1980,
+      sources: 'Parcl + OSM + Mapillary',
+      notes: 'Modern 2f \u2014 OSM 14\u00d716 footprint, flat roof + cantilever'
+    },
+    noapi: {
+      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
+      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
+      sources: 'none', notes: 'Generic L-shape compound'
+    },
+    views: {
+      exterior: { api: 'byron-api_exterior.jpg', noapi: 'sf-noapi_exterior.jpg' },
+      cutaway: {
+        api: [0,1].map(i => `byron-api_cutaway_${i}.jpg`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_cutaway_${i}.jpg`),
+      },
+      floor: {
+        api: [0,1].map(i => `byron-api_floor_${i}.jpg`),
+        noapi: [0,1,2,3].map(i => `sf-noapi_floor_${i}.jpg`),
       },
     },
   },
