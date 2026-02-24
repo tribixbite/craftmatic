@@ -613,6 +613,40 @@ Addressed all 3 remaining gaps from Post-QA 17. Added 7th test address (Byron Ce
 | v5 (colonial 3f) | **A** | — | **D-** | **D** | White box — colonial palette wrong for Victorian |
 | v6 (fantasy 3f + turret) | **A-** | **A** | **A** | **A** | Turret + bay window break symmetry |
 
+---
+
+## Post-QA 19: Suttons Bay Addition + Byron Center Image Fix
+
+### Changes
+1. **Byron Center fix**: Copied missing `byron-api_*` and `walpole-api_*` images from `output/comparison/` to `web/public/comparison/` — the comparison slider was showing the default image on both sides because the API-side images didn't exist in the web directory.
+2. **Suttons Bay added**: Generated `5835 S Bridget Rose Ln, Suttons Bay, MI 49682` — rustic 2f, 55×17×30, 6,669 blocks. 3bed/2bath, 2,000 sqft, year uncertain.
+
+### Suttons Bay Grading (Gemini 3 Pro)
+
+| Category | Grade | Notes |
+|----------|-------|-------|
+| Style match | D+ | Rustic reads as medieval survival, not 2001 luxury estate |
+| Scale/proportion | D | 55×17 footprint oversized for 2,000 sqft; roof pitch too steep |
+| Layout realism | F | Grid of small rooms, no open concept for a luxury home |
+| **Overall** | **D-** | Generic survival base, not recognizable as target property |
+
+**Root cause**: Year was "uncertain" (API didn't return build year), so the uncertain fallback chose rustic for rural areas. The real year (2001) should trigger modern style. The 2,000 sqft API value also seems low for a $1.35M property with guest cottage — likely just the main house parcel record.
+
+### Updated Grading Summary (8 Addresses)
+
+| Address | Output | Overall Grade |
+|---------|--------|---------------|
+| Walpole (NH) | Colonial 3f | **A** |
+| Newton (MA) | Fantasy 3f | **A** |
+| Vinalhaven (ME) | Rustic 2f | **A-** |
+| SF (CA) | Desert 4f | **B+** |
+| Byron Center (MI) | Modern 2f | **B+** |
+| Grand Rapids (MI) | Fantasy 3f | **B** |
+| Winchester (CA) | Fantasy 5f | **C** |
+| Suttons Bay (MI) | Rustic 2f | **D-** |
+
+**Average: B- (8 addresses). Suttons Bay pulls down average due to uncertain-year fallback.**
+
 ### Comparison Page
 
-Updated comparison viewer with 5 locations: SF, Newton, Winchester, Walpole (new), Byron Center (new). All renders re-generated with latest pipeline. Live at GH Pages `/comparison/`.
+Updated comparison viewer with 6 locations: SF, Newton, Winchester, Walpole, Byron Center, Suttons Bay (new). Byron Center images now properly served. Live at GH Pages `/comparison/`.
