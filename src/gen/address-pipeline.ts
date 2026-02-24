@@ -13,6 +13,8 @@ import type {
   RoofShape, FeatureFlags, FloorPlanShape, GenerationOptions,
 } from '../types/index.js';
 
+import { ROOF_PALETTE, rgbToTrimBlock as rgbToTrimBlockShared } from './color-blocks.js';
+
 // ─── Inline type fragments (avoid cross-boundary web imports) ───────────────
 
 /** Minimal floor plan analysis — only aspectRatio is used by the pipeline */
@@ -486,7 +488,7 @@ export function mapRoofMaterialToBlocks(
   return undefined;
 }
 
-/** Map a hex colour to the nearest Minecraft block with stair/slab variants for roofs */
+/** Map a hex colour to the nearest roof material base name using shared palette */
 function hexToRoofBlock(hex: string): string | undefined {
   const clean = hex.replace('#', '');
   if (clean.length !== 6) return undefined;
@@ -494,29 +496,16 @@ function hexToRoofBlock(hex: string): string | undefined {
   const g = parseInt(clean.substring(2, 4), 16);
   const b = parseInt(clean.substring(4, 6), 16);
 
-  const CANDIDATES: [string, number, number, number][] = [
-    ['dark_oak', 60, 42, 22],
-    ['spruce', 115, 85, 49],
-    ['brick', 150, 74, 58],
-    ['stone_brick', 128, 128, 128],
-    ['sandstone', 216, 200, 157],
-    ['cobblestone', 100, 100, 100],
-    ['deepslate_tile', 54, 54, 62],
-    ['blackstone', 34, 28, 32],
-    ['prismarine', 76, 127, 115],
-    ['nether_brick', 44, 21, 26],
-  ];
-
-  let bestBlock = 'dark_oak';
+  let bestBase = ROOF_PALETTE[0].base;
   let bestDist = Infinity;
-  for (const [block, cr, cg, cb] of CANDIDATES) {
-    const dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+  for (const { base, rgb } of ROOF_PALETTE) {
+    const dist = (r - rgb[0]) ** 2 + (g - rgb[1]) ** 2 + (b - rgb[2]) ** 2;
     if (dist < bestDist) {
       bestDist = dist;
-      bestBlock = block;
+      bestBase = base;
     }
   }
-  return bestBlock;
+  return bestBase;
 }
 
 // ─── Door & Trim Mapping ────────────────────────────────────────────────────
@@ -559,7 +548,7 @@ function inferDoorType(
 
 /**
  * Map a building colour hex to a Minecraft trim/accent block.
- * Used for trimOverride when OSM building:colour is available.
+ * Delegates to shared palette in color-blocks.ts.
  */
 function hexToTrimBlock(hex: string): BlockState | undefined {
   const clean = hex.replace('#', '');
@@ -567,30 +556,7 @@ function hexToTrimBlock(hex: string): BlockState | undefined {
   const r = parseInt(clean.substring(0, 2), 16);
   const g = parseInt(clean.substring(2, 4), 16);
   const b = parseInt(clean.substring(4, 6), 16);
-
-  const CANDIDATES: [BlockState, number, number, number][] = [
-    ['minecraft:white_concrete', 255, 255, 255],
-    ['minecraft:light_gray_concrete', 160, 160, 160],
-    ['minecraft:dark_oak_log', 60, 42, 22],
-    ['minecraft:spruce_log', 115, 85, 49],
-    ['minecraft:oak_log', 170, 136, 78],
-    ['minecraft:birch_log', 196, 187, 153],
-    ['minecraft:quartz_pillar', 235, 229, 222],
-    ['minecraft:sandstone', 216, 200, 157],
-    ['minecraft:stone_bricks', 128, 128, 128],
-    ['minecraft:deepslate_bricks', 54, 54, 62],
-  ];
-
-  let bestBlock: BlockState = 'minecraft:dark_oak_log';
-  let bestDist = Infinity;
-  for (const [block, cr, cg, cb] of CANDIDATES) {
-    const dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestBlock = block;
-    }
-  }
-  return bestBlock;
+  return rgbToTrimBlockShared(r, g, b);
 }
 
 // ─── Feature Flags ──────────────────────────────────────────────────────────
