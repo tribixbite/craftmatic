@@ -332,10 +332,20 @@ function buildUI(): void {
     }
   });
 
-  // Auto-load if key exists
+  // Auto-load default location if key exists (skip geocoding — use hardcoded coords)
   if (key) {
-    // Defer loading to avoid blocking tab switch
-    requestAnimationFrame(() => loadAddress());
+    requestAnimationFrame(() => {
+      const viewerEl = document.getElementById('map3d-viewer')!;
+      viewerEl.innerHTML = '';
+      setStatus('Loading 3D tiles...', 'info');
+      try {
+        initViewer(viewerEl, getApiKey(), DEFAULT_LAT, DEFAULT_LNG);
+        setStatus(`Loaded — ${DEFAULT_ADDRESS}`, 'success');
+      } catch (err) {
+        console.error('3D tiles init failed:', err);
+        setStatus('3D tiles failed to load', 'error');
+      }
+    });
   }
 }
 
