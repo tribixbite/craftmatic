@@ -11,6 +11,7 @@ import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initImport, type PropertyData } from '@ui/import.js';
 import { initUpload } from '@ui/upload.js';
 import { initGallery } from '@ui/gallery.js';
+import { initComparison } from '@ui/comparison.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -363,6 +364,11 @@ initGallery(galleryGrid, (grid: BlockGrid, _label: string) => {
     }
   }, 0));
 });
+
+// ─── Comparison ─────────────────────────────────────────────────────────────
+
+const comparisonRoot = document.getElementById('comparison-root')!;
+initComparison(comparisonRoot);
 
 // ─── Version Badge ──────────────────────────────────────────────────────────
 
