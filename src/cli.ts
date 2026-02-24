@@ -32,6 +32,7 @@ import { searchSmartyProperty, hasSmartyAuth, mapSmartyExteriorToWall } from './
 import { queryMapboxBuilding, hasMapboxApiKey, getMapboxApiKey } from './gen/api/mapbox.js';
 import { querySolarBuildingInsights, hasGoogleApiKey } from './gen/api/google-solar.js';
 import { queryStreetViewMetadata, hasGoogleStreetViewKey } from './gen/api/google-streetview.js';
+import { analyzeStreetView, type StreetViewAnalysis } from './gen/api/streetview-analysis.js';
 
 const program = new Command();
 
@@ -500,6 +501,57 @@ async function genFromAddress(
       streetViewHeading: streetView?.heading || undefined,
     };
 
+    // Step 3b: Street View image analysis (sequential, depends on streetView result)
+    let svAnalysis: StreetViewAnalysis | null = null;
+    if (streetView?.imageUrl && !basicOnly) {
+      spinner.text = 'Analyzing Street View image...';
+      svAnalysis = await analyzeStreetView(streetView.imageUrl);
+
+      if (svAnalysis && !svAnalysis.isIndoor) {
+        // Tier 1: Colors
+        if (svAnalysis.colors) {
+          property.svWallOverride = svAnalysis.colors.wallBlock;
+          property.svRoofOverride = svAnalysis.colors.roofOverride;
+          property.svTrimOverride = svAnalysis.colors.trimBlock;
+        }
+
+        // Tier 2: Structural heuristics
+        if (svAnalysis.structure) {
+          const s = svAnalysis.structure;
+          property.svStoryCount = s.stories.storyCount;
+          property.svTextureClass = s.texture.textureClass;
+          property.svTextureBlock = s.texture.suggestedBlock;
+          property.svRoofPitch = s.roofPitch.roofType;
+          property.svRoofHeightOverride = s.roofPitch.roofHeightOverride;
+          property.svSymmetric = s.symmetry.isSymmetric;
+          property.svPlanShape = s.symmetry.suggestedPlanShape === 'rectangle' ? 'rect' : s.symmetry.suggestedPlanShape;
+          property.svWindowsPerFloor = s.fenestration.windowsPerFloor;
+          property.svWindowSpacing = s.fenestration.suggestedSpacing;
+          property.svSetbackFeatures = s.setback.suggestedFeatures;
+
+          // SV story count feeds into floor count if no better source
+          // Priority: Mapbox height > SV stories > sqft heuristic
+          if (!property.mapboxHeight && s.stories.confidence > 0.4 && s.stories.storyCount > 0) {
+            // Only override if the SV count differs meaningfully from current
+            const currentStories = property.stories;
+            if (Math.abs(s.stories.storyCount - currentStories) >= 1) {
+              property.stories = s.stories.storyCount;
+            }
+          }
+        }
+
+        // Tier 3: Vision
+        if (svAnalysis.vision) {
+          property.svDoorOverride = svAnalysis.vision.doorStyle ?? undefined;
+          property.svFeatures = svAnalysis.vision.features;
+          property.svArchitectureLabel = svAnalysis.vision.architectureLabel ?? undefined;
+          if (svAnalysis.vision.hasGarage && !property.hasGarage) {
+            property.hasGarage = true;
+          }
+        }
+      }
+    }
+
     // Step 4: Convert and generate
     spinner.text = 'Generating structure...';
     const genOpts = convertToGenerationOptions(property);
@@ -565,6 +617,47 @@ async function genFromAddress(
     }
     if (streetView) {
       console.log(`  StreetView: ${streetView.date || 'available'} (heading ${streetView.heading.toFixed(0)}°)`);
+    }
+    if (svAnalysis?.isIndoor) {
+      console.log(`  SV Image:   ${chalk.dim('indoor panorama — skipped')}`);
+    }
+    if (svAnalysis?.colors) {
+      const c = svAnalysis.colors;
+      console.log(`  SV Colors:  wall=${chalk.cyan(c.wallBlock.replace('minecraft:', ''))} roof=${chalk.cyan(c.roofOverride.cap.replace('minecraft:', '').replace('[type=bottom]', ''))} trim=${chalk.cyan(c.trimBlock.replace('minecraft:', ''))}`);
+    }
+    if (svAnalysis?.structure) {
+      const s = svAnalysis.structure;
+      const parts = [
+        `${s.stories.storyCount} stories`,
+        `${s.texture.textureClass} texture`,
+        `${s.roofPitch.roofType} pitch (${s.roofPitch.pitchDegrees.toFixed(0)}°)`,
+        s.symmetry.isSymmetric ? 'symmetric' : 'asymmetric',
+        `${s.fenestration.windowsPerFloor} win/floor`,
+      ];
+      console.log(`  SV Structure: ${parts.join(' | ')}`);
+      if (s.setback.lawnDepthRatio > 0.05 || s.setback.hasVisibleDriveway) {
+        const setbackParts = [`lawn=${(s.setback.lawnDepthRatio * 100).toFixed(0)}%`];
+        if (s.setback.hasVisibleDriveway) setbackParts.push('driveway');
+        if (s.setback.hasVisiblePath) setbackParts.push('path');
+        const featureNames = Object.keys(s.setback.suggestedFeatures).filter(
+          k => s.setback.suggestedFeatures[k as keyof typeof s.setback.suggestedFeatures],
+        );
+        if (featureNames.length > 0) setbackParts.push(`→ ${featureNames.join(', ')}`);
+        console.log(`  SV Setback: ${setbackParts.join(' | ')}`);
+      }
+    }
+    if (svAnalysis?.vision) {
+      const v = svAnalysis.vision;
+      const parts: string[] = [];
+      if (v.doorStyle) parts.push(`${v.doorStyle} door`);
+      if (v.architectureLabel) parts.push(v.architectureLabel);
+      const featureNames = Object.keys(v.features).filter(
+        k => v.features[k as keyof typeof v.features],
+      );
+      if (featureNames.length > 0) parts.push(featureNames.join(', '));
+      if (parts.length > 0) {
+        console.log(`  SV Vision:  ${parts.join(' | ')} (${(v.confidence * 100).toFixed(0)}%)`);
+      }
     }
     console.log('');
     console.log(chalk.bold('  Generation'));
