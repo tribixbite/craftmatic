@@ -61,20 +61,21 @@ export async function searchOSMBuilding(
   const body = `data=${encodeURIComponent(query)}`;
 
   // Retry with exponential backoff for 429 (rate limit) and 504 (gateway timeout)
-  const MAX_RETRIES = 3;
+  // Overpass is free/public — be patient with rate limits (up to ~30s total wait)
+  const MAX_RETRIES = 5;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const resp = await fetch(OVERPASS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(20000),
       });
 
       if (resp.status === 429 || resp.status === 504) {
         if (attempt < MAX_RETRIES) {
-          const delay = (attempt + 1) * 2000; // 2s, 4s, 6s
-          console.warn(`OSM Overpass: HTTP ${resp.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms`);
+          const delay = (attempt + 1) * 3000; // 3s, 6s, 9s, 12s, 15s
+          console.warn(`OSM Overpass: HTTP ${resp.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
@@ -94,8 +95,8 @@ export async function searchOSMBuilding(
       return parseClosestBuilding(elements, lat, lng);
     } catch (err) {
       if (attempt < MAX_RETRIES) {
-        const delay = (attempt + 1) * 2000;
-        console.warn(`OSM Overpass: error, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms`);
+        const delay = (attempt + 1) * 3000;
+        console.warn(`OSM Overpass: error, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
