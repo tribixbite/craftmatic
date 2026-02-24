@@ -446,7 +446,7 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
       break;
     case 'house':
     default:
-      grid = generateHouse(floors, style, rooms, width, length, rng, options.roofShape, options.features, options.floorPlanShape);
+      grid = generateHouse(floors, style, rooms, width, length, rng, options.roofShape, options.features, options.floorPlanShape, options.roofHeightOverride);
       break;
   }
 
