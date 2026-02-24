@@ -27,12 +27,13 @@ Issues identified by Gemini 3 Pro review of `import-satellite-footprint.ts`:
 - [x] Adaptive `COLOR_THRESHOLD_SQ` based on sample variance
 
 ### 0.2 OBB Algorithm: PCA → Minimum-Area Rectangle
-- [~] PCA aligns with mass distribution, not geometric edges — misaligns L-shapes
-- [ ] Replace with discrete angle search (5° intervals, -45° to +45°) finding minimum-area rect
+- [x] Replaced PCA with discrete angle search (5° coarse → 1° fine refinement)
+- [x] Aligns with rectilinear building walls instead of mass distribution
 - **File:** `import-satellite-footprint.ts:computeOBB()`
 
 ### 0.3 Main Thread Performance
-- [ ] Wrap `extractFootprint()` call in `requestAnimationFrame` to avoid UI freeze on mobile
+- [x] Wrapped satellite image analysis (color, pool, footprint) in `requestAnimationFrame`
+- [x] Satellite canvas shown immediately; overlays applied in next frame
 - [ ] Morph ops: consider separable kernel approximation for larger radius values
 - **File:** `import.ts` (satellite callback)
 
@@ -79,18 +80,18 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 
 ## Phase 2: Roof & Wall Quality (Visual Impact)
 
-### 2.1 Distance-to-Edge Roof Slopes (from Arnis)
-- [ ] For hip/pyramidal roofs: calculate orthogonal distance to nearest wall per block
-- [ ] Roof height at (x,z) = baseHeight + (distToEdge × pitchFactor)
-- [ ] Works on any footprint shape — no special-casing for L/T/U
-- **Ref:** Arnis `generate_hipped_roof_rectangular`, `generate_pyramidal_roof`
-- **Files:** `src/gen/structures.ts` (roof generation)
+### 2.1 Hip Roof with Proper Directional Stairs
+- [x] Added `roofE`/`roofW` to StylePalette — east/west facing stair blocks
+- [x] Hip roof uses proper E/W stairs instead of slabs for side slopes
+- [x] Mansard roof updated similarly with E/W directional stairs
+- [x] Roof override mechanism derives E/W from stair base block
+- **Files:** `src/gen/structures.ts`, `src/gen/styles.ts`, `src/gen/generator.ts`
 
 ### 2.2 Context-Aware Stair Block Placement (from Arnis)
-- [ ] Check 4 orthogonal neighbors when placing roof stairs
-- [ ] Determine `StairShape` (Straight, OuterRight, OuterLeft, InnerRight, InnerLeft)
-- [ ] Eliminates ugly corner gaps in hip/pyramidal roofs
-- **Ref:** Arnis `determine_pyramidal_stair_block`
+- [x] `hipCorner()` function appends `shape=outer_right` for corner stair pieces
+- [x] All 4 corners of hip and mansard roofs use proper outer corner stairs
+- [x] Eliminates gaps at roof corners where two slopes meet
+- **Files:** `src/gen/structures.ts`
 
 ### 2.3 Solar API → Exact Roof Pitch & Ridge Direction
 - [ ] Map Solar API azimuth to Minecraft compass direction for ridge alignment
@@ -109,11 +110,10 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - **Files:** `src/gen/address-pipeline.ts:464`
 
 ### 2.6 Procedural Accent Banding (from Arnis)
-- [ ] Add `accent_frequency` to style config (e.g., every 5 blocks vertically)
-- [ ] During wall placement: if `y % accent_frequency === 0`, use accent material
-- [ ] Breaks up monotonous walls on multi-story buildings
-- **Ref:** Arnis `determine_wall_block_at_position`
-- **Files:** `src/gen/structures.ts`
+- [x] `wallAccentFrequency` added to StylePalette (0 = off, N = every N blocks)
+- [x] `exteriorWalls()` checks frequency and alternates to `wallAccent` material
+- [x] Enabled for modern (5), gothic (4), medieval (5), steampunk (5)
+- **Files:** `src/gen/structures.ts`, `src/gen/styles.ts`
 
 ### 2.7 OSM Material → Wall Texture
 - [x] `mapOSMMaterialToWall()` — brick→bricks, stone→stone_bricks, wood→oak_planks, etc.

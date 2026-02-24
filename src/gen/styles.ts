@@ -28,9 +28,11 @@ export interface StylePalette {
   /** Horizontal timber beams */
   timberX: BlockState;
   timberZ: BlockState;
-  /** Roof stair material (north-facing) */
+  /** Roof stair material (directional) */
   roofN: BlockState;
   roofS: BlockState;
+  roofE: BlockState;
+  roofW: BlockState;
   /** Roof ridge cap */
   roofCap: BlockState;
   /** Default roof shape for this style */
@@ -97,6 +99,8 @@ export interface StylePalette {
   plant1: BlockState;
   plant2: BlockState;
   plant3: BlockState;
+  /** Accent banding frequency: place wallAccent every N blocks vertically (0 = off) */
+  wallAccentFrequency: number;
 }
 
 // ─── Compact Style Spec ──────────────────────────────────────────────────────
@@ -166,6 +170,8 @@ interface CompactStyle {
   plant1: BlockState;
   plant2: BlockState;
   plant3: BlockState;
+  /** Accent band frequency: place wallAccent every N wall-blocks vertically (0 = off) */
+  wallAccentFrequency?: number;
 }
 
 /**
@@ -216,6 +222,8 @@ function createPalette(spec: CompactStyle): StylePalette {
     // ─── Derived: roof facing ───────────────────────────────────────
     roofN: `${spec.roofStairs}[facing=north]`,
     roofS: `${spec.roofStairs}[facing=south]`,
+    roofE: `${spec.roofStairs}[facing=east]`,
+    roofW: `${spec.roofStairs}[facing=west]`,
 
     // ─── Derived: door half × facing ────────────────────────────────
     doorLowerN: `${spec.door}[half=lower,facing=north,open=false,hinge=left]`,
@@ -242,6 +250,9 @@ function createPalette(spec: CompactStyle): StylePalette {
     // ─── Derived: banner facing ─────────────────────────────────────
     bannerN: `minecraft:${spec.bannerColor}_wall_banner[facing=north]`,
     bannerS: `minecraft:${spec.bannerColor}_wall_banner[facing=south]`,
+
+    // ─── Accent banding ───────────────────────────────────────────
+    wallAccentFrequency: spec.wallAccentFrequency ?? 0,
   };
 }
 
@@ -323,6 +334,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_fern',
     plant2: 'minecraft:potted_oak_sapling',
     plant3: 'minecraft:potted_red_tulip',
+    wallAccentFrequency: 5,
   }),
 
   modern: createPalette({
@@ -361,6 +373,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_bamboo',
     plant2: 'minecraft:potted_fern',
     plant3: 'minecraft:potted_lily_of_the_valley',
+    wallAccentFrequency: 5,
   }),
 
   gothic: createPalette({
@@ -400,6 +413,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_wither_rose',
     plant2: 'minecraft:potted_dead_bush',
     plant3: 'minecraft:potted_crimson_fungus',
+    wallAccentFrequency: 4,
   }),
 
   rustic: createPalette({
@@ -476,6 +490,7 @@ export const STYLES: Record<StyleName, StylePalette> = {
     plant1: 'minecraft:potted_dead_bush',
     plant2: 'minecraft:potted_cactus',
     plant3: 'minecraft:potted_crimson_fungus',
+    wallAccentFrequency: 5,
   }),
 
   elven: createPalette({

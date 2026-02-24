@@ -23,19 +23,25 @@ export function floor(
   grid.fill(x1, y, z1, x2, y, z2, material);
 }
 
-/** Build exterior walls for a story (fills perimeter only) */
+/** Build exterior walls for a story (fills perimeter only).
+ * If the style has wallAccentFrequency > 0, places accent bands at regular
+ * vertical intervals to break up monotonous walls on multi-story buildings. */
 export function exteriorWalls(
   grid: BlockGrid, x1: number, y1: number, z1: number, x2: number, y2: number, z2: number,
   style: StylePalette
 ): void {
+  const freq = style.wallAccentFrequency;
   for (let y = y1; y <= y2; y++) {
+    // Accent banding: use wallAccent at regular intervals (relative to base y)
+    const mat = freq > 0 && (y - y1) > 0 && (y - y1) % freq === 0
+      ? style.wallAccent : style.wall;
     for (let x = x1; x <= x2; x++) {
-      grid.set(x, y, z1, style.wall);
-      grid.set(x, y, z2, style.wall);
+      grid.set(x, y, z1, mat);
+      grid.set(x, y, z2, mat);
     }
     for (let z = z1; z <= z2; z++) {
-      grid.set(x1, y, z, style.wall);
-      grid.set(x2, y, z, style.wall);
+      grid.set(x1, y, z, mat);
+      grid.set(x2, y, z, mat);
     }
   }
 }
@@ -249,8 +255,9 @@ export function gabledRoof(
 }
 
 /**
- * Build a hip roof — all four sides slope inward, no vertical gable end walls.
- * Each layer shrinks both X and Z ranges, forming a pyramid-like top.
+ * Build a hip roof — all four sides slope inward with proper directional stairs.
+ * Uses E/W facing stairs for side slopes and context-aware corner stair shapes
+ * (inner/outer corners) for seamless hip roof intersections.
  */
 export function hipRoof(
   grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
@@ -264,28 +271,51 @@ export function hipRoof(
     const ry = baseY + 1 + layer;
     if (!grid.inBounds(0, ry, 0)) break;
 
-    const zSouth = z1 + layer;
-    const zNorth = z2 - layer;
-    const xWest = x1 - 1 + layer;
-    const xEast = x2 + 1 - layer;
-    if (zSouth >= zNorth || xWest >= xEast) break;
+    const zS = z1 + layer;
+    const zN = z2 - layer;
+    const xW = x1 - 1 + layer;
+    const xE = x2 + 1 - layer;
+    if (zS >= zN || xW >= xE) break;
 
-    // South and north slopes (full width at this layer)
-    for (let x = xWest; x <= xEast; x++) {
-      if (grid.inBounds(x, ry, zSouth)) grid.set(x, ry, zSouth, style.roofS);
-      if (grid.inBounds(x, ry, zNorth)) grid.set(x, ry, zNorth, style.roofN);
+    // South slope (interior blocks only — corners handled below)
+    for (let x = xW + 1; x < xE; x++) {
+      if (grid.inBounds(x, ry, zS)) grid.set(x, ry, zS, style.roofS);
+    }
+    // North slope (interior blocks only)
+    for (let x = xW + 1; x < xE; x++) {
+      if (grid.inBounds(x, ry, zN)) grid.set(x, ry, zN, style.roofN);
+    }
+    // West slope (interior blocks only)
+    for (let z = zS + 1; z < zN; z++) {
+      if (grid.inBounds(xW, ry, z)) grid.set(xW, ry, z, style.roofW);
+    }
+    // East slope (interior blocks only)
+    for (let z = zS + 1; z < zN; z++) {
+      if (grid.inBounds(xE, ry, z)) grid.set(xE, ry, z, style.roofE);
     }
 
-    // East and west slopes (between south and north, using stair blocks rotated)
-    // Use ceiling material for side slopes (stairs only face N/S in palette)
-    for (let z = zSouth + 1; z < zNorth; z++) {
-      if (grid.inBounds(xWest, ry, z)) grid.set(xWest, ry, z, style.roofCap);
-      if (grid.inBounds(xEast, ry, z)) grid.set(xEast, ry, z, style.roofCap);
+    // Corner stairs — outer corners where two slopes meet at the building corners.
+    // Minecraft stair shape=outer_right/outer_left creates the angled corner piece.
+    // SW corner: south + west slopes meet → outer corner facing south
+    if (grid.inBounds(xW, ry, zS)) {
+      grid.set(xW, ry, zS, hipCorner(style.roofS, 'outer_right'));
+    }
+    // SE corner: south + east slopes meet → outer corner facing east
+    if (grid.inBounds(xE, ry, zS)) {
+      grid.set(xE, ry, zS, hipCorner(style.roofE, 'outer_right'));
+    }
+    // NW corner: north + west slopes meet → outer corner facing west
+    if (grid.inBounds(xW, ry, zN)) {
+      grid.set(xW, ry, zN, hipCorner(style.roofW, 'outer_right'));
+    }
+    // NE corner: north + east slopes meet → outer corner facing north
+    if (grid.inBounds(xE, ry, zN)) {
+      grid.set(xE, ry, zN, hipCorner(style.roofN, 'outer_right'));
     }
 
     // Fill interior between slopes with ceiling material
-    for (let x = xWest + 1; x < xEast; x++) {
-      for (let z = zSouth + 1; z < zNorth; z++) {
+    for (let x = xW + 1; x < xE; x++) {
+      for (let z = zS + 1; z < zN; z++) {
         if (grid.inBounds(x, ry, z)) grid.set(x, ry, z, style.ceiling);
       }
     }
@@ -301,6 +331,19 @@ export function hipRoof(
       if (grid.inBounds(x, ridgeY, ridgeZ)) grid.set(x, ridgeY, ridgeZ, style.roofCap);
     }
   }
+}
+
+/**
+ * Derive a corner stair block from a base stair block by appending shape property.
+ * Minecraft stairs support shape=outer_right, outer_left, inner_right, inner_left
+ * which create the angled corner pieces needed for seamless hip/pyramidal roofs.
+ */
+function hipCorner(baseStair: string, shape: 'outer_right' | 'outer_left' | 'inner_right' | 'inner_left'): string {
+  // Insert shape into the existing block state properties
+  if (baseStair.includes('[')) {
+    return baseStair.replace(']', `,shape=${shape}]`);
+  }
+  return `${baseStair}[shape=${shape}]`;
 }
 
 /**
@@ -414,7 +457,7 @@ export function gambrelRoof(
 /**
  * Build a mansard roof — steep lower slopes on all four sides, then a flat or
  * low-slope top section. Classic French Second Empire style.
- * The steep lower portion provides usable attic space.
+ * Uses proper E/W facing stairs and context-aware corner stair shapes.
  */
 export function mansardRoof(
   grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
@@ -435,16 +478,22 @@ export function mansardRoof(
     const xE = x2 + 1 - layer;
     if (zS >= zN || xW >= xE) break;
 
-    // South and north slopes
-    for (let x = xW; x <= xE; x++) {
+    // South and north slopes (interior only — corners handled below)
+    for (let x = xW + 1; x < xE; x++) {
       if (grid.inBounds(x, ry, zS)) grid.set(x, ry, zS, style.roofS);
       if (grid.inBounds(x, ry, zN)) grid.set(x, ry, zN, style.roofN);
     }
-    // East and west slopes
+    // West and east slopes (interior only)
     for (let z = zS + 1; z < zN; z++) {
-      if (grid.inBounds(xW, ry, z)) grid.set(xW, ry, z, style.roofCap);
-      if (grid.inBounds(xE, ry, z)) grid.set(xE, ry, z, style.roofCap);
+      if (grid.inBounds(xW, ry, z)) grid.set(xW, ry, z, style.roofW);
+      if (grid.inBounds(xE, ry, z)) grid.set(xE, ry, z, style.roofE);
     }
+    // Corner stairs — outer corners at mansard edges
+    if (grid.inBounds(xW, ry, zS)) grid.set(xW, ry, zS, hipCorner(style.roofS, 'outer_right'));
+    if (grid.inBounds(xE, ry, zS)) grid.set(xE, ry, zS, hipCorner(style.roofE, 'outer_right'));
+    if (grid.inBounds(xW, ry, zN)) grid.set(xW, ry, zN, hipCorner(style.roofW, 'outer_right'));
+    if (grid.inBounds(xE, ry, zN)) grid.set(xE, ry, zN, hipCorner(style.roofN, 'outer_right'));
+
     // Fill interior
     for (let x = xW + 1; x < xE; x++) {
       for (let z = zS + 1; z < zN; z++) {

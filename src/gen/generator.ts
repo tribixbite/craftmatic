@@ -413,6 +413,11 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
     style.roofN = options.roofOverride.north;
     style.roofS = options.roofOverride.south;
     style.roofCap = options.roofOverride.cap;
+    // Derive east/west stair facings from the stair base block
+    // Extract base stair ID from "minecraft:xxx_stairs[facing=north]" → "minecraft:xxx_stairs"
+    const baseStair = options.roofOverride.north.replace(/\[.*\]/, '');
+    style.roofE = `${baseStair}[facing=east]`;
+    style.roofW = `${baseStair}[facing=west]`;
   }
 
   let grid: BlockGrid;

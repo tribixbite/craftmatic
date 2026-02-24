@@ -525,32 +525,39 @@ export function initImport(
       composeSatelliteView(geo.lat, geo.lng, 18, tileFetcher).then(canvas => {
         currentSeason = (canvas.dataset['season'] as SeasonalWeather) ?? undefined;
 
-        // Extract building color from satellite canvas around crosshair
+        // Show satellite canvas immediately so user sees imagery while analysis runs
         const { pixelX, pixelY } = getCrosshairPosition(geo.lat, geo.lng);
-        const color = extractBuildingColor(canvas, pixelX, pixelY);
-        if (color) {
-          currentDetectedColor = color;
-          // Only use satellite color as wallOverride if higher-priority sources didn't set it
-          if (!currentWallOverride) {
-            currentWallOverride = mapColorToWall(color);
+        showSatelliteCanvas(viewer, canvas, geo, currentSeason, undefined);
+
+        // Defer heavy image analysis to next frame to avoid UI freeze on mobile
+        requestAnimationFrame(() => {
+          // Extract building color from satellite canvas around crosshair
+          const color = extractBuildingColor(canvas, pixelX, pixelY);
+          if (color) {
+            currentDetectedColor = color;
+            // Only use satellite color as wallOverride if higher-priority sources didn't set it
+            if (!currentWallOverride) {
+              currentWallOverride = mapColorToWall(color);
+            }
           }
-        }
 
-        // Pool detection — scan ring around building for cyan/blue pixels
-        currentPoolDetected = detectPool(canvas, pixelX, pixelY);
+          // Pool detection — scan ring around building for cyan/blue pixels
+          currentPoolDetected = detectPool(canvas, pixelX, pixelY);
 
-        // Footprint extraction — detect building shape + dimensions from satellite pixels
-        currentSatFootprint = extractFootprint(canvas, pixelX, pixelY, geo.lat);
-        if (currentSatFootprint && currentSatFootprint.confidence >= 0.6) {
-          drawFootprintOverlay(canvas, currentSatFootprint, pixelX, pixelY);
-        }
+          // Footprint extraction — detect building shape + dimensions from satellite pixels
+          currentSatFootprint = extractFootprint(canvas, pixelX, pixelY, geo.lat);
+          if (currentSatFootprint && currentSatFootprint.confidence >= 0.6) {
+            drawFootprintOverlay(canvas, currentSatFootprint, pixelX, pixelY);
+          }
 
-        // Draw OSM building polygon overlay on satellite canvas
-        if (currentOSM && currentOSM.polygon.length >= 3) {
-          drawBuildingOutline(canvas, geo, currentOSM.polygon);
-        }
+          // Draw OSM building polygon overlay on satellite canvas
+          if (currentOSM && currentOSM.polygon.length >= 3) {
+            drawBuildingOutline(canvas, geo, currentOSM.polygon);
+          }
 
-        showSatelliteCanvas(viewer, canvas, geo, currentSeason, currentDetectedColor);
+          // Re-show canvas with overlays and detected color applied
+          showSatelliteCanvas(viewer, canvas, geo, currentSeason, currentDetectedColor);
+        });
 
         // Append Street View image below satellite if available
         if (currentStreetViewUrl) {
