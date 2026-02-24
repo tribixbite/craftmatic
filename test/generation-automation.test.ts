@@ -815,9 +815,15 @@ describe('estimateStoriesFromFootprint', () => {
     expect(estimateStoriesFromFootprint(2000, 0, 0)).toBe(2);
   });
 
-  it('clamps at 100 maximum', () => {
-    // 50000 sqft / (5*5 sqm * 10.76) = ~186 → clamped to 100
-    expect(estimateStoriesFromFootprint(50000, 5, 5)).toBe(100);
+  it('clamps at 3 for small footprints with high sqft', () => {
+    // 50000 sqft / (5*5=25 sqm) = ~186 raw floors, but small footprint cap → 3
+    // Parcl sqft often includes basement/attic for small-footprint homes
+    expect(estimateStoriesFromFootprint(50000, 5, 5)).toBe(3);
+  });
+
+  it('allows high floors for large footprints', () => {
+    // Large footprint (> 200 sqm) bypasses the small-footprint cap
+    expect(estimateStoriesFromFootprint(50000, 20, 20)).toBeGreaterThan(3);
   });
 
   it('clamps at 1 minimum', () => {
@@ -844,11 +850,21 @@ describe('resolveStyle', () => {
     }))).toBe('gothic');
   });
 
-  it('yearUncertain falls back to rustic instead of year-based inference', () => {
+  it('yearUncertain uses density-aware fallback', () => {
+    // Default makeProperty: address='123 Test St' (formal road), state=IL (suburban)
+    // → suburban + formal road → 'fantasy' (colonial proxy)
     const style = resolveStyle(makeProperty({
       style: 'auto', yearBuilt: 0, yearUncertain: true,
     }));
-    // yearUncertain → 'rustic' fallback (most missing-year US homes are pre-war)
+    expect(style).toBe('fantasy');
+  });
+
+  it('yearUncertain falls back to rustic for rural roads', () => {
+    const style = resolveStyle(makeProperty({
+      style: 'auto', yearBuilt: 0, yearUncertain: true,
+      address: '216 Zekes Point Rd, Vinalhaven, ME 04863',
+    }));
+    // "Rd" = rural road, not formal → 'rustic'
     expect(style).toBe('rustic');
   });
 
@@ -914,13 +930,14 @@ describe('style-aware porch override', () => {
 // ─── yearUncertain + bedroomsUncertain in conversion ────────────────
 
 describe('uncertain data flags', () => {
-  it('yearUncertain property gets rustic style (pre-war fallback)', () => {
+  it('yearUncertain property gets density-aware style fallback', () => {
+    // Default makeProperty: suburban + formal road → 'fantasy'
     const opts = convertToGenerationOptions(makeProperty({
       style: 'auto',
       yearBuilt: 2000,
       yearUncertain: true,
     }));
-    expect(opts.style).toBe('rustic');
+    expect(opts.style).toBe('fantasy');
   });
 
   it('bedroomsUncertain does not affect generation output', () => {
