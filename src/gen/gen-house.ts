@@ -654,6 +654,191 @@ export function generateHouse(
     }
   }
 
+  // ── Colonial enhancements: shutters + symmetrical facade + picket fence ──
+  if (style.wall === 'minecraft:smooth_quartz' && style.wallAccent === 'minecraft:bricks') {
+    // Dark "shutters" flanking every window — spruce trapdoors on both sides
+    for (let story = 0; story < floors; story++) {
+      const by = story * STORY_H;
+      const winY1 = by + 2;
+      const winY2 = by + 3;
+      // South (front) wall shutters
+      for (let x = bx1 + 2; x <= bx2 - 2; x++) {
+        if (grid.inBounds(x, winY1, bz2) && grid.get(x, winY1, bz2) === style.window) {
+          // Left shutter
+          if (grid.inBounds(x - 1, winY1, bz2 + 1))
+            grid.set(x - 1, winY1, bz2 + 1, 'minecraft:spruce_trapdoor[facing=east,open=true]');
+          if (grid.inBounds(x - 1, winY2, bz2 + 1))
+            grid.set(x - 1, winY2, bz2 + 1, 'minecraft:spruce_trapdoor[facing=east,open=true]');
+          // Right shutter
+          if (grid.inBounds(x + 1, winY1, bz2 + 1))
+            grid.set(x + 1, winY1, bz2 + 1, 'minecraft:spruce_trapdoor[facing=west,open=true]');
+          if (grid.inBounds(x + 1, winY2, bz2 + 1))
+            grid.set(x + 1, winY2, bz2 + 1, 'minecraft:spruce_trapdoor[facing=west,open=true]');
+        }
+      }
+      // North (back) wall shutters
+      for (let x = bx1 + 2; x <= bx2 - 2; x++) {
+        if (grid.inBounds(x, winY1, bz1) && grid.get(x, winY1, bz1) === style.window) {
+          if (grid.inBounds(x - 1, winY1, bz1 - 1))
+            grid.set(x - 1, winY1, bz1 - 1, 'minecraft:spruce_trapdoor[facing=east,open=true]');
+          if (grid.inBounds(x - 1, winY2, bz1 - 1))
+            grid.set(x - 1, winY2, bz1 - 1, 'minecraft:spruce_trapdoor[facing=east,open=true]');
+          if (grid.inBounds(x + 1, winY1, bz1 - 1))
+            grid.set(x + 1, winY1, bz1 - 1, 'minecraft:spruce_trapdoor[facing=west,open=true]');
+          if (grid.inBounds(x + 1, winY2, bz1 - 1))
+            grid.set(x + 1, winY2, bz1 - 1, 'minecraft:spruce_trapdoor[facing=west,open=true]');
+        }
+      }
+    }
+    // Brick chimney accent — taller chimney with brick cap (colonial staple)
+    const colChimX = bx1 + 2;
+    const colChimTop = roofBase + effectiveRoofH;
+    for (let y = 1; y <= colChimTop + 2; y++) {
+      if (grid.inBounds(colChimX, y, bz1 + 1))
+        grid.set(colChimX, y, bz1 + 1, 'minecraft:bricks');
+    }
+    if (grid.inBounds(colChimX, colChimTop + 3, bz1 + 1))
+      grid.set(colChimX, colChimTop + 3, bz1 + 1, 'minecraft:stone_brick_slab[type=bottom]');
+    // Pediment over front door — triangular decorative header
+    if (grid.inBounds(xMid, STORY_H, bz2 + 1)) {
+      grid.set(xMid - 1, STORY_H - 1, bz2 + 1, style.roofS);
+      grid.set(xMid, STORY_H - 1, bz2 + 1, style.roofCap);
+      grid.set(xMid + 1, STORY_H - 1, bz2 + 1, style.roofS);
+    }
+    // Flower boxes under front windows — colonial curb appeal
+    for (let x = bx1 + 3; x <= bx2 - 3; x += 3) {
+      if (grid.inBounds(x, 1, bz2 + 1))
+        grid.set(x, 1, bz2 + 1, pick(['minecraft:potted_lily_of_the_valley', 'minecraft:potted_blue_orchid', 'minecraft:potted_dandelion'], rng));
+    }
+    // Brick walkway from front door
+    for (let z = bz2 + porchDepth + 1; z <= bz2 + porchDepth + 5; z++) {
+      if (grid.inBounds(xMid, 0, z))
+        grid.set(xMid, 0, z, 'minecraft:bricks');
+    }
+  }
+
+  // ── Gothic/Victorian enhancements: turret + bay windows + ornamental trim ──
+  if (style.wall === 'minecraft:deepslate_bricks') {
+    // ── Corner turret — circular tower on NE corner, signature Queen Anne element ──
+    const turretR = 3;
+    const turretCX = bx2 + 1;
+    const turretCZ = bz1 - 1;
+    const turretH = floors * STORY_H + 3; // Rises above main roofline
+    for (let y = 0; y <= turretH; y++) {
+      for (let ddx = -turretR; ddx <= turretR; ddx++) {
+        for (let dz = -turretR; dz <= turretR; dz++) {
+          const dist = Math.sqrt(ddx * ddx + dz * dz);
+          if (dist > turretR + 0.5) continue;
+          const tx = turretCX + ddx;
+          const tz = turretCZ + dz;
+          if (!grid.inBounds(tx, y, tz)) continue;
+          if (y === 0) {
+            grid.set(tx, y, tz, style.foundation);
+          } else if (dist >= turretR - 0.5) {
+            // Shell wall — windows every other story at cardinal points
+            const isWindowY = (y % STORY_H === 2 || y % STORY_H === 3);
+            const isCardinal = (ddx === 0 || dz === 0) && Math.abs(ddx) + Math.abs(dz) === turretR;
+            grid.set(tx, y, tz, isWindowY && isCardinal ? style.window : style.wall);
+          }
+        }
+      }
+    }
+    // Conical turret roof (cone shape)
+    for (let layer = 0; layer <= turretR + 2; layer++) {
+      const coneY = turretH + 1 + layer;
+      const coneR = turretR + 1 - layer * 0.7;
+      if (coneR < 0) break;
+      for (let ddx = -Math.ceil(coneR); ddx <= Math.ceil(coneR); ddx++) {
+        for (let dz = -Math.ceil(coneR); dz <= Math.ceil(coneR); dz++) {
+          if (Math.sqrt(ddx * ddx + dz * dz) <= coneR + 0.3) {
+            const tx = turretCX + ddx;
+            const tz = turretCZ + dz;
+            if (grid.inBounds(tx, coneY, tz))
+              grid.set(tx, coneY, tz, style.roofCap);
+          }
+        }
+      }
+    }
+
+    // ── Bay windows — front facade protrusions, 3 wide × 2 deep ──
+    const bayPositions = [bx1 + 3, bx2 - 3].filter(x => x > bx1 + 2 && x < bx2 - 2);
+    for (const bayX of bayPositions) {
+      for (let story = 0; story < Math.min(floors, 2); story++) {
+        const by = story * STORY_H;
+        // Bay floor
+        for (let ddx = -1; ddx <= 1; ddx++) {
+          if (grid.inBounds(bayX + ddx, by, bz2 + 1))
+            grid.set(bayX + ddx, by, bz2 + 1, style.floorGround);
+          if (grid.inBounds(bayX + ddx, by, bz2 + 2))
+            grid.set(bayX + ddx, by, bz2 + 2, style.floorGround);
+        }
+        // Bay walls + windows
+        for (let y = by + 1; y <= by + STORY_H - 1; y++) {
+          // Side walls
+          if (grid.inBounds(bayX - 1, y, bz2 + 1))
+            grid.set(bayX - 1, y, bz2 + 1, style.wall);
+          if (grid.inBounds(bayX + 1, y, bz2 + 1))
+            grid.set(bayX + 1, y, bz2 + 1, style.wall);
+          if (grid.inBounds(bayX - 1, y, bz2 + 2))
+            grid.set(bayX - 1, y, bz2 + 2, style.wall);
+          if (grid.inBounds(bayX + 1, y, bz2 + 2))
+            grid.set(bayX + 1, y, bz2 + 2, style.wall);
+          // Front window wall
+          if (grid.inBounds(bayX, y, bz2 + 2)) {
+            const isWin = (y === by + 2 || y === by + 3);
+            grid.set(bayX, y, bz2 + 2, isWin ? style.window : style.wall);
+          }
+        }
+        // Bay roof slab
+        for (let ddx = -1; ddx <= 1; ddx++) {
+          if (grid.inBounds(bayX + ddx, by + STORY_H, bz2 + 1))
+            grid.set(bayX + ddx, by + STORY_H, bz2 + 1, style.roofCap);
+          if (grid.inBounds(bayX + ddx, by + STORY_H, bz2 + 2))
+            grid.set(bayX + ddx, by + STORY_H, bz2 + 2, style.roofCap);
+        }
+      }
+    }
+
+    // Ornamental iron fence around property
+    for (let x = Math.max(0, bx1 - 2); x <= bx2 + 2; x++) {
+      const fz = bz2 + porchDepth + 2;
+      if (grid.inBounds(x, 1, fz))
+        grid.set(x, 1, fz, 'minecraft:iron_bars');
+    }
+    // Weathered wall detail (cracked/mossy variants)
+    const gothicVariants = ['minecraft:cracked_deepslate_bricks', 'minecraft:deepslate_tiles'];
+    weatherWalls(grid, bx1, 0, bz1, bx2, floors * STORY_H, bz2, style.wall, gothicVariants, rng, 0.1);
+  }
+
+  // ── Gabled roof dormers — break up long rooflines for fantasy/colonial/gothic styles ──
+  // Generalized from the medieval-only version; adds south-facing dormer windows
+  if ((roofShape === 'gable' || roofShape === 'gambrel') && bw >= 14
+    && style.wall !== 'minecraft:stone_bricks') { // Medieval already has its own dormers
+    const dormerSpacing = Math.max(6, Math.floor(bw / 3));
+    for (let ddx = bx1 + dormerSpacing; ddx <= bx2 - dormerSpacing; ddx += dormerSpacing) {
+      const dormerBase = roofBase + 2;
+      // Dormer walls (3 wide, 3 tall projecting from south roof slope)
+      for (let y = dormerBase; y <= dormerBase + 2; y++) {
+        for (let dddx = -1; dddx <= 1; dddx++) {
+          if (grid.inBounds(ddx + dddx, y, bz2 + 1))
+            grid.set(ddx + dddx, y, bz2 + 1, style.wall);
+        }
+      }
+      // Dormer window
+      if (grid.inBounds(ddx, dormerBase + 1, bz2 + 1))
+        grid.set(ddx, dormerBase + 1, bz2 + 1, style.window);
+      // Dormer mini-gable cap
+      if (grid.inBounds(ddx - 1, dormerBase + 3, bz2 + 1))
+        grid.set(ddx - 1, dormerBase + 3, bz2 + 1, style.roofS);
+      if (grid.inBounds(ddx, dormerBase + 3, bz2 + 1))
+        grid.set(ddx, dormerBase + 3, bz2 + 1, style.roofS);
+      if (grid.inBounds(ddx + 1, dormerBase + 3, bz2 + 1))
+        grid.set(ddx + 1, dormerBase + 3, bz2 + 1, style.roofS);
+      if (grid.inBounds(ddx, dormerBase + 4, bz2 + 1))
+        grid.set(ddx, dormerBase + 4, bz2 + 1, style.roofCap);
+    }
+  }
+
   // ── Steampunk workshop enhancements: heavy industrial aesthetic ──
   if (style.wall === 'minecraft:iron_block') {
     // Vertical pipe runs on ALL exterior walls — copper + lightning rod stacks

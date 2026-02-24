@@ -176,7 +176,7 @@ export function mapArchitectureToStyle(arch: string | undefined): StyleName | un
   const MAP: [RegExp, StyleName][] = [
     [/\bvictorian|queen\s*anne|second\s*empire/i, 'gothic'],
     [/\bcraftsman|arts?\s*&?\s*crafts|bungalow/i, 'rustic'],
-    [/\bcolonial|georgian|federal|cape\s*cod/i, 'fantasy'],
+    [/\bcolonial|georgian|federal|cape\s*cod/i, 'colonial'],
     [/\bmodern|contemporary|mid.?century|minimalist|international/i, 'modern'],
     [/\bmediterranean|spanish|mission|pueblo/i, 'desert'],
     [/\btudor|half.?timber|english/i, 'medieval'],
@@ -208,8 +208,8 @@ export function inferStyleFromCounty(county: string | undefined, year: number): 
   if (/\bwestchester|dutchess|suffolk/.test(c) && year < 1940) return 'medieval';
   // Art Deco / Steampunk — industrial-era cities
   if (/\bcook|wayne|allegheny/.test(c) && year >= 1900 && year < 1940) return 'steampunk';
-  // Colonial/Fantasy — East Coast historic
-  if (/\bfairfax|arlington|montgomery/.test(c) && year < 1900) return 'fantasy';
+  // Colonial — East Coast historic
+  if (/\bfairfax|arlington|montgomery/.test(c) && year < 1900) return 'colonial';
   // Spanish Colonial / Desert — Southwest
   if (/\bmaricopa|pima|bernalillo|clark/.test(c)) return 'desert';
   // Prairie/Rustic — Midwest
@@ -230,9 +230,9 @@ export function inferStyleFromCity(city: string | undefined, year: number): Styl
   // New Orleans — French/Creole ironwork (maps to gothic for ornamental detail)
   if (/^new\s*orleans$/i.test(c) && year < 1940) return 'gothic';
   // Savannah — antebellum/colonial
-  if (/^savannah$/i.test(c) && year < 1900) return 'fantasy';
+  if (/^savannah$/i.test(c) && year < 1900) return 'colonial';
   // Charleston — Georgian/Federal
-  if (/^charleston$/i.test(c) && year < 1900) return 'fantasy';
+  if (/^charleston$/i.test(c) && year < 1900) return 'colonial';
   // Key West — Caribbean/tropical timber
   if (/^key\s*west$/i.test(c)) return 'rustic';
   // Portland/Seattle — craftsman prevalence
@@ -293,8 +293,8 @@ export function resolveStyle(prop: PropertyData): StyleName {
     // are overwhelmingly white colonial/Federal, not rustic lodges
     const ne = ['NH', 'VT', 'MA', 'CT', 'ME', 'RI'].includes(prop.stateAbbreviation?.toUpperCase() ?? '');
     const formalRoad = /\b(st|ave|blvd|dr|ct|pl|sq|way)\b/i.test(prop.address);
-    if (ne && formalRoad) return 'fantasy'; // Colonial/Federal proxy
-    if (density === 'suburban' && formalRoad) return 'fantasy';
+    if (ne && formalRoad) return 'colonial'; // White clapboard Colonial/Federal
+    if (density === 'suburban' && formalRoad) return 'colonial';
     return 'rustic';
   };
   const fallback = prop.yearUncertain ? uncertainFallback() : inferStyle(year, prop.newConstruction);
@@ -596,7 +596,10 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
     if (effectiveStyle === 'gothic' || effectiveStyle === 'rustic') {
       flags.porch = true;
     }
-    // Colonial/Fantasy homes pre-1950 also typically have porches
+    // Colonial homes always have porches; fantasy pre-1950 also typically do
+    if (effectiveStyle === 'colonial') {
+      flags.porch = true;
+    }
     if (effectiveStyle === 'fantasy' && year > 0 && year < 1950) {
       flags.porch = true;
     }
