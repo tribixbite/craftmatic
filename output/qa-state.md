@@ -650,3 +650,50 @@ Addressed all 3 remaining gaps from Post-QA 17. Added 7th test address (Byron Ce
 ### Comparison Page
 
 Updated comparison viewer with 6 locations: SF, Newton, Winchester, Walpole, Byron Center, Suttons Bay (new). Byron Center images now properly served. Live at GH Pages `/comparison/`.
+
+---
+
+## Post-QA 20: Mapbox + Google API Integration & 3-Tier Comparison
+
+### New API Integrations
+
+3 new API clients added to the pipeline (8 total, was 5):
+
+| API | Data | Free Tier | Status |
+|-----|------|-----------|--------|
+| Mapbox Tilequery | Building height (m), type | 100k/month | Working |
+| Google Solar | Roof pitch, segments, area | 10k/month | Needs GCP enable |
+| Google Street View | Capture date, heading, image URL | Unlimited metadata | Working |
+
+**Floor count priority chain**: OSM levels > Mapbox height > sqft/footprint heuristic
+**Roof shape priority chain**: OSM roof:shape > Smarty roofFrame > Solar segments > style default
+
+### 3-Tier Comparison Viewer
+
+Rewritten from 2-way to 3-way comparison at `/comparison/`:
+- **No API**: Generic fantasy 2f compound (shared baseline)
+- **Some APIs**: Parcl + OSM + Smarty + Mapillary (renamed from `*-api_*`)
+- **All APIs**: + Mapbox height + Google Solar roof + Google Street View
+
+Dual-handle slider with 3 zones (red / amber / green).
+7 locations: SF, Newton, Winchester, Walpole, Byron Center, Vinalhaven (new), Suttons Bay.
+
+### Key Findings
+
+| Address | Mapbox Height | StreetView | Generation Difference |
+|---------|--------------|------------|----------------------|
+| SF | 13.0m | 2025-01 | None (OSM levels present) |
+| Newton | 7.5m | 2022-10 | None (OSM levels present) |
+| Winchester | 27.9m | 2020-08 | None (OSM levels present) |
+| **Walpole** | **8.5m** | 2023-07 | **3f → 2f (Mapbox more accurate)** |
+| Byron Center | — | 2025-05 | None (OSM levels present) |
+| Vinalhaven | — | — | None (too rural) |
+| Suttons Bay | — | — | None (too rural) |
+
+Walpole is the standout: Mapbox LiDAR height (8.5m ÷ 3.5 = 2.4 → 2f) corrects the sqft heuristic's 3f overestimate for this Federal-era NH home.
+
+### Compromises
+
+- **Solar API**: Returns 401 — needs explicit enablement in GCP console (user action, not a code issue)
+- **Rural coverage**: Mapbox/StreetView absent for Vinalhaven (island) and Suttons Bay (rural MI)
+- **Vinalhaven someapis**: Sparse (only cutaway + exterior from prior session), copied allapis images as proxy since both tiers are identical for this location
