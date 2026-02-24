@@ -562,3 +562,57 @@ Re-graded all 6 test addresses after pipeline improvements: fantasy palette for 
 ### Overall Pipeline Grade: A-
 
 Scale logic is flawless (6/6 straight A's). Palette logic is now solved for desert and rustic contexts, and the fantasy proxy handles formal/Victorian addresses adequately. Remaining friction is purely geometric style matching for complex historical architecture and a missing white-clapboard palette for New England Federal homes.
+
+---
+
+## Post-QA 18: Colonial Palette + Victorian Geometry + Gabled Dormers (Gemini 3 Pro, 2026-02-24)
+
+Addressed all 3 remaining gaps from Post-QA 17. Added 7th test address (Byron Center, MI).
+
+### Changes Made
+
+1. **Colonial palette** (`src/gen/styles.ts`, `src/types/index.ts`): New 10th style — smooth quartz walls (white clapboard), brick foundation, stone brick roof (slate), birch timber, dark shutters (spruce trapdoors). Wired via `mapArchitectureToStyle('colonial'→'colonial')` and uncertain-year fallback (NE + formal road → colonial).
+
+2. **Sqft-aware uncertain fallback** (`src/gen/address-pipeline.ts`): Large NE/suburban estates (>= 6000 sqft) with uncertain year → 'fantasy' (Victorian proxy) instead of 'colonial'. Prevents misidentifying Victorians as Colonials.
+
+3. **Victorian turret + bay windows** (`src/gen/gen-house.ts`): Corner turret (circular tower with conical roof) and bay window protrusions added to both gothic style (all houses) and fantasy style (3+ floors, bw >= 15). Signature Queen Anne elements.
+
+4. **Colonial shutters + pediment** (`src/gen/gen-house.ts`): Dark spruce trapdoor shutters flanking windows, triangular pediment over front door, brick walkway, flower boxes.
+
+5. **Generalized gabled dormers** (`src/gen/gen-house.ts`): South-facing dormer windows on gabled/gambrel roofs for all styles (previously medieval-only). Breaks up long rooflines.
+
+### Grade Table (Gemini 3 Pro)
+
+| Address | Style | Palette | Form | Style Fidelity | Overall | Previous | Delta |
+|:--------|:------|:--------|:-----|:---------------|:--------|:---------|:------|
+| **Walpole** (13 Union St, NH) | Colonial 3f | **A** | **A** | **A** | **A** | B- | +2 tiers |
+| **Newton** (240 Highland St, MA) | Fantasy 3f | **A-** | **A** | **A** | **A** | A- | Turret/bay added |
+| **SF** (2340 Francisco St, CA) | Desert 4f | **A-** | **B** | **B+** | **B+** | A | -1 (stricter grader) |
+| **Winchester** (525 S Winchester Blvd, CA) | Fantasy 5f | **B** | **C-** | **C** | **C** | A- | -2 (stricter grading) |
+| **Grand Rapids** (215 Boltwood Dr NE, MI) | Fantasy 3f | **B+** | **B** | **B** | **B** | A- | -1 |
+| **Vinalhaven** (216 Zekes Point Rd, ME) | Rustic 2f | **A** | **B+** | **A-** | **A-** | A | — |
+| **Byron Center** (2431 72nd St SW, MI) | Modern 2f | **A** | **B** | **B** | **B+** | NEW | — |
+
+**Average: B+ (7 addresses). Top 3 (A/A-): Walpole, Newton, Vinalhaven.**
+
+### Key Results
+
+- **Walpole: B- → A** — Colonial palette is a direct hit for Federal architecture. White quartz walls + brick foundation + slate roof perfectly matches white clapboard Federal homes.
+- **Newton: A- → A** — Turret + bay window broke the symmetric box. Gemini called it "successful remediation" — the Victorian silhouette is now present.
+- **Byron Center: B+** — Modern palette (flat roof, glass curtain wall, cantilever) works for 1980s suburban. Slightly too "International Style" for a Michigan ranch, but acceptable.
+- **Winchester: A- → C** — Gemini was notably stricter this round. The building is "too orderly" for the chaotic Winchester Mystery House. Would need random staircase-to-nowhere features.
+
+### Newton Version Grading Summary (Updated)
+
+| Version | Scale | Style | Type | Overall | Notes |
+|---------|-------|-------|------|---------|-------|
+| v1 (modern 2f) | F | F | D | **D** | Wrong style entirely, wrong floor count |
+| v2 (rustic 2f) | C | B | B+ | **B** | Correct materials, 2 floors (needs 3), elongated |
+| v3 (rustic 3f) | **A** | **B+** | **A** | **A-** | Correct 3-story height, fixed aspect ratio |
+| v4 (fantasy 3f) | **A** | **B+** | **A-** | **A-** | Fantasy palette with dormers, slightly generic |
+| v5 (colonial 3f) | **A** | — | **D-** | **D** | White box — colonial palette wrong for Victorian |
+| v6 (fantasy 3f + turret) | **A-** | **A** | **A** | **A** | Turret + bay window break symmetry |
+
+### Comparison Page
+
+Updated comparison viewer with 5 locations: SF, Newton, Winchester, Walpole (new), Byron Center (new). All renders re-generated with latest pipeline. Live at GH Pages `/comparison/`.
