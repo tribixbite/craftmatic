@@ -138,6 +138,16 @@ export function extractFootprint(
   const roofColor = sampleRoofColor(data, w, h, centerX - x0, centerY - y0);
   if (!roofColor) return null;
 
+  // Check if the sampled roof color itself is grey/pavement-like
+  // (asphalt shingle roofs are very common — don't filter them out)
+  const [roofH, roofS, roofL] = rgbToHsl(roofColor.r, roofColor.g, roofColor.b);
+  const roofIsGrey = isPavement(roofS, roofL);
+
+  // Adaptive color threshold based on sample variance
+  const threshold = roofColor.variance != null
+    ? Math.max(1500, Math.min(5000, roofColor.variance * 8))
+    : COLOR_THRESHOLD_SQ;
+
   // ── Step 2: Create binary mask — pixels similar to roof color ─────────
   const rawMask = new Uint8Array(w * h);
   for (let py = 0; py < h; py++) {
@@ -148,12 +158,13 @@ export function extractFootprint(
       // Filter out obvious non-building pixels first
       const [hh, ss, ll] = rgbToHsl(rr, gg, bb);
       if (isVegetation(hh, ss, ll)) continue;
-      if (isPavement(ss, ll)) continue;
+      // Only filter pavement if the roof itself isn't grey
+      if (!roofIsGrey && isPavement(ss, ll)) continue;
       if (ll < 0.08 || ll > 0.95) continue; // shadows / glare
 
       // Check color similarity to detected roof
       const dist = colorDistSq(rr, gg, bb, roofColor.r, roofColor.g, roofColor.b);
-      if (dist <= COLOR_THRESHOLD_SQ) {
+      if (dist <= threshold) {
         rawMask[py * w + px] = 1;
       }
     }
@@ -229,22 +240,31 @@ export function extractFootprint(
 // ─── Step 1: Roof Color Sampling ────────────────────────────────────────────
 
 /**
- * Sample dominant color from small circular region around building center.
- * Filters vegetation/pavement, then finds most common hue cluster.
+ * Sample dominant roof color using hue bucketing (robust to multi-colored roofs).
+ * Collects pixels in circular region, clusters by hue, returns the dominant cluster's
+ * average color. Does NOT filter pavement colors — grey asphalt roofs are common.
+ * Also returns color variance for adaptive threshold tuning.
  */
 function sampleRoofColor(
   data: Uint8ClampedArray,
   w: number, h: number,
   cx: number, cy: number,
-): { r: number; g: number; b: number } | null {
+): { r: number; g: number; b: number; variance: number } | null {
   const r2 = ROOF_SAMPLE_RADIUS * ROOF_SAMPLE_RADIUS;
-  let rSum = 0, gSum = 0, bSum = 0, count = 0;
 
   const py0 = Math.max(0, Math.floor(cy - ROOF_SAMPLE_RADIUS));
   const py1 = Math.min(h, Math.ceil(cy + ROOF_SAMPLE_RADIUS));
   const px0 = Math.max(0, Math.floor(cx - ROOF_SAMPLE_RADIUS));
   const px1 = Math.min(w, Math.ceil(cx + ROOF_SAMPLE_RADIUS));
 
+  // 12 hue bins (30° each) + 1 grey bucket (S < 0.1)
+  const NUM_BINS = 12;
+  const buckets: { rSum: number; gSum: number; bSum: number; r2Sum: number; g2Sum: number; b2Sum: number; count: number }[] = [];
+  for (let i = 0; i <= NUM_BINS; i++) {
+    buckets.push({ rSum: 0, gSum: 0, bSum: 0, r2Sum: 0, g2Sum: 0, b2Sum: 0, count: 0 });
+  }
+
+  let totalValid = 0;
   for (let py = py0; py < py1; py++) {
     for (let px = px0; px < px1; px++) {
       const dx = px - cx;
@@ -255,23 +275,47 @@ function sampleRoofColor(
       const rr = data[idx], gg = data[idx + 1], bb = data[idx + 2];
       const [hh, ss, ll] = rgbToHsl(rr, gg, bb);
 
-      // Skip vegetation, pavement, shadows, glare
+      // Only skip vegetation, shadows, glare — NOT pavement (grey roofs are valid)
       if (isVegetation(hh, ss, ll)) continue;
-      if (isPavement(ss, ll)) continue;
       if (ll < 0.08 || ll > 0.95) continue;
 
-      rSum += rr;
-      gSum += gg;
-      bSum += bb;
-      count++;
+      totalValid++;
+      const bi = ss < 0.1 ? NUM_BINS : Math.floor(hh / 30) % NUM_BINS;
+      buckets[bi].rSum += rr;
+      buckets[bi].gSum += gg;
+      buckets[bi].bSum += bb;
+      buckets[bi].r2Sum += rr * rr;
+      buckets[bi].g2Sum += gg * gg;
+      buckets[bi].b2Sum += bb * bb;
+      buckets[bi].count++;
     }
   }
 
-  if (count < 20) return null;
+  if (totalValid < 20) return null;
+
+  // Find dominant bucket
+  let best = buckets[0];
+  for (let i = 1; i < buckets.length; i++) {
+    if (buckets[i].count > best.count) best = buckets[i];
+  }
+  if (best.count === 0) return null;
+
+  const n = best.count;
+  const avgR = best.rSum / n;
+  const avgG = best.gSum / n;
+  const avgB = best.bSum / n;
+
+  // Compute variance for adaptive thresholding
+  const varR = best.r2Sum / n - avgR * avgR;
+  const varG = best.g2Sum / n - avgG * avgG;
+  const varB = best.b2Sum / n - avgB * avgB;
+  const variance = varR + varG + varB;
+
   return {
-    r: Math.round(rSum / count),
-    g: Math.round(gSum / count),
-    b: Math.round(bSum / count),
+    r: Math.round(avgR),
+    g: Math.round(avgG),
+    b: Math.round(avgB),
+    variance: Math.round(variance),
   };
 }
 
@@ -395,8 +439,10 @@ interface OBB {
 }
 
 /**
- * Compute oriented bounding box using PCA on building pixel coordinates.
- * Projects all set pixels onto principal axes to find tightest-fitting rectangle.
+ * Compute minimum-area oriented bounding box using discrete angle search.
+ * Tests rotations at 5° intervals from -45° to +45° and picks the angle
+ * that produces the smallest bounding rectangle. This aligns better with
+ * rectilinear building walls than PCA (which follows mass distribution).
  */
 function computeOBB(mask: Uint8Array, w: number, h: number): OBB | null {
   // Collect building pixel coordinates
@@ -423,46 +469,80 @@ function computeOBB(mask: Uint8Array, w: number, h: number): OBB | null {
   cx /= n;
   cy /= n;
 
-  // Compute covariance matrix [cxx, cxy; cxy, cyy]
-  let cxx = 0, cxy = 0, cyy = 0;
+  // Center the coordinates
+  const dxs = new Float32Array(n);
+  const dys = new Float32Array(n);
   for (let i = 0; i < n; i++) {
-    const dx = xs[i] - cx;
-    const dy = ys[i] - cy;
-    cxx += dx * dx;
-    cxy += dx * dy;
-    cyy += dy * dy;
+    dxs[i] = xs[i] - cx;
+    dys[i] = ys[i] - cy;
   }
-  cxx /= n;
-  cxy /= n;
-  cyy /= n;
 
-  // Eigenvalue decomposition of 2x2 symmetric matrix
-  // Principal angle via atan2
-  const angle = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+  // Discrete angle search: -45° to +45° in 5° steps (19 angles)
+  // Buildings are typically axis-aligned or at modest angles
+  let bestAngle = 0;
+  let bestArea = Infinity;
+  let bestW = 0, bestH = 0;
 
-  const cosA = Math.cos(angle);
-  const sinA = Math.sin(angle);
+  for (let deg = -45; deg <= 45; deg += 5) {
+    const rad = deg * (Math.PI / 180);
+    const cosA = Math.cos(rad);
+    const sinA = Math.sin(rad);
 
-  // Project all points onto principal axes
-  let minU = Infinity, maxU = -Infinity;
-  let minV = Infinity, maxV = -Infinity;
-  for (let i = 0; i < n; i++) {
-    const dx = xs[i] - cx;
-    const dy = ys[i] - cy;
-    const u = dx * cosA + dy * sinA;
-    const v = -dx * sinA + dy * cosA;
-    if (u < minU) minU = u;
-    if (u > maxU) maxU = u;
-    if (v < minV) minV = v;
-    if (v > maxV) maxV = v;
+    let minU = Infinity, maxU = -Infinity;
+    let minV = Infinity, maxV = -Infinity;
+
+    for (let i = 0; i < n; i++) {
+      const u = dxs[i] * cosA + dys[i] * sinA;
+      const v = -dxs[i] * sinA + dys[i] * cosA;
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+
+    const area = (maxU - minU) * (maxV - minV);
+    if (area < bestArea) {
+      bestArea = area;
+      bestAngle = rad;
+      bestW = maxU - minU;
+      bestH = maxV - minV;
+    }
+  }
+
+  // Refine: search ±4° around best in 1° steps
+  const coarseAngle = bestAngle;
+  for (let off = -4; off <= 4; off++) {
+    const rad = coarseAngle + off * (Math.PI / 180);
+    const cosA = Math.cos(rad);
+    const sinA = Math.sin(rad);
+
+    let minU = Infinity, maxU = -Infinity;
+    let minV = Infinity, maxV = -Infinity;
+
+    for (let i = 0; i < n; i++) {
+      const u = dxs[i] * cosA + dys[i] * sinA;
+      const v = -dxs[i] * sinA + dys[i] * cosA;
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+
+    const area = (maxU - minU) * (maxV - minV);
+    if (area < bestArea) {
+      bestArea = area;
+      bestAngle = rad;
+      bestW = maxU - minU;
+      bestH = maxV - minV;
+    }
   }
 
   return {
     cx,
     cy,
-    width: maxU - minU,
-    height: maxV - minV,
-    angle,
+    width: bestW,
+    height: bestH,
+    angle: bestAngle,
   };
 }
 
