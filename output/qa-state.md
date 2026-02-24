@@ -793,3 +793,5 @@ Integrated standalone comparison viewer into main SPA as a proper tab. Replaced 
 | 9c20d7a | feat: regenerate comparison images with SV analysis pipeline |
 | 09e2dc3 | feat: full API comparison viewer + OSM rate limit fix |
 | de34f7f | feat: integrate comparison viewer as SPA tab |
+| 6d64eb3 | fix: restore 3-tier dual-slider comparison with all 7 locations |
+| 5edb9c9 | fix: comparison tab scrollable on mobile + generate/download buttons |
