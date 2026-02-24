@@ -293,7 +293,11 @@ export function resolveStyle(prop: PropertyData): StyleName {
     // are overwhelmingly white colonial/Federal, not rustic lodges
     const ne = ['NH', 'VT', 'MA', 'CT', 'ME', 'RI'].includes(prop.stateAbbreviation?.toUpperCase() ?? '');
     const formalRoad = /\b(st|ave|blvd|dr|ct|pl|sq|way)\b/i.test(prop.address);
+    // Large NE estates (>= 6000 sqft) with uncertain year are likely Victorian/Queen Anne,
+    // not Colonial — Colonials are typically under 5000 sqft
+    if (ne && prop.sqft >= 6000) return 'fantasy';
     if (ne && formalRoad) return 'colonial'; // White clapboard Colonial/Federal
+    if (density === 'suburban' && prop.sqft >= 6000) return 'fantasy';
     if (density === 'suburban' && formalRoad) return 'colonial';
     return 'rustic';
   };

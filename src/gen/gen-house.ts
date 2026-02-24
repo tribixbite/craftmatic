@@ -329,6 +329,79 @@ export function generateHouse(
           grid.set(bx1 - 1, y, z, 'minecraft:azalea_leaves[persistent=true]');
       }
     }
+
+    // ── Victorian turret + bay windows for large fantasy houses ──
+    // Large (3+ floors, bw >= 15) fantasy houses are likely Victorian estates
+    if (floors >= 3 && bw >= 15) {
+      // Corner turret on NE corner — signature Queen Anne element
+      const fTurretR = 3;
+      const fTurretCX = bx2 + 1;
+      const fTurretCZ = bz1 - 1;
+      const fTurretH = floors * STORY_H + 3;
+      for (let y = 0; y <= fTurretH; y++) {
+        for (let ddx = -fTurretR; ddx <= fTurretR; ddx++) {
+          for (let dz = -fTurretR; dz <= fTurretR; dz++) {
+            const dist = Math.sqrt(ddx * ddx + dz * dz);
+            if (dist > fTurretR + 0.5) continue;
+            const tx = fTurretCX + ddx;
+            const tz = fTurretCZ + dz;
+            if (!grid.inBounds(tx, y, tz)) continue;
+            if (y === 0) {
+              grid.set(tx, y, tz, style.foundation);
+            } else if (dist >= fTurretR - 0.5) {
+              const isWinY = (y % STORY_H === 2 || y % STORY_H === 3);
+              const isCardinal = (ddx === 0 || dz === 0) && Math.abs(ddx) + Math.abs(dz) === fTurretR;
+              grid.set(tx, y, tz, isWinY && isCardinal ? style.window : style.wall);
+            }
+          }
+        }
+      }
+      // Conical turret roof
+      for (let layer = 0; layer <= fTurretR + 2; layer++) {
+        const coneY = fTurretH + 1 + layer;
+        const coneR = fTurretR + 1 - layer * 0.7;
+        if (coneR < 0) break;
+        for (let ddx = -Math.ceil(coneR); ddx <= Math.ceil(coneR); ddx++) {
+          for (let dz = -Math.ceil(coneR); dz <= Math.ceil(coneR); dz++) {
+            if (Math.sqrt(ddx * ddx + dz * dz) <= coneR + 0.3) {
+              const tx = fTurretCX + ddx;
+              const tz = fTurretCZ + dz;
+              if (grid.inBounds(tx, coneY, tz))
+                grid.set(tx, coneY, tz, style.roofCap);
+            }
+          }
+        }
+      }
+      // Bay windows on front facade — 3 wide × 2 deep
+      const fBayX = bx1 + 3;
+      if (fBayX > bx1 + 2 && fBayX < bx2 - 2) {
+        for (let story = 0; story < Math.min(floors, 2); story++) {
+          const by = story * STORY_H;
+          for (let ddx = -1; ddx <= 1; ddx++) {
+            if (grid.inBounds(fBayX + ddx, by, bz2 + 1))
+              grid.set(fBayX + ddx, by, bz2 + 1, style.floorGround);
+            if (grid.inBounds(fBayX + ddx, by, bz2 + 2))
+              grid.set(fBayX + ddx, by, bz2 + 2, style.floorGround);
+          }
+          for (let y = by + 1; y <= by + STORY_H - 1; y++) {
+            if (grid.inBounds(fBayX - 1, y, bz2 + 1)) grid.set(fBayX - 1, y, bz2 + 1, style.wall);
+            if (grid.inBounds(fBayX + 1, y, bz2 + 1)) grid.set(fBayX + 1, y, bz2 + 1, style.wall);
+            if (grid.inBounds(fBayX - 1, y, bz2 + 2)) grid.set(fBayX - 1, y, bz2 + 2, style.wall);
+            if (grid.inBounds(fBayX + 1, y, bz2 + 2)) grid.set(fBayX + 1, y, bz2 + 2, style.wall);
+            if (grid.inBounds(fBayX, y, bz2 + 2)) {
+              const isWin = (y === by + 2 || y === by + 3);
+              grid.set(fBayX, y, bz2 + 2, isWin ? style.window : style.wall);
+            }
+          }
+          for (let ddx = -1; ddx <= 1; ddx++) {
+            if (grid.inBounds(fBayX + ddx, by + STORY_H, bz2 + 1))
+              grid.set(fBayX + ddx, by + STORY_H, bz2 + 1, style.roofCap);
+            if (grid.inBounds(fBayX + ddx, by + STORY_H, bz2 + 2))
+              grid.set(fBayX + ddx, by + STORY_H, bz2 + 2, style.roofCap);
+          }
+        }
+      }
+    }
   }
 
   // Modern House: detached carport + landscaped yard
