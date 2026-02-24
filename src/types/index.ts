@@ -148,6 +148,8 @@ export interface GenerationOptions {
   features?: FeatureFlags;
   /** Floor plan shape derived from OSM polygon analysis */
   floorPlanShape?: FloorPlanShape;
+  /** Override roof height in blocks (derived from Solar API pitch data) */
+  roofHeightOverride?: number;
 }
 
 /** 2D render mode */

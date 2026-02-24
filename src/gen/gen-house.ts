@@ -25,14 +25,14 @@ export function generateHouse(
   floors: number, style: StylePalette, rooms: RoomType[] | undefined,
   bwOpt: number | undefined, blOpt: number | undefined, rng: () => number,
   roofShapeOpt?: RoofShape, features?: FeatureFlags,
-  planShape?: FloorPlanShape
+  planShape?: FloorPlanShape, roofHeightOverride?: number,
 ): BlockGrid {
   // Use style's preferred roof shape when no explicit override
   const roofShape: RoofShape = roofShapeOpt ?? style.defaultRoofShape;
   // Use style's preferred plan shape when no explicit override
   const effectivePlanShape: FloorPlanShape = planShape ?? style.defaultPlanShape;
-  // Use style's preferred roof height (overrides global ROOF_H constant)
-  const effectiveRoofH = style.roofHeight;
+  // Roof height: Solar API pitch override > style default
+  const effectiveRoofH = roofHeightOverride ?? style.roofHeight;
   const bw = bwOpt ?? 29;
   const bl = blOpt ?? 23;
   const margin = 3;

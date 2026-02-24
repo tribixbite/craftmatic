@@ -133,6 +133,22 @@ export interface PropertyData {
   mapillaryHasDriveway?: boolean;
   /** Fence detected via Mapillary map features */
   mapillaryHasFence?: boolean;
+  /** Building height from Mapbox Tilequery in meters — used for floor count inference */
+  mapboxHeight?: number;
+  /** Building type from Mapbox vector tiles: 'house', 'apartments', 'detached', etc. */
+  mapboxBuildingType?: string;
+  /** Primary roof pitch from Google Solar in degrees (0=flat, 45=steep) */
+  solarRoofPitch?: number;
+  /** Number of roof segments from Google Solar — 2=gable, 4=hip, 1+flat=flat */
+  solarRoofSegments?: number;
+  /** Building footprint area from Google Solar in sqm */
+  solarBuildingArea?: number;
+  /** Total roof surface area from Google Solar in sqm */
+  solarRoofArea?: number;
+  /** Google Street View capture date (e.g. "2023-05") */
+  streetViewDate?: string;
+  /** Street View camera heading toward building (0-360°) */
+  streetViewHeading?: number;
 }
 
 // ─── Hash ───────────────────────────────────────────────────────────────────
@@ -390,6 +406,37 @@ export function mapOSMRoofToShape(osmRoofShape: string | undefined): RoofShape |
     mansard: 'mansard',
   };
   return MAP[s];
+}
+
+/**
+ * Infer roof shape from Smarty assessor roofFrame field.
+ * This field is already stored in PropertyData but was previously unused.
+ */
+export function inferRoofFromSmartyFrame(frame: string | undefined): RoofShape | undefined {
+  if (!frame) return undefined;
+  const f = frame.toLowerCase();
+  if (f.includes('gable')) return 'gable';
+  if (f.includes('hip')) return 'hip';
+  if (f.includes('flat')) return 'flat';
+  if (f.includes('gambrel')) return 'gambrel';
+  if (f.includes('mansard')) return 'mansard';
+  return undefined;
+}
+
+/**
+ * Infer roof shape from Google Solar roof segment count and pitch.
+ * Segment count reveals shape: 1+low pitch = flat, 2 = gable, 4 = hip.
+ * More than 6 segments suggests a complex roof (approximated as gambrel).
+ */
+export function inferRoofFromSolar(
+  segments: number | undefined, pitch: number | undefined,
+): RoofShape | undefined {
+  if (segments == null) return undefined;
+  if (segments <= 1 && (pitch == null || pitch < 15)) return 'flat';
+  if (segments === 2) return 'gable';
+  if (segments >= 3 && segments <= 5) return 'hip';
+  if (segments >= 6) return 'gambrel'; // complex multi-segment → gambrel approximation
+  return undefined;
 }
 
 /**
@@ -704,8 +751,10 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   if (prop.hasGarage) rooms.push('garage');
 
   // ── Roof shape ────────────────────────────────────────────────────
-  // Priority: OSM roof:shape > multi-unit flat override > style-default > gable
+  // Priority: OSM roof:shape > Smarty roofFrame > Solar segments > style-default > gable
   let roofShape: RoofShape = mapOSMRoofToShape(prop.osmRoofShape)
+    ?? inferRoofFromSmartyFrame(prop.roofFrame)
+    ?? inferRoofFromSolar(prop.solarRoofSegments, prop.solarRoofPitch)
     ?? (style === 'modern' ? 'flat' : style === 'gothic' ? 'mansard' : 'gable');
 
   // Multi-unit buildings are overwhelmingly flat-roofed
@@ -731,6 +780,16 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // ── Feature flags ─────────────────────────────────────────────────
   const features = inferFeatures(prop);
 
+  // ── Roof height override from Solar API pitch data ──────────────
+  // Maps real-world roof pitch degrees to Minecraft roof height in blocks
+  let roofHeightOverride: number | undefined;
+  if (prop.solarRoofPitch != null && prop.solarRoofPitch > 0) {
+    if (prop.solarRoofPitch < 15) roofHeightOverride = 4;       // nearly flat
+    else if (prop.solarRoofPitch < 30) roofHeightOverride = 8;  // moderate pitch
+    else if (prop.solarRoofPitch < 45) roofHeightOverride = 12; // steep
+    else roofHeightOverride = 14;                                // very steep
+  }
+
   return {
     type,
     floors,
@@ -747,5 +806,6 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     roofOverride,
     features,
     floorPlanShape: prop.floorPlanShape,
+    roofHeightOverride,
   };
 }

@@ -29,6 +29,9 @@ import {
   pickBestImage, analyzeFeatures, getMapillaryApiKey,
 } from './gen/api/mapillary.js';
 import { searchSmartyProperty, hasSmartyAuth, mapSmartyExteriorToWall } from './gen/api/smarty.js';
+import { queryMapboxBuilding, hasMapboxApiKey, getMapboxApiKey } from './gen/api/mapbox.js';
+import { querySolarBuildingInsights, hasGoogleApiKey } from './gen/api/google-solar.js';
+import { queryStreetViewMetadata, hasGoogleStreetViewKey } from './gen/api/google-streetview.js';
 
 const program = new Command();
 
@@ -268,6 +271,7 @@ program
   .option('--baths <n>', 'Override bathroom count')
   .option('--sqft <n>', 'Override square footage')
   .option('--year <n>', 'Override year built')
+  .option('--basic-apis', 'Use only Parcl + OSM + Geocoder (skip Smarty, Mapillary, Mapbox, Google)')
   .action(async (type: string | undefined, opts: Record<string, string | undefined>) => {
     // Address-based generation: full pipeline
     if (opts['address']) {
@@ -331,15 +335,20 @@ async function genFromAddress(
     const geo = await geocodeAddress(address);
     spinner.text = `Geocoded → ${chalk.dim(`${geo.lat.toFixed(5)}, ${geo.lng.toFixed(5)}`)} (${geo.source})`;
 
-    // Step 2: Parcl + OSM + Smarty + Mapillary in parallel
+    // Step 2: Parcl + OSM + Smarty + Mapillary + Mapbox + Google in parallel
     spinner.text = 'Fetching property data + building footprint...';
+    const basicOnly = opts['basicApis'] != null || opts['basic-apis'] != null;
     const mapillaryKey = getMapillaryApiKey();
-    const [parcl, osm, smarty, mlyImages, mlyFeatures] = await Promise.all([
+    const mapboxKey = getMapboxApiKey();
+    const [parcl, osm, smarty, mlyImages, mlyFeatures, mapboxBuilding, solarData, streetView] = await Promise.all([
       searchParclProperty(address),
       searchOSMBuilding(geo.lat, geo.lng),
-      hasSmartyAuth() ? searchSmartyProperty(address) : Promise.resolve(null),
-      mapillaryKey ? searchMapillaryImages(geo.lat, geo.lng, mapillaryKey) : Promise.resolve(null),
-      mapillaryKey ? searchMapillaryFeatures(geo.lat, geo.lng, mapillaryKey) : Promise.resolve(null),
+      !basicOnly && hasSmartyAuth() ? searchSmartyProperty(address) : Promise.resolve(null),
+      !basicOnly && mapillaryKey ? searchMapillaryImages(geo.lat, geo.lng, mapillaryKey) : Promise.resolve(null),
+      !basicOnly && mapillaryKey ? searchMapillaryFeatures(geo.lat, geo.lng, mapillaryKey) : Promise.resolve(null),
+      !basicOnly && hasMapboxApiKey() ? queryMapboxBuilding(geo.lat, geo.lng, mapboxKey) : Promise.resolve(null),
+      !basicOnly && hasGoogleApiKey() ? querySolarBuildingInsights(geo.lat, geo.lng) : Promise.resolve(null),
+      !basicOnly && hasGoogleStreetViewKey() ? queryStreetViewMetadata(geo.lat, geo.lng) : Promise.resolve(null),
     ]);
 
     if (!parcl) {
@@ -381,6 +390,9 @@ async function genFromAddress(
     if (osm?.levels && osm.levels > 0) {
       // OSM building:levels — ground truth from mapping data
       stories = osm.levels;
+    } else if (mapboxBuilding?.height && mapboxBuilding.height > 0) {
+      // Mapbox building height (meters) — LiDAR-derived, more reliable than sqft heuristic
+      stories = Math.max(1, Math.round(mapboxBuilding.height / 3.5));
     } else if (isMultiUnit(mappedPropType)) {
       // Multi-unit: do NOT use sqft/footprint — Parcl sqft is sum of all units, not building gross
       const density = inferDensityFromZip(opts['zip'] ?? parcl.zipCode);
@@ -474,6 +486,18 @@ async function genFromAddress(
           mapillaryHasFence: hasFence || undefined,
         };
       })() : {}),
+      // Mapbox building enrichment
+      mapboxHeight: mapboxBuilding?.height || undefined,
+      mapboxBuildingType: mapboxBuilding?.buildingType || undefined,
+      // Google Solar enrichment
+      solarRoofPitch: solarData?.primaryPitchDegrees || undefined,
+      solarRoofSegments: solarData?.roofSegmentCount || undefined,
+      solarBuildingArea: solarData?.buildingFootprintAreaSqm || undefined,
+      solarRoofArea: solarData?.totalRoofAreaSqm || undefined,
+      // Google Street View (as primary, Mapillary as fallback for streetViewUrl)
+      streetViewUrl: streetView?.imageUrl || undefined,
+      streetViewDate: streetView?.date || undefined,
+      streetViewHeading: streetView?.heading || undefined,
     };
 
     // Step 4: Convert and generate
@@ -529,6 +553,18 @@ async function genFromAddress(
       if (hasDriveway) parts.push('driveway');
       if (hasFence) parts.push('fence');
       if (parts.length > 0) console.log(`  Features:   ${parts.join(', ')} (Mapillary)`);
+    }
+    if (mapboxBuilding) {
+      const mbParts: string[] = [];
+      if (mapboxBuilding.height) mbParts.push(`${mapboxBuilding.height.toFixed(1)}m`);
+      if (mapboxBuilding.buildingType) mbParts.push(mapboxBuilding.buildingType);
+      console.log(`  Mapbox:     ${mbParts.join(' | ') || 'building found'}`);
+    }
+    if (solarData) {
+      console.log(`  Solar:      pitch ${solarData.primaryPitchDegrees.toFixed(0)}°, ${solarData.roofSegmentCount} segments, ${solarData.imageryQuality}`);
+    }
+    if (streetView) {
+      console.log(`  StreetView: ${streetView.date || 'available'} (heading ${streetView.heading.toFixed(0)}°)`);
     }
     console.log('');
     console.log(chalk.bold('  Generation'));
