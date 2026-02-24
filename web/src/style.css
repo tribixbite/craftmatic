@@ -1032,6 +1032,12 @@ html, body {
 
 /* ─── Comparison Tab ───────────────────────────────────────────────────── */
 
+/* The comparison tab needs to scroll — override the parent's overflow: hidden */
+#tab-comparison {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 #comparison-root {
   padding: 16px;
   max-width: 1200px;
@@ -1227,6 +1233,34 @@ html, body {
 .cmp-label-noapi { left: 10px; background: rgba(220, 60, 60, 0.85); color: #fff; }
 .cmp-label-someapis { background: rgba(200, 160, 40, 0.85); color: #fff; }
 .cmp-label-allapis { right: 10px; background: rgba(40, 167, 69, 0.85); color: #fff; }
+
+/* Action buttons */
+.cmp-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.cmp-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font);
+  transition: all var(--transition);
+}
+
+.cmp-action-btn:hover { border-color: var(--accent); background: var(--bg-elevated); }
+.cmp-action-btn svg { flex-shrink: 0; }
 
 /* Stats panel — 3 tier cards */
 .cmp-stats {

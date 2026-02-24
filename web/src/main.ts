@@ -368,7 +368,20 @@ initGallery(galleryGrid, (grid: BlockGrid, _label: string) => {
 // ─── Comparison ─────────────────────────────────────────────────────────────
 
 const comparisonRoot = document.getElementById('comparison-root')!;
-initComparison(comparisonRoot);
+initComparison(comparisonRoot, (grid, label) => {
+  exportBasename = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'comparison';
+  showLoading('Building 3D view...');
+  requestAnimationFrame(() => setTimeout(() => {
+    try {
+      openFullViewer(grid);
+    } catch (err) {
+      console.warn('3D viewer failed:', err);
+      showError('3D viewer requires WebGL');
+    } finally {
+      hideLoading();
+    }
+  }, 0));
+});
 
 // ─── Version Badge ──────────────────────────────────────────────────────────
 

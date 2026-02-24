@@ -4,7 +4,13 @@
  * Shows 7 addresses with 3 tiers each: No API / Basic APIs / All APIs.
  * The dual slider lets users compare all 3 tiers simultaneously.
  * Also loads comparison-data.json (if available) for detailed per-API data cards.
+ * Each tier has "Generate 3D" and "Download .schem" buttons.
  */
+
+import type { StyleName, GenerationOptions } from '@craft/types/index.js';
+import { generateStructure } from '@craft/gen/generator.js';
+import { BlockGrid } from '@craft/schem/types.js';
+import { exportSchem } from '@viewer/exporter.js';
 
 // ─── Types (match comparison-data.json schema) ─────────────────────────────
 
@@ -346,15 +352,21 @@ let apiData: Map<string, ComparisonResult> = new Map();
 
 // DOM element references (set during init)
 let rootEl: HTMLElement;
+/** Callback to open the full 3D viewer overlay with a BlockGrid */
+let onOpenViewer: ((grid: BlockGrid, label: string) => void) | null = null;
 
 // ─── Init ───────────────────────────────────────────────────────────────────
 
 /**
  * Initialize the 3-tier comparison viewer inside the given container.
- * Optionally loads comparison-data.json for detailed per-API cards.
+ * @param openViewer Optional callback to open the full 3D viewer overlay
  */
-export function initComparison(container: HTMLElement): void {
+export function initComparison(
+  container: HTMLElement,
+  openViewer?: (grid: BlockGrid, label: string) => void,
+): void {
   rootEl = container;
+  if (openViewer) onOpenViewer = openViewer;
   buildShell();
   render();
 
@@ -396,6 +408,7 @@ function buildShell(): void {
         </div>
       </div>
     </div>
+    <div class="cmp-actions" id="cmp-actions"></div>
     <div class="cmp-stats" id="cmp-stats"></div>
     <div class="cmp-api-section" id="cmp-api-section"></div>
   `;
@@ -469,6 +482,7 @@ function render(): void {
   buildViewTabs();
   buildLayers();
   updateImages();
+  buildActions();
   buildStats();
   buildApiTables();
 }
@@ -601,6 +615,96 @@ function updateSlider(): void {
     const midX = (x1 + x2) / 2;
     labelSome.style.left = midX + 'px';
     labelSome.style.transform = 'translateX(-50%)';
+  }
+}
+
+// ─── Action Buttons (Generate / Download per tier) ──────────────────────────
+
+/** Parse grid string like "78×20×40" into {w, h, l} or return undefined */
+function parseGrid(grid: string): { w: number; l: number } | undefined {
+  const m = grid.match(/(\d+)\s*[\u00d7x]\s*(\d+)\s*[\u00d7x]\s*(\d+)/);
+  if (!m) return undefined;
+  return { w: parseInt(m[1]), l: parseInt(m[3]) };
+}
+
+/** Build GenerationOptions from a tier's hardcoded data */
+function tierToGenOptions(tier: TierData, locKey: string): GenerationOptions {
+  const dims = parseGrid(tier.grid);
+  return {
+    type: 'house',
+    style: tier.style as StyleName,
+    floors: tier.floors,
+    width: dims?.w,
+    length: dims?.l,
+    seed: hashCode(locKey + tier.style + tier.floors),
+  };
+}
+
+/** Simple string hash for deterministic seeds */
+function hashCode(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+/** Generate a BlockGrid for the given tier, with loading state */
+function generateForTier(tier: typeof TIERS[number]): BlockGrid {
+  const loc = LOCATIONS[currentLoc];
+  const tierData = loc[tier];
+
+  // If we have detailed genOptions from comparison-data.json, use those
+  const locData = apiData.get(currentLoc);
+  if (locData && tier === 'allapis') {
+    return generateStructure(locData.genOptions as GenerationOptions);
+  }
+
+  return generateStructure(tierToGenOptions(tierData, currentLoc + '-' + tier));
+}
+
+const DL_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+const VIEW_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
+
+function buildActions(): void {
+  const el = document.getElementById('cmp-actions')!;
+  const loc = LOCATIONS[currentLoc];
+  el.innerHTML = '';
+
+  for (const tier of TIERS) {
+    const tierData = loc[tier];
+    const label = TIER_LABELS[tier];
+
+    // Download .schem button
+    const dlBtn = document.createElement('button');
+    dlBtn.className = 'cmp-action-btn';
+    dlBtn.innerHTML = `${DL_ICON} ${label} .schem`;
+    dlBtn.addEventListener('click', () => {
+      try {
+        const grid = generateForTier(tier);
+        const filename = `${currentLoc}-${tier}_${tierData.style}_${tierData.floors}f.schem`;
+        exportSchem(grid, filename);
+      } catch (err) {
+        console.error('Generation failed:', err);
+      }
+    });
+    el.appendChild(dlBtn);
+
+    // Open in 3D viewer button (only if callback provided)
+    if (onOpenViewer) {
+      const viewBtn = document.createElement('button');
+      viewBtn.className = 'cmp-action-btn';
+      viewBtn.innerHTML = `${VIEW_ICON} ${label} 3D`;
+      viewBtn.addEventListener('click', () => {
+        try {
+          const grid = generateForTier(tier);
+          onOpenViewer!(grid, `${loc.label} — ${label}`);
+        } catch (err) {
+          console.error('Generation failed:', err);
+        }
+      });
+      el.appendChild(viewBtn);
+    }
   }
 }
 
