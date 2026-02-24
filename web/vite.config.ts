@@ -20,6 +20,7 @@ export default defineConfig({
         manualChunks: {
           three: ['three'],
           pako: ['pako'],
+          tiles3d: ['3d-tiles-renderer'],
         },
       },
     },

@@ -12,6 +12,7 @@ import { initImport, type PropertyData } from '@ui/import.js';
 import { initUpload } from '@ui/upload.js';
 import { initGallery } from '@ui/gallery.js';
 import { initComparison } from '@ui/comparison.js';
+import { initMap3d } from '@ui/map3d.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -382,6 +383,11 @@ initComparison(comparisonRoot, (grid, label) => {
     }
   }, 0));
 });
+
+// ─── Map (Google 3D Tiles) ──────────────────────────────────────────────────
+
+const map3dRoot = document.getElementById('map3d-root')!;
+initMap3d(map3dRoot);
 
 // ─── Version Badge ──────────────────────────────────────────────────────────
 
