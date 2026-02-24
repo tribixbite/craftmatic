@@ -400,6 +400,10 @@ async function genFromAddress(
       stories = density === 'urban' ? 4 : 3;
     } else if (osm && osm.widthMeters > 0 && osm.lengthMeters > 0 && sqft > 0) {
       stories = estimateStoriesFromFootprint(sqft, osm.widthMeters, osm.lengthMeters);
+    } else if (solarData?.buildingFootprintAreaSqm && solarData.buildingFootprintAreaSqm > 0 && sqft > 0) {
+      // Solar API footprint area → story count (more accurate than sqft-only heuristic)
+      const totalSqm = sqft / 10.76;
+      stories = Math.max(1, Math.min(5, Math.round(totalSqm / solarData.buildingFootprintAreaSqm)));
     } else {
       // Heuristic fallback
       const pType = (parcl.propertyType || '').toUpperCase();
