@@ -900,10 +900,10 @@ describe('style-aware porch override', () => {
     expect(opts.features?.porch).toBe(true);
   });
 
-  it('steampunk (1920-1945 era) gets porch in urban ZIP', () => {
+  it('desert (1920-1945 era) gets porch in urban ZIP', () => {
     const opts = convertToGenerationOptions(makeProperty({
       style: 'auto',
-      yearBuilt: 1940, // → steampunk style (1920-1945 Art Deco era)
+      yearBuilt: 1940, // → desert style (1920-1945 Spanish Revival/Art Deco era)
       zipCode: '10001', // NYC — urban
       ownerOccupied: true,
     }));

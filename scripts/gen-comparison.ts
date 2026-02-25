@@ -476,8 +476,17 @@ for (const { key, address } of ADDRESSES) {
 
   /** Tier 3: All APIs — adds Mapbox + Solar + StreetView */
   let stories3 = stories2;
-  if (mapboxData?.height) {
-    stories3 = Math.max(1, Math.min(8, Math.round(mapboxData.height / 3)));
+  if (mapboxData?.height && mapboxData.height > 0) {
+    const mapboxStories = Math.max(1, Math.round(mapboxData.height / 3.5));
+    // When OSM footprint is available, the sqft/footprint ratio is more accurate
+    // than Mapbox height (which includes terrain slope on hillsides). Only use
+    // Mapbox when no footprint estimate or when it agrees within 1 floor.
+    if (osmData?.widthMeters && osmData.widthMeters > 0 && sqft > 0) {
+      const footprintStories = estimateStoriesFromFootprint(sqft, osmData.widthMeters, osmData.lengthMeters);
+      stories3 = (Math.abs(mapboxStories - footprintStories) <= 1) ? mapboxStories : footprintStories;
+    } else {
+      stories3 = mapboxStories;
+    }
   }
   const allApiProp: PropertyData = {
     ...someApiProp,

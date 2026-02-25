@@ -234,7 +234,7 @@ export function inferStyle(year: number, newConstruction = false): StyleName {
   if (year < 1850) return 'gothic';
   if (year < 1890) return 'rustic';     // Victorian-era wood-frame (pre-Colonial Revival)
   if (year < 1920) return 'colonial';   // Colonial Revival, Foursquare, Prairie — formal with symmetry
-  if (year < 1945) return 'steampunk';  // Art Deco, Spanish Revival, Tudor Revival — ornamental
+  if (year < 1945) return 'desert';     // Spanish Revival, Art Deco, Mission — stucco/flat roof
   if (year < 1970) return 'rustic';     // Ranch, Mid-century modern, split-level — low-slung natural
   return 'modern';                       // 1970+ contemporary/modern
 }
@@ -319,6 +319,11 @@ export function inferStyleFromCity(city: string | undefined, year: number): Styl
   if (/^charleston$/i.test(c) && year < 1900) return 'colonial';
   // Key West — Caribbean/tropical timber
   if (/^key\s*west$/i.test(c)) return 'rustic';
+  // SoCal / Southwest — Spanish Revival, Mission, Mediterranean dominance pre-1960
+  if (/^los\s*angeles|^san\s*diego|^pasadena|^santa\s*barbara|^santa\s*monica/i.test(c) && year < 1960) return 'desert';
+  if (/^phoenix|^tucson|^scottsdale|^albuquerque|^santa\s*fe/i.test(c)) return 'desert';
+  // South Florida — Mediterranean Revival pre-1960
+  if (/^miami|^palm\s*beach|^coral\s*gables|^fort\s*lauderdale/i.test(c) && year < 1960) return 'desert';
   // Portland/Seattle — craftsman prevalence
   if (/^portland|^seattle$/i.test(c) && year < 1950) return 'rustic';
   return undefined;
@@ -856,8 +861,8 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
     if (effectiveStyle === 'gothic' || effectiveStyle === 'rustic') {
       flags.porch = true;
     }
-    // Colonial and steampunk (Art Deco era, 1920-1945) homes typically have covered entries
-    if (effectiveStyle === 'colonial' || effectiveStyle === 'steampunk') {
+    // Colonial, desert (Spanish Revival 1920-1945), and steampunk homes have covered entries
+    if (effectiveStyle === 'colonial' || effectiveStyle === 'desert' || effectiveStyle === 'steampunk') {
       flags.porch = true;
     }
     if (effectiveStyle === 'fantasy' && year > 0 && year < 1950) {
@@ -924,9 +929,21 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     : 4;                        // standard single-family
   // Minimum floors for large single-family — a 5000+ sqft house is always 2+ stories,
   // and 6000+ sqft is virtually always 3 stories (Victorian estates, colonials, etc.)
-  const minFloors = !effectiveMultiUnit && prop.sqft >= 6000 ? 3
-    : !effectiveMultiUnit && prop.sqft >= 3000 ? 2
-    : 1;
+  // Exception: when OSM footprint can accommodate the sqft in fewer floors (sprawling
+  // estates, ranch-style homes), trust the footprint geometry over the sqft heuristic.
+  let minFloors = 1;
+  if (!effectiveMultiUnit) {
+    if (prop.sqft >= 6000) minFloors = 3;
+    else if (prop.sqft >= 3000) minFloors = 2;
+    // Large footprint override: if the building footprint can hold the sqft in
+    // fewer floors, don't force extra stories (catches sprawling estates, ranches)
+    if (prop.osmWidth && prop.osmLength && prop.osmWidth > 0 && prop.osmLength > 0) {
+      const footprintSqm = prop.osmWidth * prop.osmLength;
+      const totalSqm = prop.sqft / 10.76;
+      const neededFloors = Math.max(1, Math.ceil(totalSqm / footprintSqm));
+      minFloors = Math.min(minFloors, Math.max(1, neededFloors));
+    }
+  }
   const floors = Math.max(minFloors, Math.min(maxFloors, prop.stories));
 
   // ── Dimensions ────────────────────────────────────────────────────
