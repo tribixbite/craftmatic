@@ -1,0 +1,147 @@
+/**
+ * Browser-compatible Street View image analysis — extracts wall/roof/trim
+ * colors from a Street View image URL using Canvas2D pixel access.
+ *
+ * Reuses the same zone-based color extraction logic as the CLI's
+ * streetview-analysis.ts, but loads images via <img> + Canvas instead of sharp.
+ *
+ * This is the critical missing piece: without it, adding a Google SV API key
+ * shows the image but never feeds color data into the material resolver.
+ */
+
+import {
+  rgbToHsl,
+  rgbToWallBlock, rgbToRoofOverride, rgbToTrimBlock,
+  dominantColor,
+} from '@craft/gen/color-blocks.js';
+import type { BlockState } from '@craft/types/index.js';
+
+// ─── Types ─────────────────────────────────────────────────────────────────
+
+export interface BrowserSvColorResult {
+  wallBlock: BlockState;
+  roofOverride: { north: BlockState; south: BlockState; cap: BlockState };
+  trimBlock: BlockState;
+  wallColor: { r: number; g: number; b: number };
+  roofColor: { r: number; g: number; b: number };
+  trimColor: { r: number; g: number; b: number };
+}
+
+// ─── Image Loading ─────────────────────────────────────────────────────────
+
+/** Load a Street View image URL and extract RGBA pixels via Canvas2D */
+async function loadImagePixels(url: string): Promise<{
+  pixels: Uint8Array;
+  width: number;
+  height: number;
+} | null> {
+  try {
+    // Load image via blob fetch (avoids CORS tainting from <img> direct load)
+    const resp = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    if (!resp.ok) return null;
+
+    const blob = await resp.blob();
+    const bitmap = await createImageBitmap(blob);
+
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { bitmap.close(); return null; }
+
+    ctx.drawImage(bitmap, 0, 0);
+    const imgData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    bitmap.close();
+
+    return {
+      pixels: new Uint8Array(imgData.data.buffer),
+      width: bitmap.width,
+      height: bitmap.height,
+    };
+  } catch (err) {
+    console.warn('SV browser analysis: image load failed:', (err as Error).message);
+    return null;
+  }
+}
+
+// ─── Indoor Detection ──────────────────────────────────────────────────────
+
+/** Check if image is an indoor panorama (no sky in top 15%) */
+function isIndoor(pixels: Uint8Array, w: number, h: number): boolean {
+  const topBound = Math.floor(h * 0.15);
+  let total = 0;
+  let sky = 0;
+
+  for (let y = 0; y < topBound; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const r = pixels[idx], g = pixels[idx + 1], b = pixels[idx + 2];
+      const [hue, sat, lum] = rgbToHsl(r, g, b);
+      total++;
+      if ((hue >= 180 && hue <= 250 && sat > 0.15 && lum > 0.3) ||
+          (lum > 0.75 && sat < 0.15)) {
+        sky++;
+      }
+    }
+  }
+  return total > 0 && (sky / total) < 0.05;
+}
+
+// ─── Public API ────────────────────────────────────────────────────────────
+
+/**
+ * Analyze a Street View image URL in the browser — extracts wall, roof,
+ * and trim colors using zone-based sampling identical to the CLI pipeline.
+ *
+ * Returns null if the image can't be loaded or is an indoor panorama.
+ */
+export async function analyzeStreetViewBrowser(
+  svUrl: string,
+): Promise<BrowserSvColorResult | null> {
+  const img = await loadImagePixels(svUrl);
+  if (!img) return null;
+
+  const { pixels, width, height } = img;
+
+  // Skip indoor panoramas
+  if (isIndoor(pixels, width, height)) return null;
+
+  // Zone-based color extraction (mirrors streetview-analysis.ts extractColors)
+  const roofColor = dominantColor(pixels, 0, Math.floor(height * 0.25), width);
+  const wallColor = dominantColor(
+    pixels,
+    Math.floor(height * 0.25), Math.floor(height * 0.65),
+    width,
+    Math.floor(width * 0.15), Math.floor(width * 0.85),
+  );
+  const trimLeft = dominantColor(
+    pixels,
+    Math.floor(height * 0.25), Math.floor(height * 0.65),
+    width,
+    Math.floor(width * 0.03), Math.floor(width * 0.15),
+  );
+  const trimRight = dominantColor(
+    pixels,
+    Math.floor(height * 0.25), Math.floor(height * 0.65),
+    width,
+    Math.floor(width * 0.85), Math.floor(width * 0.97),
+  );
+  const trimColor = trimLeft ?? trimRight;
+
+  if (!wallColor) return null;
+
+  const wallBlock = rgbToWallBlock(wallColor.r, wallColor.g, wallColor.b);
+  const roofOverride = roofColor
+    ? rgbToRoofOverride(roofColor.r, roofColor.g, roofColor.b)
+    : rgbToRoofOverride(100, 100, 100);
+  const trimBlock = trimColor
+    ? rgbToTrimBlock(trimColor.r, trimColor.g, trimColor.b)
+    : rgbToTrimBlock(200, 200, 200);
+
+  return {
+    wallBlock,
+    roofOverride,
+    trimBlock,
+    wallColor,
+    roofColor: roofColor ?? { r: 100, g: 100, b: 100 },
+    trimColor: trimColor ?? { r: 200, g: 200, b: 200 },
+  };
+}
