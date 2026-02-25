@@ -646,6 +646,45 @@ export function initImport(
       populateFromOSM(currentOSM);
     }
 
+    // Mapbox height → story estimation (actual measurement, higher priority than heuristics)
+    // Only apply if no authoritative story count from Smarty or OSM levels
+    if (currentMapboxBuilding && currentMapboxBuilding.height > 0
+        && !currentSmarty?.storiesNumber && !currentOSM?.levels) {
+      const storiesEl = controls.querySelector('#import-stories') as HTMLInputElement;
+      const h = currentMapboxBuilding.height;
+      // Skyscraper detection: 50m+ and 2x taller than longest footprint side
+      const longestSide = Math.max(currentOSM?.widthMeters ?? 0, currentOSM?.lengthMeters ?? 0);
+      if (h >= 50 && longestSide > 0 && h >= 2 * longestSide) {
+        // Raw height / typical floor height (3.5m for commercial)
+        const est = Math.max(1, Math.round(h / 3.5));
+        storiesEl.value = String(est);
+        saveField('stories', String(est));
+      } else {
+        // Standard buildings: ~3m per floor, clamp 1-10
+        const est = Math.max(1, Math.min(10, Math.round(h / 3)));
+        storiesEl.value = String(est);
+        saveField('stories', String(est));
+      }
+      storiesEl.classList.add('import-field-filled');
+      setTimeout(() => storiesEl.classList.remove('import-field-filled'), 1500);
+    }
+
+    // Solar footprint → story estimation (when Mapbox height unavailable)
+    if (currentSolar?.buildingFootprintAreaSqm && currentSolar.buildingFootprintAreaSqm > 0
+        && !currentMapboxBuilding?.height
+        && !currentSmarty?.storiesNumber && !currentOSM?.levels) {
+      const sqft = parseInt((controls.querySelector('#import-sqft') as HTMLInputElement).value) || 0;
+      if (sqft > 0) {
+        const totalSqm = sqft / 10.76;
+        const est = Math.max(1, Math.min(5, Math.round(totalSqm / currentSolar.buildingFootprintAreaSqm)));
+        const storiesEl = controls.querySelector('#import-stories') as HTMLInputElement;
+        storiesEl.value = String(est);
+        saveField('stories', String(est));
+        storiesEl.classList.add('import-field-filled');
+        setTimeout(() => storiesEl.classList.remove('import-field-filled'), 1500);
+      }
+    }
+
     // Handle Parcl API result — auto-fill form fields
     const geoSource = parclGeoFallback ? 'parcl' : currentGeocoding!.source;
     const statusParts: string[] = [currentGeocoding!.matchedAddress, `(${geoSource})`];
@@ -659,6 +698,15 @@ export function initImport(
     }
     if (currentOSM) {
       statusParts.push(`| ${currentOSM.widthMeters}m × ${currentOSM.lengthMeters}m (OSM)`);
+    }
+    if (currentMapboxBuilding) {
+      statusParts.push(`| ${currentMapboxBuilding.height.toFixed(1)}m (Mapbox)`);
+    }
+    if (currentSolar) {
+      statusParts.push(`| Solar: ${currentSolar.roofSegmentCount} segs`);
+    }
+    if (currentSvMeta?.available) {
+      statusParts.push(`| SV: ${currentSvMeta.date ?? 'available'}`);
     }
     showStatus(statusParts.filter(Boolean).join(' '), 'success');
 
