@@ -6,7 +6,7 @@
 import { BlockGrid } from '../schem/types.js';
 import { isAir, isSolidBlock } from '../blocks/registry.js';
 import type { RoomType, StructureType } from '../types/index.js';
-import type { StylePalette } from './styles.js';
+import type { MaterialPalette } from './styles.js';
 import { getRoomTypes } from './rooms.js';
 
 /** Seeded pseudo-random number generator (mulberry32) */
@@ -31,7 +31,7 @@ export function pick<T>(arr: T[], rng: () => number): T {
  */
 export function placeOutbuilding(
   grid: BlockGrid, x1: number, z1: number, w: number, l: number, h: number,
-  style: StylePalette, roofType: 'gable' | 'flat' | 'lean-to' = 'gable'
+  style: MaterialPalette, roofType: 'gable' | 'flat' | 'lean-to' = 'gable'
 ): void {
   const x2 = x1 + w - 1;
   const z2 = z1 + l - 1;

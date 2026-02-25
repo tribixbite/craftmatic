@@ -9,8 +9,11 @@
 
 import type { StyleName, BlockState, RoofShape, FloorPlanShape } from '../types/index.js';
 
-/** Material palette for a building style (fully expanded) */
-export interface StylePalette {
+/**
+ * Material palette — all block materials for a building style.
+ * Separated from structural concerns so materials can be mixed independently.
+ */
+export interface MaterialPalette {
   /** Primary exterior/interior wall material */
   wall: BlockState;
   /** Secondary wall accent material */
@@ -35,12 +38,6 @@ export interface StylePalette {
   roofW: BlockState;
   /** Roof ridge cap */
   roofCap: BlockState;
-  /** Default roof shape for this style */
-  defaultRoofShape: RoofShape;
-  /** Default floor plan shape for houses in this style */
-  defaultPlanShape: FloorPlanShape;
-  /** Preferred roof height in blocks (controls pitch steepness) */
-  roofHeight: number;
   /** Foundation material */
   foundation: BlockState;
   /** Window material */
@@ -99,9 +96,29 @@ export interface StylePalette {
   plant1: BlockState;
   plant2: BlockState;
   plant3: BlockState;
+}
+
+/**
+ * Structural profile — geometry and shape parameters for a building style.
+ * Separated from materials so structure can vary independently.
+ */
+export interface StructuralProfile {
+  /** Default roof shape for this style */
+  defaultRoofShape: RoofShape;
+  /** Default floor plan shape for houses in this style */
+  defaultPlanShape: FloorPlanShape;
+  /** Preferred roof height in blocks (controls pitch steepness) */
+  roofHeight: number;
   /** Accent banding frequency: place wallAccent every N blocks vertically (0 = off) */
   wallAccentFrequency: number;
 }
+
+/**
+ * Full style palette — materials + structural profile combined.
+ * Backward-compatible: all existing code that accepts StylePalette continues to work.
+ * New code can accept just MaterialPalette or StructuralProfile for looser coupling.
+ */
+export interface StylePalette extends MaterialPalette, StructuralProfile {}
 
 // ─── Compact Style Spec ──────────────────────────────────────────────────────
 
