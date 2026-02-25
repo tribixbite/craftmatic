@@ -145,6 +145,8 @@ export interface PropertyData {
   mapboxHeight?: number;
   /** Building type from Mapbox vector tiles: 'house', 'apartments', 'detached', etc. */
   mapboxBuildingType?: string;
+  /** Terrain slope across building footprint (meters) — from AWS Terrarium elevation tiles */
+  terrainSlope?: number;
 
   // ─── Satellite Footprint Extraction ───────────────────────────────────────
   /** Building footprint width from satellite image analysis (meters) */

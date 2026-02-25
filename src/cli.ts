@@ -33,6 +33,7 @@ import { queryMapboxBuilding, hasMapboxApiKey, getMapboxApiKey } from './gen/api
 import { querySolarBuildingInsights, hasGoogleApiKey } from './gen/api/google-solar.js';
 import { queryStreetViewMetadata, hasGoogleStreetViewKey } from './gen/api/google-streetview.js';
 import { analyzeStreetView, type StreetViewAnalysis } from './gen/api/streetview-analysis.js';
+import { fetchElevationGrid, footprintSlope } from './gen/api/elevation.js';
 
 const program = new Command();
 
@@ -341,7 +342,9 @@ async function genFromAddress(
     const basicOnly = opts['basicApis'] != null || opts['basic-apis'] != null;
     const mapillaryKey = getMapillaryApiKey();
     const mapboxKey = getMapboxApiKey();
-    const [parcl, osm, smarty, mlyImages, mlyFeatures, mapboxBuilding, solarData, streetView] = await Promise.all([
+    // Elevation bbox: ~200m around geocoded point (free AWS Terrarium tiles, no key needed)
+    const elevPad = 0.002; // ~220m at mid-latitudes
+    const [parcl, osm, smarty, mlyImages, mlyFeatures, mapboxBuilding, solarData, streetView, elevGrid] = await Promise.all([
       searchParclProperty(address),
       searchOSMBuilding(geo.lat, geo.lng),
       !basicOnly && hasSmartyAuth() ? searchSmartyProperty(address) : Promise.resolve(null),
@@ -350,6 +353,7 @@ async function genFromAddress(
       !basicOnly && hasMapboxApiKey() ? queryMapboxBuilding(geo.lat, geo.lng, mapboxKey) : Promise.resolve(null),
       !basicOnly && hasGoogleApiKey() ? querySolarBuildingInsights(geo.lat, geo.lng) : Promise.resolve(null),
       !basicOnly && hasGoogleStreetViewKey() ? queryStreetViewMetadata(geo.lat, geo.lng) : Promise.resolve(null),
+      !basicOnly ? fetchElevationGrid(geo.lat - elevPad, geo.lng - elevPad, geo.lat + elevPad, geo.lng + elevPad) : Promise.resolve(null),
     ]);
 
     if (!parcl) {
@@ -393,9 +397,15 @@ async function genFromAddress(
       stories = osm.levels;
     } else if (mapboxBuilding?.height && mapboxBuilding.height > 0) {
       // Mapbox height (meters) — can over-report on hillsides (includes terrain slope).
+      // Subtract terrain slope from elevation data when available (arnis pattern).
+      let correctedHeight = mapboxBuilding.height;
+      if (elevGrid && osm?.widthMeters && osm?.lengthMeters) {
+        const slope = footprintSlope(elevGrid, geo.lat, geo.lng, osm.widthMeters, osm.lengthMeters);
+        correctedHeight = Math.max(3, mapboxBuilding.height - slope);
+      }
+      const mapboxStories = Math.max(1, Math.round(correctedHeight / 3.5));
       // Cross-check with OSM footprint when available: if sqft fits in fewer floors
       // than height implies, trust the footprint ratio (hillside inflation).
-      const mapboxStories = Math.max(1, Math.round(mapboxBuilding.height / 3.5));
       if (osm && osm.widthMeters > 0 && osm.lengthMeters > 0 && sqft > 0) {
         const footprintStories = estimateStoriesFromFootprint(sqft, osm.widthMeters, osm.lengthMeters);
         stories = (Math.abs(mapboxStories - footprintStories) <= 1) ? mapboxStories : footprintStories;
@@ -504,6 +514,10 @@ async function genFromAddress(
       // Mapbox building enrichment
       mapboxHeight: mapboxBuilding?.height || undefined,
       mapboxBuildingType: mapboxBuilding?.buildingType || undefined,
+      // AWS Terrarium elevation — terrain slope across footprint
+      terrainSlope: elevGrid && osm?.widthMeters && osm?.lengthMeters
+        ? footprintSlope(elevGrid, geo.lat, geo.lng, osm.widthMeters, osm.lengthMeters)
+        : undefined,
       // Google Solar enrichment
       solarRoofPitch: solarData?.primaryPitchDegrees || undefined,
       solarRoofSegments: solarData?.roofSegmentCount || undefined,

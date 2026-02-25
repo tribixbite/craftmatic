@@ -328,21 +328,21 @@ export const CATEGORY_DEFAULTS: Record<BuildingCategory, CategoryPalette> = {
 // Parse observed colors/materials from PropertyData into block overrides.
 
 /** Extract wall block from all available color/material sources */
-function resolveWallBlock(prop: PropertyData, rng: () => number, cat: CategoryPalette): BlockState {
+function resolveWallBlock(prop: PropertyData, rng: () => number, cat: CategoryPalette, seed: number): BlockState {
   // Priority 0: Pre-set wallOverride from satellite/Smarty chain (set before pipeline)
   if (prop.wallOverride) return prop.wallOverride;
-  // Priority 1: OSM building:colour → CIE-Lab nearest block
+  // Priority 1: OSM building:colour → CIE-Lab nearest block (multi-option cluster)
   if (prop.osmBuildingColour) {
     const rgb = hexToRgb(prop.osmBuildingColour);
-    if (rgb) return rgbToWallBlock(rgb[0], rgb[1], rgb[2]);
+    if (rgb) return rgbToWallBlock(rgb[0], rgb[1], rgb[2], seed);
   }
   // Priority 2: SV color extraction
   if (prop.svWallOverride) return prop.svWallOverride;
   // Priority 3: SV texture classification
   if (prop.svTextureBlock) return prop.svTextureBlock;
-  // Priority 4: Satellite detected color
+  // Priority 4: Satellite detected color (multi-option cluster)
   if (prop.detectedColor) {
-    return rgbToWallBlock(prop.detectedColor.r, prop.detectedColor.g, prop.detectedColor.b);
+    return rgbToWallBlock(prop.detectedColor.r, prop.detectedColor.g, prop.detectedColor.b, seed);
   }
   // Priority 5: OSM building:material → block
   if (prop.osmMaterial) {
@@ -524,7 +524,7 @@ export function resolvePalette(
   const cat = CATEGORY_DEFAULTS[category];
 
   // Resolve key visual materials from observed data
-  const wall = resolveWallBlock(prop, rng, cat);
+  const wall = resolveWallBlock(prop, rng, cat, seed);
   const roofResolved = resolveRoofOverride(prop, rng, cat);
   const wallAccent = resolveTrimBlock(prop, rng, cat);
 

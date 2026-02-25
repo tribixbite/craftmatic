@@ -1,6 +1,6 @@
 # Plan: Data-Driven Building Pipeline
 
-## Status: Active
+## Status: Phase 1 Steps 1-6 complete (220afee)
 ## Date: 2025-02-25
 
 ---
@@ -210,16 +210,16 @@ for better handling of complex concave shapes.
 
 ## Implementation Order (Phase 1)
 
-| Step | File | What |
-|------|------|------|
-| 1 | `src/gen/color-blocks.ts` | Add CIE-Lab conversion + delta-E distance |
-| 2 | `src/gen/styles.ts` | Add `CATEGORY_DEFAULTS` with multi-option palettes |
-| 3 | `src/gen/material-resolver.ts` | New: `resolvePalette()` function |
-| 4 | `src/types/index.ts` | Add `BuildingCategory` type |
-| 5 | `src/gen/address-pipeline.ts` | Replace `inferStyle()` with `inferCategory()` + `resolvePalette()` |
-| 6 | `src/gen/generator.ts` | Thread resolved palette through |
-| 7 | Tests | Update style tests, add resolver tests |
-| 8 | Web UI | Update style selector dropdown |
+| Step | File | What | Status |
+|------|------|------|--------|
+| 1 | `src/gen/color-blocks.ts` | Add CIE-Lab conversion + delta-E distance | DONE |
+| 2 | `src/gen/material-resolver.ts` | Category defaults in resolver (not styles.ts) | DONE |
+| 3 | `src/gen/material-resolver.ts` | `resolvePalette()` + `inferCategory()` | DONE |
+| 4 | `src/types/index.ts` | Add `BuildingCategory` type + `resolvedPalette` field | DONE |
+| 5 | `src/gen/address-pipeline.ts` | Wire resolver when `style='auto'` | DONE |
+| 6 | `src/gen/generator.ts` | Use `resolvedPalette` directly when present | DONE |
+| 7 | Tests | Update override tests for resolved palette path | DONE |
+| 8 | Web UI | Update style selector dropdown | TODO |
 
 ## Arnis Patterns to Adopt
 
