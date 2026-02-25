@@ -136,6 +136,7 @@ html, body {
   flex-direction: column;
   position: relative;
   min-height: 0;
+  max-width: 100vw;
 }
 
 .tab-content {
@@ -144,6 +145,7 @@ html, body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  max-width: 100%;
 }
 
 .tab-content.active { display: flex; }
@@ -1135,16 +1137,20 @@ html, body {
 
 /* ─── Comparison Tab ───────────────────────────────────────────────────── */
 
-/* The comparison tab needs to scroll — override the parent's overflow: hidden */
+/* The comparison tab needs to scroll vertically but clip horizontally */
 #tab-comparison {
   overflow-y: auto;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
 }
 
 #comparison-root {
   padding: 16px;
   max-width: 1200px;
+  width: 100%;
   margin: 0 auto;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .cmp-loading {
@@ -1256,6 +1262,7 @@ html, body {
 .cmp-slider-wrap {
   position: relative;
   margin: 0 auto 16px;
+  max-width: 100%;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1344,6 +1351,7 @@ html, body {
   gap: 8px;
   margin-bottom: 16px;
   flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .cmp-action-btn {
@@ -1360,6 +1368,10 @@ html, body {
   font-weight: 500;
   font-family: var(--font);
   transition: all var(--transition);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 .cmp-action-btn:hover { border-color: var(--accent); background: var(--bg-elevated); }
