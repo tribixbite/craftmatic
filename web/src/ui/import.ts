@@ -53,6 +53,7 @@ import {
 import { analyzeStreetViewBrowser, type BrowserSvColorResult } from '@ui/import-sv-analysis.js';
 import { queryMapboxBuildingHeight, type MapboxBuildingResult } from '@ui/import-mapbox-building.js';
 import { querySolarBuildingInsights, type SolarBuildingData } from '@craft/gen/api/google-solar.js';
+import { fetchElevationGrid, footprintSlope, type ElevationGrid } from '@ui/import-elevation.js';
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
 
@@ -151,6 +152,8 @@ export function initImport(
   let currentSolar: SolarBuildingData | null = null;
   /** Street View metadata (capture date, camera position) */
   let currentSvMeta: StreetViewMetadata | null = null;
+  /** Elevation grid for terrain slope computation */
+  let currentElevGrid: ElevationGrid | null = null;
 
   // Restore API key display state
   const savedParclKey = getParclApiKey();
@@ -490,6 +493,7 @@ export function initImport(
     currentMapboxBuilding = null;
     currentSolar = null;
     currentSvMeta = null;
+    currentElevGrid = null;
 
     const [geoResult, parclResult, smartyResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -558,6 +562,13 @@ export function initImport(
       if (mbBuildingResult.status === 'fulfilled' && mbBuildingResult.value) {
         currentMapboxBuilding = mbBuildingResult.value;
       }
+
+      // Fetch elevation grid in background (non-blocking, used for terrain slope)
+      // ~200m bbox around the building center, same as CLI
+      const PAD = 0.002;
+      fetchElevationGrid(geo.lat - PAD, geo.lng - PAD, geo.lat + PAD, geo.lng + PAD)
+        .then(grid => { if (grid) currentElevGrid = grid; })
+        .catch(() => { /* non-fatal */ });
 
       // Process Mapillary results
       if (mlyImgResult.status === 'fulfilled' && mlyImgResult.value) {
@@ -1324,6 +1335,13 @@ export function initImport(
       solarAzimuthDegrees: currentSolar?.primaryAzimuthDegrees || undefined,
       solarBuildingArea: currentSolar?.buildingFootprintAreaSqm || undefined,
       solarRoofArea: currentSolar?.totalRoofAreaSqm || undefined,
+      // Terrain slope (elevation difference across footprint, meters)
+      terrainSlope: currentElevGrid && currentGeocoding
+        ? footprintSlope(
+            currentElevGrid, currentGeocoding.lat, currentGeocoding.lng,
+            currentOSM?.widthMeters ?? 15, currentOSM?.lengthMeters ?? 15,
+          )
+        : undefined,
       county: currentParcl?.county,
       stateAbbreviation: currentParcl?.stateAbbreviation,
       city: currentParcl?.city,
