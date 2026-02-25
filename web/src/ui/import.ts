@@ -30,7 +30,8 @@ import {
 } from '@ui/import-osm.js';
 import {
   getStreetViewApiKey, setStreetViewApiKey, hasStreetViewApiKey,
-  getStreetViewUrl, checkStreetViewAvailability, STREETVIEW_SIGNUP_URL,
+  getStreetViewUrl, fetchStreetViewMetadata, STREETVIEW_SIGNUP_URL,
+  type StreetViewMetadata,
 } from '@ui/import-streetview.js';
 import {
   getMapboxToken, setMapboxToken, hasMapboxToken,
@@ -99,6 +100,16 @@ const SEASON_LABELS: Record<SeasonalWeather, string> = {
 };
 
 
+/** Compute compass bearing (0-360°) from point A → point B (Haversine forward azimuth) */
+function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = Math.PI / 180;
+  const dLng = (lng2 - lng1) * toRad;
+  const y = Math.sin(dLng) * Math.cos(lat2 * toRad);
+  const x = Math.cos(lat1 * toRad) * Math.sin(lat2 * toRad)
+          - Math.sin(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
 // ─── UI ─────────────────────────────────────────────────────────────────────
 
 /** Initialize the import tab UI */
@@ -138,6 +149,8 @@ export function initImport(
   let currentMapboxBuilding: MapboxBuildingResult | null = null;
   /** Google Solar API building insights */
   let currentSolar: SolarBuildingData | null = null;
+  /** Street View metadata (capture date, camera position) */
+  let currentSvMeta: StreetViewMetadata | null = null;
 
   // Restore API key display state
   const savedParclKey = getParclApiKey();
@@ -476,6 +489,7 @@ export function initImport(
     svAnalysisPromise = null;
     currentMapboxBuilding = null;
     currentSolar = null;
+    currentSvMeta = null;
 
     const [geoResult, parclResult, smartyResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -510,8 +524,8 @@ export function initImport(
       const [osmResult, svResult, mlyImgResult, mlyFeatResult, mbBuildingResult, solarResult] = await Promise.allSettled([
         searchOSMBuilding(geo.lat, geo.lng),
         hasStreetViewApiKey()
-          ? checkStreetViewAvailability(geo.lat, geo.lng, svApiKey)
-          : Promise.resolve(false),
+          ? fetchStreetViewMetadata(geo.lat, geo.lng, svApiKey)
+          : Promise.resolve({ available: false } as StreetViewMetadata),
         mlyToken ? searchMapillaryImages(geo.lat, geo.lng, mlyToken) : Promise.resolve(null),
         mlyToken ? searchMapillaryFeatures(geo.lat, geo.lng, mlyToken) : Promise.resolve(null),
         hasMapboxToken() ? queryMapboxBuildingHeight(geo.lat, geo.lng) : Promise.resolve(null),
@@ -524,8 +538,9 @@ export function initImport(
         currentOSM = osmResult.value;
       }
 
-      // Process Street View result
-      if (svResult.status === 'fulfilled' && svResult.value === true) {
+      // Process Street View result — extract metadata + kick off color analysis
+      if (svResult.status === 'fulfilled' && svResult.value?.available) {
+        currentSvMeta = svResult.value;
         currentStreetViewUrl = getStreetViewUrl(geo.lat, geo.lng, svApiKey);
         // Analyze SV image for wall/roof/trim colors — store promise for doGenerate() to await
         svAnalysisPromise = analyzeStreetViewBrowser(currentStreetViewUrl).then(result => {
@@ -1156,8 +1171,14 @@ export function initImport(
       };
     }
 
-    // Street view URL
+    // Street view URL + metadata
     if (prop.streetViewUrl) currentStreetViewUrl = prop.streetViewUrl as string;
+    if (prop.streetViewDate || prop.streetViewHeading != null) {
+      currentSvMeta = {
+        available: true,
+        date: (prop.streetViewDate as string) || undefined,
+      };
+    }
 
     // Season
     if (prop.season) currentSeason = prop.season as SeasonalWeather;
@@ -1236,6 +1257,12 @@ export function initImport(
       satFootprintLength: currentSatFootprint?.lengthMeters,
       satFootprintConfidence: currentSatFootprint?.confidence,
       streetViewUrl: currentStreetViewUrl ?? undefined,
+      streetViewDate: currentSvMeta?.date || undefined,
+      // Compute heading from SV camera → building (facade orientation)
+      streetViewHeading: currentSvMeta?.location && currentGeocoding
+        ? computeBearing(currentSvMeta.location.lat, currentSvMeta.location.lng,
+            currentGeocoding.lat, currentGeocoding.lng)
+        : undefined,
       // Street View color analysis (browser-side — fills critical sv* fields)
       svWallOverride: currentSvColors?.wallBlock,
       svRoofOverride: currentSvColors ? currentSvColors.roofOverride : undefined,
