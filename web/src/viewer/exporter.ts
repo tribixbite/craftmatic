@@ -1,5 +1,5 @@
 /**
- * Export utilities: GLB, STL, .schem, Three.js JSON, and standalone HTML.
+ * Export utilities: GLB, STL, OBJ, .schem, Three.js JSON, and standalone HTML.
  */
 
 import * as THREE from 'three';
@@ -21,33 +21,17 @@ function downloadBlob(blob: Blob, filename: string): void {
   }, 100);
 }
 
-/** Export the current Three.js scene as GLB (binary glTF) */
-export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'): Promise<void> {
-  const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
-  const exporter = new GLTFExporter();
-
-  return new Promise((resolve, reject) => {
-    exporter.parse(
-      viewer.scene,
-      (result) => {
-        const blob = new Blob([result as ArrayBuffer], { type: 'model/gltf-binary' });
-        downloadBlob(blob, filename);
-        resolve();
-      },
-      (error) => reject(error),
-      { binary: true }
-    );
-  });
-}
-
-/** Export the current Three.js scene as binary STL (3D printing) */
-export async function exportSTL(viewer: ViewerState, filename = 'craftmatic.stl'): Promise<void> {
-  const { STLExporter } = await import('three/examples/jsm/exporters/STLExporter.js');
-  const exporter = new STLExporter();
-
-  // STLExporter doesn't handle InstancedMesh natively — expand instances
-  // into a temporary group of regular meshes for export, then clean up.
-  const tempGroup = new THREE.Group();
+/**
+ * Expand InstancedMesh objects from the viewer into a flat group of regular
+ * Mesh objects suitable for export. Most Three.js exporters (STL, GLTF, OBJ)
+ * don't properly handle InstancedMesh, so we expand each instance into its
+ * own Mesh with the correct world transform applied.
+ *
+ * IMPORTANT: Calls updateMatrixWorld() so exporters that read matrixWorld
+ * (STL, GLTF) see correct positions instead of identity matrices.
+ */
+function createExportGroup(viewer: ViewerState): { group: THREE.Group; cleanup: () => void } {
+  const group = new THREE.Group();
   const tempMeshes: THREE.Mesh[] = [];
 
   for (const instMesh of viewer.meshes) {
@@ -57,20 +41,71 @@ export async function exportSTL(viewer: ViewerState, filename = 'craftmatic.stl'
     for (const matrix of originals) {
       const mesh = new THREE.Mesh(instMesh.geometry, mat);
       mesh.applyMatrix4(matrix);
-      tempGroup.add(mesh);
+      group.add(mesh);
       tempMeshes.push(mesh);
     }
   }
 
-  const result = exporter.parse(tempGroup, { binary: true });
+  // Compute matrixWorld for all children — exporters rely on this
+  group.updateMatrixWorld(true);
 
-  // Clean up temporary meshes
-  for (const m of tempMeshes) {
-    m.geometry = undefined!; // Don't dispose shared geometry
-    tempGroup.remove(m);
-  }
+  return {
+    group,
+    cleanup: () => {
+      for (const m of tempMeshes) {
+        m.geometry = undefined!; // Don't dispose shared geometry
+        group.remove(m);
+      }
+    },
+  };
+}
+
+/** Export the current Three.js scene as GLB (binary glTF) */
+export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'): Promise<void> {
+  const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
+  const exporter = new GLTFExporter();
+
+  // Expand InstancedMesh — GLTFExporter's InstancedMesh support is unreliable
+  const { group, cleanup } = createExportGroup(viewer);
+
+  return new Promise((resolve, reject) => {
+    exporter.parse(
+      group,
+      (result) => {
+        cleanup();
+        const blob = new Blob([result as ArrayBuffer], { type: 'model/gltf-binary' });
+        downloadBlob(blob, filename);
+        resolve();
+      },
+      (error) => { cleanup(); reject(error); },
+      { binary: true }
+    );
+  });
+}
+
+/** Export the current Three.js scene as binary STL (3D printing) */
+export async function exportSTL(viewer: ViewerState, filename = 'craftmatic.stl'): Promise<void> {
+  const { STLExporter } = await import('three/examples/jsm/exporters/STLExporter.js');
+  const exporter = new STLExporter();
+  const { group, cleanup } = createExportGroup(viewer);
+
+  const result = exporter.parse(group, { binary: true });
+  cleanup();
 
   const blob = new Blob([result], { type: 'application/octet-stream' });
+  downloadBlob(blob, filename);
+}
+
+/** Export the current Three.js scene as OBJ (universal 3D format) */
+export async function exportOBJ(viewer: ViewerState, filename = 'craftmatic.obj'): Promise<void> {
+  const { OBJExporter } = await import('three/examples/jsm/exporters/OBJExporter.js');
+  const exporter = new OBJExporter();
+  const { group, cleanup } = createExportGroup(viewer);
+
+  const result = exporter.parse(group);
+  cleanup();
+
+  const blob = new Blob([result], { type: 'text/plain' });
   downloadBlob(blob, filename);
 }
 
