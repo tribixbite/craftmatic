@@ -44,6 +44,7 @@ let reorientation: ReorientationPlugin | null = null;
 let animFrameId = 0;
 let rootEl: HTMLElement;
 let isInitialized = false;
+let hasLoadedOnce = false;
 
 // ─── API Key ────────────────────────────────────────────────────────────────
 
@@ -210,6 +211,64 @@ function disposeViewer(): void {
 export function initMap3d(container: HTMLElement): void {
   rootEl = container;
   buildUI();
+
+  // Observe tab visibility: pause render loop when hidden, resume + lazy-init when shown
+  const tabSection = container.closest('.tab-content') as HTMLElement | null;
+  if (tabSection) {
+    const observer = new MutationObserver(() => {
+      const visible = tabSection.classList.contains('active');
+      if (visible) {
+        onTabVisible();
+      } else {
+        pauseRenderLoop();
+      }
+    });
+    observer.observe(tabSection, { attributes: true, attributeFilter: ['class'] });
+  }
+}
+
+/** Called when the Map tab becomes visible */
+function onTabVisible(): void {
+  // First visit: trigger initial load if API key is present
+  if (!hasLoadedOnce && hasApiKey()) {
+    hasLoadedOnce = true;
+    const viewerEl = document.getElementById('map3d-viewer');
+    if (viewerEl) {
+      viewerEl.innerHTML = '';
+      setStatus('Loading 3D tiles...', 'info');
+      try {
+        initViewer(viewerEl, getApiKey(), DEFAULT_LAT, DEFAULT_LNG);
+        setStatus(`Loaded — ${DEFAULT_ADDRESS}`, 'success');
+      } catch (err) {
+        console.error('3D tiles init failed:', err);
+        setStatus('3D tiles failed to load', 'error');
+      }
+    }
+    return;
+  }
+  // Resume existing render loop
+  resumeRenderLoop();
+}
+
+/** Pause the rAF loop to avoid wasting GPU cycles while hidden */
+function pauseRenderLoop(): void {
+  if (animFrameId) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = 0;
+  }
+}
+
+/** Resume the rAF loop when tab becomes visible again */
+function resumeRenderLoop(): void {
+  if (animFrameId || !isInitialized) return;
+  const animate = () => {
+    animFrameId = requestAnimationFrame(animate);
+    controls!.update();
+    camera!.updateMatrixWorld();
+    tiles!.update();
+    renderer!.render(scene!, camera!);
+  };
+  animate();
 }
 
 function buildUI(): void {
@@ -281,6 +340,7 @@ function buildUI(): void {
 
     // Always reinitialize viewer for new location (plugin property updates alone
     // don't cause tiles to reload at the new origin)
+    hasLoadedOnce = true;
     const viewerEl = document.getElementById('map3d-viewer')!;
     viewerEl.innerHTML = '';
     setStatus('Loading 3D tiles...', 'info');
@@ -314,21 +374,7 @@ function buildUI(): void {
     }
   });
 
-  // Auto-load default location if key exists (skip geocoding — use hardcoded coords)
-  if (key) {
-    requestAnimationFrame(() => {
-      const viewerEl = document.getElementById('map3d-viewer')!;
-      viewerEl.innerHTML = '';
-      setStatus('Loading 3D tiles...', 'info');
-      try {
-        initViewer(viewerEl, getApiKey(), DEFAULT_LAT, DEFAULT_LNG);
-        setStatus(`Loaded — ${DEFAULT_ADDRESS}`, 'success');
-      } catch (err) {
-        console.error('3D tiles init failed:', err);
-        setStatus('3D tiles failed to load', 'error');
-      }
-    });
-  }
+  // Auto-load is deferred to onTabVisible() — tiles only load when Map tab is first shown
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

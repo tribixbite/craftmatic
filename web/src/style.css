@@ -1489,12 +1489,11 @@ html, body {
 
 #tab-map {
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 #tab-map.active {
   display: flex;
+  flex-direction: column;
 }
 
 #map3d-root {
