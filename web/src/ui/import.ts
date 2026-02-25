@@ -51,6 +51,7 @@ import {
 } from '@ui/import-mapillary.js';
 import { analyzeStreetViewBrowser, type BrowserSvColorResult } from '@ui/import-sv-analysis.js';
 import { queryMapboxBuildingHeight, type MapboxBuildingResult } from '@ui/import-mapbox-building.js';
+import { querySolarBuildingInsights, type SolarBuildingData } from '@craft/gen/api/google-solar.js';
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
 
@@ -131,8 +132,12 @@ export function initImport(
   let currentSatFootprint: FootprintResult | null = null;
   /** Street View color analysis (browser-side) */
   let currentSvColors: BrowserSvColorResult | null = null;
+  /** Promise for in-flight SV analysis — awaited in doGenerate to avoid race condition */
+  let svAnalysisPromise: Promise<BrowserSvColorResult | null> | null = null;
   /** Mapbox building height data */
   let currentMapboxBuilding: MapboxBuildingResult | null = null;
+  /** Google Solar API building insights */
+  let currentSolar: SolarBuildingData | null = null;
 
   // Restore API key display state
   const savedParclKey = getParclApiKey();
@@ -468,7 +473,9 @@ export function initImport(
     currentMapillaryFeatures = [];
     currentSatFootprint = null;
     currentSvColors = null;
+    svAnalysisPromise = null;
     currentMapboxBuilding = null;
+    currentSolar = null;
 
     const [geoResult, parclResult, smartyResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -497,16 +504,19 @@ export function initImport(
     if (currentGeocoding) {
       const geo = currentGeocoding;
 
-      // Fire OSM + Street View + Mapillary + Mapbox building in parallel
+      // Fire OSM + Street View + Mapillary + Mapbox + Solar in parallel
       const mlyToken = getMapillaryMlyToken();
-      const [osmResult, svResult, mlyImgResult, mlyFeatResult, mbBuildingResult] = await Promise.allSettled([
+      const svApiKey = getStreetViewApiKey();
+      const [osmResult, svResult, mlyImgResult, mlyFeatResult, mbBuildingResult, solarResult] = await Promise.allSettled([
         searchOSMBuilding(geo.lat, geo.lng),
         hasStreetViewApiKey()
-          ? checkStreetViewAvailability(geo.lat, geo.lng, getStreetViewApiKey())
+          ? checkStreetViewAvailability(geo.lat, geo.lng, svApiKey)
           : Promise.resolve(false),
         mlyToken ? searchMapillaryImages(geo.lat, geo.lng, mlyToken) : Promise.resolve(null),
         mlyToken ? searchMapillaryFeatures(geo.lat, geo.lng, mlyToken) : Promise.resolve(null),
         hasMapboxToken() ? queryMapboxBuildingHeight(geo.lat, geo.lng) : Promise.resolve(null),
+        // Solar API uses same Google API key as Street View
+        hasStreetViewApiKey() ? querySolarBuildingInsights(geo.lat, geo.lng, svApiKey) : Promise.resolve(null),
       ]);
 
       // Process OSM result
@@ -516,11 +526,17 @@ export function initImport(
 
       // Process Street View result
       if (svResult.status === 'fulfilled' && svResult.value === true) {
-        currentStreetViewUrl = getStreetViewUrl(geo.lat, geo.lng, getStreetViewApiKey());
-        // Analyze SV image for wall/roof/trim colors (async, runs in background)
-        analyzeStreetViewBrowser(currentStreetViewUrl).then(result => {
+        currentStreetViewUrl = getStreetViewUrl(geo.lat, geo.lng, svApiKey);
+        // Analyze SV image for wall/roof/trim colors — store promise for doGenerate() to await
+        svAnalysisPromise = analyzeStreetViewBrowser(currentStreetViewUrl).then(result => {
           if (result) currentSvColors = result;
-        }).catch(() => { /* non-fatal */ });
+          return result;
+        }).catch(() => null);
+      }
+
+      // Process Solar API result
+      if (solarResult.status === 'fulfilled' && solarResult.value) {
+        currentSolar = solarResult.value;
       }
 
       // Process Mapbox building height result
@@ -1127,6 +1143,19 @@ export function initImport(
       };
     }
 
+    // Solar API data
+    if (prop.solarRoofPitch || prop.solarRoofSegments || prop.solarBuildingArea) {
+      currentSolar = {
+        primaryPitchDegrees: (prop.solarRoofPitch as number) ?? 0,
+        primaryAzimuthDegrees: (prop.solarAzimuthDegrees as number) ?? 0,
+        roofSegmentCount: (prop.solarRoofSegments as number) ?? 0,
+        totalRoofAreaSqm: (prop.solarRoofArea as number) ?? 0,
+        buildingFootprintAreaSqm: (prop.solarBuildingArea as number) ?? 0,
+        primaryPlaneHeight: 0,
+        imageryQuality: 'IMPORTED',
+      };
+    }
+
     // Street view URL
     if (prop.streetViewUrl) currentStreetViewUrl = prop.streetViewUrl as string;
 
@@ -1141,9 +1170,17 @@ export function initImport(
   }
 
   // ── Generate ──────────────────────────────────────────────────────────
-  generateBtn.addEventListener('click', doGenerate);
+  generateBtn.addEventListener('click', () => { void doGenerate(); });
 
-  function doGenerate(): void {
+  async function doGenerate(): Promise<void> {
+    // Ensure SV color analysis has completed before using results
+    if (svAnalysisPromise) {
+      generateBtn.disabled = true;
+      await svAnalysisPromise;
+      svAnalysisPromise = null;
+      generateBtn.disabled = false;
+    }
+
     const yearVal = parseInt((controls.querySelector('#import-year') as HTMLInputElement).value) || 2000;
 
     const property: PropertyData = {
@@ -1206,6 +1243,12 @@ export function initImport(
       // Mapbox building height (critical for story count estimation)
       mapboxHeight: currentMapboxBuilding?.height,
       mapboxBuildingType: currentMapboxBuilding?.buildingType,
+      // Google Solar API enrichment (roof geometry + building footprint)
+      solarRoofPitch: currentSolar?.primaryPitchDegrees || undefined,
+      solarRoofSegments: currentSolar?.roofSegmentCount || undefined,
+      solarAzimuthDegrees: currentSolar?.primaryAzimuthDegrees || undefined,
+      solarBuildingArea: currentSolar?.buildingFootprintAreaSqm || undefined,
+      solarRoofArea: currentSolar?.totalRoofAreaSqm || undefined,
       county: currentParcl?.county,
       stateAbbreviation: currentParcl?.stateAbbreviation,
       city: currentParcl?.city,

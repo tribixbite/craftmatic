@@ -90,6 +90,22 @@ export function buildInfoPanelHtml(
   if (property.osmRoofShape) {
     enrichmentRows += `<div class="info-row"><span class="info-label">Roof Shape</span><span class="info-value">${escapeHtml(property.osmRoofShape)} (OSM)</span></div>`;
   }
+  // Solar API enrichment
+  if (property.solarRoofPitch || property.solarRoofSegments) {
+    const pitch = property.solarRoofPitch ? `${Math.round(property.solarRoofPitch)}°` : '?';
+    const segs = property.solarRoofSegments ?? '?';
+    const area = property.solarBuildingArea ? ` | ${Math.round(property.solarBuildingArea)}m² footprint` : '';
+    enrichmentRows += `<div class="info-row"><span class="info-label">Solar</span><span class="info-value">pitch ${pitch}, ${segs} segments${area}</span></div>`;
+  }
+  // Mapbox building height
+  if (property.mapboxHeight) {
+    enrichmentRows += `<div class="info-row"><span class="info-label">Height</span><span class="info-value">${property.mapboxHeight.toFixed(1)}m (Mapbox)${property.mapboxBuildingType ? ' — ' + escapeHtml(property.mapboxBuildingType) : ''}</span></div>`;
+  }
+  // SV color analysis
+  if (property.svWallOverride) {
+    const wall = String(property.svWallOverride).replace('minecraft:', '').replace(/\[.*/, '');
+    enrichmentRows += `<div class="info-row"><span class="info-label">SV Colors</span><span class="info-value">wall: ${wall}</span></div>`;
+  }
   if (property.mapillaryImageUrl) {
     const heading = property.mapillaryHeading != null ? ` | ${Math.round(property.mapillaryHeading)}°` : '';
     const date = property.mapillaryCaptureDate ? ` | ${property.mapillaryCaptureDate.split('T')[0]}` : '';
