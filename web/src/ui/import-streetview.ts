@@ -56,6 +56,20 @@ export function getStreetViewUrl(
   return `${SV_BASE}?size=${size}&location=${lat},${lng}&key=${apiKey}`;
 }
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+/** Metadata returned by the Street View Static API metadata endpoint */
+export interface StreetViewMetadata {
+  /** Whether Street View imagery is available */
+  available: boolean;
+  /** Capture date string, e.g. "2023-07" */
+  date?: string;
+  /** Panorama ID — unique identifier for this capture */
+  panoId?: string;
+  /** Actual camera location (may differ from requested coordinates) */
+  location?: { lat: number; lng: number };
+}
+
 // ─── Availability Check ─────────────────────────────────────────────────────
 
 /**
@@ -68,14 +82,41 @@ export async function checkStreetViewAvailability(
   lng: number,
   apiKey: string,
 ): Promise<boolean> {
+  const meta = await fetchStreetViewMetadata(lat, lng, apiKey);
+  return meta.available;
+}
+
+/**
+ * Fetch full Street View metadata for the given coordinates.
+ * Returns availability, capture date, pano ID, and actual camera location.
+ * The metadata endpoint is free (doesn't count against image request quota).
+ */
+export async function fetchStreetViewMetadata(
+  lat: number,
+  lng: number,
+  apiKey: string,
+): Promise<StreetViewMetadata> {
   try {
     const url = `${SV_META}?location=${lat},${lng}&key=${apiKey}`;
     const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!resp.ok) return false;
+    if (!resp.ok) return { available: false };
 
-    const data = await resp.json();
-    return data.status === 'OK';
+    const data = await resp.json() as {
+      status?: string;
+      date?: string;
+      pano_id?: string;
+      location?: { lat: number; lng: number };
+    };
+
+    if (data.status !== 'OK') return { available: false };
+
+    return {
+      available: true,
+      date: data.date || undefined,
+      panoId: data.pano_id || undefined,
+      location: data.location || undefined,
+    };
   } catch {
-    return false;
+    return { available: false };
   }
 }

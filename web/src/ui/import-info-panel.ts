@@ -101,10 +101,16 @@ export function buildInfoPanelHtml(
   if (property.mapboxHeight) {
     enrichmentRows += `<div class="info-row"><span class="info-label">Height</span><span class="info-value">${property.mapboxHeight.toFixed(1)}m (Mapbox)${property.mapboxBuildingType ? ' — ' + escapeHtml(property.mapboxBuildingType) : ''}</span></div>`;
   }
-  // SV color analysis
+  // SV color analysis + metadata
   if (property.svWallOverride) {
     const wall = String(property.svWallOverride).replace('minecraft:', '').replace(/\[.*/, '');
     enrichmentRows += `<div class="info-row"><span class="info-label">SV Colors</span><span class="info-value">wall: ${wall}</span></div>`;
+  }
+  if (property.streetViewDate || property.streetViewHeading != null) {
+    const parts: string[] = [];
+    if (property.streetViewDate) parts.push(property.streetViewDate);
+    if (property.streetViewHeading != null) parts.push(`heading ${Math.round(property.streetViewHeading)}°`);
+    enrichmentRows += `<div class="info-row"><span class="info-label">SV Meta</span><span class="info-value">${parts.join(' | ')} (Google)</span></div>`;
   }
   if (property.mapillaryImageUrl) {
     const heading = property.mapillaryHeading != null ? ` | ${Math.round(property.mapillaryHeading)}°` : '';
