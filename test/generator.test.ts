@@ -168,12 +168,12 @@ describe('import-style generation (rooms + custom dimensions)', () => {
   });
 
   it('auto-style inference produces valid structures for each era', () => {
-    // Mapping: <1700→medieval, <1850→gothic, <1890→rustic, <1920→colonial, <1945→steampunk, <1970→rustic, else→modern
+    // Mapping: <1700→medieval, <1850→gothic, <1890→rustic, <1920→colonial, <1945→desert, <1970→rustic, else→modern
     const eraStyles: [number, StyleName][] = [
       [1650, 'medieval'],
       [1800, 'gothic'],
       [1895, 'colonial'],
-      [1935, 'steampunk'],
+      [1935, 'desert'],
       [1960, 'rustic'],
       [2020, 'modern'],
     ];

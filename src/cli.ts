@@ -392,8 +392,16 @@ async function genFromAddress(
       // OSM building:levels — ground truth from mapping data
       stories = osm.levels;
     } else if (mapboxBuilding?.height && mapboxBuilding.height > 0) {
-      // Mapbox building height (meters) — LiDAR-derived, more reliable than sqft heuristic
-      stories = Math.max(1, Math.round(mapboxBuilding.height / 3.5));
+      // Mapbox height (meters) — can over-report on hillsides (includes terrain slope).
+      // Cross-check with OSM footprint when available: if sqft fits in fewer floors
+      // than height implies, trust the footprint ratio (hillside inflation).
+      const mapboxStories = Math.max(1, Math.round(mapboxBuilding.height / 3.5));
+      if (osm && osm.widthMeters > 0 && osm.lengthMeters > 0 && sqft > 0) {
+        const footprintStories = estimateStoriesFromFootprint(sqft, osm.widthMeters, osm.lengthMeters);
+        stories = (Math.abs(mapboxStories - footprintStories) <= 1) ? mapboxStories : footprintStories;
+      } else {
+        stories = mapboxStories;
+      }
     } else if (isMultiUnit(mappedPropType)) {
       // Multi-unit: do NOT use sqft/footprint — Parcl sqft is sum of all units, not building gross
       const density = inferDensityFromZip(opts['zip'] ?? parcl.zipCode);
