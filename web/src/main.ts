@@ -6,7 +6,7 @@
 import './style.css';
 import { BlockGrid } from '@craft/schem/types.js';
 import { createViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
-import { exportGLB, exportSchem, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
+import { exportGLB, exportSTL, exportSchem, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initImport, type PropertyData } from '@ui/import.js';
 import { initUpload } from '@ui/upload.js';
@@ -99,12 +99,22 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
         min="0" max="${grid.height}" value="${grid.height}" step="1">
       <span id="inline-cutaway-label" class="inline-cutaway-label">All</span>
     </div>
-    <button class="btn btn-secondary btn-sm" id="inline-export-schem" title="Export .schem">
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-      </svg>
-      .schem
-    </button>
+    <div class="download-dropdown" id="inline-dl-dropdown">
+      <button class="btn btn-secondary btn-sm" id="inline-dl-btn" title="Download">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download
+        <svg class="download-chevron" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="download-menu download-menu-up" id="inline-dl-menu" hidden>
+        <button class="download-item" data-format="schem">.schem<span class="download-desc">Minecraft</span></button>
+        <button class="download-item" data-format="stl">STL<span class="download-desc">3D print</span></button>
+        <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF</span></button>
+        <button class="download-item" data-format="three">Three.js JSON<span class="download-desc">Scene</span></button>
+        <button class="download-item" data-format="html">HTML<span class="download-desc">Standalone</span></button>
+      </div>
+    </div>
     <button class="btn btn-secondary btn-sm" id="inline-expand" title="Expand to full viewer">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
@@ -125,15 +135,14 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
     applyCutaway(inlineViewer, maxY);
   });
 
-  // Export .schem (works without WebGL)
-  controlsDiv.querySelector('#inline-export-schem')!.addEventListener('click', () => {
-    try {
-      exportSchem(grid, `${exportBasename}.schem`);
-    } catch (err) {
-      console.error('.schem export failed:', err);
-      showError('Export failed');
-    }
-  });
+  // Wire inline download dropdown
+  wireDownloadDropdown(
+    controlsDiv.querySelector('#inline-dl-dropdown')!,
+    controlsDiv.querySelector('#inline-dl-btn')!,
+    controlsDiv.querySelector('#inline-dl-menu')!,
+    () => inlineViewer,
+    () => grid,
+  );
 
   // Expand button → opens full viewer overlay
   controlsDiv.querySelector('#inline-expand')!.addEventListener('click', () => {
@@ -210,51 +219,83 @@ cutawaySlider.addEventListener('input', () => {
   applyCutaway(activeViewer, maxY);
 });
 
-// Export GLB
-document.getElementById('btn-export-glb')!.addEventListener('click', async () => {
-  if (!activeViewer) return;
-  showLoading('Exporting GLB...');
-  try {
-    await exportGLB(activeViewer, `${exportBasename}.glb`);
-  } catch (err) {
-    console.error('GLB export failed:', err);
-    showError('GLB export failed');
-    return;
-  }
-  hideLoading();
-});
+// ─── Download Dropdown ──────────────────────────────────────────────────────
 
-// Export .schem
-document.getElementById('btn-export-schem')!.addEventListener('click', () => {
-  if (!activeGrid) return;
-  try {
-    exportSchem(activeGrid, `${exportBasename}.schem`);
-  } catch (err) {
-    console.error('.schem export failed:', err);
-    showError('Export failed');
-  }
-});
+/** Shared wiring for download dropdowns (overlay viewer + inline viewers) */
+function wireDownloadDropdown(
+  dropdownEl: HTMLElement,
+  btnEl: HTMLElement,
+  menuEl: HTMLElement,
+  getViewer: () => ViewerState | null,
+  getGrid: () => BlockGrid | null,
+): void {
+  btnEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !menuEl.hidden;
+    menuEl.hidden = isOpen;
+    dropdownEl.classList.toggle('open', !isOpen);
+  });
+  menuEl.addEventListener('click', (e) => e.stopPropagation());
 
-// Export HTML
-document.getElementById('btn-export-html')!.addEventListener('click', () => {
-  if (!activeViewer) return;
-  try {
-    exportHTML(activeViewer, `${exportBasename}.html`);
-  } catch (err) {
-    console.error('HTML export failed:', err);
-    showError('Export failed');
-  }
-});
+  menuEl.querySelectorAll<HTMLButtonElement>('.download-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      const format = item.dataset['format'];
+      menuEl.hidden = true;
+      dropdownEl.classList.remove('open');
+      const viewer = getViewer();
+      const grid = getGrid();
 
-// Export Three.js JSON
-document.getElementById('btn-export-three')!.addEventListener('click', () => {
-  if (!activeViewer) return;
-  try {
-    exportThreeJSON(activeViewer, `${exportBasename}-scene.json`);
-  } catch (err) {
-    console.error('Three.js JSON export failed:', err);
-    showError('Export failed');
-  }
+      try {
+        switch (format) {
+          case 'schem':
+            if (!grid) return;
+            exportSchem(grid, `${exportBasename}.schem`);
+            break;
+          case 'stl':
+            if (!viewer) return;
+            showLoading('Exporting STL...');
+            await exportSTL(viewer, `${exportBasename}.stl`);
+            hideLoading();
+            break;
+          case 'glb':
+            if (!viewer) return;
+            showLoading('Exporting GLB...');
+            await exportGLB(viewer, `${exportBasename}.glb`);
+            hideLoading();
+            break;
+          case 'three':
+            if (!viewer) return;
+            exportThreeJSON(viewer, `${exportBasename}-scene.json`);
+            break;
+          case 'html':
+            if (!viewer) return;
+            exportHTML(viewer, `${exportBasename}.html`);
+            break;
+        }
+      } catch (err) {
+        console.error(`${format} export failed:`, err);
+        showError(`${format?.toUpperCase()} export failed`);
+        hideLoading();
+      }
+    });
+  });
+}
+
+// Wire the overlay viewer's download dropdown
+wireDownloadDropdown(
+  document.getElementById('download-dropdown')!,
+  document.getElementById('btn-download')!,
+  document.getElementById('download-menu')!,
+  () => activeViewer,
+  () => activeGrid,
+);
+
+// Close all dropdowns on outside click
+document.addEventListener('click', () => {
+  document.querySelectorAll<HTMLElement>('.download-menu').forEach(m => {
+    m.hidden = true;
+    m.parentElement?.classList.remove('open');
+  });
 });
 
 // Fullscreen
@@ -401,6 +442,47 @@ if (versionEl) {
 // ─── Service Worker ─────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// ─── PWA Install Prompt ──────────────────────────────────────────────────────
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+let deferredInstallPrompt: BeforeInstallPromptEvent | null = null;
+
+// Skip if already installed as standalone app
+if (!window.matchMedia('(display-mode: standalone)').matches) {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e as BeforeInstallPromptEvent;
+    if (localStorage.getItem('pwa-install-dismissed')) return;
+    showInstallBanner();
+  });
+}
+
+function showInstallBanner(): void {
+  const actions = document.querySelector('.nav-actions');
+  if (!actions) return;
+
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-sm btn-primary nav-install-btn';
+  btn.textContent = 'Install';
+  btn.title = 'Install Craftmatic for offline use';
+  btn.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    await deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    if (outcome === 'dismissed') {
+      localStorage.setItem('pwa-install-dismissed', '1');
+    }
+    deferredInstallPrompt = null;
+    btn.remove();
+  });
+
+  actions.insertBefore(btn, actions.firstChild);
 }
 
 // ─── Startup ─────────────────────────────────────────────────────────────────

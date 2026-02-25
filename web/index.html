@@ -9,6 +9,14 @@
   <meta property="og:title" content="Craftmatic — Minecraft Schematic Toolkit">
   <meta property="og:description" content="Generate, view, and export Minecraft schematics in your browser.">
   <meta property="og:type" content="website">
+  <meta property="og:image" content="https://tribixbite.github.io/craftmatic/og-preview.webp">
+  <meta property="og:image:type" content="image/webp">
+  <meta property="og:image:width" content="800">
+  <meta property="og:image:height" content="420">
+  <meta property="og:url" content="https://tribixbite.github.io/craftmatic/">
+  <meta property="og:site_name" content="Craftmatic">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://tribixbite.github.io/craftmatic/og-preview.webp">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="manifest" href="/manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -140,29 +148,27 @@
           <button class="tool-btn" id="btn-cutaway" title="Cutaway slider">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v18M18 3v18M3 12h18"/></svg>
           </button>
-          <button class="tool-btn tool-btn-labeled" id="btn-export-glb" title="Export GLB">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            <span class="tool-label">GLB</span>
-          </button>
-          <button class="tool-btn tool-btn-labeled" id="btn-export-schem" title="Export .schem">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <span class="tool-label">.schem</span>
-          </button>
-          <button class="tool-btn tool-btn-labeled" id="btn-export-html" title="Export HTML">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            <span class="tool-label">HTML</span>
-          </button>
-          <button class="tool-btn tool-btn-labeled" id="btn-export-three" title="Export Three.js JSON">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-            <span class="tool-label">3JS</span>
-          </button>
+          <div class="download-dropdown" id="download-dropdown">
+            <button class="tool-btn tool-btn-labeled" id="btn-download" title="Download">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span class="tool-label">Download</span>
+              <svg class="download-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="download-menu" id="download-menu" hidden>
+              <button class="download-item" data-format="schem">.schem<span class="download-desc">Minecraft schematic</span></button>
+              <button class="download-item" data-format="stl">STL<span class="download-desc">3D printing</span></button>
+              <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF binary</span></button>
+              <button class="download-item" data-format="three">Three.js JSON<span class="download-desc">Scene data</span></button>
+              <button class="download-item" data-format="html">HTML<span class="download-desc">Standalone viewer</span></button>
+            </div>
+          </div>
           <button class="tool-btn" id="btn-fullscreen" title="Fullscreen">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
           </button>
-          <button class="tool-btn close-btn" id="btn-close-viewer" title="Close viewer">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
         </div>
+        <button class="tool-btn close-btn" id="btn-close-viewer" title="Close viewer">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
       <div id="viewer-canvas" class="viewer-canvas"></div>
       <div id="cutaway-panel" class="cutaway-panel" hidden>
