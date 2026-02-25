@@ -1,5 +1,5 @@
 /**
- * Export utilities: GLB, .schem, and standalone HTML.
+ * Export utilities: GLB, STL, .schem, Three.js JSON, and standalone HTML.
  */
 
 import * as THREE from 'three';
@@ -38,6 +38,40 @@ export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'
       { binary: true }
     );
   });
+}
+
+/** Export the current Three.js scene as binary STL (3D printing) */
+export async function exportSTL(viewer: ViewerState, filename = 'craftmatic.stl'): Promise<void> {
+  const { STLExporter } = await import('three/examples/jsm/exporters/STLExporter.js');
+  const exporter = new STLExporter();
+
+  // STLExporter doesn't handle InstancedMesh natively — expand instances
+  // into a temporary group of regular meshes for export, then clean up.
+  const tempGroup = new THREE.Group();
+  const tempMeshes: THREE.Mesh[] = [];
+
+  for (const instMesh of viewer.meshes) {
+    const originals = instMesh.userData.originalMatrices as THREE.Matrix4[] | undefined;
+    if (!originals) continue;
+    const mat = instMesh.material as THREE.MeshStandardMaterial;
+    for (const matrix of originals) {
+      const mesh = new THREE.Mesh(instMesh.geometry, mat);
+      mesh.applyMatrix4(matrix);
+      tempGroup.add(mesh);
+      tempMeshes.push(mesh);
+    }
+  }
+
+  const result = exporter.parse(tempGroup, { binary: true });
+
+  // Clean up temporary meshes
+  for (const m of tempMeshes) {
+    m.geometry = undefined!; // Don't dispose shared geometry
+    tempGroup.remove(m);
+  }
+
+  const blob = new Blob([result], { type: 'application/octet-stream' });
+  downloadBlob(blob, filename);
 }
 
 /** Export the BlockGrid as a .schem file */
