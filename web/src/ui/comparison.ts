@@ -520,7 +520,8 @@ function generateForTier(tier: typeof TIERS[number]): BlockGrid {
         floors: g.floors as number,
         width: g.width as number | undefined,
         length: g.length as number | undefined,
-        seed: hashCode(currentLoc + '-' + tier + String(g.style) + String(g.floors)),
+        // Use stored seed from pipeline; fall back to hash if not present (old data)
+        seed: (g.seed as number | undefined) ?? hashCode(currentLoc + '-' + tier + String(g.style) + String(g.floors)),
         wallOverride: g.wallOverride as string | undefined,
         trimOverride: g.trimOverride as string | undefined,
         doorOverride: g.doorOverride as string | undefined,

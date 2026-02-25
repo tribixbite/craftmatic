@@ -568,6 +568,7 @@ for (const { key, address } of ADDRESSES) {
       },
       genOptions: {
         style: opts.style, floors: opts.floors, width: opts.width, length: opts.length,
+        seed: opts.seed,
         wallOverride: opts.wallOverride, trimOverride: opts.trimOverride,
         doorOverride: opts.doorOverride, roofShape: opts.roofShape,
         roofOverride: opts.roofOverride, floorPlanShape: opts.floorPlanShape,
