@@ -795,3 +795,69 @@ Integrated standalone comparison viewer into main SPA as a proper tab. Replaced 
 | de34f7f | feat: integrate comparison viewer as SPA tab |
 | 6d64eb3 | fix: restore 3-tier dual-slider comparison with all 7 locations |
 | 5edb9c9 | fix: comparison tab scrollable on mobile + generate/download buttons |
+| 4675cd4 | feat: 3-tier comparison for 9 addresses + data-driven viewer |
+
+---
+
+## Post-QA 23: 9-Address Comparison + Gemini 3 Pro Visual Grading (2026-02-25)
+
+### Changes
+
+1. **gen-comparison.ts rewrite**: 9 addresses (added LA + Seattle), 3 tiers per address (noapi/someapis/allapis), fix bun tmp dir path resolution (`import.meta.dir` for project root). Census geocoder fallback when Parcl fails.
+
+2. **comparison.ts data-driven**: Removed ~240 lines of hardcoded LOCATIONS data. Now loads comparison-data.json dynamically via `jsonToLocation()`, builds LOCATIONS at runtime. Adding new addresses only requires rerunning gen-comparison.ts.
+
+3. **Mobile responsive**: Horizontal scroll nav for 9 addresses, compact cards/tags on small screens.
+
+4. **Bun path fix**: Scripts in `scripts/` resolve relative paths from bun's tmp working dir (`~/.bun/tmp/`), not the project root. Fixed by using `resolve(import.meta.dir, '..')` for `OUT_DIR` and `WEB_DIR`.
+
+### 9-Address Generation Results (All APIs Tier)
+
+| Address | Style | Floors | Shape | Grid | Blocks | APIs |
+|---------|-------|--------|-------|------|--------|------|
+| SF (2340 Francisco St) | gothic | 4 | L | 60x25 | 13,341 | 7/7 |
+| Newton (240 Highland St) | fantasy | 3 | rect | 53x27 | 11,177 | 7/7 |
+| San Jose (525 S Winchester) | colonial | 3 | L | 101x20 | 23,208 | 7/7 |
+| Walpole (13 Union St) | colonial | 2 | rect | 55x22 | 7,845 | 7/7 |
+| Byron Center (2431 72nd St) | modern | 4 | L | 54x28 | 5,999 | 6/7 |
+| Vinalhaven (216 Zekes Point) | rustic | 2 | rect | 56x17 | 6,820 | 2/7 |
+| Suttons Bay (5835 S Bridget) | rustic | 2 | rect | 56x15 | 6,727 | 3/7 |
+| Los Angeles (2607 Glendower) | fantasy | 4 | T | 83x25 | 20,343 | 7/7 |
+| Seattle (4810 SW Ledroit) | rustic | 2 | L | 56x21 | 6,846 | 6/7 |
+
+### Gemini 3 Pro Visual Quality Grading
+
+| # | Address | Style | Grade | Key Feedback |
+|---|---------|-------|-------|-------------|
+| 1 | Walpole NH | colonial 2f | **A** | "Sweet spot" — perfect proportions, clean NE colonial |
+| 2 | Seattle WA | rustic 2f L | **A** | Craftsman bungalow nailed — L-shape creates natural entry |
+| 3 | Vinalhaven ME | rustic 2f | **A-** | Graceful degradation — missing APIs, robust fallback |
+| 4 | San Francisco | gothic 4f L | **B+** | Urban multi-family works, good verticality |
+| 5 | Suttons Bay MI | rustic 2f | **B+** | Solid cabin, minimal API data handled well |
+| 6 | Newton MA | fantasy 3f | **B** | Victorian inputs work but noisy textures |
+| 7 | San Jose CA | colonial 3f L | **C-** | 45x45 too large — needs compound splitter logic |
+| 8 | Los Angeles CA | fantasy 4f T | **D+** | Hillside terrain not handled, massive roof slopes |
+| 9 | Byron Center MI | modern 4f L | **D** | 10x10 + 4f = watchtower — aspect ratio unclamped |
+
+**Overall System Grade: B- (GPA 2.7)**
+
+### System Bimodality Finding
+
+The system is bimodal:
+- **Small-medium (< 20x20, 1-3f): A/A- average** — generation engine excels here
+- **Large/complex (> 30x30, 4f+): D average** — roof, scaling, and style algorithms fail
+
+### Gemini's Strategic Recommendations
+
+1. **Architectural LOD**: Footprint > 400 blocks → "Compound Generator" with Main Hall + Wings, separate roof per wing
+2. **Aspect Ratio Clamping**: If Height > Width * 1.5, force wider base or reduce visual floor height
+3. **Style-Geometry Coupling**: Modern → force flat roof + cantilevers; Rustic → force overhangs + low pitch
+4. **Terrain Integration**: For hillside addresses, spawn Foundation volume below zero-plane (retaining wall)
+5. **API Cost Optimization**: If `Single Family AND < 1500 sqft`, skip expensive APIs (Solar/Mapbox) — rustic fallback already works
+
+### Browser Testing
+
+- Playwright on live site: Comparison tab loads 7+ locations (CDN cache for 9), 3-tier stats, 7/7 API data cards
+- 3D generation via "All APIs 3D" button: 92x25x51, 28,425 blocks, 93 materials — successful
+- WebGL blank in headless Playwright (no GPU, expected)
+- CI + Pages deploy both pass (22378530938, 22378530953)
