@@ -35,7 +35,13 @@ export function generateHouse(
   // Use style's preferred plan shape when no explicit override
   const effectivePlanShape: FloorPlanShape = planShape ?? style.defaultPlanShape;
   // Roof height: Solar API pitch override > style default
-  const effectiveRoofH = roofHeightOverride ?? style.roofHeight;
+  // Clamp roof height proportionally to wall height — prevents roof-dominated buildings.
+  // Wall:roof ratio stays ≥ 1:1 (roof never taller than walls).
+  // For 1-floor (5 blocks): max 6. For 2-floor (10 blocks): max 8. For 3+ floor: unclamped.
+  const wallH = floors * STORY_H;
+  const maxRoofH = floors >= 3 ? 14 : wallH + Math.max(1, Math.floor(wallH * 0.2));
+  const rawRoofH = roofHeightOverride ?? style.roofHeight;
+  const effectiveRoofH = Math.min(rawRoofH, maxRoofH);
   const bw = bwOpt ?? 29;
   const bl = blOpt ?? 23;
   const margin = 3;

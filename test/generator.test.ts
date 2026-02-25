@@ -168,12 +168,13 @@ describe('import-style generation (rooms + custom dimensions)', () => {
   });
 
   it('auto-style inference produces valid structures for each era', () => {
-    // Mapping mirrors import-tab inferStyle(): <1700→medieval, <1850→gothic, <1920→rustic, <1970→fantasy, else→modern
+    // Mapping: <1700→medieval, <1850→gothic, <1890→rustic, <1920→colonial, <1945→steampunk, <1970→rustic, else→modern
     const eraStyles: [number, StyleName][] = [
       [1650, 'medieval'],
       [1800, 'gothic'],
-      [1900, 'rustic'],
-      [1960, 'fantasy'],
+      [1895, 'colonial'],
+      [1935, 'steampunk'],
+      [1960, 'rustic'],
       [2020, 'modern'],
     ];
     for (const [_year, style] of eraStyles) {
@@ -254,7 +255,7 @@ describe('import end-to-end: 600 Broadway Ave NW, Grand Rapids MI 49504', () => 
     const grid = generateStructure({
       type: 'house',
       floors: 2,
-      style: 'fantasy', // inferStyle(1920) → fantasy
+      style: 'fantasy', // explicit style (inferStyle(1920) now → colonial)
       rooms: ['foyer', 'living', 'kitchen', 'dining', 'bedroom', 'bedroom', 'bedroom', 'bathroom', 'bathroom', 'study', 'laundry', 'mudroom'],
       width: 13,
       length: 10,
@@ -309,7 +310,7 @@ describe('import end-to-end: 917 Pinecrest Ave SE, Grand Rapids MI 49506', () =>
     const grid = generateStructure({
       type: 'house',
       floors: 2,
-      style: 'fantasy', // inferStyle(1950) → fantasy
+      style: 'fantasy', // explicit style (inferStyle(1950) now → rustic)
       rooms: ['foyer', 'living', 'kitchen', 'dining', 'bedroom', 'bedroom', 'bedroom', 'bedroom', 'bathroom', 'bathroom', 'bathroom'],
       width,
       length,
