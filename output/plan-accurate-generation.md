@@ -135,11 +135,12 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 ## Phase 3: Terrain & Environment
 
 ### 3.1 Foundation Type → Basement/Crawlspace
-- [ ] Slab: standard floor level
-- [ ] Crawlspace: raised 2-3 blocks with lattice/fence under house
-- [ ] Basement: add underground floor with rooms
-- [ ] Pier: raised on pillar blocks (coastal/flood zone)
-- **Fields:** `foundation` (collected, unused)
+- [x] Slab: standard foundation (default)
+- [x] Crawlspace: oak fence lattice on perimeter at y=0
+- [ ] Basement: add underground floor with rooms (requires grid y-offset)
+- [x] Pier: pillar blocks at corners/midpoints, open perimeter
+- [x] `foundationType` field added to FeatureFlags, wired from Smarty assessor
+- **Files:** `src/gen/gen-house.ts`, `src/gen/structures.ts`, `src/types/index.ts`
 
 ### 3.2 Mapbox LiDAR → Stepped Foundations (from Arnis-inspired)
 - [ ] Query elevation for property corners
@@ -154,9 +155,10 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - **Ref:** Arnis `urban_ground.rs:UrbanGroundComputer`
 
 ### 3.4 Season-Aware Generation
-- [ ] Pass `season` through to generation
-- [ ] Winter: snow on roof, icicles; Fall: leaf variants
-- **Fields:** `season` (computed, never passed)
+- [x] Pass `season` through to GenerationOptions from PropertyData
+- [x] Winter: snow_block roof cap override in generator
+- [ ] Fall: leaf variants, spring: flower beds (future enhancement)
+- **Files:** `src/gen/address-pipeline.ts`, `src/gen/generator.ts`, `src/types/index.ts`
 
 ### 3.5 Climate-Specific Materials
 - [ ] Hot/dry → light blocks, terracotta, metal roof
@@ -188,9 +190,9 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - [ ] Detect multi-section roofs (different materials on additions)
 
 ### 4.3 Deck/Patio Generation
-- [ ] Implement raised wooden deck feature
-- [ ] Driven by `hasDeck` from Smarty data
-- **Fields:** `hasDeck` (collected, unused)
+- [x] Implemented `placeDeck()` — spruce plank deck with fence railing at back of house
+- [x] Wired `hasDeck` from Smarty assessor → `features.deck` in pipeline
+- **Files:** `src/gen/structures.ts`, `src/gen/gen-house.ts`, `src/gen/address-pipeline.ts`
 
 ### 4.4 Multi-Building Site Detection
 - [ ] Detect multiple structures from satellite (main house + garage + shed)
@@ -244,6 +246,12 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - [x] Hue bucketing for robust color sampling (Gemini fix)
 - [x] Grey roof pavement filter bypass (Gemini fix)
 - [x] Adaptive color threshold from sample variance (Gemini fix)
+
+### Phase 3+4: Foundation, Season, Deck
+- [x] Foundation types: crawlspace (fence lattice), pier (pillar posts), slab (default)
+- [x] Season wiring: PropertyData → GenerationOptions, snow → snow_block roof cap
+- [x] Deck generation: `placeDeck()` spruce plank deck with fence railing
+- [x] `foundationType` and `deck` added to FeatureFlags, wired from Smarty assessor
 
 ### Prior Fixes
 - [x] Castle type over-triggering → only explicit architecture tags

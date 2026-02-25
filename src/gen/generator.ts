@@ -420,6 +420,12 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
     style.roofW = `${baseStair}[facing=west]`;
   }
 
+  // Season-aware material overrides — applied after all other overrides
+  if (options.season === 'snow') {
+    // Winter: snow layer on roof cap, powder snow on flat areas
+    style.roofCap = 'minecraft:snow_block';
+  }
+
   let grid: BlockGrid;
   switch (type) {
     case 'tower':
