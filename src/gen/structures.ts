@@ -602,6 +602,103 @@ export function porch(
   }
 }
 
+/**
+ * Build a raised crawlspace foundation — 2-3 blocks tall with lattice fencing
+ * underneath. Common in humid climates and flood-prone areas.
+ */
+export function crawlspaceFoundation(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  height: number, style: StylePalette
+): void {
+  // Solid foundation perimeter at ground level
+  grid.fill(x1, 0, z1, x2, 0, z2, style.foundation);
+  // Raise the building — lattice/fence sides
+  for (let y = 1; y < height; y++) {
+    // Only place fencing on the perimeter edges
+    for (let x = x1; x <= x2; x++) {
+      if (grid.inBounds(x, y, z1)) grid.set(x, y, z1, 'minecraft:oak_fence');
+      if (grid.inBounds(x, y, z2)) grid.set(x, y, z2, 'minecraft:oak_fence');
+    }
+    for (let z = z1 + 1; z < z2; z++) {
+      if (grid.inBounds(x1, y, z)) grid.set(x1, y, z, 'minecraft:oak_fence');
+      if (grid.inBounds(x2, y, z)) grid.set(x2, y, z, 'minecraft:oak_fence');
+    }
+  }
+  // Top platform (the actual floor level)
+  grid.fill(x1, height, z1, x2, height, z2, style.foundation);
+}
+
+/**
+ * Build a pier foundation — raised on pillar blocks for coastal/flood zone.
+ * Pillars at corners and midpoints support the elevated floor.
+ */
+export function pierFoundation(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  height: number, style: StylePalette
+): void {
+  const midX = Math.floor((x1 + x2) / 2);
+  const midZ = Math.floor((z1 + z2) / 2);
+  // Place pillar columns at corners and midpoints
+  const pillars: [number, number][] = [
+    [x1, z1], [x1, z2], [x2, z1], [x2, z2],
+    [midX, z1], [midX, z2], [x1, midZ], [x2, midZ],
+  ];
+  for (const [px, pz] of pillars) {
+    for (let y = 0; y < height; y++) {
+      if (grid.inBounds(px, y, pz)) grid.set(px, y, pz, style.pillar);
+    }
+  }
+  // Floor platform
+  grid.fill(x1, height, z1, x2, height, z2, style.foundation);
+}
+
+/**
+ * Build a raised wooden deck extending from the back of the building.
+ * Includes fence railing and is at the first-floor level.
+ */
+export function placeDeck(
+  grid: BlockGrid, x1: number, x2: number, deckZ: number, baseY: number
+): void {
+  const deckW = Math.min(x2 - x1, 10);
+  const deckL = 5;
+  const dxStart = Math.floor((x1 + x2) / 2) - Math.floor(deckW / 2);
+  const dxEnd = dxStart + deckW;
+  const dzEnd = deckZ - deckL;
+
+  if (!grid.inBounds(dxStart, baseY, dzEnd)) return;
+  if (!grid.inBounds(dxEnd, baseY, deckZ)) return;
+
+  // Deck floor (spruce planks for outdoor wood look)
+  for (let x = dxStart; x <= dxEnd; x++) {
+    for (let z = dzEnd; z <= deckZ; z++) {
+      if (grid.inBounds(x, baseY, z)) {
+        grid.set(x, baseY, z, 'minecraft:spruce_planks');
+      }
+    }
+  }
+
+  // Fence railing on three sides (open where it connects to house)
+  for (let x = dxStart; x <= dxEnd; x++) {
+    if (grid.inBounds(x, baseY + 1, dzEnd))
+      grid.set(x, baseY + 1, dzEnd, 'minecraft:spruce_fence');
+  }
+  for (let z = dzEnd; z <= deckZ; z++) {
+    if (grid.inBounds(dxStart, baseY + 1, z))
+      grid.set(dxStart, baseY + 1, z, 'minecraft:spruce_fence');
+    if (grid.inBounds(dxEnd, baseY + 1, z))
+      grid.set(dxEnd, baseY + 1, z, 'minecraft:spruce_fence');
+  }
+
+  // Steps down from deck to ground
+  const stepZ = dzEnd - 1;
+  const stepX = Math.floor((dxStart + dxEnd) / 2);
+  if (grid.inBounds(stepX, 0, stepZ)) {
+    grid.set(stepX - 1, 0, stepZ, 'minecraft:spruce_stairs[facing=south]');
+    grid.set(stepX, 0, stepZ, 'minecraft:spruce_stairs[facing=south]');
+    grid.set(stepX + 1, 0, stepZ, 'minecraft:spruce_stairs[facing=south]');
+  }
+}
+
 // ─── Terrain / Landscaping Primitives ──────────────────────────────
 
 type TreeType = 'oak' | 'birch' | 'spruce' | 'dark_oak';

@@ -735,12 +735,22 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
   // Pre-1920 buildings virtually always had chimneys; force it
   if (year > 0 && year < 1920) flags.chimney = true;
 
+  // ── Foundation type from Smarty assessor ──
+  if (prop.foundation) {
+    const ft = prop.foundation.toLowerCase();
+    if (ft.includes('crawl')) flags.foundationType = 'crawlspace';
+    else if (ft.includes('basement') || ft.includes('cellar')) flags.foundationType = 'basement';
+    else if (ft.includes('pier') || ft.includes('piling') || ft.includes('post')) flags.foundationType = 'pier';
+    else flags.foundationType = 'slab';
+  }
+
   // ── Smarty assessor overrides (highest confidence — from county records) ──
   if (prop.smartyHasPool) flags.pool = true;
   if (prop.smartyHasFence) flags.fence = true;
   if (prop.smartyHasPorch) flags.porch = true;
   if (prop.drivewayType) flags.driveway = true;
   if (prop.hasFireplace) flags.chimney = true;
+  if (prop.hasDeck) flags.deck = true;
 
   // ── Mapillary feature overrides (crowd-sourced street-level detection) ──
   if (prop.mapillaryHasDriveway) flags.driveway = true;
@@ -917,18 +927,24 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // ── Feature flags ─────────────────────────────────────────────────
   // Priority: inferFeatures (Smarty/Mapillary) > SV vision > SV setback > defaults
   const features = inferFeatures(prop);
+  // Boolean-only feature keys for safe merging (excludes foundationType, etc.)
+  const boolKeys: (keyof FeatureFlags)[] = [
+    'chimney', 'porch', 'backyard', 'driveway', 'fence', 'trees', 'garden', 'pool', 'deck',
+  ];
   // Merge SV setback-derived features (lower priority — don't override existing)
   if (prop.svSetbackFeatures) {
-    for (const [key, val] of Object.entries(prop.svSetbackFeatures)) {
-      const k = key as keyof FeatureFlags;
-      if (features[k] === undefined && val) features[k] = val;
+    for (const k of boolKeys) {
+      if (features[k] === undefined && prop.svSetbackFeatures[k]) {
+        (features as Record<string, unknown>)[k] = prop.svSetbackFeatures[k];
+      }
     }
   }
   // Merge SV vision features (lower priority than Smarty/Mapillary but higher than setback)
   if (prop.svFeatures) {
-    for (const [key, val] of Object.entries(prop.svFeatures)) {
-      const k = key as keyof FeatureFlags;
-      if (features[k] === undefined && val) features[k] = val;
+    for (const k of boolKeys) {
+      if (features[k] === undefined && prop.svFeatures[k]) {
+        (features as Record<string, unknown>)[k] = prop.svFeatures[k];
+      }
     }
   }
 
@@ -979,5 +995,6 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     floorPlanShape,
     roofHeightOverride,
     windowSpacing,
+    season: prop.season,
   };
 }

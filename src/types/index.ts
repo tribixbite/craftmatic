@@ -123,6 +123,10 @@ export interface FeatureFlags {
   garden?: boolean;
   /** Swimming pool in backyard (detected from satellite blue pixels) */
   pool?: boolean;
+  /** Raised wooden deck on back of house (from Smarty assessor data) */
+  deck?: boolean;
+  /** Foundation type from assessor: slab (default), crawlspace, basement, pier */
+  foundationType?: 'slab' | 'crawlspace' | 'basement' | 'pier';
 }
 
 /** Generation parameters */
@@ -152,6 +156,8 @@ export interface GenerationOptions {
   roofHeightOverride?: number;
   /** Window spacing in blocks (derived from SV fenestration analysis, default 3) */
   windowSpacing?: number;
+  /** Seasonal weather hint — affects roof/tree materials */
+  season?: 'snow' | 'spring' | 'summer' | 'fall';
 }
 
 /** 2D render mode */

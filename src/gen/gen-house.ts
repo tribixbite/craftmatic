@@ -7,10 +7,11 @@ import { BlockGrid } from '../schem/types.js';
 import type { RoomType, RoomBounds, RoofShape, FeatureFlags, FloorPlanShape } from '../types/index.js';
 import { getRoomGenerator } from './rooms.js';
 import {
-  foundation, floor, exteriorWalls, timberColumns, timberBeams,
+  foundation,
+  floor, exteriorWalls, timberColumns, timberBeams,
   windows, interiorWall, doorway, frontDoor, staircase,
   gabledRoof, hipRoof, flatRoof, gambrelRoof, mansardRoof,
-  chimney, wallTorches, porch,
+  chimney, wallTorches, porch, placeDeck,
   placeTree, placeGarden, placePool,
   addBackyard, addDriveway, addPropertyFence,
   weatherWalls, accentBand, glassCurtainWall,
@@ -57,9 +58,40 @@ export function generateHouse(
   const zMid = margin + Math.floor(bl / 2);
 
   const grid = new BlockGrid(gw, gh, gl);
+  const foundType = features?.foundationType ?? 'slab';
 
-  // Foundation
+  // Foundation — type determines visual treatment at ground level (y=0)
   foundation(grid, bx1, bz1, bx2, bz2, style);
+  if (foundType === 'crawlspace') {
+    // Crawlspace: replace solid perimeter at y=0 with lattice fencing
+    // Interior stays solid (floor), but the visible edge is open
+    for (let x = bx1; x <= bx2; x++) {
+      grid.set(x, 0, bz1, 'minecraft:oak_fence');
+      grid.set(x, 0, bz2, 'minecraft:oak_fence');
+    }
+    for (let z = bz1 + 1; z < bz2; z++) {
+      grid.set(bx1, 0, z, 'minecraft:oak_fence');
+      grid.set(bx2, 0, z, 'minecraft:oak_fence');
+    }
+  } else if (foundType === 'pier') {
+    // Pier: only corner and midpoint pillars visible at y=0
+    const pillars: [number, number][] = [
+      [bx1, bz1], [bx1, bz2], [bx2, bz1], [bx2, bz2],
+      [xMid, bz1], [xMid, bz2], [bx1, zMid], [bx2, zMid],
+    ];
+    // Clear foundation edges, re-place only pillar positions
+    for (let x = bx1; x <= bx2; x++) {
+      grid.set(x, 0, bz1, 'minecraft:air');
+      grid.set(x, 0, bz2, 'minecraft:air');
+    }
+    for (let z = bz1 + 1; z < bz2; z++) {
+      grid.set(bx1, 0, z, 'minecraft:air');
+      grid.set(bx2, 0, z, 'minecraft:air');
+    }
+    for (const [px, pz] of pillars) {
+      if (grid.inBounds(px, 0, pz)) grid.set(px, 0, pz, style.pillar);
+    }
+  }
 
   // Per-story shell
   for (let story = 0; story < floors; story++) {
@@ -247,6 +279,11 @@ export function generateHouse(
     const chimX = Math.floor((bx1 + 1 + xMid - 1) / 2);
     const chimTop = roofBase + effectiveRoofH - 2;
     chimney(grid, chimX, bz1, STORY_H, chimTop);
+  }
+
+  // Deck on the back of the house (before other features to avoid overlap)
+  if (features?.deck) {
+    placeDeck(grid, bx1, bx2, bz1, 0);
   }
 
   // Exterior features, each gated by its flag
