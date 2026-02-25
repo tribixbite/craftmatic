@@ -456,6 +456,8 @@ async function genFromAddress(
       osmBuildingColour: osm?.buildingColour,
       osmArchitecture: osm?.tags?.['building:architecture'],
       floorPlanShape: osm?.polygon ? analyzePolygonShape(osm.polygon) : undefined,
+      osmPolygon: osm?.polygon,
+      osmInnerPolygons: osm?.innerPolygons,
       // Smarty assessor enrichment
       lotSize: smarty?.lotSqft || undefined,
       exteriorType: smarty?.exteriorWalls || undefined,
@@ -497,6 +499,7 @@ async function genFromAddress(
       // Google Solar enrichment
       solarRoofPitch: solarData?.primaryPitchDegrees || undefined,
       solarRoofSegments: solarData?.roofSegmentCount || undefined,
+      solarAzimuthDegrees: solarData?.primaryAzimuthDegrees || undefined,
       solarBuildingArea: solarData?.buildingFootprintAreaSqm || undefined,
       solarRoofArea: solarData?.totalRoofAreaSqm || undefined,
       // Google Street View (as primary, Mapillary as fallback for streetViewUrl)

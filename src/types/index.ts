@@ -158,6 +158,9 @@ export interface GenerationOptions {
   windowSpacing?: number;
   /** Seasonal weather hint — affects roof/tree materials */
   season?: 'snow' | 'spring' | 'summer' | 'fall';
+  /** Rasterized building footprint bitmap from OSM polygon — enables pixel-perfect
+   *  irregular shapes (L/T/U) instead of bounding-box approximation */
+  footprintBitmap?: import('../gen/coordinate-bitmap.js').CoordinateBitmap;
 }
 
 /** 2D render mode */

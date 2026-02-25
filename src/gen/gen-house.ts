@@ -5,6 +5,7 @@
 
 import { BlockGrid } from '../schem/types.js';
 import type { RoomType, RoomBounds, RoofShape, FeatureFlags, FloorPlanShape } from '../types/index.js';
+import type { CoordinateBitmap } from './coordinate-bitmap.js';
 import { getRoomGenerator } from './rooms.js';
 import {
   foundation,
@@ -27,7 +28,7 @@ export function generateHouse(
   bwOpt: number | undefined, blOpt: number | undefined, rng: () => number,
   roofShapeOpt?: RoofShape, features?: FeatureFlags,
   planShape?: FloorPlanShape, roofHeightOverride?: number,
-  windowSpacing?: number,
+  windowSpacing?: number, footprintBitmap?: CoordinateBitmap,
 ): BlockGrid {
   // Use style's preferred roof shape when no explicit override
   const roofShape: RoofShape = roofShapeOpt ?? style.defaultRoofShape;
@@ -1083,6 +1084,67 @@ export function generateHouse(
     for (let z = bz1; z <= bz2 + 3; z++) {
       if (grid.inBounds(bx2 + 3, 0, z))
         grid.set(bx2 + 3, 0, z, 'minecraft:rail');
+    }
+  }
+
+  // ── Bitmap footprint mask ────────────────────────────────────────
+  // When an OSM-derived footprint bitmap is available, carve away any blocks
+  // in the main building volume that fall outside the actual polygon footprint.
+  // This gives pixel-perfect L/T/U shapes without rewriting wall generation.
+  if (footprintBitmap) {
+    const bmBounds = footprintBitmap.bounds();
+    if (bmBounds) {
+      const bmW = bmBounds.maxX - bmBounds.minX + 1;
+      const bmH = bmBounds.maxZ - bmBounds.minZ + 1;
+      const gridW = bx2 - bx1 + 1;
+      const gridH = bz2 - bz1 + 1;
+      // Scale factors: map grid building area to bitmap area
+      const scaleX = bmW / gridW;
+      const scaleZ = bmH / gridH;
+
+      // Helper: check if a grid column maps to a kept (inside polygon) bitmap cell
+      const isKept = (gx: number, gz: number): boolean => {
+        const bX = Math.round(bmBounds.minX + (gx - bx1) * scaleX);
+        const bZ = Math.round(bmBounds.minZ + (gz - bz1) * scaleZ);
+        return footprintBitmap!.contains(bX, bZ);
+      };
+
+      // Pass 1: carve away columns outside the polygon footprint
+      for (let gx = bx1; gx <= bx2; gx++) {
+        for (let gz = bz1; gz <= bz2; gz++) {
+          if (!isKept(gx, gz)) {
+            for (let y = 0; y < gh; y++) {
+              if (grid.get(gx, y, gz) !== 'minecraft:air') {
+                grid.set(gx, y, gz, 'minecraft:air');
+              }
+            }
+          }
+        }
+      }
+
+      // Pass 2: seal exposed interior edges at the cut boundary.
+      // Kept columns that border carved columns have newly-visible faces.
+      // Fill interior air blocks with wall material to prevent seeing into rooms.
+      const dirs: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      for (let gx = bx1; gx <= bx2; gx++) {
+        for (let gz = bz1; gz <= bz2; gz++) {
+          if (!isKept(gx, gz)) continue;
+          // Check if this kept column borders any carved column
+          let bordersCut = false;
+          for (const [dx, dz] of dirs) {
+            const nx = gx + dx, nz = gz + dz;
+            if (nx < bx1 || nx > bx2 || nz < bz1 || nz > bz2) continue;
+            if (!isKept(nx, nz)) { bordersCut = true; break; }
+          }
+          if (!bordersCut) continue;
+          // Seal: replace interior air with wall blocks (floors 1 through roof base)
+          for (let y = 1; y <= floors * STORY_H; y++) {
+            if (grid.get(gx, y, gz) === 'minecraft:air') {
+              grid.set(gx, y, gz, style.wall);
+            }
+          }
+        }
+      }
     }
   }
 

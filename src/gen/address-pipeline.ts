@@ -14,6 +14,7 @@ import type {
 } from '../types/index.js';
 
 import { ROOF_PALETTE, rgbToTrimBlock as rgbToTrimBlockShared } from './color-blocks.js';
+import { polygonToBitmap, classifyBitmapShape, subtractInnerRings } from './coordinate-bitmap.js';
 
 // ─── Inline type fragments (avoid cross-boundary web imports) ───────────────
 
@@ -85,6 +86,10 @@ export interface PropertyData {
   hasPool?: boolean;
   /** Floor plan shape derived from OSM polygon analysis */
   floorPlanShape?: FloorPlanShape;
+  /** Raw OSM building polygon vertices — used for bitmap rasterization */
+  osmPolygon?: { lat: number; lon: number }[];
+  /** Inner ring polygons for courtyard/multipolygon buildings */
+  osmInnerPolygons?: { lat: number; lon: number }[][];
   /** Street View image URL */
   streetViewUrl?: string;
   /** County name (from Parcl Labs) — used for regional style hints */
@@ -151,6 +156,8 @@ export interface PropertyData {
   solarRoofPitch?: number;
   /** Number of roof segments from Google Solar — 2=gable, 4=hip, 1+flat=flat */
   solarRoofSegments?: number;
+  /** Compass azimuth of dominant roof segment (0=N, 90=E, 180=S, 270=W) from Solar API */
+  solarAzimuthDegrees?: number;
   /** Building footprint area from Google Solar in sqm */
   solarBuildingArea?: number;
   /** Total roof surface area from Google Solar in sqm */
@@ -645,6 +652,56 @@ function applyYearBasedWallAging(wall: BlockState | undefined, yearBuilt: number
   return wall;
 }
 
+/**
+ * Apply climate-specific material adjustments.
+ * Hot/dry climates → lighter, sun-reflecting materials.
+ * Cold/wet climates → darker, heavier materials and steeper roofs.
+ * Only applies when no more-specific override is present.
+ */
+function applyClimateMaterials(
+  wall: BlockState | undefined,
+  climate: 'cold' | 'hot' | 'temperate',
+): BlockState | undefined {
+  if (!wall) return undefined;
+  if (climate === 'hot') {
+    // Hot climates: lighten heavy dark materials
+    if (wall === 'minecraft:dark_oak_planks') return 'minecraft:birch_planks';
+    if (wall === 'minecraft:stone_bricks') return 'minecraft:sandstone';
+    if (wall === 'minecraft:deepslate_bricks') return 'minecraft:smooth_sandstone';
+  } else if (climate === 'cold') {
+    // Cold climates: favor sturdy, insulated-looking materials
+    if (wall === 'minecraft:sandstone') return 'minecraft:stone_bricks';
+    if (wall === 'minecraft:smooth_sandstone') return 'minecraft:bricks';
+    if (wall === 'minecraft:birch_planks') return 'minecraft:spruce_planks';
+  }
+  return wall;
+}
+
+/**
+ * Apply assessed-value-based material quality tiers.
+ * Low value: basic/plain materials. High value: polished/ornate.
+ * Mid-range values pass through unchanged.
+ */
+function applyValueTierMaterials(
+  wall: BlockState | undefined,
+  assessedValue: number | undefined,
+): BlockState | undefined {
+  if (!wall || !assessedValue || assessedValue <= 0) return wall;
+  if (assessedValue > 800000) {
+    // High value: upgrade to polished/premium variants
+    if (wall === 'minecraft:stone_bricks') return 'minecraft:polished_deepslate';
+    if (wall === 'minecraft:oak_planks') return 'minecraft:dark_oak_planks';
+    if (wall === 'minecraft:bricks') return 'minecraft:polished_granite';
+    if (wall === 'minecraft:smooth_stone') return 'minecraft:quartz_block';
+  } else if (assessedValue < 150000) {
+    // Low value: downgrade to simpler/weathered variants
+    if (wall === 'minecraft:polished_andesite') return 'minecraft:andesite';
+    if (wall === 'minecraft:quartz_block') return 'minecraft:smooth_stone';
+    if (wall === 'minecraft:dark_oak_planks') return 'minecraft:oak_planks';
+  }
+  return wall;
+}
+
 // ─── Door & Trim Mapping ────────────────────────────────────────────────────
 
 /**
@@ -730,6 +787,21 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
     // Pool: satellite detection; hot climates lower threshold for lot-size inference
     pool: prop.hasPool ?? (climate === 'hot' && lotSize > 6000),
   };
+
+  // ── Lot context awareness (Phase 3.7) ──
+  // Small lots: tight setbacks, skip garden and trees (no room)
+  if (lotSize > 0 && lotSize < 2500) {
+    flags.trees = false;
+    flags.garden = false;
+    flags.backyard = false;
+  }
+  // Large lots: always include full landscaping suite
+  if (lotSize > 10000) {
+    flags.trees = true;
+    flags.garden = true;
+    flags.backyard = true;
+    flags.fence = true;
+  }
 
   // ── Year-based aging (Phase 2.9) ──
   // Pre-1920 buildings virtually always had chimneys; force it
@@ -908,7 +980,12 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     ?? prop.svWallOverride
     ?? prop.svTextureBlock;
   // Apply year-based material aging (pre-1920 → weathered, post-2000 → modern)
-  const wallOverride = applyYearBasedWallAging(rawWall, prop.yearBuilt);
+  const agedWall = applyYearBasedWallAging(rawWall, prop.yearBuilt);
+  // Apply climate-specific adjustments (hot → lighter, cold → darker/sturdier)
+  const climate = inferClimateZone(prop.stateAbbreviation);
+  const climaticWall = applyClimateMaterials(agedWall, climate);
+  // Apply assessed value tier (high → polished, low → basic)
+  const wallOverride = applyValueTierMaterials(climaticWall, prop.assessedValue);
 
   // ── Door override ─────────────────────────────────────────────────
   // Priority: architecture-type inference > SV vision > style/era
@@ -964,9 +1041,23 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // ── Window spacing from SV fenestration ─────────────────────────
   const windowSpacing = prop.svWindowSpacing;
 
-  // ── Floor plan shape ────────────────────────────────────────────
-  // Priority: OSM polygon > SV symmetry > undefined (generator default)
-  const floorPlanShape = prop.floorPlanShape ?? prop.svPlanShape;
+  // ── Floor plan shape + footprint bitmap ─────────────────────────
+  // Priority: bitmap classification > OSM polygon heuristic > SV symmetry
+  let floorPlanShape = prop.floorPlanShape ?? prop.svPlanShape;
+
+  // Rasterize OSM polygon into a block-level bitmap for pixel-perfect footprints.
+  // For multipolygon buildings, subtract inner rings (courtyards) from the outer ring.
+  let footprintBitmap: import('../gen/coordinate-bitmap.js').CoordinateBitmap | undefined;
+  if (prop.osmPolygon && prop.osmPolygon.length >= 4) {
+    footprintBitmap = polygonToBitmap(prop.osmPolygon) ?? undefined;
+    if (footprintBitmap && prop.osmInnerPolygons && prop.osmInnerPolygons.length > 0) {
+      subtractInnerRings(footprintBitmap, prop.osmInnerPolygons);
+    }
+    // Bitmap-based shape classification is more accurate than vertex-count heuristics
+    if (footprintBitmap) {
+      floorPlanShape = classifyBitmapShape(footprintBitmap);
+    }
+  }
 
   // ── Architecture style integration ──────────────────────────────
   // If SV vision gave us an architecture label, feed it into the existing style chain
@@ -976,6 +1067,11 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // prop.streetViewHeading (0-360°) tells us which direction the camera faces toward
   // the building. Mapping heading → cardinal direction for door placement requires
   // generator support for orientation (currently door is always south-facing).
+
+  // TODO: Solar azimuth → ridge direction (Phase 2.3, blocked on Phase 1.6)
+  // prop.solarAzimuthDegrees tells us which compass direction the dominant roof slope
+  // faces. The ridge runs perpendicular to this. E.g., azimuth 180° (south-facing slope)
+  // → ridge runs east-west. Requires generator rotation support to implement.
 
   return {
     type,
@@ -996,5 +1092,6 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     roofHeightOverride,
     windowSpacing,
     season: prop.season,
+    footprintBitmap,
   };
 }
