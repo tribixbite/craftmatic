@@ -1,6 +1,6 @@
 # Plan: Data-Driven Building Pipeline
 
-## Status: Phase 1 DONE, Phase 2 DONE (9366ce5)
+## Status: Phase 1 DONE, Phase 2 DONE, Browser wiring DONE (fc871f2)
 ## Date: 2025-02-25
 
 ---
