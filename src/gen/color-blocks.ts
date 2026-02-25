@@ -2,8 +2,12 @@
  * RGB-to-Minecraft-block palette mapping — shared between the CLI pipeline
  * (address-pipeline.ts) and the web satellite viewer (import-color.ts).
  *
- * Consolidates wall, roof, and trim palettes with Euclidean RGB distance
+ * Consolidates wall, roof, and trim palettes with CIE-Lab perceptual distance
  * matching plus HSL pixel filters for non-building pixel rejection.
+ *
+ * CIE-Lab delta-E is used instead of RGB Euclidean distance because Lab
+ * perceptually matches human color perception — equal delta-E values represent
+ * equal perceived color differences regardless of hue region.
  */
 
 import type { BlockState, RGB } from '../types/index.js';
@@ -129,28 +133,111 @@ export const TRIM_PALETTE: { block: BlockState; rgb: RGB }[] = [
   { block: 'minecraft:stripped_spruce_log', rgb: [115, 89, 52] },
 ];
 
+// ─── CIE-Lab Color Space ─────────────────────────────────────────────────────
+// CIE-Lab provides perceptually uniform color distances. Two colors with the
+// same delta-E look equally different to humans regardless of hue region.
+// This matters for block matching: RGB Euclidean over-weights green channel
+// and treats blues/purples as closer than they appear.
+
+/** sRGB → linear RGB (inverse gamma) */
+function srgbToLinear(c: number): number {
+  const s = c / 255;
+  return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+
+/** Linear RGB → CIE XYZ (D65 illuminant) */
+function rgbToXyz(r: number, g: number, b: number): [number, number, number] {
+  const rl = srgbToLinear(r);
+  const gl = srgbToLinear(g);
+  const bl = srgbToLinear(b);
+  // sRGB to XYZ matrix (D65 reference white)
+  return [
+    rl * 0.4124564 + gl * 0.3575761 + bl * 0.1804375,
+    rl * 0.2126729 + gl * 0.7151522 + bl * 0.0721750,
+    rl * 0.0193339 + gl * 0.1191920 + bl * 0.9503041,
+  ];
+}
+
+// D65 reference white point
+const D65_X = 0.95047;
+const D65_Y = 1.00000;
+const D65_Z = 1.08883;
+
+/** CIE XYZ → Lab nonlinear transform */
+function labF(t: number): number {
+  return t > 0.008856 ? Math.cbrt(t) : (903.3 * t + 16) / 116;
+}
+
+/** Convert sRGB (0-255) to CIE-Lab (L: 0-100, a/b: ~-128 to 128) */
+export function rgbToLab(r: number, g: number, b: number): [number, number, number] {
+  const [x, y, z] = rgbToXyz(r, g, b);
+  const fx = labF(x / D65_X);
+  const fy = labF(y / D65_Y);
+  const fz = labF(z / D65_Z);
+  return [
+    116 * fy - 16,        // L*
+    500 * (fx - fy),      // a*
+    200 * (fy - fz),      // b*
+  ];
+}
+
+/**
+ * CIE76 delta-E: Euclidean distance in Lab space.
+ * Perceptually uniform — delta-E of 2.3 is "just noticeable difference".
+ * Returns squared distance (no sqrt) since we only compare magnitudes.
+ */
+export function deltaESq(
+  l1: number, a1: number, b1: number,
+  l2: number, a2: number, b2: number,
+): number {
+  const dl = l1 - l2;
+  const da = a1 - a2;
+  const db = b1 - b2;
+  return dl * dl + da * da + db * db;
+}
+
+// Pre-compute Lab values for all palette entries (avoids repeated conversion)
+let _wallLab: [number, number, number][] | null = null;
+let _roofLab: [number, number, number][] | null = null;
+let _trimLab: [number, number, number][] | null = null;
+
+function getWallLab(): [number, number, number][] {
+  if (!_wallLab) _wallLab = WALL_PALETTE.map(e => rgbToLab(...e.rgb));
+  return _wallLab;
+}
+function getRoofLab(): [number, number, number][] {
+  if (!_roofLab) _roofLab = ROOF_PALETTE.map(e => rgbToLab(...e.rgb));
+  return _roofLab;
+}
+function getTrimLab(): [number, number, number][] {
+  if (!_trimLab) _trimLab = TRIM_PALETTE.map(e => rgbToLab(...e.rgb));
+  return _trimLab;
+}
+
 // ─── Distance Matching ──────────────────────────────────────────────────────
 
-/** Euclidean RGB distance squared (no sqrt needed — only used for comparison) */
-function colorDistSq(r: number, g: number, b: number, ref: RGB): number {
+/** Euclidean RGB distance squared — used as fallback in dominantColor hue bucketing */
+export function colorDistSq(r: number, g: number, b: number, ref: RGB): number {
   const dr = r - ref[0];
   const dg = g - ref[1];
   const db = b - ref[2];
   return dr * dr + dg * dg + db * db;
 }
 
-/** Find the closest wall block to an observed RGB color */
+/** Find the closest wall block to an observed RGB color (CIE-Lab perceptual match) */
 export function rgbToWallBlock(r: number, g: number, b: number): BlockState {
-  let best = WALL_PALETTE[0];
-  let bestDist = colorDistSq(r, g, b, best.rgb);
-  for (let i = 1; i < WALL_PALETTE.length; i++) {
-    const dist = colorDistSq(r, g, b, WALL_PALETTE[i].rgb);
+  const [l, a, b_] = rgbToLab(r, g, b);
+  const labs = getWallLab();
+  let bestIdx = 0;
+  let bestDist = deltaESq(l, a, b_, labs[0][0], labs[0][1], labs[0][2]);
+  for (let i = 1; i < labs.length; i++) {
+    const dist = deltaESq(l, a, b_, labs[i][0], labs[i][1], labs[i][2]);
     if (dist < bestDist) {
       bestDist = dist;
-      best = WALL_PALETTE[i];
+      bestIdx = i;
     }
   }
-  return best.block;
+  return WALL_PALETTE[bestIdx].block;
 }
 
 /**
@@ -162,15 +249,18 @@ export function rgbToRoofOverride(r: number, g: number, b: number): {
   south: BlockState;
   cap: BlockState;
 } {
-  let best = ROOF_PALETTE[0];
-  let bestDist = colorDistSq(r, g, b, best.rgb);
-  for (let i = 1; i < ROOF_PALETTE.length; i++) {
-    const dist = colorDistSq(r, g, b, ROOF_PALETTE[i].rgb);
+  const [l, a, b_] = rgbToLab(r, g, b);
+  const labs = getRoofLab();
+  let bestIdx = 0;
+  let bestDist = deltaESq(l, a, b_, labs[0][0], labs[0][1], labs[0][2]);
+  for (let i = 1; i < labs.length; i++) {
+    const dist = deltaESq(l, a, b_, labs[i][0], labs[i][1], labs[i][2]);
     if (dist < bestDist) {
       bestDist = dist;
-      best = ROOF_PALETTE[i];
+      bestIdx = i;
     }
   }
+  const best = ROOF_PALETTE[bestIdx];
   return {
     north: `minecraft:${best.base}_stairs[facing=north]`,
     south: `minecraft:${best.base}_stairs[facing=south]`,
@@ -178,18 +268,20 @@ export function rgbToRoofOverride(r: number, g: number, b: number): {
   };
 }
 
-/** Find the closest trim block to an observed RGB color */
+/** Find the closest trim block to an observed RGB color (CIE-Lab perceptual match) */
 export function rgbToTrimBlock(r: number, g: number, b: number): BlockState {
-  let best = TRIM_PALETTE[0];
-  let bestDist = colorDistSq(r, g, b, best.rgb);
-  for (let i = 1; i < TRIM_PALETTE.length; i++) {
-    const dist = colorDistSq(r, g, b, TRIM_PALETTE[i].rgb);
+  const [l, a, b_] = rgbToLab(r, g, b);
+  const labs = getTrimLab();
+  let bestIdx = 0;
+  let bestDist = deltaESq(l, a, b_, labs[0][0], labs[0][1], labs[0][2]);
+  for (let i = 1; i < labs.length; i++) {
+    const dist = deltaESq(l, a, b_, labs[i][0], labs[i][1], labs[i][2]);
     if (dist < bestDist) {
       bestDist = dist;
-      best = TRIM_PALETTE[i];
+      bestIdx = i;
     }
   }
-  return best.block;
+  return TRIM_PALETTE[bestIdx].block;
 }
 
 // ─── Hue Bucketing ───────────────────────────────────────────────────────────

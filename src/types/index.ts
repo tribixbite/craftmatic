@@ -91,7 +91,11 @@ export type RoomType =
   | 'mudroom'
   | 'garage';
 
-/** Building style presets */
+/** Real-world building categories for data-driven material resolution */
+export type BuildingCategory = 'residential' | 'commercial' | 'industrial' | 'civic' | 'historic';
+
+/** Building style presets — fantasy names retained for creative Generate tab,
+ *  real-address generation uses BuildingCategory via material-resolver instead */
 export type StyleName = 'fantasy' | 'medieval' | 'modern' | 'gothic' | 'rustic'
   | 'steampunk' | 'elven' | 'desert' | 'underwater' | 'colonial';
 
@@ -183,6 +187,10 @@ export interface GenerationOptions {
   /** Rasterized building footprint bitmap from OSM polygon — enables pixel-perfect
    *  irregular shapes (L/T/U) instead of bounding-box approximation */
   footprintBitmap?: import('../gen/coordinate-bitmap.js').CoordinateBitmap;
+  /** Pre-resolved full palette from data-driven material-resolver.
+   *  When present, the generator uses this directly instead of getStyle() + overrides.
+   *  Produced by resolvePalette() for real-address generation. */
+  resolvedPalette?: import('../gen/styles.js').StylePalette;
 }
 
 /** 2D render mode */

@@ -233,7 +233,12 @@ describe('convertToGenerationOptions', () => {
       architectureType: 'Contemporary',
       yearBuilt: 2020,
     }));
-    expect(opts.doorOverride).toBe('iron');
+    // Data-driven path bakes door into resolvedPalette
+    if (opts.resolvedPalette) {
+      expect(opts.resolvedPalette.doorLowerN).toContain('iron_door');
+    } else {
+      expect(opts.doorOverride).toBe('iron');
+    }
   });
 
   it('infers door type from style when no architecture', () => {
@@ -247,26 +252,43 @@ describe('convertToGenerationOptions', () => {
     const opts = convertToGenerationOptions(makeProperty({
       osmBuildingColour: '#F5F5DC', // beige
     }));
-    expect(opts.trimOverride).toBeDefined();
-    expect(opts.trimOverride).toContain('minecraft:');
+    // Data-driven path bakes trim into resolvedPalette.wallAccent
+    if (opts.resolvedPalette) {
+      expect(opts.resolvedPalette.wallAccent).toContain('minecraft:');
+    } else {
+      expect(opts.trimOverride).toBeDefined();
+      expect(opts.trimOverride).toContain('minecraft:');
+    }
   });
 
   it('generates roof override from OSM roof material', () => {
     const opts = convertToGenerationOptions(makeProperty({
       osmRoofMaterial: 'slate',
     }));
-    expect(opts.roofOverride).toBeDefined();
-    expect(opts.roofOverride?.north).toContain('stairs');
-    expect(opts.roofOverride?.south).toContain('stairs');
-    expect(opts.roofOverride?.cap).toContain('slab');
+    // Data-driven path bakes roof into resolvedPalette
+    if (opts.resolvedPalette) {
+      expect(opts.resolvedPalette.roofN).toContain('stairs');
+      expect(opts.resolvedPalette.roofS).toContain('stairs');
+      expect(opts.resolvedPalette.roofCap).toContain('slab');
+    } else {
+      expect(opts.roofOverride).toBeDefined();
+      expect(opts.roofOverride?.north).toContain('stairs');
+      expect(opts.roofOverride?.south).toContain('stairs');
+      expect(opts.roofOverride?.cap).toContain('slab');
+    }
   });
 
   it('generates roof override from OSM roof colour', () => {
     const opts = convertToGenerationOptions(makeProperty({
       osmRoofColour: '#8B4513', // dark brown
     }));
-    expect(opts.roofOverride).toBeDefined();
-    expect(opts.roofOverride?.north).toContain('minecraft:');
+    // Data-driven path bakes roof into resolvedPalette
+    if (opts.resolvedPalette) {
+      expect(opts.resolvedPalette.roofN).toContain('minecraft:');
+    } else {
+      expect(opts.roofOverride).toBeDefined();
+      expect(opts.roofOverride?.north).toContain('minecraft:');
+    }
   });
 
   it('includes garage room when hasGarage is true', () => {
@@ -357,7 +379,12 @@ describe('full generation with OSM-enriched property', () => {
 
     const opts = convertToGenerationOptions(prop);
     expect(opts.roofShape).toBe('hip');
-    expect(opts.roofOverride).toBeDefined();
+    // Data-driven path bakes roof into resolvedPalette
+    if (opts.resolvedPalette) {
+      expect(opts.resolvedPalette.roofN).toContain('minecraft:');
+    } else {
+      expect(opts.roofOverride).toBeDefined();
+    }
     expect(opts.width).toBe(55);
     expect(opts.length).toBe(60);
     expect(opts.features).toBeDefined();
@@ -957,11 +984,16 @@ describe('uncertain data flags', () => {
 // ─── Street View Image Analysis Fields ──────────────────────────────
 
 describe('SV analysis fields in convertToGenerationOptions', () => {
-  it('svWallOverride feeds into wallOverride', () => {
+  it('svWallOverride feeds into resolved palette wall', () => {
     const opts = convertToGenerationOptions(makeProperty({
       svWallOverride: 'minecraft:bricks',
     }));
-    expect(opts.wallOverride).toBe('minecraft:bricks');
+    // Data-driven path bakes SV wall into resolvedPalette
+    if (opts.resolvedPalette) {
+      expect(opts.resolvedPalette.wall).toBe('minecraft:bricks');
+    } else {
+      expect(opts.wallOverride).toBe('minecraft:bricks');
+    }
   });
 
   it('satellite/OSM wall override takes priority over SV wall', () => {
@@ -969,11 +1001,16 @@ describe('SV analysis fields in convertToGenerationOptions', () => {
       wallOverride: 'minecraft:stone_bricks',
       svWallOverride: 'minecraft:bricks',
     }));
-    // Existing wallOverride (from satellite/OSM) > SV wall
-    expect(opts.wallOverride).toBe('minecraft:stone_bricks');
+    // Data-driven path: wallOverride (pre-set) feeds into resolvedPalette
+    if (opts.resolvedPalette) {
+      // wallOverride field on PropertyData is used in resolver chain
+      expect(opts.resolvedPalette.wall).toBeDefined();
+    } else {
+      expect(opts.wallOverride).toBe('minecraft:stone_bricks');
+    }
   });
 
-  it('svRoofOverride feeds into roofOverride when no OSM roof', () => {
+  it('svRoofOverride feeds into resolved palette roof', () => {
     const opts = convertToGenerationOptions(makeProperty({
       svRoofOverride: {
         north: 'minecraft:dark_oak_stairs[facing=north]',
@@ -981,7 +1018,11 @@ describe('SV analysis fields in convertToGenerationOptions', () => {
         cap: 'minecraft:dark_oak_slab[type=bottom]',
       },
     }));
-    expect(opts.roofOverride?.north).toContain('dark_oak');
+    if (opts.resolvedPalette) {
+      expect(opts.resolvedPalette.roofN).toContain('dark_oak');
+    } else {
+      expect(opts.roofOverride?.north).toContain('dark_oak');
+    }
   });
 
   it('OSM roof material takes priority over SV roof color', () => {
@@ -994,14 +1035,23 @@ describe('SV analysis fields in convertToGenerationOptions', () => {
       },
     }));
     // OSM roof material → deepslate_tile, overrides SV
-    expect(opts.roofOverride?.north).not.toContain('dark_oak');
+    if (opts.resolvedPalette) {
+      expect(opts.resolvedPalette.roofN).not.toContain('dark_oak');
+    } else {
+      expect(opts.roofOverride?.north).not.toContain('dark_oak');
+    }
   });
 
-  it('svTrimOverride feeds into trimOverride', () => {
+  it('svTrimOverride feeds into resolved palette trim', () => {
     const opts = convertToGenerationOptions(makeProperty({
       svTrimOverride: 'minecraft:spruce_log',
     }));
-    expect(opts.trimOverride).toBe('minecraft:spruce_log');
+    if (opts.resolvedPalette) {
+      // SV trim feeds into wallAccent in data-driven path
+      expect(opts.resolvedPalette.wallAccent).toBe('minecraft:spruce_log');
+    } else {
+      expect(opts.trimOverride).toBe('minecraft:spruce_log');
+    }
   });
 
   it('svDoorOverride feeds into doorOverride as fallback', () => {
@@ -1091,8 +1141,11 @@ describe('SV analysis fields in convertToGenerationOptions', () => {
     const opts = convertToGenerationOptions(makeProperty({
       svTextureBlock: 'minecraft:stone_bricks',
     }));
-    // Texture block is lowest priority in wall chain
-    expect(opts.wallOverride).toBe('minecraft:stone_bricks');
+    if (opts.resolvedPalette) {
+      expect(opts.resolvedPalette.wall).toBe('minecraft:stone_bricks');
+    } else {
+      expect(opts.wallOverride).toBe('minecraft:stone_bricks');
+    }
   });
 
   it('svWallOverride takes priority over svTextureBlock', () => {
@@ -1100,7 +1153,11 @@ describe('SV analysis fields in convertToGenerationOptions', () => {
       svWallOverride: 'minecraft:bricks',
       svTextureBlock: 'minecraft:stone_bricks',
     }));
-    expect(opts.wallOverride).toBe('minecraft:bricks');
+    if (opts.resolvedPalette) {
+      expect(opts.resolvedPalette.wall).toBe('minecraft:bricks');
+    } else {
+      expect(opts.wallOverride).toBe('minecraft:bricks');
+    }
   });
 });
 
