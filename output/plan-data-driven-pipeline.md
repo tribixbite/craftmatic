@@ -1,6 +1,7 @@
 # Plan: Data-Driven Building Pipeline
 
-## Status: Phase 1 DONE, Phase 2 DONE, Browser wiring DONE (fc871f2)
+## Status: Phase 1-2 DONE, All browser API integrations DONE (14ed813)
+## Browser APIs: SV colors + metadata, Mapbox height, Solar, OSM, Parcl, Smarty, Mapillary, Elevation
 ## Date: 2025-02-25
 
 ---
