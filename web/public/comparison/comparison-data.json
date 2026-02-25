@@ -222,8 +222,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 767719,
           "doorOverride": "iron",
-          "roofShape": "flat",
           "features": {
             "chimney": false,
             "porch": true,
@@ -233,8 +233,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 767719
+          }
         },
         "grid": {
           "width": 48,
@@ -260,34 +259,34 @@
           "bedrooms": 12,
           "bathrooms": 12,
           "yearBuilt": 1929,
-          "propertyType": "house",
+          "propertyType": "other",
           "stories": 4,
           "yearUncertain": false
         },
         "genOptions": {
-          "style": "gothic",
+          "style": "desert",
           "floors": 4,
           "width": 16,
           "length": 27,
-          "doorOverride": "dark_oak",
-          "roofShape": "mansard",
+          "seed": 767719,
+          "doorOverride": "acacia",
+          "roofShape": "flat",
           "floorPlanShape": "L",
           "features": {
             "chimney": true,
-            "porch": true,
+            "porch": false,
             "backyard": false,
             "driveway": true,
             "fence": true,
             "trees": true,
             "garden": true,
             "pool": false
-          },
-          "seed": 767719
+          }
         },
         "grid": {
           "width": 60,
-          "height": 32,
-          "blocks": 14316
+          "height": 25,
+          "blocks": 12199
         },
         "views": {
           "exterior": "sf-someapis_exterior.jpg",
@@ -312,19 +311,20 @@
           "bedrooms": 12,
           "bathrooms": 12,
           "yearBuilt": 1929,
-          "propertyType": "house",
+          "propertyType": "other",
           "stories": 4,
           "yearUncertain": false
         },
         "genOptions": {
-          "style": "gothic",
+          "style": "desert",
           "floors": 4,
           "width": 16,
           "length": 27,
+          "seed": 767719,
           "wallOverride": "minecraft:jungle_planks",
           "trimOverride": "minecraft:light_gray_concrete",
-          "doorOverride": "dark_oak",
-          "roofShape": "gambrel",
+          "doorOverride": "acacia",
+          "roofShape": "flat",
           "roofOverride": {
             "north": "minecraft:cobblestone_stairs[facing=north]",
             "south": "minecraft:cobblestone_stairs[facing=south]",
@@ -335,20 +335,19 @@
           "roofHeightOverride": 4,
           "features": {
             "chimney": true,
-            "porch": true,
+            "porch": false,
             "backyard": false,
             "driveway": true,
             "fence": true,
             "trees": true,
             "garden": true,
             "pool": false
-          },
-          "seed": 767719
+          }
         },
         "grid": {
           "width": 60,
           "height": 25,
-          "blocks": 13341
+          "blocks": 12292
         },
         "views": {
           "exterior": "sf-allapis_exterior.jpg",
@@ -591,8 +590,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 783884,
           "doorOverride": "iron",
-          "roofShape": "flat",
           "features": {
             "chimney": false,
             "porch": true,
@@ -602,8 +601,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 783884
+          }
         },
         "grid": {
           "width": 48,
@@ -638,8 +636,8 @@
           "floors": 3,
           "width": 17,
           "length": 21,
+          "seed": 783884,
           "doorOverride": "iron",
-          "roofShape": "gable",
           "floorPlanShape": "rect",
           "features": {
             "chimney": true,
@@ -650,8 +648,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 783884
+          }
         },
         "grid": {
           "width": 53,
@@ -688,6 +685,7 @@
           "floors": 3,
           "width": 17,
           "length": 21,
+          "seed": 783884,
           "wallOverride": "minecraft:polished_andesite",
           "trimOverride": "minecraft:stripped_dark_oak_log",
           "doorOverride": "iron",
@@ -709,8 +707,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 783884
+          }
         },
         "grid": {
           "width": 53,
@@ -915,8 +912,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 201564,
           "doorOverride": "iron",
-          "roofShape": "flat",
           "features": {
             "chimney": false,
             "porch": true,
@@ -926,8 +923,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 201564
+          }
         },
         "grid": {
           "width": 48,
@@ -953,7 +949,7 @@
           "bedrooms": 3,
           "bathrooms": 2,
           "yearBuilt": 2000,
-          "propertyType": "house",
+          "propertyType": "other",
           "stories": 1,
           "yearUncertain": true
         },
@@ -962,8 +958,8 @@
           "floors": 1,
           "width": 45,
           "length": 45,
+          "seed": 201564,
           "doorOverride": "iron",
-          "roofShape": "gable",
           "floorPlanShape": "L",
           "features": {
             "chimney": false,
@@ -974,13 +970,12 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 201564
+          }
         },
         "grid": {
           "width": 101,
-          "height": 15,
-          "blocks": 20670
+          "height": 14,
+          "blocks": 19765
         },
         "views": {
           "exterior": "sanjose-someapis_exterior.jpg",
@@ -999,7 +994,7 @@
           "bedrooms": 3,
           "bathrooms": 2,
           "yearBuilt": 2000,
-          "propertyType": "house",
+          "propertyType": "other",
           "stories": 3,
           "yearUncertain": true
         },
@@ -1008,6 +1003,7 @@
           "floors": 3,
           "width": 45,
           "length": 45,
+          "seed": 201564,
           "doorOverride": "iron",
           "roofShape": "gambrel",
           "floorPlanShape": "L",
@@ -1021,8 +1017,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 201564
+          }
         },
         "grid": {
           "width": 101,
@@ -1193,8 +1188,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 266196,
           "doorOverride": "iron",
-          "roofShape": "flat",
           "features": {
             "chimney": false,
             "porch": true,
@@ -1204,8 +1199,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 266196
+          }
         },
         "grid": {
           "width": 48,
@@ -1240,8 +1234,8 @@
           "floors": 2,
           "width": 19,
           "length": 14,
+          "seed": 266196,
           "doorOverride": "iron",
-          "roofShape": "gable",
           "features": {
             "chimney": true,
             "porch": true,
@@ -1251,13 +1245,12 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 266196
+          }
         },
         "grid": {
           "width": 55,
           "height": 18,
-          "blocks": 8060
+          "blocks": 8011
         },
         "views": {
           "exterior": "walpole-someapis_exterior.jpg",
@@ -1287,6 +1280,7 @@
           "floors": 2,
           "width": 19,
           "length": 14,
+          "seed": 266196,
           "doorOverride": "iron",
           "roofShape": "hip",
           "roofHeightOverride": 12,
@@ -1299,13 +1293,12 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 266196
+          }
         },
         "grid": {
           "width": 55,
           "height": 22,
-          "blocks": 7845
+          "blocks": 7793
         },
         "views": {
           "exterior": "walpole-allapis_exterior.jpg",
@@ -1492,8 +1485,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 802372,
           "doorOverride": "iron",
-          "roofShape": "flat",
           "features": {
             "chimney": false,
             "porch": true,
@@ -1503,8 +1496,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 802372
+          }
         },
         "grid": {
           "width": 48,
@@ -1539,8 +1531,8 @@
           "floors": 3,
           "width": 10,
           "length": 10,
+          "seed": 802372,
           "doorOverride": "iron",
-          "roofShape": "flat",
           "floorPlanShape": "L",
           "features": {
             "chimney": true,
@@ -1551,8 +1543,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 802372
+          }
         },
         "grid": {
           "width": 54,
@@ -1589,6 +1580,7 @@
           "floors": 4,
           "width": 10,
           "length": 10,
+          "seed": 802372,
           "doorOverride": "iron",
           "roofShape": "gambrel",
           "floorPlanShape": "L",
@@ -1602,8 +1594,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 802372
+          }
         },
         "grid": {
           "width": 54,
@@ -1739,8 +1730,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 708454,
           "doorOverride": "iron",
-          "roofShape": "flat",
           "features": {
             "chimney": false,
             "porch": true,
@@ -1750,8 +1741,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 708454
+          }
         },
         "grid": {
           "width": 48,
@@ -1777,7 +1767,7 @@
           "bedrooms": 3,
           "bathrooms": 2,
           "yearBuilt": 2000,
-          "propertyType": "house",
+          "propertyType": "other",
           "stories": 2,
           "yearUncertain": true
         },
@@ -1786,8 +1776,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 708454,
           "doorOverride": "spruce",
-          "roofShape": "gable",
           "features": {
             "chimney": false,
             "porch": true,
@@ -1797,13 +1787,12 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 708454
+          }
         },
         "grid": {
           "width": 56,
-          "height": 17,
-          "blocks": 6820
+          "height": 18,
+          "blocks": 6765
         },
         "views": {
           "exterior": "vinalhaven-someapis_exterior.jpg",
@@ -1824,7 +1813,7 @@
           "bedrooms": 3,
           "bathrooms": 2,
           "yearBuilt": 2000,
-          "propertyType": "house",
+          "propertyType": "other",
           "stories": 2,
           "yearUncertain": true
         },
@@ -1833,8 +1822,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 708454,
           "doorOverride": "spruce",
-          "roofShape": "gable",
           "features": {
             "chimney": false,
             "porch": true,
@@ -1844,13 +1833,12 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 708454
+          }
         },
         "grid": {
           "width": 56,
-          "height": 17,
-          "blocks": 6820
+          "height": 18,
+          "blocks": 6765
         },
         "views": {
           "exterior": "vinalhaven-allapis_exterior.jpg",
@@ -2003,8 +1991,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 832367,
           "doorOverride": "iron",
-          "roofShape": "flat",
           "features": {
             "chimney": false,
             "porch": true,
@@ -2014,8 +2002,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 832367
+          }
         },
         "grid": {
           "width": 48,
@@ -2050,8 +2037,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 832367,
           "doorOverride": "spruce",
-          "roofShape": "gable",
           "features": {
             "chimney": false,
             "porch": true,
@@ -2061,13 +2048,12 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 832367
+          }
         },
         "grid": {
           "width": 56,
-          "height": 17,
-          "blocks": 6822
+          "height": 18,
+          "blocks": 6767
         },
         "views": {
           "exterior": "suttonsbay-someapis_exterior.jpg",
@@ -2097,6 +2083,7 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 832367,
           "doorOverride": "spruce",
           "roofShape": "hip",
           "roofHeightOverride": 4,
@@ -2109,13 +2096,12 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 832367
+          }
         },
         "grid": {
           "width": 56,
           "height": 15,
-          "blocks": 6727
+          "blocks": 6644
         },
         "views": {
           "exterior": "suttonsbay-allapis_exterior.jpg",
@@ -2349,8 +2335,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 222101,
           "doorOverride": "iron",
-          "roofShape": "flat",
           "features": {
             "chimney": false,
             "porch": true,
@@ -2360,8 +2346,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 222101
+          }
         },
         "grid": {
           "width": 48,
@@ -2392,11 +2377,12 @@
           "yearUncertain": false
         },
         "genOptions": {
-          "style": "fantasy",
+          "style": "steampunk",
           "floors": 3,
           "width": 33,
           "length": 45,
-          "roofShape": "gable",
+          "seed": 222101,
+          "doorOverride": "iron",
           "floorPlanShape": "T",
           "features": {
             "chimney": true,
@@ -2407,13 +2393,12 @@
             "trees": true,
             "garden": true,
             "pool": false
-          },
-          "seed": 222101
+          }
         },
         "grid": {
           "width": 83,
           "height": 25,
-          "blocks": 23105
+          "blocks": 19422
         },
         "views": {
           "exterior": "losangeles-someapis_exterior.jpg",
@@ -2441,12 +2426,14 @@
           "yearUncertain": false
         },
         "genOptions": {
-          "style": "fantasy",
+          "style": "steampunk",
           "floors": 4,
           "width": 33,
           "length": 45,
+          "seed": 222101,
           "wallOverride": "minecraft:light_gray_concrete",
           "trimOverride": "minecraft:light_gray_concrete",
+          "doorOverride": "iron",
           "roofShape": "gambrel",
           "roofOverride": {
             "north": "minecraft:stone_brick_stairs[facing=north]",
@@ -2465,13 +2452,12 @@
             "trees": true,
             "garden": true,
             "pool": false
-          },
-          "seed": 222101
+          }
         },
         "grid": {
           "width": 83,
           "height": 25,
-          "blocks": 20343
+          "blocks": 19851
         },
         "views": {
           "exterior": "losangeles-allapis_exterior.jpg",
@@ -2632,7 +2618,7 @@
         "data": {
           "panoId": "AnK13ISB4om0iqfHTAyL4w",
           "date": "2025-08",
-          "heading": "41°",
+          "heading": "42°",
           "panoLat": "47.53888",
           "panoLng": "-122.39440"
         },
@@ -2652,16 +2638,16 @@
           "wallBlock": "gray_concrete",
           "roofColor": "rgb(94,102,95)",
           "roofBlock": "cobblestone_slab[type=bottom]",
-          "trimColor": "rgb(95,113,54)",
+          "trimColor": "rgb(95,112,54)",
           "trimBlock": "stripped_spruce_log",
           "storyCount": 4,
-          "storyConfidence": "0.20",
+          "storyConfidence": "0.18",
           "textureClass": "stone",
           "textureBlock": "stone_bricks",
           "roofPitch": "moderate",
           "roofPitchDegrees": "30°",
           "roofHeightOverride": 0.5,
-          "symmetryScore": "0.84",
+          "symmetryScore": "0.83",
           "isSymmetric": true,
           "planShape": "rectangle",
           "windowsPerFloor": 6,
@@ -2710,8 +2696,8 @@
           "floors": 2,
           "width": 12,
           "length": 10,
+          "seed": 776180,
           "doorOverride": "iron",
-          "roofShape": "flat",
           "features": {
             "chimney": false,
             "porch": true,
@@ -2721,8 +2707,7 @@
             "trees": true,
             "garden": false,
             "pool": false
-          },
-          "seed": 776180
+          }
         },
         "grid": {
           "width": 48,
@@ -2757,8 +2742,8 @@
           "floors": 1,
           "width": 12,
           "length": 15,
+          "seed": 776180,
           "doorOverride": "spruce",
-          "roofShape": "gable",
           "floorPlanShape": "L",
           "features": {
             "chimney": true,
@@ -2769,13 +2754,12 @@
             "trees": true,
             "garden": true,
             "pool": false
-          },
-          "seed": 776180
+          }
         },
         "grid": {
           "width": 56,
-          "height": 15,
-          "blocks": 6539
+          "height": 14,
+          "blocks": 6422
         },
         "views": {
           "exterior": "seattle-someapis_exterior.jpg",
@@ -2803,6 +2787,7 @@
           "floors": 2,
           "width": 12,
           "length": 15,
+          "seed": 776180,
           "wallOverride": "minecraft:gray_concrete",
           "trimOverride": "minecraft:stripped_spruce_log",
           "doorOverride": "spruce",
@@ -2824,13 +2809,12 @@
             "trees": true,
             "garden": true,
             "pool": false
-          },
-          "seed": 776180
+          }
         },
         "grid": {
           "width": 56,
           "height": 21,
-          "blocks": 6846
+          "blocks": 6760
         },
         "views": {
           "exterior": "seattle-allapis_exterior.jpg",

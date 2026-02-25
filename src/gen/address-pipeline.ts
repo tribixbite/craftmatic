@@ -232,9 +232,11 @@ export function inferStyle(year: number, newConstruction = false): StyleName {
   if (newConstruction || year >= 2010) return 'modern';
   if (year < 1700) return 'medieval';
   if (year < 1850) return 'gothic';
-  if (year < 1890) return 'rustic';   // Victorian-era wood-frame (pre-Colonial Revival)
-  if (year < 1970) return 'fantasy';  // Colonial Revival, Foursquare, mid-century — formal trim
-  return 'modern';
+  if (year < 1890) return 'rustic';     // Victorian-era wood-frame (pre-Colonial Revival)
+  if (year < 1920) return 'colonial';   // Colonial Revival, Foursquare, Prairie — formal with symmetry
+  if (year < 1945) return 'steampunk';  // Art Deco, Spanish Revival, Tudor Revival — ornamental
+  if (year < 1970) return 'rustic';     // Ranch, Mid-century modern, split-level — low-slung natural
+  return 'modern';                       // 1970+ contemporary/modern
 }
 
 /**
@@ -247,15 +249,26 @@ export function mapArchitectureToStyle(arch: string | undefined): StyleName | un
   const MAP: [RegExp, StyleName][] = [
     [/\bvictorian|queen\s*anne|second\s*empire/i, 'gothic'],
     [/\bcraftsman|arts?\s*&?\s*crafts|bungalow/i, 'rustic'],
-    [/\bcolonial|georgian|federal|cape\s*cod/i, 'colonial'],
-    [/\bmodern|contemporary|mid.?century|minimalist|international/i, 'modern'],
-    [/\bmediterranean|spanish|mission|pueblo/i, 'desert'],
+    [/\bcolonial|georgian|federal|cape\s*cod|foursquare/i, 'colonial'],
+    [/\bmodern|contemporary|mid.?century|minimalist|international|bauhaus/i, 'modern'],
+    [/\bmediterranean|spanish|mission|pueblo|stucco/i, 'desert'],
     [/\btudor|half.?timber|english/i, 'medieval'],
     [/\bart\s*deco|art\s*nouveau|beaux.?arts/i, 'steampunk'],
     [/\bjapanese|asian|zen/i, 'elven'],
-    [/\bgothic|romanesque|revival/i, 'gothic'],
-    [/\bfarmhouse|ranch|country/i, 'rustic'],
+    [/\bgothic|romanesque/i, 'gothic'],
+    [/\bfarmhouse|country|log\s*cabin/i, 'rustic'],
+    [/\branch|split.?level|raised\s*ranch/i, 'rustic'],
     [/\bcastle|chateau|palatial|manor/i, 'fantasy'],
+    // Frank Lloyd Wright and related styles — concrete/geometric → modern
+    [/\bmayan|aztec|prairie|wright|organic|textile.?block/i, 'modern'],
+    // Revival styles map to the era they revive
+    [/\bcolonial\s*revival|dutch\s*colonial|saltbox/i, 'colonial'],
+    [/\bgreek\s*revival|neoclassical|palladian/i, 'colonial'],
+    [/\bgothic\s*revival|carpenter\s*gothic/i, 'gothic'],
+    // Regional American styles
+    [/\badobe|southwest|territorial/i, 'desert'],
+    [/\bbrown\s*stone|row\s*house|townhouse/i, 'gothic'],
+    [/\bcottage|cabin|rustic/i, 'rustic'],
   ];
   for (const [pattern, style] of MAP) {
     if (pattern.test(a)) return style;
@@ -317,7 +330,7 @@ export function inferStyleFromCity(city: string | undefined, year: number): Styl
  * Returns undefined for types that should fall through to location/year-based inference.
  */
 export function inferStyleFromPropertyType(
-  propertyType: string, year: number
+  propertyType: string, year: number, bedrooms?: number, bathrooms?: number
 ): StyleName | undefined {
   const pt = propertyType.toLowerCase();
 
@@ -326,6 +339,13 @@ export function inferStyleFromPropertyType(
     if (year >= 1970) return 'modern';     // Modern apartment buildings
     if (year >= 1920) return 'desert';      // Pre-war low-rise (stucco, flat roof like SF Marina)
     return 'gothic';                         // Pre-1920 tenement/brownstone
+  }
+
+  // Heuristic: propertyType="OTHER" with many bedrooms is likely misclassified multi-unit
+  if (pt === 'other' && (bedrooms ?? 0) >= 6 && (bathrooms ?? 0) >= 6) {
+    if (year >= 1970) return 'modern';
+    if (year >= 1920) return 'desert';      // Pre-war apartment
+    return 'gothic';
   }
 
   // Individual condo units: usually in modern buildings
@@ -351,7 +371,7 @@ export function resolveStyle(prop: PropertyData): StyleName {
   const archStyle = mapArchitectureToStyle(prop.osmArchitecture)
     ?? mapArchitectureToStyle(prop.architectureType)
     ?? mapArchitectureToStyle(prop.svArchitectureLabel);
-  const propTypeStyle = inferStyleFromPropertyType(prop.propertyType, year);
+  const propTypeStyle = inferStyleFromPropertyType(prop.propertyType, year, prop.bedrooms, prop.bathrooms);
   const cityStyle = inferStyleFromCity(prop.city, year);
   const countyStyle = inferStyleFromCounty(prop.county, year);
   // When year is uncertain, use density + region to pick a reasonable default:
@@ -836,8 +856,8 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
     if (effectiveStyle === 'gothic' || effectiveStyle === 'rustic') {
       flags.porch = true;
     }
-    // Colonial homes always have porches; fantasy pre-1950 also typically do
-    if (effectiveStyle === 'colonial') {
+    // Colonial and steampunk (Art Deco era, 1920-1945) homes typically have covered entries
+    if (effectiveStyle === 'colonial' || effectiveStyle === 'steampunk') {
       flags.porch = true;
     }
     if (effectiveStyle === 'fantasy' && year > 0 && year < 1950) {
@@ -891,9 +911,14 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   const mbType = prop.mapboxBuildingType?.toLowerCase() ?? '';
   const isMapboxMultiUnit = /apartment|dormitor|hotel|commercial/.test(mbType);
 
+  // Heuristic multi-unit detection: propertyType="OTHER" with high bedroom/bathroom count
+  // is almost certainly a misclassified apartment building (Parcl Labs often returns "OTHER")
+  const isHeuristicMultiUnit = prop.propertyType?.toUpperCase() === 'OTHER'
+    && prop.bedrooms >= 6 && prop.bathrooms >= 6;
+
   // ── Floor clamping ───────────────────────────────────────────────
   // Clamp floors to realistic per-type limits to prevent inflated story counts
-  const effectiveMultiUnit = isMultiUnit(prop.propertyType) || isMapboxMultiUnit;
+  const effectiveMultiUnit = isMultiUnit(prop.propertyType) || isMapboxMultiUnit || isHeuristicMultiUnit;
   const maxFloors = effectiveMultiUnit ? 8
     : prop.sqft > 10000 ? 5   // large mansions (e.g. Winchester)
     : 4;                        // standard single-family
@@ -954,11 +979,12 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   if (prop.hasGarage) rooms.push('garage');
 
   // ── Roof shape ────────────────────────────────────────────────────
-  // Priority: OSM roof:shape > Smarty roofFrame > Solar segments > style-default > gable
-  let roofShape: RoofShape = mapOSMRoofToShape(prop.osmRoofShape)
+  // Priority: OSM roof:shape > Smarty roofFrame > Solar segments > style palette default
+  // When no data source provides a roof shape, leave undefined so gen-house.ts
+  // uses style.defaultRoofShape (which is tuned per style) instead of a hard 'gable' fallback.
+  let roofShape: RoofShape | undefined = mapOSMRoofToShape(prop.osmRoofShape)
     ?? inferRoofFromSmartyFrame(prop.roofFrame)
-    ?? inferRoofFromSolar(prop.solarRoofSegments, prop.solarRoofPitch)
-    ?? (style === 'modern' ? 'flat' : style === 'gothic' ? 'mansard' : 'gable');
+    ?? inferRoofFromSolar(prop.solarRoofSegments, prop.solarRoofPitch);
 
   // Multi-unit buildings are overwhelmingly flat-roofed
   if (effectiveMultiUnit && !prop.osmRoofShape) {

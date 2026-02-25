@@ -186,18 +186,20 @@ describe('convertToGenerationOptions', () => {
     expect(opts.roofShape).toBe('hip');
   });
 
-  it('defaults modern style to flat roof', () => {
+  it('defers modern style roof to style palette default (flat)', () => {
     const opts = convertToGenerationOptions(makeProperty({
       style: 'modern',
     }));
-    expect(opts.roofShape).toBe('flat');
+    // roofShape is undefined — gen-house.ts uses style.defaultRoofShape ('flat')
+    expect(opts.roofShape).toBeUndefined();
   });
 
-  it('defaults gothic style to mansard roof', () => {
+  it('defers gothic style roof to style palette default (mansard)', () => {
     const opts = convertToGenerationOptions(makeProperty({
       style: 'gothic',
     }));
-    expect(opts.roofShape).toBe('mansard');
+    // roofShape is undefined — gen-house.ts uses style.defaultRoofShape ('mansard')
+    expect(opts.roofShape).toBeUndefined();
   });
 
   it('maps OSM architecture to style', () => {
@@ -898,10 +900,10 @@ describe('style-aware porch override', () => {
     expect(opts.features?.porch).toBe(true);
   });
 
-  it('fantasy pre-1950 gets porch in urban ZIP', () => {
+  it('steampunk (1920-1945 era) gets porch in urban ZIP', () => {
     const opts = convertToGenerationOptions(makeProperty({
       style: 'auto',
-      yearBuilt: 1940, // → fantasy style
+      yearBuilt: 1940, // → steampunk style (1920-1945 Art Deco era)
       zipCode: '10001', // NYC — urban
       ownerOccupied: true,
     }));

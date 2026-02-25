@@ -243,5 +243,6 @@ export function mapParclPropertyType(parclType: string): string {
   if (normalized.includes('CONDO')) return 'condo';
   if (normalized.includes('TOWN')) return 'townhouse';
   if (normalized.includes('MULTI')) return 'multi_family'; // Preserve multi-unit signal for pipeline
+  if (normalized === 'OTHER') return 'other'; // Preserve for heuristic multi-unit detection
   return 'house';
 }
