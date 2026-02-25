@@ -71,17 +71,19 @@ function loadField(key: string): string {
 export { convertToGenerationOptions } from '@craft/gen/address-pipeline.js';
 export type { PropertyData } from '@craft/gen/address-pipeline.js';
 
-/** Style presets with colors — "Auto" infers from year built */
+/** Style presets — "Auto" uses data-driven materials from observed colors/OSM/assessor;
+ *  selecting a named style forces that fantasy preset instead */
 const STYLE_PRESETS: { value: StyleName | 'auto'; label: string; color: string }[] = [
-  { value: 'auto', label: 'Auto', color: '#8888a8' },
+  { value: 'auto', label: 'Real', color: '#6a9f6a' },
+  { value: 'colonial', label: 'Colonial', color: '#f5f0e1' },
+  { value: 'modern', label: 'Modern', color: '#87ceeb' },
+  { value: 'rustic', label: 'Rustic', color: '#8b7355' },
+  { value: 'desert', label: 'Desert', color: '#deb887' },
+  { value: 'gothic', label: 'Gothic', color: '#cc4444' },
   { value: 'fantasy', label: 'Fantasy', color: '#b19cd9' },
   { value: 'medieval', label: 'Medieval', color: '#c9a96e' },
-  { value: 'modern', label: 'Modern', color: '#87ceeb' },
-  { value: 'gothic', label: 'Gothic', color: '#cc4444' },
-  { value: 'rustic', label: 'Rustic', color: '#8b7355' },
   { value: 'steampunk', label: 'Steampunk', color: '#cd7f32' },
   { value: 'elven', label: 'Elven', color: '#7cbb5f' },
-  { value: 'desert', label: 'Desert', color: '#deb887' },
   { value: 'underwater', label: 'Underwater', color: '#5f9ea0' },
 ];
 

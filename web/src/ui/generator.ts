@@ -38,6 +38,7 @@ const STYLE_PRESETS: { value: StyleName; label: string; color: string }[] = [
   { value: 'modern', label: 'Modern', color: '#87ceeb' },
   { value: 'gothic', label: 'Gothic', color: '#cc4444' },
   { value: 'rustic', label: 'Rustic', color: '#8b7355' },
+  { value: 'colonial', label: 'Colonial', color: '#f5f0e1' },
   { value: 'steampunk', label: 'Steampunk', color: '#cd7f32' },
   { value: 'elven', label: 'Elven', color: '#7cbb5f' },
   { value: 'desert', label: 'Desert', color: '#deb887' },
