@@ -105,6 +105,26 @@ export type RoofShape = 'gable' | 'hip' | 'flat' | 'gambrel' | 'mansard';
 /** Floor plan shape — rectangular (default) or L/T/U from OSM polygon analysis */
 export type FloorPlanShape = 'rect' | 'L' | 'T' | 'U';
 
+/**
+ * A rectangular building volume — composable unit for compound floor plans.
+ * Multiple sections compose into L/T/U and arbitrary compound layouts.
+ * The main body is implicit; sections here represent attached wings/additions.
+ */
+export interface BuildingSection {
+  /** X offset within the grid */
+  x1: number;
+  /** Z offset within the grid */
+  z1: number;
+  /** Width (X extent) in blocks */
+  width: number;
+  /** Length (Z extent) in blocks */
+  length: number;
+  /** Number of stories */
+  floors: number;
+  /** Room type for the section (single room, no quadrant subdivision) */
+  roomType?: RoomType;
+}
+
 /** Exterior feature flags — each controls whether a feature is generated */
 export interface FeatureFlags {
   /** Brick chimney rising through roof (default: true for houses) */
@@ -152,6 +172,8 @@ export interface GenerationOptions {
   features?: FeatureFlags;
   /** Floor plan shape derived from OSM polygon analysis */
   floorPlanShape?: FloorPlanShape;
+  /** Explicit wing sections for compound layouts — overrides floorPlanShape when provided */
+  sections?: BuildingSection[];
   /** Override roof height in blocks (derived from Solar API pitch data) */
   roofHeightOverride?: number;
   /** Window spacing in blocks (derived from SV fenestration analysis, default 3) */
