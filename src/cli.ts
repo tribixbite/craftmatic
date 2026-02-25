@@ -430,6 +430,16 @@ async function genFromAddress(
       }
     }
 
+    // Skyscraper proportion detection (arnis pattern): when Mapbox height greatly
+    // exceeds footprint, use raw height / 3.5m floor height instead of sqft ratio.
+    // Sqft ratio underestimates tall narrow buildings (e.g. office towers).
+    if (mapboxBuilding?.height && mapboxBuilding.height >= 50 && osm?.widthMeters && osm?.lengthMeters) {
+      const longestSide = Math.max(osm.widthMeters, osm.lengthMeters);
+      if (mapboxBuilding.height >= 2 * longestSide) {
+        stories = Math.max(stories, Math.round(mapboxBuilding.height / 3.5));
+      }
+    }
+
     // Condo unit detection: small sqft but large building footprint → unit-level address
     if (osm?.widthMeters && osm?.lengthMeters && !osm?.levels) {
       const footprintSqm = osm.widthMeters * osm.lengthMeters;
