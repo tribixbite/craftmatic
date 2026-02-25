@@ -381,7 +381,10 @@ function resolveRoofOverride(
     if (mapped) return mapped;
   }
   // Priority 3: Smarty roofType (assessor records)
-  // TODO: map prop.roofType to stair blocks (already done in address-pipeline)
+  if (prop.roofType) {
+    const mapped = smartyRoofTypeToStairs(prop.roofType);
+    if (mapped) return mapped;
+  }
   // Priority 4: SV roof color (image-derived — lowest real-data priority)
   if (prop.svRoofOverride) {
     return {
@@ -484,6 +487,19 @@ function osmRoofMaterialToStairs(material: string): { stairs: string; cap: Block
     'glass': { stairs: 'minecraft:smooth_quartz_stairs', cap: 'minecraft:smooth_quartz_slab[type=bottom]' },
   };
   return MAP[m];
+}
+
+/** Smarty roofType (assessor roof covering) → stair base + cap */
+function smartyRoofTypeToStairs(roofType: string): { stairs: string; cap: BlockState } | undefined {
+  const r = roofType.toLowerCase().trim();
+  if (/asphalt|composition|comp/.test(r)) return { stairs: 'minecraft:cobblestone_stairs', cap: 'minecraft:cobblestone_slab[type=bottom]' };
+  if (/tile|clay/.test(r)) return { stairs: 'minecraft:brick_stairs', cap: 'minecraft:brick_slab[type=bottom]' };
+  if (/slate/.test(r)) return { stairs: 'minecraft:deepslate_tile_stairs', cap: 'minecraft:deepslate_tile_slab[type=bottom]' };
+  if (/metal|steel|tin/.test(r)) return { stairs: 'minecraft:stone_stairs', cap: 'minecraft:stone_slab[type=bottom]' };
+  if (/wood|shake|shingle/.test(r)) return { stairs: 'minecraft:spruce_stairs', cap: 'minecraft:spruce_slab[type=bottom]' };
+  if (/concrete|built.?up|membrane/.test(r)) return { stairs: 'minecraft:smooth_stone_stairs', cap: 'minecraft:smooth_stone_slab[type=bottom]' };
+  if (/copper/.test(r)) return { stairs: 'minecraft:cut_copper_stairs', cap: 'minecraft:cut_copper_slab[type=bottom]' };
+  return undefined;
 }
 
 /** Parse hex color (#RGB or #RRGGBB) to [r, g, b] tuple */

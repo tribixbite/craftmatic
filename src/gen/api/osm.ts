@@ -45,7 +45,19 @@ export interface OSMBuildingData {
 
 // ─── Overpass API Client ────────────────────────────────────────────────────
 
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+// Arnis pattern: round-robin across multiple Overpass servers for reliability
+const OVERPASS_SERVERS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://lz4.overpass-api.de/api/interpreter',
+  'https://z.overpass-api.de/api/interpreter',
+];
+let nextServerIdx = 0;
+/** Pick next Overpass server in round-robin order */
+function pickOverpassUrl(): string {
+  const url = OVERPASS_SERVERS[nextServerIdx % OVERPASS_SERVERS.length];
+  nextServerIdx++;
+  return url;
+}
 
 /**
  * Search OSM Overpass for the nearest building polygon to a lat/lng point.
@@ -64,12 +76,13 @@ export async function searchOSMBuilding(
   const query = `[out:json][timeout:15];(way[building](around:${radius},${lat},${lng});relation[building](around:${radius},${lat},${lng}););out geom;`;
   const body = `data=${encodeURIComponent(query)}`;
 
-  // Retry with exponential backoff for 429 (rate limit) and 504 (gateway timeout)
-  // Overpass is free/public — be patient with rate limits (up to ~30s total wait)
+  // Retry with exponential backoff for 429 (rate limit) and 504 (gateway timeout).
+  // Rotate through servers on each retry (arnis pattern: 3 servers for reliability).
   const MAX_RETRIES = 5;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const serverUrl = pickOverpassUrl();
     try {
-      const resp = await fetch(OVERPASS_URL, {
+      const resp = await fetch(serverUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,

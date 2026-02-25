@@ -1,6 +1,6 @@
 # Plan: Data-Driven Building Pipeline
 
-## Status: Phase 1 Steps 1-6 complete (220afee)
+## Status: Phase 1 DONE, Phase 2A DONE (ddd8bdc)
 ## Date: 2025-02-25
 
 ---
@@ -219,7 +219,10 @@ for better handling of complex concave shapes.
 | 5 | `src/gen/address-pipeline.ts` | Wire resolver when `style='auto'` | DONE |
 | 6 | `src/gen/generator.ts` | Use `resolvedPalette` directly when present | DONE |
 | 7 | Tests | Update override tests for resolved palette path | DONE |
-| 8 | Web UI | Update style selector dropdown | TODO |
+| 8 | Web UI | Update style selector dropdown, colonial preset | DONE |
+| 9 | `src/gen/color-blocks.ts` | Multi-option WALL_CLUSTERS (arnis DEFINED_COLORS) | DONE |
+| 10 | `src/gen/api/elevation.ts` | AWS Terrarium elevation tile fetcher | DONE |
+| 11 | `src/cli.ts` | Wire footprintSlope() for hillside height correction | DONE |
 
 ## Arnis Patterns to Adopt
 
