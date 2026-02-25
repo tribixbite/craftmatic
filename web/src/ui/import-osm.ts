@@ -11,8 +11,10 @@ import type { BlockState } from '@craft/types/index.js';
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface OSMBuildingData {
-  /** Building polygon vertices as {lat, lon}[] */
+  /** Building polygon vertices as {lat, lon}[] (outer ring for multipolygons) */
   polygon: { lat: number; lon: number }[];
+  /** Inner ring polygons for multipolygon buildings (courtyards, through-holes) */
+  innerPolygons?: { lat: number; lon: number }[][];
   /** Width in meters (from bounding box — shorter axis) */
   widthMeters: number;
   /** Length in meters (from bounding box — longer axis) */
@@ -55,7 +57,9 @@ export async function searchOSMBuilding(
   lng: number,
   radius = 50,
 ): Promise<OSMBuildingData | null> {
-  const query = `[out:json][timeout:15];(way[building](around:${radius},${lat},${lng}););out geom;`;
+  // Fetch both ways and relations tagged [building] — relations capture multipolygon
+  // buildings with inner/outer rings (courtyards, through-block buildings).
+  const query = `[out:json][timeout:15];(way[building](around:${radius},${lat},${lng});relation[building](around:${radius},${lat},${lng}););out geom;`;
   const body = `data=${encodeURIComponent(query)}`;
 
   // Retry with exponential backoff for 429 (rate limit) and 504 (gateway timeout)
@@ -117,17 +121,25 @@ export function parseClosestBuilding(
   let bestDist = Infinity;
 
   for (const el of elements) {
-    if (el.type !== 'way' || !el.geometry || el.geometry.length < 3) continue;
+    // Extract centroid geometry from either way or relation
+    let geom: { lat: number; lon: number }[] | undefined;
+    if (el.type === 'way' && el.geometry && el.geometry.length >= 3) {
+      geom = el.geometry;
+    } else if (el.type === 'relation' && el.members) {
+      const outerMember = el.members.find(m => m.role === 'outer' && m.geometry && m.geometry.length >= 3);
+      geom = outerMember?.geometry;
+    }
+    if (!geom) continue;
 
     // Compute centroid of polygon
     let cLat = 0;
     let cLon = 0;
-    for (const pt of el.geometry) {
+    for (const pt of geom) {
       cLat += pt.lat;
       cLon += pt.lon;
     }
-    cLat /= el.geometry.length;
-    cLon /= el.geometry.length;
+    cLat /= geom.length;
+    cLon /= geom.length;
 
     const dist = haversineDistance(queryLat, queryLng, cLat, cLon);
     if (dist < bestDist) {
@@ -136,21 +148,40 @@ export function parseClosestBuilding(
     }
   }
 
-  if (!bestElement || !bestElement.geometry) return null;
+  if (!bestElement) return null;
 
-  const polygon = bestElement.geometry.map(pt => ({ lat: pt.lat, lon: pt.lon }));
+  // Extract outer polygon and inner rings based on element type
+  let polygon: { lat: number; lon: number }[];
+  let innerPolygons: { lat: number; lon: number }[][] | undefined;
+
+  if (bestElement.type === 'relation' && bestElement.members) {
+    const outerMember = bestElement.members.find(m => m.role === 'outer' && m.geometry && m.geometry.length >= 3);
+    if (!outerMember?.geometry) return null;
+    polygon = outerMember.geometry.map(pt => ({ lat: pt.lat, lon: pt.lon }));
+    const inners = bestElement.members
+      .filter(m => m.role === 'inner' && m.geometry && m.geometry.length >= 3)
+      .map(m => m.geometry!.map(pt => ({ lat: pt.lat, lon: pt.lon })));
+    if (inners.length > 0) innerPolygons = inners;
+  } else if (bestElement.geometry) {
+    polygon = bestElement.geometry.map(pt => ({ lat: pt.lat, lon: pt.lon }));
+  } else {
+    return null;
+  }
+
   const { widthMeters, lengthMeters } = polygonBoundingDimensions(polygon);
-  const footprintAreaSqm = polygonArea(polygon);
+  let footprintAreaSqm = polygonArea(polygon);
+  if (innerPolygons) {
+    for (const inner of innerPolygons) {
+      footprintAreaSqm -= polygonArea(inner);
+    }
+    footprintAreaSqm = Math.max(0, footprintAreaSqm);
+  }
   const tags = bestElement.tags ?? {};
 
   // For non-rectangular shapes, derive block dimensions from actual area
-  // instead of bounding box to avoid inflating L/T/U buildings
   const bboxArea = widthMeters * lengthMeters;
   const fillRatio = bboxArea > 0 ? footprintAreaSqm / bboxArea : 1;
   const aspectRatio = lengthMeters > 0 ? widthMeters / lengthMeters : 1;
-
-  // Scale bbox dimensions down to match actual area: area = w * l, w/l = aspectRatio
-  // So: w = sqrt(area * aspectRatio), l = sqrt(area / aspectRatio)
   let effectiveWidth = widthMeters;
   let effectiveLength = lengthMeters;
   if (fillRatio < 0.88 && footprintAreaSqm > 0) {
@@ -158,12 +189,12 @@ export function parseClosestBuilding(
     effectiveLength = Math.sqrt(footprintAreaSqm / aspectRatio);
   }
 
-  // Parse levels — OSM uses "building:levels" as a string
   const levelsRaw = tags['building:levels'];
   const levels = levelsRaw ? parseInt(levelsRaw, 10) : undefined;
 
   return {
     polygon,
+    innerPolygons,
     widthMeters: Math.round(effectiveWidth * 10) / 10,
     lengthMeters: Math.round(effectiveLength * 10) / 10,
     widthBlocks: Math.max(6, Math.min(60, Math.round(effectiveWidth))),
@@ -185,6 +216,13 @@ export interface OverpassElement {
   id: number;
   geometry?: { lat: number; lon: number }[];
   tags?: Record<string, string>;
+  /** Relation members — present when type === 'relation' */
+  members?: {
+    type: string;
+    ref: number;
+    role: string;
+    geometry?: { lat: number; lon: number }[];
+  }[];
 }
 
 // ─── Geometry Utilities ─────────────────────────────────────────────────────

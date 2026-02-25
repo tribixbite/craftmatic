@@ -44,19 +44,25 @@ Issues identified by Gemini 3 Pro review of `import-satellite-footprint.ts`:
 Per Gemini review: "incorrect scale is more jarring than wrong texture" — geometry/scale items moved before material items.
 
 ### 1.1 Scanline Flood-Fill Geometry (from Arnis)
-- [ ] Implement `CoordinateBitmap` — exact polygonal footprint as 2D block grid
-- [ ] Convert OSM polygon vertices → scanline-filled bitmap (not bounding box)
-- [ ] Enables pixel-perfect L/T/U/irregular footprints without approximation
-- [ ] Replace current `floorPlanShape` heuristic with actual polygon rendering
+- [x] Implement `CoordinateBitmap` — bit-packed 2D occupancy grid (~200x vs Set)
+- [x] `scanlineFill()` — even-odd rule rasterization of polygon vertices
+- [x] `projectPolygonToBlocks()` — lat/lon polygon → integer block coords
+- [x] `polygonToBitmap()` — full pipeline from OSM polygon to bitmap
+- [x] `classifyBitmapShape()` — quadrant fill analysis for L/T/U detection
+- [x] Post-generation bitmap mask in `generateHouse()` — carves away non-polygon blocks
+- [x] Edge sealing: wall blocks at cut boundaries prevent exposed room internals
+- [x] 22 unit tests covering all functions + edge cases
 - **Ref:** Arnis `floodfill_cache.rs:CoordinateBitmap`, `scanline_fill`
-- **Files:** new `src/gen/coordinate-bitmap.ts`, modify `src/gen/structures.ts`
+- **Files:** `src/gen/coordinate-bitmap.ts`, `src/gen/gen-house.ts`, `test/coordinate-bitmap.test.ts`
 
 ### 1.2 Multipolygon & Courtyard Support (from Arnis)
-- [ ] Parse OSM `type=multipolygon` relations with `inner`/`outer` roles
-- [ ] Subtract inner ring bitmap from outer ring before generation
-- [ ] Enables courtyard buildings (apartment complexes, U-shaped structures)
+- [x] Parse OSM `type=multipolygon` relations with `inner`/`outer` member roles
+- [x] Subtract inner ring areas from total footprint calculation
+- [x] `subtractInnerRings()` — remove inner ring blocks from bitmap
+- [x] Wired `osmPolygon` + `osmInnerPolygons` through PropertyData → GenerationOptions
+- [x] Mirrored in both CLI (`src/cli.ts`) and web (`web/src/ui/import.ts`)
 - **Ref:** Arnis `buildings.rs:generate_buildings` hole processing
-- **Files:** `web/src/ui/import-osm.ts`, `src/gen/api/osm.ts`
+- **Files:** `src/gen/api/osm.ts`, `web/src/ui/import-osm.ts`, `src/cli.ts`, `web/src/ui/import.ts`
 
 ### 1.3 Solar Building Area → Floor Estimation
 - [x] CLI story chain: solar footprint area / sqft → story count (between OSM+sqft and heuristic)
@@ -94,10 +100,11 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - **Files:** `src/gen/structures.ts`
 
 ### 2.3 Solar API → Exact Roof Pitch & Ridge Direction
-- [ ] Map Solar API azimuth to Minecraft compass direction for ridge alignment
-- [ ] Use actual pitch degrees for step height: half-slabs (low), full blocks (45°), double (steep)
-- [ ] Use segment count for shape: 2 segments=gable, 4=hip, 1+flat=flat
-- **Fields:** `solarRoofPitch`, `solarRoofSegments` (collected, partially used)
+- [x] Added `solarAzimuthDegrees` to PropertyData, wired from CLI + web
+- [~] Azimuth → ridge direction mapping blocked on generator orientation (Phase 1.6)
+- [x] Solar segments → roof shape already wired in pipeline
+- [x] Solar pitch → roof height already wired in pipeline
+- **Fields:** `solarRoofPitch`, `solarRoofSegments`, `solarAzimuthDegrees`
 - **Ref:** `craftmatic_improvements.md` §3A
 
 ### 2.4 Smarty Roof Type → Roof Material Variety
@@ -161,19 +168,24 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - **Files:** `src/gen/address-pipeline.ts`, `src/gen/generator.ts`, `src/types/index.ts`
 
 ### 3.5 Climate-Specific Materials
-- [ ] Hot/dry → light blocks, terracotta, metal roof
-- [ ] Cold/wet → dark wood, stone, steep roofs
-- **Enhancement to:** feature inference + material selection
+- [x] `applyClimateMaterials()` — hot climates lighten wall materials, cold darken
+- [x] `inferClimateZone()` — state abbreviation → cold/hot/temperate classification
+- [x] Wired into wall override chain: rawWall → yearAging → climate → value
+- [ ] Expand climate material maps for more block types (currently 4 hot + 4 cold)
+- **Files:** `src/gen/address-pipeline.ts`
 
 ### 3.6 Assessed Value → Material Quality
-- [ ] Low value: basic materials, minimal decoration
-- [ ] High value: polished materials, ornate trim
-- **Fields:** `assessedValue` (collected, unused)
+- [x] `applyValueTierMaterials()` — high value ($800K+) → polished variants, low (<$150K) → basic
+- [x] Wired after climate materials in wall override chain
+- [ ] Expand value-tier material maps beyond 4 entries each
+- **Files:** `src/gen/address-pipeline.ts`
 
 ### 3.7 Lot Context Awareness
-- [ ] Small lot: tight setbacks, attached garage
-- [ ] Large lot: long driveway, detached garage, gardens
-- **Fields:** `lotSize` (partially used)
+- [x] Small lot (<2500 sqft): skip trees, garden, backyard features
+- [x] Large lot (>10000 sqft): force trees, garden, backyard, fence
+- [ ] Setback distance adjustment based on lot size
+- [ ] Attached vs detached garage based on lot width
+- **Files:** `src/gen/address-pipeline.ts` (`inferFeatures()`)
 
 ---
 

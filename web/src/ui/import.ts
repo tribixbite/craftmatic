@@ -953,6 +953,8 @@ export function initImport(
         : (currentSatFootprint?.confidence ?? 0) >= 0.6
           ? currentSatFootprint!.shape
           : undefined,
+      osmPolygon: currentOSM?.polygon,
+      osmInnerPolygons: currentOSM?.innerPolygons,
       // Satellite footprint dimensions (fallback when OSM footprint unavailable)
       satFootprintWidth: currentSatFootprint?.widthMeters,
       satFootprintLength: currentSatFootprint?.lengthMeters,
