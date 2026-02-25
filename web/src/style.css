@@ -1453,14 +1453,36 @@ html, body {
 /* Responsive */
 @media (max-width: 900px) {
   .cmp-stats { grid-template-columns: 1fr; }
+  .cmp-nav {
+    justify-content: flex-start;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+  .cmp-nav-btn { flex-shrink: 0; }
 }
 
 @media (max-width: 600px) {
-  #comparison-root { padding: 10px; }
+  #comparison-root { padding: 8px; }
+  .cmp-header { padding: 0 4px; }
+  .cmp-title { font-size: 16px; }
+  .cmp-subtitle { font-size: 11px; }
   .cmp-stats { grid-template-columns: 1fr; }
   .cmp-api-grid { grid-template-columns: 1fr; }
-  .cmp-nav-btn { padding: 6px 10px; }
+  .cmp-nav-btn { padding: 6px 10px; font-size: 11px; }
+  .cmp-nav-label { font-size: 12px; }
+  .cmp-nav-addr { font-size: 9px; }
   .cmp-slider { min-height: 180px; }
+  .cmp-actions { flex-wrap: wrap; gap: 6px; }
+  .cmp-action-btn { padding: 6px 10px; font-size: 11px; }
+  .cmp-stat-card { padding: 10px; }
+  .cmp-stat-card h4 { font-size: 12px; }
+  .cmp-stat-card td { padding: 3px 6px; font-size: 11px; }
+  .cmp-api-card { padding: 10px; }
+  .cmp-api-name { font-size: 12px; }
+  .cmp-api-table td { padding: 3px 6px; font-size: 11px; }
+  .cmp-tag { font-size: 9px; padding: 1px 5px; }
 }
 
 /* ─── Map Tab (Google 3D Tiles) ──────────────────────────────────────── */

@@ -123,8 +123,7 @@
           "bestImageId": "1195418191102498",
           "bestImageDate": "2023-04-01",
           "bestImageHeading": "266°",
-          "isPano": false,
-          "featuresFound": 74,
+          "featuresFound": 78,
           "hasDriveway": true,
           "hasFence": false
         },
@@ -171,7 +170,6 @@
           "storyConfidence": "0.30",
           "textureClass": "shingle",
           "textureBlock": "spruce_planks",
-          "textureEntropy": "25300",
           "roofPitch": "moderate",
           "roofPitchDegrees": "15°",
           "roofHeightOverride": 0.5,
@@ -180,7 +178,6 @@
           "planShape": "L",
           "windowsPerFloor": 10,
           "windowSpacing": 2,
-          "windowWallRatio": "0.624",
           "lawnDepth": "0%",
           "hasDriveway": false,
           "hasPath": true
@@ -191,12 +188,8 @@
           "svTrimOverride",
           "svStoryCount",
           "svTextureClass",
-          "svTextureBlock",
           "svRoofPitch",
-          "svRoofHeightOverride",
-          "svSymmetric",
           "svPlanShape",
-          "svWindowsPerFloor",
           "svWindowSpacing",
           "svSetbackFeatures"
         ],
@@ -213,65 +206,164 @@
         ]
       }
     ],
-    "property": {
-      "sqft": 13905,
-      "bedrooms": 12,
-      "bathrooms": 12,
-      "yearBuilt": 1929,
-      "propertyType": "house",
-      "stories": 4,
-      "yearUncertain": false
-    },
-    "genOptions": {
-      "style": "gothic",
-      "floors": 4,
-      "width": 16,
-      "length": 27,
-      "wallOverride": "minecraft:jungle_planks",
-      "trimOverride": "minecraft:light_gray_concrete",
-      "doorOverride": "dark_oak",
-      "roofShape": "gambrel",
-      "roofOverride": {
-        "north": "minecraft:cobblestone_stairs[facing=north]",
-        "south": "minecraft:cobblestone_stairs[facing=south]",
-        "cap": "minecraft:cobblestone_slab[type=bottom]"
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "flat",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 15,
+          "blocks": 5424
+        },
+        "views": {
+          "exterior": "sf-noapi_exterior.jpg",
+          "cutaway": [
+            "sf-noapi_cutaway_0.jpg",
+            "sf-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "sf-noapi_floor_0.jpg",
+            "sf-noapi_floor_1.jpg"
+          ]
+        }
       },
-      "floorPlanShape": "L",
-      "windowSpacing": 2,
-      "roofHeightOverride": 4,
-      "features": {
-        "chimney": true,
-        "porch": true,
-        "backyard": false,
-        "driveway": true,
-        "fence": true,
-        "trees": true,
-        "garden": true,
-        "pool": false
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 13905,
+          "bedrooms": 12,
+          "bathrooms": 12,
+          "yearBuilt": 1929,
+          "propertyType": "house",
+          "stories": 4,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "gothic",
+          "floors": 4,
+          "width": 16,
+          "length": 27,
+          "doorOverride": "dark_oak",
+          "roofShape": "mansard",
+          "floorPlanShape": "L",
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": false,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 60,
+          "height": 32,
+          "blocks": 14316
+        },
+        "views": {
+          "exterior": "sf-someapis_exterior.jpg",
+          "cutaway": [
+            "sf-someapis_cutaway_0.jpg",
+            "sf-someapis_cutaway_1.jpg",
+            "sf-someapis_cutaway_2.jpg",
+            "sf-someapis_cutaway_3.jpg"
+          ],
+          "floor": [
+            "sf-someapis_floor_0.jpg",
+            "sf-someapis_floor_1.jpg",
+            "sf-someapis_floor_2.jpg",
+            "sf-someapis_floor_3.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 13905,
+          "bedrooms": 12,
+          "bathrooms": 12,
+          "yearBuilt": 1929,
+          "propertyType": "house",
+          "stories": 4,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "gothic",
+          "floors": 4,
+          "width": 16,
+          "length": 27,
+          "wallOverride": "minecraft:jungle_planks",
+          "trimOverride": "minecraft:light_gray_concrete",
+          "doorOverride": "dark_oak",
+          "roofShape": "gambrel",
+          "roofOverride": {
+            "north": "minecraft:cobblestone_stairs[facing=north]",
+            "south": "minecraft:cobblestone_stairs[facing=south]",
+            "cap": "minecraft:cobblestone_slab[type=bottom]"
+          },
+          "floorPlanShape": "L",
+          "windowSpacing": 2,
+          "roofHeightOverride": 4,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": false,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 60,
+          "height": 25,
+          "blocks": 13341
+        },
+        "views": {
+          "exterior": "sf-allapis_exterior.jpg",
+          "cutaway": [
+            "sf-allapis_cutaway_0.jpg",
+            "sf-allapis_cutaway_1.jpg",
+            "sf-allapis_cutaway_2.jpg",
+            "sf-allapis_cutaway_3.jpg"
+          ],
+          "floor": [
+            "sf-allapis_floor_0.jpg",
+            "sf-allapis_floor_1.jpg",
+            "sf-allapis_floor_2.jpg",
+            "sf-allapis_floor_3.jpg"
+          ]
+        }
       }
-    },
-    "grid": {
-      "width": 60,
-      "height": 25,
-      "blocks": 14435
-    },
-    "views": {
-      "exterior": {
-        "api": "sf-api_exterior.jpg"
-      },
-      "cutaway": [
-        "sf-api_cutaway_0.jpg",
-        "sf-api_cutaway_1.jpg",
-        "sf-api_cutaway_2.jpg",
-        "sf-api_cutaway_3.jpg"
-      ],
-      "floor": [
-        "sf-api_floor_0.jpg",
-        "sf-api_floor_1.jpg",
-        "sf-api_floor_2.jpg",
-        "sf-api_floor_3.jpg"
-      ]
-    }
+    ]
   },
   {
     "key": "newton",
@@ -397,7 +489,6 @@
           "bestImageId": "171230948156116",
           "bestImageDate": "2018-03-28",
           "bestImageHeading": "103°",
-          "isPano": false,
           "featuresFound": 36,
           "hasDriveway": true,
           "hasFence": false
@@ -445,7 +536,6 @@
           "storyConfidence": "0.17",
           "textureClass": "stone",
           "textureBlock": "stone_bricks",
-          "textureEntropy": "20035",
           "roofPitch": "moderate",
           "roofPitchDegrees": "30°",
           "roofHeightOverride": 0.5,
@@ -454,7 +544,6 @@
           "planShape": "L",
           "windowsPerFloor": 10,
           "windowSpacing": 2,
-          "windowWallRatio": "1.041",
           "lawnDepth": "17%",
           "hasDriveway": false,
           "hasPath": true
@@ -465,12 +554,8 @@
           "svTrimOverride",
           "svStoryCount",
           "svTextureClass",
-          "svTextureBlock",
           "svRoofPitch",
-          "svRoofHeightOverride",
-          "svSymmetric",
           "svPlanShape",
-          "svWindowsPerFloor",
           "svWindowSpacing",
           "svSetbackFeatures"
         ],
@@ -487,63 +572,160 @@
         ]
       }
     ],
-    "property": {
-      "sqft": 9094,
-      "bedrooms": 9,
-      "bathrooms": 5,
-      "yearBuilt": 2000,
-      "propertyType": "house",
-      "stories": 3,
-      "yearUncertain": true
-    },
-    "genOptions": {
-      "style": "fantasy",
-      "floors": 3,
-      "width": 17,
-      "length": 21,
-      "wallOverride": "minecraft:stone_bricks",
-      "trimOverride": "minecraft:stripped_dark_oak_log",
-      "doorOverride": "iron",
-      "roofShape": "gambrel",
-      "roofOverride": {
-        "north": "minecraft:spruce_stairs[facing=north]",
-        "south": "minecraft:spruce_stairs[facing=south]",
-        "cap": "minecraft:spruce_slab[type=bottom]"
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "flat",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 15,
+          "blocks": 5426
+        },
+        "views": {
+          "exterior": "newton-noapi_exterior.jpg",
+          "cutaway": [
+            "newton-noapi_cutaway_0.jpg",
+            "newton-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "newton-noapi_floor_0.jpg",
+            "newton-noapi_floor_1.jpg"
+          ]
+        }
       },
-      "floorPlanShape": "L",
-      "windowSpacing": 2,
-      "roofHeightOverride": 12,
-      "features": {
-        "chimney": true,
-        "porch": true,
-        "backyard": true,
-        "driveway": true,
-        "fence": true,
-        "trees": true,
-        "garden": false,
-        "pool": false
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 9094,
+          "bedrooms": 9,
+          "bathrooms": 5,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 3,
+          "yearUncertain": true
+        },
+        "genOptions": {
+          "style": "fantasy",
+          "floors": 3,
+          "width": 17,
+          "length": 21,
+          "doorOverride": "iron",
+          "roofShape": "gable",
+          "floorPlanShape": "rect",
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 53,
+          "height": 25,
+          "blocks": 11981
+        },
+        "views": {
+          "exterior": "newton-someapis_exterior.jpg",
+          "cutaway": [
+            "newton-someapis_cutaway_0.jpg",
+            "newton-someapis_cutaway_1.jpg",
+            "newton-someapis_cutaway_2.jpg"
+          ],
+          "floor": [
+            "newton-someapis_floor_0.jpg",
+            "newton-someapis_floor_1.jpg",
+            "newton-someapis_floor_2.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 9094,
+          "bedrooms": 9,
+          "bathrooms": 5,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 3,
+          "yearUncertain": true
+        },
+        "genOptions": {
+          "style": "fantasy",
+          "floors": 3,
+          "width": 17,
+          "length": 21,
+          "wallOverride": "minecraft:polished_andesite",
+          "trimOverride": "minecraft:stripped_dark_oak_log",
+          "doorOverride": "iron",
+          "roofShape": "gambrel",
+          "roofOverride": {
+            "north": "minecraft:spruce_stairs[facing=north]",
+            "south": "minecraft:spruce_stairs[facing=south]",
+            "cap": "minecraft:spruce_slab[type=bottom]"
+          },
+          "floorPlanShape": "rect",
+          "windowSpacing": 2,
+          "roofHeightOverride": 12,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 53,
+          "height": 27,
+          "blocks": 11177
+        },
+        "views": {
+          "exterior": "newton-allapis_exterior.jpg",
+          "cutaway": [
+            "newton-allapis_cutaway_0.jpg",
+            "newton-allapis_cutaway_1.jpg",
+            "newton-allapis_cutaway_2.jpg"
+          ],
+          "floor": [
+            "newton-allapis_floor_0.jpg",
+            "newton-allapis_floor_1.jpg",
+            "newton-allapis_floor_2.jpg"
+          ]
+        }
       }
-    },
-    "grid": {
-      "width": 61,
-      "height": 27,
-      "blocks": 12831
-    },
-    "views": {
-      "exterior": {
-        "api": "newton-api_exterior.jpg"
-      },
-      "cutaway": [
-        "newton-api_cutaway_0.jpg",
-        "newton-api_cutaway_1.jpg",
-        "newton-api_cutaway_2.jpg"
-      ],
-      "floor": [
-        "newton-api_floor_0.jpg",
-        "newton-api_floor_1.jpg",
-        "newton-api_floor_2.jpg"
-      ]
-    }
+    ]
   },
   {
     "key": "sanjose",
@@ -589,10 +771,10 @@
         "available": true,
         "status": "ok",
         "data": {
-          "width": "3.2m",
-          "length": "4.1m",
-          "footprint": "13 sqm",
-          "polygonVertices": 7
+          "width": "57.7m",
+          "length": "63.6m",
+          "footprint": "3672 sqm",
+          "polygonVertices": 220
         },
         "fieldsSet": [
           "osmWidth",
@@ -669,8 +851,7 @@
           "bestImageId": "1037404647273444",
           "bestImageDate": "2023-09-24",
           "bestImageHeading": "313°",
-          "isPano": false,
-          "featuresFound": 45,
+          "featuresFound": 46,
           "hasDriveway": true,
           "hasFence": false
         },
@@ -706,61 +887,1936 @@
         "name": "SV Image Analysis",
         "available": true,
         "status": "skipped",
-        "data": {
-          "isIndoor": true
-        },
+        "data": {},
         "fieldsSet": [],
         "impactedGenFields": [],
         "error": "Indoor panorama detected"
       }
     ],
-    "property": {
-      "sqft": 2500,
-      "bedrooms": 3,
-      "bathrooms": 2,
-      "yearBuilt": 2000,
-      "propertyType": "house",
-      "stories": 3,
-      "yearUncertain": true
-    },
-    "genOptions": {
-      "style": "colonial",
-      "floors": 3,
-      "width": 10,
-      "length": 10,
-      "doorOverride": "iron",
-      "roofShape": "gambrel",
-      "roofHeightOverride": 4,
-      "features": {
-        "chimney": false,
-        "porch": true,
-        "backyard": true,
-        "driveway": true,
-        "fence": false,
-        "trees": true,
-        "garden": false,
-        "pool": false
-      }
-    },
-    "grid": {
-      "width": 46,
-      "height": 20,
-      "blocks": 7518
-    },
-    "views": {
-      "exterior": {
-        "api": "sanjose-api_exterior.jpg"
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "flat",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 15,
+          "blocks": 5426
+        },
+        "views": {
+          "exterior": "sanjose-noapi_exterior.jpg",
+          "cutaway": [
+            "sanjose-noapi_cutaway_0.jpg",
+            "sanjose-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "sanjose-noapi_floor_0.jpg",
+            "sanjose-noapi_floor_1.jpg"
+          ]
+        }
       },
-      "cutaway": [
-        "sanjose-api_cutaway_0.jpg",
-        "sanjose-api_cutaway_1.jpg",
-        "sanjose-api_cutaway_2.jpg"
-      ],
-      "floor": [
-        "sanjose-api_floor_0.jpg",
-        "sanjose-api_floor_1.jpg",
-        "sanjose-api_floor_2.jpg"
-      ]
-    }
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 1,
+          "yearUncertain": true
+        },
+        "genOptions": {
+          "style": "colonial",
+          "floors": 1,
+          "width": 45,
+          "length": 45,
+          "doorOverride": "iron",
+          "roofShape": "gable",
+          "floorPlanShape": "L",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 101,
+          "height": 15,
+          "blocks": 20670
+        },
+        "views": {
+          "exterior": "sanjose-someapis_exterior.jpg",
+          "cutaway": [
+            "sanjose-someapis_cutaway_0.jpg"
+          ],
+          "floor": [
+            "sanjose-someapis_floor_0.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 3,
+          "yearUncertain": true
+        },
+        "genOptions": {
+          "style": "colonial",
+          "floors": 3,
+          "width": 45,
+          "length": 45,
+          "doorOverride": "iron",
+          "roofShape": "gambrel",
+          "floorPlanShape": "L",
+          "roofHeightOverride": 4,
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 101,
+          "height": 20,
+          "blocks": 23208
+        },
+        "views": {
+          "exterior": "sanjose-allapis_exterior.jpg",
+          "cutaway": [
+            "sanjose-allapis_cutaway_0.jpg",
+            "sanjose-allapis_cutaway_1.jpg",
+            "sanjose-allapis_cutaway_2.jpg"
+          ],
+          "floor": [
+            "sanjose-allapis_floor_0.jpg",
+            "sanjose-allapis_floor_1.jpg",
+            "sanjose-allapis_floor_2.jpg"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "key": "walpole",
+    "address": "13 Union St, Walpole, NH 03608",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 5860,
+          "bedrooms": 5,
+          "bathrooms": 5,
+          "yearBuilt": 0,
+          "propertyType": "SINGLE_FAMILY",
+          "lat": 43.077531,
+          "lng": -72.424684,
+          "city": "WALPOLE",
+          "state": "NH"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "No building found"
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "5.6548376m",
+          "minHeight": "0m",
+          "buildingType": "building",
+          "extrude": true,
+          "distance": "3.3m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "31.2°",
+          "roofAzimuth": "201°",
+          "roofSegments": 5,
+          "roofArea": "397 sqm",
+          "footprintArea": "574 sqm",
+          "planeHeight": "137.2m",
+          "imageryQuality": "MEDIUM"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 0,
+          "bestImageDate": null,
+          "bestImageHeading": "undefined°",
+          "featuresFound": 0
+        },
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "panoId": "sdvl0U93Lx-N2pljr9NN0A",
+          "date": "2023-07",
+          "heading": "17°",
+          "panoLat": "43.07721",
+          "panoLng": "-72.42482"
+        },
+        "fieldsSet": [
+          "streetViewUrl",
+          "streetViewDate",
+          "streetViewHeading"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "Indoor panorama detected"
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "flat",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 15,
+          "blocks": 5424
+        },
+        "views": {
+          "exterior": "walpole-noapi_exterior.jpg",
+          "cutaway": [
+            "walpole-noapi_cutaway_0.jpg",
+            "walpole-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "walpole-noapi_floor_0.jpg",
+            "walpole-noapi_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 5860,
+          "bedrooms": 5,
+          "bathrooms": 5,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2,
+          "yearUncertain": true
+        },
+        "genOptions": {
+          "style": "colonial",
+          "floors": 2,
+          "width": 19,
+          "length": 14,
+          "doorOverride": "iron",
+          "roofShape": "gable",
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 55,
+          "height": 18,
+          "blocks": 8060
+        },
+        "views": {
+          "exterior": "walpole-someapis_exterior.jpg",
+          "cutaway": [
+            "walpole-someapis_cutaway_0.jpg",
+            "walpole-someapis_cutaway_1.jpg"
+          ],
+          "floor": [
+            "walpole-someapis_floor_0.jpg",
+            "walpole-someapis_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 5860,
+          "bedrooms": 5,
+          "bathrooms": 5,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2,
+          "yearUncertain": true
+        },
+        "genOptions": {
+          "style": "colonial",
+          "floors": 2,
+          "width": 19,
+          "length": 14,
+          "doorOverride": "iron",
+          "roofShape": "hip",
+          "roofHeightOverride": 12,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 55,
+          "height": 22,
+          "blocks": 7845
+        },
+        "views": {
+          "exterior": "walpole-allapis_exterior.jpg",
+          "cutaway": [
+            "walpole-allapis_cutaway_0.jpg",
+            "walpole-allapis_cutaway_1.jpg"
+          ],
+          "floor": [
+            "walpole-allapis_floor_0.jpg",
+            "walpole-allapis_floor_1.jpg"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "key": "byron",
+    "address": "2431 72nd St SW, Byron Center, MI 49315",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 3040,
+          "bedrooms": 2,
+          "bathrooms": 0,
+          "yearBuilt": 1980,
+          "propertyType": "SINGLE_FAMILY",
+          "lat": 42.834844,
+          "lng": -85.7237,
+          "city": "BYRON CENTER",
+          "state": "MI"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "width": "10.3m",
+          "length": "10.4m",
+          "footprint": "107 sqm",
+          "polygonVertices": 5
+        },
+        "fieldsSet": [
+          "osmWidth",
+          "osmLength",
+          "osmLevels",
+          "osmMaterial",
+          "osmRoofShape",
+          "osmRoofMaterial",
+          "osmRoofColour",
+          "osmBuildingColour",
+          "osmArchitecture"
+        ],
+        "impactedGenFields": [
+          "width",
+          "length",
+          "floors",
+          "wallOverride",
+          "roofShape",
+          "roofOverride",
+          "trimOverride",
+          "floorPlanShape",
+          "style"
+        ]
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "11.4m",
+          "minHeight": "0m",
+          "buildingType": "building",
+          "extrude": true,
+          "distance": "10.1m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "27.1°",
+          "roofAzimuth": "173°",
+          "roofSegments": 10,
+          "roofArea": "156 sqm",
+          "footprintArea": "170 sqm",
+          "planeHeight": "212.6m",
+          "imageryQuality": "HIGH"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 14,
+          "bestImageId": "2241308859334892",
+          "bestImageDate": "2018-07-17",
+          "bestImageHeading": "0°",
+          "featuresFound": 13,
+          "hasDriveway": true,
+          "hasFence": false
+        },
+        "fieldsSet": [
+          "mapillaryImageUrl",
+          "mapillaryHeading",
+          "mapillaryCaptureDate",
+          "mapillaryHasDriveway"
+        ],
+        "impactedGenFields": [
+          "features.driveway"
+        ]
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": false,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "flat",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 15,
+          "blocks": 5424
+        },
+        "views": {
+          "exterior": "byron-noapi_exterior.jpg",
+          "cutaway": [
+            "byron-noapi_cutaway_0.jpg",
+            "byron-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "byron-noapi_floor_0.jpg",
+            "byron-noapi_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 3040,
+          "bedrooms": 2,
+          "bathrooms": 2,
+          "yearBuilt": 1980,
+          "propertyType": "house",
+          "stories": 3,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 3,
+          "width": 10,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "flat",
+          "floorPlanShape": "L",
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 54,
+          "height": 20,
+          "blocks": 5659
+        },
+        "views": {
+          "exterior": "byron-someapis_exterior.jpg",
+          "cutaway": [
+            "byron-someapis_cutaway_0.jpg",
+            "byron-someapis_cutaway_1.jpg",
+            "byron-someapis_cutaway_2.jpg"
+          ],
+          "floor": [
+            "byron-someapis_floor_0.jpg",
+            "byron-someapis_floor_1.jpg",
+            "byron-someapis_floor_2.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 3040,
+          "bedrooms": 2,
+          "bathrooms": 2,
+          "yearBuilt": 1980,
+          "propertyType": "house",
+          "stories": 4,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 4,
+          "width": 10,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "gambrel",
+          "floorPlanShape": "L",
+          "roofHeightOverride": 8,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 54,
+          "height": 28,
+          "blocks": 5999
+        },
+        "views": {
+          "exterior": "byron-allapis_exterior.jpg",
+          "cutaway": [
+            "byron-allapis_cutaway_0.jpg",
+            "byron-allapis_cutaway_1.jpg",
+            "byron-allapis_cutaway_2.jpg",
+            "byron-allapis_cutaway_3.jpg"
+          ],
+          "floor": [
+            "byron-allapis_floor_0.jpg",
+            "byron-allapis_floor_1.jpg",
+            "byron-allapis_floor_2.jpg",
+            "byron-allapis_floor_3.jpg"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "key": "vinalhaven",
+    "address": "216 Zekes Point Rd, Vinalhaven, ME 04863",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 0,
+          "bedrooms": 0,
+          "bathrooms": 0,
+          "yearBuilt": 0,
+          "propertyType": "OTHER",
+          "lat": 44.12073,
+          "lng": -68.844411,
+          "city": "VINALHAVEN",
+          "state": "ME"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "No building found"
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "No building at coordinates"
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 0,
+          "bestImageDate": null,
+          "bestImageHeading": "undefined°",
+          "featuresFound": 0
+        },
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": false,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "flat",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 15,
+          "blocks": 5424
+        },
+        "views": {
+          "exterior": "vinalhaven-noapi_exterior.jpg",
+          "cutaway": [
+            "vinalhaven-noapi_cutaway_0.jpg",
+            "vinalhaven-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "vinalhaven-noapi_floor_0.jpg",
+            "vinalhaven-noapi_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2,
+          "yearUncertain": true
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "spruce",
+          "roofShape": "gable",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 56,
+          "height": 17,
+          "blocks": 6820
+        },
+        "views": {
+          "exterior": "vinalhaven-someapis_exterior.jpg",
+          "cutaway": [
+            "vinalhaven-someapis_cutaway_0.jpg",
+            "vinalhaven-someapis_cutaway_1.jpg"
+          ],
+          "floor": [
+            "vinalhaven-someapis_floor_0.jpg",
+            "vinalhaven-someapis_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2,
+          "yearUncertain": true
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "spruce",
+          "roofShape": "gable",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 56,
+          "height": 17,
+          "blocks": 6820
+        },
+        "views": {
+          "exterior": "vinalhaven-allapis_exterior.jpg",
+          "cutaway": [
+            "vinalhaven-allapis_cutaway_0.jpg",
+            "vinalhaven-allapis_cutaway_1.jpg"
+          ],
+          "floor": [
+            "vinalhaven-allapis_floor_0.jpg",
+            "vinalhaven-allapis_floor_1.jpg"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "key": "suttonsbay",
+    "address": "5835 S Bridget Rose Ln, Suttons Bay, MI 49682",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 0,
+          "bedrooms": 0,
+          "bathrooms": 0,
+          "yearBuilt": 0,
+          "propertyType": "SINGLE_FAMILY",
+          "lat": 44.894103,
+          "lng": -85.640611,
+          "city": "SUTTONS BAY",
+          "state": "MI"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "No building found"
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "No building at coordinates"
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "8.0°",
+          "roofAzimuth": "129°",
+          "roofSegments": 3,
+          "roofArea": "103 sqm",
+          "footprintArea": "112 sqm",
+          "planeHeight": "204.5m",
+          "imageryQuality": "MEDIUM"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 6,
+          "bestImageId": "172011975686263",
+          "bestImageDate": "2021-08-03",
+          "bestImageHeading": "213°",
+          "featuresFound": 7,
+          "hasDriveway": true,
+          "hasFence": false
+        },
+        "fieldsSet": [
+          "mapillaryImageUrl",
+          "mapillaryHeading",
+          "mapillaryCaptureDate",
+          "mapillaryHasDriveway"
+        ],
+        "impactedGenFields": [
+          "features.driveway"
+        ]
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": false,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "flat",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 15,
+          "blocks": 5424
+        },
+        "views": {
+          "exterior": "suttonsbay-noapi_exterior.jpg",
+          "cutaway": [
+            "suttonsbay-noapi_cutaway_0.jpg",
+            "suttonsbay-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "suttonsbay-noapi_floor_0.jpg",
+            "suttonsbay-noapi_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2,
+          "yearUncertain": true
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "spruce",
+          "roofShape": "gable",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 56,
+          "height": 17,
+          "blocks": 6822
+        },
+        "views": {
+          "exterior": "suttonsbay-someapis_exterior.jpg",
+          "cutaway": [
+            "suttonsbay-someapis_cutaway_0.jpg",
+            "suttonsbay-someapis_cutaway_1.jpg"
+          ],
+          "floor": [
+            "suttonsbay-someapis_floor_0.jpg",
+            "suttonsbay-someapis_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2,
+          "yearUncertain": true
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "spruce",
+          "roofShape": "hip",
+          "roofHeightOverride": 4,
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 56,
+          "height": 15,
+          "blocks": 6727
+        },
+        "views": {
+          "exterior": "suttonsbay-allapis_exterior.jpg",
+          "cutaway": [
+            "suttonsbay-allapis_cutaway_0.jpg",
+            "suttonsbay-allapis_cutaway_1.jpg"
+          ],
+          "floor": [
+            "suttonsbay-allapis_floor_0.jpg",
+            "suttonsbay-allapis_floor_1.jpg"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "key": "losangeles",
+    "address": "2607 Glendower Ave, Los Angeles, CA 90027",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 8000,
+          "bedrooms": 3,
+          "bathrooms": 3.5,
+          "yearBuilt": 1924,
+          "propertyType": "SINGLE_FAMILY",
+          "lat": 34.116167,
+          "lng": -118.292874,
+          "city": "LOS ANGELES",
+          "state": "CA"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "width": "33.1m",
+          "length": "44.6m",
+          "footprint": "1479 sqm",
+          "polygonVertices": 49
+        },
+        "fieldsSet": [
+          "osmWidth",
+          "osmLength",
+          "osmLevels",
+          "osmMaterial",
+          "osmRoofShape",
+          "osmRoofMaterial",
+          "osmRoofColour",
+          "osmBuildingColour",
+          "osmArchitecture"
+        ],
+        "impactedGenFields": [
+          "width",
+          "length",
+          "floors",
+          "wallOverride",
+          "roofShape",
+          "roofOverride",
+          "trimOverride",
+          "floorPlanShape",
+          "style"
+        ]
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "16.1m",
+          "minHeight": "0m",
+          "buildingType": "house",
+          "extrude": true,
+          "distance": "0.0m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "4.5°",
+          "roofAzimuth": "291°",
+          "roofSegments": 34,
+          "roofArea": "475 sqm",
+          "footprintArea": "804 sqm",
+          "planeHeight": "263.5m",
+          "imageryQuality": "HIGH"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 2,
+          "bestImageId": "2671235879915641",
+          "bestImageDate": "2020-05-10",
+          "bestImageHeading": "239°",
+          "featuresFound": 0
+        },
+        "fieldsSet": [
+          "mapillaryImageUrl",
+          "mapillaryHeading",
+          "mapillaryCaptureDate"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "panoId": "pRy9S1O8ERpVi25A2gbWLA",
+          "date": "2022-05",
+          "heading": "219°",
+          "panoLat": "34.11629",
+          "panoLng": "-118.29275"
+        },
+        "fieldsSet": [
+          "streetViewUrl",
+          "streetViewDate",
+          "streetViewHeading"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "wallColor": "rgb(176,165,141)",
+          "wallBlock": "light_gray_concrete",
+          "roofColor": "rgb(153,156,146)",
+          "roofBlock": "stone_brick_slab[type=bottom]",
+          "trimColor": "rgb(163,151,129)",
+          "trimBlock": "light_gray_concrete",
+          "storyCount": 3,
+          "storyConfidence": "0.43",
+          "textureClass": "brick",
+          "textureBlock": "bricks",
+          "roofPitch": "moderate",
+          "roofPitchDegrees": "15°",
+          "roofHeightOverride": 0.5,
+          "symmetryScore": "0.63",
+          "isSymmetric": true,
+          "planShape": "T",
+          "windowsPerFloor": 2,
+          "windowSpacing": 3,
+          "lawnDepth": "0%",
+          "hasDriveway": false,
+          "hasPath": true
+        },
+        "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
+          "svStoryCount",
+          "svTextureClass",
+          "svRoofPitch",
+          "svPlanShape",
+          "svWindowSpacing",
+          "svSetbackFeatures"
+        ],
+        "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
+          "floors",
+          "wallOverride",
+          "roofHeightOverride",
+          "floorPlanShape",
+          "windowSpacing",
+          "features"
+        ]
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "flat",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 15,
+          "blocks": 5426
+        },
+        "views": {
+          "exterior": "losangeles-noapi_exterior.jpg",
+          "cutaway": [
+            "losangeles-noapi_cutaway_0.jpg",
+            "losangeles-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "losangeles-noapi_floor_0.jpg",
+            "losangeles-noapi_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 8000,
+          "bedrooms": 3,
+          "bathrooms": 3.5,
+          "yearBuilt": 1924,
+          "propertyType": "house",
+          "stories": 1,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "fantasy",
+          "floors": 3,
+          "width": 33,
+          "length": 45,
+          "roofShape": "gable",
+          "floorPlanShape": "T",
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": false,
+            "driveway": false,
+            "fence": true,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 83,
+          "height": 25,
+          "blocks": 23105
+        },
+        "views": {
+          "exterior": "losangeles-someapis_exterior.jpg",
+          "cutaway": [
+            "losangeles-someapis_cutaway_0.jpg",
+            "losangeles-someapis_cutaway_1.jpg",
+            "losangeles-someapis_cutaway_2.jpg"
+          ],
+          "floor": [
+            "losangeles-someapis_floor_0.jpg",
+            "losangeles-someapis_floor_1.jpg",
+            "losangeles-someapis_floor_2.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 8000,
+          "bedrooms": 3,
+          "bathrooms": 3.5,
+          "yearBuilt": 1924,
+          "propertyType": "house",
+          "stories": 5,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "fantasy",
+          "floors": 4,
+          "width": 33,
+          "length": 45,
+          "wallOverride": "minecraft:light_gray_concrete",
+          "trimOverride": "minecraft:light_gray_concrete",
+          "roofShape": "gambrel",
+          "roofOverride": {
+            "north": "minecraft:stone_brick_stairs[facing=north]",
+            "south": "minecraft:stone_brick_stairs[facing=south]",
+            "cap": "minecraft:stone_brick_slab[type=bottom]"
+          },
+          "floorPlanShape": "T",
+          "windowSpacing": 3,
+          "roofHeightOverride": 4,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": false,
+            "driveway": false,
+            "fence": true,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 83,
+          "height": 25,
+          "blocks": 20343
+        },
+        "views": {
+          "exterior": "losangeles-allapis_exterior.jpg",
+          "cutaway": [
+            "losangeles-allapis_cutaway_0.jpg",
+            "losangeles-allapis_cutaway_1.jpg",
+            "losangeles-allapis_cutaway_2.jpg",
+            "losangeles-allapis_cutaway_3.jpg"
+          ],
+          "floor": [
+            "losangeles-allapis_floor_0.jpg",
+            "losangeles-allapis_floor_1.jpg",
+            "losangeles-allapis_floor_2.jpg",
+            "losangeles-allapis_floor_3.jpg"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "key": "seattle",
+    "address": "4810 SW Ledroit Pl, Seattle, WA 98136",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 2200,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1911,
+          "propertyType": "SINGLE_FAMILY",
+          "lat": 47.539036,
+          "lng": -122.394191,
+          "city": "SEATTLE",
+          "state": "WA"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "width": "11.8m",
+          "length": "14.9m",
+          "footprint": "176 sqm",
+          "polygonVertices": 19
+        },
+        "fieldsSet": [
+          "osmWidth",
+          "osmLength",
+          "osmLevels",
+          "osmMaterial",
+          "osmRoofShape",
+          "osmRoofMaterial",
+          "osmRoofColour",
+          "osmBuildingColour",
+          "osmArchitecture"
+        ],
+        "impactedGenFields": [
+          "width",
+          "length",
+          "floors",
+          "wallOverride",
+          "roofShape",
+          "roofOverride",
+          "trimOverride",
+          "floorPlanShape",
+          "style"
+        ]
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "6m",
+          "minHeight": "0m",
+          "buildingType": "building",
+          "extrude": true,
+          "distance": "1.3m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "63.6°",
+          "roofAzimuth": "308°",
+          "roofSegments": 13,
+          "roofArea": "265 sqm",
+          "footprintArea": "348 sqm",
+          "planeHeight": "49.9m",
+          "imageryQuality": "HIGH"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 0,
+          "bestImageDate": null,
+          "bestImageHeading": "undefined°",
+          "featuresFound": 45,
+          "hasDriveway": true,
+          "hasFence": false
+        },
+        "fieldsSet": [
+          "mapillaryHasDriveway"
+        ],
+        "impactedGenFields": [
+          "features.driveway"
+        ]
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "panoId": "AnK13ISB4om0iqfHTAyL4w",
+          "date": "2025-08",
+          "heading": "41°",
+          "panoLat": "47.53888",
+          "panoLng": "-122.39440"
+        },
+        "fieldsSet": [
+          "streetViewUrl",
+          "streetViewDate",
+          "streetViewHeading"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "wallColor": "rgb(77,86,54)",
+          "wallBlock": "gray_concrete",
+          "roofColor": "rgb(94,102,95)",
+          "roofBlock": "cobblestone_slab[type=bottom]",
+          "trimColor": "rgb(95,113,54)",
+          "trimBlock": "stripped_spruce_log",
+          "storyCount": 4,
+          "storyConfidence": "0.20",
+          "textureClass": "stone",
+          "textureBlock": "stone_bricks",
+          "roofPitch": "moderate",
+          "roofPitchDegrees": "30°",
+          "roofHeightOverride": 0.5,
+          "symmetryScore": "0.84",
+          "isSymmetric": true,
+          "planShape": "rectangle",
+          "windowsPerFloor": 6,
+          "windowSpacing": 2,
+          "lawnDepth": "3%",
+          "hasDriveway": false,
+          "hasPath": true
+        },
+        "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
+          "svStoryCount",
+          "svTextureClass",
+          "svRoofPitch",
+          "svPlanShape",
+          "svWindowSpacing",
+          "svSetbackFeatures"
+        ],
+        "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
+          "floors",
+          "wallOverride",
+          "roofHeightOverride",
+          "floorPlanShape",
+          "windowSpacing",
+          "features"
+        ]
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "doorOverride": "iron",
+          "roofShape": "flat",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 15,
+          "blocks": 5424
+        },
+        "views": {
+          "exterior": "seattle-noapi_exterior.jpg",
+          "cutaway": [
+            "seattle-noapi_cutaway_0.jpg",
+            "seattle-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "seattle-noapi_floor_0.jpg",
+            "seattle-noapi_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 2200,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1911,
+          "propertyType": "house",
+          "stories": 1,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 1,
+          "width": 12,
+          "length": 15,
+          "doorOverride": "spruce",
+          "roofShape": "gable",
+          "floorPlanShape": "L",
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 56,
+          "height": 15,
+          "blocks": 6539
+        },
+        "views": {
+          "exterior": "seattle-someapis_exterior.jpg",
+          "cutaway": [
+            "seattle-someapis_cutaway_0.jpg"
+          ],
+          "floor": [
+            "seattle-someapis_floor_0.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 2200,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1911,
+          "propertyType": "house",
+          "stories": 2,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 2,
+          "width": 12,
+          "length": 15,
+          "wallOverride": "minecraft:gray_concrete",
+          "trimOverride": "minecraft:stripped_spruce_log",
+          "doorOverride": "spruce",
+          "roofShape": "gambrel",
+          "roofOverride": {
+            "north": "minecraft:cobblestone_stairs[facing=north]",
+            "south": "minecraft:cobblestone_stairs[facing=south]",
+            "cap": "minecraft:cobblestone_slab[type=bottom]"
+          },
+          "floorPlanShape": "L",
+          "windowSpacing": 2,
+          "roofHeightOverride": 14,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 56,
+          "height": 21,
+          "blocks": 6846
+        },
+        "views": {
+          "exterior": "seattle-allapis_exterior.jpg",
+          "cutaway": [
+            "seattle-allapis_cutaway_0.jpg",
+            "seattle-allapis_cutaway_1.jpg"
+          ],
+          "floor": [
+            "seattle-allapis_floor_0.jpg",
+            "seattle-allapis_floor_1.jpg"
+          ]
+        }
+      }
+    ]
   }
 ]

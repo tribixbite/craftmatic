@@ -24,21 +24,9 @@ interface ApiRecord {
   impactedGenFields: string[];
 }
 
-interface ComparisonResult {
-  key: string;
-  address: string;
-  apis: ApiRecord[];
-  property: Record<string, unknown>;
-  genOptions: Record<string, unknown>;
-  grid: { width: number; height: number; depth: number; blocks: number };
-  views: {
-    exterior: { api: string };
-    cutaway: string[];
-    floor: string[];
-  };
-}
+// ComparisonJsonEntry is used for all JSON data storage (see below)
 
-// ─── Hardcoded location data (7 addresses × 3 tiers) ───────────────────────
+// ─── Location data — loaded dynamically from comparison-data.json ───────────
 
 interface TierData {
   style: string;
@@ -68,250 +56,105 @@ interface LocationEntry {
   views: LocationViews;
 }
 
-const LOCATIONS: Record<string, LocationEntry> = {
-  sf: {
-    label: 'San Francisco',
-    address: '2340 Francisco St, San Francisco, CA 94123',
-    noapi: {
-      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
-      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
-      sources: 'none', notes: 'Generic L-shape compound',
-    },
-    someapis: {
-      style: 'desert', floors: 4, grid: '56\u00d725\u00d734', blocks: '9,901',
-      sqft: '13,905', beds: 12, baths: 12, year: 1929,
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'Multi-family detected, flat roof, OSM 8\u00d717 footprint',
-    },
-    allapis: {
-      style: 'desert', floors: 4, grid: '56\u00d725\u00d734', blocks: '9,901',
-      sqft: '13,905', beds: 12, baths: 12, year: 1929,
-      sources: '+ Mapbox (13.0m) + StreetView',
-      notes: 'Mapbox confirms 4f (13m/3.5=3.7), OSM levels take priority',
-    },
-    views: {
-      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'sf-someapis_exterior.jpg', allapis: 'sf-allapis_exterior.jpg' },
-      cutaway: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_cutaway_${i}.jpg`),
-        someapis: [0, 1, 2, 3].map(i => `sf-someapis_cutaway_${i}.jpg`),
-        allapis: [0, 1, 2, 3].map(i => `sf-allapis_cutaway_${i}.jpg`),
-      },
-      floor: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_floor_${i}.jpg`),
-        someapis: [0, 1, 2, 3].map(i => `sf-someapis_floor_${i}.jpg`),
-        allapis: [0, 1, 2, 3].map(i => `sf-allapis_floor_${i}.jpg`),
-      },
-    },
-  },
-  newton: {
-    label: 'Newton',
-    address: '240 Highland St, Newton, MA 02465',
-    noapi: {
-      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
-      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
-      sources: 'none', notes: 'Generic L-shape compound',
-    },
-    someapis: {
-      style: 'fantasy', floors: 3, grid: '69\u00d725\u00d738', blocks: '14,313',
-      sqft: '9,094', beds: 9, baths: 5, year: '? (uncertain)',
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'Victorian proxy: fantasy 3f + turret + bay window, OSM 17\u00d721',
-    },
-    allapis: {
-      style: 'fantasy', floors: 3, grid: '69\u00d725\u00d738', blocks: '14,313',
-      sqft: '9,094', beds: 9, baths: 5, year: '? (uncertain)',
-      sources: '+ Mapbox (7.5m) + StreetView',
-      notes: 'OSM levels (3) overrides Mapbox height (7.5m\u21922f)',
-    },
-    views: {
-      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'newton-someapis_exterior.jpg', allapis: 'newton-allapis_exterior.jpg' },
-      cutaway: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_cutaway_${i}.jpg`),
-        someapis: [0, 1, 2].map(i => `newton-someapis_cutaway_${i}.jpg`),
-        allapis: [0, 1, 2].map(i => `newton-allapis_cutaway_${i}.jpg`),
-      },
-      floor: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_floor_${i}.jpg`),
-        someapis: [0, 1, 2].map(i => `newton-someapis_floor_${i}.jpg`),
-        allapis: [0, 1, 2].map(i => `newton-allapis_floor_${i}.jpg`),
-      },
-    },
-  },
-  sanjose: {
-    label: 'Winchester',
-    address: '525 S Winchester Blvd, San Jose, CA 95128',
-    noapi: {
-      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
-      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
-      sources: 'none', notes: 'Generic L-shape compound',
-    },
-    someapis: {
-      style: 'fantasy', floors: 5, grid: '135\u00d735\u00d777', blocks: '77,895',
-      sqft: '24,000', beds: 3, baths: 2, year: 1901,
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'Winchester Mystery House \u2014 OSM 53\u00d760',
-    },
-    allapis: {
-      style: 'fantasy', floors: 5, grid: '135\u00d735\u00d777', blocks: '79,442',
-      sqft: '24,000', beds: 3, baths: 2, year: 1901,
-      sources: '+ Mapbox (27.9m) + StreetView',
-      notes: 'Mapbox 27.9m (8f) capped at 5f by OSM levels',
-    },
-    views: {
-      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'sanjose-someapis_exterior.jpg', allapis: 'sanjose-allapis_exterior.jpg' },
-      cutaway: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_cutaway_${i}.jpg`),
-        someapis: [0, 1, 2, 3, 4].map(i => `sanjose-someapis_cutaway_${i}.jpg`),
-        allapis: [0, 1, 2, 3, 4].map(i => `sanjose-allapis_cutaway_${i}.jpg`),
-      },
-      floor: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_floor_${i}.jpg`),
-        someapis: [0, 1, 2, 3, 4].map(i => `sanjose-someapis_floor_${i}.jpg`),
-        allapis: [0, 1, 2, 3, 4].map(i => `sanjose-allapis_floor_${i}.jpg`),
-      },
-    },
-  },
-  walpole: {
-    label: 'Walpole',
-    address: '13 Union St, Walpole, NH 03608',
-    noapi: {
-      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
-      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
-      sources: 'none', notes: 'Generic L-shape compound',
-    },
-    someapis: {
-      style: 'colonial', floors: 3, grid: '51\u00d723\u00d730', blocks: '8,739',
-      sqft: '5,860', beds: 5, baths: 5, year: '? (uncertain)',
-      sources: 'Parcl + OSM',
-      notes: 'Colonial 3f (NE Federal fallback), white quartz + brick',
-    },
-    allapis: {
-      style: 'colonial', floors: 2, grid: '55\u00d718\u00d731', blocks: '8,042',
-      sqft: '5,860', beds: 5, baths: 5, year: '? (uncertain)',
-      sources: '+ Mapbox (8.5m) + StreetView',
-      notes: 'Mapbox 8.5m \u2192 2f (was 3f from heuristic) \u2014 more accurate for Federal',
-    },
-    views: {
-      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'walpole-someapis_exterior.jpg', allapis: 'walpole-allapis_exterior.jpg' },
-      cutaway: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_cutaway_${i}.jpg`),
-        someapis: [0, 1, 2].map(i => `walpole-someapis_cutaway_${i}.jpg`),
-        allapis: [0, 1].map(i => `walpole-allapis_cutaway_${i}.jpg`),
-      },
-      floor: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_floor_${i}.jpg`),
-        someapis: [0, 1, 2].map(i => `walpole-someapis_floor_${i}.jpg`),
-        allapis: [0, 1].map(i => `walpole-allapis_floor_${i}.jpg`),
-      },
-    },
-  },
-  byron: {
-    label: 'Byron Center',
-    address: '2431 72nd St SW, Byron Center, MI 49315',
-    noapi: {
-      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
-      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
-      sources: 'none', notes: 'Generic L-shape compound',
-    },
-    someapis: {
-      style: 'modern', floors: 2, grid: '66\u00d715\u00d738', blocks: '7,807',
-      sqft: '3,040', beds: 2, baths: 2, year: 1980,
-      sources: 'Parcl + OSM + Mapillary',
-      notes: 'Modern 2f \u2014 OSM 14\u00d716, flat roof + cantilever',
-    },
-    allapis: {
-      style: 'modern', floors: 2, grid: '66\u00d715\u00d738', blocks: '7,807',
-      sqft: '3,040', beds: 2, baths: 2, year: 1980,
-      sources: '+ StreetView (2025-05)',
-      notes: 'OSM levels present, no additional Mapbox height data',
-    },
-    views: {
-      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'byron-someapis_exterior.jpg', allapis: 'byron-allapis_exterior.jpg' },
-      cutaway: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_cutaway_${i}.jpg`),
-        someapis: [0, 1].map(i => `byron-someapis_cutaway_${i}.jpg`),
-        allapis: [0, 1].map(i => `byron-allapis_cutaway_${i}.jpg`),
-      },
-      floor: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_floor_${i}.jpg`),
-        someapis: [0, 1].map(i => `byron-someapis_floor_${i}.jpg`),
-        allapis: [0, 1].map(i => `byron-allapis_floor_${i}.jpg`),
-      },
-    },
-  },
-  vinalhaven: {
-    label: 'Vinalhaven',
-    address: '216 Zekes Point Rd, Vinalhaven, ME 04863',
-    noapi: {
-      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
-      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
-      sources: 'none', notes: 'Generic L-shape compound',
-    },
-    someapis: {
-      style: 'rustic', floors: 2, grid: '55\u00d717\u00d730', blocks: '6,673',
-      sqft: '2,000', beds: 3, baths: 2, year: '? (uncertain)',
-      sources: 'Parcl',
-      notes: 'Rustic 2f (island ME fallback), spruce + cobble',
-    },
-    allapis: {
-      style: 'rustic', floors: 2, grid: '55\u00d717\u00d730', blocks: '6,673',
-      sqft: '2,000', beds: 3, baths: 2, year: '? (uncertain)',
-      sources: 'Parcl only',
-      notes: 'No Mapbox/StreetView coverage (remote island)',
-    },
-    views: {
-      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'vinalhaven-someapis_exterior.jpg', allapis: 'vinalhaven-allapis_exterior.jpg' },
-      cutaway: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_cutaway_${i}.jpg`),
-        someapis: [0, 1].map(i => `vinalhaven-someapis_cutaway_${i}.jpg`),
-        allapis: [0, 1].map(i => `vinalhaven-allapis_cutaway_${i}.jpg`),
-      },
-      floor: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_floor_${i}.jpg`),
-        someapis: [0, 1].map(i => `vinalhaven-someapis_floor_${i}.jpg`),
-        allapis: [0, 1].map(i => `vinalhaven-allapis_floor_${i}.jpg`),
-      },
-    },
-  },
-  suttonsbay: {
-    label: 'Suttons Bay',
-    address: '5835 S Bridget Rose Ln, Suttons Bay, MI 49682',
-    noapi: {
-      style: 'fantasy', floors: 2, grid: '78\u00d720\u00d740', blocks: '15,190',
-      sqft: '\u2014', beds: '\u2014', baths: '\u2014', year: '\u2014',
-      sources: 'none', notes: 'Generic L-shape compound',
-    },
-    someapis: {
-      style: 'rustic', floors: 2, grid: '55\u00d717\u00d730', blocks: '6,669',
-      sqft: '2,000', beds: 3, baths: 2, year: '? (uncertain)',
-      sources: 'Parcl + Mapillary',
-      notes: 'Rustic 2f (rural MI fallback), spruce + cobble',
-    },
-    allapis: {
-      style: 'rustic', floors: 2, grid: '55\u00d717\u00d730', blocks: '6,669',
-      sqft: '2,000', beds: 3, baths: 2, year: '? (uncertain)',
-      sources: '+ Mapillary',
-      notes: 'No Mapbox/StreetView coverage (rural MI)',
-    },
-    views: {
-      exterior: { noapi: 'sf-noapi_exterior.jpg', someapis: 'suttonsbay-someapis_exterior.jpg', allapis: 'suttonsbay-allapis_exterior.jpg' },
-      cutaway: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_cutaway_${i}.jpg`),
-        someapis: [0, 1].map(i => `suttonsbay-someapis_cutaway_${i}.jpg`),
-        allapis: [0, 1].map(i => `suttonsbay-allapis_cutaway_${i}.jpg`),
-      },
-      floor: {
-        noapi: [0, 1, 2, 3].map(i => `sf-noapi_floor_${i}.jpg`),
-        someapis: [0, 1].map(i => `suttonsbay-someapis_floor_${i}.jpg`),
-        allapis: [0, 1].map(i => `suttonsbay-allapis_floor_${i}.jpg`),
-      },
-    },
-  },
+/** JSON schema from gen-comparison.ts */
+interface TierJsonEntry {
+  tier: string;
+  property: Record<string, unknown>;
+  genOptions: Record<string, unknown>;
+  grid: { width: number; height: number; depth: number; blocks: number };
+  views: { exterior: string; cutaway: string[]; floor: string[] };
+}
+
+interface ComparisonJsonEntry {
+  key: string;
+  address: string;
+  apis: ApiRecord[];
+  tiers: TierJsonEntry[];
+}
+
+/** Derive a short label from address key */
+const KEY_LABELS: Record<string, string> = {
+  sf: 'San Francisco', newton: 'Newton', sanjose: 'Winchester',
+  walpole: 'Walpole', byron: 'Byron Center', vinalhaven: 'Vinalhaven',
+  suttonsbay: 'Suttons Bay', losangeles: 'Los Angeles', seattle: 'Seattle',
 };
+
+/** Build a LocationEntry from a JSON comparison entry */
+function jsonToLocation(entry: ComparisonJsonEntry): LocationEntry {
+  const findTier = (name: string): TierJsonEntry =>
+    entry.tiers.find(t => t.tier === name) ?? entry.tiers[0];
+
+  const tierToData = (t: TierJsonEntry, tier: string): TierData => {
+    const g = t.genOptions;
+    const p = t.property;
+    // Derive sources from which APIs returned 'ok'
+    let sources = 'none';
+    if (tier === 'someapis') {
+      const okApis = entry.apis.filter(a =>
+        ['Parcl Labs', 'OpenStreetMap', 'Mapillary'].includes(a.name) && a.status === 'ok'
+      ).map(a => a.name === 'Parcl Labs' ? 'Parcl' : a.name === 'OpenStreetMap' ? 'OSM' : 'Mapillary');
+      sources = okApis.length > 0 ? okApis.join(' + ') : 'none';
+    } else if (tier === 'allapis') {
+      const extraApis = entry.apis.filter(a =>
+        ['Mapbox', 'Google Solar', 'Google Street View', 'SV Image Analysis'].includes(a.name) && a.status === 'ok'
+      ).map(a => a.name.replace('Google ', ''));
+      sources = extraApis.length > 0 ? '+ ' + extraApis.join(' + ') : 'same as basic';
+    }
+    // Build notes from key gen options
+    const shape = g.floorPlanShape ? `, ${g.floorPlanShape}-shape` : '';
+    const wall = g.wallOverride ? `, wall=${String(g.wallOverride).replace('minecraft:', '')}` : '';
+    const roof = g.roofShape ? `, roof=${g.roofShape}` : '';
+    const notes = `${g.style} ${g.floors}f ${g.width ?? '?'}x${g.length ?? '?'}${shape}${wall}${roof}`;
+    return {
+      style: String(g.style ?? 'fantasy'),
+      floors: Number(g.floors ?? 2),
+      grid: `${t.grid.width}\u00d7${t.grid.height}\u00d7${t.grid.depth}`,
+      blocks: t.grid.blocks.toLocaleString(),
+      sqft: p.sqft ? Number(p.sqft).toLocaleString() : '\u2014',
+      beds: p.bedrooms ?? '\u2014',
+      baths: p.bathrooms ?? '\u2014',
+      year: p.yearUncertain ? '? (uncertain)' : (p.yearBuilt ?? '\u2014'),
+      sources,
+      notes,
+    };
+  };
+
+  const noapi = findTier('noapi');
+  const someapis = findTier('someapis');
+  const allapis = findTier('allapis');
+
+  return {
+    label: KEY_LABELS[entry.key] ?? entry.key,
+    address: entry.address,
+    noapi: tierToData(noapi, 'noapi'),
+    someapis: tierToData(someapis, 'someapis'),
+    allapis: tierToData(allapis, 'allapis'),
+    views: {
+      exterior: {
+        noapi: noapi.views.exterior,
+        someapis: someapis.views.exterior,
+        allapis: allapis.views.exterior,
+      },
+      cutaway: {
+        noapi: noapi.views.cutaway,
+        someapis: someapis.views.cutaway,
+        allapis: allapis.views.cutaway,
+      },
+      floor: {
+        noapi: noapi.views.floor,
+        someapis: someapis.views.floor,
+        allapis: allapis.views.floor,
+      },
+    },
+  };
+}
+
+/** Mutable locations — populated from JSON on load */
+let LOCATIONS: Record<string, LocationEntry> = {};
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const LOC_KEYS = Object.keys(LOCATIONS);
+let LOC_KEYS: string[] = [];
 const TIERS = ['noapi', 'someapis', 'allapis'] as const;
 const TIER_LABELS: Record<string, string> = { noapi: 'No API Data', someapis: 'Basic APIs', allapis: 'All APIs' };
 const VIEW_TYPES = ['exterior', 'cutaway', 'floor'] as const;
@@ -348,7 +191,7 @@ let pos2 = 0.66;
 let activeDivider = 0;
 
 /** Per-API data from comparison-data.json (only for locations that have it) */
-let apiData: Map<string, ComparisonResult> = new Map();
+let apiData: Map<string, ComparisonJsonEntry> = new Map();
 
 // DOM element references (set during init)
 let rootEl: HTMLElement;
@@ -359,6 +202,7 @@ let onOpenViewer: ((grid: BlockGrid, label: string) => void) | null = null;
 
 /**
  * Initialize the 3-tier comparison viewer inside the given container.
+ * Loads comparison-data.json to populate all locations and API details.
  * @param openViewer Optional callback to open the full 3D viewer overlay
  */
 export function initComparison(
@@ -368,17 +212,28 @@ export function initComparison(
   rootEl = container;
   if (openViewer) onOpenViewer = openViewer;
   buildShell();
-  render();
 
-  // Try to load detailed per-API data (non-blocking — viewer works without it)
+  // Show loading state
+  rootEl.querySelector('.cmp-nav')!.innerHTML = '<p style="color:var(--text-muted);padding:1rem">Loading comparison data...</p>';
+
+  // Load comparison data — populates locations + API details
   fetch('comparison/comparison-data.json')
     .then(r => r.json())
-    .then((data: ComparisonResult[]) => {
-      for (const d of data) apiData.set(d.key, d);
-      // Re-render to show API cards if currently visible
-      buildApiTables();
+    .then((data: ComparisonJsonEntry[]) => {
+      // Build locations dynamically from JSON
+      LOCATIONS = {};
+      for (const entry of data) {
+        LOCATIONS[entry.key] = jsonToLocation(entry);
+        apiData.set(entry.key, entry);
+      }
+      LOC_KEYS = Object.keys(LOCATIONS);
+      currentLoc = LOC_KEYS[0] || '';
+      render();
     })
-    .catch(() => { /* comparison-data.json not available — that's fine */ });
+    .catch((err) => {
+      console.error('Failed to load comparison-data.json:', err);
+      rootEl.querySelector('.cmp-nav')!.innerHTML = '<p style="color:#f88;padding:1rem">Failed to load comparison data</p>';
+    });
 }
 
 // ─── Shell (static DOM skeleton) ────────────────────────────────────────────
@@ -649,9 +504,36 @@ function hashCode(s: string): number {
   return Math.abs(h);
 }
 
-/** Generate a BlockGrid for the given tier using LOCATIONS tier data.
- *  Always uses tier stats (style, floors, grid) to match the displayed images/cards. */
+/** Generate a BlockGrid for the given tier.
+ *  Uses stored genOptions from JSON when available for accuracy,
+ *  falls back to reconstructing from tier stats. */
 function generateForTier(tier: typeof TIERS[number]): BlockGrid {
+  // Try to use full genOptions from JSON data (most accurate)
+  const jsonEntry = apiData.get(currentLoc);
+  if (jsonEntry?.tiers) {
+    const tierJson = jsonEntry.tiers.find(t => t.tier === tier);
+    if (tierJson?.genOptions) {
+      const g = tierJson.genOptions;
+      return generateStructure({
+        type: 'house',
+        style: g.style as StyleName,
+        floors: g.floors as number,
+        width: g.width as number | undefined,
+        length: g.length as number | undefined,
+        seed: hashCode(currentLoc + '-' + tier + String(g.style) + String(g.floors)),
+        wallOverride: g.wallOverride as string | undefined,
+        trimOverride: g.trimOverride as string | undefined,
+        doorOverride: g.doorOverride as string | undefined,
+        roofShape: g.roofShape as GenerationOptions['roofShape'],
+        roofOverride: g.roofOverride as GenerationOptions['roofOverride'],
+        floorPlanShape: g.floorPlanShape as GenerationOptions['floorPlanShape'],
+        windowSpacing: g.windowSpacing as number | undefined,
+        roofHeightOverride: g.roofHeightOverride as number | undefined,
+        features: g.features as GenerationOptions['features'],
+      });
+    }
+  }
+  // Fallback: reconstruct from tier display data
   const loc = LOCATIONS[currentLoc];
   const tierData = loc[tier];
   return generateStructure(tierToGenOptions(tierData, currentLoc + '-' + tier));
