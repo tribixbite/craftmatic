@@ -385,44 +385,48 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
   } = options;
 
   const rng = createRng(seed);
-  const style = { ...getStyle(styleName) };
 
-  // Apply color overrides from options
-  if (options.wallOverride) {
-    style.wall = options.wallOverride;
-    style.interiorWall = options.wallOverride;
-  }
-  if (options.trimOverride) {
-    style.wallAccent = options.trimOverride;
-    style.pillar = options.trimOverride;
-    style.timber = options.trimOverride;
-    // Derive axis-specific timber variants with axis property
-    const base = options.trimOverride.replace(/\[.*\]$/, '');
-    style.timberX = base.includes('log') ? `${base}[axis=x]` : options.trimOverride;
-    style.timberZ = base.includes('log') ? `${base}[axis=z]` : options.trimOverride;
-  }
-  if (options.doorOverride) {
-    const wood = options.doorOverride;
-    const prefix = wood === 'iron' ? 'minecraft:iron_door' : `minecraft:${wood}_door`;
-    style.doorLowerN = `${prefix}[facing=north,half=lower,hinge=left,open=false]`;
-    style.doorUpperN = `${prefix}[facing=north,half=upper,hinge=left,open=false]`;
-    style.doorLowerS = `${prefix}[facing=south,half=lower,hinge=left,open=false]`;
-    style.doorUpperS = `${prefix}[facing=south,half=upper,hinge=left,open=false]`;
-  }
-  if (options.roofOverride) {
-    style.roofN = options.roofOverride.north;
-    style.roofS = options.roofOverride.south;
-    style.roofCap = options.roofOverride.cap;
-    // Derive east/west stair facings from the stair base block
-    // Extract base stair ID from "minecraft:xxx_stairs[facing=north]" → "minecraft:xxx_stairs"
-    const baseStair = options.roofOverride.north.replace(/\[.*\]/, '');
-    style.roofE = `${baseStair}[facing=east]`;
-    style.roofW = `${baseStair}[facing=west]`;
-  }
+  // When a pre-resolved palette is available (data-driven pipeline for real addresses),
+  // use it directly instead of getStyle() + override chain.
+  // The resolvedPalette already incorporates all observed colors, OSM tags, and assessor data.
+  const style: import('./styles.js').StylePalette = options.resolvedPalette
+    ? { ...options.resolvedPalette }
+    : (() => {
+      const base = { ...getStyle(styleName) };
+      // Apply color overrides from options (legacy preset-based path)
+      if (options.wallOverride) {
+        base.wall = options.wallOverride;
+        base.interiorWall = options.wallOverride;
+      }
+      if (options.trimOverride) {
+        base.wallAccent = options.trimOverride;
+        base.pillar = options.trimOverride;
+        base.timber = options.trimOverride;
+        const trimBase = options.trimOverride.replace(/\[.*\]$/, '');
+        base.timberX = trimBase.includes('log') ? `${trimBase}[axis=x]` : options.trimOverride;
+        base.timberZ = trimBase.includes('log') ? `${trimBase}[axis=z]` : options.trimOverride;
+      }
+      if (options.doorOverride) {
+        const wood = options.doorOverride;
+        const prefix = wood === 'iron' ? 'minecraft:iron_door' : `minecraft:${wood}_door`;
+        base.doorLowerN = `${prefix}[facing=north,half=lower,hinge=left,open=false]`;
+        base.doorUpperN = `${prefix}[facing=north,half=upper,hinge=left,open=false]`;
+        base.doorLowerS = `${prefix}[facing=south,half=lower,hinge=left,open=false]`;
+        base.doorUpperS = `${prefix}[facing=south,half=upper,hinge=left,open=false]`;
+      }
+      if (options.roofOverride) {
+        base.roofN = options.roofOverride.north;
+        base.roofS = options.roofOverride.south;
+        base.roofCap = options.roofOverride.cap;
+        const baseStair = options.roofOverride.north.replace(/\[.*\]/, '');
+        base.roofE = `${baseStair}[facing=east]`;
+        base.roofW = `${baseStair}[facing=west]`;
+      }
+      return base;
+    })();
 
   // Season-aware material overrides — applied after all other overrides
   if (options.season === 'snow') {
-    // Winter: snow layer on roof cap, powder snow on flat areas
     style.roofCap = 'minecraft:snow_block';
   }
 

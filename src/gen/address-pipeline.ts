@@ -15,6 +15,7 @@ import type {
 
 import { ROOF_PALETTE, rgbToTrimBlock as rgbToTrimBlockShared } from './color-blocks.js';
 import { polygonToBitmap, classifyBitmapShape, subtractInnerRings } from './coordinate-bitmap.js';
+import { inferCategory, resolvePalette } from './material-resolver.js';
 
 // ─── Inline type fragments (avoid cross-boundary web imports) ───────────────
 
@@ -1116,6 +1117,26 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // faces. The ridge runs perpendicular to this. E.g., azimuth 180° (south-facing slope)
   // → ridge runs east-west. Requires generator rotation support to implement.
 
+  // ── Data-driven palette resolution ──────────────────────────────
+  // When style is 'auto' (real address), use the material resolver to produce
+  // a full palette from observed data (SV colors, OSM tags, assessor records).
+  // This bypasses the fantasy preset system — materials come from reality.
+  const addressSeed = fnv1aHash(prop.address + (prop.parclPropertyId ? `#${prop.parclPropertyId}` : ''));
+  let resolvedPalette: import('./styles.js').StylePalette | undefined;
+
+  if (prop.style === 'auto') {
+    const category = inferCategory(prop.propertyType);
+    resolvedPalette = resolvePalette(prop, category, addressSeed);
+
+    // Apply roof shape to palette structural profile
+    if (roofShape) resolvedPalette.defaultRoofShape = roofShape;
+    if (roofHeightOverride) resolvedPalette.roofHeight = roofHeightOverride;
+    if (floorPlanShape) resolvedPalette.defaultPlanShape = floorPlanShape;
+
+    // Season-aware overrides
+    if (prop.season === 'snow') resolvedPalette.roofCap = 'minecraft:snow_block';
+  }
+
   return {
     type,
     floors,
@@ -1123,18 +1144,20 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     rooms,
     width,
     length,
-    // Include parclPropertyId in seed for better per-property reproducibility
-    seed: fnv1aHash(prop.address + (prop.parclPropertyId ? `#${prop.parclPropertyId}` : '')),
-    wallOverride,
-    trimOverride,
-    doorOverride,
+    seed: addressSeed,
+    // When resolvedPalette is set, these overrides are redundant (already baked in)
+    // but we keep them for the legacy path (user-selected fantasy preset)
+    wallOverride: resolvedPalette ? undefined : wallOverride,
+    trimOverride: resolvedPalette ? undefined : trimOverride,
+    doorOverride: resolvedPalette ? undefined : doorOverride,
     roofShape,
-    roofOverride,
+    roofOverride: resolvedPalette ? undefined : roofOverride,
     features,
     floorPlanShape,
     roofHeightOverride,
     windowSpacing,
     season: prop.season,
     footprintBitmap,
+    resolvedPalette,
   };
 }
