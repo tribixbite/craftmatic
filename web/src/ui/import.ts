@@ -49,6 +49,8 @@ import {
   pickBestImage, analyzeFeatures, MAPILLARY_SIGNUP_URL,
   type MapillaryImageData, type MapillaryFeatureData,
 } from '@ui/import-mapillary.js';
+import { analyzeStreetViewBrowser, type BrowserSvColorResult } from '@ui/import-sv-analysis.js';
+import { queryMapboxBuildingHeight, type MapboxBuildingResult } from '@ui/import-mapbox-building.js';
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
 
@@ -127,6 +129,10 @@ export function initImport(
   let currentMapillaryFeatures: MapillaryFeatureData[] = [];
   /** Satellite footprint extraction result */
   let currentSatFootprint: FootprintResult | null = null;
+  /** Street View color analysis (browser-side) */
+  let currentSvColors: BrowserSvColorResult | null = null;
+  /** Mapbox building height data */
+  let currentMapboxBuilding: MapboxBuildingResult | null = null;
 
   // Restore API key display state
   const savedParclKey = getParclApiKey();
@@ -332,6 +338,10 @@ export function initImport(
         </svg>
         Import &amp; Generate
       </button>
+      <button id="import-json-btn" class="btn btn-secondary btn-full btn-sm">
+        Import from JSON
+      </button>
+      <input type="file" id="import-json-file" accept=".json,application/json" hidden>
       <div id="import-info" class="info-panel" hidden></div>
     </div>
   `;
@@ -341,6 +351,8 @@ export function initImport(
   const lookupBtn = controls.querySelector('#import-lookup') as HTMLButtonElement;
   const statusEl = controls.querySelector('#import-status') as HTMLElement;
   const generateBtn = controls.querySelector('#import-generate') as HTMLButtonElement;
+  const jsonImportBtn = controls.querySelector('#import-json-btn') as HTMLButtonElement;
+  const jsonFileInput = controls.querySelector('#import-json-file') as HTMLInputElement;
   const infoPanel = controls.querySelector('#import-info') as HTMLElement;
   const floorPlanDrop = controls.querySelector('#import-floorplan-drop') as HTMLElement;
   const floorPlanInput = controls.querySelector('#import-floorplan-input') as HTMLInputElement;
@@ -455,6 +467,8 @@ export function initImport(
     currentMapillaryImage = null;
     currentMapillaryFeatures = [];
     currentSatFootprint = null;
+    currentSvColors = null;
+    currentMapboxBuilding = null;
 
     const [geoResult, parclResult, smartyResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -483,15 +497,16 @@ export function initImport(
     if (currentGeocoding) {
       const geo = currentGeocoding;
 
-      // Fire OSM + Street View + Mapillary checks in parallel (don't block satellite)
+      // Fire OSM + Street View + Mapillary + Mapbox building in parallel
       const mlyToken = getMapillaryMlyToken();
-      const [osmResult, svResult, mlyImgResult, mlyFeatResult] = await Promise.allSettled([
+      const [osmResult, svResult, mlyImgResult, mlyFeatResult, mbBuildingResult] = await Promise.allSettled([
         searchOSMBuilding(geo.lat, geo.lng),
         hasStreetViewApiKey()
           ? checkStreetViewAvailability(geo.lat, geo.lng, getStreetViewApiKey())
           : Promise.resolve(false),
         mlyToken ? searchMapillaryImages(geo.lat, geo.lng, mlyToken) : Promise.resolve(null),
         mlyToken ? searchMapillaryFeatures(geo.lat, geo.lng, mlyToken) : Promise.resolve(null),
+        hasMapboxToken() ? queryMapboxBuildingHeight(geo.lat, geo.lng) : Promise.resolve(null),
       ]);
 
       // Process OSM result
@@ -502,6 +517,15 @@ export function initImport(
       // Process Street View result
       if (svResult.status === 'fulfilled' && svResult.value === true) {
         currentStreetViewUrl = getStreetViewUrl(geo.lat, geo.lng, getStreetViewApiKey());
+        // Analyze SV image for wall/roof/trim colors (async, runs in background)
+        analyzeStreetViewBrowser(currentStreetViewUrl).then(result => {
+          if (result) currentSvColors = result;
+        }).catch(() => { /* non-fatal */ });
+      }
+
+      // Process Mapbox building height result
+      if (mbBuildingResult.status === 'fulfilled' && mbBuildingResult.value) {
+        currentMapboxBuilding = mbBuildingResult.value;
       }
 
       // Process Mapillary results
@@ -903,6 +927,219 @@ export function initImport(
     reader.readAsDataURL(file);
   }
 
+  // ── JSON Import ──────────────────────────────────────────────────────
+  jsonImportBtn.addEventListener('click', () => {
+    // Show a dialog: paste JSON or pick file
+    const text = prompt('Paste JSON here, or cancel and use the file picker:');
+    if (text && text.trim()) {
+      try {
+        const json = JSON.parse(text);
+        populateFromJSON(json);
+      } catch {
+        showStatus('Invalid JSON', 'error');
+      }
+    } else if (text === null) {
+      // User cancelled prompt — offer file picker
+      jsonFileInput.click();
+    }
+  });
+  jsonFileInput.addEventListener('change', () => {
+    const file = jsonFileInput.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const json = JSON.parse(reader.result as string);
+        populateFromJSON(json);
+      } catch {
+        showStatus('Invalid JSON file', 'error');
+      }
+    };
+    reader.readAsText(file);
+    jsonFileInput.value = '';
+  });
+
+  /** Populate form fields and enrichment state from imported JSON.
+   *  Accepts either { property, genOptions } or a raw PropertyData object. */
+  function populateFromJSON(json: Record<string, unknown>): void {
+    // Unwrap { property: {...}, genOptions: {...} } or use raw
+    const prop = (json.property ?? json) as Record<string, unknown>;
+
+    // Fill address
+    if (prop.address && typeof prop.address === 'string') {
+      addressInput.value = prop.address;
+      saveField('address', prop.address);
+    }
+
+    // Fill numeric form fields
+    const fieldMap: [string, string, string][] = [
+      ['import-stories', 'stories', 'stories'],
+      ['import-sqft', 'sqft', 'sqft'],
+      ['import-beds', 'beds', 'bedrooms'],
+      ['import-baths', 'baths', 'bathrooms'],
+      ['import-year', 'year', 'yearBuilt'],
+    ];
+    for (const [id, saveKey, propKey] of fieldMap) {
+      const val = prop[propKey];
+      if (val != null && val !== 0) {
+        const el = controls.querySelector(`#${id}`) as HTMLInputElement;
+        el.value = String(val);
+        saveField(saveKey, String(val));
+      }
+    }
+
+    // Property type
+    if (prop.propertyType && typeof prop.propertyType === 'string') {
+      propTypeEl.value = prop.propertyType;
+      saveField('proptype', prop.propertyType);
+    }
+
+    // Style
+    if (prop.style && typeof prop.style === 'string') {
+      selectedStyle = prop.style as StyleName | 'auto';
+      const chips = controls.querySelectorAll('.style-chip');
+      chips.forEach(c => {
+        c.classList.toggle('active', (c as HTMLElement).dataset['style'] === selectedStyle);
+      });
+      saveField('style', prop.style);
+    }
+
+    // Geocoding
+    const geo = prop.geocoding as { lat?: number; lng?: number; matchedAddress?: string; source?: string } | undefined;
+    if (geo?.lat && geo?.lng) {
+      currentGeocoding = {
+        lat: geo.lat,
+        lng: geo.lng,
+        matchedAddress: geo.matchedAddress ?? '',
+        source: (geo.source ?? 'json') as 'census' | 'nominatim',
+      };
+    }
+
+    // Enrichment state from JSON — OSM data
+    if (prop.osmWidth != null) {
+      const w = (prop.osmWidth as number) ?? 0;
+      const l = (prop.osmLength as number) ?? 0;
+      currentOSM = {
+        polygon: (prop.osmPolygon as { lat: number; lon: number }[]) ?? [],
+        innerPolygons: (prop.osmInnerPolygons as { lat: number; lon: number }[][]) ?? undefined,
+        widthMeters: w,
+        lengthMeters: l,
+        widthBlocks: w,
+        lengthBlocks: l,
+        footprintAreaSqm: w * l,
+        levels: (prop.osmLevels as number) ?? undefined,
+        material: (prop.osmMaterial as string) ?? undefined,
+        roofShape: (prop.osmRoofShape as string) ?? undefined,
+        roofMaterial: (prop.osmRoofMaterial as string) ?? undefined,
+        buildingColour: (prop.osmBuildingColour as string) ?? undefined,
+        roofColour: (prop.osmRoofColour as string) ?? undefined,
+        tags: {},
+      };
+    }
+
+    // Smarty enrichment — reconstruct from property fields
+    if (prop.exteriorType || prop.constructionType || prop.architectureType) {
+      currentSmarty = {
+        structureStyle: (prop.architectureType as string) ?? '',
+        exteriorWalls: (prop.exteriorType as string) ?? '',
+        roofCover: (prop.roofType as string) ?? '',
+        constructionType: (prop.constructionType as string) ?? '',
+        foundation: (prop.foundation as string) ?? '',
+        roofFrame: (prop.roofFrame as string) ?? '',
+        hasGarage: (prop.hasGarage as boolean) ?? false,
+        hasFireplace: (prop.hasFireplace as boolean) ?? false,
+        hasDeck: (prop.hasDeck as boolean) ?? false,
+        hasPorch: (prop.smartyHasPorch as boolean) ?? false,
+        hasPool: (prop.smartyHasPool as boolean) ?? false,
+        hasFence: (prop.smartyHasFence as boolean) ?? false,
+        drivewayType: (prop.drivewayType as string) ?? '',
+        assessedValue: (prop.assessedValue as number) ?? 0,
+        lotSqft: (prop.lotSize as number) ?? 0,
+        storiesNumber: (prop.stories as number) ?? 0,
+        buildingSqft: (prop.sqft as number) ?? 0,
+        acres: 0,
+        bedrooms: (prop.bedrooms as number) ?? 0,
+        bathroomsTotal: (prop.bathrooms as number) ?? 0,
+        rooms: 0,
+        yearBuilt: (prop.yearBuilt as number) ?? 0,
+        garageSqft: 0,
+        fireplaceCount: 0,
+        airConditioner: '',
+        heat: '',
+        heatFuelType: '',
+        totalMarketValue: 0,
+        latitude: geo?.lat ?? 0,
+        longitude: geo?.lng ?? 0,
+      };
+    }
+
+    // Parcl data
+    if (prop.city || prop.stateAbbreviation || prop.zipCode) {
+      currentParcl = {
+        address: (prop.address as string) ?? '',
+        city: (prop.city as string) ?? '',
+        stateAbbreviation: (prop.stateAbbreviation as string) ?? '',
+        zipCode: (prop.zipCode as string) ?? '',
+        county: (prop.county as string) ?? '',
+        squareFootage: (prop.sqft as number) ?? 0,
+        bedrooms: (prop.bedrooms as number) ?? 0,
+        bathrooms: (prop.bathrooms as number) ?? 0,
+        yearBuilt: (prop.yearBuilt as number) ?? 0,
+        propertyType: (prop.propertyType as string) ?? '',
+        newConstruction: (prop.newConstruction as boolean) ?? false,
+        ownerOccupied: (prop.ownerOccupied as boolean) ?? false,
+        onMarket: (prop.onMarket as boolean) ?? false,
+        latitude: geo?.lat ?? 0,
+        longitude: geo?.lng ?? 0,
+        parclPropertyId: Number(prop.parclPropertyId) || 0,
+      };
+    }
+
+    // Wall override
+    if (prop.wallOverride) currentWallOverride = prop.wallOverride as BlockState;
+
+    // Detected color
+    if (prop.detectedColor) {
+      currentDetectedColor = prop.detectedColor as { r: number; g: number; b: number };
+    }
+
+    // SV colors
+    if (prop.svWallOverride) {
+      currentSvColors = {
+        wallBlock: prop.svWallOverride as BlockState,
+        roofOverride: (prop.svRoofOverride as BrowserSvColorResult['roofOverride']) ??
+          { north: 'minecraft:stone_brick_stairs[facing=north]', south: 'minecraft:stone_brick_stairs[facing=south]', cap: 'minecraft:stone_brick_slab[type=bottom]' },
+        trimBlock: (prop.svTrimOverride as BlockState) ?? 'minecraft:white_concrete',
+        wallColor: { r: 200, g: 200, b: 200 },
+        roofColor: { r: 100, g: 100, b: 100 },
+        trimColor: { r: 220, g: 220, b: 220 },
+      };
+    }
+
+    // Mapbox height
+    if (prop.mapboxHeight) {
+      currentMapboxBuilding = {
+        height: prop.mapboxHeight as number,
+        minHeight: 0,
+        buildingType: (prop.mapboxBuildingType as string) ?? undefined,
+        extrude: true,
+        distance: 0,
+      };
+    }
+
+    // Street view URL
+    if (prop.streetViewUrl) currentStreetViewUrl = prop.streetViewUrl as string;
+
+    // Season
+    if (prop.season) currentSeason = prop.season as SeasonalWeather;
+
+    // Uncertainty flags
+    if (prop.yearUncertain) yearUncertain = true;
+    if (prop.bedroomsUncertain) bedroomsUncertain = true;
+
+    showStatus(`Loaded from JSON: ${addressInput.value || 'unknown address'}`, 'success');
+  }
+
   // ── Generate ──────────────────────────────────────────────────────────
   generateBtn.addEventListener('click', doGenerate);
 
@@ -962,6 +1199,13 @@ export function initImport(
       satFootprintLength: currentSatFootprint?.lengthMeters,
       satFootprintConfidence: currentSatFootprint?.confidence,
       streetViewUrl: currentStreetViewUrl ?? undefined,
+      // Street View color analysis (browser-side — fills critical sv* fields)
+      svWallOverride: currentSvColors?.wallBlock,
+      svRoofOverride: currentSvColors ? currentSvColors.roofOverride : undefined,
+      svTrimOverride: currentSvColors?.trimBlock,
+      // Mapbox building height (critical for story count estimation)
+      mapboxHeight: currentMapboxBuilding?.height,
+      mapboxBuildingType: currentMapboxBuilding?.buildingType,
       county: currentParcl?.county,
       stateAbbreviation: currentParcl?.stateAbbreviation,
       city: currentParcl?.city,
@@ -988,9 +1232,23 @@ export function initImport(
     const options = convertToGenerationOptions(property);
     const grid = generateStructure(options);
 
-    // Show info panel with enrichment data
+    // Show info panel with enrichment data + download JSON button
     infoPanel.hidden = false;
-    infoPanel.innerHTML = buildInfoPanelHtml(grid, property, options, currentOSM);
+    infoPanel.innerHTML = buildInfoPanelHtml(grid, property, options, currentOSM)
+      + '<button class="btn btn-secondary btn-sm" id="import-dl-json" style="margin-top:8px;width:100%;">Download JSON</button>';
+    infoPanel.querySelector('#import-dl-json')?.addEventListener('click', () => {
+      const blob = new Blob(
+        [JSON.stringify({ property, genOptions: options }, null, 2)],
+        { type: 'application/json' },
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const slug = (property.address || 'export').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60);
+      a.download = `${slug}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
 
     onGenerate(grid, property);
   }

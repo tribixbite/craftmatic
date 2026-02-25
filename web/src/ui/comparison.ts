@@ -542,6 +542,18 @@ function generateForTier(tier: typeof TIERS[number]): BlockGrid {
 
 const DL_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
 const VIEW_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
+const JSON_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+
+/** Download a JSON blob as a file */
+function downloadJSON(data: unknown, filename: string): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function buildActions(): void {
   const el = document.getElementById('cmp-actions')!;
@@ -566,6 +578,24 @@ function buildActions(): void {
       }
     });
     el.appendChild(dlBtn);
+
+    // Download JSON button — exports full property + genOptions for this tier
+    const jsonEntry = apiData.get(currentLoc);
+    if (jsonEntry?.tiers) {
+      const tierJson = jsonEntry.tiers.find(t => t.tier === tier);
+      if (tierJson) {
+        const jsonBtn = document.createElement('button');
+        jsonBtn.className = 'cmp-action-btn';
+        jsonBtn.innerHTML = `${JSON_ICON} ${label} JSON`;
+        jsonBtn.addEventListener('click', () => {
+          downloadJSON(
+            { property: tierJson.property, genOptions: tierJson.genOptions },
+            `${currentLoc}-${tier}.json`,
+          );
+        });
+        el.appendChild(jsonBtn);
+      }
+    }
 
     // Open in 3D viewer button (only if callback provided)
     if (onOpenViewer) {
