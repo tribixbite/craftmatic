@@ -348,6 +348,23 @@ export function initImport(
       </div>
     </details>
 
+    <!-- API source toggles — disable individual sources to see their impact -->
+    <details class="customize-section" id="import-api-toggles-section">
+      <summary class="customize-summary">API Sources for Generation</summary>
+      <div class="customize-body">
+        <div class="import-api-toggles" id="import-api-toggles">
+          <label class="import-api-toggle"><input type="checkbox" data-api="parcl" checked><span>Parcl</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="smarty" checked><span>Smarty</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="google" checked><span>Google SV + Solar</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="mapbox" checked><span>Mapbox</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="mapillary" checked><span>Mapillary</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="osm" checked><span>OSM</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="elevation" checked><span>Elevation</span></label>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Uncheck to exclude from generation. Data is still fetched.</div>
+      </div>
+    </details>
+
     <!-- Action buttons -->
     <div class="gen-actions">
       <div class="divider"></div>
@@ -1252,6 +1269,15 @@ export function initImport(
   // ── Generate ──────────────────────────────────────────────────────────
   generateBtn.addEventListener('click', () => { void doGenerate(); });
 
+  /** Read which API sources are enabled from the toggle checkboxes */
+  function getEnabledApis(): Set<string> {
+    const enabled = new Set<string>();
+    controls.querySelectorAll<HTMLInputElement>('#import-api-toggles input[data-api]').forEach(cb => {
+      if (cb.checked) enabled.add(cb.dataset['api']!);
+    });
+    return enabled;
+  }
+
   async function doGenerate(): Promise<void> {
     // Ensure SV color analysis has completed before using results
     if (svAnalysisPromise) {
@@ -1261,7 +1287,31 @@ export function initImport(
       generateBtn.disabled = false;
     }
 
+    // Read which API sources are enabled for this generation
+    const apis = getEnabledApis();
+    const useParcl = apis.has('parcl');
+    const useSmarty = apis.has('smarty');
+    const useGoogle = apis.has('google');  // SV + Solar
+    const useMapbox = apis.has('mapbox');
+    const useMapillary = apis.has('mapillary');
+    const useOsm = apis.has('osm');
+    const useElevation = apis.has('elevation');
+
     const yearVal = parseInt((controls.querySelector('#import-year') as HTMLInputElement).value) || 2000;
+
+    // Alias API data based on toggle state — null when disabled
+    const parcl = useParcl ? currentParcl : null;
+    const smarty = useSmarty ? currentSmarty : null;
+    const osm = useOsm ? currentOSM : null;
+    const svColors = useGoogle ? currentSvColors : null;
+    const svMeta = useGoogle ? currentSvMeta : null;
+    const solar = useGoogle ? currentSolar : null;
+    const mbBuilding = useMapbox ? currentMapboxBuilding : null;
+    const mlyImage = useMapillary ? currentMapillaryImage : null;
+    const mlyFeats = useMapillary ? currentMapillaryFeatures : [];
+    const elevGrid = useElevation ? currentElevGrid : null;
+    // wallOverride can come from Smarty or satellite — only keep satellite if Smarty disabled
+    const wall = useSmarty ? currentWallOverride : (currentDetectedColor ? mapColorToWall(currentDetectedColor) : undefined);
 
     const property: PropertyData = {
       address: addressInput.value.trim() || 'Unknown Address',
@@ -1275,89 +1325,89 @@ export function initImport(
       floorPlan: currentFloorPlan ?? undefined,
       geocoding: currentGeocoding ?? undefined,
       season: currentSeason,
-      newConstruction: currentParcl?.newConstruction ?? yearVal >= 2020,
-      lotSize: currentSmarty?.lotSqft || undefined,
-      exteriorType: currentSmarty?.exteriorWalls || undefined,
-      wallOverride: currentWallOverride,
-      roofType: currentSmarty?.roofCover || undefined,
-      architectureType: currentSmarty?.structureStyle || undefined,
+      newConstruction: parcl?.newConstruction ?? yearVal >= 2020,
+      lotSize: smarty?.lotSqft || undefined,
+      exteriorType: smarty?.exteriorWalls || undefined,
+      wallOverride: wall,
+      roofType: smarty?.roofCover || undefined,
+      architectureType: smarty?.structureStyle || undefined,
       detectedColor: currentDetectedColor,
-      osmWidth: currentOSM?.widthBlocks,
-      osmLength: currentOSM?.lengthBlocks,
-      osmLevels: currentOSM?.levels,
-      osmMaterial: currentOSM?.material,
-      osmRoofShape: currentOSM?.roofShape ? mapOSMRoofShape(currentOSM.roofShape) : undefined,
-      osmRoofMaterial: currentOSM?.roofMaterial,
-      osmRoofColour: currentOSM?.roofColour,
-      osmBuildingColour: currentOSM?.buildingColour,
-      osmArchitecture: currentOSM?.tags?.['building:architecture'],
-      hasGarage: currentSmarty?.hasGarage,
+      osmWidth: osm?.widthBlocks,
+      osmLength: osm?.lengthBlocks,
+      osmLevels: osm?.levels,
+      osmMaterial: osm?.material,
+      osmRoofShape: osm?.roofShape ? mapOSMRoofShape(osm.roofShape) : undefined,
+      osmRoofMaterial: osm?.roofMaterial,
+      osmRoofColour: osm?.roofColour,
+      osmBuildingColour: osm?.buildingColour,
+      osmArchitecture: osm?.tags?.['building:architecture'],
+      hasGarage: smarty?.hasGarage,
       // Smarty assessor amenities
-      constructionType: currentSmarty?.constructionType || undefined,
-      foundation: currentSmarty?.foundation || undefined,
-      roofFrame: currentSmarty?.roofFrame || undefined,
-      hasFireplace: currentSmarty?.hasFireplace || undefined,
-      hasDeck: currentSmarty?.hasDeck || undefined,
-      smartyHasPorch: currentSmarty?.hasPorch || undefined,
-      smartyHasPool: currentSmarty?.hasPool || undefined,
-      smartyHasFence: currentSmarty?.hasFence || undefined,
-      drivewayType: currentSmarty?.drivewayType || undefined,
-      assessedValue: currentSmarty?.assessedValue || undefined,
+      constructionType: smarty?.constructionType || undefined,
+      foundation: smarty?.foundation || undefined,
+      roofFrame: smarty?.roofFrame || undefined,
+      hasFireplace: smarty?.hasFireplace || undefined,
+      hasDeck: smarty?.hasDeck || undefined,
+      smartyHasPorch: smarty?.hasPorch || undefined,
+      smartyHasPool: smarty?.hasPool || undefined,
+      smartyHasFence: smarty?.hasFence || undefined,
+      drivewayType: smarty?.drivewayType || undefined,
+      assessedValue: smarty?.assessedValue || undefined,
       hasPool: currentPoolDetected,
-      floorPlanShape: currentOSM?.polygon
-        ? analyzePolygonShape(currentOSM.polygon)
+      floorPlanShape: osm?.polygon
+        ? analyzePolygonShape(osm.polygon)
         : (currentSatFootprint?.confidence ?? 0) >= 0.6
           ? currentSatFootprint!.shape
           : undefined,
-      osmPolygon: currentOSM?.polygon,
-      osmInnerPolygons: currentOSM?.innerPolygons,
+      osmPolygon: osm?.polygon,
+      osmInnerPolygons: osm?.innerPolygons,
       // Satellite footprint dimensions (fallback when OSM footprint unavailable)
       satFootprintWidth: currentSatFootprint?.widthMeters,
       satFootprintLength: currentSatFootprint?.lengthMeters,
       satFootprintConfidence: currentSatFootprint?.confidence,
-      streetViewUrl: currentStreetViewUrl ?? undefined,
-      streetViewDate: currentSvMeta?.date || undefined,
+      streetViewUrl: useGoogle ? (currentStreetViewUrl ?? undefined) : undefined,
+      streetViewDate: svMeta?.date || undefined,
       // Compute heading from SV camera → building (facade orientation)
-      streetViewHeading: currentSvMeta?.location && currentGeocoding
-        ? computeBearing(currentSvMeta.location.lat, currentSvMeta.location.lng,
+      streetViewHeading: svMeta?.location && currentGeocoding
+        ? computeBearing(svMeta.location.lat, svMeta.location.lng,
             currentGeocoding.lat, currentGeocoding.lng)
         : undefined,
       // Street View color analysis (browser-side — fills critical sv* fields)
-      svWallOverride: currentSvColors?.wallBlock,
-      svRoofOverride: currentSvColors ? currentSvColors.roofOverride : undefined,
-      svTrimOverride: currentSvColors?.trimBlock,
+      svWallOverride: svColors?.wallBlock,
+      svRoofOverride: svColors ? svColors.roofOverride : undefined,
+      svTrimOverride: svColors?.trimBlock,
       // Mapbox building height (critical for story count estimation)
-      mapboxHeight: currentMapboxBuilding?.height,
-      mapboxBuildingType: currentMapboxBuilding?.buildingType,
+      mapboxHeight: mbBuilding?.height,
+      mapboxBuildingType: mbBuilding?.buildingType,
       // Google Solar API enrichment (roof geometry + building footprint)
-      solarRoofPitch: currentSolar?.primaryPitchDegrees || undefined,
-      solarRoofSegments: currentSolar?.roofSegmentCount || undefined,
-      solarAzimuthDegrees: currentSolar?.primaryAzimuthDegrees || undefined,
-      solarBuildingArea: currentSolar?.buildingFootprintAreaSqm || undefined,
-      solarRoofArea: currentSolar?.totalRoofAreaSqm || undefined,
+      solarRoofPitch: solar?.primaryPitchDegrees || undefined,
+      solarRoofSegments: solar?.roofSegmentCount || undefined,
+      solarAzimuthDegrees: solar?.primaryAzimuthDegrees || undefined,
+      solarBuildingArea: solar?.buildingFootprintAreaSqm || undefined,
+      solarRoofArea: solar?.totalRoofAreaSqm || undefined,
       // Terrain slope (elevation difference across footprint, meters)
-      terrainSlope: currentElevGrid && currentGeocoding
+      terrainSlope: elevGrid && currentGeocoding
         ? footprintSlope(
-            currentElevGrid, currentGeocoding.lat, currentGeocoding.lng,
-            currentOSM?.widthMeters ?? 15, currentOSM?.lengthMeters ?? 15,
+            elevGrid, currentGeocoding.lat, currentGeocoding.lng,
+            osm?.widthMeters ?? 15, osm?.lengthMeters ?? 15,
           )
         : undefined,
-      county: currentParcl?.county,
-      stateAbbreviation: currentParcl?.stateAbbreviation,
-      city: currentParcl?.city,
-      zipCode: currentParcl?.zipCode,
-      ownerOccupied: currentParcl?.ownerOccupied,
-      onMarket: currentParcl?.onMarket,
-      parclPropertyId: currentParcl?.parclPropertyId,
+      county: parcl?.county,
+      stateAbbreviation: parcl?.stateAbbreviation,
+      city: parcl?.city,
+      zipCode: parcl?.zipCode,
+      ownerOccupied: parcl?.ownerOccupied,
+      onMarket: parcl?.onMarket,
+      parclPropertyId: parcl?.parclPropertyId,
       yearUncertain,
       bedroomsUncertain,
       // Mapillary enrichment
-      mapillaryImageUrl: currentMapillaryImage?.thumbUrl,
-      mapillaryHeading: currentMapillaryImage?.compassAngle,
-      mapillaryCaptureDate: currentMapillaryImage?.capturedAt
-        ? new Date(currentMapillaryImage.capturedAt).toISOString() : undefined,
-      ...(currentMapillaryFeatures.length > 0 ? (() => {
-        const { hasDriveway, hasFence } = analyzeFeatures(currentMapillaryFeatures);
+      mapillaryImageUrl: mlyImage?.thumbUrl,
+      mapillaryHeading: mlyImage?.compassAngle,
+      mapillaryCaptureDate: mlyImage?.capturedAt
+        ? new Date(mlyImage.capturedAt).toISOString() : undefined,
+      ...(mlyFeats.length > 0 ? (() => {
+        const { hasDriveway, hasFence } = analyzeFeatures(mlyFeats);
         return {
           mapillaryHasDriveway: hasDriveway || undefined,
           mapillaryHasFence: hasFence || undefined,
