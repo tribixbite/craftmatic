@@ -995,6 +995,46 @@ html, body {
   margin: 0 2px;
 }
 
+/* API source toggles for generation */
+.import-api-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.import-api-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+  user-select: none;
+}
+
+.import-api-toggle:has(input:checked) {
+  border-color: var(--success);
+  color: var(--success);
+  background: rgba(67, 181, 129, 0.08);
+}
+
+.import-api-toggle:has(input:not(:checked)) {
+  border-color: var(--border);
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.import-api-toggle input[type="checkbox"] {
+  width: 12px;
+  height: 12px;
+  accent-color: var(--success);
+  cursor: pointer;
+}
+
 /* Legacy import-api-grid kept for backward compat */
 .import-api-grid {
   display: flex;
