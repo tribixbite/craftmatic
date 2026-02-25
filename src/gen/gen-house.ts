@@ -4,7 +4,7 @@
  */
 
 import { BlockGrid } from '../schem/types.js';
-import type { RoomType, RoomBounds, RoofShape, FeatureFlags, FloorPlanShape } from '../types/index.js';
+import type { RoomType, RoomBounds, RoofShape, FeatureFlags, FloorPlanShape, BuildingSection } from '../types/index.js';
 import type { CoordinateBitmap } from './coordinate-bitmap.js';
 import { getRoomGenerator } from './rooms.js';
 import {
@@ -21,6 +21,95 @@ import type { StylePalette } from './styles.js';
 import { STORY_H, resolveRooms } from './gen-utils.js';
 import { applyDecorators } from './gen-decorators.js';
 
+// ─── Section Helpers ────────────────────────────────────────────────────────
+
+/** Place a roof of the given shape — single dispatch for all roof variants */
+function placeRoof(
+  grid: BlockGrid, x1: number, z1: number, x2: number, z2: number,
+  baseY: number, height: number, style: StylePalette, shape: RoofShape,
+): void {
+  switch (shape) {
+    case 'hip':     hipRoof(grid, x1, z1, x2, z2, baseY, height, style); break;
+    case 'flat':    flatRoof(grid, x1, z1, x2, z2, baseY, height, style); break;
+    case 'gambrel': gambrelRoof(grid, x1, z1, x2, z2, baseY, height, style); break;
+    case 'mansard': mansardRoof(grid, x1, z1, x2, z2, baseY, height, style); break;
+    case 'gable':
+    default:        gabledRoof(grid, x1, z1, x2, z2, baseY, height, style); break;
+  }
+}
+
+/** Generate a wing section: foundation, shell, windows, roof, single room */
+function generateWingSection(
+  grid: BlockGrid, section: BuildingSection, style: StylePalette,
+  roofShape: RoofShape, roofHeight: number, windowSpacing?: number,
+): void {
+  const { x1, z1, width, length, floors } = section;
+  const x2 = x1 + width - 1;
+  const z2 = z1 + length - 1;
+
+  foundation(grid, x1, z1, x2, z2, style);
+
+  for (let story = 0; story < floors; story++) {
+    const by = story * STORY_H;
+    const cy = by + STORY_H;
+    floor(grid, x1 + 1, by, z1 + 1, x2 - 1, z2 - 1, style, story === 0);
+    exteriorWalls(grid, x1, by + 1, z1, x2, cy - 1, z2, style);
+    windows(grid, x1, z1, x2, z2, by + 3, by + 4, style, windowSpacing);
+    if (story === floors - 1) {
+      grid.fill(x1, cy, z1, x2, cy, z2, style.ceiling);
+    }
+    wallTorches(grid, x1, z1, x2, z2, by + 3, style);
+  }
+
+  placeRoof(grid, x1, z1, x2, z2, floors * STORY_H, roofHeight, style, roofShape);
+
+  if (section.roomType) {
+    const bounds: RoomBounds = {
+      x1: x1 + 1, y: 1, z1: z1 + 1, x2: x2 - 1, z2: z2 - 1, height: STORY_H - 1,
+    };
+    getRoomGenerator(section.roomType)(grid, bounds, style);
+  }
+}
+
+/**
+ * Convert FloorPlanShape + dimensions into wing BuildingSection[].
+ * Returns empty array for 'rect'. For L/T: one east wing. For U: east + west wings.
+ * Callers can also construct BuildingSection[] directly for arbitrary layouts.
+ */
+export function planShapeToSections(
+  planShape: FloorPlanShape, bx1: number, bx2: number,
+  bz1: number, zMid: number,
+  wingW: number, wingL: number, rooms?: RoomType[],
+): BuildingSection[] {
+  if (planShape === 'rect' || wingW <= 0 || wingL <= 0) return [];
+
+  const sections: BuildingSection[] = [];
+  // L-shape: wing at back (bz1); T-shape: wing centered vertically
+  const wz1 = planShape === 'T' ? zMid - Math.floor(wingL / 2) : bz1;
+
+  // East wing (L/T/U)
+  sections.push({
+    x1: bx2 + 1, z1: wz1, width: wingW, length: wingL,
+    floors: 1,
+    roomType: rooms?.find(r => r === 'garage' || r === 'sunroom' || r === 'study') ?? 'study',
+  });
+
+  // West wing (U only)
+  if (planShape === 'U') {
+    const wx1 = Math.max(0, bx1 - wingW);
+    const wx2 = bx1 - 1;
+    if (wx2 > wx1) {
+      sections.push({
+        x1: wx1, z1: wz1, width: wx2 - wx1 + 1, length: wingL,
+        floors: 1,
+        roomType: rooms?.find(r => r === 'library' || r === 'laundry') ?? 'living',
+      });
+    }
+  }
+
+  return sections;
+}
+
 // ─── House ──────────────────────────────────────────────────────────────────
 
 export function generateHouse(
@@ -29,6 +118,7 @@ export function generateHouse(
   roofShapeOpt?: RoofShape, features?: FeatureFlags,
   planShape?: FloorPlanShape, roofHeightOverride?: number,
   windowSpacing?: number, footprintBitmap?: CoordinateBitmap,
+  sections?: BuildingSection[],
 ): BlockGrid {
   // Use style's preferred roof shape when no explicit override
   const roofShape: RoofShape = roofShapeOpt ?? style.defaultRoofShape;
@@ -189,83 +279,19 @@ export function generateHouse(
 
   // ── Roof ───────────────────────────────────────────────────────────
   const roofBase = floors * STORY_H;
-  switch (roofShape) {
-    case 'hip':     hipRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style); break;
-    case 'flat':    flatRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style); break;
-    case 'gambrel': gambrelRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style); break;
-    case 'mansard': mansardRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style); break;
-    case 'gable':
-    default:        gabledRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style); break;
-  }
+  placeRoof(grid, bx1, bz1, bx2, bz2, roofBase, effectiveRoofH, style, roofShape);
 
-  // ── L/T/U-shaped wing ──────────────────────────────────────────────
-  if (effectivePlanShape !== 'rect' && wingW > 0 && wingL > 0) {
-    // Wing extends off the east side of the main building
-    const wx1 = bx2 + 1;
-    const wx2 = wx1 + wingW - 1;
-    // L-shape: wing on back half; T-shape: wing centered; U-shape: two wings
-    const wz1 = effectivePlanShape === 'T' ? zMid - Math.floor(wingL / 2) : bz1;
-    const wz2 = wz1 + wingL - 1;
-
-    // Wing shell (ground floor only for simplicity)
-    foundation(grid, wx1, wz1, wx2, wz2, style);
-    floor(grid, wx1 + 1, 0, wz1 + 1, wx2 - 1, wz2 - 1, style, true);
-    exteriorWalls(grid, wx1, 1, wz1, wx2, STORY_H - 1, wz2, style);
-    windows(grid, wx1, wz1, wx2, wz2, 3, 4, style);
-    grid.fill(wx1, STORY_H, wz1, wx2, STORY_H, wz2, style.ceiling);
-    wallTorches(grid, wx1, wz1, wx2, wz2, 3, style);
-
-    // Roof over wing — uses style's preferred shape
-    const wingRoofBase = STORY_H;
-    const wingRoofH = effectiveRoofH;
-    switch (roofShape) {
-      case 'hip':     hipRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, wingRoofH, style); break;
-      case 'flat':    flatRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, wingRoofH, style); break;
-      case 'gambrel': gambrelRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, wingRoofH, style); break;
-      case 'mansard': mansardRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, wingRoofH, style); break;
-      case 'gable':
-      default:        gabledRoof(grid, wx1, wz1, wx2, wz2, wingRoofBase, wingRoofH, style); break;
-    }
-
+  // ── Wing sections (L/T/U plans or explicit BuildingSection[]) ─────
+  const wings = sections
+    ?? planShapeToSections(effectivePlanShape, bx1, bx2, bz1, zMid, wingW, wingL, rooms);
+  for (const wing of wings) {
+    generateWingSection(grid, wing, style, roofShape, effectiveRoofH, windowSpacing);
     // Connecting doorway between main body and wing
-    const connectZ = Math.max(bz1 + 1, Math.min(wz1 + Math.floor(wingL / 2), bz2 - 1));
-    doorway(grid, bx2, 1, connectZ - 1, bx2, 3, connectZ + 1);
-
-    // Wing rooms (use remaining rooms from assignment or defaults)
-    const wingBounds: RoomBounds = {
-      x1: wx1 + 1, y: 1, z1: wz1 + 1, x2: wx2 - 1, z2: wz2 - 1, height: STORY_H - 1,
-    };
-    // Pick a sensible room for the wing
-    const wingRoom = rooms?.find(r => r === 'garage' || r === 'sunroom' || r === 'study') ?? 'study';
-    const wingGen = getRoomGenerator(wingRoom);
-    wingGen(grid, wingBounds, style);
-
-    // U-shape: second wing on the west side
-    if (effectivePlanShape === 'U') {
-      const wx1b = Math.max(0, bx1 - wingW);
-      const wx2b = bx1 - 1;
-      if (wx2b > wx1b) {
-        foundation(grid, wx1b, wz1, wx2b, wz2, style);
-        floor(grid, wx1b + 1, 0, wz1 + 1, wx2b - 1, wz2 - 1, style, true);
-        exteriorWalls(grid, wx1b, 1, wz1, wx2b, STORY_H - 1, wz2, style);
-        windows(grid, wx1b, wz1, wx2b, wz2, 3, 4, style);
-        grid.fill(wx1b, STORY_H, wz1, wx2b, STORY_H, wz2, style.ceiling);
-        // U-shape west wing roof — same shape as main
-        switch (roofShape) {
-          case 'hip':     hipRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, wingRoofH, style); break;
-          case 'flat':    flatRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, wingRoofH, style); break;
-          case 'gambrel': gambrelRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, wingRoofH, style); break;
-          case 'mansard': mansardRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, wingRoofH, style); break;
-          case 'gable':
-          default:        gabledRoof(grid, wx1b, wz1, wx2b, wz2, STORY_H, wingRoofH, style); break;
-        }
-        doorway(grid, bx1, 1, connectZ - 1, bx1, 3, connectZ + 1);
-        const wing2Bounds: RoomBounds = {
-          x1: wx1b + 1, y: 1, z1: wz1 + 1, x2: wx2b - 1, z2: wz2 - 1, height: STORY_H - 1,
-        };
-        const wing2Room = rooms?.find(r => r === 'library' || r === 'laundry') ?? 'living';
-        getRoomGenerator(wing2Room)(grid, wing2Bounds, style);
-      }
+    const connectZ = Math.max(bz1 + 1, Math.min(wing.z1 + Math.floor(wing.length / 2), bz2 - 1));
+    if (wing.x1 > bx2) {
+      doorway(grid, bx2, 1, connectZ - 1, bx2, 3, connectZ + 1);
+    } else {
+      doorway(grid, bx1, 1, connectZ - 1, bx1, 3, connectZ + 1);
     }
   }
 
