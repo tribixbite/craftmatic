@@ -14,7 +14,7 @@
 
 import { BlockGrid } from '../schem/types.js';
 import type { RoofShape } from '../types/index.js';
-import type { StylePalette } from './styles.js';
+import type { MaterialPalette } from './styles.js';
 import {
   weatherWalls, accentBand, glassCurtainWall,
 } from './structures.js';
@@ -25,7 +25,8 @@ import { STORY_H, pick, placeOutbuilding } from './gen-utils.js';
 /** All state a decorator needs to place blocks on the grid */
 export interface DecoratorContext {
   grid: BlockGrid;
-  style: StylePalette;
+  /** Material palette — decorators only need block materials, not structural params */
+  style: MaterialPalette;
   rng: () => number;
   /** Number of stories */
   floors: number;
@@ -926,10 +927,10 @@ export function applyDecorators(
 }
 
 /**
- * Reverse-lookup style key from a StylePalette instance.
+ * Reverse-lookup style key from a MaterialPalette instance.
  * Uses the wall material as a discriminator (each style has a unique wall block).
  */
-function getStyleKey(style: StylePalette): string {
+function getStyleKey(style: MaterialPalette): string {
   // Map wall material → style name for reverse lookup
   const wallMap: Record<string, string> = {
     'minecraft:stone_bricks':       'medieval',
