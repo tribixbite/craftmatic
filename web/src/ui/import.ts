@@ -57,6 +57,7 @@ import { fetchElevationGrid, footprintSlope, type ElevationGrid } from '@ui/impo
 import { queryNlcdCanopy, type NlcdCanopyResult } from '@ui/import-nlcd.js';
 import { queryHardinessZone, type HardinessResult } from '@ui/import-hardiness.js';
 import { searchOSMTrees, type OSMTreeData } from '@ui/import-osm-trees.js';
+import { queryOvertureBuilding, type OvertureBuildingData } from '@ui/import-overture.js';
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
 
@@ -163,6 +164,8 @@ export function initImport(
   let currentHardiness: HardinessResult | null = null;
   /** Individual trees from OSM near the property */
   let currentOSMTrees: OSMTreeData[] = [];
+  /** Overture Maps building attributes (height, floors, roof, facade) */
+  let currentOverture: OvertureBuildingData | null = null;
   /** Pre-lookup form defaults — restored when APIs that populated fields are toggled off */
   let preLookupDefaults = {
     stories: 2, sqft: 2000, bedrooms: 3, bathrooms: 2, yearBuilt: 2000, propertyType: 'house',
@@ -377,7 +380,7 @@ export function initImport(
           <label class="import-api-toggle"><input type="checkbox" data-api="nlcd" checked><span>NLCD Canopy</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="hardiness" checked><span>Hardiness Zone</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="osmtrees" checked><span>OSM Trees</span></label>
-          <label class="import-api-toggle"><input type="checkbox" data-api="overture" disabled><span class="toggle-disabled">Overture Maps</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="overture" checked><span>Overture Maps</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="cesium" disabled><span class="toggle-disabled">Cesium Buildings</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="clip" disabled><span class="toggle-disabled">CLIP Style</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="depth" disabled><span class="toggle-disabled">Depth Height</span></label>
@@ -546,6 +549,7 @@ export function initImport(
     currentNlcdCanopy = null;
     currentHardiness = null;
     currentOSMTrees = [];
+    currentOverture = null;
 
     const [geoResult, parclResult, smartyResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -635,6 +639,10 @@ export function initImport(
       }
       searchOSMTrees(geo.lat, geo.lng, 150)
         .then(trees => { currentOSMTrees = trees; })
+        .catch(() => { /* non-fatal */ });
+      // Overture Maps building attributes (height, floors, roof, facade)
+      queryOvertureBuilding(geo.lat, geo.lng)
+        .then(r => { currentOverture = r; })
         .catch(() => { /* non-fatal */ });
 
       // Process Mapillary results
@@ -1323,6 +1331,16 @@ export function initImport(
     if (Array.isArray(prop.nearbyTrees) && prop.nearbyTrees.length > 0) {
       currentOSMTrees = prop.nearbyTrees as OSMTreeData[];
     }
+    // Overture Maps building data
+    if (prop.overtureHeight != null || prop.overtureFloors != null || prop.overtureRoofShape) {
+      currentOverture = {
+        id: '',
+        height: prop.overtureHeight as number | undefined,
+        numFloors: prop.overtureFloors as number | undefined,
+        roofShape: prop.overtureRoofShape as string | undefined,
+        distanceMeters: 0,
+      };
+    }
 
     showStatus(`Loaded from JSON: ${addressInput.value || 'unknown address'}`, 'success');
   }
@@ -1360,6 +1378,7 @@ export function initImport(
     const useNlcd = apis.has('nlcd');
     const useHardiness = apis.has('hardiness');
     const useOsmTrees = apis.has('osmtrees');
+    const useOverture = apis.has('overture');
 
     const yearVal = parseInt((controls.querySelector('#import-year') as HTMLInputElement).value) || 2000;
 
@@ -1533,6 +1552,10 @@ export function initImport(
       canopyCoverPct: useNlcd ? currentNlcdCanopy?.canopyCoverPct ?? undefined : undefined,
       hardinessZone: useHardiness ? currentHardiness?.zone ?? undefined : undefined,
       nearbyTrees: useOsmTrees && currentOSMTrees.length > 0 ? currentOSMTrees : undefined,
+      // Phase 5 P0: Overture Maps building attributes
+      overtureHeight: useOverture ? currentOverture?.height : undefined,
+      overtureFloors: useOverture ? currentOverture?.numFloors : undefined,
+      overtureRoofShape: useOverture ? currentOverture?.roofShape : undefined,
     };
 
     const options = convertToGenerationOptions(property);
