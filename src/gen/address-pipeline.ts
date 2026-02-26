@@ -1026,7 +1026,22 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // OSM building:levels is ground-truth from community mapping (highest confidence).
   // SV story count is from automated image analysis (medium confidence).
   // prop.stories is from Smarty/Parcl/form (varies — may be a form default of 2).
-  const effectiveStories = prop.osmLevels ?? prop.svStoryCount ?? prop.stories;
+  // Mapbox height is a fallback when stories data is unreliable (e.g. default of 1-2
+  // combined with large footprint that makes the sqft-based estimate implausible).
+  let effectiveStories = prop.osmLevels ?? prop.svStoryCount ?? prop.stories;
+  if (prop.mapboxHeight && prop.mapboxHeight > 0) {
+    const mapboxFloors = Math.max(1, Math.round(prop.mapboxHeight / 3.5));
+    // When OSM footprint is much larger than sqft implies (sqft default or landmark),
+    // trust Mapbox height over the footprint-derived story count
+    if (prop.osmWidth && prop.osmLength) {
+      const footprintSqm = prop.osmWidth * prop.osmLength;
+      const impliedSqm = prop.sqft / 10.76;
+      // If footprint is 5x larger than sqft implies, sqft is likely wrong (default/landmark)
+      if (footprintSqm > impliedSqm * 5 && mapboxFloors > effectiveStories) {
+        effectiveStories = mapboxFloors;
+      }
+    }
+  }
   const floors = Math.max(minFloors, Math.min(maxFloors, effectiveStories));
 
   // ── Dimensions ────────────────────────────────────────────────────
@@ -1221,6 +1236,14 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     if (footprintBitmap) {
       floorPlanShape = classifyBitmapShape(footprintBitmap);
     }
+  }
+
+  // Enforce rect for very small footprints when shape was inferred from SV analysis —
+  // L/T shapes on tiny buildings look awkward (e.g. a 10x10 L-shape produces a disjointed tower).
+  // Only override SV-inferred shapes, not explicitly set OSM/bitmap/user shapes.
+  const shapeFromSV = !prop.floorPlanShape && !footprintBitmap && prop.svPlanShape;
+  if (shapeFromSV && floorPlanShape !== 'rect' && width * length < 120) {
+    floorPlanShape = 'rect';
   }
 
   // ── Architecture style integration ──────────────────────────────
