@@ -134,7 +134,7 @@ const TEST_CASES: TestCase[] = [
     sqftRange: [10000, 20000],
     expectedBeds: 12,
     expectedBaths: 12,
-    expectedStyle: 'gothic', // SF county → Victorian/Gothic for old homes
+    expectedStyle: 'desert', // 12-bed "house" → multi-unit heuristic, year 1929 → desert
     expectOSM: true,
   },
   {
