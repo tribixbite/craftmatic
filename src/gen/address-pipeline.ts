@@ -524,6 +524,20 @@ export function inferRoofFromSolar(
 }
 
 /**
+ * Infer roof shape from Street View pitch analysis.
+ * Maps 'flat', 'moderate', 'steep' to corresponding shapes.
+ * Lowest priority in roof shape chain — only used when OSM, Smarty, and Solar
+ * don't provide shape info.
+ */
+export function inferRoofFromSVPitch(pitch: 'flat' | 'moderate' | 'steep' | undefined): RoofShape | undefined {
+  if (!pitch) return undefined;
+  if (pitch === 'flat') return 'flat';
+  // Both moderate and steep imply a pitched roof; gable is the most common
+  // residential roof shape and safest default when exact shape is unknown
+  return 'gable';
+}
+
+/**
  * Map OSM roof:material to Minecraft stair/slab blocks for roof overrides.
  * Returns {north, south, cap} override or undefined if unmapped.
  */
@@ -983,10 +997,15 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
       minFloors = Math.min(minFloors, Math.max(1, neededFloors));
     }
   }
-  const floors = Math.max(minFloors, Math.min(maxFloors, prop.stories));
+  // Stories estimation with additional data sources as override signals.
+  // OSM building:levels is ground-truth from community mapping (highest confidence).
+  // SV story count is from automated image analysis (medium confidence).
+  // prop.stories is from Smarty/Parcl/form (varies — may be a form default of 2).
+  const effectiveStories = prop.osmLevels ?? prop.svStoryCount ?? prop.stories;
+  const floors = Math.max(minFloors, Math.min(maxFloors, effectiveStories));
 
   // ── Dimensions ────────────────────────────────────────────────────
-  // Priority: OSM footprint (real) > sqft estimate
+  // Priority: OSM footprint (real) > satellite footprint > Solar area > sqft estimate
   let width: number;
   let length: number;
 
@@ -1001,8 +1020,15 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     // Priority 2: Satellite image footprint extraction (meters → blocks ≈ 1:1)
     width = Math.round(prop.satFootprintWidth);
     length = Math.round(prop.satFootprintLength);
+  } else if (prop.solarBuildingArea && prop.solarBuildingArea > 0) {
+    // Priority 3: Google Solar footprint area (sqm → blocks, 1 block ≈ 1m)
+    // Solar API provides accurate footprint area from aerial imagery but no shape,
+    // so we derive width/length using the aspect ratio hint
+    const aspectRatio = prop.floorPlan?.aspectRatio ?? 1.3;
+    width = Math.round(Math.sqrt(prop.solarBuildingArea * aspectRatio));
+    length = Math.round(Math.sqrt(prop.solarBuildingArea / aspectRatio));
   } else {
-    // Priority 3: Estimate from sqft + floor count
+    // Priority 4: Estimate from sqft + floor count
     const areaPerFloor = prop.sqft / floors / 10.76;
     const aspectRatio = prop.floorPlan?.aspectRatio ?? 1.3;
     width = Math.round(Math.sqrt(areaPerFloor * aspectRatio));
@@ -1035,12 +1061,13 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   if (prop.hasGarage) rooms.push('garage');
 
   // ── Roof shape ────────────────────────────────────────────────────
-  // Priority: OSM roof:shape > Smarty roofFrame > Solar segments > style palette default
+  // Priority: OSM roof:shape > Smarty roofFrame > Solar segments > SV pitch > style default
   // When no data source provides a roof shape, leave undefined so gen-house.ts
   // uses style.defaultRoofShape (which is tuned per style) instead of a hard 'gable' fallback.
   let roofShape: RoofShape | undefined = mapOSMRoofToShape(prop.osmRoofShape)
     ?? inferRoofFromSmartyFrame(prop.roofFrame)
-    ?? inferRoofFromSolar(prop.solarRoofSegments, prop.solarRoofPitch);
+    ?? inferRoofFromSolar(prop.solarRoofSegments, prop.solarRoofPitch)
+    ?? inferRoofFromSVPitch(prop.svRoofPitch);
 
   // Multi-unit buildings are overwhelmingly flat-roofed
   if (effectiveMultiUnit && !prop.osmRoofShape) {
@@ -1118,24 +1145,44 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   }
 
   // ── Roof height override ────────────────────────────────────────
-  // Priority: Solar API pitch > SV pitch analysis > style default
+  // Priority: Solar API pitch > Solar area-derived pitch > SV pitch > style default
   let roofHeightOverride: number | undefined;
-  if (prop.solarRoofPitch != null && prop.solarRoofPitch > 0) {
-    if (prop.solarRoofPitch < 15) roofHeightOverride = 4;       // nearly flat
-    else if (prop.solarRoofPitch < 30) roofHeightOverride = 8;  // moderate pitch
-    else if (prop.solarRoofPitch < 45) roofHeightOverride = 12; // steep
-    else roofHeightOverride = 14;                                // very steep
+  let solarPitch = prop.solarRoofPitch;
+
+  // If pitch is unknown, estimate from roof area vs footprint area.
+  // cos(angle) = footprintArea / roofSurfaceArea for a simple sloped roof.
+  if (solarPitch == null && prop.solarRoofArea && prop.solarBuildingArea
+    && prop.solarRoofArea > prop.solarBuildingArea) {
+    const ratio = prop.solarBuildingArea / prop.solarRoofArea;
+    const pitchRadians = Math.acos(Math.min(1, ratio));
+    solarPitch = pitchRadians * 180 / Math.PI;
+  }
+
+  if (solarPitch != null && solarPitch > 0) {
+    if (solarPitch < 15) roofHeightOverride = 4;       // nearly flat
+    else if (solarPitch < 30) roofHeightOverride = 8;  // moderate pitch
+    else if (solarPitch < 45) roofHeightOverride = 12; // steep
+    else roofHeightOverride = 14;                        // very steep
   } else if (prop.svRoofHeightOverride != null) {
     // SV pitch analysis gives a ratio (0.3/0.5/0.8) — convert to block count
     roofHeightOverride = Math.round(prop.svRoofHeightOverride * 14);
   }
 
   // ── Window spacing from SV fenestration ─────────────────────────
-  const windowSpacing = prop.svWindowSpacing;
+  // Priority: direct svWindowSpacing > derived from svWindowsPerFloor + width
+  let windowSpacing = prop.svWindowSpacing;
+  if (windowSpacing === undefined && prop.svWindowsPerFloor && prop.svWindowsPerFloor > 0) {
+    // Estimate spacing from window count and facade width — add 1 to windows
+    // to account for spacing at both ends of the facade
+    const calculatedSpacing = Math.floor(width / (prop.svWindowsPerFloor + 1));
+    // Clamp to expected range (2=dense, 5=sparse)
+    windowSpacing = Math.max(2, Math.min(5, calculatedSpacing));
+  }
 
   // ── Floor plan shape + footprint bitmap ─────────────────────────
-  // Priority: bitmap classification > OSM polygon heuristic > SV symmetry
-  let floorPlanShape = prop.floorPlanShape ?? prop.svPlanShape;
+  // Priority: bitmap classification > OSM polygon heuristic > SV plan shape > SV symmetry hint
+  // A symmetric facade strongly suggests a simple rectangular floor plan
+  let floorPlanShape = prop.floorPlanShape ?? prop.svPlanShape ?? (prop.svSymmetric ? 'rect' as const : undefined);
 
   // Rasterize OSM polygon into a block-level bitmap for pixel-perfect footprints.
   // For multipolygon buildings, subtract inner rings (courtyards) from the outer ring.
