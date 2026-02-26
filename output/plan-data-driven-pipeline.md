@@ -228,6 +228,10 @@ for better handling of complex concave shapes.
 | 13 | `web/src/ui/import.ts` | Fix OSM wall material shadowed by satellite color | DONE |
 | 14 | `src/gen/address-pipeline.ts` | Add detectedColor as final rawWall fallback | DONE |
 | 15 | `src/gen/address-pipeline.ts` | Consume terrainSlope for foundation inference | DONE |
+| 16 | `web/src/ui/import.ts` | Toggle-aware form state (pre-lookup defaults) | DONE |
+| 17 | `src/gen/address-pipeline.ts` | OSM building:colour → wall color (hexToWallBlock) | DONE |
+| 18 | `web/src/ui/import.ts` | Mapillary heading as facade orientation fallback | DONE |
+| 19 | `web/src/ui/import.ts` | Mapbox height correction for hillside terrain | DONE |
 
 ## Arnis Patterns to Adopt
 
