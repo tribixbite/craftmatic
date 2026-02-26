@@ -215,42 +215,76 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 
 ---
 
-## Phase 5: Advanced Vision & ML (High Effort)
+## Phase 5: Advanced Data Sources & ML (Research Complete)
 
-### 5.1 SV Tier 3 Deep Integration
-- [ ] Wire `svArchitectureLabel`, `svFeatures` for architectural elements
+> Full research: `output/plan-phase5-research.md` (40+ sources evaluated, 30 prioritized)
 
-### 5.2 Satellite Building Segmentation (ML)
-- [ ] ML model for precise footprint/driveway/pool boundaries
+### 5.0 P0 — Next Integrations
+- [ ] Overture Maps proxy (2.3B buildings, height/floors/roof_shape/polygon, free DuckDB on S3)
+- [ ] Cesium OSM Buildings metadata extraction (350M buildings, batch table via 3d-tiles-renderer)
+- [ ] NLCD tree canopy % lookup (single GET, no auth, 30m resolution)
+- [ ] OSM Overpass `natural=tree` extension (species, height, leaf_type)
+- [ ] USDA Plant Hardiness Zone lookup (phzmapi.org/{zip}.json → tree species palette)
+- [ ] CLIP zero-shot classification in browser (style + material + roof type via Transformers.js)
+- [ ] Depth Anything V3 metric depth in browser (SV → building height → floor count)
 
-### 5.3 Smarty Micro-Detailing (from Arnis-inspired)
+### 5.1 P1 — High Value, Moderate Effort
+- [ ] Meta/WRI 1m global canopy height tiles (tree heights from S3 COG)
+- [ ] ESA WorldCover 10m land cover (global tree cover / ground type)
+- [ ] SegFormer CMP Facade parsing (12-class: window/door/balcony/pillar, browser ONNX)
+- [ ] Google Solar DSM tree extraction (non-building height pixels)
+- [ ] Smarty untapped fields (heating type, parking, window type, year remodeled)
+- [ ] NHD water features (ArcGIS identify, streams/rivers/lakes)
+- [ ] Multi-angle SV analysis (3-4 headings per building)
+
+### 5.2 P2 — Medium Impact
+- [ ] Grounding DINO window/door counting (server-side text-prompted detection)
+- [ ] YOLOv8 satellite building segmentation (replace canvas-based footprint extraction)
+- [ ] VGGT/MASt3R multi-view 3D reconstruction (server-side, 2-4 SV images → point cloud)
+- [ ] GlobalBuildingAtlas height data (2.75B buildings, 97% with heights)
+- [ ] Regrid parcel polygons (lot boundaries for yard/setback generation)
+- [ ] City tree inventories via Socrata (NYC 666K, SF, Chicago, Portland)
+- [ ] OpenFACADES VLM for comprehensive attribute extraction (server-side, InternVL3)
+
+### 5.3 P3 — Research Stage
+- [ ] RoofNet multimodal roof classification (satellite + text, paper 2505.19358)
+- [ ] Mask-to-Height joint footprint + height (YOLOv11, paper 2510.27224)
+- [ ] Pix2Poly vector polygon footprints (transformer, paper 2412.07899)
+- [ ] Texture2LoD3 facade→CityGML (paper 2504.05249)
+- [ ] SfM/photogrammetry from multi-angle SV (COLMAP/OpenSfM, server GPU)
 - [ ] HVAC data → rooftop AC units (iron blocks + trapdoors)
 - [ ] Heating type → fireplace/chimney confidence boost
-- **Ref:** `craftmatic_improvements.md` §3C
+- **Ref:** `output/plan-phase5-research.md`, `craftmatic_improvements.md` §3C
 
 ---
 
 ## Data Source Coverage Matrix
 
-| Parameter | Parcl | Smarty | OSM | Satellite | SV | Solar | Mapillary | Mapbox |
-|---|---|---|---|---|---|---|---|---|
-| Structure type | partial | - | tags | - | tier3 | - | - | **unused** |
-| Floors/stories | stories | - | levels | - | tier2 | **unused** | - | **unused** |
-| Style | year | arch | arch | - | tier3 | - | - | - |
-| Width/Length | sqft | - | polygon | done | - | **unused** | - | - |
-| Floor plan shape | - | - | polygon | done | tier2 | - | - | - |
-| Wall material | - | exterior | **unused** | color | tier1+2 | - | - | - |
-| Roof shape | - | **unused** | shape | - | tier2 | segments | - | - |
-| Roof material | - | **unused** | material | - | tier1 | - | - | - |
-| Roof pitch/height | - | - | - | - | tier2 | pitch | - | - |
-| Door type | - | - | - | - | tier3 | - | - | - |
-| Trim color | - | - | colour | - | tier1 | - | - | - |
-| Window spacing | - | - | - | - | tier2 | - | - | - |
-| Foundation | - | **unused** | - | - | - | - | - | - |
-| Features | - | yes | - | pool | tier3 | - | yes | - |
-| Orientation | - | - | - | rotation | heading | - | heading | - |
-| Season | - | - | - | computed | - | - | - | - |
-| Elevation | - | - | - | - | - | - | - | **unused** |
+| Parameter | Parcl | Smarty | OSM | Satellite | SV | Solar | Mapillary | Mapbox | **Overture** | **ML/Browser** | **Vegetation** |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Structure type | partial | - | tags | - | tier3 | - | - | done | tags | CLIP | - |
+| Floors/stories | stories | - | levels | - | tier2 | done | - | done | `num_floors` | DA3 depth | - |
+| Style | year | arch | arch | - | tier3 | - | - | - | - | CLIP | - |
+| Width/Length | sqft | - | polygon | done | - | done | - | - | polygon | YOLOv8 | - |
+| Floor plan shape | - | - | polygon | done | tier2 | - | - | - | polygon | - | - |
+| Wall material | - | exterior | done | color | tier1+2 | - | - | - | - | CLIP/SegFormer | - |
+| Roof shape | - | done | shape | - | tier2 | segments | - | - | `roof_shape` | CLIP | - |
+| Roof material | - | done | material | - | tier1 | - | - | - | - | CLIP | - |
+| Roof pitch/height | - | - | - | - | tier2 | pitch | - | - | `roof_height` | DA3 depth | - |
+| Door type | - | - | - | - | tier3 | - | - | - | - | SegFormer | - |
+| Trim color | - | - | colour | - | tier1 | - | - | - | - | - | - |
+| Window spacing | - | - | - | - | done | - | - | - | - | SegFormer/GDINO | - |
+| Foundation | - | done | - | - | - | - | - | - | - | - | - |
+| Features | - | yes | - | pool | tier3 | - | yes | - | - | - | - |
+| Orientation | - | - | - | rotation | done | done | heading | - | - | - | - |
+| Season | - | - | - | computed | - | - | - | - | - | - | - |
+| Elevation | - | - | - | - | - | - | - | done | - | - | Terrarium |
+| Tree density | - | - | - | - | - | DSM | - | - | - | deepforest | **NLCD** |
+| Tree species | - | - | `natural=tree` | - | - | - | - | - | - | - | **Hardiness** |
+| Tree height | - | - | height tag | - | - | DSM | - | - | - | - | **Meta 1m** |
+| Ground cover | - | - | surface | - | - | - | - | - | - | - | **WorldCover** |
+| Water features | - | - | waterway | - | - | - | - | - | - | - | **NHD** |
+| Lot boundary | - | lotSize | - | - | - | - | - | - | - | - | Regrid |
 
 ---
 
