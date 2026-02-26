@@ -215,18 +215,24 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 
 ---
 
-## Phase 5: Advanced Data Sources & ML (Research Complete)
+## Phase 5: Advanced Data Sources & ML
 
 > Full research: `output/plan-phase5-research.md` (40+ sources evaluated, 30 prioritized)
 
-### 5.0 P0 — Next Integrations
-- [ ] Overture Maps proxy (2.3B buildings, height/floors/roof_shape/polygon, free DuckDB on S3)
-- [ ] Cesium OSM Buildings metadata extraction (350M buildings, batch table via 3d-tiles-renderer)
-- [ ] NLCD tree canopy % lookup (single GET, no auth, 30m resolution)
-- [ ] OSM Overpass `natural=tree` extension (species, height, leaf_type)
-- [ ] USDA Plant Hardiness Zone lookup (phzmapi.org/{zip}.json → tree species palette)
-- [ ] CLIP zero-shot classification in browser (style + material + roof type via Transformers.js)
-- [ ] Depth Anything V3 metric depth in browser (SV → building height → floor count)
+### 5.0 P0 — Implemented
+- [x] NLCD tree canopy % (MRLC WMS GetFeatureInfo, 30m resolution, `import-nlcd.ts`)
+- [x] USDA Plant Hardiness Zone (phzmapi.org/{zip}.json → tree species palette, `import-hardiness.ts`)
+- [x] OSM Overpass `natural=tree` (species, height, leaf_type, round-robin, `import-osm-trees.ts`)
+- [x] Overture Maps building data (PMTiles HTTP Range Requests, height/floors/roof/facade, `import-overture.ts`)
+- [x] Overture floors/height wired into story estimation pipeline (after OSM levels)
+- [x] Overture roof_shape added to roof shape priority chain
+- [x] Hardiness zone enhances `inferClimateZone()` (zones 1-4=cold, 9+=hot)
+- [x] All 4 sources have toggles, tests, JSON import/export
+
+### 5.0 P0 — Deferred to P1 (with rationale)
+- [ ] Cesium OSM Buildings — **redundant** with Overture (same upstream OSM data)
+- [ ] CLIP zero-shot — too heavy for browser (~150MB model), move to serverless
+- [ ] Depth Anything V3 — provides **relative** depth only, not metric height
 
 ### 5.1 P1 — High Value, Moderate Effort
 - [ ] Meta/WRI 1m global canopy height tiles (tree heights from S3 COG)
