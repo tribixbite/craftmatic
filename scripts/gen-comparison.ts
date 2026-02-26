@@ -52,6 +52,9 @@ const PROJECT_ROOT = resolve(import.meta.dir, '..');
 const OUT_DIR = join(PROJECT_ROOT, 'output/comparison');
 const WEB_DIR = join(PROJECT_ROOT, 'web/public/comparison');
 
+/** Skip image rendering (--json-only flag) — useful on memory-constrained devices */
+const JSON_ONLY = process.argv.includes('--json-only');
+
 // ─── All 9 comparison addresses ──────────────────────────────────────────────
 
 const ADDRESSES = [
@@ -546,27 +549,36 @@ for (const { key, address } of ADDRESSES) {
 
     const grid = generateStructure(opts);
     const blockCount = grid.countNonAir();
-    console.log(`    Grid: ${grid.width}x${grid.height}x${grid.depth}, ${blockCount.toLocaleString()} blocks`);
+    console.log(`    Grid: ${grid.width}x${grid.height}x${grid.length}, ${blockCount.toLocaleString()} blocks`);
 
-    // Render images
-    const extBuf = await renderExterior(grid, { tile: 8 });
-    const extFile = `${key}-${tier}_exterior.jpg`;
-    await writeFile(join(OUT_DIR, extFile), await toJpeg(extBuf));
-
+    // Render images (skip with --json-only)
+    let extFile = `${key}-${tier}_exterior.jpg`;
     const cutawayPaths: string[] = [];
     const floorPaths: string[] = [];
-    for (let f = 0; f < Math.min(opts.floors, 9); f++) {
-      const cutBuf = await renderCutawayIso(grid, f, { tile: 8 });
-      const cutFile = `${key}-${tier}_cutaway_${f}.jpg`;
-      await writeFile(join(OUT_DIR, cutFile), await toJpeg(cutBuf));
-      cutawayPaths.push(cutFile);
 
-      const floorBuf = await renderFloorDetail(grid, f, { scale: 16 });
-      const floorFile = `${key}-${tier}_floor_${f}.jpg`;
-      await writeFile(join(OUT_DIR, floorFile), await toJpeg(floorBuf));
-      floorPaths.push(floorFile);
+    if (!JSON_ONLY) {
+      const extBuf = await renderExterior(grid, { tile: 8 });
+      await writeFile(join(OUT_DIR, extFile), await toJpeg(extBuf));
+
+      for (let f = 0; f < Math.min(opts.floors, 9); f++) {
+        const cutBuf = await renderCutawayIso(grid, f, { tile: 8 });
+        const cutFile = `${key}-${tier}_cutaway_${f}.jpg`;
+        await writeFile(join(OUT_DIR, cutFile), await toJpeg(cutBuf));
+        cutawayPaths.push(cutFile);
+
+        const floorBuf = await renderFloorDetail(grid, f, { scale: 16 });
+        const floorFile = `${key}-${tier}_floor_${f}.jpg`;
+        await writeFile(join(OUT_DIR, floorFile), await toJpeg(floorBuf));
+        floorPaths.push(floorFile);
+      }
+      console.log(`    + ${1 + opts.floors * 2} images`);
+    } else {
+      // Preserve existing image paths
+      for (let f = 0; f < Math.min(opts.floors, 9); f++) {
+        cutawayPaths.push(`${key}-${tier}_cutaway_${f}.jpg`);
+        floorPaths.push(`${key}-${tier}_floor_${f}.jpg`);
+      }
     }
-    console.log(`    + ${1 + opts.floors * 2} images`);
 
     tierResults.push({
       tier,
@@ -584,7 +596,7 @@ for (const { key, address } of ADDRESSES) {
         windowSpacing: opts.windowSpacing, roofHeightOverride: opts.roofHeightOverride,
         features: opts.features,
       },
-      grid: { width: grid.width, height: grid.height, depth: grid.depth, blocks: blockCount },
+      grid: { width: grid.width, height: grid.height, depth: grid.length, blocks: blockCount },
       views: { exterior: extFile, cutaway: cutawayPaths, floor: floorPaths },
     });
   }
