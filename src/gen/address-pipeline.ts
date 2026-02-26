@@ -13,7 +13,7 @@ import type {
   RoofShape, FeatureFlags, FloorPlanShape, GenerationOptions,
 } from '../types/index.js';
 
-import { ROOF_PALETTE, rgbToTrimBlock as rgbToTrimBlockShared } from './color-blocks.js';
+import { ROOF_PALETTE, rgbToTrimBlock as rgbToTrimBlockShared, rgbToWallBlock } from './color-blocks.js';
 import { polygonToBitmap, classifyBitmapShape, subtractInnerRings } from './coordinate-bitmap.js';
 import { inferCategory, resolvePalette } from './material-resolver.js';
 
@@ -844,6 +844,17 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
     else flags.foundationType = 'slab';
   }
 
+  // ── Terrain slope → foundation inference (from Elevation API) ──
+  // When assessor data is unavailable, terrain slope hints at foundation type:
+  //   >2m slope across footprint → raised/pier foundation (hillside building)
+  //   >1m slope → crawlspace (slight grade, needs ventilation gap)
+  //   ≤1m → slab (flat terrain, standard foundation)
+  if (!flags.foundationType && prop.terrainSlope != null && prop.terrainSlope > 0) {
+    if (prop.terrainSlope > 2) flags.foundationType = 'pier';
+    else if (prop.terrainSlope > 1) flags.foundationType = 'crawlspace';
+    // ≤1m: leave undefined → generator uses default slab
+  }
+
   // ── Smarty assessor overrides (highest confidence — from county records) ──
   if (prop.smartyHasPool) flags.pool = true;
   if (prop.smartyHasFence) flags.fence = true;
@@ -1018,13 +1029,21 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     ?? prop.svRoofOverride;
 
   // ── Wall override ───────────────────────────────────────────────
-  // Priority: Smarty exteriorType / satellite > OSM material > construction type > SV color > SV texture > style
-  // prop.wallOverride is already set by the satellite/Smarty chain in CLI
+  // Priority chain (first non-null wins):
+  //   1. Smarty exterior / pre-resolved override (assessor data)
+  //   2. OSM building:material tag (community-mapped)
+  //   3. Smarty construction type (assessor secondary)
+  //   4. Street View color analysis
+  //   5. Street View texture classification
+  //   6. Satellite imagery detected color (automatic, lowest confidence)
   const rawWall = prop.wallOverride
     ?? mapOSMMaterialToWall(prop.osmMaterial)
     ?? mapConstructionTypeToWall(prop.constructionType)
     ?? prop.svWallOverride
-    ?? prop.svTextureBlock;
+    ?? prop.svTextureBlock
+    ?? (prop.detectedColor
+      ? rgbToWallBlock(prop.detectedColor.r, prop.detectedColor.g, prop.detectedColor.b)
+      : undefined);
   // Apply year-based material aging (pre-1920 → weathered, post-2000 → modern)
   const agedWall = applyYearBasedWallAging(rawWall, prop.yearBuilt);
   // Apply climate-specific adjustments (hot → lighter, cold → darker/sturdier)

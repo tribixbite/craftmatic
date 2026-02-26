@@ -1310,8 +1310,21 @@ export function initImport(
     const mlyImage = useMapillary ? currentMapillaryImage : null;
     const mlyFeats = useMapillary ? currentMapillaryFeatures : [];
     const elevGrid = useElevation ? currentElevGrid : null;
-    // wallOverride can come from Smarty or satellite — only keep satellite if Smarty disabled
-    const wall = useSmarty ? currentWallOverride : (currentDetectedColor ? mapColorToWall(currentDetectedColor) : undefined);
+    // Wall override — toggle-aware priority chain:
+    //   1. Smarty exterior type (assessor data, highest confidence)
+    //   2. OSM building:material tag (community-mapped)
+    //   3. Satellite detected color (automatic, lowest confidence)
+    // Remaining sources (constructionType, SV color) handled by address-pipeline.ts
+    let wall: BlockState | undefined;
+    if (useSmarty && currentSmarty?.exteriorWalls) {
+      wall = mapSmartyExteriorToWall(currentSmarty.exteriorWalls);
+    }
+    if (!wall && useOsm && currentOSM?.material) {
+      wall = mapOSMMaterialToWall(currentOSM.material);
+    }
+    if (!wall && currentDetectedColor) {
+      wall = mapColorToWall(currentDetectedColor);
+    }
 
     const property: PropertyData = {
       address: addressInput.value.trim() || 'Unknown Address',
