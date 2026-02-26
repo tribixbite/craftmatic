@@ -768,17 +768,42 @@ function inferDoorType(
   return undefined;
 }
 
+/** Parse hex (#RGB or #RRGGBB) → [r, g, b] or undefined */
+function hexToRgb(hex: string): [number, number, number] | undefined {
+  const clean = hex.replace('#', '');
+  if (clean.length === 3) {
+    return [
+      parseInt(clean[0] + clean[0], 16),
+      parseInt(clean[1] + clean[1], 16),
+      parseInt(clean[2] + clean[2], 16),
+    ];
+  }
+  if (clean.length !== 6) return undefined;
+  return [
+    parseInt(clean.substring(0, 2), 16),
+    parseInt(clean.substring(2, 4), 16),
+    parseInt(clean.substring(4, 6), 16),
+  ];
+}
+
 /**
  * Map a building colour hex to a Minecraft trim/accent block.
  * Delegates to shared palette in color-blocks.ts.
  */
 function hexToTrimBlock(hex: string): BlockState | undefined {
-  const clean = hex.replace('#', '');
-  if (clean.length !== 6) return undefined;
-  const r = parseInt(clean.substring(0, 2), 16);
-  const g = parseInt(clean.substring(2, 4), 16);
-  const b = parseInt(clean.substring(4, 6), 16);
-  return rgbToTrimBlockShared(r, g, b);
+  const rgb = hexToRgb(hex);
+  if (!rgb) return undefined;
+  return rgbToTrimBlockShared(rgb[0], rgb[1], rgb[2]);
+}
+
+/**
+ * Map a building colour hex to a Minecraft wall block.
+ * OSM building:colour represents the facade color — maps to wall via CIE-Lab.
+ */
+function hexToWallBlock(hex: string): BlockState | undefined {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return undefined;
+  return rgbToWallBlock(rgb[0], rgb[1], rgb[2]);
 }
 
 // ─── Feature Flags ──────────────────────────────────────────────────────────
@@ -1031,12 +1056,14 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // ── Wall override ───────────────────────────────────────────────
   // Priority chain (first non-null wins):
   //   1. Smarty exterior / pre-resolved override (assessor data)
-  //   2. OSM building:material tag (community-mapped)
-  //   3. Smarty construction type (assessor secondary)
-  //   4. Street View color analysis
-  //   5. Street View texture classification
-  //   6. Satellite imagery detected color (automatic, lowest confidence)
+  //   2. OSM building:colour (explicit hex color → CIE-Lab nearest block)
+  //   3. OSM building:material tag (community-mapped material name)
+  //   4. Smarty construction type (assessor secondary)
+  //   5. Street View color analysis
+  //   6. Street View texture classification
+  //   7. Satellite imagery detected color (automatic, lowest confidence)
   const rawWall = prop.wallOverride
+    ?? hexToWallBlock(prop.osmBuildingColour ?? '')
     ?? mapOSMMaterialToWall(prop.osmMaterial)
     ?? mapConstructionTypeToWall(prop.constructionType)
     ?? prop.svWallOverride
