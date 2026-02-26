@@ -29,7 +29,7 @@
 - [x] 3E: Rustic roof contrast — deepslate tile stairs — 34bae7e
 - [x] Regenerate comparison-data.json with current pipeline — 1424698
 - [x] Build + deploy + CI green
-- [ ] 3A-scoped: Multi-segment solar pitch → per-segment roofHeightOverride
+- [ ] 3A-scoped: Multi-segment solar pitch → per-section roofHeightOverride (deferred — requires spatial correlation of solar segments to building wings)
 
 ### Visual QA: Gemini Image Review (9 addresses)
 
