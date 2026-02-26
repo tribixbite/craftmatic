@@ -381,9 +381,9 @@ export function initImport(
           <label class="import-api-toggle"><input type="checkbox" data-api="hardiness" checked><span>Hardiness Zone</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="osmtrees" checked><span>OSM Trees</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="overture" checked><span>Overture Maps</span></label>
-          <label class="import-api-toggle"><input type="checkbox" data-api="cesium" disabled><span class="toggle-disabled">Cesium Buildings</span></label>
-          <label class="import-api-toggle"><input type="checkbox" data-api="clip" disabled><span class="toggle-disabled">CLIP Style</span></label>
-          <label class="import-api-toggle"><input type="checkbox" data-api="depth" disabled><span class="toggle-disabled">Depth Height</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="cesium" disabled><span class="toggle-disabled">Cesium (P1 — redundant w/ Overture)</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="clip" disabled><span class="toggle-disabled">CLIP Style (P1 — serverless)</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="depth" disabled><span class="toggle-disabled">Depth Height (P1 — relative only)</span></label>
         </div>
         <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Uncheck to exclude from generation. Grayed items are not yet implemented.</div>
       </div>
