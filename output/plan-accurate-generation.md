@@ -78,9 +78,12 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - **Files:** `src/gen/address-pipeline.ts` (convertToGenerationOptions)
 
 ### 1.6 Street View Facade Orientation
-- [~] TODO in pipeline — requires generator support for building orientation
-- [ ] Add `orientation` field to GenerationOptions + rotate door placement in generator
-- **Fields:** `streetViewHeading` (collected, wiring blocked on generator)
+- [x] `rotateGridCW90()` post-generation rotation — transforms positions + facing + axis props
+- [x] `orientation` field on GenerationOptions (0/90/180/270° CW from default front=south)
+- [x] Pipeline snaps `streetViewHeading` (fallback `solarAzimuthDegrees`) to nearest 90°
+- [x] 19 tests covering facing rotation, coordinate mapping, block entities, 360° identity
+- **Commit:** 530bd27
+- **Files:** `src/gen/gen-utils.ts`, `src/gen/generator.ts`, `src/gen/address-pipeline.ts`, `src/types/index.ts`
 
 ---
 
@@ -101,7 +104,7 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 
 ### 2.3 Solar API → Exact Roof Pitch & Ridge Direction
 - [x] Added `solarAzimuthDegrees` to PropertyData, wired from CLI + web
-- [~] Azimuth → ridge direction mapping blocked on generator orientation (Phase 1.6)
+- [x] Azimuth → ridge direction mapped via orientation rotation (Phase 1.6, 530bd27)
 - [x] Solar segments → roof shape already wired in pipeline
 - [x] Solar pitch → roof height already wired in pipeline
 - **Fields:** `solarRoofPitch`, `solarRoofSegments`, `solarAzimuthDegrees`
