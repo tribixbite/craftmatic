@@ -154,6 +154,10 @@ export function initImport(
   let currentSvMeta: StreetViewMetadata | null = null;
   /** Elevation grid for terrain slope computation */
   let currentElevGrid: ElevationGrid | null = null;
+  /** Pre-lookup form defaults — restored when APIs that populated fields are toggled off */
+  let preLookupDefaults = {
+    stories: 2, sqft: 2000, bedrooms: 3, bathrooms: 2, yearBuilt: 2000, propertyType: 'house',
+  };
 
   // Restore API key display state
   const savedParclKey = getParclApiKey();
@@ -493,6 +497,17 @@ export function initImport(
 
     // Run geocoding, Parcl API, and Smarty lookup in parallel
     showStatus('Looking up property...', 'loading');
+
+    // Snapshot form defaults before API data overwrites them — used at generation
+    // time to restore original values when an API's toggle is disabled
+    preLookupDefaults = {
+      stories: parseInt((controls.querySelector('#import-stories') as HTMLInputElement).value) || 2,
+      sqft: parseInt((controls.querySelector('#import-sqft') as HTMLInputElement).value) || 2000,
+      bedrooms: parseInt((controls.querySelector('#import-beds') as HTMLInputElement).value) || 3,
+      bathrooms: parseInt((controls.querySelector('#import-baths') as HTMLInputElement).value) || 2,
+      yearBuilt: parseInt((controls.querySelector('#import-year') as HTMLInputElement).value) || 2000,
+      propertyType: propTypeEl.value,
+    };
 
     // Reset enrichment state for new lookup
     currentWallOverride = undefined;
@@ -1326,14 +1341,39 @@ export function initImport(
       wall = mapColorToWall(currentDetectedColor);
     }
 
+    // ── Toggle-aware form values ──
+    // Form fields are populated by Parcl/Smarty/OSM during lookup.
+    // When those APIs are toggled off, use pre-lookup defaults instead
+    // so the toggle accurately shows each API's contribution.
+    const formStories = parseInt((controls.querySelector('#import-stories') as HTMLInputElement).value) || 2;
+    const formSqft = parseInt((controls.querySelector('#import-sqft') as HTMLInputElement).value) || 2000;
+    const formBeds = parseInt((controls.querySelector('#import-beds') as HTMLInputElement).value) || 3;
+    const formBaths = parseInt((controls.querySelector('#import-baths') as HTMLInputElement).value) || 2;
+    const formPropType = propTypeEl.value;
+
+    // Stories: Smarty > OSM levels > Parcl estimate > form default
+    const stories = useSmarty && smarty?.storiesNumber ? smarty.storiesNumber
+      : useOsm && osm?.levels ? osm.levels
+      : useParcl ? formStories
+      : preLookupDefaults.stories;
+    // sqft: Parcl primary source (form was populated by Parcl)
+    const sqft = useParcl ? formSqft : preLookupDefaults.sqft;
+    // beds/baths: Parcl primary source
+    const bedrooms = useParcl ? formBeds : preLookupDefaults.bedrooms;
+    const bathrooms = useParcl ? formBaths : preLookupDefaults.bathrooms;
+    // yearBuilt: Parcl primary source
+    const yearBuiltVal = useParcl ? yearVal : preLookupDefaults.yearBuilt;
+    // propertyType: Parcl primary source
+    const propType = useParcl ? formPropType : preLookupDefaults.propertyType;
+
     const property: PropertyData = {
       address: addressInput.value.trim() || 'Unknown Address',
-      stories: parseInt((controls.querySelector('#import-stories') as HTMLInputElement).value) || 2,
-      sqft: parseInt((controls.querySelector('#import-sqft') as HTMLInputElement).value) || 2000,
-      bedrooms: parseInt((controls.querySelector('#import-beds') as HTMLInputElement).value) || 3,
-      bathrooms: parseInt((controls.querySelector('#import-baths') as HTMLInputElement).value) || 2,
-      yearBuilt: yearVal,
-      propertyType: propTypeEl.value,
+      stories,
+      sqft,
+      bedrooms,
+      bathrooms,
+      yearBuilt: yearBuiltVal,
+      propertyType: propType,
       style: selectedStyle,
       floorPlan: currentFloorPlan ?? undefined,
       geocoding: currentGeocoding ?? undefined,
@@ -1381,16 +1421,30 @@ export function initImport(
       streetViewUrl: useGoogle ? (currentStreetViewUrl ?? undefined) : undefined,
       streetViewDate: svMeta?.date || undefined,
       // Compute heading from SV camera → building (facade orientation)
+      // Falls back to Mapillary compass angle when Google SV is unavailable
       streetViewHeading: svMeta?.location && currentGeocoding
         ? computeBearing(svMeta.location.lat, svMeta.location.lng,
             currentGeocoding.lat, currentGeocoding.lng)
-        : undefined,
+        : mlyImage?.compassAngle,
       // Street View color analysis (browser-side — fills critical sv* fields)
       svWallOverride: svColors?.wallBlock,
       svRoofOverride: svColors ? svColors.roofOverride : undefined,
       svTrimOverride: svColors?.trimBlock,
-      // Mapbox building height (critical for story count estimation)
-      mapboxHeight: mbBuilding?.height,
+      // Mapbox building height — corrected for hillside terrain slope
+      // (Mapbox reports height from lowest ground point; subtract half the slope
+      // to approximate true building height at center)
+      mapboxHeight: (() => {
+        if (!mbBuilding?.height) return undefined;
+        let h = mbBuilding.height;
+        if (elevGrid && currentGeocoding) {
+          const slope = footprintSlope(
+            elevGrid, currentGeocoding.lat, currentGeocoding.lng,
+            osm?.widthMeters ?? 15, osm?.lengthMeters ?? 15,
+          );
+          if (slope > 1) h = Math.max(3, h - slope / 2);
+        }
+        return h;
+      })(),
       mapboxBuildingType: mbBuilding?.buildingType,
       // Google Solar API enrichment (roof geometry + building footprint)
       solarRoofPitch: solar?.primaryPitchDegrees || undefined,
