@@ -123,7 +123,7 @@
           "bestImageId": "1195418191102498",
           "bestImageDate": "2023-04-01",
           "bestImageHeading": "266°",
-          "featuresFound": 78,
+          "featuresFound": 74,
           "hasDriveway": true,
           "hasFence": false
         },
@@ -161,11 +161,11 @@
         "status": "ok",
         "data": {
           "wallColor": "rgb(137,125,94)",
-          "wallBlock": "jungle_planks",
+          "wallBlock": "sandstone",
           "roofColor": "rgb(122,111,77)",
-          "roofBlock": "cobblestone_slab[type=bottom]",
+          "roofBlock": "spruce_slab[type=bottom]",
           "trimColor": "rgb(170,160,138)",
-          "trimBlock": "light_gray_concrete",
+          "trimBlock": "birch_log",
           "storyCount": 1,
           "storyConfidence": "0.30",
           "textureClass": "shingle",
@@ -223,7 +223,6 @@
           "width": 12,
           "length": 10,
           "seed": 767719,
-          "doorOverride": "iron",
           "features": {
             "chimney": false,
             "porch": true,
@@ -237,8 +236,9 @@
         },
         "grid": {
           "width": 48,
-          "height": 15,
-          "blocks": 5424
+          "height": 18,
+          "depth": 32,
+          "blocks": 6152
         },
         "views": {
           "exterior": "sf-noapi_exterior.jpg",
@@ -269,12 +269,11 @@
           "width": 16,
           "length": 27,
           "seed": 767719,
-          "doorOverride": "acacia",
           "roofShape": "flat",
           "floorPlanShape": "L",
           "features": {
             "chimney": true,
-            "porch": false,
+            "porch": true,
             "backyard": false,
             "driveway": true,
             "fence": true,
@@ -285,8 +284,9 @@
         },
         "grid": {
           "width": 60,
-          "height": 25,
-          "blocks": 12199
+          "height": 28,
+          "depth": 44,
+          "blocks": 12743
         },
         "views": {
           "exterior": "sf-someapis_exterior.jpg",
@@ -317,25 +317,17 @@
         },
         "genOptions": {
           "style": "desert",
-          "floors": 4,
+          "floors": 1,
           "width": 16,
           "length": 27,
           "seed": 767719,
-          "wallOverride": "minecraft:jungle_planks",
-          "trimOverride": "minecraft:light_gray_concrete",
-          "doorOverride": "acacia",
           "roofShape": "flat",
-          "roofOverride": {
-            "north": "minecraft:cobblestone_stairs[facing=north]",
-            "south": "minecraft:cobblestone_stairs[facing=south]",
-            "cap": "minecraft:cobblestone_slab[type=bottom]"
-          },
           "floorPlanShape": "L",
           "windowSpacing": 2,
           "roofHeightOverride": 4,
           "features": {
             "chimney": true,
-            "porch": false,
+            "porch": true,
             "backyard": false,
             "driveway": true,
             "fence": true,
@@ -346,22 +338,17 @@
         },
         "grid": {
           "width": 60,
-          "height": 25,
-          "blocks": 12292
+          "height": 11,
+          "depth": 44,
+          "blocks": 7188
         },
         "views": {
           "exterior": "sf-allapis_exterior.jpg",
           "cutaway": [
-            "sf-allapis_cutaway_0.jpg",
-            "sf-allapis_cutaway_1.jpg",
-            "sf-allapis_cutaway_2.jpg",
-            "sf-allapis_cutaway_3.jpg"
+            "sf-allapis_cutaway_0.jpg"
           ],
           "floor": [
-            "sf-allapis_floor_0.jpg",
-            "sf-allapis_floor_1.jpg",
-            "sf-allapis_floor_2.jpg",
-            "sf-allapis_floor_3.jpg"
+            "sf-allapis_floor_0.jpg"
           ]
         }
       }
@@ -591,7 +578,6 @@
           "width": 12,
           "length": 10,
           "seed": 783884,
-          "doorOverride": "iron",
           "features": {
             "chimney": false,
             "porch": true,
@@ -605,8 +591,9 @@
         },
         "grid": {
           "width": 48,
-          "height": 15,
-          "blocks": 5426
+          "height": 18,
+          "depth": 32,
+          "blocks": 6152
         },
         "views": {
           "exterior": "newton-noapi_exterior.jpg",
@@ -637,7 +624,6 @@
           "width": 17,
           "length": 21,
           "seed": 783884,
-          "doorOverride": "iron",
           "floorPlanShape": "rect",
           "features": {
             "chimney": true,
@@ -652,8 +638,9 @@
         },
         "grid": {
           "width": 53,
-          "height": 25,
-          "blocks": 11981
+          "height": 23,
+          "depth": 38,
+          "blocks": 11010
         },
         "views": {
           "exterior": "newton-someapis_exterior.jpg",
@@ -677,7 +664,7 @@
           "bathrooms": 5,
           "yearBuilt": 2000,
           "propertyType": "house",
-          "stories": 3,
+          "stories": 2,
           "yearUncertain": true
         },
         "genOptions": {
@@ -686,15 +673,7 @@
           "width": 17,
           "length": 21,
           "seed": 783884,
-          "wallOverride": "minecraft:polished_andesite",
-          "trimOverride": "minecraft:stripped_dark_oak_log",
-          "doorOverride": "iron",
           "roofShape": "gambrel",
-          "roofOverride": {
-            "north": "minecraft:spruce_stairs[facing=north]",
-            "south": "minecraft:spruce_stairs[facing=south]",
-            "cap": "minecraft:spruce_slab[type=bottom]"
-          },
           "floorPlanShape": "rect",
           "windowSpacing": 2,
           "roofHeightOverride": 12,
@@ -712,7 +691,8 @@
         "grid": {
           "width": 53,
           "height": 27,
-          "blocks": 11177
+          "depth": 38,
+          "blocks": 11309
         },
         "views": {
           "exterior": "newton-allapis_exterior.jpg",
@@ -854,7 +834,7 @@
           "bestImageId": "1037404647273444",
           "bestImageDate": "2023-09-24",
           "bestImageHeading": "313°",
-          "featuresFound": 46,
+          "featuresFound": 45,
           "hasDriveway": true,
           "hasFence": false
         },
@@ -913,7 +893,6 @@
           "width": 12,
           "length": 10,
           "seed": 201564,
-          "doorOverride": "iron",
           "features": {
             "chimney": false,
             "porch": true,
@@ -927,8 +906,9 @@
         },
         "grid": {
           "width": 48,
-          "height": 15,
-          "blocks": 5426
+          "height": 18,
+          "depth": 32,
+          "blocks": 6150
         },
         "views": {
           "exterior": "sanjose-noapi_exterior.jpg",
@@ -959,7 +939,6 @@
           "width": 45,
           "length": 45,
           "seed": 201564,
-          "doorOverride": "iron",
           "floorPlanShape": "L",
           "features": {
             "chimney": false,
@@ -974,8 +953,9 @@
         },
         "grid": {
           "width": 101,
-          "height": 14,
-          "blocks": 19765
+          "height": 13,
+          "depth": 62,
+          "blocks": 18691
         },
         "views": {
           "exterior": "sanjose-someapis_exterior.jpg",
@@ -995,16 +975,15 @@
           "bathrooms": 2,
           "yearBuilt": 2000,
           "propertyType": "other",
-          "stories": 3,
+          "stories": 1,
           "yearUncertain": true
         },
         "genOptions": {
           "style": "colonial",
-          "floors": 3,
+          "floors": 1,
           "width": 45,
           "length": 45,
           "seed": 201564,
-          "doorOverride": "iron",
           "roofShape": "gambrel",
           "floorPlanShape": "L",
           "roofHeightOverride": 4,
@@ -1021,20 +1000,17 @@
         },
         "grid": {
           "width": 101,
-          "height": 20,
-          "blocks": 23208
+          "height": 11,
+          "depth": 62,
+          "blocks": 16093
         },
         "views": {
           "exterior": "sanjose-allapis_exterior.jpg",
           "cutaway": [
-            "sanjose-allapis_cutaway_0.jpg",
-            "sanjose-allapis_cutaway_1.jpg",
-            "sanjose-allapis_cutaway_2.jpg"
+            "sanjose-allapis_cutaway_0.jpg"
           ],
           "floor": [
-            "sanjose-allapis_floor_0.jpg",
-            "sanjose-allapis_floor_1.jpg",
-            "sanjose-allapis_floor_2.jpg"
+            "sanjose-allapis_floor_0.jpg"
           ]
         }
       }
@@ -1189,7 +1165,6 @@
           "width": 12,
           "length": 10,
           "seed": 266196,
-          "doorOverride": "iron",
           "features": {
             "chimney": false,
             "porch": true,
@@ -1203,8 +1178,9 @@
         },
         "grid": {
           "width": 48,
-          "height": 15,
-          "blocks": 5424
+          "height": 18,
+          "depth": 32,
+          "blocks": 6150
         },
         "views": {
           "exterior": "walpole-noapi_exterior.jpg",
@@ -1235,7 +1211,6 @@
           "width": 19,
           "length": 14,
           "seed": 266196,
-          "doorOverride": "iron",
           "features": {
             "chimney": true,
             "porch": true,
@@ -1250,7 +1225,8 @@
         "grid": {
           "width": 55,
           "height": 18,
-          "blocks": 8011
+          "depth": 31,
+          "blocks": 7915
         },
         "views": {
           "exterior": "walpole-someapis_exterior.jpg",
@@ -1278,10 +1254,9 @@
         "genOptions": {
           "style": "colonial",
           "floors": 2,
-          "width": 19,
-          "length": 14,
+          "width": 27,
+          "length": 21,
           "seed": 266196,
-          "doorOverride": "iron",
           "roofShape": "hip",
           "roofHeightOverride": 12,
           "features": {
@@ -1296,9 +1271,10 @@
           }
         },
         "grid": {
-          "width": 55,
+          "width": 63,
           "height": 22,
-          "blocks": 7793
+          "depth": 38,
+          "blocks": 11272
         },
         "views": {
           "exterior": "walpole-allapis_exterior.jpg",
@@ -1486,7 +1462,6 @@
           "width": 12,
           "length": 10,
           "seed": 802372,
-          "doorOverride": "iron",
           "features": {
             "chimney": false,
             "porch": true,
@@ -1500,8 +1475,9 @@
         },
         "grid": {
           "width": 48,
-          "height": 15,
-          "blocks": 5424
+          "height": 18,
+          "depth": 32,
+          "blocks": 6153
         },
         "views": {
           "exterior": "byron-noapi_exterior.jpg",
@@ -1532,7 +1508,6 @@
           "width": 10,
           "length": 10,
           "seed": 802372,
-          "doorOverride": "iron",
           "floorPlanShape": "L",
           "features": {
             "chimney": true,
@@ -1547,8 +1522,9 @@
         },
         "grid": {
           "width": 54,
-          "height": 20,
-          "blocks": 5659
+          "height": 23,
+          "depth": 32,
+          "blocks": 6503
         },
         "views": {
           "exterior": "byron-someapis_exterior.jpg",
@@ -1572,16 +1548,15 @@
           "bathrooms": 2,
           "yearBuilt": 1980,
           "propertyType": "house",
-          "stories": 4,
+          "stories": 3,
           "yearUncertain": false
         },
         "genOptions": {
           "style": "modern",
-          "floors": 4,
+          "floors": 3,
           "width": 10,
           "length": 10,
           "seed": 802372,
-          "doorOverride": "iron",
           "roofShape": "gambrel",
           "floorPlanShape": "L",
           "roofHeightOverride": 8,
@@ -1598,22 +1573,21 @@
         },
         "grid": {
           "width": 54,
-          "height": 28,
-          "blocks": 5999
+          "height": 23,
+          "depth": 32,
+          "blocks": 6540
         },
         "views": {
           "exterior": "byron-allapis_exterior.jpg",
           "cutaway": [
             "byron-allapis_cutaway_0.jpg",
             "byron-allapis_cutaway_1.jpg",
-            "byron-allapis_cutaway_2.jpg",
-            "byron-allapis_cutaway_3.jpg"
+            "byron-allapis_cutaway_2.jpg"
           ],
           "floor": [
             "byron-allapis_floor_0.jpg",
             "byron-allapis_floor_1.jpg",
-            "byron-allapis_floor_2.jpg",
-            "byron-allapis_floor_3.jpg"
+            "byron-allapis_floor_2.jpg"
           ]
         }
       }
@@ -1731,7 +1705,6 @@
           "width": 12,
           "length": 10,
           "seed": 708454,
-          "doorOverride": "iron",
           "features": {
             "chimney": false,
             "porch": true,
@@ -1745,8 +1718,9 @@
         },
         "grid": {
           "width": 48,
-          "height": 15,
-          "blocks": 5424
+          "height": 18,
+          "depth": 32,
+          "blocks": 6158
         },
         "views": {
           "exterior": "vinalhaven-noapi_exterior.jpg",
@@ -1777,7 +1751,6 @@
           "width": 12,
           "length": 10,
           "seed": 708454,
-          "doorOverride": "spruce",
           "features": {
             "chimney": false,
             "porch": true,
@@ -1790,9 +1763,10 @@
           }
         },
         "grid": {
-          "width": 56,
+          "width": 48,
           "height": 18,
-          "blocks": 6765
+          "depth": 30,
+          "blocks": 6079
         },
         "views": {
           "exterior": "vinalhaven-someapis_exterior.jpg",
@@ -1823,7 +1797,6 @@
           "width": 12,
           "length": 10,
           "seed": 708454,
-          "doorOverride": "spruce",
           "features": {
             "chimney": false,
             "porch": true,
@@ -1836,9 +1809,10 @@
           }
         },
         "grid": {
-          "width": 56,
+          "width": 48,
           "height": 18,
-          "blocks": 6765
+          "depth": 30,
+          "blocks": 6079
         },
         "views": {
           "exterior": "vinalhaven-allapis_exterior.jpg",
@@ -1992,7 +1966,6 @@
           "width": 12,
           "length": 10,
           "seed": 832367,
-          "doorOverride": "iron",
           "features": {
             "chimney": false,
             "porch": true,
@@ -2006,8 +1979,9 @@
         },
         "grid": {
           "width": 48,
-          "height": 15,
-          "blocks": 5424
+          "height": 18,
+          "depth": 32,
+          "blocks": 6145
         },
         "views": {
           "exterior": "suttonsbay-noapi_exterior.jpg",
@@ -2038,7 +2012,6 @@
           "width": 12,
           "length": 10,
           "seed": 832367,
-          "doorOverride": "spruce",
           "features": {
             "chimney": false,
             "porch": true,
@@ -2051,9 +2024,10 @@
           }
         },
         "grid": {
-          "width": 56,
-          "height": 18,
-          "blocks": 6767
+          "width": 48,
+          "height": 17,
+          "depth": 30,
+          "blocks": 6130
         },
         "views": {
           "exterior": "suttonsbay-someapis_exterior.jpg",
@@ -2084,7 +2058,6 @@
           "width": 12,
           "length": 10,
           "seed": 832367,
-          "doorOverride": "spruce",
           "roofShape": "hip",
           "roofHeightOverride": 4,
           "features": {
@@ -2099,9 +2072,10 @@
           }
         },
         "grid": {
-          "width": 56,
+          "width": 48,
           "height": 15,
-          "blocks": 6644
+          "depth": 30,
+          "blocks": 5450
         },
         "views": {
           "exterior": "suttonsbay-allapis_exterior.jpg",
@@ -2274,7 +2248,7 @@
         "status": "ok",
         "data": {
           "wallColor": "rgb(176,165,141)",
-          "wallBlock": "light_gray_concrete",
+          "wallBlock": "sandstone",
           "roofColor": "rgb(153,156,146)",
           "roofBlock": "stone_brick_slab[type=bottom]",
           "trimColor": "rgb(163,151,129)",
@@ -2336,7 +2310,6 @@
           "width": 12,
           "length": 10,
           "seed": 222101,
-          "doorOverride": "iron",
           "features": {
             "chimney": false,
             "porch": true,
@@ -2350,8 +2323,9 @@
         },
         "grid": {
           "width": 48,
-          "height": 15,
-          "blocks": 5426
+          "height": 18,
+          "depth": 32,
+          "blocks": 6149
         },
         "views": {
           "exterior": "losangeles-noapi_exterior.jpg",
@@ -2377,13 +2351,12 @@
           "yearUncertain": false
         },
         "genOptions": {
-          "style": "steampunk",
-          "floors": 3,
+          "style": "desert",
+          "floors": 1,
           "width": 33,
           "length": 45,
           "seed": 222101,
-          "doorOverride": "iron",
-          "floorPlanShape": "T",
+          "floorPlanShape": "L",
           "features": {
             "chimney": true,
             "porch": true,
@@ -2397,20 +2370,17 @@
         },
         "grid": {
           "width": 83,
-          "height": 25,
-          "blocks": 19422
+          "height": 13,
+          "depth": 62,
+          "blocks": 15196
         },
         "views": {
           "exterior": "losangeles-someapis_exterior.jpg",
           "cutaway": [
-            "losangeles-someapis_cutaway_0.jpg",
-            "losangeles-someapis_cutaway_1.jpg",
-            "losangeles-someapis_cutaway_2.jpg"
+            "losangeles-someapis_cutaway_0.jpg"
           ],
           "floor": [
-            "losangeles-someapis_floor_0.jpg",
-            "losangeles-someapis_floor_1.jpg",
-            "losangeles-someapis_floor_2.jpg"
+            "losangeles-someapis_floor_0.jpg"
           ]
         }
       },
@@ -2422,25 +2392,17 @@
           "bathrooms": 3.5,
           "yearBuilt": 1924,
           "propertyType": "house",
-          "stories": 5,
+          "stories": 1,
           "yearUncertain": false
         },
         "genOptions": {
-          "style": "steampunk",
-          "floors": 4,
+          "style": "desert",
+          "floors": 3,
           "width": 33,
           "length": 45,
           "seed": 222101,
-          "wallOverride": "minecraft:light_gray_concrete",
-          "trimOverride": "minecraft:light_gray_concrete",
-          "doorOverride": "iron",
           "roofShape": "gambrel",
-          "roofOverride": {
-            "north": "minecraft:stone_brick_stairs[facing=north]",
-            "south": "minecraft:stone_brick_stairs[facing=south]",
-            "cap": "minecraft:stone_brick_slab[type=bottom]"
-          },
-          "floorPlanShape": "T",
+          "floorPlanShape": "L",
           "windowSpacing": 3,
           "roofHeightOverride": 4,
           "features": {
@@ -2456,22 +2418,21 @@
         },
         "grid": {
           "width": 83,
-          "height": 25,
-          "blocks": 19851
+          "height": 20,
+          "depth": 62,
+          "blocks": 16777
         },
         "views": {
           "exterior": "losangeles-allapis_exterior.jpg",
           "cutaway": [
             "losangeles-allapis_cutaway_0.jpg",
             "losangeles-allapis_cutaway_1.jpg",
-            "losangeles-allapis_cutaway_2.jpg",
-            "losangeles-allapis_cutaway_3.jpg"
+            "losangeles-allapis_cutaway_2.jpg"
           ],
           "floor": [
             "losangeles-allapis_floor_0.jpg",
             "losangeles-allapis_floor_1.jpg",
-            "losangeles-allapis_floor_2.jpg",
-            "losangeles-allapis_floor_3.jpg"
+            "losangeles-allapis_floor_2.jpg"
           ]
         }
       }
@@ -2635,22 +2596,22 @@
         "status": "ok",
         "data": {
           "wallColor": "rgb(77,86,54)",
-          "wallBlock": "gray_concrete",
-          "roofColor": "rgb(94,102,95)",
+          "wallBlock": "green_concrete",
+          "roofColor": "rgb(95,102,95)",
           "roofBlock": "cobblestone_slab[type=bottom]",
-          "trimColor": "rgb(95,112,54)",
+          "trimColor": "rgb(95,112,53)",
           "trimBlock": "stripped_spruce_log",
-          "storyCount": 4,
-          "storyConfidence": "0.18",
+          "storyCount": 3,
+          "storyConfidence": "0.19",
           "textureClass": "stone",
           "textureBlock": "stone_bricks",
           "roofPitch": "moderate",
-          "roofPitchDegrees": "30°",
+          "roofPitchDegrees": "15°",
           "roofHeightOverride": 0.5,
-          "symmetryScore": "0.83",
+          "symmetryScore": "0.84",
           "isSymmetric": true,
           "planShape": "rectangle",
-          "windowsPerFloor": 6,
+          "windowsPerFloor": 8,
           "windowSpacing": 2,
           "lawnDepth": "3%",
           "hasDriveway": false,
@@ -2697,7 +2658,6 @@
           "width": 12,
           "length": 10,
           "seed": 776180,
-          "doorOverride": "iron",
           "features": {
             "chimney": false,
             "porch": true,
@@ -2711,8 +2671,9 @@
         },
         "grid": {
           "width": 48,
-          "height": 15,
-          "blocks": 5424
+          "height": 18,
+          "depth": 32,
+          "blocks": 6155
         },
         "views": {
           "exterior": "seattle-noapi_exterior.jpg",
@@ -2743,7 +2704,6 @@
           "width": 12,
           "length": 15,
           "seed": 776180,
-          "doorOverride": "spruce",
           "floorPlanShape": "L",
           "features": {
             "chimney": true,
@@ -2758,8 +2718,9 @@
         },
         "grid": {
           "width": 56,
-          "height": 14,
-          "blocks": 6422
+          "height": 13,
+          "depth": 32,
+          "blocks": 6198
         },
         "views": {
           "exterior": "seattle-someapis_exterior.jpg",
@@ -2784,19 +2745,11 @@
         },
         "genOptions": {
           "style": "rustic",
-          "floors": 2,
+          "floors": 3,
           "width": 12,
           "length": 15,
           "seed": 776180,
-          "wallOverride": "minecraft:gray_concrete",
-          "trimOverride": "minecraft:stripped_spruce_log",
-          "doorOverride": "spruce",
           "roofShape": "gambrel",
-          "roofOverride": {
-            "north": "minecraft:cobblestone_stairs[facing=north]",
-            "south": "minecraft:cobblestone_stairs[facing=south]",
-            "cap": "minecraft:cobblestone_slab[type=bottom]"
-          },
           "floorPlanShape": "L",
           "windowSpacing": 2,
           "roofHeightOverride": 14,
@@ -2813,18 +2766,21 @@
         },
         "grid": {
           "width": 56,
-          "height": 21,
-          "blocks": 6760
+          "height": 26,
+          "depth": 32,
+          "blocks": 8438
         },
         "views": {
           "exterior": "seattle-allapis_exterior.jpg",
           "cutaway": [
             "seattle-allapis_cutaway_0.jpg",
-            "seattle-allapis_cutaway_1.jpg"
+            "seattle-allapis_cutaway_1.jpg",
+            "seattle-allapis_cutaway_2.jpg"
           ],
           "floor": [
             "seattle-allapis_floor_0.jpg",
-            "seattle-allapis_floor_1.jpg"
+            "seattle-allapis_floor_1.jpg",
+            "seattle-allapis_floor_2.jpg"
           ]
         }
       }
