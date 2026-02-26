@@ -234,13 +234,18 @@ Per Gemini review: "incorrect scale is more jarring than wrong texture" — geom
 - [ ] CLIP zero-shot — too heavy for browser (~150MB model), move to serverless
 - [ ] Depth Anything V3 — provides **relative** depth only, not metric height
 
-### 5.1 P1 — High Value, Moderate Effort
-- [ ] Meta/WRI 1m global canopy height tiles (tree heights from S3 COG)
-- [ ] ESA WorldCover 10m land cover (global tree cover / ground type)
+### 5.1 P1 — Implemented
+- [x] Meta/WRI 1m global canopy height via S3 COG + geotiff.js (`import-canopy-height.ts`)
+- [x] ESA WorldCover 10m land cover via S3 COG + geotiff.js (`import-landcover.ts`)
+- [x] OSM Overpass water features — rivers, lakes, reservoirs (`import-water.ts`)
+- [x] Smarty untapped fields wired: garageSqft, fireplaceCount, totalRooms, HVAC types, totalMarketValue
+- [x] heatingFuelType gas/oil/propane/wood → chimney=true in generation pipeline
+- [x] Canopy height fix: EPSG:3857 Web Mercator projection for pixel lookup
+- [x] All P1 sources have toggles, tests (3 each), JSON import/export
+
+### 5.1 P1 — Remaining
 - [ ] SegFormer CMP Facade parsing (12-class: window/door/balcony/pillar, browser ONNX)
 - [ ] Google Solar DSM tree extraction (non-building height pixels)
-- [ ] Smarty untapped fields (heating type, parking, window type, year remodeled)
-- [ ] NHD water features (ArcGIS identify, streams/rivers/lakes)
 - [ ] Multi-angle SV analysis (3-4 headings per building)
 
 ### 5.2 P2 — Medium Impact
