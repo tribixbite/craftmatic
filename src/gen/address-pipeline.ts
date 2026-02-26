@@ -1238,11 +1238,10 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     }
   }
 
-  // Enforce rect for very small footprints when shape was inferred from SV analysis —
-  // L/T shapes on tiny buildings look awkward (e.g. a 10x10 L-shape produces a disjointed tower).
-  // Only override SV-inferred shapes, not explicitly set OSM/bitmap/user shapes.
-  const shapeFromSV = !prop.floorPlanShape && !footprintBitmap && prop.svPlanShape;
-  if (shapeFromSV && floorPlanShape !== 'rect' && width * length < 120) {
+  // Enforce rect for very small footprints — L/T shapes on tiny buildings look awkward
+  // (e.g. a 10x10 L produces a disjointed tower). The generator can't fit meaningful
+  // wing proportions below ~120 blocks² regardless of the data source.
+  if (floorPlanShape && floorPlanShape !== 'rect' && width * length < 120) {
     floorPlanShape = 'rect';
   }
 
