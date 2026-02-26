@@ -232,13 +232,39 @@ export interface PropertyData {
   /** Roof shape from Cesium OSM Buildings */
   cesiumRoofShape?: string;
 
-  // ─── Phase 5 P0: Browser ML Analysis ───────────────────────────────────────
+  // ─── Phase 5 P0: Browser ML Analysis (deferred to P1) ──────────────────────
   /** Architectural style label from CLIP zero-shot classification */
   clipStyle?: string;
   /** Wall material label from CLIP zero-shot classification */
   clipMaterial?: string;
   /** Building height in meters from Depth Anything V3 metric depth */
   depthBuildingHeight?: number;
+
+  // ─── Phase 5 P1: Smarty Untapped Fields ───────────────────────────────────
+  /** Garage size in sqft from assessor records */
+  garageSqft?: number;
+  /** Number of fireplaces from assessor records */
+  fireplaceCount?: number;
+  /** Estimated total market value of property */
+  totalMarketValue?: number;
+  /** Air conditioning type: "Central", "Window", etc. */
+  airConditioningType?: string;
+  /** Primary heating system: "Forced Air", "Radiator", etc. */
+  heatingSystemType?: string;
+  /** Heating fuel: "Natural Gas", "Electric", "Oil", etc. */
+  heatingFuelType?: string;
+  /** Total room count from assessor */
+  totalRooms?: number;
+
+  // ─── Phase 5 P1: Water & Land Cover ───────────────────────────────────────
+  /** Nearby water features from OSM (rivers, streams, lakes, ponds) */
+  nearbyWater?: { type: string; name?: string; distanceMeters: number }[];
+  /** Tree canopy height at point in meters (Meta/WRI 1m COG) */
+  canopyHeightMeters?: number;
+  /** ESA WorldCover land cover class value (10=tree, 50=built-up, 80=water, etc.) */
+  landCoverClass?: number;
+  /** ESA WorldCover land cover label */
+  landCoverLabel?: string;
 }
 
 // ─── Hash ───────────────────────────────────────────────────────────────────
@@ -965,6 +991,10 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
   if (prop.smartyHasPorch) flags.porch = true;
   if (prop.drivewayType) flags.driveway = true;
   if (prop.hasFireplace) flags.chimney = true;
+  // Heating fuel = gas/oil/propane → chimney likely (flue exhaust)
+  if (prop.heatingFuelType && /gas|oil|propane|wood/i.test(prop.heatingFuelType)) {
+    flags.chimney = true;
+  }
   if (prop.hasDeck) flags.deck = true;
 
   // ── Mapillary feature overrides (crowd-sourced street-level detection) ──
