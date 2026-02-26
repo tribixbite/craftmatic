@@ -1035,6 +1035,24 @@ html, body {
   cursor: pointer;
 }
 
+.import-api-toggle:has(input:disabled) {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.import-api-toggle .toggle-disabled {
+  text-decoration: line-through;
+  font-style: italic;
+}
+
+.import-api-divider {
+  width: 100%;
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0 2px;
+}
+
 /* Legacy import-api-grid kept for backward compat */
 .import-api-grid {
   display: flex;

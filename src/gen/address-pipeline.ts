@@ -207,6 +207,38 @@ export interface PropertyData {
   svFeatures?: Partial<import('../types/index.js').FeatureFlags>;
   /** Architecture style label from vision analysis */
   svArchitectureLabel?: string;
+
+  // ─── Phase 5 P0: Vegetation & Landscape ───────────────────────────────────
+  /** Tree canopy cover percentage (0–99) from NLCD (US) or WorldCover (global) */
+  canopyCoverPct?: number;
+  /** USDA Plant Hardiness Zone (e.g. "7b") — determines tree species palette */
+  hardinessZone?: string;
+  /** Individual trees near the property from OSM natural=tree nodes */
+  nearbyTrees?: { lat: number; lon: number; species?: string; height?: number }[];
+
+  // ─── Phase 5 P0: Enhanced Building Data ────────────────────────────────────
+  /** Building height from Overture Maps (meters) */
+  overtureHeight?: number;
+  /** Number of floors from Overture Maps */
+  overtureFloors?: number;
+  /** Roof shape from Overture Maps (e.g. "gable", "hip", "flat") */
+  overtureRoofShape?: string;
+  /** Building height from Cesium OSM Buildings batch table (meters) */
+  cesiumHeight?: number;
+  /** Building levels from Cesium OSM Buildings */
+  cesiumLevels?: number;
+  /** Building material from Cesium OSM Buildings */
+  cesiumMaterial?: string;
+  /** Roof shape from Cesium OSM Buildings */
+  cesiumRoofShape?: string;
+
+  // ─── Phase 5 P0: Browser ML Analysis ───────────────────────────────────────
+  /** Architectural style label from CLIP zero-shot classification */
+  clipStyle?: string;
+  /** Wall material label from CLIP zero-shot classification */
+  clipMaterial?: string;
+  /** Building height in meters from Depth Anything V3 metric depth */
+  depthBuildingHeight?: number;
 }
 
 // ─── Hash ───────────────────────────────────────────────────────────────────
