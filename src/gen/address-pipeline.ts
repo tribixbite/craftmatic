@@ -868,6 +868,14 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
     pool: prop.hasPool ?? (climate === 'hot' && lotSize > 6000),
   };
 
+  // ── Small building awareness ──
+  // Tiny footprint buildings (<120 sqm) look disproportionate with large feature sets.
+  // Reduce features to keep visual focus on the building itself.
+  if (prop.osmWidth && prop.osmLength && prop.osmWidth * prop.osmLength < 120) {
+    flags.backyard = false;
+    flags.garden = false;
+    flags.pool = false;
+  }
   // ── Lot context awareness (Phase 3.7) ──
   // Small lots: tight setbacks, skip garden and trees (no room)
   if (lotSize > 0 && lotSize < 2500) {
