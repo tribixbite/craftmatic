@@ -54,6 +54,9 @@ import { analyzeStreetViewBrowser, type BrowserSvColorResult } from '@ui/import-
 import { queryMapboxBuildingHeight, type MapboxBuildingResult } from '@ui/import-mapbox-building.js';
 import { querySolarBuildingInsights, type SolarBuildingData } from '@craft/gen/api/google-solar.js';
 import { fetchElevationGrid, footprintSlope, type ElevationGrid } from '@ui/import-elevation.js';
+import { queryNlcdCanopy, type NlcdCanopyResult } from '@ui/import-nlcd.js';
+import { queryHardinessZone, type HardinessResult } from '@ui/import-hardiness.js';
+import { searchOSMTrees, type OSMTreeData } from '@ui/import-osm-trees.js';
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
 
@@ -154,6 +157,12 @@ export function initImport(
   let currentSvMeta: StreetViewMetadata | null = null;
   /** Elevation grid for terrain slope computation */
   let currentElevGrid: ElevationGrid | null = null;
+  /** NLCD tree canopy cover percentage (0–99) */
+  let currentNlcdCanopy: NlcdCanopyResult | null = null;
+  /** USDA Plant Hardiness Zone result */
+  let currentHardiness: HardinessResult | null = null;
+  /** Individual trees from OSM near the property */
+  let currentOSMTrees: OSMTreeData[] = [];
   /** Pre-lookup form defaults — restored when APIs that populated fields are toggled off */
   let preLookupDefaults = {
     stories: 2, sqft: 2000, bedrooms: 3, bathrooms: 2, yearBuilt: 2000, propertyType: 'house',
@@ -364,8 +373,16 @@ export function initImport(
           <label class="import-api-toggle"><input type="checkbox" data-api="mapillary" checked><span>Mapillary</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="osm" checked><span>OSM</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="elevation" checked><span>Elevation</span></label>
+          <div class="import-api-divider"></div>
+          <label class="import-api-toggle"><input type="checkbox" data-api="nlcd" checked><span>NLCD Canopy</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="hardiness" checked><span>Hardiness Zone</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="osmtrees" checked><span>OSM Trees</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="overture" disabled><span class="toggle-disabled">Overture Maps</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="cesium" disabled><span class="toggle-disabled">Cesium Buildings</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="clip" disabled><span class="toggle-disabled">CLIP Style</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="depth" disabled><span class="toggle-disabled">Depth Height</span></label>
         </div>
-        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Uncheck to exclude from generation. Data is still fetched.</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Uncheck to exclude from generation. Grayed items are not yet implemented.</div>
       </div>
     </details>
 
@@ -526,6 +543,9 @@ export function initImport(
     currentSolar = null;
     currentSvMeta = null;
     currentElevGrid = null;
+    currentNlcdCanopy = null;
+    currentHardiness = null;
+    currentOSMTrees = [];
 
     const [geoResult, parclResult, smartyResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -600,6 +620,21 @@ export function initImport(
       const PAD = 0.002;
       fetchElevationGrid(geo.lat - PAD, geo.lng - PAD, geo.lat + PAD, geo.lng + PAD)
         .then(grid => { if (grid) currentElevGrid = grid; })
+        .catch(() => { /* non-fatal */ });
+
+      // Phase 5 P0: NLCD tree canopy, hardiness zone, OSM trees (non-blocking)
+      queryNlcdCanopy(geo.lat, geo.lng)
+        .then(r => { currentNlcdCanopy = r; })
+        .catch(() => { /* non-fatal */ });
+      // Hardiness zone needs ZIP code — Parcl result already settled at this point
+      const parclZip = parclResult.status === 'fulfilled' ? parclResult.value?.zipCode : undefined;
+      if (parclZip) {
+        queryHardinessZone(parclZip)
+          .then(r => { currentHardiness = r; })
+          .catch(() => { /* non-fatal */ });
+      }
+      searchOSMTrees(geo.lat, geo.lng, 150)
+        .then(trees => { currentOSMTrees = trees; })
         .catch(() => { /* non-fatal */ });
 
       // Process Mapillary results
@@ -1278,6 +1313,17 @@ export function initImport(
     if (prop.yearUncertain) yearUncertain = true;
     if (prop.bedroomsUncertain) bedroomsUncertain = true;
 
+    // Phase 5 P0: vegetation/landscape data
+    if (prop.canopyCoverPct != null) {
+      currentNlcdCanopy = { canopyCoverPct: prop.canopyCoverPct as number };
+    }
+    if (prop.hardinessZone) {
+      currentHardiness = { zone: prop.hardinessZone as string };
+    }
+    if (Array.isArray(prop.nearbyTrees) && prop.nearbyTrees.length > 0) {
+      currentOSMTrees = prop.nearbyTrees as OSMTreeData[];
+    }
+
     showStatus(`Loaded from JSON: ${addressInput.value || 'unknown address'}`, 'success');
   }
 
@@ -1311,6 +1357,9 @@ export function initImport(
     const useMapillary = apis.has('mapillary');
     const useOsm = apis.has('osm');
     const useElevation = apis.has('elevation');
+    const useNlcd = apis.has('nlcd');
+    const useHardiness = apis.has('hardiness');
+    const useOsmTrees = apis.has('osmtrees');
 
     const yearVal = parseInt((controls.querySelector('#import-year') as HTMLInputElement).value) || 2000;
 
@@ -1480,6 +1529,10 @@ export function initImport(
           mapillaryHasFence: hasFence || undefined,
         };
       })() : {}),
+      // Phase 5 P0: vegetation & landscape enrichment
+      canopyCoverPct: useNlcd ? currentNlcdCanopy?.canopyCoverPct ?? undefined : undefined,
+      hardinessZone: useHardiness ? currentHardiness?.zone ?? undefined : undefined,
+      nearbyTrees: useOsmTrees && currentOSMTrees.length > 0 ? currentOSMTrees : undefined,
     };
 
     const options = convertToGenerationOptions(property);
