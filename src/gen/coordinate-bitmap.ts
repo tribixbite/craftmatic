@@ -109,19 +109,26 @@ export class CoordinateBitmap {
   }
 }
 
-// ─── Scanline Polygon Fill ─────────────────────────────────────────────────
+// ─── Scanline Polygon Fill (Winding Number Rule) ─────────────────────────
+
+/** Edge intercept with winding direction for non-zero winding fill */
+interface WindingIntercept {
+  x: number;
+  /** +1 for upward crossing, -1 for downward crossing */
+  dir: 1 | -1;
+}
 
 /**
- * Scanline fill a polygon into a CoordinateBitmap.
- * Uses ray-casting (even-odd rule): for each block (x, z), cast a ray
- * and count edge crossings to determine inside/outside.
+ * Scanline fill a polygon into a CoordinateBitmap using the **winding number
+ * rule** (non-zero fill). More robust than even-odd for complex concave polygons
+ * and self-intersecting paths — a block is inside if the polygon winds around
+ * it at least once in either direction.
  *
- * Optimized with scanline approach — for each row z, find all x-intercepts,
- * sort them, and fill between pairs. O(edges × height).
+ * Algorithm: for each scanline row z, compute all edge x-intercepts with their
+ * winding direction (upward +1, downward -1). Sort by x, then sweep left-to-right
+ * accumulating the winding number. Fill blocks where winding != 0.
  *
- * For building footprints, we test at block centers (x+0.5, z+0.5) but
- * expand the polygon by a half-block margin to ensure blocks touching the
- * boundary are included — buildings should fill their full footprint.
+ * Complexity: O(edges × height). Same as even-odd but with direction tracking.
  *
  * @param vertices Polygon vertices in block-space (integer x, z). Must be closed
  *   (first vertex == last vertex) or will be auto-closed.
@@ -153,21 +160,22 @@ export function scanlineFill(vertices: BlockPoint[]): CoordinateBitmap {
   const bitmap = new CoordinateBitmap(minX, maxX, minZ, maxZ);
   const edgeCount = pts.length - 1;
 
-  // For each scanline row z, test at half-integer y = z + 0.5 to determine
-  // which blocks are inside. Polygon vertices are integers representing block
-  // coordinates. We sample at block centers for robust even-odd classification.
+  // For each scanline row z, test at half-integer scanZ = z + 0.5 to determine
+  // which blocks are inside. Block (x, z) represents the cell [x, x+1) × [z, z+1),
+  // so sampling at the center gives robust classification for both convex and
+  // complex concave shapes.
   for (let z = minZ; z <= maxZ; z++) {
     const scanZ = z + 0.5;
-    const intercepts: number[] = [];
+    const intercepts: WindingIntercept[] = [];
 
     for (let i = 0; i < edgeCount; i++) {
       const a = pts[i];
       const b = pts[i + 1];
 
-      // Skip horizontal edges
+      // Skip horizontal edges — they don't contribute to winding
       if (a.z === b.z) continue;
 
-      // Edge spans [min, max) in z — check if scanline z+0.5 crosses
+      // Edge spans [min, max) in z — check if scanline crosses
       const eMinZ = Math.min(a.z, b.z);
       const eMaxZ = Math.max(a.z, b.z);
       if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
@@ -175,16 +183,31 @@ export function scanlineFill(vertices: BlockPoint[]): CoordinateBitmap {
       // Compute x-intercept via linear interpolation
       const t = (scanZ - a.z) / (b.z - a.z);
       const xIntercept = a.x + t * (b.x - a.x);
-      intercepts.push(xIntercept);
+
+      // Winding direction: +1 if edge goes upward (a.z < b.z), -1 if downward
+      const dir: 1 | -1 = a.z < b.z ? 1 : -1;
+      intercepts.push({ x: xIntercept, dir });
     }
 
-    // Sort intercepts and fill between pairs (even-odd rule)
-    intercepts.sort((a, b) => a - b);
-    for (let i = 0; i + 1 < intercepts.length; i += 2) {
-      // Include blocks whose center x+0.5 falls between intercepts
-      const xStart = Math.floor(intercepts[i]);
-      const xEnd = Math.ceil(intercepts[i + 1]) - 1;
-      for (let x = xStart; x <= xEnd; x++) {
+    // Sort intercepts by x-position
+    intercepts.sort((a, b) => a.x - b.x);
+
+    // Sweep left-to-right, tracking winding number.
+    // Fill blocks where winding != 0 (non-zero fill rule).
+    let windingNumber = 0;
+    let interceptIdx = 0;
+
+    for (let x = minX; x <= maxX; x++) {
+      const blockCenter = x + 0.5;
+
+      // Advance past all intercepts at or before this block center
+      while (interceptIdx < intercepts.length && intercepts[interceptIdx].x <= blockCenter) {
+        windingNumber += intercepts[interceptIdx].dir;
+        interceptIdx++;
+      }
+
+      // Block is inside if winding number is non-zero
+      if (windingNumber !== 0) {
         bitmap.set(x, z);
       }
     }
