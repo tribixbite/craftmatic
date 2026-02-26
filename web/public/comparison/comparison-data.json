@@ -619,7 +619,7 @@
           "yearUncertain": true
         },
         "genOptions": {
-          "style": "fantasy",
+          "style": "colonial",
           "floors": 3,
           "width": 17,
           "length": 21,
@@ -668,7 +668,7 @@
           "yearUncertain": true
         },
         "genOptions": {
-          "style": "fantasy",
+          "style": "colonial",
           "floors": 3,
           "width": 17,
           "length": 21,
@@ -752,35 +752,11 @@
       {
         "name": "OpenStreetMap",
         "available": true,
-        "status": "ok",
-        "data": {
-          "width": "57.7m",
-          "length": "63.6m",
-          "footprint": "3672 sqm",
-          "polygonVertices": 220
-        },
-        "fieldsSet": [
-          "osmWidth",
-          "osmLength",
-          "osmLevels",
-          "osmMaterial",
-          "osmRoofShape",
-          "osmRoofMaterial",
-          "osmRoofColour",
-          "osmBuildingColour",
-          "osmArchitecture"
-        ],
-        "impactedGenFields": [
-          "width",
-          "length",
-          "floors",
-          "wallOverride",
-          "roofShape",
-          "roofOverride",
-          "trimOverride",
-          "floorPlanShape",
-          "style"
-        ]
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "No building found"
       },
       {
         "name": "Mapbox",
@@ -930,16 +906,15 @@
           "bathrooms": 2,
           "yearBuilt": 2000,
           "propertyType": "other",
-          "stories": 1,
+          "stories": 2,
           "yearUncertain": true
         },
         "genOptions": {
-          "style": "colonial",
-          "floors": 1,
-          "width": 45,
-          "length": 45,
+          "style": "desert",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
           "seed": 201564,
-          "floorPlanShape": "L",
           "features": {
             "chimney": false,
             "porch": true,
@@ -952,18 +927,20 @@
           }
         },
         "grid": {
-          "width": 101,
-          "height": 13,
-          "depth": 62,
-          "blocks": 18691
+          "width": 48,
+          "height": 17,
+          "depth": 30,
+          "blocks": 6137
         },
         "views": {
           "exterior": "sanjose-someapis_exterior.jpg",
           "cutaway": [
-            "sanjose-someapis_cutaway_0.jpg"
+            "sanjose-someapis_cutaway_0.jpg",
+            "sanjose-someapis_cutaway_1.jpg"
           ],
           "floor": [
-            "sanjose-someapis_floor_0.jpg"
+            "sanjose-someapis_floor_0.jpg",
+            "sanjose-someapis_floor_1.jpg"
           ]
         }
       },
@@ -975,17 +952,16 @@
           "bathrooms": 2,
           "yearBuilt": 2000,
           "propertyType": "other",
-          "stories": 1,
+          "stories": 3,
           "yearUncertain": true
         },
         "genOptions": {
-          "style": "colonial",
-          "floors": 1,
+          "style": "desert",
+          "floors": 3,
           "width": 45,
           "length": 45,
           "seed": 201564,
           "roofShape": "gambrel",
-          "floorPlanShape": "L",
           "roofHeightOverride": 4,
           "features": {
             "chimney": false,
@@ -999,18 +975,22 @@
           }
         },
         "grid": {
-          "width": 101,
-          "height": 11,
+          "width": 81,
+          "height": 20,
           "depth": 62,
-          "blocks": 16093
+          "blocks": 26853
         },
         "views": {
           "exterior": "sanjose-allapis_exterior.jpg",
           "cutaway": [
-            "sanjose-allapis_cutaway_0.jpg"
+            "sanjose-allapis_cutaway_0.jpg",
+            "sanjose-allapis_cutaway_1.jpg",
+            "sanjose-allapis_cutaway_2.jpg"
           ],
           "floor": [
-            "sanjose-allapis_floor_0.jpg"
+            "sanjose-allapis_floor_0.jpg",
+            "sanjose-allapis_floor_1.jpg",
+            "sanjose-allapis_floor_2.jpg"
           ]
         }
       }
@@ -1332,35 +1312,11 @@
       {
         "name": "OpenStreetMap",
         "available": true,
-        "status": "ok",
-        "data": {
-          "width": "10.3m",
-          "length": "10.4m",
-          "footprint": "107 sqm",
-          "polygonVertices": 5
-        },
-        "fieldsSet": [
-          "osmWidth",
-          "osmLength",
-          "osmLevels",
-          "osmMaterial",
-          "osmRoofShape",
-          "osmRoofMaterial",
-          "osmRoofColour",
-          "osmBuildingColour",
-          "osmArchitecture"
-        ],
-        "impactedGenFields": [
-          "width",
-          "length",
-          "floors",
-          "wallOverride",
-          "roofShape",
-          "roofOverride",
-          "trimOverride",
-          "floorPlanShape",
-          "style"
-        ]
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "No building found"
       },
       {
         "name": "Mapbox",
@@ -1499,16 +1455,15 @@
           "bathrooms": 2,
           "yearBuilt": 1980,
           "propertyType": "house",
-          "stories": 3,
+          "stories": 2,
           "yearUncertain": false
         },
         "genOptions": {
           "style": "modern",
-          "floors": 3,
-          "width": 10,
+          "floors": 2,
+          "width": 14,
           "length": 10,
           "seed": 802372,
-          "floorPlanShape": "L",
           "features": {
             "chimney": true,
             "porch": true,
@@ -1521,22 +1476,20 @@
           }
         },
         "grid": {
-          "width": 54,
-          "height": 23,
+          "width": 50,
+          "height": 18,
           "depth": 32,
-          "blocks": 6503
+          "blocks": 6461
         },
         "views": {
           "exterior": "byron-someapis_exterior.jpg",
           "cutaway": [
             "byron-someapis_cutaway_0.jpg",
-            "byron-someapis_cutaway_1.jpg",
-            "byron-someapis_cutaway_2.jpg"
+            "byron-someapis_cutaway_1.jpg"
           ],
           "floor": [
             "byron-someapis_floor_0.jpg",
-            "byron-someapis_floor_1.jpg",
-            "byron-someapis_floor_2.jpg"
+            "byron-someapis_floor_1.jpg"
           ]
         }
       },
@@ -1554,11 +1507,10 @@
         "genOptions": {
           "style": "modern",
           "floors": 3,
-          "width": 10,
-          "length": 10,
+          "width": 15,
+          "length": 11,
           "seed": 802372,
           "roofShape": "gambrel",
-          "floorPlanShape": "L",
           "roofHeightOverride": 8,
           "features": {
             "chimney": true,
@@ -1572,10 +1524,10 @@
           }
         },
         "grid": {
-          "width": 54,
+          "width": 51,
           "height": 23,
-          "depth": 32,
-          "blocks": 6540
+          "depth": 33,
+          "blocks": 7429
         },
         "views": {
           "exterior": "byron-allapis_exterior.jpg",
@@ -2133,35 +2085,11 @@
       {
         "name": "OpenStreetMap",
         "available": true,
-        "status": "ok",
-        "data": {
-          "width": "33.1m",
-          "length": "44.6m",
-          "footprint": "1479 sqm",
-          "polygonVertices": 49
-        },
-        "fieldsSet": [
-          "osmWidth",
-          "osmLength",
-          "osmLevels",
-          "osmMaterial",
-          "osmRoofShape",
-          "osmRoofMaterial",
-          "osmRoofColour",
-          "osmBuildingColour",
-          "osmArchitecture"
-        ],
-        "impactedGenFields": [
-          "width",
-          "length",
-          "floors",
-          "wallOverride",
-          "roofShape",
-          "roofOverride",
-          "trimOverride",
-          "floorPlanShape",
-          "style"
-        ]
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "No building found"
       },
       {
         "name": "Mapbox",
@@ -2347,16 +2275,15 @@
           "bathrooms": 3.5,
           "yearBuilt": 1924,
           "propertyType": "house",
-          "stories": 1,
+          "stories": 2,
           "yearUncertain": false
         },
         "genOptions": {
           "style": "desert",
-          "floors": 1,
-          "width": 33,
-          "length": 45,
+          "floors": 3,
+          "width": 18,
+          "length": 14,
           "seed": 222101,
-          "floorPlanShape": "L",
           "features": {
             "chimney": true,
             "porch": true,
@@ -2369,18 +2296,22 @@
           }
         },
         "grid": {
-          "width": 83,
-          "height": 13,
-          "depth": 62,
-          "blocks": 15196
+          "width": 54,
+          "height": 23,
+          "depth": 31,
+          "blocks": 10012
         },
         "views": {
           "exterior": "losangeles-someapis_exterior.jpg",
           "cutaway": [
-            "losangeles-someapis_cutaway_0.jpg"
+            "losangeles-someapis_cutaway_0.jpg",
+            "losangeles-someapis_cutaway_1.jpg",
+            "losangeles-someapis_cutaway_2.jpg"
           ],
           "floor": [
-            "losangeles-someapis_floor_0.jpg"
+            "losangeles-someapis_floor_0.jpg",
+            "losangeles-someapis_floor_1.jpg",
+            "losangeles-someapis_floor_2.jpg"
           ]
         }
       },
@@ -2392,17 +2323,17 @@
           "bathrooms": 3.5,
           "yearBuilt": 1924,
           "propertyType": "house",
-          "stories": 1,
+          "stories": 5,
           "yearUncertain": false
         },
         "genOptions": {
           "style": "desert",
           "floors": 3,
-          "width": 33,
-          "length": 45,
+          "width": 32,
+          "length": 25,
           "seed": 222101,
           "roofShape": "gambrel",
-          "floorPlanShape": "L",
+          "floorPlanShape": "T",
           "windowSpacing": 3,
           "roofHeightOverride": 4,
           "features": {
@@ -2417,10 +2348,10 @@
           }
         },
         "grid": {
-          "width": 83,
+          "width": 82,
           "height": 20,
-          "depth": 62,
-          "blocks": 16777
+          "depth": 42,
+          "blocks": 15824
         },
         "views": {
           "exterior": "losangeles-allapis_exterior.jpg",
@@ -2480,35 +2411,11 @@
       {
         "name": "OpenStreetMap",
         "available": true,
-        "status": "ok",
-        "data": {
-          "width": "11.8m",
-          "length": "14.9m",
-          "footprint": "176 sqm",
-          "polygonVertices": 19
-        },
-        "fieldsSet": [
-          "osmWidth",
-          "osmLength",
-          "osmLevels",
-          "osmMaterial",
-          "osmRoofShape",
-          "osmRoofMaterial",
-          "osmRoofColour",
-          "osmBuildingColour",
-          "osmArchitecture"
-        ],
-        "impactedGenFields": [
-          "width",
-          "length",
-          "floors",
-          "wallOverride",
-          "roofShape",
-          "roofOverride",
-          "trimOverride",
-          "floorPlanShape",
-          "style"
-        ]
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "No building found"
       },
       {
         "name": "Mapbox",
@@ -2695,16 +2602,15 @@
           "bathrooms": 1,
           "yearBuilt": 1911,
           "propertyType": "house",
-          "stories": 1,
+          "stories": 2,
           "yearUncertain": false
         },
         "genOptions": {
           "style": "rustic",
-          "floors": 1,
+          "floors": 2,
           "width": 12,
-          "length": 15,
+          "length": 10,
           "seed": 776180,
-          "floorPlanShape": "L",
           "features": {
             "chimney": true,
             "porch": true,
@@ -2717,18 +2623,20 @@
           }
         },
         "grid": {
-          "width": 56,
-          "height": 13,
-          "depth": 32,
-          "blocks": 6198
+          "width": 48,
+          "height": 18,
+          "depth": 30,
+          "blocks": 6137
         },
         "views": {
           "exterior": "seattle-someapis_exterior.jpg",
           "cutaway": [
-            "seattle-someapis_cutaway_0.jpg"
+            "seattle-someapis_cutaway_0.jpg",
+            "seattle-someapis_cutaway_1.jpg"
           ],
           "floor": [
-            "seattle-someapis_floor_0.jpg"
+            "seattle-someapis_floor_0.jpg",
+            "seattle-someapis_floor_1.jpg"
           ]
         }
       },
@@ -2746,11 +2654,11 @@
         "genOptions": {
           "style": "rustic",
           "floors": 3,
-          "width": 12,
-          "length": 15,
+          "width": 21,
+          "length": 16,
           "seed": 776180,
           "roofShape": "gambrel",
-          "floorPlanShape": "L",
+          "floorPlanShape": "rect",
           "windowSpacing": 2,
           "roofHeightOverride": 14,
           "features": {
@@ -2765,10 +2673,10 @@
           }
         },
         "grid": {
-          "width": 56,
-          "height": 26,
-          "depth": 32,
-          "blocks": 8438
+          "width": 57,
+          "height": 29,
+          "depth": 33,
+          "blocks": 11334
         },
         "views": {
           "exterior": "seattle-allapis_exterior.jpg",
