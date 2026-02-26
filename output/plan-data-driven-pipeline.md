@@ -232,6 +232,12 @@ for better handling of complex concave shapes.
 | 17 | `src/gen/address-pipeline.ts` | OSM building:colour → wall color (hexToWallBlock) | DONE |
 | 18 | `web/src/ui/import.ts` | Mapillary heading as facade orientation fallback | DONE |
 | 19 | `web/src/ui/import.ts` | Mapbox height correction for hillside terrain | DONE |
+| 20 | `src/gen/address-pipeline.ts` | osmLevels + svStoryCount → effectiveStories chain | DONE |
+| 21 | `src/gen/address-pipeline.ts` | solarBuildingArea → footprint area fallback (P3) | DONE |
+| 22 | `src/gen/address-pipeline.ts` | svRoofPitch → inferRoofFromSVPitch() roof shape | DONE |
+| 23 | `src/gen/address-pipeline.ts` | solarRoofArea → pitch estimation from area ratio | DONE |
+| 24 | `src/gen/address-pipeline.ts` | svWindowsPerFloor → window spacing derivation | DONE |
+| 25 | `src/gen/address-pipeline.ts` | svSymmetric → rect floor plan shape hint | DONE |
 
 ## Arnis Patterns to Adopt
 
