@@ -356,9 +356,10 @@ export function inferStyleFromPropertyType(
     return 'gothic';
   }
 
-  // Heuristic: single-family "house" with 8+ bedrooms is almost certainly
-  // a misclassified multi-unit (MLS/Parcl often lists entire multi-unit buildings as "house")
-  if (pt === 'house' && (bedrooms ?? 0) >= 8) {
+  // Heuristic: single-family "house" with 8+ beds AND 8+ baths is almost certainly
+  // a misclassified multi-unit (MLS/Parcl often lists entire multi-unit buildings as "house").
+  // Require both high beds AND baths — large estates can have 8+ beds with fewer baths.
+  if (pt === 'house' && (bedrooms ?? 0) >= 8 && (bathrooms ?? 0) >= 8) {
     if (year >= 1970) return 'modern';
     if (year >= 1920) return 'desert';     // Pre-war apartment (stucco, flat roof)
     return 'gothic';
@@ -986,7 +987,7 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // Parcl Labs often returns "OTHER" for apartments, and "house" for multi-unit buildings.
   const pt = prop.propertyType?.toUpperCase() ?? '';
   const isHeuristicMultiUnit = (pt === 'OTHER' && prop.bedrooms >= 6 && prop.bathrooms >= 6)
-    || (pt === 'HOUSE' && prop.bedrooms >= 8);  // 8+ bed "house" is always multi-unit
+    || (pt === 'HOUSE' && prop.bedrooms >= 8 && prop.bathrooms >= 8);  // 8+ bed+bath "house" is multi-unit
 
   // ── Floor clamping ───────────────────────────────────────────────
   // Clamp floors to realistic per-type limits to prevent inflated story counts
