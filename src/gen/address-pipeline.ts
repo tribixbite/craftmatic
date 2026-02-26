@@ -474,7 +474,19 @@ export function inferDensityFromZip(zip: string | undefined): 'urban' | 'suburba
  * Infer climate zone from state abbreviation.
  * Returns a simplified climate hint used for feature flag tuning.
  */
-export function inferClimateZone(state: string | undefined): 'cold' | 'hot' | 'temperate' {
+export function inferClimateZone(
+  state: string | undefined,
+  hardinessZone?: string,
+): 'cold' | 'hot' | 'temperate' {
+  // Hardiness zone gives precise climate: zones 1-4 = cold, 5-7 = temperate, 8+ = hot
+  if (hardinessZone) {
+    const num = parseInt(hardinessZone.replace(/[ab]/i, ''));
+    if (!isNaN(num)) {
+      if (num <= 4) return 'cold';
+      if (num >= 9) return 'hot';
+      // Zones 5-8 fall through to state-based refinement
+    }
+  }
   if (!state) return 'temperate';
   const s = state.toUpperCase();
   // Cold-climate states — more chimney likelihood, steeper roofs
@@ -876,7 +888,7 @@ export function inferFeatures(prop: PropertyData): FeatureFlags {
   const lotSize = prop.lotSize ?? 0;
   const sqft = prop.sqft;
   const year = prop.yearBuilt;
-  const climate = inferClimateZone(prop.stateAbbreviation);
+  const climate = inferClimateZone(prop.stateAbbreviation, prop.hardinessZone);
   const density = inferDensityFromZip(prop.zipCode);
   const residential = prop.ownerOccupied !== false; // Default to true if unknown
   const staged = prop.onMarket === true;
@@ -1063,22 +1075,25 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   }
 
   // Stories estimation with additional data sources as override signals.
+  // Priority: OSM levels > Overture floors > SV story count > Smarty/Parcl/form
   // OSM building:levels is ground-truth from community mapping (highest confidence).
+  // Overture num_floors aggregates OSM + ML sources (high confidence, broader coverage).
   // SV story count is from automated image analysis (medium confidence).
   // prop.stories is from Smarty/Parcl/form (varies — may be a form default of 2).
-  // Mapbox height is a fallback when stories data is unreliable (e.g. default of 1-2
-  // combined with large footprint that makes the sqft-based estimate implausible).
-  let effectiveStories = prop.osmLevels ?? prop.svStoryCount ?? prop.stories;
-  if (prop.mapboxHeight && prop.mapboxHeight > 0) {
-    const mapboxFloors = Math.max(1, Math.round(prop.mapboxHeight / 3.5));
+  let effectiveStories = prop.osmLevels ?? prop.overtureFloors ?? prop.svStoryCount ?? prop.stories;
+  // Height-based floor override: Mapbox or Overture height → derived floor count.
+  // Used when height data is available but floor count is missing or unreliable.
+  const heightForFloors = prop.mapboxHeight ?? prop.overtureHeight;
+  if (heightForFloors && heightForFloors > 0) {
+    const heightFloors = Math.max(1, Math.round(heightForFloors / 3.5));
     // When OSM footprint is much larger than sqft implies (sqft default or landmark),
-    // trust Mapbox height over the footprint-derived story count
+    // trust measured height over the footprint-derived story count
     if (prop.osmWidth && prop.osmLength) {
       const footprintSqm = prop.osmWidth * prop.osmLength;
       const impliedSqm = prop.sqft / 10.76;
       // If footprint is 5x larger than sqft implies, sqft is likely wrong (default/landmark)
-      if (footprintSqm > impliedSqm * 5 && mapboxFloors > effectiveStories) {
-        effectiveStories = mapboxFloors;
+      if (footprintSqm > impliedSqm * 5 && heightFloors > effectiveStories) {
+        effectiveStories = heightFloors;
       }
     }
   }
@@ -1141,10 +1156,11 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   if (prop.hasGarage) rooms.push('garage');
 
   // ── Roof shape ────────────────────────────────────────────────────
-  // Priority: OSM roof:shape > Smarty roofFrame > Solar segments > SV pitch > style default
+  // Priority: OSM roof:shape > Overture roof_shape > Smarty roofFrame > Solar > SV pitch
   // When no data source provides a roof shape, leave undefined so gen-house.ts
   // uses style.defaultRoofShape (which is tuned per style) instead of a hard 'gable' fallback.
   let roofShape: RoofShape | undefined = mapOSMRoofToShape(prop.osmRoofShape)
+    ?? mapOSMRoofToShape(prop.overtureRoofShape)
     ?? inferRoofFromSmartyFrame(prop.roofFrame)
     ?? inferRoofFromSolar(prop.solarRoofSegments, prop.solarRoofPitch)
     ?? inferRoofFromSVPitch(prop.svRoofPitch);
@@ -1181,7 +1197,7 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // Apply year-based material aging (pre-1920 → weathered, post-2000 → modern)
   const agedWall = applyYearBasedWallAging(rawWall, prop.yearBuilt);
   // Apply climate-specific adjustments (hot → lighter, cold → darker/sturdier)
-  const climate = inferClimateZone(prop.stateAbbreviation);
+  const climate = inferClimateZone(prop.stateAbbreviation, prop.hardinessZone);
   const climaticWall = applyClimateMaterials(agedWall, climate);
   // Apply assessed value tier (high → polished, low → basic)
   const wallOverride = applyValueTierMaterials(climaticWall, prop.assessedValue);
