@@ -441,8 +441,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:birch_planks',
     ceiling: 'minecraft:spruce_planks',
     timber: 'minecraft:spruce_log',
-    roofStairs: 'minecraft:spruce_stairs',
-    roofCap: 'minecraft:spruce_slab[type=bottom]',
+    roofStairs: 'minecraft:deepslate_tile_stairs',  // dark slate shingles — contrast against spruce walls
+    roofCap: 'minecraft:deepslate_tile_slab[type=bottom]',
     defaultRoofShape: 'gambrel',
     defaultPlanShape: 'L',
     roofHeight: 10,
