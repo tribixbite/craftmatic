@@ -107,6 +107,11 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   { rgb: [114, 85, 48], options: ['minecraft:spruce_planks', 'minecraft:stripped_spruce_log'] },
   { rgb: [67, 43, 20], options: ['minecraft:dark_oak_planks', 'minecraft:stripped_dark_oak_log'] },
   { rgb: [160, 115, 80], options: ['minecraft:jungle_planks', 'minecraft:stripped_jungle_log'] },
+  // Warm brown/olive — aged stucco, shadowed plaster, weathered render
+  // Fills the gap between jungle_planks (160,115,80) and sandstone (216,203,155)
+  // where SV color extraction often lands for stucco facades in shadow
+  { rgb: [140, 128, 98], options: ['minecraft:sandstone', 'minecraft:smooth_sandstone', 'minecraft:end_stone_bricks'] },
+  { rgb: [165, 150, 115], options: ['minecraft:sandstone', 'minecraft:smooth_sandstone', 'minecraft:birch_planks'] },
   // Sandy / cream — stucco, adobe, limestone
   { rgb: [216, 203, 155], options: ['minecraft:sandstone', 'minecraft:smooth_sandstone', 'minecraft:end_stone_bricks'] },
   { rgb: [223, 214, 170], options: ['minecraft:smooth_sandstone', 'minecraft:sandstone'] },
