@@ -637,8 +637,8 @@ export const STYLES: Record<StyleName, StylePalette> = {
     floorUpper: 'minecraft:birch_planks',
     ceiling: 'minecraft:stripped_birch_log',    // exposed beam ceiling
     timber: 'minecraft:birch_log',             // light structural timber
-    roofStairs: 'minecraft:stone_brick_stairs', // slate-colored roof shingles
-    roofCap: 'minecraft:stone_brick_slab[type=bottom]',
+    roofStairs: 'minecraft:dark_oak_stairs',     // dark wood shingle roof — classic colonial
+    roofCap: 'minecraft:dark_oak_slab[type=bottom]',
     defaultRoofShape: 'gable',                 // simple symmetric gable
     defaultPlanShape: 'rect',                  // strict rectangular box
     roofHeight: 8,                             // moderate pitch

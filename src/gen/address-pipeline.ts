@@ -287,8 +287,8 @@ export function mapArchitectureToStyle(arch: string | undefined): StyleName | un
 export function inferStyleFromCounty(county: string | undefined, year: number): StyleName | undefined {
   if (!county || year >= 1980) return undefined; // Only for older homes
   const c = county.toLowerCase();
-  // Victorian/Gothic prevalence areas
-  if (/\bsan\s*francisco|alameda|marin/.test(c)) return 'gothic';
+  // SF Bay Area: Victorian era (pre-1910) → gothic, Mediterranean/Mission (1910-1960) → desert
+  if (/\bsan\s*francisco|alameda|marin/.test(c)) return year < 1910 ? 'gothic' : 'desert';
   // Mediterranean/Desert style regions
   if (/\bmiami.?dade|palm\s*beach|broward/.test(c)) return 'desert';
   // Tudor/Medieval style areas
@@ -356,6 +356,14 @@ export function inferStyleFromPropertyType(
     return 'gothic';
   }
 
+  // Heuristic: single-family "house" with 8+ bedrooms is almost certainly
+  // a misclassified multi-unit (MLS/Parcl often lists entire multi-unit buildings as "house")
+  if (pt === 'house' && (bedrooms ?? 0) >= 8) {
+    if (year >= 1970) return 'modern';
+    if (year >= 1920) return 'desert';     // Pre-war apartment (stucco, flat roof)
+    return 'gothic';
+  }
+
   // Individual condo units: usually in modern buildings
   if (pt === 'condo') {
     return year >= 1970 ? 'modern' : undefined; // Older condos fall through
@@ -392,11 +400,15 @@ export function resolveStyle(prop: PropertyData): StyleName {
     // New England village homes (NH, VT, MA, CT, ME, RI) with formal road types
     // are overwhelmingly white colonial/Federal, not rustic lodges
     const ne = ['NH', 'VT', 'MA', 'CT', 'ME', 'RI'].includes(prop.stateAbbreviation?.toUpperCase() ?? '');
-    const formalRoad = /\b(st|ave|blvd|dr|ct|pl|sq|way)\b/i.test(prop.address);
-    // Large NE estates (>= 6000 sqft) with uncertain year are likely Victorian/Queen Anne,
-    // not Colonial — Colonials are typically under 5000 sqft
-    if (ne && prop.sqft >= 6000) return 'fantasy';
+    const formalRoad = /\b(st|ave|blvd|dr|ct|pl|sq|way|cir)\b/i.test(prop.address);
+    // Grand NE estates (>= 10000 sqft) with uncertain year are likely Victorian/Queen Anne.
+    // Colonials are typically under 10000 sqft; 6000-9999 are large colonials, not mansions.
+    if (ne && prop.sqft >= 10000) return 'fantasy';
     if (ne && formalRoad) return 'colonial'; // White clapboard Colonial/Federal
+    // California and Southwest homes with uncertain year are overwhelmingly
+    // Mediterranean/Spanish Revival or Ranch — colonial is rare outside the East Coast
+    const sw = ['CA', 'AZ', 'NM', 'NV', 'TX', 'FL'].includes(prop.stateAbbreviation?.toUpperCase() ?? '');
+    if (sw) return 'desert';
     if (density === 'suburban' && prop.sqft >= 6000) return 'fantasy';
     if (density === 'suburban' && formalRoad) return 'colonial';
     return 'rustic';
@@ -969,15 +981,17 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   const mbType = prop.mapboxBuildingType?.toLowerCase() ?? '';
   const isMapboxMultiUnit = /apartment|dormitor|hotel|commercial/.test(mbType);
 
-  // Heuristic multi-unit detection: propertyType="OTHER" with high bedroom/bathroom count
-  // is almost certainly a misclassified apartment building (Parcl Labs often returns "OTHER")
-  const isHeuristicMultiUnit = prop.propertyType?.toUpperCase() === 'OTHER'
-    && prop.bedrooms >= 6 && prop.bathrooms >= 6;
+  // Heuristic multi-unit detection: high bedroom/bathroom count on non-multi-family
+  // listings is almost certainly a misclassified apartment building.
+  // Parcl Labs often returns "OTHER" for apartments, and "house" for multi-unit buildings.
+  const pt = prop.propertyType?.toUpperCase() ?? '';
+  const isHeuristicMultiUnit = (pt === 'OTHER' && prop.bedrooms >= 6 && prop.bathrooms >= 6)
+    || (pt === 'HOUSE' && prop.bedrooms >= 8);  // 8+ bed "house" is always multi-unit
 
   // ── Floor clamping ───────────────────────────────────────────────
   // Clamp floors to realistic per-type limits to prevent inflated story counts
   const effectiveMultiUnit = isMultiUnit(prop.propertyType) || isMapboxMultiUnit || isHeuristicMultiUnit;
-  const maxFloors = effectiveMultiUnit ? 8
+  let maxFloors = effectiveMultiUnit ? 8
     : prop.sqft > 10000 ? 5   // large mansions (e.g. Winchester)
     : 4;                        // standard single-family
   // Minimum floors for large single-family — a 5000+ sqft house is always 2+ stories,
@@ -997,6 +1011,16 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
       minFloors = Math.min(minFloors, Math.max(1, neededFloors));
     }
   }
+  // Small-footprint floor cap: buildings with tiny OSM footprints (<150 sqm)
+  // are likely ranch/bungalow-style even if sqft or Mapbox height suggest more floors.
+  // A 10x10m (100 sqm) building at 3+ floors looks like a tower, not a house.
+  if (prop.osmWidth && prop.osmLength) {
+    const footprintSqm = prop.osmWidth * prop.osmLength;
+    if (footprintSqm < 150 && !effectiveMultiUnit) {
+      maxFloors = Math.min(maxFloors, 2);
+    }
+  }
+
   // Stories estimation with additional data sources as override signals.
   // OSM building:levels is ground-truth from community mapping (highest confidence).
   // SV story count is from automated image analysis (medium confidence).
