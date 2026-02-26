@@ -58,6 +58,9 @@ import { queryNlcdCanopy, type NlcdCanopyResult } from '@ui/import-nlcd.js';
 import { queryHardinessZone, type HardinessResult } from '@ui/import-hardiness.js';
 import { searchOSMTrees, type OSMTreeData } from '@ui/import-osm-trees.js';
 import { queryOvertureBuilding, type OvertureBuildingData } from '@ui/import-overture.js';
+import { searchWaterFeatures, type WaterFeature } from '@ui/import-water.js';
+import { queryCanopyHeight, type CanopyHeightResult } from '@ui/import-canopy-height.js';
+import { queryLandCover, type LandCoverResult } from '@ui/import-landcover.js';
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
 
@@ -166,6 +169,12 @@ export function initImport(
   let currentOSMTrees: OSMTreeData[] = [];
   /** Overture Maps building attributes (height, floors, roof, facade) */
   let currentOverture: OvertureBuildingData | null = null;
+  /** Water features near the property */
+  let currentWater: WaterFeature[] = [];
+  /** Meta/WRI canopy height at the property */
+  let currentCanopyHeight: CanopyHeightResult | null = null;
+  /** ESA WorldCover land cover at the property */
+  let currentLandCover: LandCoverResult | null = null;
   /** Pre-lookup form defaults — restored when APIs that populated fields are toggled off */
   let preLookupDefaults = {
     stories: 2, sqft: 2000, bedrooms: 3, bathrooms: 2, yearBuilt: 2000, propertyType: 'house',
@@ -381,9 +390,12 @@ export function initImport(
           <label class="import-api-toggle"><input type="checkbox" data-api="hardiness" checked><span>Hardiness Zone</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="osmtrees" checked><span>OSM Trees</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="overture" checked><span>Overture Maps</span></label>
-          <label class="import-api-toggle"><input type="checkbox" data-api="cesium" disabled><span class="toggle-disabled">Cesium (P1 — redundant w/ Overture)</span></label>
-          <label class="import-api-toggle"><input type="checkbox" data-api="clip" disabled><span class="toggle-disabled">CLIP Style (P1 — serverless)</span></label>
-          <label class="import-api-toggle"><input type="checkbox" data-api="depth" disabled><span class="toggle-disabled">Depth Height (P1 — relative only)</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="water" checked><span>Water Features</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="canopyht" checked><span>Canopy Height</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="landcover" checked><span>Land Cover</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="cesium" disabled><span class="toggle-disabled">Cesium (redundant)</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="clip" disabled><span class="toggle-disabled">CLIP (serverless)</span></label>
+          <label class="import-api-toggle"><input type="checkbox" data-api="depth" disabled><span class="toggle-disabled">Depth (relative)</span></label>
         </div>
         <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Uncheck to exclude from generation. Grayed items are not yet implemented.</div>
       </div>
@@ -550,6 +562,9 @@ export function initImport(
     currentHardiness = null;
     currentOSMTrees = [];
     currentOverture = null;
+    currentWater = [];
+    currentCanopyHeight = null;
+    currentLandCover = null;
 
     const [geoResult, parclResult, smartyResult] = await Promise.allSettled([
       geocodeAddress(address),
@@ -643,6 +658,16 @@ export function initImport(
       // Overture Maps building attributes (height, floors, roof, facade)
       queryOvertureBuilding(geo.lat, geo.lng)
         .then(r => { currentOverture = r; })
+        .catch(() => { /* non-fatal */ });
+      // Phase 5 P1: water features, canopy height, land cover (non-blocking)
+      searchWaterFeatures(geo.lat, geo.lng, 500)
+        .then(w => { currentWater = w; })
+        .catch(() => { /* non-fatal */ });
+      queryCanopyHeight(geo.lat, geo.lng)
+        .then(r => { currentCanopyHeight = r; })
+        .catch(() => { /* non-fatal */ });
+      queryLandCover(geo.lat, geo.lng)
+        .then(r => { currentLandCover = r; })
         .catch(() => { /* non-fatal */ });
 
       // Process Mapillary results
@@ -1341,6 +1366,19 @@ export function initImport(
         distanceMeters: 0,
       };
     }
+    // P1: water, canopy, land cover
+    if (Array.isArray(prop.nearbyWater) && prop.nearbyWater.length > 0) {
+      currentWater = (prop.nearbyWater as WaterFeature[]);
+    }
+    if (prop.canopyHeightMeters != null) {
+      currentCanopyHeight = { heightMeters: prop.canopyHeightMeters as number };
+    }
+    if (prop.landCoverClass != null) {
+      currentLandCover = {
+        classValue: prop.landCoverClass as number,
+        label: prop.landCoverLabel as string ?? null,
+      };
+    }
 
     showStatus(`Loaded from JSON: ${addressInput.value || 'unknown address'}`, 'success');
   }
@@ -1379,6 +1417,9 @@ export function initImport(
     const useHardiness = apis.has('hardiness');
     const useOsmTrees = apis.has('osmtrees');
     const useOverture = apis.has('overture');
+    const useWater = apis.has('water');
+    const useCanopyHt = apis.has('canopyht');
+    const useLandCover = apis.has('landcover');
 
     const yearVal = parseInt((controls.querySelector('#import-year') as HTMLInputElement).value) || 2000;
 
@@ -1556,6 +1597,21 @@ export function initImport(
       overtureHeight: useOverture ? currentOverture?.height : undefined,
       overtureFloors: useOverture ? currentOverture?.numFloors : undefined,
       overtureRoofShape: useOverture ? currentOverture?.roofShape : undefined,
+      // Phase 5 P1: Smarty untapped fields
+      garageSqft: smarty?.garageSqft || undefined,
+      fireplaceCount: smarty?.fireplaceCount || undefined,
+      totalMarketValue: smarty?.totalMarketValue || undefined,
+      airConditioningType: smarty?.airConditioner || undefined,
+      heatingSystemType: smarty?.heat || undefined,
+      heatingFuelType: smarty?.heatFuelType || undefined,
+      totalRooms: smarty?.rooms || undefined,
+      // Phase 5 P1: water features, canopy height, land cover
+      nearbyWater: useWater && currentWater.length > 0 ? currentWater.map(w => ({
+        type: w.type, name: w.name, distanceMeters: w.distanceMeters,
+      })) : undefined,
+      canopyHeightMeters: useCanopyHt ? currentCanopyHeight?.heightMeters ?? undefined : undefined,
+      landCoverClass: useLandCover ? currentLandCover?.classValue ?? undefined : undefined,
+      landCoverLabel: useLandCover ? currentLandCover?.label ?? undefined : undefined,
     };
 
     const options = convertToGenerationOptions(property);
