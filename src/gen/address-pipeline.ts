@@ -1257,15 +1257,17 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // If SV vision gave us an architecture label, feed it into the existing style chain
   // (already handled above via doorOverride — svArchitectureLabel used in resolveStyle)
 
-  // TODO: Street View heading → facade orientation (Phase 1.6)
-  // prop.streetViewHeading (0-360°) tells us which direction the camera faces toward
-  // the building. Mapping heading → cardinal direction for door placement requires
-  // generator support for orientation (currently door is always south-facing).
-
-  // TODO: Solar azimuth → ridge direction (Phase 2.3, blocked on Phase 1.6)
-  // prop.solarAzimuthDegrees tells us which compass direction the dominant roof slope
-  // faces. The ridge runs perpendicular to this. E.g., azimuth 180° (south-facing slope)
-  // → ridge runs east-west. Requires generator rotation support to implement.
+  // ── Facade orientation from Street View heading / Solar azimuth ────
+  // Snap heading to nearest 90° for grid rotation. Default 0 = front faces south.
+  // SV heading = compass direction FROM camera TO building, which equals the direction
+  // the building's front face points away from (toward the street/camera).
+  // heading ~0° (N) → front faces south → 0°; ~90° (E) → front faces west → 90° CW; etc.
+  let orientation: 0 | 90 | 180 | 270 = 0;
+  const rawHeading = prop.streetViewHeading ?? prop.solarAzimuthDegrees;
+  if (rawHeading != null) {
+    const snapped = Math.round(rawHeading / 90) % 4;
+    orientation = (snapped * 90) as 0 | 90 | 180 | 270;
+  }
 
   // ── Data-driven palette resolution ──────────────────────────────
   // When style is 'auto' (real address), use the material resolver to produce
@@ -1308,6 +1310,7 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     windowSpacing,
     season: prop.season,
     footprintBitmap,
+    orientation,
     resolvedPalette,
   };
 }

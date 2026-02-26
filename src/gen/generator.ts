@@ -9,7 +9,7 @@ import { BlockGrid } from '../schem/types.js';
 import type { GenerationOptions, StructureType } from '../types/index.js';
 import { getStyle } from './styles.js';
 import type { StylePalette } from './styles.js';
-import { createRng, STORY_H, ROOF_H, trimGrid, pasteGrid, pick, stampSign } from './gen-utils.js';
+import { createRng, STORY_H, ROOF_H, trimGrid, pasteGrid, pick, stampSign, rotateGridCW90 } from './gen-utils.js';
 import { generateHouse } from './gen-house.js';
 import {
   generateTower, generateCastle, generateDungeon, generateShip,
@@ -463,6 +463,12 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
     default:
       grid = generateHouse(floors, style, rooms, width, length, rng, options.roofShape, options.features, options.floorPlanShape, options.roofHeightOverride, options.windowSpacing, options.footprintBitmap, options.sections);
       break;
+  }
+
+  // Rotate building to match real-world facade orientation (0/90/180/270° CW)
+  const rotations = (options.orientation ?? 0) / 90;
+  for (let i = 0; i < rotations; i++) {
+    grid = rotateGridCW90(grid);
   }
 
   // Expand single-building grids into compound sites with companion structures

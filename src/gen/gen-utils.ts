@@ -190,6 +190,66 @@ export function flipFacingZ(block: string): string {
   return block;
 }
 
+/** CW90 facing cycle: north → east → south → west → north */
+const FACING_CW90: Record<string, string> = {
+  north: 'east', east: 'south', south: 'west', west: 'north',
+};
+
+/**
+ * Rotate all directional block state properties 90° clockwise (viewed from +Y).
+ * Handles facing=, axis=x↔z (logs/pillars). Y-axis properties unchanged.
+ */
+export function rotateFacingCW90(block: string): string {
+  let result = block.replace(
+    /facing=(north|east|south|west)/g,
+    (_, dir: string) => `facing=${FACING_CW90[dir]}`,
+  );
+  // Rotate horizontal log/pillar axes: x↔z (y stays)
+  if (result.includes('axis=x') || result.includes('axis=z')) {
+    result = result
+      .replace(/axis=x/g, 'axis=__TMP_Z__')
+      .replace(/axis=z/g, 'axis=x')
+      .replace(/axis=__TMP_Z__/g, 'axis=z');
+  }
+  return result;
+}
+
+/**
+ * Rotate a BlockGrid 90° clockwise around the Y axis (viewed from above).
+ * Returns a new grid with swapped XZ dimensions. All directional block states
+ * and block entity positions are transformed.
+ *
+ * Coordinate mapping: (x, y, z) → (oldLength - 1 - z, y, x)
+ */
+export function rotateGridCW90(grid: BlockGrid): BlockGrid {
+  const newW = grid.length;  // old Z extent → new X
+  const newL = grid.width;   // old X extent → new Z
+  const rotated = new BlockGrid(newW, grid.height, newL);
+
+  for (let x = 0; x < grid.width; x++) {
+    for (let y = 0; y < grid.height; y++) {
+      for (let z = 0; z < grid.length; z++) {
+        const block = grid.get(x, y, z);
+        if (block === 'minecraft:air') continue;
+        const nx = grid.length - 1 - z;
+        const nz = x;
+        rotated.set(nx, y, nz, rotateFacingCW90(block));
+      }
+    }
+  }
+
+  // Transform block entity positions
+  for (const be of grid.blockEntities) {
+    const [bx, by, bz] = be.pos;
+    rotated.blockEntities.push({
+      ...be,
+      pos: [grid.length - 1 - bz, by, bx],
+    });
+  }
+
+  return rotated;
+}
+
 /** Paste a source grid mirrored along its Z axis (flips door orientation north↔south) */
 export function pasteGridFlipZ(
   target: BlockGrid, source: BlockGrid,

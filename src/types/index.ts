@@ -187,6 +187,10 @@ export interface GenerationOptions {
   /** Rasterized building footprint bitmap from OSM polygon — enables pixel-perfect
    *  irregular shapes (L/T/U) instead of bounding-box approximation */
   footprintBitmap?: import('../gen/coordinate-bitmap.js').CoordinateBitmap;
+  /** Building orientation as degrees CW from default (front=south).
+   *  0=south (default), 90=west, 180=north, 270=east.
+   *  Derived from Street View heading or Solar API azimuth. */
+  orientation?: 0 | 90 | 180 | 270;
   /** Pre-resolved full palette from data-driven material-resolver.
    *  When present, the generator uses this directly instead of getStyle() + overrides.
    *  Produced by resolvePalette() for real-address generation. */
