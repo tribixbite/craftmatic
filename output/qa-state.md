@@ -64,9 +64,9 @@ Round 3 scores (all fixes applied) — ALL ABOVE 8:
 - API result variance between regeneration runs (OSM Overpass 504/429 errors)
 - OSM live test threshold relaxed to 5/10 (a4ca801) — Overpass flake in CI
 
-### Remaining TODOs (blocked on generator rotation)
-- [ ] streetViewHeading → facade orientation
-- [ ] solarAzimuthDegrees → ridge direction
+### Orientation Support (530bd27)
+- [x] streetViewHeading → facade orientation (rotateGridCW90 post-generation)
+- [x] solarAzimuthDegrees → ridge direction (fallback when no SV heading)
 
 ---
 
