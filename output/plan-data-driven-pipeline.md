@@ -224,6 +224,10 @@ for better handling of complex concave shapes.
 | 9 | `src/gen/color-blocks.ts` | Multi-option WALL_CLUSTERS (arnis DEFINED_COLORS) | DONE |
 | 10 | `src/gen/api/elevation.ts` | AWS Terrarium elevation tile fetcher | DONE |
 | 11 | `src/cli.ts` | Wire footprintSlope() for hillside height correction | DONE |
+| 12 | `web/src/ui/import.ts` | API source toggles for generation pipeline | DONE |
+| 13 | `web/src/ui/import.ts` | Fix OSM wall material shadowed by satellite color | DONE |
+| 14 | `src/gen/address-pipeline.ts` | Add detectedColor as final rawWall fallback | DONE |
+| 15 | `src/gen/address-pipeline.ts` | Consume terrainSlope for foundation inference | DONE |
 
 ## Arnis Patterns to Adopt
 
