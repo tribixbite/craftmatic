@@ -483,7 +483,9 @@
             "treeCount": 2,
             "treeHeight": 3,
             "hasWater": true,
-            "groundCover": "built"
+            "groundCover": "built",
+            "pathBlock": "minecraft:stone_bricks",
+            "fenceBlock": "minecraft:stone_brick_wall"
           }
         },
         "grid": {
@@ -940,7 +942,9 @@
             "treeCount": 6,
             "treeHeight": 3,
             "hasWater": false,
-            "groundCover": "forest"
+            "groundCover": "forest",
+            "pathBlock": "minecraft:mossy_cobblestone",
+            "fenceBlock": "minecraft:spruce_fence"
           }
         },
         "grid": {
@@ -1397,7 +1401,9 @@
             "treeCount": 3,
             "treeHeight": 3,
             "hasWater": false,
-            "groundCover": "built"
+            "groundCover": "built",
+            "pathBlock": "minecraft:stone_bricks",
+            "fenceBlock": "minecraft:stone_brick_wall"
           }
         },
         "grid": {
@@ -1824,7 +1830,9 @@
             "treeCount": 5,
             "treeHeight": 3,
             "hasWater": true,
-            "groundCover": "grass"
+            "groundCover": "grass",
+            "pathBlock": "minecraft:cobblestone",
+            "fenceBlock": "minecraft:oak_fence"
           }
         },
         "grid": {
@@ -2279,7 +2287,9 @@
             "treeCount": 5,
             "treeHeight": 5,
             "hasWater": true,
-            "groundCover": "forest"
+            "groundCover": "forest",
+            "pathBlock": "minecraft:mossy_cobblestone",
+            "fenceBlock": "minecraft:spruce_fence"
           }
         },
         "grid": {
@@ -2660,7 +2670,9 @@
             "treeCount": 7,
             "treeHeight": 5,
             "hasWater": true,
-            "groundCover": "forest"
+            "groundCover": "forest",
+            "pathBlock": "minecraft:mossy_cobblestone",
+            "fenceBlock": "minecraft:spruce_fence"
           }
         },
         "grid": {
@@ -3072,7 +3084,9 @@
             "treeCount": 2,
             "treeHeight": 3,
             "hasWater": true,
-            "groundCover": "forest"
+            "groundCover": "forest",
+            "pathBlock": "minecraft:mossy_cobblestone",
+            "fenceBlock": "minecraft:spruce_fence"
           }
         },
         "grid": {
@@ -3571,7 +3585,9 @@
             "treeCount": 3,
             "treeHeight": 3,
             "hasWater": true,
-            "groundCover": "built"
+            "groundCover": "built",
+            "pathBlock": "minecraft:stone_bricks",
+            "fenceBlock": "minecraft:stone_brick_wall"
           }
         },
         "grid": {
@@ -4067,7 +4083,9 @@
             "treeCount": 4,
             "treeHeight": 3,
             "hasWater": false,
-            "groundCover": "forest"
+            "groundCover": "forest",
+            "pathBlock": "minecraft:mossy_cobblestone",
+            "fenceBlock": "minecraft:spruce_fence"
           }
         },
         "grid": {

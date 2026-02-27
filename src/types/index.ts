@@ -119,6 +119,10 @@ export interface LandscapeData {
   hasWater: boolean;
   /** Land cover class — affects ground material */
   groundCover: 'forest' | 'grass' | 'crop' | 'built' | 'water' | 'bare' | 'default';
+  /** Path/walkway block — varies by climate and land cover */
+  pathBlock: string;
+  /** Fence/railing block for exterior features — varies by environment */
+  fenceBlock: string;
 }
 
 /** Floor plan shape — rectangular (default) or L/T/U from OSM polygon analysis */
