@@ -1,8 +1,8 @@
 /**
- * Comparison — 3-tier API data comparison viewer with dual-handle image slider.
+ * Comparison — 4-tier API data comparison viewer with triple-handle image slider.
  *
- * Shows 7 addresses with 3 tiers each: No API / Basic APIs / All APIs.
- * The dual slider lets users compare all 3 tiers simultaneously.
+ * Shows addresses with 4 tiers each: No API / Basic APIs / All APIs / All + Environmental.
+ * The triple slider lets users compare all 4 tiers simultaneously.
  * Also loads comparison-data.json (if available) for detailed per-API data cards.
  * Each tier has "Generate 3D" and "Download .schem" buttons.
  */
@@ -42,9 +42,9 @@ interface TierData {
 }
 
 interface LocationViews {
-  exterior: { noapi: string; someapis: string; allapis: string };
-  cutaway: { noapi: string[]; someapis: string[]; allapis: string[] };
-  floor: { noapi: string[]; someapis: string[]; allapis: string[] };
+  exterior: { noapi: string; someapis: string; allapis: string; enriched: string };
+  cutaway: { noapi: string[]; someapis: string[]; allapis: string[]; enriched: string[] };
+  floor: { noapi: string[]; someapis: string[]; allapis: string[]; enriched: string[] };
 }
 
 interface LocationEntry {
@@ -53,6 +53,7 @@ interface LocationEntry {
   noapi: TierData;
   someapis: TierData;
   allapis: TierData;
+  enriched: TierData;
   views: LocationViews;
 }
 
@@ -99,6 +100,11 @@ function jsonToLocation(entry: ComparisonJsonEntry): LocationEntry {
         ['Mapbox', 'Google Solar', 'Google Street View', 'SV Image Analysis'].includes(a.name) && a.status === 'ok'
       ).map(a => a.name.replace('Google ', ''));
       sources = extraApis.length > 0 ? '+ ' + extraApis.join(' + ') : 'same as basic';
+    } else if (tier === 'enriched') {
+      const envApis = entry.apis.filter(a =>
+        ['NLCD', 'Hardiness', 'OSM Trees', 'Overture', 'Water', 'Canopy Height', 'Land Cover'].includes(a.name) && a.status === 'ok'
+      ).map(a => a.name);
+      sources = envApis.length > 0 ? '+ ' + envApis.join(' + ') : 'same as all';
     }
     // Build notes from key gen options
     const shape = g.floorPlanShape ? `, ${g.floorPlanShape}-shape` : '';
@@ -122,6 +128,8 @@ function jsonToLocation(entry: ComparisonJsonEntry): LocationEntry {
   const noapi = findTier('noapi');
   const someapis = findTier('someapis');
   const allapis = findTier('allapis');
+  // Enriched tier falls back to allapis when not present in older data
+  const enriched = entry.tiers.find(t => t.tier === 'enriched') ?? allapis;
 
   return {
     label: KEY_LABELS[entry.key] ?? entry.key,
@@ -129,21 +137,25 @@ function jsonToLocation(entry: ComparisonJsonEntry): LocationEntry {
     noapi: tierToData(noapi, 'noapi'),
     someapis: tierToData(someapis, 'someapis'),
     allapis: tierToData(allapis, 'allapis'),
+    enriched: tierToData(enriched, 'enriched'),
     views: {
       exterior: {
         noapi: noapi.views.exterior,
         someapis: someapis.views.exterior,
         allapis: allapis.views.exterior,
+        enriched: enriched.views.exterior,
       },
       cutaway: {
         noapi: noapi.views.cutaway,
         someapis: someapis.views.cutaway,
         allapis: allapis.views.cutaway,
+        enriched: enriched.views.cutaway,
       },
       floor: {
         noapi: noapi.views.floor,
         someapis: someapis.views.floor,
         allapis: allapis.views.floor,
+        enriched: enriched.views.floor,
       },
     },
   };
@@ -155,8 +167,10 @@ let LOCATIONS: Record<string, LocationEntry> = {};
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 let LOC_KEYS: string[] = [];
-const TIERS = ['noapi', 'someapis', 'allapis'] as const;
-const TIER_LABELS: Record<string, string> = { noapi: 'No API Data', someapis: 'Basic APIs', allapis: 'All APIs' };
+const TIERS = ['noapi', 'someapis', 'allapis', 'enriched'] as const;
+const TIER_LABELS: Record<string, string> = {
+  noapi: 'No API Data', someapis: 'Basic APIs', allapis: 'All APIs', enriched: 'All + Env',
+};
 const VIEW_TYPES = ['exterior', 'cutaway', 'floor'] as const;
 const VIEW_LABELS: Record<string, string> = { exterior: 'Exterior', cutaway: 'Cutaway', floor: 'Floor Plan' };
 const STAT_FIELDS = ['style', 'floors', 'grid', 'blocks', 'sqft', 'beds', 'baths', 'year', 'sources', 'notes'] as const;
@@ -183,11 +197,13 @@ function esc(str: unknown): string {
 let currentLoc = 'sf';
 let currentView: typeof VIEW_TYPES[number] = 'exterior';
 let currentLayer = 0;
-/** Left divider position (0..1) — separates noapi from someapis */
-let pos1 = 0.33;
-/** Right divider position (0..1) — separates someapis from allapis */
-let pos2 = 0.66;
-/** Which divider is being dragged: 0=none, 1=left, 2=right */
+/** Divider 1 position (0..1) — separates noapi from someapis */
+let pos1 = 0.25;
+/** Divider 2 position (0..1) — separates someapis from allapis */
+let pos2 = 0.50;
+/** Divider 3 position (0..1) — separates allapis from enriched */
+let pos3 = 0.75;
+/** Which divider is being dragged: 0=none, 1/2/3 */
 let activeDivider = 0;
 
 /** Per-API data from comparison-data.json (only for locations that have it) */
@@ -241,8 +257,8 @@ export function initComparison(
 function buildShell(): void {
   rootEl.innerHTML = `
     <div class="cmp-header">
-      <h2 class="cmp-title">Craftmatic — 3-Tier API Comparison</h2>
-      <p class="cmp-subtitle">Drag the two handles to compare: No API / Basic APIs / All APIs</p>
+      <h2 class="cmp-title">Craftmatic — 4-Tier API Comparison</h2>
+      <p class="cmp-subtitle">Drag the handles to compare: No API / Basic / All APIs / All + Environmental</p>
     </div>
     <div class="cmp-nav" id="cmp-nav"></div>
     <div class="cmp-tabs" id="cmp-tabs"></div>
@@ -252,14 +268,19 @@ function buildShell(): void {
         <img class="cmp-img cmp-img-noapi" id="cmp-img-noapi" alt="No API">
         <img class="cmp-img cmp-img-someapis" id="cmp-img-someapis" alt="Basic APIs">
         <img class="cmp-img cmp-img-allapis" id="cmp-img-allapis" alt="All APIs">
+        <img class="cmp-img cmp-img-enriched" id="cmp-img-enriched" alt="All + Env">
         <div class="cmp-tier-label cmp-label-noapi">No API</div>
-        <div class="cmp-tier-label cmp-label-someapis" id="cmp-label-some">Basic APIs</div>
-        <div class="cmp-tier-label cmp-label-allapis">All APIs</div>
+        <div class="cmp-tier-label cmp-label-someapis" id="cmp-label-some">Basic</div>
+        <div class="cmp-tier-label cmp-label-allapis" id="cmp-label-all">All APIs</div>
+        <div class="cmp-tier-label cmp-label-enriched">All + Env</div>
         <div class="cmp-divider cmp-divider-1" id="cmp-divider1">
           <div class="cmp-handle" id="cmp-handle1"></div>
         </div>
         <div class="cmp-divider cmp-divider-2" id="cmp-divider2">
           <div class="cmp-handle" id="cmp-handle2"></div>
+        </div>
+        <div class="cmp-divider cmp-divider-3" id="cmp-divider3">
+          <div class="cmp-handle" id="cmp-handle3"></div>
         </div>
       </div>
     </div>
@@ -268,10 +289,11 @@ function buildShell(): void {
     <div class="cmp-api-section" id="cmp-api-section"></div>
   `;
 
-  // Wire up dual-handle drag events
+  // Wire up triple-handle drag events
   const sliderEl = document.getElementById('cmp-slider')!;
   const handle1 = document.getElementById('cmp-handle1')!;
   const handle2 = document.getElementById('cmp-handle2')!;
+  const handle3 = document.getElementById('cmp-handle3')!;
 
   const startDrag = (divNum: number) => (e: Event) => {
     e.preventDefault();
@@ -288,26 +310,33 @@ function buildShell(): void {
     const raw = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     if (activeDivider === 1) {
       pos1 = Math.min(raw, pos2 - MIN_GAP);
+    } else if (activeDivider === 2) {
+      pos2 = Math.max(Math.min(raw, pos3 - MIN_GAP), pos1 + MIN_GAP);
     } else {
-      pos2 = Math.max(raw, pos1 + MIN_GAP);
+      pos3 = Math.max(raw, pos2 + MIN_GAP);
     }
     updateSlider();
   };
 
-  /** Click on slider area — pick nearest divider */
+  /** Click on slider area — pick nearest of the 3 dividers */
   const jumpSlider = (e: MouseEvent | TouchEvent) => {
-    if (e.target === handle1 || e.target === handle2) return;
+    if (e.target === handle1 || e.target === handle2 || e.target === handle3) return;
     const rect = sliderEl.getBoundingClientRect();
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const raw = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const d1 = Math.abs(raw - pos1);
     const d2 = Math.abs(raw - pos2);
-    if (d1 <= d2) {
+    const d3 = Math.abs(raw - pos3);
+    const minD = Math.min(d1, d2, d3);
+    if (minD === d1) {
       pos1 = Math.min(raw, pos2 - MIN_GAP);
       activeDivider = 1;
-    } else {
-      pos2 = Math.max(raw, pos1 + MIN_GAP);
+    } else if (minD === d2) {
+      pos2 = Math.max(Math.min(raw, pos3 - MIN_GAP), pos1 + MIN_GAP);
       activeDivider = 2;
+    } else {
+      pos3 = Math.max(raw, pos2 + MIN_GAP);
+      activeDivider = 3;
     }
     updateSlider();
   };
@@ -316,6 +345,8 @@ function buildShell(): void {
   handle1.addEventListener('touchstart', startDrag(1), { passive: false });
   handle2.addEventListener('mousedown', startDrag(2));
   handle2.addEventListener('touchstart', startDrag(2), { passive: false });
+  handle3.addEventListener('mousedown', startDrag(3));
+  handle3.addEventListener('touchstart', startDrag(3), { passive: false });
   sliderEl.addEventListener('mousedown', jumpSlider as EventListener);
   sliderEl.addEventListener('touchstart', jumpSlider as EventListener, { passive: false });
   document.addEventListener('mousemove', moveDrag as EventListener);
@@ -378,7 +409,8 @@ function buildLayers(): void {
   const loc = LOCATIONS[currentLoc];
   const viewData = loc.views[currentView];
   const maxLayers = Math.max(
-    viewData.noapi.length, viewData.someapis.length, viewData.allapis.length
+    viewData.noapi.length, viewData.someapis.length,
+    viewData.allapis.length, viewData.enriched.length,
   );
   for (let i = 0; i < maxLayers; i++) {
     const btn = document.createElement('button');
@@ -407,16 +439,18 @@ function updateImages(): void {
   const imgNoapi = document.getElementById('cmp-img-noapi') as HTMLImageElement;
   const imgSomeapis = document.getElementById('cmp-img-someapis') as HTMLImageElement;
   const imgAllapis = document.getElementById('cmp-img-allapis') as HTMLImageElement;
-  if (!imgNoapi || !imgSomeapis || !imgAllapis) return;
+  const imgEnriched = document.getElementById('cmp-img-enriched') as HTMLImageElement;
+  if (!imgNoapi || !imgSomeapis || !imgAllapis || !imgEnriched) return;
 
   imgNoapi.src = `comparison/${getImagePath('noapi')}`;
   imgSomeapis.src = `comparison/${getImagePath('someapis')}`;
   imgAllapis.src = `comparison/${getImagePath('allapis')}`;
+  imgEnriched.src = `comparison/${getImagePath('enriched')}`;
 
   let loaded = 0;
   const checkHeight = () => {
     loaded++;
-    if (loaded >= 3) {
+    if (loaded >= 4) {
       recalcSliderHeight();
       updateSlider();
     }
@@ -424,10 +458,12 @@ function updateImages(): void {
   imgNoapi.onload = checkHeight;
   imgSomeapis.onload = checkHeight;
   imgAllapis.onload = checkHeight;
+  imgEnriched.onload = checkHeight;
   if (imgNoapi.complete) loaded++;
   if (imgSomeapis.complete) loaded++;
   if (imgAllapis.complete) loaded++;
-  if (loaded >= 3) checkHeight();
+  if (imgEnriched.complete) loaded++;
+  if (loaded >= 4) checkHeight();
 }
 
 /** Recalculate slider container height based on loaded image aspect ratios */
@@ -438,8 +474,9 @@ function recalcSliderHeight(): void {
   const imgAllapis = document.getElementById('cmp-img-allapis') as HTMLImageElement;
   if (!sliderEl || !imgNoapi || !imgSomeapis || !imgAllapis) return;
 
+  const imgEnriched = document.getElementById('cmp-img-enriched') as HTMLImageElement;
   const containerW = sliderEl.offsetWidth;
-  const ratios = [imgNoapi, imgSomeapis, imgAllapis].map(
+  const ratios = [imgNoapi, imgSomeapis, imgAllapis, imgEnriched].filter(Boolean).map(
     img => img.naturalHeight / (img.naturalWidth || 1)
   );
   const maxRatio = Math.max(...ratios);
@@ -451,25 +488,38 @@ function updateSlider(): void {
   const sliderEl = document.getElementById('cmp-slider');
   const imgSomeapis = document.getElementById('cmp-img-someapis') as HTMLImageElement;
   const imgAllapis = document.getElementById('cmp-img-allapis') as HTMLImageElement;
+  const imgEnriched = document.getElementById('cmp-img-enriched') as HTMLImageElement;
   const divider1 = document.getElementById('cmp-divider1');
   const divider2 = document.getElementById('cmp-divider2');
+  const divider3 = document.getElementById('cmp-divider3');
   const labelSome = document.getElementById('cmp-label-some');
-  if (!sliderEl || !imgSomeapis || !imgAllapis || !divider1 || !divider2) return;
+  const labelAll = document.getElementById('cmp-label-all');
+  if (!sliderEl || !imgSomeapis || !imgAllapis || !imgEnriched || !divider1 || !divider2 || !divider3) return;
 
   const w = sliderEl.offsetWidth;
   const x1 = Math.round(pos1 * w);
   const x2 = Math.round(pos2 * w);
+  const x3 = Math.round(pos3 * w);
 
+  // Clip each tier image from the left at its divider position
   imgSomeapis.style.clipPath = `inset(0 0 0 ${x1}px)`;
   imgAllapis.style.clipPath = `inset(0 0 0 ${x2}px)`;
+  imgEnriched.style.clipPath = `inset(0 0 0 ${x3}px)`;
   divider1.style.left = x1 + 'px';
   divider2.style.left = x2 + 'px';
+  divider3.style.left = x3 + 'px';
 
-  // Position the "Basic APIs" label between the two dividers
+  // Position "Basic" label between dividers 1 and 2
   if (labelSome) {
     const midX = (x1 + x2) / 2;
     labelSome.style.left = midX + 'px';
     labelSome.style.transform = 'translateX(-50%)';
+  }
+  // Position "All APIs" label between dividers 2 and 3
+  if (labelAll) {
+    const midX = (x2 + x3) / 2;
+    labelAll.style.left = midX + 'px';
+    labelAll.style.transform = 'translateX(-50%)';
   }
 }
 
@@ -642,7 +692,8 @@ function buildStats(): void {
     return html;
   };
 
-  el.innerHTML = makeTable('noapi', null) + makeTable('someapis', 'noapi') + makeTable('allapis', 'someapis');
+  el.innerHTML = makeTable('noapi', null) + makeTable('someapis', 'noapi')
+    + makeTable('allapis', 'someapis') + makeTable('enriched', 'allapis');
 }
 
 // ─── API Data Tables (from comparison-data.json) ────────────────────────────
