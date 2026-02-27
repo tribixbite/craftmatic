@@ -1,6 +1,29 @@
 # Phase 5: Advanced Data Sources & ML Integration — Research Report
 
 > Compiled 2026-02-26 from 4 parallel research agents covering HuggingFace models, 3D building APIs, tree/vegetation data, and facade parsing ML.
+> Updated 2026-02-27: P0+P1 implementation complete. 4-tier comparison viewer live. Enrichment UI in Import tab.
+
+## Implementation Status
+
+| Item | Status | Commit |
+|------|--------|--------|
+| P0: Overture Maps PMTiles | DONE | 3384f9e |
+| P0: NLCD Tree Canopy | DONE | 3384f9e |
+| P0: OSM Overpass Trees | DONE | 3384f9e |
+| P0: USDA Hardiness Zone | DONE | 3384f9e |
+| P1: Meta/WRI Canopy Height (COG) | DONE | 3384f9e |
+| P1: ESA WorldCover (COG) | DONE | 3384f9e |
+| P1: OSM Water Features | DONE | 3384f9e |
+| P1: Smarty untapped fields | DONE | 753a355 |
+| Import tab enrichment UI | DONE | 753a355 |
+| 4-tier comparison (3 dividers) | DONE | 753a355 |
+| Enriched tier images (9 locations) | DONE | baa6394 |
+| P0: Cesium OSM Buildings | DEFERRED | Redundant with Overture |
+| P0: CLIP zero-shot | DEFERRED | Too heavy for browser (~338MB) |
+| P0: Depth Anything V3 | DEFERRED | Relative only, no absolute height |
+| P1: SegFormer CMP Facade | DEFERRED | Requires ONNX runtime (~50MB) |
+| P1: Google Solar DSM trees | DEFERRED | Needs server-side DSM parsing |
+| P1: Multi-angle SV analysis | DEFERRED | 3-4x API cost increase |
 
 ## Executive Summary
 
