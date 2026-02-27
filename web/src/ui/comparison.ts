@@ -78,6 +78,8 @@ const KEY_LABELS: Record<string, string> = {
   sf: 'San Francisco', newton: 'Newton', sanjose: 'Winchester',
   walpole: 'Walpole', byron: 'Byron Center', vinalhaven: 'Vinalhaven',
   suttonsbay: 'Suttons Bay', losangeles: 'Los Angeles', seattle: 'Seattle',
+  austin: 'Austin', denver: 'Denver', minneapolis: 'Minneapolis',
+  charleston: 'Charleston', tucson: 'Tucson',
 };
 
 /** Build a LocationEntry from a JSON comparison entry */
