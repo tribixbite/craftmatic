@@ -41,6 +41,14 @@ import {
   type MapillaryImageData,
 } from '../src/gen/api/mapillary.js';
 import { renderFloorDetail, renderCutawayIso, renderExterior } from '../src/render/png-renderer.js';
+// Phase 5 P1 modules — browser-compatible pure-fetch modules imported from web/src/ui
+import { queryNlcdCanopy } from '../web/src/ui/import-nlcd.js';
+import { queryHardinessZone } from '../web/src/ui/import-hardiness.js';
+import { searchOSMTrees } from '../web/src/ui/import-osm-trees.js';
+import { queryOvertureBuilding } from '../web/src/ui/import-overture.js';
+import { searchWaterFeatures } from '../web/src/ui/import-water.js';
+import { queryCanopyHeight } from '../web/src/ui/import-canopy-height.js';
+import { queryLandCover } from '../web/src/ui/import-landcover.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import sharp from 'sharp';
@@ -69,7 +77,7 @@ const ADDRESSES = [
   { key: 'seattle', address: '4810 SW Ledroit Pl, Seattle, WA 98136' },
 ];
 
-const TIERS = ['noapi', 'someapis', 'allapis'] as const;
+const TIERS = ['noapi', 'someapis', 'allapis', 'enriched'] as const;
 type Tier = typeof TIERS[number];
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -530,6 +538,126 @@ for (const { key, address } of ADDRESSES) {
     }
   }
 
+  // ── Phase 5: Environmental data sources (for enriched tier) ────────────
+
+  const enrichApis: ApiRecord[] = [];
+  const enrichedProp: PropertyData = { ...allApiProp };
+
+  // NLCD tree canopy cover
+  const nlcdRec: ApiRecord = { name: 'NLCD', available: true, status: 'skipped', data: {}, fieldsSet: [], impactedGenFields: [] };
+  try {
+    const nlcd = await queryNlcdCanopy(lat, lng);
+    if (nlcd?.canopyCoverPct != null) {
+      nlcdRec.status = 'ok';
+      nlcdRec.data = { canopyCoverPct: nlcd.canopyCoverPct };
+      nlcdRec.fieldsSet = ['canopyCoverPct'];
+      nlcdRec.impactedGenFields = ['features.trees'];
+      enrichedProp.canopyCoverPct = nlcd.canopyCoverPct;
+      console.log(`  NLCD: canopy ${nlcd.canopyCoverPct}%`);
+    }
+  } catch (err) { nlcdRec.status = 'error'; nlcdRec.error = String(err); }
+  enrichApis.push(nlcdRec);
+
+  // USDA Hardiness Zone (needs zipCode from Parcl)
+  const hardRec: ApiRecord = { name: 'Hardiness', available: !!parcl?.zipCode, status: 'skipped', data: {}, fieldsSet: [], impactedGenFields: [] };
+  if (parcl?.zipCode) {
+    try {
+      const hz = await queryHardinessZone(parcl.zipCode);
+      if (hz?.zone) {
+        hardRec.status = 'ok';
+        hardRec.data = { zone: hz.zone };
+        hardRec.fieldsSet = ['hardinessZone'];
+        hardRec.impactedGenFields = ['features.treePalette'];
+        enrichedProp.hardinessZone = hz.zone;
+        console.log(`  Hardiness: zone ${hz.zone}`);
+      }
+    } catch (err) { hardRec.status = 'error'; hardRec.error = String(err); }
+  }
+  enrichApis.push(hardRec);
+
+  // OSM Trees
+  const treesRec: ApiRecord = { name: 'OSM Trees', available: true, status: 'skipped', data: {}, fieldsSet: [], impactedGenFields: [] };
+  try {
+    const trees = await searchOSMTrees(lat, lng, 150);
+    if (trees.length > 0) {
+      treesRec.status = 'ok';
+      treesRec.data = { count: trees.length };
+      treesRec.fieldsSet = ['nearbyTrees'];
+      treesRec.impactedGenFields = ['features.trees'];
+      enrichedProp.nearbyTrees = trees;
+      console.log(`  OSM Trees: ${trees.length} nearby`);
+    }
+  } catch (err) { treesRec.status = 'error'; treesRec.error = String(err); }
+  enrichApis.push(treesRec);
+  await delay(1000); // rate limit OSM Overpass
+
+  // Overture Maps building
+  const overtureRec: ApiRecord = { name: 'Overture', available: true, status: 'skipped', data: {}, fieldsSet: [], impactedGenFields: [] };
+  try {
+    const ov = await queryOvertureBuilding(lat, lng);
+    if (ov) {
+      overtureRec.status = 'ok';
+      overtureRec.data = { height: ov.height, floors: ov.numFloors, roofShape: ov.roofShape };
+      overtureRec.fieldsSet = ['overtureHeight', 'overtureFloors', 'overtureRoofShape'];
+      overtureRec.impactedGenFields = ['floors', 'roofShape'];
+      enrichedProp.overtureHeight = ov.height;
+      enrichedProp.overtureFloors = ov.numFloors;
+      enrichedProp.overtureRoofShape = ov.roofShape;
+      console.log(`  Overture: h=${ov.height ?? '?'}m fl=${ov.numFloors ?? '?'} roof=${ov.roofShape ?? '?'}`);
+    }
+  } catch (err) { overtureRec.status = 'error'; overtureRec.error = String(err); }
+  enrichApis.push(overtureRec);
+
+  // Water features
+  const waterRec: ApiRecord = { name: 'Water', available: true, status: 'skipped', data: {}, fieldsSet: [], impactedGenFields: [] };
+  try {
+    const water = await searchWaterFeatures(lat, lng, 500);
+    if (water.length > 0) {
+      waterRec.status = 'ok';
+      waterRec.data = { count: water.length, features: water.slice(0, 3).map(w => w.name || w.type).join(', ') };
+      waterRec.fieldsSet = ['nearbyWater'];
+      waterRec.impactedGenFields = ['features.water'];
+      enrichedProp.nearbyWater = water.map(w => ({ type: w.type, name: w.name, distanceMeters: w.distanceMeters }));
+      console.log(`  Water: ${water.length} features`);
+    }
+  } catch (err) { waterRec.status = 'error'; waterRec.error = String(err); }
+  enrichApis.push(waterRec);
+  await delay(1000); // rate limit OSM Overpass
+
+  // Meta/WRI canopy height
+  const canopyHtRec: ApiRecord = { name: 'Canopy Height', available: true, status: 'skipped', data: {}, fieldsSet: [], impactedGenFields: [] };
+  try {
+    const ch = await queryCanopyHeight(lat, lng);
+    if (ch?.heightMeters != null) {
+      canopyHtRec.status = 'ok';
+      canopyHtRec.data = { heightMeters: ch.heightMeters };
+      canopyHtRec.fieldsSet = ['canopyHeightMeters'];
+      canopyHtRec.impactedGenFields = ['features.treePalette'];
+      enrichedProp.canopyHeightMeters = ch.heightMeters;
+      console.log(`  Canopy Height: ${ch.heightMeters.toFixed(1)}m`);
+    }
+  } catch (err) { canopyHtRec.status = 'error'; canopyHtRec.error = String(err); }
+  enrichApis.push(canopyHtRec);
+
+  // ESA WorldCover land cover
+  const landRec: ApiRecord = { name: 'Land Cover', available: true, status: 'skipped', data: {}, fieldsSet: [], impactedGenFields: [] };
+  try {
+    const lc = await queryLandCover(lat, lng);
+    if (lc?.classValue != null) {
+      landRec.status = 'ok';
+      landRec.data = { classValue: lc.classValue, label: lc.label };
+      landRec.fieldsSet = ['landCoverClass', 'landCoverLabel'];
+      landRec.impactedGenFields = ['features.landscape'];
+      enrichedProp.landCoverClass = lc.classValue;
+      enrichedProp.landCoverLabel = lc.label ?? undefined;
+      console.log(`  Land Cover: ${lc.label ?? lc.classValue}`);
+    }
+  } catch (err) { landRec.status = 'error'; landRec.error = String(err); }
+  enrichApis.push(landRec);
+
+  // Merge enrichment APIs into the main api list
+  apis.push(...enrichApis);
+
   // ────────────────────────────────────────────────────────────────────────
   // Generate & render for each tier
   // ────────────────────────────────────────────────────────────────────────
@@ -538,6 +666,7 @@ for (const { key, address } of ADDRESSES) {
     noapi: noApiProp,
     someapis: someApiProp,
     allapis: allApiProp,
+    enriched: enrichedProp,
   };
 
   const tierResults: TierResult[] = [];
@@ -615,7 +744,7 @@ await writeFile(join(WEB_DIR, 'comparison-data.json'), JSON.stringify(allResults
 const { readdir, copyFile } = await import('fs/promises');
 const outFiles = await readdir(OUT_DIR);
 for (const f of outFiles) {
-  if (f.endsWith('.jpg') && (f.includes('-noapi_') || f.includes('-someapis_') || f.includes('-allapis_'))) {
+  if (f.endsWith('.jpg') && (f.includes('-noapi_') || f.includes('-someapis_') || f.includes('-allapis_') || f.includes('-enriched_'))) {
     await copyFile(join(OUT_DIR, f), join(WEB_DIR, f));
   }
 }

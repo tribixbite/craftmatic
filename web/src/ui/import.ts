@@ -393,11 +393,71 @@ export function initImport(
           <label class="import-api-toggle"><input type="checkbox" data-api="water" checked><span>Water Features</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="canopyht" checked><span>Canopy Height</span></label>
           <label class="import-api-toggle"><input type="checkbox" data-api="landcover" checked><span>Land Cover</span></label>
-          <label class="import-api-toggle"><input type="checkbox" data-api="cesium" disabled><span class="toggle-disabled">Cesium (redundant)</span></label>
-          <label class="import-api-toggle"><input type="checkbox" data-api="clip" disabled><span class="toggle-disabled">CLIP (serverless)</span></label>
-          <label class="import-api-toggle"><input type="checkbox" data-api="depth" disabled><span class="toggle-disabled">Depth (relative)</span></label>
         </div>
-        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Uncheck to exclude from generation. Grayed items are not yet implemented.</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Uncheck to exclude from generation.</div>
+      </div>
+    </details>
+
+    <!-- Enrichment data (populated after lookup) -->
+    <details class="customize-section" id="import-enrichment-section" style="display:none;">
+      <summary class="customize-summary">Enrichment Data
+        <span class="import-api-badge" id="import-enrich-badge">0</span>
+      </summary>
+      <div class="customize-body" id="import-enrichment-body"></div>
+    </details>
+
+    <!-- Advanced property details (editable fields that impact generation) -->
+    <details class="customize-section" id="import-advanced-section">
+      <summary class="customize-summary">Advanced Details</summary>
+      <div class="customize-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Garage Sq Ft</label>
+            <input id="import-garage-sqft" type="number" class="form-input" placeholder="0" min="0" max="5000">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Fireplaces</label>
+            <input id="import-fireplace-count" type="number" class="form-input" placeholder="0" min="0" max="10">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Total Rooms</label>
+            <input id="import-total-rooms" type="number" class="form-input" placeholder="0" min="0" max="50">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Heating Fuel</label>
+            <select id="import-heating-fuel" class="form-select">
+              <option value="">Unknown</option>
+              <option value="Natural Gas">Natural Gas</option>
+              <option value="Electric">Electric</option>
+              <option value="Oil">Oil</option>
+              <option value="Propane">Propane</option>
+              <option value="Wood">Wood</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">AC Type</label>
+            <select id="import-ac-type" class="form-select">
+              <option value="">Unknown</option>
+              <option value="Central">Central</option>
+              <option value="Window">Window</option>
+              <option value="None">None</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Heating System</label>
+            <select id="import-heating-system" class="form-select">
+              <option value="">Unknown</option>
+              <option value="Forced Air">Forced Air</option>
+              <option value="Radiator">Radiator</option>
+              <option value="Baseboard">Baseboard</option>
+              <option value="Heat Pump">Heat Pump</option>
+            </select>
+          </div>
+        </div>
       </div>
     </details>
 
@@ -447,6 +507,16 @@ export function initImport(
   const mlySaveBtn = controls.querySelector('#import-mly-save') as HTMLButtonElement;
   const mlyStatus = controls.querySelector('#import-mly-status') as HTMLElement;
   const apiSection = controls.querySelector('#import-api-section') as HTMLDetailsElement;
+  const enrichSection = controls.querySelector('#import-enrichment-section') as HTMLDetailsElement;
+  const enrichBody = controls.querySelector('#import-enrichment-body') as HTMLElement;
+  const enrichBadge = controls.querySelector('#import-enrich-badge') as HTMLElement;
+  // Advanced property detail inputs
+  const garageSqftInput = controls.querySelector('#import-garage-sqft') as HTMLInputElement;
+  const fireplaceCountInput = controls.querySelector('#import-fireplace-count') as HTMLInputElement;
+  const totalRoomsInput = controls.querySelector('#import-total-rooms') as HTMLInputElement;
+  const heatingFuelSelect = controls.querySelector('#import-heating-fuel') as HTMLSelectElement;
+  const acTypeSelect = controls.querySelector('#import-ac-type') as HTMLSelectElement;
+  const heatingSystemSelect = controls.querySelector('#import-heating-system') as HTMLSelectElement;
 
   // Form field refs for persistence
   const fieldIds = ['import-stories', 'import-sqft', 'import-beds', 'import-baths', 'import-year'] as const;
@@ -821,6 +891,13 @@ export function initImport(
     }
     showStatus(statusParts.filter(Boolean).join(' '), 'success');
 
+    // Populate advanced fields from Smarty data
+    populateAdvancedFields();
+
+    // Enrichment panel is populated after a short delay to allow async P1 sources
+    // (NLCD, hardiness, trees, overture, water, canopy, land cover) to settle
+    setTimeout(updateEnrichmentPanel, 2500);
+
     lookupBtn.disabled = false;
   }
 
@@ -982,6 +1059,104 @@ export function initImport(
         currentWallOverride = mapped;
       }
     }
+  }
+
+  /** Populate the enrichment data panel with all API-retrieved data (read-only summary) */
+  function updateEnrichmentPanel(): void {
+    const sections: string[] = [];
+    let sourceCount = 0;
+
+    // Vegetation & landscape
+    const vegParts: string[] = [];
+    if (currentNlcdCanopy) { vegParts.push(`NLCD canopy: ${currentNlcdCanopy.canopyCoverPct}%`); sourceCount++; }
+    if (currentHardiness) { vegParts.push(`Hardiness zone: ${currentHardiness.zone}`); sourceCount++; }
+    if (currentOSMTrees.length > 0) { vegParts.push(`Nearby trees: ${currentOSMTrees.length}`); sourceCount++; }
+    if (currentCanopyHeight) { vegParts.push(`Canopy height: ${currentCanopyHeight.heightMeters.toFixed(1)}m`); sourceCount++; }
+    if (currentLandCover) { vegParts.push(`Land cover: ${currentLandCover.label ?? `class ${currentLandCover.classValue}`}`); sourceCount++; }
+    if (vegParts.length) sections.push(`<div class="enrich-group"><span class="enrich-label">Vegetation</span><span class="enrich-val">${vegParts.join(' · ')}</span></div>`);
+
+    // Building
+    const bldParts: string[] = [];
+    if (currentOverture) {
+      const parts: string[] = [];
+      if (currentOverture.height != null) parts.push(`${currentOverture.height.toFixed(1)}m`);
+      if (currentOverture.numFloors != null) parts.push(`${currentOverture.numFloors}fl`);
+      if (currentOverture.roofShape) parts.push(currentOverture.roofShape);
+      if (parts.length) { bldParts.push(`Overture: ${parts.join(', ')}`); sourceCount++; }
+    }
+    if (currentMapboxBuilding) { bldParts.push(`Mapbox: ${currentMapboxBuilding.height.toFixed(1)}m`); sourceCount++; }
+    if (currentSolar) {
+      bldParts.push(`Solar: ${currentSolar.roofSegmentCount} segs, ${currentSolar.primaryPitchDegrees?.toFixed(0) ?? '?'}° pitch`);
+      sourceCount++;
+    }
+    if (currentOSM) {
+      bldParts.push(`OSM: ${currentOSM.widthMeters?.toFixed(0) ?? '?'}×${currentOSM.lengthMeters?.toFixed(0) ?? '?'}m`);
+      sourceCount++;
+    }
+    if (bldParts.length) sections.push(`<div class="enrich-group"><span class="enrich-label">Building</span><span class="enrich-val">${bldParts.join(' · ')}</span></div>`);
+
+    // Water
+    if (currentWater.length > 0) {
+      const names = currentWater.slice(0, 3).map(w => w.name || w.type).join(', ');
+      sections.push(`<div class="enrich-group"><span class="enrich-label">Water</span><span class="enrich-val">${currentWater.length} features (${names})</span></div>`);
+      sourceCount++;
+    }
+
+    // HVAC (from Smarty)
+    if (currentSmarty) {
+      const hvacParts: string[] = [];
+      if (currentSmarty.heat) hvacParts.push(`Heat: ${currentSmarty.heat}`);
+      if (currentSmarty.heatFuelType) hvacParts.push(`Fuel: ${currentSmarty.heatFuelType}`);
+      if (currentSmarty.airConditioner) hvacParts.push(`AC: ${currentSmarty.airConditioner}`);
+      if (hvacParts.length) sections.push(`<div class="enrich-group"><span class="enrich-label">HVAC</span><span class="enrich-val">${hvacParts.join(' · ')}</span></div>`);
+    }
+
+    // Property extras (from Smarty)
+    if (currentSmarty) {
+      const extraParts: string[] = [];
+      if (currentSmarty.garageSqft) extraParts.push(`Garage: ${currentSmarty.garageSqft} sqft`);
+      if (currentSmarty.fireplaceCount) extraParts.push(`Fireplaces: ${currentSmarty.fireplaceCount}`);
+      if (currentSmarty.rooms) extraParts.push(`Rooms: ${currentSmarty.rooms}`);
+      if (currentSmarty.totalMarketValue) extraParts.push(`Value: $${currentSmarty.totalMarketValue.toLocaleString()}`);
+      if (extraParts.length) sections.push(`<div class="enrich-group"><span class="enrich-label">Property</span><span class="enrich-val">${extraParts.join(' · ')}</span></div>`);
+    }
+
+    // SV colors
+    if (currentSvColors) {
+      sections.push(`<div class="enrich-group"><span class="enrich-label">SV Colors</span><span class="enrich-val">Wall: <span class="import-color-swatch" style="background:rgb(${currentSvColors.wallColor.r},${currentSvColors.wallColor.g},${currentSvColors.wallColor.b})"></span> Roof: <span class="import-color-swatch" style="background:rgb(${currentSvColors.roofColor.r},${currentSvColors.roofColor.g},${currentSvColors.roofColor.b})"></span> Trim: <span class="import-color-swatch" style="background:rgb(${currentSvColors.trimColor.r},${currentSvColors.trimColor.g},${currentSvColors.trimColor.b})"></span></span></div>`);
+      sourceCount++;
+    }
+
+    // Terrain
+    if (currentElevGrid && currentGeocoding) {
+      const slope = footprintSlope(
+        currentElevGrid, currentGeocoding.lat, currentGeocoding.lng,
+        currentOSM?.widthMeters ?? 15, currentOSM?.lengthMeters ?? 15,
+      );
+      if (slope > 0.5) {
+        sections.push(`<div class="enrich-group"><span class="enrich-label">Terrain</span><span class="enrich-val">Slope: ${slope.toFixed(1)}m across footprint</span></div>`);
+        sourceCount++;
+      }
+    }
+
+    if (sections.length > 0) {
+      enrichSection.style.display = '';
+      enrichBody.innerHTML = sections.join('');
+      enrichBadge.textContent = String(sourceCount);
+    } else {
+      enrichSection.style.display = 'none';
+    }
+  }
+
+  /** Populate advanced property detail fields from Smarty data */
+  function populateAdvancedFields(): void {
+    if (!currentSmarty) return;
+    if (currentSmarty.garageSqft) garageSqftInput.value = String(currentSmarty.garageSqft);
+    if (currentSmarty.fireplaceCount) fireplaceCountInput.value = String(currentSmarty.fireplaceCount);
+    if (currentSmarty.rooms) totalRoomsInput.value = String(currentSmarty.rooms);
+    if (currentSmarty.heatFuelType) heatingFuelSelect.value = currentSmarty.heatFuelType;
+    if (currentSmarty.airConditioner) acTypeSelect.value = currentSmarty.airConditioner;
+    if (currentSmarty.heat) heatingSystemSelect.value = currentSmarty.heat;
   }
 
   function showStatus(message: string, type: 'success' | 'error' | 'loading'): void {
@@ -1250,14 +1425,14 @@ export function initImport(
         acres: 0,
         bedrooms: (prop.bedrooms as number) ?? 0,
         bathroomsTotal: (prop.bathrooms as number) ?? 0,
-        rooms: 0,
+        rooms: (prop.totalRooms as number) ?? 0,
         yearBuilt: (prop.yearBuilt as number) ?? 0,
-        garageSqft: 0,
-        fireplaceCount: 0,
-        airConditioner: '',
-        heat: '',
-        heatFuelType: '',
-        totalMarketValue: 0,
+        garageSqft: (prop.garageSqft as number) ?? 0,
+        fireplaceCount: (prop.fireplaceCount as number) ?? 0,
+        airConditioner: (prop.airConditioningType as string) ?? '',
+        heat: (prop.heatingSystemType as string) ?? '',
+        heatFuelType: (prop.heatingFuelType as string) ?? '',
+        totalMarketValue: (prop.totalMarketValue as number) ?? 0,
         latitude: geo?.lat ?? 0,
         longitude: geo?.lng ?? 0,
       };
@@ -1379,6 +1554,17 @@ export function initImport(
         label: prop.landCoverLabel as string ?? null,
       };
     }
+
+    // Populate advanced property detail fields from JSON
+    if (prop.garageSqft) garageSqftInput.value = String(prop.garageSqft);
+    if (prop.fireplaceCount) fireplaceCountInput.value = String(prop.fireplaceCount);
+    if (prop.totalRooms) totalRoomsInput.value = String(prop.totalRooms);
+    if (prop.heatingFuelType) heatingFuelSelect.value = String(prop.heatingFuelType);
+    if (prop.airConditioningType) acTypeSelect.value = String(prop.airConditioningType);
+    if (prop.heatingSystemType) heatingSystemSelect.value = String(prop.heatingSystemType);
+
+    // Update enrichment panel with restored data
+    updateEnrichmentPanel();
 
     showStatus(`Loaded from JSON: ${addressInput.value || 'unknown address'}`, 'success');
   }
@@ -1597,14 +1783,14 @@ export function initImport(
       overtureHeight: useOverture ? currentOverture?.height : undefined,
       overtureFloors: useOverture ? currentOverture?.numFloors : undefined,
       overtureRoofShape: useOverture ? currentOverture?.roofShape : undefined,
-      // Phase 5 P1: Smarty untapped fields
-      garageSqft: smarty?.garageSqft || undefined,
-      fireplaceCount: smarty?.fireplaceCount || undefined,
+      // Phase 5 P1: Smarty untapped fields — form inputs override API data
+      garageSqft: parseInt(garageSqftInput.value) || smarty?.garageSqft || undefined,
+      fireplaceCount: parseInt(fireplaceCountInput.value) || smarty?.fireplaceCount || undefined,
       totalMarketValue: smarty?.totalMarketValue || undefined,
-      airConditioningType: smarty?.airConditioner || undefined,
-      heatingSystemType: smarty?.heat || undefined,
-      heatingFuelType: smarty?.heatFuelType || undefined,
-      totalRooms: smarty?.rooms || undefined,
+      airConditioningType: acTypeSelect.value || smarty?.airConditioner || undefined,
+      heatingSystemType: heatingSystemSelect.value || smarty?.heat || undefined,
+      heatingFuelType: heatingFuelSelect.value || smarty?.heatFuelType || undefined,
+      totalRooms: parseInt(totalRoomsInput.value) || smarty?.rooms || undefined,
       // Phase 5 P1: water features, canopy height, land cover
       nearbyWater: useWater && currentWater.length > 0 ? currentWater.map(w => ({
         type: w.type, name: w.name, distanceMeters: w.distanceMeters,
