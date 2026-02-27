@@ -255,13 +255,14 @@ export function generateHouse(
   if (foundType === 'crawlspace') {
     // Crawlspace: replace solid perimeter at y=0 with lattice fencing
     // Interior stays solid (floor), but the visible edge is open
+    const csBlk = landscape?.fenceBlock ?? 'minecraft:oak_fence';
     for (let x = bx1; x <= bx2; x++) {
-      grid.set(x, 0, bz1, 'minecraft:oak_fence');
-      grid.set(x, 0, bz2, 'minecraft:oak_fence');
+      grid.set(x, 0, bz1, csBlk);
+      grid.set(x, 0, bz2, csBlk);
     }
     for (let z = bz1 + 1; z < bz2; z++) {
-      grid.set(bx1, 0, z, 'minecraft:oak_fence');
-      grid.set(bx2, 0, z, 'minecraft:oak_fence');
+      grid.set(bx1, 0, z, csBlk);
+      grid.set(bx2, 0, z, csBlk);
     }
   } else if (foundType === 'pier') {
     // Pier: only corner and midpoint pillars visible at y=0
@@ -409,7 +410,7 @@ export function generateHouse(
 
   // Deck on the back of the house (before other features to avoid overlap)
   if (features?.deck) {
-    placeDeck(grid, bx1, bx2, bz1, 0);
+    placeDeck(grid, bx1, bx2, bz1, 0, landscape?.fenceBlock);
   }
 
   // Exterior features, each gated by its flag
@@ -418,8 +419,8 @@ export function generateHouse(
     ? landscape.treePalette[Math.floor(rng() * landscape.treePalette.length)]
     : 'birch';
   if (f.backyard) addBackyard(grid, bx1, bx2, bz1, style, rng, backyardTree);
-  if (f.driveway) addDriveway(grid, xMid, bz2, porchDepth);
-  if (f.fence)    addPropertyFence(grid, bx1, bz1, bx2, bz2, xMid, style);
+  if (f.driveway) addDriveway(grid, xMid, bz2, porchDepth, landscape?.pathBlock);
+  if (f.fence)    addPropertyFence(grid, bx1, bz1, bx2, bz2, xMid, style, landscape?.fenceBlock);
 
   // Swimming pool in backyard area — check full extent including border + diving board
   if (f.pool) {

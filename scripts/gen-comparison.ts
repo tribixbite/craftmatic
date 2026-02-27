@@ -675,7 +675,7 @@ for (const { key, address } of ADDRESSES) {
     const prop = tierProps[tier];
     const opts = convertToGenerationOptions(prop);
     const ls = opts.landscape;
-    const lsStr = ls ? ` trees=${ls.treeCount}×${ls.treePalette.join('/')} h=${ls.treeHeight} water=${ls.hasWater} ground=${ls.groundCover}` : '';
+    const lsStr = ls ? ` trees=${ls.treeCount}×${ls.treePalette.join('/')} h=${ls.treeHeight} water=${ls.hasWater} ground=${ls.groundCover} path=${ls.pathBlock?.replace('minecraft:', '')} fence=${ls.fenceBlock?.replace('minecraft:', '')}` : '';
     console.log(`\n  [${tier}] ${opts.style} ${opts.floors}f ${opts.width || '?'}x${opts.length || '?'} shape=${opts.floorPlanShape || 'rect'}${lsStr}`);
 
     const grid = generateStructure(opts);

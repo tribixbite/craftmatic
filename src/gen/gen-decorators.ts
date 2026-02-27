@@ -65,16 +65,17 @@ export type DecoratorFn = (ctx: DecoratorContext) => void;
 
 /** Fantasy cottage: garden shed + fenced flower garden + ivy walls */
 function fantasyCottage(ctx: DecoratorContext): void {
-  const { grid, style, rng, floors, bx1, bz1, bz2, zMid } = ctx;
+  const { grid, style, rng, floors, bx1, bz1, bz2, zMid, landscape } = ctx;
+  const pathBlk = landscape?.pathBlock ?? 'minecraft:gravel';
 
   // Garden shed to the west
   const shedX = Math.max(0, bx1 - 8);
   const shedZ = zMid - 2;
   placeOutbuilding(grid, shedX, shedZ, 5, 5, 3, style, 'gable');
-  // Gravel path connecting shed to house front
+  // Path connecting shed to house front — material varies by environment
   for (let x = shedX + 5; x <= bx1; x++) {
     if (grid.inBounds(x, 0, shedZ + 2))
-      grid.set(x, 0, shedZ + 2, 'minecraft:gravel');
+      grid.set(x, 0, shedZ + 2, pathBlk);
   }
   // Fenced flower garden south of shed
   const fgX1 = shedX;
@@ -322,7 +323,8 @@ function modernFacade(ctx: DecoratorContext): void {
 
 /** Medieval manor: weathering + dormers + heraldic banners + stable + well */
 function medievalManor(ctx: DecoratorContext): void {
-  const { grid, style, rng, floors, bx1, bx2, bz1, bz2, bw, zMid, roofBase, effectiveRoofH } = ctx;
+  const { grid, style, rng, floors, bx1, bx2, bz1, bz2, bw, zMid, roofBase, effectiveRoofH, landscape } = ctx;
+  const pathBlk = landscape?.pathBlock ?? 'minecraft:cobblestone';
 
   // Weathered exterior walls
   const medievalVariants = [
@@ -384,7 +386,7 @@ function medievalManor(ctx: DecoratorContext): void {
   const wellMX = bx1 - 3;
   const wellMZ = zMid;
   if (grid.inBounds(wellMX, 0, wellMZ)) {
-    grid.set(wellMX, 0, wellMZ, 'minecraft:cobblestone');
+    grid.set(wellMX, 0, wellMZ, pathBlk);
     grid.set(wellMX, 1, wellMZ, 'minecraft:water_cauldron[level=3]');
     for (const [fx, fz] of [[wellMX - 1, wellMZ - 1], [wellMX + 1, wellMZ - 1],
                               [wellMX - 1, wellMZ + 1], [wellMX + 1, wellMZ + 1]] as [number, number][]) {
@@ -400,10 +402,10 @@ function medievalManor(ctx: DecoratorContext): void {
     grid.set(stbX + 1, 1, stbZ + 1, 'minecraft:hay_block');
   if (grid.inBounds(stbX + 1, 2, stbZ + 1))
     grid.set(stbX + 1, 2, stbZ + 1, 'minecraft:hay_block');
-  // Cobblestone courtyard path from stable to manor
+  // Courtyard path from stable to manor — material varies by environment
   for (let x = stbX + 7; x <= bx1; x++) {
     if (grid.inBounds(x, 0, stbZ + 3))
-      grid.set(x, 0, stbZ + 3, 'minecraft:cobblestone');
+      grid.set(x, 0, stbZ + 3, pathBlk);
   }
   // Estate perimeter stone wall (partial — north and west sides)
   const wallXStart = Math.max(0, stbX - 2);
@@ -420,6 +422,8 @@ function medievalManor(ctx: DecoratorContext): void {
 /** Rustic cabin: log corners + wrap-around porch + campfire + woodshed + fishing dock (water-conditional) */
 function rusticCabin(ctx: DecoratorContext): void {
   const { grid, style, floors, bx1, bx2, bz1, bz2, xMid, zMid, landscape } = ctx;
+  const pathBlk = landscape?.pathBlock ?? 'minecraft:cobblestone';
+  const fenceBlk = landscape?.fenceBlock ?? 'minecraft:spruce_fence';
 
   // Full log corner construction — EVERY corner column is stripped log
   for (let y = 1; y <= floors * STORY_H; y++) {
@@ -482,9 +486,9 @@ function rusticCabin(ctx: DecoratorContext): void {
         grid.set(bx2 + 1, y, bz1 + dz, 'minecraft:spruce_log[axis=x]');
     }
   }
-  // Campfire with seating
+  // Campfire with seating — base stone varies by environment
   if (grid.inBounds(xMid - 4, 0, bz2 + 4))
-    grid.set(xMid - 4, 0, bz2 + 4, 'minecraft:cobblestone');
+    grid.set(xMid - 4, 0, bz2 + 4, pathBlk);
   if (grid.inBounds(xMid - 4, 1, bz2 + 4))
     grid.set(xMid - 4, 1, bz2 + 4, 'minecraft:campfire[lit=true]');
   // Log benches around campfire
@@ -492,10 +496,10 @@ function rusticCabin(ctx: DecoratorContext): void {
     if (grid.inBounds(sx, 1, sz))
       grid.set(sx, 1, sz, 'minecraft:spruce_log[axis=x]');
   }
-  // Stone cobble path from porch to campfire
+  // Path from porch to campfire — material varies by environment
   for (let dz = 1; dz <= 3; dz++) {
     if (grid.inBounds(xMid - 2, 0, bz2 + dz))
-      grid.set(xMid - 2, 0, bz2 + dz, 'minecraft:cobblestone');
+      grid.set(xMid - 2, 0, bz2 + dz, pathBlk);
   }
   // Woodshed / outhouse — separate small structure for compositional variety
   const outX = Math.max(0, bx1 - 7);
@@ -508,10 +512,10 @@ function rusticCabin(ctx: DecoratorContext): void {
     if (grid.inBounds(outX + 4, y, outZ + 2))
       grid.set(outX + 4, y, outZ + 2, 'minecraft:spruce_log[axis=z]');
   }
-  // Dirt path from woodshed to cabin
+  // Path from woodshed to cabin — material varies by environment
   for (let x = outX + 4; x <= bx1; x++) {
     if (grid.inBounds(x, 0, outZ + 2))
-      grid.set(x, 0, outZ + 2, 'minecraft:dirt_path');
+      grid.set(x, 0, outZ + 2, pathBlk);
   }
   // Fishing dock — only when water features are nearby (or no landscape data = legacy behavior)
   if (landscape?.hasWater !== false) {
@@ -523,19 +527,20 @@ function rusticCabin(ctx: DecoratorContext): void {
       if (grid.inBounds(dockX + 1, 0, z))
         grid.set(dockX + 1, 0, z, style.floorGround);
     }
-    // Dock posts
+    // Dock posts — use landscape fence or style default
     for (const dz of [dockZ, dockZ + 6]) {
       if (grid.inBounds(dockX, 1, dz))
-        grid.set(dockX, 1, dz, style.fence);
+        grid.set(dockX, 1, dz, fenceBlk);
       if (grid.inBounds(dockX + 1, 1, dz))
-        grid.set(dockX + 1, 1, dz, style.fence);
+        grid.set(dockX + 1, 1, dz, fenceBlk);
     }
   }
 }
 
 /** Colonial shutters + brick chimney + pediment + flower boxes + walkway */
 function colonialFacade(ctx: DecoratorContext): void {
-  const { grid, style, rng, floors, bx1, bx2, bz1, bz2, xMid, roofBase, effectiveRoofH, porchDepth } = ctx;
+  const { grid, style, rng, floors, bx1, bx2, bz1, bz2, xMid, roofBase, effectiveRoofH, porchDepth, landscape } = ctx;
+  const pathBlk = landscape?.pathBlock ?? 'minecraft:bricks';
 
   // Dark "shutters" flanking every window — spruce trapdoors on both sides
   for (let story = 0; story < floors; story++) {
@@ -591,16 +596,17 @@ function colonialFacade(ctx: DecoratorContext): void {
     if (grid.inBounds(x, 1, bz2 + 1))
       grid.set(x, 1, bz2 + 1, pick(['minecraft:potted_lily_of_the_valley', 'minecraft:potted_blue_orchid', 'minecraft:potted_dandelion'], rng));
   }
-  // Brick walkway from front door
+  // Walkway from front door — material varies by environment
   for (let z = bz2 + porchDepth + 1; z <= bz2 + porchDepth + 5; z++) {
     if (grid.inBounds(xMid, 0, z))
-      grid.set(xMid, 0, z, 'minecraft:bricks');
+      grid.set(xMid, 0, z, pathBlk);
   }
 }
 
 /** Gothic/Victorian: turret + bay windows + iron fence + weathering */
 function gothicVictorian(ctx: DecoratorContext): void {
-  const { grid, style, rng, floors, bx1, bx2, bz1, bz2, porchDepth } = ctx;
+  const { grid, style, rng, floors, bx1, bx2, bz1, bz2, porchDepth, landscape } = ctx;
+  const fenceBlk = landscape?.fenceBlock ?? 'minecraft:iron_bars';
 
   // Corner turret — circular tower on NE corner, signature Queen Anne element
   const turretR = 3;
@@ -681,11 +687,11 @@ function gothicVictorian(ctx: DecoratorContext): void {
     }
   }
 
-  // Ornamental iron fence around property
+  // Ornamental fence around property — material varies by environment
   for (let x = Math.max(0, bx1 - 2); x <= bx2 + 2; x++) {
     const fz = bz2 + porchDepth + 2;
     if (grid.inBounds(x, 1, fz))
-      grid.set(x, 1, fz, 'minecraft:iron_bars');
+      grid.set(x, 1, fz, fenceBlk);
   }
   // Weathered wall detail (cracked/mossy variants)
   const gothicVariants = ['minecraft:cracked_deepslate_bricks', 'minecraft:deepslate_tiles'];

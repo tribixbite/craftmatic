@@ -657,7 +657,8 @@ export function pierFoundation(
  * Includes fence railing and is at the first-floor level.
  */
 export function placeDeck(
-  grid: BlockGrid, x1: number, x2: number, deckZ: number, baseY: number
+  grid: BlockGrid, x1: number, x2: number, deckZ: number, baseY: number,
+  railingBlock = 'minecraft:spruce_fence',
 ): void {
   const deckW = Math.min(x2 - x1, 10);
   const deckL = 5;
@@ -680,13 +681,13 @@ export function placeDeck(
   // Fence railing on three sides (open where it connects to house)
   for (let x = dxStart; x <= dxEnd; x++) {
     if (grid.inBounds(x, baseY + 1, dzEnd))
-      grid.set(x, baseY + 1, dzEnd, 'minecraft:spruce_fence');
+      grid.set(x, baseY + 1, dzEnd, railingBlock);
   }
   for (let z = dzEnd; z <= deckZ; z++) {
     if (grid.inBounds(dxStart, baseY + 1, z))
-      grid.set(dxStart, baseY + 1, z, 'minecraft:spruce_fence');
+      grid.set(dxStart, baseY + 1, z, railingBlock);
     if (grid.inBounds(dxEnd, baseY + 1, z))
-      grid.set(dxEnd, baseY + 1, z, 'minecraft:spruce_fence');
+      grid.set(dxEnd, baseY + 1, z, railingBlock);
   }
 
   // Steps down from deck to ground
@@ -938,10 +939,11 @@ export function addBackyard(
     if (grid.inBounds(bx2, 1, z)) grid.set(bx2, 1, z, style.fence);
   }
 
-  // Fence gate at center back
+  // Fence gate at center back — derive wood type from style fence
+  const gateWood = style.fence.match(/minecraft:(\w+)_fence$/)?.[1] ?? 'oak';
   const gateCx = Math.floor((bx1 + bx2) / 2);
   if (grid.inBounds(gateCx, 1, yardZ1))
-    grid.set(gateCx, 1, yardZ1, `minecraft:oak_fence_gate[facing=south,open=false]`);
+    grid.set(gateCx, 1, yardZ1, `minecraft:${gateWood}_fence_gate[facing=south,open=false]`);
 
   // Garden flower bed
   const gardenX1 = bx1 + 2;
@@ -966,32 +968,44 @@ export function addBackyard(
     placeTree(grid, treeX, 1, treeZ, treeType, 4);
 }
 
-/** Add a stone brick driveway extending from the front door */
+/** Add a driveway/walkway extending from the front door — material varies by environment */
 export function addDriveway(
-  grid: BlockGrid, doorX: number, bz2: number, porchDepth: number
+  grid: BlockGrid, doorX: number, bz2: number, porchDepth: number,
+  pathBlock = 'minecraft:stone_bricks',
 ): void {
   const driveStart = bz2 + porchDepth + 1;
   const driveEnd = driveStart + 6;
   const halfW = 1; // 3-wide path
+  // Derive slab variant from path block when possible
+  const slabBlk = pathBlock.replace(/:(\w+)$/, ':$1_slab') + '[type=bottom]';
+  // Valid MC slab types — fall back to stone_brick_slab for non-slab blocks
+  const hasSlabVariant = /stone_bricks|cobblestone|sandstone|prismarine/.test(pathBlock);
+  const borderBlk = hasSlabVariant ? slabBlk : 'minecraft:stone_brick_slab[type=bottom]';
 
   for (let z = driveStart; z <= driveEnd; z++) {
     for (let dx = -halfW; dx <= halfW; dx++) {
       if (grid.inBounds(doorX + dx, 0, z))
-        grid.set(doorX + dx, 0, z, 'minecraft:stone_bricks');
+        grid.set(doorX + dx, 0, z, pathBlock);
     }
     // Slab borders
     if (grid.inBounds(doorX - halfW - 1, 0, z))
-      grid.set(doorX - halfW - 1, 0, z, 'minecraft:stone_brick_slab[type=bottom]');
+      grid.set(doorX - halfW - 1, 0, z, borderBlk);
     if (grid.inBounds(doorX + halfW + 1, 0, z))
-      grid.set(doorX + halfW + 1, 0, z, 'minecraft:stone_brick_slab[type=bottom]');
+      grid.set(doorX + halfW + 1, 0, z, borderBlk);
   }
 }
 
-/** Add a property fence around the full perimeter with gates at front and back */
+/** Add a property fence around the full perimeter with gates at front and back.
+ * @param fenceOverride Optional block to use instead of style.fence (from landscape data) */
 export function addPropertyFence(
   grid: BlockGrid, bx1: number, bz1: number, bx2: number, bz2: number,
-  doorX: number, style: StylePalette
+  doorX: number, style: StylePalette, fenceOverride?: string,
 ): void {
+  const fenceBlk = fenceOverride ?? style.fence;
+  // Derive gate type from fence — e.g. spruce_fence → spruce_fence_gate
+  // Walls (stone_brick_wall etc.) have no gate equivalent, fall back to oak
+  const gateWood = fenceBlk.match(/minecraft:(\w+)_fence$/)?.[1] ?? 'oak';
+
   // Expand fence 2 blocks out from building footprint
   const fx1 = Math.max(0, bx1 - 2);
   const fz1 = Math.max(0, bz1 - 10); // back yard side
@@ -1000,38 +1014,38 @@ export function addPropertyFence(
 
   // North and south fence runs
   for (let x = fx1; x <= fx2; x++) {
-    if (grid.inBounds(x, 1, fz1)) grid.set(x, 1, fz1, style.fence);
-    if (grid.inBounds(x, 1, fz2)) grid.set(x, 1, fz2, style.fence);
+    if (grid.inBounds(x, 1, fz1)) grid.set(x, 1, fz1, fenceBlk);
+    if (grid.inBounds(x, 1, fz2)) grid.set(x, 1, fz2, fenceBlk);
   }
   // East and west fence runs
   for (let z = fz1; z <= fz2; z++) {
-    if (grid.inBounds(fx1, 1, z)) grid.set(fx1, 1, z, style.fence);
-    if (grid.inBounds(fx2, 1, z)) grid.set(fx2, 1, z, style.fence);
+    if (grid.inBounds(fx1, 1, z)) grid.set(fx1, 1, z, fenceBlk);
+    if (grid.inBounds(fx2, 1, z)) grid.set(fx2, 1, z, fenceBlk);
   }
 
   // Corner posts (double height)
   for (const [px, pz] of [[fx1, fz1], [fx1, fz2], [fx2, fz1], [fx2, fz2]] as [number, number][]) {
-    if (grid.inBounds(px, 2, pz)) grid.set(px, 2, pz, style.fence);
+    if (grid.inBounds(px, 2, pz)) grid.set(px, 2, pz, fenceBlk);
   }
 
   // Interval posts every 4 blocks
   for (let x = fx1 + 4; x < fx2; x += 4) {
-    if (grid.inBounds(x, 2, fz1)) grid.set(x, 2, fz1, style.fence);
-    if (grid.inBounds(x, 2, fz2)) grid.set(x, 2, fz2, style.fence);
+    if (grid.inBounds(x, 2, fz1)) grid.set(x, 2, fz1, fenceBlk);
+    if (grid.inBounds(x, 2, fz2)) grid.set(x, 2, fz2, fenceBlk);
   }
   for (let z = fz1 + 4; z < fz2; z += 4) {
-    if (grid.inBounds(fx1, 2, z)) grid.set(fx1, 2, z, style.fence);
-    if (grid.inBounds(fx2, 2, z)) grid.set(fx2, 2, z, style.fence);
+    if (grid.inBounds(fx1, 2, z)) grid.set(fx1, 2, z, fenceBlk);
+    if (grid.inBounds(fx2, 2, z)) grid.set(fx2, 2, z, fenceBlk);
   }
 
-  // Front gate (at driveway)
+  // Front gate (at driveway) — wood type matches fence
   if (grid.inBounds(doorX, 1, fz2))
-    grid.set(doorX, 1, fz2, `minecraft:oak_fence_gate[facing=north,open=false]`);
+    grid.set(doorX, 1, fz2, `minecraft:${gateWood}_fence_gate[facing=north,open=false]`);
 
   // Back gate
   const backGateX = Math.floor((bx1 + bx2) / 2);
   if (grid.inBounds(backGateX, 1, fz1))
-    grid.set(backGateX, 1, fz1, `minecraft:oak_fence_gate[facing=south,open=false]`);
+    grid.set(backGateX, 1, fz1, `minecraft:${gateWood}_fence_gate[facing=south,open=false]`);
 }
 
 // ─── Building Enhancement Utilities ─────────────────────────────────────────

@@ -573,7 +573,21 @@ export function buildLandscape(prop: PropertyData): LandscapeData | undefined {
   const hasWater = (prop.nearbyWater?.length ?? 0) > 0;
   const groundCover = landCoverToGround(prop.landCoverClass);
 
-  return { treePalette, treeCount, treeHeight, hasWater, groundCover };
+  // Path and fence blocks keyed by land cover — gives each climate a distinct feel
+  const pathBlock = groundCover === 'forest' ? 'minecraft:mossy_cobblestone'
+    : groundCover === 'crop' ? 'minecraft:dirt_path'
+    : groundCover === 'built' ? 'minecraft:stone_bricks'
+    : groundCover === 'water' ? 'minecraft:prismarine_bricks'
+    : groundCover === 'bare' ? 'minecraft:smooth_sandstone'
+    : 'minecraft:cobblestone'; // grass + default
+  const fenceBlock = groundCover === 'forest' ? 'minecraft:spruce_fence'
+    : groundCover === 'crop' ? 'minecraft:oak_fence'
+    : groundCover === 'built' ? 'minecraft:stone_brick_wall'
+    : groundCover === 'water' ? 'minecraft:dark_oak_fence'
+    : groundCover === 'bare' ? 'minecraft:acacia_fence'
+    : 'minecraft:oak_fence'; // grass + default
+
+  return { treePalette, treeCount, treeHeight, hasWater, groundCover, pathBlock, fenceBlock };
 }
 
 // ─── Stories Estimation ─────────────────────────────────────────────────────
