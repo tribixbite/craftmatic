@@ -4,8 +4,9 @@
  */
 
 import { BlockGrid } from '../schem/types.js';
-import type { RoomType, RoomBounds, RoofShape, FeatureFlags, FloorPlanShape, BuildingSection } from '../types/index.js';
+import type { RoomType, RoomBounds, RoofShape, FeatureFlags, FloorPlanShape, BuildingSection, LandscapeData } from '../types/index.js';
 import type { CoordinateBitmap } from './coordinate-bitmap.js';
+import type { TreeType } from './structures.js';
 import { getRoomGenerator } from './rooms.js';
 import {
   foundation,
@@ -110,6 +111,98 @@ export function planShapeToSections(
   return sections;
 }
 
+// ─── Tree Positioning ────────────────────────────────────────────────────────
+
+/** Distribute N trees around the building perimeter with minimum spacing.
+ * Returns [x, z] positions in grid coordinates, deterministic via rng. */
+function computeTreePositions(
+  grid: BlockGrid, bx1: number, bx2: number, bz1: number, bz2: number,
+  porchDepth: number, count: number, rng: () => number,
+): [number, number][] {
+  const candidates: [number, number][] = [];
+  const minSpacing = 3;
+
+  // Front yard: 2 candidates (left and right of entrance)
+  const frontZ = bz2 + porchDepth + 4;
+  candidates.push([Math.max(0, bx1 - 1), frontZ]);
+  candidates.push([Math.min(grid.width - 1, bx2 + 1), frontZ]);
+  // Extra front yard candidate (center-ish offset)
+  candidates.push([Math.floor((bx1 + bx2) / 2) - 4, frontZ + 2]);
+
+  // Side yards: left and right of building
+  for (const sz of [bz1 + 2, Math.floor((bz1 + bz2) / 2)]) {
+    candidates.push([Math.max(0, bx1 - 3), sz]);
+    candidates.push([Math.min(grid.width - 1, bx2 + 3), sz]);
+  }
+
+  // Back yard: behind the house
+  candidates.push([bx1 + 2, Math.max(0, bz1 - 4)]);
+  candidates.push([bx2 - 2, Math.max(0, bz1 - 5)]);
+
+  // Filter to in-bounds candidates, then shuffle deterministically
+  const valid = candidates.filter(([x, z]) => grid.inBounds(x, 1, z));
+  for (let i = valid.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [valid[i], valid[j]] = [valid[j], valid[i]];
+  }
+
+  // Pick up to `count` positions with minimum spacing between them
+  const placed: [number, number][] = [];
+  for (const pos of valid) {
+    if (placed.length >= count) break;
+    const tooClose = placed.some(([px, pz]) =>
+      Math.abs(pos[0] - px) < minSpacing && Math.abs(pos[1] - pz) < minSpacing
+    );
+    if (!tooClose) placed.push(pos);
+  }
+  return placed;
+}
+
+// ─── Ground Cover Patches ────────────────────────────────────────────────────
+
+/** Block materials for each ground cover type — scattered as patches, not full fill */
+const GROUND_COVER_BLOCKS: Record<string, string[]> = {
+  forest: ['minecraft:podzol', 'minecraft:moss_block'],
+  crop: ['minecraft:farmland', 'minecraft:coarse_dirt'],
+  built: ['minecraft:stone', 'minecraft:gray_concrete'],
+  bare: ['minecraft:sand', 'minecraft:red_sand'],
+  water: ['minecraft:clay'],
+};
+
+/** Scatter ground cover patches in yard areas based on land cover class */
+function applyGroundCover(
+  grid: BlockGrid, bx1: number, bx2: number, bz1: number, bz2: number,
+  porchDepth: number, groundCover: string, rng: () => number,
+): void {
+  const blocks = GROUND_COVER_BLOCKS[groundCover];
+  if (!blocks) return; // 'grass' and 'default' leave the existing grass_block ground
+
+  // Patch areas: front yard, side yards, and back yard
+  const zones: [number, number, number, number][] = [
+    // Back yard
+    [Math.max(0, bx1 - 2), Math.max(0, bz1 - 7), bx2 + 2, bz1 - 1],
+    // Front yard
+    [bx1, bz2 + porchDepth + 2, bx2, bz2 + porchDepth + 5],
+    // Left side
+    [Math.max(0, bx1 - 3), bz1, bx1 - 1, bz2],
+    // Right side
+    [bx2 + 1, bz1, Math.min(grid.width - 1, bx2 + 3), bz2],
+  ];
+
+  for (const [zx1, zz1, zx2, zz2] of zones) {
+    for (let x = zx1; x <= zx2; x++) {
+      for (let z = zz1; z <= zz2; z++) {
+        if (!grid.inBounds(x, 0, z)) continue;
+        // ~25% coverage — scattered patches, not solid fill
+        if (rng() < 0.25) {
+          const block = blocks[Math.floor(rng() * blocks.length)];
+          grid.set(x, 0, z, block);
+        }
+      }
+    }
+  }
+}
+
 // ─── House ──────────────────────────────────────────────────────────────────
 
 export function generateHouse(
@@ -118,7 +211,7 @@ export function generateHouse(
   roofShapeOpt?: RoofShape, features?: FeatureFlags,
   planShape?: FloorPlanShape, roofHeightOverride?: number,
   windowSpacing?: number, footprintBitmap?: CoordinateBitmap,
-  sections?: BuildingSection[],
+  sections?: BuildingSection[], landscape?: LandscapeData,
 ): BlockGrid {
   // Use style's preferred roof shape when no explicit override
   const roofShape: RoofShape = roofShapeOpt ?? style.defaultRoofShape;
@@ -320,7 +413,11 @@ export function generateHouse(
   }
 
   // Exterior features, each gated by its flag
-  if (f.backyard) addBackyard(grid, bx1, bx2, bz1, style, rng);
+  // Backyard tree species from landscape palette
+  const backyardTree: TreeType = landscape?.treePalette
+    ? landscape.treePalette[Math.floor(rng() * landscape.treePalette.length)]
+    : 'birch';
+  if (f.backyard) addBackyard(grid, bx1, bx2, bz1, style, rng, backyardTree);
   if (f.driveway) addDriveway(grid, xMid, bz2, porchDepth);
   if (f.fence)    addPropertyFence(grid, bx1, bz1, bx2, bz2, xMid, style);
 
@@ -337,13 +434,16 @@ export function generateHouse(
       placePool(grid, poolX, poolZ, poolW, poolL);
   }
 
-  // Additional trees in front/side yard
+  // Additional trees around property — species, count, and height from landscape data
   if (f.trees) {
-    const treeX = Math.max(0, bx1 - 1);
-    const treeZ = bz2 + porchDepth + 4;
-    if (grid.inBounds(treeX, 1, treeZ)) placeTree(grid, treeX, 1, treeZ, 'oak', 5);
-    const treeX2 = Math.min(grid.width - 1, bx2 + 1);
-    if (grid.inBounds(treeX2, 1, treeZ)) placeTree(grid, treeX2, 1, treeZ, 'birch', 4);
+    const palette: TreeType[] = landscape?.treePalette ?? ['oak', 'birch'];
+    const count = landscape?.treeCount ?? 2;
+    const height = landscape?.treeHeight ?? 5;
+    const positions = computeTreePositions(grid, bx1, bx2, bz1, bz2, porchDepth, count, rng);
+    for (const [tx, tz] of positions) {
+      const species = palette[Math.floor(rng() * palette.length)];
+      placeTree(grid, tx, 1, tz, species, height);
+    }
   }
 
   // Side garden
@@ -355,11 +455,16 @@ export function generateHouse(
       placeGarden(grid, gardenX1 - 1, gardenZ1, gardenX1, gardenZ2, 0, rng);
   }
 
+  // ── Ground cover patches from land cover class ──────────────────
+  if (landscape?.groundCover && landscape.groundCover !== 'grass' && landscape.groundCover !== 'default') {
+    applyGroundCover(grid, bx1, bx2, bz1, bz2, porchDepth, landscape.groundCover, rng);
+  }
+
   // ── Style decorators — compositional details extracted to gen-decorators.ts ──
   applyDecorators(undefined, {
     grid, style, rng, floors, roofShape, effectiveRoofH,
     bx1, bx2, bz1, bz2, bw, bl, xMid, zMid,
-    roofBase, porchDepth,
+    roofBase, porchDepth, landscape,
   });
 
   // ── Bitmap footprint mask ────────────────────────────────────────

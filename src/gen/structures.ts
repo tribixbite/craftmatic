@@ -701,9 +701,11 @@ export function placeDeck(
 
 // ─── Terrain / Landscaping Primitives ──────────────────────────────
 
-type TreeType = 'oak' | 'birch' | 'spruce' | 'dark_oak';
+/** All Minecraft tree types supported by the generator */
+export type TreeType = 'oak' | 'birch' | 'spruce' | 'dark_oak'
+  | 'jungle' | 'acacia' | 'cherry' | 'mangrove';
 
-/** Place a tree with trunk and spherical leaf canopy */
+/** Place a tree with trunk and leaf canopy — shape varies by species */
 export function placeTree(
   grid: BlockGrid, x: number, y: number, z: number,
   type: TreeType = 'oak', trunkHeight = 5
@@ -711,22 +713,51 @@ export function placeTree(
   const log = `minecraft:${type}_log`;
   const leaves = `minecraft:${type}_leaves[persistent=true]`;
 
+  // Mangrove: prop root blocks at base before trunk
+  if (type === 'mangrove') {
+    for (const [rx, rz] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as [number, number][]) {
+      if (grid.inBounds(x + rx, y, z + rz))
+        grid.set(x + rx, y, z + rz, 'minecraft:mangrove_roots');
+    }
+  }
+
   // Trunk
   for (let i = 0; i < trunkHeight; i++) {
     if (grid.inBounds(x, y + i, z)) grid.set(x, y + i, z, log);
   }
 
-  // Leaf canopy (sphere, radius based on tree size)
-  const leafR = type === 'dark_oak' ? 3 : 2;
+  // Leaf canopy — radius and shape vary by species
+  const leafR = (type === 'dark_oak' || type === 'jungle') ? 3 : 2;
   const canopyBase = y + trunkHeight - 1;
-  for (let dx = -leafR; dx <= leafR; dx++) {
-    for (let dy = -1; dy <= leafR; dy++) {
+
+  if (type === 'acacia') {
+    // Acacia: flat-topped canopy offset to one side (savanna silhouette)
+    const offsetX = 1;
+    for (let dx = -leafR; dx <= leafR; dx++) {
       for (let dz = -leafR; dz <= leafR; dz++) {
-        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        const dist = Math.sqrt(dx * dx + dz * dz);
         if (dist <= leafR + 0.5) {
-          const lx = x + dx, ly = canopyBase + dy, lz = z + dz;
-          if (grid.inBounds(lx, ly, lz) && grid.get(lx, ly, lz) === 'minecraft:air') {
-            grid.set(lx, ly, lz, leaves);
+          const lx = x + offsetX + dx, lz = z + dz;
+          // Flat canopy: only 1 layer thick
+          for (const ly of [canopyBase, canopyBase + 1]) {
+            if (grid.inBounds(lx, ly, lz) && grid.get(lx, ly, lz) === 'minecraft:air') {
+              grid.set(lx, ly, lz, leaves);
+            }
+          }
+        }
+      }
+    }
+  } else {
+    // Standard spherical canopy (oak, birch, spruce, dark_oak, jungle, cherry, mangrove)
+    for (let dx = -leafR; dx <= leafR; dx++) {
+      for (let dy = -1; dy <= leafR; dy++) {
+        for (let dz = -leafR; dz <= leafR; dz++) {
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (dist <= leafR + 0.5) {
+            const lx = x + dx, ly = canopyBase + dy, lz = z + dz;
+            if (grid.inBounds(lx, ly, lz) && grid.get(lx, ly, lz) === 'minecraft:air') {
+              grid.set(lx, ly, lz, leaves);
+            }
           }
         }
       }
@@ -891,7 +922,8 @@ export function placePool(
 /** Add a fenced backyard with garden, bench, and optional tree (low-Z side of house) */
 export function addBackyard(
   grid: BlockGrid, bx1: number, bx2: number, bz1: number,
-  style: StylePalette, rng: () => number
+  style: StylePalette, rng: () => number,
+  treeType: TreeType = 'birch',
 ): void {
   const yardZ1 = Math.max(0, bz1 - 8);
   const yardZ2 = bz1 - 1;
@@ -927,11 +959,11 @@ export function addBackyard(
       grid.set(benchX + 1, 1, benchZ, `minecraft:oak_stairs[facing=north]`);
   }
 
-  // Tree if space allows
+  // Tree if space allows — species from landscape palette
   const treeX = bx2 - 2;
   const treeZ = yardZ1 + 2;
   if (grid.inBounds(treeX, 0, treeZ) && treeX > gardenX2 + 1)
-    placeTree(grid, treeX, 1, treeZ, 'birch', 4);
+    placeTree(grid, treeX, 1, treeZ, treeType, 4);
 }
 
 /** Add a stone brick driveway extending from the front door */

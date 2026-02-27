@@ -13,7 +13,7 @@
  */
 
 import { BlockGrid } from '../schem/types.js';
-import type { RoofShape } from '../types/index.js';
+import type { RoofShape, LandscapeData } from '../types/index.js';
 import type { MaterialPalette } from './styles.js';
 import {
   weatherWalls, accentBand, glassCurtainWall,
@@ -54,6 +54,8 @@ export interface DecoratorContext {
   roofBase: number;
   /** Porch depth in front of building */
   porchDepth: number;
+  /** Environmental landscape data — tree palette, water, ground cover */
+  landscape?: LandscapeData;
 }
 
 /** Decorator function signature */
@@ -415,9 +417,9 @@ function medievalManor(ctx: DecoratorContext): void {
   }
 }
 
-/** Rustic cabin: log corners + wrap-around porch + campfire + woodshed + fishing dock */
+/** Rustic cabin: log corners + wrap-around porch + campfire + woodshed + fishing dock (water-conditional) */
 function rusticCabin(ctx: DecoratorContext): void {
-  const { grid, style, floors, bx1, bx2, bz1, bz2, xMid, zMid } = ctx;
+  const { grid, style, floors, bx1, bx2, bz1, bz2, xMid, zMid, landscape } = ctx;
 
   // Full log corner construction — EVERY corner column is stripped log
   for (let y = 1; y <= floors * STORY_H; y++) {
@@ -511,21 +513,23 @@ function rusticCabin(ctx: DecoratorContext): void {
     if (grid.inBounds(x, 0, outZ + 2))
       grid.set(x, 0, outZ + 2, 'minecraft:dirt_path');
   }
-  // Fishing dock extending south (waterfront cabin feel)
-  const dockZ = bz2 + porchW + 3;
-  const dockX = bx2 + 3;
-  for (let z = dockZ; z <= dockZ + 6; z++) {
-    if (grid.inBounds(dockX, 0, z))
-      grid.set(dockX, 0, z, style.floorGround);
-    if (grid.inBounds(dockX + 1, 0, z))
-      grid.set(dockX + 1, 0, z, style.floorGround);
-  }
-  // Dock posts
-  for (const dz of [dockZ, dockZ + 6]) {
-    if (grid.inBounds(dockX, 1, dz))
-      grid.set(dockX, 1, dz, style.fence);
-    if (grid.inBounds(dockX + 1, 1, dz))
-      grid.set(dockX + 1, 1, dz, style.fence);
+  // Fishing dock — only when water features are nearby (or no landscape data = legacy behavior)
+  if (landscape?.hasWater !== false) {
+    const dockZ = bz2 + porchW + 3;
+    const dockX = bx2 + 3;
+    for (let z = dockZ; z <= dockZ + 6; z++) {
+      if (grid.inBounds(dockX, 0, z))
+        grid.set(dockX, 0, z, style.floorGround);
+      if (grid.inBounds(dockX + 1, 0, z))
+        grid.set(dockX + 1, 0, z, style.floorGround);
+    }
+    // Dock posts
+    for (const dz of [dockZ, dockZ + 6]) {
+      if (grid.inBounds(dockX, 1, dz))
+        grid.set(dockX, 1, dz, style.fence);
+      if (grid.inBounds(dockX + 1, 1, dz))
+        grid.set(dockX + 1, 1, dz, style.fence);
+    }
   }
 }
 

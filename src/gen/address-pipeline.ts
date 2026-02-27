@@ -10,8 +10,9 @@
 
 import type {
   StructureType, StyleName, RoomType, BlockState,
-  RoofShape, FeatureFlags, FloorPlanShape, GenerationOptions,
+  RoofShape, FeatureFlags, FloorPlanShape, GenerationOptions, LandscapeData,
 } from '../types/index.js';
+import type { TreeType } from './structures.js';
 
 import { ROOF_PALETTE, rgbToTrimBlock as rgbToTrimBlockShared, rgbToWallBlock } from './color-blocks.js';
 import { polygonToBitmap, classifyBitmapShape, subtractInnerRings } from './coordinate-bitmap.js';
@@ -520,6 +521,59 @@ export function inferClimateZone(
   // Hot-climate states — pool more likely, flat roofs, less chimney
   if (['FL', 'AZ', 'NV', 'HI', 'TX', 'NM', 'LA', 'MS', 'AL'].includes(s)) return 'hot';
   return 'temperate';
+}
+
+/**
+ * Map USDA hardiness zone → Minecraft tree type palette.
+ * Pure function — mirrors web/src/ui/import-hardiness.ts for CLI compatibility.
+ */
+function hardinessToTreePalette(zone: string | null | undefined): TreeType[] {
+  if (!zone) return ['oak', 'birch']; // default temperate
+  const num = parseInt(zone, 10);
+  if (isNaN(num)) return ['oak', 'birch'];
+  if (num <= 3) return ['spruce', 'birch'];                  // very cold: boreal
+  if (num <= 5) return ['oak', 'birch', 'spruce'];           // cold: mixed
+  if (num <= 7) return ['oak', 'birch', 'dark_oak'];         // moderate: deciduous
+  if (num <= 9) return ['oak', 'dark_oak', 'jungle'];        // warm: subtropical
+  return ['jungle', 'acacia'];                                // tropical: zone 10+
+}
+
+/**
+ * Map ESA WorldCover land cover class value → ground material hint.
+ * See https://worldcover2021.esa.int for class definitions.
+ */
+function landCoverToGround(lcClass: number | undefined): LandscapeData['groundCover'] {
+  if (lcClass === 10) return 'forest';
+  if (lcClass === 30) return 'grass';
+  if (lcClass === 40) return 'crop';
+  if (lcClass === 50) return 'built';
+  if (lcClass === 80) return 'water';
+  if (lcClass === 60 || lcClass === 90) return 'bare';
+  return 'default';
+}
+
+/**
+ * Build LandscapeData from PropertyData Phase 5 environmental fields.
+ * Returns undefined when no environmental data is present (fantasy mode).
+ */
+export function buildLandscape(prop: PropertyData): LandscapeData | undefined {
+  // Only produce landscape when at least one env field is populated
+  const hasEnvData = prop.hardinessZone || prop.canopyCoverPct != null
+    || prop.canopyHeightMeters != null || prop.nearbyWater?.length
+    || prop.landCoverClass != null;
+  if (!hasEnvData) return undefined;
+
+  const treePalette = hardinessToTreePalette(prop.hardinessZone);
+  const canopyPct = prop.canopyCoverPct ?? 0;
+  // Scale tree count: 0%→2 (minimum), 30%→4, 60%→6, 90%→8
+  const treeCount = Math.max(2, Math.min(8, Math.round(2 + (canopyPct / 100) * 6)));
+  // Canopy height → trunk height: 5m→3 blocks, 10m→5, 20m→7, cap at 8
+  const rawHeight = prop.canopyHeightMeters ?? 5;
+  const treeHeight = Math.max(3, Math.min(8, Math.round(rawHeight * 0.4)));
+  const hasWater = (prop.nearbyWater?.length ?? 0) > 0;
+  const groundCover = landCoverToGround(prop.landCoverClass);
+
+  return { treePalette, treeCount, treeHeight, hasWater, groundCover };
 }
 
 // ─── Stories Estimation ─────────────────────────────────────────────────────
@@ -1367,6 +1421,10 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     if (prop.season === 'snow') resolvedPalette.roofCap = 'minecraft:snow_block';
   }
 
+  // ── Environmental landscape data ─────────────────────────────────
+  // Build landscape from Phase 5 APIs (hardiness zone, canopy, water, land cover)
+  const landscape = buildLandscape(prop);
+
   return {
     type,
     floors,
@@ -1390,5 +1448,6 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     footprintBitmap,
     orientation,
     resolvedPalette,
+    landscape,
   };
 }
