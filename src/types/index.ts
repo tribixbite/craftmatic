@@ -106,6 +106,21 @@ export type StructureType = 'house' | 'tower' | 'castle' | 'dungeon' | 'ship'
 /** Roof shape variants for house generation */
 export type RoofShape = 'gable' | 'hip' | 'flat' | 'gambrel' | 'mansard';
 
+/** Environmental landscape data from Phase 5 APIs — controls tree species,
+ *  count, and water feature placement during generation */
+export interface LandscapeData {
+  /** Minecraft tree type palette from hardiness zone */
+  treePalette: import('../gen/structures.js').TreeType[];
+  /** Number of trees to place (scaled from canopy cover %) */
+  treeCount: number;
+  /** Average tree trunk height in blocks (from canopy height meters) */
+  treeHeight: number;
+  /** Whether water features are nearby — enables dock/pond placement */
+  hasWater: boolean;
+  /** Land cover class — affects ground material */
+  groundCover: 'forest' | 'grass' | 'crop' | 'built' | 'water' | 'bare' | 'default';
+}
+
 /** Floor plan shape — rectangular (default) or L/T/U from OSM polygon analysis */
 export type FloorPlanShape = 'rect' | 'L' | 'T' | 'U';
 
@@ -195,6 +210,9 @@ export interface GenerationOptions {
    *  When present, the generator uses this directly instead of getStyle() + overrides.
    *  Produced by resolvePalette() for real-address generation. */
   resolvedPalette?: import('../gen/styles.js').StylePalette;
+  /** Environmental landscape data — tree species, count, height, water, ground cover.
+   *  Built from Phase 5 APIs (hardiness zone, canopy cover, land cover, water features). */
+  landscape?: LandscapeData;
 }
 
 /** 2D render mode */
