@@ -63,7 +63,13 @@ const WEB_DIR = join(PROJECT_ROOT, 'web/public/comparison');
 /** Skip image rendering (--json-only flag) — useful on memory-constrained devices */
 const JSON_ONLY = process.argv.includes('--json-only');
 
-// ─── All 9 comparison addresses ──────────────────────────────────────────────
+/** Only process specific addresses (--only=key1,key2) — useful for incremental runs */
+const ONLY_KEYS = (() => {
+  const arg = process.argv.find(a => a.startsWith('--only='));
+  return arg ? arg.slice(7).split(',') : null;
+})();
+
+// ─── All 14 comparison addresses ─────────────────────────────────────────────
 
 const ADDRESSES = [
   { key: 'sf', address: '2340 Francisco St, San Francisco, CA 94123' },
@@ -75,6 +81,12 @@ const ADDRESSES = [
   { key: 'suttonsbay', address: '5835 S Bridget Rose Ln, Suttons Bay, MI 49682' },
   { key: 'losangeles', address: '2607 Glendower Ave, Los Angeles, CA 90027' },
   { key: 'seattle', address: '4810 SW Ledroit Pl, Seattle, WA 98136' },
+  // ── 5 new addresses (batch 2) ──
+  { key: 'austin', address: '8504 Long Canyon Dr, Austin, TX 78730' },
+  { key: 'denver', address: '433 S Xavier St, Denver, CO 80219' },
+  { key: 'minneapolis', address: '2730 Ulysses St NE, Minneapolis, MN 55418' },
+  { key: 'charleston', address: '41 Legare St, Charleston, SC 29401' },
+  { key: 'tucson', address: '2615 E Adams St, Tucson, AZ 85716' },
 ];
 
 const TIERS = ['noapi', 'someapis', 'allapis', 'enriched'] as const;
@@ -143,7 +155,13 @@ await mkdir(WEB_DIR, { recursive: true });
 
 const allResults: ComparisonResult[] = [];
 
-for (const { key, address } of ADDRESSES) {
+const addressesToProcess = ONLY_KEYS
+  ? ADDRESSES.filter(a => ONLY_KEYS.includes(a.key))
+  : ADDRESSES;
+
+if (ONLY_KEYS) console.log(`\nFiltering to: ${addressesToProcess.map(a => a.key).join(', ')}`);
+
+for (const { key, address } of addressesToProcess) {
   console.log(`\n${'='.repeat(60)}`);
   console.log(`  ${key}: ${address}`);
   console.log(`${'='.repeat(60)}`);
@@ -737,12 +755,26 @@ for (const { key, address } of ADDRESSES) {
 
 // ─── Write JSON + sync to web ────────────────────────────────────────────────
 
+// When using --only, merge new results into existing JSON
+let finalResults = allResults;
 const jsonPath = join(OUT_DIR, 'comparison-data.json');
-await writeFile(jsonPath, JSON.stringify(allResults, null, 2));
-console.log(`\n+ Wrote ${jsonPath}`);
+if (ONLY_KEYS) {
+  try {
+    const existing: ComparisonResult[] = JSON.parse(readFileSync(jsonPath, 'utf-8'));
+    const newKeys = new Set(allResults.map(r => r.key));
+    finalResults = [
+      ...existing.filter(r => !newKeys.has(r.key)),
+      ...allResults,
+    ];
+    console.log(`\n+ Merged ${allResults.length} new + ${finalResults.length - allResults.length} existing = ${finalResults.length} total`);
+  } catch { /* no existing file, use allResults as-is */ }
+}
+
+await writeFile(jsonPath, JSON.stringify(finalResults, null, 2));
+console.log(`+ Wrote ${jsonPath}`);
 
 // Copy JSON + all images to web/public/comparison/
-await writeFile(join(WEB_DIR, 'comparison-data.json'), JSON.stringify(allResults, null, 2));
+await writeFile(join(WEB_DIR, 'comparison-data.json'), JSON.stringify(finalResults, null, 2));
 const { readdir, copyFile } = await import('fs/promises');
 const outFiles = await readdir(OUT_DIR);
 for (const f of outFiles) {
