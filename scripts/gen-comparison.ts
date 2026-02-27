@@ -674,7 +674,9 @@ for (const { key, address } of ADDRESSES) {
   for (const tier of TIERS) {
     const prop = tierProps[tier];
     const opts = convertToGenerationOptions(prop);
-    console.log(`\n  [${tier}] ${opts.style} ${opts.floors}f ${opts.width || '?'}x${opts.length || '?'} shape=${opts.floorPlanShape || 'rect'}`);
+    const ls = opts.landscape;
+    const lsStr = ls ? ` trees=${ls.treeCount}×${ls.treePalette.join('/')} h=${ls.treeHeight} water=${ls.hasWater} ground=${ls.groundCover}` : '';
+    console.log(`\n  [${tier}] ${opts.style} ${opts.floors}f ${opts.width || '?'}x${opts.length || '?'} shape=${opts.floorPlanShape || 'rect'}${lsStr}`);
 
     const grid = generateStructure(opts);
     const blockCount = grid.countNonAir();
@@ -723,7 +725,7 @@ for (const { key, address } of ADDRESSES) {
         doorOverride: opts.doorOverride, roofShape: opts.roofShape,
         roofOverride: opts.roofOverride, floorPlanShape: opts.floorPlanShape,
         windowSpacing: opts.windowSpacing, roofHeightOverride: opts.roofHeightOverride,
-        features: opts.features,
+        features: opts.features, landscape: opts.landscape,
       },
       grid: { width: grid.width, height: grid.height, depth: grid.length, blocks: blockCount },
       views: { exterior: extFile, cutaway: cutawayPaths, floor: floorPaths },

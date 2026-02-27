@@ -330,7 +330,7 @@
           "width": 48,
           "height": 18,
           "depth": 32,
-          "blocks": 6152
+          "blocks": 6348
         },
         "views": {
           "exterior": "sf-noapi_exterior.jpg",
@@ -378,7 +378,7 @@
           "width": 60,
           "height": 28,
           "depth": 44,
-          "blocks": 12743
+          "blocks": 12969
         },
         "views": {
           "exterior": "sf-someapis_exterior.jpg",
@@ -432,7 +432,7 @@
           "width": 60,
           "height": 11,
           "depth": 44,
-          "blocks": 7188
+          "blocks": 7418
         },
         "views": {
           "exterior": "sf-allapis_exterior.jpg",
@@ -474,13 +474,23 @@
             "trees": true,
             "garden": true,
             "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "jungle",
+              "acacia"
+            ],
+            "treeCount": 2,
+            "treeHeight": 3,
+            "hasWater": true,
+            "groundCover": "built"
           }
         },
         "grid": {
           "width": 60,
           "height": 11,
           "depth": 44,
-          "blocks": 7188
+          "blocks": 7378
         },
         "views": {
           "exterior": "sf-enriched_exterior.jpg",
@@ -637,11 +647,11 @@
         "available": true,
         "status": "ok",
         "data": {
-          "panoId": "T_AX_m7bpXRGMI4DQFe1SQ",
+          "panoId": "XM3cGQqzTdb39WQ1KTmpYQ",
           "date": "2011-10",
-          "heading": "251°",
-          "panoLat": "42.34368",
-          "panoLng": "-71.22106"
+          "heading": "272°",
+          "panoLat": "42.34356",
+          "panoLng": "-71.22103"
         },
         "fieldsSet": [
           "streetViewUrl",
@@ -653,52 +663,11 @@
       {
         "name": "SV Image Analysis",
         "available": true,
-        "status": "ok",
-        "data": {
-          "wallColor": "rgb(112,117,112)",
-          "wallBlock": "stone_bricks",
-          "roofColor": "rgb(114,103,61)",
-          "roofBlock": "spruce_slab[type=bottom]",
-          "trimColor": "rgb(80,86,50)",
-          "trimBlock": "stripped_dark_oak_log",
-          "storyCount": 2,
-          "storyConfidence": "0.17",
-          "textureClass": "stone",
-          "textureBlock": "stone_bricks",
-          "roofPitch": "moderate",
-          "roofPitchDegrees": "30°",
-          "roofHeightOverride": 0.5,
-          "symmetryScore": "0.08",
-          "isSymmetric": false,
-          "planShape": "L",
-          "windowsPerFloor": 9,
-          "windowSpacing": 2,
-          "lawnDepth": "18%",
-          "hasDriveway": false,
-          "hasPath": true
-        },
-        "fieldsSet": [
-          "svWallOverride",
-          "svRoofOverride",
-          "svTrimOverride",
-          "svStoryCount",
-          "svTextureClass",
-          "svRoofPitch",
-          "svPlanShape",
-          "svWindowSpacing",
-          "svSetbackFeatures"
-        ],
-        "impactedGenFields": [
-          "wallOverride",
-          "roofOverride",
-          "trimOverride",
-          "floors",
-          "wallOverride",
-          "roofHeightOverride",
-          "floorPlanShape",
-          "windowSpacing",
-          "features"
-        ]
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": [],
+        "error": "Indoor panorama detected"
       },
       {
         "name": "NLCD",
@@ -818,7 +787,7 @@
           "width": 48,
           "height": 18,
           "depth": 32,
-          "blocks": 6152
+          "blocks": 6382
         },
         "views": {
           "exterior": "newton-noapi_exterior.jpg",
@@ -865,7 +834,7 @@
           "width": 53,
           "height": 23,
           "depth": 38,
-          "blocks": 11010
+          "blocks": 11216
         },
         "views": {
           "exterior": "newton-someapis_exterior.jpg",
@@ -900,7 +869,6 @@
           "seed": 783884,
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
-          "windowSpacing": 2,
           "roofHeightOverride": 12,
           "features": {
             "chimney": true,
@@ -917,7 +885,7 @@
           "width": 61,
           "height": 27,
           "depth": 30,
-          "blocks": 11252
+          "blocks": 11384
         },
         "views": {
           "exterior": "newton-allapis_exterior.jpg",
@@ -952,7 +920,6 @@
           "seed": 783884,
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
-          "windowSpacing": 2,
           "roofHeightOverride": 12,
           "features": {
             "chimney": true,
@@ -963,13 +930,24 @@
             "trees": true,
             "garden": false,
             "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "oak",
+              "birch",
+              "dark_oak"
+            ],
+            "treeCount": 6,
+            "treeHeight": 3,
+            "hasWater": false,
+            "groundCover": "forest"
           }
         },
         "grid": {
           "width": 61,
           "height": 27,
           "depth": 30,
-          "blocks": 11252
+          "blocks": 11619
         },
         "views": {
           "exterior": "newton-enriched_exterior.jpg",
@@ -1270,7 +1248,7 @@
           "width": 48,
           "height": 18,
           "depth": 32,
-          "blocks": 6150
+          "blocks": 6361
         },
         "views": {
           "exterior": "sanjose-noapi_exterior.jpg",
@@ -1317,7 +1295,7 @@
           "width": 101,
           "height": 13,
           "depth": 62,
-          "blocks": 18691
+          "blocks": 18807
         },
         "views": {
           "exterior": "sanjose-someapis_exterior.jpg",
@@ -1364,7 +1342,7 @@
           "width": 101,
           "height": 20,
           "depth": 62,
-          "blocks": 22326
+          "blocks": 22453
         },
         "views": {
           "exterior": "sanjose-allapis_exterior.jpg",
@@ -1409,13 +1387,24 @@
             "trees": true,
             "garden": false,
             "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "oak",
+              "dark_oak",
+              "jungle"
+            ],
+            "treeCount": 3,
+            "treeHeight": 3,
+            "hasWater": false,
+            "groundCover": "built"
           }
         },
         "grid": {
           "width": 101,
           "height": 20,
           "depth": 62,
-          "blocks": 22326
+          "blocks": 22692
         },
         "views": {
           "exterior": "sanjose-enriched_exterior.jpg",
@@ -1689,7 +1678,7 @@
           "width": 48,
           "height": 18,
           "depth": 32,
-          "blocks": 6150
+          "blocks": 6269
         },
         "views": {
           "exterior": "walpole-noapi_exterior.jpg",
@@ -1735,7 +1724,7 @@
           "width": 55,
           "height": 18,
           "depth": 31,
-          "blocks": 7915
+          "blocks": 8031
         },
         "views": {
           "exterior": "walpole-someapis_exterior.jpg",
@@ -1783,7 +1772,7 @@
           "width": 63,
           "height": 22,
           "depth": 38,
-          "blocks": 11272
+          "blocks": 11422
         },
         "views": {
           "exterior": "walpole-allapis_exterior.jpg",
@@ -1825,13 +1814,24 @@
             "trees": true,
             "garden": false,
             "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "oak",
+              "birch",
+              "spruce"
+            ],
+            "treeCount": 5,
+            "treeHeight": 3,
+            "hasWater": true,
+            "groundCover": "grass"
           }
         },
         "grid": {
           "width": 63,
           "height": 22,
           "depth": 38,
-          "blocks": 11272
+          "blocks": 11551
         },
         "views": {
           "exterior": "walpole-enriched_exterior.jpg",
@@ -2130,7 +2130,7 @@
           "width": 48,
           "height": 18,
           "depth": 32,
-          "blocks": 6153
+          "blocks": 6305
         },
         "views": {
           "exterior": "byron-noapi_exterior.jpg",
@@ -2177,7 +2177,7 @@
           "width": 46,
           "height": 18,
           "depth": 32,
-          "blocks": 5630
+          "blocks": 5787
         },
         "views": {
           "exterior": "byron-someapis_exterior.jpg",
@@ -2226,7 +2226,7 @@
           "width": 46,
           "height": 18,
           "depth": 32,
-          "blocks": 5651
+          "blocks": 5811
         },
         "views": {
           "exterior": "byron-allapis_exterior.jpg",
@@ -2269,13 +2269,24 @@
             "trees": true,
             "garden": false,
             "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "oak",
+              "birch",
+              "dark_oak"
+            ],
+            "treeCount": 5,
+            "treeHeight": 5,
+            "hasWater": true,
+            "groundCover": "forest"
           }
         },
         "grid": {
           "width": 46,
           "height": 18,
           "depth": 32,
-          "blocks": 5651
+          "blocks": 5976
         },
         "views": {
           "exterior": "byron-enriched_exterior.jpg",
@@ -2507,7 +2518,7 @@
           "width": 48,
           "height": 18,
           "depth": 32,
-          "blocks": 6158
+          "blocks": 6357
         },
         "views": {
           "exterior": "vinalhaven-noapi_exterior.jpg",
@@ -2553,7 +2564,7 @@
           "width": 48,
           "height": 18,
           "depth": 30,
-          "blocks": 6079
+          "blocks": 6269
         },
         "views": {
           "exterior": "vinalhaven-someapis_exterior.jpg",
@@ -2599,7 +2610,7 @@
           "width": 48,
           "height": 18,
           "depth": 30,
-          "blocks": 6079
+          "blocks": 6269
         },
         "views": {
           "exterior": "vinalhaven-allapis_exterior.jpg",
@@ -2639,13 +2650,24 @@
             "trees": true,
             "garden": false,
             "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "oak",
+              "birch",
+              "dark_oak"
+            ],
+            "treeCount": 7,
+            "treeHeight": 5,
+            "hasWater": true,
+            "groundCover": "forest"
           }
         },
         "grid": {
           "width": 48,
           "height": 18,
           "depth": 30,
-          "blocks": 6079
+          "blocks": 6283
         },
         "views": {
           "exterior": "vinalhaven-enriched_exterior.jpg",
@@ -2904,7 +2926,7 @@
           "width": 48,
           "height": 18,
           "depth": 32,
-          "blocks": 6145
+          "blocks": 6313
         },
         "views": {
           "exterior": "suttonsbay-noapi_exterior.jpg",
@@ -2950,7 +2972,7 @@
           "width": 48,
           "height": 17,
           "depth": 30,
-          "blocks": 6130
+          "blocks": 6274
         },
         "views": {
           "exterior": "suttonsbay-someapis_exterior.jpg",
@@ -2998,7 +3020,7 @@
           "width": 50,
           "height": 15,
           "depth": 30,
-          "blocks": 5628
+          "blocks": 5798
         },
         "views": {
           "exterior": "suttonsbay-allapis_exterior.jpg",
@@ -3040,13 +3062,24 @@
             "trees": true,
             "garden": false,
             "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "oak",
+              "birch",
+              "dark_oak"
+            ],
+            "treeCount": 2,
+            "treeHeight": 3,
+            "hasWater": true,
+            "groundCover": "forest"
           }
         },
         "grid": {
           "width": 50,
           "height": 15,
           "depth": 30,
-          "blocks": 5628
+          "blocks": 5836
         },
         "views": {
           "exterior": "suttonsbay-enriched_exterior.jpg",
@@ -3388,7 +3421,7 @@
           "width": 48,
           "height": 18,
           "depth": 32,
-          "blocks": 6149
+          "blocks": 6327
         },
         "views": {
           "exterior": "losangeles-noapi_exterior.jpg",
@@ -3435,7 +3468,7 @@
           "width": 83,
           "height": 13,
           "depth": 62,
-          "blocks": 15196
+          "blocks": 15390
         },
         "views": {
           "exterior": "losangeles-someapis_exterior.jpg",
@@ -3483,7 +3516,7 @@
           "width": 83,
           "height": 20,
           "depth": 62,
-          "blocks": 16811
+          "blocks": 16966
         },
         "views": {
           "exterior": "losangeles-allapis_exterior.jpg",
@@ -3529,13 +3562,23 @@
             "trees": true,
             "garden": true,
             "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "jungle",
+              "acacia"
+            ],
+            "treeCount": 3,
+            "treeHeight": 3,
+            "hasWater": true,
+            "groundCover": "built"
           }
         },
         "grid": {
           "width": 83,
           "height": 20,
           "depth": 62,
-          "blocks": 16811
+          "blocks": 17068
         },
         "views": {
           "exterior": "losangeles-enriched_exterior.jpg",
@@ -3873,7 +3916,7 @@
           "width": 48,
           "height": 18,
           "depth": 32,
-          "blocks": 6155
+          "blocks": 6281
         },
         "views": {
           "exterior": "seattle-noapi_exterior.jpg",
@@ -3920,7 +3963,7 @@
           "width": 56,
           "height": 13,
           "depth": 32,
-          "blocks": 6198
+          "blocks": 6355
         },
         "views": {
           "exterior": "seattle-someapis_exterior.jpg",
@@ -3968,7 +4011,7 @@
           "width": 56,
           "height": 26,
           "depth": 32,
-          "blocks": 8438
+          "blocks": 8665
         },
         "views": {
           "exterior": "seattle-allapis_exterior.jpg",
@@ -4014,13 +4057,24 @@
             "trees": true,
             "garden": true,
             "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "oak",
+              "dark_oak",
+              "jungle"
+            ],
+            "treeCount": 4,
+            "treeHeight": 3,
+            "hasWater": false,
+            "groundCover": "forest"
           }
         },
         "grid": {
           "width": 56,
           "height": 26,
           "depth": 32,
-          "blocks": 8438
+          "blocks": 8747
         },
         "views": {
           "exterior": "seattle-enriched_exterior.jpg",
