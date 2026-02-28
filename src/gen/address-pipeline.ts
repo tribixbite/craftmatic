@@ -291,14 +291,24 @@ export function isMultiUnit(propertyType: string): boolean {
 
 // ─── Style Resolution ───────────────────────────────────────────────────────
 
-/** Infer architectural style from year built + new construction flag */
-export function inferStyle(year: number, newConstruction = false): StyleName {
+/** Infer architectural style from year built, with optional region disambiguation.
+ *  The 1920-1944 era had distinct regional styles — Spanish Revival in the Southwest,
+ *  Colonial Revival/Tudor in the Northeast and Midwest, Craftsman in the Pacific NW. */
+export function inferStyle(year: number, newConstruction = false, state?: string): StyleName {
   if (newConstruction || year >= 2010) return 'modern';
   if (year < 1700) return 'medieval';
   if (year < 1850) return 'gothic';
   if (year < 1890) return 'rustic';     // Victorian-era wood-frame (pre-Colonial Revival)
   if (year < 1920) return 'colonial';   // Colonial Revival, Foursquare, Prairie — formal with symmetry
-  if (year < 1945) return 'desert';     // Spanish Revival, Art Deco, Mission — stucco/flat roof
+  if (year < 1945) {
+    // Region-aware: 1920-1944 was NOT universally Spanish Revival
+    const st = state?.toUpperCase() ?? '';
+    const southwest = ['CA', 'AZ', 'NM', 'NV', 'FL', 'TX'].includes(st);
+    if (southwest) return 'desert';     // Spanish Revival, Mission, Mediterranean
+    const pnw = ['WA', 'OR'].includes(st);
+    if (pnw) return 'rustic';           // Craftsman, bungalow
+    return 'colonial';                  // Colonial Revival, Tudor, Foursquare (NE, Midwest, SE)
+  }
   if (year < 1970) return 'rustic';     // Ranch, Mid-century modern, split-level — low-slung natural
   return 'modern';                       // 1970+ contemporary/modern
 }
@@ -348,8 +358,9 @@ export function mapArchitectureToStyle(arch: string | undefined): StyleName | un
 export function inferStyleFromCounty(county: string | undefined, year: number): StyleName | undefined {
   if (!county || year >= 1980) return undefined; // Only for older homes
   const c = county.toLowerCase();
-  // SF Bay Area: Victorian era (pre-1910) → gothic, Mediterranean/Mission (1910-1960) → desert
-  if (/\bsan\s*francisco|alameda|marin/.test(c)) return year < 1910 ? 'gothic' : 'desert';
+  // SF Bay Area: Victorian era (pre-1910) → gothic, Mediterranean/Mission (1910-1960) → colonial
+  // Colonial better matches white stucco + balconies + symmetry than desert (acacia/sandstone)
+  if (/\bsan\s*francisco|alameda|marin/.test(c)) return year < 1910 ? 'gothic' : 'colonial';
   // Mediterranean/Desert style regions
   if (/\bmiami.?dade|palm\s*beach|broward/.test(c)) return 'desert';
   // Tudor/Medieval style areas
@@ -404,17 +415,19 @@ export function inferStyleFromPropertyType(
   const pt = propertyType.toLowerCase();
 
   // Multi-family apartments: boxy, flat/low-pitch roofs, stucco or brick
+  // Pre-1920 tenements/brownstones map to gothic; modern to modern.
+  // 1920-1969 varies by region — fall through to city/county/year inference.
   if (/multi_family|apartment/.test(pt)) {
-    if (year >= 1970) return 'modern';     // Modern apartment buildings
-    if (year >= 1920) return 'desert';      // Pre-war low-rise (stucco, flat roof like SF Marina)
-    return 'gothic';                         // Pre-1920 tenement/brownstone
+    if (year >= 1970) return 'modern';
+    if (year < 1920) return 'gothic';       // Pre-war tenement/brownstone
+    return undefined;                        // 1920-1969: region-dependent (colonial, desert, rustic)
   }
 
   // Heuristic: propertyType="OTHER" with many bedrooms is likely misclassified multi-unit
   if (pt === 'other' && (bedrooms ?? 0) >= 6 && (bathrooms ?? 0) >= 6) {
     if (year >= 1970) return 'modern';
-    if (year >= 1920) return 'desert';      // Pre-war apartment
-    return 'gothic';
+    if (year < 1920) return 'gothic';
+    return undefined;                        // 1920-1969: let location-based inference decide
   }
 
   // Heuristic: single-family "house" with 8+ beds AND 8+ baths is almost certainly
@@ -422,8 +435,8 @@ export function inferStyleFromPropertyType(
   // Require both high beds AND baths — large estates can have 8+ beds with fewer baths.
   if (pt === 'house' && (bedrooms ?? 0) >= 8 && (bathrooms ?? 0) >= 8) {
     if (year >= 1970) return 'modern';
-    if (year >= 1920) return 'desert';     // Pre-war apartment (stucco, flat roof)
-    return 'gothic';
+    if (year < 1920) return 'gothic';
+    return undefined;                        // 1920-1969: region-dependent
   }
 
   // Individual condo units: usually in modern buildings
@@ -475,7 +488,7 @@ export function resolveStyle(prop: PropertyData): StyleName {
     if (density === 'suburban' && formalRoad) return 'colonial';
     return 'rustic';
   };
-  const fallback = prop.yearUncertain ? uncertainFallback() : inferStyle(year, prop.newConstruction);
+  const fallback = prop.yearUncertain ? uncertainFallback() : inferStyle(year, prop.newConstruction, prop.stateAbbreviation);
   return archStyle ?? propTypeStyle ?? cityStyle ?? countyStyle ?? fallback;
 }
 
