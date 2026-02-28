@@ -700,6 +700,54 @@ function buildStats(): void {
 
 // ─── API Data Tables (from comparison-data.json) ────────────────────────────
 
+/** Build a thumbnail image URL from API record data when possible */
+function buildApiThumbnail(api: ApiRecord): string | null {
+  if (api.status !== 'ok') return null;
+  const d = api.data;
+
+  if (api.name === 'Google Street View' && d.panoId) {
+    // Static Street View thumbnail from pano ID + heading
+    const key = localStorage.getItem('craftmatic_google_streetview_key');
+    if (key) {
+      const heading = d.heading ? String(d.heading).replace('°', '') : '0';
+      return `https://maps.googleapis.com/maps/api/streetview?size=400x200&pano=${esc(String(d.panoId))}&heading=${heading}&pitch=5&key=${key}`;
+    }
+  }
+
+  if (api.name === 'Mapillary' && d.bestImageId) {
+    // Mapillary graph API thumbnail (1024px, requires access token)
+    const mlyToken = localStorage.getItem('craftmatic_mapillary_token');
+    if (mlyToken) {
+      return `https://graph.mapillary.com/${esc(String(d.bestImageId))}/thumb-1024.jpg?access_token=${esc(mlyToken)}`;
+    }
+  }
+
+  if (api.name === 'SV Image Analysis' && d.wallColor) {
+    // Return null — we render color swatches inline instead
+    return null;
+  }
+
+  return null;
+}
+
+/** Build inline color swatch HTML for SV Image Analysis */
+function buildColorSwatches(api: ApiRecord): string {
+  if (api.name !== 'SV Image Analysis' || api.status !== 'ok') return '';
+  const d = api.data;
+  const swatches: { label: string; color: string; block: string }[] = [];
+  if (d.wallColor) swatches.push({ label: 'Wall', color: String(d.wallColor), block: String(d.wallBlock ?? '') });
+  if (d.roofColor) swatches.push({ label: 'Roof', color: String(d.roofColor), block: String(d.roofBlock ?? '') });
+  if (d.trimColor) swatches.push({ label: 'Trim', color: String(d.trimColor), block: String(d.trimBlock ?? '') });
+  if (swatches.length === 0) return '';
+
+  let html = '<div class="cmp-api-swatches">';
+  for (const s of swatches) {
+    html += `<div class="cmp-api-swatch" title="${esc(s.block)}"><span class="cmp-swatch-color" style="background:${esc(s.color)}"></span><span class="cmp-swatch-label">${esc(s.label)}</span></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
 function buildApiTables(): void {
   const el = document.getElementById('cmp-api-section');
   if (!el) return;
@@ -721,6 +769,15 @@ function buildApiTables(): void {
     if (api.error && api.status !== 'ok') {
       html += `<p class="cmp-api-error">${esc(api.error)}</p>`;
     }
+
+    // Thumbnail image (Street View panorama, Mapillary photo)
+    const thumbUrl = buildApiThumbnail(api);
+    if (thumbUrl) {
+      html += `<a href="${thumbUrl}" target="_blank" rel="noopener" class="cmp-api-thumb-link"><img class="cmp-api-thumb" src="${thumbUrl}" alt="${esc(api.name)} image" loading="lazy"></a>`;
+    }
+
+    // Color swatches (SV Image Analysis)
+    html += buildColorSwatches(api);
 
     // Returned data
     if (api.data && Object.keys(api.data).length > 0) {

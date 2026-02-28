@@ -163,6 +163,10 @@ const cutawayPanel = document.getElementById('cutaway-panel')!;
 const cutawaySlider = document.getElementById('cutaway-slider') as HTMLInputElement;
 const cutawayLabel = document.getElementById('cutaway-label')!;
 
+/** References for the overlay download dropdown (always visible when viewer open) */
+const overlayDownloadMenu = document.getElementById('download-menu')!;
+const overlayDownloadDropdown = document.getElementById('download-dropdown')!;
+
 function openFullViewer(grid: BlockGrid): void {
   // Dispose previous viewer
   if (activeViewer) {
@@ -182,6 +186,10 @@ function openFullViewer(grid: BlockGrid): void {
   cutawaySlider.value = String(grid.height);
   cutawayLabel.textContent = 'All';
   cutawayPanel.hidden = true;
+
+  // Always show the download dropdown in the overlay
+  overlayDownloadMenu.hidden = false;
+  overlayDownloadDropdown.classList.add('open');
 
   activeViewer = createViewer(viewerCanvas, grid);
 }
@@ -222,16 +230,19 @@ cutawaySlider.addEventListener('input', () => {
 
 // ─── Download Dropdown ──────────────────────────────────────────────────────
 
-/** Shared wiring for download dropdowns (overlay viewer + inline viewers) */
+/** Shared wiring for download dropdowns (overlay viewer + inline viewers).
+ *  When alwaysOpen is true, the button click doesn't toggle the menu closed. */
 function wireDownloadDropdown(
   dropdownEl: HTMLElement,
   btnEl: HTMLElement,
   menuEl: HTMLElement,
   getViewer: () => ViewerState | null,
   getGrid: () => BlockGrid | null,
+  alwaysOpen = false,
 ): void {
   btnEl.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (alwaysOpen) return; // overlay dropdown stays open
     const isOpen = !menuEl.hidden;
     menuEl.hidden = isOpen;
     dropdownEl.classList.toggle('open', !isOpen);
@@ -241,8 +252,10 @@ function wireDownloadDropdown(
   menuEl.querySelectorAll<HTMLButtonElement>('.download-item').forEach(item => {
     item.addEventListener('click', async () => {
       const format = item.dataset['format'];
-      menuEl.hidden = true;
-      dropdownEl.classList.remove('open');
+      if (!alwaysOpen) {
+        menuEl.hidden = true;
+        dropdownEl.classList.remove('open');
+      }
       const viewer = getViewer();
       const grid = getGrid();
 
@@ -288,18 +301,21 @@ function wireDownloadDropdown(
   });
 }
 
-// Wire the overlay viewer's download dropdown
+// Wire the overlay viewer's download dropdown (always visible)
 wireDownloadDropdown(
   document.getElementById('download-dropdown')!,
   document.getElementById('btn-download')!,
   document.getElementById('download-menu')!,
   () => activeViewer,
   () => activeGrid,
+  true, // always open in overlay
 );
 
-// Close all dropdowns on outside click
+// Close non-overlay dropdowns on outside click; overlay dropdown stays open
 document.addEventListener('click', () => {
   document.querySelectorAll<HTMLElement>('.download-menu').forEach(m => {
+    // Skip the overlay download menu — it should always stay visible
+    if (m.id === 'download-menu' && !viewerOverlay.hidden) return;
     m.hidden = true;
     m.parentElement?.classList.remove('open');
   });
