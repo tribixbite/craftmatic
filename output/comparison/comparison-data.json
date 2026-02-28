@@ -1,524 +1,5 @@
 [
   {
-    "key": "sf",
-    "address": "2340 Francisco St, San Francisco, CA 94123",
-    "apis": [
-      {
-        "name": "Parcl Labs",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "sqft": 13905,
-          "bedrooms": 12,
-          "bathrooms": 12,
-          "yearBuilt": 1929,
-          "propertyType": "OTHER",
-          "lat": 37.801086,
-          "lng": -122.443895,
-          "city": "SAN FRANCISCO",
-          "state": "CA"
-        },
-        "fieldsSet": [
-          "sqft",
-          "bedrooms",
-          "bathrooms",
-          "yearBuilt",
-          "propertyType",
-          "city",
-          "stateAbbreviation",
-          "county",
-          "zipCode"
-        ],
-        "impactedGenFields": [
-          "floors",
-          "rooms",
-          "width",
-          "length",
-          "style",
-          "seed"
-        ]
-      },
-      {
-        "name": "OpenStreetMap",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "width": "15.9m",
-          "length": "27.0m",
-          "footprint": "429 sqm",
-          "polygonVertices": 33
-        },
-        "fieldsSet": [
-          "osmWidth",
-          "osmLength",
-          "osmLevels",
-          "osmMaterial",
-          "osmRoofShape",
-          "osmRoofMaterial",
-          "osmRoofColour",
-          "osmBuildingColour",
-          "osmArchitecture"
-        ],
-        "impactedGenFields": [
-          "width",
-          "length",
-          "floors",
-          "wallOverride",
-          "roofShape",
-          "roofOverride",
-          "trimOverride",
-          "floorPlanShape",
-          "style"
-        ]
-      },
-      {
-        "name": "Mapbox",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "height": "13m",
-          "minHeight": "0m",
-          "buildingType": "building",
-          "extrude": true,
-          "distance": "0.0m"
-        },
-        "fieldsSet": [
-          "mapboxHeight",
-          "mapboxBuildingType"
-        ],
-        "impactedGenFields": [
-          "floors"
-        ]
-      },
-      {
-        "name": "Google Solar",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "roofPitch": "0.2°",
-          "roofAzimuth": "0°",
-          "roofSegments": 12,
-          "roofArea": "463 sqm",
-          "footprintArea": "551 sqm",
-          "planeHeight": "17.0m",
-          "imageryQuality": "HIGH"
-        },
-        "fieldsSet": [
-          "solarRoofPitch",
-          "solarRoofSegments",
-          "solarBuildingArea",
-          "solarRoofArea"
-        ],
-        "impactedGenFields": [
-          "roofShape",
-          "roofHeightOverride"
-        ]
-      },
-      {
-        "name": "Mapillary",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "imagesFound": 18,
-          "bestImageId": "106040445795360",
-          "bestImageDate": "2023-04-02",
-          "bestImageHeading": "77°",
-          "featuresFound": 78,
-          "hasDriveway": true,
-          "hasFence": false
-        },
-        "fieldsSet": [
-          "mapillaryImageUrl",
-          "mapillaryHeading",
-          "mapillaryCaptureDate",
-          "mapillaryHasDriveway"
-        ],
-        "impactedGenFields": [
-          "features.driveway"
-        ]
-      },
-      {
-        "name": "Google Street View",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "panoId": "yX9x-El7mRm1Bsw5LSit2A",
-          "date": "2025-01",
-          "heading": "343°",
-          "panoLat": "37.80083",
-          "panoLng": "-122.44379"
-        },
-        "fieldsSet": [
-          "streetViewUrl",
-          "streetViewDate",
-          "streetViewHeading"
-        ],
-        "impactedGenFields": []
-      },
-      {
-        "name": "SV Image Analysis",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "wallColor": "rgb(137,125,94)",
-          "wallBlock": "sandstone",
-          "roofColor": "rgb(122,111,77)",
-          "roofBlock": "spruce_slab[type=bottom]",
-          "trimColor": "rgb(170,160,138)",
-          "trimBlock": "birch_log",
-          "storyCount": 1,
-          "storyConfidence": "0.30",
-          "textureClass": "shingle",
-          "textureBlock": "spruce_planks",
-          "roofPitch": "moderate",
-          "roofPitchDegrees": "15°",
-          "roofHeightOverride": 0.5,
-          "symmetryScore": "0.12",
-          "isSymmetric": false,
-          "planShape": "L",
-          "windowsPerFloor": 10,
-          "windowSpacing": 2,
-          "lawnDepth": "0%",
-          "hasDriveway": false,
-          "hasPath": true
-        },
-        "fieldsSet": [
-          "svWallOverride",
-          "svRoofOverride",
-          "svTrimOverride",
-          "svStoryCount",
-          "svTextureClass",
-          "svRoofPitch",
-          "svPlanShape",
-          "svWindowSpacing",
-          "svSetbackFeatures"
-        ],
-        "impactedGenFields": [
-          "wallOverride",
-          "roofOverride",
-          "trimOverride",
-          "floors",
-          "wallOverride",
-          "roofHeightOverride",
-          "floorPlanShape",
-          "windowSpacing",
-          "features"
-        ]
-      },
-      {
-        "name": "NLCD",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "canopyCoverPct": 0
-        },
-        "fieldsSet": [
-          "canopyCoverPct"
-        ],
-        "impactedGenFields": [
-          "features.trees"
-        ]
-      },
-      {
-        "name": "Hardiness",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "zone": "10b"
-        },
-        "fieldsSet": [
-          "hardinessZone"
-        ],
-        "impactedGenFields": [
-          "features.treePalette"
-        ]
-      },
-      {
-        "name": "OSM Trees",
-        "available": true,
-        "status": "skipped",
-        "data": {},
-        "fieldsSet": [],
-        "impactedGenFields": []
-      },
-      {
-        "name": "Overture",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "height": 13
-        },
-        "fieldsSet": [
-          "overtureHeight",
-          "overtureFloors",
-          "overtureRoofShape"
-        ],
-        "impactedGenFields": [
-          "floors",
-          "roofShape"
-        ]
-      },
-      {
-        "name": "Water",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "count": 3,
-          "features": "water, water, stream"
-        },
-        "fieldsSet": [
-          "nearbyWater"
-        ],
-        "impactedGenFields": [
-          "features.water"
-        ]
-      },
-      {
-        "name": "Canopy Height",
-        "available": true,
-        "status": "skipped",
-        "data": {},
-        "fieldsSet": [],
-        "impactedGenFields": []
-      },
-      {
-        "name": "Land Cover",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "classValue": 50,
-          "label": "Built-up"
-        },
-        "fieldsSet": [
-          "landCoverClass",
-          "landCoverLabel"
-        ],
-        "impactedGenFields": [
-          "features.landscape"
-        ]
-      }
-    ],
-    "tiers": [
-      {
-        "tier": "noapi",
-        "property": {
-          "sqft": 2500,
-          "bedrooms": 3,
-          "bathrooms": 2,
-          "yearBuilt": 2000,
-          "propertyType": "house",
-          "stories": 2
-        },
-        "genOptions": {
-          "style": "modern",
-          "floors": 2,
-          "width": 12,
-          "length": 10,
-          "seed": 767719,
-          "features": {
-            "chimney": false,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": false,
-            "trees": true,
-            "garden": false,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 48,
-          "height": 18,
-          "depth": 32,
-          "blocks": 6348
-        },
-        "views": {
-          "exterior": "sf-noapi_exterior.jpg",
-          "cutaway": [
-            "sf-noapi_cutaway_0.jpg",
-            "sf-noapi_cutaway_1.jpg"
-          ],
-          "floor": [
-            "sf-noapi_floor_0.jpg",
-            "sf-noapi_floor_1.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "someapis",
-        "property": {
-          "sqft": 13905,
-          "bedrooms": 12,
-          "bathrooms": 12,
-          "yearBuilt": 1929,
-          "propertyType": "other",
-          "stories": 4,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "colonial",
-          "floors": 4,
-          "width": 16,
-          "length": 27,
-          "seed": 767719,
-          "roofShape": "flat",
-          "floorPlanShape": "L",
-          "features": {
-            "chimney": true,
-            "porch": true,
-            "backyard": false,
-            "driveway": true,
-            "fence": true,
-            "trees": true,
-            "garden": true,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 60,
-          "height": 28,
-          "depth": 44,
-          "blocks": 12969
-        },
-        "views": {
-          "exterior": "sf-someapis_exterior.jpg",
-          "cutaway": [
-            "sf-someapis_cutaway_0.jpg",
-            "sf-someapis_cutaway_1.jpg",
-            "sf-someapis_cutaway_2.jpg",
-            "sf-someapis_cutaway_3.jpg"
-          ],
-          "floor": [
-            "sf-someapis_floor_0.jpg",
-            "sf-someapis_floor_1.jpg",
-            "sf-someapis_floor_2.jpg",
-            "sf-someapis_floor_3.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "allapis",
-        "property": {
-          "sqft": 13905,
-          "bedrooms": 12,
-          "bathrooms": 12,
-          "yearBuilt": 1929,
-          "propertyType": "other",
-          "stories": 4,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "colonial",
-          "floors": 4,
-          "width": 16,
-          "length": 27,
-          "seed": 767719,
-          "roofShape": "flat",
-          "floorPlanShape": "L",
-          "windowSpacing": 2,
-          "roofHeightOverride": 2,
-          "features": {
-            "chimney": true,
-            "porch": true,
-            "backyard": false,
-            "driveway": true,
-            "fence": true,
-            "trees": true,
-            "garden": true,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 60,
-          "height": 24,
-          "depth": 44,
-          "blocks": 11494
-        },
-        "views": {
-          "exterior": "sf-allapis_exterior.jpg",
-          "cutaway": [
-            "sf-allapis_cutaway_0.jpg",
-            "sf-allapis_cutaway_1.jpg",
-            "sf-allapis_cutaway_2.jpg",
-            "sf-allapis_cutaway_3.jpg"
-          ],
-          "floor": [
-            "sf-allapis_floor_0.jpg",
-            "sf-allapis_floor_1.jpg",
-            "sf-allapis_floor_2.jpg",
-            "sf-allapis_floor_3.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "enriched",
-        "property": {
-          "sqft": 13905,
-          "bedrooms": 12,
-          "bathrooms": 12,
-          "yearBuilt": 1929,
-          "propertyType": "other",
-          "stories": 4,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "colonial",
-          "floors": 4,
-          "width": 16,
-          "length": 27,
-          "seed": 767719,
-          "roofShape": "flat",
-          "floorPlanShape": "L",
-          "windowSpacing": 2,
-          "roofHeightOverride": 2,
-          "features": {
-            "chimney": false,
-            "porch": true,
-            "backyard": false,
-            "driveway": true,
-            "fence": true,
-            "trees": true,
-            "garden": true,
-            "pool": false
-          },
-          "landscape": {
-            "treePalette": [
-              "jungle",
-              "acacia"
-            ],
-            "treeCount": 2,
-            "treeHeight": 3,
-            "hasWater": true,
-            "groundCover": "built",
-            "pathBlock": "minecraft:stone_bricks",
-            "fenceBlock": "minecraft:stone_brick_wall"
-          }
-        },
-        "grid": {
-          "width": 60,
-          "height": 24,
-          "depth": 44,
-          "blocks": 11431
-        },
-        "views": {
-          "exterior": "sf-enriched_exterior.jpg",
-          "cutaway": [
-            "sf-enriched_cutaway_0.jpg",
-            "sf-enriched_cutaway_1.jpg",
-            "sf-enriched_cutaway_2.jpg",
-            "sf-enriched_cutaway_3.jpg"
-          ],
-          "floor": [
-            "sf-enriched_floor_0.jpg",
-            "sf-enriched_floor_1.jpg",
-            "sf-enriched_floor_2.jpg",
-            "sf-enriched_floor_3.jpg"
-          ]
-        }
-      }
-    ]
-  },
-  {
     "key": "newton",
     "address": "240 Highland St, Newton, MA 02465",
     "apis": [
@@ -3672,1504 +3153,6 @@
     ]
   },
   {
-    "key": "seattle",
-    "address": "4810 SW Ledroit Pl, Seattle, WA 98136",
-    "apis": [
-      {
-        "name": "Parcl Labs",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "sqft": 2200,
-          "bedrooms": 3,
-          "bathrooms": 1,
-          "yearBuilt": 1911,
-          "propertyType": "SINGLE_FAMILY",
-          "lat": 47.539036,
-          "lng": -122.394191,
-          "city": "SEATTLE",
-          "state": "WA"
-        },
-        "fieldsSet": [
-          "sqft",
-          "bedrooms",
-          "bathrooms",
-          "yearBuilt",
-          "propertyType",
-          "city",
-          "stateAbbreviation",
-          "county",
-          "zipCode"
-        ],
-        "impactedGenFields": [
-          "floors",
-          "rooms",
-          "width",
-          "length",
-          "style",
-          "seed"
-        ]
-      },
-      {
-        "name": "OpenStreetMap",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "width": "11.8m",
-          "length": "14.9m",
-          "footprint": "176 sqm",
-          "polygonVertices": 19
-        },
-        "fieldsSet": [
-          "osmWidth",
-          "osmLength",
-          "osmLevels",
-          "osmMaterial",
-          "osmRoofShape",
-          "osmRoofMaterial",
-          "osmRoofColour",
-          "osmBuildingColour",
-          "osmArchitecture"
-        ],
-        "impactedGenFields": [
-          "width",
-          "length",
-          "floors",
-          "wallOverride",
-          "roofShape",
-          "roofOverride",
-          "trimOverride",
-          "floorPlanShape",
-          "style"
-        ]
-      },
-      {
-        "name": "Mapbox",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "height": "6m",
-          "minHeight": "0m",
-          "buildingType": "building",
-          "extrude": true,
-          "distance": "1.3m"
-        },
-        "fieldsSet": [
-          "mapboxHeight",
-          "mapboxBuildingType"
-        ],
-        "impactedGenFields": [
-          "floors"
-        ]
-      },
-      {
-        "name": "Google Solar",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "roofPitch": "63.6°",
-          "roofAzimuth": "308°",
-          "roofSegments": 13,
-          "roofArea": "265 sqm",
-          "footprintArea": "348 sqm",
-          "planeHeight": "49.9m",
-          "imageryQuality": "HIGH"
-        },
-        "fieldsSet": [
-          "solarRoofPitch",
-          "solarRoofSegments",
-          "solarBuildingArea",
-          "solarRoofArea"
-        ],
-        "impactedGenFields": [
-          "roofShape",
-          "roofHeightOverride"
-        ]
-      },
-      {
-        "name": "Mapillary",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "imagesFound": 0,
-          "bestImageDate": null,
-          "bestImageHeading": "undefined°",
-          "featuresFound": 45,
-          "hasDriveway": true,
-          "hasFence": false
-        },
-        "fieldsSet": [
-          "mapillaryHasDriveway"
-        ],
-        "impactedGenFields": [
-          "features.driveway"
-        ]
-      },
-      {
-        "name": "Google Street View",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "panoId": "AnK13ISB4om0iqfHTAyL4w",
-          "date": "2025-08",
-          "heading": "42°",
-          "panoLat": "47.53888",
-          "panoLng": "-122.39440"
-        },
-        "fieldsSet": [
-          "streetViewUrl",
-          "streetViewDate",
-          "streetViewHeading"
-        ],
-        "impactedGenFields": []
-      },
-      {
-        "name": "SV Image Analysis",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "wallColor": "rgb(91,97,87)",
-          "wallBlock": "gray_concrete",
-          "roofColor": "rgb(95,102,95)",
-          "roofBlock": "cobblestone_slab[type=bottom]",
-          "trimColor": "rgb(95,112,53)",
-          "trimBlock": "stripped_spruce_log",
-          "storyCount": 3,
-          "storyConfidence": "0.19",
-          "textureClass": "stone",
-          "textureBlock": "stone_bricks",
-          "roofPitch": "moderate",
-          "roofPitchDegrees": "15°",
-          "roofHeightOverride": 0.5,
-          "symmetryScore": "0.84",
-          "isSymmetric": true,
-          "planShape": "rectangle",
-          "windowsPerFloor": 8,
-          "windowSpacing": 2,
-          "lawnDepth": "3%",
-          "hasDriveway": false,
-          "hasPath": true
-        },
-        "fieldsSet": [
-          "svWallOverride",
-          "svRoofOverride",
-          "svTrimOverride",
-          "svStoryCount",
-          "svTextureClass",
-          "svRoofPitch",
-          "svPlanShape",
-          "svWindowSpacing",
-          "svSetbackFeatures"
-        ],
-        "impactedGenFields": [
-          "wallOverride",
-          "roofOverride",
-          "trimOverride",
-          "floors",
-          "wallOverride",
-          "roofHeightOverride",
-          "floorPlanShape",
-          "windowSpacing",
-          "features"
-        ]
-      },
-      {
-        "name": "NLCD",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "canopyCoverPct": 34
-        },
-        "fieldsSet": [
-          "canopyCoverPct"
-        ],
-        "impactedGenFields": [
-          "features.trees"
-        ]
-      },
-      {
-        "name": "Hardiness",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "zone": "9a"
-        },
-        "fieldsSet": [
-          "hardinessZone"
-        ],
-        "impactedGenFields": [
-          "features.treePalette"
-        ]
-      },
-      {
-        "name": "OSM Trees",
-        "available": true,
-        "status": "skipped",
-        "data": {},
-        "fieldsSet": [],
-        "impactedGenFields": []
-      },
-      {
-        "name": "Overture",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "height": 5.964028358459473
-        },
-        "fieldsSet": [
-          "overtureHeight",
-          "overtureFloors",
-          "overtureRoofShape"
-        ],
-        "impactedGenFields": [
-          "floors",
-          "roofShape"
-        ]
-      },
-      {
-        "name": "Water",
-        "available": true,
-        "status": "skipped",
-        "data": {},
-        "fieldsSet": [],
-        "impactedGenFields": []
-      },
-      {
-        "name": "Canopy Height",
-        "available": true,
-        "status": "skipped",
-        "data": {},
-        "fieldsSet": [],
-        "impactedGenFields": []
-      },
-      {
-        "name": "Land Cover",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "classValue": 10,
-          "label": "Tree cover"
-        },
-        "fieldsSet": [
-          "landCoverClass",
-          "landCoverLabel"
-        ],
-        "impactedGenFields": [
-          "features.landscape"
-        ]
-      }
-    ],
-    "tiers": [
-      {
-        "tier": "noapi",
-        "property": {
-          "sqft": 2500,
-          "bedrooms": 3,
-          "bathrooms": 2,
-          "yearBuilt": 2000,
-          "propertyType": "house",
-          "stories": 2
-        },
-        "genOptions": {
-          "style": "modern",
-          "floors": 2,
-          "width": 12,
-          "length": 10,
-          "seed": 776180,
-          "features": {
-            "chimney": false,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": false,
-            "trees": true,
-            "garden": false,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 48,
-          "height": 18,
-          "depth": 32,
-          "blocks": 6281
-        },
-        "views": {
-          "exterior": "seattle-noapi_exterior.jpg",
-          "cutaway": [
-            "seattle-noapi_cutaway_0.jpg",
-            "seattle-noapi_cutaway_1.jpg"
-          ],
-          "floor": [
-            "seattle-noapi_floor_0.jpg",
-            "seattle-noapi_floor_1.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "someapis",
-        "property": {
-          "sqft": 2200,
-          "bedrooms": 3,
-          "bathrooms": 1,
-          "yearBuilt": 1911,
-          "propertyType": "house",
-          "stories": 1,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "rustic",
-          "floors": 1,
-          "width": 12,
-          "length": 15,
-          "seed": 776180,
-          "floorPlanShape": "L",
-          "features": {
-            "chimney": true,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": false,
-            "trees": true,
-            "garden": true,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 56,
-          "height": 13,
-          "depth": 32,
-          "blocks": 6355
-        },
-        "views": {
-          "exterior": "seattle-someapis_exterior.jpg",
-          "cutaway": [
-            "seattle-someapis_cutaway_0.jpg"
-          ],
-          "floor": [
-            "seattle-someapis_floor_0.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "allapis",
-        "property": {
-          "sqft": 2200,
-          "bedrooms": 3,
-          "bathrooms": 1,
-          "yearBuilt": 1911,
-          "propertyType": "house",
-          "stories": 2,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "rustic",
-          "floors": 2,
-          "width": 12,
-          "length": 15,
-          "seed": 776180,
-          "roofShape": "gable",
-          "floorPlanShape": "L",
-          "windowSpacing": 2,
-          "roofHeightOverride": 3,
-          "features": {
-            "chimney": true,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": false,
-            "trees": true,
-            "garden": true,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 56,
-          "height": 15,
-          "depth": 32,
-          "blocks": 5705
-        },
-        "views": {
-          "exterior": "seattle-allapis_exterior.jpg",
-          "cutaway": [
-            "seattle-allapis_cutaway_0.jpg",
-            "seattle-allapis_cutaway_1.jpg"
-          ],
-          "floor": [
-            "seattle-allapis_floor_0.jpg",
-            "seattle-allapis_floor_1.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "enriched",
-        "property": {
-          "sqft": 2200,
-          "bedrooms": 3,
-          "bathrooms": 1,
-          "yearBuilt": 1911,
-          "propertyType": "house",
-          "stories": 2,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "rustic",
-          "floors": 2,
-          "width": 12,
-          "length": 15,
-          "seed": 776180,
-          "roofShape": "gable",
-          "floorPlanShape": "L",
-          "windowSpacing": 2,
-          "roofHeightOverride": 3,
-          "features": {
-            "chimney": true,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": false,
-            "trees": true,
-            "garden": true,
-            "pool": false
-          },
-          "landscape": {
-            "treePalette": [
-              "oak",
-              "dark_oak",
-              "jungle"
-            ],
-            "treeCount": 4,
-            "treeHeight": 3,
-            "hasWater": false,
-            "groundCover": "forest",
-            "pathBlock": "minecraft:mossy_cobblestone",
-            "fenceBlock": "minecraft:spruce_fence"
-          }
-        },
-        "grid": {
-          "width": 56,
-          "height": 15,
-          "depth": 32,
-          "blocks": 5840
-        },
-        "views": {
-          "exterior": "seattle-enriched_exterior.jpg",
-          "cutaway": [
-            "seattle-enriched_cutaway_0.jpg",
-            "seattle-enriched_cutaway_1.jpg"
-          ],
-          "floor": [
-            "seattle-enriched_floor_0.jpg",
-            "seattle-enriched_floor_1.jpg"
-          ]
-        }
-      }
-    ]
-  },
-  {
-    "key": "austin",
-    "address": "8504 Long Canyon Dr, Austin, TX 78730",
-    "apis": [
-      {
-        "name": "Parcl Labs",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "sqft": 3444,
-          "bedrooms": 4,
-          "bathrooms": 3.5,
-          "yearBuilt": 1997,
-          "propertyType": "SINGLE_FAMILY",
-          "lat": 30.371496,
-          "lng": -97.820578,
-          "city": "AUSTIN",
-          "state": "TX"
-        },
-        "fieldsSet": [
-          "sqft",
-          "bedrooms",
-          "bathrooms",
-          "yearBuilt",
-          "propertyType",
-          "city",
-          "stateAbbreviation",
-          "county",
-          "zipCode"
-        ],
-        "impactedGenFields": [
-          "floors",
-          "rooms",
-          "width",
-          "length",
-          "style",
-          "seed"
-        ]
-      },
-      {
-        "name": "OpenStreetMap",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "width": "14.6m",
-          "length": "17.4m",
-          "footprint": "254 sqm",
-          "polygonVertices": 21
-        },
-        "fieldsSet": [
-          "osmWidth",
-          "osmLength",
-          "osmLevels",
-          "osmMaterial",
-          "osmRoofShape",
-          "osmRoofMaterial",
-          "osmRoofColour",
-          "osmBuildingColour",
-          "osmArchitecture"
-        ],
-        "impactedGenFields": [
-          "width",
-          "length",
-          "floors",
-          "wallOverride",
-          "roofShape",
-          "roofOverride",
-          "trimOverride",
-          "floorPlanShape",
-          "style"
-        ]
-      },
-      {
-        "name": "Mapbox",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "height": "10.7m",
-          "minHeight": "0m",
-          "buildingType": "building",
-          "extrude": true,
-          "distance": "0.0m"
-        },
-        "fieldsSet": [
-          "mapboxHeight",
-          "mapboxBuildingType"
-        ],
-        "impactedGenFields": [
-          "floors"
-        ]
-      },
-      {
-        "name": "Google Solar",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "roofPitch": "35.0°",
-          "roofAzimuth": "173°",
-          "roofSegments": 14,
-          "roofArea": "264 sqm",
-          "footprintArea": "293 sqm",
-          "planeHeight": "235.2m",
-          "imageryQuality": "HIGH"
-        },
-        "fieldsSet": [
-          "solarRoofPitch",
-          "solarRoofSegments",
-          "solarBuildingArea",
-          "solarRoofArea"
-        ],
-        "impactedGenFields": [
-          "roofShape",
-          "roofHeightOverride"
-        ]
-      },
-      {
-        "name": "Mapillary",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "imagesFound": 1,
-          "bestImageId": "1468867230128310",
-          "bestImageDate": "2017-11-30",
-          "bestImageHeading": "352°",
-          "featuresFound": 21,
-          "hasDriveway": true,
-          "hasFence": false
-        },
-        "fieldsSet": [
-          "mapillaryImageUrl",
-          "mapillaryHeading",
-          "mapillaryCaptureDate",
-          "mapillaryHasDriveway"
-        ],
-        "impactedGenFields": [
-          "features.driveway"
-        ]
-      },
-      {
-        "name": "Google Street View",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "panoId": "PbJsCgyXx71UIw_f73aNfQ",
-          "date": "2024-02",
-          "heading": "80°",
-          "panoLat": "30.37144",
-          "panoLng": "-97.82094"
-        },
-        "fieldsSet": [
-          "streetViewUrl",
-          "streetViewDate",
-          "streetViewHeading"
-        ],
-        "impactedGenFields": []
-      },
-      {
-        "name": "SV Image Analysis",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "wallColor": "rgb(105,110,103)",
-          "wallBlock": "stone_bricks",
-          "roofColor": "rgb(100,100,100)",
-          "roofBlock": "cobblestone_slab[type=bottom]",
-          "trimColor": "rgb(93,96,65)",
-          "trimBlock": "stripped_dark_oak_log",
-          "storyCount": 1,
-          "storyConfidence": "0.30",
-          "textureClass": "shingle",
-          "textureBlock": "spruce_planks",
-          "roofPitch": "moderate",
-          "roofPitchDegrees": "15°",
-          "roofHeightOverride": 0.5,
-          "symmetryScore": "0.87",
-          "isSymmetric": true,
-          "planShape": "rectangle",
-          "windowsPerFloor": 8,
-          "windowSpacing": 2,
-          "lawnDepth": "1%",
-          "hasDriveway": true,
-          "hasPath": false
-        },
-        "fieldsSet": [
-          "svWallOverride",
-          "svRoofOverride",
-          "svTrimOverride",
-          "svStoryCount",
-          "svTextureClass",
-          "svRoofPitch",
-          "svPlanShape",
-          "svWindowSpacing",
-          "svSetbackFeatures"
-        ],
-        "impactedGenFields": [
-          "wallOverride",
-          "roofOverride",
-          "trimOverride",
-          "floors",
-          "wallOverride",
-          "roofHeightOverride",
-          "floorPlanShape",
-          "windowSpacing",
-          "features"
-        ]
-      },
-      {
-        "name": "NLCD",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "canopyCoverPct": 60
-        },
-        "fieldsSet": [
-          "canopyCoverPct"
-        ],
-        "impactedGenFields": [
-          "features.trees"
-        ]
-      },
-      {
-        "name": "Hardiness",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "zone": "9a"
-        },
-        "fieldsSet": [
-          "hardinessZone"
-        ],
-        "impactedGenFields": [
-          "features.treePalette"
-        ]
-      },
-      {
-        "name": "OSM Trees",
-        "available": true,
-        "status": "skipped",
-        "data": {},
-        "fieldsSet": [],
-        "impactedGenFields": []
-      },
-      {
-        "name": "Overture",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "height": 10.7
-        },
-        "fieldsSet": [
-          "overtureHeight",
-          "overtureFloors",
-          "overtureRoofShape"
-        ],
-        "impactedGenFields": [
-          "floors",
-          "roofShape"
-        ]
-      },
-      {
-        "name": "Water",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "count": 12,
-          "features": "stream, stream, stream"
-        },
-        "fieldsSet": [
-          "nearbyWater"
-        ],
-        "impactedGenFields": [
-          "features.water"
-        ]
-      },
-      {
-        "name": "Canopy Height",
-        "available": true,
-        "status": "skipped",
-        "data": {},
-        "fieldsSet": [],
-        "impactedGenFields": []
-      },
-      {
-        "name": "Land Cover",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "classValue": 10,
-          "label": "Tree cover"
-        },
-        "fieldsSet": [
-          "landCoverClass",
-          "landCoverLabel"
-        ],
-        "impactedGenFields": [
-          "features.landscape"
-        ]
-      }
-    ],
-    "tiers": [
-      {
-        "tier": "noapi",
-        "property": {
-          "sqft": 2500,
-          "bedrooms": 3,
-          "bathrooms": 2,
-          "yearBuilt": 2000,
-          "propertyType": "house",
-          "stories": 2
-        },
-        "genOptions": {
-          "style": "modern",
-          "floors": 2,
-          "width": 12,
-          "length": 10,
-          "seed": 168895,
-          "features": {
-            "chimney": false,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": false,
-            "trees": true,
-            "garden": false,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 48,
-          "height": 18,
-          "depth": 32,
-          "blocks": 6339
-        },
-        "views": {
-          "exterior": "austin-noapi_exterior.jpg",
-          "cutaway": [
-            "austin-noapi_cutaway_0.jpg",
-            "austin-noapi_cutaway_1.jpg"
-          ],
-          "floor": [
-            "austin-noapi_floor_0.jpg",
-            "austin-noapi_floor_1.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "someapis",
-        "property": {
-          "sqft": 3444,
-          "bedrooms": 4,
-          "bathrooms": 3.5,
-          "yearBuilt": 1997,
-          "propertyType": "house",
-          "stories": 1,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "modern",
-          "floors": 2,
-          "width": 15,
-          "length": 17,
-          "seed": 168895,
-          "floorPlanShape": "L",
-          "features": {
-            "chimney": false,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": true,
-            "trees": true,
-            "garden": false,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 59,
-          "height": 18,
-          "depth": 39,
-          "blocks": 8513
-        },
-        "views": {
-          "exterior": "austin-someapis_exterior.jpg",
-          "cutaway": [
-            "austin-someapis_cutaway_0.jpg",
-            "austin-someapis_cutaway_1.jpg"
-          ],
-          "floor": [
-            "austin-someapis_floor_0.jpg",
-            "austin-someapis_floor_1.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "allapis",
-        "property": {
-          "sqft": 3444,
-          "bedrooms": 4,
-          "bathrooms": 3.5,
-          "yearBuilt": 1997,
-          "propertyType": "house",
-          "stories": 1,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "modern",
-          "floors": 3,
-          "width": 15,
-          "length": 17,
-          "seed": 168895,
-          "roofShape": "gable",
-          "floorPlanShape": "L",
-          "windowSpacing": 2,
-          "roofHeightOverride": 4,
-          "features": {
-            "chimney": false,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": true,
-            "trees": true,
-            "garden": false,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 57,
-          "height": 20,
-          "depth": 41,
-          "blocks": 8480
-        },
-        "views": {
-          "exterior": "austin-allapis_exterior.jpg",
-          "cutaway": [
-            "austin-allapis_cutaway_0.jpg",
-            "austin-allapis_cutaway_1.jpg",
-            "austin-allapis_cutaway_2.jpg"
-          ],
-          "floor": [
-            "austin-allapis_floor_0.jpg",
-            "austin-allapis_floor_1.jpg",
-            "austin-allapis_floor_2.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "enriched",
-        "property": {
-          "sqft": 3444,
-          "bedrooms": 4,
-          "bathrooms": 3.5,
-          "yearBuilt": 1997,
-          "propertyType": "house",
-          "stories": 1,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "modern",
-          "floors": 3,
-          "width": 15,
-          "length": 17,
-          "seed": 168895,
-          "roofShape": "gable",
-          "floorPlanShape": "L",
-          "windowSpacing": 2,
-          "roofHeightOverride": 4,
-          "features": {
-            "chimney": false,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": true,
-            "trees": true,
-            "garden": false,
-            "pool": false
-          },
-          "landscape": {
-            "treePalette": [
-              "oak",
-              "dark_oak",
-              "jungle"
-            ],
-            "treeCount": 6,
-            "treeHeight": 3,
-            "hasWater": true,
-            "groundCover": "forest",
-            "pathBlock": "minecraft:mossy_cobblestone",
-            "fenceBlock": "minecraft:spruce_fence"
-          }
-        },
-        "grid": {
-          "width": 57,
-          "height": 20,
-          "depth": 41,
-          "blocks": 8776
-        },
-        "views": {
-          "exterior": "austin-enriched_exterior.jpg",
-          "cutaway": [
-            "austin-enriched_cutaway_0.jpg",
-            "austin-enriched_cutaway_1.jpg",
-            "austin-enriched_cutaway_2.jpg"
-          ],
-          "floor": [
-            "austin-enriched_floor_0.jpg",
-            "austin-enriched_floor_1.jpg",
-            "austin-enriched_floor_2.jpg"
-          ]
-        }
-      }
-    ]
-  },
-  {
-    "key": "denver",
-    "address": "433 S Xavier St, Denver, CO 80219",
-    "apis": [
-      {
-        "name": "Parcl Labs",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "sqft": 1008,
-          "bedrooms": 3,
-          "bathrooms": 1,
-          "yearBuilt": 1954,
-          "propertyType": "SINGLE_FAMILY",
-          "lat": 39.708927,
-          "lng": -105.050556,
-          "city": "DENVER",
-          "state": "CO"
-        },
-        "fieldsSet": [
-          "sqft",
-          "bedrooms",
-          "bathrooms",
-          "yearBuilt",
-          "propertyType",
-          "city",
-          "stateAbbreviation",
-          "county",
-          "zipCode"
-        ],
-        "impactedGenFields": [
-          "floors",
-          "rooms",
-          "width",
-          "length",
-          "style",
-          "seed"
-        ]
-      },
-      {
-        "name": "OpenStreetMap",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "width": "9.6m",
-          "length": "12.0m",
-          "footprint": "115 sqm",
-          "polygonVertices": 10
-        },
-        "fieldsSet": [
-          "osmWidth",
-          "osmLength",
-          "osmLevels",
-          "osmMaterial",
-          "osmRoofShape",
-          "osmRoofMaterial",
-          "osmRoofColour",
-          "osmBuildingColour",
-          "osmArchitecture"
-        ],
-        "impactedGenFields": [
-          "width",
-          "length",
-          "floors",
-          "wallOverride",
-          "roofShape",
-          "roofOverride",
-          "trimOverride",
-          "floorPlanShape",
-          "style"
-        ]
-      },
-      {
-        "name": "Mapbox",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "height": "4m",
-          "minHeight": "0m",
-          "buildingType": "residential",
-          "extrude": true,
-          "distance": "0.0m"
-        },
-        "fieldsSet": [
-          "mapboxHeight",
-          "mapboxBuildingType"
-        ],
-        "impactedGenFields": [
-          "floors"
-        ]
-      },
-      {
-        "name": "Google Solar",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "roofPitch": "23.5°",
-          "roofAzimuth": "88°",
-          "roofSegments": 7,
-          "roofArea": "139 sqm",
-          "footprintArea": "150 sqm",
-          "planeHeight": "1632.1m",
-          "imageryQuality": "HIGH"
-        },
-        "fieldsSet": [
-          "solarRoofPitch",
-          "solarRoofSegments",
-          "solarBuildingArea",
-          "solarRoofArea"
-        ],
-        "impactedGenFields": [
-          "roofShape",
-          "roofHeightOverride"
-        ]
-      },
-      {
-        "name": "Mapillary",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "imagesFound": 0,
-          "bestImageDate": null,
-          "bestImageHeading": "undefined°",
-          "featuresFound": 1,
-          "hasDriveway": false,
-          "hasFence": false
-        },
-        "fieldsSet": [],
-        "impactedGenFields": []
-      },
-      {
-        "name": "Google Street View",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "panoId": "6mOJRniIAWHmLN-1Hlzpuw",
-          "date": "2019-10",
-          "heading": "269°",
-          "panoLat": "39.70893",
-          "panoLng": "-105.05025"
-        },
-        "fieldsSet": [
-          "streetViewUrl",
-          "streetViewDate",
-          "streetViewHeading"
-        ],
-        "impactedGenFields": []
-      },
-      {
-        "name": "SV Image Analysis",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "wallColor": "rgb(110,113,111)",
-          "wallBlock": "stone_bricks",
-          "roofColor": "rgb(112,125,146)",
-          "roofBlock": "stone_brick_slab[type=bottom]",
-          "trimColor": "rgb(110,114,111)",
-          "trimBlock": "stone_bricks",
-          "storyCount": 4,
-          "storyConfidence": "0.24",
-          "textureClass": "stone",
-          "textureBlock": "stone_bricks",
-          "roofPitch": "steep",
-          "roofPitchDegrees": "75°",
-          "roofHeightOverride": 0.8,
-          "symmetryScore": "0.16",
-          "isSymmetric": false,
-          "planShape": "L",
-          "windowsPerFloor": 2,
-          "windowSpacing": 2,
-          "lawnDepth": "0%",
-          "hasDriveway": false,
-          "hasPath": true
-        },
-        "fieldsSet": [
-          "svWallOverride",
-          "svRoofOverride",
-          "svTrimOverride",
-          "svStoryCount",
-          "svTextureClass",
-          "svRoofPitch",
-          "svPlanShape",
-          "svWindowSpacing",
-          "svSetbackFeatures"
-        ],
-        "impactedGenFields": [
-          "wallOverride",
-          "roofOverride",
-          "trimOverride",
-          "floors",
-          "wallOverride",
-          "roofHeightOverride",
-          "floorPlanShape",
-          "windowSpacing",
-          "features"
-        ]
-      },
-      {
-        "name": "NLCD",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "canopyCoverPct": 14
-        },
-        "fieldsSet": [
-          "canopyCoverPct"
-        ],
-        "impactedGenFields": [
-          "features.trees"
-        ]
-      },
-      {
-        "name": "Hardiness",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "zone": "6a"
-        },
-        "fieldsSet": [
-          "hardinessZone"
-        ],
-        "impactedGenFields": [
-          "features.treePalette"
-        ]
-      },
-      {
-        "name": "OSM Trees",
-        "available": true,
-        "status": "skipped",
-        "data": {},
-        "fieldsSet": [],
-        "impactedGenFields": []
-      },
-      {
-        "name": "Overture",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "height": 4
-        },
-        "fieldsSet": [
-          "overtureHeight",
-          "overtureFloors",
-          "overtureRoofShape"
-        ],
-        "impactedGenFields": [
-          "floors",
-          "roofShape"
-        ]
-      },
-      {
-        "name": "Water",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "count": 13,
-          "features": "Weir Gulch, Weir Gulch, Weir Gulch"
-        },
-        "fieldsSet": [
-          "nearbyWater"
-        ],
-        "impactedGenFields": [
-          "features.water"
-        ]
-      },
-      {
-        "name": "Canopy Height",
-        "available": true,
-        "status": "skipped",
-        "data": {},
-        "fieldsSet": [],
-        "impactedGenFields": []
-      },
-      {
-        "name": "Land Cover",
-        "available": true,
-        "status": "ok",
-        "data": {
-          "classValue": 50,
-          "label": "Built-up"
-        },
-        "fieldsSet": [
-          "landCoverClass",
-          "landCoverLabel"
-        ],
-        "impactedGenFields": [
-          "features.landscape"
-        ]
-      }
-    ],
-    "tiers": [
-      {
-        "tier": "noapi",
-        "property": {
-          "sqft": 2500,
-          "bedrooms": 3,
-          "bathrooms": 2,
-          "yearBuilt": 2000,
-          "propertyType": "house",
-          "stories": 2
-        },
-        "genOptions": {
-          "style": "modern",
-          "floors": 2,
-          "width": 12,
-          "length": 10,
-          "seed": 242221,
-          "features": {
-            "chimney": false,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": false,
-            "trees": true,
-            "garden": false,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 48,
-          "height": 18,
-          "depth": 32,
-          "blocks": 6317
-        },
-        "views": {
-          "exterior": "denver-noapi_exterior.jpg",
-          "cutaway": [
-            "denver-noapi_cutaway_0.jpg",
-            "denver-noapi_cutaway_1.jpg"
-          ],
-          "floor": [
-            "denver-noapi_floor_0.jpg",
-            "denver-noapi_floor_1.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "someapis",
-        "property": {
-          "sqft": 1008,
-          "bedrooms": 3,
-          "bathrooms": 1,
-          "yearBuilt": 1954,
-          "propertyType": "house",
-          "stories": 1,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "rustic",
-          "floors": 1,
-          "width": 10,
-          "length": 12,
-          "seed": 242221,
-          "floorPlanShape": "rect",
-          "features": {
-            "chimney": true,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": false,
-            "trees": true,
-            "garden": false,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 46,
-          "height": 13,
-          "depth": 30,
-          "blocks": 5656
-        },
-        "views": {
-          "exterior": "denver-someapis_exterior.jpg",
-          "cutaway": [
-            "denver-someapis_cutaway_0.jpg"
-          ],
-          "floor": [
-            "denver-someapis_floor_0.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "allapis",
-        "property": {
-          "sqft": 1008,
-          "bedrooms": 3,
-          "bathrooms": 1,
-          "yearBuilt": 1954,
-          "propertyType": "house",
-          "stories": 1,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "rustic",
-          "floors": 1,
-          "width": 10,
-          "length": 12,
-          "seed": 242221,
-          "roofShape": "hip",
-          "floorPlanShape": "rect",
-          "windowSpacing": 2,
-          "roofHeightOverride": 2,
-          "features": {
-            "chimney": true,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": false,
-            "trees": true,
-            "garden": false,
-            "pool": false
-          }
-        },
-        "grid": {
-          "width": 52,
-          "height": 9,
-          "depth": 30,
-          "blocks": 4400
-        },
-        "views": {
-          "exterior": "denver-allapis_exterior.jpg",
-          "cutaway": [
-            "denver-allapis_cutaway_0.jpg"
-          ],
-          "floor": [
-            "denver-allapis_floor_0.jpg"
-          ]
-        }
-      },
-      {
-        "tier": "enriched",
-        "property": {
-          "sqft": 1008,
-          "bedrooms": 3,
-          "bathrooms": 1,
-          "yearBuilt": 1954,
-          "propertyType": "house",
-          "stories": 1,
-          "yearUncertain": false
-        },
-        "genOptions": {
-          "style": "rustic",
-          "floors": 1,
-          "width": 10,
-          "length": 12,
-          "seed": 242221,
-          "roofShape": "hip",
-          "floorPlanShape": "rect",
-          "windowSpacing": 2,
-          "roofHeightOverride": 2,
-          "features": {
-            "chimney": true,
-            "porch": true,
-            "backyard": true,
-            "driveway": true,
-            "fence": false,
-            "trees": true,
-            "garden": false,
-            "pool": false
-          },
-          "landscape": {
-            "treePalette": [
-              "oak",
-              "birch",
-              "dark_oak"
-            ],
-            "treeCount": 3,
-            "treeHeight": 3,
-            "hasWater": true,
-            "groundCover": "built",
-            "pathBlock": "minecraft:stone_bricks",
-            "fenceBlock": "minecraft:stone_brick_wall"
-          }
-        },
-        "grid": {
-          "width": 52,
-          "height": 9,
-          "depth": 30,
-          "blocks": 4479
-        },
-        "views": {
-          "exterior": "denver-enriched_exterior.jpg",
-          "cutaway": [
-            "denver-enriched_cutaway_0.jpg"
-          ],
-          "floor": [
-            "denver-enriched_floor_0.jpg"
-          ]
-        }
-      }
-    ]
-  },
-  {
     "key": "minneapolis",
     "address": "2730 Ulysses St NE, Minneapolis, MN 55418",
     "apis": [
@@ -5671,6 +3654,513 @@
     ]
   },
   {
+    "key": "austin",
+    "address": "8504 Long Canyon Dr, Austin, TX 78730",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 3444,
+          "bedrooms": 4,
+          "bathrooms": 3.5,
+          "yearBuilt": 1997,
+          "propertyType": "SINGLE_FAMILY",
+          "lat": 30.371496,
+          "lng": -97.820578,
+          "city": "AUSTIN",
+          "state": "TX"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "width": "14.6m",
+          "length": "17.4m",
+          "footprint": "254 sqm",
+          "polygonVertices": 21
+        },
+        "fieldsSet": [
+          "osmWidth",
+          "osmLength",
+          "osmLevels",
+          "osmMaterial",
+          "osmRoofShape",
+          "osmRoofMaterial",
+          "osmRoofColour",
+          "osmBuildingColour",
+          "osmArchitecture"
+        ],
+        "impactedGenFields": [
+          "width",
+          "length",
+          "floors",
+          "wallOverride",
+          "roofShape",
+          "roofOverride",
+          "trimOverride",
+          "floorPlanShape",
+          "style"
+        ]
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "10.7m",
+          "minHeight": "0m",
+          "buildingType": "building",
+          "extrude": true,
+          "distance": "0.0m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "35.0°",
+          "roofAzimuth": "173°",
+          "roofSegments": 14,
+          "roofArea": "264 sqm",
+          "footprintArea": "293 sqm",
+          "planeHeight": "235.2m",
+          "imageryQuality": "HIGH"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 1,
+          "bestImageId": "1468867230128310",
+          "bestImageDate": "2017-11-30",
+          "bestImageHeading": "352°",
+          "featuresFound": 21,
+          "hasDriveway": true,
+          "hasFence": false
+        },
+        "fieldsSet": [
+          "mapillaryImageUrl",
+          "mapillaryHeading",
+          "mapillaryCaptureDate",
+          "mapillaryHasDriveway"
+        ],
+        "impactedGenFields": [
+          "features.driveway"
+        ]
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "panoId": "PbJsCgyXx71UIw_f73aNfQ",
+          "date": "2024-02",
+          "heading": "80°",
+          "panoLat": "30.37144",
+          "panoLng": "-97.82094"
+        },
+        "fieldsSet": [
+          "streetViewUrl",
+          "streetViewDate",
+          "streetViewHeading"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "wallColor": "rgb(105,110,103)",
+          "wallBlock": "stone_bricks",
+          "roofColor": "rgb(100,100,100)",
+          "roofBlock": "cobblestone_slab[type=bottom]",
+          "trimColor": "rgb(93,96,65)",
+          "trimBlock": "stripped_dark_oak_log",
+          "storyCount": 1,
+          "storyConfidence": "0.30",
+          "textureClass": "shingle",
+          "textureBlock": "spruce_planks",
+          "roofPitch": "moderate",
+          "roofPitchDegrees": "15°",
+          "roofHeightOverride": 0.5,
+          "symmetryScore": "0.87",
+          "isSymmetric": true,
+          "planShape": "rectangle",
+          "windowsPerFloor": 8,
+          "windowSpacing": 2,
+          "lawnDepth": "1%",
+          "hasDriveway": true,
+          "hasPath": false
+        },
+        "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
+          "svStoryCount",
+          "svTextureClass",
+          "svRoofPitch",
+          "svPlanShape",
+          "svWindowSpacing",
+          "svSetbackFeatures"
+        ],
+        "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
+          "floors",
+          "wallOverride",
+          "roofHeightOverride",
+          "floorPlanShape",
+          "windowSpacing",
+          "features"
+        ]
+      },
+      {
+        "name": "NLCD",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "canopyCoverPct": 60
+        },
+        "fieldsSet": [
+          "canopyCoverPct"
+        ],
+        "impactedGenFields": [
+          "features.trees"
+        ]
+      },
+      {
+        "name": "Hardiness",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "zone": "9a"
+        },
+        "fieldsSet": [
+          "hardinessZone"
+        ],
+        "impactedGenFields": [
+          "features.treePalette"
+        ]
+      },
+      {
+        "name": "OSM Trees",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Overture",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": 10.7
+        },
+        "fieldsSet": [
+          "overtureHeight",
+          "overtureFloors",
+          "overtureRoofShape"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "roofShape"
+        ]
+      },
+      {
+        "name": "Water",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "count": 12,
+          "features": "stream, stream, stream"
+        },
+        "fieldsSet": [
+          "nearbyWater"
+        ],
+        "impactedGenFields": [
+          "features.water"
+        ]
+      },
+      {
+        "name": "Canopy Height",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Land Cover",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "classValue": 10,
+          "label": "Tree cover"
+        },
+        "fieldsSet": [
+          "landCoverClass",
+          "landCoverLabel"
+        ],
+        "impactedGenFields": [
+          "features.landscape"
+        ]
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "seed": 168895,
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 18,
+          "depth": 32,
+          "blocks": 6339
+        },
+        "views": {
+          "exterior": "austin-noapi_exterior.jpg",
+          "cutaway": [
+            "austin-noapi_cutaway_0.jpg",
+            "austin-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "austin-noapi_floor_0.jpg",
+            "austin-noapi_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 3444,
+          "bedrooms": 4,
+          "bathrooms": 3.5,
+          "yearBuilt": 1997,
+          "propertyType": "house",
+          "stories": 1,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 15,
+          "length": 17,
+          "seed": 168895,
+          "floorPlanShape": "L",
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 59,
+          "height": 18,
+          "depth": 39,
+          "blocks": 8513
+        },
+        "views": {
+          "exterior": "austin-someapis_exterior.jpg",
+          "cutaway": [
+            "austin-someapis_cutaway_0.jpg",
+            "austin-someapis_cutaway_1.jpg"
+          ],
+          "floor": [
+            "austin-someapis_floor_0.jpg",
+            "austin-someapis_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 3444,
+          "bedrooms": 4,
+          "bathrooms": 3.5,
+          "yearBuilt": 1997,
+          "propertyType": "house",
+          "stories": 1,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 15,
+          "length": 17,
+          "seed": 168895,
+          "roofShape": "gable",
+          "floorPlanShape": "L",
+          "windowSpacing": 2,
+          "roofHeightOverride": 4,
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 57,
+          "height": 15,
+          "depth": 41,
+          "blocks": 7927
+        },
+        "views": {
+          "exterior": "austin-allapis_exterior.jpg",
+          "cutaway": [
+            "austin-allapis_cutaway_0.jpg",
+            "austin-allapis_cutaway_1.jpg"
+          ],
+          "floor": [
+            "austin-allapis_floor_0.jpg",
+            "austin-allapis_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "enriched",
+        "property": {
+          "sqft": 3444,
+          "bedrooms": 4,
+          "bathrooms": 3.5,
+          "yearBuilt": 1997,
+          "propertyType": "house",
+          "stories": 1,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 15,
+          "length": 17,
+          "seed": 168895,
+          "roofShape": "gable",
+          "floorPlanShape": "L",
+          "windowSpacing": 2,
+          "roofHeightOverride": 4,
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "oak",
+              "dark_oak",
+              "jungle"
+            ],
+            "treeCount": 6,
+            "treeHeight": 3,
+            "hasWater": true,
+            "groundCover": "forest",
+            "pathBlock": "minecraft:mossy_cobblestone",
+            "fenceBlock": "minecraft:spruce_fence"
+          }
+        },
+        "grid": {
+          "width": 57,
+          "height": 15,
+          "depth": 41,
+          "blocks": 8286
+        },
+        "views": {
+          "exterior": "austin-enriched_exterior.jpg",
+          "cutaway": [
+            "austin-enriched_cutaway_0.jpg",
+            "austin-enriched_cutaway_1.jpg"
+          ],
+          "floor": [
+            "austin-enriched_floor_0.jpg",
+            "austin-enriched_floor_1.jpg"
+          ]
+        }
+      }
+    ]
+  },
+  {
     "key": "charleston",
     "address": "41 Legare St, Charleston, SC 29401",
     "apis": [
@@ -6083,7 +4573,7 @@
           "width": 10,
           "length": 27,
           "seed": 852930,
-          "roofShape": "flat",
+          "roofShape": "gable",
           "floorPlanShape": "L",
           "windowSpacing": 3,
           "roofHeightOverride": 3,
@@ -6102,7 +4592,7 @@
           "width": 67,
           "height": 20,
           "depth": 31,
-          "blocks": 8653
+          "blocks": 8754
         },
         "views": {
           "exterior": "charleston-allapis_exterior.jpg",
@@ -6135,7 +4625,7 @@
           "width": 10,
           "length": 27,
           "seed": 852930,
-          "roofShape": "flat",
+          "roofShape": "gable",
           "floorPlanShape": "L",
           "windowSpacing": 3,
           "roofHeightOverride": 3,
@@ -6167,7 +4657,7 @@
           "width": 67,
           "height": 20,
           "depth": 31,
-          "blocks": 8651
+          "blocks": 8755
         },
         "views": {
           "exterior": "charleston-enriched_exterior.jpg",
@@ -6180,6 +4670,1512 @@
             "charleston-enriched_floor_0.jpg",
             "charleston-enriched_floor_1.jpg",
             "charleston-enriched_floor_2.jpg"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "key": "sf",
+    "address": "2340 Francisco St, San Francisco, CA 94123",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 13905,
+          "bedrooms": 12,
+          "bathrooms": 12,
+          "yearBuilt": 1929,
+          "propertyType": "OTHER",
+          "lat": 37.801086,
+          "lng": -122.443895,
+          "city": "SAN FRANCISCO",
+          "state": "CA"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "width": "15.9m",
+          "length": "27.0m",
+          "footprint": "429 sqm",
+          "polygonVertices": 33
+        },
+        "fieldsSet": [
+          "osmWidth",
+          "osmLength",
+          "osmLevels",
+          "osmMaterial",
+          "osmRoofShape",
+          "osmRoofMaterial",
+          "osmRoofColour",
+          "osmBuildingColour",
+          "osmArchitecture"
+        ],
+        "impactedGenFields": [
+          "width",
+          "length",
+          "floors",
+          "wallOverride",
+          "roofShape",
+          "roofOverride",
+          "trimOverride",
+          "floorPlanShape",
+          "style"
+        ]
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "13m",
+          "minHeight": "0m",
+          "buildingType": "building",
+          "extrude": true,
+          "distance": "0.0m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "0.2°",
+          "roofAzimuth": "0°",
+          "roofSegments": 12,
+          "roofArea": "463 sqm",
+          "footprintArea": "551 sqm",
+          "planeHeight": "17.0m",
+          "imageryQuality": "HIGH"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 18,
+          "bestImageId": "106040445795360",
+          "bestImageDate": "2023-04-02",
+          "bestImageHeading": "77°",
+          "featuresFound": 78,
+          "hasDriveway": true,
+          "hasFence": false
+        },
+        "fieldsSet": [
+          "mapillaryImageUrl",
+          "mapillaryHeading",
+          "mapillaryCaptureDate",
+          "mapillaryHasDriveway"
+        ],
+        "impactedGenFields": [
+          "features.driveway"
+        ]
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "panoId": "yX9x-El7mRm1Bsw5LSit2A",
+          "date": "2025-01",
+          "heading": "343°",
+          "panoLat": "37.80083",
+          "panoLng": "-122.44379"
+        },
+        "fieldsSet": [
+          "streetViewUrl",
+          "streetViewDate",
+          "streetViewHeading"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "wallColor": "rgb(137,125,94)",
+          "wallBlock": "sandstone",
+          "roofColor": "rgb(122,111,77)",
+          "roofBlock": "spruce_slab[type=bottom]",
+          "trimColor": "rgb(170,160,138)",
+          "trimBlock": "birch_log",
+          "storyCount": 1,
+          "storyConfidence": "0.30",
+          "textureClass": "shingle",
+          "textureBlock": "spruce_planks",
+          "roofPitch": "moderate",
+          "roofPitchDegrees": "15°",
+          "roofHeightOverride": 0.5,
+          "symmetryScore": "0.12",
+          "isSymmetric": false,
+          "planShape": "L",
+          "windowsPerFloor": 10,
+          "windowSpacing": 2,
+          "lawnDepth": "0%",
+          "hasDriveway": false,
+          "hasPath": true
+        },
+        "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
+          "svStoryCount",
+          "svTextureClass",
+          "svRoofPitch",
+          "svPlanShape",
+          "svWindowSpacing",
+          "svSetbackFeatures"
+        ],
+        "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
+          "floors",
+          "wallOverride",
+          "roofHeightOverride",
+          "floorPlanShape",
+          "windowSpacing",
+          "features"
+        ]
+      },
+      {
+        "name": "NLCD",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "canopyCoverPct": 0
+        },
+        "fieldsSet": [
+          "canopyCoverPct"
+        ],
+        "impactedGenFields": [
+          "features.trees"
+        ]
+      },
+      {
+        "name": "Hardiness",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "zone": "10b"
+        },
+        "fieldsSet": [
+          "hardinessZone"
+        ],
+        "impactedGenFields": [
+          "features.treePalette"
+        ]
+      },
+      {
+        "name": "OSM Trees",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Overture",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": 13
+        },
+        "fieldsSet": [
+          "overtureHeight",
+          "overtureFloors",
+          "overtureRoofShape"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "roofShape"
+        ]
+      },
+      {
+        "name": "Water",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "count": 3,
+          "features": "water, water, stream"
+        },
+        "fieldsSet": [
+          "nearbyWater"
+        ],
+        "impactedGenFields": [
+          "features.water"
+        ]
+      },
+      {
+        "name": "Canopy Height",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Land Cover",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "classValue": 50,
+          "label": "Built-up"
+        },
+        "fieldsSet": [
+          "landCoverClass",
+          "landCoverLabel"
+        ],
+        "impactedGenFields": [
+          "features.landscape"
+        ]
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "seed": 767719,
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 18,
+          "depth": 32,
+          "blocks": 6348
+        },
+        "views": {
+          "exterior": "sf-noapi_exterior.jpg",
+          "cutaway": [
+            "sf-noapi_cutaway_0.jpg",
+            "sf-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "sf-noapi_floor_0.jpg",
+            "sf-noapi_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 13905,
+          "bedrooms": 12,
+          "bathrooms": 12,
+          "yearBuilt": 1929,
+          "propertyType": "other",
+          "stories": 4,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "colonial",
+          "floors": 4,
+          "width": 16,
+          "length": 27,
+          "seed": 767719,
+          "roofShape": "flat",
+          "floorPlanShape": "L",
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": false,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 60,
+          "height": 28,
+          "depth": 44,
+          "blocks": 12969
+        },
+        "views": {
+          "exterior": "sf-someapis_exterior.jpg",
+          "cutaway": [
+            "sf-someapis_cutaway_0.jpg",
+            "sf-someapis_cutaway_1.jpg",
+            "sf-someapis_cutaway_2.jpg",
+            "sf-someapis_cutaway_3.jpg"
+          ],
+          "floor": [
+            "sf-someapis_floor_0.jpg",
+            "sf-someapis_floor_1.jpg",
+            "sf-someapis_floor_2.jpg",
+            "sf-someapis_floor_3.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 13905,
+          "bedrooms": 12,
+          "bathrooms": 12,
+          "yearBuilt": 1929,
+          "propertyType": "other",
+          "stories": 4,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "colonial",
+          "floors": 4,
+          "width": 16,
+          "length": 27,
+          "seed": 767719,
+          "roofShape": "flat",
+          "floorPlanShape": "L",
+          "windowSpacing": 2,
+          "roofHeightOverride": 2,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": false,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 60,
+          "height": 24,
+          "depth": 44,
+          "blocks": 11494
+        },
+        "views": {
+          "exterior": "sf-allapis_exterior.jpg",
+          "cutaway": [
+            "sf-allapis_cutaway_0.jpg",
+            "sf-allapis_cutaway_1.jpg",
+            "sf-allapis_cutaway_2.jpg",
+            "sf-allapis_cutaway_3.jpg"
+          ],
+          "floor": [
+            "sf-allapis_floor_0.jpg",
+            "sf-allapis_floor_1.jpg",
+            "sf-allapis_floor_2.jpg",
+            "sf-allapis_floor_3.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "enriched",
+        "property": {
+          "sqft": 13905,
+          "bedrooms": 12,
+          "bathrooms": 12,
+          "yearBuilt": 1929,
+          "propertyType": "other",
+          "stories": 4,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "colonial",
+          "floors": 4,
+          "width": 16,
+          "length": 27,
+          "seed": 767719,
+          "roofShape": "flat",
+          "floorPlanShape": "L",
+          "windowSpacing": 2,
+          "roofHeightOverride": 2,
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": false,
+            "driveway": true,
+            "fence": true,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "jungle",
+              "acacia"
+            ],
+            "treeCount": 2,
+            "treeHeight": 3,
+            "hasWater": true,
+            "groundCover": "built",
+            "pathBlock": "minecraft:stone_bricks",
+            "fenceBlock": "minecraft:stone_brick_wall"
+          }
+        },
+        "grid": {
+          "width": 60,
+          "height": 24,
+          "depth": 44,
+          "blocks": 11431
+        },
+        "views": {
+          "exterior": "sf-enriched_exterior.jpg",
+          "cutaway": [
+            "sf-enriched_cutaway_0.jpg",
+            "sf-enriched_cutaway_1.jpg",
+            "sf-enriched_cutaway_2.jpg",
+            "sf-enriched_cutaway_3.jpg"
+          ],
+          "floor": [
+            "sf-enriched_floor_0.jpg",
+            "sf-enriched_floor_1.jpg",
+            "sf-enriched_floor_2.jpg",
+            "sf-enriched_floor_3.jpg"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "key": "seattle",
+    "address": "4810 SW Ledroit Pl, Seattle, WA 98136",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 2200,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1911,
+          "propertyType": "SINGLE_FAMILY",
+          "lat": 47.539036,
+          "lng": -122.394191,
+          "city": "SEATTLE",
+          "state": "WA"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "width": "11.8m",
+          "length": "14.9m",
+          "footprint": "176 sqm",
+          "polygonVertices": 19
+        },
+        "fieldsSet": [
+          "osmWidth",
+          "osmLength",
+          "osmLevels",
+          "osmMaterial",
+          "osmRoofShape",
+          "osmRoofMaterial",
+          "osmRoofColour",
+          "osmBuildingColour",
+          "osmArchitecture"
+        ],
+        "impactedGenFields": [
+          "width",
+          "length",
+          "floors",
+          "wallOverride",
+          "roofShape",
+          "roofOverride",
+          "trimOverride",
+          "floorPlanShape",
+          "style"
+        ]
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "6m",
+          "minHeight": "0m",
+          "buildingType": "building",
+          "extrude": true,
+          "distance": "1.3m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "63.6°",
+          "roofAzimuth": "308°",
+          "roofSegments": 13,
+          "roofArea": "265 sqm",
+          "footprintArea": "348 sqm",
+          "planeHeight": "49.9m",
+          "imageryQuality": "HIGH"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 0,
+          "bestImageDate": null,
+          "bestImageHeading": "undefined°",
+          "featuresFound": 45,
+          "hasDriveway": true,
+          "hasFence": false
+        },
+        "fieldsSet": [
+          "mapillaryHasDriveway"
+        ],
+        "impactedGenFields": [
+          "features.driveway"
+        ]
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "panoId": "AnK13ISB4om0iqfHTAyL4w",
+          "date": "2025-08",
+          "heading": "42°",
+          "panoLat": "47.53888",
+          "panoLng": "-122.39440"
+        },
+        "fieldsSet": [
+          "streetViewUrl",
+          "streetViewDate",
+          "streetViewHeading"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "wallColor": "rgb(91,97,87)",
+          "wallBlock": "gray_concrete",
+          "roofColor": "rgb(95,102,95)",
+          "roofBlock": "cobblestone_slab[type=bottom]",
+          "trimColor": "rgb(95,112,53)",
+          "trimBlock": "stripped_spruce_log",
+          "storyCount": 3,
+          "storyConfidence": "0.19",
+          "textureClass": "stone",
+          "textureBlock": "stone_bricks",
+          "roofPitch": "moderate",
+          "roofPitchDegrees": "15°",
+          "roofHeightOverride": 0.5,
+          "symmetryScore": "0.84",
+          "isSymmetric": true,
+          "planShape": "rectangle",
+          "windowsPerFloor": 8,
+          "windowSpacing": 2,
+          "lawnDepth": "3%",
+          "hasDriveway": false,
+          "hasPath": true
+        },
+        "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
+          "svStoryCount",
+          "svTextureClass",
+          "svRoofPitch",
+          "svPlanShape",
+          "svWindowSpacing",
+          "svSetbackFeatures"
+        ],
+        "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
+          "floors",
+          "wallOverride",
+          "roofHeightOverride",
+          "floorPlanShape",
+          "windowSpacing",
+          "features"
+        ]
+      },
+      {
+        "name": "NLCD",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "canopyCoverPct": 34
+        },
+        "fieldsSet": [
+          "canopyCoverPct"
+        ],
+        "impactedGenFields": [
+          "features.trees"
+        ]
+      },
+      {
+        "name": "Hardiness",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "zone": "9a"
+        },
+        "fieldsSet": [
+          "hardinessZone"
+        ],
+        "impactedGenFields": [
+          "features.treePalette"
+        ]
+      },
+      {
+        "name": "OSM Trees",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Overture",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": 5.964028358459473
+        },
+        "fieldsSet": [
+          "overtureHeight",
+          "overtureFloors",
+          "overtureRoofShape"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "roofShape"
+        ]
+      },
+      {
+        "name": "Water",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Canopy Height",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Land Cover",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "classValue": 10,
+          "label": "Tree cover"
+        },
+        "fieldsSet": [
+          "landCoverClass",
+          "landCoverLabel"
+        ],
+        "impactedGenFields": [
+          "features.landscape"
+        ]
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "seed": 776180,
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 18,
+          "depth": 32,
+          "blocks": 6281
+        },
+        "views": {
+          "exterior": "seattle-noapi_exterior.jpg",
+          "cutaway": [
+            "seattle-noapi_cutaway_0.jpg",
+            "seattle-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "seattle-noapi_floor_0.jpg",
+            "seattle-noapi_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 2200,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1911,
+          "propertyType": "house",
+          "stories": 1,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 1,
+          "width": 12,
+          "length": 15,
+          "seed": 776180,
+          "floorPlanShape": "L",
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 56,
+          "height": 13,
+          "depth": 32,
+          "blocks": 6355
+        },
+        "views": {
+          "exterior": "seattle-someapis_exterior.jpg",
+          "cutaway": [
+            "seattle-someapis_cutaway_0.jpg"
+          ],
+          "floor": [
+            "seattle-someapis_floor_0.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 2200,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1911,
+          "propertyType": "house",
+          "stories": 2,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 2,
+          "width": 12,
+          "length": 15,
+          "seed": 776180,
+          "roofShape": "gable",
+          "floorPlanShape": "L",
+          "windowSpacing": 2,
+          "roofHeightOverride": 3,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 56,
+          "height": 15,
+          "depth": 32,
+          "blocks": 5705
+        },
+        "views": {
+          "exterior": "seattle-allapis_exterior.jpg",
+          "cutaway": [
+            "seattle-allapis_cutaway_0.jpg",
+            "seattle-allapis_cutaway_1.jpg"
+          ],
+          "floor": [
+            "seattle-allapis_floor_0.jpg",
+            "seattle-allapis_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "enriched",
+        "property": {
+          "sqft": 2200,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1911,
+          "propertyType": "house",
+          "stories": 2,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 2,
+          "width": 12,
+          "length": 15,
+          "seed": 776180,
+          "roofShape": "gable",
+          "floorPlanShape": "L",
+          "windowSpacing": 2,
+          "roofHeightOverride": 3,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": true,
+            "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "oak",
+              "dark_oak",
+              "jungle"
+            ],
+            "treeCount": 4,
+            "treeHeight": 3,
+            "hasWater": false,
+            "groundCover": "forest",
+            "pathBlock": "minecraft:mossy_cobblestone",
+            "fenceBlock": "minecraft:spruce_fence"
+          }
+        },
+        "grid": {
+          "width": 56,
+          "height": 15,
+          "depth": 32,
+          "blocks": 5840
+        },
+        "views": {
+          "exterior": "seattle-enriched_exterior.jpg",
+          "cutaway": [
+            "seattle-enriched_cutaway_0.jpg",
+            "seattle-enriched_cutaway_1.jpg"
+          ],
+          "floor": [
+            "seattle-enriched_floor_0.jpg",
+            "seattle-enriched_floor_1.jpg"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "key": "denver",
+    "address": "433 S Xavier St, Denver, CO 80219",
+    "apis": [
+      {
+        "name": "Parcl Labs",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "sqft": 1008,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1954,
+          "propertyType": "SINGLE_FAMILY",
+          "lat": 39.708927,
+          "lng": -105.050556,
+          "city": "DENVER",
+          "state": "CO"
+        },
+        "fieldsSet": [
+          "sqft",
+          "bedrooms",
+          "bathrooms",
+          "yearBuilt",
+          "propertyType",
+          "city",
+          "stateAbbreviation",
+          "county",
+          "zipCode"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "rooms",
+          "width",
+          "length",
+          "style",
+          "seed"
+        ]
+      },
+      {
+        "name": "OpenStreetMap",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "width": "9.6m",
+          "length": "12.0m",
+          "footprint": "115 sqm",
+          "polygonVertices": 10
+        },
+        "fieldsSet": [
+          "osmWidth",
+          "osmLength",
+          "osmLevels",
+          "osmMaterial",
+          "osmRoofShape",
+          "osmRoofMaterial",
+          "osmRoofColour",
+          "osmBuildingColour",
+          "osmArchitecture"
+        ],
+        "impactedGenFields": [
+          "width",
+          "length",
+          "floors",
+          "wallOverride",
+          "roofShape",
+          "roofOverride",
+          "trimOverride",
+          "floorPlanShape",
+          "style"
+        ]
+      },
+      {
+        "name": "Mapbox",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": "4m",
+          "minHeight": "0m",
+          "buildingType": "residential",
+          "extrude": true,
+          "distance": "0.0m"
+        },
+        "fieldsSet": [
+          "mapboxHeight",
+          "mapboxBuildingType"
+        ],
+        "impactedGenFields": [
+          "floors"
+        ]
+      },
+      {
+        "name": "Google Solar",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "roofPitch": "23.5°",
+          "roofAzimuth": "88°",
+          "roofSegments": 7,
+          "roofArea": "139 sqm",
+          "footprintArea": "150 sqm",
+          "planeHeight": "1632.1m",
+          "imageryQuality": "HIGH"
+        },
+        "fieldsSet": [
+          "solarRoofPitch",
+          "solarRoofSegments",
+          "solarBuildingArea",
+          "solarRoofArea"
+        ],
+        "impactedGenFields": [
+          "roofShape",
+          "roofHeightOverride"
+        ]
+      },
+      {
+        "name": "Mapillary",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "imagesFound": 0,
+          "bestImageDate": null,
+          "bestImageHeading": "undefined°",
+          "featuresFound": 1,
+          "hasDriveway": false,
+          "hasFence": false
+        },
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Google Street View",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "panoId": "6mOJRniIAWHmLN-1Hlzpuw",
+          "date": "2019-10",
+          "heading": "269°",
+          "panoLat": "39.70893",
+          "panoLng": "-105.05025"
+        },
+        "fieldsSet": [
+          "streetViewUrl",
+          "streetViewDate",
+          "streetViewHeading"
+        ],
+        "impactedGenFields": []
+      },
+      {
+        "name": "SV Image Analysis",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "wallColor": "rgb(110,113,111)",
+          "wallBlock": "stone_bricks",
+          "roofColor": "rgb(112,125,146)",
+          "roofBlock": "stone_brick_slab[type=bottom]",
+          "trimColor": "rgb(110,114,111)",
+          "trimBlock": "stone_bricks",
+          "storyCount": 4,
+          "storyConfidence": "0.24",
+          "textureClass": "stone",
+          "textureBlock": "stone_bricks",
+          "roofPitch": "steep",
+          "roofPitchDegrees": "75°",
+          "roofHeightOverride": 0.8,
+          "symmetryScore": "0.16",
+          "isSymmetric": false,
+          "planShape": "L",
+          "windowsPerFloor": 2,
+          "windowSpacing": 2,
+          "lawnDepth": "0%",
+          "hasDriveway": false,
+          "hasPath": true
+        },
+        "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
+          "svStoryCount",
+          "svTextureClass",
+          "svRoofPitch",
+          "svPlanShape",
+          "svWindowSpacing",
+          "svSetbackFeatures"
+        ],
+        "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
+          "floors",
+          "wallOverride",
+          "roofHeightOverride",
+          "floorPlanShape",
+          "windowSpacing",
+          "features"
+        ]
+      },
+      {
+        "name": "NLCD",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "canopyCoverPct": 14
+        },
+        "fieldsSet": [
+          "canopyCoverPct"
+        ],
+        "impactedGenFields": [
+          "features.trees"
+        ]
+      },
+      {
+        "name": "Hardiness",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "zone": "6a"
+        },
+        "fieldsSet": [
+          "hardinessZone"
+        ],
+        "impactedGenFields": [
+          "features.treePalette"
+        ]
+      },
+      {
+        "name": "OSM Trees",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Overture",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "height": 4
+        },
+        "fieldsSet": [
+          "overtureHeight",
+          "overtureFloors",
+          "overtureRoofShape"
+        ],
+        "impactedGenFields": [
+          "floors",
+          "roofShape"
+        ]
+      },
+      {
+        "name": "Water",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "count": 13,
+          "features": "Weir Gulch, Weir Gulch, Weir Gulch"
+        },
+        "fieldsSet": [
+          "nearbyWater"
+        ],
+        "impactedGenFields": [
+          "features.water"
+        ]
+      },
+      {
+        "name": "Canopy Height",
+        "available": true,
+        "status": "skipped",
+        "data": {},
+        "fieldsSet": [],
+        "impactedGenFields": []
+      },
+      {
+        "name": "Land Cover",
+        "available": true,
+        "status": "ok",
+        "data": {
+          "classValue": 50,
+          "label": "Built-up"
+        },
+        "fieldsSet": [
+          "landCoverClass",
+          "landCoverLabel"
+        ],
+        "impactedGenFields": [
+          "features.landscape"
+        ]
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "noapi",
+        "property": {
+          "sqft": 2500,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "yearBuilt": 2000,
+          "propertyType": "house",
+          "stories": 2
+        },
+        "genOptions": {
+          "style": "modern",
+          "floors": 2,
+          "width": 12,
+          "length": 10,
+          "seed": 242221,
+          "features": {
+            "chimney": false,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 48,
+          "height": 18,
+          "depth": 32,
+          "blocks": 6317
+        },
+        "views": {
+          "exterior": "denver-noapi_exterior.jpg",
+          "cutaway": [
+            "denver-noapi_cutaway_0.jpg",
+            "denver-noapi_cutaway_1.jpg"
+          ],
+          "floor": [
+            "denver-noapi_floor_0.jpg",
+            "denver-noapi_floor_1.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "someapis",
+        "property": {
+          "sqft": 1008,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1954,
+          "propertyType": "house",
+          "stories": 1,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 1,
+          "width": 10,
+          "length": 12,
+          "seed": 242221,
+          "floorPlanShape": "rect",
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 46,
+          "height": 13,
+          "depth": 30,
+          "blocks": 5656
+        },
+        "views": {
+          "exterior": "denver-someapis_exterior.jpg",
+          "cutaway": [
+            "denver-someapis_cutaway_0.jpg"
+          ],
+          "floor": [
+            "denver-someapis_floor_0.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "allapis",
+        "property": {
+          "sqft": 1008,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1954,
+          "propertyType": "house",
+          "stories": 1,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 1,
+          "width": 10,
+          "length": 12,
+          "seed": 242221,
+          "roofShape": "hip",
+          "floorPlanShape": "rect",
+          "windowSpacing": 2,
+          "roofHeightOverride": 2,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          }
+        },
+        "grid": {
+          "width": 52,
+          "height": 9,
+          "depth": 30,
+          "blocks": 4400
+        },
+        "views": {
+          "exterior": "denver-allapis_exterior.jpg",
+          "cutaway": [
+            "denver-allapis_cutaway_0.jpg"
+          ],
+          "floor": [
+            "denver-allapis_floor_0.jpg"
+          ]
+        }
+      },
+      {
+        "tier": "enriched",
+        "property": {
+          "sqft": 1008,
+          "bedrooms": 3,
+          "bathrooms": 1,
+          "yearBuilt": 1954,
+          "propertyType": "house",
+          "stories": 1,
+          "yearUncertain": false
+        },
+        "genOptions": {
+          "style": "rustic",
+          "floors": 1,
+          "width": 10,
+          "length": 12,
+          "seed": 242221,
+          "roofShape": "hip",
+          "floorPlanShape": "rect",
+          "windowSpacing": 2,
+          "roofHeightOverride": 2,
+          "features": {
+            "chimney": true,
+            "porch": true,
+            "backyard": true,
+            "driveway": true,
+            "fence": false,
+            "trees": true,
+            "garden": false,
+            "pool": false
+          },
+          "landscape": {
+            "treePalette": [
+              "oak",
+              "birch",
+              "dark_oak"
+            ],
+            "treeCount": 3,
+            "treeHeight": 3,
+            "hasWater": true,
+            "groundCover": "built",
+            "pathBlock": "minecraft:stone_bricks",
+            "fenceBlock": "minecraft:stone_brick_wall"
+          }
+        },
+        "grid": {
+          "width": 52,
+          "height": 9,
+          "depth": 30,
+          "blocks": 4479
+        },
+        "views": {
+          "exterior": "denver-enriched_exterior.jpg",
+          "cutaway": [
+            "denver-enriched_cutaway_0.jpg"
+          ],
+          "floor": [
+            "denver-enriched_floor_0.jpg"
           ]
         }
       }
