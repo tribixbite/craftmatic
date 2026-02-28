@@ -12,7 +12,7 @@
 import {
   rgbToHsl, isVegetationColor,
   rgbToWallBlock, rgbToRoofOverride, rgbToTrimBlock,
-  dominantColor,
+  dominantColor, dominantColorExcluding,
 } from '@craft/gen/color-blocks.js';
 import type { BlockState } from '@craft/types/index.js';
 
@@ -106,7 +106,7 @@ export async function analyzeStreetViewBrowser(
 
   // Zone-based color extraction (mirrors streetview-analysis.ts extractColors)
   const roofColor = dominantColor(pixels, 0, Math.floor(height * 0.25), width);
-  const wallColor = dominantColor(
+  let wallColor = dominantColor(
     pixels,
     Math.floor(height * 0.25), Math.floor(height * 0.65),
     width,
@@ -128,10 +128,24 @@ export async function analyzeStreetViewBrowser(
 
   if (!wallColor) return null;
 
-  // Reject if wall zone is dominated by vegetation (tree-occluded building)
+  // Reject if wall zone is dominated by vegetation (tree-occluded building).
+  // Try secondary extraction excluding green hues before falling back to null.
   if (isVegetationColor(wallColor.r, wallColor.g, wallColor.b)) {
-    console.warn('SV color analysis: wall zone dominated by vegetation — skipping');
-    return null;
+    const wallStartY = Math.floor(height * 0.25);
+    const wallEndY = Math.floor(height * 0.65);
+    const wallStartX = Math.floor(width * 0.15);
+    const wallEndX = Math.floor(width * 0.85);
+    const VEGETATION_HUE: [number, number][] = [[60, 170]];
+    const secondary = dominantColorExcluding(
+      pixels, wallStartY, wallEndY, width, wallStartX, wallEndX, VEGETATION_HUE,
+    );
+    if (secondary && !isVegetationColor(secondary.r, secondary.g, secondary.b)) {
+      console.warn('SV color analysis: vegetation bypass — using secondary non-green color');
+      wallColor = secondary;
+    } else {
+      console.warn('SV color analysis: wall zone dominated by vegetation — skipping');
+      return null;
+    }
   }
 
   const wallBlock = rgbToWallBlock(wallColor.r, wallColor.g, wallColor.b);

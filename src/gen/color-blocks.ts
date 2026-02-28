@@ -423,3 +423,76 @@ export function dominantColor(
     b: Math.round(maxBucket.bSum / maxBucket.count),
   };
 }
+
+/**
+ * Extract dominant color with hue exclusion ranges.
+ * Skips pixels whose hue falls within any excluded range, enabling
+ * extraction of building color even when vegetation dominates the image.
+ *
+ * @param excludeHueRanges  Array of [minHue, maxHue] pairs (0-360) to exclude
+ */
+export function dominantColorExcluding(
+  pixels: Uint8Array | Buffer,
+  startRow: number,
+  endRow: number,
+  width: number,
+  colStart: number,
+  colEnd: number,
+  excludeHueRanges: [number, number][],
+): { r: number; g: number; b: number } | null {
+  const buckets: { rSum: number; gSum: number; bSum: number; count: number }[] = [];
+  for (let i = 0; i <= NUM_HUE_BINS; i++) {
+    buckets.push({ rSum: 0, gSum: 0, bSum: 0, count: 0 });
+  }
+
+  let totalValid = 0;
+
+  for (let y = startRow; y < endRow; y++) {
+    for (let x = colStart; x < colEnd; x++) {
+      const idx = (y * width + x) * 4;
+      const r = pixels[idx];
+      const g = pixels[idx + 1];
+      const b = pixels[idx + 2];
+
+      const [h, s, l] = rgbToHsl(r, g, b);
+
+      // Standard rejections
+      if (isGrass(h, s, l)) continue;
+      if (isSkyOrWater(h, s, l)) continue;
+      if (isShadow(l)) continue;
+      if (isGlare(l)) continue;
+
+      // Hue exclusion — skip pixels in excluded ranges (only if saturated)
+      if (s > 0.10) {
+        let excluded = false;
+        for (const [minH, maxH] of excludeHueRanges) {
+          if (h >= minH && h <= maxH) { excluded = true; break; }
+        }
+        if (excluded) continue;
+      }
+
+      totalValid++;
+
+      const bucketIdx = s < 0.1 ? NUM_HUE_BINS : Math.floor(h / 30) % NUM_HUE_BINS;
+      buckets[bucketIdx].rSum += r;
+      buckets[bucketIdx].gSum += g;
+      buckets[bucketIdx].bSum += b;
+      buckets[bucketIdx].count++;
+    }
+  }
+
+  if (totalValid < 30) return null;  // Lower threshold since we're filtering more
+
+  let maxBucket = buckets[0];
+  for (let i = 1; i < buckets.length; i++) {
+    if (buckets[i].count > maxBucket.count) maxBucket = buckets[i];
+  }
+
+  if (maxBucket.count === 0) return null;
+
+  return {
+    r: Math.round(maxBucket.rSum / maxBucket.count),
+    g: Math.round(maxBucket.gSum / maxBucket.count),
+    b: Math.round(maxBucket.bSum / maxBucket.count),
+  };
+}

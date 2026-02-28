@@ -208,8 +208,18 @@ export interface PropertyData {
   svDoorOverride?: string;
   /** Feature flags from vision analysis */
   svFeatures?: Partial<import('../types/index.js').FeatureFlags>;
-  /** Architecture style label from vision analysis */
+  /** Architecture style label from vision analysis (freeform) */
   svArchitectureLabel?: string;
+  /** Constrained architectural style from VLM taxonomy (e.g. "Colonial", "Mediterranean") */
+  svArchitectureStyle?: string;
+  /** Wall material from VLM (e.g. "brick", "stucco", "wood_siding") */
+  svWallMaterial?: string;
+  /** Roof material from VLM (e.g. "asphalt_shingle", "clay_tile") */
+  svRoofMaterial?: string;
+  /** Human-readable wall color from VLM (e.g. "white stucco") */
+  svWallColorDescription?: string;
+  /** Human-readable roof color from VLM (e.g. "dark gray") */
+  svRoofColorDescription?: string;
 
   // ─── Phase 5 P0: Vegetation & Landscape ───────────────────────────────────
   /** Tree canopy cover percentage (0–99) from NLCD (US) or WorldCover (global) */
@@ -451,7 +461,7 @@ export function inferStyleFromPropertyType(
  * Resolve the effective style for a property, applying the full priority chain.
  * Used by both convertToGenerationOptions and inferFeatures.
  *
- * Priority: user selection > OSM architecture > Smarty architecture > propertyType > city > county > year
+ * Priority: user selection > OSM architecture > Smarty architecture > VLM style > SV label > propertyType > city > county > year
  */
 export function resolveStyle(prop: PropertyData): StyleName {
   if (prop.style !== 'auto') return prop.style;
@@ -459,8 +469,10 @@ export function resolveStyle(prop: PropertyData): StyleName {
   // fall back to 'rustic' instead of year-based inference — most US homes
   // with missing dates are pre-war wood-frame construction
   const year = prop.yearBuilt;
+  // VLM constrained taxonomy is higher signal than freeform label
   const archStyle = mapArchitectureToStyle(prop.osmArchitecture)
     ?? mapArchitectureToStyle(prop.architectureType)
+    ?? mapArchitectureToStyle(prop.svArchitectureStyle)
     ?? mapArchitectureToStyle(prop.svArchitectureLabel);
   const propTypeStyle = inferStyleFromPropertyType(prop.propertyType, year, prop.bedrooms, prop.bathrooms);
   const cityStyle = inferStyleFromCity(prop.city, year);
@@ -704,6 +716,18 @@ export function inferRoofFromSVPitch(pitch: 'flat' | 'moderate' | 'steep' | unde
 }
 
 /**
+ * Last-resort roof shape inference from solar pitch angle alone.
+ * Used when segment count is unavailable but pitch data exists (e.g. single-segment Solar result).
+ * <5° → flat, 5-25° → hip (most common low-pitch), ≥25° → gable (steep).
+ */
+export function inferRoofFromPitchOnly(pitch: number | undefined): RoofShape | undefined {
+  if (pitch == null) return undefined;
+  if (pitch < 5) return 'flat';
+  if (pitch < 25) return 'hip';
+  return 'gable';
+}
+
+/**
  * Map OSM roof:material to Minecraft stair/slab blocks for roof overrides.
  * Returns {north, south, cap} override or undefined if unmapped.
  */
@@ -815,12 +839,15 @@ export function mapOSMMaterialToWall(material: string | undefined): BlockState |
   if (/\bbrick/i.test(m)) return 'minecraft:bricks';
   if (/\bstone|limestone|granite|marble/i.test(m)) return 'minecraft:stone_bricks';
   if (/\bsandstone/i.test(m)) return 'minecraft:sandstone';
-  if (/\bwood|timber|log/i.test(m)) return 'minecraft:oak_planks';
+  if (/\bwood|timber|log|clapboard/i.test(m)) return 'minecraft:oak_planks';
   if (/\bconcrete|cement/i.test(m)) return 'minecraft:smooth_stone';
   if (/\bglass|curtain/i.test(m)) return 'minecraft:light_blue_stained_glass';
   if (/\bstucco|plaster|render/i.test(m)) return 'minecraft:smooth_quartz';
   if (/\bmetal|steel|aluminum/i.test(m)) return 'minecraft:iron_block';
   if (/\bcob|adobe/i.test(m)) return 'minecraft:mud_bricks';
+  // VLM-specific material labels
+  if (/\bvinyl|siding/i.test(m)) return 'minecraft:white_concrete';
+  if (/\bshingle/i.test(m)) return 'minecraft:spruce_planks';
   return undefined;
 }
 
@@ -1280,7 +1307,8 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     ?? mapOSMRoofToShape(prop.overtureRoofShape)
     ?? inferRoofFromSmartyFrame(prop.roofFrame)
     ?? inferRoofFromSolar(prop.solarRoofSegments, prop.solarRoofPitch)
-    ?? inferRoofFromSVPitch(prop.svRoofPitch);
+    ?? inferRoofFromSVPitch(prop.svRoofPitch)
+    ?? inferRoofFromPitchOnly(prop.solarRoofPitch);
 
   // Multi-unit buildings are overwhelmingly flat-roofed
   if (effectiveMultiUnit && !prop.osmRoofShape) {
@@ -1288,9 +1316,10 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   }
 
   // ── Roof material override ────────────────────────────────────────
-  // Priority: OSM roof material/colour > Smarty roofType > SV color > style default
+  // Priority: OSM roof material/colour > Smarty roofType > VLM roof material > SV color > style default
   const roofOverride = mapRoofMaterialToBlocks(prop.osmRoofMaterial, prop.osmRoofColour)
     ?? mapSmartyRoofTypeToBlocks(prop.roofType)
+    ?? mapSmartyRoofTypeToBlocks(prop.svRoofMaterial)  // VLM roof material (reuses Smarty mapper)
     ?? prop.svRoofOverride;
 
   // ── Wall override ───────────────────────────────────────────────
@@ -1307,6 +1336,7 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     ?? mapOSMMaterialToWall(prop.osmMaterial)
     ?? mapConstructionTypeToWall(prop.constructionType)
     ?? prop.svWallOverride
+    ?? mapOSMMaterialToWall(prop.svWallMaterial)  // VLM wall material (reuses OSM mapper)
     ?? prop.svTextureBlock
     ?? (prop.detectedColor
       ? rgbToWallBlock(prop.detectedColor.r, prop.detectedColor.g, prop.detectedColor.b)
@@ -1322,7 +1352,7 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // ── Door override ─────────────────────────────────────────────────
   // Priority: architecture-type inference > SV vision > style/era
   const doorOverride = inferDoorType(
-    prop.osmArchitecture ?? prop.architectureType ?? prop.svArchitectureLabel,
+    prop.osmArchitecture ?? prop.architectureType ?? prop.svArchitectureStyle ?? prop.svArchitectureLabel,
     style,
     prop.yearBuilt
   ) ?? prop.svDoorOverride;
@@ -1372,10 +1402,13 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   }
 
   if (solarPitch != null && solarPitch > 0) {
-    if (solarPitch < 15) roofHeightOverride = 4;       // nearly flat
-    else if (solarPitch < 30) roofHeightOverride = 8;  // moderate pitch
-    else if (solarPitch < 45) roofHeightOverride = 12; // steep
-    else roofHeightOverride = 14;                        // very steep
+    // Use tangent of pitch angle × half building width for realistic peak height
+    const halfSpan = Math.min(width, length) / 2;
+    const pitchRad = solarPitch * Math.PI / 180;
+    const tangentHeight = Math.round(Math.tan(pitchRad) * halfSpan);
+    // Cap with proportional limit (Arnis: ln(area × 0.15 + 3)) and absolute max
+    const proportionalCap = Math.round(Math.log(width * length * 0.15 + 3));
+    roofHeightOverride = Math.max(2, Math.min(tangentHeight, proportionalCap, 14));
   } else if (prop.svRoofHeightOverride != null) {
     // SV pitch analysis gives a ratio (0.3/0.5/0.8) — convert to block count
     roofHeightOverride = Math.round(prop.svRoofHeightOverride * 14);

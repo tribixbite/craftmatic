@@ -23,7 +23,7 @@ try {
   }
 } catch { /* .env optional */ }
 
-import { analyzeStreetView, type StreetViewAnalysis } from '../src/gen/api/streetview-analysis.js';
+import { analyzeStreetView, hasVisionApiKey, type StreetViewAnalysis } from '../src/gen/api/streetview-analysis.js';
 import { generateStructure } from '../src/gen/generator.js';
 import {
   convertToGenerationOptions, estimateStoriesFromFootprint,
@@ -395,8 +395,10 @@ for (const { key, address } of addressesToProcess) {
   let svAnalysis: StreetViewAnalysis | null = null;
   if (svMeta?.imageUrl) {
     try {
-      console.log('  SV Analysis: analyzing image...');
-      svAnalysis = await analyzeStreetView(svMeta.imageUrl, true);
+      // Enable VLM Tier 3 when ANTHROPIC_API_KEY is set
+      const skipVision = !hasVisionApiKey();
+      console.log(`  SV Analysis: analyzing image...${skipVision ? '' : ' (+ VLM Tier 3)'}`);
+      svAnalysis = await analyzeStreetView(svMeta.imageUrl, skipVision);
     } catch (err) {
       svAnalysisRec.status = 'error';
       svAnalysisRec.error = String(err);
@@ -435,6 +437,17 @@ for (const { key, address } of addressesToProcess) {
       d.hasPath = s.setback.hasVisiblePath;
       svAnalysisRec.fieldsSet.push('svStoryCount', 'svTextureClass', 'svRoofPitch', 'svPlanShape', 'svWindowSpacing', 'svSetbackFeatures');
       svAnalysisRec.impactedGenFields.push('floors', 'wallOverride', 'roofHeightOverride', 'floorPlanShape', 'windowSpacing', 'features');
+    }
+    if (svAnalysis.vision) {
+      d.architectureStyle = svAnalysis.vision.architectureStyle;
+      d.architectureLabel = svAnalysis.vision.architectureLabel;
+      d.wallMaterial = svAnalysis.vision.wallMaterial;
+      d.roofMaterial = svAnalysis.vision.roofMaterial;
+      d.wallColorDesc = svAnalysis.vision.wallColorDescription;
+      d.roofColorDesc = svAnalysis.vision.roofColorDescription;
+      d.visionConfidence = svAnalysis.vision.confidence?.toFixed(2);
+      svAnalysisRec.fieldsSet.push('svArchitectureStyle', 'svWallMaterial', 'svRoofMaterial');
+      svAnalysisRec.impactedGenFields.push('style', 'wallOverride', 'roofOverride');
     }
     svAnalysisRec.data = d;
   } else if (svAnalysis?.isIndoor) {
@@ -554,6 +567,20 @@ for (const { key, address } of addressesToProcess) {
       allApiProp.svWindowsPerFloor = s.fenestration.windowsPerFloor;
       allApiProp.svWindowSpacing = s.fenestration.suggestedSpacing;
       allApiProp.svSetbackFeatures = s.setback.suggestedFeatures;
+    }
+    // Tier 3: Vision — structured style + material classification
+    if (svAnalysis.vision) {
+      allApiProp.svDoorOverride = svAnalysis.vision.doorStyle ?? undefined;
+      allApiProp.svFeatures = svAnalysis.vision.features;
+      allApiProp.svArchitectureLabel = svAnalysis.vision.architectureLabel ?? undefined;
+      allApiProp.svArchitectureStyle = svAnalysis.vision.architectureStyle ?? undefined;
+      allApiProp.svWallMaterial = svAnalysis.vision.wallMaterial ?? undefined;
+      allApiProp.svRoofMaterial = svAnalysis.vision.roofMaterial ?? undefined;
+      allApiProp.svWallColorDescription = svAnalysis.vision.wallColorDescription ?? undefined;
+      allApiProp.svRoofColorDescription = svAnalysis.vision.roofColorDescription ?? undefined;
+      if (svAnalysis.vision.hasGarage && !allApiProp.hasGarage) {
+        allApiProp.hasGarage = true;
+      }
     }
   }
 
