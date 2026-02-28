@@ -558,6 +558,7 @@ async function genFromAddress(
         if (svAnalysis.structure) {
           const s = svAnalysis.structure;
           property.svStoryCount = s.stories.storyCount;
+          property.svStoryConfidence = s.stories.confidence;
           property.svTextureClass = s.texture.textureClass;
           property.svTextureBlock = s.texture.suggestedBlock;
           property.svRoofPitch = s.roofPitch.roofType;
