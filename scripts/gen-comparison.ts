@@ -544,6 +544,7 @@ for (const { key, address } of addressesToProcess) {
     if (svAnalysis.structure) {
       const s = svAnalysis.structure;
       allApiProp.svStoryCount = s.stories.storyCount;
+      allApiProp.svStoryConfidence = s.stories.confidence;
       allApiProp.svTextureClass = s.texture.textureClass;
       allApiProp.svTextureBlock = s.texture.suggestedBlock;
       allApiProp.svRoofPitch = s.roofPitch.roofType;

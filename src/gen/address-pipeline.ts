@@ -182,6 +182,8 @@ export interface PropertyData {
   // ─── SV Image Analysis (Tier 2: Structural Heuristics) ─────────────────────
   /** Story count from horizontal projection analysis */
   svStoryCount?: number;
+  /** Confidence for svStoryCount (0-1). Below 0.5 is unreliable — prefer height data. */
+  svStoryConfidence?: number;
   /** Wall texture class from Sobel entropy analysis */
   svTextureClass?: string;
   /** Suggested wall block from texture classification */
@@ -1172,27 +1174,31 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     }
   }
 
-  // Stories estimation with additional data sources as override signals.
-  // Priority: OSM levels > Overture floors > SV story count > Smarty/Parcl/form
-  // OSM building:levels is ground-truth from community mapping (highest confidence).
-  // Overture num_floors aggregates OSM + ML sources (high confidence, broader coverage).
-  // SV story count is from automated image analysis (medium confidence).
-  // prop.stories is from Smarty/Parcl/form (varies — may be a form default of 2).
-  let effectiveStories = prop.osmLevels ?? prop.overtureFloors ?? prop.svStoryCount ?? prop.stories;
-  // Height-based floor override: Mapbox or Overture height → derived floor count.
-  // Used when height data is available but floor count is missing or unreliable.
+  // Stories estimation — priority chain with confidence gating.
+  // 1. OSM building:levels — ground-truth from community mapping (highest confidence)
+  // 2. Overture num_floors — aggregates OSM + ML sources (high confidence)
+  // 3. Measured height — Mapbox/Overture height ÷ 3.5m per floor (reliable when available)
+  // 4. SV story count — automated image analysis, only trusted above 0.5 confidence
+  // 5. prop.stories — Smarty/Parcl/form fallback (varies, may be default of 2)
   const heightForFloors = prop.mapboxHeight ?? prop.overtureHeight;
-  if (heightForFloors && heightForFloors > 0) {
-    const heightFloors = Math.max(1, Math.round(heightForFloors / 3.5));
-    // When OSM footprint is much larger than sqft implies (sqft default or landmark),
-    // trust measured height over the footprint-derived story count
-    if (prop.osmWidth && prop.osmLength) {
-      const footprintSqm = prop.osmWidth * prop.osmLength;
-      const impliedSqm = prop.sqft / 10.76;
-      // If footprint is 5x larger than sqft implies, sqft is likely wrong (default/landmark)
-      if (footprintSqm > impliedSqm * 5 && heightFloors > effectiveStories) {
-        effectiveStories = heightFloors;
-      }
+  const heightDerivedFloors = (heightForFloors && heightForFloors > 0)
+    ? Math.max(1, Math.round(heightForFloors / 3.5))
+    : undefined;
+  // Only trust SV story count when confidence exceeds threshold
+  const svStoriesIfConfident = (prop.svStoryConfidence ?? 0) > 0.5
+    ? prop.svStoryCount : undefined;
+  let effectiveStories = prop.osmLevels
+    ?? prop.overtureFloors
+    ?? heightDerivedFloors
+    ?? svStoriesIfConfident
+    ?? prop.stories;
+  // Safety check: when height is available and significantly disagrees with the
+  // chosen floor count, prefer height (catches sqft-derived outliers for landmarks)
+  if (heightDerivedFloors && prop.osmWidth && prop.osmLength) {
+    const footprintSqm = prop.osmWidth * prop.osmLength;
+    const impliedSqm = prop.sqft / 10.76;
+    if (footprintSqm > impliedSqm * 5 && heightDerivedFloors > effectiveStories) {
+      effectiveStories = heightDerivedFloors;
     }
   }
   const floors = Math.max(minFloors, Math.min(maxFloors, effectiveStories));
