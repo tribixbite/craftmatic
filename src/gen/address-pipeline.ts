@@ -694,11 +694,22 @@ export function inferRoofFromSolar(
   segments: number | undefined, pitch: number | undefined,
 ): RoofShape | undefined {
   if (segments == null) return undefined;
+  // Single flat segment with low/no pitch → flat roof
   if (segments <= 1 && (pitch == null || pitch < 15)) return 'flat';
+  // Google Solar segments count individual roof planes (dormers, extensions, etc.),
+  // NOT "how many sides the roof has." A gable with dormers has 6+ segments.
+  // Use pitch angle as primary discriminator, segment count as secondary.
+  if (pitch != null) {
+    if (pitch < 5) return 'flat';
+    if (pitch < 25) return segments === 2 ? 'gable' : 'hip';
+    // Steep pitch (≥25°) — most commonly gable for residential
+    return 'gable';
+  }
+  // Pitch unavailable — use segment count cautiously
   if (segments === 2) return 'gable';
   if (segments >= 3 && segments <= 5) return 'hip';
-  if (segments >= 6) return 'gambrel'; // complex multi-segment → gambrel approximation
-  return undefined;
+  // Many segments without pitch data → default to hip (safer than gambrel)
+  return 'hip';
 }
 
 /**
@@ -1279,13 +1290,14 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   width = Math.max(limits.minW, Math.min(limits.maxW, width));
   length = Math.max(limits.minL, Math.min(limits.maxL, length));
 
-  // Clamp aspect ratio to max 2:1 to avoid elongated "longhouse" shapes.
-  // Real residential buildings rarely exceed 2:1 aspect ratio.
+  // Clamp aspect ratio — wider limit when OSM provides measured footprint,
+  // since real buildings like Charleston "single houses" reach 3:1 ratios.
+  const maxAspect = (prop.osmWidth && prop.osmLength) ? 3 : 2;
   const ratio = width / length;
-  if (ratio > 2) {
-    width = Math.round(length * 2);
-  } else if (ratio < 0.5) {
-    length = Math.round(width * 2);
+  if (ratio > maxAspect) {
+    width = Math.round(length * maxAspect);
+  } else if (ratio < 1 / maxAspect) {
+    length = Math.round(width * maxAspect);
   }
 
   // ── Rooms ─────────────────────────────────────────────────────────
