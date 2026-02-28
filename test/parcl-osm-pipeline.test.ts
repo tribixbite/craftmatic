@@ -134,7 +134,7 @@ const TEST_CASES: TestCase[] = [
     sqftRange: [10000, 20000],
     expectedBeds: 12,
     expectedBaths: 12,
-    expectedStyle: 'desert', // 12-bed "house" → multi-unit heuristic, year 1929 → desert
+    expectedStyle: 'colonial', // 12-bed "house" → multi-unit falls through, SF county 1929 → colonial
     expectOSM: true,
   },
   {

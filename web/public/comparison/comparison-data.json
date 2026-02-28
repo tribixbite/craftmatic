@@ -120,10 +120,10 @@
         "status": "ok",
         "data": {
           "imagesFound": 18,
-          "bestImageId": "1195418191102498",
-          "bestImageDate": "2023-04-01",
-          "bestImageHeading": "266°",
-          "featuresFound": 75,
+          "bestImageId": "106040445795360",
+          "bestImageDate": "2023-04-02",
+          "bestImageHeading": "77°",
+          "featuresFound": 78,
           "hasDriveway": true,
           "hasFence": false
         },
@@ -356,7 +356,7 @@
           "yearUncertain": false
         },
         "genOptions": {
-          "style": "desert",
+          "style": "colonial",
           "floors": 4,
           "width": 16,
           "length": 27,
@@ -408,8 +408,8 @@
           "yearUncertain": false
         },
         "genOptions": {
-          "style": "desert",
-          "floors": 1,
+          "style": "colonial",
+          "floors": 4,
           "width": 16,
           "length": 27,
           "seed": 767719,
@@ -430,17 +430,23 @@
         },
         "grid": {
           "width": 60,
-          "height": 11,
+          "height": 25,
           "depth": 44,
-          "blocks": 7418
+          "blocks": 12312
         },
         "views": {
           "exterior": "sf-allapis_exterior.jpg",
           "cutaway": [
-            "sf-allapis_cutaway_0.jpg"
+            "sf-allapis_cutaway_0.jpg",
+            "sf-allapis_cutaway_1.jpg",
+            "sf-allapis_cutaway_2.jpg",
+            "sf-allapis_cutaway_3.jpg"
           ],
           "floor": [
-            "sf-allapis_floor_0.jpg"
+            "sf-allapis_floor_0.jpg",
+            "sf-allapis_floor_1.jpg",
+            "sf-allapis_floor_2.jpg",
+            "sf-allapis_floor_3.jpg"
           ]
         }
       },
@@ -456,8 +462,8 @@
           "yearUncertain": false
         },
         "genOptions": {
-          "style": "desert",
-          "floors": 1,
+          "style": "colonial",
+          "floors": 4,
           "width": 16,
           "length": 27,
           "seed": 767719,
@@ -490,17 +496,23 @@
         },
         "grid": {
           "width": 60,
-          "height": 11,
+          "height": 25,
           "depth": 44,
-          "blocks": 7378
+          "blocks": 12249
         },
         "views": {
           "exterior": "sf-enriched_exterior.jpg",
           "cutaway": [
-            "sf-enriched_cutaway_0.jpg"
+            "sf-enriched_cutaway_0.jpg",
+            "sf-enriched_cutaway_1.jpg",
+            "sf-enriched_cutaway_2.jpg",
+            "sf-enriched_cutaway_3.jpg"
           ],
           "floor": [
-            "sf-enriched_floor_0.jpg"
+            "sf-enriched_floor_0.jpg",
+            "sf-enriched_floor_1.jpg",
+            "sf-enriched_floor_2.jpg",
+            "sf-enriched_floor_3.jpg"
           ]
         }
       }
@@ -627,9 +639,9 @@
         "status": "ok",
         "data": {
           "imagesFound": 9,
-          "bestImageId": "171230948156116",
-          "bestImageDate": "2018-03-28",
-          "bestImageHeading": "103°",
+          "bestImageId": "1812361592674336",
+          "bestImageDate": "2025-05-29",
+          "bestImageHeading": "1°",
           "featuresFound": 36,
           "hasDriveway": true,
           "hasFence": false
@@ -649,11 +661,11 @@
         "available": true,
         "status": "ok",
         "data": {
-          "panoId": "XM3cGQqzTdb39WQ1KTmpYQ",
-          "date": "2011-10",
-          "heading": "272°",
-          "panoLat": "42.34356",
-          "panoLng": "-71.22103"
+          "panoId": "tB-yoBPRkwnhaCZhgBTmow",
+          "date": "2022-10",
+          "heading": "255°",
+          "panoLat": "42.34366",
+          "panoLng": "-71.22104"
         },
         "fieldsSet": [
           "streetViewUrl",
@@ -665,11 +677,52 @@
       {
         "name": "SV Image Analysis",
         "available": true,
-        "status": "skipped",
-        "data": {},
-        "fieldsSet": [],
-        "impactedGenFields": [],
-        "error": "Indoor panorama detected"
+        "status": "ok",
+        "data": {
+          "wallColor": "rgb(118,124,120)",
+          "wallBlock": "stone_bricks",
+          "roofColor": "rgb(56,71,78)",
+          "roofBlock": "deepslate_tile_slab[type=bottom]",
+          "trimColor": "rgb(43,57,61)",
+          "trimBlock": "deepslate_bricks",
+          "storyCount": 4,
+          "storyConfidence": "0.16",
+          "textureClass": "stone",
+          "textureBlock": "stone_bricks",
+          "roofPitch": "steep",
+          "roofPitchDegrees": "45°",
+          "roofHeightOverride": 0.8,
+          "symmetryScore": "0.40",
+          "isSymmetric": false,
+          "planShape": "T",
+          "windowsPerFloor": 3,
+          "windowSpacing": 2,
+          "lawnDepth": "12%",
+          "hasDriveway": false,
+          "hasPath": false
+        },
+        "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
+          "svStoryCount",
+          "svTextureClass",
+          "svRoofPitch",
+          "svPlanShape",
+          "svWindowSpacing",
+          "svSetbackFeatures"
+        ],
+        "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
+          "floors",
+          "wallOverride",
+          "roofHeightOverride",
+          "floorPlanShape",
+          "windowSpacing",
+          "features"
+        ]
       },
       {
         "name": "NLCD",
@@ -871,6 +924,7 @@
           "seed": 783884,
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
+          "windowSpacing": 2,
           "roofHeightOverride": 12,
           "features": {
             "chimney": true,
@@ -887,7 +941,7 @@
           "width": 61,
           "height": 27,
           "depth": 30,
-          "blocks": 11384
+          "blocks": 11428
         },
         "views": {
           "exterior": "newton-allapis_exterior.jpg",
@@ -922,6 +976,7 @@
           "seed": 783884,
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
+          "windowSpacing": 2,
           "roofHeightOverride": 12,
           "features": {
             "chimney": true,
@@ -951,7 +1006,7 @@
           "width": 61,
           "height": 27,
           "depth": 30,
-          "blocks": 11619
+          "blocks": 11621
         },
         "views": {
           "exterior": "newton-enriched_exterior.jpg",
@@ -978,10 +1033,10 @@
         "available": true,
         "status": "ok",
         "data": {
-          "sqft": 0,
+          "sqft": 24000,
           "bedrooms": 0,
           "bathrooms": 0,
-          "yearBuilt": 0,
+          "yearBuilt": 1901,
           "propertyType": "OTHER",
           "lat": 37.318316,
           "lng": -121.950945,
@@ -1090,10 +1145,10 @@
         "status": "ok",
         "data": {
           "imagesFound": 19,
-          "bestImageId": "1037404647273444",
-          "bestImageDate": "2023-09-24",
-          "bestImageHeading": "313°",
-          "featuresFound": 45,
+          "bestImageId": "1083491098727229",
+          "bestImageDate": "2018-08-16",
+          "bestImageHeading": "87°",
+          "featuresFound": 46,
           "hasDriveway": true,
           "hasFence": false
         },
@@ -1269,37 +1324,37 @@
       {
         "tier": "someapis",
         "property": {
-          "sqft": 2500,
+          "sqft": 24000,
           "bedrooms": 3,
           "bathrooms": 2,
-          "yearBuilt": 2000,
+          "yearBuilt": 1901,
           "propertyType": "other",
           "stories": 1,
-          "yearUncertain": true
+          "yearUncertain": false
         },
         "genOptions": {
-          "style": "desert",
+          "style": "colonial",
           "floors": 1,
-          "width": 45,
-          "length": 45,
+          "width": 58,
+          "length": 64,
           "seed": 201564,
           "floorPlanShape": "L",
           "features": {
-            "chimney": false,
+            "chimney": true,
             "porch": true,
             "backyard": true,
             "driveway": true,
-            "fence": false,
+            "fence": true,
             "trees": true,
-            "garden": false,
+            "garden": true,
             "pool": false
           }
         },
         "grid": {
-          "width": 101,
+          "width": 120,
           "height": 13,
-          "depth": 62,
-          "blocks": 18807
+          "depth": 81,
+          "blocks": 29205
         },
         "views": {
           "exterior": "sanjose-someapis_exterior.jpg",
@@ -1314,39 +1369,39 @@
       {
         "tier": "allapis",
         "property": {
-          "sqft": 2500,
+          "sqft": 24000,
           "bedrooms": 3,
           "bathrooms": 2,
-          "yearBuilt": 2000,
+          "yearBuilt": 1901,
           "propertyType": "other",
           "stories": 1,
-          "yearUncertain": true
+          "yearUncertain": false
         },
         "genOptions": {
-          "style": "desert",
+          "style": "colonial",
           "floors": 3,
-          "width": 45,
-          "length": 45,
+          "width": 58,
+          "length": 64,
           "seed": 201564,
           "roofShape": "gambrel",
           "floorPlanShape": "L",
           "roofHeightOverride": 4,
           "features": {
-            "chimney": false,
+            "chimney": true,
             "porch": true,
             "backyard": true,
             "driveway": true,
-            "fence": false,
+            "fence": true,
             "trees": true,
-            "garden": false,
+            "garden": true,
             "pool": false
           }
         },
         "grid": {
-          "width": 101,
+          "width": 120,
           "height": 20,
-          "depth": 62,
-          "blocks": 22453
+          "depth": 81,
+          "blocks": 33706
         },
         "views": {
           "exterior": "sanjose-allapis_exterior.jpg",
@@ -1365,31 +1420,31 @@
       {
         "tier": "enriched",
         "property": {
-          "sqft": 2500,
+          "sqft": 24000,
           "bedrooms": 3,
           "bathrooms": 2,
-          "yearBuilt": 2000,
+          "yearBuilt": 1901,
           "propertyType": "other",
           "stories": 1,
-          "yearUncertain": true
+          "yearUncertain": false
         },
         "genOptions": {
-          "style": "desert",
+          "style": "colonial",
           "floors": 3,
-          "width": 45,
-          "length": 45,
+          "width": 58,
+          "length": 64,
           "seed": 201564,
           "roofShape": "gambrel",
           "floorPlanShape": "L",
           "roofHeightOverride": 4,
           "features": {
-            "chimney": false,
+            "chimney": true,
             "porch": true,
             "backyard": true,
             "driveway": true,
-            "fence": false,
+            "fence": true,
             "trees": true,
-            "garden": false,
+            "garden": true,
             "pool": false
           },
           "landscape": {
@@ -1407,10 +1462,10 @@
           }
         },
         "grid": {
-          "width": 101,
+          "width": 120,
           "height": 20,
-          "depth": 62,
-          "blocks": 22692
+          "depth": 81,
+          "blocks": 33741
         },
         "views": {
           "exterior": "sanjose-enriched_exterior.jpg",
@@ -2782,9 +2837,9 @@
         "status": "ok",
         "data": {
           "imagesFound": 6,
-          "bestImageId": "172011975686263",
+          "bestImageId": "169316272490154",
           "bestImageDate": "2021-08-03",
-          "bestImageHeading": "213°",
+          "bestImageHeading": "258°",
           "featuresFound": 7,
           "hasDriveway": true,
           "hasFence": false
@@ -3507,7 +3562,7 @@
         },
         "genOptions": {
           "style": "desert",
-          "floors": 3,
+          "floors": 4,
           "width": 33,
           "length": 45,
           "seed": 222101,
@@ -3528,21 +3583,23 @@
         },
         "grid": {
           "width": 83,
-          "height": 20,
+          "height": 25,
           "depth": 62,
-          "blocks": 16966
+          "blocks": 19461
         },
         "views": {
           "exterior": "losangeles-allapis_exterior.jpg",
           "cutaway": [
             "losangeles-allapis_cutaway_0.jpg",
             "losangeles-allapis_cutaway_1.jpg",
-            "losangeles-allapis_cutaway_2.jpg"
+            "losangeles-allapis_cutaway_2.jpg",
+            "losangeles-allapis_cutaway_3.jpg"
           ],
           "floor": [
             "losangeles-allapis_floor_0.jpg",
             "losangeles-allapis_floor_1.jpg",
-            "losangeles-allapis_floor_2.jpg"
+            "losangeles-allapis_floor_2.jpg",
+            "losangeles-allapis_floor_3.jpg"
           ]
         }
       },
@@ -3559,7 +3616,7 @@
         },
         "genOptions": {
           "style": "desert",
-          "floors": 3,
+          "floors": 4,
           "width": 33,
           "length": 45,
           "seed": 222101,
@@ -3592,21 +3649,23 @@
         },
         "grid": {
           "width": 83,
-          "height": 20,
+          "height": 25,
           "depth": 62,
-          "blocks": 17068
+          "blocks": 19563
         },
         "views": {
           "exterior": "losangeles-enriched_exterior.jpg",
           "cutaway": [
             "losangeles-enriched_cutaway_0.jpg",
             "losangeles-enriched_cutaway_1.jpg",
-            "losangeles-enriched_cutaway_2.jpg"
+            "losangeles-enriched_cutaway_2.jpg",
+            "losangeles-enriched_cutaway_3.jpg"
           ],
           "floor": [
             "losangeles-enriched_floor_0.jpg",
             "losangeles-enriched_floor_1.jpg",
-            "losangeles-enriched_floor_2.jpg"
+            "losangeles-enriched_floor_2.jpg",
+            "losangeles-enriched_floor_3.jpg"
           ]
         }
       }
@@ -3769,12 +3828,6 @@
         "available": true,
         "status": "ok",
         "data": {
-          "wallColor": "rgb(77,86,54)",
-          "wallBlock": "green_concrete",
-          "roofColor": "rgb(95,102,95)",
-          "roofBlock": "cobblestone_slab[type=bottom]",
-          "trimColor": "rgb(95,112,53)",
-          "trimBlock": "stripped_spruce_log",
           "storyCount": 3,
           "storyConfidence": "0.19",
           "textureClass": "stone",
@@ -3792,9 +3845,6 @@
           "hasPath": true
         },
         "fieldsSet": [
-          "svWallOverride",
-          "svRoofOverride",
-          "svTrimOverride",
           "svStoryCount",
           "svTextureClass",
           "svRoofPitch",
@@ -3803,9 +3853,6 @@
           "svSetbackFeatures"
         ],
         "impactedGenFields": [
-          "wallOverride",
-          "roofOverride",
-          "trimOverride",
           "floors",
           "wallOverride",
           "roofHeightOverride",
@@ -4004,7 +4051,7 @@
         },
         "genOptions": {
           "style": "rustic",
-          "floors": 3,
+          "floors": 2,
           "width": 12,
           "length": 15,
           "seed": 776180,
@@ -4025,21 +4072,19 @@
         },
         "grid": {
           "width": 56,
-          "height": 26,
+          "height": 22,
           "depth": 32,
-          "blocks": 8665
+          "blocks": 6968
         },
         "views": {
           "exterior": "seattle-allapis_exterior.jpg",
           "cutaway": [
             "seattle-allapis_cutaway_0.jpg",
-            "seattle-allapis_cutaway_1.jpg",
-            "seattle-allapis_cutaway_2.jpg"
+            "seattle-allapis_cutaway_1.jpg"
           ],
           "floor": [
             "seattle-allapis_floor_0.jpg",
-            "seattle-allapis_floor_1.jpg",
-            "seattle-allapis_floor_2.jpg"
+            "seattle-allapis_floor_1.jpg"
           ]
         }
       },
@@ -4056,7 +4101,7 @@
         },
         "genOptions": {
           "style": "rustic",
-          "floors": 3,
+          "floors": 2,
           "width": 12,
           "length": 15,
           "seed": 776180,
@@ -4090,21 +4135,19 @@
         },
         "grid": {
           "width": 56,
-          "height": 26,
+          "height": 22,
           "depth": 32,
-          "blocks": 8747
+          "blocks": 7073
         },
         "views": {
           "exterior": "seattle-enriched_exterior.jpg",
           "cutaway": [
             "seattle-enriched_cutaway_0.jpg",
-            "seattle-enriched_cutaway_1.jpg",
-            "seattle-enriched_cutaway_2.jpg"
+            "seattle-enriched_cutaway_1.jpg"
           ],
           "floor": [
             "seattle-enriched_floor_0.jpg",
-            "seattle-enriched_floor_1.jpg",
-            "seattle-enriched_floor_2.jpg"
+            "seattle-enriched_floor_1.jpg"
           ]
         }
       }
@@ -4271,12 +4314,6 @@
         "available": true,
         "status": "ok",
         "data": {
-          "wallColor": "rgb(83,87,55)",
-          "wallBlock": "green_concrete",
-          "roofColor": "rgb(100,100,100)",
-          "roofBlock": "cobblestone_slab[type=bottom]",
-          "trimColor": "rgb(93,96,65)",
-          "trimBlock": "stripped_dark_oak_log",
           "storyCount": 1,
           "storyConfidence": "0.30",
           "textureClass": "shingle",
@@ -4294,9 +4331,6 @@
           "hasPath": false
         },
         "fieldsSet": [
-          "svWallOverride",
-          "svRoofOverride",
-          "svTrimOverride",
           "svStoryCount",
           "svTextureClass",
           "svRoofPitch",
@@ -4305,9 +4339,6 @@
           "svSetbackFeatures"
         ],
         "impactedGenFields": [
-          "wallOverride",
-          "roofOverride",
-          "trimOverride",
           "floors",
           "wallOverride",
           "roofHeightOverride",
@@ -4515,7 +4546,7 @@
         },
         "genOptions": {
           "style": "modern",
-          "floors": 2,
+          "floors": 3,
           "width": 15,
           "length": 17,
           "seed": 168895,
@@ -4536,19 +4567,21 @@
         },
         "grid": {
           "width": 57,
-          "height": 22,
+          "height": 27,
           "depth": 41,
-          "blocks": 8926
+          "blocks": 9447
         },
         "views": {
           "exterior": "austin-allapis_exterior.jpg",
           "cutaway": [
             "austin-allapis_cutaway_0.jpg",
-            "austin-allapis_cutaway_1.jpg"
+            "austin-allapis_cutaway_1.jpg",
+            "austin-allapis_cutaway_2.jpg"
           ],
           "floor": [
             "austin-allapis_floor_0.jpg",
-            "austin-allapis_floor_1.jpg"
+            "austin-allapis_floor_1.jpg",
+            "austin-allapis_floor_2.jpg"
           ]
         }
       },
@@ -4565,7 +4598,7 @@
         },
         "genOptions": {
           "style": "modern",
-          "floors": 2,
+          "floors": 3,
           "width": 15,
           "length": 17,
           "seed": 168895,
@@ -4599,19 +4632,21 @@
         },
         "grid": {
           "width": 57,
-          "height": 22,
+          "height": 27,
           "depth": 41,
-          "blocks": 9285
+          "blocks": 9770
         },
         "views": {
           "exterior": "austin-enriched_exterior.jpg",
           "cutaway": [
             "austin-enriched_cutaway_0.jpg",
-            "austin-enriched_cutaway_1.jpg"
+            "austin-enriched_cutaway_1.jpg",
+            "austin-enriched_cutaway_2.jpg"
           ],
           "floor": [
             "austin-enriched_floor_0.jpg",
-            "austin-enriched_floor_1.jpg"
+            "austin-enriched_floor_1.jpg",
+            "austin-enriched_floor_2.jpg"
           ]
         }
       }
@@ -5012,7 +5047,7 @@
         },
         "genOptions": {
           "style": "rustic",
-          "floors": 2,
+          "floors": 1,
           "width": 10,
           "length": 12,
           "seed": 242221,
@@ -5033,19 +5068,17 @@
         },
         "grid": {
           "width": 52,
-          "height": 18,
+          "height": 13,
           "depth": 30,
-          "blocks": 6391
+          "blocks": 5957
         },
         "views": {
           "exterior": "denver-allapis_exterior.jpg",
           "cutaway": [
-            "denver-allapis_cutaway_0.jpg",
-            "denver-allapis_cutaway_1.jpg"
+            "denver-allapis_cutaway_0.jpg"
           ],
           "floor": [
-            "denver-allapis_floor_0.jpg",
-            "denver-allapis_floor_1.jpg"
+            "denver-allapis_floor_0.jpg"
           ]
         }
       },
@@ -5062,7 +5095,7 @@
         },
         "genOptions": {
           "style": "rustic",
-          "floors": 2,
+          "floors": 1,
           "width": 10,
           "length": 12,
           "seed": 242221,
@@ -5096,19 +5129,17 @@
         },
         "grid": {
           "width": 52,
-          "height": 18,
+          "height": 13,
           "depth": 30,
-          "blocks": 6551
+          "blocks": 6030
         },
         "views": {
           "exterior": "denver-enriched_exterior.jpg",
           "cutaway": [
-            "denver-enriched_cutaway_0.jpg",
-            "denver-enriched_cutaway_1.jpg"
+            "denver-enriched_cutaway_0.jpg"
           ],
           "floor": [
-            "denver-enriched_floor_0.jpg",
-            "denver-enriched_floor_1.jpg"
+            "denver-enriched_floor_0.jpg"
           ]
         }
       }
@@ -5737,9 +5768,9 @@
         "status": "ok",
         "data": {
           "imagesFound": 13,
-          "bestImageId": "1476214206680479",
-          "bestImageDate": "2025-04-01",
-          "bestImageHeading": "260°",
+          "bestImageId": "156933533035744",
+          "bestImageDate": "2017-02-05",
+          "bestImageHeading": "84°",
           "featuresFound": 79,
           "hasDriveway": true,
           "hasFence": false
