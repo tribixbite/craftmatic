@@ -194,7 +194,7 @@ export async function searchMapillaryFeatures(
 
 /**
  * Pick the best image for displaying a building exterior.
- * Prefers: non-panoramic, closest to target, most recent.
+ * Prefers: non-panoramic, closest to target, most recent, camera facing the building.
  * Returns null if no suitable image found.
  */
 export function pickBestImage(
@@ -211,7 +211,16 @@ export function pickBestImage(
     const panoPenalty = img.isPano ? 0.001 : 0;
     // Slight bonus for newer images (capturedAt in ms, normalize to ~0-1 range)
     const agePenalty = img.capturedAt > 0 ? -img.capturedAt / 1e15 : 0;
-    return { img, score: dist + panoPenalty + agePenalty };
+    // Heading alignment: penalize images whose camera faces away from the building.
+    // Compute bearing from image position to target building, then measure angular
+    // difference vs the camera's compass heading.
+    const bearingToTarget = Math.atan2(targetLng - img.lng, targetLat - img.lat) * 180 / Math.PI;
+    const normalizedBearing = ((bearingToTarget % 360) + 360) % 360;
+    const delta = Math.abs(img.compassAngle - normalizedBearing);
+    const angularDiff = Math.min(delta, 360 - delta); // 0-180°
+    // Scale: 0° = facing building (no penalty), 180° = facing away (+0.002)
+    const headingPenalty = (angularDiff / 180) * 0.002;
+    return { img, score: dist + panoPenalty + agePenalty + headingPenalty };
   });
 
   scored.sort((a, b) => a.score - b.score);
