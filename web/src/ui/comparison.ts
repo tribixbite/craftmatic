@@ -700,31 +700,17 @@ function buildStats(): void {
 
 // ─── API Data Tables (from comparison-data.json) ────────────────────────────
 
-/** Build a thumbnail image URL from API record data when possible */
-function buildApiThumbnail(api: ApiRecord): string | null {
+/** Build a thumbnail image path from API record data when possible.
+ *  Uses pre-downloaded static files in comparison/ (no API key dependency). */
+function buildApiThumbnail(api: ApiRecord, locKey: string): string | null {
   if (api.status !== 'ok') return null;
-  const d = api.data;
 
-  if (api.name === 'Google Street View' && d.panoId) {
-    // Static Street View thumbnail from pano ID + heading
-    const key = localStorage.getItem('craftmatic_google_streetview_key');
-    if (key) {
-      const heading = d.heading ? String(d.heading).replace('°', '') : '0';
-      return `https://maps.googleapis.com/maps/api/streetview?size=400x200&pano=${esc(String(d.panoId))}&heading=${heading}&pitch=5&key=${key}`;
-    }
+  if (api.name === 'Google Street View' && api.data.panoId) {
+    return `comparison/${locKey}-streetview.jpg`;
   }
 
-  if (api.name === 'Mapillary' && d.bestImageId) {
-    // Mapillary graph API thumbnail (1024px, requires access token)
-    const mlyToken = localStorage.getItem('craftmatic_mapillary_token');
-    if (mlyToken) {
-      return `https://graph.mapillary.com/${esc(String(d.bestImageId))}/thumb-1024.jpg?access_token=${esc(mlyToken)}`;
-    }
-  }
-
-  if (api.name === 'SV Image Analysis' && d.wallColor) {
-    // Return null — we render color swatches inline instead
-    return null;
+  if (api.name === 'Mapillary' && api.data.bestImageId) {
+    return `comparison/${locKey}-mapillary.jpg`;
   }
 
   return null;
@@ -770,8 +756,8 @@ function buildApiTables(): void {
       html += `<p class="cmp-api-error">${esc(api.error)}</p>`;
     }
 
-    // Thumbnail image (Street View panorama, Mapillary photo)
-    const thumbUrl = buildApiThumbnail(api);
+    // Thumbnail image (Street View panorama, Mapillary photo) — static files
+    const thumbUrl = buildApiThumbnail(api, currentLoc);
     if (thumbUrl) {
       html += `<a href="${thumbUrl}" target="_blank" rel="noopener" class="cmp-api-thumb-link"><img class="cmp-api-thumb" src="${thumbUrl}" alt="${esc(api.name)} image" loading="lazy"></a>`;
     }
