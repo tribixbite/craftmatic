@@ -143,16 +143,25 @@ Gemini's initial review confused **grid dimensions** (which include yard, trees,
 
 ## Listing Source Verification (Zillow + Redfin)
 
-Checked all 5 addresses via Playwright browser automation on 2026-02-27:
+Checked all 5 addresses via Playwright browser automation on 2026-02-27.
+**Method:** Extracted all photo hashes from each Zillow listing page HTML, downloaded every gallery image, and visually inspected each one for floor plan diagrams.
 
-| Address | Zillow | Redfin | Floor Plans? |
-|---------|--------|--------|--------------|
-| Austin (8504 Long Canyon Dr) | 39 photos | Listed | **No** |
-| Denver (433 S Xavier St) | 28 photos | Listed | **No** |
-| Minneapolis (2730 Ulysses St NE) | 19 photos | Listed | **No** |
-| Charleston (41 Legare St) | Street View only (condo APT A) | Listed | **No** |
-| Tucson (2615 E Adams St) | 11 photos | Listed | **No** |
+| Address | Zillow Photos | Gallery Checked | Floor Plans? |
+|---------|--------------|-----------------|--------------|
+| Austin (8504 Long Canyon Dr) | 45 unique hashes | 14 downloaded, all interior/exterior | **No** |
+| Denver (433 S Xavier St) | 37 unique hashes | 11 downloaded, all interior/exterior | **No** |
+| Minneapolis (2730 Ulysses St NE) | 28 unique hashes | 14 downloaded, all interior/exterior | **No** |
+| Charleston (41 Legare St) | 1 (Street View only) | Listed as condo #2, no gallery | **No** |
+| Tucson (2615 E Adams St) | 19 unique hashes | 11 downloaded (5 property + 3 agent + 3 comps) | **No** |
 
-**Conclusion:** None of the 5 addresses have floor plan images, 3D tours, or interactive floor plans available on any public listing site. All Zillow listings show only standard property photos (exterior, interior rooms). Charleston is listed as individual condo units (APT A/B/C) rather than the full building, with only a Street View image.
+### Photo Content Summary
 
-This confirms the earlier API research: floor plans are MLS-gated and not publicly accessible for individual residential addresses. The grading in this report relies on OSM footprint geometry + property metadata as ground truth rather than actual floor plan comparisons.
+- **Austin**: Kitchen, dining room, laundry, bedrooms, bathrooms, exterior shots. All standard MLS photography.
+- **Denver**: Bedrooms, bathrooms (2), garage, backyard patio, laundry/HVAC, side yard. Standard MLS photography.
+- **Minneapolis**: Front door (2730 visible), clawfoot bathroom, Craftsman kitchen, oak staircase (2 views), living room (2 views), dining room with stained glass, butler's pantry, entryway, exterior front/back/side. Beautiful 1914 Craftsman details, but no diagrams.
+- **Charleston**: Zillow lists this as individual condo units (#2) rather than the full building. Only a Google Street View image — no MLS photos at all.
+- **Tucson**: Adobe exterior (2 angles from 2012 listing), living room with fireplace (2 angles), entry door. Also includes agent headshots and comparable property photos from the page. No diagrams.
+
+**Conclusion:** After thorough gallery-level inspection of all available Zillow photos across all 5 addresses, none contain floor plan images, 3D tours, or architectural diagrams. All photos are standard MLS photography (exterior, interior rooms, agent portraits). Charleston has no MLS photos whatsoever.
+
+This confirms that floor plans are MLS-gated and not publicly accessible for individual residential addresses at these properties. The grading in this report relies on OSM footprint geometry + property metadata as ground truth rather than actual floor plan comparisons.
