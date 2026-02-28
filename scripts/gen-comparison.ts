@@ -395,9 +395,10 @@ for (const { key, address } of addressesToProcess) {
   let svAnalysis: StreetViewAnalysis | null = null;
   if (svMeta?.imageUrl) {
     try {
-      // Enable VLM Tier 3 when ANTHROPIC_API_KEY is set
+      // Enable VLM Tier 3 when any vision API key is set (Anthropic or OpenRouter)
       const skipVision = !hasVisionApiKey();
-      console.log(`  SV Analysis: analyzing image...${skipVision ? '' : ' (+ VLM Tier 3)'}`);
+      const vlmProvider = process.env.ANTHROPIC_API_KEY ? 'Anthropic' : process.env.OPENROUTER_API_KEY ? 'OpenRouter' : null;
+      console.log(`  SV Analysis: analyzing image...${skipVision ? '' : ` (+ VLM Tier 3 via ${vlmProvider})`}`);
       svAnalysis = await analyzeStreetView(svMeta.imageUrl, skipVision);
     } catch (err) {
       svAnalysisRec.status = 'error';

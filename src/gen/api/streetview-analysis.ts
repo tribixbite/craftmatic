@@ -786,13 +786,28 @@ export function analyzeStructure(
 // ─── Tier 3: Claude Vision Analysis (opt-in) ─────────────────────────────────
 
 /** Check if Anthropic API key is available */
+/** Check if any supported vision API key is available (Anthropic or OpenRouter) */
 export function hasVisionApiKey(): boolean {
-  return (typeof process !== 'undefined' && !!process.env?.ANTHROPIC_API_KEY);
+  return (typeof process !== 'undefined'
+    && !!(process.env?.ANTHROPIC_API_KEY || process.env?.OPENROUTER_API_KEY));
+}
+
+/** Determine which vision provider to use based on available API keys */
+function getVisionProvider(): { provider: 'anthropic' | 'openrouter'; apiKey: string } | null {
+  if (typeof process === 'undefined') return null;
+  // Prefer Anthropic direct (lower latency), fall back to OpenRouter
+  if (process.env?.ANTHROPIC_API_KEY) {
+    return { provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY };
+  }
+  if (process.env?.OPENROUTER_API_KEY) {
+    return { provider: 'openrouter', apiKey: process.env.OPENROUTER_API_KEY };
+  }
+  return null;
 }
 
 async function analyzeWithVision(imageUrl: string): Promise<SvVisionAnalysis | null> {
-  const apiKey = process.env?.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
+  const vp = getVisionProvider();
+  if (!vp) return null;
 
   try {
     // Download the image for base64 encoding
@@ -801,27 +816,7 @@ async function analyzeWithVision(imageUrl: string): Promise<SvVisionAnalysis | n
     const imageBuffer = await resp.arrayBuffer();
     const base64 = Buffer.from(imageBuffer).toString('base64');
 
-    // Call Claude Vision API
-    const visionResp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1024,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: 'image/jpeg', data: base64 },
-            },
-            {
-              type: 'text',
-              text: `Analyze this Street View image of a residential building. Return ONLY valid JSON (no markdown, no explanation) with these fields:
+    const prompt = `Analyze this Street View image of a residential building. Return ONLY valid JSON (no markdown, no explanation) with these fields:
 {
   "doorStyle": "oak"|"dark_oak"|"spruce"|"birch"|"iron"|"acacia"|null,
   "doorPosition": "center"|"left"|"right"|null,
@@ -841,27 +836,75 @@ async function analyzeWithVision(imageUrl: string): Promise<SvVisionAnalysis | n
   "architectureLabel": "freeform style description or null",
   "exteriorDetail": "1-sentence description",
   "confidence": 0.0-1.0
-}`,
-            },
-          ],
-        }],
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
+}`;
 
-    if (!visionResp.ok) {
-      console.warn('SV Vision: API error', visionResp.status, await visionResp.text());
-      return null;
+    let responseText: string | null = null;
+
+    if (vp.provider === 'anthropic') {
+      // Anthropic Messages API (native)
+      const visionResp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': vp.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 1024,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+              { type: 'text', text: prompt },
+            ],
+          }],
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!visionResp.ok) {
+        console.warn('SV Vision [Anthropic]: API error', visionResp.status, await visionResp.text());
+        return null;
+      }
+      const result = await visionResp.json() as { content: { type: string; text: string }[] };
+      responseText = result.content?.find(c => c.type === 'text')?.text ?? null;
+    } else {
+      // OpenRouter — OpenAI-compatible chat completions API
+      const visionResp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${vp.apiKey}`,
+          'HTTP-Referer': 'https://github.com/tribixbite/craftmatic',
+          'X-Title': 'Craftmatic',
+        },
+        body: JSON.stringify({
+          model: 'anthropic/claude-sonnet-4-5',
+          max_tokens: 1024,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64}` } },
+              { type: 'text', text: prompt },
+            ],
+          }],
+        }),
+        signal: AbortSignal.timeout(45000),
+      });
+      if (!visionResp.ok) {
+        console.warn('SV Vision [OpenRouter]: API error', visionResp.status, await visionResp.text());
+        return null;
+      }
+      const result = await visionResp.json() as {
+        choices: { message: { content: string } }[];
+      };
+      responseText = result.choices?.[0]?.message?.content ?? null;
     }
 
-    const result = await visionResp.json() as {
-      content: { type: string; text: string }[];
-    };
-    const textBlock = result.content?.find(c => c.type === 'text');
-    if (!textBlock?.text) return null;
+    if (!responseText) return null;
 
     // Parse JSON from response — strip markdown fences if present
-    let jsonStr = textBlock.text.trim();
+    let jsonStr = responseText.trim();
     if (jsonStr.startsWith('```')) {
       jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     }
@@ -903,7 +946,8 @@ async function analyzeWithVision(imageUrl: string): Promise<SvVisionAnalysis | n
 /**
  * Analyze a Street View image URL through all available tiers.
  * Tier 1 (colors) + Tier 2 (structure) always run.
- * Tier 3 (vision) only runs if ANTHROPIC_API_KEY is set and skipVision is false.
+ * Tier 3 (vision) only runs if a vision API key is set (ANTHROPIC_API_KEY or
+ * OPENROUTER_API_KEY) and skipVision is false.
  *
  * @param imageUrl  Google Street View image URL (640×480)
  * @param skipVision  Force-skip Tier 3 even if API key is available
