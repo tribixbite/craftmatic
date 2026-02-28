@@ -10,7 +10,7 @@
  */
 
 import {
-  rgbToHsl,
+  rgbToHsl, isVegetationColor,
   rgbToWallBlock, rgbToRoofOverride, rgbToTrimBlock,
   dominantColor,
 } from '@craft/gen/color-blocks.js';
@@ -127,6 +127,12 @@ export async function analyzeStreetViewBrowser(
   const trimColor = trimLeft ?? trimRight;
 
   if (!wallColor) return null;
+
+  // Reject if wall zone is dominated by vegetation (tree-occluded building)
+  if (isVegetationColor(wallColor.r, wallColor.g, wallColor.b)) {
+    console.warn('SV color analysis: wall zone dominated by vegetation — skipping');
+    return null;
+  }
 
   const wallBlock = rgbToWallBlock(wallColor.r, wallColor.g, wallColor.b);
   const roofOverride = roofColor

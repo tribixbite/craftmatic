@@ -63,6 +63,19 @@ export function isNonBuilding(r: number, g: number, b: number): boolean {
   return isGrass(h, s, l) || isSkyOrWater(h, s, l) || isShadow(l) || isGlare(l);
 }
 
+/**
+ * Post-extraction check: is the dominant color likely vegetation rather than building?
+ * Broader than isGrass (which filters individual pixels) — catches olive, dark green,
+ * and muted foliage tones that survive per-pixel filtering when building is fully occluded.
+ * Use on the final extracted wall/roof color to decide if the result is trustworthy.
+ */
+export function isVegetationColor(r: number, g: number, b: number): boolean {
+  const [h, s] = rgbToHsl(r, g, b);
+  // Green–olive band: hue 60-170°, saturation >10% (more permissive than isGrass)
+  // This catches dark foliage (austin: 83,87,55) and cedar (seattle: 77,86,54)
+  return h >= 60 && h <= 170 && s > 0.10;
+}
+
 // ─── Wall Palette ────────────────────────────────────────────────────────────
 // Multi-option color clusters — inspired by arnis DEFINED_COLORS pattern.
 // Each entry has a reference RGB and 1-4 block options. The closest color

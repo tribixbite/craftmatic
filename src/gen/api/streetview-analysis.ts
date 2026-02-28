@@ -13,7 +13,7 @@
 import type { BlockState } from '../../types/index.js';
 import type { FeatureFlags } from '../../types/index.js';
 import {
-  rgbToHsl, isGrass, isShadow, isGlare,
+  rgbToHsl, isGrass, isShadow, isGlare, isVegetationColor,
   rgbToWallBlock, rgbToRoofOverride, rgbToTrimBlock,
   dominantColor,
 } from '../color-blocks.js';
@@ -203,6 +203,13 @@ export function extractColors(
   const trimColor = trimColorLeft ?? trimColorRight;
 
   if (!wallColor) return null; // Can't determine anything without wall color
+
+  // Reject if dominant wall color is vegetation — building is likely occluded by trees.
+  // Fall back to null so the pipeline uses category defaults instead of green_concrete.
+  if (isVegetationColor(wallColor.r, wallColor.g, wallColor.b)) {
+    console.warn('SV color analysis: wall zone dominated by vegetation — skipping color override');
+    return null;
+  }
 
   // Map to Minecraft blocks
   const wallBlock = rgbToWallBlock(wallColor.r, wallColor.g, wallColor.b);
