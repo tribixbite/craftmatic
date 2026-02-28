@@ -1242,8 +1242,8 @@ html, body {
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
-  overflow: hidden;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .cmp-loading {
