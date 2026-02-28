@@ -21,8 +21,16 @@
 - [x] Regen comparison data + images for all 14 addresses
 - [x] Gemini 3 Pro Phase 2+3 grading
 
-## Phase 4 (pending — targeting 9.0+)
-- [ ] Investigate Austin floor count regression (3f on 1-story ranch)
-- [ ] Low-slope hip discrimination (5°-15° range, precipitation bias)
+## Phase 4 (complete — floor count + multi-unit roof)
+- [x] Roof height correction: subtract tan(pitch)×halfSpan from Mapbox height
+- [x] Property records (Smarty) priority above SV in floor estimation chain
+- [x] Cross-ref cap: heightDerivedFloors ≤ prop.stories + 1
+- [x] Solar footprint in minFloors (catches sprawling ranches without OSM data)
+- [x] Multi-unit flat override respects Solar pitch > 15° evidence
+- [x] Austin: 3f → 2f | Charleston: flat → gable
+- [x] Regen + render + CI green
+
+## Phase 5 (pending — targeting 9.0+)
 - [ ] Enable VLM with ANTHROPIC_API_KEY for comparison generation
 - [ ] Validate VLM style labels fix SF "Colonial"→"Mediterranean"
+- [ ] Re-run Gemini grading for Phase 4 improvements
