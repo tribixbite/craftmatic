@@ -1207,9 +1207,13 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     if (prop.sqft >= 6000) minFloors = 3;
     else if (prop.sqft >= 3000) minFloors = 2;
     // Large footprint override: if the building footprint can hold the sqft in
-    // fewer floors, don't force extra stories (catches sprawling estates, ranches)
-    if (prop.osmWidth && prop.osmLength && prop.osmWidth > 0 && prop.osmLength > 0) {
-      const footprintSqm = prop.osmWidth * prop.osmLength;
+    // fewer floors, don't force extra stories (catches sprawling estates, ranches).
+    // Uses OSM footprint (best), Solar footprint (measured from aerial imagery),
+    // or satellite footprint as evidence of a sprawling single-floor layout.
+    const footprintSqm = (prop.osmWidth && prop.osmLength && prop.osmWidth > 0 && prop.osmLength > 0)
+      ? prop.osmWidth * prop.osmLength
+      : prop.solarBuildingArea ?? undefined;
+    if (footprintSqm && footprintSqm > 0) {
       const totalSqm = prop.sqft / 10.76;
       const neededFloors = Math.max(1, Math.ceil(totalSqm / footprintSqm));
       minFloors = Math.min(minFloors, Math.max(1, neededFloors));
@@ -1229,20 +1233,42 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // 1. OSM building:levels — ground-truth from community mapping (highest confidence)
   // 2. Overture num_floors — aggregates OSM + ML sources (high confidence)
   // 3. Measured height — Mapbox/Overture height ÷ 3.5m per floor (reliable when available)
-  // 4. SV story count — automated image analysis, only trusted above 0.5 confidence
-  // 5. prop.stories — Smarty/Parcl/form fallback (varies, may be default of 2)
+  // 4. prop.stories — Smarty/Parcl property records from tax assessor (reliable)
+  // 5. SV story count — automated image analysis, only trusted above 0.5 confidence
   const heightForFloors = prop.mapboxHeight ?? prop.overtureHeight;
-  const heightDerivedFloors = (heightForFloors && heightForFloors > 0)
+  let heightDerivedFloors = (heightForFloors && heightForFloors > 0)
     ? Math.max(1, Math.round(heightForFloors / 3.5))
     : undefined;
+  // Mapbox/Overture height includes roof peak. When Solar pitch is available,
+  // subtract estimated roof height to get wall-only height for floor count.
+  // A 1-story ranch with 35° pitch and 15m span has ~5m of roof in the height.
+  if (heightDerivedFloors && heightDerivedFloors > 1 && heightForFloors
+      && prop.solarRoofPitch != null && prop.solarRoofPitch > 10) {
+    // Estimate roof peak height from pitch and building half-span (use sqft as proxy)
+    const estSpan = prop.osmWidth ?? prop.osmLength
+      ?? (prop.sqft ? Math.sqrt(prop.sqft / 10.76) : undefined);
+    if (estSpan) {
+      const roofPeakM = Math.tan(prop.solarRoofPitch * Math.PI / 180) * (estSpan / 2);
+      const wallHeight = heightForFloors - roofPeakM;
+      if (wallHeight > 0) {
+        heightDerivedFloors = Math.max(1, Math.round(wallHeight / 3.5));
+      }
+    }
+  }
+  // Cross-reference: when property records (tax assessor) significantly disagree
+  // with height-derived floors, cap at prop.stories + 1. Height data includes
+  // roof peak and terrain slope artifacts that inflate the estimate.
+  if (heightDerivedFloors && prop.stories && heightDerivedFloors > prop.stories + 1) {
+    heightDerivedFloors = prop.stories + 1;
+  }
   // Only trust SV story count when confidence exceeds threshold
   const svStoriesIfConfident = (prop.svStoryConfidence ?? 0) > 0.5
     ? prop.svStoryCount : undefined;
   let effectiveStories = prop.osmLevels
     ?? prop.overtureFloors
     ?? heightDerivedFloors
-    ?? svStoriesIfConfident
-    ?? prop.stories;
+    ?? prop.stories
+    ?? svStoriesIfConfident;
   // Safety check: when height is available and significantly disagrees with the
   // chosen floor count, prefer height (catches sqft-derived outliers for landmarks)
   if (heightDerivedFloors && prop.osmWidth && prop.osmLength) {
@@ -1322,9 +1348,14 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     ?? inferRoofFromSVPitch(prop.svRoofPitch)
     ?? inferRoofFromPitchOnly(prop.solarRoofPitch);
 
-  // Multi-unit buildings are overwhelmingly flat-roofed
+  // Multi-unit buildings are overwhelmingly flat-roofed — but only override
+  // when no strong pitch evidence contradicts it (e.g. Solar pitch > 15° is
+  // clearly a pitched roof, even on a "multi-unit" heuristic classification)
   if (effectiveMultiUnit && !prop.osmRoofShape) {
-    roofShape = 'flat';
+    const hasPitchedEvidence = (prop.solarRoofPitch != null && prop.solarRoofPitch > 15);
+    if (!hasPitchedEvidence) {
+      roofShape = 'flat';
+    }
   }
 
   // ── Roof material override ────────────────────────────────────────
