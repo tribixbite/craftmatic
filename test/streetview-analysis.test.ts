@@ -565,11 +565,14 @@ describe('analyzeStructure', () => {
 // ─── hasVisionApiKey ────────────────────────────────────────────────
 
 describe('hasVisionApiKey', () => {
-  it('returns false when ANTHROPIC_API_KEY is not set', () => {
-    const orig = process.env.ANTHROPIC_API_KEY;
+  it('returns false when no vision API key is set', () => {
+    const origAnthropic = process.env.ANTHROPIC_API_KEY;
+    const origOpenRouter = process.env.OPENROUTER_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
     expect(hasVisionApiKey()).toBe(false);
-    if (orig) process.env.ANTHROPIC_API_KEY = orig;
+    if (origAnthropic) process.env.ANTHROPIC_API_KEY = origAnthropic;
+    if (origOpenRouter) process.env.OPENROUTER_API_KEY = origOpenRouter;
   });
 
   it('returns true when ANTHROPIC_API_KEY is set', () => {
@@ -578,6 +581,18 @@ describe('hasVisionApiKey', () => {
     expect(hasVisionApiKey()).toBe(true);
     if (orig) process.env.ANTHROPIC_API_KEY = orig;
     else delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('returns true when OPENROUTER_API_KEY is set', () => {
+    const origAnthropic = process.env.ANTHROPIC_API_KEY;
+    const origOpenRouter = process.env.OPENROUTER_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    process.env.OPENROUTER_API_KEY = 'test-key';
+    expect(hasVisionApiKey()).toBe(true);
+    if (origAnthropic) process.env.ANTHROPIC_API_KEY = origAnthropic;
+    else delete process.env.ANTHROPIC_API_KEY;
+    if (origOpenRouter) process.env.OPENROUTER_API_KEY = origOpenRouter;
+    else delete process.env.OPENROUTER_API_KEY;
   });
 });
 
