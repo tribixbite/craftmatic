@@ -138,3 +138,21 @@ Gemini's initial review confused **grid dimensions** (which include yard, trees,
 3. **Maximum length cap** — Charleston's 26.9m depth was truncated to 20 blocks. The generator may have a hard cap that should be relaxed for verified OSM footprints.
 4. **Style vocabulary limited** — "gothic" for Charleston and "rustic" for Denver bungalow are poor fits. Need "Craftsman", "bungalow", "Charleston single", or at least better year+region→style mapping.
 5. **Parcl data errors** — Tucson reported 0 bedrooms. Generator should treat 0 as "unknown" and estimate from sqft.
+
+---
+
+## Listing Source Verification (Zillow + Redfin)
+
+Checked all 5 addresses via Playwright browser automation on 2026-02-27:
+
+| Address | Zillow | Redfin | Floor Plans? |
+|---------|--------|--------|--------------|
+| Austin (8504 Long Canyon Dr) | 39 photos | Listed | **No** |
+| Denver (433 S Xavier St) | 28 photos | Listed | **No** |
+| Minneapolis (2730 Ulysses St NE) | 19 photos | Listed | **No** |
+| Charleston (41 Legare St) | Street View only (condo APT A) | Listed | **No** |
+| Tucson (2615 E Adams St) | 11 photos | Listed | **No** |
+
+**Conclusion:** None of the 5 addresses have floor plan images, 3D tours, or interactive floor plans available on any public listing site. All Zillow listings show only standard property photos (exterior, interior rooms). Charleston is listed as individual condo units (APT A/B/C) rather than the full building, with only a Street View image.
+
+This confirms the earlier API research: floor plans are MLS-gated and not publicly accessible for individual residential addresses. The grading in this report relies on OSM footprint geometry + property metadata as ground truth rather than actual floor plan comparisons.
