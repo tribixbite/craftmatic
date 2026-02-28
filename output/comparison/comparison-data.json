@@ -416,7 +416,7 @@
           "roofShape": "flat",
           "floorPlanShape": "L",
           "windowSpacing": 2,
-          "roofHeightOverride": 4,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": true,
             "porch": true,
@@ -430,9 +430,9 @@
         },
         "grid": {
           "width": 60,
-          "height": 25,
+          "height": 24,
           "depth": 44,
-          "blocks": 12312
+          "blocks": 11494
         },
         "views": {
           "exterior": "sf-allapis_exterior.jpg",
@@ -470,7 +470,7 @@
           "roofShape": "flat",
           "floorPlanShape": "L",
           "windowSpacing": 2,
-          "roofHeightOverride": 4,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": false,
             "porch": true,
@@ -496,9 +496,9 @@
         },
         "grid": {
           "width": 60,
-          "height": 25,
+          "height": 24,
           "depth": 44,
-          "blocks": 12249
+          "blocks": 11431
         },
         "views": {
           "exterior": "sf-enriched_exterior.jpg",
@@ -925,7 +925,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
           "windowSpacing": 2,
-          "roofHeightOverride": 12,
+          "roofHeightOverride": 4,
           "features": {
             "chimney": true,
             "porch": true,
@@ -939,9 +939,9 @@
         },
         "grid": {
           "width": 61,
-          "height": 27,
+          "height": 20,
           "depth": 30,
-          "blocks": 11428
+          "blocks": 9560
         },
         "views": {
           "exterior": "newton-allapis_exterior.jpg",
@@ -977,7 +977,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
           "windowSpacing": 2,
-          "roofHeightOverride": 12,
+          "roofHeightOverride": 4,
           "features": {
             "chimney": true,
             "porch": true,
@@ -1004,9 +1004,9 @@
         },
         "grid": {
           "width": 61,
-          "height": 27,
+          "height": 20,
           "depth": 30,
-          "blocks": 11621
+          "blocks": 9753
         },
         "views": {
           "exterior": "newton-enriched_exterior.jpg",
@@ -1385,7 +1385,7 @@
           "seed": 201564,
           "roofShape": "gambrel",
           "floorPlanShape": "L",
-          "roofHeightOverride": 4,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": true,
             "porch": true,
@@ -1399,9 +1399,9 @@
         },
         "grid": {
           "width": 120,
-          "height": 20,
+          "height": 19,
           "depth": 81,
-          "blocks": 33706
+          "blocks": 29718
         },
         "views": {
           "exterior": "sanjose-allapis_exterior.jpg",
@@ -1436,7 +1436,7 @@
           "seed": 201564,
           "roofShape": "gambrel",
           "floorPlanShape": "L",
-          "roofHeightOverride": 4,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": true,
             "porch": true,
@@ -1463,9 +1463,9 @@
         },
         "grid": {
           "width": 120,
-          "height": 20,
+          "height": 19,
           "depth": 81,
-          "blocks": 33741
+          "blocks": 29753
         },
         "views": {
           "exterior": "sanjose-enriched_exterior.jpg",
@@ -1817,7 +1817,7 @@
           "length": 21,
           "seed": 266196,
           "roofShape": "hip",
-          "roofHeightOverride": 12,
+          "roofHeightOverride": 4,
           "features": {
             "chimney": true,
             "porch": true,
@@ -1831,9 +1831,9 @@
         },
         "grid": {
           "width": 63,
-          "height": 22,
+          "height": 15,
           "depth": 38,
-          "blocks": 11422
+          "blocks": 9897
         },
         "views": {
           "exterior": "walpole-allapis_exterior.jpg",
@@ -1865,7 +1865,7 @@
           "length": 21,
           "seed": 266196,
           "roofShape": "hip",
-          "roofHeightOverride": 12,
+          "roofHeightOverride": 4,
           "features": {
             "chimney": true,
             "porch": true,
@@ -1892,9 +1892,9 @@
         },
         "grid": {
           "width": 63,
-          "height": 22,
+          "height": 15,
           "depth": 38,
-          "blocks": 11551
+          "blocks": 10026
         },
         "views": {
           "exterior": "walpole-enriched_exterior.jpg",
@@ -2273,7 +2273,7 @@
           "seed": 802372,
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
-          "roofHeightOverride": 8,
+          "roofHeightOverride": 3,
           "features": {
             "chimney": true,
             "porch": true,
@@ -2287,9 +2287,9 @@
         },
         "grid": {
           "width": 46,
-          "height": 18,
+          "height": 15,
           "depth": 32,
-          "blocks": 5811
+          "blocks": 5015
         },
         "views": {
           "exterior": "byron-allapis_exterior.jpg",
@@ -2322,7 +2322,7 @@
           "seed": 802372,
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
-          "roofHeightOverride": 8,
+          "roofHeightOverride": 3,
           "features": {
             "chimney": true,
             "porch": true,
@@ -2349,9 +2349,9 @@
         },
         "grid": {
           "width": 46,
-          "height": 18,
+          "height": 15,
           "depth": 32,
-          "blocks": 5976
+          "blocks": 5180
         },
         "views": {
           "exterior": "byron-enriched_exterior.jpg",
@@ -3071,7 +3071,7 @@
           "length": 10,
           "seed": 832367,
           "roofShape": "hip",
-          "roofHeightOverride": 4,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": false,
             "porch": true,
@@ -3085,9 +3085,9 @@
         },
         "grid": {
           "width": 50,
-          "height": 15,
+          "height": 14,
           "depth": 30,
-          "blocks": 5798
+          "blocks": 4941
         },
         "views": {
           "exterior": "suttonsbay-allapis_exterior.jpg",
@@ -3119,7 +3119,7 @@
           "length": 10,
           "seed": 832367,
           "roofShape": "hip",
-          "roofHeightOverride": 4,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": false,
             "porch": true,
@@ -3146,9 +3146,9 @@
         },
         "grid": {
           "width": 50,
-          "height": 15,
+          "height": 14,
           "depth": 30,
-          "blocks": 5836
+          "blocks": 4975
         },
         "views": {
           "exterior": "suttonsbay-enriched_exterior.jpg",
@@ -3569,7 +3569,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "L",
           "windowSpacing": 3,
-          "roofHeightOverride": 4,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": true,
             "porch": true,
@@ -3583,9 +3583,9 @@
         },
         "grid": {
           "width": 83,
-          "height": 25,
+          "height": 24,
           "depth": 62,
-          "blocks": 19461
+          "blocks": 17361
         },
         "views": {
           "exterior": "losangeles-allapis_exterior.jpg",
@@ -3623,7 +3623,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "L",
           "windowSpacing": 3,
-          "roofHeightOverride": 4,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": false,
             "porch": true,
@@ -3649,9 +3649,9 @@
         },
         "grid": {
           "width": 83,
-          "height": 25,
+          "height": 24,
           "depth": 62,
-          "blocks": 19563
+          "blocks": 17463
         },
         "views": {
           "exterior": "losangeles-enriched_exterior.jpg",
@@ -3828,6 +3828,12 @@
         "available": true,
         "status": "ok",
         "data": {
+          "wallColor": "rgb(91,97,87)",
+          "wallBlock": "gray_concrete",
+          "roofColor": "rgb(95,102,95)",
+          "roofBlock": "cobblestone_slab[type=bottom]",
+          "trimColor": "rgb(95,112,53)",
+          "trimBlock": "stripped_spruce_log",
           "storyCount": 3,
           "storyConfidence": "0.19",
           "textureClass": "stone",
@@ -3845,6 +3851,9 @@
           "hasPath": true
         },
         "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
           "svStoryCount",
           "svTextureClass",
           "svRoofPitch",
@@ -3853,6 +3862,9 @@
           "svSetbackFeatures"
         ],
         "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
           "floors",
           "wallOverride",
           "roofHeightOverride",
@@ -4058,7 +4070,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "L",
           "windowSpacing": 2,
-          "roofHeightOverride": 14,
+          "roofHeightOverride": 3,
           "features": {
             "chimney": true,
             "porch": true,
@@ -4072,9 +4084,9 @@
         },
         "grid": {
           "width": 56,
-          "height": 22,
+          "height": 15,
           "depth": 32,
-          "blocks": 6968
+          "blocks": 5714
         },
         "views": {
           "exterior": "seattle-allapis_exterior.jpg",
@@ -4108,7 +4120,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "L",
           "windowSpacing": 2,
-          "roofHeightOverride": 14,
+          "roofHeightOverride": 3,
           "features": {
             "chimney": true,
             "porch": true,
@@ -4135,9 +4147,9 @@
         },
         "grid": {
           "width": 56,
-          "height": 22,
+          "height": 15,
           "depth": 32,
-          "blocks": 7073
+          "blocks": 5849
         },
         "views": {
           "exterior": "seattle-enriched_exterior.jpg",
@@ -4314,6 +4326,12 @@
         "available": true,
         "status": "ok",
         "data": {
+          "wallColor": "rgb(105,110,103)",
+          "wallBlock": "stone_bricks",
+          "roofColor": "rgb(100,100,100)",
+          "roofBlock": "cobblestone_slab[type=bottom]",
+          "trimColor": "rgb(93,96,65)",
+          "trimBlock": "stripped_dark_oak_log",
           "storyCount": 1,
           "storyConfidence": "0.30",
           "textureClass": "shingle",
@@ -4331,6 +4349,9 @@
           "hasPath": false
         },
         "fieldsSet": [
+          "svWallOverride",
+          "svRoofOverride",
+          "svTrimOverride",
           "svStoryCount",
           "svTextureClass",
           "svRoofPitch",
@@ -4339,6 +4360,9 @@
           "svSetbackFeatures"
         ],
         "impactedGenFields": [
+          "wallOverride",
+          "roofOverride",
+          "trimOverride",
           "floors",
           "wallOverride",
           "roofHeightOverride",
@@ -4553,7 +4577,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "L",
           "windowSpacing": 2,
-          "roofHeightOverride": 12,
+          "roofHeightOverride": 4,
           "features": {
             "chimney": false,
             "porch": true,
@@ -4567,9 +4591,9 @@
         },
         "grid": {
           "width": 57,
-          "height": 27,
+          "height": 20,
           "depth": 41,
-          "blocks": 9447
+          "blocks": 8497
         },
         "views": {
           "exterior": "austin-allapis_exterior.jpg",
@@ -4605,7 +4629,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "L",
           "windowSpacing": 2,
-          "roofHeightOverride": 12,
+          "roofHeightOverride": 4,
           "features": {
             "chimney": false,
             "porch": true,
@@ -4632,9 +4656,9 @@
         },
         "grid": {
           "width": 57,
-          "height": 27,
+          "height": 20,
           "depth": 41,
-          "blocks": 9770
+          "blocks": 8793
         },
         "views": {
           "exterior": "austin-enriched_exterior.jpg",
@@ -5054,7 +5078,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
           "windowSpacing": 2,
-          "roofHeightOverride": 8,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": true,
             "porch": true,
@@ -5068,9 +5092,9 @@
         },
         "grid": {
           "width": 52,
-          "height": 13,
+          "height": 9,
           "depth": 30,
-          "blocks": 5957
+          "blocks": 4400
         },
         "views": {
           "exterior": "denver-allapis_exterior.jpg",
@@ -5102,7 +5126,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
           "windowSpacing": 2,
-          "roofHeightOverride": 8,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": true,
             "porch": true,
@@ -5129,9 +5153,9 @@
         },
         "grid": {
           "width": 52,
-          "height": 13,
+          "height": 9,
           "depth": 30,
-          "blocks": 6030
+          "blocks": 4479
         },
         "views": {
           "exterior": "denver-enriched_exterior.jpg",
@@ -5551,7 +5575,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
           "windowSpacing": 2,
-          "roofHeightOverride": 12,
+          "roofHeightOverride": 3,
           "features": {
             "chimney": true,
             "porch": true,
@@ -5565,9 +5589,9 @@
         },
         "grid": {
           "width": 52,
-          "height": 22,
+          "height": 15,
           "depth": 30,
-          "blocks": 6592
+          "blocks": 5489
         },
         "views": {
           "exterior": "minneapolis-allapis_exterior.jpg",
@@ -5601,7 +5625,7 @@
           "roofShape": "gambrel",
           "floorPlanShape": "rect",
           "windowSpacing": 2,
-          "roofHeightOverride": 12,
+          "roofHeightOverride": 3,
           "features": {
             "chimney": true,
             "porch": true,
@@ -5628,9 +5652,9 @@
         },
         "grid": {
           "width": 52,
-          "height": 22,
+          "height": 15,
           "depth": 30,
-          "blocks": 6644
+          "blocks": 5541
         },
         "views": {
           "exterior": "minneapolis-enriched_exterior.jpg",
@@ -5824,7 +5848,7 @@
           "symmetryScore": "0.13",
           "isSymmetric": false,
           "planShape": "L",
-          "windowsPerFloor": 4,
+          "windowsPerFloor": 3,
           "windowSpacing": 3,
           "lawnDepth": "1%",
           "hasDriveway": true,
@@ -6062,7 +6086,7 @@
           "roofShape": "flat",
           "floorPlanShape": "L",
           "windowSpacing": 3,
-          "roofHeightOverride": 12,
+          "roofHeightOverride": 3,
           "features": {
             "chimney": true,
             "porch": true,
@@ -6076,9 +6100,9 @@
         },
         "grid": {
           "width": 60,
-          "height": 21,
+          "height": 20,
           "depth": 31,
-          "blocks": 7931
+          "blocks": 7824
         },
         "views": {
           "exterior": "charleston-allapis_exterior.jpg",
@@ -6114,7 +6138,7 @@
           "roofShape": "flat",
           "floorPlanShape": "L",
           "windowSpacing": 3,
-          "roofHeightOverride": 12,
+          "roofHeightOverride": 3,
           "features": {
             "chimney": true,
             "porch": true,
@@ -6141,9 +6165,9 @@
         },
         "grid": {
           "width": 60,
-          "height": 21,
+          "height": 20,
           "depth": 31,
-          "blocks": 7903
+          "blocks": 7796
         },
         "views": {
           "exterior": "charleston-enriched_exterior.jpg",
@@ -6554,7 +6578,7 @@
           "roofShape": "flat",
           "floorPlanShape": "rect",
           "windowSpacing": 2,
-          "roofHeightOverride": 4,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": false,
             "porch": true,
@@ -6568,9 +6592,9 @@
         },
         "grid": {
           "width": 46,
-          "height": 11,
+          "height": 9,
           "depth": 30,
-          "blocks": 4859
+          "blocks": 4191
         },
         "views": {
           "exterior": "tucson-allapis_exterior.jpg",
@@ -6602,7 +6626,7 @@
           "roofShape": "flat",
           "floorPlanShape": "rect",
           "windowSpacing": 2,
-          "roofHeightOverride": 4,
+          "roofHeightOverride": 2,
           "features": {
             "chimney": false,
             "porch": true,
@@ -6629,9 +6653,9 @@
         },
         "grid": {
           "width": 46,
-          "height": 11,
+          "height": 9,
           "depth": 30,
-          "blocks": 4864
+          "blocks": 4206
         },
         "views": {
           "exterior": "tucson-enriched_exterior.jpg",
