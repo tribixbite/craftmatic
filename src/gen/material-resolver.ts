@@ -633,7 +633,7 @@ function deriveTimber(wall: BlockState, rng: () => number, cat: CategoryPalette)
 function deriveDoor(prop: PropertyData, wall: BlockState, rng: () => number, cat: CategoryPalette): string {
   // Priority 1: Architecture type → door inference
   const archDoor = inferDoorFromArchitecture(
-    prop.osmArchitecture ?? prop.architectureType ?? prop.svArchitectureLabel,
+    prop.osmArchitecture ?? prop.architectureType ?? prop.svArchitectureStyle ?? prop.svArchitectureLabel,
     prop.yearBuilt,
   );
   if (archDoor) return archDoor;

@@ -585,6 +585,11 @@ async function genFromAddress(
           property.svDoorOverride = svAnalysis.vision.doorStyle ?? undefined;
           property.svFeatures = svAnalysis.vision.features;
           property.svArchitectureLabel = svAnalysis.vision.architectureLabel ?? undefined;
+          property.svArchitectureStyle = svAnalysis.vision.architectureStyle ?? undefined;
+          property.svWallMaterial = svAnalysis.vision.wallMaterial ?? undefined;
+          property.svRoofMaterial = svAnalysis.vision.roofMaterial ?? undefined;
+          property.svWallColorDescription = svAnalysis.vision.wallColorDescription ?? undefined;
+          property.svRoofColorDescription = svAnalysis.vision.roofColorDescription ?? undefined;
           if (svAnalysis.vision.hasGarage && !property.hasGarage) {
             property.hasGarage = true;
           }

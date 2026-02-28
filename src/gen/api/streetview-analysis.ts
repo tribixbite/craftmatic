@@ -15,7 +15,7 @@ import type { FeatureFlags } from '../../types/index.js';
 import {
   rgbToHsl, isGrass, isShadow, isGlare, isVegetationColor,
   rgbToWallBlock, rgbToRoofOverride, rgbToTrimBlock,
-  dominantColor,
+  dominantColor, dominantColorExcluding,
 } from '../color-blocks.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -89,6 +89,16 @@ export interface SvVisionAnalysis {
   doorPosition: 'center' | 'left' | 'right' | null;
   features: Partial<FeatureFlags>;
   architectureLabel: string | null;
+  /** Constrained architectural style from VLM taxonomy */
+  architectureStyle: string | null;
+  /** Exterior wall material description */
+  wallMaterial: string | null;
+  /** Roof material description */
+  roofMaterial: string | null;
+  /** Human-readable wall color description (e.g. "white stucco", "red brick") */
+  wallColorDescription: string | null;
+  /** Human-readable roof color description (e.g. "dark gray shingle") */
+  roofColorDescription: string | null;
   hasGarage: boolean;
   hasShutters: boolean;
   exteriorDetail: string | null;
@@ -192,7 +202,7 @@ export function extractColors(
   const roofColor = dominantColor(pixels, roofStartY, roofEndY, w);
 
   // Wall zone — center portion, middle 40%
-  const wallColor = dominantColor(pixels, wallStartY, wallEndY, w, wallStartX, wallEndX);
+  let wallColor = dominantColor(pixels, wallStartY, wallEndY, w, wallStartX, wallEndX);
 
   // Trim zone — left + right edge strips of the wall region
   // Combine both edge strips by sampling left then right
@@ -205,10 +215,20 @@ export function extractColors(
   if (!wallColor) return null; // Can't determine anything without wall color
 
   // Reject if dominant wall color is vegetation — building is likely occluded by trees.
-  // Fall back to null so the pipeline uses category defaults instead of green_concrete.
+  // Try secondary extraction excluding green hues before falling back to null.
   if (isVegetationColor(wallColor.r, wallColor.g, wallColor.b)) {
-    console.warn('SV color analysis: wall zone dominated by vegetation — skipping color override');
-    return null;
+    const VEGETATION_HUE: [number, number][] = [[60, 170]];
+    const secondary = dominantColorExcluding(
+      pixels, wallStartY, wallEndY, w, wallStartX, wallEndX, VEGETATION_HUE,
+    );
+    if (secondary && !isVegetationColor(secondary.r, secondary.g, secondary.b)) {
+      console.warn('SV color analysis: vegetation bypass — using secondary non-green color');
+      // Replace wallColor with secondary extraction for downstream mapping
+      wallColor = secondary;
+    } else {
+      console.warn('SV color analysis: wall zone dominated by vegetation — skipping color override');
+      return null;
+    }
   }
 
   // Map to Minecraft blocks
@@ -813,7 +833,12 @@ async function analyzeWithVision(imageUrl: string): Promise<SvVisionAnalysis | n
   "garden": true|false,
   "trees": true|false,
   "pool": false,
-  "architectureLabel": "string or null",
+  "architectureStyle": "Colonial"|"Victorian"|"Craftsman"|"Mediterranean"|"Ranch"|"Tudor"|"Gothic"|"Modern"|"Desert"|"Farmhouse"|"Cape Cod"|"Art Deco"|"Prairie"|"Brownstone"|null,
+  "wallMaterial": "brick"|"wood_siding"|"stone"|"stucco"|"concrete"|"vinyl"|"shingle"|"clapboard"|"log"|null,
+  "roofMaterial": "asphalt_shingle"|"metal"|"clay_tile"|"slate"|"wood_shake"|"flat_membrane"|null,
+  "wallColorDescription": "brief color description e.g. 'white stucco', 'red brick'"|null,
+  "roofColorDescription": "brief color description e.g. 'dark gray', 'terra cotta'"|null,
+  "architectureLabel": "freeform style description or null",
   "exteriorDetail": "1-sentence description",
   "confidence": 0.0-1.0
 }`,
@@ -857,6 +882,11 @@ async function analyzeWithVision(imageUrl: string): Promise<SvVisionAnalysis | n
         pool: !!data.pool,
       },
       architectureLabel: typeof data.architectureLabel === 'string' ? data.architectureLabel : null,
+      architectureStyle: typeof data.architectureStyle === 'string' ? data.architectureStyle : null,
+      wallMaterial: typeof data.wallMaterial === 'string' ? data.wallMaterial : null,
+      roofMaterial: typeof data.roofMaterial === 'string' ? data.roofMaterial : null,
+      wallColorDescription: typeof data.wallColorDescription === 'string' ? data.wallColorDescription : null,
+      roofColorDescription: typeof data.roofColorDescription === 'string' ? data.roofColorDescription : null,
       hasGarage: !!data.garage,
       hasShutters: !!data.shutters,
       exteriorDetail: typeof data.exteriorDetail === 'string' ? data.exteriorDetail : null,
