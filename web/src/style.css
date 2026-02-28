@@ -1614,6 +1614,50 @@ html, body {
   word-break: break-all;
 }
 
+/* API card thumbnails (Street View, Mapillary) */
+.cmp-api-thumb-link {
+  display: block;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  line-height: 0;
+}
+.cmp-api-thumb {
+  width: 100%;
+  height: auto;
+  max-height: 140px;
+  object-fit: cover;
+  border-radius: 4px;
+  opacity: 0.9;
+  transition: opacity var(--transition);
+}
+.cmp-api-thumb:hover { opacity: 1; }
+
+/* SV Image Analysis color swatches */
+.cmp-api-swatches {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 4px 0;
+}
+.cmp-api-swatch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cmp-swatch-color {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
+}
+.cmp-swatch-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
 /* Impact tags */
 .cmp-tag-row {
   display: flex;
