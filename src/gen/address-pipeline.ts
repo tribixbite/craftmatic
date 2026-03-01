@@ -337,7 +337,7 @@ export function mapArchitectureToStyle(arch: string | undefined): StyleName | un
     [/\bcraftsman|arts?\s*&?\s*crafts|bungalow/i, 'rustic'],
     [/\bcolonial|georgian|federal|cape\s*cod|foursquare/i, 'colonial'],
     [/\bmodern|contemporary|mid.?century|minimalist|international|bauhaus/i, 'modern'],
-    [/\bmediterranean|spanish|mission|pueblo|stucco/i, 'desert'],
+    [/\bmediterranean|spanish|mission|pueblo|stucco|desert|southwest/i, 'desert'],
     [/\btudor|half.?timber|english/i, 'medieval'],
     [/\bart\s*deco|art\s*nouveau|beaux.?arts/i, 'steampunk'],
     [/\bjapanese|asian|zen/i, 'elven'],
@@ -352,8 +352,8 @@ export function mapArchitectureToStyle(arch: string | undefined): StyleName | un
     [/\bgreek\s*revival|neoclassical|palladian/i, 'colonial'],
     [/\bgothic\s*revival|carpenter\s*gothic/i, 'gothic'],
     // Regional American styles
-    [/\badobe|southwest|territorial/i, 'desert'],
-    [/\bbrown\s*stone|row\s*house|townhouse/i, 'gothic'],
+    [/\badobe|territorial/i, 'desert'],
+    [/\bbrown\s*stone|brownstone|row\s*house|townhouse/i, 'gothic'],
     [/\bcottage|cabin|rustic/i, 'rustic'],
   ];
   for (const [pattern, style] of MAP) {
@@ -1277,17 +1277,14 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     }
   }
   // Cross-reference: when property records (tax assessor) disagree with
-  // height-derived floors, cap based on confidence in tax data. Height data
-  // includes roof peak and terrain slope artifacts that inflate the estimate.
-  // For single-family homes with stories=1, trust the assessor exactly —
-  // the height likely includes steep roof, attic, or vaulted ceilings.
+  // height-derived floors, cap based on discrepancy. Small discrepancy (1 floor)
+  // → trust assessor exactly (height includes roof/attic). Large discrepancy
+  // (≥3 floors) → use stories+1 (unusual structure, height data more reliable).
   if (heightDerivedFloors && prop.stories && heightDerivedFloors > prop.stories) {
-    const isSingleFamily = prop.propertyType === 'SINGLE_FAMILY'
-      || prop.propertyType === 'house'
-      || prop.propertyType === 'CONDO';
-    const storiesCap = (isSingleFamily && prop.stories <= 2)
-      ? prop.stories        // Trust assessor exactly for 1-2 story single-family
-      : prop.stories + 1;   // Allow +1 tolerance for taller/complex buildings
+    const discrepancy = heightDerivedFloors - prop.stories;
+    const storiesCap = discrepancy <= 1
+      ? prop.stories        // Small gap: trust assessor (roof/attic inflation)
+      : prop.stories + 1;   // Large gap: split-level/hillside, height is informative
     if (heightDerivedFloors > storiesCap) {
       heightDerivedFloors = storiesCap;
     }
