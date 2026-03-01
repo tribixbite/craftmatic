@@ -444,11 +444,12 @@ for (const { key, address } of addressesToProcess) {
       d.architectureLabel = svAnalysis.vision.architectureLabel;
       d.wallMaterial = svAnalysis.vision.wallMaterial;
       d.roofMaterial = svAnalysis.vision.roofMaterial;
+      d.roofShape = svAnalysis.vision.roofShape;
       d.wallColorDesc = svAnalysis.vision.wallColorDescription;
       d.roofColorDesc = svAnalysis.vision.roofColorDescription;
       d.visionConfidence = svAnalysis.vision.confidence?.toFixed(2);
-      svAnalysisRec.fieldsSet.push('svArchitectureStyle', 'svWallMaterial', 'svRoofMaterial');
-      svAnalysisRec.impactedGenFields.push('style', 'wallOverride', 'roofOverride');
+      svAnalysisRec.fieldsSet.push('svArchitectureStyle', 'svWallMaterial', 'svRoofMaterial', 'svVlmRoofShape');
+      svAnalysisRec.impactedGenFields.push('style', 'wallOverride', 'roofOverride', 'roofShape');
     }
     svAnalysisRec.data = d;
   } else if (svAnalysis?.isIndoor) {
@@ -577,6 +578,7 @@ for (const { key, address } of addressesToProcess) {
       allApiProp.svArchitectureStyle = svAnalysis.vision.architectureStyle ?? undefined;
       allApiProp.svWallMaterial = svAnalysis.vision.wallMaterial ?? undefined;
       allApiProp.svRoofMaterial = svAnalysis.vision.roofMaterial ?? undefined;
+      allApiProp.svVlmRoofShape = svAnalysis.vision.roofShape ?? undefined;
       allApiProp.svWallColorDescription = svAnalysis.vision.wallColorDescription ?? undefined;
       allApiProp.svRoofColorDescription = svAnalysis.vision.roofColorDescription ?? undefined;
       if (svAnalysis.vision.hasGarage && !allApiProp.hasGarage) {
