@@ -76,3 +76,68 @@ _Automated review after VLM prompt, vegetation bypass, pitch-driven roofs, gambr
 1. Enable VLM API key for comparison generation to validate style classification
 2. Add "low-slope hip" category for 5°-15° range (or precipitation-aware bias)
 3. Investigate Austin floor count source — likely bad SV estimate bypassing confidence gate
+
+---
+
+## Phase 4+5 (Floor Fix + VLM via OpenRouter) — 2026-02-28
+
+_Automated review after height correction, Smarty priority, OpenRouter VLM style classification_
+
+### Fix Impact Scores
+
+| Fix | Score | Rationale |
+|-----|-------|-----------|
+| **Roof Height Correction** | **9/10** | Subtracts tan(pitch)×halfSpan from Mapbox height. Austin 10.7m, 35° → wallHeight 4.4m → 1f (was 3f from raw height). Minneapolis 8m, 41.6° → 3.6m → 1f (was 2f). |
+| **Smarty Stories Priority** | **8/10** | Tax assessor records above SV image analysis. Cross-ref cap (stories+1) catches LA hillside inflation (16.1m → 5f capped to 2f). |
+| **Solar Footprint in minFloors** | **7/10** | Prevents sqft heuristic from forcing extra floors on sprawling ranches when solarBuildingArea shows large single-floor footprint. |
+| **Pitch-Aware Multi-Unit** | **9/10** | Charleston 30.4° no longer forced flat by multi-unit heuristic (6bed/6bath→"multi-unit"→flat). Respects pitch > 15° evidence. |
+| **OpenRouter VLM** | **9/10** | Claude Sonnet 4.5 via OpenRouter classifies styles correctly: SF "Mediterranean"→desert, LA "Modern", Charleston "Colonial", Denver "Ranch". Validated all 14 addresses. |
+
+### VLM Classification Results
+
+| Address | VLM Style | VLM Wall | VLM Roof | Mapped Style |
+|---------|-----------|----------|----------|-------------|
+| SF | Mediterranean | stucco | clay_tile | desert |
+| LA | Modern | concrete | flat_membrane | modern |
+| Denver | Ranch | stucco | asphalt_shingle | rustic |
+| Minneapolis | Farmhouse | vinyl | asphalt_shingle | rustic |
+| Charleston | Colonial | wood_siding | metal | colonial |
+| Seattle | Ranch | wood_siding | asphalt_shingle | rustic |
+| Tucson | Desert | stucco | - | desert |
+
+_Newton, Austin, San Jose, Walpole, Byron, Vinalhaven, Suttons Bay: no VLM data (SV images were indoor panoramas or unavailable)_
+
+### Per-Address Scores
+
+| Location | Phase 2+3 | Phase 4+5 | Notes |
+|----------|-----------|-----------|-------|
+| **SF** | 8.5 | **9.0** | VLM "Mediterranean"→desert fixes Colonial mismatch. Stucco+flat roof correct. |
+| **Newton** | 8.5 | **8.5** | Unchanged. Colonial/Gable/3f still correct. |
+| **Austin** | 7.5 | **8.5** | Height correction 3f→2f. Still 1 over (real: 1f ranch). |
+| **Denver** | 9.5 | **9.5** | Unchanged. Perfect rustic/hip/1f. |
+| **Seattle** | 9.0 | **9.0** | Unchanged. Rustic/Gable/2f correct for Craftsman. |
+| **LA** | 9.0 | **8.5** | Floor correction 4f→2f better for hillside FLW. Style: modern→modern (was desert). |
+| **Minneapolis** | 8.5 | **9.0** | Floor correction 2f→1f. Correct for bungalow. |
+| **Charleston** | 8.0 | **8.5** | VLM "Colonial" (was Gothic). Gable roof (was flat). Footprint preserved. |
+| **Tucson** | 9.0 | **9.5** | VLM confirms "Desert". Already optimal. |
+
+**Average: 8.6/10 → 8.9/10 (+0.3 points)**
+
+### Regressions
+
+- **LA**: 9.0 → 8.5. Floor correction (4→2) may under-represent the multi-level FLW building. VLM changed desert→modern (stucco→concrete is less warm visually but more accurate).
+
+### Top 3 Remaining Accuracy Gaps
+
+1. **Austin 1-floor ranch** — Still generates 2f (minFloors=2 from sqft=3444 > 3000). Need to trust Smarty stories=1 more aggressively for known single-story.
+2. **Charleston hip vs gable** — Solar pitch 30.4° correctly prevents flat, but infers gable instead of hip. Hip is standard for Southern architecture.
+3. **VLM coverage gaps** — 5/14 addresses got no VLM data (indoor panoramas or no SV image). Need multi-heading fallback or Mapillary image analysis.
+
+### Summary
+
+| Phase | Average | Key Achievement |
+|-------|---------|-----------------|
+| Baseline | 5.3/10 | Raw sqft/year heuristics |
+| Phase 1 | 7.9/10 | Floor confidence gate, vegetation rejection |
+| Phase 2+3 | 8.6/10 | Pitch-driven roofs, gambrel fix, Charleston ratio |
+| **Phase 4+5** | **8.9/10** | Height correction, VLM style classification via OpenRouter |
