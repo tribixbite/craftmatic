@@ -182,11 +182,12 @@
           "hasDriveway": false,
           "hasPath": true,
           "architectureStyle": "Mediterranean",
-          "architectureLabel": "Mediterranean apartment building with Spanish colonial influences",
+          "architectureLabel": "Multi-story Mediterranean apartment building",
           "wallMaterial": "stucco",
           "roofMaterial": "clay_tile",
-          "wallColorDesc": "white stucco with tan/beige trim",
-          "roofColorDesc": "terracotta red clay tile",
+          "roofShape": "hip",
+          "wallColorDesc": "white stucco with tan stone accents",
+          "roofColorDesc": "terra cotta red",
           "visionConfidence": "0.90"
         },
         "fieldsSet": [
@@ -201,7 +202,8 @@
           "svSetbackFeatures",
           "svArchitectureStyle",
           "svWallMaterial",
-          "svRoofMaterial"
+          "svRoofMaterial",
+          "svVlmRoofShape"
         ],
         "impactedGenFields": [
           "wallOverride",
@@ -215,7 +217,8 @@
           "features",
           "style",
           "wallOverride",
-          "roofOverride"
+          "roofOverride",
+          "roofShape"
         ]
       },
       {
@@ -717,6 +720,7 @@
           "architectureLabel": null,
           "wallMaterial": null,
           "roofMaterial": null,
+          "roofShape": null,
           "wallColorDesc": null,
           "roofColorDesc": null,
           "visionConfidence": "0.30"
@@ -733,7 +737,8 @@
           "svSetbackFeatures",
           "svArchitectureStyle",
           "svWallMaterial",
-          "svRoofMaterial"
+          "svRoofMaterial",
+          "svVlmRoofShape"
         ],
         "impactedGenFields": [
           "wallOverride",
@@ -747,7 +752,8 @@
           "features",
           "style",
           "wallOverride",
-          "roofOverride"
+          "roofOverride",
+          "roofShape"
         ]
       },
       {
@@ -944,7 +950,7 @@
         },
         "genOptions": {
           "style": "colonial",
-          "floors": 3,
+          "floors": 2,
           "width": 17,
           "length": 21,
           "seed": 783884,
@@ -965,21 +971,19 @@
         },
         "grid": {
           "width": 61,
-          "height": 20,
+          "height": 15,
           "depth": 30,
-          "blocks": 9560
+          "blocks": 7592
         },
         "views": {
           "exterior": "newton-allapis_exterior.jpg",
           "cutaway": [
             "newton-allapis_cutaway_0.jpg",
-            "newton-allapis_cutaway_1.jpg",
-            "newton-allapis_cutaway_2.jpg"
+            "newton-allapis_cutaway_1.jpg"
           ],
           "floor": [
             "newton-allapis_floor_0.jpg",
-            "newton-allapis_floor_1.jpg",
-            "newton-allapis_floor_2.jpg"
+            "newton-allapis_floor_1.jpg"
           ]
         }
       },
@@ -996,7 +1000,7 @@
         },
         "genOptions": {
           "style": "colonial",
-          "floors": 3,
+          "floors": 2,
           "width": 17,
           "length": 21,
           "seed": 783884,
@@ -1030,21 +1034,19 @@
         },
         "grid": {
           "width": 61,
-          "height": 20,
+          "height": 15,
           "depth": 30,
-          "blocks": 9753
+          "blocks": 7853
         },
         "views": {
           "exterior": "newton-enriched_exterior.jpg",
           "cutaway": [
             "newton-enriched_cutaway_0.jpg",
-            "newton-enriched_cutaway_1.jpg",
-            "newton-enriched_cutaway_2.jpg"
+            "newton-enriched_cutaway_1.jpg"
           ],
           "floor": [
             "newton-enriched_floor_0.jpg",
-            "newton-enriched_floor_1.jpg",
-            "newton-enriched_floor_2.jpg"
+            "newton-enriched_floor_1.jpg"
           ]
         }
       }
@@ -3364,11 +3366,12 @@
           "hasDriveway": false,
           "hasPath": true,
           "architectureStyle": "Modern",
-          "architectureLabel": "Mid-century Modern with decorative concrete block screen wall",
+          "architectureLabel": "Modern institutional or brutalist-influenced design with decorative concrete block patterns",
           "wallMaterial": "concrete",
           "roofMaterial": "flat_membrane",
-          "wallColorDesc": "tan/beige concrete blocks with decorative pattern",
-          "roofColorDesc": "flat white/light colored",
+          "roofShape": "flat",
+          "wallColorDesc": "tan/beige concrete blocks with geometric Greek key pattern",
+          "roofColorDesc": "light colored flat roof",
           "visionConfidence": "0.85"
         },
         "fieldsSet": [
@@ -3383,7 +3386,8 @@
           "svSetbackFeatures",
           "svArchitectureStyle",
           "svWallMaterial",
-          "svRoofMaterial"
+          "svRoofMaterial",
+          "svVlmRoofShape"
         ],
         "impactedGenFields": [
           "wallOverride",
@@ -3397,7 +3401,8 @@
           "features",
           "style",
           "wallOverride",
-          "roofOverride"
+          "roofOverride",
+          "roofShape"
         ]
       },
       {
@@ -3877,11 +3882,12 @@
           "hasDriveway": false,
           "hasPath": true,
           "architectureStyle": "Ranch",
-          "architectureLabel": "Mid-century ranch-style garage or outbuilding",
+          "architectureLabel": "Simple ranch-style garage or outbuilding",
           "wallMaterial": "wood_siding",
           "roofMaterial": "asphalt_shingle",
-          "wallColorDesc": "white wood siding",
-          "roofColorDesc": "dark gray",
+          "roofShape": "gable",
+          "wallColorDesc": "white or light gray siding",
+          "roofColorDesc": "dark gray or brown",
           "visionConfidence": "0.75"
         },
         "fieldsSet": [
@@ -3896,7 +3902,8 @@
           "svSetbackFeatures",
           "svArchitectureStyle",
           "svWallMaterial",
-          "svRoofMaterial"
+          "svRoofMaterial",
+          "svVlmRoofShape"
         ],
         "impactedGenFields": [
           "wallOverride",
@@ -3910,7 +3917,8 @@
           "features",
           "style",
           "wallOverride",
-          "roofOverride"
+          "roofOverride",
+          "roofShape"
         ]
       },
       {
@@ -4391,6 +4399,7 @@
           "architectureLabel": null,
           "wallMaterial": null,
           "roofMaterial": null,
+          "roofShape": null,
           "wallColorDesc": null,
           "roofColorDesc": null,
           "visionConfidence": "0.30"
@@ -4407,7 +4416,8 @@
           "svSetbackFeatures",
           "svArchitectureStyle",
           "svWallMaterial",
-          "svRoofMaterial"
+          "svRoofMaterial",
+          "svVlmRoofShape"
         ],
         "impactedGenFields": [
           "wallOverride",
@@ -4421,7 +4431,8 @@
           "features",
           "style",
           "wallOverride",
-          "roofOverride"
+          "roofOverride",
+          "roofShape"
         ]
       },
       {
@@ -4576,7 +4587,7 @@
         },
         "genOptions": {
           "style": "modern",
-          "floors": 2,
+          "floors": 1,
           "width": 15,
           "length": 17,
           "seed": 168895,
@@ -4594,19 +4605,17 @@
         },
         "grid": {
           "width": 59,
-          "height": 18,
+          "height": 15,
           "depth": 39,
-          "blocks": 8513
+          "blocks": 7542
         },
         "views": {
           "exterior": "austin-someapis_exterior.jpg",
           "cutaway": [
-            "austin-someapis_cutaway_0.jpg",
-            "austin-someapis_cutaway_1.jpg"
+            "austin-someapis_cutaway_0.jpg"
           ],
           "floor": [
-            "austin-someapis_floor_0.jpg",
-            "austin-someapis_floor_1.jpg"
+            "austin-someapis_floor_0.jpg"
           ]
         }
       },
@@ -4623,7 +4632,7 @@
         },
         "genOptions": {
           "style": "modern",
-          "floors": 2,
+          "floors": 1,
           "width": 15,
           "length": 17,
           "seed": 168895,
@@ -4646,17 +4655,15 @@
           "width": 57,
           "height": 15,
           "depth": 41,
-          "blocks": 7927
+          "blocks": 7315
         },
         "views": {
           "exterior": "austin-allapis_exterior.jpg",
           "cutaway": [
-            "austin-allapis_cutaway_0.jpg",
-            "austin-allapis_cutaway_1.jpg"
+            "austin-allapis_cutaway_0.jpg"
           ],
           "floor": [
-            "austin-allapis_floor_0.jpg",
-            "austin-allapis_floor_1.jpg"
+            "austin-allapis_floor_0.jpg"
           ]
         }
       },
@@ -4673,7 +4680,7 @@
         },
         "genOptions": {
           "style": "modern",
-          "floors": 2,
+          "floors": 1,
           "width": 15,
           "length": 17,
           "seed": 168895,
@@ -4709,17 +4716,15 @@
           "width": 57,
           "height": 15,
           "depth": 41,
-          "blocks": 8286
+          "blocks": 7705
         },
         "views": {
           "exterior": "austin-enriched_exterior.jpg",
           "cutaway": [
-            "austin-enriched_cutaway_0.jpg",
-            "austin-enriched_cutaway_1.jpg"
+            "austin-enriched_cutaway_0.jpg"
           ],
           "floor": [
-            "austin-enriched_floor_0.jpg",
-            "austin-enriched_floor_1.jpg"
+            "austin-enriched_floor_0.jpg"
           ]
         }
       }
@@ -4900,11 +4905,12 @@
           "hasDriveway": false,
           "hasPath": true,
           "architectureStyle": "Ranch",
-          "architectureLabel": "Mid-century Ranch style single-story home",
+          "architectureLabel": "Mid-century Ranch",
           "wallMaterial": "stucco",
           "roofMaterial": "asphalt_shingle",
-          "wallColorDesc": "light tan/beige stucco",
-          "roofColorDesc": "gray asphalt shingle",
+          "roofShape": "gable",
+          "wallColorDesc": "light beige or cream",
+          "roofColorDesc": "medium gray",
           "visionConfidence": "0.85"
         },
         "fieldsSet": [
@@ -4919,7 +4925,8 @@
           "svSetbackFeatures",
           "svArchitectureStyle",
           "svWallMaterial",
-          "svRoofMaterial"
+          "svRoofMaterial",
+          "svVlmRoofShape"
         ],
         "impactedGenFields": [
           "wallOverride",
@@ -4933,7 +4940,8 @@
           "features",
           "style",
           "wallOverride",
-          "roofOverride"
+          "roofOverride",
+          "roofShape"
         ]
       },
       {
@@ -5137,7 +5145,7 @@
           "width": 10,
           "length": 12,
           "seed": 242221,
-          "roofShape": "hip",
+          "roofShape": "gable",
           "floorPlanShape": "rect",
           "windowSpacing": 2,
           "roofHeightOverride": 2,
@@ -5185,7 +5193,7 @@
           "width": 10,
           "length": 12,
           "seed": 242221,
-          "roofShape": "hip",
+          "roofShape": "gable",
           "floorPlanShape": "rect",
           "windowSpacing": 2,
           "roofHeightOverride": 2,
@@ -5414,8 +5422,9 @@
           "architectureLabel": "Traditional two-story farmhouse",
           "wallMaterial": "vinyl",
           "roofMaterial": "asphalt_shingle",
+          "roofShape": "gable",
           "wallColorDesc": "white vinyl siding",
-          "roofColorDesc": "brown asphalt shingle",
+          "roofColorDesc": "light brown or tan",
           "visionConfidence": "0.85"
         },
         "fieldsSet": [
@@ -5430,7 +5439,8 @@
           "svSetbackFeatures",
           "svArchitectureStyle",
           "svWallMaterial",
-          "svRoofMaterial"
+          "svRoofMaterial",
+          "svVlmRoofShape"
         ],
         "impactedGenFields": [
           "wallOverride",
@@ -5444,7 +5454,8 @@
           "features",
           "style",
           "wallOverride",
-          "roofOverride"
+          "roofOverride",
+          "roofShape"
         ]
       },
       {
@@ -5925,10 +5936,11 @@
           "hasDriveway": true,
           "hasPath": false,
           "architectureStyle": "Colonial",
-          "architectureLabel": "Multi-unit Colonial Revival townhouse",
+          "architectureLabel": "Colonial Revival multi-unit residential",
           "wallMaterial": "wood_siding",
           "roofMaterial": "metal",
-          "wallColorDesc": "beige/tan horizontal siding with gray accents",
+          "roofShape": "gable",
+          "wallColorDesc": "beige horizontal siding",
           "roofColorDesc": "dark gray metal",
           "visionConfidence": "0.92"
         },
@@ -5944,7 +5956,8 @@
           "svSetbackFeatures",
           "svArchitectureStyle",
           "svWallMaterial",
-          "svRoofMaterial"
+          "svRoofMaterial",
+          "svVlmRoofShape"
         ],
         "impactedGenFields": [
           "wallOverride",
@@ -5958,7 +5971,8 @@
           "features",
           "style",
           "wallOverride",
-          "roofOverride"
+          "roofOverride",
+          "roofShape"
         ]
       },
       {
@@ -6442,12 +6456,13 @@
           "hasDriveway": true,
           "hasPath": false,
           "architectureStyle": "Desert",
-          "architectureLabel": "Desert Southwestern residential",
+          "architectureLabel": "Desert Southwest residential",
           "wallMaterial": "stucco",
-          "roofMaterial": null,
-          "wallColorDesc": "white stucco",
-          "roofColorDesc": null,
-          "visionConfidence": "0.75"
+          "roofMaterial": "flat_membrane",
+          "roofShape": "flat",
+          "wallColorDesc": "light tan stucco",
+          "roofColorDesc": "flat light colored",
+          "visionConfidence": "0.65"
         },
         "fieldsSet": [
           "svWallOverride",
@@ -6461,7 +6476,8 @@
           "svSetbackFeatures",
           "svArchitectureStyle",
           "svWallMaterial",
-          "svRoofMaterial"
+          "svRoofMaterial",
+          "svVlmRoofShape"
         ],
         "impactedGenFields": [
           "wallOverride",
@@ -6475,7 +6491,8 @@
           "features",
           "style",
           "wallOverride",
-          "roofOverride"
+          "roofOverride",
+          "roofShape"
         ]
       },
       {
