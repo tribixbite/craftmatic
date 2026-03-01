@@ -588,6 +588,7 @@ async function genFromAddress(
           property.svArchitectureStyle = svAnalysis.vision.architectureStyle ?? undefined;
           property.svWallMaterial = svAnalysis.vision.wallMaterial ?? undefined;
           property.svRoofMaterial = svAnalysis.vision.roofMaterial ?? undefined;
+          property.svVlmRoofShape = svAnalysis.vision.roofShape ?? undefined;
           property.svWallColorDescription = svAnalysis.vision.wallColorDescription ?? undefined;
           property.svRoofColorDescription = svAnalysis.vision.roofColorDescription ?? undefined;
           if (svAnalysis.vision.hasGarage && !property.hasGarage) {

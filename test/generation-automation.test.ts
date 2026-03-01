@@ -13,7 +13,7 @@ import { describe, it, expect } from 'vitest';
 import { generateStructure } from '../src/gen/generator.js';
 import { convertToGenerationOptions, type PropertyData } from '../web/src/ui/import.js';
 import {
-  estimateStoriesFromFootprint, resolveStyle, inferFeatures,
+  estimateStoriesFromFootprint, resolveStyle, inferFeatures, mapVlmRoofShape,
 } from '../src/gen/address-pipeline.js';
 import type { RoofShape, FeatureFlags, GenerationOptions } from '../src/types/index.js';
 
@@ -1191,5 +1191,85 @@ describe('windowSpacing generation', () => {
     });
     // Dense windows = more glass blocks, sparse = fewer
     expect(dense.countNonAir()).not.toBe(sparse.countNonAir());
+  });
+});
+
+// ─── mapVlmRoofShape ──────────────────────────────────────────────
+
+describe('mapVlmRoofShape', () => {
+  it('maps valid roof shapes', () => {
+    expect(mapVlmRoofShape('gable')).toBe('gable');
+    expect(mapVlmRoofShape('hip')).toBe('hip');
+    expect(mapVlmRoofShape('flat')).toBe('flat');
+    expect(mapVlmRoofShape('gambrel')).toBe('gambrel');
+    expect(mapVlmRoofShape('mansard')).toBe('mansard');
+  });
+
+  it('maps shed to gable (closest approximation)', () => {
+    expect(mapVlmRoofShape('shed')).toBe('gable');
+  });
+
+  it('returns undefined for invalid/missing values', () => {
+    expect(mapVlmRoofShape(undefined)).toBeUndefined();
+    expect(mapVlmRoofShape('')).toBeUndefined();
+    expect(mapVlmRoofShape('dome')).toBeUndefined();
+  });
+
+  it('is case-insensitive', () => {
+    expect(mapVlmRoofShape('Hip')).toBe('hip');
+    expect(mapVlmRoofShape('GABLE')).toBe('gable');
+  });
+});
+
+// ─── Floor count: Smarty stories cap ──────────────────────────────
+
+describe('Smarty stories=1 floor cap', () => {
+  it('Austin-style ranch: 3444sqft with stories=1 produces 1 floor', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      sqft: 3444,
+      propertyType: 'SINGLE_FAMILY',
+      stories: 1,
+      mapboxHeight: 10.7,
+      solarRoofPitch: 35,
+      osmWidth: 14.6,
+      osmLength: 17.4,
+      style: 'auto',
+    }));
+    expect(opts.floors).toBe(1);
+  });
+
+  it('tall multi-family still allows stories+1 tolerance', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      sqft: 8000,
+      propertyType: 'OTHER',
+      stories: 3,
+      mapboxHeight: 15,
+      style: 'auto',
+      bedrooms: 6,
+      bathrooms: 6,
+    }));
+    // OTHER + 6bed/6bath → multi-unit, stories+1 allowed
+    expect(opts.floors).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// ─── VLM roof shape in pipeline ───────────────────────────────────
+
+describe('VLM roof shape wiring', () => {
+  it('svVlmRoofShape feeds into roofShape', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      svVlmRoofShape: 'hip',
+    }));
+    expect(opts.roofShape).toBe('hip');
+  });
+
+  it('OSM roof shape takes priority over VLM', () => {
+    const opts = convertToGenerationOptions(makeProperty({
+      style: 'auto',
+      osmRoofShape: 'flat',
+      svVlmRoofShape: 'hip',
+    }));
+    expect(opts.roofShape).toBe('flat');
   });
 });

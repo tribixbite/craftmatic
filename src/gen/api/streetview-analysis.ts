@@ -99,6 +99,8 @@ export interface SvVisionAnalysis {
   wallColorDescription: string | null;
   /** Human-readable roof color description (e.g. "dark gray shingle") */
   roofColorDescription: string | null;
+  /** Roof shape from visual classification */
+  roofShape: 'gable' | 'hip' | 'flat' | 'gambrel' | 'mansard' | 'shed' | null;
   hasGarage: boolean;
   hasShutters: boolean;
   exteriorDetail: string | null;
@@ -831,6 +833,7 @@ async function analyzeWithVision(imageUrl: string): Promise<SvVisionAnalysis | n
   "architectureStyle": "Colonial"|"Victorian"|"Craftsman"|"Mediterranean"|"Ranch"|"Tudor"|"Gothic"|"Modern"|"Desert"|"Farmhouse"|"Cape Cod"|"Art Deco"|"Prairie"|"Brownstone"|null,
   "wallMaterial": "brick"|"wood_siding"|"stone"|"stucco"|"concrete"|"vinyl"|"shingle"|"clapboard"|"log"|null,
   "roofMaterial": "asphalt_shingle"|"metal"|"clay_tile"|"slate"|"wood_shake"|"flat_membrane"|null,
+  "roofShape": "gable"|"hip"|"flat"|"gambrel"|"mansard"|"shed"|null,
   "wallColorDescription": "brief color description e.g. 'white stucco', 'red brick'"|null,
   "roofColorDescription": "brief color description e.g. 'dark gray', 'terra cotta'"|null,
   "architectureLabel": "freeform style description or null",
@@ -928,6 +931,8 @@ async function analyzeWithVision(imageUrl: string): Promise<SvVisionAnalysis | n
       architectureStyle: typeof data.architectureStyle === 'string' ? data.architectureStyle : null,
       wallMaterial: typeof data.wallMaterial === 'string' ? data.wallMaterial : null,
       roofMaterial: typeof data.roofMaterial === 'string' ? data.roofMaterial : null,
+      roofShape: (['gable', 'hip', 'flat', 'gambrel', 'mansard', 'shed'].includes(data.roofShape)
+        ? data.roofShape : null) as SvVisionAnalysis['roofShape'],
       wallColorDescription: typeof data.wallColorDescription === 'string' ? data.wallColorDescription : null,
       roofColorDescription: typeof data.roofColorDescription === 'string' ? data.roofColorDescription : null,
       hasGarage: !!data.garage,

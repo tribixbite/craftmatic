@@ -220,6 +220,8 @@ export interface PropertyData {
   svWallColorDescription?: string;
   /** Human-readable roof color from VLM (e.g. "dark gray") */
   svRoofColorDescription?: string;
+  /** Roof shape from VLM visual classification (e.g. "hip", "gable") */
+  svVlmRoofShape?: string;
 
   // ─── Phase 5 P0: Vegetation & Landscape ───────────────────────────────────
   /** Tree canopy cover percentage (0–99) from NLCD (US) or WorldCover (global) */
@@ -739,6 +741,19 @@ export function inferRoofFromPitchOnly(pitch: number | undefined): RoofShape | u
 }
 
 /**
+ * Map VLM roof shape classification to our RoofShape type.
+ * VLM returns "gable"|"hip"|"flat"|"gambrel"|"mansard"|"shed"|null.
+ * "shed" maps to "gable" (closest supported approximation).
+ */
+export function mapVlmRoofShape(vlmShape: string | undefined): RoofShape | undefined {
+  if (!vlmShape) return undefined;
+  const normalized = vlmShape.toLowerCase().trim();
+  if (normalized === 'shed') return 'gable';
+  const valid: RoofShape[] = ['gable', 'hip', 'flat', 'gambrel', 'mansard'];
+  return valid.includes(normalized as RoofShape) ? (normalized as RoofShape) : undefined;
+}
+
+/**
  * Map OSM roof:material to Minecraft stair/slab blocks for roof overrides.
  * Returns {north, south, cap} override or undefined if unmapped.
  */
@@ -1218,6 +1233,12 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
       const neededFloors = Math.max(1, Math.ceil(totalSqm / footprintSqm));
       minFloors = Math.min(minFloors, Math.max(1, neededFloors));
     }
+    // When tax assessor explicitly reports stories, cap minFloors — the sqft figure
+    // often includes garage, covered porch, or non-stacking space that the assessor
+    // correctly reports as single-story. This fixes Austin ranch (3444sqft but 1-story).
+    if (prop.stories && prop.stories < minFloors) {
+      minFloors = prop.stories;
+    }
   }
   // Small-footprint floor cap: buildings with tiny OSM footprints (<150 sqm)
   // are likely ranch/bungalow-style even if sqft or Mapbox height suggest more floors.
@@ -1255,11 +1276,21 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
       }
     }
   }
-  // Cross-reference: when property records (tax assessor) significantly disagree
-  // with height-derived floors, cap at prop.stories + 1. Height data includes
-  // roof peak and terrain slope artifacts that inflate the estimate.
-  if (heightDerivedFloors && prop.stories && heightDerivedFloors > prop.stories + 1) {
-    heightDerivedFloors = prop.stories + 1;
+  // Cross-reference: when property records (tax assessor) disagree with
+  // height-derived floors, cap based on confidence in tax data. Height data
+  // includes roof peak and terrain slope artifacts that inflate the estimate.
+  // For single-family homes with stories=1, trust the assessor exactly —
+  // the height likely includes steep roof, attic, or vaulted ceilings.
+  if (heightDerivedFloors && prop.stories && heightDerivedFloors > prop.stories) {
+    const isSingleFamily = prop.propertyType === 'SINGLE_FAMILY'
+      || prop.propertyType === 'house'
+      || prop.propertyType === 'CONDO';
+    const storiesCap = (isSingleFamily && prop.stories <= 2)
+      ? prop.stories        // Trust assessor exactly for 1-2 story single-family
+      : prop.stories + 1;   // Allow +1 tolerance for taller/complex buildings
+    if (heightDerivedFloors > storiesCap) {
+      heightDerivedFloors = storiesCap;
+    }
   }
   // Only trust SV story count when confidence exceeds threshold
   const svStoriesIfConfident = (prop.svStoryConfidence ?? 0) > 0.5
@@ -1338,12 +1369,14 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   if (prop.hasGarage) rooms.push('garage');
 
   // ── Roof shape ────────────────────────────────────────────────────
-  // Priority: OSM roof:shape > Overture roof_shape > Smarty roofFrame > Solar > SV pitch
+  // Priority: OSM > Overture > Smarty > VLM visual > Solar segments > SV pitch > Solar pitch
   // When no data source provides a roof shape, leave undefined so gen-house.ts
   // uses style.defaultRoofShape (which is tuned per style) instead of a hard 'gable' fallback.
+  const vlmRoofShape = mapVlmRoofShape(prop.svVlmRoofShape);
   let roofShape: RoofShape | undefined = mapOSMRoofToShape(prop.osmRoofShape)
     ?? mapOSMRoofToShape(prop.overtureRoofShape)
     ?? inferRoofFromSmartyFrame(prop.roofFrame)
+    ?? vlmRoofShape
     ?? inferRoofFromSolar(prop.solarRoofSegments, prop.solarRoofPitch)
     ?? inferRoofFromSVPitch(prop.svRoofPitch)
     ?? inferRoofFromPitchOnly(prop.solarRoofPitch);
