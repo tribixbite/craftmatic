@@ -931,7 +931,8 @@ async function analyzeWithVision(imageUrl: string): Promise<SvVisionAnalysis | n
       architectureStyle: typeof data.architectureStyle === 'string' ? data.architectureStyle : null,
       wallMaterial: typeof data.wallMaterial === 'string' ? data.wallMaterial : null,
       roofMaterial: typeof data.roofMaterial === 'string' ? data.roofMaterial : null,
-      roofShape: (['gable', 'hip', 'flat', 'gambrel', 'mansard', 'shed'].includes(data.roofShape)
+      roofShape: (typeof data.roofShape === 'string'
+        && ['gable', 'hip', 'flat', 'gambrel', 'mansard', 'shed'].includes(data.roofShape)
         ? data.roofShape : null) as SvVisionAnalysis['roofShape'],
       wallColorDescription: typeof data.wallColorDescription === 'string' ? data.wallColorDescription : null,
       roofColorDescription: typeof data.roofColorDescription === 'string' ? data.roofColorDescription : null,
