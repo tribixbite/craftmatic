@@ -30,7 +30,14 @@
 - [x] Austin: 3f → 2f | Charleston: flat → gable
 - [x] Regen + render + CI green
 
-## Phase 5 (pending — targeting 9.0+)
-- [ ] Enable VLM with ANTHROPIC_API_KEY for comparison generation
-- [ ] Validate VLM style labels fix SF "Colonial"→"Mediterranean"
-- [ ] Re-run Gemini grading for Phase 4 improvements
+## Phase 5 (complete — 8.6/10 → 8.9/10)
+- [x] OpenRouter provider support for VLM Tier 3 (OPENROUTER_API_KEY)
+- [x] Full regen with VLM: SF "Mediterranean", LA "Modern", Charleston "Colonial"
+- [x] Regen comparison data + render images for all 14 addresses
+- [x] Grading via Claude Sonnet/Gemini (8.9/10 avg)
+
+## Phase 6 (backlog — targeting 9.5+)
+- [ ] Trust Smarty stories=1 for known single-story (Austin still 2f)
+- [ ] Charleston gable→hip: use VLM roof classification or segment geometry
+- [ ] Multi-heading SV fallback for indoor panorama addresses (5/14 missing VLM)
+- [ ] VLM floor count estimation as additional signal
