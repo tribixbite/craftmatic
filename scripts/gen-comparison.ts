@@ -106,7 +106,7 @@ interface ApiRecord {
 
 interface TierResult {
   tier: Tier;
-  property: Partial<PropertyData>;
+  property: PropertyData;
   genOptions: Partial<GenerationOptions>;
   grid: { width: number; height: number; depth: number; blocks: number };
   views: { exterior: string; cutaway: string[]; floor: string[] };
@@ -762,11 +762,7 @@ for (const { key, address } of addressesToProcess) {
 
     tierResults.push({
       tier,
-      property: {
-        sqft: prop.sqft, bedrooms: prop.bedrooms, bathrooms: prop.bathrooms,
-        yearBuilt: prop.yearBuilt, propertyType: prop.propertyType,
-        stories: prop.stories, yearUncertain: prop.yearUncertain,
-      },
+      property: prop,  // Full PropertyData for round-trip fidelity
       genOptions: {
         style: opts.style, floors: opts.floors, width: opts.width, length: opts.length,
         seed: opts.seed,

@@ -175,6 +175,9 @@ export function initImport(
   let currentCanopyHeight: CanopyHeightResult | null = null;
   /** ESA WorldCover land cover at the property */
   let currentLandCover: LandCoverResult | null = null;
+  /** JSON-imported PropertyData fields that lack dedicated current* state variables.
+   *  Merged into the constructed PropertyData at generation time for round-trip fidelity. */
+  let importedPropertyOverrides: Partial<PropertyData> | null = null;
   /** Pre-lookup form defaults — restored when APIs that populated fields are toggled off */
   let preLookupDefaults = {
     stories: 2, sqft: 2000, bedrooms: 3, bathrooms: 2, yearBuilt: 2000, propertyType: 'house',
@@ -412,19 +415,97 @@ export function initImport(
       <div class="customize-body">
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Garage Sq Ft</label>
-            <input id="import-garage-sqft" type="number" class="form-input" placeholder="0" min="0" max="5000">
+            <label class="form-label">Roof Material</label>
+            <select id="import-roof-type" class="form-select">
+              <option value="">Unknown</option>
+              <option value="Asphalt Shingle">Asphalt Shingle</option>
+              <option value="Metal">Metal</option>
+              <option value="Clay Tile">Clay Tile</option>
+              <option value="Slate">Slate</option>
+              <option value="Wood Shake">Wood Shake</option>
+              <option value="Flat Membrane">Flat Membrane</option>
+            </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Fireplaces</label>
-            <input id="import-fireplace-count" type="number" class="form-input" placeholder="0" min="0" max="10">
+            <label class="form-label">Exterior Walls</label>
+            <select id="import-exterior-type" class="form-select">
+              <option value="">Unknown</option>
+              <option value="Wood">Wood</option>
+              <option value="Brick">Brick</option>
+              <option value="Stone">Stone</option>
+              <option value="Stucco">Stucco</option>
+              <option value="Vinyl">Vinyl</option>
+              <option value="Concrete">Concrete</option>
+              <option value="Metal">Metal</option>
+            </select>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
+            <label class="form-label">Construction</label>
+            <select id="import-construction" class="form-select">
+              <option value="">Unknown</option>
+              <option value="Frame">Frame</option>
+              <option value="Masonry">Masonry</option>
+              <option value="Concrete">Concrete</option>
+              <option value="Steel">Steel</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Foundation</label>
+            <select id="import-foundation" class="form-select">
+              <option value="">Unknown</option>
+              <option value="Slab">Slab</option>
+              <option value="Crawl Space">Crawl Space</option>
+              <option value="Basement">Basement</option>
+              <option value="Pier">Pier</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Roof Frame</label>
+            <select id="import-roof-frame" class="form-select">
+              <option value="">Unknown</option>
+              <option value="Gable">Gable</option>
+              <option value="Hip">Hip</option>
+              <option value="Flat">Flat</option>
+              <option value="Gambrel">Gambrel</option>
+              <option value="Mansard">Mansard</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Driveway</label>
+            <select id="import-driveway" class="form-select">
+              <option value="">Unknown</option>
+              <option value="Asphalt">Asphalt</option>
+              <option value="Concrete">Concrete</option>
+              <option value="Gravel">Gravel</option>
+              <option value="None">None</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Lot Size (sqft)</label>
+            <input id="import-lot-size" type="number" class="form-input" placeholder="0" min="0" max="500000">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Garage Sq Ft</label>
+            <input id="import-garage-sqft" type="number" class="form-input" placeholder="0" min="0" max="5000">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Fireplaces</label>
+            <input id="import-fireplace-count" type="number" class="form-input" placeholder="0" min="0" max="10">
+          </div>
+          <div class="form-group">
             <label class="form-label">Total Rooms</label>
             <input id="import-total-rooms" type="number" class="form-input" placeholder="0" min="0" max="50">
           </div>
+        </div>
+        <div class="form-row">
           <div class="form-group">
             <label class="form-label">Heating Fuel</label>
             <select id="import-heating-fuel" class="form-select">
@@ -436,8 +517,6 @@ export function initImport(
               <option value="Wood">Wood</option>
             </select>
           </div>
-        </div>
-        <div class="form-row">
           <div class="form-group">
             <label class="form-label">AC Type</label>
             <select id="import-ac-type" class="form-select">
@@ -447,6 +526,8 @@ export function initImport(
               <option value="None">None</option>
             </select>
           </div>
+        </div>
+        <div class="form-row">
           <div class="form-group">
             <label class="form-label">Heating System</label>
             <select id="import-heating-system" class="form-select">
@@ -457,6 +538,7 @@ export function initImport(
               <option value="Heat Pump">Heat Pump</option>
             </select>
           </div>
+          <div class="form-group"></div>
         </div>
       </div>
     </details>
@@ -472,9 +554,14 @@ export function initImport(
         </svg>
         Import &amp; Generate
       </button>
-      <button id="import-json-btn" class="btn btn-secondary btn-full btn-sm">
-        Import from JSON
-      </button>
+      <div style="display:flex;gap:6px;">
+        <button id="import-json-btn" class="btn btn-secondary btn-sm" style="flex:1;">
+          Import JSON
+        </button>
+        <button id="import-export-json-btn" class="btn btn-secondary btn-sm" style="flex:1;">
+          Export JSON
+        </button>
+      </div>
       <input type="file" id="import-json-file" accept=".json,application/json" hidden>
       <div id="import-info" class="info-panel" hidden></div>
     </div>
@@ -486,6 +573,7 @@ export function initImport(
   const statusEl = controls.querySelector('#import-status') as HTMLElement;
   const generateBtn = controls.querySelector('#import-generate') as HTMLButtonElement;
   const jsonImportBtn = controls.querySelector('#import-json-btn') as HTMLButtonElement;
+  const jsonExportBtn = controls.querySelector('#import-export-json-btn') as HTMLButtonElement;
   const jsonFileInput = controls.querySelector('#import-json-file') as HTMLInputElement;
   const infoPanel = controls.querySelector('#import-info') as HTMLElement;
   const floorPlanDrop = controls.querySelector('#import-floorplan-drop') as HTMLElement;
@@ -511,6 +599,13 @@ export function initImport(
   const enrichBody = controls.querySelector('#import-enrichment-body') as HTMLElement;
   const enrichBadge = controls.querySelector('#import-enrich-badge') as HTMLElement;
   // Advanced property detail inputs
+  const roofTypeSelect = controls.querySelector('#import-roof-type') as HTMLSelectElement;
+  const exteriorTypeSelect = controls.querySelector('#import-exterior-type') as HTMLSelectElement;
+  const constructionSelect = controls.querySelector('#import-construction') as HTMLSelectElement;
+  const foundationSelect = controls.querySelector('#import-foundation') as HTMLSelectElement;
+  const roofFrameSelect = controls.querySelector('#import-roof-frame') as HTMLSelectElement;
+  const drivewaySelect = controls.querySelector('#import-driveway') as HTMLSelectElement;
+  const lotSizeInput = controls.querySelector('#import-lot-size') as HTMLInputElement;
   const garageSqftInput = controls.querySelector('#import-garage-sqft') as HTMLInputElement;
   const fireplaceCountInput = controls.querySelector('#import-fireplace-count') as HTMLInputElement;
   const totalRoomsInput = controls.querySelector('#import-total-rooms') as HTMLInputElement;
@@ -599,6 +694,9 @@ export function initImport(
 
     // Run geocoding, Parcl API, and Smarty lookup in parallel
     showStatus('Looking up property...', 'loading');
+
+    // Clear JSON import overrides — fresh API data takes priority
+    importedPropertyOverrides = null;
 
     // Snapshot form defaults before API data overwrites them — used at generation
     // time to restore original values when an API's toggle is disabled
@@ -1324,6 +1422,22 @@ export function initImport(
     jsonFileInput.value = '';
   });
 
+  // Export JSON — exports current enrichment state as PropertyData without requiring generation
+  jsonExportBtn.addEventListener('click', () => {
+    const property = buildCurrentPropertyData();
+    const blob = new Blob(
+      [JSON.stringify({ property }, null, 2)],
+      { type: 'application/json' },
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const slug = (property.address || 'export').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60);
+    a.download = `${slug}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
   /** Populate form fields and enrichment state from imported JSON.
    *  Accepts either { property, genOptions } or a raw PropertyData object. */
   function populateFromJSON(json: Record<string, unknown>): void {
@@ -1562,6 +1676,42 @@ export function initImport(
     if (prop.heatingFuelType) heatingFuelSelect.value = String(prop.heatingFuelType);
     if (prop.airConditioningType) acTypeSelect.value = String(prop.airConditioningType);
     if (prop.heatingSystemType) heatingSystemSelect.value = String(prop.heatingSystemType);
+    // New advanced fields
+    if (prop.roofType) roofTypeSelect.value = String(prop.roofType);
+    if (prop.exteriorType) exteriorTypeSelect.value = String(prop.exteriorType);
+    if (prop.constructionType) constructionSelect.value = String(prop.constructionType);
+    if (prop.foundation) foundationSelect.value = String(prop.foundation);
+    if (prop.roofFrame) roofFrameSelect.value = String(prop.roofFrame);
+    if (prop.drivewayType) drivewaySelect.value = String(prop.drivewayType);
+    if (prop.lotSize) lotSizeInput.value = String(prop.lotSize);
+
+    // Store PropertyData fields that lack dedicated UI/state variables as overrides.
+    // These get merged back into the PropertyData during generation for round-trip fidelity.
+    const overrideKeys: (keyof PropertyData)[] = [
+      // SV structure analysis (CLI-only — no browser source)
+      'svStoryCount', 'svStoryConfidence', 'svTextureClass', 'svTextureBlock',
+      'svRoofPitch', 'svRoofHeightOverride', 'svSymmetric', 'svPlanShape',
+      'svWindowsPerFloor', 'svWindowSpacing', 'svSetbackFeatures',
+      // SV vision (VLM Tier 3)
+      'svDoorOverride', 'svFeatures', 'svArchitectureLabel', 'svArchitectureStyle',
+      'svWallMaterial', 'svRoofMaterial', 'svWallColorDescription', 'svRoofColorDescription',
+      'svVlmRoofShape',
+      // Mapillary features
+      'mapillaryImageUrl', 'mapillaryHeading', 'mapillaryCaptureDate',
+      'mapillaryHasDriveway', 'mapillaryHasFence',
+      // Satellite footprint, terrain, misc
+      'terrainSlope', 'satFootprintWidth', 'satFootprintLength', 'satFootprintConfidence',
+      'newConstruction', 'hasPool', 'floorPlanShape', 'osmArchitecture',
+    ];
+    const overrides: Partial<PropertyData> = {};
+    for (const key of overrideKeys) {
+      if (prop[key] !== undefined && prop[key] !== null) {
+        (overrides as Record<string, unknown>)[key] = prop[key];
+      }
+    }
+    if (Object.keys(overrides).length > 0) {
+      importedPropertyOverrides = overrides;
+    }
 
     // Update enrichment panel with restored data
     updateEnrichmentPanel();
@@ -1581,16 +1731,10 @@ export function initImport(
     return enabled;
   }
 
-  async function doGenerate(): Promise<void> {
-    // Ensure SV color analysis has completed before using results
-    if (svAnalysisPromise) {
-      generateBtn.disabled = true;
-      await svAnalysisPromise;
-      svAnalysisPromise = null;
-      generateBtn.disabled = false;
-    }
-
-    // Read which API sources are enabled for this generation
+  /** Build PropertyData from current form values and enrichment state.
+   *  Shared by doGenerate() and Export JSON. */
+  function buildCurrentPropertyData(): PropertyData {
+    // Read which API sources are enabled
     const apis = getEnabledApis();
     const useParcl = apis.has('parcl');
     const useSmarty = apis.has('smarty');
@@ -1674,10 +1818,10 @@ export function initImport(
       geocoding: currentGeocoding ?? undefined,
       season: currentSeason,
       newConstruction: parcl?.newConstruction ?? yearVal >= 2020,
-      lotSize: smarty?.lotSqft || undefined,
-      exteriorType: smarty?.exteriorWalls || undefined,
+      lotSize: parseInt(lotSizeInput.value) || smarty?.lotSqft || undefined,
+      exteriorType: exteriorTypeSelect.value || smarty?.exteriorWalls || undefined,
       wallOverride: wall,
-      roofType: smarty?.roofCover || undefined,
+      roofType: roofTypeSelect.value || smarty?.roofCover || undefined,
       architectureType: smarty?.structureStyle || undefined,
       detectedColor: currentDetectedColor,
       osmWidth: osm?.widthBlocks,
@@ -1691,15 +1835,15 @@ export function initImport(
       osmArchitecture: osm?.tags?.['building:architecture'],
       hasGarage: smarty?.hasGarage,
       // Smarty assessor amenities
-      constructionType: smarty?.constructionType || undefined,
-      foundation: smarty?.foundation || undefined,
-      roofFrame: smarty?.roofFrame || undefined,
+      constructionType: constructionSelect.value || smarty?.constructionType || undefined,
+      foundation: foundationSelect.value || smarty?.foundation || undefined,
+      roofFrame: roofFrameSelect.value || smarty?.roofFrame || undefined,
       hasFireplace: smarty?.hasFireplace || undefined,
       hasDeck: smarty?.hasDeck || undefined,
       smartyHasPorch: smarty?.hasPorch || undefined,
       smartyHasPool: smarty?.hasPool || undefined,
       smartyHasFence: smarty?.hasFence || undefined,
-      drivewayType: smarty?.drivewayType || undefined,
+      drivewayType: drivewaySelect.value || smarty?.drivewayType || undefined,
       assessedValue: smarty?.assessedValue || undefined,
       hasPool: currentPoolDetected,
       floorPlanShape: osm?.polygon
@@ -1799,6 +1943,30 @@ export function initImport(
       landCoverClass: useLandCover ? currentLandCover?.classValue ?? undefined : undefined,
       landCoverLabel: useLandCover ? currentLandCover?.label ?? undefined : undefined,
     };
+
+    // Merge JSON-imported fields not covered by form/current* state (SV structure,
+    // VLM vision, Mapillary features, satellite footprint, terrain, etc.)
+    if (importedPropertyOverrides) {
+      for (const [key, val] of Object.entries(importedPropertyOverrides)) {
+        if (val !== undefined && (property as Record<string, unknown>)[key] === undefined) {
+          (property as Record<string, unknown>)[key] = val;
+        }
+      }
+    }
+
+    return property;
+  }
+
+  async function doGenerate(): Promise<void> {
+    // Ensure SV color analysis has completed before using results
+    if (svAnalysisPromise) {
+      generateBtn.disabled = true;
+      await svAnalysisPromise;
+      svAnalysisPromise = null;
+      generateBtn.disabled = false;
+    }
+
+    const property = buildCurrentPropertyData();
 
     const options = convertToGenerationOptions(property);
     const grid = generateStructure(options);
