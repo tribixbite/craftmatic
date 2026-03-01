@@ -36,8 +36,18 @@
 - [x] Regen comparison data + render images for all 14 addresses
 - [x] Grading via Claude Sonnet/Gemini (8.9/10 avg)
 
-## Phase 6 (backlog — targeting 9.5+)
-- [ ] Trust Smarty stories=1 for known single-story (Austin still 2f)
-- [ ] Charleston gable→hip: use VLM roof classification or segment geometry
+## Phase 6 (complete — floor cap + VLM roofShape)
+- [x] Discrepancy-based stories cap: trust assessor exactly for ≤1 gap (Austin 2f→1f)
+- [x] minFloors capped to prop.stories when assessor data available
+- [x] VLM roofShape field added to Tier 3 prompt (gable/hip/flat/gambrel/mansard/shed)
+- [x] VLM roofShape wired through CLI + comparison + roof priority chain
+- [x] Fix mapArchitectureToStyle missing "desert"/"brownstone" regex patterns
+- [x] Regen comparison data + render images for all 14 addresses
+- [ ] Charleston gable→hip: VLM returns gable (front-view limitation)
+- [ ] Newton 3f→2f: Mapbox 7.5m with roof correction gives 1f, minFloors=2 caps to 2f
+
+## Phase 7 (backlog — targeting 9.5+)
 - [ ] Multi-heading SV fallback for indoor panorama addresses (5/14 missing VLM)
 - [ ] VLM floor count estimation as additional signal
+- [ ] Charleston hip: multi-angle VLM or Solar segment geometry cross-ref
+- [ ] Improved roof correction for wide buildings (estSpan from sqft is unreliable)

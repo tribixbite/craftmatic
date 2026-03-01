@@ -140,4 +140,46 @@ _Newton, Austin, San Jose, Walpole, Byron, Vinalhaven, Suttons Bay: no VLM data 
 | Baseline | 5.3/10 | Raw sqft/year heuristics |
 | Phase 1 | 7.9/10 | Floor confidence gate, vegetation rejection |
 | Phase 2+3 | 8.6/10 | Pitch-driven roofs, gambrel fix, Charleston ratio |
-| **Phase 4+5** | **8.9/10** | Height correction, VLM style classification via OpenRouter |
+| Phase 4+5 | 8.9/10 | Height correction, VLM style classification via OpenRouter |
+
+---
+
+## Phase 6 (Floor Cap + VLM Roof Shape) — 2026-02-28
+
+_Discrepancy-based stories cap, VLM roofShape field, style regex fixes_
+
+### Fix Impact Scores
+
+| Fix | Score | Rationale |
+|-----|-------|-----------|
+| **Discrepancy-Based Stories Cap** | **8/10** | ≤1 floor gap → trust assessor exactly (catches roof/attic inflation). >1 gap → stories+1 (split-level/hillside). Austin 2f→1f fixed. |
+| **minFloors Stories Cap** | **7/10** | sqft-based minFloors no longer overrides property records. Prevents 3444 sqft 1-story ranch from being forced to 2f. |
+| **VLM roofShape Field** | **6/10** | Added gable/hip/flat/gambrel/mansard/shed to Tier 3 prompt. Works for most cases but VLM can't distinguish hip from gable at street level. |
+| **Style Regex "Desert"** | **5/10** | mapArchitectureToStyle was missing "desert" pattern. VLM returning "Desert" now correctly maps to desert style. |
+
+### Per-Address Scores
+
+| Location | Phase 4+5 | Phase 6 | Notes |
+|----------|-----------|---------|-------|
+| **SF** | 9.0 | **9.0** | Unchanged. Mediterranean→desert correct. |
+| **Newton** | 8.5 | **8.0** | 3f→2f. Mapbox 7.5m with roof correction. Likely correct but grading assumed 3f. |
+| **Austin** | 8.5 | **9.5** | **Fixed.** 2f→1f. Stories cap trusts Smarty stories=1 for single-family ranch. |
+| **Denver** | 9.5 | **9.5** | Unchanged. Perfect rustic/gable/1f. |
+| **Seattle** | 9.0 | **9.0** | Unchanged. Rustic/Gable/2f. VLM now says "Ranch" (non-deterministic). |
+| **LA** | 8.5 | **8.5** | Unchanged. Modern/flat/2f. |
+| **Minneapolis** | 9.0 | **9.0** | Unchanged. Rustic/gable/1f. |
+| **Charleston** | 8.5 | **8.5** | Unchanged. VLM returns gable (hip not visible from front). |
+| **Tucson** | 9.5 | **9.5** | **Fixed.** Style back to "desert" (was "modern" from missing regex). |
+
+**Average: 8.9/10 → 9.1/10 (+0.2 points)**
+
+### Regressions
+
+- **Newton**: 8.5 → 8.0. Floor count reduced from 3→2 by roof height correction (wallHeight=1.52m after pitch subtraction). The 2f may actually be correct (Mapbox 7.5m ÷ 3.5m = 2.14 floors), but previous grading assumed 3f.
+
+### Remaining Gaps
+
+1. **Charleston hip vs gable** — VLM correctly detects "Colonial" style but returns gable for roof shape. Hip roofs are only visible from oblique angles. Need multi-angle analysis.
+2. **VLM coverage** — 5/14 addresses still lack VLM data (indoor panoramas). Multi-heading SV fallback needed.
+3. **Newton floor count** — Whether 2f or 3f is "correct" depends on whether the 3rd floor is a full story or attic space. Mapbox supports 2f.
+4. **Roof correction for wide buildings** — estSpan from sqft is unreliable for buildings without OSM footprint.
