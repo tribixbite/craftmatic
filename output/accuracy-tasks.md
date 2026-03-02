@@ -46,6 +46,17 @@
 - [ ] Charleston gable→hip: VLM returns gable (front-view limitation)
 - [ ] Newton 3f→2f: Mapbox 7.5m with roof correction gives 1f, minFloors=2 caps to 2f
 
+## Data Audit (complete — JSON fidelity)
+- [x] Full PropertyData stored in comparison JSON (was 7 fields, now 19-61)
+- [x] resolvedPalette stored in genOptions (was missing — SV color data not serialized)
+- [x] Comparison UI: notes row shows wall/roofMat from resolvedPalette
+- [x] Comparison UI: generateForTier() passes resolvedPalette/landscape/orientation/season
+- [x] All 14 addresses verified: svWallOverride → resolvedPalette.wall correctly propagated
+- [x] Import tab JSON round-trip: importedPropertyOverrides for all non-form fields
+- [x] Generate tab: roofShape, floorPlanShape, features, season, JSON import/export
+- [x] All 14 addresses re-rendered at tile=10 (was: only 3 at tile=10, 11 at tile=8)
+- [x] VLM non-determinism resolved: full regen produces consistent JSON + images in single pass
+
 ## Phase 7 (backlog — targeting 9.5+)
 - [ ] Multi-heading SV fallback for indoor panorama addresses (5/14 missing VLM)
 - [ ] VLM floor count estimation as additional signal

@@ -187,7 +187,7 @@
           "roofMaterial": "clay_tile",
           "roofShape": "flat",
           "wallColorDesc": "white stucco with tan/beige accents",
-          "roofColorDesc": "terracotta red clay tiles",
+          "roofColorDesc": "reddish-brown clay tile",
           "visionConfidence": "0.90"
         },
         "fieldsSet": [
@@ -571,7 +571,7 @@
               "lon": -122.4437914
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_oCMJlYprrwAzlcpYwR1R1mYg6KZPreHjnzIjeGvsfFS2j2SvO8IffnsI-cIkFjuqwHwqlmQEUMfq-8ezkNHHd2fe0VC0CTQdQeAlWiEKHovwqhA1xnqpigFxmWD7GnXQBXDeWKXUky77iqk2CwA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=m7TQv4oHHAcFdilGlqks1Q&_nc_oc=AdkPElbcdVCdbljIMbfGn4xvp8QcWcs8fVIIeAkjYv3OfK_TZXFWeJV9ixVXkYUt8lU&ccb=10-5&oh=00_AfyXbTHbp0bpqx2v918vyac98qeIZQsNYZWuXx6XS3CDBg&oe=69CCA47F&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_oCMJlYprrwAzlcpYwR1R1mYg6KZPreHjnzIjeGvsfFS2j2SvO8IffnsI-cIkFjuqwHwqlmQEUMfq-8ezkNHHd2fe0VC0CTQdQeAlWiEKHovwqhA1xnqpigFxmWD7GnXQBXDeWKXUky77iqk2CwA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=9ln9p1HgKCBdee_uvPBvgQ&_nc_oc=AdkPElbcdVCdbljIMbfGn4xvp8QcWcs8fVIIeAkjYv3OfK_TZXFWeJV9ixVXkYUt8lU&ccb=10-5&oh=00_AfzgfGqTQwdoBMJsBaliidRdVeLgfGQiOlPU55Gj6XU8KQ&oe=69CD14FF&_nc_sid=201bca",
           "mapillaryHeading": 77.324843896323,
           "mapillaryCaptureDate": "2023-04-02",
           "mapillaryHasDriveway": true,
@@ -827,7 +827,7 @@
               "lon": -122.4437914
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_oCMJlYprrwAzlcpYwR1R1mYg6KZPreHjnzIjeGvsfFS2j2SvO8IffnsI-cIkFjuqwHwqlmQEUMfq-8ezkNHHd2fe0VC0CTQdQeAlWiEKHovwqhA1xnqpigFxmWD7GnXQBXDeWKXUky77iqk2CwA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=m7TQv4oHHAcFdilGlqks1Q&_nc_oc=AdkPElbcdVCdbljIMbfGn4xvp8QcWcs8fVIIeAkjYv3OfK_TZXFWeJV9ixVXkYUt8lU&ccb=10-5&oh=00_AfyXbTHbp0bpqx2v918vyac98qeIZQsNYZWuXx6XS3CDBg&oe=69CCA47F&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_oCMJlYprrwAzlcpYwR1R1mYg6KZPreHjnzIjeGvsfFS2j2SvO8IffnsI-cIkFjuqwHwqlmQEUMfq-8ezkNHHd2fe0VC0CTQdQeAlWiEKHovwqhA1xnqpigFxmWD7GnXQBXDeWKXUky77iqk2CwA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=9ln9p1HgKCBdee_uvPBvgQ&_nc_oc=AdkPElbcdVCdbljIMbfGn4xvp8QcWcs8fVIIeAkjYv3OfK_TZXFWeJV9ixVXkYUt8lU&ccb=10-5&oh=00_AfzgfGqTQwdoBMJsBaliidRdVeLgfGQiOlPU55Gj6XU8KQ&oe=69CD14FF&_nc_sid=201bca",
           "mapillaryHeading": 77.324843896323,
           "mapillaryCaptureDate": "2023-04-02",
           "mapillaryHasDriveway": true,
@@ -873,7 +873,7 @@
           "svRoofMaterial": "clay_tile",
           "svVlmRoofShape": "flat",
           "svWallColorDescription": "white stucco with tan/beige accents",
-          "svRoofColorDescription": "terracotta red clay tiles",
+          "svRoofColorDescription": "reddish-brown clay tile",
           "hasGarage": true
         },
         "genOptions": {
@@ -1128,7 +1128,7 @@
               "lon": -122.4437914
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_oCMJlYprrwAzlcpYwR1R1mYg6KZPreHjnzIjeGvsfFS2j2SvO8IffnsI-cIkFjuqwHwqlmQEUMfq-8ezkNHHd2fe0VC0CTQdQeAlWiEKHovwqhA1xnqpigFxmWD7GnXQBXDeWKXUky77iqk2CwA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=m7TQv4oHHAcFdilGlqks1Q&_nc_oc=AdkPElbcdVCdbljIMbfGn4xvp8QcWcs8fVIIeAkjYv3OfK_TZXFWeJV9ixVXkYUt8lU&ccb=10-5&oh=00_AfyXbTHbp0bpqx2v918vyac98qeIZQsNYZWuXx6XS3CDBg&oe=69CCA47F&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_oCMJlYprrwAzlcpYwR1R1mYg6KZPreHjnzIjeGvsfFS2j2SvO8IffnsI-cIkFjuqwHwqlmQEUMfq-8ezkNHHd2fe0VC0CTQdQeAlWiEKHovwqhA1xnqpigFxmWD7GnXQBXDeWKXUky77iqk2CwA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=9ln9p1HgKCBdee_uvPBvgQ&_nc_oc=AdkPElbcdVCdbljIMbfGn4xvp8QcWcs8fVIIeAkjYv3OfK_TZXFWeJV9ixVXkYUt8lU&ccb=10-5&oh=00_AfzgfGqTQwdoBMJsBaliidRdVeLgfGQiOlPU55Gj6XU8KQ&oe=69CD14FF&_nc_sid=201bca",
           "mapillaryHeading": 77.324843896323,
           "mapillaryCaptureDate": "2023-04-02",
           "mapillaryHasDriveway": true,
@@ -1174,7 +1174,7 @@
           "svRoofMaterial": "clay_tile",
           "svVlmRoofShape": "flat",
           "svWallColorDescription": "white stucco with tan/beige accents",
-          "svRoofColorDescription": "terracotta red clay tiles",
+          "svRoofColorDescription": "reddish-brown clay tile",
           "hasGarage": true,
           "canopyCoverPct": 0,
           "hardinessZone": "10b",
@@ -1811,7 +1811,7 @@
               "lon": -71.2213197
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9XvpmJWCQw9qniyNosl_jPDaSAJQhDhbErADcaY8azPw7W89Jh1GbX_y5_bj5tmLtt3cxRzMeupk7JIEpMcL8c37NeJi00WR-ko3-1p7-LnbBuk8ieq2xpyri1-niHb8IGu8QqRmVNV28Dji9Wwus?stp=s1024x512&edm=AOnQwmMEAAAA&_nc_gid=6lHjENmRZSvhTWwla4SSug&_nc_oc=AdmwyJouS8Id3en3VpsYT_RF2l3gVsdpYGSfgmtdVH6hlCOcIL7ZMa8AzMs4Te7FSGI&ccb=10-5&oh=00_Afw_smGuhQqYBnNlWOZSW1tlucDpXLjKw_764uBjVNQQkw&oe=69CCC4CD&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9XvpmJWCQw9qniyNosl_jPDaSAJQhDhbErADcaY8azPw7W89Jh1GbX_y5_bj5tmLtt3cxRzMeupk7JIEpMcL8c37NeJi00WR-ko3-1p7-LnbBuk8ieq2xpyri1-niHb8IGu8QqRmVNV28Dji9Wwus?stp=s1024x512&edm=AOnQwmMEAAAA&_nc_gid=gRFbs-978WZaUKSBhtn1ZQ&_nc_oc=AdnbQvw6DMsG2sO7UYV3oUv8_V2NuNNxAGMg3NsQoMgp0kg_dzXyepOYjdYinWWBdyk&ccb=10-5&oh=00_AfzmbpjkuTZJwcFiRwOZRWLwRBVJ1D4shVWMT7P6DOfJ-g&oe=69CCFD0D&_nc_sid=201bca",
           "mapillaryHeading": 0.7153233296703,
           "mapillaryCaptureDate": "2025-05-29",
           "mapillaryHasDriveway": true,
@@ -2000,7 +2000,7 @@
               "lon": -71.2213197
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9XvpmJWCQw9qniyNosl_jPDaSAJQhDhbErADcaY8azPw7W89Jh1GbX_y5_bj5tmLtt3cxRzMeupk7JIEpMcL8c37NeJi00WR-ko3-1p7-LnbBuk8ieq2xpyri1-niHb8IGu8QqRmVNV28Dji9Wwus?stp=s1024x512&edm=AOnQwmMEAAAA&_nc_gid=6lHjENmRZSvhTWwla4SSug&_nc_oc=AdmwyJouS8Id3en3VpsYT_RF2l3gVsdpYGSfgmtdVH6hlCOcIL7ZMa8AzMs4Te7FSGI&ccb=10-5&oh=00_Afw_smGuhQqYBnNlWOZSW1tlucDpXLjKw_764uBjVNQQkw&oe=69CCC4CD&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9XvpmJWCQw9qniyNosl_jPDaSAJQhDhbErADcaY8azPw7W89Jh1GbX_y5_bj5tmLtt3cxRzMeupk7JIEpMcL8c37NeJi00WR-ko3-1p7-LnbBuk8ieq2xpyri1-niHb8IGu8QqRmVNV28Dji9Wwus?stp=s1024x512&edm=AOnQwmMEAAAA&_nc_gid=gRFbs-978WZaUKSBhtn1ZQ&_nc_oc=AdnbQvw6DMsG2sO7UYV3oUv8_V2NuNNxAGMg3NsQoMgp0kg_dzXyepOYjdYinWWBdyk&ccb=10-5&oh=00_AfzmbpjkuTZJwcFiRwOZRWLwRBVJ1D4shVWMT7P6DOfJ-g&oe=69CCFD0D&_nc_sid=201bca",
           "mapillaryHeading": 0.7153233296703,
           "mapillaryCaptureDate": "2025-05-29",
           "mapillaryHasDriveway": true,
@@ -2226,7 +2226,7 @@
               "lon": -71.2213197
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9XvpmJWCQw9qniyNosl_jPDaSAJQhDhbErADcaY8azPw7W89Jh1GbX_y5_bj5tmLtt3cxRzMeupk7JIEpMcL8c37NeJi00WR-ko3-1p7-LnbBuk8ieq2xpyri1-niHb8IGu8QqRmVNV28Dji9Wwus?stp=s1024x512&edm=AOnQwmMEAAAA&_nc_gid=6lHjENmRZSvhTWwla4SSug&_nc_oc=AdmwyJouS8Id3en3VpsYT_RF2l3gVsdpYGSfgmtdVH6hlCOcIL7ZMa8AzMs4Te7FSGI&ccb=10-5&oh=00_Afw_smGuhQqYBnNlWOZSW1tlucDpXLjKw_764uBjVNQQkw&oe=69CCC4CD&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9XvpmJWCQw9qniyNosl_jPDaSAJQhDhbErADcaY8azPw7W89Jh1GbX_y5_bj5tmLtt3cxRzMeupk7JIEpMcL8c37NeJi00WR-ko3-1p7-LnbBuk8ieq2xpyri1-niHb8IGu8QqRmVNV28Dji9Wwus?stp=s1024x512&edm=AOnQwmMEAAAA&_nc_gid=gRFbs-978WZaUKSBhtn1ZQ&_nc_oc=AdnbQvw6DMsG2sO7UYV3oUv8_V2NuNNxAGMg3NsQoMgp0kg_dzXyepOYjdYinWWBdyk&ccb=10-5&oh=00_AfzmbpjkuTZJwcFiRwOZRWLwRBVJ1D4shVWMT7P6DOfJ-g&oe=69CCFD0D&_nc_sid=201bca",
           "mapillaryHeading": 0.7153233296703,
           "mapillaryCaptureDate": "2025-05-29",
           "mapillaryHasDriveway": true,
@@ -3672,7 +3672,7 @@
               }
             ]
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_A26s6vO5mB8bY6MwBcXo4GsgpADGi2-QppbrsubfeTvd7LhUF5FT4QiDXhcE2vOKdEmAELu6zIyKrFMRYdolSyKXvrJkIaE3WVj3yLJ5MteEp0pCdye9wjhoKpN7S6jRt2KJ5V0BmQe4Eob9XDx8?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=x4eEh9_LTE7Hor4jQ_YrNA&_nc_oc=AdlgeDhfosAz7ZZvA5GpM6RYLWxAPXmlahBBnFuY2d8H7nomy9m-qTt1wr3zQsIPBhk&ccb=10-5&oh=00_AfyjUNzVomh9-abJGcxnpfbSUfyIDYFOGInbwEr_pwgC9w&oe=69CCAA8C&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_A26s6vO5mB8bY6MwBcXo4GsgpADGi2-QppbrsubfeTvd7LhUF5FT4QiDXhcE2vOKdEmAELu6zIyKrFMRYdolSyKXvrJkIaE3WVj3yLJ5MteEp0pCdye9wjhoKpN7S6jRt2KJ5V0BmQe4Eob9XDx8?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=2OdLwF4poq4SXxQpOhFtmQ&_nc_oc=AdlgeDhfosAz7ZZvA5GpM6RYLWxAPXmlahBBnFuY2d8H7nomy9m-qTt1wr3zQsIPBhk&ccb=10-5&oh=00_Afwjy43waJuegzmjSrfmCFsJu5hCGDml27zfD01uBLdqeg&oe=69CD1B0C&_nc_sid=201bca",
           "mapillaryHeading": 87.200477600098,
           "mapillaryCaptureDate": "2018-08-16",
           "mapillaryHasDriveway": true,
@@ -4701,7 +4701,7 @@
               }
             ]
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_A26s6vO5mB8bY6MwBcXo4GsgpADGi2-QppbrsubfeTvd7LhUF5FT4QiDXhcE2vOKdEmAELu6zIyKrFMRYdolSyKXvrJkIaE3WVj3yLJ5MteEp0pCdye9wjhoKpN7S6jRt2KJ5V0BmQe4Eob9XDx8?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=x4eEh9_LTE7Hor4jQ_YrNA&_nc_oc=AdlgeDhfosAz7ZZvA5GpM6RYLWxAPXmlahBBnFuY2d8H7nomy9m-qTt1wr3zQsIPBhk&ccb=10-5&oh=00_AfyjUNzVomh9-abJGcxnpfbSUfyIDYFOGInbwEr_pwgC9w&oe=69CCAA8C&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_A26s6vO5mB8bY6MwBcXo4GsgpADGi2-QppbrsubfeTvd7LhUF5FT4QiDXhcE2vOKdEmAELu6zIyKrFMRYdolSyKXvrJkIaE3WVj3yLJ5MteEp0pCdye9wjhoKpN7S6jRt2KJ5V0BmQe4Eob9XDx8?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=2OdLwF4poq4SXxQpOhFtmQ&_nc_oc=AdlgeDhfosAz7ZZvA5GpM6RYLWxAPXmlahBBnFuY2d8H7nomy9m-qTt1wr3zQsIPBhk&ccb=10-5&oh=00_Afwjy43waJuegzmjSrfmCFsJu5hCGDml27zfD01uBLdqeg&oe=69CD1B0C&_nc_sid=201bca",
           "mapillaryHeading": 87.200477600098,
           "mapillaryCaptureDate": "2018-08-16",
           "mapillaryHasDriveway": true,
@@ -5744,7 +5744,7 @@
               }
             ]
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_A26s6vO5mB8bY6MwBcXo4GsgpADGi2-QppbrsubfeTvd7LhUF5FT4QiDXhcE2vOKdEmAELu6zIyKrFMRYdolSyKXvrJkIaE3WVj3yLJ5MteEp0pCdye9wjhoKpN7S6jRt2KJ5V0BmQe4Eob9XDx8?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=x4eEh9_LTE7Hor4jQ_YrNA&_nc_oc=AdlgeDhfosAz7ZZvA5GpM6RYLWxAPXmlahBBnFuY2d8H7nomy9m-qTt1wr3zQsIPBhk&ccb=10-5&oh=00_AfyjUNzVomh9-abJGcxnpfbSUfyIDYFOGInbwEr_pwgC9w&oe=69CCAA8C&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_A26s6vO5mB8bY6MwBcXo4GsgpADGi2-QppbrsubfeTvd7LhUF5FT4QiDXhcE2vOKdEmAELu6zIyKrFMRYdolSyKXvrJkIaE3WVj3yLJ5MteEp0pCdye9wjhoKpN7S6jRt2KJ5V0BmQe4Eob9XDx8?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=2OdLwF4poq4SXxQpOhFtmQ&_nc_oc=AdlgeDhfosAz7ZZvA5GpM6RYLWxAPXmlahBBnFuY2d8H7nomy9m-qTt1wr3zQsIPBhk&ccb=10-5&oh=00_Afwjy43waJuegzmjSrfmCFsJu5hCGDml27zfD01uBLdqeg&oe=69CD1B0C&_nc_sid=201bca",
           "mapillaryHeading": 87.200477600098,
           "mapillaryCaptureDate": "2018-08-16",
           "mapillaryHasDriveway": true,
@@ -6977,7 +6977,7 @@
               "lon": -85.723484
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-59a_c-syWS4gxDv4SBj_Jq0CG-0nJvLjwds-1grmb8zlmQO84pb92buw-dWWKeMwrpWtL6aYgBB9mDMP4tY6M-SYDKA_lNfxu4fLMXbXW4-2ybj2Pg2NFyK986T1noXmttKEoTzM0XJ5k00aB9Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=H_pYrMf2MKhUXH22WG2Hiw&_nc_oc=AdnveCzAgDy6-407XPUQY6n7lqrrL1qoIcX7Kw4d4pvawitWUldcsOMAqQxlaWlbNz8&ccb=10-5&oh=00_AfwPaxcTdHWFBMt1k2xHTG6SbrH7b_J6iKT_LCURZCmPtA&oe=69CCA3F2&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-59a_c-syWS4gxDv4SBj_Jq0CG-0nJvLjwds-1grmb8zlmQO84pb92buw-dWWKeMwrpWtL6aYgBB9mDMP4tY6M-SYDKA_lNfxu4fLMXbXW4-2ybj2Pg2NFyK986T1noXmttKEoTzM0XJ5k00aB9Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=TeugdzB1KnnVtDESBAF8ww&_nc_oc=AdnveCzAgDy6-407XPUQY6n7lqrrL1qoIcX7Kw4d4pvawitWUldcsOMAqQxlaWlbNz8&ccb=10-5&oh=00_Afy15LjEHZfso91tPkUbROO-reywjcbhJk9hr_ERWyreQw&oe=69CD1472&_nc_sid=201bca",
           "mapillaryHeading": 0.08630358427763,
           "mapillaryCaptureDate": "2018-07-17",
           "mapillaryHasDriveway": true,
@@ -7116,7 +7116,7 @@
               "lon": -85.723484
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-59a_c-syWS4gxDv4SBj_Jq0CG-0nJvLjwds-1grmb8zlmQO84pb92buw-dWWKeMwrpWtL6aYgBB9mDMP4tY6M-SYDKA_lNfxu4fLMXbXW4-2ybj2Pg2NFyK986T1noXmttKEoTzM0XJ5k00aB9Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=H_pYrMf2MKhUXH22WG2Hiw&_nc_oc=AdnveCzAgDy6-407XPUQY6n7lqrrL1qoIcX7Kw4d4pvawitWUldcsOMAqQxlaWlbNz8&ccb=10-5&oh=00_AfwPaxcTdHWFBMt1k2xHTG6SbrH7b_J6iKT_LCURZCmPtA&oe=69CCA3F2&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-59a_c-syWS4gxDv4SBj_Jq0CG-0nJvLjwds-1grmb8zlmQO84pb92buw-dWWKeMwrpWtL6aYgBB9mDMP4tY6M-SYDKA_lNfxu4fLMXbXW4-2ybj2Pg2NFyK986T1noXmttKEoTzM0XJ5k00aB9Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=TeugdzB1KnnVtDESBAF8ww&_nc_oc=AdnveCzAgDy6-407XPUQY6n7lqrrL1qoIcX7Kw4d4pvawitWUldcsOMAqQxlaWlbNz8&ccb=10-5&oh=00_Afy15LjEHZfso91tPkUbROO-reywjcbhJk9hr_ERWyreQw&oe=69CD1472&_nc_sid=201bca",
           "mapillaryHeading": 0.08630358427763,
           "mapillaryCaptureDate": "2018-07-17",
           "mapillaryHasDriveway": true,
@@ -7264,7 +7264,7 @@
               "lon": -85.723484
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-59a_c-syWS4gxDv4SBj_Jq0CG-0nJvLjwds-1grmb8zlmQO84pb92buw-dWWKeMwrpWtL6aYgBB9mDMP4tY6M-SYDKA_lNfxu4fLMXbXW4-2ybj2Pg2NFyK986T1noXmttKEoTzM0XJ5k00aB9Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=H_pYrMf2MKhUXH22WG2Hiw&_nc_oc=AdnveCzAgDy6-407XPUQY6n7lqrrL1qoIcX7Kw4d4pvawitWUldcsOMAqQxlaWlbNz8&ccb=10-5&oh=00_AfwPaxcTdHWFBMt1k2xHTG6SbrH7b_J6iKT_LCURZCmPtA&oe=69CCA3F2&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-59a_c-syWS4gxDv4SBj_Jq0CG-0nJvLjwds-1grmb8zlmQO84pb92buw-dWWKeMwrpWtL6aYgBB9mDMP4tY6M-SYDKA_lNfxu4fLMXbXW4-2ybj2Pg2NFyK986T1noXmttKEoTzM0XJ5k00aB9Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=TeugdzB1KnnVtDESBAF8ww&_nc_oc=AdnveCzAgDy6-407XPUQY6n7lqrrL1qoIcX7Kw4d4pvawitWUldcsOMAqQxlaWlbNz8&ccb=10-5&oh=00_Afy15LjEHZfso91tPkUbROO-reywjcbhJk9hr_ERWyreQw&oe=69CD1472&_nc_sid=201bca",
           "mapillaryHeading": 0.08630358427763,
           "mapillaryCaptureDate": "2018-07-17",
           "mapillaryHasDriveway": true,
@@ -8392,7 +8392,7 @@
           "zipCode": "49682",
           "county": "Leelanau County",
           "yearUncertain": true,
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9rhEsiZaSKAPvCsRYIgVZKtIkqJ3373NJNsd3sUDPA65_RMiXZ7eao8k9FHtH2f5r0g-CFgh1Dnr5MvJ3mYVV1dZ21RuREtzpDNpZyssaW-r3vqaUnjWXoySSAjc0t9hNafknaGD6wuWk9-CXgAA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=V1548V4JHQxSKlbzGXAngg&_nc_oc=Adkec1DSIXO6Q2T2Fzt6puXPlcPSCJPnSDKbywVOix7cz51rwMx-WF9KS81CmNq8EJ4&ccb=10-5&oh=00_Afy3PYdNgthW9Q1sJssqaDaNYDiQR1ItA2Z6QZWD8eNX1w&oe=69CCB02E&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9rhEsiZaSKAPvCsRYIgVZKtIkqJ3373NJNsd3sUDPA65_RMiXZ7eao8k9FHtH2f5r0g-CFgh1Dnr5MvJ3mYVV1dZ21RuREtzpDNpZyssaW-r3vqaUnjWXoySSAjc0t9hNafknaGD6wuWk9-CXgAA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=TbpIXxlzGNozUBv6afBhJA&_nc_oc=Adkec1DSIXO6Q2T2Fzt6puXPlcPSCJPnSDKbywVOix7cz51rwMx-WF9KS81CmNq8EJ4&ccb=10-5&oh=00_AfzvByXqptrISbQoqJb0HIxDPHuND2_A-XgUaHhBtbODdA&oe=69CD20AE&_nc_sid=201bca",
           "mapillaryHeading": 257.9997207484,
           "mapillaryCaptureDate": "2021-08-03",
           "mapillaryHasDriveway": true,
@@ -8506,7 +8506,7 @@
           "zipCode": "49682",
           "county": "Leelanau County",
           "yearUncertain": true,
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9rhEsiZaSKAPvCsRYIgVZKtIkqJ3373NJNsd3sUDPA65_RMiXZ7eao8k9FHtH2f5r0g-CFgh1Dnr5MvJ3mYVV1dZ21RuREtzpDNpZyssaW-r3vqaUnjWXoySSAjc0t9hNafknaGD6wuWk9-CXgAA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=V1548V4JHQxSKlbzGXAngg&_nc_oc=Adkec1DSIXO6Q2T2Fzt6puXPlcPSCJPnSDKbywVOix7cz51rwMx-WF9KS81CmNq8EJ4&ccb=10-5&oh=00_Afy3PYdNgthW9Q1sJssqaDaNYDiQR1ItA2Z6QZWD8eNX1w&oe=69CCB02E&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9rhEsiZaSKAPvCsRYIgVZKtIkqJ3373NJNsd3sUDPA65_RMiXZ7eao8k9FHtH2f5r0g-CFgh1Dnr5MvJ3mYVV1dZ21RuREtzpDNpZyssaW-r3vqaUnjWXoySSAjc0t9hNafknaGD6wuWk9-CXgAA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=TbpIXxlzGNozUBv6afBhJA&_nc_oc=Adkec1DSIXO6Q2T2Fzt6puXPlcPSCJPnSDKbywVOix7cz51rwMx-WF9KS81CmNq8EJ4&ccb=10-5&oh=00_AfzvByXqptrISbQoqJb0HIxDPHuND2_A-XgUaHhBtbODdA&oe=69CD20AE&_nc_sid=201bca",
           "mapillaryHeading": 257.9997207484,
           "mapillaryCaptureDate": "2021-08-03",
           "mapillaryHasDriveway": true,
@@ -8627,7 +8627,7 @@
           "zipCode": "49682",
           "county": "Leelanau County",
           "yearUncertain": true,
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9rhEsiZaSKAPvCsRYIgVZKtIkqJ3373NJNsd3sUDPA65_RMiXZ7eao8k9FHtH2f5r0g-CFgh1Dnr5MvJ3mYVV1dZ21RuREtzpDNpZyssaW-r3vqaUnjWXoySSAjc0t9hNafknaGD6wuWk9-CXgAA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=V1548V4JHQxSKlbzGXAngg&_nc_oc=Adkec1DSIXO6Q2T2Fzt6puXPlcPSCJPnSDKbywVOix7cz51rwMx-WF9KS81CmNq8EJ4&ccb=10-5&oh=00_Afy3PYdNgthW9Q1sJssqaDaNYDiQR1ItA2Z6QZWD8eNX1w&oe=69CCB02E&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An9rhEsiZaSKAPvCsRYIgVZKtIkqJ3373NJNsd3sUDPA65_RMiXZ7eao8k9FHtH2f5r0g-CFgh1Dnr5MvJ3mYVV1dZ21RuREtzpDNpZyssaW-r3vqaUnjWXoySSAjc0t9hNafknaGD6wuWk9-CXgAA?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=TbpIXxlzGNozUBv6afBhJA&_nc_oc=Adkec1DSIXO6Q2T2Fzt6puXPlcPSCJPnSDKbywVOix7cz51rwMx-WF9KS81CmNq8EJ4&ccb=10-5&oh=00_AfzvByXqptrISbQoqJb0HIxDPHuND2_A-XgUaHhBtbODdA&oe=69CD20AE&_nc_sid=201bca",
           "mapillaryHeading": 257.9997207484,
           "mapillaryCaptureDate": "2021-08-03",
           "mapillaryHasDriveway": true,
@@ -8918,7 +8918,7 @@
           "wallBlock": "sandstone",
           "roofColor": "rgb(152,156,146)",
           "roofBlock": "stone_brick_slab[type=bottom]",
-          "trimColor": "rgb(163,151,129)",
+          "trimColor": "rgb(164,152,130)",
           "trimBlock": "light_gray_concrete",
           "storyCount": 3,
           "storyConfidence": "0.43",
@@ -8930,17 +8930,17 @@
           "symmetryScore": "0.62",
           "isSymmetric": true,
           "planShape": "T",
-          "windowsPerFloor": 2,
+          "windowsPerFloor": 3,
           "windowSpacing": 3,
           "lawnDepth": "0%",
           "hasDriveway": false,
           "hasPath": true,
           "architectureStyle": "Modern",
-          "architectureLabel": "Mid-century Modern Institutional",
+          "architectureLabel": "Mid-century Modern Brutalist",
           "wallMaterial": "concrete",
           "roofMaterial": "flat_membrane",
           "roofShape": "flat",
-          "wallColorDesc": "tan/beige decorative concrete blocks",
+          "wallColorDesc": "tan/beige concrete blocks with geometric pattern",
           "roofColorDesc": "light colored flat roof",
           "visionConfidence": "0.85"
         },
@@ -9389,7 +9389,7 @@
               "lon": -118.2928999
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-TlhHwQKeBfP6MfeRGeUj-0M3OwQbk4AkibwYMrzA8gIY44LmT1-qOo6TmLgVP20yrBZDjFtPWssngg6j8UMlLZJficXmN7sZrZhHUgAZsr5NEWx9CxnBkqxCpO-A4Dtde1H9UGoj6eFus4wal3Q?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=c7zP7ETFoJf9SmE3HgdhYw&_nc_oc=Adl6lQT1vJTcqpjjD_OU2Nf6dslHab0WuAm5X_GZPtBKhNGENoCY6yc_ELZGrjyMr68&ccb=10-6&oh=00_Afz03WF8zkg9rEMewPQwmLEwFIrKYX3vDL9tnaVZHpql9g&oe=69CCC50F&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-TlhHwQKeBfP6MfeRGeUj-0M3OwQbk4AkibwYMrzA8gIY44LmT1-qOo6TmLgVP20yrBZDjFtPWssngg6j8UMlLZJficXmN7sZrZhHUgAZsr5NEWx9CxnBkqxCpO-A4Dtde1H9UGoj6eFus4wal3Q?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=-3jVosKRLhN_JqC__x6C6g&_nc_oc=Adly9mwV3o2KEz0W_2pzfYW2zyj3zQbZgNZN-Pu4nfIXzrrPc7A03ffZK6yfHywE05AvTkiCYTKfLw0GPqa69VIx&ccb=10-5&oh=00_AfzMClImQxvDHzj-Jfr1Yn6QMoJj4IhoYA518y2F6FAXxA&oe=69CCFD4F&_nc_sid=201bca",
           "mapillaryHeading": 238.61598224195,
           "mapillaryCaptureDate": "2020-05-10"
         },
@@ -9700,7 +9700,7 @@
               "lon": -118.2928999
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-TlhHwQKeBfP6MfeRGeUj-0M3OwQbk4AkibwYMrzA8gIY44LmT1-qOo6TmLgVP20yrBZDjFtPWssngg6j8UMlLZJficXmN7sZrZhHUgAZsr5NEWx9CxnBkqxCpO-A4Dtde1H9UGoj6eFus4wal3Q?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=c7zP7ETFoJf9SmE3HgdhYw&_nc_oc=Adl6lQT1vJTcqpjjD_OU2Nf6dslHab0WuAm5X_GZPtBKhNGENoCY6yc_ELZGrjyMr68&ccb=10-6&oh=00_Afz03WF8zkg9rEMewPQwmLEwFIrKYX3vDL9tnaVZHpql9g&oe=69CCC50F&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-TlhHwQKeBfP6MfeRGeUj-0M3OwQbk4AkibwYMrzA8gIY44LmT1-qOo6TmLgVP20yrBZDjFtPWssngg6j8UMlLZJficXmN7sZrZhHUgAZsr5NEWx9CxnBkqxCpO-A4Dtde1H9UGoj6eFus4wal3Q?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=-3jVosKRLhN_JqC__x6C6g&_nc_oc=Adly9mwV3o2KEz0W_2pzfYW2zyj3zQbZgNZN-Pu4nfIXzrrPc7A03ffZK6yfHywE05AvTkiCYTKfLw0GPqa69VIx&ccb=10-5&oh=00_AfzMClImQxvDHzj-Jfr1Yn6QMoJj4IhoYA518y2F6FAXxA&oe=69CCFD4F&_nc_sid=201bca",
           "mapillaryHeading": 238.61598224195,
           "mapillaryCaptureDate": "2020-05-10",
           "mapboxHeight": 16.1,
@@ -9721,14 +9721,14 @@
           },
           "svTrimOverride": "minecraft:light_gray_concrete",
           "svStoryCount": 3,
-          "svStoryConfidence": 0.4265931313851393,
+          "svStoryConfidence": 0.4266018080955732,
           "svTextureClass": "brick",
           "svTextureBlock": "minecraft:bricks",
           "svRoofPitch": "moderate",
           "svRoofHeightOverride": 0.5,
           "svSymmetric": true,
           "svPlanShape": "T",
-          "svWindowsPerFloor": 2,
+          "svWindowsPerFloor": 3,
           "svWindowSpacing": 3,
           "svSetbackFeatures": {},
           "svFeatures": {
@@ -9739,12 +9739,12 @@
             "trees": true,
             "pool": false
           },
-          "svArchitectureLabel": "Mid-century Modern Institutional",
+          "svArchitectureLabel": "Mid-century Modern Brutalist",
           "svArchitectureStyle": "Modern",
           "svWallMaterial": "concrete",
           "svRoofMaterial": "flat_membrane",
           "svVlmRoofShape": "flat",
-          "svWallColorDescription": "tan/beige decorative concrete blocks",
+          "svWallColorDescription": "tan/beige concrete blocks with geometric pattern",
           "svRoofColorDescription": "light colored flat roof"
         },
         "genOptions": {
@@ -10059,7 +10059,7 @@
               "lon": -118.2928999
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-TlhHwQKeBfP6MfeRGeUj-0M3OwQbk4AkibwYMrzA8gIY44LmT1-qOo6TmLgVP20yrBZDjFtPWssngg6j8UMlLZJficXmN7sZrZhHUgAZsr5NEWx9CxnBkqxCpO-A4Dtde1H9UGoj6eFus4wal3Q?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=c7zP7ETFoJf9SmE3HgdhYw&_nc_oc=Adl6lQT1vJTcqpjjD_OU2Nf6dslHab0WuAm5X_GZPtBKhNGENoCY6yc_ELZGrjyMr68&ccb=10-6&oh=00_Afz03WF8zkg9rEMewPQwmLEwFIrKYX3vDL9tnaVZHpql9g&oe=69CCC50F&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-TlhHwQKeBfP6MfeRGeUj-0M3OwQbk4AkibwYMrzA8gIY44LmT1-qOo6TmLgVP20yrBZDjFtPWssngg6j8UMlLZJficXmN7sZrZhHUgAZsr5NEWx9CxnBkqxCpO-A4Dtde1H9UGoj6eFus4wal3Q?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=-3jVosKRLhN_JqC__x6C6g&_nc_oc=Adly9mwV3o2KEz0W_2pzfYW2zyj3zQbZgNZN-Pu4nfIXzrrPc7A03ffZK6yfHywE05AvTkiCYTKfLw0GPqa69VIx&ccb=10-5&oh=00_AfzMClImQxvDHzj-Jfr1Yn6QMoJj4IhoYA518y2F6FAXxA&oe=69CCFD4F&_nc_sid=201bca",
           "mapillaryHeading": 238.61598224195,
           "mapillaryCaptureDate": "2020-05-10",
           "mapboxHeight": 16.1,
@@ -10080,14 +10080,14 @@
           },
           "svTrimOverride": "minecraft:light_gray_concrete",
           "svStoryCount": 3,
-          "svStoryConfidence": 0.4265931313851393,
+          "svStoryConfidence": 0.4266018080955732,
           "svTextureClass": "brick",
           "svTextureBlock": "minecraft:bricks",
           "svRoofPitch": "moderate",
           "svRoofHeightOverride": 0.5,
           "svSymmetric": true,
           "svPlanShape": "T",
-          "svWindowsPerFloor": 2,
+          "svWindowsPerFloor": 3,
           "svWindowSpacing": 3,
           "svSetbackFeatures": {},
           "svFeatures": {
@@ -10098,12 +10098,12 @@
             "trees": true,
             "pool": false
           },
-          "svArchitectureLabel": "Mid-century Modern Institutional",
+          "svArchitectureLabel": "Mid-century Modern Brutalist",
           "svArchitectureStyle": "Modern",
           "svWallMaterial": "concrete",
           "svRoofMaterial": "flat_membrane",
           "svVlmRoofShape": "flat",
-          "svWallColorDescription": "tan/beige decorative concrete blocks",
+          "svWallColorDescription": "tan/beige concrete blocks with geometric pattern",
           "svRoofColorDescription": "light colored flat roof",
           "canopyCoverPct": 12,
           "hardinessZone": "10b",
@@ -10405,13 +10405,13 @@
           "lawnDepth": "3%",
           "hasDriveway": false,
           "hasPath": true,
-          "architectureStyle": "Modern",
-          "architectureLabel": "Contemporary single-story garage or outbuilding",
-          "wallMaterial": "stucco",
+          "architectureStyle": "Ranch",
+          "architectureLabel": "Mid-century ranch with attached garage",
+          "wallMaterial": "wood_siding",
           "roofMaterial": "asphalt_shingle",
           "roofShape": "gable",
-          "wallColorDesc": "light gray or white stucco",
-          "roofColorDesc": "dark gray or black",
+          "wallColorDesc": "light gray or white siding",
+          "roofColorDesc": "dark gray or charcoal",
           "visionConfidence": "0.75"
         },
         "fieldsSet": [
@@ -10961,17 +10961,17 @@
             "trees": true,
             "pool": false
           },
-          "svArchitectureLabel": "Contemporary single-story garage or outbuilding",
-          "svArchitectureStyle": "Modern",
-          "svWallMaterial": "stucco",
+          "svArchitectureLabel": "Mid-century ranch with attached garage",
+          "svArchitectureStyle": "Ranch",
+          "svWallMaterial": "wood_siding",
           "svRoofMaterial": "asphalt_shingle",
           "svVlmRoofShape": "gable",
-          "svWallColorDescription": "light gray or white stucco",
-          "svRoofColorDescription": "dark gray or black",
+          "svWallColorDescription": "light gray or white siding",
+          "svRoofColorDescription": "dark gray or charcoal",
           "hasGarage": true
         },
         "genOptions": {
-          "style": "modern",
+          "style": "rustic",
           "type": "house",
           "floors": 2,
           "width": 12,
@@ -11010,10 +11010,10 @@
             "foundation": "minecraft:cobblestone",
             "window": "minecraft:glass_pane",
             "windowAccent": "minecraft:glass_pane",
-            "doorLowerN": "minecraft:iron_door[half=lower,facing=north,open=false,hinge=left]",
-            "doorUpperN": "minecraft:iron_door[half=upper,facing=north,open=false,hinge=left]",
-            "doorLowerS": "minecraft:iron_door[half=lower,facing=south,open=false,hinge=left]",
-            "doorUpperS": "minecraft:iron_door[half=upper,facing=south,open=false,hinge=left]",
+            "doorLowerN": "minecraft:dark_oak_door[half=lower,facing=north,open=false,hinge=left]",
+            "doorUpperN": "minecraft:dark_oak_door[half=upper,facing=north,open=false,hinge=left]",
+            "doorLowerS": "minecraft:dark_oak_door[half=lower,facing=south,open=false,hinge=left]",
+            "doorUpperS": "minecraft:dark_oak_door[half=upper,facing=south,open=false,hinge=left]",
             "pillar": "minecraft:birch_log",
             "chairN": "minecraft:spruce_stairs[facing=north]",
             "chairS": "minecraft:oak_stairs[facing=south]",
@@ -11051,8 +11051,8 @@
         "grid": {
           "width": 56,
           "height": 15,
-          "depth": 37,
-          "blocks": 6232
+          "depth": 32,
+          "blocks": 5686
         },
         "views": {
           "exterior": "seattle-allapis_exterior.jpg",
@@ -11201,13 +11201,13 @@
             "trees": true,
             "pool": false
           },
-          "svArchitectureLabel": "Contemporary single-story garage or outbuilding",
-          "svArchitectureStyle": "Modern",
-          "svWallMaterial": "stucco",
+          "svArchitectureLabel": "Mid-century ranch with attached garage",
+          "svArchitectureStyle": "Ranch",
+          "svWallMaterial": "wood_siding",
           "svRoofMaterial": "asphalt_shingle",
           "svVlmRoofShape": "gable",
-          "svWallColorDescription": "light gray or white stucco",
-          "svRoofColorDescription": "dark gray or black",
+          "svWallColorDescription": "light gray or white siding",
+          "svRoofColorDescription": "dark gray or charcoal",
           "hasGarage": true,
           "canopyCoverPct": 34,
           "hardinessZone": "9a",
@@ -11216,7 +11216,7 @@
           "landCoverLabel": "Tree cover"
         },
         "genOptions": {
-          "style": "modern",
+          "style": "rustic",
           "type": "house",
           "floors": 2,
           "width": 12,
@@ -11268,10 +11268,10 @@
             "foundation": "minecraft:cobblestone",
             "window": "minecraft:glass_pane",
             "windowAccent": "minecraft:glass_pane",
-            "doorLowerN": "minecraft:iron_door[half=lower,facing=north,open=false,hinge=left]",
-            "doorUpperN": "minecraft:iron_door[half=upper,facing=north,open=false,hinge=left]",
-            "doorLowerS": "minecraft:iron_door[half=lower,facing=south,open=false,hinge=left]",
-            "doorUpperS": "minecraft:iron_door[half=upper,facing=south,open=false,hinge=left]",
+            "doorLowerN": "minecraft:dark_oak_door[half=lower,facing=north,open=false,hinge=left]",
+            "doorUpperN": "minecraft:dark_oak_door[half=upper,facing=north,open=false,hinge=left]",
+            "doorLowerS": "minecraft:dark_oak_door[half=lower,facing=south,open=false,hinge=left]",
+            "doorUpperS": "minecraft:dark_oak_door[half=upper,facing=south,open=false,hinge=left]",
             "pillar": "minecraft:birch_log",
             "chairN": "minecraft:spruce_stairs[facing=north]",
             "chairS": "minecraft:oak_stairs[facing=south]",
@@ -11309,8 +11309,8 @@
         "grid": {
           "width": 56,
           "height": 15,
-          "depth": 37,
-          "blocks": 6385
+          "depth": 32,
+          "blocks": 5829
         },
         "views": {
           "exterior": "seattle-enriched_exterior.jpg",
@@ -11850,7 +11850,7 @@
               "lon": -97.8206586
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_w9v72SEm05owv3UWLKHqChrE3UHxaVSAwDarXzOJ_0Wgz4CcN621XayHS-lJg2Z_K8N0atnXnKneAaszWLJ3AvLT_MBP4odPUx1O-fHqbO2yH77IRMnifJnqcOoKUSIsFzi9dT2gnBJeAWt_q3Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=yWOJkZB55N0g8EmyeAp2gA&_nc_oc=AdlHSHTbP-uvZftHGUJv1yWMGHiJJa3M1qtK7rzAtJj-UZzW-QwoD91P3RGrLHTRtic&ccb=10-6&oh=00_AfzyARVoSdlCboF_I8Peoz0eGqpcd9FDMT1CwfANTqPkEw&oe=69CCA462&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_w9v72SEm05owv3UWLKHqChrE3UHxaVSAwDarXzOJ_0Wgz4CcN621XayHS-lJg2Z_K8N0atnXnKneAaszWLJ3AvLT_MBP4odPUx1O-fHqbO2yH77IRMnifJnqcOoKUSIsFzi9dT2gnBJeAWt_q3Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=-f79tp9mjjVs978dbhld_Q&_nc_oc=AdlHSHTbP-uvZftHGUJv1yWMGHiJJa3M1qtK7rzAtJj-UZzW-QwoD91P3RGrLHTRtic&ccb=10-5&oh=00_Afygj3L4dPnxplgsfNN5p45k-kuUsgZ6zLQReVpRgn8yuQ&oe=69CD14E2&_nc_sid=201bca",
           "mapillaryHeading": 351.81723130768,
           "mapillaryCaptureDate": "2017-11-30",
           "mapillaryHasDriveway": true,
@@ -12051,7 +12051,7 @@
               "lon": -97.8206586
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_w9v72SEm05owv3UWLKHqChrE3UHxaVSAwDarXzOJ_0Wgz4CcN621XayHS-lJg2Z_K8N0atnXnKneAaszWLJ3AvLT_MBP4odPUx1O-fHqbO2yH77IRMnifJnqcOoKUSIsFzi9dT2gnBJeAWt_q3Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=yWOJkZB55N0g8EmyeAp2gA&_nc_oc=AdlHSHTbP-uvZftHGUJv1yWMGHiJJa3M1qtK7rzAtJj-UZzW-QwoD91P3RGrLHTRtic&ccb=10-6&oh=00_AfzyARVoSdlCboF_I8Peoz0eGqpcd9FDMT1CwfANTqPkEw&oe=69CCA462&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_w9v72SEm05owv3UWLKHqChrE3UHxaVSAwDarXzOJ_0Wgz4CcN621XayHS-lJg2Z_K8N0atnXnKneAaszWLJ3AvLT_MBP4odPUx1O-fHqbO2yH77IRMnifJnqcOoKUSIsFzi9dT2gnBJeAWt_q3Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=-f79tp9mjjVs978dbhld_Q&_nc_oc=AdlHSHTbP-uvZftHGUJv1yWMGHiJJa3M1qtK7rzAtJj-UZzW-QwoD91P3RGrLHTRtic&ccb=10-5&oh=00_Afygj3L4dPnxplgsfNN5p45k-kuUsgZ6zLQReVpRgn8yuQ&oe=69CD14E2&_nc_sid=201bca",
           "mapillaryHeading": 351.81723130768,
           "mapillaryCaptureDate": "2017-11-30",
           "mapillaryHasDriveway": true,
@@ -12293,7 +12293,7 @@
               "lon": -97.8206586
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_w9v72SEm05owv3UWLKHqChrE3UHxaVSAwDarXzOJ_0Wgz4CcN621XayHS-lJg2Z_K8N0atnXnKneAaszWLJ3AvLT_MBP4odPUx1O-fHqbO2yH77IRMnifJnqcOoKUSIsFzi9dT2gnBJeAWt_q3Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=yWOJkZB55N0g8EmyeAp2gA&_nc_oc=AdlHSHTbP-uvZftHGUJv1yWMGHiJJa3M1qtK7rzAtJj-UZzW-QwoD91P3RGrLHTRtic&ccb=10-6&oh=00_AfzyARVoSdlCboF_I8Peoz0eGqpcd9FDMT1CwfANTqPkEw&oe=69CCA462&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_w9v72SEm05owv3UWLKHqChrE3UHxaVSAwDarXzOJ_0Wgz4CcN621XayHS-lJg2Z_K8N0atnXnKneAaszWLJ3AvLT_MBP4odPUx1O-fHqbO2yH77IRMnifJnqcOoKUSIsFzi9dT2gnBJeAWt_q3Q?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=-f79tp9mjjVs978dbhld_Q&_nc_oc=AdlHSHTbP-uvZftHGUJv1yWMGHiJJa3M1qtK7rzAtJj-UZzW-QwoD91P3RGrLHTRtic&ccb=10-5&oh=00_Afygj3L4dPnxplgsfNN5p45k-kuUsgZ6zLQReVpRgn8yuQ&oe=69CD14E2&_nc_sid=201bca",
           "mapillaryHeading": 351.81723130768,
           "mapillaryCaptureDate": "2017-11-30",
           "mapillaryHasDriveway": true,
@@ -12681,7 +12681,7 @@
           "wallMaterial": "stucco",
           "roofMaterial": "asphalt_shingle",
           "roofShape": "gable",
-          "wallColorDesc": "light beige/cream stucco",
+          "wallColorDesc": "cream or beige stucco",
           "roofColorDesc": "medium gray",
           "visionConfidence": "0.85"
         },
@@ -13171,7 +13171,7 @@
           "svWallMaterial": "stucco",
           "svRoofMaterial": "asphalt_shingle",
           "svVlmRoofShape": "gable",
-          "svWallColorDescription": "light beige/cream stucco",
+          "svWallColorDescription": "cream or beige stucco",
           "svRoofColorDescription": "medium gray"
         },
         "genOptions": {
@@ -13371,7 +13371,7 @@
           "svWallMaterial": "stucco",
           "svRoofMaterial": "asphalt_shingle",
           "svVlmRoofShape": "gable",
-          "svWallColorDescription": "light beige/cream stucco",
+          "svWallColorDescription": "cream or beige stucco",
           "svRoofColorDescription": "medium gray",
           "canopyCoverPct": 14,
           "hardinessZone": "6a",
@@ -13735,12 +13735,12 @@
           "hasPath": true,
           "architectureStyle": "Farmhouse",
           "architectureLabel": "Traditional two-story farmhouse",
-          "wallMaterial": "wood_siding",
+          "wallMaterial": "vinyl",
           "roofMaterial": "asphalt_shingle",
           "roofShape": "gable",
-          "wallColorDesc": "white siding",
-          "roofColorDesc": "gray asphalt shingle",
-          "visionConfidence": "0.75"
+          "wallColorDesc": "white vinyl siding",
+          "roofColorDesc": "brown asphalt shingle",
+          "visionConfidence": "0.85"
         },
         "fieldsSet": [
           "svWallOverride",
@@ -14010,7 +14010,7 @@
               "lon": -93.2362033
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-5qz6x92eGXYjJ05bGUl5hCC6UHT8WyOfcT6cvX_rpDM3RHZ_FQyNEQ2VJvrNvqpjmdhAjzAiDnWpI5LtYrMgLCygToymQlO7a49QulQwXs90vwEPBSRYSaVS84qHIljWrpVC3JKMsm3Fz--XpBg?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=oiGUgfn3zOoO1_C_8nltmw&_nc_oc=AdnJGsz1FMoX5tAjdISZV9FOedPtcwF05XxDh_2ZszKE2_SlykyPoyVRdM67zL_tq-M&ccb=10-5&oh=00_Afwuso_5yX6vNsVKwxKMS49YLTfHAkpx0DXQupvDrvdEXA&oe=69CCA3C5&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-5qz6x92eGXYjJ05bGUl5hCC6UHT8WyOfcT6cvX_rpDM3RHZ_FQyNEQ2VJvrNvqpjmdhAjzAiDnWpI5LtYrMgLCygToymQlO7a49QulQwXs90vwEPBSRYSaVS84qHIljWrpVC3JKMsm3Fz--XpBg?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=Ht_W2WW5vDvGyqhHthOHfg&_nc_oc=AdnJGsz1FMoX5tAjdISZV9FOedPtcwF05XxDh_2ZszKE2_SlykyPoyVRdM67zL_tq-M&ccb=10-5&oh=00_AfzbKLBW47q7C-ccAxhk2RseKgCo2i7d22Z0SHx9suNpLQ&oe=69CD1445&_nc_sid=201bca",
           "mapillaryHeading": 179.5,
           "mapillaryCaptureDate": "2021-05-07",
           "mapillaryHasDriveway": false,
@@ -14147,7 +14147,7 @@
               "lon": -93.2362033
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-5qz6x92eGXYjJ05bGUl5hCC6UHT8WyOfcT6cvX_rpDM3RHZ_FQyNEQ2VJvrNvqpjmdhAjzAiDnWpI5LtYrMgLCygToymQlO7a49QulQwXs90vwEPBSRYSaVS84qHIljWrpVC3JKMsm3Fz--XpBg?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=oiGUgfn3zOoO1_C_8nltmw&_nc_oc=AdnJGsz1FMoX5tAjdISZV9FOedPtcwF05XxDh_2ZszKE2_SlykyPoyVRdM67zL_tq-M&ccb=10-5&oh=00_Afwuso_5yX6vNsVKwxKMS49YLTfHAkpx0DXQupvDrvdEXA&oe=69CCA3C5&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-5qz6x92eGXYjJ05bGUl5hCC6UHT8WyOfcT6cvX_rpDM3RHZ_FQyNEQ2VJvrNvqpjmdhAjzAiDnWpI5LtYrMgLCygToymQlO7a49QulQwXs90vwEPBSRYSaVS84qHIljWrpVC3JKMsm3Fz--XpBg?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=Ht_W2WW5vDvGyqhHthOHfg&_nc_oc=AdnJGsz1FMoX5tAjdISZV9FOedPtcwF05XxDh_2ZszKE2_SlykyPoyVRdM67zL_tq-M&ccb=10-5&oh=00_AfzbKLBW47q7C-ccAxhk2RseKgCo2i7d22Z0SHx9suNpLQ&oe=69CD1445&_nc_sid=201bca",
           "mapillaryHeading": 179.5,
           "mapillaryCaptureDate": "2021-05-07",
           "mapillaryHasDriveway": false,
@@ -14192,11 +14192,11 @@
           },
           "svArchitectureLabel": "Traditional two-story farmhouse",
           "svArchitectureStyle": "Farmhouse",
-          "svWallMaterial": "wood_siding",
+          "svWallMaterial": "vinyl",
           "svRoofMaterial": "asphalt_shingle",
           "svVlmRoofShape": "gable",
-          "svWallColorDescription": "white siding",
-          "svRoofColorDescription": "gray asphalt shingle",
+          "svWallColorDescription": "white vinyl siding",
+          "svRoofColorDescription": "brown asphalt shingle",
           "hasGarage": true
         },
         "genOptions": {
@@ -14333,7 +14333,7 @@
               "lon": -93.2362033
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-5qz6x92eGXYjJ05bGUl5hCC6UHT8WyOfcT6cvX_rpDM3RHZ_FQyNEQ2VJvrNvqpjmdhAjzAiDnWpI5LtYrMgLCygToymQlO7a49QulQwXs90vwEPBSRYSaVS84qHIljWrpVC3JKMsm3Fz--XpBg?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=oiGUgfn3zOoO1_C_8nltmw&_nc_oc=AdnJGsz1FMoX5tAjdISZV9FOedPtcwF05XxDh_2ZszKE2_SlykyPoyVRdM67zL_tq-M&ccb=10-5&oh=00_Afwuso_5yX6vNsVKwxKMS49YLTfHAkpx0DXQupvDrvdEXA&oe=69CCA3C5&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An-5qz6x92eGXYjJ05bGUl5hCC6UHT8WyOfcT6cvX_rpDM3RHZ_FQyNEQ2VJvrNvqpjmdhAjzAiDnWpI5LtYrMgLCygToymQlO7a49QulQwXs90vwEPBSRYSaVS84qHIljWrpVC3JKMsm3Fz--XpBg?stp=s1024x576&edm=AOnQwmMEAAAA&_nc_gid=Ht_W2WW5vDvGyqhHthOHfg&_nc_oc=AdnJGsz1FMoX5tAjdISZV9FOedPtcwF05XxDh_2ZszKE2_SlykyPoyVRdM67zL_tq-M&ccb=10-5&oh=00_AfzbKLBW47q7C-ccAxhk2RseKgCo2i7d22Z0SHx9suNpLQ&oe=69CD1445&_nc_sid=201bca",
           "mapillaryHeading": 179.5,
           "mapillaryCaptureDate": "2021-05-07",
           "mapillaryHasDriveway": false,
@@ -14378,11 +14378,11 @@
           },
           "svArchitectureLabel": "Traditional two-story farmhouse",
           "svArchitectureStyle": "Farmhouse",
-          "svWallMaterial": "wood_siding",
+          "svWallMaterial": "vinyl",
           "svRoofMaterial": "asphalt_shingle",
           "svVlmRoofShape": "gable",
-          "svWallColorDescription": "white siding",
-          "svRoofColorDescription": "gray asphalt shingle",
+          "svWallColorDescription": "white vinyl siding",
+          "svRoofColorDescription": "brown asphalt shingle",
           "hasGarage": true,
           "canopyCoverPct": 0,
           "hardinessZone": "5a",
@@ -14684,11 +14684,11 @@
           "hasDriveway": true,
           "hasPath": false,
           "architectureStyle": "Colonial",
-          "architectureLabel": "Multi-unit Colonial Revival townhouse",
+          "architectureLabel": "Multi-unit Colonial Revival apartment building",
           "wallMaterial": "wood_siding",
           "roofMaterial": "metal",
-          "roofShape": "mansard",
-          "wallColorDesc": "beige horizontal siding",
+          "roofShape": "gable",
+          "wallColorDesc": "tan/beige horizontal siding with gray trim",
           "roofColorDesc": "dark gray or black metal",
           "visionConfidence": "0.90"
         },
@@ -15050,7 +15050,7 @@
               "lon": -79.9345444
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_lKqihrfOKGR927dWxDuHVBy7DI9SrbWlloUjpgMXmJzX6D9qCSbfEuo1J8V9PrKh1HQfd1iFk5mwb3XWSb-WOthbT59Wk9suobmpGLPB8soskiH-tDLSfyfl_R6Y-ASCkb5_aOjajrG22hkfDnA?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=cKLviSkoSuqx4d9V-LXdtg&_nc_oc=AdkBaYSoz9elApgZCufEgjion4QH5QgeSbjNuAwrF4Qok54GJJ8Fbvc-f6yS6ECT4Tw&ccb=10-5&oh=00_Afw6WLQk_12Ut_XuV1TrVZ1qboWOVq14MZOqEO2dFK55ww&oe=69CCA2AB&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_lKqihrfOKGR927dWxDuHVBy7DI9SrbWlloUjpgMXmJzX6D9qCSbfEuo1J8V9PrKh1HQfd1iFk5mwb3XWSb-WOthbT59Wk9suobmpGLPB8soskiH-tDLSfyfl_R6Y-ASCkb5_aOjajrG22hkfDnA?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=RGktttJgapHODmaPNuCedA&_nc_oc=AdkG3Giy9vrDxbfked6W3GTT5icp0xWVq7hK5kS0-CuLing34y1Him1pXwWXdHhfEF9pWCquDe7ucmB7MB1KHDh3&ccb=10-5&oh=00_Afx8bzB0i4hI413Wlmlvqfz46uz_o7dXYhVyZiEx5B77Fw&oe=69CD132B&_nc_sid=201bca",
           "mapillaryHeading": 84,
           "mapillaryCaptureDate": "2017-02-05",
           "mapillaryHasDriveway": true,
@@ -15281,7 +15281,7 @@
               "lon": -79.9345444
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_lKqihrfOKGR927dWxDuHVBy7DI9SrbWlloUjpgMXmJzX6D9qCSbfEuo1J8V9PrKh1HQfd1iFk5mwb3XWSb-WOthbT59Wk9suobmpGLPB8soskiH-tDLSfyfl_R6Y-ASCkb5_aOjajrG22hkfDnA?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=cKLviSkoSuqx4d9V-LXdtg&_nc_oc=AdkBaYSoz9elApgZCufEgjion4QH5QgeSbjNuAwrF4Qok54GJJ8Fbvc-f6yS6ECT4Tw&ccb=10-5&oh=00_Afw6WLQk_12Ut_XuV1TrVZ1qboWOVq14MZOqEO2dFK55ww&oe=69CCA2AB&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_lKqihrfOKGR927dWxDuHVBy7DI9SrbWlloUjpgMXmJzX6D9qCSbfEuo1J8V9PrKh1HQfd1iFk5mwb3XWSb-WOthbT59Wk9suobmpGLPB8soskiH-tDLSfyfl_R6Y-ASCkb5_aOjajrG22hkfDnA?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=RGktttJgapHODmaPNuCedA&_nc_oc=AdkG3Giy9vrDxbfked6W3GTT5icp0xWVq7hK5kS0-CuLing34y1Him1pXwWXdHhfEF9pWCquDe7ucmB7MB1KHDh3&ccb=10-5&oh=00_Afx8bzB0i4hI413Wlmlvqfz46uz_o7dXYhVyZiEx5B77Fw&oe=69CD132B&_nc_sid=201bca",
           "mapillaryHeading": 84,
           "mapillaryCaptureDate": "2017-02-05",
           "mapillaryHasDriveway": true,
@@ -15325,12 +15325,12 @@
             "trees": true,
             "pool": false
           },
-          "svArchitectureLabel": "Multi-unit Colonial Revival townhouse",
+          "svArchitectureLabel": "Multi-unit Colonial Revival apartment building",
           "svArchitectureStyle": "Colonial",
           "svWallMaterial": "wood_siding",
           "svRoofMaterial": "metal",
-          "svVlmRoofShape": "mansard",
-          "svWallColorDescription": "beige horizontal siding",
+          "svVlmRoofShape": "gable",
+          "svWallColorDescription": "tan/beige horizontal siding with gray trim",
           "svRoofColorDescription": "dark gray or black metal"
         },
         "genOptions": {
@@ -15341,7 +15341,7 @@
           "length": 27,
           "seed": 852930,
           "orientation": 270,
-          "roofShape": "mansard",
+          "roofShape": "gable",
           "floorPlanShape": "L",
           "windowSpacing": 3,
           "roofHeightOverride": 3,
@@ -15405,7 +15405,7 @@
             "plant1": "minecraft:potted_dandelion",
             "plant2": "minecraft:potted_allium",
             "plant3": "minecraft:potted_poppy",
-            "defaultRoofShape": "mansard",
+            "defaultRoofShape": "gable",
             "defaultPlanShape": "L",
             "roofHeight": 3,
             "wallAccentFrequency": 0
@@ -15415,7 +15415,7 @@
           "width": 67,
           "height": 20,
           "depth": 31,
-          "blocks": 8670
+          "blocks": 8754
         },
         "views": {
           "exterior": "charleston-allapis_exterior.jpg",
@@ -15560,7 +15560,7 @@
               "lon": -79.9345444
             }
           ],
-          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_lKqihrfOKGR927dWxDuHVBy7DI9SrbWlloUjpgMXmJzX6D9qCSbfEuo1J8V9PrKh1HQfd1iFk5mwb3XWSb-WOthbT59Wk9suobmpGLPB8soskiH-tDLSfyfl_R6Y-ASCkb5_aOjajrG22hkfDnA?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=cKLviSkoSuqx4d9V-LXdtg&_nc_oc=AdkBaYSoz9elApgZCufEgjion4QH5QgeSbjNuAwrF4Qok54GJJ8Fbvc-f6yS6ECT4Tw&ccb=10-5&oh=00_Afw6WLQk_12Ut_XuV1TrVZ1qboWOVq14MZOqEO2dFK55ww&oe=69CCA2AB&_nc_sid=201bca",
+          "mapillaryImageUrl": "https://scontent-det1-1.xx.fbcdn.net/m1/v/t6/An_lKqihrfOKGR927dWxDuHVBy7DI9SrbWlloUjpgMXmJzX6D9qCSbfEuo1J8V9PrKh1HQfd1iFk5mwb3XWSb-WOthbT59Wk9suobmpGLPB8soskiH-tDLSfyfl_R6Y-ASCkb5_aOjajrG22hkfDnA?stp=s1024x768&edm=AOnQwmMEAAAA&_nc_gid=RGktttJgapHODmaPNuCedA&_nc_oc=AdkG3Giy9vrDxbfked6W3GTT5icp0xWVq7hK5kS0-CuLing34y1Him1pXwWXdHhfEF9pWCquDe7ucmB7MB1KHDh3&ccb=10-5&oh=00_Afx8bzB0i4hI413Wlmlvqfz46uz_o7dXYhVyZiEx5B77Fw&oe=69CD132B&_nc_sid=201bca",
           "mapillaryHeading": 84,
           "mapillaryCaptureDate": "2017-02-05",
           "mapillaryHasDriveway": true,
@@ -15604,12 +15604,12 @@
             "trees": true,
             "pool": false
           },
-          "svArchitectureLabel": "Multi-unit Colonial Revival townhouse",
+          "svArchitectureLabel": "Multi-unit Colonial Revival apartment building",
           "svArchitectureStyle": "Colonial",
           "svWallMaterial": "wood_siding",
           "svRoofMaterial": "metal",
-          "svVlmRoofShape": "mansard",
-          "svWallColorDescription": "beige horizontal siding",
+          "svVlmRoofShape": "gable",
+          "svWallColorDescription": "tan/beige horizontal siding with gray trim",
           "svRoofColorDescription": "dark gray or black metal",
           "canopyCoverPct": 0,
           "hardinessZone": "9a",
@@ -15683,7 +15683,7 @@
           "length": 27,
           "seed": 852930,
           "orientation": 270,
-          "roofShape": "mansard",
+          "roofShape": "gable",
           "floorPlanShape": "L",
           "windowSpacing": 3,
           "roofHeightOverride": 3,
@@ -15760,7 +15760,7 @@
             "plant1": "minecraft:potted_dandelion",
             "plant2": "minecraft:potted_allium",
             "plant3": "minecraft:potted_poppy",
-            "defaultRoofShape": "mansard",
+            "defaultRoofShape": "gable",
             "defaultPlanShape": "L",
             "roofHeight": 3,
             "wallAccentFrequency": 0
@@ -15770,7 +15770,7 @@
           "width": 67,
           "height": 20,
           "depth": 31,
-          "blocks": 8671
+          "blocks": 8755
         },
         "views": {
           "exterior": "charleston-enriched_exterior.jpg",
@@ -15961,13 +15961,13 @@
           "hasDriveway": true,
           "hasPath": false,
           "architectureStyle": "Desert",
-          "architectureLabel": "Southwest Desert Contemporary",
+          "architectureLabel": "Desert Southwest residential",
           "wallMaterial": "stucco",
-          "roofMaterial": "flat_membrane",
+          "roofMaterial": null,
           "roofShape": "flat",
           "wallColorDesc": "white stucco",
-          "roofColorDesc": "light colored flat",
-          "visionConfidence": "0.70"
+          "roofColorDesc": null,
+          "visionConfidence": "0.65"
         },
         "fieldsSet": [
           "svWallOverride",
@@ -16400,13 +16400,11 @@
             "trees": true,
             "pool": false
           },
-          "svArchitectureLabel": "Southwest Desert Contemporary",
+          "svArchitectureLabel": "Desert Southwest residential",
           "svArchitectureStyle": "Desert",
           "svWallMaterial": "stucco",
-          "svRoofMaterial": "flat_membrane",
           "svVlmRoofShape": "flat",
-          "svWallColorDescription": "white stucco",
-          "svRoofColorDescription": "light colored flat"
+          "svWallColorDescription": "white stucco"
         },
         "genOptions": {
           "style": "desert",
@@ -16579,13 +16577,11 @@
             "trees": true,
             "pool": false
           },
-          "svArchitectureLabel": "Southwest Desert Contemporary",
+          "svArchitectureLabel": "Desert Southwest residential",
           "svArchitectureStyle": "Desert",
           "svWallMaterial": "stucco",
-          "svRoofMaterial": "flat_membrane",
           "svVlmRoofShape": "flat",
           "svWallColorDescription": "white stucco",
-          "svRoofColorDescription": "light colored flat",
           "canopyCoverPct": 0,
           "hardinessZone": "9b",
           "overtureHeight": 3.588376045227051,
