@@ -1475,13 +1475,12 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   }
 
   if (solarPitch != null && solarPitch > 0) {
-    // Use tangent of pitch angle × half building width for realistic peak height
+    // Use tangent of pitch angle × half building span for realistic peak height.
+    // Solar API pitch is measured satellite data — trust the geometry directly.
     const halfSpan = Math.min(width, length) / 2;
     const pitchRad = solarPitch * Math.PI / 180;
     const tangentHeight = Math.round(Math.tan(pitchRad) * halfSpan);
-    // Cap with proportional limit (Arnis: ln(area × 0.15 + 3)) and absolute max
-    const proportionalCap = Math.round(Math.log(width * length * 0.15 + 3));
-    roofHeightOverride = Math.max(2, Math.min(tangentHeight, proportionalCap, 14));
+    roofHeightOverride = Math.max(2, Math.min(tangentHeight, 14));
   } else if (prop.svRoofHeightOverride != null) {
     // SV pitch analysis gives a ratio (0.3/0.5/0.8) — convert to block count
     roofHeightOverride = Math.round(prop.svRoofHeightOverride * 14);

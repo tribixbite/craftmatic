@@ -31,7 +31,7 @@ import {
 import { searchSmartyProperty, hasSmartyAuth, mapSmartyExteriorToWall } from './gen/api/smarty.js';
 import { queryMapboxBuilding, hasMapboxApiKey, getMapboxApiKey } from './gen/api/mapbox.js';
 import { querySolarBuildingInsights, hasGoogleApiKey } from './gen/api/google-solar.js';
-import { queryStreetViewMetadata, hasGoogleStreetViewKey } from './gen/api/google-streetview.js';
+import { queryStreetViewMetadata, queryStreetViewFallback, hasGoogleStreetViewKey } from './gen/api/google-streetview.js';
 import { analyzeStreetView, type StreetViewAnalysis } from './gen/api/streetview-analysis.js';
 import { fetchElevationGrid, footprintSlope } from './gen/api/elevation.js';
 
@@ -545,6 +545,18 @@ async function genFromAddress(
     if (streetView?.imageUrl && !basicOnly) {
       spinner.text = 'Analyzing Street View image...';
       svAnalysis = await analyzeStreetView(streetView.imageUrl);
+
+      // If indoor panorama detected, try fallback panorama at wider radius
+      if (svAnalysis?.isIndoor && streetView.panoId) {
+        spinner.text = 'Indoor panorama detected, trying fallback...';
+        const svFallback = await queryStreetViewFallback(geo.lat, geo.lng, streetView.panoId);
+        if (svFallback?.imageUrl) {
+          property.streetViewUrl = svFallback.imageUrl;
+          property.streetViewDate = svFallback.date;
+          property.streetViewHeading = svFallback.heading;
+          svAnalysis = await analyzeStreetView(svFallback.imageUrl);
+        }
+      }
 
       if (svAnalysis && !svAnalysis.isIndoor) {
         // Tier 1: Colors

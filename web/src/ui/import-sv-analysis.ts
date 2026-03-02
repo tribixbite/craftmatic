@@ -64,25 +64,55 @@ async function loadImagePixels(url: string): Promise<{
 
 // ─── Indoor Detection ──────────────────────────────────────────────────────
 
-/** Check if image is an indoor panorama (no sky in top 15%) */
+/**
+ * Multi-factor indoor panorama detection: sky + foliage (top zone) +
+ * road/pavement (bottom zone). Prevents false positives when trees
+ * obscure the sky on outdoor images.
+ */
 function isIndoor(pixels: Uint8Array, w: number, h: number): boolean {
+  // ── Top zone: sky + foliage ────────────────────────────────────────
   const topBound = Math.floor(h * 0.15);
-  let total = 0;
+  let topTotal = 0;
   let sky = 0;
+  let foliage = 0;
 
   for (let y = 0; y < topBound; y++) {
     for (let x = 0; x < w; x++) {
       const idx = (y * w + x) * 4;
       const r = pixels[idx], g = pixels[idx + 1], b = pixels[idx + 2];
       const [hue, sat, lum] = rgbToHsl(r, g, b);
-      total++;
-      if ((hue >= 180 && hue <= 250 && sat > 0.15 && lum > 0.3) ||
-          (lum > 0.75 && sat < 0.15)) {
+      topTotal++;
+      if (hue >= 180 && hue <= 250 && sat > 0.15 && lum > 0.3) {
         sky++;
+      } else if (lum > 0.75 && sat < 0.15) {
+        sky++;
+      }
+      if (hue >= 60 && hue <= 170 && sat > 0.15 && lum > 0.1 && lum < 0.8) {
+        foliage++;
       }
     }
   }
-  return total > 0 && (sky / total) < 0.05;
+
+  if (topTotal === 0) return false;
+  if (sky / topTotal >= 0.05) return false;          // sufficient sky → outdoor
+  if (foliage / topTotal > 0.15) return false;        // tree canopy → outdoor
+
+  // ── Bottom zone: road/pavement ─────────────────────────────────────
+  const bottomStart = Math.floor(h * 0.85);
+  let bottomTotal = 0;
+  let road = 0;
+  for (let y = bottomStart; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const r = pixels[idx], g = pixels[idx + 1], b = pixels[idx + 2];
+      const [, sat, lum] = rgbToHsl(r, g, b);
+      bottomTotal++;
+      if (sat < 0.2 && lum > 0.15 && lum < 0.65) road++;
+    }
+  }
+  if (bottomTotal > 0 && road / bottomTotal > 0.3) return false; // road → outdoor
+
+  return true;
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────

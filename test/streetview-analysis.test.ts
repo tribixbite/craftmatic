@@ -176,6 +176,45 @@ describe('isIndoorPanorama', () => {
     const pixels = solidBuffer(150, 97, 83); // brick everywhere
     expect(isIndoorPanorama(pixels, W, H)).toBe(true);
   });
+
+  it('returns false for tree-covered outdoor image (foliage in top zone)', () => {
+    // Walpole scenario: trees obscure sky, but green foliage in top zone
+    // means outdoor, not indoor. Top 15% = green canopy, rest = house/ground.
+    const pixels = new Uint8Array(W * H * 4);
+    const topBound = Math.floor(H * 0.15);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const idx = (y * W + x) * 4;
+        if (y < topBound) {
+          // Green tree canopy — hue ~120, sat decent, moderate lum
+          pixels[idx] = 50; pixels[idx + 1] = 120; pixels[idx + 2] = 40;
+        } else if (y < Math.floor(H * 0.65)) {
+          // White house wall
+          pixels[idx] = 220; pixels[idx + 1] = 215; pixels[idx + 2] = 210;
+        } else {
+          // Gray driveway / road
+          pixels[idx] = 100; pixels[idx + 1] = 100; pixels[idx + 2] = 100;
+        }
+        pixels[idx + 3] = 255;
+      }
+    }
+    expect(isIndoorPanorama(pixels, W, H)).toBe(false);
+  });
+
+  it('returns false when road/pavement visible in bottom zone', () => {
+    // Indoor-like top (warm brown ceiling, no sky, no foliage) but
+    // road is visible in bottom 15% → still outdoor
+    const pixels = solidBuffer(160, 120, 80); // brown everywhere (would be indoor)
+    const bottomStart = Math.floor(H * 0.85);
+    for (let y = bottomStart; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const idx = (y * W + x) * 4;
+        // Gray asphalt road — low sat, moderate lum
+        pixels[idx] = 110; pixels[idx + 1] = 110; pixels[idx + 2] = 110;
+      }
+    }
+    expect(isIndoorPanorama(pixels, W, H)).toBe(false);
+  });
 });
 
 // ─── Tier 1: Color Extraction ───────────────────────────────────────
