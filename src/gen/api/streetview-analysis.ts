@@ -150,36 +150,75 @@ async function downloadImage(url: string): Promise<{
 // ─── Pre-check: Indoor Panorama Detection ────────────────────────────────────
 
 /**
- * Check if the image appears to be an indoor panorama by looking for
- * sky pixels in the top portion. Outdoor SV images almost always have
- * some sky visible above the building.
+ * Check if the image appears to be an indoor panorama using multi-factor
+ * scoring: sky presence (top zone), foliage/tree canopy (top zone), and
+ * road/pavement evidence (bottom zone). A single sky-pixel check produces
+ * false positives when trees obscure the sky on outdoor images.
  */
 /** @internal Exported for unit testing */
 export function isIndoorPanorama(pixels: Uint8Array, w: number, h: number): boolean {
+  // ── Top zone: sky + foliage detection ──────────────────────────────
   const topBound = Math.floor(h * 0.15); // top 15%
-  let totalPixels = 0;
+  let topTotal = 0;
   let skyPixels = 0;
+  let foliagePixels = 0;
 
   for (let y = 0; y < topBound; y++) {
     for (let x = 0; x < w; x++) {
       const idx = (y * w + x) * 4;
       const r = pixels[idx], g = pixels[idx + 1], b = pixels[idx + 2];
       const [hue, sat, lum] = rgbToHsl(r, g, b);
-      totalPixels++;
+      topTotal++;
 
       // Sky: blue hue, moderate saturation, not too dark
       if (hue >= 180 && hue <= 250 && sat > 0.15 && lum > 0.3) {
         skyPixels++;
       }
       // Also count very bright unsaturated pixels as "sky" (overcast/hazy)
-      if (lum > 0.75 && sat < 0.15) {
+      else if (lum > 0.75 && sat < 0.15) {
         skyPixels++;
+      }
+      // Foliage: green hue with decent saturation (tree canopy, not ceiling)
+      if (hue >= 60 && hue <= 170 && sat > 0.15 && lum > 0.1 && lum < 0.8) {
+        foliagePixels++;
       }
     }
   }
 
-  // Less than 5% sky in top zone → likely indoor
-  return totalPixels > 0 && (skyPixels / totalPixels) < 0.05;
+  if (topTotal === 0) return false;
+  const skyRatio = skyPixels / topTotal;
+  const foliageRatio = foliagePixels / topTotal;
+
+  // Sufficient sky → clearly outdoor
+  if (skyRatio >= 0.05) return false;
+
+  // Low sky but significant foliage → trees obscuring sky, still outdoor
+  if (foliageRatio > 0.15) return false;
+
+  // ── Bottom zone: road/pavement detection (strong outdoor signal) ───
+  const bottomStart = Math.floor(h * 0.85); // bottom 15%
+  let bottomTotal = 0;
+  let roadPixels = 0;
+
+  for (let y = bottomStart; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const r = pixels[idx], g = pixels[idx + 1], b = pixels[idx + 2];
+      const [, sat, lum] = rgbToHsl(r, g, b);
+      bottomTotal++;
+      // Road/pavement: desaturated gray, moderate brightness
+      if (sat < 0.2 && lum > 0.15 && lum < 0.65) {
+        roadPixels++;
+      }
+    }
+  }
+
+  const roadRatio = bottomTotal > 0 ? roadPixels / bottomTotal : 0;
+  // Road/pavement visible in bottom → outdoor (roads don't exist indoors)
+  if (roadRatio > 0.3) return false;
+
+  // No sky, no foliage, no road → likely indoor
+  return true;
 }
 
 // ─── Tier 1: Zone-based Color Extraction ─────────────────────────────────────

@@ -32,7 +32,7 @@ import {
 import { geocodeAddress } from '../src/gen/api/geocoder.js';
 import { searchParclProperty, mapParclPropertyType, hasParclApiKey } from '../src/gen/api/parcl.js';
 import { searchOSMBuilding, type OSMBuildingData } from '../src/gen/api/osm.js';
-import { queryStreetViewMetadata, hasGoogleStreetViewKey, type StreetViewMetadata } from '../src/gen/api/google-streetview.js';
+import { queryStreetViewMetadata, queryStreetViewFallback, hasGoogleStreetViewKey, type StreetViewMetadata } from '../src/gen/api/google-streetview.js';
 import { queryMapboxBuilding, hasMapboxApiKey, type MapboxBuildingData } from '../src/gen/api/mapbox.js';
 import { querySolarBuildingInsights, hasGoogleApiKey, type SolarBuildingData } from '../src/gen/api/google-solar.js';
 import {
@@ -405,6 +405,17 @@ for (const { key, address } of addressesToProcess) {
       const vlmProvider = process.env.ANTHROPIC_API_KEY ? 'Anthropic' : process.env.OPENROUTER_API_KEY ? 'OpenRouter' : null;
       console.log(`  SV Analysis: analyzing image...${skipVision ? '' : ` (+ VLM Tier 3 via ${vlmProvider})`}`);
       svAnalysis = await analyzeStreetView(svMeta.imageUrl, skipVision);
+
+      // If indoor panorama detected, try fallback panorama at wider radius
+      if (svAnalysis?.isIndoor && svMeta.panoId) {
+        console.log(`  SV Analysis: indoor panorama — trying fallback...`);
+        const fallback = await queryStreetViewFallback(lat, lng, svMeta.panoId);
+        if (fallback?.imageUrl) {
+          svMeta = fallback;
+          console.log(`  SV Fallback: new pano heading=${fallback.heading?.toFixed(0)}° date=${fallback.date || '?'}`);
+          svAnalysis = await analyzeStreetView(fallback.imageUrl, skipVision);
+        }
+      }
     } catch (err) {
       svAnalysisRec.status = 'error';
       svAnalysisRec.error = String(err);

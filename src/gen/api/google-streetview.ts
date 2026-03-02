@@ -63,8 +63,9 @@ export function hasGoogleStreetViewKey(): boolean {
  * Query Google Street View metadata for a location. This endpoint is FREE
  * and does not consume quota. Returns null if no Street View coverage exists.
  *
- * Automatically computes the camera heading from the panorama location
- * toward the target building, and constructs a 640x480 image URL.
+ * Prefers outdoor panoramas via `source=outdoor` parameter, falling back
+ * to any source if outdoor-only yields no results. This avoids indoor
+ * panoramas from businesses, lobbies, and Google 360 photo uploads.
  *
  * @param lat Target building latitude
  * @param lng Target building longitude
@@ -78,25 +79,65 @@ export async function queryStreetViewMetadata(
   const key = apiKey ?? getGoogleStreetViewKey();
   if (!key) return null;
 
-  const url = `${SV_META_BASE}?location=${lat},${lng}&key=${key}`;
-
-  const data = await fetchWithRetry<SvMetadataResponse>(url);
-  if (!data || data.status !== 'OK' || !data.pano_id || !data.location) return null;
-
-  // Compute heading from panorama location toward the target building
-  const heading = computeHeading(
-    data.location.lat, data.location.lng,
-    lat, lng,
+  // Try outdoor-only first to avoid indoor panoramas (metadata calls are free)
+  let data = await fetchWithRetry<SvMetadataResponse>(
+    `${SV_META_BASE}?location=${lat},${lng}&source=outdoor&key=${key}`,
   );
 
-  // Construct image URL: 640x480, slight upward pitch to capture roof
-  const imageUrl = `${SV_IMAGE_BASE}?size=640x480&pano=${data.pano_id}&heading=${heading.toFixed(1)}&pitch=10&fov=90&key=${key}`;
+  // Fall back to any source if outdoor-only returns no results
+  if (!data || data.status !== 'OK' || !data.pano_id || !data.location) {
+    data = await fetchWithRetry<SvMetadataResponse>(
+      `${SV_META_BASE}?location=${lat},${lng}&key=${key}`,
+    );
+    if (!data || data.status !== 'OK' || !data.pano_id || !data.location) return null;
+  }
+
+  return buildMetadata(data, lat, lng, key);
+}
+
+/**
+ * Re-query Street View metadata at a wider radius to find a different
+ * panorama. Used as fallback when the initial image is flagged as indoor.
+ * Metadata calls are free — no quota cost for retries.
+ */
+export async function queryStreetViewFallback(
+  lat: number,
+  lng: number,
+  excludePanoId: string,
+  apiKey?: string,
+): Promise<StreetViewMetadata | null> {
+  const key = apiKey ?? getGoogleStreetViewKey();
+  if (!key) return null;
+
+  // Try increasing radii to find a different outdoor panorama
+  for (const radius of [100, 250, 500]) {
+    const data = await fetchWithRetry<SvMetadataResponse>(
+      `${SV_META_BASE}?location=${lat},${lng}&radius=${radius}&source=outdoor&key=${key}`,
+    );
+    if (data?.status === 'OK' && data.pano_id && data.location &&
+        data.pano_id !== excludePanoId) {
+      return buildMetadata(data, lat, lng, key);
+    }
+  }
+  return null;
+}
+
+/** Construct StreetViewMetadata from raw API response */
+function buildMetadata(
+  data: SvMetadataResponse, targetLat: number, targetLng: number, key: string,
+): StreetViewMetadata {
+  const heading = computeHeading(
+    data.location!.lat, data.location!.lng,
+    targetLat, targetLng,
+  );
+
+  const imageUrl = `${SV_IMAGE_BASE}?size=640x480&pano=${data.pano_id!}&heading=${heading.toFixed(1)}&pitch=10&fov=90&key=${key}`;
 
   return {
-    panoId: data.pano_id,
+    panoId: data.pano_id!,
     date: data.date ?? '',
-    lat: data.location.lat,
-    lng: data.location.lng,
+    lat: data.location!.lat,
+    lng: data.location!.lng,
     imageUrl,
     heading,
   };
