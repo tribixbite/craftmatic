@@ -57,8 +57,18 @@
 - [x] All 14 addresses re-rendered at tile=10 (was: only 3 at tile=10, 11 at tile=8)
 - [x] VLM non-determinism resolved: full regen produces consistent JSON + images in single pass
 
-## Phase 7 (backlog — targeting 9.5+)
-- [ ] Multi-heading SV fallback for indoor panorama addresses (5/14 missing VLM)
+## Phase 7 (complete — SV indoor fix + roof height + outdoor preference)
+- [x] Multi-factor indoor detection: foliage (trees ≠ ceiling) + road (bottom zone) scoring
+- [x] source=outdoor preference on SV metadata API (free calls, avoids indoor panoramas)
+- [x] queryStreetViewFallback() retries at 100m/250m/500m radius when indoor detected
+- [x] Removed proportional cap ln(area×0.15+3) from roof height formula — trust Solar tangent
+- [x] Walpole: roofH 4→6 blocks (31° pitch), SV analysis now runs (was false-positive indoor)
+- [x] Regen + render 5 affected addresses at tile=10
+- [ ] Byron/Vinalhaven/Suttonsbay: no outdoor SV coverage at all (rural, 3/14 still missing VLM)
+- [ ] San Jose (Winchester Mystery House): indoor panorama confirmed, no outdoor fallback available
+
+## Phase 8 (backlog — targeting 9.5+)
 - [ ] VLM floor count estimation as additional signal
 - [ ] Charleston hip: multi-angle VLM or Solar segment geometry cross-ref
 - [ ] Improved roof correction for wide buildings (estSpan from sqft is unreliable)
+- [ ] Multi-heading SV for tree-obscured views (rotate ±45° to find clearer angle)
