@@ -121,8 +121,13 @@ interface ComparisonResult {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Render tile size — higher = sharper images (8→10; 12 hangs on ARM) */
+const RENDER_TILE = 10;
+/** Floor plan scale — pixels per block for top-down views */
+const FLOOR_SCALE = 20;
+
 async function toJpeg(pngBuf: Buffer): Promise<Buffer> {
-  return sharp(pngBuf).jpeg({ quality: 85 }).toBuffer();
+  return sharp(pngBuf).jpeg({ quality: 90 }).toBuffer();
 }
 
 function mc(block: string): string {
@@ -737,16 +742,16 @@ for (const { key, address } of addressesToProcess) {
     const floorPaths: string[] = [];
 
     if (!JSON_ONLY) {
-      const extBuf = await renderExterior(grid, { tile: 8 });
+      const extBuf = await renderExterior(grid, { tile: RENDER_TILE });
       await writeFile(join(OUT_DIR, extFile), await toJpeg(extBuf));
 
       for (let f = 0; f < Math.min(opts.floors, 9); f++) {
-        const cutBuf = await renderCutawayIso(grid, f, { tile: 8 });
+        const cutBuf = await renderCutawayIso(grid, f, { tile: RENDER_TILE });
         const cutFile = `${key}-${tier}_cutaway_${f}.jpg`;
         await writeFile(join(OUT_DIR, cutFile), await toJpeg(cutBuf));
         cutawayPaths.push(cutFile);
 
-        const floorBuf = await renderFloorDetail(grid, f, { scale: 16 });
+        const floorBuf = await renderFloorDetail(grid, f, { scale: FLOOR_SCALE });
         const floorFile = `${key}-${tier}_floor_${f}.jpg`;
         await writeFile(join(OUT_DIR, floorFile), await toJpeg(floorBuf));
         floorPaths.push(floorFile);
