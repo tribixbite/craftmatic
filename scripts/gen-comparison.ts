@@ -768,14 +768,16 @@ for (const { key, address } of addressesToProcess) {
     tierResults.push({
       tier,
       property: prop,  // Full PropertyData for round-trip fidelity
+      // Store all serializable genOptions (excludes footprintBitmap/sections which are class instances)
       genOptions: {
-        style: opts.style, floors: opts.floors, width: opts.width, length: opts.length,
-        seed: opts.seed,
+        style: opts.style, type: opts.type, floors: opts.floors, width: opts.width, length: opts.length,
+        seed: opts.seed, orientation: opts.orientation, season: opts.season,
         wallOverride: opts.wallOverride, trimOverride: opts.trimOverride,
         doorOverride: opts.doorOverride, roofShape: opts.roofShape,
         roofOverride: opts.roofOverride, floorPlanShape: opts.floorPlanShape,
         windowSpacing: opts.windowSpacing, roofHeightOverride: opts.roofHeightOverride,
         features: opts.features, landscape: opts.landscape,
+        resolvedPalette: opts.resolvedPalette,
       },
       grid: { width: grid.width, height: grid.height, depth: grid.length, blocks: blockCount },
       views: { exterior: extFile, cutaway: cutawayPaths, floor: floorPaths },

@@ -110,9 +110,14 @@ function jsonToLocation(entry: ComparisonJsonEntry): LocationEntry {
     }
     // Build notes from key gen options
     const shape = g.floorPlanShape ? `, ${g.floorPlanShape}-shape` : '';
-    const wall = g.wallOverride ? `, wall=${String(g.wallOverride).replace('minecraft:', '')}` : '';
+    // Prefer resolvedPalette.wall (data-driven) over wallOverride (fantasy style)
+    const rp = g.resolvedPalette as Record<string, unknown> | undefined;
+    const wallBlock = g.wallOverride ?? rp?.wall;
+    const wall = wallBlock ? `, wall=${String(wallBlock).replace('minecraft:', '')}` : '';
+    const roofBlock = rp?.roofCap ?? (g.roofOverride as Record<string, unknown> | undefined)?.cap;
+    const roofMat = roofBlock ? `, roofMat=${String(roofBlock).replace(/minecraft:|_slab\[.*$/g, '')}` : '';
     const roof = g.roofShape ? `, roof=${g.roofShape}` : '';
-    const notes = `${g.style} ${g.floors}f ${g.width ?? '?'}x${g.length ?? '?'}${shape}${wall}${roof}`;
+    const notes = `${g.style} ${g.floors}f ${g.width ?? '?'}x${g.length ?? '?'}${shape}${wall}${roof}${roofMat}`;
     return {
       style: String(g.style ?? 'fantasy'),
       floors: Number(g.floors ?? 2),
@@ -583,6 +588,10 @@ function generateForTier(tier: typeof TIERS[number]): BlockGrid {
         windowSpacing: g.windowSpacing as number | undefined,
         roofHeightOverride: g.roofHeightOverride as number | undefined,
         features: g.features as GenerationOptions['features'],
+        orientation: g.orientation as GenerationOptions['orientation'],
+        season: g.season as GenerationOptions['season'],
+        resolvedPalette: g.resolvedPalette as GenerationOptions['resolvedPalette'],
+        landscape: g.landscape as GenerationOptions['landscape'],
       });
     }
   }
