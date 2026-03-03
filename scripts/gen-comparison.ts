@@ -69,6 +69,12 @@ const ONLY_KEYS = (() => {
   return arg ? arg.slice(7).split(',') : null;
 })();
 
+/** Optional directory containing pre-voxelized .schem files from Tiles tab (--tiles-dir=path) */
+const TILES_DIR = (() => {
+  const arg = process.argv.find(a => a.startsWith('--tiles-dir='));
+  return arg ? resolve(PROJECT_ROOT, arg.slice(12)) : null;
+})();
+
 // ─── All 14 comparison addresses ─────────────────────────────────────────────
 
 const ADDRESSES = [
@@ -112,11 +118,20 @@ interface TierResult {
   views: { exterior: string; cutaway: string[]; floor: string[] };
 }
 
+/** Optional 3D Tiles voxelization data for comparing against procedural output */
+interface TilesInfo {
+  grid: { width: number; height: number; depth: number; blocks: number };
+  paletteSize: number;
+  resolution: number;
+  radiusMeters: number;
+}
+
 interface ComparisonResult {
   key: string;
   address: string;
   apis: ApiRecord[];
   tiers: TierResult[];
+  tilesInfo?: TilesInfo;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -796,6 +811,51 @@ for (const { key, address } of addressesToProcess) {
   }
 
   allResults.push({ key, address, apis, tiers: tierResults });
+}
+
+// ─── Load pre-voxelized 3D Tiles .schem files if --tiles-dir provided ────────
+
+if (TILES_DIR) {
+  const { existsSync: fsExists, readdirSync } = await import('fs');
+  const { parseSchematic } = await import('../src/schem/parse.js');
+  if (fsExists(TILES_DIR)) {
+    const tilesFiles = readdirSync(TILES_DIR).filter(f => f.endsWith('.schem'));
+    console.log(`\n=== Loading ${tilesFiles.length} pre-voxelized tiles from ${TILES_DIR} ===`);
+    for (const file of tilesFiles) {
+      // Expected naming: key.schem or tiles-address.schem
+      // Match by address key prefix
+      const stem = file.replace(/\.schem$/, '');
+      const matchKey = ADDRESSES.find(a => stem === a.key || stem.startsWith(`tiles-${a.key}`))?.key
+        ?? ADDRESSES.find(a => stem.toLowerCase().includes(a.key))?.key;
+      if (!matchKey) {
+        console.log(`  ? ${file} — no matching address key, skipping`);
+        continue;
+      }
+      const result = allResults.find(r => r.key === matchKey);
+      if (!result) {
+        console.log(`  ? ${file} → key "${matchKey}" not in current results, skipping`);
+        continue;
+      }
+      try {
+        const schemBuf = readFileSync(join(TILES_DIR, file));
+        const grid = parseSchematic(schemBuf);
+        // Extract resolution/radius from filename if encoded, else use defaults
+        const resMatch = file.match(/res(\d+)/);
+        const radMatch = file.match(/rad(\d+)/);
+        result.tilesInfo = {
+          grid: { width: grid.width, height: grid.height, depth: grid.length, blocks: grid.countNonAir() },
+          paletteSize: grid.palette.size,
+          resolution: resMatch ? parseInt(resMatch[1]) : 1,
+          radiusMeters: radMatch ? parseInt(radMatch[1]) : 50,
+        };
+        console.log(`  + ${file} → ${matchKey}: ${grid.width}x${grid.height}x${grid.length}, ${grid.palette.size} materials`);
+      } catch (err) {
+        console.error(`  ! ${file}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  } else {
+    console.warn(`Warning: --tiles-dir="${TILES_DIR}" does not exist`);
+  }
 }
 
 // ─── Write JSON + sync to web ────────────────────────────────────────────────
