@@ -13,6 +13,7 @@ import { initUpload } from '@ui/upload.js';
 import { initGallery } from '@ui/gallery.js';
 import { initComparison } from '@ui/comparison.js';
 import { initMap3d } from '@ui/map3d.js';
+import { initTiles } from '@ui/tiles.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -457,6 +458,28 @@ initComparison(comparisonRoot, (grid, label) => {
 
 const map3dRoot = document.getElementById('map3d-root')!;
 initMap3d(map3dRoot);
+
+// ─── Tiles (3D Tiles → Schematic) ──────────────────────────────────────────
+
+const tilesRoot = document.getElementById('tiles-root')!;
+initTiles(tilesRoot, (grid, label) => {
+  exportBasename = slugify(label) || 'tiles';
+  showLoading('Building 3D view...');
+  requestAnimationFrame(() => setTimeout(() => {
+    try {
+      // Show inline viewer in the tiles tab's root container
+      showInlineViewer(tilesRoot, grid);
+    } catch (err) {
+      console.warn('3D viewer failed:', err);
+      const fallback = document.createElement('div');
+      fallback.className = 'viewer-fallback';
+      fallback.textContent = '3D preview unavailable. Voxelization succeeded — use download buttons above.';
+      tilesRoot.appendChild(fallback);
+    } finally {
+      hideLoading();
+    }
+  }, 0));
+});
 
 // ─── Version Badge ──────────────────────────────────────────────────────────
 

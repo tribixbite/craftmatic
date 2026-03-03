@@ -21,12 +21,12 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   getStreetViewApiKey, setStreetViewApiKey, hasStreetViewApiKey,
 } from '@ui/import-streetview.js';
+import { geocodeAddress, type GeocodeResult } from '@ui/shared-geocode.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const MAP_KEY_STORAGE = 'craftmatic_map3d_api_key';
 const DRACO_DECODER_PATH = 'https://www.gstatic.com/draco/versioned/decoders/1.5.7/';
-const GEOCODE_API = 'https://maps.googleapis.com/maps/api/geocode/json';
 
 /** Default location: The Flintstone House, Hillsborough CA */
 const DEFAULT_LAT = 37.5313106;
@@ -72,25 +72,9 @@ function hasApiKey(): boolean {
 
 // ─── Geocoding ──────────────────────────────────────────────────────────────
 
-interface GeocodeResult {
-  lat: number;
-  lng: number;
-  formattedAddress: string;
-}
-
+/** Geocode using the shared utility with the Map tab's API key */
 async function geocode(address: string): Promise<GeocodeResult | null> {
-  const key = getApiKey();
-  if (!key) return null;
-  const url = `${GEOCODE_API}?address=${encodeURIComponent(address)}&key=${key}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (data.status !== 'OK' || !data.results?.length) return null;
-  const loc = data.results[0].geometry.location;
-  return {
-    lat: loc.lat,
-    lng: loc.lng,
-    formattedAddress: data.results[0].formatted_address,
-  };
+  return geocodeAddress(address, getApiKey());
 }
 
 // ─── Three.js + 3D Tiles Setup ──────────────────────────────────────────────

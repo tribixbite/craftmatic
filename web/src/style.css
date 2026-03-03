@@ -1894,3 +1894,192 @@ html, body {
     flex-wrap: wrap;
   }
 }
+
+/* ─── Tiles Tab (3D Tiles → Schematic) ─────────────────────────────── */
+
+#tab-tiles {
+  overflow-y: auto;
+}
+
+#tiles-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.tiles-controls {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tiles-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tiles-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.tiles-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.tiles-search-row {
+  display: flex;
+  gap: 8px;
+}
+
+.tiles-input {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.tiles-input:focus {
+  border-color: var(--accent);
+}
+
+.tiles-params {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tiles-param {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.tiles-param input[type="range"] {
+  width: 100px;
+  accent-color: var(--accent);
+}
+
+.tiles-param-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  min-width: 60px;
+}
+
+.tiles-key-hint {
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tiles-key-hint p {
+  margin: 0 0 6px;
+}
+
+.tiles-key-row {
+  display: flex;
+  gap: 6px;
+}
+
+.tiles-key-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.tiles-key-input:focus {
+  border-color: var(--accent);
+}
+
+.tiles-status {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  min-height: 16px;
+  padding: 0 2px;
+}
+
+.tiles-status-info { color: var(--text-secondary); }
+.tiles-status-error { color: var(--danger, #f87171); }
+.tiles-status-success { color: var(--success, #4ade80); }
+
+.tiles-viewer {
+  flex: 1;
+  min-height: 300px;
+  position: relative;
+  background: #0a0a14;
+}
+
+.tiles-viewer canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.tiles-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 300px;
+  color: var(--text-secondary);
+  gap: 12px;
+  padding: 40px;
+  text-align: center;
+}
+
+.tiles-placeholder svg {
+  opacity: 0.3;
+}
+
+.tiles-placeholder p {
+  font-size: 14px;
+  margin: 0;
+}
+
+.tiles-placeholder-sub {
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+@media (max-width: 600px) {
+  .tiles-search-row {
+    flex-direction: column;
+  }
+  .tiles-params {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .tiles-param input[type="range"] {
+    width: 80px;
+  }
+}
