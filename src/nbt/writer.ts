@@ -97,6 +97,12 @@ export class NBTWriter {
     for (const v of data) this.writeInt(v);
   }
 
+  /** Write a long array (length-prefixed with int) */
+  writeLongArray(data: BigInt64Array | bigint[]): void {
+    this.writeInt(data.length);
+    for (const v of data) this.writeLong(v);
+  }
+
   /** Write TAG_END (0) */
   writeEnd(): void {
     this.writeByte(TAG.END);

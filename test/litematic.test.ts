@@ -1,6 +1,6 @@
 /**
- * Tests for Litematica .litematic format decoding and parsing.
- * Tests the shared decode utilities (bit-packing, blockstate reconstruction)
+ * Tests for Litematica .litematic format decoding, encoding, and parsing.
+ * Tests the shared decode/encode utilities (bit-packing, blockstate reconstruction/decomposition)
  * and the region merging logic.
  */
 
@@ -8,6 +8,9 @@ import { describe, it, expect } from 'vitest';
 import {
   decodeBitPackedStates, reconstructBlockState, calcBitsPerEntry,
 } from '../src/schem/litematic-decode.js';
+import {
+  encodeBitPackedStates, decomposeBlockState,
+} from '../src/schem/litematic-encode.js';
 import { mergeRegionsToGrid, type LitematicRegion } from '../src/schem/parse-litematic.js';
 import { BlockGrid } from '../src/schem/types.js';
 
@@ -105,6 +108,98 @@ describe('litematic-decode', () => {
     it('handles undefined properties', () => {
       expect(reconstructBlockState('minecraft:stone', undefined))
         .toBe('minecraft:stone');
+    });
+  });
+});
+
+describe('litematic-encode', () => {
+  describe('encodeBitPackedStates', () => {
+    it('round-trips 2-bit entries', () => {
+      const original = [0, 1, 2, 3];
+      const packed = encodeBitPackedStates(original, 2);
+      const decoded = decodeBitPackedStates(packed, 2, original.length);
+      expect(decoded).toEqual(original);
+    });
+
+    it('round-trips 4-bit entries', () => {
+      const original = [5, 10, 3, 15, 0, 7, 12, 1];
+      const packed = encodeBitPackedStates(original, 4);
+      const decoded = decodeBitPackedStates(packed, 4, original.length);
+      expect(decoded).toEqual(original);
+    });
+
+    it('round-trips 3-bit entries spanning multiple longs', () => {
+      // 30 entries at 3 bits = 90 bits = 2 longs needed
+      const original = Array.from({ length: 30 }, (_, i) => i % 8);
+      const packed = encodeBitPackedStates(original, 3);
+      expect(packed.length).toBe(2); // ceil(90/64) = 2
+      const decoded = decodeBitPackedStates(packed, 3, original.length);
+      expect(decoded).toEqual(original);
+    });
+
+    it('round-trips entries that span long boundaries', () => {
+      // 5-bit entries: 64/5 = 12.8 entries per long, so entry 12 spans boundary
+      const original = Array.from({ length: 20 }, (_, i) => i % 32);
+      const packed = encodeBitPackedStates(original, 5);
+      const decoded = decodeBitPackedStates(packed, 5, original.length);
+      expect(decoded).toEqual(original);
+    });
+
+    it('round-trips large palette (8-bit entries)', () => {
+      const original = Array.from({ length: 100 }, (_, i) => i % 256);
+      const packed = encodeBitPackedStates(original, 8);
+      const decoded = decodeBitPackedStates(packed, 8, original.length);
+      expect(decoded).toEqual(original);
+    });
+
+    it('handles empty input', () => {
+      const packed = encodeBitPackedStates([], 2);
+      expect(packed.length).toBe(0);
+    });
+
+    it('handles all-zero entries', () => {
+      const original = [0, 0, 0, 0, 0];
+      const packed = encodeBitPackedStates(original, 2);
+      const decoded = decodeBitPackedStates(packed, 2, original.length);
+      expect(decoded).toEqual(original);
+    });
+  });
+
+  describe('decomposeBlockState', () => {
+    it('decomposes bare name (no properties)', () => {
+      const result = decomposeBlockState('minecraft:stone');
+      expect(result).toEqual({ name: 'minecraft:stone', properties: undefined });
+    });
+
+    it('decomposes name with properties', () => {
+      const result = decomposeBlockState('minecraft:oak_stairs[facing=north,half=bottom,shape=straight]');
+      expect(result).toEqual({
+        name: 'minecraft:oak_stairs',
+        properties: { facing: 'north', half: 'bottom', shape: 'straight' },
+      });
+    });
+
+    it('decomposes single property', () => {
+      const result = decomposeBlockState('minecraft:oak_log[axis=y]');
+      expect(result).toEqual({
+        name: 'minecraft:oak_log',
+        properties: { axis: 'y' },
+      });
+    });
+
+    it('round-trips with reconstructBlockState', () => {
+      const states = [
+        'minecraft:stone',
+        'minecraft:air',
+        'minecraft:oak_stairs[facing=north,half=bottom,shape=straight]',
+        'minecraft:oak_log[axis=y]',
+        'minecraft:chest[facing=west]',
+      ];
+      for (const state of states) {
+        const { name, properties } = decomposeBlockState(state);
+        const reconstructed = reconstructBlockState(name, properties);
+        expect(reconstructed).toBe(state);
+      }
     });
   });
 });

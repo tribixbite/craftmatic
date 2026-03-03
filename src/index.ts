@@ -21,10 +21,13 @@ export { BlockGrid } from './schem/types.js';
 export { parseSchematic, parseToGrid, schematicToGrid } from './schem/parse.js';
 export { writeSchematic, writeSchematicData, gridToSchematic } from './schem/write.js';
 
-// ─── Litematica parsing ─────────────────────────────────────────────────────
+// ─── Litematica parsing & writing ───────────────────────────────────────────
 export { parseLitematic, parseLitematicToGrid, mergeRegionsToGrid } from './schem/parse-litematic.js';
 export type { LitematicRegion } from './schem/parse-litematic.js';
 export { decodeBitPackedStates, reconstructBlockState, calcBitsPerEntry } from './schem/litematic-decode.js';
+export { encodeBitPackedStates, decomposeBlockState } from './schem/litematic-encode.js';
+export { writeLitematic, encodeLitematicNBT, gridToLitematicRegion } from './schem/write-litematic.js';
+export type { LitematicOptions } from './schem/write-litematic.js';
 
 // ─── Varint encoding ─────────────────────────────────────────────────────────
 export { encodeVarint, decodeVarint, decodeAllVarints } from './schem/varint.js';

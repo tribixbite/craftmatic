@@ -82,15 +82,40 @@ export async function parseLitematic(filepath: string): Promise<LitematicRegion[
       palette.push(reconstructBlockState(name, props));
     }
 
-    // Read bit-packed block data
-    const blockStatesRaw = region['BlockStates'] as BigInt64Array | unknown;
-    if (!(blockStatesRaw instanceof BigInt64Array)) {
-      throw new Error(`Region "${regionName}": BlockStates is not a LongArray`);
+    // Read bit-packed block data — prismarine-nbt returns longArray as Array of
+    // SignedBigInt wrappers (not native bigint or BigInt64Array). Convert to BigInt64Array.
+    const blockStatesRaw = region['BlockStates'];
+    let blockStatesArray: BigInt64Array;
+    if (blockStatesRaw instanceof BigInt64Array) {
+      blockStatesArray = blockStatesRaw;
+    } else if (Array.isArray(blockStatesRaw)) {
+      // prismarine-nbt returns longArray elements as SignedBigInt objects
+      // with valueOf() → bigint, or as [hi, lo] pairs. Convert to BigInt64Array.
+      blockStatesArray = new BigInt64Array(blockStatesRaw.length);
+      for (let i = 0; i < blockStatesRaw.length; i++) {
+        const v = blockStatesRaw[i];
+        if (typeof v === 'bigint') {
+          blockStatesArray[i] = v;
+        } else if (typeof v === 'object' && v !== null && typeof v.valueOf === 'function') {
+          // SignedBigInt wrapper — extract native bigint via valueOf()
+          const raw = v.valueOf();
+          blockStatesArray[i] = typeof raw === 'bigint' ? raw : BigInt(raw);
+        } else if (Array.isArray(v) && v.length === 2) {
+          // [hi, lo] pair format (older prismarine-nbt)
+          const hi = BigInt(v[0]) & 0xFFFFFFFFn;
+          const lo = BigInt(v[1]) & 0xFFFFFFFFn;
+          blockStatesArray[i] = (hi << 32n) | lo;
+        } else {
+          blockStatesArray[i] = BigInt(v);
+        }
+      }
+    } else {
+      throw new Error(`Region "${regionName}": BlockStates is not a LongArray (got ${typeof blockStatesRaw})`);
     }
 
     const totalBlocks = absW * absH * absL;
     const bitsPerEntry = calcBitsPerEntry(palette.length);
-    const indices = decodeBitPackedStates(blockStatesRaw, bitsPerEntry, totalBlocks);
+    const indices = decodeBitPackedStates(blockStatesArray, bitsPerEntry, totalBlocks);
 
     // Build BlockGrid — Litematica index order: x + z * absW + y * absW * absL
     const grid = new BlockGrid(absW, absH, absL);

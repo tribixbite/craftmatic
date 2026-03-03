@@ -12,6 +12,7 @@ import ora from 'ora';
 import { parseSchematic, parseToGrid } from './schem/parse.js';
 import { parseLitematicToGrid } from './schem/parse-litematic.js';
 import { writeSchematic } from './schem/write.js';
+import { writeLitematic } from './schem/write-litematic.js';
 import { generateStructure } from './gen/generator.js';
 import { renderFloorDetail, renderCutawayIso, renderExterior } from './render/png-renderer.js';
 import { exportHTML } from './render/export-html.js';
@@ -277,11 +278,17 @@ program
   });
 
 async function exportCommand(file: string, output?: string): Promise<void> {
-  const spinner = ora('Exporting HTML viewer...').start();
+  const outFile = output ?? basename(file, '.schem') + '.html';
+  const ext = outFile.split('.').pop()?.toLowerCase();
+
+  const spinner = ora(`Exporting ${ext === 'litematic' ? '.litematic' : 'HTML viewer'}...`).start();
   try {
     const grid = await loadGrid(file);
-    const outFile = output ?? basename(file, '.schem') + '.html';
-    await exportHTML(grid, outFile);
+    if (ext === 'litematic') {
+      writeLitematic(grid, outFile);
+    } else {
+      await exportHTML(grid, outFile);
+    }
     spinner.succeed(`Exported to ${chalk.cyan(outFile)}`);
   } catch (err) {
     spinner.fail('Export failed');
@@ -340,7 +347,12 @@ program
       };
 
       const grid = generateStructure(genOpts);
-      writeSchematic(grid, output);
+      const outExt = output.split('.').pop()?.toLowerCase();
+      if (outExt === 'litematic') {
+        writeLitematic(grid, output);
+      } else {
+        writeSchematic(grid, output);
+      }
 
       const nonAir = grid.countNonAir();
       spinner.succeed(`Generated ${chalk.cyan(output)}`);

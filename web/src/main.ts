@@ -6,7 +6,7 @@
 import './style.css';
 import { BlockGrid } from '@craft/schem/types.js';
 import { createViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
-import { exportGLB, exportSTL, exportOBJ, exportSchem, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
+import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initImport, type PropertyData } from '@ui/import.js';
 import { initUpload } from '@ui/upload.js';
@@ -109,6 +109,7 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
       </button>
       <div class="download-menu download-menu-up" id="inline-dl-menu" hidden>
         <button class="download-item" data-format="schem">.schem<span class="download-desc">Minecraft</span></button>
+        <button class="download-item" data-format="litematic">.litematic<span class="download-desc">Litematica</span></button>
         <button class="download-item" data-format="stl">STL<span class="download-desc">3D print</span></button>
         <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF</span></button>
         <button class="download-item" data-format="obj">OBJ<span class="download-desc">Universal</span></button>
@@ -264,6 +265,10 @@ function wireDownloadDropdown(
           case 'schem':
             if (!grid) return;
             exportSchem(grid, `${exportBasename}.schem`);
+            break;
+          case 'litematic':
+            if (!grid) return;
+            exportLitematic(grid, `${exportBasename}.litematic`);
             break;
           case 'stl':
             if (!viewer) return;
