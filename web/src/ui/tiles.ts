@@ -106,15 +106,17 @@ function buildUI(): void {
           <span id="tiles-radius-label" class="tiles-param-value">50 m</span>
         </label>
       </div>
-      ${!hasTileKey ? `
-        <div class="tiles-key-hint">
-          <p>Google Maps API key required. Set it in the <strong>Map</strong> tab, or paste below:</p>
-          <div class="tiles-key-row">
-            <input type="password" class="tiles-key-input" id="tiles-key-input" placeholder="Google Maps API key">
-            <button class="btn btn-secondary btn-sm" id="tiles-key-save">Save</button>
-          </div>
+      <div class="tiles-key-hint">
+        <p>${hasTileKey
+          ? `API key: <code>••••${key.slice(-4)}</code>`
+          : 'Google Maps API key required. Set it in the <strong>Map</strong> tab, or paste below:'}</p>
+        <div class="tiles-key-row">
+          <input type="password" class="tiles-key-input" id="tiles-key-input"
+            placeholder="${hasTileKey ? 'Replace API key...' : 'Google Maps API key'}">
+          <button class="btn btn-secondary btn-sm" id="tiles-key-save">Save</button>
+          ${hasTileKey ? '<button class="btn btn-secondary btn-sm" id="tiles-key-clear">Clear</button>' : ''}
         </div>
-      ` : ''}
+      </div>
       <div class="tiles-status" id="tiles-status"></div>
     </div>
     <div class="tiles-viewer" id="tiles-viewer">
@@ -165,7 +167,7 @@ function buildUI(): void {
     if (e.key === 'Enter') startVoxelize();
   });
 
-  // API key save (if shown)
+  // API key save + clear
   const keySave = document.getElementById('tiles-key-save');
   const keyInput = document.getElementById('tiles-key-input') as HTMLInputElement | null;
   if (keySave && keyInput) {
@@ -176,8 +178,19 @@ function buildUI(): void {
       keyInput.value = '';
       voxBtn.disabled = false;
       setStatus('API key saved', 'success');
-      // Remove key hint
-      document.querySelector('.tiles-key-hint')?.remove();
+      // Rebuild UI to show updated key mask + clear button
+      buildUI();
+    });
+  }
+
+  const keyClear = document.getElementById('tiles-key-clear');
+  if (keyClear) {
+    keyClear.addEventListener('click', () => {
+      localStorage.removeItem(MAP_KEY_STORAGE);
+      voxBtn.disabled = true;
+      setStatus('API key cleared', 'info');
+      // Rebuild UI to show key input prompt
+      buildUI();
     });
   }
 }
