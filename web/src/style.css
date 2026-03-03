@@ -1499,6 +1499,8 @@ html, body {
 .cmp-stat-card.someapis h4 { color: #fbbf24; }
 .cmp-stat-card.allapis h4 { color: var(--success, #4ade80); }
 .cmp-stat-card.enriched h4 { color: var(--accent, #5865f2); }
+.cmp-stat-card.tiles h4 { color: #f472b6; }
+.cmp-stat-card.tiles { border-color: rgba(244, 114, 182, 0.3); }
 
 .cmp-stat-card table {
   width: 100%;

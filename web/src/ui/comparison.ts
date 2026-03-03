@@ -66,11 +66,20 @@ interface TierJsonEntry {
   views: { exterior: string; cutaway: string[]; floor: string[] };
 }
 
+/** Optional 3D Tiles voxelization data for comparing against procedural output */
+interface TilesInfo {
+  grid: { width: number; height: number; depth: number; blocks: number };
+  paletteSize: number;
+  resolution: number;     // blocks per meter
+  radiusMeters: number;   // capture radius used
+}
+
 interface ComparisonJsonEntry {
   key: string;
   address: string;
   apis: ApiRecord[];
   tiers: TierJsonEntry[];
+  tilesInfo?: TilesInfo;
 }
 
 /** Derive a short label from address key */
@@ -703,8 +712,30 @@ function buildStats(): void {
     return html;
   };
 
-  el.innerHTML = makeTable('noapi', null) + makeTable('someapis', 'noapi')
+  let html = makeTable('noapi', null) + makeTable('someapis', 'noapi')
     + makeTable('allapis', 'someapis') + makeTable('enriched', 'allapis');
+
+  // Add 3D Tiles comparison card if tiles data exists for this location
+  const jsonEntry = apiData.get(currentLoc);
+  if (jsonEntry?.tilesInfo) {
+    const t = jsonEntry.tilesInfo;
+    const enrichedTier = loc.enriched;
+    html += `<div class="cmp-stat-card tiles"><h4>3D Tiles (Google)</h4><table>`;
+    html += `<tr><td>Grid</td><td>${t.grid.width}\u00d7${t.grid.height}\u00d7${t.grid.depth}</td></tr>`;
+    html += `<tr><td>Blocks</td><td>${t.grid.blocks.toLocaleString()}</td></tr>`;
+    html += `<tr><td>Palette</td><td>${t.paletteSize} materials</td></tr>`;
+    html += `<tr><td>Resolution</td><td>${t.resolution} block/m</td></tr>`;
+    html += `<tr><td>Radius</td><td>${t.radiusMeters} m</td></tr>`;
+    // Show delta vs enriched procedural
+    const procBlocks = parseInt(enrichedTier.blocks.replace(/,/g, ''));
+    if (procBlocks > 0) {
+      const ratio = (t.grid.blocks / procBlocks).toFixed(1);
+      html += `<tr><td>vs Enriched</td><td class="changed">${ratio}x blocks</td></tr>`;
+    }
+    html += '</table></div>';
+  }
+
+  el.innerHTML = html;
 }
 
 // ─── API Data Tables (from comparison-data.json) ────────────────────────────
