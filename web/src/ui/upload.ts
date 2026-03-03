@@ -1,9 +1,18 @@
 /**
- * File upload UI — drag-and-drop .schem file parsing.
+ * File upload UI — drag-and-drop parsing for .schem, .litematic, and mesh files.
  */
 
 import { parseSchemFile } from '@engine/schem.js';
 import { BlockGrid } from '@craft/schem/types.js';
+
+/** Supported file extensions */
+const SUPPORTED_EXTENSIONS = ['schem', 'schematic', 'nbt', 'litematic', 'glb', 'gltf', 'obj'];
+
+/** Schematic format extensions (parsed by schem.ts or litematic.ts) */
+const SCHEMATIC_EXTENSIONS = ['schem', 'schematic', 'nbt'];
+
+/** Mesh format extensions (loaded by mesh-import.ts, voxelized by voxelizer.ts) */
+const MESH_EXTENSIONS = ['glb', 'gltf', 'obj'];
 
 /** Initialize upload zone with drag-and-drop and click-to-browse */
 export function initUpload(
@@ -47,9 +56,9 @@ export function initUpload(
 
     // Validate file extension
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!ext || !['schem', 'schematic', 'nbt'].includes(ext)) {
+    if (!ext || !SUPPORTED_EXTENSIONS.includes(ext)) {
       uploadText.textContent = 'Unsupported file type';
-      uploadSubtext.textContent = 'Please upload a .schem, .schematic, or .nbt file';
+      uploadSubtext.textContent = `Supported: ${SUPPORTED_EXTENSIONS.map(e => '.' + e).join(', ')}`;
       return;
     }
 
@@ -61,11 +70,39 @@ export function initUpload(
     }
 
     try {
-      uploadText.textContent = 'Parsing...';
-      uploadSubtext.textContent = file.name;
-
       const buffer = await file.arrayBuffer();
-      const grid = await parseSchemFile(buffer);
+      let grid: BlockGrid;
+      let extraInfo = '';
+
+      if (ext === 'litematic') {
+        // Litematic format — lazy-load browser parser
+        uploadText.textContent = 'Parsing .litematic...';
+        uploadSubtext.textContent = file.name;
+        const { parseLitematicFile } = await import('@engine/litematic.js');
+        grid = await parseLitematicFile(buffer);
+      } else if (MESH_EXTENSIONS.includes(ext)) {
+        // Mesh format — lazy-load mesh pipeline
+        uploadText.textContent = 'Loading mesh...';
+        uploadSubtext.textContent = file.name;
+        const { meshFileToGrid } = await import('@engine/mesh-to-grid.js');
+        const result = await meshFileToGrid(buffer, file.name, {
+          onProgress: (p) => {
+            uploadText.textContent = `Voxelizing... ${Math.round(p.progress * 100)}%`;
+          },
+        });
+        grid = result.grid;
+        const { info } = result;
+        extraInfo = `
+          <div class="info-row"><span class="info-label">Triangles</span><span class="info-value">${info.triangleCount.toLocaleString()}</span></div>
+          <div class="info-row"><span class="info-label">Meshes</span><span class="info-value">${info.meshCount}</span></div>
+          <div class="info-row"><span class="info-label">Textured</span><span class="info-value">${info.hasTextures ? 'Yes' : 'No'}</span></div>
+        `;
+      } else {
+        // Standard schematic format
+        uploadText.textContent = 'Parsing...';
+        uploadSubtext.textContent = file.name;
+        grid = await parseSchemFile(buffer);
+      }
 
       const nonAir = grid.countNonAir();
       const safeName = escapeHtml(file.name);
@@ -77,6 +114,7 @@ export function initUpload(
         <div class="info-row"><span class="info-label">Blocks</span><span class="info-value">${nonAir.toLocaleString()}</span></div>
         <div class="info-row"><span class="info-label">Palette</span><span class="info-value">${grid.palette.size} materials</span></div>
         <div class="info-row"><span class="info-label">Entities</span><span class="info-value">${grid.blockEntities.length}</span></div>
+        ${extraInfo}
       `;
 
       uploadText.innerHTML = `Loaded <code>${safeName}</code>`;
@@ -86,7 +124,7 @@ export function initUpload(
     } catch (err) {
       uploadText.textContent = 'Failed to parse file';
       uploadSubtext.textContent = String(err);
-      console.error('Schematic parse error:', err);
+      console.error('File parse error:', err);
     }
   }
 }

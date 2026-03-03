@@ -10,11 +10,13 @@ import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
 import ora from 'ora';
 import { parseSchematic, parseToGrid } from './schem/parse.js';
+import { parseLitematicToGrid } from './schem/parse-litematic.js';
 import { writeSchematic } from './schem/write.js';
 import { generateStructure } from './gen/generator.js';
 import { renderFloorDetail, renderCutawayIso, renderExterior } from './render/png-renderer.js';
 import { exportHTML } from './render/export-html.js';
 import { startViewerServer, startWebAppServer } from './render/server.js';
+import { BlockGrid } from './schem/types.js';
 import type { SchematicInfo, GenerationOptions, RoomType, StyleName, StructureType } from './types/index.js';
 import {
   convertToGenerationOptions, estimateStoriesFromFootprint,
@@ -34,6 +36,18 @@ import { querySolarBuildingInsights, hasGoogleApiKey } from './gen/api/google-so
 import { queryStreetViewMetadata, queryStreetViewFallback, hasGoogleStreetViewKey } from './gen/api/google-streetview.js';
 import { analyzeStreetView, type StreetViewAnalysis } from './gen/api/streetview-analysis.js';
 import { fetchElevationGrid, footprintSlope } from './gen/api/elevation.js';
+
+/**
+ * Load a schematic file into a BlockGrid, dispatching by extension.
+ * Supports .schem/.schematic/.nbt (Sponge) and .litematic (Litematica).
+ */
+async function loadGrid(filepath: string): Promise<BlockGrid> {
+  const ext = filepath.split('.').pop()?.toLowerCase();
+  if (ext === 'litematic') {
+    return parseLitematicToGrid(filepath);
+  }
+  return parseToGrid(filepath);
+}
 
 const program = new Command();
 
@@ -93,27 +107,50 @@ program
   .action(async (file: string) => {
     const spinner = ora('Parsing schematic...').start();
     try {
-      const data = await parseSchematic(file);
-      const grid = (await import('./schem/parse.js')).schematicToGrid(data);
+      const ext = file.split('.').pop()?.toLowerCase();
+      const isLitematic = ext === 'litematic';
+
+      // Parse based on format — litematic uses loadGrid, schem uses full SchematicData
+      let grid: BlockGrid;
+      let info: SchematicInfo;
+      if (isLitematic) {
+        grid = await loadGrid(file);
+        info = {
+          filename: basename(file),
+          version: 0, // Litematica doesn't have Sponge version
+          dataVersion: 0,
+          width: grid.width,
+          height: grid.height,
+          length: grid.length,
+          totalBlocks: grid.totalBlocks,
+          nonAirBlocks: grid.countNonAir(),
+          paletteSize: grid.palette.size,
+          blockEntityCount: grid.blockEntities.length,
+        };
+      } else {
+        const data = await parseSchematic(file);
+        grid = (await import('./schem/parse.js')).schematicToGrid(data);
+        info = {
+          filename: basename(file),
+          version: data.version,
+          dataVersion: data.dataVersion,
+          width: data.width,
+          height: data.height,
+          length: data.length,
+          totalBlocks: data.width * data.height * data.length,
+          nonAirBlocks: grid.countNonAir(),
+          paletteSize: data.palette.size,
+          blockEntityCount: data.blockEntities.length,
+        };
+      }
       spinner.stop();
 
-      const info: SchematicInfo = {
-        filename: basename(file),
-        version: data.version,
-        dataVersion: data.dataVersion,
-        width: data.width,
-        height: data.height,
-        length: data.length,
-        totalBlocks: data.width * data.height * data.length,
-        nonAirBlocks: grid.countNonAir(),
-        paletteSize: data.palette.size,
-        blockEntityCount: data.blockEntities.length,
-      };
-
-      console.log(chalk.bold('\nSchematic Info'));
+      console.log(chalk.bold(`\n${isLitematic ? 'Litematic' : 'Schematic'} Info`));
       console.log(`  File:           ${chalk.cyan(info.filename)}`);
-      console.log(`  Version:        ${info.version}`);
-      console.log(`  Data Version:   ${info.dataVersion}`);
+      if (!isLitematic) {
+        console.log(`  Version:        ${info.version}`);
+        console.log(`  Data Version:   ${info.dataVersion}`);
+      }
       console.log(`  Dimensions:     ${chalk.yellow(`${info.width} x ${info.height} x ${info.length}`)} (W x H x L)`);
       console.log(`  Total Voxels:   ${info.totalBlocks.toLocaleString()}`);
       console.log(`  Non-air Blocks: ${chalk.green(info.nonAirBlocks.toLocaleString())}`);
@@ -123,9 +160,9 @@ program
       // Show palette summary
       console.log(chalk.bold('\nPalette (top 20):'));
       const paletteCounts = new Map<string, number>();
-      for (let y = 0; y < data.height; y++) {
-        for (let z = 0; z < data.length; z++) {
-          for (let x = 0; x < data.width; x++) {
+      for (let y = 0; y < grid.height; y++) {
+        for (let z = 0; z < grid.length; z++) {
+          for (let x = 0; x < grid.width; x++) {
             const bs = grid.get(x, y, z);
             if (bs !== 'minecraft:air') {
               paletteCounts.set(bs, (paletteCounts.get(bs) ?? 0) + 1);
@@ -161,7 +198,7 @@ program
 async function renderCommand(file: string, opts: Record<string, string> = {}): Promise<void> {
   const spinner = ora('Parsing schematic...').start();
   try {
-    const grid = await parseToGrid(file);
+    const grid = await loadGrid(file);
     spinner.text = 'Rendering...';
 
     const floors = parseInt(opts['floors'] ?? '4', 10);
@@ -217,7 +254,7 @@ program
 async function viewCommand(file: string, opts: { port?: string } = {}): Promise<void> {
   const spinner = ora('Loading schematic...').start();
   try {
-    const grid = await parseToGrid(file);
+    const grid = await loadGrid(file);
     spinner.succeed(`Loaded ${grid.width}x${grid.height}x${grid.length} schematic`);
 
     const port = parseInt(opts.port ?? '3000', 10);
@@ -242,7 +279,7 @@ program
 async function exportCommand(file: string, output?: string): Promise<void> {
   const spinner = ora('Exporting HTML viewer...').start();
   try {
-    const grid = await parseToGrid(file);
+    const grid = await loadGrid(file);
     const outFile = output ?? basename(file, '.schem') + '.html';
     await exportHTML(grid, outFile);
     spinner.succeed(`Exported to ${chalk.cyan(outFile)}`);

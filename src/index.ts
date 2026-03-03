@@ -21,6 +21,11 @@ export { BlockGrid } from './schem/types.js';
 export { parseSchematic, parseToGrid, schematicToGrid } from './schem/parse.js';
 export { writeSchematic, writeSchematicData, gridToSchematic } from './schem/write.js';
 
+// ─── Litematica parsing ─────────────────────────────────────────────────────
+export { parseLitematic, parseLitematicToGrid, mergeRegionsToGrid } from './schem/parse-litematic.js';
+export type { LitematicRegion } from './schem/parse-litematic.js';
+export { decodeBitPackedStates, reconstructBlockState, calcBitsPerEntry } from './schem/litematic-decode.js';
+
 // ─── Varint encoding ─────────────────────────────────────────────────────────
 export { encodeVarint, decodeVarint, decodeAllVarints } from './schem/varint.js';
 
@@ -72,6 +77,7 @@ export {
 // ─── Conversion ──────────────────────────────────────────────────────────────
 export { schemToThree, gridToThree } from './convert/schem-to-three.js';
 export { threeToSchem, threeToGrid } from './convert/three-to-schem.js';
+export type { TextureSampler, VoxelizeProgress } from './convert/voxelizer.js';
 
 // ─── Address Pipeline ────────────────────────────────────────────────────────
 export {
