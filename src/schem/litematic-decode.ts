@@ -27,19 +27,24 @@ export function decodeBitPackedStates(
 ): number[] {
   const result: number[] = new Array(totalBlocks);
   const mask = (1n << BigInt(bitsPerEntry)) - 1n;
+  // BigInt64Array stores signed values; >> is arithmetic shift (sign-extends).
+  // Convert to unsigned before shifting to avoid corruption when bit 63 is set.
+  const U64_MASK = (1n << 64n) - 1n;
 
   for (let i = 0; i < totalBlocks; i++) {
     const bitIndex = i * bitsPerEntry;
     const longIndex = Math.floor(bitIndex / 64);
     const bitOffset = bitIndex % 64;
 
-    // Read the long as unsigned by masking with 0xFFFFFFFFFFFFFFFFn
-    let value = (blockStates[longIndex] >> BigInt(bitOffset)) & mask;
+    // Convert signed i64 to unsigned before right-shifting
+    const unsignedLong = blockStates[longIndex] & U64_MASK;
+    let value = (unsignedLong >> BigInt(bitOffset)) & mask;
 
     // Entry spans two longs — read remaining bits from next long
     if (bitOffset + bitsPerEntry > 64 && longIndex + 1 < blockStates.length) {
       const bitsFromFirst = 64 - bitOffset;
-      const remaining = (blockStates[longIndex + 1] & ((1n << BigInt(bitsPerEntry - bitsFromFirst)) - 1n));
+      const unsignedNext = blockStates[longIndex + 1] & U64_MASK;
+      const remaining = unsignedNext & ((1n << BigInt(bitsPerEntry - bitsFromFirst)) - 1n);
       value |= remaining << BigInt(bitsFromFirst);
     }
 
