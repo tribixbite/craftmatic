@@ -21,5 +21,5 @@
       "@craft/*": ["../src/*"]
     }
   },
-  "include": ["src/**/*.ts", "../src/types/**/*.ts", "../src/schem/types.ts", "../src/schem/litematic-decode.ts", "../src/convert/voxelizer.ts", "../src/blocks/**/*.ts", "../src/gen/**/*.ts"]
+  "include": ["src/**/*.ts", "../src/types/**/*.ts", "../src/schem/types.ts", "../src/schem/litematic-decode.ts", "../src/schem/litematic-encode.ts", "../src/convert/voxelizer.ts", "../src/blocks/**/*.ts", "../src/gen/**/*.ts"]
 }

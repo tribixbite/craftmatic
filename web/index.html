@@ -43,6 +43,7 @@
         <button class="nav-tab" data-tab="gallery">Gallery</button>
         <button class="nav-tab" data-tab="comparison">Comparison</button>
         <button class="nav-tab" data-tab="map">Map</button>
+        <button class="nav-tab" data-tab="tiles">Tiles</button>
       </div>
       <div class="nav-actions">
         <span id="app-version" class="nav-version"></span>
@@ -138,6 +139,11 @@
       <section id="tab-map" class="tab-content">
         <div id="map3d-root"></div>
       </section>
+
+      <!-- Tiles Tab (3D Tiles → Schematic) -->
+      <section id="tab-tiles" class="tab-content">
+        <div id="tiles-root"></div>
+      </section>
     </main>
 
     <!-- 3D Viewer Overlay (full-screen) -->
@@ -156,6 +162,7 @@
             </button>
             <div class="download-menu" id="download-menu" hidden>
               <button class="download-item" data-format="schem">.schem<span class="download-desc">Minecraft schematic</span></button>
+              <button class="download-item" data-format="litematic">.litematic<span class="download-desc">Litematica mod</span></button>
               <button class="download-item" data-format="stl">STL<span class="download-desc">3D printing</span></button>
               <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF binary</span></button>
               <button class="download-item" data-format="obj">OBJ<span class="download-desc">Universal 3D</span></button>
