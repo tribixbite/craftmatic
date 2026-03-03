@@ -809,6 +809,10 @@ program
     }
   });
 
+// TODO: CLI tiles command — `craftmatic tiles <address>` for headless 3D Tiles → .schem
+// Requires solving headless WebGL (node-canvas + gl) or direct Google Tiles REST API + GLB parsing.
+// For v1, use the browser Tiles tab instead.
+
 // ─── Default: serve web app ──────────────────────────────────────────────────
 
 function printBanner(): void {
