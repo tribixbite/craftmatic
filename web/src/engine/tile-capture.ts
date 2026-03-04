@@ -87,7 +87,9 @@ function waitForTilesLoaded(
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
     let stableFrames = 0;
-    const STABLE_THRESHOLD = 10; // N consecutive frames with no downloads
+    // Need many stable frames — TilesRenderer pauses between LOD levels
+    // as it processes tiles in batches. Too low = premature "loaded" signal.
+    const STABLE_THRESHOLD = 30;
 
     const check = () => {
       const elapsed = Date.now() - startTime;
@@ -101,6 +103,15 @@ function waitForTilesLoaded(
       const stats = tiles.stats;
       const downloading = stats.downloading ?? 0;
       const parsing = stats.parsing ?? 0;
+      const failed = (stats as Record<string, number>).failed ?? 0;
+      const loaded = (stats as Record<string, number>).loaded ?? 0;
+
+      if (failed > 0 && downloading === 0 && parsing === 0) {
+        // All remaining tiles failed — no point waiting
+        onProgress?.(`Tiles loaded with ${failed} failures (${loaded} loaded)`);
+        resolve();
+        return;
+      }
 
       if (downloading === 0 && parsing === 0) {
         stableFrames++;
@@ -113,10 +124,12 @@ function waitForTilesLoaded(
         stableFrames = 0;
       }
 
-      onProgress?.(`Loading tiles... (${downloading} downloading, ${parsing} parsing)`);
-      requestAnimationFrame(check);
+      onProgress?.(`Loading tiles... (${downloading} downloading, ${parsing} parsing${failed > 0 ? `, ${failed} failed` : ''})`);
+      // Use setTimeout instead of requestAnimationFrame — mobile browsers
+      // throttle/pause rAF when elements are small or tab is backgrounded
+      setTimeout(check, 200);
     };
 
-    requestAnimationFrame(check);
+    setTimeout(check, 200);
   });
 }

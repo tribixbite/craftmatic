@@ -15,7 +15,6 @@ import {
   TileCompressionPlugin,
   GLTFExtensionsPlugin,
   ReorientationPlugin,
-  UpdateOnChangePlugin,
   UnloadTilesPlugin,
 } from '3d-tiles-renderer/plugins';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
@@ -218,20 +217,30 @@ async function runVoxelizePipeline(
   disposeViewer();
 
   // Create off-screen renderer for tile loading
-  renderer = new THREE.WebGLRenderer({ antialias: false });
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: false });
+  } catch (glErr) {
+    setStatus(`WebGL init failed: ${glErr instanceof Error ? glErr.message : glErr}`, 'error');
+    return;
+  }
   renderer.setPixelRatio(1);
   renderer.setClearColor(0x0a0a14);
-  renderer.setSize(256, 256); // Small — just for tile loading
+  // Use a reasonable viewport size for SSE calculation — too small (256)
+  // means the tile manager won't request detailed child tiles
+  renderer.setSize(1024, 1024);
   viewerEl.innerHTML = '';
   viewerEl.appendChild(renderer.domElement);
-  renderer.domElement.style.display = 'none'; // Hidden during load
+  // Keep canvas visible — display:none causes rAF to be throttled on mobile
+  renderer.domElement.style.width = '1px';
+  renderer.domElement.style.height = '1px';
+  renderer.domElement.style.opacity = '0.01';
 
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
-  // Position camera close to ground to trigger high-LOD tile loading
-  camera.position.set(0, 50, 50);
+  // Camera close to ground level to trigger high-LOD tile loading
+  // (distant cameras only load low-res tiles with no mesh geometry)
+  camera.position.set(0, 15, 15);
   camera.lookAt(0, 0, 0);
-
   scene.add(new THREE.AmbientLight(0xffffff, 1.0));
 
   tiles = new TilesRenderer();
@@ -246,51 +255,92 @@ async function runVoxelizePipeline(
   dracoLoader.setDecoderPath(DRACO_DECODER_PATH);
   tiles.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader }));
   tiles.registerPlugin(new TileCompressionPlugin());
-  tiles.registerPlugin(new UpdateOnChangePlugin());
+  // NOTE: Do NOT register UpdateOnChangePlugin here — it blocks tiles.update()
+  // when the camera is static, preventing LOD hierarchy traversal. The Map tab
+  // works because OrbitControls damping continuously moves the camera. This tab
+  // uses a fixed camera, so we need every update() call to actually process tiles.
   tiles.registerPlugin(new UnloadTilesPlugin());
 
   tiles.setCamera(camera);
   tiles.setResolutionFromRenderer(camera, renderer);
   scene.add(tiles.group);
 
-  // Run a brief render loop to trigger tile loading
+  // Listen for tile load errors and log them to a visible place
+  tiles.addEventListener('load-error', (ev: { tile: unknown; error: unknown; url?: string }) => {
+    console.warn('[tiles] load-error:', ev.url, ev.error);
+  });
+
+  setStatus('Initializing tile renderer...', 'info');
+
+  // Render function that catches errors
   const renderForLoading = () => {
     if (!tiles || !renderer || !scene || !camera) return;
-    camera.updateMatrixWorld();
-    tiles.update();
-    renderer.render(scene, camera);
+    try {
+      camera.updateMatrixWorld();
+      tiles.setResolutionFromRenderer(camera, renderer);
+      tiles.update();
+      renderer.render(scene, camera);
+    } catch (renderErr) {
+      console.error('[tiles] render error:', renderErr);
+    }
   };
 
-  // Render a few frames to kick off tile loading
-  for (let i = 0; i < 5; i++) {
+  // Render frames to let TilesRenderer traverse the LOD hierarchy.
+  // Google 3D Tiles has ~10+ levels deep; each update() only schedules
+  // a limited batch of tiles per frame. We need many cycles for the
+  // root → regional → local → building tile chain to fully resolve.
+  // Show loading progress and continue until tiles start downloading.
+  let sawDownloads = false;
+  for (let i = 0; i < 100; i++) {
     renderForLoading();
-    await new Promise(r => requestAnimationFrame(r));
+    const st = tiles.stats;
+    const d = (st as Record<string, number>).downloading ?? 0;
+    const p = (st as Record<string, number>).parsing ?? 0;
+    const l = (st as Record<string, number>).loaded ?? 0;
+    if (d > 0 || p > 0 || l > 0) sawDownloads = true;
+    if (i % 5 === 0) {
+      setStatus(`Loading 3D tiles... (${d} downloading, ${p} parsing, ${l} loaded)`, 'info');
+    }
+    await new Promise(r => setTimeout(r, 100));
   }
 
-  // Step 3: Wait for tiles to load and capture meshes
-  setStatus('Waiting for tiles to load...', 'info');
-
-  // Keep rendering while waiting for tiles
+  // Keep rendering while waiting for tiles — use setInterval to avoid
+  // requestAnimationFrame throttling on mobile browsers
   let loading = true;
-  const renderLoop = () => {
-    if (!loading) return;
+  const renderInterval = setInterval(() => {
+    if (!loading) { clearInterval(renderInterval); return; }
     renderForLoading();
-    animFrameId = requestAnimationFrame(renderLoop);
-  };
-  renderLoop();
+  }, 200);
 
   try {
     const center = new THREE.Vector3(0, 0, 0);
+    // Log tile stats for debugging
+    const s = tiles.stats;
+    console.log('[tiles] pre-capture stats:', JSON.stringify({
+      downloading: s.downloading, parsing: s.parsing, queued: s.queued,
+      loaded: s.loaded, failed: s.failed, inFrustum: s.inFrustum, visible: s.visible,
+    }));
+
     const capturedGroup = await captureTileMeshes(tiles, center, radiusMeters, {
       onProgress: (msg) => setStatus(msg, 'info'),
       timeout: 30000,
     });
     loading = false;
-    if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = 0; }
+    clearInterval(renderInterval);
+
+    // Log post-capture stats
+    if (tiles) {
+      const s2 = tiles.stats;
+      console.log('[tiles] post-capture stats:', JSON.stringify({
+        downloading: s2.downloading, parsing: s2.parsing, failed: s2.failed,
+        loaded: s2.loaded, visible: s2.visible,
+      }));
+    }
 
     // Check if we got any meshes
     let meshCount = 0;
     capturedGroup.traverse(c => { if (c instanceof THREE.Mesh) meshCount++; });
+    console.log('[tiles] captured meshCount:', meshCount);
     if (meshCount === 0) {
       setStatus('No mesh data captured — try a different address or larger radius', 'error');
       return;
@@ -299,8 +349,19 @@ async function runVoxelizePipeline(
     // Step 4: Voxelize
     setStatus(`Voxelizing ${meshCount} meshes at ${resolution} block/m...`, 'info');
 
-    // Yield a frame so status updates render
-    await new Promise(r => requestAnimationFrame(r));
+    // Yield so status updates render
+    await new Promise(r => setTimeout(r, 50));
+
+    // Compute expected grid dimensions before voxelizing
+    const preBox = new THREE.Box3().setFromObject(capturedGroup);
+    const preSize = new THREE.Vector3();
+    preBox.getSize(preSize);
+    console.log('[tiles] mesh bounding box:', JSON.stringify({
+      min: [preBox.min.x.toFixed(1), preBox.min.y.toFixed(1), preBox.min.z.toFixed(1)],
+      max: [preBox.max.x.toFixed(1), preBox.max.y.toFixed(1), preBox.max.z.toFixed(1)],
+      size: [preSize.x.toFixed(1), preSize.y.toFixed(1), preSize.z.toFixed(1)],
+      gridWxHxL: `${Math.ceil(preSize.x * resolution)}x${Math.ceil(preSize.y * resolution)}x${Math.ceil(preSize.z * resolution)}`,
+    }));
 
     const grid = threeToGrid(capturedGroup, resolution, {
       onProgress: (p) => {
@@ -330,8 +391,10 @@ async function runVoxelizePipeline(
 
   } catch (err) {
     loading = false;
-    if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = 0; }
-    console.error('Voxelize failed:', err);
+    clearInterval(renderInterval);
+    console.error('[tiles] pipeline error:', err);
+    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+    console.error('[tiles] stack:', msg);
     setStatus(`Voxelize failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
   }
 }
@@ -351,7 +414,7 @@ function disposeViewer(): void {
 }
 
 function pauseRenderLoop(): void {
-  if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = 0; }
+  // Render loop now uses setInterval, cleaned up via loading flag
 }
 
 function resumeRenderLoop(): void {
