@@ -13,7 +13,7 @@ import type { TilesRenderer } from '3d-tiles-renderer';
 export interface CaptureOptions {
   /** Progress callback for status updates */
   onProgress?: (msg: string) => void;
-  /** Timeout in ms before aborting (default: 30000) */
+  /** Timeout in ms before aborting (default: 60000) */
   timeout?: number;
 }
 
@@ -32,7 +32,7 @@ export async function captureTileMeshes(
   radiusMeters: number,
   options?: CaptureOptions,
 ): Promise<THREE.Group> {
-  const { onProgress, timeout = 30000 } = options ?? {};
+  const { onProgress, timeout = 60000 } = options ?? {};
 
   // Wait for tiles to finish downloading and parsing
   await waitForTilesLoaded(tiles, timeout, onProgress);
@@ -43,10 +43,15 @@ export async function captureTileMeshes(
   const captureSphere = new THREE.Sphere(center, radiusMeters);
   const group = new THREE.Group();
   let meshCount = 0;
+  let tested = 0;
+  let rejected = 0;
+  let noGeometry = 0;
 
   tiles.group.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
-    if (!child.geometry) return;
+    if (!child.geometry) { noGeometry++; return; }
+
+    tested++;
 
     // Compute world bounding sphere for this mesh
     const geo = child.geometry as THREE.BufferGeometry;
@@ -55,11 +60,13 @@ export async function captureTileMeshes(
     worldSphere.applyMatrix4(child.matrixWorld);
 
     // Check intersection with capture sphere
-    if (!captureSphere.intersectsSphere(worldSphere)) return;
+    if (!captureSphere.intersectsSphere(worldSphere)) {
+      rejected++;
+      return;
+    }
 
     // Clone mesh with world transform applied
     const cloned = child.clone();
-    // Apply the world matrix so the cloned mesh is in world space
     cloned.applyMatrix4(child.matrixWorld);
     // Reset the matrix since we've baked the transform
     cloned.position.set(0, 0, 0);
@@ -71,31 +78,37 @@ export async function captureTileMeshes(
     meshCount++;
   });
 
-  onProgress?.(`Captured ${meshCount} meshes`);
+  onProgress?.(`Captured ${meshCount}/${tested} meshes (${rejected} outside radius, ${noGeometry} no geometry)`);
+  console.log(`[tile-capture] tested=${tested} captured=${meshCount} rejected=${rejected} noGeo=${noGeometry} radius=${radiusMeters}`);
+
   return group;
 }
 
 /**
  * Wait until TilesRenderer has no pending downloads or parses.
- * Polls using requestAnimationFrame. Rejects on timeout.
+ * Uses setTimeout polling (not requestAnimationFrame) to avoid
+ * mobile browser throttling when canvas is small/hidden.
  */
 function waitForTilesLoaded(
   tiles: TilesRenderer,
   timeoutMs: number,
   onProgress?: (msg: string) => void,
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const startTime = Date.now();
     let stableFrames = 0;
-    // Need many stable frames — TilesRenderer pauses between LOD levels
-    // as it processes tiles in batches. Too low = premature "loaded" signal.
-    const STABLE_THRESHOLD = 30;
+    // Google 3D Tiles pauses between LOD batches as it processes each depth level.
+    // Need many stable frames to confirm all levels have been traversed.
+    const STABLE_THRESHOLD = 50;
+    // Require some tiles actually loaded before accepting stability —
+    // prevents false "complete" when nothing has started downloading yet
+    const MIN_LOADED = 5;
 
     const check = () => {
       const elapsed = Date.now() - startTime;
       if (elapsed > timeoutMs) {
-        // Resolve anyway with whatever is loaded — partial capture is better than nothing
-        onProgress?.('Timeout reached, using partial tiles');
+        const loaded = (tiles.stats as Record<string, number>).loaded ?? 0;
+        onProgress?.(`Timeout reached (${loaded} tiles loaded), using partial data`);
         resolve();
         return;
       }
@@ -107,16 +120,15 @@ function waitForTilesLoaded(
       const loaded = (stats as Record<string, number>).loaded ?? 0;
 
       if (failed > 0 && downloading === 0 && parsing === 0) {
-        // All remaining tiles failed — no point waiting
         onProgress?.(`Tiles loaded with ${failed} failures (${loaded} loaded)`);
         resolve();
         return;
       }
 
-      if (downloading === 0 && parsing === 0) {
+      if (downloading === 0 && parsing === 0 && loaded >= MIN_LOADED) {
         stableFrames++;
         if (stableFrames >= STABLE_THRESHOLD) {
-          onProgress?.('Tiles loaded');
+          onProgress?.(`Tiles loaded (${loaded} tiles)`);
           resolve();
           return;
         }
@@ -124,9 +136,7 @@ function waitForTilesLoaded(
         stableFrames = 0;
       }
 
-      onProgress?.(`Loading tiles... (${downloading} downloading, ${parsing} parsing${failed > 0 ? `, ${failed} failed` : ''})`);
-      // Use setTimeout instead of requestAnimationFrame — mobile browsers
-      // throttle/pause rAF when elements are small or tab is backgrounded
+      onProgress?.(`Loading tiles... (${downloading} downloading, ${parsing} parsing, ${loaded} loaded${failed > 0 ? `, ${failed} failed` : ''})`);
       setTimeout(check, 200);
     };
 
