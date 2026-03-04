@@ -213,6 +213,45 @@ export function exportSchem(grid: BlockGrid, filename = 'craftmatic.schem'): voi
   downloadBlob(blob, filename);
 }
 
+/** Encode a BlockGrid as gzipped .schem bytes (no download) */
+export function encodeSchemBytes(grid: BlockGrid): Uint8Array {
+  // Reuse exportSchem logic but return bytes instead of triggering download
+  const { width, height, length } = grid;
+  const palette = grid.palette;
+  const paletteEntries: Array<[string, number]> = [];
+  for (const [blockState, id] of palette) paletteEntries.push([blockState, id]);
+  const blockData = grid.encodeBlockData();
+  const parts: number[] = [];
+  const enc = new TextEncoder();
+  const wb = (v: number) => { parts.push(v & 0xff); };
+  const ws = (v: number) => { parts.push((v >> 8) & 0xff, v & 0xff); };
+  const wi = (v: number) => { parts.push((v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff); };
+  const wstr = (s: string) => { const b = enc.encode(s); ws(b.length); for (const x of b) parts.push(x); };
+  const wba = (a: Uint8Array) => { wi(a.length); for (const x of a) parts.push(x); };
+
+  wb(10); wstr('Schematic');
+  wb(3); wstr('Version'); wi(2);
+  wb(3); wstr('DataVersion'); wi(3700);
+  wb(2); wstr('Width'); ws(width);
+  wb(2); wstr('Height'); ws(height);
+  wb(2); wstr('Length'); ws(length);
+  wb(10); wstr('Palette');
+  for (const [bs, id] of paletteEntries) { wb(3); wstr(bs); wi(id); }
+  wb(0); // end palette
+  wb(3); wstr('PaletteMax'); wi(paletteEntries.length);
+  wb(7); wstr('BlockData'); wba(blockData);
+  wb(10); wstr('Metadata');
+  wb(3); wstr('WEOffsetX'); wi(0);
+  wb(3); wstr('WEOffsetY'); wi(0);
+  wb(3); wstr('WEOffsetZ'); wi(0);
+  wb(0); // end metadata
+  wb(11); wstr('Offset'); wi(3); wi(0); wi(0); wi(0);
+  wb(9); wstr('BlockEntities'); wb(10); wi(0);
+  wb(0); // end root
+
+  return pako.gzip(new Uint8Array(parts));
+}
+
 /** Export the BlockGrid as a .litematic file (Litematica mod format) */
 export function exportLitematic(grid: BlockGrid, filename = 'craftmatic.litematic'): void {
   const { width, height, length } = grid;

@@ -25,7 +25,7 @@ import { captureTileMeshes } from '@engine/tile-capture.js';
 import {
   getStreetViewApiKey, hasStreetViewApiKey,
 } from '@ui/import-streetview.js';
-import { exportSchem } from '@viewer/exporter.js';
+import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -504,8 +504,20 @@ async function batchVoxelize(
       const grid = await runVoxelizePipeline(address, resolution, radiusMeters, true);
       if (grid) {
         const filename = `tiles-${key}-res${resolution}rad${radiusMeters}.schem`;
-        exportSchem(grid, filename);
-        console.log(`[batch] ${key}: ${grid.width}x${grid.height}x${grid.length} → ${filename}`);
+        // Encode to .schem bytes and POST to local receiver server
+        const bytes = encodeSchemBytes(grid);
+        try {
+          const resp = await fetch(`http://localhost:3456/save/${encodeURIComponent(filename)}`, {
+            method: 'POST',
+            body: bytes,
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          console.log(`[batch] ${key}: ${grid.width}x${grid.height}x${grid.length} → ${filename} (${bytes.byteLength} bytes)`);
+        } catch (uploadErr) {
+          // Fallback to browser download if receiver server is not running
+          console.warn(`[batch] ${key}: receiver unavailable, falling back to download`, uploadErr);
+          exportSchem(grid, filename);
+        }
         results.push({ key, ok: true, dims: `${grid.width}x${grid.height}x${grid.length}` });
       } else {
         console.warn(`[batch] ${key}: no grid returned`);
