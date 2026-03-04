@@ -25,6 +25,7 @@ import { captureTileMeshes } from '@engine/tile-capture.js';
 import {
   getStreetViewApiKey, hasStreetViewApiKey,
 } from '@ui/import-streetview.js';
+import { exportSchem } from '@viewer/exporter.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -200,7 +201,7 @@ async function runVoxelizePipeline(
   address: string,
   resolution: number,
   radiusMeters: number,
-): Promise<void> {
+): Promise<BlockGrid | null> {
   const apiKey = getApiKey();
 
   // Step 1: Geocode
@@ -208,7 +209,7 @@ async function runVoxelizePipeline(
   const geo = await geocodeAddress(address, apiKey);
   if (!geo) {
     setStatus('Address not found', 'error');
-    return;
+    return null;
   }
   setStatus(`${geo.formattedAddress} — loading 3D tiles...`, 'info');
 
@@ -221,7 +222,7 @@ async function runVoxelizePipeline(
     renderer = new THREE.WebGLRenderer({ antialias: false });
   } catch (glErr) {
     setStatus(`WebGL init failed: ${glErr instanceof Error ? glErr.message : glErr}`, 'error');
-    return;
+    return null;
   }
   renderer.setPixelRatio(1);
   renderer.setClearColor(0x0a0a14);
@@ -343,7 +344,7 @@ async function runVoxelizePipeline(
     console.log('[tiles] captured meshCount:', meshCount);
     if (meshCount === 0) {
       setStatus('No mesh data captured — try a different address or larger radius', 'error');
-      return;
+      return null;
     }
 
     // Step 4: Voxelize
@@ -372,7 +373,7 @@ async function runVoxelizePipeline(
     // Enforce dimension cap
     if (grid.width > MAX_DIMENSION || grid.height > MAX_DIMENSION || grid.length > MAX_DIMENSION) {
       setStatus(`Grid too large: ${grid.width}x${grid.height}x${grid.length} (max ${MAX_DIMENSION})`, 'error');
-      return;
+      return null;
     }
 
     const nonAir = grid.countNonAir();
@@ -389,6 +390,8 @@ async function runVoxelizePipeline(
       onResult(grid, `tiles-${geo.formattedAddress}`);
     }
 
+    return grid;
+
   } catch (err) {
     loading = false;
     clearInterval(renderInterval);
@@ -396,6 +399,7 @@ async function runVoxelizePipeline(
     const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
     console.error('[tiles] stack:', msg);
     setStatus(`Voxelize failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    return null;
   }
 }
 
@@ -429,3 +433,76 @@ function setStatus(msg: string, type: 'info' | 'error' | 'success'): void {
   el.textContent = msg;
   el.className = `tiles-status tiles-status-${type}`;
 }
+
+// ─── Batch Processing ──────────────────────────────────────────────────────
+
+/** Comparison addresses for batch voxelization (matches gen-comparison.ts) */
+const COMPARISON_ADDRESSES = [
+  { key: 'sf', address: '2340 Francisco St, San Francisco, CA 94123' },
+  { key: 'newton', address: '240 Highland St, Newton, MA 02465' },
+  { key: 'sanjose', address: '525 S Winchester Blvd, San Jose, CA 95128' },
+  { key: 'walpole', address: '13 Union St, Walpole, NH 03608' },
+  { key: 'byron', address: '2431 72nd St SW, Byron Center, MI 49315' },
+  { key: 'vinalhaven', address: '216 Zekes Point Rd, Vinalhaven, ME 04863' },
+  { key: 'suttonsbay', address: '5835 S Bridget Rose Ln, Suttons Bay, MI 49682' },
+  { key: 'losangeles', address: '2607 Glendower Ave, Los Angeles, CA 90027' },
+  { key: 'seattle', address: '4810 SW Ledroit Pl, Seattle, WA 98136' },
+  { key: 'austin', address: '8504 Long Canyon Dr, Austin, TX 78730' },
+  { key: 'denver', address: '433 S Xavier St, Denver, CO 80219' },
+  { key: 'minneapolis', address: '2730 Ulysses St NE, Minneapolis, MN 55418' },
+  { key: 'charleston', address: '41 Legare St, Charleston, SC 29401' },
+  { key: 'tucson', address: '2615 E Adams St, Tucson, AZ 85716' },
+];
+
+/**
+ * Batch voxelize all comparison addresses and download each as .schem.
+ * Processes sequentially to avoid GPU memory pressure.
+ * Call from browser console: window.batchVoxelize()
+ */
+async function batchVoxelize(
+  resolution = 1,
+  radiusMeters = 50,
+  startIndex = 0,
+): Promise<void> {
+  if (!hasApiKey()) {
+    console.error('[batch] No API key set');
+    return;
+  }
+
+  const results: Array<{ key: string; ok: boolean; dims?: string }> = [];
+
+  for (let i = startIndex; i < COMPARISON_ADDRESSES.length; i++) {
+    const { key, address } = COMPARISON_ADDRESSES[i];
+    console.log(`[batch] (${i + 1}/${COMPARISON_ADDRESSES.length}) ${key}: ${address}`);
+    setStatus(`Batch ${i + 1}/${COMPARISON_ADDRESSES.length}: ${key}...`, 'info');
+
+    try {
+      const grid = await runVoxelizePipeline(address, resolution, radiusMeters);
+      if (grid) {
+        const filename = `tiles-${key}-res${resolution}rad${radiusMeters}.schem`;
+        exportSchem(grid, filename);
+        console.log(`[batch] ${key}: ${grid.width}x${grid.height}x${grid.length} → ${filename}`);
+        results.push({ key, ok: true, dims: `${grid.width}x${grid.height}x${grid.length}` });
+      } else {
+        console.warn(`[batch] ${key}: no grid returned`);
+        results.push({ key, ok: false });
+      }
+    } catch (err) {
+      console.error(`[batch] ${key} failed:`, err);
+      results.push({ key, ok: false });
+    }
+
+    // Brief pause between addresses to let GPU resources clean up
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  // Summary
+  const ok = results.filter(r => r.ok).length;
+  const fail = results.filter(r => !r.ok).length;
+  console.log(`[batch] Done: ${ok} succeeded, ${fail} failed`);
+  console.table(results);
+  setStatus(`Batch complete: ${ok}/${results.length} addresses`, ok === results.length ? 'success' : 'error');
+}
+
+// Expose batch function on window for console access
+(window as Record<string, unknown>).batchVoxelize = batchVoxelize;
