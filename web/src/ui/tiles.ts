@@ -223,6 +223,8 @@ async function runVoxelizePipeline(
   address: string,
   resolution: number,
   radiusMeters: number,
+  /** Skip onResult callback (used in batch mode to preserve UI) */
+  skipCallback = false,
 ): Promise<BlockGrid | null> {
   const apiKey = getApiKey();
 
@@ -408,7 +410,7 @@ async function runVoxelizePipeline(
     disposeViewer();
 
     // Step 5: Pass grid to callback (shows in inline viewer with download options)
-    if (onResult) {
+    if (onResult && !skipCallback) {
       onResult(grid, `tiles-${geo.formattedAddress}`);
     }
 
@@ -499,7 +501,7 @@ async function batchVoxelize(
     setStatus(`Batch ${i + 1}/${COMPARISON_ADDRESSES.length}: ${key}...`, 'info');
 
     try {
-      const grid = await runVoxelizePipeline(address, resolution, radiusMeters);
+      const grid = await runVoxelizePipeline(address, resolution, radiusMeters, true);
       if (grid) {
         const filename = `tiles-${key}-res${resolution}rad${radiusMeters}.schem`;
         exportSchem(grid, filename);
