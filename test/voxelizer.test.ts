@@ -145,3 +145,145 @@ describe('voxelizer', () => {
     }
   });
 });
+
+// ─── Surface mode tests ──────────────────────────────────────────────────────
+
+/** Create a flat plane (open surface mesh — not watertight) */
+function makePlane(
+  w: number, d: number,
+  color: number,
+  yPos = 2,
+): THREE.Mesh {
+  const geo = new THREE.PlaneGeometry(w, d);
+  const mat = new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(geo, mat);
+  // PlaneGeometry is in XY plane by default — rotate to XZ (horizontal)
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(w / 2, yPos, d / 2);
+  return mesh;
+}
+
+describe('voxelizer surface mode', () => {
+  it('surface mode fills voxels near an open plane', () => {
+    // A flat plane is open geometry — solid mode's odd-even test won't fill any voxels,
+    // but surface mode should fill the layer where the surface lies
+    const plane = makePlane(5, 5, 0xff4400, 2.5);
+    const group = new THREE.Group();
+    group.add(plane);
+    group.updateMatrixWorld(true);
+
+    const grid = threeToGrid(group, 1, { mode: 'surface' });
+    // Surface mode should produce non-air blocks near the plane
+    expect(grid.countNonAir()).toBeGreaterThan(0);
+  });
+
+  it('solid mode on open plane: odd-even may produce artifacts', () => {
+    // A DoubleSide plane intersected by a Y-axis ray produces 1 crossing (odd),
+    // so solid mode fills below the plane — this is a known artifact on open geometry.
+    // Surface mode produces cleaner results: only the actual surface layer.
+    const plane = makePlane(5, 5, 0xff4400, 2.5);
+    const group = new THREE.Group();
+    group.add(plane);
+    group.updateMatrixWorld(true);
+
+    const solidGrid = threeToGrid(group, 1, { mode: 'solid' });
+    const surfaceGrid = threeToGrid(group, 1, { mode: 'surface' });
+
+    // Surface mode should have fewer filled voxels (only near-surface layer)
+    // while solid mode fills everything below the plane
+    expect(surfaceGrid.countNonAir()).toBeGreaterThan(0);
+    expect(surfaceGrid.countNonAir()).toBeLessThanOrEqual(solidGrid.countNonAir());
+  });
+
+  it('surface mode on a box produces blocks on all surfaces', () => {
+    const mesh = makeBox(5, 5, 5, 0x00cc00);
+    const group = new THREE.Group();
+    group.add(mesh);
+    group.updateMatrixWorld(true);
+
+    const grid = threeToGrid(group, 1, { mode: 'surface' });
+    expect(grid.countNonAir()).toBeGreaterThan(0);
+
+    // Surface mode on a box: voxels on the shell but not necessarily the interior
+    // Should have blocks at the edges (y=0 and y=4 layers)
+    let bottomCount = 0;
+    let topCount = 0;
+    for (let z = 0; z < grid.length; z++) {
+      for (let x = 0; x < grid.width; x++) {
+        if (grid.get(x, 0, z) !== 'minecraft:air') bottomCount++;
+        if (grid.get(x, grid.height - 1, z) !== 'minecraft:air') topCount++;
+      }
+    }
+    expect(bottomCount).toBeGreaterThan(0);
+    expect(topCount).toBeGreaterThan(0);
+  });
+
+  it('surface mode respects material color', () => {
+    // Green plane should produce green-toned blocks
+    const plane = makePlane(5, 5, 0x22aa22, 2.5);
+    const group = new THREE.Group();
+    group.add(plane);
+    group.updateMatrixWorld(true);
+
+    const grid = threeToGrid(group, 1, { mode: 'surface' });
+    const blocks = new Set<string>();
+    for (let y = 0; y < grid.height; y++) {
+      for (let z = 0; z < grid.length; z++) {
+        for (let x = 0; x < grid.width; x++) {
+          const b = grid.get(x, y, z);
+          if (b !== 'minecraft:air') blocks.add(b);
+        }
+      }
+    }
+    // Should have green-ish blocks, not white/gray
+    expect(blocks.size).toBeGreaterThan(0);
+    const greenBlocks = [
+      'minecraft:green_concrete', 'minecraft:lime_concrete',
+      'minecraft:green_terracotta', 'minecraft:lime_terracotta',
+      'minecraft:moss_block', 'minecraft:green_wool',
+    ];
+    const hasGreen = [...blocks].some(b => greenBlocks.includes(b));
+    expect(hasGreen).toBe(true);
+  });
+
+  it('surface mode with multiple disjoint meshes', () => {
+    // Two separate planes at different heights — both should be captured
+    const plane1 = makePlane(4, 4, 0xff0000, 1.5);
+    const plane2 = makePlane(4, 4, 0x0000ff, 4.5);
+    const group = new THREE.Group();
+    group.add(plane1);
+    group.add(plane2);
+    group.updateMatrixWorld(true);
+
+    const grid = threeToGrid(group, 1, { mode: 'surface' });
+    // Both planes should contribute blocks
+    expect(grid.countNonAir()).toBeGreaterThan(3);
+
+    // Blocks should exist at two separate Y levels
+    const yLevels = new Set<number>();
+    for (let y = 0; y < grid.height; y++) {
+      for (let z = 0; z < grid.length; z++) {
+        for (let x = 0; x < grid.width; x++) {
+          if (grid.get(x, y, z) !== 'minecraft:air') {
+            yLevels.add(y);
+          }
+        }
+      }
+    }
+    expect(yLevels.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('defaults to solid mode when mode not specified', () => {
+    // 3x3x3 box should work with default (solid) mode
+    const mesh = makeBox(3, 3, 3, 0x808080);
+    const group = new THREE.Group();
+    group.add(mesh);
+    group.updateMatrixWorld(true);
+
+    const gridDefault = threeToGrid(group, 1);
+    const gridSolid = threeToGrid(group, 1, { mode: 'solid' });
+
+    // Default and explicit solid should produce the same result
+    expect(gridDefault.countNonAir()).toBe(gridSolid.countNonAir());
+  });
+});
