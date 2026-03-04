@@ -117,6 +117,10 @@ function buildUI(): void {
           ${hasTileKey ? '<button class="btn btn-secondary btn-sm" id="tiles-key-clear">Clear</button>' : ''}
         </div>
       </div>
+      <div class="tiles-batch-row">
+        <button class="btn btn-secondary btn-sm" id="tiles-batch" ${!hasTileKey ? 'disabled' : ''}>Batch All (14 addresses)</button>
+        <span class="tiles-batch-hint">Downloads .schem for each comparison address</span>
+      </div>
       <div class="tiles-status" id="tiles-status"></div>
     </div>
     <div class="tiles-viewer" id="tiles-viewer">
@@ -191,6 +195,24 @@ function buildUI(): void {
       setStatus('API key cleared', 'info');
       // Rebuild UI to show key input prompt
       buildUI();
+    });
+  }
+
+  // Batch button
+  const batchBtn = document.getElementById('tiles-batch') as HTMLButtonElement | null;
+  if (batchBtn) {
+    batchBtn.addEventListener('click', async () => {
+      batchBtn.disabled = true;
+      voxBtn.disabled = true;
+      try {
+        await batchVoxelize(
+          parseInt(resSlider.value, 10),
+          parseInt(radiusSlider.value, 10),
+        );
+      } finally {
+        batchBtn.disabled = false;
+        voxBtn.disabled = false;
+      }
     });
   }
 }

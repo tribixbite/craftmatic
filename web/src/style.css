@@ -2022,6 +2022,17 @@ html, body {
   border-color: var(--accent);
 }
 
+.tiles-batch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.tiles-batch-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 .tiles-status {
   font-size: 11px;
   font-family: var(--font-mono);
