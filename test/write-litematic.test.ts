@@ -5,11 +5,13 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { existsSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { BlockGrid } from '../src/schem/types.js';
 import { writeLitematic, encodeLitematicNBT } from '../src/schem/write-litematic.js';
 import { parseLitematic, parseLitematicToGrid } from '../src/schem/parse-litematic.js';
 
-const TMP_FILE = '/data/data/com.termux/files/home/test-litematic-roundtrip.litematic';
+const TMP_FILE = join(tmpdir(), 'test-litematic-roundtrip.litematic');
 
 afterEach(() => {
   // Clean up temp file
