@@ -26,6 +26,7 @@ import {
   getStreetViewApiKey, hasStreetViewApiKey,
 } from '@ui/import-streetview.js';
 import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
+import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -262,9 +263,10 @@ async function runVoxelizePipeline(
 
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
-  // Camera close to ground level to trigger high-LOD tile loading
-  // (distant cameras only load low-res tiles with no mesh geometry)
-  camera.position.set(0, 15, 15);
+  // Camera close to ground — closer distance triggers higher-detail LOD tiles.
+  // At 15m the SSE threshold was too easily satisfied; 8m forces deeper traversal
+  // into the tile hierarchy to reach building-level leaf tiles with geometry.
+  camera.position.set(0, 8, 8);
   camera.lookAt(0, 0, 0);
   scene.add(new THREE.AmbientLight(0xffffff, 1.0));
 
@@ -285,6 +287,11 @@ async function runVoxelizePipeline(
   // works because OrbitControls damping continuously moves the camera. This tab
   // uses a fixed camera, so we need every update() call to actually process tiles.
   tiles.registerPlugin(new UnloadTilesPlugin());
+
+  // Force building-level LOD by lowering screen-space error target.
+  // Default 16px stops at coarse terrain tiles; 2px demands leaf tiles
+  // with actual building geometry and textures.
+  tiles.errorTarget = 2.0;
 
   tiles.setCamera(camera);
   tiles.setResolutionFromRenderer(camera, renderer);
@@ -316,7 +323,7 @@ async function runVoxelizePipeline(
   // root → regional → local → building tile chain to fully resolve.
   // Show loading progress and continue until tiles start downloading.
   let sawDownloads = false;
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 200; i++) {
     renderForLoading();
     const st = tiles.stats;
     const d = (st as Record<string, number>).downloading ?? 0;
@@ -339,16 +346,24 @@ async function runVoxelizePipeline(
 
   try {
     const center = new THREE.Vector3(0, 0, 0);
-    // Log tile stats for debugging
+    // Diagnostic: mesh census in the tile scene
+    let totalMeshes = 0, totalVertices = 0;
+    tiles.group.traverse(c => {
+      if (c instanceof THREE.Mesh) {
+        totalMeshes++;
+        totalVertices += ((c.geometry as THREE.BufferGeometry)?.attributes?.position?.count ?? 0);
+      }
+    });
     const s = tiles.stats;
     console.log('[tiles] pre-capture stats:', JSON.stringify({
       downloading: s.downloading, parsing: s.parsing, queued: s.queued,
       loaded: s.loaded, failed: s.failed, inFrustum: s.inFrustum, visible: s.visible,
     }));
+    console.log(`[tiles] scene: ${totalMeshes} meshes, ${totalVertices} verts, errorTarget=${tiles.errorTarget}`);
 
     const capturedGroup = await captureTileMeshes(tiles, center, radiusMeters, {
       onProgress: (msg) => setStatus(msg, 'info'),
-      timeout: 30000,
+      timeout: 60000,  // 60s — Google tile hierarchy has ~10+ LOD levels
     });
     loading = false;
     clearInterval(renderInterval);
@@ -388,10 +403,17 @@ async function runVoxelizePipeline(
       gridWxHxL: `${Math.ceil(preSize.x * resolution)}x${Math.ceil(preSize.y * resolution)}x${Math.ceil(preSize.z * resolution)}`,
     }));
 
+    // Create Canvas-backed texture sampler for photorealistic tile textures.
+    // Without this, colors fall back to material.color (usually white).
+    const sampler = createCanvasTextureSampler();
     const grid = threeToGrid(capturedGroup, resolution, {
       onProgress: (p) => {
         setStatus(`Voxelizing... ${Math.round(p.progress * 100)}% (layer ${p.currentY}/${p.totalY})`, 'info');
       },
+      textureSampler: sampler,
+      // Surface mode: 3D tiles are photogrammetry surfaces (not watertight solids).
+      // Uses closest-point-to-geometry instead of odd-even inside/outside test.
+      mode: 'surface',
     });
 
     // Enforce dimension cap

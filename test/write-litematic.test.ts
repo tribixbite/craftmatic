@@ -5,13 +5,15 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { existsSync, unlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { BlockGrid } from '../src/schem/types.js';
 import { writeLitematic, encodeLitematicNBT } from '../src/schem/write-litematic.js';
 import { parseLitematic, parseLitematicToGrid } from '../src/schem/parse-litematic.js';
 
-const TMP_FILE = join(tmpdir(), 'test-litematic-roundtrip.litematic');
+// Write temp file in test dir — /tmp is EACCES on Termux glibc
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TMP_FILE = join(__dirname, '.test-litematic-roundtrip.litematic');
 
 afterEach(() => {
   // Clean up temp file
