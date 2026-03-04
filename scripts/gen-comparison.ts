@@ -817,7 +817,7 @@ for (const { key, address } of addressesToProcess) {
 
 if (TILES_DIR) {
   const { existsSync: fsExists, readdirSync } = await import('fs');
-  const { parseSchematic } = await import('../src/schem/parse.js');
+  const { parseToGrid } = await import('../src/schem/parse.js');
   if (fsExists(TILES_DIR)) {
     const tilesFiles = readdirSync(TILES_DIR).filter(f => f.endsWith('.schem'));
     console.log(`\n=== Loading ${tilesFiles.length} pre-voxelized tiles from ${TILES_DIR} ===`);
@@ -837,8 +837,9 @@ if (TILES_DIR) {
         continue;
       }
       try {
-        const schemBuf = readFileSync(join(TILES_DIR, file));
-        const grid = parseSchematic(schemBuf);
+        // parseToGrid takes filepath string and returns BlockGrid with methods
+        const filepath = join(TILES_DIR, file);
+        const grid = await parseToGrid(filepath);
         // Extract resolution/radius from filename if encoded, else use defaults
         const resMatch = file.match(/res(\d+)/);
         const radMatch = file.match(/rad(\d+)/);
