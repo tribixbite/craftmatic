@@ -11,6 +11,8 @@
 import * as THREE from 'three';
 import { threeToGrid, threeToGridAsync, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeProgress } from '../src/convert/voxelizer.js';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
@@ -314,9 +316,39 @@ async function main() {
   console.log(`  Grid: ${texSurfGrid.width}x${texSurfGrid.height}x${texSurfGrid.length}, ${texSurfTotal} blocks`);
   printPalette('Textured blue box (surface + DataTexture sampler)', texSurfPalette);
 
+  // Existing .schem palette analysis — verify pre-fix monochrome baseline
+  console.log('\n--- Existing tiles .schem palette analysis ---');
+  try {
+    const { parseToGrid } = await import('../src/schem/parse.js');
+    const tilesDir = join(import.meta.dir, '..', 'output', 'tiles');
+    const schemFiles = ['tiles-sf-res1rad50.schem', 'tiles-sanjose-res1rad50.schem',
+      'tiles-seattle-res1rad50.schem', 'tiles-charleston-res1rad50.schem',
+      'tiles-vinalhaven-res1rad50.schem'];
+
+    for (const fname of schemFiles) {
+      const fpath = join(tilesDir, fname);
+      if (!existsSync(fpath)) {
+        console.log(`  [SKIP] ${fname} not found`);
+        continue;
+      }
+      const grid = await parseToGrid(fpath);
+      const palette = collectPalette(grid);
+      const total = [...palette.values()].reduce((a, b) => a + b, 0);
+      const isMonochrome = [...palette.keys()].every(b =>
+        b.includes('quartz') || b.includes('white') || b.includes('smooth') || b.includes('snow'));
+
+      console.log(`  ${fname}: ${total} blocks, ${palette.size} types${isMonochrome ? ' [MONOCHROME — pre-fix]' : ' [COLORFUL — post-fix]'}`);
+      for (const [block, count] of [...palette.entries()].sort((a, b) => b[1] - a[1])) {
+        console.log(`    ${block}: ${count}`);
+      }
+    }
+  } catch (err) {
+    console.log(`  [SKIP] .schem analysis: ${(err as Error).message}`);
+  }
+
   // Summary
   console.log(`\n============================`);
-  console.log(`Results: ${passed} passed, ${failed} failed out of ${TESTS.length + 3} tests`);
+  console.log(`Results: ${passed} passed, ${failed} failed`);
 
   if (failed > 0) {
     console.log('\nFAILURES indicate monochrome white output — color pipeline broken.');
