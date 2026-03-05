@@ -105,39 +105,49 @@ function waitForTilesLoaded(
     const MIN_LOADED = 5;
 
     const check = () => {
-      const elapsed = Date.now() - startTime;
-      if (elapsed > timeoutMs) {
-        const loaded = (tiles.stats as Record<string, number>).loaded ?? 0;
-        onProgress?.(`Timeout reached (${loaded} tiles loaded), using partial data`);
-        resolve();
-        return;
-      }
-
-      const stats = tiles.stats;
-      const downloading = stats.downloading ?? 0;
-      const parsing = stats.parsing ?? 0;
-      const failed = (stats as Record<string, number>).failed ?? 0;
-      const loaded = (stats as Record<string, number>).loaded ?? 0;
-
-      if (failed > 0 && downloading === 0 && parsing === 0) {
-        onProgress?.(`Tiles loaded with ${failed} failures (${loaded} loaded)`);
-        resolve();
-        return;
-      }
-
-      if (downloading === 0 && parsing === 0 && loaded >= MIN_LOADED) {
-        stableFrames++;
-        if (stableFrames >= STABLE_THRESHOLD) {
-          onProgress?.(`Tiles loaded (${loaded} tiles)`);
+      try {
+        const elapsed = Date.now() - startTime;
+        if (elapsed > timeoutMs) {
+          const loaded = (tiles.stats as Record<string, number>).loaded ?? 0;
+          onProgress?.(`Timeout reached (${loaded} tiles loaded), using partial data`);
           resolve();
           return;
         }
-      } else {
-        stableFrames = 0;
-      }
 
-      onProgress?.(`Loading tiles... (${downloading} downloading, ${parsing} parsing, ${loaded} loaded${failed > 0 ? `, ${failed} failed` : ''})`);
-      setTimeout(check, 200);
+        const stats = tiles.stats;
+        if (!stats) {
+          onProgress?.('Error: tiles.stats is null');
+          resolve();
+          return;
+        }
+        const downloading = (stats as Record<string, number>).downloading ?? 0;
+        const parsing = (stats as Record<string, number>).parsing ?? 0;
+        const failed = (stats as Record<string, number>).failed ?? 0;
+        const loaded = (stats as Record<string, number>).loaded ?? 0;
+
+        if (failed > 0 && downloading === 0 && parsing === 0) {
+          onProgress?.(`Tiles loaded with ${failed} failures (${loaded} loaded)`);
+          resolve();
+          return;
+        }
+
+        if (downloading === 0 && parsing === 0 && loaded >= MIN_LOADED) {
+          stableFrames++;
+          if (stableFrames >= STABLE_THRESHOLD) {
+            onProgress?.(`Tiles loaded (${loaded} tiles)`);
+            resolve();
+            return;
+          }
+        } else {
+          stableFrames = 0;
+        }
+
+        onProgress?.(`Waiting for tiles... d:${downloading} p:${parsing} ok:${loaded} fail:${failed} [${Math.round(elapsed / 1000)}s]`);
+        setTimeout(check, 200);
+      } catch (err) {
+        onProgress?.(`waitForTilesLoaded error: ${err instanceof Error ? err.message : String(err)}`);
+        resolve();
+      }
     };
 
     setTimeout(check, 200);

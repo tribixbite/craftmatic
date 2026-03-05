@@ -213,7 +213,7 @@ export function exportSchem(grid: BlockGrid, filename = 'craftmatic.schem'): voi
   downloadBlob(blob, filename);
 }
 
-/** Encode a BlockGrid as gzipped .schem bytes (no download) */
+/** Encode a BlockGrid as gzipped .schem bytes (no file download) */
 export function encodeSchemBytes(grid: BlockGrid): Uint8Array {
   // Reuse exportSchem logic but return bytes instead of triggering download
   const { width, height, length } = grid;

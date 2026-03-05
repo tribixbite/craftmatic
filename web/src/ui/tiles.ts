@@ -19,7 +19,7 @@ import {
 } from '3d-tiles-renderer/plugins';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { BlockGrid } from '@craft/schem/types.js';
-import { threeToGrid } from '@craft/convert/voxelizer.js';
+import { threeToGridAsync } from '@craft/convert/voxelizer.js';
 import { geocodeAddress } from '@ui/shared-geocode.js';
 import { captureTileMeshes } from '@engine/tile-capture.js';
 import {
@@ -236,7 +236,9 @@ async function runVoxelizePipeline(
     setStatus('Address not found', 'error');
     return null;
   }
-  setStatus(`${geo.formattedAddress} — loading 3D tiles...`, 'info');
+  setStatus(`${geo.formattedAddress} — initializing WebGL...`, 'info');
+  // Yield so status renders before potentially slow WebGL init
+  await new Promise(r => setTimeout(r, 50));
 
   // Step 2: Initialize TilesRenderer in a hidden container for loading only
   const viewerEl = document.getElementById('tiles-viewer')!;
@@ -249,11 +251,19 @@ async function runVoxelizePipeline(
     setStatus(`WebGL init failed: ${glErr instanceof Error ? glErr.message : glErr}`, 'error');
     return null;
   }
+  // Validate WebGL context was actually created (Android may silently fail
+  // when too many contexts exist from other tabs)
+  const gl = renderer.getContext();
+  if (!gl || gl.isContextLost()) {
+    setStatus('WebGL context lost — close other tabs and retry', 'error');
+    renderer.dispose();
+    renderer = null;
+    return null;
+  }
   renderer.setPixelRatio(1);
   renderer.setClearColor(0x0a0a14);
-  // Use a reasonable viewport size for SSE calculation — too small (256)
-  // means the tile manager won't request detailed child tiles
-  renderer.setSize(1024, 1024);
+  // Viewport for SSE calculation — 512 balances LOD detail vs GPU memory on mobile
+  renderer.setSize(512, 512);
   viewerEl.innerHTML = '';
   viewerEl.appendChild(renderer.domElement);
   // Keep canvas visible — display:none causes rAF to be throttled on mobile
@@ -269,6 +279,9 @@ async function runVoxelizePipeline(
   camera.position.set(0, 8, 8);
   camera.lookAt(0, 0, 0);
   scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+
+  setStatus(`${geo.formattedAddress} — setting up tile renderer...`, 'info');
+  await new Promise(r => setTimeout(r, 50));
 
   tiles = new TilesRenderer();
   tiles.registerPlugin(new ReorientationPlugin({
@@ -302,7 +315,8 @@ async function runVoxelizePipeline(
     console.warn('[tiles] load-error:', ev.url, ev.error);
   });
 
-  setStatus('Initializing tile renderer...', 'info');
+  setStatus('Loading 3D tiles...', 'info');
+  await new Promise(r => setTimeout(r, 50));
 
   // Render function that catches errors
   const renderForLoading = () => {
@@ -329,9 +343,11 @@ async function runVoxelizePipeline(
     const d = (st as Record<string, number>).downloading ?? 0;
     const p = (st as Record<string, number>).parsing ?? 0;
     const l = (st as Record<string, number>).loaded ?? 0;
+    const q = (st as Record<string, number>).queued ?? 0;
+    const f = (st as Record<string, number>).failed ?? 0;
     if (d > 0 || p > 0 || l > 0) sawDownloads = true;
-    if (i % 5 === 0) {
-      setStatus(`Loading 3D tiles... (${d} downloading, ${p} parsing, ${l} loaded)`, 'info');
+    if (i % 10 === 0) {
+      setStatus(`Loading 3D tiles... (${d} downloading, ${p} parsing, ${l} loaded${f > 0 ? `, ${f} failed` : ''})`, 'info');
     }
     await new Promise(r => setTimeout(r, 100));
   }
@@ -346,6 +362,9 @@ async function runVoxelizePipeline(
 
   try {
     const center = new THREE.Vector3(0, 0, 0);
+    setStatus('Capturing tile meshes...', 'info');
+    await new Promise(r => setTimeout(r, 50));
+
     // Diagnostic: mesh census in the tile scene
     let totalMeshes = 0, totalVertices = 0;
     tiles.group.traverse(c => {
@@ -355,11 +374,7 @@ async function runVoxelizePipeline(
       }
     });
     const s = tiles.stats;
-    console.log('[tiles] pre-capture stats:', JSON.stringify({
-      downloading: s.downloading, parsing: s.parsing, queued: s.queued,
-      loaded: s.loaded, failed: s.failed, inFrustum: s.inFrustum, visible: s.visible,
-    }));
-    console.log(`[tiles] scene: ${totalMeshes} meshes, ${totalVertices} verts, errorTarget=${tiles.errorTarget}`);
+    console.log(`[tiles] pre-capture: ${totalMeshes} meshes, ${totalVertices} verts, loaded=${s.loaded}, failed=${(s as Record<string, number>).failed ?? 0}`);
 
     const capturedGroup = await captureTileMeshes(tiles, center, radiusMeters, {
       onProgress: (msg) => setStatus(msg, 'info'),
@@ -406,14 +421,19 @@ async function runVoxelizePipeline(
     // Create Canvas-backed texture sampler for photorealistic tile textures.
     // Without this, colors fall back to material.color (usually white).
     const sampler = createCanvasTextureSampler();
-    const grid = threeToGrid(capturedGroup, resolution, {
+    const grid = await threeToGridAsync(capturedGroup, resolution, {
       onProgress: (p) => {
-        setStatus(`Voxelizing... ${Math.round(p.progress * 100)}% (layer ${p.currentY}/${p.totalY})`, 'info');
+        const msg = p.message
+          ? p.message
+          : `Voxelizing... ${Math.round(p.progress * 100)}% (layer ${p.currentY}/${p.totalY})`;
+        setStatus(msg, 'info');
       },
       textureSampler: sampler,
       // Surface mode: 3D tiles are photogrammetry surfaces (not watertight solids).
       // Uses closest-point-to-geometry instead of odd-even inside/outside test.
       mode: 'surface',
+      // Yield to main thread every 4 layers to keep UI responsive on mobile
+      yieldInterval: 4,
     });
 
     // Enforce dimension cap

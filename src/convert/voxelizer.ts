@@ -31,6 +31,8 @@ export interface VoxelizeProgress {
   currentY: number;
   /** Total Y layers */
   totalY: number;
+  /** Optional status message (e.g. BVH build phase) */
+  message?: string;
 }
 
 /** Voxelization mode */
@@ -63,6 +65,8 @@ export function threeToGrid(
      *   Google 3D Tiles). A voxel is filled if any mesh surface is within half a voxel.
      */
     mode?: VoxelizeMode;
+    /** Yield to main thread every N layers (default: 0 = no yielding, synchronous) */
+    yieldInterval?: number;
   },
 ): BlockGrid {
   const box = new THREE.Box3().setFromObject(object);
@@ -113,6 +117,76 @@ export function threeToGrid(
     options.onProgress({ progress: 1, currentY: height, totalY: height });
   }
 
+  return grid;
+}
+
+/**
+ * Async version of threeToGrid — yields to the main thread between Y layers
+ * to prevent UI freezing on large meshes (browser contexts).
+ */
+export async function threeToGridAsync(
+  object: THREE.Object3D,
+  resolution = 1,
+  options?: {
+    onProgress?: (p: VoxelizeProgress) => void;
+    textureSampler?: TextureSampler;
+    mode?: VoxelizeMode;
+    /** Yield every N layers (default: 4) */
+    yieldInterval?: number;
+  },
+): Promise<BlockGrid> {
+  const box = new THREE.Box3().setFromObject(object);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+
+  const width = Math.ceil(size.x * resolution);
+  const height = Math.ceil(size.y * resolution);
+  const length = Math.ceil(size.z * resolution);
+
+  if (width <= 0 || height <= 0 || length <= 0) {
+    return new BlockGrid(1, 1, 1);
+  }
+
+  const grid = new BlockGrid(width, height, length);
+  const sampler = options?.textureSampler;
+  const mode = options?.mode ?? 'solid';
+  const yieldInterval = options?.yieldInterval ?? 4;
+
+  // Collect meshes and build BVH (yield between builds to keep UI responsive)
+  const meshes: MeshEntry[] = [];
+  const meshChildren: THREE.Mesh[] = [];
+  object.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.material) meshChildren.push(child);
+  });
+
+  for (let mi = 0; mi < meshChildren.length; mi++) {
+    const child = meshChildren[mi];
+    const mat = child.material as THREE.MeshStandardMaterial;
+    const geo = child.geometry as THREE.BufferGeometry;
+    if (!geo) continue;
+    if (!(geo as BVHGeometry).boundsTree) {
+      options?.onProgress?.({
+        progress: 0, currentY: 0, totalY: 1,
+        message: `Building BVH ${mi + 1}/${meshChildren.length}...`,
+      });
+      (geo as BVHGeometry).boundsTree = new MeshBVH(geo as never);
+      // Yield after each BVH construction so the browser can update UI
+      await new Promise<void>(r => setTimeout(r, 0));
+    }
+    const inverseMatrix = new THREE.Matrix4();
+    child.updateWorldMatrix(true, false);
+    inverseMatrix.copy(child.matrixWorld).invert();
+    meshes.push({ mesh: child, material: mat, inverseMatrix });
+  }
+
+  if (mode === 'surface') {
+    await voxelizeSurfaceAsync(grid, box, resolution, meshes, sampler, yieldInterval, options?.onProgress);
+  } else {
+    // Solid mode is typically fast enough to run synchronously
+    voxelizeSolid(grid, box, resolution, meshes, sampler, options?.onProgress);
+  }
+
+  options?.onProgress?.({ progress: 1, currentY: height, totalY: height });
   return grid;
 }
 
@@ -256,6 +330,84 @@ function voxelizeSurface(
 }
 
 /**
+ * Async surface voxelizer — yields to main thread between Y layers to prevent
+ * UI freezing on large meshes in browser contexts.
+ */
+async function voxelizeSurfaceAsync(
+  grid: BlockGrid,
+  box: THREE.Box3,
+  resolution: number,
+  meshes: MeshEntry[],
+  sampler: TextureSampler | undefined,
+  yieldInterval: number,
+  onProgress?: (p: VoxelizeProgress) => void,
+): Promise<void> {
+  const { width, height, length } = grid;
+  const threshold = 0.7 / resolution;
+
+  // Pre-compute bounding boxes for each mesh (in world space) for fast rejection
+  const meshBounds: THREE.Box3[] = meshes.map(({ mesh }) => {
+    return new THREE.Box3().setFromObject(mesh).expandByScalar(threshold);
+  });
+
+  // Reusable objects — allocated once, reused per voxel
+  const localPoint = new THREE.Vector3();
+  const closestTarget = { point: new THREE.Vector3(), distance: Infinity, faceIndex: 0 };
+  const uvCoord = new THREE.Vector2();
+  const worldPos = new THREE.Vector3();
+
+  for (let y = 0; y < height; y++) {
+    onProgress?.({ progress: y / height, currentY: y, totalY: height });
+
+    // Yield to main thread periodically so UI stays responsive
+    if (yieldInterval > 0 && y > 0 && y % yieldInterval === 0) {
+      await new Promise<void>(r => setTimeout(r, 0));
+    }
+
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const worldX = box.min.x + (x + 0.5) / resolution;
+        const worldY = box.min.y + (y + 0.5) / resolution;
+        const worldZ = box.min.z + (z + 0.5) / resolution;
+        worldPos.set(worldX, worldY, worldZ);
+
+        let bestDist = Infinity;
+        let bestColor: RGB | null = null;
+
+        for (let m = 0; m < meshes.length; m++) {
+          // Fast AABB rejection — skip meshes whose bounding box is too far
+          if (!meshBounds[m].containsPoint(worldPos)) continue;
+
+          const { mesh, material, inverseMatrix } = meshes[m];
+          const geo = mesh.geometry as BVHGeometry;
+          if (!geo.boundsTree) continue;
+
+          localPoint.set(worldX, worldY, worldZ);
+          localPoint.applyMatrix4(inverseMatrix);
+
+          closestTarget.distance = Infinity;
+          const result = (geo.boundsTree as MeshBVHExt).closestPointToPoint(
+            localPoint, closestTarget, 0, Math.min(threshold, bestDist),
+          );
+
+          if (result && result.distance < threshold && result.distance < bestDist) {
+            bestDist = result.distance;
+            bestColor = sampleColorAtSurfacePoint(
+              geo, result.faceIndex, result.point, material, sampler, uvCoord,
+            );
+          }
+        }
+
+        if (bestColor) {
+          const seed = x * 1000000 + y * 1000 + z;
+          grid.set(x, y, z, rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], seed));
+        }
+      }
+    }
+  }
+}
+
+/**
  * Sample color at a surface point identified by faceIndex and position.
  * Uses UV interpolation to sample the texture at the exact surface point,
  * or falls back to material.color if no texture/UV data is available.
@@ -277,23 +429,21 @@ function sampleColorAtSurfacePoint(
       const i1 = index ? index.getX(faceIndex * 3 + 1) : faceIndex * 3 + 1;
       const i2 = index ? index.getX(faceIndex * 3 + 2) : faceIndex * 3 + 2;
 
-      // Get triangle vertices (local space)
+      // Get triangle vertices and compute barycentric (all using pre-allocated scratch)
       const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
-      const a = new THREE.Vector3().fromBufferAttribute(posAttr, i0);
-      const b = new THREE.Vector3().fromBufferAttribute(posAttr, i1);
-      const c = new THREE.Vector3().fromBufferAttribute(posAttr, i2);
+      _triA.fromBufferAttribute(posAttr, i0);
+      _triB.fromBufferAttribute(posAttr, i1);
+      _triC.fromBufferAttribute(posAttr, i2);
+      computeBarycentric(closestPoint, _triA, _triB, _triC, _baryOut);
 
-      // Compute barycentric coordinates of closestPoint in the triangle
-      const bary = computeBarycentric(closestPoint, a, b, c);
-
-      // Interpolate UV using barycentric
-      const uv0 = new THREE.Vector2().fromBufferAttribute(uvAttr, i0);
-      const uv1 = new THREE.Vector2().fromBufferAttribute(uvAttr, i1);
-      const uv2 = new THREE.Vector2().fromBufferAttribute(uvAttr, i2);
+      // Interpolate UV using barycentric weights
+      _uv0.fromBufferAttribute(uvAttr, i0);
+      _uv1.fromBufferAttribute(uvAttr, i1);
+      _uv2.fromBufferAttribute(uvAttr, i2);
 
       uvCoord.set(
-        uv0.x * bary.x + uv1.x * bary.y + uv2.x * bary.z,
-        uv0.y * bary.x + uv1.y * bary.y + uv2.y * bary.z,
+        _uv0.x * _baryOut.x + _uv1.x * _baryOut.y + _uv2.x * _baryOut.z,
+        _uv0.y * _baryOut.x + _uv1.y * _baryOut.y + _uv2.y * _baryOut.z,
       );
 
       return sampler(material.map, uvCoord);
@@ -307,32 +457,44 @@ function sampleColorAtSurfacePoint(
 
 /**
  * Compute barycentric coordinates of point P in triangle ABC.
- * Returns Vector3(u, v, w) where P = u*A + v*B + w*C.
+ * Writes (u, v, w) into `out` where P = u*A + v*B + w*C.
+ * Uses pre-allocated scratch vectors to avoid per-call allocations.
  */
+// Pre-allocated scratch objects for hot-path functions (avoid per-voxel GC pressure)
+const _baryV0 = new THREE.Vector3();
+const _baryV1 = new THREE.Vector3();
+const _baryV2 = new THREE.Vector3();
+const _baryOut = new THREE.Vector3();
+const _triA = new THREE.Vector3();
+const _triB = new THREE.Vector3();
+const _triC = new THREE.Vector3();
+const _uv0 = new THREE.Vector2();
+const _uv1 = new THREE.Vector2();
+const _uv2 = new THREE.Vector2();
+
 function computeBarycentric(
   p: THREE.Vector3,
   a: THREE.Vector3,
   b: THREE.Vector3,
   c: THREE.Vector3,
+  out: THREE.Vector3,
 ): THREE.Vector3 {
-  const v0 = new THREE.Vector3().subVectors(b, a);
-  const v1 = new THREE.Vector3().subVectors(c, a);
-  const v2 = new THREE.Vector3().subVectors(p, a);
+  _baryV0.subVectors(b, a);
+  _baryV1.subVectors(c, a);
+  _baryV2.subVectors(p, a);
 
-  const d00 = v0.dot(v0);
-  const d01 = v0.dot(v1);
-  const d11 = v1.dot(v1);
-  const d20 = v2.dot(v0);
-  const d21 = v2.dot(v1);
+  const d00 = _baryV0.dot(_baryV0);
+  const d01 = _baryV0.dot(_baryV1);
+  const d11 = _baryV1.dot(_baryV1);
+  const d20 = _baryV2.dot(_baryV0);
+  const d21 = _baryV2.dot(_baryV1);
 
   const denom = d00 * d11 - d01 * d01;
-  if (Math.abs(denom) < 1e-10) return new THREE.Vector3(1, 0, 0); // Degenerate triangle
+  if (Math.abs(denom) < 1e-10) return out.set(1, 0, 0); // Degenerate triangle
 
   const v = (d11 * d20 - d01 * d21) / denom;
   const w = (d00 * d21 - d01 * d20) / denom;
-  const u = 1.0 - v - w;
-
-  return new THREE.Vector3(u, v, w);
+  return out.set(1.0 - v - w, v, w);
 }
 
 // ─── Shared helpers ─────────────────────────────────────────────────────────
