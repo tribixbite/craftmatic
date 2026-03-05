@@ -443,6 +443,9 @@ async function runVoxelizePipeline(
     }
 
     const nonAir = grid.countNonAir();
+    // Debug: expose grid for inspection
+    (window as Record<string, unknown>).__lastTilesGrid = grid;
+    console.log('[tiles] palette:', [...grid.palette].join(', '));
     setStatus(
       `Done — ${grid.width}x${grid.height}x${grid.length}, ${nonAir.toLocaleString()} blocks, ${grid.palette.size} materials`,
       'success',
