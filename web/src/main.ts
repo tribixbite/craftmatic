@@ -57,6 +57,13 @@ tabs.forEach(tab => {
   });
 });
 
+// URL ?tab=tiles (or any tab name) auto-activates that tab on load
+const urlTab = new URLSearchParams(location.search).get('tab');
+if (urlTab) {
+  const match = document.querySelector<HTMLButtonElement>(`.nav-tab[data-tab="${urlTab}"]`);
+  if (match) match.click();
+}
+
 // ─── Loading Overlay ─────────────────────────────────────────────────────────
 
 const loadingEl = document.getElementById('loading')!;
