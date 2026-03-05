@@ -40,7 +40,11 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// ─── Fetch: cache-first for same-origin, network-first for external ────────
+// ─── Fetch: network-first for same-origin, network-first for external ───────
+//
+// Using network-first everywhere prevents stale ES modules from being served
+// when the dev server or a new deploy serves updated code. The cache acts as
+// a fallback for offline use only.
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
@@ -48,37 +52,17 @@ self.addEventListener('fetch', (event) => {
   // Only handle GET requests
   if (request.method !== 'GET') return;
 
-  const url = new URL(request.url);
-
-  // External / cross-origin requests — network-first with cache fallback
-  if (url.origin !== self.location.origin) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // Cache a copy of successful external responses
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return response;
-        })
-        .catch(() => caches.match(request))
-    );
-    return;
-  }
-
-  // Same-origin requests — cache-first with network fallback
+  // Network-first: try the network, fall back to cache for offline
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
-        // Cache successful same-origin responses for future offline use
+    fetch(request)
+      .then((response) => {
+        // Cache a copy of successful responses for offline fallback
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }
         return response;
-      });
-    })
+      })
+      .catch(() => caches.match(request))
   );
 });
