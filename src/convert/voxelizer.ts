@@ -523,6 +523,32 @@ interface BVHGeometry extends THREE.BufferGeometry {
   boundsTree?: MeshBVH;
 }
 
+/**
+ * Create a texture sampler for CLI/Node contexts (no Canvas required).
+ * Reads pixel data directly from DataTexture's raw typed array.
+ * Falls back to material color for non-DataTexture images.
+ */
+export function createDataTextureSampler(): TextureSampler {
+  return (texture: THREE.Texture, uv: THREE.Vector2): RGB => {
+    const image = texture.image as { data?: Uint8Array | Uint8ClampedArray; width?: number; height?: number };
+    if (!image?.data || !image.width || !image.height) {
+      return [128, 128, 128]; // No raw data — neutral gray
+    }
+
+    const w = image.width;
+    const h = image.height;
+
+    // UV wrapping (repeat)
+    const u = ((uv.x % 1) + 1) % 1;
+    const v = ((uv.y % 1) + 1) % 1;
+    const px = Math.floor(u * (w - 1));
+    const py = Math.floor((1 - v) * (h - 1)); // UV y is flipped
+
+    const idx = (py * w + px) * 4;
+    return [image.data[idx], image.data[idx + 1], image.data[idx + 2]];
+  };
+}
+
 /** Extended MeshBVH type with closestPointToPoint (available in v0.9.9) */
 interface MeshBVHExt {
   closestPointToPoint(
