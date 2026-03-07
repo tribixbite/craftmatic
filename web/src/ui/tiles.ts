@@ -103,8 +103,8 @@ function buildUI(): void {
         </label>
         <label class="tiles-param">
           <span>Capture radius</span>
-          <input type="range" id="tiles-radius" min="20" max="150" step="10" value="50">
-          <span id="tiles-radius-label" class="tiles-param-value">50 m</span>
+          <input type="range" id="tiles-radius" min="20" max="150" step="10" value="30">
+          <span id="tiles-radius-label" class="tiles-param-value">30 m</span>
         </label>
       </div>
       <div class="tiles-key-hint">
@@ -436,18 +436,27 @@ async function runVoxelizePipeline(
       yieldInterval: 4,
     });
 
+    // Post-voxel Y trim: remove sparse bottom layers (residual terrain that
+    // passed the height filter). Scan bottom-up for the first layer with >5%
+    // fill rate — everything below is likely ground/road fragments.
+    const trimmedGrid = trimSparseBottomLayers(grid);
+    if (trimmedGrid !== grid) {
+      const trimmed = grid.height - trimmedGrid.height;
+      console.log(`[tiles] trimmed ${trimmed} sparse bottom layers (${grid.height}→${trimmedGrid.height})`);
+    }
+
     // Enforce dimension cap
-    if (grid.width > MAX_DIMENSION || grid.height > MAX_DIMENSION || grid.length > MAX_DIMENSION) {
-      setStatus(`Grid too large: ${grid.width}x${grid.height}x${grid.length} (max ${MAX_DIMENSION})`, 'error');
+    if (trimmedGrid.width > MAX_DIMENSION || trimmedGrid.height > MAX_DIMENSION || trimmedGrid.length > MAX_DIMENSION) {
+      setStatus(`Grid too large: ${trimmedGrid.width}x${trimmedGrid.height}x${trimmedGrid.length} (max ${MAX_DIMENSION})`, 'error');
       return null;
     }
 
-    const nonAir = grid.countNonAir();
+    const nonAir = trimmedGrid.countNonAir();
     // Debug: expose grid for inspection
-    (window as Record<string, unknown>).__lastTilesGrid = grid;
-    console.log('[tiles] palette:', [...grid.palette].join(', '));
+    (window as Record<string, unknown>).__lastTilesGrid = trimmedGrid;
+    console.log('[tiles] palette:', [...trimmedGrid.palette].join(', '));
     setStatus(
-      `Done — ${grid.width}x${grid.height}x${grid.length}, ${nonAir.toLocaleString()} blocks, ${grid.palette.size} materials`,
+      `Done — ${trimmedGrid.width}x${trimmedGrid.height}x${trimmedGrid.length}, ${nonAir.toLocaleString()} blocks, ${trimmedGrid.palette.size} materials`,
       'success',
     );
 
@@ -456,10 +465,10 @@ async function runVoxelizePipeline(
 
     // Step 5: Pass grid to callback (shows in inline viewer with download options)
     if (onResult && !skipCallback) {
-      onResult(grid, `tiles-${geo.formattedAddress}`);
+      onResult(trimmedGrid, `tiles-${geo.formattedAddress}`);
     }
 
-    return grid;
+    return trimmedGrid;
 
   } catch (err) {
     loading = false;
@@ -501,6 +510,55 @@ function setStatus(msg: string, type: 'info' | 'error' | 'success'): void {
   if (!el) return;
   el.textContent = msg;
   el.className = `tiles-status tiles-status-${type}`;
+}
+
+/**
+ * Trim sparse bottom layers from a voxelized grid.
+ *
+ * Scans Y layers bottom-up and removes consecutive layers where less than
+ * 5% of XZ cells are filled. These layers are typically residual terrain,
+ * roads, or sidewalk geometry that wasn't fully filtered during mesh capture.
+ *
+ * Returns the original grid if no trimming is needed.
+ */
+function trimSparseBottomLayers(grid: BlockGrid): BlockGrid {
+  const { width, height, length } = grid;
+  const totalXZ = width * length;
+  const FILL_THRESHOLD = 0.05; // 5% fill required to count as building content
+
+  // Find first Y layer from bottom with sufficient fill
+  let trimY = 0;
+  for (let y = 0; y < height; y++) {
+    let filled = 0;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== 'air') filled++;
+      }
+    }
+    if (filled / totalXZ >= FILL_THRESHOLD) {
+      trimY = y;
+      break;
+    }
+    // If we reach the top without finding a dense layer, keep everything
+    if (y === height - 1) return grid;
+  }
+
+  if (trimY === 0) return grid; // Nothing to trim
+
+  // Copy layers [trimY..height-1] into a new smaller grid
+  const newHeight = height - trimY;
+  const trimmed = new BlockGrid(width, newHeight, length);
+  for (let y = 0; y < newHeight; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y + trimY, z);
+        if (block !== 'air') {
+          trimmed.set(x, y, z, block);
+        }
+      }
+    }
+  }
+  return trimmed;
 }
 
 // ─── Batch Processing ──────────────────────────────────────────────────────
