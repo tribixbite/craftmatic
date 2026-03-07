@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import type { TilesRenderer } from '3d-tiles-renderer';
+import { filterMeshesByHeight } from '@craft/convert/mesh-filter.js';
 
 /** Options for tile mesh capture */
 export interface CaptureOptions {
@@ -72,32 +73,17 @@ export async function captureTileMeshes(
     candidates.push({ child, worldBox });
   });
 
-  // Estimate ground level as the median of mesh bounding box minimums (Y axis).
-  // Terrain/road meshes sit near the ground; the median is robust against
-  // outlier meshes (e.g. low underground fragments).
-  let groundY = 0;
-  let heightFiltered = 0;
+  // Filter by vertical extent above estimated ground level
+  const { kept, groundY, heightFiltered } = filterMeshesByHeight(candidates, minHeight);
   if (candidates.length > 0) {
-    const yMins = candidates.map(c => c.worldBox.min.y).sort((a, b) => a - b);
-    groundY = yMins[Math.floor(yMins.length / 2)];
     onProgress?.(`Ground level estimated at Y=${groundY.toFixed(1)}, filtering meshes...`);
   }
 
-  // Second pass: filter by vertical extent above ground and clone survivors
+  // Clone surviving meshes with world transform baked in
   const group = new THREE.Group();
   let meshCount = 0;
 
-  for (const { child, worldBox } of candidates) {
-    const verticalExtent = worldBox.max.y - groundY;
-
-    // Skip meshes that don't rise meaningfully above ground — these are
-    // terrain, roads, sidewalks that bloat the voxelized output
-    if (verticalExtent < minHeight) {
-      heightFiltered++;
-      continue;
-    }
-
-    // Clone mesh with world transform applied
+  for (const { child } of kept) {
     const cloned = child.clone();
     cloned.applyMatrix4(child.matrixWorld);
     // Reset the matrix since we've baked the transform

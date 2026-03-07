@@ -27,6 +27,7 @@ import {
 } from '@ui/import-streetview.js';
 import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
 import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
+import { trimSparseBottomLayers } from '@craft/convert/mesh-filter.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -401,6 +402,12 @@ async function runVoxelizePipeline(
       return null;
     }
 
+    // Export captured meshes as GLB for offline CLI re-voxelization.
+    // Non-blocking — fire and forget so it doesn't delay the voxelization.
+    exportCapturedGLB(capturedGroup, address).catch(err => {
+      console.warn('[tiles] GLB export failed (non-fatal):', err);
+    });
+
     // Step 4: Voxelize
     setStatus(`Voxelizing ${meshCount} meshes at ${resolution} block/m...`, 'info');
 
@@ -512,53 +519,57 @@ function setStatus(msg: string, type: 'info' | 'error' | 'success'): void {
   el.className = `tiles-status tiles-status-${type}`;
 }
 
+// ─── GLB Export ─────────────────────────────────────────────────────────────
+
 /**
- * Trim sparse bottom layers from a voxelized grid.
- *
- * Scans Y layers bottom-up and removes consecutive layers where less than
- * 5% of XZ cells are filled. These layers are typically residual terrain,
- * roads, or sidewalk geometry that wasn't fully filtered during mesh capture.
- *
- * Returns the original grid if no trimming is needed.
+ * Export captured tile meshes as a GLB file for offline CLI re-voxelization.
+ * Tries the local schem-receiver first (POST to :3456), falls back to browser download.
  */
-function trimSparseBottomLayers(grid: BlockGrid): BlockGrid {
-  const { width, height, length } = grid;
-  const totalXZ = width * length;
-  const FILL_THRESHOLD = 0.05; // 5% fill required to count as building content
+async function exportCapturedGLB(group: THREE.Group, address: string): Promise<void> {
+  const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
+  const exporter = new GLTFExporter();
 
-  // Find first Y layer from bottom with sufficient fill
-  let trimY = 0;
-  for (let y = 0; y < height; y++) {
-    let filled = 0;
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        if (grid.get(x, y, z) !== 'air') filled++;
-      }
+  const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+    exporter.parse(
+      group,
+      (result) => resolve(result as ArrayBuffer),
+      (error) => reject(error),
+      { binary: true },
+    );
+  });
+
+  // Sanitize address for filename: letters, digits, hyphens only
+  const sanitized = address
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase()
+    .slice(0, 80);
+  const filename = `tiles-${sanitized}.glb`;
+
+  // Try posting to local receiver server
+  try {
+    const resp = await fetch(`http://localhost:3456/save/${encodeURIComponent(filename)}`, {
+      method: 'POST',
+      body: buffer,
+    });
+    if (resp.ok) {
+      console.log(`[tiles] GLB saved via receiver: ${filename} (${buffer.byteLength} bytes)`);
+      return;
     }
-    if (filled / totalXZ >= FILL_THRESHOLD) {
-      trimY = y;
-      break;
-    }
-    // If we reach the top without finding a dense layer, keep everything
-    if (y === height - 1) return grid;
+  } catch {
+    // Receiver not running — fall back to browser download
   }
 
-  if (trimY === 0) return grid; // Nothing to trim
-
-  // Copy layers [trimY..height-1] into a new smaller grid
-  const newHeight = height - trimY;
-  const trimmed = new BlockGrid(width, newHeight, length);
-  for (let y = 0; y < newHeight; y++) {
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        const block = grid.get(x, y + trimY, z);
-        if (block !== 'air') {
-          trimmed.set(x, y, z, block);
-        }
-      }
-    }
-  }
-  return trimmed;
+  // Browser download fallback
+  const blob = new Blob([buffer], { type: 'model/gltf-binary' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+  console.log(`[tiles] GLB downloaded: ${filename} (${buffer.byteLength} bytes)`);
 }
 
 // ─── Batch Processing ──────────────────────────────────────────────────────
