@@ -273,8 +273,11 @@ function voxelizeSurface(
 ): void {
   const { width, height, length } = grid;
   // Half-voxel distance threshold: a point is "on the surface" if the nearest
-  // mesh surface is closer than this
-  const threshold = 0.7 / resolution;
+  // mesh surface is closer than this. 0.55 is just above exact half-voxel —
+  // tight enough to prevent filling between nearby but separate surfaces
+  // (terrain/building gaps in photogrammetry tiles), while still capturing
+  // voxels whose centers fall exactly on a surface boundary.
+  const threshold = 0.55 / resolution;
 
   // Reusable objects to avoid per-voxel allocation
   const localPoint = new THREE.Vector3();
@@ -343,7 +346,7 @@ async function voxelizeSurfaceAsync(
   onProgress?: (p: VoxelizeProgress) => void,
 ): Promise<void> {
   const { width, height, length } = grid;
-  const threshold = 0.7 / resolution;
+  const threshold = 0.5 / resolution;
 
   // Pre-compute bounding boxes for each mesh (in world space) for fast rejection
   const meshBounds: THREE.Box3[] = meshes.map(({ mesh }) => {

@@ -15,6 +15,9 @@ export interface CaptureOptions {
   onProgress?: (msg: string) => void;
   /** Timeout in ms before aborting (default: 60000) */
   timeout?: number;
+  /** Minimum vertical extent (meters) above ground for a mesh to be kept (default: 2).
+   *  Filters out flat terrain, roads, sidewalks that add noise to voxelization. */
+  minHeight?: number;
 }
 
 /**
@@ -32,17 +35,16 @@ export async function captureTileMeshes(
   radiusMeters: number,
   options?: CaptureOptions,
 ): Promise<THREE.Group> {
-  const { onProgress, timeout = 60000 } = options ?? {};
+  const { onProgress, timeout = 60000, minHeight = 2 } = options ?? {};
 
   // Wait for tiles to finish downloading and parsing
   await waitForTilesLoaded(tiles, timeout, onProgress);
 
   onProgress?.('Extracting meshes...');
 
-  // Collect all meshes within the capture sphere
+  // First pass: collect candidate meshes within radius and compute their world AABBs
   const captureSphere = new THREE.Sphere(center, radiusMeters);
-  const group = new THREE.Group();
-  let meshCount = 0;
+  const candidates: { child: THREE.Mesh; worldBox: THREE.Box3 }[] = [];
   let tested = 0;
   let rejected = 0;
   let noGeometry = 0;
@@ -65,6 +67,36 @@ export async function captureTileMeshes(
       return;
     }
 
+    // Compute world-space AABB for ground estimation
+    const worldBox = new THREE.Box3().setFromObject(child);
+    candidates.push({ child, worldBox });
+  });
+
+  // Estimate ground level as the median of mesh bounding box minimums (Y axis).
+  // Terrain/road meshes sit near the ground; the median is robust against
+  // outlier meshes (e.g. low underground fragments).
+  let groundY = 0;
+  let heightFiltered = 0;
+  if (candidates.length > 0) {
+    const yMins = candidates.map(c => c.worldBox.min.y).sort((a, b) => a - b);
+    groundY = yMins[Math.floor(yMins.length / 2)];
+    onProgress?.(`Ground level estimated at Y=${groundY.toFixed(1)}, filtering meshes...`);
+  }
+
+  // Second pass: filter by vertical extent above ground and clone survivors
+  const group = new THREE.Group();
+  let meshCount = 0;
+
+  for (const { child, worldBox } of candidates) {
+    const verticalExtent = worldBox.max.y - groundY;
+
+    // Skip meshes that don't rise meaningfully above ground — these are
+    // terrain, roads, sidewalks that bloat the voxelized output
+    if (verticalExtent < minHeight) {
+      heightFiltered++;
+      continue;
+    }
+
     // Clone mesh with world transform applied
     const cloned = child.clone();
     cloned.applyMatrix4(child.matrixWorld);
@@ -76,10 +108,10 @@ export async function captureTileMeshes(
 
     group.add(cloned);
     meshCount++;
-  });
+  }
 
-  onProgress?.(`Captured ${meshCount}/${tested} meshes (${rejected} outside radius, ${noGeometry} no geometry)`);
-  console.log(`[tile-capture] tested=${tested} captured=${meshCount} rejected=${rejected} noGeo=${noGeometry} radius=${radiusMeters}`);
+  onProgress?.(`Captured ${meshCount}/${tested} meshes (${rejected} outside radius, ${heightFiltered} below ${minHeight}m height, ${noGeometry} no geometry)`);
+  console.log(`[tile-capture] tested=${tested} captured=${meshCount} rejected=${rejected} heightFiltered=${heightFiltered} noGeo=${noGeometry} radius=${radiusMeters} groundY=${groundY.toFixed(1)}`);
 
   return group;
 }
