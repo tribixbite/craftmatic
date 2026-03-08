@@ -37,7 +37,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice, removeSmallComponents, cropToCenter } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice, removeSmallComponents, cropToCenter, analyzeGrid } from '../src/convert/mesh-filter.js';
+import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
 
@@ -65,6 +66,7 @@ interface CLIArgs {
   cleanMinSize: number; // removeSmallComponents min size (0 = skip)
   cropRadius: number;   // cropToCenter XZ radius (0 = skip)
   remaps: Map<string, string>; // custom block remaps FROM=TO
+  auto: boolean;         // auto-detect building type and set optimal params
 }
 
 function parseArgs(): CLIArgs {
@@ -93,7 +95,8 @@ Options:
   --no-fire-escape   Skip fire escape filter (center strip darkening)
   --clean N          Remove disconnected clusters < N voxels (default: 0=skip, 50 recommended)
   --crop N           Keep only blocks within N-block XZ radius of center (isolate central building)
-  --remap FROM=TO    Custom block remap (repeatable, e.g. --remap white_concrete=smooth_sandstone)`);
+  --remap FROM=TO    Custom block remap (repeatable, e.g. --remap white_concrete=smooth_sandstone)
+  --auto             Auto-detect building type and set optimal pipeline params`);
     process.exit(0);
   }
 
@@ -119,6 +122,7 @@ Options:
   let noFireEscape = false;
   let cleanMinSize = 0;
   let cropRadius = 0;
+  let auto = false;
   const remaps = new Map<string, string>();
 
   for (let i = 0; i < args.length; i++) {
@@ -163,6 +167,8 @@ Options:
       cleanMinSize = parseInt(args[++i], 10);
     } else if (arg === '--crop') {
       cropRadius = parseInt(args[++i], 10);
+    } else if (arg === '--auto') {
+      auto = true;
     } else if (arg === '--remap') {
       const pair = args[++i];
       const eq = pair.indexOf('=');
@@ -193,7 +199,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -826,6 +832,50 @@ async function main(): Promise<void> {
   if (trimmed !== grid) {
     const removed = grid.height - trimmed.height;
     console.log(`Trimmed ${removed} sparse bottom layers (${grid.height} → ${trimmed.height})`);
+  }
+
+  // ── Auto-detection: analyze grid and override pipeline params ──
+  let analysis: AnalysisResult | null = null;
+  if (args.auto) {
+    console.log(`\n--- Auto-Detection Analysis ---`);
+    const tAuto = performance.now();
+    analysis = analyzeGrid(trimmed);
+
+    console.log(`  Terrain: slope ${analysis.slopeAngle.toFixed(1)}° ${analysis.isFlat ? '(flat)' : '(sloped)'}, ground Y=${analysis.groundPlaneY}`);
+    console.log(`  Components: ${analysis.componentCount} (central AABB: ${analysis.centralAABB.minX}-${analysis.centralAABB.maxX} x ${analysis.centralAABB.minY}-${analysis.centralAABB.maxY} x ${analysis.centralAABB.minZ}-${analysis.centralAABB.maxZ})`);
+    console.log(`  Partial capture: ${analysis.isPartialCapture ? `YES (${analysis.edgeTouchPct.toFixed(1)}% edge touch)` : `no (${analysis.edgeTouchPct.toFixed(1)}%)`}`);
+    console.log(`  Typology: ${analysis.typology} | Aspect: ${analysis.aspectRatio.toFixed(2)} | Footprint fill: ${(analysis.footprintFill * 100).toFixed(0)}% | Rectangular: ${analysis.isRectangular}`);
+    console.log(`  Roof: ${analysis.isFlatRoof ? 'flat' : 'pitched'} (variance ${analysis.roofVariance.toFixed(1)})`);
+    console.log(`  Facade: dominant=${analysis.dominantBlock.replace('minecraft:', '')} (${analysis.dominantPct.toFixed(0)}%) secondary=${analysis.secondaryBlock.replace('minecraft:', '')}`);
+    console.log(`  Noise: ${analysis.noisePct.toFixed(1)}% protrusions (${analysis.protrusion1vCount} single-voxel)`);
+    console.log(`  Front face: ${analysis.frontFace}`);
+    console.log(`  Confidence: ${analysis.confidence.toFixed(1)}/10`);
+
+    // Apply auto recommendations (only override non-explicitly-set params)
+    const rec = analysis.recommended;
+    console.log(`\n  Recommended: ${rec.generic ? '--generic' : 'solidifyCore'} ${rec.fill ? '--fill' : ''} ${rec.noPalette ? '--no-palette' : ''} ${rec.noCornice ? '--no-cornice' : ''} ${rec.noFireEscape ? '--no-fire-escape' : ''}`);
+    if (rec.cropRadius > 0) console.log(`  Recommended: --crop ${rec.cropRadius}`);
+    if (rec.cleanMinSize > 0) console.log(`  Recommended: --clean ${rec.cleanMinSize}`);
+    if (rec.remaps.size > 0) {
+      const remapStr = [...rec.remaps.entries()].map(([f, t]) => `${f.replace('minecraft:', '')}=${t.replace('minecraft:', '')}`).join(' ');
+      console.log(`  Recommended: --remap ${remapStr}`);
+    }
+    console.log(`  Analysis: ${((performance.now() - tAuto) / 1000).toFixed(1)}s\n`);
+
+    // Override args with auto recommendations
+    args.generic = rec.generic;
+    args.fill = rec.fill;
+    args.noPalette = rec.noPalette;
+    args.noCornice = rec.noCornice;
+    args.noFireEscape = rec.noFireEscape;
+    args.smoothPct = rec.smoothPct;
+    args.modePasses = rec.modePasses;
+    if (args.cropRadius === 0 && rec.cropRadius > 0) args.cropRadius = rec.cropRadius;
+    if (args.cleanMinSize === 0 && rec.cleanMinSize > 0) args.cleanMinSize = rec.cleanMinSize;
+    // Merge auto remaps with explicit --remap (explicit wins)
+    for (const [from, to] of rec.remaps) {
+      if (!args.remaps.has(from)) args.remaps.set(from, to);
+    }
   }
 
   if (!args.generic) {
