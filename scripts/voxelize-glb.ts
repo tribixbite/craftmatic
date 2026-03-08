@@ -54,6 +54,7 @@ interface CLIArgs {
   desaturate: number;
   outputPath: string;
   infoOnly: boolean;
+  generic: boolean;
 }
 
 function parseArgs(): CLIArgs {
@@ -70,7 +71,9 @@ Options:
   --kernel, -k       Texture averaging kernel radius in pixels (default: 16, 0=point sampling)
   --desaturate       Saturation reduction 0-1 to neutralize blue shadows (default: 0.65)
   --output, -o       Output .schem path (default: <input-stem>.schem)
-  --info             Print mesh stats and exit (no voxelize)`);
+  --info             Print mesh stats and exit (no voxelize)
+  --generic          Skip building-specific post-processing (palette remap, fire escape, cornice)
+  --desaturate-off   Disable desaturation (preserve original colors)`);
     process.exit(0);
   }
 
@@ -85,6 +88,8 @@ Options:
   let desaturate = 0.65; // Neutralize blue sky shadows baked into textures
   let outputPath = '';
   let infoOnly = false;
+  let generic = false;
+  let desaturateOff = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -106,6 +111,10 @@ Options:
       outputPath = args[++i];
     } else if (arg === '--info') {
       infoOnly = true;
+    } else if (arg === '--generic') {
+      generic = true;
+    } else if (arg === '--desaturate-off') {
+      desaturateOff = true;
     } else if (!arg.startsWith('-')) {
       inputPath = arg;
     }
@@ -121,7 +130,11 @@ Options:
     outputPath = join(dirname(inputPath), `${stem}.schem`);
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly };
+  if (desaturateOff) {
+    desaturate = 0; // explicitly disable desaturation
+  }
+
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -695,48 +708,55 @@ async function main(): Promise<void> {
     console.log(`Smoothed ${smoothed} rare blocks`);
   }
 
-  // Palette constraint — aggressively remap to uniform stucco.
-  // The real building is cream/white stucco. Grey stone and cobblestone
-  // patches from photogrammetry shadows look like "scabs" on the facade.
-  // Map everything except the cleanest light blocks to stucco materials.
-  const paletteReplacements = new Map<string, string>([
-    // Dark stone → white stucco (baked shadow artifacts; building is white/cream)
-    ['minecraft:blackstone', 'minecraft:smooth_quartz'],
-    ['minecraft:deepslate_bricks', 'minecraft:smooth_quartz'],
-    ['minecraft:polished_deepslate', 'minecraft:smooth_quartz'],
-    ['minecraft:polished_blackstone', 'minecraft:smooth_quartz'],
-    ['minecraft:nether_bricks', 'minecraft:smooth_quartz'],
-    // Mid-grey stone → light gray (shadow artifacts on white stucco)
-    ['minecraft:stone', 'minecraft:light_gray_concrete'],
-    ['minecraft:andesite', 'minecraft:light_gray_concrete'],
-    ['minecraft:polished_andesite', 'minecraft:light_gray_concrete'],
-    ['minecraft:stone_bricks', 'minecraft:light_gray_concrete'],
-    ['minecraft:smooth_stone', 'minecraft:light_gray_concrete'],
-    ['minecraft:cobblestone', 'minecraft:light_gray_concrete'],
-    // Grey concrete → lighter (uniform wall color)
-    ['minecraft:gray_concrete', 'minecraft:light_gray_concrete'],
-    // Dark glass → gray stained glass (window material, not black)
-    ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
-    // Red/orange/brown noise → white stucco (NOT sandstone — sandstone renders orange)
-    ['minecraft:red_terracotta', 'minecraft:smooth_quartz'],
-    ['minecraft:orange_terracotta', 'minecraft:smooth_quartz'],
-    ['minecraft:brown_terracotta', 'minecraft:smooth_quartz'],
-    ['minecraft:bricks', 'minecraft:smooth_quartz'],
-    ['minecraft:red_concrete', 'minecraft:smooth_quartz'],
-    // Green noise → white stucco
-    ['minecraft:green_concrete', 'minecraft:smooth_quartz'],
-    // Iron → light gray (less harsh structural)
-    ['minecraft:iron_block', 'minecraft:light_gray_concrete'],
-    // End stone → quartz (white family)
-    ['minecraft:end_stone_bricks', 'minecraft:smooth_quartz'],
-    // Sandstone → quartz (sandstone renders too warm/orange for this white building)
-    ['minecraft:smooth_sandstone', 'minecraft:smooth_quartz'],
-    ['minecraft:sandstone', 'minecraft:smooth_quartz'],
-    // Keep: smooth_quartz, light_gray_concrete, white_concrete,
-    //        quartz_block, birch_planks, gray_stained_glass
-  ]);
-  const constrained = constrainPalette(trimmed, paletteReplacements);
-  console.log(`Palette constrain: ${constrained} shadow blocks remapped`);
+  if (!args.generic) {
+    // === Building-specific post-processing (tuned for 2340 Francisco St) ===
+    // Palette constraint — aggressively remap to uniform stucco.
+    // The real building is cream/white stucco. Grey stone and cobblestone
+    // patches from photogrammetry shadows look like "scabs" on the facade.
+    const paletteReplacements = new Map<string, string>([
+      ['minecraft:blackstone', 'minecraft:smooth_quartz'],
+      ['minecraft:deepslate_bricks', 'minecraft:smooth_quartz'],
+      ['minecraft:polished_deepslate', 'minecraft:smooth_quartz'],
+      ['minecraft:polished_blackstone', 'minecraft:smooth_quartz'],
+      ['minecraft:nether_bricks', 'minecraft:smooth_quartz'],
+      ['minecraft:stone', 'minecraft:light_gray_concrete'],
+      ['minecraft:andesite', 'minecraft:light_gray_concrete'],
+      ['minecraft:polished_andesite', 'minecraft:light_gray_concrete'],
+      ['minecraft:stone_bricks', 'minecraft:light_gray_concrete'],
+      ['minecraft:smooth_stone', 'minecraft:light_gray_concrete'],
+      ['minecraft:cobblestone', 'minecraft:light_gray_concrete'],
+      ['minecraft:gray_concrete', 'minecraft:light_gray_concrete'],
+      ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
+      ['minecraft:red_terracotta', 'minecraft:smooth_quartz'],
+      ['minecraft:orange_terracotta', 'minecraft:smooth_quartz'],
+      ['minecraft:brown_terracotta', 'minecraft:smooth_quartz'],
+      ['minecraft:bricks', 'minecraft:smooth_quartz'],
+      ['minecraft:red_concrete', 'minecraft:smooth_quartz'],
+      ['minecraft:green_concrete', 'minecraft:smooth_quartz'],
+      ['minecraft:iron_block', 'minecraft:light_gray_concrete'],
+      ['minecraft:end_stone_bricks', 'minecraft:smooth_quartz'],
+      ['minecraft:smooth_sandstone', 'minecraft:smooth_quartz'],
+      ['minecraft:sandstone', 'minecraft:smooth_quartz'],
+    ]);
+    const constrained = constrainPalette(trimmed, paletteReplacements);
+    console.log(`Palette constrain: ${constrained} shadow blocks remapped`);
+  } else {
+    // Generic mode: only remap the darkest shadow artifacts, preserve colors
+    const shadowReplacements = new Map<string, string>([
+      // Remap dark photogrammetry shadow artifacts to neutral gray.
+      // Google 3D Tiles bake warm shadows that map to nether_bricks/deepslate —
+      // these overpower the building's actual colors.
+      ['minecraft:blackstone', 'minecraft:gray_concrete'],
+      ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
+      ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
+      ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
+      ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
+      ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
+      ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
+    ]);
+    const constrained = constrainPalette(trimmed, shadowReplacements);
+    console.log(`Generic palette: ${constrained} shadow blocks remapped (colors preserved)`);
+  }
 
   // 3D mode filter — smooth surface textures while preserving color contrast.
   // Run after palette constraint so corrected colors spread via majority vote.
@@ -745,27 +765,23 @@ async function main(): Promise<void> {
     console.log(`Mode filter 5x5x5: ${modeSmoothed} blocks homogenized`);
   }
 
-  // Fire escape filter — convert protruding facade blocks in the center strip
-  // to gray_concrete. The real building has a prominent black metal fire escape
-  // running down the center. After mode filter homogenizes to white, this
-  // re-darkens the center column to match. Runs after all smoothing to prevent
-  // mode filter from spreading/removing the dark strip.
-  const escapeCount = fireEscapeFilter(trimmed, 4, 0.38, 0.62, 'minecraft:black_concrete');
-  console.log(`Fire escape filter: ${escapeCount} blocks → black_concrete (center 38-62%)`);
+  if (!args.generic) {
+    // Fire escape filter — apartment-specific: center strip darkening
+    const escapeCount = fireEscapeFilter(trimmed, 4, 0.38, 0.62, 'minecraft:black_concrete');
+    console.log(`Fire escape filter: ${escapeCount} blocks → black_concrete (center 38-62%)`);
+  }
 
   // Glaze backplane — deep per-face raycast to find void back walls.
-  // Casts rays from each AABB face inward up to 8 blocks deep. When a ray
-  // crosses solid→air→solid, the last air position before the back wall gets
-  // a window block. Uses black_concrete (maximum contrast with white walls).
-  // Transparent blocks (glass/pane) cause WebGL rendering corruption on mobile.
+  // Works for any building type — finds interior voids and adds window blocks.
   const glazeCount = glazeBackplane(trimmed, 8, 'minecraft:black_concrete');
   console.log(`Backplane glazing: ${glazeCount} window blocks placed (black_concrete, depth=8)`);
 
-  // Roof cornice — Spanish/Mediterranean clay tile cap with wooden eave overhang.
-  // Breaks the flat-top box silhouette. Uses bricks (clay tile) + spruce_planks
-  // (dark wood eaves). Runs last so the roof sits on top of all facade work.
-  const roofCount = addRoofCornice(trimmed, 'minecraft:bricks', 'minecraft:spruce_planks');
-  console.log(`Roof cornice: ${roofCount} blocks placed (bricks + spruce_planks)`);
+  if (!args.generic) {
+    // Roof cornice — Spanish/Mediterranean clay tile cap with wooden eave overhang.
+    // Building-specific: assumes flat-top apartment with stucco walls.
+    const roofCount = addRoofCornice(trimmed, 'minecraft:bricks', 'minecraft:spruce_planks');
+    console.log(`Roof cornice: ${roofCount} blocks placed (bricks + spruce_planks)`);
+  }
 
   // Write output
   const nonAir = trimmed.countNonAir();
