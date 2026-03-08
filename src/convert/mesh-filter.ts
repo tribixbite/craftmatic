@@ -2056,3 +2056,457 @@ export function cropToCenter(grid: BlockGrid, radius: number): number {
 
   return removed;
 }
+
+// ─── Auto-Detection Analyzer ─────────────────────────────────────────────────
+
+/** Building shape classification from volumetric analysis */
+export type BuildingTypology = 'tower' | 'flatiron' | 'block' | 'house' | 'complex';
+
+/** Detected front face direction for street frontage */
+export type FaceDirection = '+x' | '-x' | '+z' | '-z';
+
+/** Complete analysis result with recommended pipeline parameters */
+export interface AnalysisResult {
+  // 1. Terrain / ground plane
+  groundPlaneY: number;        // estimated ground Y layer
+  slopeAngle: number;          // degrees — 0 = flat, >5 = sloped terrain
+  isFlat: boolean;             // slopeAngle < 3°
+
+  // 2. Central component isolation
+  componentCount: number;      // number of distinct 3D connected components
+  centralAABB: { minX: number; maxX: number; minZ: number; maxZ: number; minY: number; maxY: number };
+  suggestedCropRadius: number; // auto-computed XZ radius for --crop
+
+  // 3. Capture boundary intersection — partial capture detection
+  edgeTouchPct: number;        // % of non-air voxels touching grid XZ edges
+  isPartialCapture: boolean;   // edgeTouchPct > 5% → building extends beyond capture
+
+  // 4. Volumetric typology
+  typology: BuildingTypology;
+  aspectRatio: number;         // height / max(width, length) of central component
+  footprintFill: number;       // fraction of XZ bounding rect filled at ground level
+  isRectangular: boolean;      // footprintFill > 0.7
+
+  // 5. Roof analysis
+  isFlatRoof: boolean;         // low heightmap variance in top 10%
+  roofVariance: number;        // normalized variance of top-layer height distribution
+
+  // 6. Facade color clustering (k=2 dominant + secondary)
+  dominantBlock: string;       // most common non-air block on exterior surface
+  secondaryBlock: string;      // second most common exterior block
+  dominantPct: number;         // % of exterior surface covered by dominant block
+  suggestedRemaps: Map<string, string>; // auto-generated --remap args
+
+  // 7. Noise estimation
+  protrusion1vCount: number;   // single-voxel protrusions (noise indicator)
+  noisePct: number;            // protrusions / total non-air
+  suggestedClean: number;      // recommended --clean value
+
+  // 8. Street frontage
+  frontFace: FaceDirection;    // side with most ground-level density
+
+  // 9. Confidence score
+  confidence: number;          // 1-10 predicted voxelization quality
+
+  // Recommended CLI args
+  recommended: {
+    generic: boolean;
+    fill: boolean;
+    noPalette: boolean;
+    noCornice: boolean;
+    noFireEscape: boolean;
+    smoothPct: number;
+    modePasses: number;
+    cropRadius: number;
+    cleanMinSize: number;
+    remaps: Map<string, string>;
+  };
+}
+
+/**
+ * 3D flood-fill connected component labeling.
+ * Returns component sizes and a label map (0 = air, 1..N = component ID).
+ */
+function labelConnectedComponents(grid: BlockGrid): {
+  labels: Int32Array;
+  sizes: number[];
+  count: number;
+} {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const total = width * height * length;
+  const labels = new Int32Array(total); // 0 = unlabeled/air
+  let nextLabel = 1;
+  const sizes: number[] = [0]; // sizes[0] unused (air)
+
+  // 6-connected flood fill via stack-based BFS
+  const stack: number[] = [];
+  const offsets = [
+    [1, 0, 0], [-1, 0, 0], [0, 1, 0],
+    [0, -1, 0], [0, 0, 1], [0, 0, -1],
+  ] as const;
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * length + z) * width + x;
+        if (labels[idx] !== 0 || grid.get(x, y, z) === AIR) continue;
+
+        const label = nextLabel++;
+        labels[idx] = label;
+        stack.push(idx);
+        let size = 0;
+
+        while (stack.length > 0) {
+          const ci = stack.pop()!;
+          size++;
+          const cx2 = ci % width;
+          const cz2 = Math.floor(ci / width) % length;
+          const cy2 = Math.floor(ci / (width * length));
+
+          for (const [dx, dy, dz] of offsets) {
+            const nx = cx2 + dx, ny = cy2 + dy, nz = cz2 + dz;
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length) continue;
+            const ni = (ny * length + nz) * width + nx;
+            if (labels[ni] !== 0 || grid.get(nx, ny, nz) === AIR) continue;
+            labels[ni] = label;
+            stack.push(ni);
+          }
+        }
+
+        sizes.push(size);
+      }
+    }
+  }
+
+  return { labels, sizes, count: nextLabel - 1 };
+}
+
+/**
+ * Analyze a voxel grid to auto-detect building properties and recommend
+ * optimal pipeline parameters. Runs after trimSparseBottomLayers but before
+ * any destructive shape processing.
+ *
+ * Implements 9 analysis criteria:
+ * 1. Terrain/slope, 2. Component isolation, 3. Partial capture,
+ * 4. Volumetric typology, 5. Roof flatness, 6. Facade color clustering,
+ * 7. Noise estimation, 8. Street frontage, 9. Confidence scoring
+ */
+export function analyzeGrid(grid: BlockGrid): AnalysisResult {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+
+  // ── 1. Ground plane / slope estimation ──
+  // Find lowest non-air Y for each XZ column → fit plane
+  const groundHeights: number[] = [];
+  const groundXZ: [number, number][] = [];
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = 0; y < height; y++) {
+        if (grid.get(x, y, z) !== AIR) {
+          groundHeights.push(y);
+          groundXZ.push([x, z]);
+          break;
+        }
+      }
+    }
+  }
+
+  let groundPlaneY = 0;
+  let slopeAngle = 0;
+  if (groundHeights.length > 0) {
+    const sorted = [...groundHeights].sort((a, b) => a - b);
+    groundPlaneY = sorted[Math.floor(sorted.length / 2)];
+
+    // Use bottom 10% of heights for slope estimation
+    const threshold = sorted[Math.floor(sorted.length * 0.1)];
+    const groundOnly: { x: number; z: number; y: number }[] = [];
+    for (let i = 0; i < groundHeights.length; i++) {
+      if (groundHeights[i] <= threshold + 2) {
+        groundOnly.push({ x: groundXZ[i][0], z: groundXZ[i][1], y: groundHeights[i] });
+      }
+    }
+
+    if (groundOnly.length >= 3) {
+      const minGY = groundOnly.reduce((m, g) => Math.min(m, g.y), Infinity);
+      const maxGY = groundOnly.reduce((m, g) => Math.max(m, g.y), -Infinity);
+      const rise = maxGY - minGY;
+      const run = Math.sqrt(width * width + length * length);
+      slopeAngle = Math.atan2(rise, run) * (180 / Math.PI);
+    }
+  }
+
+  // ── 2. Connected component isolation ──
+  const { labels, sizes: _componentSizes, count: componentCount } = labelConnectedComponents(grid);
+
+  // Find component closest to XZ center
+  const cx = width / 2;
+  const cz = length / 2;
+  let centralLabel = 1;
+  let bestDist = Infinity;
+
+  if (componentCount > 0) {
+    const centroidX = new Float64Array(componentCount + 1);
+    const centroidZ = new Float64Array(componentCount + 1);
+    const compCounts = new Float64Array(componentCount + 1);
+
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          const lbl = labels[(y * length + z) * width + x];
+          if (lbl === 0) continue;
+          centroidX[lbl] += x;
+          centroidZ[lbl] += z;
+          compCounts[lbl]++;
+        }
+      }
+    }
+
+    for (let i = 1; i <= componentCount; i++) {
+      if (compCounts[i] === 0) continue;
+      const mx = centroidX[i] / compCounts[i];
+      const mz = centroidZ[i] / compCounts[i];
+      const dist = (mx - cx) * (mx - cx) + (mz - cz) * (mz - cz);
+      if (dist < bestDist) {
+        bestDist = dist;
+        centralLabel = i;
+      }
+    }
+  }
+
+  // Compute AABB of central component
+  let cMinX = width, cMaxX = 0, cMinZ = length, cMaxZ = 0, cMinY = height, cMaxY = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (labels[(y * length + z) * width + x] !== centralLabel) continue;
+        if (x < cMinX) cMinX = x;
+        if (x > cMaxX) cMaxX = x;
+        if (z < cMinZ) cMinZ = z;
+        if (z > cMaxZ) cMaxZ = z;
+        if (y < cMinY) cMinY = y;
+        if (y > cMaxY) cMaxY = y;
+      }
+    }
+  }
+
+  const centralAABB = { minX: cMinX, maxX: cMaxX, minZ: cMinZ, maxZ: cMaxZ, minY: cMinY, maxY: cMaxY };
+
+  // Suggested crop radius: half-diagonal of central AABB + 2 block margin
+  const halfW = (cMaxX - cMinX) / 2;
+  const halfL = (cMaxZ - cMinZ) / 2;
+  const suggestedCropRadius = Math.ceil(Math.sqrt(halfW * halfW + halfL * halfL) + 2);
+
+  // ── 3. Capture boundary intersection ──
+  let edgeTouchCount = 0;
+  let totalNonAir = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) === AIR) continue;
+        totalNonAir++;
+        if (x === 0 || x === width - 1 || z === 0 || z === length - 1) {
+          edgeTouchCount++;
+        }
+      }
+    }
+  }
+  const edgeTouchPct = totalNonAir > 0 ? (edgeTouchCount / totalNonAir) * 100 : 0;
+  const isPartialCapture = edgeTouchPct > 5;
+
+  // ── 4. Volumetric typology ──
+  const centralW = cMaxX - cMinX + 1;
+  const centralH = cMaxY - cMinY + 1;
+  const centralL = cMaxZ - cMinZ + 1;
+  const maxFootprint = Math.max(centralW, centralL);
+  const minFootprint = Math.min(centralW, centralL);
+  const aspectRatio = centralH / Math.max(maxFootprint, 1);
+
+  // Footprint fill at mid-height of central component
+  const midY = Math.floor((cMinY + cMaxY) / 2);
+  let fpFilled = 0;
+  const fpTotal = centralW * centralL;
+  for (let z = cMinZ; z <= cMaxZ; z++) {
+    for (let x = cMinX; x <= cMaxX; x++) {
+      if (labels[(midY * length + z) * width + x] === centralLabel) {
+        fpFilled++;
+      }
+    }
+  }
+  const footprintFill = fpTotal > 0 ? fpFilled / fpTotal : 0;
+
+  // Classify building shape
+  let typology: BuildingTypology;
+  const isRectangular = footprintFill > 0.7;
+  if (aspectRatio > 1.5) {
+    typology = 'tower';
+  } else if (!isRectangular && minFootprint / maxFootprint < 0.5) {
+    typology = 'flatiron';
+  } else if (isRectangular && centralH > 10) {
+    typology = 'block';
+  } else if (centralH <= 10) {
+    typology = 'house';
+  } else {
+    typology = 'complex';
+  }
+
+  // ── 5. Roof flatness ──
+  const heightMap: number[] = [];
+  for (let z = cMinZ; z <= cMaxZ; z++) {
+    for (let x = cMinX; x <= cMaxX; x++) {
+      for (let y = cMaxY; y >= cMinY; y--) {
+        if (labels[(y * length + z) * width + x] === centralLabel) {
+          heightMap.push(y);
+          break;
+        }
+      }
+    }
+  }
+
+  let roofVariance = 0;
+  let isFlatRoof = true;
+  if (heightMap.length > 0) {
+    const sortedH = [...heightMap].sort((a, b) => b - a);
+    const top10pct = sortedH.slice(0, Math.max(1, Math.floor(sortedH.length * 0.1)));
+    const mean = top10pct.reduce((s, v) => s + v, 0) / top10pct.length;
+    roofVariance = top10pct.reduce((s, v) => s + (v - mean) ** 2, 0) / top10pct.length;
+    isFlatRoof = roofVariance < 2.0;
+  }
+
+  // ── 6. Facade color clustering ──
+  // Count blocks on exterior surface of central component (exposed to air)
+  const surfaceBlocks = new Map<string, number>();
+  for (let y = cMinY; y <= cMaxY; y++) {
+    for (let z = cMinZ; z <= cMaxZ; z++) {
+      for (let x = cMinX; x <= cMaxX; x++) {
+        if (labels[(y * length + z) * width + x] !== centralLabel) continue;
+        const block = grid.get(x, y, z);
+        if (block === AIR) continue;
+
+        let isSurface = false;
+        for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]] as [number,number,number][]) {
+          const nx = x + dx, ny = y + dy, nz = z + dz;
+          if (!grid.inBounds(nx, ny, nz) || grid.get(nx, ny, nz) === AIR) {
+            isSurface = true;
+            break;
+          }
+        }
+        if (isSurface) {
+          surfaceBlocks.set(block, (surfaceBlocks.get(block) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  const sortedBlocks = [...surfaceBlocks.entries()].sort((a, b) => b[1] - a[1]);
+  const totalSurface = sortedBlocks.reduce((s, [, c]) => s + c, 0);
+  const dominantBlock = sortedBlocks[0]?.[0] ?? AIR;
+  const dominantPct = totalSurface > 0 ? (sortedBlocks[0]?.[1] ?? 0) / totalSurface * 100 : 0;
+  const secondaryBlock = sortedBlocks[1]?.[0] ?? AIR;
+
+  // Auto-generate remap suggestions based on dominant facade material
+  const suggestedRemaps = new Map<string, string>();
+  const WARM_BLOCKS = new Set([
+    'minecraft:smooth_sandstone', 'minecraft:sandstone', 'minecraft:orange_terracotta',
+    'minecraft:yellow_terracotta', 'minecraft:white_terracotta', 'minecraft:terracotta',
+  ]);
+  const COOL_BLOCKS = new Set([
+    'minecraft:cyan_terracotta', 'minecraft:light_blue_terracotta', 'minecraft:prismarine',
+    'minecraft:dark_prismarine', 'minecraft:warped_planks',
+  ]);
+
+  if (WARM_BLOCKS.has(dominantBlock) || WARM_BLOCKS.has(secondaryBlock)) {
+    suggestedRemaps.set('minecraft:gray_concrete', 'minecraft:sandstone');
+    suggestedRemaps.set('minecraft:light_gray_concrete', 'minecraft:smooth_sandstone');
+    suggestedRemaps.set('minecraft:stone', 'minecraft:sandstone');
+  } else if (COOL_BLOCKS.has(dominantBlock) || COOL_BLOCKS.has(secondaryBlock)) {
+    suggestedRemaps.set('minecraft:gray_concrete', 'minecraft:dark_prismarine');
+    suggestedRemaps.set('minecraft:light_gray_concrete', 'minecraft:prismarine');
+    suggestedRemaps.set('minecraft:white_concrete', 'minecraft:prismarine');
+  }
+
+  // ── 7. Noise estimation ──
+  let protrusion1vCount = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) === AIR) continue;
+        let neighbors = 0;
+        for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]] as [number,number,number][]) {
+          const nx = x + dx, ny = y + dy, nz = z + dz;
+          if (grid.inBounds(nx, ny, nz) && grid.get(nx, ny, nz) !== AIR) neighbors++;
+        }
+        if (neighbors <= 1) protrusion1vCount++;
+      }
+    }
+  }
+  const noisePct = totalNonAir > 0 ? (protrusion1vCount / totalNonAir) * 100 : 0;
+  const suggestedClean = noisePct > 10 ? 100 : noisePct > 5 ? 50 : 0;
+
+  // ── 8. Street frontage ──
+  // Evaluate face density at ground level of central component
+  const faceScores: Record<FaceDirection, number> = { '+x': 0, '-x': 0, '+z': 0, '-z': 0 };
+  const scanH = Math.min(3, centralH);
+  for (let dy = 0; dy < scanH; dy++) {
+    const y = cMinY + dy;
+    if (y >= height) break;
+    for (let z = cMinZ; z <= cMaxZ; z++) {
+      if (grid.inBounds(cMaxX, y, z) && grid.get(cMaxX, y, z) !== AIR) faceScores['+x']++;
+      if (grid.inBounds(cMinX, y, z) && grid.get(cMinX, y, z) !== AIR) faceScores['-x']++;
+    }
+    for (let x = cMinX; x <= cMaxX; x++) {
+      if (grid.inBounds(x, y, cMaxZ) && grid.get(x, y, cMaxZ) !== AIR) faceScores['+z']++;
+      if (grid.inBounds(x, y, cMinZ) && grid.get(x, y, cMinZ) !== AIR) faceScores['-z']++;
+    }
+  }
+  const frontFace = (Object.entries(faceScores) as [FaceDirection, number][])
+    .sort((a, b) => b[1] - a[1])[0][0];
+
+  // ── 9. Confidence scoring ──
+  let confidence = 5.0;
+
+  if (componentCount === 1) confidence += 1.5;
+  else if (componentCount <= 3) confidence += 0.5;
+  if (isRectangular) confidence += 0.5;
+  if (isFlatRoof) confidence += 0.3;
+  if (dominantPct > 40) confidence += 0.5;
+  if (aspectRatio > 0.4 && aspectRatio < 2.0) confidence += 0.5;
+  if (!isPartialCapture) confidence += 0.5;
+
+  if (isPartialCapture) confidence -= 2.0;
+  if (noisePct > 15) confidence -= 1.5;
+  else if (noisePct > 8) confidence -= 0.5;
+  if (componentCount > 5) confidence -= 1.0;
+  if (slopeAngle > 10) confidence -= 0.5;
+  if (totalNonAir < 500) confidence -= 1.5;
+  if (edgeTouchPct > 15) confidence -= 1.0;
+
+  confidence = Math.max(1, Math.min(10, confidence));
+
+  // ── Build recommended pipeline args ──
+  const recommended = {
+    generic: !isRectangular || typology === 'flatiron' || typology === 'complex',
+    fill: true,
+    noPalette: true,
+    noCornice: !isFlatRoof || typology === 'house',
+    noFireEscape: typology !== 'block' || centralH < 15,
+    smoothPct: noisePct > 10 ? 0.03 : 0.02,
+    modePasses: noisePct > 10 ? 3 : 2,
+    cropRadius: componentCount > 1 ? suggestedCropRadius : 0,
+    cleanMinSize: suggestedClean,
+    remaps: suggestedRemaps,
+  };
+
+  return {
+    groundPlaneY, slopeAngle, isFlat: slopeAngle < 3,
+    componentCount, centralAABB, suggestedCropRadius,
+    edgeTouchPct, isPartialCapture,
+    typology, aspectRatio, footprintFill, isRectangular,
+    isFlatRoof, roofVariance,
+    dominantBlock, secondaryBlock, dominantPct, suggestedRemaps,
+    protrusion1vCount, noisePct, suggestedClean,
+    frontFace,
+    confidence,
+    recommended,
+  };
+}
