@@ -68,6 +68,7 @@ interface CLIArgs {
   remaps: Map<string, string>; // custom block remaps FROM=TO
   auto: boolean;         // auto-detect building type and set optimal params
   autoInfo: boolean;     // quick analyze-only: voxelize + analyze + print report, no full pipeline
+  batch: boolean;        // process multiple GLBs with --auto-info, output summary table
 }
 
 function parseArgs(): CLIArgs {
@@ -98,7 +99,8 @@ Options:
   --crop N           Keep only blocks within N-block XZ radius of center (isolate central building)
   --remap FROM=TO    Custom block remap (repeatable, e.g. --remap white_concrete=smooth_sandstone)
   --auto             Auto-detect building type and set optimal pipeline params
-  --auto-info        Quick analysis: voxelize + analyze + print report (no full pipeline)`);
+  --auto-info        Quick analysis: voxelize + analyze + print report (no full pipeline)
+  --batch            Process multiple GLB files with auto-analysis, print summary table`);
     process.exit(0);
   }
 
@@ -126,6 +128,8 @@ Options:
   let cropRadius = 0;
   let auto = false;
   let autoInfo = false;
+  let batch = false;
+  const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
   for (let i = 0; i < args.length; i++) {
@@ -174,6 +178,8 @@ Options:
       auto = true;
     } else if (arg === '--auto-info') {
       autoInfo = true;
+    } else if (arg === '--batch') {
+      batch = true;
     } else if (arg === '--remap') {
       const pair = args[++i];
       const eq = pair.indexOf('=');
@@ -186,7 +192,12 @@ Options:
         remaps.set(fullFrom, fullTo);
       }
     } else if (!arg.startsWith('-')) {
-      inputPath = arg;
+      if (!inputPath) {
+        inputPath = arg;
+      } else {
+        // Additional positional args stored for batch mode
+        batchPaths.push(arg);
+      }
     }
   }
 
@@ -204,7 +215,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -644,9 +655,99 @@ function analyzeMeshes(object: THREE.Object3D): {
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
+/** Analyze a single GLB and return summary row for batch mode. */
+async function analyzeOne(filepath: string, resolution: number, minHeight: number, trimThreshold: number, gamma: number, kernel: number, desaturate: number): Promise<{
+  name: string; dims: string; blocks: number; type: string;
+  conf: number; entry: string; footprint: number; front: string;
+} | null> {
+  try {
+    const scene = await loadGLB(filepath);
+    reorientToENU(scene);
+
+    // Collect and filter meshes
+    const candidates: Array<{ child: THREE.Mesh; worldBox: THREE.Box3 }> = [];
+    scene.traverse((child) => {
+      if (!(child instanceof THREE.Mesh) || !child.geometry) return;
+      child.updateWorldMatrix(true, false);
+      child.geometry.computeBoundingBox();
+      const localBox = child.geometry.boundingBox;
+      if (!localBox) return;
+      const worldBox = localBox.clone().applyMatrix4(child.matrixWorld);
+      candidates.push({ child, worldBox });
+    });
+    const { kept } = filterMeshesByHeight(candidates, minHeight);
+    if (kept.length === 0) return null;
+
+    // Clone meshes with baked world transforms into a clean group
+    // (avoids setFromObject crash on raw glTF child nodes lacking updateWorldMatrix)
+    const group = new THREE.Group();
+    for (const { child } of kept) {
+      const cloned = child.clone();
+      cloned.applyMatrix4(child.matrixWorld);
+      cloned.position.set(0, 0, 0);
+      cloned.rotation.set(0, 0, 0);
+      cloned.scale.set(1, 1, 1);
+      cloned.updateMatrix();
+      group.add(cloned);
+    }
+
+    const grid = threeToGrid(group, resolution, {
+      mode: 'surface',
+      textureSampler: createDataTextureSampler(kernel, gamma, desaturate),
+    });
+    const trimmed = trimSparseBottomLayers(grid, trimThreshold);
+    const analysis = analyzeGrid(trimmed);
+    const stem = basename(filepath, extname(filepath)).replace(/^tiles-/, '');
+
+    return {
+      name: stem.length > 30 ? stem.slice(0, 27) + '...' : stem,
+      dims: `${trimmed.width}x${trimmed.height}x${trimmed.length}`,
+      blocks: trimmed.countNonAir(),
+      type: analysis.typology,
+      conf: analysis.confidence,
+      entry: analysis.entryPosition ? `(${analysis.entryPosition.x},${analysis.entryPosition.z}) w${analysis.entryWidth}` : '-',
+      footprint: analysis.footprintArea,
+      front: analysis.frontFace,
+    };
+  } catch (err) {
+    const stem = basename(filepath, extname(filepath)).replace(/^tiles-/, '');
+    console.error(`  [ERROR] ${stem}: ${err}`);
+    return null;
+  }
+}
+
 async function main(): Promise<void> {
   const args = parseArgs();
   const t0 = performance.now();
+
+  // ── Batch mode: analyze multiple GLBs, output summary table ──
+  if (args.batch) {
+    const allPaths = [args.inputPath, ...args.batchPaths];
+    console.log(`Batch analysis: ${allPaths.length} GLBs\n`);
+
+    type Row = NonNullable<Awaited<ReturnType<typeof analyzeOne>>>;
+    const rows: Row[] = [];
+
+    for (const path of allPaths) {
+      process.stdout.write(`  Analyzing: ${basename(path)}...`);
+      const row = await analyzeOne(path, args.resolution, args.minHeight, args.trimThreshold, args.gamma, args.kernel, args.desaturate);
+      if (row) {
+        rows.push(row);
+        console.log(` ${row.type} ${row.conf.toFixed(1)}`);
+      } else {
+        console.log(' FAILED');
+      }
+    }
+
+    // Print summary table
+    console.log(`\n${'Name'.padEnd(32)} ${'Dims'.padEnd(14)} ${'Blocks'.padStart(8)} ${'Type'.padEnd(8)} ${'Conf'.padStart(4)} ${'Front'.padEnd(5)} ${'Entry'.padEnd(22)} ${'Footprint'.padStart(9)}`);
+    console.log('─'.repeat(110));
+    for (const r of rows) {
+      console.log(`${r.name.padEnd(32)} ${r.dims.padEnd(14)} ${r.blocks.toLocaleString().padStart(8)} ${r.type.padEnd(8)} ${r.conf.toFixed(1).padStart(4)} ${r.front.padEnd(5)} ${r.entry.padEnd(22)} ${r.footprint.toString().padStart(9)}`);
+    }
+    console.log(`\nTotal: ${rows.length}/${allPaths.length} analyzed in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+    return;
+  }
 
   console.log(`Loading: ${args.inputPath}`);
   const scene = await loadGLB(args.inputPath);
@@ -851,6 +952,8 @@ async function main(): Promise<void> {
     console.log(`  Roof: ${analysis.isFlatRoof ? 'flat' : 'pitched/varied'} | Front face: ${analysis.frontFace}`);
     console.log(`  Facade: ${analysis.dominantBlock.replace('minecraft:', '')} (${analysis.dominantPct.toFixed(0)}%) + ${analysis.secondaryBlock.replace('minecraft:', '')}`);
     console.log(`  Noise: ${analysis.noisePct.toFixed(1)}%`);
+    console.log(`  Entry: ${analysis.entryPosition ? `(${analysis.entryPosition.x}, ${analysis.entryPosition.z}) face=${analysis.entryFace} width=${analysis.entryWidth}` : 'none detected'}`);
+    console.log(`  Footprint: ${analysis.footprintArea} blocks area, ${analysis.perimeterLength} blocks perimeter, ground Y=${analysis.groundContactY}`);
     console.log(`  Confidence: ${analysis.confidence.toFixed(1)}/10`);
     console.log(`  Analysis: ${((performance.now() - tAuto) / 1000).toFixed(1)}s`);
 
@@ -902,6 +1005,8 @@ async function main(): Promise<void> {
     console.log(`  Facade: dominant=${analysis.dominantBlock.replace('minecraft:', '')} (${analysis.dominantPct.toFixed(0)}%) secondary=${analysis.secondaryBlock.replace('minecraft:', '')}`);
     console.log(`  Noise: ${analysis.noisePct.toFixed(1)}% protrusions (${analysis.protrusion1vCount} single-voxel)`);
     console.log(`  Front face: ${analysis.frontFace}`);
+    console.log(`  Entry: ${analysis.entryPosition ? `(${analysis.entryPosition.x}, ${analysis.entryPosition.z}) face=${analysis.entryFace} width=${analysis.entryWidth}` : 'none detected'}`);
+    console.log(`  Footprint: area=${analysis.footprintArea} perimeter=${analysis.perimeterLength} ground Y=${analysis.groundContactY}`);
     console.log(`  Confidence: ${analysis.confidence.toFixed(1)}/10`);
 
     // Apply auto recommendations (only override non-explicitly-set params)
