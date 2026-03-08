@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice, removeSmallComponents } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
 
@@ -56,6 +56,13 @@ interface CLIArgs {
   infoOnly: boolean;
   generic: boolean;
   preview: boolean;
+  smoothPct: number;    // smoothRareBlocks threshold (0 = skip)
+  modePasses: number;   // modeFilter3D pass count (0 = skip)
+  fill: boolean;        // run fillInteriorGaps even in generic mode
+  noPalette: boolean;   // skip palette constraint (preserve original colors)
+  noCornice: boolean;   // skip roof cornice
+  noFireEscape: boolean; // skip fire escape filter
+  cleanMinSize: number; // removeSmallComponents min size (0 = skip)
 }
 
 function parseArgs(): CLIArgs {
@@ -75,7 +82,14 @@ Options:
   --info             Print mesh stats and exit (no voxelize)
   --generic          Skip building-specific post-processing (palette remap, fire escape, cornice)
   --desaturate-off   Disable desaturation (preserve original colors)
-  --preview          Quick raw voxelize (no post-processing) for visual quality check`);
+  --preview          Quick raw voxelize (no post-processing) for visual quality check
+  --smooth-pct       Rare block smoothing threshold, 0-1 (default: 0.02, 0=skip)
+  --mode-passes      Mode filter 3D pass count (default: 3, 0=skip)
+  --fill             Run interior fill even in generic mode (fills hollow walls)
+  --no-palette       Skip palette constraint (preserve original colors)
+  --no-cornice       Skip roof cornice (Mediterranean brick/spruce)
+  --no-fire-escape   Skip fire escape filter (center strip darkening)
+  --clean N          Remove disconnected clusters < N voxels (default: 0=skip, 50 recommended)`);
     process.exit(0);
   }
 
@@ -93,6 +107,13 @@ Options:
   let generic = false;
   let desaturateOff = false;
   let preview = false;
+  let smoothPct = 0.02;
+  let modePasses = 3;
+  let fill = false;
+  let noPalette = false;
+  let noCornice = false;
+  let noFireEscape = false;
+  let cleanMinSize = 0;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -120,6 +141,20 @@ Options:
       desaturateOff = true;
     } else if (arg === '--preview') {
       preview = true;
+    } else if (arg === '--smooth-pct') {
+      smoothPct = parseFloat(args[++i]);
+    } else if (arg === '--mode-passes') {
+      modePasses = parseInt(args[++i], 10);
+    } else if (arg === '--fill') {
+      fill = true;
+    } else if (arg === '--no-palette') {
+      noPalette = true;
+    } else if (arg === '--no-cornice') {
+      noCornice = true;
+    } else if (arg === '--no-fire-escape') {
+      noFireEscape = true;
+    } else if (arg === '--clean') {
+      cleanMinSize = parseInt(args[++i], 10);
     } else if (!arg.startsWith('-')) {
       inputPath = arg;
     }
@@ -139,7 +174,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -798,19 +833,25 @@ async function main(): Promise<void> {
     console.log(`Horizontal rectify: ${hRectified} blocks changed (window=3, depth=4)`);
   } else {
     console.log(`Generic mode: skipping solidifyCore/carve/rectify (preserving raw geometry)`);
+    if (args.fill) {
+      const interiorFilled = fillInteriorGaps(trimmed, 3);
+      console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
+    }
   }
 
-  // Smooth rare/noisy blocks — replace blocks <2% frequency with neighbors.
-  const smoothed = smoothRareBlocks(trimmed, 0.02);
-  if (smoothed > 0) {
-    console.log(`Smoothed ${smoothed} rare blocks`);
+  // Smooth rare/noisy blocks — replace blocks below threshold frequency with neighbors.
+  if (args.smoothPct > 0) {
+    const smoothed = smoothRareBlocks(trimmed, args.smoothPct);
+    if (smoothed > 0) {
+      console.log(`Smoothed ${smoothed} rare blocks (threshold ${(args.smoothPct * 100).toFixed(1)}%)`);
+    }
+  } else {
+    console.log('Skipping rare-block smoothing (--smooth-pct 0)');
   }
 
-  if (!args.generic) {
+  if (!args.generic && !args.noPalette) {
     // === Building-specific post-processing (tuned for 2340 Francisco St) ===
     // Palette constraint — aggressively remap to uniform stucco.
-    // The real building is cream/white stucco. Grey stone and cobblestone
-    // patches from photogrammetry shadows look like "scabs" on the facade.
     const paletteReplacements = new Map<string, string>([
       ['minecraft:blackstone', 'minecraft:smooth_quartz'],
       ['minecraft:deepslate_bricks', 'minecraft:smooth_quartz'],
@@ -838,6 +879,18 @@ async function main(): Promise<void> {
     ]);
     const constrained = constrainPalette(trimmed, paletteReplacements);
     console.log(`Palette constrain: ${constrained} shadow blocks remapped`);
+  } else if (args.noPalette) {
+    // --no-palette: only remap darkest shadows, keep everything else
+    const shadowReplacements = new Map<string, string>([
+      ['minecraft:blackstone', 'minecraft:gray_concrete'],
+      ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
+      ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
+      ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
+      ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
+      ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
+    ]);
+    const constrained = constrainPalette(trimmed, shadowReplacements);
+    console.log(`Minimal palette: ${constrained} darkest shadow blocks remapped (colors preserved)`);
   } else {
     // Generic mode: only remap the darkest shadow artifacts, preserve colors
     const shadowReplacements = new Map<string, string>([
@@ -858,12 +911,24 @@ async function main(): Promise<void> {
 
   // 3D mode filter — smooth surface textures while preserving color contrast.
   // Run after palette constraint so corrected colors spread via majority vote.
-  const modeSmoothed = modeFilter3D(trimmed, 3, 2);
-  if (modeSmoothed > 0) {
-    console.log(`Mode filter 5x5x5: ${modeSmoothed} blocks homogenized`);
+  if (args.modePasses > 0) {
+    const modeSmoothed = modeFilter3D(trimmed, args.modePasses, 2);
+    if (modeSmoothed > 0) {
+      console.log(`Mode filter 5x5x5: ${modeSmoothed} blocks homogenized (${args.modePasses} passes)`);
+    }
+  } else {
+    console.log('Skipping mode filter (--mode-passes 0)');
   }
 
-  if (!args.generic) {
+  // Connected-component cleanup — remove floating debris and disconnected clusters
+  if (args.cleanMinSize > 0) {
+    const cleaned = removeSmallComponents(trimmed, args.cleanMinSize);
+    if (cleaned > 0) {
+      console.log(`Component cleanup: ${cleaned} blocks removed (clusters < ${args.cleanMinSize} voxels)`);
+    }
+  }
+
+  if (!args.generic && !args.noFireEscape) {
     // Fire escape filter — apartment-specific: center strip darkening
     const escapeCount = fireEscapeFilter(trimmed, 4, 0.38, 0.62, 'minecraft:black_concrete');
     console.log(`Fire escape filter: ${escapeCount} blocks → black_concrete (center 38-62%)`);
@@ -874,7 +939,7 @@ async function main(): Promise<void> {
   const glazeCount = glazeBackplane(trimmed, 8, 'minecraft:black_concrete');
   console.log(`Backplane glazing: ${glazeCount} window blocks placed (black_concrete, depth=8)`);
 
-  if (!args.generic) {
+  if (!args.generic && !args.noCornice) {
     // Roof cornice — Spanish/Mediterranean clay tile cap with wooden eave overhang.
     // Building-specific: assumes flat-top apartment with stucco walls.
     const roofCount = addRoofCornice(trimmed, 'minecraft:bricks', 'minecraft:spruce_planks');
