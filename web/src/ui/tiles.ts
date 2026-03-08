@@ -526,6 +526,31 @@ function setStatus(msg: string, type: 'info' | 'error' | 'success'): void {
  * Tries the local schem-receiver first (POST to :3456), falls back to browser download.
  */
 async function exportCapturedGLB(group: THREE.Group, address: string): Promise<void> {
+  // Pre-process textures: Google 3D Tiles textures are ImageBitmap objects
+  // from network fetches. GLTFExporter can't serialize those (produces blob: URLs
+  // that are ephemeral). Convert each to a Canvas so the exporter embeds PNG data.
+  group.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const mat = child.material as THREE.MeshStandardMaterial;
+    if (!mat?.map?.image) return;
+    const img = mat.map.image as ImageBitmap | HTMLCanvasElement | HTMLImageElement;
+    // Skip if already a canvas
+    if (img instanceof HTMLCanvasElement) return;
+    if (!img.width || !img.height) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(img as CanvasImageSource, 0, 0);
+      mat.map.image = canvas;
+      mat.map.needsUpdate = true;
+    } catch {
+      // Some textures may not be drawable — skip them
+    }
+  });
+
   const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
   const exporter = new GLTFExporter();
 
