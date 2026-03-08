@@ -1917,3 +1917,107 @@ export function addRoofCornice(
 
   return placed;
 }
+
+/**
+ * Remove small disconnected voxel clusters via 3D flood-fill connected-component analysis.
+ *
+ * Finds all connected components of non-air blocks (6-connected: face neighbors only),
+ * keeps the largest component, and sets all blocks in smaller components to air.
+ * This eliminates floating debris, stray voxels from photogrammetry noise, and
+ * disconnected terrain fragments that aren't part of the main structure.
+ *
+ * @param grid      BlockGrid to clean up (modified in place)
+ * @param minSize   Minimum voxel count to keep a component (default: 50).
+ *                  Components smaller than this are removed regardless.
+ *                  Set to 0 to only keep the single largest component.
+ * @returns Number of blocks removed
+ */
+export function removeSmallComponents(grid: BlockGrid, minSize = 50): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const total = width * height * length;
+
+  // Component label for each voxel (0 = unlabeled, -1 = air)
+  const labels = new Int32Array(total);
+  const idx = (x: number, y: number, z: number) => (y * length + z) * width + x;
+
+  // Mark air voxels
+  for (let y = 0; y < height; y++)
+    for (let z = 0; z < length; z++)
+      for (let x = 0; x < width; x++)
+        if (grid.get(x, y, z) === AIR) labels[idx(x, y, z)] = -1;
+
+  // 6-connected neighbor offsets
+  const offsets: [number, number, number][] = [
+    [1, 0, 0], [-1, 0, 0],
+    [0, 1, 0], [0, -1, 0],
+    [0, 0, 1], [0, 0, -1],
+  ];
+
+  // Flood-fill to find connected components
+  let nextLabel = 1;
+  const componentSizes = new Map<number, number>(); // label → voxel count
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const i = idx(x, y, z);
+        if (labels[i] !== 0) continue; // already labeled or air
+
+        // BFS flood fill for this component
+        const label = nextLabel++;
+        let size = 0;
+        const queue: [number, number, number][] = [[x, y, z]];
+        labels[i] = label;
+
+        while (queue.length > 0) {
+          const [cx, cy, cz] = queue.pop()!;
+          size++;
+
+          for (const [dx, dy, dz] of offsets) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+            const nz = cz + dz;
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length) continue;
+            const ni = idx(nx, ny, nz);
+            if (labels[ni] !== 0) continue; // already labeled or air
+            labels[ni] = label;
+            queue.push([nx, ny, nz]);
+          }
+        }
+
+        componentSizes.set(label, size);
+      }
+    }
+  }
+
+  // Find the largest component
+  let largestLabel = 0;
+  let largestSize = 0;
+  for (const [label, size] of componentSizes) {
+    if (size > largestSize) {
+      largestSize = size;
+      largestLabel = label;
+    }
+  }
+
+  // Remove blocks in small components
+  let removed = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const i = idx(x, y, z);
+        const label = labels[i];
+        if (label <= 0) continue; // air or unlabeled
+        const size = componentSizes.get(label) ?? 0;
+        // Remove if not the largest AND below minSize threshold
+        if (label !== largestLabel && size < minSize) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
