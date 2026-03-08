@@ -2406,41 +2406,23 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
   // Quadrant analysis distinguishes rectangular from triangular footprints.
   const isEnclosed = footprintFill > 0.25;
 
-  // Count occupied quadrants at mid-height to detect wedge shapes.
-  // Divide central AABB into 4 quadrants; count how many have solid blocks.
-  const midCX = Math.floor((cMinX + cMaxX) / 2);
-  const midCZ = Math.floor((cMinZ + cMaxZ) / 2);
-  const quadrants = [0, 0, 0, 0]; // NW, NE, SW, SE
-  for (let z = cMinZ; z <= cMaxZ; z++) {
-    for (let x = cMinX; x <= cMaxX; x++) {
-      if (labels[(midY * length + z) * width + x] !== centralLabel) continue;
-      const qx = x >= midCX ? 1 : 0;
-      const qz = z >= midCZ ? 1 : 0;
-      quadrants[qz * 2 + qx]++;
-    }
-  }
-  // A quadrant is "occupied" if it has >10% of average quadrant fill
-  const avgQuadrant = quadrants.reduce((s, v) => s + v, 0) / 4;
-  const occupiedQuadrants = quadrants.filter(q => q > avgQuadrant * 0.1).length;
-  // Flatiron/wedge: 2-3 occupied quadrants (one corner empty)
-  // Rectangular: all 4 quadrants occupied with similar density
-  const quadrantBalance = Math.min(...quadrants) / Math.max(1, Math.max(...quadrants));
-  const isWedge = isEnclosed && occupiedQuadrants <= 3 && quadrantBalance < 0.3;
-  const isRectangular = isEnclosed && !isWedge;
+  // Note: flatiron/wedge detection was attempted using corner occupancy,
+  // footprint taper, and XZ projection fill, but surface-mode voxels produce
+  // shells too sparse for reliable shape classification (all large buildings
+  // cluster at 0.5-0.6 fill regardless of actual footprint shape).
+  // Wedge buildings still get correct processing as 'block' (solidifyCore
+  // fills any enclosed shell). Use --generic for manual non-rectangular override.
+  const isRectangular = isEnclosed;
 
   let typology: BuildingTypology;
   if (aspectRatio > 1.5) {
     typology = 'tower';
-  } else if (isWedge) {
-    typology = 'flatiron';
   } else if (!isEnclosed) {
     typology = 'complex';
-  } else if (isRectangular && centralH > 10) {
+  } else if (centralH > 10) {
     typology = 'block';
-  } else if (centralH <= 10) {
-    typology = 'house';
   } else {
-    typology = 'complex';
+    typology = 'house';
   }
 
   // ── 5. Roof flatness ──
@@ -2592,10 +2574,11 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
   // ── Build recommended pipeline args ──
   // Use AABB crop for non-rectangular buildings (preserves shape), circular for rectangular
   const needsCrop = componentCount > 1;
-  const useAABBCrop = needsCrop && (typology === 'flatiron' || typology === 'complex');
+  const t = typology as BuildingTypology; // widen for future flatiron support
+  const useAABBCrop = needsCrop && (t === 'flatiron' || t === 'complex');
   // solidifyCore works for rectangular buildings (block, tower, house).
   // Non-rectangular (flatiron, complex) need generic mode to preserve shape.
-  const useGeneric = typology === 'flatiron' || typology === 'complex';
+  const useGeneric = t === 'flatiron' || t === 'complex';
   // Use full palette only for white/gray rectangular buildings where it was tuned.
   // Non-rectangular and colored buildings need colors preserved.
   const wantFullPalette = !useGeneric && (WHITE_BLOCKS.has(dominantBlock) || WHITE_BLOCKS.has(secondaryBlock));
