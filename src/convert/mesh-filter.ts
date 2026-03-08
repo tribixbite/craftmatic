@@ -1809,8 +1809,13 @@ export function fireEscapeFilter(
 
         if (outX < 0 || outX >= width || outZ < 0 || outZ >= length) continue;
         if (grid.get(outX, y, outZ) === AIR) {
-          grid.set(x, y, z, barBlock);
-          converted++;
+          // Create horizontal platform bands (every 3 Y-levels) to simulate
+          // fire escape landings. Between platforms, leave the wall material
+          // so the fire escape reads as horizontal stripes, not a solid column.
+          if (y % 3 === 0) {
+            grid.set(x, y, z, barBlock);
+            converted++;
+          }
         }
       }
     }
