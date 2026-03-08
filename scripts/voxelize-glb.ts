@@ -67,6 +67,7 @@ interface CLIArgs {
   cropRadius: number;   // cropToCenter XZ radius (0 = skip)
   remaps: Map<string, string>; // custom block remaps FROM=TO
   auto: boolean;         // auto-detect building type and set optimal params
+  autoInfo: boolean;     // quick analyze-only: voxelize + analyze + print report, no full pipeline
 }
 
 function parseArgs(): CLIArgs {
@@ -96,7 +97,8 @@ Options:
   --clean N          Remove disconnected clusters < N voxels (default: 0=skip, 50 recommended)
   --crop N           Keep only blocks within N-block XZ radius of center (isolate central building)
   --remap FROM=TO    Custom block remap (repeatable, e.g. --remap white_concrete=smooth_sandstone)
-  --auto             Auto-detect building type and set optimal pipeline params`);
+  --auto             Auto-detect building type and set optimal pipeline params
+  --auto-info        Quick analysis: voxelize + analyze + print report (no full pipeline)`);
     process.exit(0);
   }
 
@@ -123,6 +125,7 @@ Options:
   let cleanMinSize = 0;
   let cropRadius = 0;
   let auto = false;
+  let autoInfo = false;
   const remaps = new Map<string, string>();
 
   for (let i = 0; i < args.length; i++) {
@@ -169,6 +172,8 @@ Options:
       cropRadius = parseInt(args[++i], 10);
     } else if (arg === '--auto') {
       auto = true;
+    } else if (arg === '--auto-info') {
+      autoInfo = true;
     } else if (arg === '--remap') {
       const pair = args[++i];
       const eq = pair.indexOf('=');
@@ -199,7 +204,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -824,6 +829,52 @@ async function main(): Promise<void> {
     console.log(`Wrote: ${args.outputPath} (${fileSize.toLocaleString()} bytes)`);
     console.log(`Total: ${((performance.now() - t0) / 1000).toFixed(1)}s`);
     console.log(`\nView: copy to web/public/ and open ?tab=upload&file=<name>.schem`);
+    return;
+  }
+
+  // Auto-info mode: quick voxelize + full analysis report, no pipeline processing.
+  // Produces a preview .schem AND a detailed analysis with recommended CLI command.
+  if (args.autoInfo) {
+    const trimmed = trimSparseBottomLayers(grid, args.trimThreshold);
+    const nonAir = trimmed.countNonAir();
+    console.log(`\nGrid: ${trimmed.width}x${trimmed.height}x${trimmed.length} | Blocks: ${nonAir.toLocaleString()} | Palette: ${trimmed.palette.size}`);
+
+    console.log(`\n--- Auto-Detection Analysis ---`);
+    const tAuto = performance.now();
+    const analysis = analyzeGrid(trimmed);
+    const rec = analysis.recommended;
+
+    console.log(`  Terrain: slope ${analysis.slopeAngle.toFixed(1)}° ${analysis.isFlat ? '(flat)' : '(sloped)'}, ground Y=${analysis.groundPlaneY}`);
+    console.log(`  Components: ${analysis.componentCount} (central: ${analysis.centralAABB.maxX - analysis.centralAABB.minX + 1}x${analysis.centralAABB.maxY - analysis.centralAABB.minY + 1}x${analysis.centralAABB.maxZ - analysis.centralAABB.minZ + 1} blocks)`);
+    console.log(`  Partial capture: ${analysis.isPartialCapture ? `YES — building extends beyond grid (${analysis.edgeTouchPct.toFixed(1)}% edge touch)` : `no (${analysis.edgeTouchPct.toFixed(1)}%)`}`);
+    console.log(`  Typology: ${analysis.typology} | Rectangular: ${analysis.isRectangular} | Aspect: ${analysis.aspectRatio.toFixed(2)}`);
+    console.log(`  Roof: ${analysis.isFlatRoof ? 'flat' : 'pitched/varied'} | Front face: ${analysis.frontFace}`);
+    console.log(`  Facade: ${analysis.dominantBlock.replace('minecraft:', '')} (${analysis.dominantPct.toFixed(0)}%) + ${analysis.secondaryBlock.replace('minecraft:', '')}`);
+    console.log(`  Noise: ${analysis.noisePct.toFixed(1)}%`);
+    console.log(`  Confidence: ${analysis.confidence.toFixed(1)}/10`);
+    console.log(`  Analysis: ${((performance.now() - tAuto) / 1000).toFixed(1)}s`);
+
+    // Print recommended CLI
+    const parts: string[] = ['bun scripts/voxelize-glb.ts', args.inputPath];
+    if (rec.generic) parts.push('--generic');
+    if (rec.fill) parts.push('--fill');
+    if (rec.noPalette) parts.push('--no-palette');
+    if (rec.noCornice) parts.push('--no-cornice');
+    if (rec.noFireEscape) parts.push('--no-fire-escape');
+    parts.push(`--smooth-pct ${rec.smoothPct}`);
+    parts.push(`--mode-passes ${rec.modePasses}`);
+    if (rec.cropRadius > 0) parts.push(`--crop ${rec.cropRadius}`);
+    if (rec.cleanMinSize > 0) parts.push(`--clean ${rec.cleanMinSize}`);
+    for (const [from, to] of rec.remaps) {
+      parts.push(`--remap ${from.replace('minecraft:', '')}=${to.replace('minecraft:', '')}`);
+    }
+    console.log(`\n  Recommended CLI:\n  ${parts.join(' \\\n    ')}`);
+
+    // Also write preview .schem for visual check
+    writeSchematic(trimmed, args.outputPath);
+    const fileSize = Bun.file(args.outputPath).size;
+    console.log(`\nPreview: ${args.outputPath} (${fileSize.toLocaleString()} bytes)`);
+    console.log(`Total: ${((performance.now() - t0) / 1000).toFixed(1)}s`);
     return;
   }
 
