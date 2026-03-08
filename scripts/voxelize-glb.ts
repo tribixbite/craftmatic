@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
 
@@ -645,19 +645,85 @@ async function main(): Promise<void> {
     console.log(`Trimmed ${removed} sparse bottom layers (${grid.height} → ${trimmed.height})`);
   }
 
-  // Smooth rare/noisy blocks — replace blocks appearing in <2% of total with
-  // their most common neighbor. Eliminates salt-and-pepper from texture noise.
+  // Interior fill — flood-fill per Y-layer identifies building interiors
+  // (dilate walls to close porosity, flood from edges = exterior, fill rest).
+  // dilateRadius=3 closes 1-3 voxel wall gaps from photogrammetry noise.
+  const interiorFilled = fillInteriorGaps(trimmed, 3);
+  console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
+
+  // Solidify core — "Cookie Cutter" method: one global AABB per Y-layer.
+  // Core zone (>4 blocks from all edges) → fill solid with dominant block.
+  // Facade zone (≤4 blocks from any edge) → leave raw scan data untouched.
+  // Unlike rectangularize (which splits connected components and can fracture
+  // buildings through fire escapes), this treats the whole layer as one volume.
+  // Balconies, recesses, and windows are preserved because facade zone air is
+  // never filled — the scan truth is respected on all building faces.
+  const coreFilled = solidifyCore(trimmed, 4);
+  console.log(`Solidify core: ${coreFilled} interior voxels filled (facade depth=4)`);
+
+  // Carve facade shadows → depth features.
+  // Dark blocks in the facade zone represent shadows inside balconies, windows,
+  // and recesses. Photogrammetry fills these gaps geometrically, but the texture
+  // correctly captured the shadows. Converting dark → air restores 3D depth
+  // from 2D color information. Must run BEFORE palette constraint so the
+  // original dark colors haven't been remapped to stucco yet.
+  // Threshold 0.45 catches mid-grey shadow blocks (stone, andesite, gray_concrete).
+  // Neighbor check (≥2 dark of 4 XZ neighbors) acts as despeckle — only carves
+  // connected dark clusters (windows, balconies), not isolated dark specks.
+  const carvedCount = carveFacadeShadows(trimmed, 4, 0.45, 2);
+  console.log(`Facade carving: ${carvedCount} dark blocks → air (lum<0.45, depth=4, neighbors≥2)`);
+
+  // Smooth rare/noisy blocks — replace blocks <2% frequency with neighbors.
   const smoothed = smoothRareBlocks(trimmed, 0.02);
   if (smoothed > 0) {
-    console.log(`Smoothed ${smoothed} rare blocks (${trimmed.palette.size} materials remaining)`);
+    console.log(`Smoothed ${smoothed} rare blocks`);
   }
 
-  // 3D mode filter — majority-vote smoother that replaces any block that
-  // disagrees with its 3×3×3 neighborhood majority. Creates smooth contiguous
-  // surfaces ("stucco effect") by eliminating isolated speck blocks.
-  const modeSmoothed = modeFilter3D(trimmed, 3);
+  // Palette constraint — aggressively remap to uniform stucco.
+  // The real building is cream/white stucco. Grey stone and cobblestone
+  // patches from photogrammetry shadows look like "scabs" on the facade.
+  // Map everything except the cleanest light blocks to stucco materials.
+  const paletteReplacements = new Map<string, string>([
+    // Dark stone → warm stucco (baked shadow artifacts)
+    ['minecraft:blackstone', 'minecraft:smooth_sandstone'],
+    ['minecraft:deepslate_bricks', 'minecraft:smooth_sandstone'],
+    ['minecraft:polished_deepslate', 'minecraft:smooth_sandstone'],
+    ['minecraft:polished_blackstone', 'minecraft:smooth_sandstone'],
+    ['minecraft:nether_bricks', 'minecraft:smooth_sandstone'],
+    // Mid-grey stone → light concrete (all stone types are shadow artifacts)
+    ['minecraft:stone', 'minecraft:smooth_sandstone'],
+    ['minecraft:andesite', 'minecraft:smooth_sandstone'],
+    ['minecraft:polished_andesite', 'minecraft:light_gray_concrete'],
+    ['minecraft:stone_bricks', 'minecraft:light_gray_concrete'],
+    ['minecraft:smooth_stone', 'minecraft:light_gray_concrete'],
+    ['minecraft:cobblestone', 'minecraft:smooth_sandstone'],
+    // Grey concrete → lighter (uniform wall color)
+    ['minecraft:gray_concrete', 'minecraft:light_gray_concrete'],
+    // Dark glass → gray stained glass (window material, not black)
+    ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
+    // Red/orange/brown noise → stucco
+    ['minecraft:red_terracotta', 'minecraft:smooth_sandstone'],
+    ['minecraft:orange_terracotta', 'minecraft:smooth_sandstone'],
+    ['minecraft:brown_terracotta', 'minecraft:smooth_sandstone'],
+    ['minecraft:bricks', 'minecraft:smooth_sandstone'],
+    ['minecraft:red_concrete', 'minecraft:smooth_sandstone'],
+    // Green noise → stucco (vegetation artifact)
+    ['minecraft:green_concrete', 'minecraft:smooth_sandstone'],
+    // Iron → light gray (less harsh structural)
+    ['minecraft:iron_block', 'minecraft:light_gray_concrete'],
+    // End stone → sandstone (color family match)
+    ['minecraft:end_stone_bricks', 'minecraft:smooth_sandstone'],
+    // Keep: smooth_sandstone, light_gray_concrete, white_concrete,
+    //        smooth_quartz, quartz_block, birch_planks, gray_stained_glass
+  ]);
+  const constrained = constrainPalette(trimmed, paletteReplacements);
+  console.log(`Palette constrain: ${constrained} shadow blocks remapped`);
+
+  // 3D mode filter — smooth surface textures while preserving color contrast.
+  // Run after palette constraint so corrected colors spread via majority vote.
+  const modeSmoothed = modeFilter3D(trimmed, 3, 2);
   if (modeSmoothed > 0) {
-    console.log(`Mode filter: ${modeSmoothed} blocks homogenized (${trimmed.palette.size} materials remaining)`);
+    console.log(`Mode filter 5x5x5: ${modeSmoothed} blocks homogenized`);
   }
 
   // Write output

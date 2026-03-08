@@ -229,7 +229,823 @@ export function smoothRareBlocks(grid: BlockGrid, minFrequency = 0.02): number {
  * @param passes     Number of smoothing passes (default: 2)
  * @returns Total blocks replaced across all passes
  */
-export function modeFilter3D(grid: BlockGrid, passes = 2): number {
+/**
+ * Morphological closing (dilate then erode) to fill 1-voxel gaps and smooth
+ * jagged surfaces in voxelized photogrammetry output.
+ *
+ * Closing = dilate → erode:
+ * - Dilate: expand all solid voxels by `radius` in each axis direction.
+ *   Fills 1-voxel holes, cracks between surfaces, and smooths concavities.
+ * - Erode: shrink back by `radius`, removing the expansion but keeping
+ *   the filled gaps. Restores the original outer profile while interior
+ *   gaps stay filled.
+ *
+ * The dilation assigns each new voxel the most common block in its neighborhood,
+ * so filled gaps take on the local wall material (not a random block).
+ *
+ * @param grid    Source BlockGrid (modified in place)
+ * @param radius  Structuring element radius (default: 1 = fills 1-voxel gaps)
+ * @returns Number of voxels changed (net fills after erode)
+ */
+export function morphClose3D(grid: BlockGrid, radius = 1): number {
+  const { width, height, length } = grid;
+
+  // Snapshot before dilation
+  const before: string[] = new Array(width * height * length);
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        before[(y * length + z) * width + x] = grid.get(x, y, z);
+      }
+    }
+  }
+
+  // ── Dilate: expand solid voxels into adjacent air ──
+  // For each air voxel, check if any solid neighbor within radius exists.
+  // If so, assign the most common neighbor block.
+  let dilated = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (before[(y * length + z) * width + x] !== 'minecraft:air') continue;
+
+        // Count solid neighbors within radius
+        const counts = new Map<string, number>();
+        let hasSolid = false;
+        for (let dy = -radius; dy <= radius; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= height) continue;
+          for (let dz = -radius; dz <= radius; dz++) {
+            const nz = z + dz;
+            if (nz < 0 || nz >= length) continue;
+            for (let dx = -radius; dx <= radius; dx++) {
+              const nx = x + dx;
+              if (nx < 0 || nx >= width) continue;
+              const nb = before[(ny * length + nz) * width + nx];
+              if (nb !== 'minecraft:air') {
+                counts.set(nb, (counts.get(nb) ?? 0) + 1);
+                hasSolid = true;
+              }
+            }
+          }
+        }
+
+        if (hasSolid) {
+          // Assign the most common neighbor block
+          let best = 'minecraft:stone';
+          let bestCount = 0;
+          for (const [block, count] of counts) {
+            if (count > bestCount) { best = block; bestCount = count; }
+          }
+          grid.set(x, y, z, best);
+          dilated++;
+        }
+      }
+    }
+  }
+
+  // ── Erode: remove voxels that were solid in dilated but air in original ──
+  // Only remove voxels on the OUTER surface — voxels that were air before
+  // dilation AND have at least one air neighbor now. Interior fills are kept.
+  // Actually, standard morphological closing erodes back by checking: if a
+  // voxel was air in the original, and ALL its neighbors within radius are
+  // solid (meaning it's truly interior), keep it. Otherwise, restore to air.
+  let eroded = 0;
+  // Snapshot the dilated state
+  const afterDilate: string[] = new Array(width * height * length);
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        afterDilate[(y * length + z) * width + x] = grid.get(x, y, z);
+      }
+    }
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        // Only consider voxels that were added by dilation (were air before)
+        if (before[(y * length + z) * width + x] !== 'minecraft:air') continue;
+        if (afterDilate[(y * length + z) * width + x] === 'minecraft:air') continue;
+
+        // Check if this voxel has any air neighbor within radius in dilated state.
+        // If it does, it's on the outer surface of the dilation — erode it back.
+        let hasAirNeighbor = false;
+        for (let dy = -radius; dy <= radius && !hasAirNeighbor; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= height) { hasAirNeighbor = true; continue; }
+          for (let dz = -radius; dz <= radius && !hasAirNeighbor; dz++) {
+            const nz = z + dz;
+            if (nz < 0 || nz >= length) { hasAirNeighbor = true; continue; }
+            for (let dx = -radius; dx <= radius && !hasAirNeighbor; dx++) {
+              const nx = x + dx;
+              if (nx < 0 || nx >= width) { hasAirNeighbor = true; continue; }
+              if (afterDilate[(ny * length + nz) * width + nx] === 'minecraft:air') {
+                hasAirNeighbor = true;
+              }
+            }
+          }
+        }
+
+        if (hasAirNeighbor) {
+          grid.set(x, y, z, 'minecraft:air');
+          eroded++;
+        }
+      }
+    }
+  }
+
+  return dilated - eroded; // Net voxels filled
+}
+
+/**
+ * Flatten facades using depth histogram snapping. Identifies dominant wall
+ * planes via histogram peaks, then snaps all nearby voxels to the nearest peak.
+ *
+ * Architecture has flat walls at discrete depth positions. Photogrammetry
+ * produces noisy surfaces ±1-2 voxels from the true plane. This finds the
+ * actual plane positions and enforces planarity.
+ *
+ * Algorithm per Y-row per facade direction:
+ * 1. Build depth histogram (count solid voxels at each X or Z coordinate)
+ * 2. Find peaks: coordinates with local maxima in the histogram
+ * 3. For each non-peak solid voxel within `snapRadius`, move it to the
+ *    nearest peak (snapping to the dominant wall plane)
+ *
+ * @param grid        Source BlockGrid (modified in place)
+ * @param snapRadius  Max distance to snap to a peak (default: 2 voxels)
+ * @returns Number of voxels snapped
+ */
+export function flattenFacades(grid: BlockGrid, snapRadius = 2): number {
+  const { width, height, length } = grid;
+  let snapped = 0;
+
+  // ── X-axis flattening: for each Z row, find dominant X planes ──
+  for (let z = 0; z < length; z++) {
+    // Build depth histogram across all Y for this Z slice
+    const xHist = new Int32Array(width);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== 'minecraft:air') xHist[x]++;
+      }
+    }
+
+    // Find peaks: X positions with more voxels than both neighbors
+    // A peak must have at least 15% of height to be a real wall plane
+    const minPeak = height * 0.1;
+    const peaks: number[] = [];
+    for (let x = 0; x < width; x++) {
+      if (xHist[x] < minPeak) continue;
+      const left = x > 0 ? xHist[x - 1] : 0;
+      const right = x < width - 1 ? xHist[x + 1] : 0;
+      if (xHist[x] >= left && xHist[x] >= right) {
+        peaks.push(x);
+      }
+    }
+
+    if (peaks.length === 0) continue;
+
+    // Snap non-peak voxels to nearest peak within snapRadius
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block === 'minecraft:air') continue;
+        if (peaks.includes(x)) continue; // Already on a peak
+
+        // Find nearest peak within snapRadius
+        let nearestPeak = -1;
+        let nearestDist = snapRadius + 1;
+        for (const peak of peaks) {
+          const dist = Math.abs(x - peak);
+          if (dist <= snapRadius && dist < nearestDist) {
+            nearestDist = dist;
+            nearestPeak = peak;
+          }
+        }
+
+        if (nearestPeak >= 0 && nearestPeak !== x) {
+          // Move voxel to the peak plane — only if target is empty
+          if (grid.get(nearestPeak, y, z) === 'minecraft:air') {
+            grid.set(nearestPeak, y, z, block);
+            grid.set(x, y, z, 'minecraft:air');
+            snapped++;
+          }
+          // If target occupied, leave source block in place (don't destroy it)
+        }
+      }
+    }
+  }
+
+  // ── Z-axis flattening: for each X row, find dominant Z planes ──
+  for (let x = 0; x < width; x++) {
+    const zHist = new Int32Array(length);
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        if (grid.get(x, y, z) !== 'minecraft:air') zHist[z]++;
+      }
+    }
+
+    const minPeak = height * 0.1;
+    const peaks: number[] = [];
+    for (let z = 0; z < length; z++) {
+      if (zHist[z] < minPeak) continue;
+      const prev = z > 0 ? zHist[z - 1] : 0;
+      const next = z < length - 1 ? zHist[z + 1] : 0;
+      if (zHist[z] >= prev && zHist[z] >= next) {
+        peaks.push(z);
+      }
+    }
+
+    if (peaks.length === 0) continue;
+
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        const block = grid.get(x, y, z);
+        if (block === 'minecraft:air') continue;
+        if (peaks.includes(z)) continue;
+
+        let nearestPeak = -1;
+        let nearestDist = snapRadius + 1;
+        for (const peak of peaks) {
+          const dist = Math.abs(z - peak);
+          if (dist <= snapRadius && dist < nearestDist) {
+            nearestDist = dist;
+            nearestPeak = peak;
+          }
+        }
+
+        if (nearestPeak >= 0 && nearestPeak !== z) {
+          if (grid.get(x, y, nearestPeak) === 'minecraft:air') {
+            grid.set(x, y, nearestPeak, block);
+            grid.set(x, y, z, 'minecraft:air');
+            snapped++;
+          }
+        }
+      }
+    }
+  }
+
+  return snapped;
+}
+
+/**
+ * Replace unwanted blocks with their nearest safe alternative.
+ * Photogrammetry color noise can produce red_terracotta/bricks on stucco walls.
+ * This constrains the palette to architecturally plausible blocks.
+ *
+ * @param grid          Source BlockGrid (modified in place)
+ * @param replacements  Map of bad block → replacement block
+ * @returns Number of blocks replaced
+ */
+/**
+ * Erode surface protrusions by removing solid voxels with too few solid
+ * face-adjacent neighbors (6-connected). Then dilate back to restore
+ * wall thickness. This shaves off the 1-block bumps caused by noisy
+ * photogrammetry mesh surfaces.
+ *
+ * A block with <minNeighbors solid face-neighbors is considered a protrusion.
+ * After removing protrusions, a dilation pass fills back voxels that have
+ * >=minNeighbors solid face-neighbors, restoring legitimate wall surface.
+ *
+ * @param grid          Source BlockGrid (modified in place)
+ * @param minNeighbors  Min solid face-neighbors to keep (default: 3 of 6)
+ * @returns Net voxels removed
+ */
+export function erodeSurfaceBumps(grid: BlockGrid, minNeighbors = 3): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+
+  // Face-adjacent offsets (6-connected)
+  const FACES = [
+    [1, 0, 0], [-1, 0, 0],
+    [0, 1, 0], [0, -1, 0],
+    [0, 0, 1], [0, 0, -1],
+  ] as const;
+
+  // Snapshot before erosion
+  const snap: string[] = new Array(width * height * length);
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        snap[(y * length + z) * width + x] = grid.get(x, y, z);
+      }
+    }
+  }
+
+  // Erode: remove blocks with fewer than minNeighbors solid face-neighbors
+  let eroded = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (snap[(y * length + z) * width + x] === AIR) continue;
+
+        let solidFaces = 0;
+        for (const [dx, dy, dz] of FACES) {
+          const nx = x + dx, ny = y + dy, nz = z + dz;
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < length) {
+            if (snap[(ny * length + nz) * width + nx] !== AIR) solidFaces++;
+          }
+        }
+
+        if (solidFaces < minNeighbors) {
+          grid.set(x, y, z, AIR);
+          eroded++;
+        }
+      }
+    }
+  }
+
+  // Dilate back: fill air voxels that now have >=minNeighbors solid face-neighbors.
+  // Use the eroded grid state (not snapshot) for neighbor counting.
+  // Assign the most common neighbor block.
+  let dilated = 0;
+  // Snapshot the eroded state
+  const erodedSnap: string[] = new Array(width * height * length);
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        erodedSnap[(y * length + z) * width + x] = grid.get(x, y, z);
+      }
+    }
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (erodedSnap[(y * length + z) * width + x] !== AIR) continue;
+
+        let solidFaces = 0;
+        const counts = new Map<string, number>();
+        for (const [dx, dy, dz] of FACES) {
+          const nx = x + dx, ny = y + dy, nz = z + dz;
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < length) {
+            const nb = erodedSnap[(ny * length + nz) * width + nx];
+            if (nb !== AIR) {
+              solidFaces++;
+              counts.set(nb, (counts.get(nb) ?? 0) + 1);
+            }
+          }
+        }
+
+        if (solidFaces >= minNeighbors) {
+          // Pick most common neighbor
+          let best = 'minecraft:stone';
+          let bestC = 0;
+          for (const [b, c] of counts) {
+            if (c > bestC) { best = b; bestC = c; }
+          }
+          grid.set(x, y, z, best);
+          dilated++;
+        }
+      }
+    }
+  }
+
+  return eroded - dilated;
+}
+
+/**
+ * Fill building interiors using 2D flood-fill per Y-layer.
+ *
+ * Photogrammetry meshes produce porous voxel shells — surfaces riddled with
+ * 1-2 voxel gaps. This function identifies true building interiors vs exterior
+ * air using a per-layer approach:
+ *
+ * For each Y slice:
+ * 1. Dilate solid voxels by `dilateRadius` to close wall porosity
+ * 2. Flood-fill from grid edges on the dilated layer → marks "exterior" air
+ * 3. Any air NOT reachable from edges is "interior" → fill with nearest block
+ *
+ * This produces solid building volumes with flat walls while preserving:
+ * - Separation between distinct buildings (flood fill reaches between them)
+ * - Bay window / recess shapes (exterior contour preserved)
+ * - Surface texture colors (only interior air gets filled)
+ *
+ * @param grid          Source BlockGrid (modified in place)
+ * @param dilateRadius  Dilation radius for closing wall gaps (default: 3)
+ * @returns Number of interior air voxels filled
+ */
+export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 3): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let netFilled = 0;
+
+  for (let y = 0; y < height; y++) {
+    // Snapshot this layer: solid mask + block types
+    const solid: boolean[] = new Array(width * length);
+    const blocks: string[] = new Array(width * length);
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const b = grid.get(x, y, z);
+        const idx = z * width + x;
+        blocks[idx] = b;
+        solid[idx] = b !== AIR;
+      }
+    }
+
+    // ── Step 1: Dilate solid voxels to close wall gaps ──
+    // A larger radius closes more porosity but may also close real gaps
+    // like courtyards. Manhattan distance keeps the dilation tight.
+    const dilated: boolean[] = [...solid];
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (solid[z * width + x]) continue; // Already solid
+
+        let hasSolid = false;
+        for (let dz = -dilateRadius; dz <= dilateRadius && !hasSolid; dz++) {
+          const nz = z + dz;
+          if (nz < 0 || nz >= length) continue;
+          for (let dx = -dilateRadius; dx <= dilateRadius && !hasSolid; dx++) {
+            const nx = x + dx;
+            if (nx < 0 || nx >= width) continue;
+            if (Math.abs(dx) + Math.abs(dz) > dilateRadius) continue;
+            if (solid[nz * width + nx]) hasSolid = true;
+          }
+        }
+        if (hasSolid) dilated[z * width + x] = true;
+      }
+    }
+
+    // ── Step 2: Flood fill from edges to find exterior air ──
+    // Any air cell in the dilated grid reachable from an edge is "exterior."
+    // Interior air pockets are enclosed by dilated walls and won't be reached.
+    const exterior: boolean[] = new Array(width * length).fill(false);
+    const queue: number[] = [];
+    let head = 0;
+
+    // Seed: all edge cells that are air in the dilated grid
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (z !== 0 && z !== length - 1 && x !== 0 && x !== width - 1) continue;
+        const idx = z * width + x;
+        if (!dilated[idx]) {
+          exterior[idx] = true;
+          queue.push(idx);
+        }
+      }
+    }
+
+    // BFS flood fill (4-connected)
+    while (head < queue.length) {
+      const idx = queue[head++];
+      const qx = idx % width;
+      const qz = (idx - qx) / width;
+
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = qx + dx;
+        const nz = qz + dz;
+        if (nx < 0 || nx >= width || nz < 0 || nz >= length) continue;
+        const nIdx = nz * width + nx;
+        if (exterior[nIdx] || dilated[nIdx]) continue; // Already visited or solid wall
+        exterior[nIdx] = true;
+        queue.push(nIdx);
+      }
+    }
+
+    // ── Step 3: Fill interior air with nearest solid block ──
+    // Only fill voxels that are air in the ORIGINAL grid and NOT exterior.
+    // The dilation was only used for the flood fill computation.
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = z * width + x;
+        if (solid[idx]) continue;     // Already solid in original
+        if (exterior[idx]) continue;   // Exterior air — leave as-is
+
+        // Find the nearest solid block in the original layer (search radius 5)
+        let bestBlock = AIR;
+        let bestDist = Infinity;
+        const searchR = 5;
+        for (let dz = -searchR; dz <= searchR; dz++) {
+          const nz = z + dz;
+          if (nz < 0 || nz >= length) continue;
+          for (let dx = -searchR; dx <= searchR; dx++) {
+            const nx = x + dx;
+            if (nx < 0 || nx >= width) continue;
+            const nIdx = nz * width + nx;
+            if (!solid[nIdx]) continue;
+            const dist = Math.abs(dx) + Math.abs(dz);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestBlock = blocks[nIdx];
+            }
+          }
+        }
+
+        if (bestBlock !== AIR) {
+          grid.set(x, y, z, bestBlock);
+          netFilled++;
+        }
+      }
+    }
+  }
+
+  return netFilled;
+}
+
+/**
+ * Smooth building surfaces via 2D morphological opening per Y-layer.
+ *
+ * Opening = erode then dilate — removes 1-voxel protrusions from the
+ * exterior surface while preserving the overall shape. After interior
+ * flood fill creates solid volumes, the exterior outline can still be
+ * bumpy from photogrammetry mesh noise. This cleans it up.
+ *
+ * @param grid  Source BlockGrid (modified in place)
+ * @returns Number of surface voxels removed
+ */
+export function smoothSurface(grid: BlockGrid): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let totalChanged = 0;
+
+  // Face-adjacent offsets in XZ plane (4-connected)
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
+  for (let y = 0; y < height; y++) {
+    // Snapshot this layer
+    const layer: boolean[] = new Array(width * length);
+    const blocks: string[] = new Array(width * length);
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = z * width + x;
+        const b = grid.get(x, y, z);
+        layer[idx] = b !== AIR;
+        blocks[idx] = b;
+      }
+    }
+
+    // Erode: remove solid voxels with < 3 solid 4-connected XZ neighbors
+    // (these are 1-block protrusions on the surface)
+    const eroded: boolean[] = [...layer];
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = z * width + x;
+        if (!layer[idx]) continue;
+
+        let solidNeighbors = 0;
+        for (const [dx, dz] of DIRS) {
+          const nx = x + dx, nz = z + dz;
+          if (nx >= 0 && nx < width && nz >= 0 && nz < length) {
+            if (layer[nz * width + nx]) solidNeighbors++;
+          }
+        }
+
+        if (solidNeighbors < 2) {
+          eroded[idx] = false;
+        }
+      }
+    }
+
+    // Dilate: restore eroded voxels that have >=3 solid neighbors in eroded state
+    // This recovers wall edges that were over-eroded
+    const opened: boolean[] = [...eroded];
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = z * width + x;
+        if (eroded[idx]) continue; // Already solid
+
+        let solidNeighbors = 0;
+        for (const [dx, dz] of DIRS) {
+          const nx = x + dx, nz = z + dz;
+          if (nx >= 0 && nx < width && nz >= 0 && nz < length) {
+            if (eroded[nz * width + nx]) solidNeighbors++;
+          }
+        }
+
+        if (solidNeighbors >= 3) {
+          opened[idx] = true;
+        }
+      }
+    }
+
+    // Apply changes: remove voxels that were solid but now air
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = z * width + x;
+        if (layer[idx] && !opened[idx]) {
+          grid.set(x, y, z, AIR);
+          totalChanged++;
+        } else if (!layer[idx] && opened[idx]) {
+          // Dilated back — find nearest block color
+          let bestBlock = AIR;
+          let bestDist = Infinity;
+          for (const [dx, dz] of DIRS) {
+            const nx = x + dx, nz = z + dz;
+            if (nx >= 0 && nx < width && nz >= 0 && nz < length) {
+              const nIdx = nz * width + nx;
+              if (blocks[nIdx] !== AIR) {
+                const dist = 1;
+                if (dist < bestDist) { bestDist = dist; bestBlock = blocks[nIdx]; }
+              }
+            }
+          }
+          if (bestBlock !== AIR) {
+            grid.set(x, y, z, bestBlock);
+          }
+        }
+      }
+    }
+  }
+
+  return totalChanged;
+}
+
+/**
+ * Rectangularize building cross-sections using connected-component AABBs.
+ *
+ * For each Y layer:
+ * 1. Find connected solid regions (4-connected BFS)
+ * 2. Discard tiny regions (< minRegionSize voxels — noise/vegetation)
+ * 3. For each significant region, compute axis-aligned bounding box (AABB)
+ * 4. Fill the AABB with the region's dominant block → perfectly rectangular
+ *
+ * This replaces the organic outlines from photogrammetry with sharp-edged
+ * rectangular building footprints. Separate buildings get separate rectangles
+ * as long as they're not connected in that layer.
+ *
+ * @param grid           Source BlockGrid (modified in place)
+ * @param minRegionSize  Minimum connected component size to keep (default: 20 voxels)
+ * @param maxExtend      Max distance (Manhattan) from existing solid to fill (default: 2).
+ *                        Prevents filling deep voids (balconies/recesses) while still
+ *                        smoothing 1-2 block wall jaggedness. Set to Infinity for full AABB.
+ * @param facadeDepth    Depth from AABB edges to preserve scan detail (default: 0 = disabled).
+ *                        Cells within facadeDepth of any AABB face use maxExtend-limited fill.
+ *                        Cells deeper than facadeDepth from all faces get full AABB fill.
+ *                        This preserves balconies/recesses near facades while solidifying
+ *                        building interiors.
+ * @returns Number of voxels changed
+ */
+export function rectangularize(grid: BlockGrid, minRegionSize = 20, maxExtend = 2, facadeDepth = 0): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let changed = 0;
+
+  for (let y = 0; y < height; y++) {
+    // Snapshot the solid mask BEFORE rectangularization for distance checking
+    const originalSolid: boolean[] = new Array(width * length);
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        originalSolid[z * width + x] = grid.get(x, y, z) !== AIR;
+      }
+    }
+
+    // Find connected components via BFS
+    const visited = new Uint8Array(width * length);
+    const regions: Array<{
+      minX: number; maxX: number; minZ: number; maxZ: number;
+      dominant: string; size: number;
+    }> = [];
+
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = z * width + x;
+        if (visited[idx] || !originalSolid[idx]) continue;
+
+        // BFS flood fill to find connected region
+        let minX = x, maxX = x, minZ = z, maxZ = z;
+        const counts = new Map<string, number>();
+        const queue: number[] = [idx];
+        let head = 0;
+        let size = 0;
+        visited[idx] = 1;
+
+        while (head < queue.length) {
+          const ci = queue[head++];
+          const cx = ci % width;
+          const cz = (ci - cx) / width;
+          size++;
+
+          const block = grid.get(cx, y, cz);
+          counts.set(block, (counts.get(block) ?? 0) + 1);
+
+          if (cx < minX) minX = cx;
+          if (cx > maxX) maxX = cx;
+          if (cz < minZ) minZ = cz;
+          if (cz > maxZ) maxZ = cz;
+
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const nx = cx + dx, nz = cz + dz;
+            if (nx < 0 || nx >= width || nz < 0 || nz >= length) continue;
+            const ni = nz * width + nx;
+            if (visited[ni] || !originalSolid[ni]) continue;
+            visited[ni] = 1;
+            queue.push(ni);
+          }
+        }
+
+        if (size < minRegionSize) continue;
+
+        let dominant = AIR;
+        let maxC = 0;
+        for (const [b, c] of counts) {
+          if (c > maxC) { dominant = b; maxC = c; }
+        }
+
+        regions.push({ minX, maxX, minZ, maxZ, dominant, size });
+      }
+    }
+
+    // Sort by size descending — larger regions get priority in overlaps
+    regions.sort((a, b) => b.size - a.size);
+
+    // Fill each region's AABB using hybrid strategy:
+    // - Cells within facadeDepth of any AABB edge: distance-limited fill (preserves balconies)
+    // - Cells deeper than facadeDepth from all edges: full fill (solidifies interior)
+    // When facadeDepth=0, everything uses the maxExtend/full strategy.
+    const claimed = new Uint8Array(width * length);
+    for (const region of regions) {
+      for (let z = region.minZ; z <= region.maxZ; z++) {
+        for (let x = region.minX; x <= region.maxX; x++) {
+          const idx = z * width + x;
+          if (claimed[idx]) continue;
+
+          if (originalSolid[idx]) {
+            // Already solid — claim it
+            claimed[idx] = 1;
+            continue;
+          }
+
+          // Compute distance from this cell to the nearest AABB edge (in XZ).
+          // Cells near the edge are in the "facade zone" and keep scan detail.
+          const edgeDist = Math.min(
+            x - region.minX,
+            region.maxX - x,
+            z - region.minZ,
+            region.maxZ - z,
+          );
+          const inFacadeZone = facadeDepth > 0 && edgeDist < facadeDepth;
+
+          if (inFacadeZone) {
+            // Facade zone: only fill within maxExtend of existing solid.
+            // This preserves balconies, recesses, and other depth features.
+            const effectiveMax = maxExtend;
+            let nearestDist = effectiveMax + 1;
+            for (let dz2 = -effectiveMax; dz2 <= effectiveMax && nearestDist > 1; dz2++) {
+              const nz = z + dz2;
+              if (nz < region.minZ || nz > region.maxZ) continue;
+              for (let dx2 = -effectiveMax; dx2 <= effectiveMax; dx2++) {
+                const nx = x + dx2;
+                if (nx < region.minX || nx > region.maxX) continue;
+                const dist = Math.abs(dx2) + Math.abs(dz2);
+                if (dist >= nearestDist) continue;
+                if (originalSolid[nz * width + nx]) {
+                  nearestDist = dist;
+                }
+              }
+            }
+
+            if (nearestDist <= effectiveMax) {
+              grid.set(x, y, z, region.dominant);
+              claimed[idx] = 1;
+              changed++;
+            }
+          } else {
+            // Core zone: full fill — solidify the building interior
+            grid.set(x, y, z, region.dominant);
+            claimed[idx] = 1;
+            changed++;
+          }
+        }
+      }
+    }
+
+    // Remove small isolated blocks not part of any region
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = z * width + x;
+        if (grid.get(x, y, z) !== AIR && !claimed[idx]) {
+          grid.set(x, y, z, AIR);
+          changed++;
+        }
+      }
+    }
+  }
+
+  return changed;
+}
+
+export function constrainPalette(
+  grid: BlockGrid,
+  replacements: Map<string, string>,
+): number {
+  const { width, height, length } = grid;
+  let replaced = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        const replacement = replacements.get(block);
+        if (replacement) {
+          grid.set(x, y, z, replacement);
+          replaced++;
+        }
+      }
+    }
+  }
+  return replaced;
+}
+
+export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1): number {
   const { width, height, length } = grid;
 
   // Blocks to never replace (structural/detail elements)
@@ -259,16 +1075,16 @@ export function modeFilter3D(grid: BlockGrid, passes = 2): number {
           const center = snapshot[(y * length + z) * width + x];
           if (PROTECTED.has(center)) continue;
 
-          // Count non-air neighbors in 3×3×3 cube from snapshot
+          // Count non-air neighbors in (2r+1)^3 cube from snapshot
           const neighborCounts = new Map<string, number>();
           let totalNeighbors = 0;
-          for (let dy = -1; dy <= 1; dy++) {
+          for (let dy = -radius; dy <= radius; dy++) {
             const ny = y + dy;
             if (ny < 0 || ny >= height) continue;
-            for (let dz = -1; dz <= 1; dz++) {
+            for (let dz = -radius; dz <= radius; dz++) {
               const nz = z + dz;
               if (nz < 0 || nz >= length) continue;
-              for (let dx = -1; dx <= 1; dx++) {
+              for (let dx = -radius; dx <= radius; dx++) {
                 if (dx === 0 && dy === 0 && dz === 0) continue;
                 const nx = x + dx;
                 if (nx < 0 || nx >= width) continue;
@@ -307,4 +1123,242 @@ export function modeFilter3D(grid: BlockGrid, passes = 2): number {
   }
 
   return totalReplaced;
+}
+
+/**
+ * Approximate luminance for Minecraft blocks (0 = black, 1 = white).
+ * Used by carveFacadeShadows to identify shadow/depth regions.
+ * Values are empirical approximations of the block's average visual brightness.
+ */
+const BLOCK_LUMINANCE = new Map<string, number>([
+  // Very dark (shadow indicators — likely recesses, balconies, windows)
+  ['minecraft:blackstone', 0.10],
+  ['minecraft:deepslate_bricks', 0.15],
+  ['minecraft:polished_deepslate', 0.18],
+  ['minecraft:polished_blackstone', 0.15],
+  ['minecraft:nether_bricks', 0.15],
+  ['minecraft:black_stained_glass', 0.05],
+  // Dark (could be shadow or material)
+  ['minecraft:gray_stained_glass', 0.25],
+  ['minecraft:gray_concrete', 0.30],
+  ['minecraft:brown_terracotta', 0.30],
+  ['minecraft:green_concrete', 0.30],
+  ['minecraft:stone', 0.35],
+  ['minecraft:andesite', 0.35],
+  ['minecraft:stone_bricks', 0.38],
+  // Medium (structural/material)
+  ['minecraft:polished_andesite', 0.42],
+  ['minecraft:smooth_stone', 0.45],
+  ['minecraft:cobblestone', 0.35],
+  ['minecraft:iron_block', 0.70],
+  ['minecraft:light_gray_concrete', 0.55],
+  // Light (wall material)
+  ['minecraft:birch_planks', 0.70],
+  ['minecraft:end_stone_bricks', 0.75],
+  ['minecraft:smooth_sandstone', 0.80],
+  ['minecraft:sandstone', 0.80],
+  ['minecraft:smooth_quartz', 0.90],
+  ['minecraft:quartz_block', 0.90],
+  ['minecraft:white_concrete', 0.95],
+  // Terracotta variants
+  ['minecraft:red_terracotta', 0.30],
+  ['minecraft:orange_terracotta', 0.40],
+  ['minecraft:bricks', 0.35],
+  ['minecraft:red_concrete', 0.30],
+]);
+
+/**
+ * Get block luminance (0-1). Returns 0.5 for unknown blocks.
+ */
+function blockLuminance(block: string): number {
+  return BLOCK_LUMINANCE.get(block) ?? 0.5;
+}
+
+/**
+ * Carve facade shadows into depth features using block luminance.
+ *
+ * Photogrammetry meshes close up balconies and recesses because the depth
+ * scanner can't measure inside them. But the texture captures the shadows
+ * correctly — dark pixels where there should be voids. This function
+ * converts that color information back into geometry:
+ *
+ * For each block in the facade zone (≤facadeDepth from any AABB edge):
+ * - If block luminance < threshold → replace with AIR (carve shadow into void)
+ * - If block luminance ≥ threshold → keep solid (stucco wall / railing)
+ *
+ * This must run BEFORE palette constraint so the original dark colors
+ * (which carry depth information) haven't been remapped yet.
+ *
+ * @param grid            Source BlockGrid (modified in place)
+ * @param facadeDepth     Depth from AABB edges defining the facade zone (default: 4)
+ * @param lumThreshold    Luminance below which blocks are shadow candidates (default: 0.45)
+ * @param minDarkNeighbors Minimum dark XZ-plane neighbors (of 4) required to carve (default: 2).
+ *                         Acts as despeckle filter — only carves connected dark clusters,
+ *                         not isolated single-block noise. Creates clean rectangular voids.
+ * @returns Number of blocks carved to air
+ */
+export function carveFacadeShadows(
+  grid: BlockGrid,
+  facadeDepth = 4,
+  lumThreshold = 0.45,
+  minDarkNeighbors = 2,
+): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let carved = 0;
+
+  // XZ-plane 4-connected neighbors
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
+  for (let y = 0; y < height; y++) {
+    // Find AABB of all solid voxels in this layer
+    let minX = width, maxX = -1, minZ = length, maxZ = -1;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (z < minZ) minZ = z;
+          if (z > maxZ) maxZ = z;
+        }
+      }
+    }
+    if (maxX < 0) continue; // Empty layer
+
+    // Pass 1: build dark mask for this layer's facade zone
+    const layerW = maxX - minX + 1;
+    const layerL = maxZ - minZ + 1;
+    const isDark = new Uint8Array(layerW * layerL);
+    const inFacade = new Uint8Array(layerW * layerL);
+
+    for (let z = minZ; z <= maxZ; z++) {
+      for (let x = minX; x <= maxX; x++) {
+        const block = grid.get(x, y, z);
+        if (block === AIR) continue;
+
+        const edgeDist = Math.min(x - minX, maxX - x, z - minZ, maxZ - z);
+        if (edgeDist >= facadeDepth) continue;
+
+        const lx = x - minX;
+        const lz = z - minZ;
+        const idx = lz * layerW + lx;
+        inFacade[idx] = 1;
+
+        if (blockLuminance(block) < lumThreshold) {
+          isDark[idx] = 1;
+        }
+      }
+    }
+
+    // Pass 2: carve dark blocks that have enough dark neighbors (despeckle).
+    // This ensures only connected dark clusters get carved — isolated dark
+    // specks on stucco walls are left solid, preventing "termite damage."
+    for (let z = minZ; z <= maxZ; z++) {
+      for (let x = minX; x <= maxX; x++) {
+        const lx = x - minX;
+        const lz = z - minZ;
+        const idx = lz * layerW + lx;
+        if (!inFacade[idx] || !isDark[idx]) continue;
+
+        // Count dark 4-connected neighbors in the XZ plane
+        let darkNeighbors = 0;
+        for (const [dx, dz] of DIRS) {
+          const nx = lx + dx;
+          const nz = lz + dz;
+          if (nx < 0 || nx >= layerW || nz < 0 || nz >= layerL) continue;
+          if (isDark[nz * layerW + nx]) darkNeighbors++;
+        }
+
+        if (darkNeighbors >= minDarkNeighbors) {
+          grid.set(x, y, z, AIR);
+          carved++;
+        }
+      }
+    }
+  }
+
+  return carved;
+}
+
+/**
+ * "Cookie Cutter" solidification: one global AABB per Y-layer, solid core +
+ * raw scan mask on facades.
+ *
+ * Unlike rectangularize (which splits into connected components and can fracture
+ * a single building), this treats the entire layer as ONE volume:
+ *
+ * 1. Compute the AABB of all non-air voxels in the layer
+ * 2. Core zone (>facadeDepth from all AABB edges): fill with dominant block
+ * 3. Facade zone (≤facadeDepth from any edge): leave original scan data untouched.
+ *    If the scan says air → keep air (preserving balconies, recesses, windows).
+ *    If the scan says solid → keep the block.
+ *
+ * This produces buildings with solid interiors and architecturally accurate
+ * facade depth, without the connected-component splitting that fractures
+ * buildings through fire escapes or thin features.
+ *
+ * @param grid         Source BlockGrid (modified in place)
+ * @param facadeDepth  Depth from AABB edges to preserve raw scan data (default: 4 blocks)
+ * @param minFill      Min fraction of layer filled to process (skip sparse layers, default: 0.01)
+ * @returns Number of core voxels filled
+ */
+export function solidifyCore(grid: BlockGrid, facadeDepth = 4, minFill = 0.01): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let totalFilled = 0;
+
+  for (let y = 0; y < height; y++) {
+    // Find AABB of all solid voxels in this layer
+    let minX = width, maxX = -1, minZ = length, maxZ = -1;
+    const counts = new Map<string, number>();
+    let solidCount = 0;
+
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block === AIR) continue;
+        solidCount++;
+        counts.set(block, (counts.get(block) ?? 0) + 1);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (z < minZ) minZ = z;
+        if (z > maxZ) maxZ = z;
+      }
+    }
+
+    // Skip sparse layers (terrain remnants)
+    if (solidCount < width * length * minFill) continue;
+    if (maxX < 0) continue; // No solid voxels
+
+    // Find the dominant (most common) block for this layer
+    let dominant = AIR;
+    let maxC = 0;
+    for (const [b, c] of counts) {
+      if (c > maxC) { dominant = b; maxC = c; }
+    }
+
+    // Fill core zone: cells inside the AABB that are more than facadeDepth
+    // from all four edges. Facade zone cells are left completely untouched.
+    for (let z = minZ; z <= maxZ; z++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (grid.get(x, y, z) !== AIR) continue; // Already solid
+
+        // Distance from this cell to nearest AABB edge
+        const edgeDist = Math.min(
+          x - minX,
+          maxX - x,
+          z - minZ,
+          maxZ - z,
+        );
+
+        // Only fill core zone — facade zone keeps raw scan data
+        if (edgeDist >= facadeDepth) {
+          grid.set(x, y, z, dominant);
+          totalFilled++;
+        }
+      }
+    }
+  }
+
+  return totalFilled;
 }
