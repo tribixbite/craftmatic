@@ -2021,3 +2021,38 @@ export function removeSmallComponents(grid: BlockGrid, minSize = 50): number {
 
   return removed;
 }
+
+/**
+ * Crop grid to keep only blocks within a given XZ radius from the center.
+ *
+ * Useful for isolating the central building when the capture radius grabs
+ * neighboring structures. Uses circular (Euclidean) XZ distance from grid center.
+ *
+ * @param grid     Mutable BlockGrid
+ * @param radius   Max XZ distance from center to keep (in blocks)
+ * @returns Number of blocks removed
+ */
+export function cropToCenter(grid: BlockGrid, radius: number): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const cx = width / 2;
+  const cz = length / 2;
+  const r2 = radius * radius;
+  let removed = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) === AIR) continue;
+        const dx = x - cx;
+        const dz = z - cz;
+        if (dx * dx + dz * dz > r2) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
