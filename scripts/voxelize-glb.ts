@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
 
@@ -689,8 +689,6 @@ async function main(): Promise<void> {
   const hRectified = horizontalRectify(trimmed, 4, 3);
   console.log(`Horizontal rectify: ${hRectified} blocks changed (window=3, depth=4)`);
 
-  // Glaze backplane moved to end of pipeline (after mode filter)
-
   // Smooth rare/noisy blocks — replace blocks <2% frequency with neighbors.
   const smoothed = smoothRareBlocks(trimmed, 0.02);
   if (smoothed > 0) {
@@ -746,6 +744,14 @@ async function main(): Promise<void> {
   if (modeSmoothed > 0) {
     console.log(`Mode filter 5x5x5: ${modeSmoothed} blocks homogenized`);
   }
+
+  // Fire escape filter — convert protruding facade blocks in the center strip
+  // to gray_concrete. The real building has a prominent black metal fire escape
+  // running down the center. After mode filter homogenizes to white, this
+  // re-darkens the center column to match. Runs after all smoothing to prevent
+  // mode filter from spreading/removing the dark strip.
+  const escapeCount = fireEscapeFilter(trimmed, 4, 0.38, 0.62, 'minecraft:gray_concrete');
+  console.log(`Fire escape filter: ${escapeCount} blocks → gray_concrete (center 38-62%)`);
 
   // Glaze backplane — place window glass AFTER all smoothing/constraint steps.
   // Must run last so glass blocks don't affect mode filter or palette remapping.
