@@ -82,7 +82,7 @@ export function trimSparseBottomLayers(
     let filled = 0;
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
-        if (grid.get(x, y, z) !== 'air') filled++;
+        if (grid.get(x, y, z) !== 'minecraft:air') filled++;
       }
     }
     if (filled / totalXZ >= fillThreshold) {
@@ -102,11 +102,209 @@ export function trimSparseBottomLayers(
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         const block = grid.get(x, y + trimY, z);
-        if (block !== 'air') {
+        if (block !== 'minecraft:air') {
           trimmed.set(x, y, z, block);
         }
       }
     }
   }
   return trimmed;
+}
+
+/**
+ * Smooth voxelized output by replacing rare/noisy blocks with common neighbors.
+ *
+ * Two-pass approach:
+ * 1. Count global block frequencies. Blocks below `minFrequency` fraction of
+ *    total non-air blocks are marked "rare."
+ * 2. For each rare-block voxel, find the most common non-air block in its
+ *    3x3x3 neighborhood and replace with that. If no neighbors, use the
+ *    globally most common block.
+ *
+ * This eliminates salt-and-pepper noise from texture sampling (e.g. single
+ * ice blocks in a stucco wall) without affecting the dominant palette.
+ *
+ * @param grid          Source BlockGrid (modified in place)
+ * @param minFrequency  Minimum fraction of total blocks to be "common" (default: 0.02 = 2%)
+ * @returns Number of blocks replaced
+ */
+export function smoothRareBlocks(grid: BlockGrid, minFrequency = 0.02): number {
+  const { width, height, length } = grid;
+
+  // Pass 1: count global block frequencies
+  const freq = new Map<string, number>();
+  let totalNonAir = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block === 'minecraft:air') continue;
+        totalNonAir++;
+        freq.set(block, (freq.get(block) ?? 0) + 1);
+      }
+    }
+  }
+
+  if (totalNonAir === 0) return 0;
+
+  // Identify rare blocks (below threshold)
+  const threshold = totalNonAir * minFrequency;
+  const rareBlocks = new Set<string>();
+  for (const [block, count] of freq) {
+    if (count < threshold) rareBlocks.add(block);
+  }
+
+  if (rareBlocks.size === 0) return 0;
+
+  // Find the globally most common block as fallback
+  let globalBest = 'minecraft:stone';
+  let globalBestCount = 0;
+  for (const [block, count] of freq) {
+    if (!rareBlocks.has(block) && count > globalBestCount) {
+      globalBest = block;
+      globalBestCount = count;
+    }
+  }
+
+  // Pass 2: replace rare blocks with most common neighbor
+  let replaced = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block === 'minecraft:air' || !rareBlocks.has(block)) continue;
+
+        // Count non-air neighbors in 3x3x3 cube
+        const neighborCounts = new Map<string, number>();
+        for (let dy = -1; dy <= 1; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= height) continue;
+          for (let dz = -1; dz <= 1; dz++) {
+            const nz = z + dz;
+            if (nz < 0 || nz >= length) continue;
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0 && dz === 0) continue;
+              const nx = x + dx;
+              if (nx < 0 || nx >= width) continue;
+              const nb = grid.get(nx, ny, nz);
+              if (nb !== 'minecraft:air' && !rareBlocks.has(nb)) {
+                neighborCounts.set(nb, (neighborCounts.get(nb) ?? 0) + 1);
+              }
+            }
+          }
+        }
+
+        // Pick the most common non-rare neighbor, or global best if isolated
+        let bestNeighbor = globalBest;
+        let bestCount = 0;
+        for (const [nb, count] of neighborCounts) {
+          if (count > bestCount) {
+            bestNeighbor = nb;
+            bestCount = count;
+          }
+        }
+
+        grid.set(x, y, z, bestNeighbor);
+        replaced++;
+      }
+    }
+  }
+
+  return replaced;
+}
+
+/**
+ * 3D mode filter (majority-vote smoother): for every non-air voxel, examine
+ * its 3×3×3 neighborhood (26 neighbors). If the center block disagrees with
+ * the neighborhood majority, replace it with that majority block.
+ *
+ * Unlike smoothRareBlocks (which only targets globally rare blocks), this
+ * filter catches locally isolated blocks — e.g. a single brown_terracotta
+ * speck on a wall of smooth_sandstone. This produces the "stucco" effect
+ * of smooth contiguous surfaces.
+ *
+ * Protected blocks (glass, iron_bars, etc.) are never replaced.
+ *
+ * @param grid       Source BlockGrid (modified in place)
+ * @param passes     Number of smoothing passes (default: 2)
+ * @returns Total blocks replaced across all passes
+ */
+export function modeFilter3D(grid: BlockGrid, passes = 2): number {
+  const { width, height, length } = grid;
+
+  // Blocks to never replace (structural/detail elements)
+  const PROTECTED = new Set([
+    'minecraft:air',
+    'minecraft:glass', 'minecraft:glass_pane',
+    'minecraft:iron_bars', 'minecraft:iron_block',
+  ]);
+
+  let totalReplaced = 0;
+
+  for (let pass = 0; pass < passes; pass++) {
+    // Snapshot current state so replacements in this pass don't cascade
+    const snapshot: string[] = new Array(width * height * length);
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          snapshot[(y * length + z) * width + x] = grid.get(x, y, z);
+        }
+      }
+    }
+
+    let passReplaced = 0;
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          const center = snapshot[(y * length + z) * width + x];
+          if (PROTECTED.has(center)) continue;
+
+          // Count non-air neighbors in 3×3×3 cube from snapshot
+          const neighborCounts = new Map<string, number>();
+          let totalNeighbors = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            const ny = y + dy;
+            if (ny < 0 || ny >= height) continue;
+            for (let dz = -1; dz <= 1; dz++) {
+              const nz = z + dz;
+              if (nz < 0 || nz >= length) continue;
+              for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0 && dz === 0) continue;
+                const nx = x + dx;
+                if (nx < 0 || nx >= width) continue;
+                const nb = snapshot[(ny * length + nz) * width + nx];
+                if (nb === 'minecraft:air') continue;
+                neighborCounts.set(nb, (neighborCounts.get(nb) ?? 0) + 1);
+                totalNeighbors++;
+              }
+            }
+          }
+
+          if (totalNeighbors === 0) continue;
+
+          // Find the majority neighbor block
+          let majorityBlock = center;
+          let majorityCount = 0;
+          for (const [block, count] of neighborCounts) {
+            if (count > majorityCount) {
+              majorityCount = count;
+              majorityBlock = block;
+            }
+          }
+
+          // Replace if center disagrees with majority and majority is strong
+          // (needs >40% of neighbors to be the same block for replacement)
+          if (majorityBlock !== center && majorityCount > totalNeighbors * 0.4) {
+            grid.set(x, y, z, majorityBlock);
+            passReplaced++;
+          }
+        }
+      }
+    }
+
+    totalReplaced += passReplaced;
+    if (passReplaced === 0) break; // Converged early
+  }
+
+  return totalReplaced;
 }

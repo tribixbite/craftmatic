@@ -100,11 +100,11 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   { rgb: [125, 125, 125], options: ['minecraft:stone', 'minecraft:stone_bricks', 'minecraft:polished_andesite'] },
   { rgb: [122, 122, 122], options: ['minecraft:stone_bricks', 'minecraft:stone', 'minecraft:andesite'] },
   { rgb: [112, 108, 138], options: ['minecraft:light_blue_terracotta', 'minecraft:gray_terracotta', 'minecraft:gray_concrete'] },
-  // Dark grays / charcoal
-  { rgb: [76, 81, 84], options: ['minecraft:gray_concrete', 'minecraft:polished_deepslate', 'minecraft:deepslate_bricks'] },
-  { rgb: [54, 54, 62], options: ['minecraft:deepslate_bricks', 'minecraft:polished_blackstone', 'minecraft:blackstone'] },
-  { rgb: [24, 13, 14], options: ['minecraft:nether_bricks', 'minecraft:blackstone', 'minecraft:deepslate_bricks'] },
-  { rgb: [0, 0, 0], options: ['minecraft:deepslate_bricks', 'minecraft:blackstone', 'minecraft:polished_blackstone'] },
+  // Dark grays / charcoal — windows and deep shadows
+  { rgb: [76, 81, 84], options: ['minecraft:gray_stained_glass', 'minecraft:gray_concrete', 'minecraft:polished_deepslate'] },
+  { rgb: [54, 54, 62], options: ['minecraft:gray_stained_glass', 'minecraft:deepslate_bricks', 'minecraft:polished_blackstone'] },
+  { rgb: [24, 13, 14], options: ['minecraft:black_stained_glass', 'minecraft:nether_bricks', 'minecraft:blackstone'] },
+  { rgb: [0, 0, 0], options: ['minecraft:black_stained_glass', 'minecraft:deepslate_bricks', 'minecraft:blackstone'] },
   // Reds / brick tones
   { rgb: [233, 107, 57], options: ['minecraft:bricks', 'minecraft:nether_bricks'] },
   { rgb: [150, 97, 83], options: ['minecraft:bricks', 'minecraft:terracotta', 'minecraft:red_nether_bricks'] },
