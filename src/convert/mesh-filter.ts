@@ -2057,6 +2057,45 @@ export function cropToCenter(grid: BlockGrid, radius: number): number {
   return removed;
 }
 
+/**
+ * Crop grid to an axis-aligned bounding box (AABB).
+ * Unlike circular cropToCenter, this preserves rectangular/triangular shapes.
+ * Keeps blocks within [minX..maxX, minZ..maxZ] and removes everything outside.
+ *
+ * @param grid     Mutable BlockGrid
+ * @param minX     Min X boundary (inclusive)
+ * @param maxX     Max X boundary (inclusive)
+ * @param minZ     Min Z boundary (inclusive)
+ * @param maxZ     Max Z boundary (inclusive)
+ * @param margin   Extra blocks around the AABB to keep (default: 2)
+ * @returns Number of blocks removed
+ */
+export function cropToAABB(
+  grid: BlockGrid, minX: number, maxX: number, minZ: number, maxZ: number, margin = 2,
+): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const lo_x = Math.max(0, minX - margin);
+  const hi_x = Math.min(width - 1, maxX + margin);
+  const lo_z = Math.max(0, minZ - margin);
+  const hi_z = Math.min(length - 1, maxZ + margin);
+  let removed = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) === AIR) continue;
+        if (x < lo_x || x > hi_x || z < lo_z || z > hi_z) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
 // ─── Auto-Detection Analyzer ─────────────────────────────────────────────────
 
 /** Building shape classification from volumetric analysis */
@@ -2117,7 +2156,8 @@ export interface AnalysisResult {
     noFireEscape: boolean;
     smoothPct: number;
     modePasses: number;
-    cropRadius: number;
+    cropRadius: number;       // circular crop (0 = skip)
+    useAABBCrop: boolean;     // use AABB crop instead of circular (shape-preserving)
     cleanMinSize: number;
     remaps: Map<string, string>;
   };
@@ -2319,29 +2359,82 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
   const centralH = cMaxY - cMinY + 1;
   const centralL = cMaxZ - cMinZ + 1;
   const maxFootprint = Math.max(centralW, centralL);
-  const minFootprint = Math.min(centralW, centralL);
   const aspectRatio = centralH / Math.max(maxFootprint, 1);
 
-  // Footprint fill at mid-height of central component
+  // Footprint fill via ray-containment at mid-height.
+  // Surface-mode voxelization produces hollow shells, so counting solid voxels
+  // gives low fill (22%) for rectangular buildings. Instead, for each XZ column
+  // cast rays in ±X direction: if both hit solid blocks, column is "inside".
   const midY = Math.floor((cMinY + cMaxY) / 2);
-  let fpFilled = 0;
+  let fpContained = 0;
   const fpTotal = centralW * centralL;
   for (let z = cMinZ; z <= cMaxZ; z++) {
     for (let x = cMinX; x <= cMaxX; x++) {
-      if (labels[(midY * length + z) * width + x] === centralLabel) {
-        fpFilled++;
+      // Cast +X ray from this column
+      let hitPosX = false;
+      for (let rx = x + 1; rx <= cMaxX; rx++) {
+        if (labels[(midY * length + z) * width + rx] === centralLabel) { hitPosX = true; break; }
+      }
+      // Cast -X ray
+      let hitNegX = false;
+      for (let rx = x - 1; rx >= cMinX; rx--) {
+        if (labels[(midY * length + z) * width + rx] === centralLabel) { hitNegX = true; break; }
+      }
+      // Cast +Z ray
+      let hitPosZ = false;
+      for (let rz = z + 1; rz <= cMaxZ; rz++) {
+        if (labels[(midY * length + rz) * width + x] === centralLabel) { hitPosZ = true; break; }
+      }
+      // Cast -Z ray
+      let hitNegZ = false;
+      for (let rz = z - 1; rz >= cMinZ; rz--) {
+        if (labels[(midY * length + rz) * width + x] === centralLabel) { hitNegZ = true; break; }
+      }
+      // Column is "contained" if enclosed from all 4 directions (or is itself solid)
+      if ((hitPosX && hitNegX && hitPosZ && hitNegZ) ||
+          labels[(midY * length + z) * width + x] === centralLabel) {
+        fpContained++;
       }
     }
   }
-  const footprintFill = fpTotal > 0 ? fpFilled / fpTotal : 0;
+  const footprintFill = fpTotal > 0 ? fpContained / fpTotal : 0;
 
-  // Classify building shape
+  // Classify building shape.
+  // Ray-containment footprintFill for surface-mode voxels:
+  //   >0.25 = enclosed shell (typical building with thin surface walls)
+  //   <0.25 = scattered/complex (multiple disconnected structures)
+  // Quadrant analysis distinguishes rectangular from triangular footprints.
+  const isEnclosed = footprintFill > 0.25;
+
+  // Count occupied quadrants at mid-height to detect wedge shapes.
+  // Divide central AABB into 4 quadrants; count how many have solid blocks.
+  const midCX = Math.floor((cMinX + cMaxX) / 2);
+  const midCZ = Math.floor((cMinZ + cMaxZ) / 2);
+  const quadrants = [0, 0, 0, 0]; // NW, NE, SW, SE
+  for (let z = cMinZ; z <= cMaxZ; z++) {
+    for (let x = cMinX; x <= cMaxX; x++) {
+      if (labels[(midY * length + z) * width + x] !== centralLabel) continue;
+      const qx = x >= midCX ? 1 : 0;
+      const qz = z >= midCZ ? 1 : 0;
+      quadrants[qz * 2 + qx]++;
+    }
+  }
+  // A quadrant is "occupied" if it has >10% of average quadrant fill
+  const avgQuadrant = quadrants.reduce((s, v) => s + v, 0) / 4;
+  const occupiedQuadrants = quadrants.filter(q => q > avgQuadrant * 0.1).length;
+  // Flatiron/wedge: 2-3 occupied quadrants (one corner empty)
+  // Rectangular: all 4 quadrants occupied with similar density
+  const quadrantBalance = Math.min(...quadrants) / Math.max(1, Math.max(...quadrants));
+  const isWedge = isEnclosed && occupiedQuadrants <= 3 && quadrantBalance < 0.3;
+  const isRectangular = isEnclosed && !isWedge;
+
   let typology: BuildingTypology;
-  const isRectangular = footprintFill > 0.7;
   if (aspectRatio > 1.5) {
     typology = 'tower';
-  } else if (!isRectangular && minFootprint / maxFootprint < 0.5) {
+  } else if (isWedge) {
     typology = 'flatiron';
+  } else if (!isEnclosed) {
+    typology = 'complex';
   } else if (isRectangular && centralH > 10) {
     typology = 'block';
   } else if (centralH <= 10) {
@@ -2484,15 +2577,22 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
   confidence = Math.max(1, Math.min(10, confidence));
 
   // ── Build recommended pipeline args ──
+  // Use AABB crop for non-rectangular buildings (preserves shape), circular for rectangular
+  const needsCrop = componentCount > 1;
+  const useAABBCrop = needsCrop && (typology === 'flatiron' || typology === 'complex');
+  // solidifyCore works for rectangular buildings (block, tower, house).
+  // Non-rectangular (flatiron, complex) need generic mode to preserve shape.
+  const useGeneric = typology === 'flatiron' || typology === 'complex';
   const recommended = {
-    generic: !isRectangular || typology === 'flatiron' || typology === 'complex',
+    generic: useGeneric,
     fill: true,
     noPalette: true,
     noCornice: !isFlatRoof || typology === 'house',
     noFireEscape: typology !== 'block' || centralH < 15,
     smoothPct: noisePct > 10 ? 0.03 : 0.02,
     modePasses: noisePct > 10 ? 3 : 2,
-    cropRadius: componentCount > 1 ? suggestedCropRadius : 0,
+    cropRadius: needsCrop && !useAABBCrop ? suggestedCropRadius : 0,
+    useAABBCrop,
     cleanMinSize: suggestedClean,
     remaps: suggestedRemaps,
   };

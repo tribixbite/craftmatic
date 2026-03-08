@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice, removeSmallComponents, cropToCenter, analyzeGrid } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice, removeSmallComponents, cropToCenter, cropToAABB, analyzeGrid } from '../src/convert/mesh-filter.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
@@ -854,7 +854,12 @@ async function main(): Promise<void> {
     // Apply auto recommendations (only override non-explicitly-set params)
     const rec = analysis.recommended;
     console.log(`\n  Recommended: ${rec.generic ? '--generic' : 'solidifyCore'} ${rec.fill ? '--fill' : ''} ${rec.noPalette ? '--no-palette' : ''} ${rec.noCornice ? '--no-cornice' : ''} ${rec.noFireEscape ? '--no-fire-escape' : ''}`);
-    if (rec.cropRadius > 0) console.log(`  Recommended: --crop ${rec.cropRadius}`);
+    if (rec.useAABBCrop) {
+      const aabb = analysis.centralAABB;
+      console.log(`  Recommended: AABB crop [${aabb.minX}..${aabb.maxX}] x [${aabb.minZ}..${aabb.maxZ}] (shape-preserving)`);
+    } else if (rec.cropRadius > 0) {
+      console.log(`  Recommended: --crop ${rec.cropRadius} (circular)`);
+    }
     if (rec.cleanMinSize > 0) console.log(`  Recommended: --clean ${rec.cleanMinSize}`);
     if (rec.remaps.size > 0) {
       const remapStr = [...rec.remaps.entries()].map(([f, t]) => `${f.replace('minecraft:', '')}=${t.replace('minecraft:', '')}`).join(' ');
@@ -875,6 +880,15 @@ async function main(): Promise<void> {
     // Merge auto remaps with explicit --remap (explicit wins)
     for (const [from, to] of rec.remaps) {
       if (!args.remaps.has(from)) args.remaps.set(from, to);
+    }
+
+    // Apply AABB crop if recommended (shape-preserving alternative to circular crop)
+    if (rec.useAABBCrop) {
+      const aabb = analysis.centralAABB;
+      const cropped = cropToAABB(trimmed, aabb.minX, aabb.maxX, aabb.minZ, aabb.maxZ, 2);
+      if (cropped > 0) {
+        console.log(`AABB crop: ${cropped} blocks removed (keeping [${aabb.minX}-${aabb.maxX}] x [${aabb.minZ}-${aabb.maxZ}] + 2 margin)`);
+      }
     }
   }
 
