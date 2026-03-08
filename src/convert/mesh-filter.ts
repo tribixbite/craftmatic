@@ -1436,12 +1436,24 @@ export function verticalRectify(
  */
 export function glazeBackplane(
   grid: BlockGrid,
-  facadeDepth = 4,
-  windowBlock = 'minecraft:gray_stained_glass',
+  maxDepth = 8,
+  windowBlock = 'minecraft:gray_concrete',
 ): number {
   const { width, height, length } = grid;
   const AIR = 'minecraft:air';
   let glazed = 0;
+
+  // Per-face deep raycast: cast rays inward from each AABB face.
+  // When a ray crosses solid → air → solid (void in the wall), place a window
+  // block at the last air position before the back wall. This restores
+  // "window" appearance at the back of carved balcony/recess voids.
+  //
+  // Ray phases per cast:
+  // 1. Skip leading air (outside building)
+  // 2. Skip leading solid (outer wall)
+  // 3. Traverse air (carved void / balcony)
+  // 4. Hit solid (back wall) → place window at last air position
+  // Only processes the first void per ray to avoid filling deep interiors.
 
   for (let y = 0; y < height; y++) {
     // Find AABB for this layer
@@ -1458,32 +1470,75 @@ export function glazeBackplane(
     }
     if (maxX < 0) continue;
 
-    // Strategy: only glaze air blocks that are clearly enclosed window slots.
-    // Requirements: air in facade zone with ≥3 solid XZ neighbors AND
-    // solid above AND below. This catches narrow window slots carved into
-    // thick walls but skips wide-open balcony voids and building surfaces.
-    for (let z = minZ; z <= maxZ; z++) {
-      for (let x = minX; x <= maxX; x++) {
-        if (grid.get(x, y, z) !== AIR) continue;
+    // Define 4 face directions: [start, step, perpAxis, perpRange]
+    // For each face, cast rays from the face inward
+    const faces: Array<{
+      perpIter: () => Generator<[number, number]>;
+      rayStart: (p: number, q: number) => [number, number];
+      rayStep: [number, number]; // [dx, dz]
+    }> = [
+      { // Left face (X=minX, cast +X)
+        perpIter: function*() { for (let z = minZ; z <= maxZ; z++) yield [0, z]; },
+        rayStart: (_p, z) => [minX, z],
+        rayStep: [1, 0],
+      },
+      { // Right face (X=maxX, cast -X)
+        perpIter: function*() { for (let z = minZ; z <= maxZ; z++) yield [0, z]; },
+        rayStart: (_p, z) => [maxX, z],
+        rayStep: [-1, 0],
+      },
+      { // Front face (Z=minZ, cast +Z)
+        perpIter: function*() { for (let x = minX; x <= maxX; x++) yield [x, 0]; },
+        rayStart: (x, _q) => [x, minZ],
+        rayStep: [0, 1],
+      },
+      { // Back face (Z=maxZ, cast -Z)
+        perpIter: function*() { for (let x = minX; x <= maxX; x++) yield [x, 0]; },
+        rayStart: (x, _q) => [x, maxZ],
+        rayStep: [0, -1],
+      },
+    ];
 
-        const edgeDist = Math.min(
-          x - minX, maxX - x,
-          z - minZ, maxZ - z,
-        );
-        if (edgeDist >= facadeDepth || edgeDist < 1) continue;
+    for (const face of faces) {
+      for (const [p, q] of face.perpIter()) {
+        const [sx, sz] = face.rayStart(p, q);
+        const [dx, dz] = face.rayStep;
 
-        // Count total solid neighbors (6-connected: ±X, ±Y, ±Z)
-        let solidN = 0;
-        if (x > 0 && grid.get(x - 1, y, z) !== AIR) solidN++;
-        if (x < width - 1 && grid.get(x + 1, y, z) !== AIR) solidN++;
-        if (z > 0 && grid.get(x, y, z - 1) !== AIR) solidN++;
-        if (z < length - 1 && grid.get(x, y, z + 1) !== AIR) solidN++;
-        if (y > 0 && grid.get(x, y - 1, z) !== AIR) solidN++;
-        if (y < height - 1 && grid.get(x, y + 1, z) !== AIR) solidN++;
-        // Need ≥4 solid of 6 neighbors: enclosed air pocket (window in wall)
-        if (solidN >= 4) {
-          grid.set(x, y, z, windowBlock);
-          glazed++;
+        let phase = 0; // 0=outside, 1=wall, 2=void
+        let lastAirX = -1, lastAirZ = -1;
+
+        for (let d = 0; d < maxDepth; d++) {
+          const rx = sx + dx * d;
+          const rz = sz + dz * d;
+          if (rx < 0 || rx >= width || rz < 0 || rz >= length) break;
+
+          const block = grid.get(rx, y, rz);
+          const isAir = block === AIR;
+
+          if (phase === 0) {
+            // Phase 0: outside building — skip air, advance to wall on first solid
+            if (!isAir) phase = 1;
+          } else if (phase === 1) {
+            // Phase 1: traversing outer wall — skip solid, enter void on first air
+            if (isAir) {
+              phase = 2;
+              lastAirX = rx;
+              lastAirZ = rz;
+            }
+          } else if (phase === 2) {
+            // Phase 2: traversing void — track last air position
+            if (isAir) {
+              lastAirX = rx;
+              lastAirZ = rz;
+            } else {
+              // Hit back wall — place window at last air position
+              if (lastAirX >= 0 && grid.get(lastAirX, y, lastAirZ) === AIR) {
+                grid.set(lastAirX, y, lastAirZ, windowBlock);
+                glazed++;
+              }
+              break; // Done with this ray
+            }
+          }
         }
       }
     }
@@ -1762,4 +1817,98 @@ export function fireEscapeFilter(
   }
 
   return converted;
+}
+
+/**
+ * Add a Spanish/Mediterranean roof cornice to the top of the building.
+ *
+ * Scans the height map to find the roofline, then adds:
+ * 1. A clay tile cap (bricks/terracotta) replacing the topmost wall blocks
+ * 2. A 1-block overhang (eave) protruding outward from perimeter edges
+ *
+ * This breaks the flat-top box silhouette that is common in voxelized
+ * photogrammetry and adds the architectural "hat" that defines the style.
+ *
+ * @param grid       Source BlockGrid (modified in place)
+ * @param tileBlock  Block for clay roof tiles (default: bricks)
+ * @param eaveBlock  Block for wooden eave overhang (default: spruce_planks)
+ * @returns          Number of blocks placed/changed
+ */
+export function addRoofCornice(
+  grid: BlockGrid,
+  tileBlock = 'minecraft:bricks',
+  eaveBlock = 'minecraft:spruce_planks',
+): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let placed = 0;
+
+  // Build height map: for each (x, z) find highest non-air Y
+  const heightMap = new Int32Array(width * length).fill(-1);
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = height - 1; y >= 0; y--) {
+        if (grid.get(x, y, z) !== AIR) {
+          heightMap[z * width + x] = y;
+          break;
+        }
+      }
+    }
+  }
+
+  // Find global roof level: the mode (most frequent) of the height map,
+  // excluding ground-level and air columns. This is the building's roofline.
+  const hCounts = new Map<number, number>();
+  for (let i = 0; i < heightMap.length; i++) {
+    const h = heightMap[i];
+    if (h > 2) hCounts.set(h, (hCounts.get(h) ?? 0) + 1);
+  }
+  let roofY = -1;
+  let roofCount = 0;
+  for (const [h, c] of hCounts) {
+    if (c > roofCount) { roofY = h; roofCount = c; }
+  }
+  if (roofY < 3) return 0; // No clear roofline
+
+  // Phase 1: Replace top blocks at roof level with clay tile
+  // Only replace blocks that ARE at the roof level (not recessed lower areas)
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const h = heightMap[z * width + x];
+      if (h === roofY && grid.get(x, h, z) !== AIR) {
+        grid.set(x, h, z, tileBlock);
+        placed++;
+      }
+    }
+  }
+
+  // Phase 2: Add eave overhang — place blocks 1 position outward from the
+  // roof perimeter at roof level. An edge block is one at roofY where at
+  // least one horizontal neighbor is air or out of bounds.
+  const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const h = heightMap[z * width + x];
+      if (h !== roofY) continue;
+
+      // Check if this is a perimeter block (has air neighbor at roof level)
+      for (const [dx, dz] of directions) {
+        const nx = x + dx;
+        const nz = z + dz;
+        const neighborIsAir =
+          nx < 0 || nx >= width || nz < 0 || nz >= length ||
+          grid.get(nx, roofY, nz) === AIR;
+
+        if (neighborIsAir && nx >= 0 && nx < width && nz >= 0 && nz < length) {
+          // Place eave at the air neighbor position if it's empty
+          if (grid.get(nx, roofY, nz) === AIR) {
+            grid.set(nx, roofY, nz, eaveBlock);
+            placed++;
+          }
+        }
+      }
+    }
+  }
+
+  return placed;
 }
