@@ -55,6 +55,7 @@ interface CLIArgs {
   outputPath: string;
   infoOnly: boolean;
   generic: boolean;
+  preview: boolean;
 }
 
 function parseArgs(): CLIArgs {
@@ -73,7 +74,8 @@ Options:
   --output, -o       Output .schem path (default: <input-stem>.schem)
   --info             Print mesh stats and exit (no voxelize)
   --generic          Skip building-specific post-processing (palette remap, fire escape, cornice)
-  --desaturate-off   Disable desaturation (preserve original colors)`);
+  --desaturate-off   Disable desaturation (preserve original colors)
+  --preview          Quick raw voxelize (no post-processing) for visual quality check`);
     process.exit(0);
   }
 
@@ -90,6 +92,7 @@ Options:
   let infoOnly = false;
   let generic = false;
   let desaturateOff = false;
+  let preview = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -115,6 +118,8 @@ Options:
       generic = true;
     } else if (arg === '--desaturate-off') {
       desaturateOff = true;
+    } else if (arg === '--preview') {
+      preview = true;
     } else if (!arg.startsWith('-')) {
       inputPath = arg;
     }
@@ -134,7 +139,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -591,6 +596,102 @@ async function main(): Promise<void> {
   console.log(`Grid estimate: ${Math.ceil(size.x * args.resolution)} x ${Math.ceil(size.y * args.resolution)} x ${Math.ceil(size.z * args.resolution)} blocks @ ${args.resolution} block/m`);
 
   if (args.infoOnly) {
+    // Quality assessment — predict voxelization quality from mesh stats
+    reorientToENU(scene);
+    const enuBox = new THREE.Box3().setFromObject(scene);
+    const enuSize = new THREE.Vector3();
+    enuBox.getSize(enuSize);
+    console.log(`ENU dimensions: ${enuSize.x.toFixed(1)} x ${enuSize.y.toFixed(1)} x ${enuSize.z.toFixed(1)} m`);
+
+    // Vertex density — higher = more surface detail
+    const volume = enuSize.x * enuSize.y * enuSize.z;
+    const surfaceArea = 2 * (enuSize.x * enuSize.y + enuSize.y * enuSize.z + enuSize.x * enuSize.z);
+    const vertDensity = stats.vertexCount / Math.max(surfaceArea, 1);
+    console.log(`Vertex density: ${vertDensity.toFixed(1)} verts/m² surface`);
+
+    // Aspect ratio — tall/narrow buildings work better
+    const footprint = Math.max(enuSize.x, enuSize.z);
+    const aspect = enuSize.y / Math.max(footprint, 1);
+    console.log(`Aspect ratio: ${aspect.toFixed(2)} (height/footprint)`);
+
+    // Texture info — count textured meshes and total resolution
+    let texturedMeshes = 0;
+    let totalTexPixels = 0;
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        const mat = child.material as THREE.MeshStandardMaterial;
+        if (mat?.map) {
+          texturedMeshes++;
+          const img = mat.map.image;
+          if (img && img.width) totalTexPixels += img.width * img.height;
+        }
+      }
+    });
+    console.log(`Textured meshes: ${texturedMeshes}/${stats.meshCount} | Total texture: ${(totalTexPixels / 1e6).toFixed(1)} Mpx`);
+
+    // Height-filter analysis — how much geometry survives filtering?
+    const candidates: Array<{ child: THREE.Mesh; worldBox: THREE.Box3 }> = [];
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        child.updateWorldMatrix(true, false);
+        const worldBox = new THREE.Box3().setFromObject(child);
+        candidates.push({ child, worldBox });
+      }
+    });
+    const { kept, groundY, heightFiltered } = filterMeshesByHeight(candidates, args.minHeight);
+    const keptVertices = kept.reduce((sum, k) => {
+      const geo = k.child.geometry as THREE.BufferGeometry;
+      return sum + (geo.attributes.position?.count || 0);
+    }, 0);
+    const vertexSurvival = stats.vertexCount > 0 ? keptVertices / stats.vertexCount : 0;
+    console.log(`Height filter: ${kept.length}/${candidates.length} meshes kept (${(vertexSurvival * 100).toFixed(0)}% vertices survive)`);
+
+    // Kept meshes bounding box — the actual building extent
+    if (kept.length > 0) {
+      const keptBox = new THREE.Box3();
+      for (const k of kept) keptBox.union(k.worldBox);
+      const keptSize = new THREE.Vector3();
+      keptBox.getSize(keptSize);
+      const buildingH = keptSize.y;
+      const buildingW = Math.max(keptSize.x, keptSize.z);
+      console.log(`Building extent: ${keptSize.x.toFixed(1)} x ${keptSize.y.toFixed(1)} x ${keptSize.z.toFixed(1)} m`);
+      console.log(`Building height: ${buildingH.toFixed(1)}m | Width: ${buildingW.toFixed(1)}m | H/W: ${(buildingH / Math.max(buildingW, 1)).toFixed(2)}`);
+    }
+
+    // Quality prediction
+    console.log(`\n--- Quality Assessment ---`);
+    const issues: string[] = [];
+    const strengths: string[] = [];
+
+    if (!stats.hasTextures) issues.push('No textures — will produce monochrome output');
+    else if (texturedMeshes === stats.meshCount) strengths.push('All meshes textured');
+
+    // Vertex survival after height filter — high = building dominates, low = mostly terrain
+    if (vertexSurvival < 0.5) issues.push(`Only ${(vertexSurvival * 100).toFixed(0)}% verts above ground — mostly terrain/ground`);
+    else if (vertexSurvival > 0.8) strengths.push(`${(vertexSurvival * 100).toFixed(0)}% verts above ground — building dominates`);
+
+    if (aspect < 0.3) issues.push('Very wide/flat — solidifyCore may merge multiple structures');
+    else if (aspect > 0.6) strengths.push(`Tall profile (aspect ${aspect.toFixed(2)})`);
+
+    if (footprint > 45) issues.push(`Large footprint (${footprint.toFixed(0)}m) — likely captures neighbors`);
+    else if (footprint < 25) strengths.push('Compact footprint — likely single building');
+
+    if (stats.meshCount > 15) issues.push(`Many meshes (${stats.meshCount}) — complex scene`);
+
+    // Triangles per vertex — higher = more complex surfaces (trees/foliage vs flat walls)
+    const triPerVert = stats.triangleCount / Math.max(stats.vertexCount, 1);
+    if (triPerVert > 1.2) issues.push(`High tri/vert ratio (${triPerVert.toFixed(2)}) — complex geometry (trees?)`);
+    else if (triPerVert < 0.8) strengths.push('Simple geometry (flat surfaces)');
+
+    if (strengths.length > 0) console.log(`+ ${strengths.join('\n+ ')}`);
+    if (issues.length > 0) console.log(`- ${issues.join('\n- ')}`);
+
+    const score = strengths.length - issues.length;
+    const verdict = score >= 2 ? 'GOOD — proceed with default pipeline'
+                  : score >= 0 ? 'FAIR — try --generic or adjust capture radius'
+                  : 'POOR — recapture with tighter radius or different address';
+    console.log(`\nVerdict: ${verdict}`);
+
     console.log(`\nLoaded in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
     return;
   }
@@ -650,6 +751,21 @@ async function main(): Promise<void> {
   });
   process.stdout.write('\n');
   console.log(`Voxelized in ${((performance.now() - tVox) / 1000).toFixed(1)}s`);
+
+  // Preview mode — output raw voxelization with only trim, no post-processing.
+  // Use this to visually assess GLB quality before committing to full pipeline.
+  if (args.preview) {
+    const trimmed = trimSparseBottomLayers(grid, args.trimThreshold);
+    const nonAir = trimmed.countNonAir();
+    console.log(`\n[PREVIEW] Raw surface voxelization (no post-processing)`);
+    console.log(`Grid: ${trimmed.width}x${trimmed.height}x${trimmed.length} | Blocks: ${nonAir.toLocaleString()} | Palette: ${trimmed.palette.size}`);
+    writeSchematic(trimmed, args.outputPath);
+    const fileSize = Bun.file(args.outputPath).size;
+    console.log(`Wrote: ${args.outputPath} (${fileSize.toLocaleString()} bytes)`);
+    console.log(`Total: ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+    console.log(`\nView: copy to web/public/ and open ?tab=upload&file=<name>.schem`);
+    return;
+  }
 
   // Trim sparse bottom layers
   const trimmed = trimSparseBottomLayers(grid, args.trimThreshold);
