@@ -865,7 +865,24 @@ async function main(): Promise<void> {
       const remapStr = [...rec.remaps.entries()].map(([f, t]) => `${f.replace('minecraft:', '')}=${t.replace('minecraft:', '')}`).join(' ');
       console.log(`  Recommended: --remap ${remapStr}`);
     }
-    console.log(`  Analysis: ${((performance.now() - tAuto) / 1000).toFixed(1)}s\n`);
+    console.log(`  Analysis: ${((performance.now() - tAuto) / 1000).toFixed(1)}s`);
+
+    // Print reproducible CLI command for manual fine-tuning
+    const parts: string[] = ['bun scripts/voxelize-glb.ts', args.inputPath];
+    if (rec.generic) parts.push('--generic');
+    if (rec.fill) parts.push('--fill');
+    if (rec.noPalette) parts.push('--no-palette');
+    if (rec.noCornice) parts.push('--no-cornice');
+    if (rec.noFireEscape) parts.push('--no-fire-escape');
+    parts.push(`--smooth-pct ${rec.smoothPct}`);
+    parts.push(`--mode-passes ${rec.modePasses}`);
+    if (rec.cropRadius > 0) parts.push(`--crop ${rec.cropRadius}`);
+    if (rec.cleanMinSize > 0) parts.push(`--clean ${rec.cleanMinSize}`);
+    for (const [from, to] of rec.remaps) {
+      parts.push(`--remap ${from.replace('minecraft:', '')}=${to.replace('minecraft:', '')}`);
+    }
+    if (args.outputPath) parts.push(`-o ${args.outputPath}`);
+    console.log(`\n  Equivalent CLI:\n  ${parts.join(' \\\n    ')}\n`);
 
     // Override args with auto recommendations
     args.generic = rec.generic;
