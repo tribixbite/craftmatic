@@ -1680,3 +1680,86 @@ export function solidifyCore(grid: BlockGrid, facadeDepth = 4, minFill = 0.01): 
 
   return totalFilled;
 }
+
+/**
+ * Replace solid facade blocks in a central vertical strip with thin bars
+ * to simulate a fire escape or other metalwork feature.
+ *
+ * Identifies the center X range (configurable %) and replaces solid blocks
+ * in the facade zone with iron_bars if the block has air on the outward side
+ * (i.e., it's a protruding element, not the back wall). Converts "chunky noise"
+ * from photogrammetry into thin, architectural metalwork.
+ *
+ * @param grid          Source BlockGrid (modified in place)
+ * @param facadeDepth   Facade zone depth from edges
+ * @param centerStart   Start of center zone as fraction of width (0-1, default: 0.38)
+ * @param centerEnd     End of center zone as fraction of width (0-1, default: 0.62)
+ * @param barBlock      Block to use for the bars (default: iron_bars)
+ * @returns Number of blocks converted to bars
+ */
+export function fireEscapeFilter(
+  grid: BlockGrid,
+  facadeDepth = 4,
+  centerStart = 0.38,
+  centerEnd = 0.62,
+  barBlock = 'minecraft:iron_bars',
+): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let converted = 0;
+
+  // Absolute X range for the center zone
+  const xMin = Math.floor(width * centerStart);
+  const xMax = Math.ceil(width * centerEnd);
+
+  for (let y = 0; y < height; y++) {
+    // Per-layer AABB
+    let lMinX = width, lMaxX = -1, lMinZ = length, lMaxZ = -1;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) {
+          if (x < lMinX) lMinX = x;
+          if (x > lMaxX) lMaxX = x;
+          if (z < lMinZ) lMinZ = z;
+          if (z > lMaxZ) lMaxZ = z;
+        }
+      }
+    }
+    if (lMaxX < 0) continue;
+
+    for (let z = lMinZ; z <= lMaxZ; z++) {
+      for (let x = xMin; x <= xMax; x++) {
+        if (x < lMinX || x > lMaxX) continue;
+        const block = grid.get(x, y, z);
+        if (block === AIR || block === barBlock) continue;
+
+        const edgeDist = Math.min(
+          x - lMinX, lMaxX - x,
+          z - lMinZ, lMaxZ - z,
+        );
+        if (edgeDist >= facadeDepth) continue; // Skip core
+
+        // Check if the outward direction (toward nearest edge) has air.
+        // If so, this block is a protruding element → convert to bars.
+        const dLeft = x - lMinX;
+        const dRight = lMaxX - x;
+        const dFront = z - lMinZ;
+        const dBack = lMaxZ - z;
+
+        let outX = x, outZ = z;
+        if (dLeft <= dRight && dLeft <= dFront && dLeft <= dBack) outX = x - 1;
+        else if (dRight <= dLeft && dRight <= dFront && dRight <= dBack) outX = x + 1;
+        else if (dFront <= dBack) outZ = z - 1;
+        else outZ = z + 1;
+
+        if (outX < 0 || outX >= width || outZ < 0 || outZ >= length) continue;
+        if (grid.get(outX, y, outZ) === AIR) {
+          grid.set(x, y, z, barBlock);
+          converted++;
+        }
+      }
+    }
+  }
+
+  return converted;
+}
