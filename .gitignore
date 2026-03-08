@@ -9,6 +9,7 @@ coverage/
 .env.*
 *.schem
 *.litematic
+*.glb
 *.png
 # But include bundled texture assets and docs images
 !textures/**/*.png
