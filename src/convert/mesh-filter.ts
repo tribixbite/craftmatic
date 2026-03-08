@@ -2508,14 +2508,27 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     'minecraft:dark_prismarine', 'minecraft:warped_planks',
   ]);
 
+  const WHITE_BLOCKS = new Set([
+    'minecraft:smooth_quartz', 'minecraft:white_concrete', 'minecraft:quartz_block',
+    'minecraft:snow_block', 'minecraft:iron_block',
+  ]);
+
   if (WARM_BLOCKS.has(dominantBlock) || WARM_BLOCKS.has(secondaryBlock)) {
+    // Warm stucco building — remap shadows to sandstone family
     suggestedRemaps.set('minecraft:gray_concrete', 'minecraft:sandstone');
     suggestedRemaps.set('minecraft:light_gray_concrete', 'minecraft:smooth_sandstone');
     suggestedRemaps.set('minecraft:stone', 'minecraft:sandstone');
   } else if (COOL_BLOCKS.has(dominantBlock) || COOL_BLOCKS.has(secondaryBlock)) {
+    // Copper/green building — remap to prismarine family
     suggestedRemaps.set('minecraft:gray_concrete', 'minecraft:dark_prismarine');
     suggestedRemaps.set('minecraft:light_gray_concrete', 'minecraft:prismarine');
     suggestedRemaps.set('minecraft:white_concrete', 'minecraft:prismarine');
+  } else if (WHITE_BLOCKS.has(dominantBlock) || WHITE_BLOCKS.has(secondaryBlock)) {
+    // White/light gray building — remap dark shadow artifacts to quartz/concrete
+    suggestedRemaps.set('minecraft:stone', 'minecraft:light_gray_concrete');
+    suggestedRemaps.set('minecraft:andesite', 'minecraft:light_gray_concrete');
+    suggestedRemaps.set('minecraft:stone_bricks', 'minecraft:light_gray_concrete');
+    suggestedRemaps.set('minecraft:cobblestone', 'minecraft:light_gray_concrete');
   }
 
   // ── 7. Noise estimation ──
@@ -2583,10 +2596,13 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
   // solidifyCore works for rectangular buildings (block, tower, house).
   // Non-rectangular (flatiron, complex) need generic mode to preserve shape.
   const useGeneric = typology === 'flatiron' || typology === 'complex';
+  // Use full palette only for white/gray rectangular buildings where it was tuned.
+  // Non-rectangular and colored buildings need colors preserved.
+  const wantFullPalette = !useGeneric && (WHITE_BLOCKS.has(dominantBlock) || WHITE_BLOCKS.has(secondaryBlock));
   const recommended = {
     generic: useGeneric,
     fill: true,
-    noPalette: true,
+    noPalette: !wantFullPalette,
     noCornice: !isFlatRoof || typology === 'house',
     noFireEscape: typology !== 'block' || centralH < 15,
     smoothPct: noisePct > 10 ? 0.03 : 0.02,
