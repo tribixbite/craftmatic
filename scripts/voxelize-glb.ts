@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
 
@@ -750,17 +750,22 @@ async function main(): Promise<void> {
   // running down the center. After mode filter homogenizes to white, this
   // re-darkens the center column to match. Runs after all smoothing to prevent
   // mode filter from spreading/removing the dark strip.
-  const escapeCount = fireEscapeFilter(trimmed, 4, 0.38, 0.62, 'minecraft:gray_concrete');
-  console.log(`Fire escape filter: ${escapeCount} blocks → gray_concrete (center 38-62%)`);
+  const escapeCount = fireEscapeFilter(trimmed, 4, 0.38, 0.62, 'minecraft:black_concrete');
+  console.log(`Fire escape filter: ${escapeCount} blocks → black_concrete (center 38-62%)`);
 
-  // Glaze backplane — place window glass AFTER all smoothing/constraint steps.
-  // Must run last so glass blocks don't affect mode filter or palette remapping.
-  // Fills carved facade voids adjacent to the solid core with translucent glass,
-  // restoring window appearance in balcony/recess openings.
-  // Use light_blue_concrete instead of gray_stained_glass — transparent blocks
-  // cause WebGL rendering corruption on mobile (all blocks turn red).
-  const glazeCount = glazeBackplane(trimmed, 4, 'minecraft:light_blue_concrete');
-  console.log(`Backplane glazing: ${glazeCount} window blocks placed (light_blue_concrete)`);
+  // Glaze backplane — deep per-face raycast to find void back walls.
+  // Casts rays from each AABB face inward up to 8 blocks deep. When a ray
+  // crosses solid→air→solid, the last air position before the back wall gets
+  // a window block. Uses black_concrete (maximum contrast with white walls).
+  // Transparent blocks (glass/pane) cause WebGL rendering corruption on mobile.
+  const glazeCount = glazeBackplane(trimmed, 8, 'minecraft:black_concrete');
+  console.log(`Backplane glazing: ${glazeCount} window blocks placed (black_concrete, depth=8)`);
+
+  // Roof cornice — Spanish/Mediterranean clay tile cap with wooden eave overhang.
+  // Breaks the flat-top box silhouette. Uses bricks (clay tile) + spruce_planks
+  // (dark wood eaves). Runs last so the roof sits on top of all facade work.
+  const roofCount = addRoofCornice(trimmed, 'minecraft:bricks', 'minecraft:spruce_planks');
+  console.log(`Roof cornice: ${roofCount} blocks placed (bricks + spruce_planks)`);
 
   // Write output
   const nonAir = trimmed.countNonAir();
