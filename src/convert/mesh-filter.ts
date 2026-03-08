@@ -2561,85 +2561,127 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     .sort((a, b) => b[1] - a[1])[0][0];
 
   // ── 10. Entry/door detection ──
-  // Scan the front face at ground level for air gaps (potential doorways).
-  // A door is a contiguous run of air columns on the front face, close to center.
+  // Two strategies:
+  // A. Air gap scan — contiguous air runs in facade surface at ground level.
+  // B. Facade recession — spots where the wall is indented ≥2 blocks compared to neighbors.
+  //    Common for building entrances (recessed doorways, covered porticos).
   let entryPosition: { x: number; z: number } | null = null;
   let entryFace: FaceDirection = frontFace;
   let entryWidth = 0;
 
   {
-    // Scan bottom 3 layers of the central component on each face
     const doorScanH = Math.min(3, centralH);
-    type DoorCandidate = { x: number; z: number; width: number; distFromCenter: number };
+    type DoorCandidate = { x: number; z: number; width: number; distFromCenter: number; score: number };
     const candidates: DoorCandidate[] = [];
 
-    // For each face, find air gaps in the facade at ground level
     const faces: FaceDirection[] = ['+x', '-x', '+z', '-z'];
     for (const face of faces) {
       const isXFace = face === '+x' || face === '-x';
-      // Fixed coordinate along this face
       const fixedCoord = face === '+x' ? cMaxX : face === '-x' ? cMinX : face === '+z' ? cMaxZ : cMinZ;
       const sweepMin = isXFace ? cMinZ : cMinX;
       const sweepMax = isXFace ? cMaxZ : cMaxX;
       const sweepCenter = (sweepMin + sweepMax) / 2;
+      const isFrontFace = face === frontFace;
 
-      // Build occupancy array along the face at ground level
+      // Measure facade depth at each sweep position — how far from the AABB face
+      // to the first solid block along the face normal direction.
+      const depths: number[] = [];
       const occupied: boolean[] = [];
       for (let s = sweepMin; s <= sweepMax; s++) {
+        let minDepth = Infinity;
         let hasBlock = false;
         for (let dy = 0; dy < doorScanH; dy++) {
           const y = cMinY + dy;
           if (y >= height) break;
-          const x = isXFace ? fixedCoord : s;
-          const z = isXFace ? s : fixedCoord;
-          if (grid.inBounds(x, y, z) && grid.get(x, y, z) !== AIR) {
-            hasBlock = true;
-            break;
+          // Ray inward from face boundary to find first solid block
+          const maxProbe = 6; // probe up to 6 blocks deep
+          for (let d = 0; d < maxProbe; d++) {
+            let px: number, pz: number;
+            if (face === '+x') { px = cMaxX - d; pz = s; }
+            else if (face === '-x') { px = cMinX + d; pz = s; }
+            else if (face === '+z') { px = s; pz = cMaxZ - d; }
+            else { px = s; pz = cMinZ + d; }
+            if (grid.inBounds(px, y, pz) && grid.get(px, y, pz) !== AIR) {
+              hasBlock = true;
+              if (d < minDepth) minDepth = d;
+              break;
+            }
           }
         }
+        depths.push(minDepth === Infinity ? -1 : minDepth);
         occupied.push(hasBlock);
       }
 
-      // Find contiguous air gaps (runs of false in occupied[])
+      // Strategy A: Air gap — contiguous runs of no block at facade boundary
       let runStart = -1;
       for (let i = 0; i <= occupied.length; i++) {
         if (i < occupied.length && !occupied[i]) {
           if (runStart < 0) runStart = i;
         } else if (runStart >= 0) {
           const runLen = i - runStart;
-          // Door-sized gap: 1-4 blocks wide
           if (runLen >= 1 && runLen <= 4) {
             const midRun = sweepMin + runStart + runLen / 2;
             const dist = Math.abs(midRun - sweepCenter);
             const gapX = isXFace ? fixedCoord : Math.round(midRun);
             const gapZ = isXFace ? Math.round(midRun) : fixedCoord;
-            candidates.push({ x: gapX, z: gapZ, width: runLen, distFromCenter: dist });
+            candidates.push({
+              x: gapX, z: gapZ, width: runLen, distFromCenter: dist,
+              score: (isFrontFace ? 10 : 3) + (4 - runLen) - dist * 0.1,
+            });
           }
           runStart = -1;
         }
       }
+
+      // Strategy B: Facade recession — contiguous runs deeper than neighbors
+      // A recession is where depth[i] > median(depths) + 1 (entry is set back from facade)
+      const validDepths = depths.filter(d => d >= 0);
+      if (validDepths.length > 0) {
+        const sortedDepths = [...validDepths].sort((a, b) => a - b);
+        const medianDepth = sortedDepths[Math.floor(sortedDepths.length / 2)];
+        const recessThreshold = medianDepth + 1;
+
+        let rStart = -1;
+        for (let i = 0; i <= depths.length; i++) {
+          if (i < depths.length && depths[i] >= recessThreshold) {
+            if (rStart < 0) rStart = i;
+          } else if (rStart >= 0) {
+            const rLen = i - rStart;
+            // Recessed entry: 1-5 blocks wide
+            if (rLen >= 1 && rLen <= 5) {
+              const midRun = sweepMin + rStart + rLen / 2;
+              const dist = Math.abs(midRun - sweepCenter);
+              // Position at the recessed depth
+              const avgDepth = depths.slice(rStart, rStart + rLen).reduce((s, d) => s + d, 0) / rLen;
+              let gapX: number, gapZ: number;
+              if (face === '+x') { gapX = Math.round(cMaxX - avgDepth); gapZ = Math.round(midRun); }
+              else if (face === '-x') { gapX = Math.round(cMinX + avgDepth); gapZ = Math.round(midRun); }
+              else if (face === '+z') { gapX = Math.round(midRun); gapZ = Math.round(cMaxZ - avgDepth); }
+              else { gapX = Math.round(midRun); gapZ = Math.round(cMinZ + avgDepth); }
+              candidates.push({
+                x: gapX, z: gapZ, width: rLen, distFromCenter: dist,
+                // Recession score: lower than air gap, but boost for front face and depth
+                score: (isFrontFace ? 6 : 1) + avgDepth * 0.5 - dist * 0.1,
+              });
+            }
+            rStart = -1;
+          }
+        }
+      }
     }
 
-    // Pick the best candidate: prefer front face, then closest to center
+    // Pick the best candidate by score
     if (candidates.length > 0) {
-      // Sort: front face first, then by distance from center
-      candidates.sort((a, b) => {
-        const aFront = (a.x === (frontFace === '+x' ? cMaxX : frontFace === '-x' ? cMinX : a.x)) &&
-                       (a.z === (frontFace === '+z' ? cMaxZ : frontFace === '-z' ? cMinZ : a.z));
-        const bFront = (b.x === (frontFace === '+x' ? cMaxX : frontFace === '-x' ? cMinX : b.x)) &&
-                       (b.z === (frontFace === '+z' ? cMaxZ : frontFace === '-z' ? cMinZ : b.z));
-        if (aFront && !bFront) return -1;
-        if (!aFront && bFront) return 1;
-        return a.distFromCenter - b.distFromCenter;
-      });
+      candidates.sort((a, b) => b.score - a.score);
       const best = candidates[0];
       entryPosition = { x: best.x, z: best.z };
       entryWidth = best.width;
-      // Determine which face this entry is on
-      if (best.x === cMaxX) entryFace = '+x';
-      else if (best.x === cMinX) entryFace = '-x';
-      else if (best.z === cMaxZ) entryFace = '+z';
-      else if (best.z === cMinZ) entryFace = '-z';
+      // Determine face from position
+      if (best.x >= cMaxX) entryFace = '+x';
+      else if (best.x <= cMinX) entryFace = '-x';
+      else if (best.z >= cMaxZ) entryFace = '+z';
+      else if (best.z <= cMinZ) entryFace = '-z';
+      else entryFace = frontFace; // recessed entries are inside the AABB
     }
   }
 
