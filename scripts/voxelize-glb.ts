@@ -37,8 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight } from '../src/convert/mesh-filter.js';
-import { trimSparseBottomLayers } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
 
@@ -50,6 +49,9 @@ interface CLIArgs {
   mode: VoxelizeMode;
   minHeight: number;
   trimThreshold: number;
+  gamma: number;
+  kernel: number;
+  desaturate: number;
   outputPath: string;
   infoOnly: boolean;
 }
@@ -64,6 +66,9 @@ Options:
   --mode, -m         solid | surface (default: surface)
   --min-height       Min mesh height above ground to keep (default: 2)
   --trim             Bottom-layer trim fill threshold (default: 0.05)
+  --gamma, -g        Brightness correction gamma (default: 0.5, <1 brightens baked-lighting tiles)
+  --kernel, -k       Texture averaging kernel radius in pixels (default: 16, 0=point sampling)
+  --desaturate       Saturation reduction 0-1 to neutralize blue shadows (default: 0.65)
   --output, -o       Output .schem path (default: <input-stem>.schem)
   --info             Print mesh stats and exit (no voxelize)`);
     process.exit(0);
@@ -75,6 +80,9 @@ Options:
   let mode: VoxelizeMode = 'surface';
   let minHeight = 2;
   let trimThreshold = 0.05;
+  let gamma = 0.5; // Google 3D Tiles have baked lighting — 0.5 gamma compensates
+  let kernel = 16; // Large kernel for Google 3D Tiles texture density
+  let desaturate = 0.65; // Neutralize blue sky shadows baked into textures
   let outputPath = '';
   let infoOnly = false;
 
@@ -88,6 +96,12 @@ Options:
       minHeight = parseFloat(args[++i]);
     } else if (arg === '--trim') {
       trimThreshold = parseFloat(args[++i]);
+    } else if (arg === '--gamma' || arg === '-g') {
+      gamma = parseFloat(args[++i]);
+    } else if (arg === '--kernel' || arg === '-k') {
+      kernel = parseInt(args[++i], 10);
+    } else if (arg === '--desaturate') {
+      desaturate = parseFloat(args[++i]);
     } else if (arg === '--output' || arg === '-o') {
       outputPath = args[++i];
     } else if (arg === '--info') {
@@ -107,7 +121,7 @@ Options:
     outputPath = join(dirname(inputPath), `${stem}.schem`);
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, outputPath, infoOnly };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -301,6 +315,213 @@ async function decodeTexturesWithSharp(
   console.log(`[voxelize] Decoded ${validCount}/${imageBuffers.length} textures, assigned to ${replaced} meshes`);
 }
 
+// ─── ENU Reorientation ──────────────────────────────────────────────────────
+
+/**
+ * Detect and correct ECEF-tilted meshes to local ENU (East-North-Up).
+ *
+ * Google 3D Tiles in ECEF have "up" pointing radially outward from Earth's
+ * center. For a ~50m capture radius, the mesh cluster's center-of-mass
+ * direction from origin approximates the local "up" vector. We rotate the
+ * scene so that this direction aligns with Y+, producing correct Y-up
+ * orientation for Minecraft voxelization.
+ *
+ * Detection heuristic: if Y extent >= 0.8 × max(X,Z) extent, the mesh is
+ * likely ECEF-tilted (a flat neighborhood shouldn't be taller than it is wide).
+ */
+function reorientToENU(scene: THREE.Group): void {
+  const box = new THREE.Box3().setFromObject(scene);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+
+  const maxXZ = Math.max(size.x, size.z);
+  if (maxXZ < 0.01) return; // Degenerate mesh
+
+  const yRatio = size.y / maxXZ;
+  if (yRatio < 0.8) {
+    console.log(`ENU check: Y/XZ ratio ${yRatio.toFixed(2)} — already oriented (Y-up)`);
+    return;
+  }
+
+  // The scene center approximates the ECEF "up" direction for the capture location.
+  // We want to rotate this direction to align with (0, 1, 0).
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+
+  // Compute the "up" direction: for ECEF data centered near origin,
+  // the center-of-mass direction points "up" (away from Earth center).
+  // For reoriented data the center is near (0, 0, 0) but "up" is along the
+  // axis with the smallest bounding extent relative to mesh surface normals.
+  // Use PCA on mesh vertex positions to find the flattest axis.
+  const upDir = estimateUpDirection(scene);
+  console.log(`ENU reorientation: detected up direction (${upDir.x.toFixed(3)}, ${upDir.y.toFixed(3)}, ${upDir.z.toFixed(3)})`);
+
+  // Rotation that maps upDir → (0, 1, 0)
+  const targetUp = new THREE.Vector3(0, 1, 0);
+  const quat = new THREE.Quaternion().setFromUnitVectors(upDir, targetUp);
+
+  // Apply rotation to all meshes
+  const rotMatrix = new THREE.Matrix4().makeRotationFromQuaternion(quat);
+  scene.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.geometry) {
+      child.geometry.applyMatrix4(rotMatrix);
+    }
+  });
+
+  // Recenter so ground is at Y=0
+  const newBox = new THREE.Box3().setFromObject(scene);
+  const shift = new THREE.Vector3(-newBox.min.x, -newBox.min.y, -newBox.min.z);
+  // Center XZ, keep Y at ground=0
+  const newSize = new THREE.Vector3();
+  newBox.getSize(newSize);
+  shift.x = -(newBox.min.x + newSize.x / 2);
+  shift.z = -(newBox.min.z + newSize.z / 2);
+  shift.y = -newBox.min.y;
+
+  const shiftMatrix = new THREE.Matrix4().makeTranslation(shift.x, shift.y, shift.z);
+  scene.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.geometry) {
+      child.geometry.applyMatrix4(shiftMatrix);
+    }
+  });
+
+  const finalBox = new THREE.Box3().setFromObject(scene);
+  const finalSize = new THREE.Vector3();
+  finalBox.getSize(finalSize);
+  console.log(`ENU result: ${finalSize.x.toFixed(1)} x ${finalSize.y.toFixed(1)} x ${finalSize.z.toFixed(1)} (Y/XZ: ${(finalSize.y / Math.max(finalSize.x, finalSize.z)).toFixed(2)})`);
+}
+
+/**
+ * Estimate the "up" direction of an ECEF mesh cluster using PCA.
+ * The smallest principal component of the vertex positions corresponds
+ * to the axis along which the data is flattest — i.e., the vertical axis
+ * for a mostly-horizontal neighborhood capture.
+ */
+function estimateUpDirection(scene: THREE.Group): THREE.Vector3 {
+  // Collect a sample of vertex positions (subsample for performance)
+  const positions: THREE.Vector3[] = [];
+  const center = new THREE.Vector3();
+
+  scene.traverse((child) => {
+    if (!(child instanceof THREE.Mesh) || !child.geometry) return;
+    const posAttr = child.geometry.getAttribute('position') as THREE.BufferAttribute;
+    if (!posAttr) return;
+    const step = Math.max(1, Math.floor(posAttr.count / 500)); // ~500 samples per mesh
+    for (let i = 0; i < posAttr.count; i += step) {
+      const v = new THREE.Vector3(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+      positions.push(v);
+      center.add(v);
+    }
+  });
+
+  if (positions.length < 10) return new THREE.Vector3(0, 1, 0);
+
+  center.divideScalar(positions.length);
+
+  // Build 3x3 covariance matrix
+  let cxx = 0, cxy = 0, cxz = 0;
+  let cyy = 0, cyz = 0, czz = 0;
+
+  for (const v of positions) {
+    const dx = v.x - center.x;
+    const dy = v.y - center.y;
+    const dz = v.z - center.z;
+    cxx += dx * dx; cxy += dx * dy; cxz += dx * dz;
+    cyy += dy * dy; cyz += dy * dz; czz += dz * dz;
+  }
+
+  const n = positions.length;
+  cxx /= n; cxy /= n; cxz /= n;
+  cyy /= n; cyz /= n; czz /= n;
+
+  // Find eigenvector with smallest eigenvalue via power iteration on inverse
+  // (or equivalently, find the axis of minimum variance).
+  // Simple approach: try each axis-aligned candidate and pick the one that
+  // produces the minimum projected variance. For ECEF data the tilt is
+  // typically 30-50° off any axis, so we use iterative refinement.
+  //
+  // Jacobi eigenvalue algorithm for 3x3 symmetric matrix:
+  const eigenvectors = jacobi3x3(cxx, cxy, cxz, cyy, cyz, czz);
+
+  // Return the eigenvector with smallest eigenvalue (flattest direction = "up")
+  return eigenvectors.minEigenvector;
+}
+
+/**
+ * Jacobi eigenvalue decomposition for a 3x3 symmetric matrix.
+ * Returns eigenvectors sorted by eigenvalue (ascending).
+ */
+function jacobi3x3(
+  a11: number, a12: number, a13: number,
+  a22: number, a23: number, a33: number,
+): { minEigenvector: THREE.Vector3 } {
+  // Matrix A stored as flat array (symmetric, row-major)
+  const a = [a11, a12, a13, a12, a22, a23, a13, a23, a33];
+  // Eigenvector matrix V starts as identity
+  const v = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+
+  // Jacobi rotation iterations
+  for (let iter = 0; iter < 50; iter++) {
+    // Find largest off-diagonal element
+    let maxVal = 0;
+    let p = 0, q = 1;
+    for (let i = 0; i < 3; i++) {
+      for (let j = i + 1; j < 3; j++) {
+        const val = Math.abs(a[i * 3 + j]);
+        if (val > maxVal) { maxVal = val; p = i; q = j; }
+      }
+    }
+    if (maxVal < 1e-10) break; // Converged
+
+    // Compute rotation angle
+    const app = a[p * 3 + p], aqq = a[q * 3 + q], apq = a[p * 3 + q];
+    const theta = 0.5 * Math.atan2(2 * apq, app - aqq);
+    const c = Math.cos(theta), s = Math.sin(theta);
+
+    // Rotate A: A' = G^T * A * G
+    const newA = [...a];
+    newA[p * 3 + p] = c * c * app + 2 * s * c * apq + s * s * aqq;
+    newA[q * 3 + q] = s * s * app - 2 * s * c * apq + c * c * aqq;
+    newA[p * 3 + q] = 0;
+    newA[q * 3 + p] = 0;
+
+    for (let r = 0; r < 3; r++) {
+      if (r === p || r === q) continue;
+      const arp = a[r * 3 + p], arq = a[r * 3 + q];
+      newA[r * 3 + p] = c * arp + s * arq;
+      newA[p * 3 + r] = newA[r * 3 + p];
+      newA[r * 3 + q] = -s * arp + c * arq;
+      newA[q * 3 + r] = newA[r * 3 + q];
+    }
+    for (let i = 0; i < 9; i++) a[i] = newA[i];
+
+    // Update eigenvectors: V' = V * G
+    const newV = [...v];
+    for (let r = 0; r < 3; r++) {
+      const vrp = v[r * 3 + p], vrq = v[r * 3 + q];
+      newV[r * 3 + p] = c * vrp + s * vrq;
+      newV[r * 3 + q] = -s * vrp + c * vrq;
+    }
+    for (let i = 0; i < 9; i++) v[i] = newV[i];
+  }
+
+  // Eigenvalues are on diagonal of A
+  const eigenvalues = [a[0], a[4], a[8]];
+  let minIdx = 0;
+  if (eigenvalues[1] < eigenvalues[minIdx]) minIdx = 1;
+  if (eigenvalues[2] < eigenvalues[minIdx]) minIdx = 2;
+
+  // Min eigenvector is column minIdx of V
+  const ev = new THREE.Vector3(v[0 * 3 + minIdx], v[1 * 3 + minIdx], v[2 * 3 + minIdx]);
+  ev.normalize();
+
+  // Ensure "up" points toward positive Y (arbitrary sign choice)
+  if (ev.y < 0) ev.negate();
+
+  console.log(`PCA eigenvalues: [${eigenvalues.map(e => e.toFixed(1)).join(', ')}], min axis index: ${minIdx}`);
+  return { minEigenvector: ev };
+}
+
 // ─── Mesh Analysis ──────────────────────────────────────────────────────────
 
 /** Collect mesh stats for --info output */
@@ -361,6 +582,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Reorient ECEF-tilted meshes to local ENU (Y-up) before voxelization.
+  // Google 3D Tiles use ECEF coordinates — "up" is radially outward from
+  // Earth's center, not along any fixed axis. The ReorientationPlugin handles
+  // this in the browser, but the exported GLB may retain ECEF orientation.
+  // We detect tilt by comparing Y extent to XZ extent and correct if needed.
+  reorientToENU(scene);
+
   // Height filter: collect candidate meshes and filter by vertical extent
   console.log(`\nHeight filter: min ${args.minHeight}m above ground`);
   const candidates: Array<{ child: THREE.Mesh; worldBox: THREE.Box3 }> = [];
@@ -393,8 +621,8 @@ async function main(): Promise<void> {
   }
 
   // Voxelize
-  console.log(`\nVoxelizing: ${args.mode} mode, ${args.resolution} block/m`);
-  const sampler = createDataTextureSampler();
+  console.log(`\nVoxelizing: ${args.mode} mode, ${args.resolution} block/m, gamma ${args.gamma}, kernel ${args.kernel}, desat ${args.desaturate}`);
+  const sampler = createDataTextureSampler(args.gamma, args.kernel, args.desaturate);
   const tVox = performance.now();
   const grid = threeToGrid(filteredGroup, args.resolution, {
     textureSampler: sampler,
@@ -415,6 +643,21 @@ async function main(): Promise<void> {
   if (trimmed !== grid) {
     const removed = grid.height - trimmed.height;
     console.log(`Trimmed ${removed} sparse bottom layers (${grid.height} → ${trimmed.height})`);
+  }
+
+  // Smooth rare/noisy blocks — replace blocks appearing in <2% of total with
+  // their most common neighbor. Eliminates salt-and-pepper from texture noise.
+  const smoothed = smoothRareBlocks(trimmed, 0.02);
+  if (smoothed > 0) {
+    console.log(`Smoothed ${smoothed} rare blocks (${trimmed.palette.size} materials remaining)`);
+  }
+
+  // 3D mode filter — majority-vote smoother that replaces any block that
+  // disagrees with its 3×3×3 neighborhood majority. Creates smooth contiguous
+  // surfaces ("stucco effect") by eliminating isolated speck blocks.
+  const modeSmoothed = modeFilter3D(trimmed, 3);
+  if (modeSmoothed > 0) {
+    console.log(`Mode filter: ${modeSmoothed} blocks homogenized (${trimmed.palette.size} materials remaining)`);
   }
 
   // Write output

@@ -48,6 +48,15 @@ export function initUpload(
     fileInput.value = ''; // Reset so re-uploading the same file triggers change
   });
 
+  // Auto-load from ?file= URL parameter (bypasses file picker for testing)
+  const fileParam = new URLSearchParams(window.location.search).get('file');
+  if (fileParam) {
+    fetch(fileParam)
+      .then(r => r.blob())
+      .then(blob => handleFile(new File([blob], fileParam.split('/').pop() ?? 'auto.schem')))
+      .catch(err => console.error('[upload] auto-load failed:', err));
+  }
+
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
   async function handleFile(file: File): Promise<void> {

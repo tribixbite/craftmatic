@@ -530,8 +530,34 @@ interface BVHGeometry extends THREE.BufferGeometry {
  * Create a texture sampler for CLI/Node contexts (no Canvas required).
  * Reads pixel data directly from DataTexture's raw typed array.
  * Falls back to material color for non-DataTexture images.
+ *
+ * Uses **dominant color (mode) sampling** instead of mean averaging:
+ * pixels in the kernel are bucketed by luminance, and the most frequent
+ * bucket's average color is returned. This preserves dominant surface
+ * colors (e.g. white stucco) even when mixed with minority features
+ * (windows, shadows, trim) that would pull the mean toward gray.
+ *
+ * @param gamma - Power-law brightness correction. Values < 1 brighten
+ *   (e.g. 0.5 compensates for baked lighting in Google 3D Tiles textures).
+ *   Default 1.0 (no correction).
+ * @param kernelSize - Sampling kernel radius in pixels. At kernel=16,
+ *   each sample inspects a 33x33 pixel region (~1089 pixels).
+ *   Default 16.
+ * @param desaturate - Saturation reduction factor (0-1). Default 0.65.
  */
-export function createDataTextureSampler(): TextureSampler {
+export function createDataTextureSampler(gamma = 1.0, kernelSize = 16, desaturate = 0.65): TextureSampler {
+  // Pre-compute 256-entry LUT for the gamma correction (avoids Math.pow per pixel)
+  const lut = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) {
+    lut[i] = Math.round(Math.pow(i / 255, gamma) * 255);
+  }
+
+  // Luminance bucket count — 8 buckets ≈ 32 luminance levels each.
+  // Enough granularity to separate light walls from dark shadows/windows,
+  // but coarse enough that similar tones cluster together.
+  const BUCKET_COUNT = 8;
+  const BUCKET_SIZE = 256 / BUCKET_COUNT;
+
   return (texture: THREE.Texture, uv: THREE.Vector2): RGB => {
     const image = texture.image as { data?: Uint8Array | Uint8ClampedArray; width?: number; height?: number };
     if (!image?.data || !image.width || !image.height) {
@@ -540,15 +566,156 @@ export function createDataTextureSampler(): TextureSampler {
 
     const w = image.width;
     const h = image.height;
+    const data = image.data;
 
     // UV wrapping (repeat)
     const u = ((uv.x % 1) + 1) % 1;
     const v = ((uv.y % 1) + 1) % 1;
-    const px = Math.floor(u * (w - 1));
-    const py = Math.floor((1 - v) * (h - 1)); // UV y is flipped
+    const cx = Math.floor(u * (w - 1));
+    const cy = Math.floor((1 - v) * (h - 1)); // UV y is flipped
 
-    const idx = (py * w + px) * 4;
-    return [image.data[idx], image.data[idx + 1], image.data[idx + 2]];
+    let r: number, g: number, b: number;
+
+    if (kernelSize <= 0) {
+      // Point sampling (no bucketing)
+      const idx = (cy * w + cx) * 4;
+      r = data[idx]; g = data[idx + 1]; b = data[idx + 2];
+    } else {
+      // Dominant color (mode) sampling: bucket pixels by luminance,
+      // then return the average color of the most populated bucket.
+      // This beats mean averaging because:
+      // - 60% white wall + 40% dark window → Mean=gray, Mode=white (correct)
+      // - Shadows and trim become minority populations, not color pollution
+      const bucketR = new Float64Array(BUCKET_COUNT);
+      const bucketG = new Float64Array(BUCKET_COUNT);
+      const bucketB = new Float64Array(BUCKET_COUNT);
+      const bucketCount = new Uint32Array(BUCKET_COUNT);
+
+      const k = kernelSize;
+      for (let dy = -k; dy <= k; dy++) {
+        const py = Math.min(h - 1, Math.max(0, cy + dy));
+        for (let dx = -k; dx <= k; dx++) {
+          const px = Math.min(w - 1, Math.max(0, cx + dx));
+          const idx = (py * w + px) * 4;
+          const pr = data[idx], pg = data[idx + 1], pb = data[idx + 2];
+          // Luminance bucket (BT.601 approximation)
+          const lum = (pr * 77 + pg * 150 + pb * 29) >> 8;
+          const bucket = Math.min(BUCKET_COUNT - 1, Math.floor(lum / BUCKET_SIZE));
+          bucketR[bucket] += pr;
+          bucketG[bucket] += pg;
+          bucketB[bucket] += pb;
+          bucketCount[bucket]++;
+        }
+      }
+
+      // Find the most populated bucket
+      let bestBucket = 0;
+      let bestCount = 0;
+      for (let i = 0; i < BUCKET_COUNT; i++) {
+        if (bucketCount[i] > bestCount) {
+          bestCount = bucketCount[i];
+          bestBucket = i;
+        }
+      }
+
+      if (bestCount > 0) {
+        r = Math.round(bucketR[bestBucket] / bestCount);
+        g = Math.round(bucketG[bestBucket] / bestCount);
+        b = Math.round(bucketB[bestBucket] / bestCount);
+      } else {
+        r = 128; g = 128; b = 128;
+      }
+    }
+
+    // ── Pipeline order: green detect → luminance clamp → warm bias → desaturate
+    // Luminance clamping runs FIRST so the desaturation sees boosted brightness.
+    // This lets the "cream saver" gate (l>=0.78) work on post-clamp values,
+    // preserving warm saturation for stucco pixels that were dark in the
+    // original baked-lighting texture.
+
+    // Step 1: Detect green vegetation — skip clamping/bias for green pixels
+    const pixelHue = (() => {
+      const rf2 = r / 255, gf2 = g / 255, bf2 = b / 255;
+      const mx = Math.max(rf2, gf2, bf2), mn = Math.min(rf2, gf2, bf2);
+      if (mx === mn) return 0;
+      const d2 = mx - mn;
+      let h2 = 0;
+      if (mx === rf2) h2 = ((gf2 - bf2) / d2 + (gf2 < bf2 ? 6 : 0)) / 6;
+      else if (mx === gf2) h2 = ((bf2 - rf2) / d2 + 2) / 6;
+      else h2 = ((rf2 - gf2) / d2 + 4) / 6;
+      return h2 * 360;
+    })();
+    const isGreenish = pixelHue >= 85 && pixelHue <= 160;
+
+    // Step 2: Luminance clamping — boost shadowed walls to bright
+    if (!isGreenish) {
+      const lum = (r * 77 + g * 150 + b * 29) >> 8;
+      const MIN_BRIGHT = 180;
+      const DARK_THRESHOLD = 50;
+      if (lum >= DARK_THRESHOLD && lum < MIN_BRIGHT) {
+        const scale = MIN_BRIGHT / lum;
+        r = Math.min(255, Math.round(r * scale));
+        g = Math.min(255, Math.round(g * scale));
+        b = Math.min(255, Math.round(b * scale));
+      }
+    }
+
+    // Step 3: Warm bias — push very bright pixels toward cream
+    if (!isGreenish) {
+      const lumPost = (r * 77 + g * 150 + b * 29) >> 8;
+      if (lumPost > 180) {
+        r = Math.min(255, r + 12);
+        g = Math.min(255, g + 6);
+      }
+    }
+
+    // Step 4: Selective desaturation — now operates on clamped/biased pixels.
+    // Bright warm pixels (l>=0.72) keep their cream saturation; dark warm
+    // pixels get desaturated to neutral gray.
+    if (desaturate > 0) {
+      const rf = r / 255, gf = g / 255, bf = b / 255;
+      const max = Math.max(rf, gf, bf), min = Math.min(rf, gf, bf);
+      const l = (max + min) / 2;
+      if (max !== min) {
+        const d = max - min;
+        let s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        let hue = 0;
+        if (max === rf) hue = ((gf - bf) / d + (gf < bf ? 6 : 0)) / 6;
+        else if (max === gf) hue = ((bf - rf) / d + 2) / 6;
+        else hue = ((rf - gf) / d + 4) / 6;
+
+        const hueDeg = hue * 360;
+        // Blue/cyan (190°-260°): heavy desat — sky reflection shadows
+        // Red/orange/brown (0°-70°, 320°-360°): desat unless bright (cream saver)
+        // Green (85°-160°, l<0.7): boost — vegetation recovery
+        if (hueDeg >= 190 && hueDeg <= 260) {
+          s *= 0.1;
+        } else if ((hueDeg <= 70 || hueDeg >= 320) && l < 0.72) {
+          s *= 0.15; // Dark/mid warm → neutral gray
+        } else if (hueDeg >= 85 && hueDeg <= 160 && l < 0.7) {
+          s = Math.min(1, s * 1.3); // Vegetation boost
+        } else {
+          s *= 0.85; // Gentle reduction for other hues
+        }
+
+        const hue2rgb = (p: number, q: number, t: number): number => {
+          if (t < 0) t += 1;
+          if (t > 1) t -= 1;
+          if (t < 1 / 6) return p + (q - p) * 6 * t;
+          if (t < 1 / 2) return q;
+          if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+          return p;
+        };
+        const q2 = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q2;
+        r = Math.round(hue2rgb(p, q2, hue + 1 / 3) * 255);
+        g = Math.round(hue2rgb(p, q2, hue) * 255);
+        b = Math.round(hue2rgb(p, q2, hue - 1 / 3) * 255);
+      }
+    }
+
+    // Apply gamma correction
+    return [lut[r], lut[g], lut[b]];
   };
 }
 
