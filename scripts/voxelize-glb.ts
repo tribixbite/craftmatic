@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice, removeSmallComponents } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice, removeSmallComponents, cropToCenter } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
 
@@ -63,6 +63,7 @@ interface CLIArgs {
   noCornice: boolean;   // skip roof cornice
   noFireEscape: boolean; // skip fire escape filter
   cleanMinSize: number; // removeSmallComponents min size (0 = skip)
+  cropRadius: number;   // cropToCenter XZ radius (0 = skip)
 }
 
 function parseArgs(): CLIArgs {
@@ -89,7 +90,8 @@ Options:
   --no-palette       Skip palette constraint (preserve original colors)
   --no-cornice       Skip roof cornice (Mediterranean brick/spruce)
   --no-fire-escape   Skip fire escape filter (center strip darkening)
-  --clean N          Remove disconnected clusters < N voxels (default: 0=skip, 50 recommended)`);
+  --clean N          Remove disconnected clusters < N voxels (default: 0=skip, 50 recommended)
+  --crop N           Keep only blocks within N-block XZ radius of center (isolate central building)`);
     process.exit(0);
   }
 
@@ -114,6 +116,7 @@ Options:
   let noCornice = false;
   let noFireEscape = false;
   let cleanMinSize = 0;
+  let cropRadius = 0;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -155,6 +158,8 @@ Options:
       noFireEscape = true;
     } else if (arg === '--clean') {
       cleanMinSize = parseInt(args[++i], 10);
+    } else if (arg === '--crop') {
+      cropRadius = parseInt(args[++i], 10);
     } else if (!arg.startsWith('-')) {
       inputPath = arg;
     }
@@ -174,7 +179,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -836,6 +841,15 @@ async function main(): Promise<void> {
     if (args.fill) {
       const interiorFilled = fillInteriorGaps(trimmed, 3);
       console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
+    }
+  }
+
+  // Center crop — remove blocks beyond XZ radius to isolate central building.
+  // Runs after fill/solidify so each building is solid before we crop peripheral ones.
+  if (args.cropRadius > 0) {
+    const cropped = cropToCenter(trimmed, args.cropRadius);
+    if (cropped > 0) {
+      console.log(`Center crop: ${cropped} blocks removed (XZ radius ${args.cropRadius})`);
     }
   }
 
