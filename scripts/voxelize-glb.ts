@@ -893,7 +893,9 @@ async function main(): Promise<void> {
     analysis = analyzeGrid(trimmed);
 
     console.log(`  Terrain: slope ${analysis.slopeAngle.toFixed(1)}° ${analysis.isFlat ? '(flat)' : '(sloped)'}, ground Y=${analysis.groundPlaneY}`);
-    console.log(`  Components: ${analysis.componentCount} (central AABB: ${analysis.centralAABB.minX}-${analysis.centralAABB.maxX} x ${analysis.centralAABB.minY}-${analysis.centralAABB.maxY} x ${analysis.centralAABB.minZ}-${analysis.centralAABB.maxZ})`);
+    const aabb = analysis.centralAABB;
+    const cW = aabb.maxX - aabb.minX + 1, cH = aabb.maxY - aabb.minY + 1, cL = aabb.maxZ - aabb.minZ + 1;
+    console.log(`  Components: ${analysis.componentCount} (central: ${cW}x${cH}x${cL} blocks)`);
     console.log(`  Partial capture: ${analysis.isPartialCapture ? `YES (${analysis.edgeTouchPct.toFixed(1)}% edge touch)` : `no (${analysis.edgeTouchPct.toFixed(1)}%)`}`);
     console.log(`  Typology: ${analysis.typology} | Aspect: ${analysis.aspectRatio.toFixed(2)} | Footprint fill: ${(analysis.footprintFill * 100).toFixed(0)}% | Rectangular: ${analysis.isRectangular}`);
     console.log(`  Roof: ${analysis.isFlatRoof ? 'flat' : 'pitched'} (variance ${analysis.roofVariance.toFixed(1)})`);
@@ -904,19 +906,20 @@ async function main(): Promise<void> {
 
     // Apply auto recommendations (only override non-explicitly-set params)
     const rec = analysis.recommended;
-    console.log(`\n  Recommended: ${rec.generic ? '--generic' : 'solidifyCore'} ${rec.fill ? '--fill' : ''} ${rec.noPalette ? '--no-palette' : ''} ${rec.noCornice ? '--no-cornice' : ''} ${rec.noFireEscape ? '--no-fire-escape' : ''}`);
-    if (rec.useAABBCrop) {
-      const aabb = analysis.centralAABB;
-      console.log(`  Recommended: AABB crop [${aabb.minX}..${aabb.maxX}] x [${aabb.minZ}..${aabb.maxZ}] (shape-preserving)`);
-    } else if (rec.cropRadius > 0) {
-      console.log(`  Recommended: --crop ${rec.cropRadius} (circular)`);
-    }
-    if (rec.cleanMinSize > 0) console.log(`  Recommended: --clean ${rec.cleanMinSize}`);
+    // Compact recommendation summary
+    const recFlags: string[] = [rec.generic ? '--generic' : 'solidifyCore'];
+    if (rec.fill) recFlags.push('--fill');
+    if (!rec.noPalette) recFlags.push('full palette');
+    if (rec.noCornice) recFlags.push('--no-cornice');
+    if (rec.noFireEscape) recFlags.push('--no-fire-escape');
+    if (rec.cropRadius > 0) recFlags.push(`--crop ${rec.cropRadius}`);
+    if (rec.cleanMinSize > 0) recFlags.push(`--clean ${rec.cleanMinSize}`);
     if (rec.remaps.size > 0) {
-      const remapStr = [...rec.remaps.entries()].map(([f, t]) => `${f.replace('minecraft:', '')}=${t.replace('minecraft:', '')}`).join(' ');
-      console.log(`  Recommended: --remap ${remapStr}`);
+      const remapStr = [...rec.remaps.entries()].map(([f, t]) =>
+        `${f.replace('minecraft:', '')}→${t.replace('minecraft:', '')}`).join(', ');
+      recFlags.push(`remap: ${remapStr}`);
     }
-    console.log(`  Analysis: ${((performance.now() - tAuto) / 1000).toFixed(1)}s`);
+    console.log(`  Pipeline: ${recFlags.join(' | ')}`);
 
     // Print reproducible CLI command for manual fine-tuning
     const parts: string[] = ['bun scripts/voxelize-glb.ts', args.inputPath];
