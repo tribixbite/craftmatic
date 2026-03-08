@@ -64,6 +64,7 @@ interface CLIArgs {
   noFireEscape: boolean; // skip fire escape filter
   cleanMinSize: number; // removeSmallComponents min size (0 = skip)
   cropRadius: number;   // cropToCenter XZ radius (0 = skip)
+  remaps: Map<string, string>; // custom block remaps FROM=TO
 }
 
 function parseArgs(): CLIArgs {
@@ -91,7 +92,8 @@ Options:
   --no-cornice       Skip roof cornice (Mediterranean brick/spruce)
   --no-fire-escape   Skip fire escape filter (center strip darkening)
   --clean N          Remove disconnected clusters < N voxels (default: 0=skip, 50 recommended)
-  --crop N           Keep only blocks within N-block XZ radius of center (isolate central building)`);
+  --crop N           Keep only blocks within N-block XZ radius of center (isolate central building)
+  --remap FROM=TO    Custom block remap (repeatable, e.g. --remap white_concrete=smooth_sandstone)`);
     process.exit(0);
   }
 
@@ -117,6 +119,7 @@ Options:
   let noFireEscape = false;
   let cleanMinSize = 0;
   let cropRadius = 0;
+  const remaps = new Map<string, string>();
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -160,6 +163,17 @@ Options:
       cleanMinSize = parseInt(args[++i], 10);
     } else if (arg === '--crop') {
       cropRadius = parseInt(args[++i], 10);
+    } else if (arg === '--remap') {
+      const pair = args[++i];
+      const eq = pair.indexOf('=');
+      if (eq > 0) {
+        const from = pair.slice(0, eq);
+        const to = pair.slice(eq + 1);
+        // Auto-prefix minecraft: if not present
+        const fullFrom = from.includes(':') ? from : `minecraft:${from}`;
+        const fullTo = to.includes(':') ? to : `minecraft:${to}`;
+        remaps.set(fullFrom, fullTo);
+      }
     } else if (!arg.startsWith('-')) {
       inputPath = arg;
     }
@@ -179,7 +193,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -958,6 +972,12 @@ async function main(): Promise<void> {
     // Building-specific: assumes flat-top apartment with stucco walls.
     const roofCount = addRoofCornice(trimmed, 'minecraft:bricks', 'minecraft:spruce_planks');
     console.log(`Roof cornice: ${roofCount} blocks placed (bricks + spruce_planks)`);
+  }
+
+  // Custom block remaps — final override, applied after all other processing
+  if (args.remaps.size > 0) {
+    const remapped = constrainPalette(trimmed, args.remaps);
+    console.log(`Custom remap: ${remapped} blocks remapped (${args.remaps.size} rules)`);
   }
 
   // Write output
