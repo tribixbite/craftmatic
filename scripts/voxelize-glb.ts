@@ -774,49 +774,31 @@ async function main(): Promise<void> {
     console.log(`Trimmed ${removed} sparse bottom layers (${grid.height} → ${trimmed.height})`);
   }
 
-  // Interior fill — flood-fill per Y-layer identifies building interiors
-  // (dilate walls to close porosity, flood from edges = exterior, fill rest).
-  // dilateRadius=3 closes 1-3 voxel wall gaps from photogrammetry noise.
-  const interiorFilled = fillInteriorGaps(trimmed, 3);
-  console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
+  if (!args.generic) {
+    // === Shape processing (tuned for isolated single-building captures) ===
+    // These steps assume one building dominates the capture volume.
+    // Generic mode skips them to preserve multi-structure raw geometry.
 
-  // Solidify core — "Cookie Cutter" method: one global AABB per Y-layer.
-  // Core zone (>4 blocks from all edges) → fill solid with dominant block.
-  // Facade zone (≤4 blocks from any edge) → leave raw scan data untouched.
-  // Unlike rectangularize (which splits connected components and can fracture
-  // buildings through fire escapes), this treats the whole layer as one volume.
-  // Balconies, recesses, and windows are preserved because facade zone air is
-  // never filled — the scan truth is respected on all building faces.
-  const coreFilled = solidifyCore(trimmed, 4);
-  console.log(`Solidify core: ${coreFilled} interior voxels filled (facade depth=4)`);
+    // Interior fill — flood-fill per Y-layer identifies building interiors
+    const interiorFilled = fillInteriorGaps(trimmed, 3);
+    console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
 
-  // Carve facade shadows → depth features.
-  // Dark blocks in the facade zone represent shadows inside balconies, windows,
-  // and recesses. Photogrammetry fills these gaps geometrically, but the texture
-  // correctly captured the shadows. Converting dark → air restores 3D depth
-  // from 2D color information. Must run BEFORE palette constraint so the
-  // original dark colors haven't been remapped to stucco yet.
-  // Threshold 0.45 catches mid-grey shadow blocks (stone, andesite, gray_concrete).
-  // Neighbor check (≥2 dark of 4 XZ neighbors) acts as despeckle — only carves
-  // connected dark clusters (windows, balconies), not isolated dark specks.
-  const carvedCount = carveFacadeShadows(trimmed, 4, 0.45, 2);
-  console.log(`Facade carving: ${carvedCount} dark blocks → air (lum<0.45, depth=4, neighbors≥2)`);
+    // Solidify core — one global AABB per Y-layer, fills interior to facade depth
+    const coreFilled = solidifyCore(trimmed, 4);
+    console.log(`Solidify core: ${coreFilled} interior voxels filled (facade depth=4)`);
 
-  // Vertical rectification — "gravity filter" for facade columns.
-  // After carving, voids have ragged edges. Architecture needs straight vertical
-  // lines. This 1D vertical median filter votes on each column: if majority of
-  // a 5-block vertical window is air, force all to air (and vice versa).
-  // Turns wobbly edges into clean rectangular openings.
-  const rectified = verticalRectify(trimmed, 4, 5);
-  console.log(`Vertical rectify: ${rectified} blocks changed (window=5, depth=4)`);
+    // Carve facade shadows → depth features (luminance-based)
+    const carvedCount = carveFacadeShadows(trimmed, 4, 0.45, 2);
+    console.log(`Facade carving: ${carvedCount} dark blocks → air (lum<0.45, depth=4, neighbors≥2)`);
 
-  // Horizontal rectification — "lintel filter" for facade rows.
-  // Same separable median logic as vertical, but along X-axis.
-  // Window=3 (smaller than vertical) to avoid closing narrow features like
-  // fire escape slots. Completes Manhattan geometry: vertical + horizontal
-  // = perfectly rectangular window/balcony openings.
-  const hRectified = horizontalRectify(trimmed, 4, 3);
-  console.log(`Horizontal rectify: ${hRectified} blocks changed (window=3, depth=4)`);
+    // Vertical + horizontal rectification — Manhattan geometry cleanup
+    const rectified = verticalRectify(trimmed, 4, 5);
+    console.log(`Vertical rectify: ${rectified} blocks changed (window=5, depth=4)`);
+    const hRectified = horizontalRectify(trimmed, 4, 3);
+    console.log(`Horizontal rectify: ${hRectified} blocks changed (window=3, depth=4)`);
+  } else {
+    console.log(`Generic mode: skipping solidifyCore/carve/rectify (preserving raw geometry)`);
+  }
 
   // Smooth rare/noisy blocks — replace blocks <2% frequency with neighbors.
   const smoothed = smoothRareBlocks(trimmed, 0.02);
