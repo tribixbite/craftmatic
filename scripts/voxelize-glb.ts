@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
 
@@ -673,6 +673,24 @@ async function main(): Promise<void> {
   const carvedCount = carveFacadeShadows(trimmed, 4, 0.45, 2);
   console.log(`Facade carving: ${carvedCount} dark blocks → air (lum<0.45, depth=4, neighbors≥2)`);
 
+  // Vertical rectification — "gravity filter" for facade columns.
+  // After carving, voids have ragged edges. Architecture needs straight vertical
+  // lines. This 1D vertical median filter votes on each column: if majority of
+  // a 5-block vertical window is air, force all to air (and vice versa).
+  // Turns wobbly edges into clean rectangular openings.
+  const rectified = verticalRectify(trimmed, 4, 5);
+  console.log(`Vertical rectify: ${rectified} blocks changed (window=5, depth=4)`);
+
+  // Horizontal rectification — "lintel filter" for facade rows.
+  // Same separable median logic as vertical, but along X-axis.
+  // Window=3 (smaller than vertical) to avoid closing narrow features like
+  // fire escape slots. Completes Manhattan geometry: vertical + horizontal
+  // = perfectly rectangular window/balcony openings.
+  const hRectified = horizontalRectify(trimmed, 4, 3);
+  console.log(`Horizontal rectify: ${hRectified} blocks changed (window=3, depth=4)`);
+
+  // Glaze backplane moved to end of pipeline (after mode filter)
+
   // Smooth rare/noisy blocks — replace blocks <2% frequency with neighbors.
   const smoothed = smoothRareBlocks(trimmed, 0.02);
   if (smoothed > 0) {
@@ -684,37 +702,40 @@ async function main(): Promise<void> {
   // patches from photogrammetry shadows look like "scabs" on the facade.
   // Map everything except the cleanest light blocks to stucco materials.
   const paletteReplacements = new Map<string, string>([
-    // Dark stone → warm stucco (baked shadow artifacts)
-    ['minecraft:blackstone', 'minecraft:smooth_sandstone'],
-    ['minecraft:deepslate_bricks', 'minecraft:smooth_sandstone'],
-    ['minecraft:polished_deepslate', 'minecraft:smooth_sandstone'],
-    ['minecraft:polished_blackstone', 'minecraft:smooth_sandstone'],
-    ['minecraft:nether_bricks', 'minecraft:smooth_sandstone'],
-    // Mid-grey stone → light concrete (all stone types are shadow artifacts)
-    ['minecraft:stone', 'minecraft:smooth_sandstone'],
-    ['minecraft:andesite', 'minecraft:smooth_sandstone'],
+    // Dark stone → white stucco (baked shadow artifacts; building is white/cream)
+    ['minecraft:blackstone', 'minecraft:smooth_quartz'],
+    ['minecraft:deepslate_bricks', 'minecraft:smooth_quartz'],
+    ['minecraft:polished_deepslate', 'minecraft:smooth_quartz'],
+    ['minecraft:polished_blackstone', 'minecraft:smooth_quartz'],
+    ['minecraft:nether_bricks', 'minecraft:smooth_quartz'],
+    // Mid-grey stone → light gray (shadow artifacts on white stucco)
+    ['minecraft:stone', 'minecraft:light_gray_concrete'],
+    ['minecraft:andesite', 'minecraft:light_gray_concrete'],
     ['minecraft:polished_andesite', 'minecraft:light_gray_concrete'],
     ['minecraft:stone_bricks', 'minecraft:light_gray_concrete'],
     ['minecraft:smooth_stone', 'minecraft:light_gray_concrete'],
-    ['minecraft:cobblestone', 'minecraft:smooth_sandstone'],
+    ['minecraft:cobblestone', 'minecraft:light_gray_concrete'],
     // Grey concrete → lighter (uniform wall color)
     ['minecraft:gray_concrete', 'minecraft:light_gray_concrete'],
     // Dark glass → gray stained glass (window material, not black)
     ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
-    // Red/orange/brown noise → stucco
-    ['minecraft:red_terracotta', 'minecraft:smooth_sandstone'],
-    ['minecraft:orange_terracotta', 'minecraft:smooth_sandstone'],
-    ['minecraft:brown_terracotta', 'minecraft:smooth_sandstone'],
-    ['minecraft:bricks', 'minecraft:smooth_sandstone'],
-    ['minecraft:red_concrete', 'minecraft:smooth_sandstone'],
-    // Green noise → stucco (vegetation artifact)
-    ['minecraft:green_concrete', 'minecraft:smooth_sandstone'],
+    // Red/orange/brown noise → white stucco (NOT sandstone — sandstone renders orange)
+    ['minecraft:red_terracotta', 'minecraft:smooth_quartz'],
+    ['minecraft:orange_terracotta', 'minecraft:smooth_quartz'],
+    ['minecraft:brown_terracotta', 'minecraft:smooth_quartz'],
+    ['minecraft:bricks', 'minecraft:smooth_quartz'],
+    ['minecraft:red_concrete', 'minecraft:smooth_quartz'],
+    // Green noise → white stucco
+    ['minecraft:green_concrete', 'minecraft:smooth_quartz'],
     // Iron → light gray (less harsh structural)
     ['minecraft:iron_block', 'minecraft:light_gray_concrete'],
-    // End stone → sandstone (color family match)
-    ['minecraft:end_stone_bricks', 'minecraft:smooth_sandstone'],
-    // Keep: smooth_sandstone, light_gray_concrete, white_concrete,
-    //        smooth_quartz, quartz_block, birch_planks, gray_stained_glass
+    // End stone → quartz (white family)
+    ['minecraft:end_stone_bricks', 'minecraft:smooth_quartz'],
+    // Sandstone → quartz (sandstone renders too warm/orange for this white building)
+    ['minecraft:smooth_sandstone', 'minecraft:smooth_quartz'],
+    ['minecraft:sandstone', 'minecraft:smooth_quartz'],
+    // Keep: smooth_quartz, light_gray_concrete, white_concrete,
+    //        quartz_block, birch_planks, gray_stained_glass
   ]);
   const constrained = constrainPalette(trimmed, paletteReplacements);
   console.log(`Palette constrain: ${constrained} shadow blocks remapped`);
@@ -725,6 +746,15 @@ async function main(): Promise<void> {
   if (modeSmoothed > 0) {
     console.log(`Mode filter 5x5x5: ${modeSmoothed} blocks homogenized`);
   }
+
+  // Glaze backplane — place window glass AFTER all smoothing/constraint steps.
+  // Must run last so glass blocks don't affect mode filter or palette remapping.
+  // Fills carved facade voids adjacent to the solid core with translucent glass,
+  // restoring window appearance in balcony/recess openings.
+  // Use light_blue_concrete instead of gray_stained_glass — transparent blocks
+  // cause WebGL rendering corruption on mobile (all blocks turn red).
+  const glazeCount = glazeBackplane(trimmed, 4, 'minecraft:light_blue_concrete');
+  console.log(`Backplane glazing: ${glazeCount} window blocks placed (light_blue_concrete)`);
 
   // Write output
   const nonAir = trimmed.countNonAir();

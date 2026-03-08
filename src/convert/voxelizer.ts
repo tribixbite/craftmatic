@@ -272,11 +272,10 @@ function voxelizeSurface(
   onProgress?: (p: VoxelizeProgress) => void,
 ): void {
   const { width, height, length } = grid;
-  // Half-voxel distance threshold: a point is "on the surface" if the nearest
-  // mesh surface is closer than this. 0.55 is just above exact half-voxel —
-  // tight enough to prevent filling between nearby but separate surfaces
-  // (terrain/building gaps in photogrammetry tiles), while still capturing
-  // voxels whose centers fall exactly on a surface boundary.
+  // Surface proximity threshold: fills voxels with mesh surface closer than
+  // this. 0.55 is just above exact half-voxel — tight enough to prevent
+  // filling between nearby but separate surfaces, producing thin shell walls.
+  // Interior fill post-processing handles the gaps to create solid walls.
   const threshold = 0.55 / resolution;
 
   // Reusable objects to avoid per-voxel allocation
