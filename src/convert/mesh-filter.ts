@@ -1052,6 +1052,7 @@ export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1): number {
   const PROTECTED = new Set([
     'minecraft:air',
     'minecraft:glass', 'minecraft:glass_pane',
+    'minecraft:gray_stained_glass', 'minecraft:black_stained_glass',
     'minecraft:iron_bars', 'minecraft:iron_block',
   ]);
 
@@ -1278,6 +1279,323 @@ export function carveFacadeShadows(
   }
 
   return carved;
+}
+
+/**
+ * Vertical median filter ("gravity filter") for facade columns.
+ *
+ * After carving, facade voids have ragged/organic edges. Architecture needs
+ * straight vertical lines. This filter enforces vertical consistency:
+ *
+ * For each facade column (fixed X, Z position, varying Y):
+ * - Examine a window of `windowSize` vertical blocks
+ * - If majority are air → force center to air
+ * - If majority are solid → force center to solid (nearest neighbor block)
+ *
+ * This straightens wobbly window/balcony edges into clean vertical lines
+ * and removes floating single-block artifacts.
+ *
+ * @param grid          Source BlockGrid (modified in place)
+ * @param facadeDepth   Depth from AABB edges defining facade zone (default: 4)
+ * @param windowSize    Vertical window for median vote (default: 5 = 2 above + 2 below)
+ * @returns Number of blocks changed
+ */
+export function verticalRectify(
+  grid: BlockGrid,
+  facadeDepth = 4,
+  windowSize = 5,
+): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  const halfW = Math.floor(windowSize / 2);
+  let changed = 0;
+
+  // First compute the global AABB per Y-layer for facade zone detection,
+  // then process vertical columns.
+  // We need per-layer AABB to know which cells are in the facade zone.
+  const layerAABB: Array<{ minX: number; maxX: number; minZ: number; maxZ: number } | null> =
+    new Array(height).fill(null);
+
+  for (let y = 0; y < height; y++) {
+    let minX = width, maxX = -1, minZ = length, maxZ = -1;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (z < minZ) minZ = z;
+          if (z > maxZ) maxZ = z;
+        }
+      }
+    }
+    if (maxX >= 0) {
+      layerAABB[y] = { minX, maxX, minZ, maxZ };
+    }
+  }
+
+  // Snapshot the grid before filtering (so changes don't cascade)
+  const snap: string[] = new Array(width * height * length);
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        snap[(y * length + z) * width + x] = grid.get(x, y, z);
+      }
+    }
+  }
+
+  // Process each vertical column (x, z)
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      // Check if this column is in the facade zone for ANY layer
+      let inFacade = false;
+      for (let y = 0; y < height; y++) {
+        const aabb = layerAABB[y];
+        if (!aabb) continue;
+        const edgeDist = Math.min(
+          x - aabb.minX, aabb.maxX - x,
+          z - aabb.minZ, aabb.maxZ - z,
+        );
+        if (edgeDist >= 0 && edgeDist < facadeDepth) {
+          inFacade = true;
+          break;
+        }
+      }
+      if (!inFacade) continue;
+
+      // Apply vertical median filter to this column
+      for (let y = 0; y < height; y++) {
+        const aabb = layerAABB[y];
+        if (!aabb) continue;
+
+        // Check if this specific cell is in the facade zone
+        const edgeDist = Math.min(
+          x - aabb.minX, aabb.maxX - x,
+          z - aabb.minZ, aabb.maxZ - z,
+        );
+        if (edgeDist < 0 || edgeDist >= facadeDepth) continue;
+
+        // Count air vs solid in vertical window
+        let airCount = 0;
+        let solidCount = 0;
+        let bestBlock = AIR;
+        let bestBlockCount = 0;
+        const blockCounts = new Map<string, number>();
+
+        for (let dy = -halfW; dy <= halfW; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= height) continue;
+          const block = snap[(ny * length + z) * width + x];
+          if (block === AIR) {
+            airCount++;
+          } else {
+            solidCount++;
+            const c = (blockCounts.get(block) ?? 0) + 1;
+            blockCounts.set(block, c);
+            if (c > bestBlockCount) {
+              bestBlockCount = c;
+              bestBlock = block;
+            }
+          }
+        }
+
+        const currentBlock = snap[(y * length + z) * width + x];
+        const majority = Math.ceil(windowSize / 2);
+
+        if (currentBlock === AIR && solidCount >= majority) {
+          // Majority solid → fill this air cell
+          grid.set(x, y, z, bestBlock);
+          changed++;
+        } else if (currentBlock !== AIR && airCount >= majority) {
+          // Majority air → carve this solid cell
+          grid.set(x, y, z, AIR);
+          changed++;
+        }
+      }
+    }
+  }
+
+  return changed;
+}
+
+/**
+ * Glaze facade air voids — place window blocks where carved air meets the
+ * solid core behind it.
+ *
+ * After carving, facade voids are empty air. The real building has glass windows
+ * at the back of these recesses. This pass finds air blocks in the facade zone
+ * that border a solid core block (deeper than facadeDepth) and places window
+ * material at that boundary — the "glass backplane" of each recess.
+ *
+ * Additionally, converts any remaining air voids in the facade zone that are
+ * fully surrounded by solid blocks into window glass (enclosed void = window).
+ *
+ * @param grid           Source BlockGrid (modified in place)
+ * @param facadeDepth    Depth from AABB edges (facade zone limit, default: 4)
+ * @param windowBlock    Block to use for glazing (default: minecraft:gray_stained_glass)
+ * @returns Number of blocks glazed
+ */
+export function glazeBackplane(
+  grid: BlockGrid,
+  facadeDepth = 4,
+  windowBlock = 'minecraft:gray_stained_glass',
+): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let glazed = 0;
+
+  for (let y = 0; y < height; y++) {
+    // Find AABB for this layer
+    let minX = width, maxX = -1, minZ = length, maxZ = -1;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (z < minZ) minZ = z;
+          if (z > maxZ) maxZ = z;
+        }
+      }
+    }
+    if (maxX < 0) continue;
+
+    // Strategy: only glaze air blocks that are clearly enclosed window slots.
+    // Requirements: air in facade zone with ≥3 solid XZ neighbors AND
+    // solid above AND below. This catches narrow window slots carved into
+    // thick walls but skips wide-open balcony voids and building surfaces.
+    for (let z = minZ; z <= maxZ; z++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (grid.get(x, y, z) !== AIR) continue;
+
+        const edgeDist = Math.min(
+          x - minX, maxX - x,
+          z - minZ, maxZ - z,
+        );
+        if (edgeDist >= facadeDepth || edgeDist < 1) continue;
+
+        // Count total solid neighbors (6-connected: ±X, ±Y, ±Z)
+        let solidN = 0;
+        if (x > 0 && grid.get(x - 1, y, z) !== AIR) solidN++;
+        if (x < width - 1 && grid.get(x + 1, y, z) !== AIR) solidN++;
+        if (z > 0 && grid.get(x, y, z - 1) !== AIR) solidN++;
+        if (z < length - 1 && grid.get(x, y, z + 1) !== AIR) solidN++;
+        if (y > 0 && grid.get(x, y - 1, z) !== AIR) solidN++;
+        if (y < height - 1 && grid.get(x, y + 1, z) !== AIR) solidN++;
+        // Need ≥4 solid of 6 neighbors: enclosed air pocket (window in wall)
+        if (solidN >= 4) {
+          grid.set(x, y, z, windowBlock);
+          glazed++;
+        }
+      }
+    }
+  }
+
+  return glazed;
+}
+
+/**
+ * Horizontal median filter ("lintel filter") for facade rows.
+ *
+ * Complement to verticalRectify — cleans horizontal edges (floors/ceilings of
+ * balconies). Applies 1D median vote along the X-axis for each facade row
+ * (fixed Y, Z). Uses a smaller window (3) than the vertical filter (5) to
+ * avoid closing narrow features like fire escape slots.
+ *
+ * @param grid          Source BlockGrid (modified in place)
+ * @param facadeDepth   Depth from AABB edges defining facade zone (default: 4)
+ * @param windowSize    Horizontal window for median vote (default: 3 = 1 left + 1 right)
+ * @returns Number of blocks changed
+ */
+export function horizontalRectify(
+  grid: BlockGrid,
+  facadeDepth = 4,
+  windowSize = 3,
+): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  const halfW = Math.floor(windowSize / 2);
+  let changed = 0;
+
+  // Per-layer AABB for facade zone detection
+  const layerAABB: Array<{ minX: number; maxX: number; minZ: number; maxZ: number } | null> =
+    new Array(height).fill(null);
+
+  for (let y = 0; y < height; y++) {
+    let minX = width, maxX = -1, minZ = length, maxZ = -1;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (z < minZ) minZ = z;
+          if (z > maxZ) maxZ = z;
+        }
+      }
+    }
+    if (maxX >= 0) layerAABB[y] = { minX, maxX, minZ, maxZ };
+  }
+
+  // Snapshot before filtering
+  const snap: string[] = new Array(width * height * length);
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        snap[(y * length + z) * width + x] = grid.get(x, y, z);
+      }
+    }
+  }
+
+  // Process each horizontal row (y, z) along X-axis
+  for (let y = 0; y < height; y++) {
+    const aabb = layerAABB[y];
+    if (!aabb) continue;
+
+    for (let z = aabb.minZ; z <= aabb.maxZ; z++) {
+      for (let x = aabb.minX; x <= aabb.maxX; x++) {
+        const edgeDist = Math.min(
+          x - aabb.minX, aabb.maxX - x,
+          z - aabb.minZ, aabb.maxZ - z,
+        );
+        if (edgeDist >= facadeDepth) continue;
+
+        // Count air vs solid in horizontal X window
+        let airCount = 0;
+        let solidCount = 0;
+        let bestBlock = AIR;
+        let bestBlockCount = 0;
+        const blockCounts = new Map<string, number>();
+
+        for (let dx = -halfW; dx <= halfW; dx++) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= width) continue;
+          const block = snap[(y * length + z) * width + nx];
+          if (block === AIR) {
+            airCount++;
+          } else {
+            solidCount++;
+            const c = (blockCounts.get(block) ?? 0) + 1;
+            blockCounts.set(block, c);
+            if (c > bestBlockCount) {
+              bestBlockCount = c;
+              bestBlock = block;
+            }
+          }
+        }
+
+        const currentBlock = snap[(y * length + z) * width + x];
+        const majority = Math.ceil(windowSize / 2);
+
+        if (currentBlock === AIR && solidCount >= majority) {
+          grid.set(x, y, z, bestBlock);
+          changed++;
+        } else if (currentBlock !== AIR && airCount >= majority) {
+          grid.set(x, y, z, AIR);
+          changed++;
+        }
+      }
+    }
+  }
+
+  return changed;
 }
 
 /**
