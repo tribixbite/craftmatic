@@ -45,7 +45,7 @@ export function enableSelection(
   viewer: ViewerState,
   groundY = 0,
 ): { promise: Promise<SelectionBounds | null>; cancel: () => void } {
-  const { scene, camera, renderer, controls, grid } = viewer;
+  const { scene, camera, renderer, grid } = viewer;
   const canvas = renderer.domElement;
 
   const halfW = grid.width / 2;
