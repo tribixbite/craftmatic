@@ -26,9 +26,10 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build
-      # Pre-build bundled data files (catalog + OMR index)
+      # Pre-build bundled data files (catalog + OMR + seymouria index)
       - run: bun run prebuild:lego
       - run: bun run prebuild:omr
+      - run: bun run prebuild:seymouria
       - run: bun run build:web
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3

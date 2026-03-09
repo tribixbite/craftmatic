@@ -13,7 +13,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { parseLDraw } from '@engine/ldraw-parser.js';
 import { voxelizeLDraw } from '@engine/ldraw-voxelizer.js';
 import {
-  ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
+  ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded, getSeymouriaFilename,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
 
@@ -295,88 +295,83 @@ function selectSet(set: CatalogSet): void {
 // ─── OMR Auto-Load ───────────────────────────────────────────────────────────
 
 /**
- * Try to auto-fetch an LDraw file from the LDraw OMR.
- * Attempts several filename patterns for the selected set.
- * Falls back with a direct download URL if CORS blocks the request.
+ * Try to auto-fetch an LDraw file.
+ * Sources tried in order:
+ *   1. LDraw OMR  (library.ldraw.org)  — official, ~1,470 sets
+ *   2. Seymouria  (seymouria.pl)        — community, ~840 additional sets
  */
 async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
   const btn = document.getElementById('lego-auto-load') as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
 
-  // Fast path: only skip if the index is loaded AND definitively says set is absent
-  // (treats "not in index" as "unknown" in case our scrape was incomplete)
-  if (isOmrLoaded() && !isInOmr(set.set_num)) {
-    setStatus(
-      `${set.set_num} is not in the LDraw OMR (~1,470 sets). Try BrickLink Studio → export LDraw → upload above.`,
-      'info',
-    );
-    if (btn) btn.disabled = false;
-    return;
-  }
-
-  // OMR download URL: https://library.ldraw.org/library/omr/{set_num}.mpd
-  const candidates = [
-    `${set.set_num}.mpd`,
-  ];
-
-  for (const filename of candidates) {
+  // ── Source 1: LDraw OMR ──────────────────────────────────────────────────
+  const inOmr = !isOmrLoaded() || isInOmr(set.set_num);
+  if (inOmr) {
+    const filename = `${set.set_num}.mpd`;
     const url = `${OMR_FETCH_BASE}/${encodeURIComponent(filename)}`;
     setStatus(`Trying LDraw OMR: ${filename}…`, 'info');
-
     try {
       const resp = await fetch(url);
-      if (resp.status === 404) continue; // try next pattern
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-      const text = await resp.text();
-      if (btn) btn.disabled = false;
-      const file = new File([text], filename, { type: 'text/plain' });
-      await parseMpdFile(file);
-      return;
+      if (resp.ok) {
+        const text = await resp.text();
+        if (btn) btn.disabled = false;
+        await parseMpdFile(new File([text], filename, { type: 'text/plain' }));
+        return;
+      }
+      // 404 → fall through to seymouria
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const isCors = msg.toLowerCase().includes('cors') ||
                      msg.toLowerCase().includes('network') ||
                      msg.toLowerCase().includes('failed to fetch');
       if (isCors) {
-        // CORS blocked — show manual download URL and stop trying
-        const manualUrl = `${OMR_BASE}/${encodeURIComponent(set.set_num)}.mpd`;
-        setStatus(
-          `CORS blocked. Download manually from library.ldraw.org then upload above.`,
-          'error',
-        );
-        const omrEl = document.getElementById('lego-omr-links');
-        if (omrEl) {
-          omrEl.innerHTML = `
-            <div class="lego-omr-row">
-              <span class="lego-omr-label">Download <code>${escAttr(set.set_num)}</code> LDraw file:</span>
-            </div>
-            <div class="lego-omr-row">
-              <a href="${escAttr(manualUrl)}" target="_blank" rel="noopener" class="lego-ext-link lego-ext-link-highlight">
-                LDraw OMR: ${escAttr(set.set_num)}.mpd ↗
-              </a>
-              <a href="https://www.bricklink.com/v3/studio/studio.page" target="_blank" rel="noopener" class="lego-ext-link">
-                BrickLink Studio ↗
-              </a>
-            </div>
-            <p class="lego-omr-note">
-              Download the <code>.mpd</code> file, then drag it into the upload zone above.
-            </p>
-          `;
-        }
-        if (btn) btn.disabled = false;
-        return;
+        setStatus('CORS blocked — try seymouria.pl fallback…', 'info');
+        // fall through to seymouria
+      } else {
+        throw err;
       }
-      throw err; // unexpected error
     }
   }
 
-  // All patterns tried — file not found despite being in index (may have sub-models only)
+  // ── Source 2: Seymouria.pl ───────────────────────────────────────────────
+  const seymouriaFile = getSeymouriaFilename(set.set_num);
+  if (seymouriaFile) {
+    const url = `/seymouria-ldr/${encodeURIComponent(seymouriaFile)}`;
+    setStatus(`Trying seymouria.pl: ${seymouriaFile}…`, 'info');
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const text = await resp.text();
+        if (btn) btn.disabled = false;
+        await parseMpdFile(new File([text], seymouriaFile, { type: 'text/plain' }));
+        return;
+      }
+    } catch { /* fall through */ }
+  }
+
+  // ── Not found in any source ──────────────────────────────────────────────
+  const omrManual = `${OMR_BASE}/${encodeURIComponent(set.set_num)}.mpd`;
   setStatus(
-    `${set.set_num} is in the OMR but no single-model file found. ` +
-    `Try the LDraw OMR link below or BrickLink Studio → export LDraw → upload above.`,
+    `No LDraw file found for ${set.set_num}. Try BrickLink Studio → export LDraw → upload above.`,
     'info',
   );
+  const omrEl = document.getElementById('lego-omr-links');
+  if (omrEl) {
+    omrEl.innerHTML = `
+      <div class="lego-omr-row">
+        <span class="lego-omr-label">Manual download for <code>${escAttr(set.set_num)}</code>:</span>
+      </div>
+      <div class="lego-omr-row">
+        <a href="${escAttr(omrManual)}" target="_blank" rel="noopener" class="lego-ext-link">
+          LDraw OMR ↗
+        </a>
+        <a href="https://www.bricklink.com/v3/studio/studio.page" target="_blank" rel="noopener" class="lego-ext-link">
+          BrickLink Studio ↗
+        </a>
+      </div>
+      <p class="lego-omr-note">Download the <code>.mpd</code> or <code>.ldr</code> file, then drag it into the upload zone above.</p>
+    `;
+  }
   if (btn) btn.disabled = false;
 }
 

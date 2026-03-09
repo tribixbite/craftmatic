@@ -34,6 +34,9 @@ let loadPromise: Promise<void> | null = null;
 /** Set of set_nums confirmed in the LDraw OMR */
 let omrSetNums: Set<string> | null = null;
 
+/** Map of base set number (no -1 suffix) → seymouria filename for LDR/MPD source */
+let seymouriaIndex: Record<string, string> | null = null;
+
 /** Returns true if the set is in the LDraw OMR (requires ensureCatalog to have been called). */
 export function isInOmr(set_num: string): boolean {
   return omrSetNums?.has(set_num) ?? false;
@@ -42,6 +45,16 @@ export function isInOmr(set_num: string): boolean {
 /** Returns true if the OMR index has been loaded (so isInOmr results are trustworthy). */
 export function isOmrLoaded(): boolean {
   return omrSetNums !== null;
+}
+
+/**
+ * Returns the seymouria.pl LDR filename for a set, or null if not available.
+ * set_num may be "10016-1" or "10016" — base number is extracted.
+ */
+export function getSeymouriaFilename(set_num: string): string | null {
+  if (!seymouriaIndex) return null;
+  const base = set_num.replace(/-\d+$/, '');
+  return seymouriaIndex[base] ?? null;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -57,19 +70,21 @@ export async function ensureCatalog(
 
   loadPromise = (async () => {
     onProgress?.('Loading set catalog…');
-    const [catalogResp, omrResp] = await Promise.all([
+    const [catalogResp, omrResp, seymouriaResp] = await Promise.all([
       fetch('/lego-catalog.json'),
       fetch('/omr-index.json'),
+      fetch('/seymouria-index.json'),
     ]);
     if (!catalogResp.ok) throw new Error(`HTTP ${catalogResp.status} loading lego-catalog.json`);
-    // Parse both JSON bodies in parallel so all caches are set atomically
-    // (avoids a race where isLoaded() is true but omrSetNums is still null)
-    const [data, omrList] = await Promise.all([
+    // Parse all JSON bodies in parallel so all caches are set atomically
+    // (avoids a race where isLoaded() is true but secondary indexes are still null)
+    const [data, omrList, seymouriaData] = await Promise.all([
       catalogResp.json() as Promise<{
         sets: Array<{ set_num: string; name: string; year: number; theme_id: number; num_parts: number }>;
         themes: CatalogTheme[];
       }>,
       omrResp.ok ? omrResp.json() as Promise<string[]> : Promise.resolve(null as null),
+      seymouriaResp.ok ? seymouriaResp.json() as Promise<Record<string, string>> : Promise.resolve(null as null),
     ]);
 
     themesCache = data.themes;
@@ -79,6 +94,7 @@ export async function ensureCatalog(
       set_url: `https://rebrickable.com/sets/${encodeURIComponent(s.set_num)}/`,
     }));
     if (omrList) omrSetNums = new Set(omrList);
+    if (seymouriaData) seymouriaIndex = seymouriaData;
 
     onProgress?.(`Catalog ready — ${setsCache.length.toLocaleString()} sets`);
   })();
