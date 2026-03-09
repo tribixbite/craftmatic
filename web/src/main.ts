@@ -546,11 +546,17 @@ function showTilesSelectionBanner(
     const { camera, controls } = inlineViewer;
     const savedPos = camera.position.clone();
     const savedTarget = controls.target.clone();
+    const savedMinPolar = controls.minPolarAngle;
+    const savedMaxPolar = controls.maxPolarAngle;
 
     // Move camera directly above looking down — orthographic-like perspective
     const maxDim = Math.max(grid.width, grid.length);
     camera.position.set(0, maxDim * 1.5, 0.01); // tiny Z offset avoids gimbal lock
     controls.target.set(0, 0, 0);
+    // Lock vertical rotation to top-down (prevent user from tumbling to 3D view)
+    // polarAngle 0 = looking straight down. Allow tiny range for stability.
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = 0.15; // ~8.6° — nearly locked top-down
     controls.update();
 
     // Update banner to show selection instructions
@@ -572,11 +578,13 @@ function showTilesSelectionBanner(
     );
     selectionCancel = cancel;
 
-    /** Restore original camera position after selection */
+    /** Restore original camera position and rotation limits after selection */
     function restoreCamera() {
       if (!inlineViewer) return;
       camera.position.copy(savedPos);
       controls.target.copy(savedTarget);
+      controls.minPolarAngle = savedMinPolar;
+      controls.maxPolarAngle = savedMaxPolar;
       controls.update();
     }
 
