@@ -39,6 +39,11 @@ export function isInOmr(set_num: string): boolean {
   return omrSetNums?.has(set_num) ?? false;
 }
 
+/** Returns true if the OMR index has been loaded (so isInOmr results are trustworthy). */
+export function isOmrLoaded(): boolean {
+  return omrSetNums !== null;
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
