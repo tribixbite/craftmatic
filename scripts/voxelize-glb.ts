@@ -954,6 +954,7 @@ async function main(): Promise<void> {
     console.log(`  Noise: ${analysis.noisePct.toFixed(1)}%`);
     console.log(`  Entry: ${analysis.entryPosition ? `(${analysis.entryPosition.x}, ${analysis.entryPosition.z}) face=${analysis.entryFace} width=${analysis.entryWidth} path=${analysis.entryPath.length} blocks` : 'none detected'}`);
     console.log(`  Footprint: ${analysis.footprintArea} blocks area, ${analysis.perimeterLength} perimeter, compactness=${(analysis.compactness * 100).toFixed(0)}%`);
+    console.log(`  Building: ~${analysis.estimatedWidthM}x${analysis.estimatedHeightM}x${analysis.estimatedDepthM}m, ~${analysis.estimatedFloors} floors`);
     console.log(`  Confidence: ${analysis.confidence.toFixed(1)}/10 (${analysis.dataQuality})`);
     console.log(`  Analysis: ${((performance.now() - tAuto) / 1000).toFixed(1)}s`);
 
@@ -1007,6 +1008,7 @@ async function main(): Promise<void> {
     console.log(`  Front face: ${analysis.frontFace}`);
     console.log(`  Entry: ${analysis.entryPosition ? `(${analysis.entryPosition.x}, ${analysis.entryPosition.z}) face=${analysis.entryFace} width=${analysis.entryWidth} path=${analysis.entryPath.length} blocks` : 'none detected'}`);
     console.log(`  Footprint: area=${analysis.footprintArea} perimeter=${analysis.perimeterLength} compactness=${(analysis.compactness * 100).toFixed(0)}%`);
+    console.log(`  Building: ~${analysis.estimatedWidthM}x${analysis.estimatedHeightM}x${analysis.estimatedDepthM}m, ~${analysis.estimatedFloors} floors`);
     console.log(`  Confidence: ${analysis.confidence.toFixed(1)}/10 (${analysis.dataQuality})`);
 
     // Apply auto recommendations (only override non-explicitly-set params)
