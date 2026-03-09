@@ -13,13 +13,15 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { parseLDraw } from '@engine/ldraw-parser.js';
 import { voxelizeLDraw } from '@engine/ldraw-voxelizer.js';
 import {
-  ensureCatalog, searchCatalog, getThemes, isLoaded,
+  ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const OMR_BASE = 'https://library.ldraw.org/omr/sets';
+const OMR_BASE = 'https://library.ldraw.org/library/omr';
+// Route through local proxy (Vite in dev, CF Pages Function in prod) to avoid CORS
+const OMR_FETCH_BASE = '/ldraw-omr';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -172,12 +174,7 @@ function wireEvents(): void {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setStatus(
-        msg.includes('fetch') || msg.includes('CORS')
-          ? 'Could not reach rebrickable.com — check your connection.'
-          : `Search failed: ${msg}`,
-        'error',
-      );
+      setStatus(`Search failed: ${msg}`, 'error');
     } finally {
       searchBtn.disabled = false;
     }
@@ -197,8 +194,10 @@ function renderResults(sets: CatalogSet[]): void {
   const gridEl    = document.getElementById('lego-results-grid')!;
   resultsEl.hidden = false;
 
-  gridEl.innerHTML = sets.map((s, i) => `
-    <button class="lego-result-card" data-idx="${i}" title="${escAttr(s.name)}">
+  gridEl.innerHTML = sets.map((s, i) => {
+    const inOmr = isInOmr(s.set_num);
+    return `
+    <button class="lego-result-card${inOmr ? ' lego-result-card-omr' : ''}" data-idx="${i}" title="${escAttr(s.name)}">
       <img class="lego-result-img" src="/lego-thumbs/${escAttr(s.set_num)}.jpg"
         data-cdn="${escAttr(s.img_url)}" alt="" loading="lazy" decoding="async"
         onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.dataset.cdn;}else{this.style.display='none';this.nextElementSibling.style.display='flex';}">
@@ -208,13 +207,15 @@ function renderResults(sets: CatalogSet[]): void {
           <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
         </svg>
       </div>
+      ${inOmr ? '<div class="lego-omr-badge">3D</div>' : ''}
       <div class="lego-result-info">
         <div class="lego-result-num">${escAttr(s.set_num)}</div>
         <div class="lego-result-name">${escAttr(s.name)}</div>
         <div class="lego-result-meta">${s.year} · ${s.num_parts.toLocaleString()} pcs</div>
       </div>
     </button>
-  `).join('');
+  `;
+  }).join('');
 
   gridEl.querySelectorAll<HTMLButtonElement>('.lego-result-card').forEach(card => {
     card.addEventListener('click', () => selectSet(sets[parseInt(card.dataset['idx']!)]));
@@ -269,16 +270,17 @@ function selectSet(set: CatalogSet): void {
   const autoBtn = document.getElementById('lego-auto-load') as HTMLButtonElement;
   autoBtn.addEventListener('click', () => autoLoadFromOMR(set));
 
+  const omrFileUrl = `${OMR_BASE}/${encodeURIComponent(set.set_num)}.mpd`;
   omrEl.innerHTML = `
     <div class="lego-omr-row">
-      <span class="lego-omr-label">Get LDraw file for <code>${escAttr(setNumBase)}</code>:</span>
+      <span class="lego-omr-label">Get LDraw file for <code>${escAttr(set.set_num)}</code>:</span>
     </div>
     <div class="lego-omr-row">
-      <a href="https://library.ldraw.org/omr/sets/" target="_blank" rel="noopener" class="lego-ext-link">Browse LDraw OMR ↗</a>
+      <a href="${escAttr(omrFileUrl)}" target="_blank" rel="noopener" class="lego-ext-link">LDraw OMR ↗</a>
       <a href="https://www.bricklink.com/v3/studio/studio.page" target="_blank" rel="noopener" class="lego-ext-link">BrickLink Studio ↗</a>
     </div>
     <p class="lego-omr-note">
-      Search the OMR for <code>${escAttr(setNumBase)}</code> · or open in BrickLink Studio and export <code>.ldr</code> → upload above
+      Click Auto-Load to try automatic download · or open in BrickLink Studio and export <code>.ldr</code> → upload above
     </p>
   `;
 
@@ -296,18 +298,23 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
   const btn = document.getElementById('lego-auto-load') as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
 
-  const setNumBase = set.set_num.replace(/-\d+$/, '');
+  // Fast path: if we know the set is NOT in the OMR, skip fetching
+  if (!isInOmr(set.set_num)) {
+    setStatus(
+      `${set.set_num} is not in the LDraw OMR (~1,470 sets). Try BrickLink Studio → export LDraw → upload above.`,
+      'info',
+    );
+    if (btn) btn.disabled = false;
+    return;
+  }
 
-  // Try filename patterns: "21103-1 The DeLorean Time Machine.mpd", "21103-1.mpd"
+  // OMR download URL: https://library.ldraw.org/library/omr/{set_num}.mpd
   const candidates = [
-    `${set.set_num} ${set.name}.mpd`,
     `${set.set_num}.mpd`,
-    `${setNumBase} ${set.name}.mpd`,
-    `${setNumBase}.mpd`,
   ];
 
   for (const filename of candidates) {
-    const url = `${OMR_BASE}/${setNumBase}/${encodeURIComponent(filename)}`;
+    const url = `${OMR_FETCH_BASE}/${encodeURIComponent(filename)}`;
     setStatus(`Trying LDraw OMR: ${filename}…`, 'info');
 
     try {
@@ -327,14 +334,11 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
                      msg.toLowerCase().includes('failed to fetch');
       if (isCors) {
         // CORS blocked — show manual download URL and stop trying
-        const manualUrl = `${OMR_BASE}/${setNumBase}/`;
+        const manualUrl = `${OMR_BASE}/${encodeURIComponent(set.set_num)}.mpd`;
         setStatus(
-          `CORS blocked by LDraw OMR. ` +
-          `Download manually from library.ldraw.org/omr/sets/${setNumBase}/ ` +
-          `then upload above.`,
+          `CORS blocked. Download manually from library.ldraw.org then upload above.`,
           'error',
         );
-        // Update OMR link to point directly at the set directory
         const omrEl = document.getElementById('lego-omr-links');
         if (omrEl) {
           omrEl.innerHTML = `
@@ -343,7 +347,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
             </div>
             <div class="lego-omr-row">
               <a href="${escAttr(manualUrl)}" target="_blank" rel="noopener" class="lego-ext-link lego-ext-link-highlight">
-                LDraw OMR: Set ${escAttr(setNumBase)} ↗
+                LDraw OMR: ${escAttr(set.set_num)}.mpd ↗
               </a>
               <a href="https://www.bricklink.com/v3/studio/studio.page" target="_blank" rel="noopener" class="lego-ext-link">
                 BrickLink Studio ↗
@@ -361,10 +365,10 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
     }
   }
 
-  // All patterns tried — not in OMR
+  // All patterns tried — file not found despite being in index (may have sub-models only)
   setStatus(
-    `Set ${set.set_num} not found in LDraw OMR (~1,470 sets available). ` +
-    `Try BrickLink Studio → export LDraw → upload above.`,
+    `${set.set_num} is in the OMR but no single-model file found. ` +
+    `Try the LDraw OMR link below or BrickLink Studio → export LDraw → upload above.`,
     'info',
   );
   if (btn) btn.disabled = false;

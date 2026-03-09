@@ -1,18 +1,11 @@
 /**
- * LEGO set catalog — powered by Rebrickable public CSV downloads.
+ * LEGO set catalog — loads from pre-bundled /lego-catalog.json.
+ * LDraw OMR availability — loads from pre-bundled /omr-index.json.
  *
- * No API key required. Downloads and parses these public files:
- *   sets.csv.gz   → ~18k sets with name, year, theme, piece count
- *   themes.csv.gz → ~700 themes with parent hierarchy
- *
- * Source: https://rebrickable.com/downloads/
- * License: CC-BY-SA (see rebrickable.com/api/)
+ * Both JSON files are generated at build time:
+ *   bun scripts/prebuild-lego-catalog.ts
+ *   bun scripts/prebuild-omr-index.ts
  */
-
-import { inflate } from 'pako';
-
-const CDN = 'https://cdn.rebrickable.com/media/downloads';
-const IMG_BASE = 'https://cdn.rebrickable.com/media/sets';
 
 export interface CatalogSet {
   set_num: string;
@@ -30,17 +23,26 @@ export interface CatalogTheme {
   parent_id: number | null;
 }
 
+const IMG_BASE = 'https://cdn.rebrickable.com/media/sets';
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let setsCache: CatalogSet[] | null = null;
 let themesCache: CatalogTheme[] | null = null;
 let loadPromise: Promise<void> | null = null;
 
+/** Set of set_nums confirmed in the LDraw OMR */
+let omrSetNums: Set<string> | null = null;
+
+/** Returns true if the set is in the LDraw OMR (requires ensureCatalog to have been called). */
+export function isInOmr(set_num: string): boolean {
+  return omrSetNums?.has(set_num) ?? false;
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Download and parse the Rebrickable CSV dumps.
- * Idempotent — safe to call multiple times; only fetches once per page load.
+ * Load the bundled catalog JSON. Idempotent — safe to call multiple times.
  */
 export async function ensureCatalog(
   onProgress?: (msg: string) => void,
@@ -49,16 +51,35 @@ export async function ensureCatalog(
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
-    onProgress?.('Downloading set catalog (~1 MB)…');
-    const [setsText, themesText] = await Promise.all([
-      fetchGzip(`${CDN}/sets.csv.gz`),
-      fetchGzip(`${CDN}/themes.csv.gz`),
+    onProgress?.('Loading set catalog…');
+    const [catalogResp, omrResp] = await Promise.all([
+      fetch('/lego-catalog.json'),
+      fetch('/omr-index.json'),
     ]);
-    onProgress?.('Parsing…');
-    themesCache = parseThemes(themesText);
-    setsCache = parseSets(setsText);
+    if (!catalogResp.ok) throw new Error(`HTTP ${catalogResp.status} loading lego-catalog.json`);
+    // Parse both JSON bodies in parallel so all caches are set atomically
+    // (avoids a race where isLoaded() is true but omrSetNums is still null)
+    const [data, omrList] = await Promise.all([
+      catalogResp.json() as Promise<{
+        sets: Array<{ set_num: string; name: string; year: number; theme_id: number; num_parts: number }>;
+        themes: CatalogTheme[];
+      }>,
+      omrResp.ok ? omrResp.json() as Promise<string[]> : Promise.resolve(null as null),
+    ]);
+
+    themesCache = data.themes;
+    setsCache = data.sets.map(s => ({
+      ...s,
+      img_url: `${IMG_BASE}/${encodeURIComponent(s.set_num)}.jpg`,
+      set_url: `https://rebrickable.com/sets/${encodeURIComponent(s.set_num)}/`,
+    }));
+    if (omrList) omrSetNums = new Set(omrList);
+
     onProgress?.(`Catalog ready — ${setsCache.length.toLocaleString()} sets`);
   })();
+
+  // Clear on rejection so subsequent calls can retry
+  loadPromise.catch(() => { loadPromise = null; });
 
   return loadPromise;
 }
@@ -100,117 +121,4 @@ export function searchCatalog(
     if (matches.length >= limit) break;
   }
   return matches;
-}
-
-// ─── Fetch + Decompress ──────────────────────────────────────────────────────
-
-async function fetchGzip(url: string): Promise<string> {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
-  const buf = await resp.arrayBuffer();
-  const bytes = inflate(new Uint8Array(buf));
-  return new TextDecoder('utf-8').decode(bytes);
-}
-
-// ─── CSV Parsing ─────────────────────────────────────────────────────────────
-
-function parseSets(csv: string): CatalogSet[] {
-  const rows = parseCSV(csv);
-  if (rows.length < 2) return [];
-
-  const h = rows[0].map(s => s.trim().toLowerCase());
-  const iNum   = h.indexOf('set_num');
-  const iName  = h.indexOf('name');
-  const iYear  = h.indexOf('year');
-  const iTheme = h.indexOf('theme_id');
-  const iParts = h.indexOf('num_parts');
-  if (iNum < 0 || iName < 0) return [];
-
-  const out: CatalogSet[] = [];
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i];
-    const set_num = r[iNum]?.trim();
-    const name    = r[iName]?.trim();
-    if (!set_num || !name) continue;
-    out.push({
-      set_num,
-      name,
-      year:      parseInt(r[iYear] ?? '0')  || 0,
-      theme_id:  parseInt(r[iTheme] ?? '0') || 0,
-      num_parts: parseInt(r[iParts] ?? '0') || 0,
-      img_url:   `${IMG_BASE}/${encodeURIComponent(set_num)}.jpg`,
-      set_url:   `https://rebrickable.com/sets/${encodeURIComponent(set_num)}/`,
-    });
-  }
-  return out;
-}
-
-function parseThemes(csv: string): CatalogTheme[] {
-  const rows = parseCSV(csv);
-  if (rows.length < 2) return [];
-
-  const h = rows[0].map(s => s.trim().toLowerCase());
-  const iId     = h.indexOf('id');
-  const iName   = h.indexOf('name');
-  const iParent = h.indexOf('parent_id');
-  if (iId < 0 || iName < 0) return [];
-
-  const out: CatalogTheme[] = [];
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i];
-    const id   = parseInt(r[iId] ?? '');
-    const name = r[iName]?.trim();
-    if (!id || !name) continue;
-    const parentRaw = r[iParent]?.trim();
-    out.push({
-      id,
-      name,
-      parent_id: parentRaw ? (parseInt(parentRaw) || null) : null,
-    });
-  }
-  return out;
-}
-
-/** Parse a CSV string into rows of fields. Handles RFC 4180 quoting. */
-function parseCSV(text: string): string[][] {
-  const rows: string[][] = [];
-  let i = 0;
-  while (i < text.length) {
-    rows.push(readRow());
-  }
-  return rows;
-
-  function readRow(): string[] {
-    const fields: string[] = [];
-    while (i < text.length) {
-      fields.push(readField());
-      if (i < text.length && text[i] === ',') { i++; continue; }
-      // End of row
-      if (i < text.length && text[i] === '\r') i++;
-      if (i < text.length && text[i] === '\n') i++;
-      break;
-    }
-    return fields;
-  }
-
-  function readField(): string {
-    if (text[i] === '"') {
-      // Quoted field
-      i++;
-      let val = '';
-      while (i < text.length) {
-        if (text[i] === '"') {
-          if (text[i + 1] === '"') { val += '"'; i += 2; }
-          else { i++; break; }
-        } else {
-          val += text[i++];
-        }
-      }
-      return val;
-    }
-    // Unquoted — read until comma or newline
-    let start = i;
-    while (i < text.length && text[i] !== ',' && text[i] !== '\r' && text[i] !== '\n') i++;
-    return text.slice(start, i);
-  }
 }

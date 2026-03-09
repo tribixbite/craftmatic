@@ -28,6 +28,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "prebuild:lego": "bun scripts/prebuild-lego-catalog.ts",
+    "prebuild:omr": "bun scripts/prebuild-omr-index.ts",
+    "prebuild": "bun run prebuild:lego && bun run prebuild:omr",
     "scrape:lego-thumbs": "bun scripts/scrape-lego-thumbs.ts",
     "clean": "rm -rf dist web/dist",
     "prepublishOnly": "npm run build && npm run build:web"
