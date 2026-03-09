@@ -2096,6 +2096,65 @@ export function cropToAABB(
   return removed;
 }
 
+/**
+ * Remove ground plane and terrain below a building.
+ *
+ * For each XZ column, finds the lowest non-air Y ("ground height").
+ * Computes the median ground height as the ground plane level.
+ * Removes all blocks at or below (groundPlaneY + margin) for columns
+ * whose ground height is within tolerance of the median.
+ * This strips flat terrain without removing building foundations on slopes.
+ *
+ * @param grid     Mutable BlockGrid
+ * @param margin   Extra layers above ground plane to remove (default: 1)
+ * @returns Object with removed count and detected ground Y
+ */
+export function removeGroundPlane(
+  grid: BlockGrid, margin = 1,
+): { removed: number; groundY: number } {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+
+  // Find lowest non-air Y for each XZ column
+  const groundHeights: number[] = [];
+  const columnGround: number[][] = []; // [x, z, groundY]
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = 0; y < height; y++) {
+        if (grid.get(x, y, z) !== AIR) {
+          groundHeights.push(y);
+          columnGround.push([x, z, y]);
+          break;
+        }
+      }
+    }
+  }
+
+  if (groundHeights.length === 0) return { removed: 0, groundY: 0 };
+
+  // Median ground height = ground plane level
+  const sorted = [...groundHeights].sort((a, b) => a - b);
+  const groundY = sorted[Math.floor(sorted.length / 2)];
+  const cutY = groundY + margin;
+
+  // Remove blocks at or below cutY for columns near the ground plane.
+  // Columns whose ground height is far above the median are building walls
+  // extending down — don't strip those.
+  let removed = 0;
+  const tolerance = 3; // columns with ground height > groundY + tolerance are kept
+  for (const [x, z, colGround] of columnGround) {
+    if (colGround > groundY + tolerance) continue;
+    for (let y = 0; y <= Math.min(cutY, height - 1); y++) {
+      if (grid.get(x, y, z) !== AIR) {
+        grid.set(x, y, z, AIR);
+        removed++;
+      }
+    }
+  }
+
+  return { removed, groundY };
+}
+
 // ─── Auto-Detection Analyzer ─────────────────────────────────────────────────
 
 /** Building shape classification from volumetric analysis */
