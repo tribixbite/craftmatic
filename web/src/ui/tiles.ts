@@ -27,7 +27,8 @@ import {
 } from '@ui/import-streetview.js';
 import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
 import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
-import { trimSparseBottomLayers } from '@craft/convert/mesh-filter.js';
+import { trimSparseBottomLayers, analyzeGrid, cropToAABB } from '@craft/convert/mesh-filter.js';
+import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -44,7 +45,7 @@ let scene: THREE.Scene | null = null;
 let camera: THREE.PerspectiveCamera | null = null;
 let tiles: TilesRenderer | null = null;
 let animFrameId = 0;
-let onResult: ((grid: BlockGrid, label: string) => void) | null = null;
+let onResult: ((grid: BlockGrid, label: string, analysis: AnalysisResult | null) => void) | null = null;
 
 // ─── API Key ────────────────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ function hasApiKey(): boolean {
 
 export function initTiles(
   container: HTMLElement,
-  callback: (grid: BlockGrid, label: string) => void,
+  callback: (grid: BlockGrid, label: string, analysis: AnalysisResult | null) => void,
 ): void {
   rootEl = container;
   onResult = callback;
@@ -462,17 +463,31 @@ async function runVoxelizePipeline(
     // Debug: expose grid for inspection
     (window as Record<string, unknown>).__lastTilesGrid = trimmedGrid;
     console.log('[tiles] palette:', [...trimmedGrid.palette].join(', '));
+
+    // Run auto-analysis for confidence scoring and building detection
+    let analysis: AnalysisResult | null = null;
+    try {
+      analysis = analyzeGrid(trimmedGrid);
+      console.log(`[tiles] analysis: confidence=${analysis.confidence.toFixed(1)}, quality=${analysis.dataQuality}, typology=${analysis.typology}`);
+    } catch (err) {
+      console.warn('[tiles] analysis failed (non-fatal):', err);
+    }
+
+    const qualityLabel = analysis
+      ? ` (${analysis.dataQuality} quality, confidence ${analysis.confidence.toFixed(1)}/10)`
+      : '';
     setStatus(
-      `Done — ${trimmedGrid.width}x${trimmedGrid.height}x${trimmedGrid.length}, ${nonAir.toLocaleString()} blocks, ${trimmedGrid.palette.size} materials`,
+      `Done — ${trimmedGrid.width}x${trimmedGrid.height}x${trimmedGrid.length}, ${nonAir.toLocaleString()} blocks, ${trimmedGrid.palette.size} materials${qualityLabel}`,
       'success',
     );
 
     // Dispose the tile viewer — we don't need it anymore
     disposeViewer();
 
-    // Step 5: Pass grid to callback (shows in inline viewer with download options)
+    // Step 5: Pass grid + analysis to callback
+    // If analysis shows poor/fair quality, the callback can trigger manual selection
     if (onResult && !skipCallback) {
-      onResult(trimmedGrid, `tiles-${geo.formattedAddress}`);
+      onResult(trimmedGrid, `tiles-${geo.formattedAddress}`, analysis);
     }
 
     return trimmedGrid;
