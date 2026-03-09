@@ -479,12 +479,33 @@ export async function renderCutawayIso(
   const pixels = Buffer.alloc(imgW * imgH * 4);
   fillRect(pixels, imgW, 0, 0, imgW, imgH, [22, 22, 28]);
 
+  // Cache block color lookups
+  const colorCache = new Map<string, RGB | null>();
+  function cachedBlockColor(bs: string): RGB | null {
+    let c = colorCache.get(bs);
+    if (c !== undefined) return c;
+    c = getBlockColor(bs);
+    colorCache.set(bs, c);
+    return c;
+  }
+
   for (let y = baseY; y < topY; y++) {
     for (let z = l - 1; z >= 0; z--) {
       for (let x = 0; x < w; x++) {
         const bs = blocks[y][z][x];
-        const color = getBlockColor(bs);
+        const color = cachedBlockColor(bs);
         if (color === null) continue;
+
+        // Skip fully interior blocks — never visible from any isometric angle
+        if (x > 0 && x < w - 1 && y > baseY && y < topY - 1 && z > 0 && z < l - 1 &&
+            cachedBlockColor(blocks[y + 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y - 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y][z][x - 1]) !== null &&
+            cachedBlockColor(blocks[y][z][x + 1]) !== null &&
+            cachedBlockColor(blocks[y][z - 1][x]) !== null &&
+            cachedBlockColor(blocks[y][z + 1][x]) !== null) {
+          continue;
+        }
 
         const ao = getAO(grid, x, y, z);
         const sx = (x - z) * tile + cx;
@@ -543,12 +564,33 @@ export async function renderExterior(
   const pixels = Buffer.alloc(imgW * imgH * 4);
   fillRect(pixels, imgW, 0, 0, imgW, imgH, [22, 22, 28]);
 
+  // Cache block color lookups — same block state appears thousands of times
+  const colorCache = new Map<string, RGB | null>();
+  function cachedBlockColor(bs: string): RGB | null {
+    let c = colorCache.get(bs);
+    if (c !== undefined) return c;
+    c = getBlockColor(bs);
+    colorCache.set(bs, c);
+    return c;
+  }
+
   for (let y = 0; y < h; y++) {
     for (let z = l - 1; z >= 0; z--) {
       for (let x = 0; x < w; x++) {
         const bs = blocks[y][z][x];
-        const color = getBlockColor(bs);
+        const color = cachedBlockColor(bs);
         if (color === null) continue;
+
+        // Skip fully interior blocks — never visible from any isometric angle
+        if (x > 0 && x < w - 1 && y > 0 && y < h - 1 && z > 0 && z < l - 1 &&
+            cachedBlockColor(blocks[y + 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y - 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y][z][x - 1]) !== null &&
+            cachedBlockColor(blocks[y][z][x + 1]) !== null &&
+            cachedBlockColor(blocks[y][z - 1][x]) !== null &&
+            cachedBlockColor(blocks[y][z + 1][x]) !== null) {
+          continue;
+        }
 
         const ao = getAO(grid, x, y, z);
         const sx = (x - z) * tile + cx;
