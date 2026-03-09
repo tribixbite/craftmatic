@@ -2140,32 +2140,145 @@ html, body {
 
 /* ─── LEGO Tab ───────────────────────────────────────────────────────────── */
 
+.lego-status {
+  padding: 8px 16px 0;
+  font-size: 11px;
+  min-height: 0;
+}
+.lego-status[hidden] { display: none; }
+.lego-status-info    { color: var(--text-secondary); }
+.lego-status-error   { color: var(--danger, #f87171); }
+.lego-status-success { color: var(--success, #4ade80); }
+
 .lego-section {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
 }
 
-.lego-label {
+.lego-section-inner { padding: 8px 16px; border-bottom: none; }
+
+.lego-label-row {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.lego-section-label {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-bottom: 6px;
+}
+.lego-section-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.7;
 }
 
-.lego-key-status {
-  font-weight: 400;
+/* ── Upload Zone ─────────────────────────────────────────────────────────── */
+
+.lego-upload-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 14px;
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: center;
+  color: var(--text-secondary);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  margin-bottom: 8px;
+}
+.lego-upload-zone:hover,
+.lego-upload-zone.dragover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.lego-upload-zone svg { opacity: 0.6; }
+.lego-upload-zone:hover svg,
+.lego-upload-zone.dragover svg { opacity: 1; }
+
+.lego-upload-zone-text {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.lego-upload-zone-text code {
+  background: var(--bg-secondary);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--text-muted, var(--text-secondary));
-  text-transform: none;
-  letter-spacing: 0;
 }
 
-.lego-key-row { display: flex; flex-direction: column; gap: 6px; }
+.lego-omr-quick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+/* ── Divider ─────────────────────────────────────────────────────────────── */
+
+.lego-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  margin: 4px 0;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+}
+.lego-divider::before,
+.lego-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Search Details (collapsible) ───────────────────────────────────────── */
+
+.lego-search-details { border-bottom: 1px solid var(--border); }
+
+.lego-search-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  list-style: none;
+}
+.lego-search-summary::-webkit-details-marker { display: none; }
+.lego-search-summary::after {
+  content: '›';
+  font-size: 14px;
+  color: var(--text-secondary);
+  transform: rotate(90deg);
+  transition: transform 0.15s;
+  display: inline-block;
+}
+.lego-search-details[open] .lego-search-summary::after { transform: rotate(-90deg); }
+
+.lego-search-summary-sub {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin-right: auto;
+  margin-left: 8px;
+}
+
+/* ── Key / Input ─────────────────────────────────────────────────────────── */
 
 .lego-key-input-row {
   display: flex;
@@ -2414,3 +2527,15 @@ html, body {
   white-space: nowrap;
 }
 .lego-ext-link:hover { text-decoration: underline; }
+.lego-ext-link-highlight {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-radius: 4px;
+}
+
+.lego-auto-load-btn {
+  margin-top: 8px;
+  width: 100%;
+}
