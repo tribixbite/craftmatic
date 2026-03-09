@@ -539,7 +539,6 @@ async function runVoxelizePipeline(
 function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null): void {
   const t0 = performance.now();
   const rec = analysis?.recommended;
-  const isGeneric = rec?.generic ?? false;
 
   // 1. AABB crop — isolate the central building if analysis detected multiple components
   if (rec?.useAABBCrop && analysis) {
@@ -548,28 +547,26 @@ function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null):
     if (cropped > 0) console.log(`[tiles:pp] AABB crop: ${cropped} blocks removed`);
   }
 
-  if (!isGeneric) {
-    // 2. Fill interior gaps — flood-fill per Y-layer finds enclosed spaces
-    const interiorFilled = fillInteriorGaps(grid, 3);
-    console.log(`[tiles:pp] interior fill: ${interiorFilled} voxels`);
+  // Always run building shape processing in the browser — even when analysis says
+  // "generic", the browser lacks the CLI's color preprocessing (luminance clamp,
+  // warm bias, desaturation, gamma) so raw voxels need aggressive cleanup.
 
-    // 3. Solidify core — fill interior to facade depth for solid walls
-    const coreFilled = solidifyCore(grid, 4);
-    console.log(`[tiles:pp] solidify core: ${coreFilled} voxels (depth=4)`);
+  // 2. Fill interior gaps — flood-fill per Y-layer finds enclosed spaces
+  const interiorFilled = fillInteriorGaps(grid, 3);
+  console.log(`[tiles:pp] interior fill: ${interiorFilled} voxels`);
 
-    // 4. Carve facade shadows — remove dark baked-lighting blocks
-    const carved = carveFacadeShadows(grid, 4, 0.45, 2);
-    console.log(`[tiles:pp] facade carve: ${carved} dark blocks → air`);
+  // 3. Solidify core — fill interior to facade depth for solid walls
+  const coreFilled = solidifyCore(grid, 4);
+  console.log(`[tiles:pp] solidify core: ${coreFilled} voxels (depth=4)`);
 
-    // 5. Vertical + horizontal rectification — enforce Manhattan geometry
-    const vRect = verticalRectify(grid, 4, 5);
-    const hRect = horizontalRectify(grid, 4, 3);
-    console.log(`[tiles:pp] rectify: ${vRect} vertical, ${hRect} horizontal`);
-  } else if (rec?.fill) {
-    // Generic mode with fill requested — only interior fill, no shape modification
-    const interiorFilled = fillInteriorGaps(grid, 3);
-    console.log(`[tiles:pp] generic interior fill: ${interiorFilled} voxels`);
-  }
+  // 4. Carve facade shadows — remove dark baked-lighting blocks
+  const carved = carveFacadeShadows(grid, 4, 0.45, 2);
+  console.log(`[tiles:pp] facade carve: ${carved} dark blocks → air`);
+
+  // 5. Vertical + horizontal rectification — enforce Manhattan geometry
+  const vRect = verticalRectify(grid, 4, 5);
+  const hRect = horizontalRectify(grid, 4, 3);
+  console.log(`[tiles:pp] rectify: ${vRect} vertical, ${hRect} horizontal`);
 
   // 6. Smooth rare/noisy blocks — replaces globally rare blocks with common neighbors
   const smoothPct = rec?.smoothPct ?? 0.02;
@@ -578,51 +575,40 @@ function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null):
     console.log(`[tiles:pp] smooth: ${smoothed} rare blocks replaced`);
   }
 
-  // 7. Constrain palette — remap dark photogrammetry shadow artifacts to neutral gray.
-  // Google 3D Tiles bake warm shadows → nether_bricks/deepslate which overpower colors.
-  if (isGeneric || rec?.noPalette) {
-    // Generic/no-palette mode: only remap the darkest shadow blocks
-    const shadowRemaps = new Map<string, string>([
-      ['minecraft:blackstone', 'minecraft:gray_concrete'],
-      ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
-      ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
-      ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
-    ]);
-    const constrained = constrainPalette(grid, shadowRemaps);
-    console.log(`[tiles:pp] shadow palette: ${constrained} blocks remapped`);
-  } else {
-    // Building mode: aggressively remap to uniform stucco/concrete
-    const paletteRemaps = new Map<string, string>([
-      ['minecraft:blackstone', 'minecraft:smooth_quartz'],
-      ['minecraft:deepslate_bricks', 'minecraft:smooth_quartz'],
-      ['minecraft:polished_deepslate', 'minecraft:smooth_quartz'],
-      ['minecraft:polished_blackstone', 'minecraft:smooth_quartz'],
-      ['minecraft:nether_bricks', 'minecraft:smooth_quartz'],
-      ['minecraft:stone', 'minecraft:light_gray_concrete'],
-      ['minecraft:andesite', 'minecraft:light_gray_concrete'],
-      ['minecraft:polished_andesite', 'minecraft:light_gray_concrete'],
-      ['minecraft:stone_bricks', 'minecraft:light_gray_concrete'],
-      ['minecraft:smooth_stone', 'minecraft:light_gray_concrete'],
-      ['minecraft:cobblestone', 'minecraft:light_gray_concrete'],
-      ['minecraft:gray_concrete', 'minecraft:light_gray_concrete'],
-      ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
-      ['minecraft:red_terracotta', 'minecraft:smooth_quartz'],
-      ['minecraft:orange_terracotta', 'minecraft:smooth_quartz'],
-      ['minecraft:brown_terracotta', 'minecraft:smooth_quartz'],
-      ['minecraft:bricks', 'minecraft:smooth_quartz'],
-      ['minecraft:red_concrete', 'minecraft:smooth_quartz'],
-      ['minecraft:green_concrete', 'minecraft:smooth_quartz'],
-      ['minecraft:iron_block', 'minecraft:light_gray_concrete'],
-      ['minecraft:end_stone_bricks', 'minecraft:smooth_quartz'],
-      ['minecraft:smooth_sandstone', 'minecraft:smooth_quartz'],
-      ['minecraft:sandstone', 'minecraft:smooth_quartz'],
-    ]);
-    const constrained = constrainPalette(grid, paletteRemaps);
-    console.log(`[tiles:pp] full palette: ${constrained} blocks remapped`);
-  }
+  // 7. Constrain palette — always use full building remap in browser.
+  // The browser's createCanvasTextureSampler() gets raw baked-lighting colors from
+  // Google 3D Tiles. Without the CLI's color preprocessing (luminance clamp, warm
+  // bias, selective desaturation, gamma), most voxels map to dark shadow blocks
+  // (nether_bricks, blackstone, deepslate). Aggressive remapping to light materials
+  // (smooth_quartz, light_gray_concrete) compensates for the missing color pipeline.
+  const paletteRemaps = new Map<string, string>([
+    ['minecraft:blackstone', 'minecraft:smooth_quartz'],
+    ['minecraft:deepslate_bricks', 'minecraft:smooth_quartz'],
+    ['minecraft:polished_deepslate', 'minecraft:smooth_quartz'],
+    ['minecraft:polished_blackstone', 'minecraft:smooth_quartz'],
+    ['minecraft:nether_bricks', 'minecraft:smooth_quartz'],
+    ['minecraft:red_nether_bricks', 'minecraft:smooth_quartz'],
+    ['minecraft:stone', 'minecraft:light_gray_concrete'],
+    ['minecraft:andesite', 'minecraft:light_gray_concrete'],
+    ['minecraft:polished_andesite', 'minecraft:light_gray_concrete'],
+    ['minecraft:stone_bricks', 'minecraft:light_gray_concrete'],
+    ['minecraft:smooth_stone', 'minecraft:light_gray_concrete'],
+    ['minecraft:cobblestone', 'minecraft:light_gray_concrete'],
+    ['minecraft:gray_concrete', 'minecraft:light_gray_concrete'],
+    ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
+    ['minecraft:red_terracotta', 'minecraft:smooth_quartz'],
+    ['minecraft:orange_terracotta', 'minecraft:smooth_quartz'],
+    ['minecraft:brown_terracotta', 'minecraft:smooth_quartz'],
+    ['minecraft:bricks', 'minecraft:smooth_quartz'],
+    ['minecraft:red_concrete', 'minecraft:smooth_quartz'],
+    ['minecraft:green_concrete', 'minecraft:smooth_quartz'],
+    ['minecraft:iron_block', 'minecraft:light_gray_concrete'],
+    ['minecraft:end_stone_bricks', 'minecraft:smooth_quartz'],
+    ['minecraft:smooth_sandstone', 'minecraft:smooth_quartz'],
+    ['minecraft:sandstone', 'minecraft:smooth_quartz'],
+  ]);
+  const constrained = constrainPalette(grid, paletteRemaps);
+  console.log(`[tiles:pp] palette: ${constrained} blocks remapped`);
 
   // Also apply analysis-recommended remaps (building-specific material corrections)
   if (rec?.remaps && rec.remaps.size > 0) {
