@@ -638,15 +638,25 @@ function showTilesSelectionBanner(
     const savedMinPolar = controls.minPolarAngle;
     const savedMaxPolar = controls.maxPolarAngle;
 
-    // Move camera directly above looking down — orthographic-like perspective
+    // Move camera directly above looking down — high enough to see satellite context
     const maxDim = Math.max(grid.width, grid.length);
-    camera.position.set(0, maxDim * 1.5, 0.01); // tiny Z offset avoids gimbal lock
+    camera.position.set(0, maxDim * 3, 0.01); // 3x for wide satellite view, tiny Z avoids gimbal lock
     controls.target.set(0, 0, 0);
     // Lock vertical rotation to top-down (prevent user from tumbling to 3D view)
-    // polarAngle 0 = looking straight down. Allow tiny range for stability.
     controls.minPolarAngle = 0;
     controls.maxPolarAngle = 0.15; // ~8.6° — nearly locked top-down
     controls.update();
+
+    // Make voxel blocks semi-transparent so satellite imagery shows through.
+    // Save original opacity/transparent state for restoration after selection.
+    const savedMaterials: Array<{ mesh: THREE.InstancedMesh; opacity: number; transparent: boolean }> = [];
+    for (const mesh of inlineViewer.meshes) {
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      savedMaterials.push({ mesh, opacity: mat.opacity, transparent: mat.transparent });
+      mat.transparent = true;
+      mat.opacity = 0.25;
+      mat.needsUpdate = true;
+    }
 
     // Overlay satellite imagery on the ground plane for spatial context.
     // Makes the building footprint recognizable relative to roads/neighbors.
@@ -677,8 +687,16 @@ function showTilesSelectionBanner(
     );
     selectionCancel = cancel;
 
-    /** Remove satellite overlay and restore camera */
+    /** Remove satellite overlay and restore block opacity */
     function cleanupSelection() {
+      // Restore voxel block materials to original opacity
+      for (const { mesh, opacity, transparent } of savedMaterials) {
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        mat.opacity = opacity;
+        mat.transparent = transparent;
+        mat.needsUpdate = true;
+      }
+      // Remove satellite image plane
       if (satelliteOverlay && inlineViewer) {
         inlineViewer.scene.remove(satelliteOverlay);
         satelliteOverlay.geometry.dispose();
