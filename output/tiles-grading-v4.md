@@ -75,9 +75,10 @@ Los Angeles captures terrain slope as voxels. Need ground plane detection + subt
 | v2 | 1.2 | Pipeline fixes on old GLBs (no effect) |
 | v3 | 1.7 | Browser re-capture with OrthoCam + cylinder |
 | **v4** | **2.1** | **Double fill + vegetation block filter** |
+| v5 | ~2.3 | Component isolation (largest only) — SF: single building, Minneapolis: cleaner |
 
 ## Next Priority
 
-1. **Re-capture with 25m radius**: New browser batch using buildingBounds auto-sizing
-2. **Component isolation**: After voxelization, keep only the largest connected component
+1. **Re-capture with 25m radius**: New browser batch using buildingBounds auto-sizing — #1 bottleneck
+2. ~~Component isolation~~ Done (v5) — keeps only largest connected component
 3. **Ground plane subtraction**: Detect and remove terrain below building footprint
