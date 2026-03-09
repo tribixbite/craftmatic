@@ -907,6 +907,8 @@ async function main(): Promise<void> {
   const grid = threeToGrid(filteredGroup, args.resolution, {
     textureSampler: sampler,
     mode: args.mode,
+    // Filter vegetation colors for surface mode (photogrammetry tiles contain trees)
+    filterVegetation: args.mode === 'surface',
     onProgress: (p) => {
       if (p.message) {
         process.stdout.write(`\r  ${p.message}`);
@@ -1074,11 +1076,8 @@ async function main(): Promise<void> {
     // Generic mode skips them to preserve multi-structure raw geometry.
 
     // Interior fill — flood-fill per Y-layer identifies building interiors.
-    // solidifyCore removed: destroyed non-rectangular geometry (courtyards, L-shapes, wedges)
-    // by forcing AABB per Y-layer.
-    // carveFacadeShadows removed: luminance-based carving deleted valid dark materials
-    // (brick, terracotta, dark stone).
-    const interiorFilled = fillInteriorGaps(trimmed, 3);
+    // Dilation radius 5 closes wider gaps in thin photogrammetry shells.
+    const interiorFilled = fillInteriorGaps(trimmed, 5);
     console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
 
     // Vertical + horizontal rectification — Manhattan geometry cleanup
@@ -1086,10 +1085,14 @@ async function main(): Promise<void> {
     console.log(`Vertical rectify: ${rectified} blocks changed (window=5, depth=4)`);
     const hRectified = horizontalRectify(trimmed, 4, 3);
     console.log(`Horizontal rectify: ${hRectified} blocks changed (window=3, depth=4)`);
+
+    // Second fill pass — rectification closes wall gaps, enabling more interior detection
+    const interiorFilled2 = fillInteriorGaps(trimmed, 5);
+    if (interiorFilled2 > 0) console.log(`Interior fill pass 2: ${interiorFilled2} interior voxels filled`);
   } else {
     console.log(`Generic mode: skipping rectify (preserving raw geometry)`);
     if (args.fill) {
-      const interiorFilled = fillInteriorGaps(trimmed, 3);
+      const interiorFilled = fillInteriorGaps(trimmed, 5);
       console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
     }
   }
