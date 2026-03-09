@@ -13,9 +13,9 @@ const TILES_DIR = '/data/data/com.termux/files/home/git/craftmatic/output/tiles'
 
 const arg = process.argv[2];
 const SCHEMS = arg ? [arg] : [
-  'sf-v6', 'newton-v6', 'sanjose-v6', 'walpole-v6', 'byron-v6', 'vinalhaven-v6',
-  'suttonsbay-v6', 'losangeles-v6', 'seattle-v6', 'austin-v6', 'minneapolis-v6',
-  'charleston-v6',
+  'sf-v7', 'newton-v7', 'sanjose-v7', 'walpole-v7', 'byron-v7', 'vinalhaven-v7',
+  'suttonsbay-v7', 'losangeles-v7', 'seattle-v7', 'austin-v7', 'minneapolis-v7',
+  'charleston-v7',
 ];
 
 for (const name of SCHEMS) {

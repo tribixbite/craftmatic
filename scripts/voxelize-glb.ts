@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, verticalRectify, horizontalRectify, glazeBackplane, removeSmallComponents, cropToCenter, cropToAABB, analyzeGrid, placeEntryPath } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, verticalRectify, horizontalRectify, glazeBackplane, removeSmallComponents, cropToCenter, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane } from '../src/convert/mesh-filter.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
@@ -1103,6 +1103,15 @@ async function main(): Promise<void> {
     const cropped = cropToCenter(trimmed, args.cropRadius);
     if (cropped > 0) {
       console.log(`Center crop: ${cropped} blocks removed (XZ radius ${args.cropRadius})`);
+    }
+  }
+
+  // Ground plane subtraction — remove terrain layer below the building.
+  // Detect median ground level per XZ column and strip blocks at/below it.
+  if (args.mode === 'surface') {
+    const { removed: groundRemoved, groundY } = removeGroundPlane(trimmed, 1);
+    if (groundRemoved > 0) {
+      console.log(`Ground plane: ${groundRemoved} terrain blocks removed (groundY=${groundY})`);
     }
   }
 

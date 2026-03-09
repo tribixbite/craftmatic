@@ -32,7 +32,7 @@ import {
   smoothRareBlocks, constrainPalette, modeFilter3D,
   fillInteriorGaps,
   verticalRectify, horizontalRectify, removeSmallComponents,
-  glazeBackplane,
+  glazeBackplane, removeGroundPlane,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -669,7 +669,11 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   const cleaned = removeSmallComponents(grid, Infinity);
   if (cleaned > 0) console.log(`[tiles:pp] component isolation: ${cleaned} blocks removed (kept largest only)`);
 
-  // 10. Backplane glazing — detect interior voids and add window blocks
+  // 10. Ground plane subtraction — remove terrain below building
+  const { removed: groundRemoved, groundY } = removeGroundPlane(grid, 1);
+  if (groundRemoved > 0) console.log(`[tiles:pp] ground plane: ${groundRemoved} blocks removed (y=${groundY})`);
+
+  // 11. Backplane glazing — detect interior voids and add window blocks
   const glazed = glazeBackplane(grid, 8, 'minecraft:black_concrete');
   if (glazed > 0) console.log(`[tiles:pp] glazing: ${glazed} window blocks`);
 
