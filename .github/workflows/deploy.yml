@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy to GitHub Pages + Cloudflare Worker
 
 on:
   push:
@@ -26,13 +26,16 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build
+      # Pre-build bundled data files (catalog + OMR index)
+      - run: bun run prebuild:lego
+      - run: bun run prebuild:omr
       - run: bun run build:web
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist
 
-  deploy:
+  deploy-pages:
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -41,3 +44,18 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  deploy-worker:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: Deploy Cloudflare Worker (LDraw OMR proxy)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          wranglerVersion: '3'

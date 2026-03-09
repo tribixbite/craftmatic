@@ -33,7 +33,7 @@ export interface VoxelizeResult {
 
 export function voxelizeLDraw(bricks: ParsedBrick[]): VoxelizeResult {
   if (bricks.length === 0) {
-    const grid = BlockGrid.create(1, 1, 1);
+    const grid = new BlockGrid(1, 1, 1);
     return { grid, brickCount: 0, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 } };
   }
 
@@ -73,7 +73,7 @@ export function voxelizeLDraw(bricks: ParsedBrick[]): VoxelizeResult {
     warning = `Model scaled down ${(1 / scale).toFixed(1)}× to fit limits (max dim ${MAX_DIM})`;
   }
 
-  const grid = BlockGrid.create(w, h, l);
+  const grid = new BlockGrid(w, h, l);
   const colors = new Set<number>();
 
   for (const v of voxels) {

@@ -25,3 +25,5 @@ bunfig.toml
 
 # LEGO thumbnails (large binary cache — run: bun run scrape:lego-thumbs)
 web/public/lego-thumbs/
+# LEGO catalog JSON (regenerated — run: bun run prebuild:lego)
+web/public/lego-catalog.json

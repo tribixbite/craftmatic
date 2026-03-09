@@ -2371,6 +2371,19 @@ html, body {
 .lego-result-card:hover { background: var(--bg-secondary); }
 .lego-result-card.selected { background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary)); }
 .lego-result-card.selected .lego-result-num { color: var(--accent); }
+.lego-result-card { position: relative; }
+.lego-omr-badge {
+  position: absolute;
+  top: 5px; right: 5px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+}
 
 .lego-result-img {
   width: 100%;
