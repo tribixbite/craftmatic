@@ -2164,6 +2164,12 @@ export interface AnalysisResult {
   compactness: number;           // footprintArea / AABB area (1.0 = perfect rectangle, <0.3 = scattered)
   dataQuality: 'good' | 'fair' | 'poor'; // overall capture quality verdict
 
+  // 14. Building extent (at 1 block/m, blocks ≈ meters)
+  estimatedWidthM: number;       // central component X extent
+  estimatedHeightM: number;      // central component Y extent
+  estimatedDepthM: number;       // central component Z extent
+  estimatedFloors: number;       // estimated floor count (height / 3.5m per floor)
+
   // Recommended CLI args
   recommended: {
     generic: boolean;
@@ -2846,6 +2852,11 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     footprintArea, perimeterLength, groundContactY,
     entryPath,
     compactness, dataQuality,
+    // At 1 block/m resolution, block dimensions ≈ meters
+    estimatedWidthM: centralW,
+    estimatedHeightM: centralH,
+    estimatedDepthM: centralL,
+    estimatedFloors: Math.max(1, Math.round(centralH / 3.5)),
     recommended,
   };
 }
