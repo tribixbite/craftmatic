@@ -9,6 +9,7 @@ import { createViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
 import { enableSelection } from '@viewer/selection.js';
 import { cropToAABB } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
+import { trimGrid } from '@craft/gen/gen-utils.js';
 import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initImport, type PropertyData } from '@ui/import.js';
@@ -573,16 +574,17 @@ function showTilesSelectionBanner(
       return;
     }
 
-    // Apply crop to grid
+    // Apply crop to grid, then trim to tight AABB for cleaner viewer
     const removed = cropToAABB(grid, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ, 1);
-    console.log(`[tiles-selection] cropped ${removed} blocks outside selection`);
+    const trimmed = trimGrid(grid, 1);
+    console.log(`[tiles-selection] cropped ${removed} blocks → ${trimmed.width}x${trimmed.height}x${trimmed.length}`);
 
-    // Remove banner and re-render viewer with cropped grid
+    // Remove banner and re-render viewer with trimmed grid
     banner.remove();
     showLoading('Rebuilding view with selection...');
     requestAnimationFrame(() => setTimeout(() => {
       try {
-        showInlineViewer(container, grid);
+        showInlineViewer(container, trimmed);
       } finally {
         hideLoading();
       }
