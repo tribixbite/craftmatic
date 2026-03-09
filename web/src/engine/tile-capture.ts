@@ -43,8 +43,10 @@ export async function captureTileMeshes(
 
   onProgress?.('Extracting meshes...');
 
-  // First pass: collect candidate meshes within radius and compute their world AABBs
-  const captureSphere = new THREE.Sphere(center, radiusMeters);
+  // First pass: collect candidate meshes within XZ radius (cylindrical filter).
+  // A sphere rejects meshes above the radius height, clipping tall buildings.
+  // XZ-only distance preserves all vertical geometry (towers, spires, antennas).
+  const centerXZ = new THREE.Vector2(center.x, center.z);
   const candidates: { child: THREE.Mesh; worldBox: THREE.Box3 }[] = [];
   let tested = 0;
   let rejected = 0;
@@ -62,8 +64,10 @@ export async function captureTileMeshes(
     const worldSphere = geo.boundingSphere!.clone();
     worldSphere.applyMatrix4(child.matrixWorld);
 
-    // Check intersection with capture sphere
-    if (!captureSphere.intersectsSphere(worldSphere)) {
+    // Cylindrical XZ-only filter — accepts meshes at any height within XZ radius
+    const meshCenterXZ = new THREE.Vector2(worldSphere.center.x, worldSphere.center.z);
+    const xzDist = centerXZ.distanceTo(meshCenterXZ) - worldSphere.radius;
+    if (xzDist > radiusMeters) {
       rejected++;
       return;
     }
