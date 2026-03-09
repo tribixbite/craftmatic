@@ -478,7 +478,7 @@ async function runVoxelizePipeline(
     // Without these steps the raw voxelization is noisy photogrammetry chaos.
     setStatus('Post-processing...', 'info');
     await new Promise(r => setTimeout(r, 50));
-    postProcessTilesGrid(trimmedGrid, analysis);
+    await postProcessTilesGrid(trimmedGrid, analysis);
 
     const nonAir = trimmedGrid.countNonAir();
     // Debug: expose grid for inspection
@@ -536,7 +536,7 @@ async function runVoxelizePipeline(
  * 9. Component cleanup — remove floating debris
  * 10. Backplane glazing — add window blocks to interior voids
  */
-function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null): void {
+async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null): Promise<void> {
   const t0 = performance.now();
   const rec = analysis?.recommended;
 
@@ -551,22 +551,29 @@ function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null):
   // "generic", the browser lacks the CLI's color preprocessing (luminance clamp,
   // warm bias, desaturation, gamma) so raw voxels need aggressive cleanup.
 
+  // Yield helper — lets the browser render status updates between heavy operations
+  const yieldUI = () => new Promise<void>(r => setTimeout(r, 0));
+
   // 2. Fill interior gaps — flood-fill per Y-layer finds enclosed spaces
   const interiorFilled = fillInteriorGaps(grid, 3);
   console.log(`[tiles:pp] interior fill: ${interiorFilled} voxels`);
+  await yieldUI();
 
   // 3. Solidify core — fill interior to facade depth for solid walls
   const coreFilled = solidifyCore(grid, 4);
   console.log(`[tiles:pp] solidify core: ${coreFilled} voxels (depth=4)`);
+  await yieldUI();
 
   // 4. Carve facade shadows — remove dark baked-lighting blocks
   const carved = carveFacadeShadows(grid, 4, 0.45, 2);
   console.log(`[tiles:pp] facade carve: ${carved} dark blocks → air`);
+  await yieldUI();
 
   // 5. Vertical + horizontal rectification — enforce Manhattan geometry
   const vRect = verticalRectify(grid, 4, 5);
   const hRect = horizontalRectify(grid, 4, 3);
   console.log(`[tiles:pp] rectify: ${vRect} vertical, ${hRect} horizontal`);
+  await yieldUI();
 
   // 6. Smooth rare/noisy blocks — replaces globally rare blocks with common neighbors
   const smoothPct = rec?.smoothPct ?? 0.02;
@@ -574,6 +581,7 @@ function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null):
     const smoothed = smoothRareBlocks(grid, smoothPct);
     console.log(`[tiles:pp] smooth: ${smoothed} rare blocks replaced`);
   }
+  await yieldUI();
 
   // 7. Constrain palette — always use full building remap in browser.
   // The browser's createCanvasTextureSampler() gets raw baked-lighting colors from
@@ -615,6 +623,7 @@ function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null):
     const remapped = constrainPalette(grid, rec.remaps);
     console.log(`[tiles:pp] auto remap: ${remapped} blocks (${rec.remaps.size} rules)`);
   }
+  await yieldUI();
 
   // 8. Mode filter — 3D majority-vote smoother for uniform surfaces
   const modePasses = rec?.modePasses ?? 2;
@@ -622,6 +631,7 @@ function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null):
     const modeSmoothed = modeFilter3D(grid, modePasses, 2);
     console.log(`[tiles:pp] mode filter 5x5x5: ${modeSmoothed} blocks (${modePasses} passes)`);
   }
+  await yieldUI();
 
   // 9. Component cleanup — remove small floating debris clusters
   const cleanMinSize = rec?.cleanMinSize ?? 50;
