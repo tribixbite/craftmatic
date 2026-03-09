@@ -44,6 +44,7 @@
         <button class="nav-tab" data-tab="comparison">Comparison</button>
         <button class="nav-tab" data-tab="map">Map</button>
         <button class="nav-tab" data-tab="tiles">Tiles</button>
+        <button class="nav-tab" data-tab="lego">LEGO</button>
       </div>
       <div class="nav-actions">
         <span id="app-version" class="nav-version"></span>
@@ -143,6 +144,25 @@
       <!-- Tiles Tab (3D Tiles → Schematic) -->
       <section id="tab-tiles" class="tab-content">
         <div id="tiles-root"></div>
+      </section>
+
+      <!-- LEGO Tab -->
+      <section id="tab-lego" class="tab-content">
+        <div class="panel-layout">
+          <aside class="control-panel" id="lego-controls"></aside>
+          <div class="viewer-panel" id="lego-viewer">
+            <div class="viewer-placeholder">
+              <div class="placeholder-icon">
+                <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="2" y="7" width="20" height="14" rx="2"/>
+                  <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+                  <circle cx="8" cy="4" r="1"/><circle cx="12" cy="4" r="1"/><circle cx="16" cy="4" r="1"/>
+                </svg>
+              </div>
+              <p>Search for a LEGO set, then upload its LDraw file</p>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
 
