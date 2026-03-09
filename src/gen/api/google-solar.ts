@@ -16,6 +16,12 @@ const MAX_RETRIES = 3;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** Lat/lng coordinate pair */
+export interface SolarLatLng {
+  lat: number;
+  lng: number;
+}
+
 /** Processed building insights from Google Solar API */
 export interface SolarBuildingData {
   /** Pitch of the dominant (largest area) roof segment in degrees */
@@ -32,6 +38,10 @@ export interface SolarBuildingData {
   primaryPlaneHeight: number;
   /** Imagery quality level: 'HIGH', 'MEDIUM', or 'LOW' */
   imageryQuality: string;
+  /** ML-detected building perimeter bounding box (sw/ne lat/lng) */
+  buildingBounds: { sw: SolarLatLng; ne: SolarLatLng } | null;
+  /** Building centroid from Solar API */
+  buildingCenter: SolarLatLng | null;
 }
 
 // ─── Raw API response types ─────────────────────────────────────────────────
@@ -120,6 +130,16 @@ export async function querySolarBuildingInsights(
     (sum, seg) => sum + (seg.stats?.areaMeters2 ?? 0), 0,
   );
 
+  // Extract building bounding box (ML-detected perimeter)
+  const bbox = data.boundingBox;
+  const buildingBounds = (bbox?.sw && bbox?.ne) ? {
+    sw: { lat: bbox.sw.latitude, lng: bbox.sw.longitude },
+    ne: { lat: bbox.ne.latitude, lng: bbox.ne.longitude },
+  } : null;
+
+  const center = data.center;
+  const buildingCenter = center ? { lat: center.latitude, lng: center.longitude } : null;
+
   return {
     primaryPitchDegrees: primarySegment.pitchDegrees ?? 0,
     primaryAzimuthDegrees: primarySegment.azimuthDegrees ?? 0,
@@ -128,6 +148,8 @@ export async function querySolarBuildingInsights(
     buildingFootprintAreaSqm: data.solarPotential?.buildingStats?.areaMeters2 ?? 0,
     primaryPlaneHeight: primarySegment.planeHeightAtCenterMeters ?? 0,
     imageryQuality: data.imageryQuality ?? 'UNKNOWN',
+    buildingBounds,
+    buildingCenter,
   };
 }
 

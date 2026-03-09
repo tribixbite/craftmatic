@@ -526,19 +526,20 @@ async function addSatelliteOverlay(
 
   const { lat, lng, resolution } = meta;
 
-  // Grid extent in meters — at resolution=1, 1 block = 1 meter
-  const widthM = grid.width / resolution;
-  const lengthM = grid.length / resolution;
-
-  // Cover 2.5x the grid area to show surrounding streets and buildings
-  const coverageM = Math.max(widthM, lengthM) * 2.5;
-
-  // Calculate zoom level for 640px to cover the desired area:
-  //   metersPerPx = 156543.03392 * cos(lat_rad) / 2^zoom
-  //   coverage = 640 * metersPerPx → zoom = log2(640 * 156543.03392 * cos(lat_rad) / coverage)
+  // Use building bounds for precise zoom if available, otherwise fall back to grid extent
+  let zoom: number;
   const latRad = lat * Math.PI / 180;
-  const zoomExact = Math.log2(640 * 156543.03392 * Math.cos(latRad) / coverageM);
-  const zoom = Math.min(21, Math.max(15, Math.round(zoomExact)));
+  if (meta.buildingBounds && meta.buildingBounds.confidence > 0.3) {
+    // Building bounds provide a pre-computed zoom that fits the building with 2x context
+    zoom = meta.buildingBounds.satelliteZoom;
+  } else {
+    // Fallback: derive zoom from voxel grid extent (the old 2.5x approach, reduced to 2x)
+    const widthM = grid.width / resolution;
+    const lengthM = grid.length / resolution;
+    const coverageM = Math.max(widthM, lengthM) * 2.0;
+    const zoomExact = Math.log2(640 * 156543.03392 * Math.cos(latRad) / coverageM);
+    zoom = Math.min(21, Math.max(17, Math.round(zoomExact)));
+  }
 
   // Actual coverage at the snapped integer zoom
   const metersPerPx = 156543.03392 * Math.cos(latRad) / Math.pow(2, zoom);
@@ -583,7 +584,10 @@ async function addSatelliteOverlay(
   plane.renderOrder = -1;
   scene.add(plane);
 
-  console.log(`[satellite] overlay: zoom=${zoom}, coverage=${actualCoverageM.toFixed(0)}m, plane=${planeSizeBlocks.toFixed(0)} blocks`);
+  const boundsInfo = meta.buildingBounds
+    ? `building=${meta.buildingBounds.widthM}×${meta.buildingBounds.lengthM}m, sources=${meta.buildingBounds.sources.join(',')}`
+    : 'no-bounds';
+  console.log(`[satellite] overlay: zoom=${zoom}, coverage=${actualCoverageM.toFixed(0)}m, plane=${planeSizeBlocks.toFixed(0)} blocks, ${boundsInfo}`);
   return plane;
 }
 

@@ -35,6 +35,7 @@ import {
   glazeBackplane,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
+import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -57,6 +58,8 @@ export interface TilesResultMeta {
   lng: number;
   resolution: number;
   captureRadius: number;
+  /** Resolved building bounds — used for satellite overlay zoom + positioning */
+  buildingBounds: BuildingBounds | null;
 }
 
 let onResult: ((grid: BlockGrid, label: string, analysis: AnalysisResult | null, meta: TilesResultMeta | null) => void) | null = null;
@@ -252,9 +255,19 @@ async function runVoxelizePipeline(
     setStatus('Address not found', 'error');
     return null;
   }
-  setStatus(`${geo.formattedAddress} — initializing WebGL...`, 'info');
+  setStatus(`${geo.formattedAddress} — resolving building bounds...`, 'info');
   // Yield so status renders before potentially slow WebGL init
   await new Promise(r => setTimeout(r, 50));
+
+  // Step 1b: Resolve building bounds in parallel with WebGL setup.
+  // This queries Solar API + OSM to determine the building's physical size,
+  // optimal capture radius, and satellite zoom level.
+  const boundsPromise = resolveBuildingBounds(
+    geo.lat, geo.lng, apiKey, geo.bounds,
+  ).catch(err => {
+    console.warn('[tiles] building bounds resolution failed (non-fatal):', err);
+    return null as BuildingBounds | null;
+  });
 
   // Step 2: Initialize TilesRenderer in a hidden container for loading only
   const viewerEl = document.getElementById('tiles-viewer')!;
@@ -330,6 +343,27 @@ async function runVoxelizePipeline(
   tiles.addEventListener('load-error', (ev: { tile: unknown; error: unknown; url?: string }) => {
     console.warn('[tiles] load-error:', ev.url, ev.error);
   });
+
+  // Await building bounds (was resolving in parallel with WebGL + TilesRenderer setup)
+  const bounds = await boundsPromise;
+  if (bounds && bounds.confidence > 0.5) {
+    // Auto-set capture radius from building dimensions
+    radiusMeters = bounds.captureRadiusM;
+    console.log(`[tiles] auto-radius: ${radiusMeters}m (building ~${bounds.widthM}×${bounds.lengthM}m, sources: ${bounds.sources.join(',')})`);
+    setStatus(
+      `${geo.formattedAddress} — building ~${bounds.widthM}×${bounds.lengthM}m, capture radius ${radiusMeters}m`,
+      'info',
+    );
+    // Update UI slider to reflect computed value
+    const radiusSlider = document.getElementById('tiles-radius') as HTMLInputElement | null;
+    const radiusLabel = document.getElementById('tiles-radius-label');
+    if (radiusSlider) {
+      radiusSlider.value = String(Math.min(150, Math.max(20, radiusMeters)));
+      if (radiusLabel) radiusLabel.textContent = `${radiusMeters} m (auto)`;
+    }
+  } else if (bounds) {
+    console.log(`[tiles] bounds low confidence (${bounds.confidence}), using user radius ${radiusMeters}m`);
+  }
 
   setStatus('Loading 3D tiles...', 'info');
   await new Promise(r => setTimeout(r, 50));
@@ -512,6 +546,7 @@ async function runVoxelizePipeline(
         lng: geo.lng,
         resolution,
         captureRadius: radiusMeters,
+        buildingBounds: bounds,
       });
     }
 
