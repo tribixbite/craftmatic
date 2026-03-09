@@ -11,9 +11,9 @@ const TILES_DIR = '/data/data/com.termux/files/home/git/craftmatic/output/tiles'
 // Process only the schem name passed as argv, or all v4 if none
 const arg = process.argv[2];
 const SCHEMS = arg ? [arg] : [
-  'sf-v5', 'newton-v5', 'sanjose-v5', 'walpole-v5', 'byron-v5', 'vinalhaven-v5',
-  'suttonsbay-v5', 'losangeles-v5', 'seattle-v5', 'austin-v5', 'minneapolis-v5',
-  'charleston-v5',
+  'sf-v6', 'newton-v6', 'sanjose-v6', 'walpole-v6', 'byron-v6', 'vinalhaven-v6',
+  'suttonsbay-v6', 'losangeles-v6', 'seattle-v6', 'austin-v6', 'minneapolis-v6',
+  'charleston-v6',
 ];
 
 for (const name of SCHEMS) {
@@ -22,10 +22,13 @@ for (const name of SCHEMS) {
   try {
     const grid = await parseToGrid(schemPath);
     const blocks = grid.countNonAir();
-    // Adaptive tile size based on block count to prevent ARM render hang
-    const tile = 2;  // Fixed tile=2 for ARM stability
+    // tile=1 for >20K blocks on ARM to avoid texture atlas hang; timeout 30s per render
+    const tile = blocks > 20000 ? 1 : 2;
     console.log(`${name}: ${grid.width}x${grid.height}x${grid.length} (${blocks} blocks, ${grid.palette.size} materials, tile=${tile})`);
-    const pngBuf = await renderExterior(grid, { tile });
+    const pngBuf = await Promise.race([
+      renderExterior(grid, { tile }),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('render timeout 30s')), 30000)),
+    ]);
     const jpgBuf = await sharp(pngBuf).jpeg({ quality: 85 }).toBuffer();
     await writeFile(outPath, jpgBuf);
     console.log(`  → ${(jpgBuf.length / 1024).toFixed(0)}KB`);
