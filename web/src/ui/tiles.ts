@@ -27,7 +27,13 @@ import {
 } from '@ui/import-streetview.js';
 import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
 import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
-import { trimSparseBottomLayers, analyzeGrid, cropToAABB } from '@craft/convert/mesh-filter.js';
+import {
+  trimSparseBottomLayers, analyzeGrid, cropToAABB,
+  smoothRareBlocks, constrainPalette, modeFilter3D,
+  fillInteriorGaps, solidifyCore, carveFacadeShadows,
+  verticalRectify, horizontalRectify, removeSmallComponents,
+  glazeBackplane,
+} from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -459,12 +465,7 @@ async function runVoxelizePipeline(
       return null;
     }
 
-    const nonAir = trimmedGrid.countNonAir();
-    // Debug: expose grid for inspection
-    (window as Record<string, unknown>).__lastTilesGrid = trimmedGrid;
-    console.log('[tiles] palette:', [...trimmedGrid.palette].join(', '));
-
-    // Run auto-analysis for confidence scoring and building detection
+    // Run auto-analysis to drive post-processing decisions
     let analysis: AnalysisResult | null = null;
     try {
       analysis = analyzeGrid(trimmedGrid);
@@ -472,6 +473,17 @@ async function runVoxelizePipeline(
     } catch (err) {
       console.warn('[tiles] analysis failed (non-fatal):', err);
     }
+
+    // ── Post-processing: same essential pipeline as CLI voxelizer ──
+    // Without these steps the raw voxelization is noisy photogrammetry chaos.
+    setStatus('Post-processing...', 'info');
+    await new Promise(r => setTimeout(r, 50));
+    postProcessTilesGrid(trimmedGrid, analysis);
+
+    const nonAir = trimmedGrid.countNonAir();
+    // Debug: expose grid for inspection
+    (window as Record<string, unknown>).__lastTilesGrid = trimmedGrid;
+    console.log('[tiles] palette:', [...trimmedGrid.palette].join(', '));
 
     const qualityLabel = analysis
       ? ` (${analysis.dataQuality} quality, confidence ${analysis.confidence.toFixed(1)}/10)`
@@ -501,6 +513,143 @@ async function runVoxelizePipeline(
     setStatus(`Voxelize failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
     return null;
   }
+}
+
+// ─── Post-Processing ─────────────────────────────────────────────────────────
+
+/**
+ * Apply essential post-processing to transform raw photogrammetry voxels into
+ * clean building geometry. Mirrors the CLI voxelizer's --auto pipeline.
+ *
+ * Without these steps the browser output is a chaotic mass of noisy colored
+ * blocks from baked lighting and surface noise in the Google 3D Tiles data.
+ *
+ * Steps applied (in order):
+ * 1. AABB crop (if analysis recommends it) — isolate central building
+ * 2. Fill interior gaps — flood-fill per Y-layer
+ * 3. Solidify core — fill interior to facade depth (non-generic only)
+ * 4. Carve facade shadows — remove dark baked-shadow blocks (non-generic only)
+ * 5. Vertical + horizontal rectify — Manhattan geometry cleanup (non-generic)
+ * 6. Smooth rare blocks — eliminate salt-and-pepper noise
+ * 7. Constrain palette — remap dark photogrammetry shadow artifacts
+ * 8. Mode filter — 3D majority-vote surface smoother
+ * 9. Component cleanup — remove floating debris
+ * 10. Backplane glazing — add window blocks to interior voids
+ */
+function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null): void {
+  const t0 = performance.now();
+  const rec = analysis?.recommended;
+  const isGeneric = rec?.generic ?? false;
+
+  // 1. AABB crop — isolate the central building if analysis detected multiple components
+  if (rec?.useAABBCrop && analysis) {
+    const aabb = analysis.centralAABB;
+    const cropped = cropToAABB(grid, aabb.minX, aabb.maxX, aabb.minZ, aabb.maxZ, 2);
+    if (cropped > 0) console.log(`[tiles:pp] AABB crop: ${cropped} blocks removed`);
+  }
+
+  if (!isGeneric) {
+    // 2. Fill interior gaps — flood-fill per Y-layer finds enclosed spaces
+    const interiorFilled = fillInteriorGaps(grid, 3);
+    console.log(`[tiles:pp] interior fill: ${interiorFilled} voxels`);
+
+    // 3. Solidify core — fill interior to facade depth for solid walls
+    const coreFilled = solidifyCore(grid, 4);
+    console.log(`[tiles:pp] solidify core: ${coreFilled} voxels (depth=4)`);
+
+    // 4. Carve facade shadows — remove dark baked-lighting blocks
+    const carved = carveFacadeShadows(grid, 4, 0.45, 2);
+    console.log(`[tiles:pp] facade carve: ${carved} dark blocks → air`);
+
+    // 5. Vertical + horizontal rectification — enforce Manhattan geometry
+    const vRect = verticalRectify(grid, 4, 5);
+    const hRect = horizontalRectify(grid, 4, 3);
+    console.log(`[tiles:pp] rectify: ${vRect} vertical, ${hRect} horizontal`);
+  } else if (rec?.fill) {
+    // Generic mode with fill requested — only interior fill, no shape modification
+    const interiorFilled = fillInteriorGaps(grid, 3);
+    console.log(`[tiles:pp] generic interior fill: ${interiorFilled} voxels`);
+  }
+
+  // 6. Smooth rare/noisy blocks — replaces globally rare blocks with common neighbors
+  const smoothPct = rec?.smoothPct ?? 0.02;
+  if (smoothPct > 0) {
+    const smoothed = smoothRareBlocks(grid, smoothPct);
+    console.log(`[tiles:pp] smooth: ${smoothed} rare blocks replaced`);
+  }
+
+  // 7. Constrain palette — remap dark photogrammetry shadow artifacts to neutral gray.
+  // Google 3D Tiles bake warm shadows → nether_bricks/deepslate which overpower colors.
+  if (isGeneric || rec?.noPalette) {
+    // Generic/no-palette mode: only remap the darkest shadow blocks
+    const shadowRemaps = new Map<string, string>([
+      ['minecraft:blackstone', 'minecraft:gray_concrete'],
+      ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
+      ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
+      ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
+      ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
+      ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
+      ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
+    ]);
+    const constrained = constrainPalette(grid, shadowRemaps);
+    console.log(`[tiles:pp] shadow palette: ${constrained} blocks remapped`);
+  } else {
+    // Building mode: aggressively remap to uniform stucco/concrete
+    const paletteRemaps = new Map<string, string>([
+      ['minecraft:blackstone', 'minecraft:smooth_quartz'],
+      ['minecraft:deepslate_bricks', 'minecraft:smooth_quartz'],
+      ['minecraft:polished_deepslate', 'minecraft:smooth_quartz'],
+      ['minecraft:polished_blackstone', 'minecraft:smooth_quartz'],
+      ['minecraft:nether_bricks', 'minecraft:smooth_quartz'],
+      ['minecraft:stone', 'minecraft:light_gray_concrete'],
+      ['minecraft:andesite', 'minecraft:light_gray_concrete'],
+      ['minecraft:polished_andesite', 'minecraft:light_gray_concrete'],
+      ['minecraft:stone_bricks', 'minecraft:light_gray_concrete'],
+      ['minecraft:smooth_stone', 'minecraft:light_gray_concrete'],
+      ['minecraft:cobblestone', 'minecraft:light_gray_concrete'],
+      ['minecraft:gray_concrete', 'minecraft:light_gray_concrete'],
+      ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
+      ['minecraft:red_terracotta', 'minecraft:smooth_quartz'],
+      ['minecraft:orange_terracotta', 'minecraft:smooth_quartz'],
+      ['minecraft:brown_terracotta', 'minecraft:smooth_quartz'],
+      ['minecraft:bricks', 'minecraft:smooth_quartz'],
+      ['minecraft:red_concrete', 'minecraft:smooth_quartz'],
+      ['minecraft:green_concrete', 'minecraft:smooth_quartz'],
+      ['minecraft:iron_block', 'minecraft:light_gray_concrete'],
+      ['minecraft:end_stone_bricks', 'minecraft:smooth_quartz'],
+      ['minecraft:smooth_sandstone', 'minecraft:smooth_quartz'],
+      ['minecraft:sandstone', 'minecraft:smooth_quartz'],
+    ]);
+    const constrained = constrainPalette(grid, paletteRemaps);
+    console.log(`[tiles:pp] full palette: ${constrained} blocks remapped`);
+  }
+
+  // Also apply analysis-recommended remaps (building-specific material corrections)
+  if (rec?.remaps && rec.remaps.size > 0) {
+    const remapped = constrainPalette(grid, rec.remaps);
+    console.log(`[tiles:pp] auto remap: ${remapped} blocks (${rec.remaps.size} rules)`);
+  }
+
+  // 8. Mode filter — 3D majority-vote smoother for uniform surfaces
+  const modePasses = rec?.modePasses ?? 2;
+  if (modePasses > 0) {
+    const modeSmoothed = modeFilter3D(grid, modePasses, 2);
+    console.log(`[tiles:pp] mode filter 5x5x5: ${modeSmoothed} blocks (${modePasses} passes)`);
+  }
+
+  // 9. Component cleanup — remove small floating debris clusters
+  const cleanMinSize = rec?.cleanMinSize ?? 50;
+  if (cleanMinSize > 0) {
+    const cleaned = removeSmallComponents(grid, cleanMinSize);
+    if (cleaned > 0) console.log(`[tiles:pp] cleanup: ${cleaned} blocks (< ${cleanMinSize} voxels)`);
+  }
+
+  // 10. Backplane glazing — detect interior voids and add window blocks
+  const glazed = glazeBackplane(grid, 8, 'minecraft:black_concrete');
+  if (glazed > 0) console.log(`[tiles:pp] glazing: ${glazed} window blocks`);
+
+  const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+  console.log(`[tiles:pp] post-processing complete in ${elapsed}s`);
 }
 
 // ─── Viewer Lifecycle ───────────────────────────────────────────────────────
