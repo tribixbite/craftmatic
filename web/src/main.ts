@@ -542,11 +542,22 @@ function showTilesSelectionBanner(
   startBtn.addEventListener('click', async () => {
     if (!inlineViewer) { banner.remove(); return; }
 
+    // Switch to top-down view for easier XZ selection
+    const { camera, controls } = inlineViewer;
+    const savedPos = camera.position.clone();
+    const savedTarget = controls.target.clone();
+
+    // Move camera directly above looking down — orthographic-like perspective
+    const maxDim = Math.max(grid.width, grid.length);
+    camera.position.set(0, maxDim * 1.5, 0.01); // tiny Z offset avoids gimbal lock
+    controls.target.set(0, 0, 0);
+    controls.update();
+
     // Update banner to show selection instructions
     banner.innerHTML = `
       <div class="tiles-selection-info">
         Tap <strong>first corner</strong> of the building boundary, then <strong>second corner</strong>.
-        <span class="tiles-sel-hint">ESC or Backspace to undo</span>
+        <span class="tiles-sel-hint">ESC or Backspace to undo · Pinch/scroll to zoom</span>
       </div>
       <div class="tiles-selection-actions">
         <button class="btn btn-secondary btn-sm" id="tiles-sel-cancel">Cancel</button>
@@ -561,8 +572,17 @@ function showTilesSelectionBanner(
     );
     selectionCancel = cancel;
 
+    /** Restore original camera position after selection */
+    function restoreCamera() {
+      if (!inlineViewer) return;
+      camera.position.copy(savedPos);
+      controls.target.copy(savedTarget);
+      controls.update();
+    }
+
     cancelBtn.addEventListener('click', () => {
       cancel();
+      restoreCamera();
       banner.remove();
     });
 
@@ -570,6 +590,7 @@ function showTilesSelectionBanner(
     selectionCancel = null;
 
     if (!bounds) {
+      restoreCamera();
       banner.remove();
       return;
     }
