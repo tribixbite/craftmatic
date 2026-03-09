@@ -1,39 +1,52 @@
 /**
- * Cloudflare Worker: CORS proxy for LDraw OMR.
- * Route: craftmatic.click/ldraw-omr/* → library.ldraw.org/library/omr/*
+ * Cloudflare Worker: CORS proxy for LDraw model sources.
+ *
+ * Routes:
+ *   craftmatic.click/ldraw-omr/*      → library.ldraw.org/library/omr/*
+ *   craftmatic.click/seymouria-ldr/*  → seymouria.pl/Download/OfficialLegoSets_LDR/*
  */
 
-const UPSTREAM = 'https://library.ldraw.org/library/omr';
+const SOURCES = {
+  '/ldraw-omr':     'https://library.ldraw.org/library/omr',
+  '/seymouria-ldr': 'https://seymouria.pl/Download/OfficialLegoSets_LDR',
+};
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Max-Age': '86400',
+};
 
 export default {
   async fetch(request) {
     const url = new URL(request.url);
 
-    // OPTIONS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Access-Control-Max-Age': '86400',
-        },
-      });
+      return new Response(null, { headers: CORS_HEADERS });
     }
 
-    // Strip /ldraw-omr prefix to get filename
-    const filename = url.pathname.replace(/^\/ldraw-omr\/?/, '');
-    if (!filename) return new Response('Not found', { status: 404 });
+    // Match route prefix
+    let upstream = null;
+    let strippedPath = url.pathname;
+    for (const [prefix, upstreamBase] of Object.entries(SOURCES)) {
+      if (url.pathname.startsWith(prefix)) {
+        upstream = upstreamBase;
+        strippedPath = url.pathname.slice(prefix.length).replace(/^\//, '');
+        break;
+      }
+    }
+    if (!upstream || !strippedPath) return new Response('Not found', { status: 404 });
 
-    const upstreamUrl = `${UPSTREAM}/${filename}`;
+    const upstreamUrl = `${upstream}/${strippedPath}`;
 
     const resp = await fetch(upstreamUrl, {
       method: 'GET',
-      headers: { 'User-Agent': 'craftmatic-omr-proxy/1.0' },
+      headers: { 'User-Agent': 'craftmatic-proxy/1.0' },
       cf: { cacheTtl: 86400, cacheEverything: true },
     });
 
     const headers = new Headers({
-      'Access-Control-Allow-Origin': '*',
+      ...CORS_HEADERS,
       'Cache-Control': 'public, max-age=86400',
       'Content-Type': resp.headers.get('Content-Type') ?? 'application/octet-stream',
     });

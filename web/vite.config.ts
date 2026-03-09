@@ -43,6 +43,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ldraw-omr/, '/library/omr'),
       },
+      '/seymouria-ldr': {
+        target: 'https://seymouria.pl',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/seymouria-ldr/, '/Download/OfficialLegoSets_LDR'),
+      },
     },
   },
 });

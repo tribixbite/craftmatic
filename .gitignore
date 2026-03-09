@@ -23,6 +23,9 @@ audit*
 showcase/
 bunfig.toml
 
+# Downloaded LEGO model files from seymouria.pl (~400MB, not committed)
+data/
+
 # LEGO thumbnails (large binary cache — run: bun run scrape:lego-thumbs)
 web/public/lego-thumbs/
 # LEGO catalog JSON (regenerated — run: bun run prebuild:lego)
