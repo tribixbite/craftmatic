@@ -1,14 +1,16 @@
 #!/usr/bin/env bun
-/** Render v4 tiles schems as JPEGs for grading. */
+/** Render tiles schems as JPEGs for grading. */
 import { join } from 'path';
 import { writeFile } from 'fs/promises';
 import sharp from 'sharp';
 import { parseToGrid } from '../src/schem/parse.js';
 import { renderExterior } from '../src/render/png-renderer.js';
 
+// Disable libvips thread pool — deadlocks on Android ARM64 (bionic libc)
+sharp.concurrency(1);
+
 const TILES_DIR = '/data/data/com.termux/files/home/git/craftmatic/output/tiles';
 
-// Process only the schem name passed as argv, or all v4 if none
 const arg = process.argv[2];
 const SCHEMS = arg ? [arg] : [
   'sf-v6', 'newton-v6', 'sanjose-v6', 'walpole-v6', 'byron-v6', 'vinalhaven-v6',
@@ -22,16 +24,22 @@ for (const name of SCHEMS) {
   try {
     const grid = await parseToGrid(schemPath);
     const blocks = grid.countNonAir();
-    // tile=1 for >20K blocks on ARM to avoid texture atlas hang; timeout 30s per render
-    const tile = blocks > 20000 ? 1 : 2;
+    const tile = 4;
     console.log(`${name}: ${grid.width}x${grid.height}x${grid.length} (${blocks} blocks, ${grid.palette.size} materials, tile=${tile})`);
-    const pngBuf = await Promise.race([
-      renderExterior(grid, { tile }),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('render timeout 30s')), 30000)),
-    ]);
+
+    console.log(`  starting render...`);
+    const t0 = Date.now();
+    const pngBuf = await renderExterior(grid, { tile });
+    const t1 = Date.now();
+    console.log(`  render: ${t1-t0}ms (${(pngBuf.length/1024).toFixed(0)}KB PNG)`);
+
+    console.log(`  starting sharp jpeg...`);
     const jpgBuf = await sharp(pngBuf).jpeg({ quality: 85 }).toBuffer();
+    const t2 = Date.now();
+    console.log(`  sharp: ${t2-t1}ms`);
+
     await writeFile(outPath, jpgBuf);
-    console.log(`  → ${(jpgBuf.length / 1024).toFixed(0)}KB`);
+    console.log(`  → ${(jpgBuf.length / 1024).toFixed(0)}KB JPG`);
   } catch (err) {
     console.error(`  FAIL ${name}: ${(err as Error).message}`);
   }
