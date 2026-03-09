@@ -2160,6 +2160,10 @@ export interface AnalysisResult {
   // 12. Entry path — straight-line path from grid edge to detected entry
   entryPath: Array<{ x: number; z: number }>;  // path blocks from edge to door (empty if no entry)
 
+  // 13. Data quality assessment
+  compactness: number;           // footprintArea / AABB area (1.0 = perfect rectangle, <0.3 = scattered)
+  dataQuality: 'good' | 'fair' | 'poor'; // overall capture quality verdict
+
   // Recommended CLI args
   recommended: {
     generic: boolean;
@@ -2759,26 +2763,49 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     }
   }
 
-  // ── 13. Confidence scoring ──
+  // ── 13. Compactness and data quality ──
+  const aabbArea = centralW * centralL;
+  const compactness = aabbArea > 0 ? footprintArea / aabbArea : 0;
+
+  // ── 14. Confidence scoring ──
+  // Weighted heuristic 1-10 estimating voxelization quality.
+  // Calibrated against Gemini visual scores: Francisco 9.5/10, Sentinel 5/10,
+  // Green 6/10, Beach 4/10.
   let confidence = 5.0;
 
-  if (componentCount === 1) confidence += 1.5;
-  else if (componentCount <= 3) confidence += 0.5;
+  // Positive indicators
+  if (componentCount === 1) confidence += 1.0;
+  else if (componentCount <= 3) confidence += 0.3;
   if (isRectangular) confidence += 0.5;
-  if (isFlatRoof) confidence += 0.3;
-  if (dominantPct > 40) confidence += 0.5;
-  if (aspectRatio > 0.4 && aspectRatio < 2.0) confidence += 0.5;
-  if (!isPartialCapture) confidence += 0.5;
+  if (isFlatRoof) confidence += 0.2;
+  if (dominantPct > 40) confidence += 0.5;        // uniform facade color
+  if (aspectRatio > 0.4 && aspectRatio < 2.0) confidence += 0.3;
+  if (!isPartialCapture) confidence += 0.3;
+  if (entryPosition) confidence += 0.3;            // detected entry = clean geometry
+  // Footprint fill quality: high fill = clean rectangular building
+  if (footprintFill > 0.4) confidence += 0.5;
+  else if (footprintFill > 0.25) confidence += 0.2;
+  // Large central component relative to total = focused capture
+  const centralPct = totalNonAir > 0 ? (footprintArea * centralH) / totalNonAir : 0;
+  if (centralPct > 0.6) confidence += 0.5;
 
+  // Negative indicators
   if (isPartialCapture) confidence -= 2.0;
   if (noisePct > 15) confidence -= 1.5;
   else if (noisePct > 8) confidence -= 0.5;
-  if (componentCount > 5) confidence -= 1.0;
+  if (componentCount > 5) confidence -= 1.5;
+  else if (componentCount > 3) confidence -= 0.5;
   if (slopeAngle > 10) confidence -= 0.5;
-  if (totalNonAir < 500) confidence -= 1.5;
+  if (totalNonAir < 500) confidence -= 2.0;
+  else if (totalNonAir < 2000) confidence -= 0.5;
   if (edgeTouchPct > 15) confidence -= 1.0;
+  // Small footprint relative to grid = lots of surrounding noise
+  if (footprintArea < 50 && totalNonAir > 5000) confidence -= 1.0;
 
   confidence = Math.max(1, Math.min(10, confidence));
+
+  const dataQuality: 'good' | 'fair' | 'poor' = confidence >= 7 ? 'good'
+    : confidence >= 5 ? 'fair' : 'poor';
 
   // ── Build recommended pipeline args ──
   // Use AABB crop for non-rectangular buildings (preserves shape), circular for rectangular
@@ -2818,6 +2845,7 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     entryPosition, entryFace, entryWidth,
     footprintArea, perimeterLength, groundContactY,
     entryPath,
+    compactness, dataQuality,
     recommended,
   };
 }
