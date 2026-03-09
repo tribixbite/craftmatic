@@ -6,6 +6,9 @@
 import './style.css';
 import { BlockGrid } from '@craft/schem/types.js';
 import { createViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
+import { enableSelection } from '@viewer/selection.js';
+import { cropToAABB } from '@craft/convert/mesh-filter.js';
+import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initImport, type PropertyData } from '@ui/import.js';
@@ -469,13 +472,22 @@ initMap3d(map3dRoot);
 // ─── Tiles (3D Tiles → Schematic) ──────────────────────────────────────────
 
 const tilesRoot = document.getElementById('tiles-root')!;
-initTiles(tilesRoot, (grid, label) => {
+initTiles(tilesRoot, (grid, label, analysis) => {
   exportBasename = slugify(label) || 'tiles';
-  showLoading('Building 3D view...');
+
+  // Confidence threshold: show manual selection when auto-detection is unreliable
+  const SELECTION_THRESHOLD = 7;
+  const needsSelection = analysis && analysis.confidence < SELECTION_THRESHOLD;
+
+  showLoading(needsSelection ? 'Low confidence — preparing selection...' : 'Building 3D view...');
   requestAnimationFrame(() => setTimeout(() => {
     try {
-      // Show inline viewer in the tiles tab's root container
       showInlineViewer(tilesRoot, grid);
+
+      if (needsSelection && inlineViewer) {
+        // Show selection banner with instructions
+        showTilesSelectionBanner(tilesRoot, grid, analysis!);
+      }
     } catch (err) {
       console.warn('3D viewer failed:', err);
       const fallback = document.createElement('div');
@@ -487,6 +499,101 @@ initTiles(tilesRoot, (grid, label) => {
     }
   }, 0));
 });
+
+/**
+ * Show manual selection banner + enable XZ rectangle selection on the viewer.
+ * Appears when auto-detection confidence is below threshold.
+ */
+function showTilesSelectionBanner(
+  container: HTMLElement,
+  grid: BlockGrid,
+  analysis: AnalysisResult,
+): void {
+  if (!inlineViewer) return;
+
+  // Create a banner above the viewer
+  const banner = document.createElement('div');
+  banner.className = 'tiles-selection-banner';
+  banner.innerHTML = `
+    <div class="tiles-selection-info">
+      <strong>Low confidence (${analysis.confidence.toFixed(1)}/10)</strong> —
+      Auto-detection may be inaccurate. Tap two corners to outline the building, or skip to use as-is.
+    </div>
+    <div class="tiles-selection-actions">
+      <button class="btn btn-primary btn-sm" id="tiles-sel-start">Select Building</button>
+      <button class="btn btn-secondary btn-sm" id="tiles-sel-skip">Skip</button>
+    </div>
+  `;
+
+  // Insert banner before the viewer canvas
+  const viewerCanvas = container.querySelector('.inline-viewer') ?? container.firstChild;
+  if (viewerCanvas) {
+    container.insertBefore(banner, viewerCanvas);
+  } else {
+    container.appendChild(banner);
+  }
+
+  let selectionCancel: (() => void) | null = null;
+
+  const startBtn = banner.querySelector('#tiles-sel-start') as HTMLButtonElement;
+  const skipBtn = banner.querySelector('#tiles-sel-skip') as HTMLButtonElement;
+
+  startBtn.addEventListener('click', async () => {
+    if (!inlineViewer) { banner.remove(); return; }
+
+    // Update banner to show selection instructions
+    banner.innerHTML = `
+      <div class="tiles-selection-info">
+        Tap <strong>first corner</strong> of the building boundary, then <strong>second corner</strong>.
+        <span class="tiles-sel-hint">ESC or Backspace to undo</span>
+      </div>
+      <div class="tiles-selection-actions">
+        <button class="btn btn-secondary btn-sm" id="tiles-sel-cancel">Cancel</button>
+      </div>
+    `;
+
+    const cancelBtn = banner.querySelector('#tiles-sel-cancel') as HTMLButtonElement;
+
+    const { promise, cancel } = enableSelection(
+      inlineViewer,
+      analysis.groundContactY ?? 0,
+    );
+    selectionCancel = cancel;
+
+    cancelBtn.addEventListener('click', () => {
+      cancel();
+      banner.remove();
+    });
+
+    const bounds = await promise;
+    selectionCancel = null;
+
+    if (!bounds) {
+      banner.remove();
+      return;
+    }
+
+    // Apply crop to grid
+    const removed = cropToAABB(grid, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ, 1);
+    console.log(`[tiles-selection] cropped ${removed} blocks outside selection`);
+
+    // Remove banner and re-render viewer with cropped grid
+    banner.remove();
+    showLoading('Rebuilding view with selection...');
+    requestAnimationFrame(() => setTimeout(() => {
+      try {
+        showInlineViewer(container, grid);
+      } finally {
+        hideLoading();
+      }
+    }, 0));
+  });
+
+  skipBtn.addEventListener('click', () => {
+    if (selectionCancel) selectionCancel();
+    banner.remove();
+  });
+}
 
 // ─── Version Badge ──────────────────────────────────────────────────────────
 
