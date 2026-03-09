@@ -14,6 +14,7 @@ import { initGallery } from '@ui/gallery.js';
 import { initComparison } from '@ui/comparison.js';
 import { initMap3d } from '@ui/map3d.js';
 import { initTiles } from '@ui/tiles.js';
+import { initLego } from '@ui/lego.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -475,6 +476,29 @@ initTiles(tilesRoot, (grid, label) => {
       fallback.className = 'viewer-fallback';
       fallback.textContent = '3D preview unavailable. Voxelization succeeded — use download buttons above.';
       tilesRoot.appendChild(fallback);
+    } finally {
+      hideLoading();
+    }
+  }, 0));
+});
+
+// ─── LEGO ────────────────────────────────────────────────────────────────────
+
+const legoControls = document.getElementById('lego-controls')!;
+const legoViewer = document.getElementById('lego-viewer')!;
+
+initLego(legoControls, legoViewer, (grid: BlockGrid, label: string) => {
+  exportBasename = slugify(label) || 'lego-set';
+  showLoading('Building 3D view...');
+  requestAnimationFrame(() => setTimeout(() => {
+    try {
+      showInlineViewer(legoViewer, grid);
+    } catch (err) {
+      console.warn('3D viewer failed:', err);
+      const fallback = document.createElement('div');
+      fallback.className = 'viewer-fallback';
+      fallback.textContent = '3D preview unavailable. Export succeeded — use download buttons above.';
+      legoViewer.appendChild(fallback);
     } finally {
       hideLoading();
     }
