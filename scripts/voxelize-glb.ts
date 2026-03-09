@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice, removeSmallComponents, cropToCenter, cropToAABB, analyzeGrid } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice, removeSmallComponents, cropToCenter, cropToAABB, analyzeGrid, placeEntryPath } from '../src/convert/mesh-filter.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
@@ -705,7 +705,7 @@ async function analyzeOne(filepath: string, resolution: number, minHeight: numbe
       blocks: trimmed.countNonAir(),
       type: analysis.typology,
       conf: analysis.confidence,
-      entry: analysis.entryPosition ? `(${analysis.entryPosition.x},${analysis.entryPosition.z}) w${analysis.entryWidth}` : '-',
+      entry: analysis.entryPosition ? `(${analysis.entryPosition.x},${analysis.entryPosition.z}) w${analysis.entryWidth} p${analysis.entryPath.length}` : '-',
       footprint: analysis.footprintArea,
       front: analysis.frontFace,
     };
@@ -952,7 +952,7 @@ async function main(): Promise<void> {
     console.log(`  Roof: ${analysis.isFlatRoof ? 'flat' : 'pitched/varied'} | Front face: ${analysis.frontFace}`);
     console.log(`  Facade: ${analysis.dominantBlock.replace('minecraft:', '')} (${analysis.dominantPct.toFixed(0)}%) + ${analysis.secondaryBlock.replace('minecraft:', '')}`);
     console.log(`  Noise: ${analysis.noisePct.toFixed(1)}%`);
-    console.log(`  Entry: ${analysis.entryPosition ? `(${analysis.entryPosition.x}, ${analysis.entryPosition.z}) face=${analysis.entryFace} width=${analysis.entryWidth}` : 'none detected'}`);
+    console.log(`  Entry: ${analysis.entryPosition ? `(${analysis.entryPosition.x}, ${analysis.entryPosition.z}) face=${analysis.entryFace} width=${analysis.entryWidth} path=${analysis.entryPath.length} blocks` : 'none detected'}`);
     console.log(`  Footprint: ${analysis.footprintArea} blocks area, ${analysis.perimeterLength} blocks perimeter, ground Y=${analysis.groundContactY}`);
     console.log(`  Confidence: ${analysis.confidence.toFixed(1)}/10`);
     console.log(`  Analysis: ${((performance.now() - tAuto) / 1000).toFixed(1)}s`);
@@ -1005,7 +1005,7 @@ async function main(): Promise<void> {
     console.log(`  Facade: dominant=${analysis.dominantBlock.replace('minecraft:', '')} (${analysis.dominantPct.toFixed(0)}%) secondary=${analysis.secondaryBlock.replace('minecraft:', '')}`);
     console.log(`  Noise: ${analysis.noisePct.toFixed(1)}% protrusions (${analysis.protrusion1vCount} single-voxel)`);
     console.log(`  Front face: ${analysis.frontFace}`);
-    console.log(`  Entry: ${analysis.entryPosition ? `(${analysis.entryPosition.x}, ${analysis.entryPosition.z}) face=${analysis.entryFace} width=${analysis.entryWidth}` : 'none detected'}`);
+    console.log(`  Entry: ${analysis.entryPosition ? `(${analysis.entryPosition.x}, ${analysis.entryPosition.z}) face=${analysis.entryFace} width=${analysis.entryWidth} path=${analysis.entryPath.length} blocks` : 'none detected'}`);
     console.log(`  Footprint: area=${analysis.footprintArea} perimeter=${analysis.perimeterLength} ground Y=${analysis.groundContactY}`);
     console.log(`  Confidence: ${analysis.confidence.toFixed(1)}/10`);
 
@@ -1218,6 +1218,14 @@ async function main(): Promise<void> {
   if (args.remaps.size > 0) {
     const remapped = constrainPalette(trimmed, args.remaps);
     console.log(`Custom remap: ${remapped} blocks remapped (${args.remaps.size} rules)`);
+  }
+
+  // Entry path — place walkway from grid edge to detected building entrance
+  if (analysis?.entryPosition && analysis.entryPath.length > 0) {
+    const pathPlaced = placeEntryPath(trimmed, analysis);
+    if (pathPlaced > 0) {
+      console.log(`Entry path: ${pathPlaced} blocks placed (smooth_stone_slab, face=${analysis.entryFace})`);
+    }
   }
 
   // Write output

@@ -2157,6 +2157,9 @@ export interface AnalysisResult {
   perimeterLength: number;     // number of ground-level blocks on the building perimeter
   groundContactY: number;      // Y layer where building first contacts ground
 
+  // 12. Entry path — straight-line path from grid edge to detected entry
+  entryPath: Array<{ x: number; z: number }>;  // path blocks from edge to door (empty if no entry)
+
   // Recommended CLI args
   recommended: {
     generic: boolean;
@@ -2731,7 +2734,32 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     }
   }
 
-  // ── 12. Confidence scoring ──
+  // ── 12. Entry path generation ──
+  // Straight-line path from the nearest grid edge to the entry position.
+  // Follows the entry face normal outward to the grid boundary.
+  const entryPath: Array<{ x: number; z: number }> = [];
+  if (entryPosition) {
+    let px = entryPosition.x;
+    let pz = entryPosition.z;
+    // Walk from entry toward the grid edge along the face normal
+    const dx = entryFace === '+x' ? 1 : entryFace === '-x' ? -1 : 0;
+    const dz = entryFace === '+z' ? 1 : entryFace === '-z' ? -1 : 0;
+    // Start one step outside the entry
+    px += dx;
+    pz += dz;
+    while (px >= 0 && px < width && pz >= 0 && pz < length) {
+      // Skip if this position is inside the building
+      const isBuilding = grid.inBounds(px, groundContactY, pz) &&
+                         grid.get(px, groundContactY, pz) !== AIR;
+      if (!isBuilding) {
+        entryPath.push({ x: px, z: pz });
+      }
+      px += dx;
+      pz += dz;
+    }
+  }
+
+  // ── 13. Confidence scoring ──
   let confidence = 5.0;
 
   if (componentCount === 1) confidence += 1.5;
@@ -2789,6 +2817,40 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     confidence,
     entryPosition, entryFace, entryWidth,
     footprintArea, perimeterLength, groundContactY,
+    entryPath,
     recommended,
   };
+}
+
+/**
+ * Place an entry path (walkway) into the grid at the ground contact layer.
+ * Stamps path blocks along the entry path from grid edge to the building entrance.
+ * Only places blocks in air columns — doesn't overwrite existing geometry.
+ *
+ * @param grid       Target BlockGrid (modified in place)
+ * @param analysis   Analysis result with entry path data
+ * @param pathBlock  Block to use for the path (default: stone_brick_slab)
+ * @returns Number of path blocks placed
+ */
+export function placeEntryPath(
+  grid: BlockGrid,
+  analysis: AnalysisResult,
+  pathBlock = 'minecraft:smooth_stone_slab',
+): number {
+  const AIR = 'minecraft:air';
+  if (!analysis.entryPosition || analysis.entryPath.length === 0) return 0;
+
+  const y = analysis.groundContactY;
+  let placed = 0;
+
+  for (const { x, z } of analysis.entryPath) {
+    if (!grid.inBounds(x, y, z)) continue;
+    // Only place in air columns
+    if (grid.get(x, y, z) === AIR) {
+      grid.set(x, y, z, pathBlock);
+      placed++;
+    }
+  }
+
+  return placed;
 }
