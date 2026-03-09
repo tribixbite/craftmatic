@@ -663,12 +663,11 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   }
   await yieldUI();
 
-  // 9. Component cleanup — remove small floating debris clusters
-  const cleanMinSize = rec?.cleanMinSize ?? 50;
-  if (cleanMinSize > 0) {
-    const cleaned = removeSmallComponents(grid, cleanMinSize);
-    if (cleaned > 0) console.log(`[tiles:pp] cleanup: ${cleaned} blocks (< ${cleanMinSize} voxels)`);
-  }
+  // 9. Component isolation — keep only the largest connected component.
+  // Tiles captures at 25-50m radius often include neighboring buildings/trees.
+  // Infinity = remove everything except the single largest component.
+  const cleaned = removeSmallComponents(grid, Infinity);
+  if (cleaned > 0) console.log(`[tiles:pp] component isolation: ${cleaned} blocks removed (kept largest only)`);
 
   // 10. Backplane glazing — detect interior voids and add window blocks
   const glazed = glazeBackplane(grid, 8, 'minecraft:black_concrete');

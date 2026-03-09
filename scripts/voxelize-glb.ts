@@ -1174,11 +1174,15 @@ async function main(): Promise<void> {
     console.log('Skipping mode filter (--mode-passes 0)');
   }
 
-  // Connected-component cleanup — remove floating debris and disconnected clusters
-  if (args.cleanMinSize > 0) {
-    const cleaned = removeSmallComponents(trimmed, args.cleanMinSize);
+  // Connected-component cleanup — remove floating debris and disconnected clusters.
+  // For surface mode (tiles/photogrammetry), keep only the largest component to
+  // isolate the target building from neighbors, trees, and terrain.
+  const componentThreshold = args.mode === 'surface' ? Infinity : args.cleanMinSize;
+  if (componentThreshold > 0) {
+    const cleaned = removeSmallComponents(trimmed, componentThreshold);
     if (cleaned > 0) {
-      console.log(`Component cleanup: ${cleaned} blocks removed (clusters < ${args.cleanMinSize} voxels)`);
+      const label = componentThreshold === Infinity ? 'kept largest only' : `clusters < ${componentThreshold} voxels`;
+      console.log(`Component cleanup: ${cleaned} blocks removed (${label})`);
     }
   }
 
