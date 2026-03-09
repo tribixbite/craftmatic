@@ -51,7 +51,15 @@ let scene: THREE.Scene | null = null;
 let camera: THREE.PerspectiveCamera | null = null;
 let tiles: TilesRenderer | null = null;
 let animFrameId = 0;
-let onResult: ((grid: BlockGrid, label: string, analysis: AnalysisResult | null) => void) | null = null;
+/** Metadata about the tiles pipeline run, passed to the result callback */
+export interface TilesResultMeta {
+  lat: number;
+  lng: number;
+  resolution: number;
+  captureRadius: number;
+}
+
+let onResult: ((grid: BlockGrid, label: string, analysis: AnalysisResult | null, meta: TilesResultMeta | null) => void) | null = null;
 
 // ─── API Key ────────────────────────────────────────────────────────────────
 
@@ -68,7 +76,7 @@ function hasApiKey(): boolean {
 
 export function initTiles(
   container: HTMLElement,
-  callback: (grid: BlockGrid, label: string, analysis: AnalysisResult | null) => void,
+  callback: (grid: BlockGrid, label: string, analysis: AnalysisResult | null, meta: TilesResultMeta | null) => void,
 ): void {
   rootEl = container;
   onResult = callback;
@@ -496,10 +504,15 @@ async function runVoxelizePipeline(
     // Dispose the tile viewer — we don't need it anymore
     disposeViewer();
 
-    // Step 5: Pass grid + analysis to callback
+    // Step 5: Pass grid + analysis + geocode metadata to callback
     // If analysis shows poor/fair quality, the callback can trigger manual selection
     if (onResult && !skipCallback) {
-      onResult(trimmedGrid, `tiles-${geo.formattedAddress}`, analysis);
+      onResult(trimmedGrid, `tiles-${geo.formattedAddress}`, analysis, {
+        lat: geo.lat,
+        lng: geo.lng,
+        resolution,
+        captureRadius: radiusMeters,
+      });
     }
 
     return trimmedGrid;
