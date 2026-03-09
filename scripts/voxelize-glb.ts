@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, solidifyCore, carveFacadeShadows, verticalRectify, horizontalRectify, glazeBackplane, fireEscapeFilter, addRoofCornice, removeSmallComponents, cropToCenter, cropToAABB, analyzeGrid, placeEntryPath } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, verticalRectify, horizontalRectify, glazeBackplane, removeSmallComponents, cropToCenter, cropToAABB, analyzeGrid, placeEntryPath } from '../src/convert/mesh-filter.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
@@ -836,7 +836,7 @@ async function main(): Promise<void> {
     if (vertexSurvival < 0.5) issues.push(`Only ${(vertexSurvival * 100).toFixed(0)}% verts above ground — mostly terrain/ground`);
     else if (vertexSurvival > 0.8) strengths.push(`${(vertexSurvival * 100).toFixed(0)}% verts above ground — building dominates`);
 
-    if (aspect < 0.3) issues.push('Very wide/flat — solidifyCore may merge multiple structures');
+    if (aspect < 0.3) issues.push('Very wide/flat — may merge multiple structures');
     else if (aspect > 0.6) strengths.push(`Tall profile (aspect ${aspect.toFixed(2)})`);
 
     if (footprint > 45) issues.push(`Large footprint (${footprint.toFixed(0)}m) — likely captures neighbors`);
@@ -1014,11 +1014,9 @@ async function main(): Promise<void> {
     // Apply auto recommendations (only override non-explicitly-set params)
     const rec = analysis.recommended;
     // Compact recommendation summary
-    const recFlags: string[] = [rec.generic ? '--generic' : 'solidifyCore'];
+    const recFlags: string[] = [rec.generic ? '--generic' : 'building-mode'];
     if (rec.fill) recFlags.push('--fill');
-    if (!rec.noPalette) recFlags.push('full palette');
-    if (rec.noCornice) recFlags.push('--no-cornice');
-    if (rec.noFireEscape) recFlags.push('--no-fire-escape');
+    if (!rec.noPalette) recFlags.push('shadow-palette');
     if (rec.cropRadius > 0) recFlags.push(`--crop ${rec.cropRadius}`);
     if (rec.cleanMinSize > 0) recFlags.push(`--clean ${rec.cleanMinSize}`);
     if (rec.remaps.size > 0) {
@@ -1075,17 +1073,13 @@ async function main(): Promise<void> {
     // These steps assume one building dominates the capture volume.
     // Generic mode skips them to preserve multi-structure raw geometry.
 
-    // Interior fill — flood-fill per Y-layer identifies building interiors
+    // Interior fill — flood-fill per Y-layer identifies building interiors.
+    // solidifyCore removed: destroyed non-rectangular geometry (courtyards, L-shapes, wedges)
+    // by forcing AABB per Y-layer.
+    // carveFacadeShadows removed: luminance-based carving deleted valid dark materials
+    // (brick, terracotta, dark stone).
     const interiorFilled = fillInteriorGaps(trimmed, 3);
     console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
-
-    // Solidify core — one global AABB per Y-layer, fills interior to facade depth
-    const coreFilled = solidifyCore(trimmed, 4);
-    console.log(`Solidify core: ${coreFilled} interior voxels filled (facade depth=4)`);
-
-    // Carve facade shadows → depth features (luminance-based)
-    const carvedCount = carveFacadeShadows(trimmed, 4, 0.45, 2);
-    console.log(`Facade carving: ${carvedCount} dark blocks → air (lum<0.45, depth=4, neighbors≥2)`);
 
     // Vertical + horizontal rectification — Manhattan geometry cleanup
     const rectified = verticalRectify(trimmed, 4, 5);
@@ -1093,7 +1087,7 @@ async function main(): Promise<void> {
     const hRectified = horizontalRectify(trimmed, 4, 3);
     console.log(`Horizontal rectify: ${hRectified} blocks changed (window=3, depth=4)`);
   } else {
-    console.log(`Generic mode: skipping solidifyCore/carve/rectify (preserving raw geometry)`);
+    console.log(`Generic mode: skipping rectify (preserving raw geometry)`);
     if (args.fill) {
       const interiorFilled = fillInteriorGaps(trimmed, 3);
       console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
@@ -1120,35 +1114,22 @@ async function main(): Promise<void> {
   }
 
   if (!args.generic && !args.noPalette) {
-    // === Building-specific post-processing (tuned for 2340 Francisco St) ===
-    // Palette constraint — aggressively remap to uniform stucco.
+    // Shadow-only palette: remap darkest photogrammetry artifacts to neutral tones.
+    // Previous version aggressively remapped 20+ block types (bricks, terracotta,
+    // sandstone, red_concrete, etc.) to smooth_quartz/light_gray_concrete —
+    // destroying real building colors. Now only the darkest baked-shadow blocks
+    // get remapped, preserving color variety from the texture sampler.
     const paletteReplacements = new Map<string, string>([
-      ['minecraft:blackstone', 'minecraft:smooth_quartz'],
-      ['minecraft:deepslate_bricks', 'minecraft:smooth_quartz'],
-      ['minecraft:polished_deepslate', 'minecraft:smooth_quartz'],
-      ['minecraft:polished_blackstone', 'minecraft:smooth_quartz'],
-      ['minecraft:nether_bricks', 'minecraft:smooth_quartz'],
-      ['minecraft:stone', 'minecraft:light_gray_concrete'],
-      ['minecraft:andesite', 'minecraft:light_gray_concrete'],
-      ['minecraft:polished_andesite', 'minecraft:light_gray_concrete'],
-      ['minecraft:stone_bricks', 'minecraft:light_gray_concrete'],
-      ['minecraft:smooth_stone', 'minecraft:light_gray_concrete'],
-      ['minecraft:cobblestone', 'minecraft:light_gray_concrete'],
-      ['minecraft:gray_concrete', 'minecraft:light_gray_concrete'],
+      ['minecraft:blackstone', 'minecraft:gray_concrete'],
+      ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
+      ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
+      ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
+      ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
+      ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
       ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
-      ['minecraft:red_terracotta', 'minecraft:smooth_quartz'],
-      ['minecraft:orange_terracotta', 'minecraft:smooth_quartz'],
-      ['minecraft:brown_terracotta', 'minecraft:smooth_quartz'],
-      ['minecraft:bricks', 'minecraft:smooth_quartz'],
-      ['minecraft:red_concrete', 'minecraft:smooth_quartz'],
-      ['minecraft:green_concrete', 'minecraft:smooth_quartz'],
-      ['minecraft:iron_block', 'minecraft:light_gray_concrete'],
-      ['minecraft:end_stone_bricks', 'minecraft:smooth_quartz'],
-      ['minecraft:smooth_sandstone', 'minecraft:smooth_quartz'],
-      ['minecraft:sandstone', 'minecraft:smooth_quartz'],
     ]);
     const constrained = constrainPalette(trimmed, paletteReplacements);
-    console.log(`Palette constrain: ${constrained} shadow blocks remapped`);
+    console.log(`Palette constrain: ${constrained} shadow blocks remapped (colors preserved)`);
   } else if (args.noPalette) {
     // --no-palette: only remap darkest shadows, keep everything else
     const shadowReplacements = new Map<string, string>([
@@ -1198,23 +1179,16 @@ async function main(): Promise<void> {
     }
   }
 
-  if (!args.generic && !args.noFireEscape) {
-    // Fire escape filter — apartment-specific: center strip darkening
-    const escapeCount = fireEscapeFilter(trimmed, 4, 0.38, 0.62, 'minecraft:black_concrete');
-    console.log(`Fire escape filter: ${escapeCount} blocks → black_concrete (center 38-62%)`);
-  }
+  // fireEscapeFilter removed: over-fitted to 2340 Francisco St — darkened center
+  // strip on all buildings regardless of whether they have fire escapes.
 
   // Glaze backplane — deep per-face raycast to find void back walls.
   // Works for any building type — finds interior voids and adds window blocks.
   const glazeCount = glazeBackplane(trimmed, 8, 'minecraft:black_concrete');
   console.log(`Backplane glazing: ${glazeCount} window blocks placed (black_concrete, depth=8)`);
 
-  if (!args.generic && !args.noCornice) {
-    // Roof cornice — Spanish/Mediterranean clay tile cap with wooden eave overhang.
-    // Building-specific: assumes flat-top apartment with stucco walls.
-    const roofCount = addRoofCornice(trimmed, 'minecraft:bricks', 'minecraft:spruce_planks');
-    console.log(`Roof cornice: ${roofCount} blocks placed (bricks + spruce_planks)`);
-  }
+  // addRoofCornice removed: hardcoded bricks + spruce_planks is wrong for all
+  // non-Mediterranean buildings — was the reddish-brown artifact on every output.
 
   // Custom block remaps — final override, applied after all other processing
   if (args.remaps.size > 0) {

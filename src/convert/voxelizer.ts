@@ -276,7 +276,7 @@ function voxelizeSurface(
   // this. 0.55 is just above exact half-voxel — tight enough to prevent
   // filling between nearby but separate surfaces, producing thin shell walls.
   // Interior fill post-processing handles the gaps to create solid walls.
-  const threshold = 0.55 / resolution;
+  const threshold = 0.65 / resolution;
 
   // Reusable objects to avoid per-voxel allocation
   const localPoint = new THREE.Vector3();
@@ -544,7 +544,7 @@ interface BVHGeometry extends THREE.BufferGeometry {
  *   Default 16.
  * @param desaturate - Saturation reduction factor (0-1). Default 0.65.
  */
-export function createDataTextureSampler(gamma = 1.0, kernelSize = 16, desaturate = 0.65): TextureSampler {
+export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturate = 0.5): TextureSampler {
   // Pre-compute 256-entry LUT for the gamma correction (avoids Math.pow per pixel)
   const lut = new Uint8Array(256);
   for (let i = 0; i < 256; i++) {
@@ -646,10 +646,12 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 16, desaturat
     })();
     const isGreenish = pixelHue >= 85 && pixelHue <= 160;
 
-    // Step 2: Luminance clamping — boost shadowed walls to bright
+    // Step 2: Luminance clamping — boost shadowed walls toward mid-bright.
+    // MIN_BRIGHT=140 preserves mid-tones (brick, terracotta, sandstone)
+    // that were previously washed out at 180.
     if (!isGreenish) {
       const lum = (r * 77 + g * 150 + b * 29) >> 8;
-      const MIN_BRIGHT = 180;
+      const MIN_BRIGHT = 140;
       const DARK_THRESHOLD = 50;
       if (lum >= DARK_THRESHOLD && lum < MIN_BRIGHT) {
         const scale = MIN_BRIGHT / lum;
@@ -659,14 +661,9 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 16, desaturat
       }
     }
 
-    // Step 3: Warm bias — push very bright pixels toward cream
-    if (!isGreenish) {
-      const lumPost = (r * 77 + g * 150 + b * 29) >> 8;
-      if (lumPost > 180) {
-        r = Math.min(255, r + 12);
-        g = Math.min(255, g + 6);
-      }
-    }
+    // Step 3: Warm bias removed — was pushing all bright pixels toward cream,
+    // destroying gray/white/blue building colors. The luminance clamp above
+    // plus selective desaturation below handle baked lighting adequately.
 
     // Step 4: Selective desaturation — now operates on clamped/biased pixels.
     // Bright warm pixels (l>=0.72) keep their cream saturation; dark warm

@@ -30,7 +30,7 @@ import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
 import {
   trimSparseBottomLayers, analyzeGrid, cropToAABB,
   smoothRareBlocks, constrainPalette, modeFilter3D,
-  fillInteriorGaps, solidifyCore, carveFacadeShadows,
+  fillInteriorGaps,
   verticalRectify, horizontalRectify, removeSmallComponents,
   glazeBackplane,
 } from '@craft/convert/mesh-filter.js';
@@ -49,7 +49,7 @@ const MAX_DIMENSION = 256;
 let rootEl: HTMLElement;
 let renderer: THREE.WebGLRenderer | null = null;
 let scene: THREE.Scene | null = null;
-let camera: THREE.PerspectiveCamera | null = null;
+let camera: THREE.OrthographicCamera | null = null;
 let tiles: TilesRenderer | null = null;
 let animFrameId = 0;
 /** Metadata about the tiles pipeline run, passed to the result callback */
@@ -301,11 +301,15 @@ async function runVoxelizePipeline(
   renderer.domElement.style.opacity = '0.01';
 
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
-  // Camera close to ground — closer distance triggers higher-detail LOD tiles.
-  // At 15m the SSE threshold was too easily satisfied; 8m forces deeper traversal
-  // into the tile hierarchy to reach building-level leaf tiles with geometry.
-  camera.position.set(0, 8, 8);
+  // OrthographicCamera from above — frustum covers full capture volume at all heights.
+  // PerspectiveCamera at (0,8,8) caused TilesRenderer to never request tiles above ~50m,
+  // truncating skyscrapers (ESB, Chrysler, Flatiron). Ortho from Y=500 creates a
+  // frustum column that loads tiles for any building height.
+  const halfExtent = radiusMeters * 1.2; // 20% margin for LOD overlap
+  camera = new THREE.OrthographicCamera(
+    -halfExtent, halfExtent, halfExtent, -halfExtent, 1, 2000,
+  );
+  camera.position.set(0, 500, 0);
   camera.lookAt(0, 0, 0);
   scene.add(new THREE.AmbientLight(0xffffff, 1.0));
 
@@ -331,9 +335,10 @@ async function runVoxelizePipeline(
   tiles.registerPlugin(new UnloadTilesPlugin());
 
   // Force building-level LOD by lowering screen-space error target.
-  // Default 16px stops at coarse terrain tiles; 2px demands leaf tiles
-  // with actual building geometry and textures.
-  tiles.errorTarget = 2.0;
+  // Default 16px stops at coarse terrain tiles; lower values demand leaf tiles
+  // with actual building geometry and textures. 4.0 for OrthographicCamera
+  // (SSE calculation differs from perspective — ortho produces larger SSE values).
+  tiles.errorTarget = 4.0;
 
   tiles.setCamera(camera);
   tiles.setResolutionFromRenderer(camera, renderer);
@@ -575,14 +580,12 @@ async function runVoxelizePipeline(
  * Steps applied (in order):
  * 1. AABB crop (if analysis recommends it) — isolate central building
  * 2. Fill interior gaps — flood-fill per Y-layer
- * 3. Solidify core — fill interior to facade depth (non-generic only)
- * 4. Carve facade shadows — remove dark baked-shadow blocks (non-generic only)
- * 5. Vertical + horizontal rectify — Manhattan geometry cleanup (non-generic)
- * 6. Smooth rare blocks — eliminate salt-and-pepper noise
- * 7. Constrain palette — remap dark photogrammetry shadow artifacts
- * 8. Mode filter — 3D majority-vote surface smoother
- * 9. Component cleanup — remove floating debris
- * 10. Backplane glazing — add window blocks to interior voids
+ * 3. Vertical + horizontal rectify — Manhattan geometry cleanup
+ * 4. Smooth rare blocks — eliminate salt-and-pepper noise
+ * 5. Constrain palette — remap darkest shadow artifacts only
+ * 6. Mode filter — 3D majority-vote surface smoother
+ * 7. Component cleanup — remove floating debris
+ * 8. Backplane glazing — add window blocks to interior voids
  */
 async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null): Promise<void> {
   const t0 = performance.now();
@@ -602,19 +605,11 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   // Yield helper — lets the browser render status updates between heavy operations
   const yieldUI = () => new Promise<void>(r => setTimeout(r, 0));
 
-  // 2. Fill interior gaps — flood-fill per Y-layer finds enclosed spaces
+  // 2. Fill interior gaps — flood-fill per Y-layer finds enclosed spaces.
+  // solidifyCore removed: destroyed non-rectangular geometry (courtyards, L-shapes, wedges).
+  // carveFacadeShadows removed: luminance-based carving deleted valid dark materials.
   const interiorFilled = fillInteriorGaps(grid, 3);
   console.log(`[tiles:pp] interior fill: ${interiorFilled} voxels`);
-  await yieldUI();
-
-  // 3. Solidify core — fill interior to facade depth for solid walls
-  const coreFilled = solidifyCore(grid, 4);
-  console.log(`[tiles:pp] solidify core: ${coreFilled} voxels (depth=4)`);
-  await yieldUI();
-
-  // 4. Carve facade shadows — remove dark baked-lighting blocks
-  const carved = carveFacadeShadows(grid, 4, 0.45, 2);
-  console.log(`[tiles:pp] facade carve: ${carved} dark blocks → air`);
   await yieldUI();
 
   // 5. Vertical + horizontal rectification — enforce Manhattan geometry
@@ -631,37 +626,18 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   }
   await yieldUI();
 
-  // 7. Constrain palette — always use full building remap in browser.
-  // The browser's createCanvasTextureSampler() gets raw baked-lighting colors from
-  // Google 3D Tiles. Without the CLI's color preprocessing (luminance clamp, warm
-  // bias, selective desaturation, gamma), most voxels map to dark shadow blocks
-  // (nether_bricks, blackstone, deepslate). Aggressive remapping to light materials
-  // (smooth_quartz, light_gray_concrete) compensates for the missing color pipeline.
+  // 7. Constrain palette — shadow-only remaps.
+  // Previous version aggressively remapped 20+ block types to smooth_quartz/light_gray_concrete,
+  // destroying real building colors (bricks, terracotta, sandstone, etc.).
+  // Now only the darkest baked-shadow artifacts are remapped to neutral gray.
   const paletteRemaps = new Map<string, string>([
-    ['minecraft:blackstone', 'minecraft:smooth_quartz'],
-    ['minecraft:deepslate_bricks', 'minecraft:smooth_quartz'],
-    ['minecraft:polished_deepslate', 'minecraft:smooth_quartz'],
-    ['minecraft:polished_blackstone', 'minecraft:smooth_quartz'],
-    ['minecraft:nether_bricks', 'minecraft:smooth_quartz'],
-    ['minecraft:red_nether_bricks', 'minecraft:smooth_quartz'],
-    ['minecraft:stone', 'minecraft:light_gray_concrete'],
-    ['minecraft:andesite', 'minecraft:light_gray_concrete'],
-    ['minecraft:polished_andesite', 'minecraft:light_gray_concrete'],
-    ['minecraft:stone_bricks', 'minecraft:light_gray_concrete'],
-    ['minecraft:smooth_stone', 'minecraft:light_gray_concrete'],
-    ['minecraft:cobblestone', 'minecraft:light_gray_concrete'],
-    ['minecraft:gray_concrete', 'minecraft:light_gray_concrete'],
+    ['minecraft:blackstone', 'minecraft:gray_concrete'],
+    ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
+    ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
+    ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
+    ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
+    ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
     ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
-    ['minecraft:red_terracotta', 'minecraft:smooth_quartz'],
-    ['minecraft:orange_terracotta', 'minecraft:smooth_quartz'],
-    ['minecraft:brown_terracotta', 'minecraft:smooth_quartz'],
-    ['minecraft:bricks', 'minecraft:smooth_quartz'],
-    ['minecraft:red_concrete', 'minecraft:smooth_quartz'],
-    ['minecraft:green_concrete', 'minecraft:smooth_quartz'],
-    ['minecraft:iron_block', 'minecraft:light_gray_concrete'],
-    ['minecraft:end_stone_bricks', 'minecraft:smooth_quartz'],
-    ['minecraft:smooth_sandstone', 'minecraft:smooth_quartz'],
-    ['minecraft:sandstone', 'minecraft:smooth_quartz'],
   ]);
   const constrained = constrainPalette(grid, paletteRemaps);
   console.log(`[tiles:pp] palette: ${constrained} blocks remapped`);
