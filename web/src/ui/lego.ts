@@ -13,7 +13,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { parseLDraw } from '@engine/ldraw-parser.js';
 import { voxelizeLDraw } from '@engine/ldraw-voxelizer.js';
 import {
-  ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr,
+  ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
 
@@ -165,6 +165,11 @@ function wireEvents(): void {
       // Populate theme dropdown once loaded
       populateThemes(getThemes());
 
+      // Clear any previously selected set when a new search runs
+      selectedSet = null;
+      const detailEl = document.getElementById('lego-detail');
+      if (detailEl) detailEl.hidden = true;
+
       if (searchResults.length === 0) {
         setStatus('No sets found — try a different query.', 'info');
         hideResults();
@@ -298,8 +303,9 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
   const btn = document.getElementById('lego-auto-load') as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
 
-  // Fast path: if we know the set is NOT in the OMR, skip fetching
-  if (!isInOmr(set.set_num)) {
+  // Fast path: only skip if the index is loaded AND definitively says set is absent
+  // (treats "not in index" as "unknown" in case our scrape was incomplete)
+  if (isOmrLoaded() && !isInOmr(set.set_num)) {
     setStatus(
       `${set.set_num} is not in the LDraw OMR (~1,470 sets). Try BrickLink Studio → export LDraw → upload above.`,
       'info',
