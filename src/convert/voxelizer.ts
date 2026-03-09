@@ -17,11 +17,18 @@
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { BlockGrid } from '../schem/types.js';
-import { rgbToWallBlock, isVegetationColor } from '../gen/color-blocks.js';
+import { rgbToWallBlock } from '../gen/color-blocks.js';
 import type { RGB } from '../types/index.js';
 
 /** Optional texture sampler — browser provides Canvas-backed, CLI passes undefined */
 export type TextureSampler = (texture: THREE.Texture, uv: THREE.Vector2) => RGB;
+
+/** Minecraft blocks that represent vegetation — rejected when filterVegetation is enabled */
+const VEGETATION_BLOCKS = new Set([
+  'minecraft:green_concrete', 'minecraft:lime_concrete',
+  'minecraft:green_terracotta', 'minecraft:lime_terracotta',
+  'minecraft:moss_block', 'minecraft:green_wool', 'minecraft:lime_wool',
+]);
 
 /** Progress info emitted during voxelization */
 export interface VoxelizeProgress {
@@ -329,10 +336,13 @@ function voxelizeSurface(
           }
         }
 
-        // Skip vegetation colors (green/olive hues from trees) when filterVegetation enabled
-        if (bestColor && !(filterVegetation && isVegetationColor(bestColor[0], bestColor[1], bestColor[2]))) {
+        if (bestColor) {
           const seed = x * 1000000 + y * 1000 + z;
-          grid.set(x, y, z, rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], seed));
+          const block = rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], seed);
+          // Skip vegetation blocks (trees/bushes in photogrammetry tiles)
+          if (!filterVegetation || !VEGETATION_BLOCKS.has(block)) {
+            grid.set(x, y, z, block);
+          }
         }
       }
     }
@@ -409,10 +419,13 @@ async function voxelizeSurfaceAsync(
           }
         }
 
-        // Skip vegetation colors (green/olive hues from trees) when filterVegetation enabled
-        if (bestColor && !(filterVegetation && isVegetationColor(bestColor[0], bestColor[1], bestColor[2]))) {
+        if (bestColor) {
           const seed = x * 1000000 + y * 1000 + z;
-          grid.set(x, y, z, rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], seed));
+          const block = rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], seed);
+          // Skip vegetation blocks (trees/bushes in photogrammetry tiles)
+          if (!filterVegetation || !VEGETATION_BLOCKS.has(block)) {
+            grid.set(x, y, z, block);
+          }
         }
       }
     }
