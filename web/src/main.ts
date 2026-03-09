@@ -4,6 +4,7 @@
  */
 
 import './style.css';
+import * as THREE from 'three';
 import { BlockGrid } from '@craft/schem/types.js';
 import { createViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
 import { enableSelection } from '@viewer/selection.js';
@@ -17,7 +18,7 @@ import { initUpload } from '@ui/upload.js';
 import { initGallery } from '@ui/gallery.js';
 import { initComparison } from '@ui/comparison.js';
 import { initMap3d } from '@ui/map3d.js';
-import { initTiles } from '@ui/tiles.js';
+import { initTiles, type TilesResultMeta } from '@ui/tiles.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -473,7 +474,7 @@ initMap3d(map3dRoot);
 // ─── Tiles (3D Tiles → Schematic) ──────────────────────────────────────────
 
 const tilesRoot = document.getElementById('tiles-root')!;
-initTiles(tilesRoot, (grid, label, analysis) => {
+initTiles(tilesRoot, (grid, label, analysis, meta) => {
   exportBasename = slugify(label) || 'tiles';
 
   // Confidence threshold: show manual selection when auto-detection is unreliable
@@ -487,7 +488,7 @@ initTiles(tilesRoot, (grid, label, analysis) => {
 
       if (needsSelection && inlineViewer) {
         // Show selection banner with instructions
-        showTilesSelectionBanner(tilesRoot, grid, analysis!);
+        showTilesSelectionBanner(tilesRoot, grid, analysis!, meta);
       }
     } catch (err) {
       console.warn('3D viewer failed:', err);
@@ -501,6 +502,91 @@ initTiles(tilesRoot, (grid, label, analysis) => {
   }, 0));
 });
 
+// ─── Satellite Overlay for Selection ──────────────────────────────────────────
+
+/**
+ * Fetch a Google Static Maps satellite image and overlay it on the ground
+ * plane of the 3D viewer. Provides spatial context (roads, neighbors) so the
+ * user can identify the target building during manual XZ selection.
+ *
+ * The image is centered on the geocoded lat/lng and scaled to cover slightly
+ * more area than the voxel grid for surrounding context.
+ *
+ * @returns The overlay mesh (caller must dispose), or null on failure.
+ */
+async function addSatelliteOverlay(
+  scene: THREE.Scene,
+  meta: TilesResultMeta,
+  grid: BlockGrid,
+): Promise<THREE.Mesh | null> {
+  const apiKey = localStorage.getItem('craftmatic_map3d_api_key')
+    ?? localStorage.getItem('craftmatic_google_streetview_key')
+    ?? '';
+  if (!apiKey) return null;
+
+  const { lat, lng, resolution } = meta;
+
+  // Grid extent in meters — at resolution=1, 1 block = 1 meter
+  const widthM = grid.width / resolution;
+  const lengthM = grid.length / resolution;
+
+  // Cover 2.5x the grid area to show surrounding streets and buildings
+  const coverageM = Math.max(widthM, lengthM) * 2.5;
+
+  // Calculate zoom level for 640px to cover the desired area:
+  //   metersPerPx = 156543.03392 * cos(lat_rad) / 2^zoom
+  //   coverage = 640 * metersPerPx → zoom = log2(640 * 156543.03392 * cos(lat_rad) / coverage)
+  const latRad = lat * Math.PI / 180;
+  const zoomExact = Math.log2(640 * 156543.03392 * Math.cos(latRad) / coverageM);
+  const zoom = Math.min(21, Math.max(15, Math.round(zoomExact)));
+
+  // Actual coverage at the snapped integer zoom
+  const metersPerPx = 156543.03392 * Math.cos(latRad) / Math.pow(2, zoom);
+  const actualCoverageM = 640 * metersPerPx;
+
+  // Fetch satellite image from Google Static Maps API
+  const url = `https://maps.googleapis.com/maps/api/staticmap`
+    + `?center=${lat},${lng}&zoom=${zoom}&size=640x640`
+    + `&maptype=satellite&key=${apiKey}`;
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.crossOrigin = 'anonymous'; // required for Three.js texture use
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Failed to load satellite image'));
+    el.src = url;
+  });
+
+  const texture = new THREE.Texture(img);
+  texture.needsUpdate = true;
+  // Sharpen: linear filter looks better for satellite imagery
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+
+  // Plane size in world/block coords: actual coverage in meters × resolution
+  const planeSizeBlocks = actualCoverageM * resolution;
+
+  const geo = new THREE.PlaneGeometry(planeSizeBlocks, planeSizeBlocks);
+  const mat = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+
+  const plane = new THREE.Mesh(geo, mat);
+  // PlaneGeometry is XY by default — rotate to lie flat on XZ ground
+  plane.rotation.x = -Math.PI / 2;
+  // Position just below the voxel ground level to avoid z-fighting
+  plane.position.y = -0.5;
+  plane.renderOrder = -1;
+  scene.add(plane);
+
+  console.log(`[satellite] overlay: zoom=${zoom}, coverage=${actualCoverageM.toFixed(0)}m, plane=${planeSizeBlocks.toFixed(0)} blocks`);
+  return plane;
+}
+
 /**
  * Show manual selection banner + enable XZ rectangle selection on the viewer.
  * Appears when auto-detection confidence is below threshold.
@@ -509,6 +595,7 @@ function showTilesSelectionBanner(
   container: HTMLElement,
   grid: BlockGrid,
   analysis: AnalysisResult,
+  meta: TilesResultMeta | null,
 ): void {
   if (!inlineViewer) return;
 
@@ -535,6 +622,8 @@ function showTilesSelectionBanner(
   }
 
   let selectionCancel: (() => void) | null = null;
+  /** Satellite overlay mesh — cleaned up when selection ends */
+  let satelliteOverlay: THREE.Mesh | null = null;
 
   const startBtn = banner.querySelector('#tiles-sel-start') as HTMLButtonElement;
   const skipBtn = banner.querySelector('#tiles-sel-skip') as HTMLButtonElement;
@@ -543,7 +632,7 @@ function showTilesSelectionBanner(
     if (!inlineViewer) { banner.remove(); return; }
 
     // Switch to top-down view for easier XZ selection
-    const { camera, controls } = inlineViewer;
+    const { camera, controls, scene } = inlineViewer;
     const savedPos = camera.position.clone();
     const savedTarget = controls.target.clone();
     const savedMinPolar = controls.minPolarAngle;
@@ -558,6 +647,16 @@ function showTilesSelectionBanner(
     controls.minPolarAngle = 0;
     controls.maxPolarAngle = 0.15; // ~8.6° — nearly locked top-down
     controls.update();
+
+    // Overlay satellite imagery on the ground plane for spatial context.
+    // Makes the building footprint recognizable relative to roads/neighbors.
+    if (meta) {
+      addSatelliteOverlay(scene, meta, grid).then(mesh => {
+        satelliteOverlay = mesh;
+      }).catch(err => {
+        console.warn('[selection] satellite overlay failed:', err);
+      });
+    }
 
     // Update banner to show selection instructions
     banner.innerHTML = `
@@ -578,8 +677,19 @@ function showTilesSelectionBanner(
     );
     selectionCancel = cancel;
 
+    /** Remove satellite overlay and restore camera */
+    function cleanupSelection() {
+      if (satelliteOverlay && inlineViewer) {
+        inlineViewer.scene.remove(satelliteOverlay);
+        satelliteOverlay.geometry.dispose();
+        (satelliteOverlay.material as THREE.Material).dispose();
+        satelliteOverlay = null;
+      }
+    }
+
     /** Restore original camera position and rotation limits after selection */
     function restoreCamera() {
+      cleanupSelection();
       if (!inlineViewer) return;
       camera.position.copy(savedPos);
       controls.target.copy(savedTarget);
@@ -602,6 +712,9 @@ function showTilesSelectionBanner(
       banner.remove();
       return;
     }
+
+    // Clean up satellite overlay before rebuilding viewer
+    cleanupSelection();
 
     // Apply crop to grid, then trim to tight AABB for cleaner viewer
     const removed = cropToAABB(grid, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ, 1);
