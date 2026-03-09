@@ -345,7 +345,7 @@ async function voxelizeSurfaceAsync(
   onProgress?: (p: VoxelizeProgress) => void,
 ): Promise<void> {
   const { width, height, length } = grid;
-  const threshold = 0.5 / resolution;
+  const threshold = 0.65 / resolution;
 
   // Pre-compute bounding boxes for each mesh (in world space) for fast rejection
   const meshBounds: THREE.Box3[] = meshes.map(({ mesh }) => {
