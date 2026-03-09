@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { BlockGrid } from '../schem/types.js';
-import { rgbToWallBlock } from '../gen/color-blocks.js';
+import { rgbToWallBlock, isVegetationColor } from '../gen/color-blocks.js';
 import type { RGB } from '../types/index.js';
 
 /** Optional texture sampler — browser provides Canvas-backed, CLI passes undefined */
@@ -67,6 +67,8 @@ export function threeToGrid(
     mode?: VoxelizeMode;
     /** Yield to main thread every N layers (default: 0 = no yielding, synchronous) */
     yieldInterval?: number;
+    /** Skip voxels with vegetation colors (green/olive hues). For photogrammetry tiles. */
+    filterVegetation?: boolean;
   },
 ): BlockGrid {
   const box = new THREE.Box3().setFromObject(object);
@@ -84,6 +86,7 @@ export function threeToGrid(
   const grid = new BlockGrid(width, height, length);
   const sampler = options?.textureSampler;
   const mode = options?.mode ?? 'solid';
+  const filterVeg = options?.filterVegetation ?? false;
 
   // Collect meshes and build BVH for each geometry
   const meshes: MeshEntry[] = [];
@@ -107,7 +110,7 @@ export function threeToGrid(
   });
 
   if (mode === 'surface') {
-    voxelizeSurface(grid, box, resolution, meshes, sampler, options?.onProgress);
+    voxelizeSurface(grid, box, resolution, meshes, sampler, options?.onProgress, filterVeg);
   } else {
     voxelizeSolid(grid, box, resolution, meshes, sampler, options?.onProgress);
   }
@@ -133,6 +136,8 @@ export async function threeToGridAsync(
     mode?: VoxelizeMode;
     /** Yield every N layers (default: 4) */
     yieldInterval?: number;
+    /** Skip voxels with vegetation colors (green/olive hues). For photogrammetry tiles. */
+    filterVegetation?: boolean;
   },
 ): Promise<BlockGrid> {
   const box = new THREE.Box3().setFromObject(object);
@@ -151,6 +156,7 @@ export async function threeToGridAsync(
   const sampler = options?.textureSampler;
   const mode = options?.mode ?? 'solid';
   const yieldInterval = options?.yieldInterval ?? 4;
+  const filterVeg = options?.filterVegetation ?? false;
 
   // Collect meshes and build BVH (yield between builds to keep UI responsive)
   const meshes: MeshEntry[] = [];
@@ -180,7 +186,7 @@ export async function threeToGridAsync(
   }
 
   if (mode === 'surface') {
-    await voxelizeSurfaceAsync(grid, box, resolution, meshes, sampler, yieldInterval, options?.onProgress);
+    await voxelizeSurfaceAsync(grid, box, resolution, meshes, sampler, yieldInterval, options?.onProgress, filterVeg);
   } else {
     // Solid mode is typically fast enough to run synchronously
     voxelizeSolid(grid, box, resolution, meshes, sampler, options?.onProgress);
@@ -270,6 +276,7 @@ function voxelizeSurface(
   meshes: MeshEntry[],
   sampler: TextureSampler | undefined,
   onProgress?: (p: VoxelizeProgress) => void,
+  filterVegetation = false,
 ): void {
   const { width, height, length } = grid;
   // Surface proximity threshold: fills voxels with mesh surface closer than
@@ -322,7 +329,8 @@ function voxelizeSurface(
           }
         }
 
-        if (bestColor) {
+        // Skip vegetation colors (green/olive hues from trees) when filterVegetation enabled
+        if (bestColor && !(filterVegetation && isVegetationColor(bestColor[0], bestColor[1], bestColor[2]))) {
           const seed = x * 1000000 + y * 1000 + z;
           grid.set(x, y, z, rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], seed));
         }
@@ -343,6 +351,7 @@ async function voxelizeSurfaceAsync(
   sampler: TextureSampler | undefined,
   yieldInterval: number,
   onProgress?: (p: VoxelizeProgress) => void,
+  filterVegetation = false,
 ): Promise<void> {
   const { width, height, length } = grid;
   const threshold = 0.65 / resolution;
@@ -400,7 +409,8 @@ async function voxelizeSurfaceAsync(
           }
         }
 
-        if (bestColor) {
+        // Skip vegetation colors (green/olive hues from trees) when filterVegetation enabled
+        if (bestColor && !(filterVegetation && isVegetationColor(bestColor[0], bestColor[1], bestColor[2]))) {
           const seed = x * 1000000 + y * 1000 + z;
           grid.set(x, y, z, rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], seed));
         }

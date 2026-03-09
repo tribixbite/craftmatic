@@ -495,6 +495,8 @@ async function runVoxelizePipeline(
       mode: 'surface',
       // Yield to main thread every 4 layers to keep UI responsive on mobile
       yieldInterval: 4,
+      // Filter vegetation colors (green/olive hues from trees in photogrammetry)
+      filterVegetation: true,
     });
 
     // Post-voxel Y trim: remove sparse bottom layers (residual terrain that
@@ -606,16 +608,20 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   const yieldUI = () => new Promise<void>(r => setTimeout(r, 0));
 
   // 2. Fill interior gaps — flood-fill per Y-layer finds enclosed spaces.
-  // solidifyCore removed: destroyed non-rectangular geometry (courtyards, L-shapes, wedges).
-  // carveFacadeShadows removed: luminance-based carving deleted valid dark materials.
-  const interiorFilled = fillInteriorGaps(grid, 3);
+  // Dilation radius 5 closes wider gaps in thin photogrammetry shells.
+  const interiorFilled = fillInteriorGaps(grid, 5);
   console.log(`[tiles:pp] interior fill: ${interiorFilled} voxels`);
   await yieldUI();
 
-  // 5. Vertical + horizontal rectification — enforce Manhattan geometry
+  // 3. Vertical + horizontal rectification — enforce Manhattan geometry
   const vRect = verticalRectify(grid, 4, 5);
   const hRect = horizontalRectify(grid, 4, 3);
   console.log(`[tiles:pp] rectify: ${vRect} vertical, ${hRect} horizontal`);
+  await yieldUI();
+
+  // 4. Second fill pass — rectification closes wall gaps, enabling more interior fill
+  const interiorFilled2 = fillInteriorGaps(grid, 5);
+  if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2: ${interiorFilled2} voxels`);
   await yieldUI();
 
   // 6. Smooth rare/noisy blocks — replaces globally rare blocks with common neighbors
@@ -808,7 +814,7 @@ const COMPARISON_ADDRESSES = [
  */
 async function batchVoxelize(
   resolution = 1,
-  radiusMeters = 50,
+  radiusMeters = 25,
   startIndex = 0,
 ): Promise<void> {
   if (!hasApiKey()) {
