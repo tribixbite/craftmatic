@@ -41,7 +41,7 @@ import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFil
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
-import { basename, extname, join, dirname } from 'node:path';
+import { basename, extname, join, dirname, resolve } from 'node:path';
 
 // ─── CLI Argument Parsing ───────────────────────────────────────────────────
 
@@ -71,6 +71,7 @@ interface CLIArgs {
   autoInfo: boolean;     // quick analyze-only: voxelize + analyze + print report, no full pipeline
   batch: boolean;        // process multiple GLBs with --auto-info, output summary table
   coords: { lat: number; lng: number } | null; // OSM footprint masking coordinates
+  keepVegetation: boolean; // preserve green/brown vegetation blocks (for satellite comparison)
 }
 
 function parseArgs(): CLIArgs {
@@ -103,7 +104,8 @@ Options:
   --auto             Auto-detect building type and set optimal pipeline params
   --auto-info        Quick analysis: voxelize + analyze + print report (no full pipeline)
   --batch            Process multiple GLB files with auto-analysis, print summary table
-  --coords LAT,LNG   OSM footprint masking — query building polygon at these coords, mask grid`);
+  --coords LAT,LNG   OSM footprint masking — query building polygon at these coords, mask grid
+  --keep-vegetation  Preserve green/brown vegetation blocks (for satellite comparison)`);
     process.exit(0);
   }
 
@@ -133,6 +135,7 @@ Options:
   let autoInfo = false;
   let batch = false;
   let coords: { lat: number; lng: number } | null = null;
+  let keepVegetation = false;
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -174,6 +177,8 @@ Options:
       noCornice = true;
     } else if (arg === '--no-fire-escape') {
       noFireEscape = true;
+    } else if (arg === '--keep-vegetation') {
+      keepVegetation = true;
     } else if (arg === '--clean') {
       cleanMinSize = parseInt(args[++i], 10);
     } else if (arg === '--crop') {
@@ -215,16 +220,23 @@ Options:
     process.exit(1);
   }
 
+  // Resolve to absolute paths — Bun on Termux sets CWD to ~/.bun/tmp/ instead of project root
+  const projectRoot = resolve(import.meta.dir, '..');
+  const resolvePath = (p: string) => p.startsWith('/') ? p : resolve(projectRoot, p);
+  inputPath = resolvePath(inputPath);
+
   if (!outputPath) {
     const stem = basename(inputPath, extname(inputPath));
     outputPath = join(dirname(inputPath), `${stem}.schem`);
+  } else {
+    outputPath = resolvePath(outputPath);
   }
 
   if (desaturateOff) {
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -937,7 +949,7 @@ async function main(): Promise<void> {
     textureSampler: sampler,
     mode: args.mode,
     // Filter vegetation colors for surface mode (photogrammetry tiles contain trees)
-    filterVegetation: args.mode === 'surface',
+    filterVegetation: args.mode === 'surface' && !args.keepVegetation,
     onProgress: (p) => {
       if (p.message) {
         process.stdout.write(`\r  ${p.message}`);
