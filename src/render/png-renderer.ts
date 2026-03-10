@@ -747,6 +747,30 @@ export async function renderSatelliteColored(
     }
   }
 
+  // Smooth heightmap with 3x3 Gaussian to reduce voxel stair-stepping
+  // in the hillshade normals. Pitched roofs become smoother shading planes.
+  const smoothHm = new Float32Array(w * l);
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      const c = heightmap[z * w + x];
+      if (c < 0) { smoothHm[z * w + x] = -1; continue; }
+      // 3x3 Gaussian kernel (σ≈0.85): [1,2,1; 2,4,2; 1,2,1] / 16
+      let sum = 0, wt = 0;
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nx >= w || nz < 0 || nz >= l) continue;
+          const nh = heightmap[nz * w + nx];
+          if (nh < 0) continue;
+          const k = (dx === 0 ? 2 : 1) * (dz === 0 ? 2 : 1); // center=4, edge=2, corner=1
+          sum += nh * k;
+          wt += k;
+        }
+      }
+      smoothHm[z * w + x] = wt > 0 ? sum / wt : c;
+    }
+  }
+
   // Hillshade: sun from upper-left (azimuth ~315°, elevation ~45°)
   // mimics typical satellite imagery shadow direction
   const sunDirX = -0.5;  // from west (negative X)
@@ -757,11 +781,11 @@ export async function renderSatelliteColored(
   const sdz = sunDirZ / sunLen;
   const sdy = sunDirY / sunLen;
 
-  /** Get heightmap value with boundary clamping */
-  function hm(x: number, z: number): number {
+  /** Get smoothed heightmap value with boundary clamping */
+  function shm(x: number, z: number): number {
     const cx = Math.max(0, Math.min(w - 1, x));
     const cz = Math.max(0, Math.min(l - 1, z));
-    return Math.max(0, heightmap[cz * w + cx]);
+    return Math.max(0, smoothHm[cz * w + cx]);
   }
 
   for (let z = minZ; z <= maxZ; z++) {
@@ -786,9 +810,9 @@ export async function renderSatelliteColored(
       const px = ox + (x - minX) * scale;
       const py = oy + (z - minZ) * scale;
 
-      // Compute surface normal from heightmap gradient (Sobel-like)
-      const dzdx = (hm(x + 1, z) - hm(x - 1, z)) / 2;
-      const dzdy = (hm(x, z + 1) - hm(x, z - 1)) / 2;
+      // Compute surface normal from SMOOTHED heightmap gradient
+      const dzdx = (shm(x + 1, z) - shm(x - 1, z)) / 2;
+      const dzdy = (shm(x, z + 1) - shm(x, z - 1)) / 2;
       // Normal = (-dzdx, 1, -dzdy) normalized
       const nx = -dzdx;
       const ny = 1;
