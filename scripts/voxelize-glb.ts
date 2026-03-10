@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -1410,6 +1410,16 @@ async function main(): Promise<void> {
   const constrained = constrainPalette(trimmed, skyReplacements);
   if (constrained > 0) {
     console.log(`Sky palette: ${constrained} blue/cyan sky-contaminated blocks remapped`);
+  }
+
+  // Glaze dark exterior blocks as windows — center-pixel sampling creates dark
+  // blocks (gray_concrete, polished_andesite) where windows/shadows are. Convert
+  // these to gray_stained_glass for material variety and realistic appearance.
+  if (args.mode === 'surface') {
+    const glazed = glazeDarkWindows(trimmed);
+    if (glazed > 0) {
+      console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass`);
+    }
   }
 
   // Connected-component cleanup — remove floating debris and disconnected clusters.

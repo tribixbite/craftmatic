@@ -302,8 +302,10 @@ function voxelizeSurface(
   const { width, height, length } = grid;
   // Surface proximity threshold: voxels within this distance of mesh surface get filled.
   // Must be > 0.5/resolution (half-voxel) to guarantee at least one voxel per face.
-  // 0.55 gives 10% margin for floating-point precision. At r=1 → 0.55, r=2 → 0.275.
-  const threshold = 0.55 / resolution;
+  // 0.75 catches diagonal walls (voxel center-to-edge = 0.707) producing watertight
+  // shells. May create 2-block thick walls at perpendiculars, but watertightness is
+  // more important than sub-meter thinness at 1 block/m resolution.
+  const threshold = 0.75 / resolution;
 
   // Reusable objects to avoid per-voxel allocation
   const localPoint = new THREE.Vector3();
@@ -377,8 +379,8 @@ async function voxelizeSurfaceAsync(
   filterVegetation = false,
 ): Promise<void> {
   const { width, height, length } = grid;
-  // Must match sync threshold — 0.55 / resolution
-  const threshold = 0.55 / resolution;
+  // Must match sync threshold — 0.75 / resolution (watertight diagonal shells)
+  const threshold = 0.75 / resolution;
 
   // Pre-compute bounding boxes for each mesh (in world space) for fast rejection
   const meshBounds: THREE.Box3[] = meshes.map(({ mesh }) => {
@@ -611,6 +613,9 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
     const cy = Math.floor((1 - v) * (h - 1)); // UV y is flipped
 
     let r: number, g: number, b: number;
+    // Whether center-pixel sampling picked a darker bucket than mode —
+    // indicates a feature pixel (window, trim) whose darkness should be preserved.
+    let isCenterPixelFeature = false;
 
     if (kernelSize <= 0) {
       // Point sampling (no bucketing)
@@ -664,6 +669,10 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
       const totalKernelPixels = (k * 2 + 1) * (k * 2 + 1);
       const minFeaturePixels = totalKernelPixels * 0.05; // 5% threshold
       const selectedBucket = bucketCount[centerBucket] >= minFeaturePixels ? centerBucket : bestBucket;
+      // Track when center-pixel sampling chose a different (darker) bucket
+      // than the mode — this pixel is a feature (window, trim, shadow band).
+      // Its darkness is real, not baked AO, so skip the black-point lift later.
+      isCenterPixelFeature = selectedBucket !== bestBucket && selectedBucket < bestBucket;
 
       if (bucketCount[selectedBucket] > 0) {
         r = Math.round(bucketR[selectedBucket] / bucketCount[selectedBucket]);
@@ -748,7 +757,11 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
     // Instead of multiplicative scaling (which amplifies color noise in dark pixels),
     // use a levels-style black point lift: output = MIN + input * (255-MIN) / 255.
     // This maps [0,255] → [MIN,255] without amplifying any channel.
-    if (!isGreenish) {
+    //
+    // SKIP for center-pixel features (windows, trim): their darkness is the real
+    // signal, not baked AO. Preserving dark values lets CIE-Lab match to
+    // gray_concrete, polished_andesite, etc. for glazeDarkWindows to convert.
+    if (!isGreenish && !isCenterPixelFeature) {
       const MIN_BRIGHT = 130;
       const range = 255 - MIN_BRIGHT; // 125
       r = Math.round(MIN_BRIGHT + (r * range) / 255);
