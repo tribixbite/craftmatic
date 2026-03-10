@@ -1151,10 +1151,11 @@ async function main(): Promise<void> {
       args.fill = rec.fill;
       // Gate fill on partial captures: when building extends beyond capture boundary,
       // the clip plane creates sealed walls and fillInteriorGaps flood-fills the
-      // entire "core sample" solid. Disable fill for >15% edge touch.
-      if (args.fill && analysis.isPartialCapture && analysis.edgeTouchPct > 15) {
+      // entire "core sample" solid. isPartialCapture detects both AABB edge-touch
+      // (>5%) and footprint-fill ratio (>85% — catches cylindrical captures).
+      if (args.fill && analysis.isPartialCapture) {
         args.fill = false;
-        console.log(`  Fill disabled: partial capture (${analysis.edgeTouchPct.toFixed(1)}% edge touch) would fill solid`);
+        console.log(`  Fill disabled: partial capture (${analysis.edgeTouchPct.toFixed(1)}% edge touch) — clip plane would cause solid fill`);
       }
     }
     args.noPalette = rec.noPalette;
@@ -1188,27 +1189,31 @@ async function main(): Promise<void> {
     // These steps assume one building dominates the capture volume.
     // Generic mode skips them to preserve multi-structure raw geometry.
 
-    // Interior fill — 3D masked dilation flood-fill identifies building interiors.
-    // Uses dilation=2 for virtual mask (closes porosity) but only fills original air.
-    const interiorFilled = fillInteriorGaps(trimmed, 2);
-    console.log(`Interior fill (3D masked): ${interiorFilled} interior voxels filled`);
+    if (args.fill) {
+      // Interior fill — 3D masked dilation flood-fill identifies building interiors.
+      // Uses dilation=2 for virtual mask (closes porosity) but only fills original air.
+      // Gated on args.fill: partial captures have clip planes that create sealed walls,
+      // causing fill to flood the entire "core sample" solid.
+      const interiorFilled = fillInteriorGaps(trimmed, 2);
+      console.log(`Interior fill (3D masked): ${interiorFilled} interior voxels filled`);
+
+      // Second fill pass — second pass catches gaps closed by vegetation strip etc.
+      const interiorFilled2 = fillInteriorGaps(trimmed, 2);
+      if (interiorFilled2 > 0) console.log(`Interior fill pass 2 (3D masked): ${interiorFilled2} interior voxels filled`);
+    } else {
+      console.log('Interior fill: skipped (partial capture or --no-fill)');
+    }
 
     // verticalRectify + horizontalRectify removed: legacy band-aids for carveFacadeShadows
     // artifacts. horizontalRectify's X-only median erodes E/W walls, and both use
     // per-layer AABB facade zones that break on non-convex footprints.
     // modeFilter3D (below) now handles surface noise with proper 3D neighborhood voting.
 
-    // Second fill pass — rectification closes wall gaps, enabling more interior detection.
-    // The 3D masked dilation approach is robust, so second pass is usually minimal.
-    const interiorFilled2 = fillInteriorGaps(trimmed, 2);
-    if (interiorFilled2 > 0) console.log(`Interior fill pass 2 (3D masked): ${interiorFilled2} interior voxels filled`);
-
-    // Strip vegetation AFTER fill — trees acted as solid walls during flood-fill,
-    // preventing holes behind canopy. Now the building interior is solid, so
-    // removing vegetation reveals the filled wall behind rather than leaving air gaps.
+    // Strip vegetation — remove tree/bush blocks. If fill ran, trees acted as solid
+    // walls during flood-fill so removal reveals filled wall behind, not air gaps.
     if (args.mode === 'surface') {
       const vegStripped = stripVegetation(trimmed);
-      if (vegStripped > 0) console.log(`Vegetation strip: ${vegStripped} tree/bush blocks removed (post-fill)`);
+      if (vegStripped > 0) console.log(`Vegetation strip: ${vegStripped} tree/bush blocks removed`);
     }
   } else {
     console.log(`Generic mode: skipping rectify (preserving raw geometry)`);

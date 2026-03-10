@@ -2688,6 +2688,10 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
   const suggestedCropRadius = Math.ceil(Math.sqrt(halfW * halfW + halfL * halfL) + 2);
 
   // ── 3. Capture boundary intersection ──
+  // Two detection methods: (1) AABB edge-touch count, (2) footprint-fill ratio.
+  // Edge-touch alone misses cylindrical captures (circle inscribed in square AABB
+  // only touches at 4 tangent points = ~1.2%). Footprint-fill catches these:
+  // if the building fills >85% of the grid XZ extent, the capture clipped it.
   let edgeTouchCount = 0;
   let totalNonAir = 0;
   for (let y = 0; y < height; y++) {
@@ -2702,7 +2706,11 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     }
   }
   const edgeTouchPct = totalNonAir > 0 ? (edgeTouchCount / totalNonAir) * 100 : 0;
-  const isPartialCapture = edgeTouchPct > 5;
+  // Footprint-fill: ratio of central component footprint to grid XZ area
+  const gridXZArea = width * length;
+  const centralFootprint = (cMaxX - cMinX + 1) * (cMaxZ - cMinZ + 1);
+  const footprintFillRatio = gridXZArea > 0 ? centralFootprint / gridXZArea : 0;
+  const isPartialCapture = edgeTouchPct > 5 || footprintFillRatio > 0.85;
 
   // ── 4. Volumetric typology ──
   const centralW = cMaxX - cMinX + 1;
