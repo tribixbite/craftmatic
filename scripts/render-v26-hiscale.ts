@@ -33,6 +33,8 @@ const BUILDINGS: Building[] = [
   { name: 'dakota',      lat: 40.7764, satFile: 'satellite', zoom: 20 },
   { name: 'flatiron',    lat: 40.7411, satFile: 'satellite', zoom: 20 },
   { name: 'noe',         lat: 37.7614, satFile: '450-satellite', zoom: 20 },
+  { name: 'esb',         lat: 40.7484, satFile: 'satellite',     zoom: 20 },
+  { name: 'chrysler',    lat: 40.7516, satFile: 'satellite',     zoom: 20 },
 ];
 
 const RESOLUTION = 4;
