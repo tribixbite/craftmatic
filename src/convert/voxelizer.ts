@@ -644,7 +644,7 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         }
       }
 
-      // Find the most populated bucket
+      // Find the most populated bucket (mode)
       let bestBucket = 0;
       let bestCount = 0;
       for (let i = 0; i < BUCKET_COUNT; i++) {
@@ -654,7 +654,22 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         }
       }
 
-      if (bestCount > 0) {
+      // Center-pixel bucket sampling: use the bucket that the CENTER pixel
+      // belongs to, if it has enough support (>5% of kernel area). This
+      // preserves minority features (windows, trim) as distinct darker blocks
+      // instead of always returning the dominant wall color.
+      const centerIdx = (cy * w + cx) * 4;
+      const cLum = (data[centerIdx] * 77 + data[centerIdx + 1] * 150 + data[centerIdx + 2] * 29) >> 8;
+      const centerBucket = Math.min(BUCKET_COUNT - 1, Math.floor(cLum / BUCKET_SIZE));
+      const totalKernelPixels = (k * 2 + 1) * (k * 2 + 1);
+      const minFeaturePixels = totalKernelPixels * 0.05; // 5% threshold
+      const selectedBucket = bucketCount[centerBucket] >= minFeaturePixels ? centerBucket : bestBucket;
+
+      if (bucketCount[selectedBucket] > 0) {
+        r = Math.round(bucketR[selectedBucket] / bucketCount[selectedBucket]);
+        g = Math.round(bucketG[selectedBucket] / bucketCount[selectedBucket]);
+        b = Math.round(bucketB[selectedBucket] / bucketCount[selectedBucket]);
+      } else if (bestCount > 0) {
         r = Math.round(bucketR[bestBucket] / bestCount);
         g = Math.round(bucketG[bestBucket] / bestCount);
         b = Math.round(bucketB[bestBucket] / bestCount);
@@ -728,25 +743,17 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
       }
     }
 
-    // Step 3: Luminance clamping — boost ALL shadow pixels to visible mid-range.
-    // Photogrammetry bakes deep ambient occlusion (near-black) that maps to
-    // blackstone/deepslate, creating "termite damage" noise across facades.
-    // Force-clamp: near-black (<20) gets flat gray boost, dark-gray scales up.
+    // Step 3: Black-point lift — smoothly compress shadows into visible range.
+    // Photogrammetry bakes deep ambient occlusion that maps to blackstone/deepslate.
+    // Instead of multiplicative scaling (which amplifies color noise in dark pixels),
+    // use a levels-style black point lift: output = MIN + input * (255-MIN) / 255.
+    // This maps [0,255] → [MIN,255] without amplifying any channel.
     if (!isGreenish) {
-      const lum = (r * 77 + g * 150 + b * 29) >> 8;
-      const MIN_BRIGHT = 130; // Higher floor — photogrammetry AO is deep, 100 still maps to dark blocks
-      if (lum < MIN_BRIGHT) {
-        if (lum < 20) {
-          // Flat boost for near-black — avoid multiplying hidden color noise
-          r = MIN_BRIGHT; g = MIN_BRIGHT; b = MIN_BRIGHT;
-        } else {
-          // Scale up dark grays proportionally
-          const scale = MIN_BRIGHT / lum;
-          r = Math.min(255, Math.round(r * scale));
-          g = Math.min(255, Math.round(g * scale));
-          b = Math.min(255, Math.round(b * scale));
-        }
-      }
+      const MIN_BRIGHT = 130;
+      const range = 255 - MIN_BRIGHT; // 125
+      r = Math.round(MIN_BRIGHT + (r * range) / 255);
+      g = Math.round(MIN_BRIGHT + (g * range) / 255);
+      b = Math.round(MIN_BRIGHT + (b * range) / 255);
     }
 
     // Apply gamma correction
