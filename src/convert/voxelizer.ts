@@ -734,7 +734,7 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
     // Force-clamp: near-black (<20) gets flat gray boost, dark-gray scales up.
     if (!isGreenish) {
       const lum = (r * 77 + g * 150 + b * 29) >> 8;
-      const MIN_BRIGHT = 100;
+      const MIN_BRIGHT = 130; // Higher floor — photogrammetry AO is deep, 100 still maps to dark blocks
       if (lum < MIN_BRIGHT) {
         if (lum < 20) {
           // Flat boost for near-black — avoid multiplying hidden color noise

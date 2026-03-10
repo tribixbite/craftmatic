@@ -88,7 +88,7 @@ Options:
   --min-height       Min mesh height above ground to keep (default: 2)
   --trim             Bottom-layer trim fill threshold (default: 0.05)
   --gamma, -g        Brightness correction gamma (default: 0.5, <1 brightens baked-lighting tiles)
-  --kernel, -k       Texture averaging kernel radius in pixels (default: 24, 0=point sampling)
+  --kernel, -k       Texture averaging kernel radius in pixels (default: 12, 0=point sampling)
   --desaturate       Saturation reduction 0-1 to neutralize blue shadows (default: 0.5)
   --output, -o       Output .schem path (default: <input-stem>.schem)
   --info             Print mesh stats and exit (no voxelize)
@@ -96,8 +96,9 @@ Options:
   --desaturate-off   Disable desaturation (preserve original colors)
   --preview          Quick raw voxelize (no post-processing) for visual quality check
   --smooth-pct       Rare block smoothing threshold, 0-1 (default: 0, 0=skip)
-  --mode-passes      Mode filter 3D pass count (default: 3, 0=skip)
+  --mode-passes      Mode filter 3D pass count (default: auto 1-2, 0=skip)
   --fill             Run interior fill even in generic mode (fills hollow walls)
+  --no-fill          Disable interior fill (override --auto recommendation)
   --no-palette       Skip palette constraint (preserve original colors)
   --no-cornice       Skip roof cornice (Mediterranean brick/spruce)
   --no-fire-escape   Skip fire escape filter (center strip darkening)
@@ -120,7 +121,7 @@ Options:
   let minHeight = 2;
   let trimThreshold = 0.05;
   let gamma = 0.5; // Google 3D Tiles have baked lighting — 0.5 gamma compensates
-  let kernel = 24; // Large kernel — more texture area averaged → stable dominant color
+  let kernel = 12; // Moderate kernel — preserves window/trim features while smoothing noise
   let desaturate = 0.2; // Light desaturation — preserve building-specific colors
   let outputPath = '';
   let infoOnly = false;
@@ -130,7 +131,7 @@ Options:
   let desaturateOff = false;
   let preview = false;
   let smoothPct = 0; // disabled by default; modeFilter3D handles noise locally
-  let modePasses = 3;
+  let modePasses = 1; // Auto-detect overrides; 1 pass preserves more surface detail
   let fill = false;
   let noPalette = false;
   let noCornice = false;
@@ -180,6 +181,9 @@ Options:
     } else if (arg === '--fill') {
       fill = true;
       explicitFill = true;
+    } else if (arg === '--no-fill') {
+      fill = false;
+      explicitFill = true; // Prevents auto from overriding
     } else if (arg === '--no-palette') {
       noPalette = true;
     } else if (arg === '--no-cornice') {
@@ -1229,11 +1233,10 @@ async function main(): Promise<void> {
     }
 
     // Step 4: Interior fill — 3D masked dilation flood-fill
+    // dilation=1 closes single-voxel gaps without over-filling (dilation=2 fills 69%+ as solid mass)
     if (args.fill) {
-      const interiorFilled = fillInteriorGaps(trimmed, 2);
-      console.log(`Interior fill (3D masked): ${interiorFilled} interior voxels filled`);
-      const interiorFilled2 = fillInteriorGaps(trimmed, 2);
-      if (interiorFilled2 > 0) console.log(`Interior fill pass 2: ${interiorFilled2} voxels`);
+      const interiorFilled = fillInteriorGaps(trimmed, 1);
+      console.log(`Interior fill (3D masked, dilation=1): ${interiorFilled} interior voxels filled`);
     }
 
     // Step 5: Vegetation strip
@@ -1305,9 +1308,9 @@ async function main(): Promise<void> {
       }
 
       // Step 4: 3D masked dilation fill — building is now isolated.
-      // Mask dilation=2 virtually closes porosity; only original air gets filled.
-      const interiorFilled = fillInteriorGaps(trimmed, 2);
-      console.log(`Interior fill (3D masked): ${interiorFilled} interior voxels filled`);
+      // dilation=1 closes single-voxel gaps without over-filling
+      const interiorFilled = fillInteriorGaps(trimmed, 1);
+      console.log(`Interior fill (3D masked, dilation=1): ${interiorFilled} interior voxels filled`);
 
       // Step 5: Strip vegetation — trees acted as solid walls during fill,
       // revealing the building interior behind canopy instead of leaving holes.
