@@ -243,7 +243,10 @@ export function deltaESq(
   l1: number, a1: number, b1: number,
   l2: number, a2: number, b2: number,
 ): number {
-  const dl = l1 - l2;
+  // De-weight lightness by 50% — Google 3D Tiles have baked shadows that
+  // darken building materials. Minecraft's own lighting handles shadows, so
+  // we should prioritize matching the base material hue/chroma over lightness.
+  const dl = (l1 - l2) * 0.5;
   const da = a1 - a2;
   const db = b1 - b2;
   return dl * dl + da * da + db * db;
@@ -296,8 +299,13 @@ export function rgbToWallBlock(r: number, g: number, b: number, seed?: number): 
   }
   const cluster = WALL_CLUSTERS[bestIdx];
   if (seed != null && cluster.options.length > 1) {
-    // Deterministic selection from cluster options (FNV-1a mix)
-    const idx = ((seed * 2654435761) >>> 0) % cluster.options.length;
+    // Low-frequency spatial hash — variations happen in ~4-block patches (like
+    // weathered stucco) instead of per-voxel static noise. The old per-voxel hash
+    // generated high-frequency noise that modeFilter3D then had to erase.
+    const coarseSeed = Math.floor((seed / 1000000) / 4) * 1000000 +
+                       Math.floor(((seed % 1000000) / 1000) / 4) * 1000 +
+                       Math.floor((seed % 1000) / 4);
+    const idx = ((coarseSeed * 2654435761) >>> 0) % cluster.options.length;
     return cluster.options[idx];
   }
   return cluster.options[0];
