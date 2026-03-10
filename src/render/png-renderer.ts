@@ -679,24 +679,38 @@ export async function renderSatelliteColored(
   // Blocks per satellite pixel: metersPerPx * resolution
   const blocksPerSatPx = metersPerPx * resolution;
 
-  // Compute centroid of non-air blocks — better satellite alignment than grid center.
-  // Pipeline steps (trim, component cleanup) can shift building within the grid,
-  // but the satellite image is always centered on the geocoded coordinates.
-  let sumX = 0, sumZ = 0, count = 0;
+  // Compute centroid of TALL blocks (top 50% of heightmap) to anchor on the
+  // actual building rather than ground-level roads/sidewalks/parking lots.
+  let maxH = 0;
+  const hmScan = new Int16Array(w * l);
+  hmScan.fill(-1);
   for (let z = 0; z < l; z++) {
     for (let x = 0; x < w; x++) {
       for (let y = h - 1; y >= 0; y--) {
         if (blocks[y][z][x] !== 'minecraft:air') {
-          sumX += x;
-          sumZ += z;
-          count++;
+          hmScan[z * w + x] = y;
+          if (y > maxH) maxH = y;
           break;
         }
       }
     }
   }
-  const gridCenterX = count > 0 ? sumX / count : w / 2;
-  const gridCenterZ = count > 0 ? sumZ / count : l / 2;
+  const heightThresh = maxH * 0.5;
+  let sumX = 0, sumZ = 0, count = 0;
+  let sumXAll = 0, sumZAll = 0, countAll = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      const hy = hmScan[z * w + x];
+      if (hy >= 0) {
+        sumXAll += x; sumZAll += z; countAll++;
+        if (hy >= heightThresh) {
+          sumX += x; sumZ += z; count++;
+        }
+      }
+    }
+  }
+  const gridCenterX = count > 0 ? sumX / count : (countAll > 0 ? sumXAll / countAll : w / 2);
+  const gridCenterZ = count > 0 ? sumZ / count : (countAll > 0 ? sumZAll / countAll : l / 2);
   const satCenterX = satW / 2;
   const satCenterY = satH / 2;
 
@@ -947,25 +961,48 @@ export async function renderSatelliteHiRes(
   const { width: w, height: h, length: l } = grid;
   const blocks = grid.to3DArray();
 
-  // Coordinate mapping: centroid of non-air blocks = satellite center
+  // Coordinate mapping: building centroid = satellite center.
+  // Use centroid of TALL blocks (top 50% of heightmap) to anchor on the actual
+  // building rather than ground-level roads/sidewalks that shift the centroid.
   const DEG2RAD = Math.PI / 180;
   const metersPerPx = 156543.03392 * Math.cos(lat * DEG2RAD) / Math.pow(2, zoom);
   const blocksPerSatPx = metersPerPx * resolution;
 
-  // Compute centroid of non-air blocks (same as renderSatelliteColored)
-  let sumX = 0, sumZ = 0, cnt = 0;
+  // First pass: build heightmap and find max height
+  const hmTemp = new Int16Array(w * l);
+  hmTemp.fill(-1);
+  let maxH = 0;
   for (let z = 0; z < l; z++) {
     for (let x = 0; x < w; x++) {
       for (let y = h - 1; y >= 0; y--) {
         if (blocks[y][z][x] !== 'minecraft:air') {
-          sumX += x; sumZ += z; cnt++;
+          hmTemp[z * w + x] = y;
+          if (y > maxH) maxH = y;
           break;
         }
       }
     }
   }
-  const gridCenterX = cnt > 0 ? sumX / cnt : w / 2;
-  const gridCenterZ = cnt > 0 ? sumZ / cnt : l / 2;
+
+  // Compute centroid of blocks above 50% of max height (building roofline)
+  // to exclude ground-level content (roads, sidewalks, parking lots)
+  const heightThreshold = maxH * 0.5;
+  let sumX = 0, sumZ = 0, cnt = 0;
+  let sumXAll = 0, sumZAll = 0, cntAll = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      const hy = hmTemp[z * w + x];
+      if (hy >= 0) {
+        sumXAll += x; sumZAll += z; cntAll++;
+        if (hy >= heightThreshold) {
+          sumX += x; sumZ += z; cnt++;
+        }
+      }
+    }
+  }
+  // Fall back to all-blocks centroid if no tall blocks found (single-story)
+  const gridCenterX = cnt > 0 ? sumX / cnt : (cntAll > 0 ? sumXAll / cntAll : w / 2);
+  const gridCenterZ = cnt > 0 ? sumZ / cnt : (cntAll > 0 ? sumZAll / cntAll : l / 2);
   const satCenterX = satW / 2;
   const satCenterY = satH / 2;
 
@@ -1021,11 +1058,15 @@ export async function renderSatelliteHiRes(
 
   // ExG vegetation filter: use satellite color to detect tree canopy in voxels.
   // Excess Green Index (ExG = 2G - R - B) from remote sensing literature.
-  // Voxels with green satellite color are likely trees, not buildings.
+  // Only filter LOW voxels (ground-level trees); tall structures keep green pixels
+  // (e.g. Apple Park's green roof, moss-covered roofs) since they're buildings.
   const vegMask = new Uint8Array(w * l);
   const EXG_THRESHOLD = 30; // calibrated: deciduous canopy ExG is typically 40-80
+  const vegHeightCap = maxH * 0.4; // only filter below 40% of max height
   for (let z = 0; z < l; z++) {
     for (let x = 0; x < w; x++) {
+      // Skip tall structures — green roofs are buildings, not vegetation
+      if (heightmap[z * w + x] > vegHeightCap) continue;
       // Map grid cell to satellite pixel
       const sx = Math.round(satCenterX + (x - gridCenterX) / blocksPerSatPx);
       const sy = Math.round(satCenterY + (z - gridCenterZ) / blocksPerSatPx);
@@ -1061,8 +1102,32 @@ export async function renderSatelliteHiRes(
     }
   }
 
+  // Fallback: if no building cells found (e.g. OSM polygon too small/misaligned),
+  // fall back to heightmap-only mask without OSM filtering
+  if (buildingCount === 0 && polyMask) {
+    console.log(`  OSM mask yielded 0 building cells — falling back to heightmap-only`);
+    for (let i = 0; i < w * l; i++) {
+      if (heightmap[i] >= 0 && !vegMask[i]) {
+        isBuilding[i] = 1; buildingCount++;
+      }
+    }
+  }
+
   // Pad the bounding box with some satellite pixels for context
   const pad = Math.ceil(10 / blocksPerSatPx); // ~10 blocks worth of context
+  // Recompute bounding box after potential fallback
+  minSatX = satW; maxSatX = 0; minSatY = satH; maxSatY = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      if (!isBuilding[z * w + x]) continue;
+      const sx = satCenterX + (x - gridCenterX) / blocksPerSatPx;
+      const sy = satCenterY + (z - gridCenterZ) / blocksPerSatPx;
+      if (sx < minSatX) minSatX = sx;
+      if (sx > maxSatX) maxSatX = sx;
+      if (sy < minSatY) minSatY = sy;
+      if (sy > maxSatY) maxSatY = sy;
+    }
+  }
   minSatX = Math.max(0, Math.floor(minSatX) - pad);
   maxSatX = Math.min(satW - 1, Math.ceil(maxSatX) + pad);
   minSatY = Math.max(0, Math.floor(minSatY) - pad);
