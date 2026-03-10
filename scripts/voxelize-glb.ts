@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, verticalRectify, horizontalRectify, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -1184,11 +1184,10 @@ async function main(): Promise<void> {
     const interiorFilled = fillInteriorGaps(trimmed, 2);
     console.log(`Interior fill (3D masked): ${interiorFilled} interior voxels filled`);
 
-    // Vertical + horizontal rectification — Manhattan geometry cleanup
-    const rectified = verticalRectify(trimmed, 4, 5);
-    console.log(`Vertical rectify: ${rectified} blocks changed (window=5, depth=4)`);
-    const hRectified = horizontalRectify(trimmed, 4, 3);
-    console.log(`Horizontal rectify: ${hRectified} blocks changed (window=3, depth=4)`);
+    // verticalRectify + horizontalRectify removed: legacy band-aids for carveFacadeShadows
+    // artifacts. horizontalRectify's X-only median erodes E/W walls, and both use
+    // per-layer AABB facade zones that break on non-convex footprints.
+    // modeFilter3D (below) now handles surface noise with proper 3D neighborhood voting.
 
     // Second fill pass — rectification closes wall gaps, enabling more interior detection.
     // The 3D masked dilation approach is robust, so second pass is usually minimal.
