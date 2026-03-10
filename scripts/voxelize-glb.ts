@@ -95,7 +95,7 @@ Options:
   --generic          Skip building-specific post-processing (palette remap, fire escape, cornice)
   --desaturate-off   Disable desaturation (preserve original colors)
   --preview          Quick raw voxelize (no post-processing) for visual quality check
-  --smooth-pct       Rare block smoothing threshold, 0-1 (default: 0.02, 0=skip)
+  --smooth-pct       Rare block smoothing threshold, 0-1 (default: 0, 0=skip)
   --mode-passes      Mode filter 3D pass count (default: 3, 0=skip)
   --fill             Run interior fill even in generic mode (fills hollow walls)
   --no-palette       Skip palette constraint (preserve original colors)
@@ -129,7 +129,7 @@ Options:
   let explicitFill = false;    // Track if --fill was explicitly passed
   let desaturateOff = false;
   let preview = false;
-  let smoothPct = 0.02;
+  let smoothPct = 0; // disabled by default; modeFilter3D handles noise locally
   let modePasses = 3;
   let fill = false;
   let noPalette = false;
