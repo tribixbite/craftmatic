@@ -684,13 +684,14 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
     })();
     const isGreenish = pixelHue >= 85 && pixelHue <= 160;
 
-    // Step 2: Luminance clamping — boost shadowed walls toward mid-bright.
-    // MIN_BRIGHT=140 preserves mid-tones (brick, terracotta, sandstone)
-    // that were previously washed out at 180.
+    // Step 2: Luminance clamping — boost shadowed pixels to mid-range.
+    // MIN_BRIGHT=100: balances color preservation vs shadow noise.
+    // Too low (60) → baked blue shadows survive and match to terracotta.
+    // Too high (140+) → all mid-tones washed to near-white monochrome.
     if (!isGreenish) {
       const lum = (r * 77 + g * 150 + b * 29) >> 8;
-      const MIN_BRIGHT = 140;
-      const DARK_THRESHOLD = 50;
+      const MIN_BRIGHT = 100;
+      const DARK_THRESHOLD = 30;
       if (lum >= DARK_THRESHOLD && lum < MIN_BRIGHT) {
         const scale = MIN_BRIGHT / lum;
         r = Math.min(255, Math.round(r * scale));
@@ -719,17 +720,17 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         else hue = ((rf - gf) / d + 4) / 6;
 
         const hueDeg = hue * 360;
-        // Blue/cyan (190°-260°): heavy desat — sky reflection shadows
-        // Red/orange/brown (0°-70°, 320°-360°): desat unless bright (cream saver)
+        // Blue/cyan (190°-260°): heavy desat — kill sky reflection shadows
+        // Red/orange/brown (0°-70°, 320°-360°): preserve mid-tones (brick, sandstone)
         // Green (85°-160°, l<0.7): boost — vegetation recovery
         if (hueDeg >= 190 && hueDeg <= 260) {
-          s *= 0.1;
-        } else if ((hueDeg <= 70 || hueDeg >= 320) && l < 0.72) {
-          s *= 0.15; // Dark/mid warm → neutral gray
+          s *= 0.1; // Kill blue skylight contamination
+        } else if ((hueDeg <= 70 || hueDeg >= 320) && l < 0.40) {
+          s *= 0.3; // Only desat very dark warm (deep shadow, not brick)
         } else if (hueDeg >= 85 && hueDeg <= 160 && l < 0.7) {
           s = Math.min(1, s * 1.3); // Vegetation boost
         } else {
-          s *= 0.85; // Gentle reduction for other hues
+          s *= 0.7; // Mild reduction for other hues
         }
 
         const hue2rgb = (p: number, q: number, t: number): number => {

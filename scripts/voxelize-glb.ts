@@ -1238,11 +1238,11 @@ async function main(): Promise<void> {
     const constrained = constrainPalette(trimmed, shadowReplacements);
     console.log(`Minimal palette: ${constrained} darkest shadow blocks remapped (colors preserved)`);
   } else {
-    // Generic mode: only remap the darkest shadow artifacts, preserve colors
+    // Generic mode: remap photogrammetry shadow artifacts + sky-contamination blocks.
+    // Google 3D Tiles bake ambient skylight (blue) and warm shadows that map to
+    // nether_bricks/deepslate/terracotta — these overpower actual building colors.
     const shadowReplacements = new Map<string, string>([
-      // Remap dark photogrammetry shadow artifacts to neutral gray.
-      // Google 3D Tiles bake warm shadows that map to nether_bricks/deepslate —
-      // these overpower the building's actual colors.
+      // Darkest shadow artifacts → neutral gray
       ['minecraft:blackstone', 'minecraft:gray_concrete'],
       ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
       ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
@@ -1250,6 +1250,11 @@ async function main(): Promise<void> {
       ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
       ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
       ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
+      ['minecraft:black_concrete', 'minecraft:gray_concrete'],
+      // Blue sky contamination → neutral equivalents
+      ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
+      ['minecraft:cyan_terracotta', 'minecraft:stone'],
+      ['minecraft:light_blue_concrete', 'minecraft:light_gray_concrete'],
     ]);
     const constrained = constrainPalette(trimmed, shadowReplacements);
     console.log(`Generic palette: ${constrained} shadow blocks remapped (colors preserved)`);

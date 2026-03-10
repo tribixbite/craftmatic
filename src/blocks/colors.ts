@@ -38,6 +38,7 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:deepslate_tile_stairs': [54, 54, 58],
   'minecraft:deepslate_tile_slab': [54, 54, 58],
   'minecraft:cracked_deepslate_tiles': [52, 52, 56],
+  'minecraft:smooth_stone': [165, 165, 165],
   'minecraft:smooth_stone_slab': [165, 165, 165],
   'minecraft:smooth_quartz': [235, 229, 222],
   'minecraft:smooth_quartz_slab': [232, 226, 219],
@@ -364,6 +365,15 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:yellow_terracotta': [186, 133, 35],
   'minecraft:light_gray_terracotta': [135, 107, 98],
   'minecraft:cyan_terracotta': [87, 91, 91],
+  'minecraft:light_blue_terracotta': [113, 109, 138],
+  'minecraft:pink_terracotta': [162, 78, 79],
+  'minecraft:gray_terracotta': [58, 42, 36],
+  'minecraft:black_terracotta': [37, 23, 16],
+  'minecraft:blue_terracotta': [74, 60, 91],
+  'minecraft:green_terracotta': [76, 83, 42],
+  'minecraft:purple_terracotta': [118, 70, 86],
+  'minecraft:magenta_terracotta': [150, 88, 109],
+  'minecraft:lime_terracotta': [104, 118, 53],
 
   // Coral blocks
   'minecraft:tube_coral_block': [49, 88, 195],
