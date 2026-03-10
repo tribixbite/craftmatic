@@ -11,7 +11,7 @@ import { BlockGrid } from '../schem/types.js';
 import { getBlockColor, FURNITURE_BLOCKS, LIGHT_BLOCKS, DOOR_BLOCKS } from '../blocks/colors.js';
 import { getBaseId, isSolidBlock } from '../blocks/registry.js';
 import { getBlockTextures } from '../blocks/textures.js';
-import { initDefaultAtlas, type ProceduralAtlas } from './texture-atlas.js';
+import { initDefaultAtlas, getDefaultAtlas, type ProceduralAtlas } from './texture-atlas.js';
 import { getItemSprite, ITEM_SPRITE_SIZE } from './item-sprites.js';
 import type { RGB } from '../types/index.js';
 import { Writable } from 'node:stream';
@@ -19,9 +19,20 @@ import { Writable } from 'node:stream';
 /** Cached atlas instance for textured rendering */
 let atlas: ProceduralAtlas | null = null;
 
-/** Ensure atlas is loaded (called once per render session) */
+/** Ensure atlas is loaded (called once per render session).
+ * Falls back to procedural-only atlas after 10s timeout to avoid ARM pureimage PNG decode hang. */
 async function ensureAtlas(): Promise<ProceduralAtlas> {
-  if (!atlas) atlas = await initDefaultAtlas();
+  if (!atlas) {
+    const timeout = new Promise<null>(r => setTimeout(() => r(null), 10_000));
+    const hybrid = initDefaultAtlas();
+    const result = await Promise.race([hybrid, timeout]);
+    if (result) {
+      atlas = result;
+    } else {
+      console.warn('  Atlas load timeout — falling back to procedural textures');
+      atlas = getDefaultAtlas();
+    }
+  }
   return atlas;
 }
 
@@ -513,6 +524,120 @@ export async function renderCutawayIso(
         const halfT = Math.floor(tile / 2);
 
         renderIsoBlock(pixels, imgW, texAtlas, bs, color, ao, sx, sy, tile, halfT);
+      }
+    }
+  }
+
+  return encodePNG(pixels, imgW, imgH);
+}
+
+/**
+ * Render a top-down orthographic view (plan view) of the building.
+ * Each XZ cell shows the topmost non-air block, matching satellite perspective.
+ * Used for VLM comparison against satellite imagery where perspective must match.
+ */
+export async function renderTopDown(
+  grid: BlockGrid,
+  options: { scale?: number; output?: string } = {}
+): Promise<Buffer> {
+  const texAtlas = await ensureAtlas();
+  let { scale = 8 } = options;
+  const { width: w, height: h, length: l } = grid;
+  const blocks = grid.to3DArray();
+
+  // Auto-crop: find XZ bounding box of non-air blocks to center the building
+  let minX = w, maxX = 0, minZ = l, maxZ = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      for (let y = h - 1; y >= 0; y--) {
+        if (blocks[y][z][x] !== 'minecraft:air') {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (z < minZ) minZ = z;
+          if (z > maxZ) maxZ = z;
+          break;
+        }
+      }
+    }
+  }
+  // Fallback if empty grid
+  if (minX > maxX) { minX = 0; maxX = w - 1; }
+  if (minZ > maxZ) { minZ = 0; maxZ = l - 1; }
+
+  // Add small padding around the content
+  const pad = 2;
+  minX = Math.max(0, minX - pad);
+  maxX = Math.min(w - 1, maxX + pad);
+  minZ = Math.max(0, minZ - pad);
+  maxZ = Math.min(l - 1, maxZ + pad);
+
+  const cw = maxX - minX + 1; // content width
+  const cl = maxZ - minZ + 1; // content length
+
+  const margin = Math.max(4, scale);
+  let imgW = cw * scale + margin * 2;
+  let imgH = cl * scale + margin * 2;
+
+  // Clamp to MAX_DIM
+  if (Math.max(imgW, imgH) > MAX_DIM) {
+    const ratio = MAX_DIM / Math.max(imgW, imgH);
+    scale = Math.max(2, Math.round(scale * ratio));
+    const m2 = Math.max(4, scale);
+    imgW = cw * scale + m2 * 2;
+    imgH = cl * scale + m2 * 2;
+  }
+
+  const ox = Math.max(4, scale);
+  const oy = Math.max(4, scale);
+
+  const pixels = Buffer.alloc(imgW * imgH * 4);
+  // Dark background matching satellite image darkness
+  fillRect(pixels, imgW, 0, 0, imgW, imgH, [20, 20, 20]);
+
+  // Cache block color lookups
+  const colorCache = new Map<string, RGB | null>();
+  function cachedBlockColor(bs: string): RGB | null {
+    let c = colorCache.get(bs);
+    if (c !== undefined) return c;
+    c = getBlockColor(bs);
+    colorCache.set(bs, c);
+    return c;
+  }
+
+  for (let z = minZ; z <= maxZ; z++) {
+    for (let x = minX; x <= maxX; x++) {
+      // Find topmost non-air block (what satellite sees from above)
+      let topBlock = 'minecraft:air';
+      let topY = -1;
+      for (let y = h - 1; y >= 0; y--) {
+        const bs = blocks[y][z][x];
+        if (bs !== 'minecraft:air') {
+          topBlock = bs;
+          topY = y;
+          break;
+        }
+      }
+
+      const color = cachedBlockColor(topBlock);
+      if (color === null) continue;
+
+      const px = ox + (x - minX) * scale;
+      const py = oy + (z - minZ) * scale;
+
+      // Height-based brightness: taller = slightly brighter (depth cue)
+      const heightFactor = topY >= 0 ? 0.7 + 0.3 * (topY / (h - 1 || 1)) : 0.7;
+
+      // Try textured rendering
+      const texData = getTexData(texAtlas, topBlock, 'top');
+      if (texData && scale >= 4) {
+        blitTextureTile(pixels, imgW, px, py, scale,
+          texData, texAtlas.tileSize, heightFactor, heightFactor, heightFactor);
+      } else {
+        let [r, g, b] = color;
+        r = clamp(r * heightFactor);
+        g = clamp(g * heightFactor);
+        b = clamp(b * heightFactor);
+        fillRect(pixels, imgW, px, py, scale, scale, [r, g, b]);
       }
     }
   }

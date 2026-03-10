@@ -2058,6 +2058,37 @@ export function cropToCenter(grid: BlockGrid, radius: number): number {
 }
 
 /**
+ * Crop grid to a rectangular area centered on the grid center.
+ * Unlike circular cropToCenter, this preserves straight edges and right angles
+ * which is critical for building geometry appearance.
+ *
+ * @param grid     Mutable BlockGrid
+ * @param radius   Half-width of the rectangle in blocks (same as cropToCenter's radius)
+ * @returns Number of blocks removed
+ */
+export function cropToRect(grid: BlockGrid, radius: number): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const cx = Math.floor(width / 2);
+  const cz = Math.floor(length / 2);
+  let removed = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) === AIR) continue;
+        if (Math.abs(x - cx) > radius || Math.abs(z - cz) > radius) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
+/**
  * Crop grid to an axis-aligned bounding box (AABB).
  * Unlike circular cropToCenter, this preserves rectangular/triangular shapes.
  * Keeps blocks within [minX..maxX, minZ..maxZ] and removes everything outside.
@@ -2153,6 +2184,170 @@ export function removeGroundPlane(
   }
 
   return { removed, groundY };
+}
+
+/**
+ * Mask a BlockGrid to an OSM building footprint polygon.
+ *
+ * Projects the OSM polygon to block coordinates centered on the capture point
+ * (address lat/lng), rasterizes to a 2D bitmap, dilates by a margin, then
+ * clears all grid blocks outside the footprint at every Y layer.
+ *
+ * Coordinate mapping:
+ * - Grid center (W/2, L/2) = capture center (address lat/lng)
+ * - Grid X ≈ East (ENU capture frame), Grid Z ≈ South (Three.js convention)
+ * - Polygon lon → X (east offset), polygon lat → -Z (north flipped to south)
+ *
+ * @param grid       Mutable BlockGrid
+ * @param polygon    OSM building polygon vertices as {lat, lon}[]
+ * @param centerLat  Capture center latitude (address coords)
+ * @param centerLng  Capture center longitude (address coords)
+ * @param dilate     Expand footprint by this many blocks in each direction (default 3)
+ * @returns Number of blocks removed
+ */
+export function maskToFootprint(
+  grid: BlockGrid,
+  polygon: { lat: number; lon: number }[],
+  centerLat: number,
+  centerLng: number,
+  dilate = 3,
+): number {
+  if (polygon.length < 3) return 0;
+
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+
+  // Project polygon to block coords centered on capture point.
+  // Grid X = East (lon offset), Grid Z = South (negated lat offset).
+  const latScale = 111320; // meters per degree latitude
+  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180);
+
+  const blockPts = polygon.map(p => ({
+    x: Math.round((p.lon - centerLng) * lonScale),
+    z: Math.round((centerLat - p.lat) * latScale), // flip: grid Z = south
+  }));
+
+  // Auto-close polygon if needed
+  const first = blockPts[0];
+  const last = blockPts[blockPts.length - 1];
+  if (first.x !== last.x || first.z !== last.z) {
+    blockPts.push({ x: first.x, z: first.z });
+  }
+
+  // Compute bitmap bounds with dilation margin
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of blockPts) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.z < minZ) minZ = p.z;
+    if (p.z > maxZ) maxZ = p.z;
+  }
+  minX -= dilate; maxX += dilate;
+  minZ -= dilate; maxZ += dilate;
+
+  // Scanline fill the polygon into a bitmap
+  const bitmap = new CoordinateBitmapImpl(minX, maxX, minZ, maxZ);
+  for (let z = minZ; z <= maxZ; z++) {
+    const scanZ = z + 0.5;
+    const intercepts: { x: number; dir: 1 | -1 }[] = [];
+    for (let i = 0; i < blockPts.length - 1; i++) {
+      const a = blockPts[i], b = blockPts[i + 1];
+      if (a.z === b.z) continue;
+      const eMinZ = Math.min(a.z, b.z), eMaxZ = Math.max(a.z, b.z);
+      if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
+      const t = (scanZ - a.z) / (b.z - a.z);
+      intercepts.push({ x: a.x + t * (b.x - a.x), dir: a.z < b.z ? 1 : -1 });
+    }
+    intercepts.sort((a, b) => a.x - b.x);
+    let winding = 0, idx = 0;
+    for (let x = minX; x <= maxX; x++) {
+      const cx = x + 0.5;
+      while (idx < intercepts.length && intercepts[idx].x <= cx) {
+        winding += intercepts[idx].dir;
+        idx++;
+      }
+      if (winding !== 0) bitmap.set(x, z);
+    }
+  }
+
+  // Dilate the bitmap by `dilate` blocks (morphological expansion)
+  if (dilate > 0 && bitmap.count > 0) {
+    const original: [number, number][] = [];
+    for (let lz = 0; lz <= maxZ - minZ; lz++) {
+      for (let lx = 0; lx <= maxX - minX; lx++) {
+        const x = lx + minX, z = lz + minZ;
+        if (bitmap.contains(x, z)) original.push([x, z]);
+      }
+    }
+    for (const [ox, oz] of original) {
+      for (let dz = -dilate; dz <= dilate; dz++) {
+        for (let dx = -dilate; dx <= dilate; dx++) {
+          bitmap.set(ox + dx, oz + dz);
+        }
+      }
+    }
+  }
+
+  // Map grid XZ to bitmap coords and mask. Grid center = bitmap (0,0).
+  const gridCx = Math.floor(width / 2);
+  const gridCz = Math.floor(length / 2);
+
+  let removed = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) === AIR) continue;
+        const bx = x - gridCx;
+        const bz = z - gridCz;
+        if (!bitmap.contains(bx, bz)) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
+/**
+ * Minimal CoordinateBitmap for internal use (avoids circular import).
+ * Same bit-packed logic as src/gen/coordinate-bitmap.ts.
+ */
+class CoordinateBitmapImpl {
+  private bits: Uint8Array;
+  readonly minX: number;
+  readonly minZ: number;
+  readonly width: number;
+  readonly height: number;
+  private _count = 0;
+
+  constructor(minX: number, maxX: number, minZ: number, maxZ: number) {
+    this.minX = minX; this.minZ = minZ;
+    this.width = maxX - minX + 1;
+    this.height = maxZ - minZ + 1;
+    this.bits = new Uint8Array(Math.ceil(this.width * this.height / 8));
+  }
+
+  get count(): number { return this._count; }
+
+  set(x: number, z: number): boolean {
+    const lx = x - this.minX, lz = z - this.minZ;
+    if (lx < 0 || lx >= this.width || lz < 0 || lz >= this.height) return false;
+    const i = lz * this.width + lx;
+    const mask = 1 << (i & 7);
+    if ((this.bits[i >> 3] & mask) !== 0) return false;
+    this.bits[i >> 3] |= mask;
+    this._count++;
+    return true;
+  }
+
+  contains(x: number, z: number): boolean {
+    const lx = x - this.minX, lz = z - this.minZ;
+    if (lx < 0 || lx >= this.width || lz < 0 || lz >= this.height) return false;
+    const i = lz * this.width + lx;
+    return ((this.bits[i >> 3] >> (i & 7)) & 1) === 1;
+  }
 }
 
 // ─── Auto-Detection Analyzer ─────────────────────────────────────────────────

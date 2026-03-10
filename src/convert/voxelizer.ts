@@ -23,11 +23,26 @@ import type { RGB } from '../types/index.js';
 /** Optional texture sampler — browser provides Canvas-backed, CLI passes undefined */
 export type TextureSampler = (texture: THREE.Texture, uv: THREE.Vector2) => RGB;
 
-/** Minecraft blocks that represent vegetation — rejected when filterVegetation is enabled */
+/** Minecraft blocks that represent vegetation — rejected when filterVegetation is enabled.
+ * Photogrammetry tree canopy maps to greens, dark browns, and olive tones across many
+ * block types. This expanded set catches the full range of vegetation colors. */
 const VEGETATION_BLOCKS = new Set([
+  // Greens
   'minecraft:green_concrete', 'minecraft:lime_concrete',
   'minecraft:green_terracotta', 'minecraft:lime_terracotta',
   'minecraft:moss_block', 'minecraft:green_wool', 'minecraft:lime_wool',
+  'minecraft:green_concrete_powder', 'minecraft:lime_concrete_powder',
+  // Leaves / organic
+  'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:birch_leaves',
+  'minecraft:jungle_leaves', 'minecraft:acacia_leaves', 'minecraft:dark_oak_leaves',
+  'minecraft:azalea_leaves', 'minecraft:flowering_azalea_leaves',
+  'minecraft:grass_block', 'minecraft:moss_carpet',
+  // Dark browns (tree bark mapped colors)
+  'minecraft:dark_oak_planks', 'minecraft:spruce_planks',
+  'minecraft:dark_oak_log', 'minecraft:spruce_log',
+  'minecraft:brown_terracotta', 'minecraft:brown_concrete',
+  'minecraft:brown_wool', 'minecraft:soul_soil', 'minecraft:podzol',
+  'minecraft:mud', 'minecraft:packed_mud',
 ]);
 
 /** Progress info emitted during voxelization */

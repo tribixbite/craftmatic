@@ -37,7 +37,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, verticalRectify, horizontalRectify, glazeBackplane, removeSmallComponents, cropToCenter, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, verticalRectify, horizontalRectify, glazeBackplane, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint } from '../src/convert/mesh-filter.js';
+import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname } from 'node:path';
@@ -69,6 +70,7 @@ interface CLIArgs {
   auto: boolean;         // auto-detect building type and set optimal params
   autoInfo: boolean;     // quick analyze-only: voxelize + analyze + print report, no full pipeline
   batch: boolean;        // process multiple GLBs with --auto-info, output summary table
+  coords: { lat: number; lng: number } | null; // OSM footprint masking coordinates
 }
 
 function parseArgs(): CLIArgs {
@@ -82,8 +84,8 @@ Options:
   --min-height       Min mesh height above ground to keep (default: 2)
   --trim             Bottom-layer trim fill threshold (default: 0.05)
   --gamma, -g        Brightness correction gamma (default: 0.5, <1 brightens baked-lighting tiles)
-  --kernel, -k       Texture averaging kernel radius in pixels (default: 16, 0=point sampling)
-  --desaturate       Saturation reduction 0-1 to neutralize blue shadows (default: 0.65)
+  --kernel, -k       Texture averaging kernel radius in pixels (default: 24, 0=point sampling)
+  --desaturate       Saturation reduction 0-1 to neutralize blue shadows (default: 0.5)
   --output, -o       Output .schem path (default: <input-stem>.schem)
   --info             Print mesh stats and exit (no voxelize)
   --generic          Skip building-specific post-processing (palette remap, fire escape, cornice)
@@ -100,7 +102,8 @@ Options:
   --remap FROM=TO    Custom block remap (repeatable, e.g. --remap white_concrete=smooth_sandstone)
   --auto             Auto-detect building type and set optimal pipeline params
   --auto-info        Quick analysis: voxelize + analyze + print report (no full pipeline)
-  --batch            Process multiple GLB files with auto-analysis, print summary table`);
+  --batch            Process multiple GLB files with auto-analysis, print summary table
+  --coords LAT,LNG   OSM footprint masking — query building polygon at these coords, mask grid`);
     process.exit(0);
   }
 
@@ -111,8 +114,8 @@ Options:
   let minHeight = 2;
   let trimThreshold = 0.05;
   let gamma = 0.5; // Google 3D Tiles have baked lighting — 0.5 gamma compensates
-  let kernel = 16; // Large kernel for Google 3D Tiles texture density
-  let desaturate = 0.65; // Neutralize blue sky shadows baked into textures
+  let kernel = 24; // Large kernel — more texture area averaged → stable dominant color
+  let desaturate = 0.5; // Moderate desaturation preserves more color variety
   let outputPath = '';
   let infoOnly = false;
   let generic = false;
@@ -129,6 +132,7 @@ Options:
   let auto = false;
   let autoInfo = false;
   let batch = false;
+  let coords: { lat: number; lng: number } | null = null;
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -180,6 +184,11 @@ Options:
       autoInfo = true;
     } else if (arg === '--batch') {
       batch = true;
+    } else if (arg === '--coords') {
+      const parts = args[++i].split(',');
+      if (parts.length === 2) {
+        coords = { lat: parseFloat(parts[0]), lng: parseFloat(parts[1]) };
+      }
     } else if (arg === '--remap') {
       const pair = args[++i];
       const eq = pair.indexOf('=');
@@ -215,7 +224,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -447,10 +456,10 @@ function reorientToENU(scene: THREE.Group): void {
   // For reoriented data the center is near (0, 0, 0) but "up" is along the
   // axis with the smallest bounding extent relative to mesh surface normals.
   // Use PCA on mesh vertex positions to find the flattest axis.
-  const upDir = estimateUpDirection(scene);
+  const { minEigenvector: upDir, maxEigenvector: longestAxis } = estimateUpDirection(scene);
   console.log(`ENU reorientation: detected up direction (${upDir.x.toFixed(3)}, ${upDir.y.toFixed(3)}, ${upDir.z.toFixed(3)})`);
 
-  // Rotation that maps upDir → (0, 1, 0)
+  // Rotation 1: maps upDir → (0, 1, 0) — makes building upright
   const targetUp = new THREE.Vector3(0, 1, 0);
   const quat = new THREE.Quaternion().setFromUnitVectors(upDir, targetUp);
 
@@ -461,6 +470,21 @@ function reorientToENU(scene: THREE.Group): void {
       child.geometry.applyMatrix4(rotMatrix);
     }
   });
+
+  // Rotation 2: align longest horizontal axis with X (so buildings appear horizontal in top-down view).
+  // Project the longest PCA eigenvector through the up-rotation, then rotate around Y to align with X.
+  const rotatedLongest = longestAxis.clone().applyQuaternion(quat);
+  // Project onto XZ plane and find angle to X axis
+  const xzAngle = Math.atan2(rotatedLongest.z, rotatedLongest.x);
+  if (Math.abs(xzAngle) > 0.01) { // Only rotate if significantly off-axis
+    const yRotation = new THREE.Matrix4().makeRotationY(-xzAngle);
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        child.geometry.applyMatrix4(yRotation);
+      }
+    });
+    console.log(`ENU horizontal align: rotated ${(xzAngle * 180 / Math.PI).toFixed(1)}° around Y`);
+  }
 
   // Recenter so ground is at Y=0
   const newBox = new THREE.Box3().setFromObject(scene);
@@ -491,7 +515,7 @@ function reorientToENU(scene: THREE.Group): void {
  * to the axis along which the data is flattest — i.e., the vertical axis
  * for a mostly-horizontal neighborhood capture.
  */
-function estimateUpDirection(scene: THREE.Group): THREE.Vector3 {
+function estimateUpDirection(scene: THREE.Group): { minEigenvector: THREE.Vector3; maxEigenvector: THREE.Vector3 } {
   // Collect a sample of vertex positions (subsample for performance)
   const positions: THREE.Vector3[] = [];
   const center = new THREE.Vector3();
@@ -538,7 +562,8 @@ function estimateUpDirection(scene: THREE.Group): THREE.Vector3 {
   const eigenvectors = jacobi3x3(cxx, cxy, cxz, cyy, cyz, czz);
 
   // Return the eigenvector with smallest eigenvalue (flattest direction = "up")
-  return eigenvectors.minEigenvector;
+  // and the largest eigenvalue (longest horizontal extent for XZ alignment)
+  return eigenvectors;
 }
 
 /**
@@ -548,7 +573,7 @@ function estimateUpDirection(scene: THREE.Group): THREE.Vector3 {
 function jacobi3x3(
   a11: number, a12: number, a13: number,
   a22: number, a23: number, a33: number,
-): { minEigenvector: THREE.Vector3 } {
+): { minEigenvector: THREE.Vector3; maxEigenvector: THREE.Vector3 } {
   // Matrix A stored as flat array (symmetric, row-major)
   const a = [a11, a12, a13, a12, a22, a23, a13, a23, a33];
   // Eigenvector matrix V starts as identity
@@ -601,19 +626,23 @@ function jacobi3x3(
 
   // Eigenvalues are on diagonal of A
   const eigenvalues = [a[0], a[4], a[8]];
-  let minIdx = 0;
-  if (eigenvalues[1] < eigenvalues[minIdx]) minIdx = 1;
-  if (eigenvalues[2] < eigenvalues[minIdx]) minIdx = 2;
 
-  // Min eigenvector is column minIdx of V
+  // Sort indices by eigenvalue ascending (min first)
+  const sortedIdx = [0, 1, 2].sort((a, b) => eigenvalues[a] - eigenvalues[b]);
+  const minIdx = sortedIdx[0];
+  const maxIdx = sortedIdx[2]; // Largest eigenvalue = longest axis
+
+  // Min eigenvector (up direction)
   const ev = new THREE.Vector3(v[0 * 3 + minIdx], v[1 * 3 + minIdx], v[2 * 3 + minIdx]);
   ev.normalize();
-
-  // Ensure "up" points toward positive Y (arbitrary sign choice)
   if (ev.y < 0) ev.negate();
 
+  // Max eigenvector (longest horizontal extent for XZ alignment)
+  const maxEv = new THREE.Vector3(v[0 * 3 + maxIdx], v[1 * 3 + maxIdx], v[2 * 3 + maxIdx]);
+  maxEv.normalize();
+
   console.log(`PCA eigenvalues: [${eigenvalues.map(e => e.toFixed(1)).join(', ')}], min axis index: ${minIdx}`);
-  return { minEigenvector: ev };
+  return { minEigenvector: ev, maxEigenvector: maxEv };
 }
 
 // ─── Mesh Analysis ──────────────────────────────────────────────────────────
@@ -1100,9 +1129,9 @@ async function main(): Promise<void> {
   // Center crop — remove blocks beyond XZ radius to isolate central building.
   // Runs after fill/solidify so each building is solid before we crop peripheral ones.
   if (args.cropRadius > 0) {
-    const cropped = cropToCenter(trimmed, args.cropRadius);
+    const cropped = cropToRect(trimmed, args.cropRadius);
     if (cropped > 0) {
-      console.log(`Center crop: ${cropped} blocks removed (XZ radius ${args.cropRadius})`);
+      console.log(`Rect crop: ${cropped} blocks removed (half-width ${args.cropRadius})`);
     }
   }
 
@@ -1112,6 +1141,43 @@ async function main(): Promise<void> {
     const { removed: groundRemoved, groundY } = removeGroundPlane(trimmed, 1);
     if (groundRemoved > 0) {
       console.log(`Ground plane: ${groundRemoved} terrain blocks removed (groundY=${groundY})`);
+    }
+  }
+
+  // OSM footprint masking — remove all blocks outside the building polygon.
+  // Must run after ground plane removal so terrain under building is already gone.
+  if (args.coords) {
+    console.log(`OSM footprint query at ${args.coords.lat},${args.coords.lng}...`);
+    const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
+    if (osmData && osmData.polygon.length >= 3) {
+      // Snapshot blocks before masking so we can revert if mask removes everything
+      const snapshot = new Map<string, string>();
+      for (let y = 0; y < trimmed.height; y++) {
+        for (let z = 0; z < trimmed.length; z++) {
+          for (let x = 0; x < trimmed.width; x++) {
+            const b = trimmed.get(x, y, z);
+            if (b !== 'minecraft:air') snapshot.set(`${x},${y},${z}`, b);
+          }
+        }
+      }
+
+      const masked = maskToFootprint(
+        trimmed, osmData.polygon,
+        args.coords.lat, args.coords.lng, 3,
+      );
+      const remaining = trimmed.countNonAir();
+      if (remaining === 0 && snapshot.size > 0) {
+        // Mask removed everything — revert (misaligned polygon or no building in tiles)
+        for (const [key, block] of snapshot) {
+          const [x, y, z] = key.split(',').map(Number);
+          trimmed.set(x, y, z, block);
+        }
+        console.log(`OSM footprint mask: reverted (${masked} would remove all ${snapshot.size} blocks — polygon misaligned)`);
+      } else {
+        console.log(`OSM footprint mask: ${masked} blocks removed, ${remaining} remaining (polygon ${osmData.polygon.length} vertices)`);
+      }
+    } else {
+      console.log('OSM footprint: no building found at coordinates');
     }
   }
 
