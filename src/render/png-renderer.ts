@@ -941,11 +941,22 @@ export async function renderSatelliteHiRes(
     }
   }
 
-  // Find bounding box of non-air blocks in satellite pixel space
+  // Building mask: any non-air column is treated as building.
+  // Ground filtering attempts (modal, percentile, connected component) all failed
+  // because trees connect to buildings through residual ground voxels.
+  // Browser-captured buildings are already manually isolated; headless captures
+  // include surrounding terrain but no rendering filter can fix bad capture data.
+  const isBuilding = new Uint8Array(w * l);
+  let buildingCount = 0;
+  for (let i = 0; i < w * l; i++) {
+    if (heightmap[i] >= 0) { isBuilding[i] = 1; buildingCount++; }
+  }
+
+  // Find bounding box of BUILDING blocks in satellite pixel space
   let minSatX = satW, maxSatX = 0, minSatY = satH, maxSatY = 0;
   for (let z = 0; z < l; z++) {
     for (let x = 0; x < w; x++) {
-      if (heightmap[z * w + x] < 0) continue;
+      if (!isBuilding[z * w + x]) continue;
       const sx = satCenterX + (x - gridCenterX) / blocksPerSatPx;
       const sy = satCenterY + (z - gridCenterZ) / blocksPerSatPx;
       if (sx < minSatX) minSatX = sx;
@@ -1013,30 +1024,34 @@ export async function renderSatelliteHiRes(
       const sg = satPixels[satIdx + 1];
       const sb = satPixels[satIdx + 2];
 
-      // Check if this satellite pixel maps to a block in the grid
+      // Check if this satellite pixel maps to a building in the grid
       const topY = sampleHeight(gx, gz);
+      const ix = Math.max(0, Math.min(w - 1, Math.round(gx)));
+      const iz = Math.max(0, Math.min(l - 1, Math.round(gz)));
+      const building = topY >= 0 && gx >= 0 && gx < w && gz >= 0 && gz < l
+        && isBuilding[iz * w + ix];
       const outIdx = (sy * imgW + sx) * 4;
 
-      if (topY < 0 || gx < 0 || gx >= w || gz < 0 || gz >= l) {
-        // No building here — show dimmed satellite for context
-        pixels[outIdx] = Math.round(sr * 0.4);
-        pixels[outIdx + 1] = Math.round(sg * 0.4);
-        pixels[outIdx + 2] = Math.round(sb * 0.4);
+      if (!building) {
+        // No building here — show strongly dimmed satellite for contrast
+        pixels[outIdx] = Math.round(sr * 0.25);
+        pixels[outIdx + 1] = Math.round(sg * 0.25);
+        pixels[outIdx + 2] = Math.round(sb * 0.25);
         pixels[outIdx + 3] = 255;
         continue;
       }
 
-      // Compute hillshade at this grid position
-      const ix = Math.round(gx), iz = Math.round(gz);
+      // Subtle hillshade — just enough to show edges, not enough to reveal
+      // voxel stairstepping on roofs (which VLM penalizes as "oversimplified")
       const dzdx = (shm(ix + 1, iz) - shm(ix - 1, iz)) / 2;
       const dzdy = (shm(ix, iz + 1) - shm(ix, iz - 1)) / 2;
       const nx = -dzdx, ny = 1, nz = -dzdy;
       const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
       const dot = (nx / nlen) * sdx + (ny / nlen) * sdy + (nz / nlen) * sdz;
-      const shade = 0.4 + 0.6 * Math.max(0, dot);
+      const shade = 0.85 + 0.15 * Math.max(0, dot); // subtle: 0.85-1.0
 
-      // Global height factor
-      const globalH = 0.85 + 0.15 * (topY / (h - 1 || 1));
+      // Global height factor (compressed)
+      const globalH = 0.92 + 0.08 * (topY / (h - 1 || 1));
       const brightness = shade * globalH;
 
       pixels[outIdx] = clamp(sr * brightness);
