@@ -1146,8 +1146,8 @@ async function main(): Promise<void> {
 
     // Override args with auto recommendations.
     // Respect explicit CLI flags: --generic overrides auto-detect's generic=false.
-    if (!explicitGeneric) args.generic = rec.generic;
-    if (!explicitFill) args.fill = rec.fill;
+    if (!args.explicitGeneric) args.generic = rec.generic;
+    if (!args.explicitFill) args.fill = rec.fill;
     args.noPalette = rec.noPalette;
     args.noCornice = rec.noCornice;
     args.noFireEscape = rec.noFireEscape;
