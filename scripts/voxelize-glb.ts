@@ -119,7 +119,7 @@ Options:
   let trimThreshold = 0.05;
   let gamma = 0.5; // Google 3D Tiles have baked lighting — 0.5 gamma compensates
   let kernel = 24; // Large kernel — more texture area averaged → stable dominant color
-  let desaturate = 0.5; // Moderate desaturation preserves more color variety
+  let desaturate = 0.2; // Light desaturation — preserve building-specific colors
   let outputPath = '';
   let infoOnly = false;
   let generic = false;
@@ -1146,8 +1146,8 @@ async function main(): Promise<void> {
     // Generic mode skips them to preserve multi-structure raw geometry.
 
     // Interior fill — flood-fill per Y-layer identifies building interiors.
-    // Dilation radius 5 closes wider gaps in thin photogrammetry shells.
-    const interiorFilled = fillInteriorGaps(trimmed, 5);
+    // Dilation 1 (3-block Manhattan) is enough for tight surface shells.
+    const interiorFilled = fillInteriorGaps(trimmed, 1);
     console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
 
     // Vertical + horizontal rectification — Manhattan geometry cleanup
@@ -1157,7 +1157,7 @@ async function main(): Promise<void> {
     console.log(`Horizontal rectify: ${hRectified} blocks changed (window=3, depth=4)`);
 
     // Second fill pass — rectification closes wall gaps, enabling more interior detection
-    const interiorFilled2 = fillInteriorGaps(trimmed, 5);
+    const interiorFilled2 = fillInteriorGaps(trimmed, 1);
     if (interiorFilled2 > 0) console.log(`Interior fill pass 2: ${interiorFilled2} interior voxels filled`);
   } else {
     console.log(`Generic mode: skipping rectify (preserving raw geometry)`);
@@ -1220,10 +1220,10 @@ async function main(): Promise<void> {
         console.log(`Pre-fill isolation: ${preFillCleaned} blocks removed (kept largest component)`);
       }
 
-      // Step 4: Fill with reduced dilation (2 instead of 5) — building is now isolated,
-      // so dilation only needs to close photogrammetry shell gaps, not bridge terrain.
-      const interiorFilled = fillInteriorGaps(trimmed, 2);
-      console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled (dilation=2)`);
+      // Step 4: Fill with minimal dilation (1) — building is now isolated,
+      // so dilation only needs to close photogrammetry shell gaps.
+      const interiorFilled = fillInteriorGaps(trimmed, 1);
+      console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled (dilation=1)`);
     }
   }
 
@@ -1348,7 +1348,8 @@ async function main(): Promise<void> {
   // 3D mode filter — smooth surface textures while preserving color contrast.
   // Run after palette constraint so corrected colors spread via majority vote.
   if (args.modePasses > 0) {
-    const modeSmoothed = modeFilter3D(trimmed, args.modePasses, 2);
+    // Radius 1 (3x3x3) — was 2 (5x5x5, 125 blocks) which obliterated architectural detail
+    const modeSmoothed = modeFilter3D(trimmed, args.modePasses, 1);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 5x5x5: ${modeSmoothed} blocks homogenized (${args.modePasses} passes)`);
     }

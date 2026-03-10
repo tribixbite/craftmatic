@@ -593,38 +593,49 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   const t0 = performance.now();
   const rec = analysis?.recommended;
 
-  // 1. AABB crop — isolate the central building if analysis detected multiple components
+  // Yield helper — lets the browser render status updates between heavy operations
+  const yieldUI = () => new Promise<void>(r => setTimeout(r, 0));
+
+  // 1. Ground plane subtraction — MUST run before fill.
+  // If terrain is present, fillInteriorGaps treats the entire capture volume as
+  // "interior" (terrain creates sealed perimeter), producing massive solid cubes.
+  const { removed: groundRemoved, groundY } = removeGroundPlane(grid, 1);
+  if (groundRemoved > 0) console.log(`[tiles:pp] ground plane: ${groundRemoved} blocks removed (y=${groundY})`);
+  await yieldUI();
+
+  // 2. Component isolation — separate main building from disconnected terrain/neighbors.
+  // Must run before fill so the flood-fill only operates on the building shell.
+  const cleaned = removeSmallComponents(grid, Infinity);
+  if (cleaned > 0) console.log(`[tiles:pp] component isolation: ${cleaned} blocks removed (kept largest only)`);
+  await yieldUI();
+
+  // 3. AABB crop — isolate the central building if analysis detected multiple components
   if (rec?.useAABBCrop && analysis) {
     const aabb = analysis.centralAABB;
     const cropped = cropToAABB(grid, aabb.minX, aabb.maxX, aabb.minZ, aabb.maxZ, 2);
     if (cropped > 0) console.log(`[tiles:pp] AABB crop: ${cropped} blocks removed`);
   }
+  await yieldUI();
 
-  // Always run building shape processing in the browser — even when analysis says
-  // "generic", the browser lacks the CLI's color preprocessing (luminance clamp,
-  // warm bias, desaturation, gamma) so raw voxels need aggressive cleanup.
-
-  // Yield helper — lets the browser render status updates between heavy operations
-  const yieldUI = () => new Promise<void>(r => setTimeout(r, 0));
-
-  // 2. Fill interior gaps — flood-fill per Y-layer finds enclosed spaces.
-  // Dilation radius 5 closes wider gaps in thin photogrammetry shells.
-  const interiorFilled = fillInteriorGaps(grid, 5);
+  // 4. Fill interior gaps — flood-fill per Y-layer finds enclosed spaces.
+  // Dilation 1 (3-block Manhattan) closes thin photogrammetry shell gaps
+  // without swallowing balconies and window recesses.
+  const interiorFilled = fillInteriorGaps(grid, 1);
   console.log(`[tiles:pp] interior fill: ${interiorFilled} voxels`);
   await yieldUI();
 
-  // 3. Vertical + horizontal rectification — enforce Manhattan geometry
+  // 5. Vertical + horizontal rectification — enforce Manhattan geometry
   const vRect = verticalRectify(grid, 4, 5);
   const hRect = horizontalRectify(grid, 4, 3);
   console.log(`[tiles:pp] rectify: ${vRect} vertical, ${hRect} horizontal`);
   await yieldUI();
 
-  // 4. Second fill pass — rectification closes wall gaps, enabling more interior fill
-  const interiorFilled2 = fillInteriorGaps(grid, 5);
+  // 6. Second fill pass — rectification closes wall gaps, enabling more interior fill
+  const interiorFilled2 = fillInteriorGaps(grid, 1);
   if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2: ${interiorFilled2} voxels`);
   await yieldUI();
 
-  // 6. Smooth rare/noisy blocks — replaces globally rare blocks with common neighbors
+  // 7. Smooth rare/noisy blocks — replaces globally rare blocks with common neighbors
   const smoothPct = rec?.smoothPct ?? 0.02;
   if (smoothPct > 0) {
     const smoothed = smoothRareBlocks(grid, smoothPct);
@@ -632,10 +643,8 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   }
   await yieldUI();
 
-  // 7. Constrain palette — shadow-only remaps.
-  // Previous version aggressively remapped 20+ block types to smooth_quartz/light_gray_concrete,
-  // destroying real building colors (bricks, terracotta, sandstone, etc.).
-  // Now only the darkest baked-shadow artifacts are remapped to neutral gray.
+  // 8. Constrain palette — shadow-only remaps.
+  // Only the darkest baked-shadow artifacts are remapped to neutral gray.
   const paletteRemaps = new Map<string, string>([
     ['minecraft:blackstone', 'minecraft:gray_concrete'],
     ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
@@ -655,25 +664,16 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   }
   await yieldUI();
 
-  // 8. Mode filter — 3D majority-vote smoother for uniform surfaces
-  const modePasses = rec?.modePasses ?? 2;
+  // 9. Mode filter — 3x3x3 majority-vote smoother (radius=1).
+  // Was 5x5x5 (radius=2, 125 blocks) which obliterated architectural detail.
+  const modePasses = rec?.modePasses ?? 1;
   if (modePasses > 0) {
-    const modeSmoothed = modeFilter3D(grid, modePasses, 2);
-    console.log(`[tiles:pp] mode filter 5x5x5: ${modeSmoothed} blocks (${modePasses} passes)`);
+    const modeSmoothed = modeFilter3D(grid, modePasses, 1);
+    console.log(`[tiles:pp] mode filter 3x3x3: ${modeSmoothed} blocks (${modePasses} passes)`);
   }
   await yieldUI();
 
-  // 9. Component isolation — keep only the largest connected component.
-  // Tiles captures at 25-50m radius often include neighboring buildings/trees.
-  // Infinity = remove everything except the single largest component.
-  const cleaned = removeSmallComponents(grid, Infinity);
-  if (cleaned > 0) console.log(`[tiles:pp] component isolation: ${cleaned} blocks removed (kept largest only)`);
-
-  // 10. Ground plane subtraction — remove terrain below building
-  const { removed: groundRemoved, groundY } = removeGroundPlane(grid, 1);
-  if (groundRemoved > 0) console.log(`[tiles:pp] ground plane: ${groundRemoved} blocks removed (y=${groundY})`);
-
-  // 11. Backplane glazing — detect interior voids and add window blocks
+  // 10. Backplane glazing — detect interior voids and add window blocks
   const glazed = glazeBackplane(grid, 8, 'minecraft:black_concrete');
   if (glazed > 0) console.log(`[tiles:pp] glazing: ${glazed} window blocks`);
 
