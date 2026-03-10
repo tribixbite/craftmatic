@@ -616,125 +616,158 @@ export function erodeSurfaceBumps(grid: BlockGrid, minNeighbors = 3): number {
  * 2. Flood-fill from grid edges on the dilated layer → marks "exterior" air
  * 3. Any air NOT reachable from edges is "interior" → fill with nearest block
  *
- * This produces solid building volumes with flat walls while preserving:
- * - Separation between distinct buildings (flood fill reaches between them)
- * - Bay window / recess shapes (exterior contour preserved)
- * - Surface texture colors (only interior air gets filled)
+ * Uses 3D Masked Dilation for robust leak-prevention:
+ * 1. Create a temporary 3D mask where solid walls are dilated by `dilateRadius`
+ *    to virtually close all photogrammetry porosity and cracks.
+ * 2. Run a 3D flood-fill from all 6 grid boundaries through the dilated mask
+ *    to identify true "exterior" air (reachable from outside).
+ * 3. Fill only voxels that are air in the ORIGINAL un-dilated grid AND were
+ *    not reached by the flood fill (= interior gaps).
+ *
+ * This gives the leak-prevention of high dilation while preserving the crisp
+ * exterior geometry of the original shell. A 3D flood fill (vs per-Y-layer 2D)
+ * is exponentially more robust — a window open on layer Y=10 doesn't leak if
+ * Y=9 and Y=11 are solid, since the 3D fill requires a continuous 3D tunnel.
  *
  * @param grid          Source BlockGrid (modified in place)
- * @param dilateRadius  Dilation radius for closing wall gaps (default: 3)
+ * @param dilateRadius  Dilation radius for the virtual mask (default: 2)
  * @returns Number of interior air voxels filled
  */
-export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 3): number {
+export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
   const { width, height, length } = grid;
   const AIR = 'minecraft:air';
+  const totalSize = width * height * length;
   let netFilled = 0;
 
+  // ── Step 1: Snapshot original solid state ──
+  const originalSolid = new Uint8Array(totalSize);
+  const blockCounts = new Map<string, number>();
+
   for (let y = 0; y < height; y++) {
-    // Snapshot this layer: solid mask + block types
-    const solid: boolean[] = new Array(width * length);
-    const blocks: string[] = new Array(width * length);
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         const b = grid.get(x, y, z);
-        const idx = z * width + x;
-        blocks[idx] = b;
-        solid[idx] = b !== AIR;
+        if (b !== AIR) {
+          const idx = (y * length + z) * width + x;
+          originalSolid[idx] = 1;
+          blockCounts.set(b, (blockCounts.get(b) ?? 0) + 1);
+        }
       }
     }
+  }
 
-    // ── Step 1: Dilate solid voxels to close wall gaps ──
-    // A larger radius closes more porosity but may also close real gaps
-    // like courtyards. Manhattan distance keeps the dilation tight.
-    const dilated: boolean[] = [...solid];
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        if (solid[z * width + x]) continue; // Already solid
+  // Dominant block as fallback when no neighbors found within search radius
+  let dominantBlock = 'minecraft:stone';
+  let maxCount = 0;
+  for (const [b, c] of blockCounts) {
+    if (c > maxCount) { dominantBlock = b; maxCount = c; }
+  }
 
-        let hasSolid = false;
-        for (let dz = -dilateRadius; dz <= dilateRadius && !hasSolid; dz++) {
-          const nz = z + dz;
-          if (nz < 0 || nz >= length) continue;
-          for (let dx = -dilateRadius; dx <= dilateRadius && !hasSolid; dx++) {
-            const nx = x + dx;
-            if (nx < 0 || nx >= width) continue;
-            if (Math.abs(dx) + Math.abs(dz) > dilateRadius) continue;
-            if (solid[nz * width + nx]) hasSolid = true;
+  // ── Step 2: Multi-pass 3D dilation (6-connected) to create leak-proof mask ──
+  // Each pass expands solid blocks by 1 in all 6 directions (Manhattan distance).
+  // dilateRadius=2 closes 2-voxel gaps — enough for most photogrammetry porosity.
+  const dirs: [number, number, number][] = [
+    [1, 0, 0], [-1, 0, 0],
+    [0, 1, 0], [0, -1, 0],
+    [0, 0, 1], [0, 0, -1],
+  ];
+
+  let currentMask = new Uint8Array(originalSolid);
+  for (let step = 0; step < dilateRadius; step++) {
+    const nextMask = new Uint8Array(currentMask);
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          const idx = (y * length + z) * width + x;
+          if (currentMask[idx]) {
+            for (const [dx, dy, dz] of dirs) {
+              const nx = x + dx, ny = y + dy, nz = z + dz;
+              if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < length) {
+                nextMask[(ny * length + nz) * width + nx] = 1;
+              }
+            }
           }
         }
-        if (hasSolid) dilated[z * width + x] = true;
       }
     }
+    currentMask = nextMask;
+  }
+  const dilatedMask = currentMask;
 
-    // ── Step 2: Flood fill from edges to find exterior air ──
-    // Any air cell in the dilated grid reachable from an edge is "exterior."
-    // Interior air pockets are enclosed by dilated walls and won't be reached.
-    const exterior: boolean[] = new Array(width * length).fill(false);
-    const queue: number[] = [];
-    let head = 0;
+  // ── Step 3: 3D flood fill from grid boundaries to find exterior air ──
+  // Seed all 6 outer faces. Any air cell reachable through the dilated mask
+  // from a boundary is exterior. Interior pockets are unreachable.
+  const exterior = new Uint8Array(totalSize);
+  // Use Int32Array as queue for performance (avoid GC from push/shift)
+  const q = new Int32Array(totalSize);
+  let qHead = 0, qTail = 0;
 
-    // Seed: all edge cells that are air in the dilated grid
+  // Seed boundary cells that are air in the dilated mask
+  for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
-        if (z !== 0 && z !== length - 1 && x !== 0 && x !== width - 1) continue;
-        const idx = z * width + x;
-        if (!dilated[idx]) {
-          exterior[idx] = true;
-          queue.push(idx);
+        if (x !== 0 && x !== width - 1 && y !== 0 && y !== height - 1 && z !== 0 && z !== length - 1) continue;
+        const idx = (y * length + z) * width + x;
+        if (!dilatedMask[idx] && !exterior[idx]) {
+          exterior[idx] = 1;
+          q[qTail++] = idx;
         }
       }
     }
+  }
 
-    // BFS flood fill (4-connected)
-    while (head < queue.length) {
-      const idx = queue[head++];
-      const qx = idx % width;
-      const qz = (idx - qx) / width;
+  // BFS 3D flood fill (6-connected)
+  while (qHead < qTail) {
+    const idx = q[qHead++];
+    const x = idx % width;
+    const z = Math.floor(idx / width) % length;
+    const y = Math.floor(idx / (width * length));
 
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-        const nx = qx + dx;
-        const nz = qz + dz;
-        if (nx < 0 || nx >= width || nz < 0 || nz >= length) continue;
-        const nIdx = nz * width + nx;
-        if (exterior[nIdx] || dilated[nIdx]) continue; // Already visited or solid wall
-        exterior[nIdx] = true;
-        queue.push(nIdx);
-      }
+    for (const [dx, dy, dz] of dirs) {
+      const nx = x + dx, ny = y + dy, nz = z + dz;
+      if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length) continue;
+      const nIdx = (ny * length + nz) * width + nx;
+      if (dilatedMask[nIdx] || exterior[nIdx]) continue; // Wall or already visited
+      exterior[nIdx] = 1;
+      q[qTail++] = nIdx;
     }
+  }
 
-    // ── Step 3: Fill interior air with nearest solid block ──
-    // Only fill voxels that are air in the ORIGINAL grid and NOT exterior.
-    // The dilation was only used for the flood fill computation.
+  // ── Step 4: Fill interior gaps in the ORIGINAL grid ──
+  // Only voxels that were air in the original AND not reached by flood fill.
+  // Fill with the nearest original solid block (search radius 3, fallback dominant).
+  const searchR = 3;
+  for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
-        const idx = z * width + x;
-        if (solid[idx]) continue;     // Already solid in original
-        if (exterior[idx]) continue;   // Exterior air — leave as-is
+        const idx = (y * length + z) * width + x;
+        if (originalSolid[idx] || exterior[idx]) continue; // Solid or exterior
 
-        // Find the nearest solid block in the original layer (search radius 5)
-        let bestBlock = AIR;
+        // Find nearest solid block in original grid (Manhattan distance)
+        let bestBlock = dominantBlock;
         let bestDist = Infinity;
-        const searchR = 5;
-        for (let dz = -searchR; dz <= searchR; dz++) {
-          const nz = z + dz;
-          if (nz < 0 || nz >= length) continue;
-          for (let dx = -searchR; dx <= searchR; dx++) {
-            const nx = x + dx;
-            if (nx < 0 || nx >= width) continue;
-            const nIdx = nz * width + nx;
-            if (!solid[nIdx]) continue;
-            const dist = Math.abs(dx) + Math.abs(dz);
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestBlock = blocks[nIdx];
+        for (let dy = -searchR; dy <= searchR; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= height) continue;
+          for (let dz = -searchR; dz <= searchR; dz++) {
+            const nz2 = z + dz;
+            if (nz2 < 0 || nz2 >= length) continue;
+            for (let dx = -searchR; dx <= searchR; dx++) {
+              const nx = x + dx;
+              if (nx < 0 || nx >= width) continue;
+              const nIdx = (ny * length + nz2) * width + nx;
+              if (!originalSolid[nIdx]) continue;
+              const dist = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
+              if (dist < bestDist) {
+                bestDist = dist;
+                bestBlock = grid.get(nx, ny, nz2);
+              }
             }
           }
         }
 
-        if (bestBlock !== AIR) {
-          grid.set(x, y, z, bestBlock);
-          netFilled++;
-        }
+        grid.set(x, y, z, bestBlock);
+        netFilled++;
       }
     }
   }
