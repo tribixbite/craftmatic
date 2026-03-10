@@ -618,11 +618,11 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   }
   await yieldUI();
 
-  // 4. Fill interior gaps — flood-fill per Y-layer finds enclosed spaces.
-  // Dilation 1 (3-block Manhattan) closes thin photogrammetry shell gaps
-  // without swallowing balconies and window recesses.
-  const interiorFilled = fillInteriorGaps(grid, 1);
-  console.log(`[tiles:pp] interior fill: ${interiorFilled} voxels`);
+  // 4. Fill interior gaps — 3D masked dilation flood-fill.
+  // Mask dilation=2 virtually closes porosity for leak-proof exterior detection,
+  // but only original air voxels get filled (crisp geometry preserved).
+  const interiorFilled = fillInteriorGaps(grid, 2);
+  console.log(`[tiles:pp] interior fill (3D masked): ${interiorFilled} voxels`);
   await yieldUI();
 
   // 5. Vertical + horizontal rectification — enforce Manhattan geometry
@@ -631,9 +631,9 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   console.log(`[tiles:pp] rectify: ${vRect} vertical, ${hRect} horizontal`);
   await yieldUI();
 
-  // 6. Second fill pass — rectification closes wall gaps, enabling more interior fill
-  const interiorFilled2 = fillInteriorGaps(grid, 1);
-  if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2: ${interiorFilled2} voxels`);
+  // 6. Second fill pass — rectification closes wall gaps, enabling more interior detection.
+  const interiorFilled2 = fillInteriorGaps(grid, 2);
+  if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2 (3D masked): ${interiorFilled2} voxels`);
   await yieldUI();
 
   // 6b. Strip vegetation — trees acted as solid walls during fill,

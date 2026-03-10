@@ -1146,10 +1146,10 @@ async function main(): Promise<void> {
     // These steps assume one building dominates the capture volume.
     // Generic mode skips them to preserve multi-structure raw geometry.
 
-    // Interior fill — flood-fill per Y-layer identifies building interiors.
-    // Dilation 1 (3-block Manhattan) is enough for tight surface shells.
-    const interiorFilled = fillInteriorGaps(trimmed, 1);
-    console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
+    // Interior fill — 3D masked dilation flood-fill identifies building interiors.
+    // Uses dilation=2 for virtual mask (closes porosity) but only fills original air.
+    const interiorFilled = fillInteriorGaps(trimmed, 2);
+    console.log(`Interior fill (3D masked): ${interiorFilled} interior voxels filled`);
 
     // Vertical + horizontal rectification — Manhattan geometry cleanup
     const rectified = verticalRectify(trimmed, 4, 5);
@@ -1157,9 +1157,10 @@ async function main(): Promise<void> {
     const hRectified = horizontalRectify(trimmed, 4, 3);
     console.log(`Horizontal rectify: ${hRectified} blocks changed (window=3, depth=4)`);
 
-    // Second fill pass — rectification closes wall gaps, enabling more interior detection
-    const interiorFilled2 = fillInteriorGaps(trimmed, 1);
-    if (interiorFilled2 > 0) console.log(`Interior fill pass 2: ${interiorFilled2} interior voxels filled`);
+    // Second fill pass — rectification closes wall gaps, enabling more interior detection.
+    // The 3D masked dilation approach is robust, so second pass is usually minimal.
+    const interiorFilled2 = fillInteriorGaps(trimmed, 2);
+    if (interiorFilled2 > 0) console.log(`Interior fill pass 2 (3D masked): ${interiorFilled2} interior voxels filled`);
 
     // Strip vegetation AFTER fill — trees acted as solid walls during flood-fill,
     // preventing holes behind canopy. Now the building interior is solid, so
@@ -1229,10 +1230,10 @@ async function main(): Promise<void> {
         console.log(`Pre-fill isolation: ${preFillCleaned} blocks removed (kept largest component)`);
       }
 
-      // Step 4: Fill with minimal dilation (1) — building is now isolated,
-      // so dilation only needs to close photogrammetry shell gaps.
-      const interiorFilled = fillInteriorGaps(trimmed, 1);
-      console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled (dilation=1)`);
+      // Step 4: 3D masked dilation fill — building is now isolated.
+      // Mask dilation=2 virtually closes porosity; only original air gets filled.
+      const interiorFilled = fillInteriorGaps(trimmed, 2);
+      console.log(`Interior fill (3D masked): ${interiorFilled} interior voxels filled`);
 
       // Step 5: Strip vegetation — trees acted as solid walls during fill,
       // revealing the building interior behind canopy instead of leaving holes.
