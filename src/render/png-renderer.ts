@@ -718,8 +718,9 @@ export async function renderSatelliteColored(
   if (minX > maxX) { minX = 0; maxX = w - 1; }
   if (minZ > maxZ) { minZ = 0; maxZ = l - 1; }
 
-  // Padding around content
-  const pad = 2;
+  // Small padding around content — keep building prominent in the image.
+  // Dimmed satellite fills air blocks so background isn't black.
+  const pad = 8;
   minX = Math.max(0, minX - pad);
   maxX = Math.min(w - 1, maxX + pad);
   minZ = Math.max(0, minZ - pad);
@@ -803,62 +804,57 @@ export async function renderSatelliteColored(
     return Math.max(0, smoothHm[cz * w + cx]);
   }
 
+  /** Sample satellite RGB with bilinear interpolation at grid coordinates */
+  function sampleSat(x: number, z: number): [number, number, number] {
+    const satFx = satCenterX + (x - gridCenterX) / blocksPerSatPx;
+    const satFy = satCenterY + (z - gridCenterZ) / blocksPerSatPx;
+    const sx0 = Math.floor(satFx), sy0 = Math.floor(satFy);
+    const sx1 = sx0 + 1, sy1 = sy0 + 1;
+    if (sx0 >= 0 && sx1 < satW && sy0 >= 0 && sy1 < satH) {
+      const fx = satFx - sx0, fy = satFy - sy0;
+      const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy);
+      const w01 = (1 - fx) * fy, w11 = fx * fy;
+      const i00 = (sy0 * satW + sx0) * 3, i10 = (sy0 * satW + sx1) * 3;
+      const i01 = (sy1 * satW + sx0) * 3, i11 = (sy1 * satW + sx1) * 3;
+      return [
+        satPixels[i00] * w00 + satPixels[i10] * w10 + satPixels[i01] * w01 + satPixels[i11] * w11,
+        satPixels[i00+1] * w00 + satPixels[i10+1] * w10 + satPixels[i01+1] * w01 + satPixels[i11+1] * w11,
+        satPixels[i00+2] * w00 + satPixels[i10+2] * w10 + satPixels[i01+2] * w01 + satPixels[i11+2] * w11,
+      ];
+    }
+    // Nearest-neighbor fallback at edges
+    const cx = Math.max(0, Math.min(satW - 1, Math.round(satFx)));
+    const cy = Math.max(0, Math.min(satH - 1, Math.round(satFy)));
+    const idx = (cy * satW + cx) * 3;
+    return [satPixels[idx], satPixels[idx + 1], satPixels[idx + 2]];
+  }
+
   for (let z = minZ; z <= maxZ; z++) {
     for (let x = minX; x <= maxX; x++) {
       const topY = heightmap[z * w + x];
-      if (topY < 0) continue;
-
-      // Map grid XZ to satellite pixel coordinates (sub-pixel precision)
-      // Grid X = East, Grid Z = South (matches satellite right/down)
-      const satFx = satCenterX + (x - gridCenterX) / blocksPerSatPx;
-      const satFy = satCenterY + (z - gridCenterZ) / blocksPerSatPx;
-
-      // Bilinear interpolation of satellite RGB for smoother color sampling
-      let sr = 80, sg = 80, sb = 80; // default gray for out-of-bounds
-      const sx0 = Math.floor(satFx), sy0 = Math.floor(satFy);
-      const sx1 = sx0 + 1, sy1 = sy0 + 1;
-      if (sx0 >= 0 && sx1 < satW && sy0 >= 0 && sy1 < satH) {
-        const fx = satFx - sx0, fy = satFy - sy0;
-        const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy);
-        const w01 = (1 - fx) * fy, w11 = fx * fy;
-        const i00 = (sy0 * satW + sx0) * 3, i10 = (sy0 * satW + sx1) * 3;
-        const i01 = (sy1 * satW + sx0) * 3, i11 = (sy1 * satW + sx1) * 3;
-        sr = satPixels[i00] * w00 + satPixels[i10] * w10 + satPixels[i01] * w01 + satPixels[i11] * w11;
-        sg = satPixels[i00 + 1] * w00 + satPixels[i10 + 1] * w10 + satPixels[i01 + 1] * w01 + satPixels[i11 + 1] * w11;
-        sb = satPixels[i00 + 2] * w00 + satPixels[i10 + 2] * w10 + satPixels[i01 + 2] * w01 + satPixels[i11 + 2] * w11;
-      } else {
-        // Nearest-neighbor fallback at image edges
-        const cx = Math.max(0, Math.min(satW - 1, Math.round(satFx)));
-        const cy = Math.max(0, Math.min(satH - 1, Math.round(satFy)));
-        const idx = (cy * satW + cx) * 3;
-        sr = satPixels[idx]; sg = satPixels[idx + 1]; sb = satPixels[idx + 2];
-      }
-
+      const [sr, sg, sb] = sampleSat(x, z);
       const px = ox + (x - minX) * scale;
       const py = oy + (z - minZ) * scale;
+
+      if (topY < 0) {
+        // No building here — show dimmed satellite for context
+        fillRect(pixels, imgW, px, py, scale, scale,
+          [Math.round(sr * 0.35), Math.round(sg * 0.35), Math.round(sb * 0.35)]);
+        continue;
+      }
 
       // Compute surface normal from SMOOTHED heightmap gradient
       const dzdx = (shm(x + 1, z) - shm(x - 1, z)) / 2;
       const dzdy = (shm(x, z + 1) - shm(x, z - 1)) / 2;
-      // Normal = (-dzdx, 1, -dzdy) normalized
-      const nx = -dzdx;
-      const ny = 1;
-      const nz = -dzdy;
+      const nx = -dzdx, ny = 1, nz = -dzdy;
       const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
-
-      // Lambertian diffuse: dot(normal, sunDir)
       const dot = (nx / nlen) * sdx + (ny / nlen) * sdy + (nz / nlen) * sdz;
-      // Hillshade: ambient 0.4 + diffuse 0.6 × clamp(dot)
       const shade = 0.4 + 0.6 * Math.max(0, dot);
-
-      // Global height factor (slight boost for tall areas)
       const globalH = 0.85 + 0.15 * (topY / (h - 1 || 1));
-
       const brightness = shade * globalH;
-      const r = clamp(sr * brightness);
-      const g = clamp(sg * brightness);
-      const b = clamp(sb * brightness);
-      fillRect(pixels, imgW, px, py, scale, scale, [r, g, b]);
+
+      fillRect(pixels, imgW, px, py, scale, scale,
+        [clamp(sr * brightness), clamp(sg * brightness), clamp(sb * brightness)]);
     }
   }
 
@@ -888,12 +884,25 @@ export async function renderSatelliteHiRes(
   const { width: w, height: h, length: l } = grid;
   const blocks = grid.to3DArray();
 
-  // Coordinate mapping: grid center = satellite center
+  // Coordinate mapping: centroid of non-air blocks = satellite center
   const DEG2RAD = Math.PI / 180;
   const metersPerPx = 156543.03392 * Math.cos(lat * DEG2RAD) / Math.pow(2, zoom);
   const blocksPerSatPx = metersPerPx * resolution;
-  const gridCenterX = w / 2;
-  const gridCenterZ = l / 2;
+
+  // Compute centroid of non-air blocks (same as renderSatelliteColored)
+  let sumX = 0, sumZ = 0, cnt = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      for (let y = h - 1; y >= 0; y--) {
+        if (blocks[y][z][x] !== 'minecraft:air') {
+          sumX += x; sumZ += z; cnt++;
+          break;
+        }
+      }
+    }
+  }
+  const gridCenterX = cnt > 0 ? sumX / cnt : w / 2;
+  const gridCenterZ = cnt > 0 ? sumZ / cnt : l / 2;
   const satCenterX = satW / 2;
   const satCenterY = satH / 2;
 
