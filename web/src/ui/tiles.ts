@@ -29,10 +29,9 @@ import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
 import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
 import {
   trimSparseBottomLayers, analyzeGrid, cropToAABB,
-  smoothRareBlocks, constrainPalette, modeFilter3D,
-  fillInteriorGaps,
-  verticalRectify, horizontalRectify, removeSmallComponents,
-  glazeBackplane, removeGroundPlane, stripVegetation,
+  constrainPalette, modeFilter3D,
+  fillInteriorGaps, removeSmallComponents,
+  removeGroundPlane, stripVegetation,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -604,10 +603,11 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   if (groundRemoved > 0) console.log(`[tiles:pp] ground plane: ${groundRemoved} blocks removed (y=${groundY})`);
   await yieldUI();
 
-  // 2. Component isolation — separate main building from disconnected terrain/neighbors.
-  // Must run before fill so the flood-fill only operates on the building shell.
-  const cleaned = removeSmallComponents(grid, Infinity);
-  if (cleaned > 0) console.log(`[tiles:pp] component isolation: ${cleaned} blocks removed (kept largest only)`);
+  // 2. Component cleanup — remove noise/debris, preserve legitimate building wings.
+  // Threshold 500 preserves multi-wing buildings (Pentagon, Capitol) while
+  // removing photogrammetry artifacts. Infinity would sever disconnected wings.
+  const cleaned = removeSmallComponents(grid, 500);
+  if (cleaned > 0) console.log(`[tiles:pp] component cleanup: ${cleaned} blocks removed (< 500 voxels)`);
   await yieldUI();
 
   // 3. AABB crop — isolate the central building if analysis detected multiple components
@@ -625,13 +625,11 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   console.log(`[tiles:pp] interior fill (3D masked): ${interiorFilled} voxels`);
   await yieldUI();
 
-  // 5. Vertical + horizontal rectification — enforce Manhattan geometry
-  const vRect = verticalRectify(grid, 4, 5);
-  const hRect = horizontalRectify(grid, 4, 3);
-  console.log(`[tiles:pp] rectify: ${vRect} vertical, ${hRect} horizontal`);
-  await yieldUI();
+  // 5. verticalRectify + horizontalRectify removed: legacy band-aids from
+  // carveFacadeShadows era. X-only median erodes E/W walls, AABB facade zones
+  // break on non-convex footprints. modeFilter3D handles surface noise.
 
-  // 6. Second fill pass — rectification closes wall gaps, enabling more interior detection.
+  // 6. Second fill pass — fill may close more gaps after vegetation strip.
   const interiorFilled2 = fillInteriorGaps(grid, 2);
   if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2 (3D masked): ${interiorFilled2} voxels`);
   await yieldUI();
@@ -642,12 +640,8 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   if (vegStripped > 0) console.log(`[tiles:pp] vegetation strip: ${vegStripped} tree/bush blocks removed`);
   await yieldUI();
 
-  // 7. Smooth rare/noisy blocks — replaces globally rare blocks with common neighbors
-  const smoothPct = rec?.smoothPct ?? 0.02;
-  if (smoothPct > 0) {
-    const smoothed = smoothRareBlocks(grid, smoothPct);
-    console.log(`[tiles:pp] smooth: ${smoothed} rare blocks replaced`);
-  }
+  // 7. smoothRareBlocks disabled: after interior fill inflates totalNonAir,
+  // 2% global threshold erases legitimate surface details. modeFilter3D handles noise.
   await yieldUI();
 
   // 8. Sky contamination remap — blue/cyan skylight baked into tiles surfaces.
@@ -678,9 +672,9 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   }
   await yieldUI();
 
-  // 10. Backplane glazing — detect interior voids and add window blocks
-  const glazed = glazeBackplane(grid, 8, 'minecraft:black_concrete');
-  if (glazed > 0) console.log(`[tiles:pp] glazing: ${glazed} window blocks`);
+  // 10. glazeBackplane removed: legacy band-aid from carveFacadeShadows era.
+  // CIE-Lab color pipeline maps dark pixels to dark blocks natively.
+  // AABB raycasting placed black_concrete on exterior courtyard walls.
 
   const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
   console.log(`[tiles:pp] post-processing complete in ${elapsed}s`);
