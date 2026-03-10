@@ -723,9 +723,10 @@ export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
 
   // ── Step 4: Fill interior gaps in the ORIGINAL grid ──
   // Only voxels that were air in the original AND not reached by flood fill.
-  // Use dark block (black_concrete) so holes in the surface shell appear as
-  // deep shadows / unlit windows instead of matching the wall color.
-  const FILL_BLOCK = 'minecraft:black_concrete';
+  // Use smooth_stone for interior fill: neutral gray that reads as depth
+  // through shell gaps. NOT in glazeDarkWindows SHADOW_BLOCKS, so fill
+  // blocks won't be mistakenly glazed as windows.
+  const FILL_BLOCK = 'minecraft:smooth_stone';
   for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
