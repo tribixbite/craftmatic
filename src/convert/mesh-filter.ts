@@ -3157,7 +3157,9 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     noPalette: !wantFullPalette,
     noCornice: !isFlatRoof || typology === 'house',
     noFireEscape: typology !== 'block' || centralH < 15,
-    smoothPct: noisePct > 10 ? 0.03 : 0.02,
+    smoothPct: 0, // disabled: modeFilter3D handles noise locally; smoothRareBlocks
+    // uses global frequency threshold that erases surface details after interior fill
+    // inflates totalNonAir (2% of 425K solid = 8500 blocks, erasing windows/trim)
     modePasses: noisePct > 10 ? 3 : 2,
     cropRadius: needsCrop && !useAABBCrop ? suggestedCropRadius : 0,
     useAABBCrop,
