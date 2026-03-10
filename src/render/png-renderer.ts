@@ -939,6 +939,8 @@ export async function renderSatelliteHiRes(
     osmPolygon?: { lat: number; lon: number }[];
     /** Center longitude (needed when osmPolygon is provided) */
     lng?: number;
+    /** Non-building area brightness: 0.25 = strong contrast, 1.0 = full context (default: 0.25) */
+    contextDim?: number;
   },
 ): Promise<Buffer> {
   const { resolution, lat, zoom } = options;
@@ -1126,10 +1128,13 @@ export async function renderSatelliteHiRes(
       const outIdx = (sy * imgW + sx) * 4;
 
       if (!building) {
-        // No building here — show strongly dimmed satellite for contrast
-        pixels[outIdx] = Math.round(sr * 0.25);
-        pixels[outIdx + 1] = Math.round(sg * 0.25);
-        pixels[outIdx + 2] = Math.round(sb * 0.25);
+        // Non-building: show satellite at configurable brightness.
+        // Full brightness (1.0) preserves global histogram for VLM comparison;
+        // dimmed (0.25) creates contrast but VLM penalizes the composition mismatch.
+        const dim = options.contextDim ?? 0.25;
+        pixels[outIdx] = Math.round(sr * dim);
+        pixels[outIdx + 1] = Math.round(sg * dim);
+        pixels[outIdx + 2] = Math.round(sb * dim);
         pixels[outIdx + 3] = 255;
         continue;
       }

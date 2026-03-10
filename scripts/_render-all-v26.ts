@@ -85,6 +85,8 @@ const scaleArg = process.argv.find(a => a.startsWith('--scale='));
 const filterScale = scaleArg ? parseInt(scaleArg.split('=')[1]) : null;
 const hiresMode = process.argv.includes('--hires');
 const osmMode = process.argv.includes('--osm');
+const dimArg = process.argv.find(a => a.startsWith('--dim='));
+const contextDim = dimArg ? parseFloat(dimArg.split('=')[1]) : undefined;
 const RESOLUTION = 4;
 
 // Satellite image cache (same lat/lng/zoom → reuse)
@@ -154,7 +156,7 @@ for (const b of BUILDINGS) {
     } else {
       const pngBuf = await renderSatelliteHiRes(grid, sat.rgb, sat.w, sat.h, {
         resolution: RESOLUTION, lat: b.lat, zoom: b.zoom,
-        osmPolygon, lng: b.lng,
+        osmPolygon, lng: b.lng, contextDim,
       });
       const jpgBuf = await sharp(pngBuf).jpeg({ quality: 85 }).toBuffer();
       await writeFile(hiresPath, jpgBuf);
