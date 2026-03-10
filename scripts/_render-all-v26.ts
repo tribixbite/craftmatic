@@ -73,8 +73,9 @@ const BUILDINGS: Building[] = [
   { schem: 'flatroof-atlanta-v26',      lat: 33.7590, lng: -84.3880, zoom: 20, scales: [6] },
   { schem: 'flatroof-charlotte-v26',    lat: 35.2271, lng: -80.8431, zoom: 20, scales: [6] },
   // === NYC urban headless ===
-  { schem: 'nyc-sanremo-headless-v26',  lat: 40.7790, lng: -73.9720, zoom: 20, scales: [6] },
   { schem: 'nyc-apthorp-headless-v26',  lat: 40.7835, lng: -73.9770, zoom: 20, scales: [6] },
+  { schem: 'nyc-ansonia-headless-v26',  lat: 40.7806, lng: -73.9816, zoom: 20, scales: [6] },
+  { schem: 'chicago-loop-headless-v26', lat: 41.8827, lng: -87.6233, zoom: 20, scales: [6] },
 ];
 
 const nameArg = process.argv.find(a => a.startsWith('--name='));
