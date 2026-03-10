@@ -1062,6 +1062,7 @@ async function main(): Promise<void> {
 
   // ── Auto-detection: analyze grid and override pipeline params ──
   let analysis: AnalysisResult | null = null;
+  let osmMaskDone = false; // Track if OSM mask ran in pre-fill path
   if (args.auto) {
     console.log(`\n--- Auto-Detection Analysis ---`);
     const tAuto = performance.now();
@@ -1161,8 +1162,68 @@ async function main(): Promise<void> {
   } else {
     console.log(`Generic mode: skipping rectify (preserving raw geometry)`);
     if (args.fill) {
-      const interiorFilled = fillInteriorGaps(trimmed, 5);
-      console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled`);
+      // For generic captures (multi-structure scenes with terrain), fill must run
+      // AFTER terrain isolation. Otherwise, terrain creates a sealed perimeter and
+      // flood-fill classifies the entire capture volume as "interior" — producing
+      // massive nonsensical cubes instead of recognizable buildings.
+
+      // Step 1: Strip ground plane first — removes flat terrain layer that seals perimeter
+      if (args.mode === 'surface') {
+        const { removed: groundRemoved, groundY } = removeGroundPlane(trimmed, 1);
+        if (groundRemoved > 0) {
+          console.log(`Ground plane (pre-fill): ${groundRemoved} terrain blocks removed (groundY=${groundY})`);
+        }
+      }
+
+      // Step 2: OSM footprint mask BEFORE fill — isolate building polygon so fill
+      // only fills the building interior, not surrounding terrain/roads/neighbors.
+      if (args.coords) {
+        console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
+        const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
+        if (osmData && osmData.polygon.length >= 3) {
+          // Snapshot blocks before masking for revert if polygon is misaligned
+          const snapshot = new Map<string, string>();
+          for (let y = 0; y < trimmed.height; y++) {
+            for (let z = 0; z < trimmed.length; z++) {
+              for (let x = 0; x < trimmed.width; x++) {
+                const b = trimmed.get(x, y, z);
+                if (b !== 'minecraft:air') snapshot.set(`${x},${y},${z}`, b);
+              }
+            }
+          }
+
+          const masked = maskToFootprint(
+            trimmed, osmData.polygon,
+            args.coords.lat, args.coords.lng, 3, args.resolution, enuHorizontalAngle,
+          );
+          const remaining = trimmed.countNonAir();
+          if (remaining === 0 && snapshot.size > 0) {
+            // Mask removed everything — polygon misaligned, revert
+            for (const [key, block] of snapshot) {
+              const [x, y, z] = key.split(',').map(Number);
+              trimmed.set(x, y, z, block);
+            }
+            console.log(`OSM mask (pre-fill): reverted (${masked} would remove all ${snapshot.size} blocks — polygon misaligned)`);
+          } else {
+            console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining (polygon ${osmData.polygon.length} vertices)`);
+            osmMaskDone = true;
+          }
+        } else {
+          console.log('OSM footprint (pre-fill): no building found at coordinates');
+        }
+      }
+
+      // Step 3: Isolate main building — keep largest connected component.
+      // With terrain stripped and optionally OSM-masked, building shell is isolated.
+      const preFillCleaned = removeSmallComponents(trimmed, Infinity);
+      if (preFillCleaned > 0) {
+        console.log(`Pre-fill isolation: ${preFillCleaned} blocks removed (kept largest component)`);
+      }
+
+      // Step 4: Fill with reduced dilation (2 instead of 5) — building is now isolated,
+      // so dilation only needs to close photogrammetry shell gaps, not bridge terrain.
+      const interiorFilled = fillInteriorGaps(trimmed, 2);
+      console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled (dilation=2)`);
     }
   }
 
@@ -1176,8 +1237,8 @@ async function main(): Promise<void> {
   }
 
   // Ground plane subtraction — remove terrain layer below the building.
-  // Detect median ground level per XZ column and strip blocks at/below it.
-  if (args.mode === 'surface') {
+  // Skip if already done in generic pre-fill path above.
+  if (args.mode === 'surface' && !(args.generic && args.fill)) {
     const { removed: groundRemoved, groundY } = removeGroundPlane(trimmed, 1);
     if (groundRemoved > 0) {
       console.log(`Ground plane: ${groundRemoved} terrain blocks removed (groundY=${groundY})`);
@@ -1185,8 +1246,8 @@ async function main(): Promise<void> {
   }
 
   // OSM footprint masking — remove all blocks outside the building polygon.
-  // Must run after ground plane removal so terrain under building is already gone.
-  if (args.coords) {
+  // Skip if already done in the generic pre-fill path above.
+  if (args.coords && !osmMaskDone) {
     console.log(`OSM footprint query at ${args.coords.lat},${args.coords.lng}...`);
     const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
     if (osmData && osmData.polygon.length >= 3) {

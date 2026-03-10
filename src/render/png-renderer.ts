@@ -1397,3 +1397,232 @@ function fillParallelogramRight(buf: Buffer, imgW: number, sx: number, sy: numbe
     }
   }
 }
+
+/**
+ * Render voxel building footprint outline overlaid on the satellite image.
+ * Draws a bright perimeter of the voxel heightmap on top of the satellite photo,
+ * allowing direct visual comparison of extracted building shape vs reality.
+ *
+ * Uses three-layer filtering for accurate building isolation:
+ * 1. OSM polygon mask — restricts to actual building footprint (if provided)
+ * 2. Dynamic ground plane detection — Y-histogram finds ground level
+ * 3. Height-colored fill shows 3D structure (blue=low, yellow=mid, red=high)
+ */
+export async function renderFootprintOverlay(
+  grid: BlockGrid,
+  satPixels: Buffer,
+  satW: number,
+  satH: number,
+  options: {
+    resolution: number;
+    lat: number;
+    lng: number;
+    zoom: number;
+    /** OSM building polygon — restricts building mask to polygon interior */
+    osmPolygon?: { lat: number; lon: number }[];
+    /** Outline color [R, G, B] — default cyan [0, 255, 255] */
+    outlineColor?: RGB;
+    /** Outline thickness in satellite pixels (default 2) */
+    outlineWidth?: number;
+    /** Fill opacity for height-colored interior (0-1, default 0.4) */
+    fillOpacity?: number;
+    /** Static height threshold fallback: fraction of max height (default 0.15) */
+    heightThreshold?: number;
+  },
+): Promise<Buffer> {
+  const { resolution, lat, lng, zoom } = options;
+  const { width: w, height: h, length: l } = grid;
+  const blocks = grid.to3DArray();
+  const outlineColor = options.outlineColor ?? [0, 255, 255] as RGB;
+  const outlineWidth = options.outlineWidth ?? 2;
+  const fillOpacity = options.fillOpacity ?? 0.4;
+
+  const DEG2RAD = Math.PI / 180;
+  const metersPerPx = 156543.03392 * Math.cos(lat * DEG2RAD) / Math.pow(2, zoom);
+  const blocksPerSatPx = metersPerPx * resolution;
+
+  // Build heightmap
+  const heightmap = new Int16Array(w * l);
+  heightmap.fill(-1);
+  let maxH = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      for (let y = h - 1; y >= 0; y--) {
+        if (blocks[y][z][x] !== 'minecraft:air') {
+          heightmap[z * w + x] = y;
+          if (y > maxH) maxH = y;
+          break;
+        }
+      }
+    }
+  }
+
+  // Compute centroid of tall blocks (>50% max height)
+  const tallThresh = maxH * 0.5;
+  let sumX = 0, sumZ = 0, cnt = 0;
+  let sumXAll = 0, sumZAll = 0, cntAll = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      const hy = heightmap[z * w + x];
+      if (hy >= 0) {
+        sumXAll += x; sumZAll += z; cntAll++;
+        if (hy >= tallThresh) { sumX += x; sumZ += z; cnt++; }
+      }
+    }
+  }
+  const gridCenterX = cnt > 0 ? sumX / cnt : (cntAll > 0 ? sumXAll / cntAll : w / 2);
+  const gridCenterZ = cnt > 0 ? sumZ / cnt : (cntAll > 0 ? sumZAll / cntAll : l / 2);
+  const satCenterX = satW / 2;
+  const satCenterY = satH / 2;
+
+  // --- Layer 1: OSM polygon mask (if available) ---
+  let polyMask: Uint8Array | null = null;
+  if (options.osmPolygon && options.osmPolygon.length >= 3) {
+    polyMask = rasterizePolygonToGridMask(
+      options.osmPolygon, lat, lng,
+      gridCenterX, gridCenterZ, resolution, w, l,
+    );
+    const polyCount = polyMask.reduce((s, v) => s + v, 0);
+    console.log(`  OSM polygon mask: ${polyCount}/${w * l} cells (${(100 * polyCount / (w * l)).toFixed(1)}%)`);
+  }
+
+  // --- Layer 2: Dynamic ground plane detection via Y-histogram ---
+  // Build histogram of height values to find ground peak
+  const histBins = maxH + 1;
+  const hist = new Int32Array(histBins);
+  for (let i = 0; i < w * l; i++) {
+    const hy = heightmap[i];
+    if (hy >= 0) hist[hy]++;
+  }
+
+  // Find ground peak: largest bin in the lower 30% of heights
+  // Ground plane is usually the mode of the height distribution
+  const groundSearchMax = Math.max(3, Math.ceil(maxH * 0.3));
+  let groundPeak = 0;
+  let groundPeakCount = 0;
+  for (let y = 0; y <= groundSearchMax; y++) {
+    if (hist[y] > groundPeakCount) {
+      groundPeakCount = hist[y];
+      groundPeak = y;
+    }
+  }
+  // Ground floor = peak + 2 blocks (clear bushes/noise, ~0.5m at 4 blocks/m)
+  const groundFloor = groundPeak + Math.ceil(resolution * 0.5);
+  // Use dynamic threshold unless it would be lower than static fallback
+  const staticFloor = maxH * (options.heightThreshold ?? 0.15);
+  const minHeight = Math.max(groundFloor, staticFloor);
+  console.log(`  Ground plane: Y=${groundPeak} (peak ${groundPeakCount} cells), floor: Y=${minHeight.toFixed(0)} (max=${maxH})`);
+
+  // --- Build combined building mask ---
+  const isBuilding = new Uint8Array(w * l);
+  let buildingCount = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      const i = z * w + x;
+      if (heightmap[i] < minHeight) continue;       // below ground floor
+      if (polyMask && !polyMask[i]) continue;        // outside OSM polygon
+      isBuilding[i] = 1;
+      buildingCount++;
+    }
+  }
+
+  // Fallback: if OSM mask yielded 0 building cells, use height-only mask
+  if (buildingCount === 0 && polyMask) {
+    console.log(`  OSM mask yielded 0 building cells — falling back to height-only`);
+    for (let i = 0; i < w * l; i++) {
+      if (heightmap[i] >= minHeight) { isBuilding[i] = 1; buildingCount++; }
+    }
+  }
+  console.log(`  Building cells: ${buildingCount}/${w * l} (${(100 * buildingCount / (w * l)).toFixed(1)}%)`);
+
+  // Edge detection: building cell adjacent to non-building cell
+  const isEdge = new Uint8Array(w * l);
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      if (!isBuilding[z * w + x]) continue;
+      if (x === 0 || x === w - 1 || z === 0 || z === l - 1 ||
+          !isBuilding[z * w + (x - 1)] || !isBuilding[z * w + (x + 1)] ||
+          !isBuilding[(z - 1) * w + x] || !isBuilding[(z + 1) * w + x]) {
+        isEdge[z * w + x] = 1;
+      }
+    }
+  }
+
+  // Start with a copy of the satellite image (full 640x640)
+  const imgW = satW;
+  const imgH = satH;
+  const pixels = Buffer.alloc(imgW * imgH * 4);
+
+  // Copy satellite as base
+  for (let y = 0; y < imgH; y++) {
+    for (let x = 0; x < imgW; x++) {
+      const srcIdx = (y * imgW + x) * 3;
+      const dstIdx = (y * imgW + x) * 4;
+      pixels[dstIdx] = satPixels[srcIdx];
+      pixels[dstIdx + 1] = satPixels[srcIdx + 1];
+      pixels[dstIdx + 2] = satPixels[srcIdx + 2];
+      pixels[dstIdx + 3] = 255;
+    }
+  }
+
+  // Draw height-colored fill (semi-transparent) for building interior
+  // Use height relative to ground floor, not absolute Y, for better dynamic range
+  const buildingRange = maxH - minHeight;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      if (!isBuilding[z * w + x]) continue;
+      const hy = heightmap[z * w + x];
+      const hFrac = buildingRange > 0
+        ? Math.max(0, Math.min(1, (hy - minHeight) / buildingRange))
+        : 0.5;
+
+      const sx = Math.round(satCenterX + (x - gridCenterX) / blocksPerSatPx);
+      const sy = Math.round(satCenterY + (z - gridCenterZ) / blocksPerSatPx);
+      if (sx < 0 || sx >= imgW || sy < 0 || sy >= imgH) continue;
+
+      const dstIdx = (sy * imgW + sx) * 4;
+      // Height color: low=blue, mid=yellow, high=red
+      let cr: number, cg: number, cb: number;
+      if (hFrac < 0.5) {
+        const t = hFrac * 2;
+        cr = Math.round(t * 255);
+        cg = Math.round(t * 255);
+        cb = Math.round((1 - t) * 255);
+      } else {
+        const t = (hFrac - 0.5) * 2;
+        cr = 255;
+        cg = Math.round((1 - t) * 255);
+        cb = 0;
+      }
+
+      pixels[dstIdx] = clamp(pixels[dstIdx] * (1 - fillOpacity) + cr * fillOpacity);
+      pixels[dstIdx + 1] = clamp(pixels[dstIdx + 1] * (1 - fillOpacity) + cg * fillOpacity);
+      pixels[dstIdx + 2] = clamp(pixels[dstIdx + 2] * (1 - fillOpacity) + cb * fillOpacity);
+    }
+  }
+
+  // Draw outline: for each edge cell, draw a thick dot on the satellite image
+  const halfW = Math.floor(outlineWidth / 2);
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      if (!isEdge[z * w + x]) continue;
+
+      const sx = Math.round(satCenterX + (x - gridCenterX) / blocksPerSatPx);
+      const sy = Math.round(satCenterY + (z - gridCenterZ) / blocksPerSatPx);
+
+      for (let dy = -halfW; dy <= halfW; dy++) {
+        for (let dx = -halfW; dx <= halfW; dx++) {
+          const px = sx + dx, py = sy + dy;
+          if (px < 0 || px >= imgW || py < 0 || py >= imgH) continue;
+          const dstIdx = (py * imgW + px) * 4;
+          pixels[dstIdx] = outlineColor[0];
+          pixels[dstIdx + 1] = outlineColor[1];
+          pixels[dstIdx + 2] = outlineColor[2];
+          pixels[dstIdx + 3] = 255;
+        }
+      }
+    }
+  }
+
+  return encodePNG(pixels, imgW, imgH);
+}
