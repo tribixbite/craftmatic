@@ -263,10 +263,11 @@ export function deltaESq(
   l1: number, a1: number, b1: number,
   l2: number, a2: number, b2: number,
 ): number {
-  // De-weight lightness by 50% — Google 3D Tiles have baked shadows that
-  // darken building materials. Minecraft's own lighting handles shadows, so
-  // we should prioritize matching the base material hue/chroma over lightness.
-  const dl = (l1 - l2) * 0.5;
+  // Full lightness weighting — texture sampler already compensates for baked
+  // shadows via MIN_BRIGHT + gamma. De-weighting caused bright pixels to snap
+  // to dark blocks when hue matched slightly better (e.g., smooth_stone instead
+  // of white_concrete for a bright pixel).
+  const dl = l1 - l2;
   const da = a1 - a2;
   const db = b1 - b2;
   return dl * dl + da * da + db * db;
