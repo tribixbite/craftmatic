@@ -8,7 +8,7 @@ import { existsSync } from 'fs';
 import { resolve, join } from 'path';
 import sharp from 'sharp';
 import { parseToGrid } from '../src/schem/parse.js';
-import { renderSatelliteColored } from '../src/render/png-renderer.js';
+import { renderSatelliteColored, renderSatelliteHiRes } from '../src/render/png-renderer.js';
 
 sharp.concurrency(1);
 const projectRoot = resolve(import.meta.dir, '..');
@@ -72,12 +72,16 @@ const BUILDINGS: Building[] = [
   { schem: 'flatroof-raleigh-v26',      lat: 35.7796, lng: -78.6382, zoom: 20, scales: [6] },
   { schem: 'flatroof-atlanta-v26',      lat: 33.7590, lng: -84.3880, zoom: 20, scales: [6] },
   { schem: 'flatroof-charlotte-v26',    lat: 35.2271, lng: -80.8431, zoom: 20, scales: [6] },
+  // === NYC urban headless ===
+  { schem: 'nyc-sanremo-headless-v26',  lat: 40.7790, lng: -73.9720, zoom: 20, scales: [6] },
+  { schem: 'nyc-apthorp-headless-v26',  lat: 40.7835, lng: -73.9770, zoom: 20, scales: [6] },
 ];
 
 const nameArg = process.argv.find(a => a.startsWith('--name='));
 const filterName = nameArg ? nameArg.split('=')[1] : null;
 const scaleArg = process.argv.find(a => a.startsWith('--scale='));
 const filterScale = scaleArg ? parseInt(scaleArg.split('=')[1]) : null;
+const hiresMode = process.argv.includes('--hires');
 const RESOLUTION = 4;
 
 // Satellite image cache (same lat/lng/zoom → reuse)
@@ -124,6 +128,21 @@ for (const b of BUILDINGS) {
     const jpgBuf = await sharp(pngBuf).jpeg({ quality: 90 }).toBuffer();
     await writeFile(outPath, jpgBuf);
     console.log(`  scale=${scale} → ${(jpgBuf.length / 1024).toFixed(0)}KB`);
+  }
+
+  // Hi-res render: satellite pixel resolution with voxel heightmap hillshade
+  if (hiresMode) {
+    const hiresPath = join(tilesDir, `sv-${b.schem}-hires.jpg`);
+    if (existsSync(hiresPath)) {
+      console.log(`  hires: EXISTS`);
+    } else {
+      const pngBuf = await renderSatelliteHiRes(grid, sat.rgb, sat.w, sat.h, {
+        resolution: RESOLUTION, lat: b.lat, zoom: b.zoom,
+      });
+      const jpgBuf = await sharp(pngBuf).jpeg({ quality: 85 }).toBuffer();
+      await writeFile(hiresPath, jpgBuf);
+      console.log(`  hires → ${(jpgBuf.length / 1024).toFixed(0)}KB`);
+    }
   }
 
   // GC between renders
