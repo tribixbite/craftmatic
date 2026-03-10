@@ -90,12 +90,13 @@ export interface ColorCluster { rgb: RGB; options: BlockState[] }
 
 export const WALL_CLUSTERS: ColorCluster[] = [
   // ── Whites / Creams ──────────────────────────────────────────────────────────
-  // Pure white: marble, painted brick, modern stucco
-  { rgb: [235, 235, 235], options: ['minecraft:smooth_quartz', 'minecraft:white_concrete', 'minecraft:quartz_block'] },
-  // Cool white: weathered painted siding
-  { rgb: [207, 213, 214], options: ['minecraft:white_concrete', 'minecraft:smooth_quartz'] },
-  // Warm off-white / beige stucco — fills critical gap for common building facades
-  { rgb: [215, 210, 200], options: ['minecraft:white_terracotta', 'minecraft:smooth_sandstone'] },
+  // RGB values calibrated to actual Minecraft texture averages.
+  // Pure white: quartz (lum 231), white_concrete (lum 211)
+  { rgb: [237, 230, 223], options: ['minecraft:smooth_quartz', 'minecraft:quartz_block'] },
+  // Cool white: white_concrete actual texture is bright (207,213,214)
+  { rgb: [207, 213, 214], options: ['minecraft:white_concrete'] },
+  // Warm off-white: white_terracotta actual (210,178,162 lum 186)
+  { rgb: [210, 178, 162], options: ['minecraft:white_terracotta'] },
 
   // ── Tans / Sandy / Limestone ─────────────────────────────────────────────────
   { rgb: [223, 214, 170], options: ['minecraft:smooth_sandstone', 'minecraft:sandstone'] },
@@ -126,14 +127,20 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   { rgb: [68, 4, 7], options: ['minecraft:red_nether_bricks', 'minecraft:nether_bricks'] },
 
   // ── Grays / Concrete / Stone ─────────────────────────────────────────────────
-  // Light concrete
-  { rgb: [170, 170, 170], options: ['minecraft:light_gray_concrete', 'minecraft:smooth_stone'] },
-  // Medium stone — even spacing across L* axis for shadow tolerance
-  { rgb: [130, 130, 130], options: ['minecraft:stone', 'minecraft:stone_bricks', 'minecraft:andesite'] },
-  // Blue-gray / slate
-  { rgb: [112, 108, 138], options: ['minecraft:gray_terracotta', 'minecraft:polished_andesite'] },
-  // Dark concrete — NO glass (creates transparent holes in solid walls)
-  { rgb: [80, 80, 84], options: ['minecraft:gray_concrete', 'minecraft:polished_deepslate'] },
+  // RGB values calibrated to actual Minecraft texture averages (sharp.stats().mean)
+  // so CIE-Lab matching picks blocks that render at the expected brightness.
+  // smooth_stone (lum 162) — separate from light_gray_concrete (lum 124) because
+  // their actual textures differ by 38 luminance despite similar catalog colors.
+  { rgb: [162, 162, 162], options: ['minecraft:smooth_stone'] },
+  // Light gray concrete — actual texture is darker than name suggests (lum 124)
+  { rgb: [125, 125, 115], options: ['minecraft:light_gray_concrete'] },
+  // Medium stone — andesite is the brightest (136), stone_bricks darkest (123)
+  { rgb: [136, 136, 136], options: ['minecraft:andesite'] },
+  { rgb: [124, 123, 124], options: ['minecraft:stone_bricks'] },
+  // Blue-gray / slate — polished_andesite (132,135,134)
+  { rgb: [132, 135, 134], options: ['minecraft:polished_andesite', 'minecraft:gray_terracotta'] },
+  // Dark concrete — actual texture is very dark (55,58,62)
+  { rgb: [55, 58, 62], options: ['minecraft:gray_concrete', 'minecraft:polished_deepslate'] },
 
   // ── Darks / Industrial ───────────────────────────────────────────────────────
   // Removed blackstone + deepslate_bricks: photogrammetry bakes ambient occlusion
@@ -186,7 +193,7 @@ export const ROOF_PALETTE: { base: string; rgb: RGB }[] = [
 
 export const TRIM_PALETTE: { block: BlockState; rgb: RGB }[] = [
   { block: 'minecraft:white_concrete', rgb: [255, 255, 255] },
-  { block: 'minecraft:light_gray_concrete', rgb: [160, 160, 160] },
+  { block: 'minecraft:light_gray_concrete', rgb: [125, 125, 115] },
   { block: 'minecraft:dark_oak_log', rgb: [60, 42, 22] },
   { block: 'minecraft:spruce_log', rgb: [115, 85, 49] },
   { block: 'minecraft:oak_log', rgb: [170, 136, 78] },
