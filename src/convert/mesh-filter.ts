@@ -2203,6 +2203,8 @@ export function removeGroundPlane(
  * @param centerLat  Capture center latitude (address coords)
  * @param centerLng  Capture center longitude (address coords)
  * @param dilate     Expand footprint by this many blocks in each direction (default 3)
+ * @param resolution Blocks per meter (default 1) — scales polygon projection to grid units
+ * @param rotationAngle Radians to rotate polygon (PCA horizontal alignment angle, default 0)
  * @returns Number of blocks removed
  */
 export function maskToFootprint(
@@ -2211,6 +2213,8 @@ export function maskToFootprint(
   centerLat: number,
   centerLng: number,
   dilate = 3,
+  resolution = 1,
+  rotationAngle = 0,
 ): number {
   if (polygon.length < 3) return 0;
 
@@ -2219,13 +2223,25 @@ export function maskToFootprint(
 
   // Project polygon to block coords centered on capture point.
   // Grid X = East (lon offset), Grid Z = South (negated lat offset).
-  const latScale = 111320; // meters per degree latitude
-  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180);
+  // Scale by resolution (blocks/meter) so polygon maps correctly at higher resolutions.
+  const latScale = 111320 * resolution; // meters per degree × blocks per meter
+  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
 
-  const blockPts = polygon.map(p => ({
+  let blockPts = polygon.map(p => ({
     x: Math.round((p.lon - centerLng) * lonScale),
     z: Math.round((centerLat - p.lat) * latScale), // flip: grid Z = south
   }));
+
+  // Rotate polygon to match PCA horizontal alignment applied to the mesh.
+  // The mesh was rotated by -rotationAngle around Y, so polygon must rotate the same.
+  if (Math.abs(rotationAngle) > 0.01) {
+    const cos = Math.cos(-rotationAngle);
+    const sin = Math.sin(-rotationAngle);
+    blockPts = blockPts.map(p => ({
+      x: Math.round(p.x * cos - p.z * sin),
+      z: Math.round(p.x * sin + p.z * cos),
+    }));
+  }
 
   // Auto-close polygon if needed
   const first = blockPts[0];

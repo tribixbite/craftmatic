@@ -444,7 +444,11 @@ async function decodeTexturesWithSharp(
  * Detection heuristic: if Y extent >= 0.8 × max(X,Z) extent, the mesh is
  * likely ECEF-tilted (a flat neighborhood shouldn't be taller than it is wide).
  */
-function reorientToENU(scene: THREE.Group): void {
+/** Rotation angle applied during ENU horizontal alignment (radians around Y axis).
+ * Used to rotate OSM polygon to match the grid after PCA alignment. */
+let enuHorizontalAngle = 0;
+
+function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false): void {
   const box = new THREE.Box3().setFromObject(scene);
   const size = new THREE.Vector3();
   box.getSize(size);
@@ -495,6 +499,7 @@ function reorientToENU(scene: THREE.Group): void {
         child.geometry.applyMatrix4(yRotation);
       }
     });
+    enuHorizontalAngle = xzAngle; // Save for OSM polygon rotation
     console.log(`ENU horizontal align: rotated ${(xzAngle * 180 / Math.PI).toFixed(1)}° around Y`);
   }
 
@@ -1175,7 +1180,7 @@ async function main(): Promise<void> {
 
       const masked = maskToFootprint(
         trimmed, osmData.polygon,
-        args.coords.lat, args.coords.lng, 3,
+        args.coords.lat, args.coords.lng, 3, args.resolution, enuHorizontalAngle,
       );
       const remaining = trimmed.countNonAir();
       if (remaining === 0 && snapshot.size > 0) {
