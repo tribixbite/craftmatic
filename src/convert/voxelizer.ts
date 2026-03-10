@@ -663,13 +663,13 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
       }
     }
 
-    // ── Pipeline order: green detect → luminance clamp → warm bias → desaturate
-    // Luminance clamping runs FIRST so the desaturation sees boosted brightness.
-    // This lets the "cream saver" gate (l>=0.78) work on post-clamp values,
-    // preserving warm saturation for stucco pixels that were dark in the
-    // original baked-lighting texture.
+    // ── Pipeline order: green detect → desaturate → luminance clamp
+    // Desaturation runs FIRST so baked blue/warm shadows get neutralized to
+    // dark gray before luminance clamping. If clamping ran first, it would
+    // brighten colored shadows above the desaturation's lightness thresholds,
+    // causing them to retain saturation and map to wrong blocks (terracotta, bricks).
 
-    // Step 1: Detect green vegetation — skip clamping/bias for green pixels
+    // Step 1: Detect green vegetation — skip desaturation/clamping for green pixels
     const pixelHue = (() => {
       const rf2 = r / 255, gf2 = g / 255, bf2 = b / 255;
       const mx = Math.max(rf2, gf2, bf2), mn = Math.min(rf2, gf2, bf2);
@@ -683,30 +683,10 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
     })();
     const isGreenish = pixelHue >= 85 && pixelHue <= 160;
 
-    // Step 2: Luminance clamping — boost shadowed pixels to mid-range.
-    // MIN_BRIGHT=100: balances color preservation vs shadow noise.
-    // Too low (60) → baked blue shadows survive and match to terracotta.
-    // Too high (140+) → all mid-tones washed to near-white monochrome.
-    if (!isGreenish) {
-      const lum = (r * 77 + g * 150 + b * 29) >> 8;
-      const MIN_BRIGHT = 100;
-      const DARK_THRESHOLD = 30;
-      if (lum >= DARK_THRESHOLD && lum < MIN_BRIGHT) {
-        const scale = MIN_BRIGHT / lum;
-        r = Math.min(255, Math.round(r * scale));
-        g = Math.min(255, Math.round(g * scale));
-        b = Math.min(255, Math.round(b * scale));
-      }
-    }
-
-    // Step 3: Warm bias removed — was pushing all bright pixels toward cream,
-    // destroying gray/white/blue building colors. The luminance clamp above
-    // plus selective desaturation below handle baked lighting adequately.
-
-    // Step 4: Selective desaturation — now operates on clamped/biased pixels.
-    // Bright warm pixels (l>=0.72) keep their cream saturation; dark warm
-    // pixels get desaturated to neutral gray.
-    if (desaturate > 0) {
+    // Step 2: Selective desaturation — neutralize baked-lighting color casts.
+    // Runs BEFORE luminance clamping so dark colored shadows become dark gray,
+    // then clamping brightens them to visible mid-grays (stone, andesite).
+    if (desaturate > 0 && !isGreenish) {
       const rf = r / 255, gf = g / 255, bf = b / 255;
       const max = Math.max(rf, gf, bf), min = Math.min(rf, gf, bf);
       const l = (max + min) / 2;
@@ -745,6 +725,21 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         r = Math.round(hue2rgb(p, q2, hue + 1 / 3) * 255);
         g = Math.round(hue2rgb(p, q2, hue) * 255);
         b = Math.round(hue2rgb(p, q2, hue - 1 / 3) * 255);
+      }
+    }
+
+    // Step 3: Luminance clamping — boost desaturated shadow pixels to visible mid-range.
+    // Now operates on already-neutralized grays, so the clamp produces stone/andesite
+    // tones instead of bright terracotta/bricks.
+    if (!isGreenish) {
+      const lum = (r * 77 + g * 150 + b * 29) >> 8;
+      const MIN_BRIGHT = 100;
+      const DARK_THRESHOLD = 30;
+      if (lum >= DARK_THRESHOLD && lum < MIN_BRIGHT) {
+        const scale = MIN_BRIGHT / lum;
+        r = Math.min(255, Math.round(r * scale));
+        g = Math.min(255, Math.round(g * scale));
+        b = Math.min(255, Math.round(b * scale));
       }
     }
 

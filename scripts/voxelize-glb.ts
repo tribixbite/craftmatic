@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, verticalRectify, horizontalRectify, glazeBackplane, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, verticalRectify, horizontalRectify, glazeBackplane, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -976,8 +976,9 @@ async function main(): Promise<void> {
   const grid = threeToGrid(filteredGroup, args.resolution, {
     textureSampler: sampler,
     mode: args.mode,
-    // Filter vegetation colors for surface mode (photogrammetry tiles contain trees)
-    filterVegetation: args.mode === 'surface' && !args.keepVegetation,
+    // Don't filter vegetation during voxelization — trees act as solid walls during
+    // fillInteriorGaps, preventing holes behind canopy. Strip vegetation in post-processing.
+    filterVegetation: false,
     onProgress: (p) => {
       if (p.message) {
         process.stdout.write(`\r  ${p.message}`);
@@ -1159,6 +1160,14 @@ async function main(): Promise<void> {
     // Second fill pass — rectification closes wall gaps, enabling more interior detection
     const interiorFilled2 = fillInteriorGaps(trimmed, 1);
     if (interiorFilled2 > 0) console.log(`Interior fill pass 2: ${interiorFilled2} interior voxels filled`);
+
+    // Strip vegetation AFTER fill — trees acted as solid walls during flood-fill,
+    // preventing holes behind canopy. Now the building interior is solid, so
+    // removing vegetation reveals the filled wall behind rather than leaving air gaps.
+    if (args.mode === 'surface') {
+      const vegStripped = stripVegetation(trimmed);
+      if (vegStripped > 0) console.log(`Vegetation strip: ${vegStripped} tree/bush blocks removed (post-fill)`);
+    }
   } else {
     console.log(`Generic mode: skipping rectify (preserving raw geometry)`);
     if (args.fill) {
@@ -1224,6 +1233,13 @@ async function main(): Promise<void> {
       // so dilation only needs to close photogrammetry shell gaps.
       const interiorFilled = fillInteriorGaps(trimmed, 1);
       console.log(`Interior fill (flood): ${interiorFilled} interior voxels filled (dilation=1)`);
+
+      // Step 5: Strip vegetation — trees acted as solid walls during fill,
+      // revealing the building interior behind canopy instead of leaving holes.
+      if (args.mode === 'surface') {
+        const vegStripped = stripVegetation(trimmed);
+        if (vegStripped > 0) console.log(`Vegetation strip: ${vegStripped} tree/bush blocks removed (post-fill)`);
+      }
     }
   }
 
@@ -1351,7 +1367,7 @@ async function main(): Promise<void> {
     // Radius 1 (3x3x3) — was 2 (5x5x5, 125 blocks) which obliterated architectural detail
     const modeSmoothed = modeFilter3D(trimmed, args.modePasses, 1);
     if (modeSmoothed > 0) {
-      console.log(`Mode filter 5x5x5: ${modeSmoothed} blocks homogenized (${args.modePasses} passes)`);
+      console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${args.modePasses} passes)`);
     }
   } else {
     console.log('Skipping mode filter (--mode-passes 0)');
