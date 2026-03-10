@@ -793,18 +793,30 @@ export async function renderSatelliteColored(
       const topY = heightmap[z * w + x];
       if (topY < 0) continue;
 
-      // Map grid XZ to satellite pixel coordinates
+      // Map grid XZ to satellite pixel coordinates (sub-pixel precision)
       // Grid X = East, Grid Z = South (matches satellite right/down)
-      const satPx = Math.round(satCenterX + (x - gridCenterX) / blocksPerSatPx);
-      const satPy = Math.round(satCenterY + (z - gridCenterZ) / blocksPerSatPx);
+      const satFx = satCenterX + (x - gridCenterX) / blocksPerSatPx;
+      const satFy = satCenterY + (z - gridCenterZ) / blocksPerSatPx;
 
-      // Sample satellite image RGB (clamp to bounds)
+      // Bilinear interpolation of satellite RGB for smoother color sampling
       let sr = 80, sg = 80, sb = 80; // default gray for out-of-bounds
-      if (satPx >= 0 && satPx < satW && satPy >= 0 && satPy < satH) {
-        const idx = (satPy * satW + satPx) * 3;
-        sr = satPixels[idx];
-        sg = satPixels[idx + 1];
-        sb = satPixels[idx + 2];
+      const sx0 = Math.floor(satFx), sy0 = Math.floor(satFy);
+      const sx1 = sx0 + 1, sy1 = sy0 + 1;
+      if (sx0 >= 0 && sx1 < satW && sy0 >= 0 && sy1 < satH) {
+        const fx = satFx - sx0, fy = satFy - sy0;
+        const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy);
+        const w01 = (1 - fx) * fy, w11 = fx * fy;
+        const i00 = (sy0 * satW + sx0) * 3, i10 = (sy0 * satW + sx1) * 3;
+        const i01 = (sy1 * satW + sx0) * 3, i11 = (sy1 * satW + sx1) * 3;
+        sr = satPixels[i00] * w00 + satPixels[i10] * w10 + satPixels[i01] * w01 + satPixels[i11] * w11;
+        sg = satPixels[i00 + 1] * w00 + satPixels[i10 + 1] * w10 + satPixels[i01 + 1] * w01 + satPixels[i11 + 1] * w11;
+        sb = satPixels[i00 + 2] * w00 + satPixels[i10 + 2] * w10 + satPixels[i01 + 2] * w01 + satPixels[i11 + 2] * w11;
+      } else {
+        // Nearest-neighbor fallback at image edges
+        const cx = Math.max(0, Math.min(satW - 1, Math.round(satFx)));
+        const cy = Math.max(0, Math.min(satH - 1, Math.round(satFy)));
+        const idx = (cy * satW + cx) * 3;
+        sr = satPixels[idx]; sg = satPixels[idx + 1]; sb = satPixels[idx + 2];
       }
 
       const px = ox + (x - minX) * scale;
