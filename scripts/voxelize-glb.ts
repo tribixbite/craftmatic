@@ -1147,17 +1147,7 @@ async function main(): Promise<void> {
     // Override args with auto recommendations.
     // Respect explicit CLI flags: --generic overrides auto-detect's generic=false.
     if (!args.explicitGeneric) args.generic = rec.generic;
-    if (!args.explicitFill) {
-      args.fill = rec.fill;
-      // Gate fill on partial captures: when building extends beyond capture boundary,
-      // the clip plane creates sealed walls and fillInteriorGaps flood-fills the
-      // entire "core sample" solid. isPartialCapture detects both AABB edge-touch
-      // (>5%) and footprint-fill ratio (>85% — catches cylindrical captures).
-      if (args.fill && analysis.isPartialCapture) {
-        args.fill = false;
-        console.log(`  Fill disabled: partial capture (${analysis.edgeTouchPct.toFixed(1)}% edge touch) — clip plane would cause solid fill`);
-      }
-    }
+    if (!args.explicitFill) args.fill = rec.fill;
     args.noPalette = rec.noPalette;
     args.noCornice = rec.noCornice;
     args.noFireEscape = rec.noFireEscape;
@@ -1186,31 +1176,67 @@ async function main(): Promise<void> {
 
   if (!args.generic) {
     // === Shape processing (tuned for isolated single-building captures) ===
-    // These steps assume one building dominates the capture volume.
-    // Generic mode skips them to preserve multi-structure raw geometry.
+    // Pipeline order: ground removal → OSM mask → component cleanup → fill → vegetation.
+    // OSM mask MUST run before fill — otherwise capture boundary walls create sealed
+    // perimeter and fill floods the entire "core sample" solid.
 
-    if (args.fill) {
-      // Interior fill — 3D masked dilation flood-fill identifies building interiors.
-      // Uses dilation=2 for virtual mask (closes porosity) but only fills original air.
-      // Gated on args.fill: partial captures have clip planes that create sealed walls,
-      // causing fill to flood the entire "core sample" solid.
-      const interiorFilled = fillInteriorGaps(trimmed, 2);
-      console.log(`Interior fill (3D masked): ${interiorFilled} interior voxels filled`);
-
-      // Second fill pass — second pass catches gaps closed by vegetation strip etc.
-      const interiorFilled2 = fillInteriorGaps(trimmed, 2);
-      if (interiorFilled2 > 0) console.log(`Interior fill pass 2 (3D masked): ${interiorFilled2} interior voxels filled`);
-    } else {
-      console.log('Interior fill: skipped (partial capture or --no-fill)');
+    // Step 1: Ground plane removal — strip terrain that seals building bottom
+    if (args.mode === 'surface') {
+      const { removed: groundRemoved, groundY } = removeGroundPlane(trimmed, 1);
+      if (groundRemoved > 0) {
+        console.log(`Ground plane (pre-fill): ${groundRemoved} terrain blocks removed (groundY=${groundY})`);
+      }
     }
 
-    // verticalRectify + horizontalRectify removed: legacy band-aids for carveFacadeShadows
-    // artifacts. horizontalRectify's X-only median erodes E/W walls, and both use
-    // per-layer AABB facade zones that break on non-convex footprints.
-    // modeFilter3D (below) now handles surface noise with proper 3D neighborhood voting.
+    // Step 2: OSM footprint mask — carve away everything outside building polygon.
+    // For buildings smaller than capture radius, this removes sidewalk/road/neighbors.
+    // For buildings larger than capture, mask removes 0 (all blocks inside polygon).
+    if (args.coords && !osmMaskDone) {
+      console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
+      const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
+      if (osmData && osmData.polygon.length >= 3) {
+        const snapshot = new Map<string, string>();
+        for (let y = 0; y < trimmed.height; y++) {
+          for (let z = 0; z < trimmed.length; z++) {
+            for (let x = 0; x < trimmed.width; x++) {
+              const b = trimmed.get(x, y, z);
+              if (b !== 'minecraft:air') snapshot.set(`${x},${y},${z}`, b);
+            }
+          }
+        }
+        const masked = maskToFootprint(
+          trimmed, osmData.polygon,
+          args.coords.lat, args.coords.lng, 3, args.resolution, enuHorizontalAngle,
+        );
+        const remaining = trimmed.countNonAir();
+        if (remaining === 0 && snapshot.size > 0) {
+          for (const [key, block] of snapshot) {
+            const [x, y, z] = key.split(',').map(Number);
+            trimmed.set(x, y, z, block);
+          }
+          console.log(`OSM mask (pre-fill): reverted (polygon misaligned)`);
+        } else {
+          console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
+          osmMaskDone = true;
+        }
+      }
+    }
 
-    // Strip vegetation — remove tree/bush blocks. If fill ran, trees acted as solid
-    // walls during flood-fill so removal reveals filled wall behind, not air gaps.
+    // Step 3: Component cleanup — remove noise/debris ≥500 voxels
+    const preFillCleaned = removeSmallComponents(trimmed, 500);
+    if (preFillCleaned > 0) {
+      console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (< 500 voxels)`);
+    }
+
+    // Step 4: Interior fill — 3D masked dilation flood-fill
+    if (args.fill) {
+      const interiorFilled = fillInteriorGaps(trimmed, 2);
+      console.log(`Interior fill (3D masked): ${interiorFilled} interior voxels filled`);
+      const interiorFilled2 = fillInteriorGaps(trimmed, 2);
+      if (interiorFilled2 > 0) console.log(`Interior fill pass 2: ${interiorFilled2} voxels`);
+    }
+
+    // Step 5: Vegetation strip
     if (args.mode === 'surface') {
       const vegStripped = stripVegetation(trimmed);
       if (vegStripped > 0) console.log(`Vegetation strip: ${vegStripped} tree/bush blocks removed`);
@@ -1302,8 +1328,8 @@ async function main(): Promise<void> {
   }
 
   // Ground plane subtraction — remove terrain layer below the building.
-  // Skip if already done in generic pre-fill path above.
-  if (args.mode === 'surface' && !(args.generic && args.fill)) {
+  // Skip if already done: non-generic path does it in step 1, generic+fill path does it pre-fill.
+  if (args.mode === 'surface' && args.generic && !args.fill) {
     const { removed: groundRemoved, groundY } = removeGroundPlane(trimmed, 1);
     if (groundRemoved > 0) {
       console.log(`Ground plane: ${groundRemoved} terrain blocks removed (groundY=${groundY})`);
