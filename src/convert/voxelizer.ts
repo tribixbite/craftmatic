@@ -300,10 +300,9 @@ function voxelizeSurface(
   filterVegetation = false,
 ): void {
   const { width, height, length } = grid;
-  // Surface proximity threshold: voxels with mesh surface closer than this get filled.
-  // 0.55 is just above exact half-voxel — tight enough to prevent filling between
-  // nearby but separate surfaces, producing thin shell walls without bloating.
-  // At r=2, threshold=0.275 (tight), at r=1 threshold=0.55 (standard).
+  // Surface proximity threshold: voxels within this distance of mesh surface get filled.
+  // Must be > 0.5/resolution (half-voxel) to guarantee at least one voxel per face.
+  // 0.55 gives 10% margin for floating-point precision. At r=1 → 0.55, r=2 → 0.275.
   const threshold = 0.55 / resolution;
 
   // Reusable objects to avoid per-voxel allocation
@@ -378,6 +377,7 @@ async function voxelizeSurfaceAsync(
   filterVegetation = false,
 ): Promise<void> {
   const { width, height, length } = grid;
+  // Must match sync threshold — 0.55 / resolution
   const threshold = 0.55 / resolution;
 
   // Pre-compute bounding boxes for each mesh (in world space) for fast rejection

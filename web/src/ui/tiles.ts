@@ -585,7 +585,7 @@ async function runVoxelizePipeline(
  * 2. Fill interior gaps — flood-fill per Y-layer
  * 3. Vertical + horizontal rectify — Manhattan geometry cleanup
  * 4. Smooth rare blocks — eliminate salt-and-pepper noise
- * 5. Constrain palette — remap darkest shadow artifacts only
+ * 5. Sky palette — remap blue/cyan sky contamination only
  * 6. Mode filter — 3D majority-vote surface smoother
  * 7. Component cleanup — remove floating debris
  * 8. Backplane glazing — add window blocks to interior voids
@@ -650,19 +650,17 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   }
   await yieldUI();
 
-  // 8. Constrain palette — shadow-only remaps.
-  // Only the darkest baked-shadow artifacts are remapped to neutral gray.
-  const paletteRemaps = new Map<string, string>([
-    ['minecraft:blackstone', 'minecraft:gray_concrete'],
-    ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
-    ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
-    ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
-    ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
-    ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
-    ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
+  // 8. Sky contamination remap — blue/cyan skylight baked into tiles surfaces.
+  // Dark shadow remaps removed: upstream CIE-Lab pipeline now accurately handles
+  // baked shadows. Dark blocks represent legitimate building materials.
+  const skyRemaps = new Map<string, string>([
+    ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
+    ['minecraft:cyan_terracotta', 'minecraft:stone'],
+    ['minecraft:light_blue_concrete', 'minecraft:light_gray_concrete'],
+    ['minecraft:cyan_concrete', 'minecraft:stone'],
   ]);
-  const constrained = constrainPalette(grid, paletteRemaps);
-  console.log(`[tiles:pp] palette: ${constrained} blocks remapped`);
+  const constrained = constrainPalette(grid, skyRemaps);
+  if (constrained > 0) console.log(`[tiles:pp] sky palette: ${constrained} blocks remapped`);
 
   // Also apply analysis-recommended remaps (building-specific material corrections)
   if (rec?.remaps && rec.remaps.size > 0) {

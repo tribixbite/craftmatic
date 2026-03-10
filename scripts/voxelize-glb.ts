@@ -1342,57 +1342,24 @@ async function main(): Promise<void> {
     console.log('Skipping rare-block smoothing (--smooth-pct 0)');
   }
 
-  if (!args.generic && !args.noPalette) {
-    // Shadow-only palette: remap darkest photogrammetry artifacts to neutral tones.
-    // Previous version aggressively remapped 20+ block types (bricks, terracotta,
-    // sandstone, red_concrete, etc.) to smooth_quartz/light_gray_concrete —
-    // destroying real building colors. Now only the darkest baked-shadow blocks
-    // get remapped, preserving color variety from the texture sampler.
-    const paletteReplacements = new Map<string, string>([
-      ['minecraft:blackstone', 'minecraft:gray_concrete'],
-      ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
-      ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
-      ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
-    ]);
-    const constrained = constrainPalette(trimmed, paletteReplacements);
-    console.log(`Palette constrain: ${constrained} shadow blocks remapped (colors preserved)`);
-  } else if (args.noPalette) {
-    // --no-palette: only remap darkest shadows, keep everything else
-    const shadowReplacements = new Map<string, string>([
-      ['minecraft:blackstone', 'minecraft:gray_concrete'],
-      ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
-      ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
-      ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
-    ]);
-    const constrained = constrainPalette(trimmed, shadowReplacements);
-    console.log(`Minimal palette: ${constrained} darkest shadow blocks remapped (colors preserved)`);
-  } else {
-    // Generic mode: remap photogrammetry shadow artifacts + sky-contamination blocks.
-    // Google 3D Tiles bake ambient skylight (blue) and warm shadows that map to
-    // nether_bricks/deepslate/terracotta — these overpower actual building colors.
-    const shadowReplacements = new Map<string, string>([
-      // Darkest shadow artifacts → neutral gray
-      ['minecraft:blackstone', 'minecraft:gray_concrete'],
-      ['minecraft:polished_blackstone', 'minecraft:gray_concrete'],
-      ['minecraft:deepslate_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
-      ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:black_stained_glass', 'minecraft:gray_concrete'],
-      ['minecraft:gray_stained_glass', 'minecraft:stone'],
-      ['minecraft:black_concrete', 'minecraft:gray_concrete'],
-      // Blue sky contamination → neutral equivalents
+  // Sky contamination remap — Google 3D Tiles bake ambient skylight (blue/cyan)
+  // into upward-facing surfaces. Desaturation handles most of it, but highly
+  // saturated reflections can survive. Remap only these blue/cyan artifacts.
+  // Dark shadow remaps were removed: the upstream CIE-Lab pipeline (desaturation
+  // before luminance clamping + 50% lightness de-weighting + curated WALL_CLUSTERS)
+  // now accurately handles baked shadows. Dark blocks (blackstone, deepslate_bricks)
+  // represent legitimate dark building materials and should be preserved.
+  if (!args.noPalette) {
+    const skyReplacements = new Map<string, string>([
       ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
       ['minecraft:cyan_terracotta', 'minecraft:stone'],
       ['minecraft:light_blue_concrete', 'minecraft:light_gray_concrete'],
+      ['minecraft:cyan_concrete', 'minecraft:stone'],
     ]);
-    const constrained = constrainPalette(trimmed, shadowReplacements);
-    console.log(`Generic palette: ${constrained} shadow blocks remapped (colors preserved)`);
+    const constrained = constrainPalette(trimmed, skyReplacements);
+    if (constrained > 0) {
+      console.log(`Sky palette: ${constrained} blue/cyan sky-contaminated blocks remapped`);
+    }
   }
 
   // 3D mode filter — smooth surface textures while preserving color contrast.
