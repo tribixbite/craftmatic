@@ -81,6 +81,14 @@ const BUILDINGS: Building[] = [
   { schem: 'pentagon-headless-v26',    lat: 38.8719, lng: -77.0563, zoom: 19, scales: [6] },
   { schem: 'geisel-headless-v26',      lat: 32.8812, lng: -117.2376, zoom: 20, scales: [6] },
   { schem: 'applepark-headless-v26',   lat: 37.3346, lng: -122.0090, zoom: 17, scales: [6] },
+  // === New landmark headless captures (2026-03-10) ===
+  { schem: 'uscapitol-headless-v26',     lat: 38.8899, lng: -77.0091, zoom: 19, scales: [6] },
+  { schem: 'guggenheim-headless-v26',    lat: 40.7830, lng: -73.9590, zoom: 20, scales: [6] },
+  { schem: 'mitdome-headless-v26',       lat: 42.3594, lng: -71.0928, zoom: 20, scales: [6] },
+  { schem: 'transamerica-headless-v26',  lat: 37.7952, lng: -122.4028, zoom: 19, scales: [6] },
+  { schem: 'gettycenter-headless-v26',   lat: 34.0781, lng: -118.4741, zoom: 19, scales: [6] },
+  { schem: 'willistower-headless-v26',   lat: 41.8789, lng: -87.6358, zoom: 19, scales: [6] },
+  { schem: 'rosebowl-headless-v26',      lat: 34.1614, lng: -118.1676, zoom: 18, scales: [6] },
 ];
 
 const nameArg = process.argv.find(a => a.startsWith('--name='));

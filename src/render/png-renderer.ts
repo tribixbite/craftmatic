@@ -1196,7 +1196,7 @@ export async function renderSatelliteHiRes(
         // Non-building: show satellite at configurable brightness.
         // Full brightness (1.0) preserves global histogram for VLM comparison;
         // dimmed (0.25) creates contrast but VLM penalizes the composition mismatch.
-        const dim = options.contextDim ?? 0.25;
+        const dim = options.contextDim ?? 0;
         pixels[outIdx] = Math.round(sr * dim);
         pixels[outIdx + 1] = Math.round(sg * dim);
         pixels[outIdx + 2] = Math.round(sb * dim);
