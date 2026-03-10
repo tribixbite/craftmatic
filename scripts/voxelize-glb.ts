@@ -739,7 +739,7 @@ async function analyzeOne(filepath: string, resolution: number, minHeight: numbe
 
     const grid = threeToGrid(group, resolution, {
       mode: 'surface',
-      textureSampler: createDataTextureSampler(kernel, gamma, desaturate),
+      textureSampler: createDataTextureSampler(gamma, kernel, desaturate),
     });
     const trimmed = trimSparseBottomLayers(grid, trimThreshold);
     const analysis = analyzeGrid(trimmed);
@@ -1249,7 +1249,8 @@ async function main(): Promise<void> {
       ['minecraft:polished_deepslate', 'minecraft:gray_concrete'],
       ['minecraft:nether_bricks', 'minecraft:gray_concrete'],
       ['minecraft:red_nether_bricks', 'minecraft:gray_concrete'],
-      ['minecraft:black_stained_glass', 'minecraft:gray_stained_glass'],
+      ['minecraft:black_stained_glass', 'minecraft:gray_concrete'],
+      ['minecraft:gray_stained_glass', 'minecraft:stone'],
       ['minecraft:black_concrete', 'minecraft:gray_concrete'],
       // Blue sky contamination → neutral equivalents
       ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
