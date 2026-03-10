@@ -72,6 +72,7 @@ interface CLIArgs {
   batch: boolean;        // process multiple GLBs with --auto-info, output summary table
   coords: { lat: number; lng: number } | null; // OSM footprint masking coordinates
   keepVegetation: boolean; // preserve green/brown vegetation blocks (for satellite comparison)
+  noEnu: boolean;          // skip ENU reorientation (for pre-oriented headless GLBs)
 }
 
 function parseArgs(): CLIArgs {
@@ -105,7 +106,8 @@ Options:
   --auto-info        Quick analysis: voxelize + analyze + print report (no full pipeline)
   --batch            Process multiple GLB files with auto-analysis, print summary table
   --coords LAT,LNG   OSM footprint masking — query building polygon at these coords, mask grid
-  --keep-vegetation  Preserve green/brown vegetation blocks (for satellite comparison)`);
+  --keep-vegetation  Preserve green/brown vegetation blocks (for satellite comparison)
+  --no-enu           Skip ENU reorientation (for pre-oriented headless GLBs)`);
     process.exit(0);
   }
 
@@ -136,6 +138,7 @@ Options:
   let batch = false;
   let coords: { lat: number; lng: number } | null = null;
   let keepVegetation = false;
+  let noEnu = false;
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -179,6 +182,8 @@ Options:
       noFireEscape = true;
     } else if (arg === '--keep-vegetation') {
       keepVegetation = true;
+    } else if (arg === '--no-enu') {
+      noEnu = true;
     } else if (arg === '--clean') {
       cleanMinSize = parseInt(args[++i], 10);
     } else if (arg === '--crop') {
@@ -236,7 +241,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -912,8 +917,26 @@ async function main(): Promise<void> {
   // Google 3D Tiles use ECEF coordinates — "up" is radially outward from
   // Earth's center, not along any fixed axis. The ReorientationPlugin handles
   // this in the browser, but the exported GLB may retain ECEF orientation.
-  // We detect tilt by comparing Y extent to XZ extent and correct if needed.
-  reorientToENU(scene);
+  // --no-enu: skip for headless GLBs that are already ENU-oriented
+  // (tiles-headless.ts uses ReorientationPlugin → meshes already have Y-up).
+  if (args.noEnu) {
+    console.log('ENU reorientation: SKIPPED (--no-enu, pre-oriented headless GLB)');
+    // Still center the scene at origin for consistent grid coordinates
+    const box = new THREE.Box3().setFromObject(scene);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    const shift = new THREE.Matrix4().makeTranslation(-center.x, -box.min.y, -center.z);
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        child.geometry.applyMatrix4(shift);
+      }
+    });
+    console.log(`Centered: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} m`);
+  } else {
+    reorientToENU(scene);
+  }
 
   // Height filter: collect candidate meshes and filter by vertical extent
   console.log(`\nHeight filter: min ${args.minHeight}m above ground`);
