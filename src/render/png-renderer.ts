@@ -839,6 +839,181 @@ export async function renderSatelliteColored(
 }
 
 /**
+ * Render at satellite image resolution (1 output px = 1 satellite px).
+ * Uses the voxel heightmap for hillshade and building masking, but preserves
+ * the full satellite color resolution instead of downsampling to block grid.
+ *
+ * This produces renders that look much closer to the satellite reference
+ * because color detail is preserved at the satellite's native resolution
+ * (~0.11m/px at z20), while the voxel geometry adds 3D depth perception.
+ *
+ * The output image is cropped to the building's bounding box in satellite
+ * coordinates, with a small margin.
+ */
+export async function renderSatelliteHiRes(
+  grid: BlockGrid,
+  satPixels: Buffer,
+  satW: number,
+  satH: number,
+  options: { resolution: number; lat: number; zoom: number },
+): Promise<Buffer> {
+  const { resolution, lat, zoom } = options;
+  const { width: w, height: h, length: l } = grid;
+  const blocks = grid.to3DArray();
+
+  // Coordinate mapping: grid center = satellite center
+  const DEG2RAD = Math.PI / 180;
+  const metersPerPx = 156543.03392 * Math.cos(lat * DEG2RAD) / Math.pow(2, zoom);
+  const blocksPerSatPx = metersPerPx * resolution;
+  const gridCenterX = w / 2;
+  const gridCenterZ = l / 2;
+  const satCenterX = satW / 2;
+  const satCenterY = satH / 2;
+
+  // Build heightmap
+  const heightmap = new Int16Array(w * l);
+  heightmap.fill(-1);
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      for (let y = h - 1; y >= 0; y--) {
+        if (blocks[y][z][x] !== 'minecraft:air') {
+          heightmap[z * w + x] = y;
+          break;
+        }
+      }
+    }
+  }
+
+  // Smooth heightmap with 3x3 Gaussian
+  const smoothHm = new Float32Array(w * l);
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      const c = heightmap[z * w + x];
+      if (c < 0) { smoothHm[z * w + x] = -1; continue; }
+      let sum = 0, wt = 0;
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nx >= w || nz < 0 || nz >= l) continue;
+          const nh = heightmap[nz * w + nx];
+          if (nh < 0) continue;
+          const k = (dx === 0 ? 2 : 1) * (dz === 0 ? 2 : 1);
+          sum += nh * k; wt += k;
+        }
+      }
+      smoothHm[z * w + x] = wt > 0 ? sum / wt : c;
+    }
+  }
+
+  // Find bounding box of non-air blocks in satellite pixel space
+  let minSatX = satW, maxSatX = 0, minSatY = satH, maxSatY = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      if (heightmap[z * w + x] < 0) continue;
+      const sx = satCenterX + (x - gridCenterX) / blocksPerSatPx;
+      const sy = satCenterY + (z - gridCenterZ) / blocksPerSatPx;
+      if (sx < minSatX) minSatX = sx;
+      if (sx > maxSatX) maxSatX = sx;
+      if (sy < minSatY) minSatY = sy;
+      if (sy > maxSatY) maxSatY = sy;
+    }
+  }
+
+  // Pad the bounding box with some satellite pixels for context
+  const pad = Math.ceil(10 / blocksPerSatPx); // ~10 blocks worth of context
+  minSatX = Math.max(0, Math.floor(minSatX) - pad);
+  maxSatX = Math.min(satW - 1, Math.ceil(maxSatX) + pad);
+  minSatY = Math.max(0, Math.floor(minSatY) - pad);
+  maxSatY = Math.min(satH - 1, Math.ceil(maxSatY) + pad);
+
+  const imgW = maxSatX - minSatX + 1;
+  const imgH = maxSatY - minSatY + 1;
+  const pixels = Buffer.alloc(imgW * imgH * 4);
+
+  // Sun direction for hillshade (same as standard renderer)
+  const sunDirX = -0.5, sunDirZ = -0.5, sunDirY = 0.707;
+  const sunLen = Math.sqrt(sunDirX * sunDirX + sunDirZ * sunDirZ + sunDirY * sunDirY);
+  const sdx = sunDirX / sunLen, sdz = sunDirZ / sunLen, sdy = sunDirY / sunLen;
+
+  /** Get smoothed heightmap value with boundary clamping */
+  function shm(x: number, z: number): number {
+    const cx = Math.max(0, Math.min(w - 1, x));
+    const cz = Math.max(0, Math.min(l - 1, z));
+    return Math.max(0, smoothHm[cz * w + cx]);
+  }
+
+  /** Bilinear heightmap sample at fractional grid coords */
+  function sampleHeight(gx: number, gz: number): number {
+    const x0 = Math.floor(gx), z0 = Math.floor(gz);
+    const x1 = Math.min(x0 + 1, w - 1), z1 = Math.min(z0 + 1, l - 1);
+    const fx = gx - x0, fz = gz - z0;
+    const h00 = heightmap[z0 * w + x0];
+    const h10 = heightmap[z0 * w + x1];
+    const h01 = heightmap[z1 * w + x0];
+    const h11 = heightmap[z1 * w + x1];
+    // If any neighbor is air, nearest-neighbor instead
+    if (h00 < 0 || h10 < 0 || h01 < 0 || h11 < 0) {
+      const nx = Math.round(gx), nz = Math.round(gz);
+      if (nx >= 0 && nx < w && nz >= 0 && nz < l) return heightmap[nz * w + nx];
+      return -1;
+    }
+    return h00 * (1 - fx) * (1 - fz) + h10 * fx * (1 - fz) +
+           h01 * (1 - fx) * fz + h11 * fx * fz;
+  }
+
+  // Iterate over satellite pixels in the cropped region
+  for (let sy = 0; sy < imgH; sy++) {
+    for (let sx = 0; sx < imgW; sx++) {
+      const satX = minSatX + sx;
+      const satY = minSatY + sy;
+
+      // Map satellite pixel → grid coordinates (fractional)
+      const gx = gridCenterX + (satX - satCenterX) * blocksPerSatPx;
+      const gz = gridCenterZ + (satY - satCenterY) * blocksPerSatPx;
+
+      // Get satellite color
+      const satIdx = (satY * satW + satX) * 3;
+      const sr = satPixels[satIdx];
+      const sg = satPixels[satIdx + 1];
+      const sb = satPixels[satIdx + 2];
+
+      // Check if this satellite pixel maps to a block in the grid
+      const topY = sampleHeight(gx, gz);
+      const outIdx = (sy * imgW + sx) * 4;
+
+      if (topY < 0 || gx < 0 || gx >= w || gz < 0 || gz >= l) {
+        // No building here — show dimmed satellite for context
+        pixels[outIdx] = Math.round(sr * 0.4);
+        pixels[outIdx + 1] = Math.round(sg * 0.4);
+        pixels[outIdx + 2] = Math.round(sb * 0.4);
+        pixels[outIdx + 3] = 255;
+        continue;
+      }
+
+      // Compute hillshade at this grid position
+      const ix = Math.round(gx), iz = Math.round(gz);
+      const dzdx = (shm(ix + 1, iz) - shm(ix - 1, iz)) / 2;
+      const dzdy = (shm(ix, iz + 1) - shm(ix, iz - 1)) / 2;
+      const nx = -dzdx, ny = 1, nz = -dzdy;
+      const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      const dot = (nx / nlen) * sdx + (ny / nlen) * sdy + (nz / nlen) * sdz;
+      const shade = 0.4 + 0.6 * Math.max(0, dot);
+
+      // Global height factor
+      const globalH = 0.85 + 0.15 * (topY / (h - 1 || 1));
+      const brightness = shade * globalH;
+
+      pixels[outIdx] = clamp(sr * brightness);
+      pixels[outIdx + 1] = clamp(sg * brightness);
+      pixels[outIdx + 2] = clamp(sb * brightness);
+      pixels[outIdx + 3] = 255;
+    }
+  }
+
+  return encodePNG(pixels, imgW, imgH);
+}
+
+/**
  * Render a full exterior isometric view of the entire schematic.
  * Enhanced with textured faces, ambient occlusion and edge outlines.
  */
