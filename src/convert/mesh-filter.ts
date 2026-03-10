@@ -1109,9 +1109,12 @@ export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1): number {
             }
           }
 
-          // Replace if center disagrees with majority and majority is strong
-          // (needs >40% of neighbors to be the same block for replacement)
-          if (majorityBlock !== center && majorityCount > totalNeighbors * 0.4) {
+          // Replace if center disagrees with majority, majority is strong (>50%),
+          // AND center block is isolated (< 2 same-type neighbors).
+          // This protects 1-block-wide continuous lines (window frames, trim, pipes)
+          // which have ≥2 neighbors of their own type — they're part of a feature, not noise.
+          const centerCount = neighborCounts.get(center) ?? 0;
+          if (majorityBlock !== center && majorityCount > totalNeighbors * 0.5 && centerCount < 2) {
             grid.set(x, y, z, majorityBlock);
             passReplaced++;
           }
@@ -2163,9 +2166,13 @@ export function removeGroundPlane(
 
   if (groundHeights.length === 0) return { removed: 0, groundY: 0 };
 
-  // Median ground height = ground plane level
+  // Low percentile ground height = ground plane level.
+  // Median fails when a hollow building shell covers >50% of footprint — the
+  // lowest solid block for interior columns is the roof, making median = roof height,
+  // which deletes the entire building. 10th percentile ignores noise while finding
+  // the true ground level even when the building dominates the footprint.
   const sorted = [...groundHeights].sort((a, b) => a - b);
-  const groundY = sorted[Math.floor(sorted.length / 2)];
+  const groundY = sorted[Math.floor(sorted.length * 0.10)];
   const cutY = groundY + margin;
 
   // Remove blocks at or below cutY for columns near the ground plane.
@@ -3162,4 +3169,53 @@ export function placeEntryPath(
   }
 
   return placed;
+}
+
+/**
+ * Vegetation blocks to strip during post-processing.
+ * Photogrammetry trees map to greens, dark browns, and olive tones.
+ * Matches the set in voxelizer.ts (duplicated to avoid circular dependency).
+ */
+const VEGETATION_BLOCKS_POST = new Set([
+  'minecraft:green_concrete', 'minecraft:lime_concrete',
+  'minecraft:green_terracotta', 'minecraft:lime_terracotta',
+  'minecraft:moss_block', 'minecraft:green_wool', 'minecraft:lime_wool',
+  'minecraft:green_concrete_powder', 'minecraft:lime_concrete_powder',
+  'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:birch_leaves',
+  'minecraft:jungle_leaves', 'minecraft:acacia_leaves', 'minecraft:dark_oak_leaves',
+  'minecraft:azalea_leaves', 'minecraft:flowering_azalea_leaves',
+  'minecraft:grass_block', 'minecraft:moss_carpet',
+  'minecraft:soul_soil', 'minecraft:podzol',
+  'minecraft:mud', 'minecraft:packed_mud',
+]);
+
+/**
+ * Strip vegetation blocks from a grid, replacing them with air.
+ *
+ * Designed to run AFTER fillInteriorGaps so that trees placed during voxelization
+ * act as solid walls during the flood-fill, preventing holes behind tree canopy.
+ * Once fill completes, the building interior is solid, and stripping vegetation
+ * reveals the filled wall behind rather than leaving air gaps.
+ *
+ * @param grid  Mutable BlockGrid
+ * @returns Number of vegetation blocks removed
+ */
+export function stripVegetation(grid: BlockGrid): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  let removed = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (VEGETATION_BLOCKS_POST.has(block)) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
 }

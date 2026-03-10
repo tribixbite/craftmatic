@@ -32,7 +32,7 @@ import {
   smoothRareBlocks, constrainPalette, modeFilter3D,
   fillInteriorGaps,
   verticalRectify, horizontalRectify, removeSmallComponents,
-  glazeBackplane, removeGroundPlane,
+  glazeBackplane, removeGroundPlane, stripVegetation,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -495,8 +495,9 @@ async function runVoxelizePipeline(
       mode: 'surface',
       // Yield to main thread every 4 layers to keep UI responsive on mobile
       yieldInterval: 4,
-      // Filter vegetation colors (green/olive hues from trees in photogrammetry)
-      filterVegetation: true,
+      // Don't filter vegetation during voxelization — trees act as solid walls during
+      // fillInteriorGaps, preventing holes behind canopy. Strip in post-processing.
+      filterVegetation: false,
     });
 
     // Post-voxel Y trim: remove sparse bottom layers (residual terrain that
@@ -633,6 +634,12 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   // 6. Second fill pass — rectification closes wall gaps, enabling more interior fill
   const interiorFilled2 = fillInteriorGaps(grid, 1);
   if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2: ${interiorFilled2} voxels`);
+  await yieldUI();
+
+  // 6b. Strip vegetation — trees acted as solid walls during fill,
+  // preventing holes behind canopy. Now building interior is solid.
+  const vegStripped = stripVegetation(grid);
+  if (vegStripped > 0) console.log(`[tiles:pp] vegetation strip: ${vegStripped} tree/bush blocks removed`);
   await yieldUI();
 
   // 7. Smooth rare/noisy blocks — replaces globally rare blocks with common neighbors
