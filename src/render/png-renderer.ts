@@ -646,6 +646,175 @@ export async function renderTopDown(
 }
 
 /**
+ * Render a top-down view using satellite image colors projected onto voxel geometry.
+ * Combines accurate real-world colors from satellite imagery with 3D height detail
+ * from voxelization. Each XZ column samples the satellite image at the corresponding
+ * geographic position and modulates by heightmap brightness.
+ *
+ * @param grid - Voxelized BlockGrid from .schem
+ * @param satPixels - Raw RGB pixel buffer from satellite image (no alpha)
+ * @param satW - Satellite image width (typically 640)
+ * @param satH - Satellite image height (typically 640)
+ * @param options.resolution - Voxel resolution in blocks/meter (e.g. 3)
+ * @param options.lat - Latitude of the building (for meters-per-pixel calc)
+ * @param options.zoom - Google Maps zoom level of the satellite image (e.g. 20)
+ * @param options.scale - Output pixel scale per block (default 8)
+ */
+export async function renderSatelliteColored(
+  grid: BlockGrid,
+  satPixels: Buffer,
+  satW: number,
+  satH: number,
+  options: { resolution: number; lat: number; zoom: number; scale?: number },
+): Promise<Buffer> {
+  let { scale = 8 } = options;
+  const { resolution, lat, zoom } = options;
+  const { width: w, height: h, length: l } = grid;
+  const blocks = grid.to3DArray();
+
+  // Meters per pixel at this zoom/latitude
+  const DEG2RAD = Math.PI / 180;
+  const metersPerPx = 156543.03392 * Math.cos(lat * DEG2RAD) / Math.pow(2, zoom);
+
+  // Blocks per satellite pixel: metersPerPx * resolution
+  const blocksPerSatPx = metersPerPx * resolution;
+
+  // Grid center corresponds to satellite image center
+  const gridCenterX = w / 2;
+  const gridCenterZ = l / 2;
+  const satCenterX = satW / 2;
+  const satCenterY = satH / 2;
+
+  // Auto-crop: find XZ bounding box of non-air blocks
+  let minX = w, maxX = 0, minZ = l, maxZ = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      for (let y = h - 1; y >= 0; y--) {
+        if (blocks[y][z][x] !== 'minecraft:air') {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (z < minZ) minZ = z;
+          if (z > maxZ) maxZ = z;
+          break;
+        }
+      }
+    }
+  }
+  if (minX > maxX) { minX = 0; maxX = w - 1; }
+  if (minZ > maxZ) { minZ = 0; maxZ = l - 1; }
+
+  // Padding around content
+  const pad = 2;
+  minX = Math.max(0, minX - pad);
+  maxX = Math.min(w - 1, maxX + pad);
+  minZ = Math.max(0, minZ - pad);
+  maxZ = Math.min(l - 1, maxZ + pad);
+
+  const cw = maxX - minX + 1;
+  const cl = maxZ - minZ + 1;
+
+  const margin = Math.max(4, scale);
+  let imgW = cw * scale + margin * 2;
+  let imgH = cl * scale + margin * 2;
+
+  // Clamp to MAX_DIM
+  if (Math.max(imgW, imgH) > MAX_DIM) {
+    const ratio = MAX_DIM / Math.max(imgW, imgH);
+    scale = Math.max(2, Math.round(scale * ratio));
+    const m2 = Math.max(4, scale);
+    imgW = cw * scale + m2 * 2;
+    imgH = cl * scale + m2 * 2;
+  }
+
+  const ox = Math.max(4, scale);
+  const oy = Math.max(4, scale);
+
+  const pixels = Buffer.alloc(imgW * imgH * 4);
+  // Dark background
+  fillRect(pixels, imgW, 0, 0, imgW, imgH, [20, 20, 20]);
+
+  // Build heightmap for hillshade computation
+  const heightmap = new Int16Array(w * l);
+  heightmap.fill(-1);
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      for (let y = h - 1; y >= 0; y--) {
+        if (blocks[y][z][x] !== 'minecraft:air') {
+          heightmap[z * w + x] = y;
+          break;
+        }
+      }
+    }
+  }
+
+  // Hillshade: sun from upper-left (azimuth ~315°, elevation ~45°)
+  // mimics typical satellite imagery shadow direction
+  const sunDirX = -0.5;  // from west (negative X)
+  const sunDirZ = -0.5;  // from north (negative Z)
+  const sunDirY = 0.707; // 45° elevation
+  const sunLen = Math.sqrt(sunDirX * sunDirX + sunDirZ * sunDirZ + sunDirY * sunDirY);
+  const sdx = sunDirX / sunLen;
+  const sdz = sunDirZ / sunLen;
+  const sdy = sunDirY / sunLen;
+
+  /** Get heightmap value with boundary clamping */
+  function hm(x: number, z: number): number {
+    const cx = Math.max(0, Math.min(w - 1, x));
+    const cz = Math.max(0, Math.min(l - 1, z));
+    return Math.max(0, heightmap[cz * w + cx]);
+  }
+
+  for (let z = minZ; z <= maxZ; z++) {
+    for (let x = minX; x <= maxX; x++) {
+      const topY = heightmap[z * w + x];
+      if (topY < 0) continue;
+
+      // Map grid XZ to satellite pixel coordinates
+      // Grid X = East, Grid Z = South (matches satellite right/down)
+      const satPx = Math.round(satCenterX + (x - gridCenterX) / blocksPerSatPx);
+      const satPy = Math.round(satCenterY + (z - gridCenterZ) / blocksPerSatPx);
+
+      // Sample satellite image RGB (clamp to bounds)
+      let sr = 80, sg = 80, sb = 80; // default gray for out-of-bounds
+      if (satPx >= 0 && satPx < satW && satPy >= 0 && satPy < satH) {
+        const idx = (satPy * satW + satPx) * 3;
+        sr = satPixels[idx];
+        sg = satPixels[idx + 1];
+        sb = satPixels[idx + 2];
+      }
+
+      const px = ox + (x - minX) * scale;
+      const py = oy + (z - minZ) * scale;
+
+      // Compute surface normal from heightmap gradient (Sobel-like)
+      const dzdx = (hm(x + 1, z) - hm(x - 1, z)) / 2;
+      const dzdy = (hm(x, z + 1) - hm(x, z - 1)) / 2;
+      // Normal = (-dzdx, 1, -dzdy) normalized
+      const nx = -dzdx;
+      const ny = 1;
+      const nz = -dzdy;
+      const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+
+      // Lambertian diffuse: dot(normal, sunDir)
+      const dot = (nx / nlen) * sdx + (ny / nlen) * sdy + (nz / nlen) * sdz;
+      // Hillshade: ambient 0.4 + diffuse 0.6 × clamp(dot)
+      const shade = 0.4 + 0.6 * Math.max(0, dot);
+
+      // Global height factor (slight boost for tall areas)
+      const globalH = 0.85 + 0.15 * (topY / (h - 1 || 1));
+
+      const brightness = shade * globalH;
+      const r = clamp(sr * brightness);
+      const g = clamp(sg * brightness);
+      const b = clamp(sb * brightness);
+      fillRect(pixels, imgW, px, py, scale, scale, [r, g, b]);
+    }
+  }
+
+  return encodePNG(pixels, imgW, imgH);
+}
+
+/**
  * Render a full exterior isometric view of the entire schematic.
  * Enhanced with textured faces, ambient occlusion and edge outlines.
  */
