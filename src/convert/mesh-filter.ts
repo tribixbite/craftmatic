@@ -2612,11 +2612,12 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
   // ── 2. Connected component isolation ──
   const { labels, sizes: _componentSizes, count: componentCount } = labelConnectedComponents(grid);
 
-  // Find component closest to XZ center
+  // Find primary building component using size-weighted centrality score.
+  // Pure centroid-proximity fails for ring/courtyard buildings (Pentagon, Colosseum)
+  // where a tiny noise voxel at center beats the actual structure.
   const cx = width / 2;
   const cz = length / 2;
   let centralLabel = 1;
-  let bestDist = Infinity;
 
   if (componentCount > 0) {
     const centroidX = new Float64Array(componentCount + 1);
@@ -2635,13 +2636,29 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
       }
     }
 
+    // Establish baseline: largest component size
+    let maxCompSize = 0;
     for (let i = 1; i <= componentCount; i++) {
-      if (compCounts[i] === 0) continue;
+      if (compCounts[i] > maxCompSize) maxCompSize = compCounts[i];
+    }
+
+    const maxDist = Math.sqrt(cx * cx + cz * cz); // max possible distance (corner to center)
+    let bestScore = -Infinity;
+
+    for (let i = 1; i <= componentCount; i++) {
+      // Filter noise: must be ≥5% of largest component or ≥100 voxels
+      if (compCounts[i] < Math.max(100, maxCompSize * 0.05)) continue;
+
       const mx = centroidX[i] / compCounts[i];
       const mz = centroidZ[i] / compCounts[i];
-      const dist = (mx - cx) * (mx - cx) + (mz - cz) * (mz - cz);
-      if (dist < bestDist) {
-        bestDist = dist;
+      const dist = Math.sqrt((mx - cx) * (mx - cx) + (mz - cz) * (mz - cz));
+
+      // Score = volume penalized by distance from center (up to 50% reduction at edge)
+      const normalizedDist = maxDist > 0 ? dist / maxDist : 0;
+      const score = compCounts[i] * (1.0 - normalizedDist * 0.5);
+
+      if (score > bestScore) {
+        bestScore = score;
         centralLabel = i;
       }
     }

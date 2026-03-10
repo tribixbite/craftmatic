@@ -467,62 +467,89 @@ function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false): void {
   const maxXZ = Math.max(size.x, size.z);
   if (maxXZ < 0.01) return; // Degenerate mesh
 
-  const yRatio = size.y / maxXZ;
-  if (yRatio < 0.8) {
-    console.log(`ENU check: Y/XZ ratio ${yRatio.toFixed(2)} — already oriented (Y-up)`);
-    return;
-  }
-
-  // The scene center approximates the ECEF "up" direction for the capture location.
-  // We want to rotate this direction to align with (0, 1, 0).
-  const center = new THREE.Vector3();
-  box.getCenter(center);
-
-  // Compute the "up" direction: for ECEF data centered near origin,
-  // the center-of-mass direction points "up" (away from Earth center).
-  // For reoriented data the center is near (0, 0, 0) but "up" is along the
-  // axis with the smallest bounding extent relative to mesh surface normals.
-  // Use PCA on mesh vertex positions to find the flattest axis.
-  const { minEigenvector: upDir, maxEigenvector: longestAxis } = estimateUpDirection(scene);
-  console.log(`ENU reorientation: detected up direction (${upDir.x.toFixed(3)}, ${upDir.y.toFixed(3)}, ${upDir.z.toFixed(3)})`);
-
-  // Rotation 1: maps upDir → (0, 1, 0) — makes building upright
+  // 1. Vertical alignment via PCA — detect tilt angle instead of brittle Y/XZ ratio.
+  // PCA is cheap (~500 samples/mesh), so always compute it and check actual tilt.
+  const { minEigenvector: upDir } = estimateUpDirection(scene);
   const targetUp = new THREE.Vector3(0, 1, 0);
-  const quat = new THREE.Quaternion().setFromUnitVectors(upDir, targetUp);
+  const tiltAngle = upDir.angleTo(targetUp);
 
-  // Apply rotation to all meshes
-  const rotMatrix = new THREE.Matrix4().makeRotationFromQuaternion(quat);
-  scene.traverse((child) => {
-    if (child instanceof THREE.Mesh && child.geometry) {
-      child.geometry.applyMatrix4(rotMatrix);
-    }
-  });
-
-  // Rotation 2: align longest horizontal axis with X (so buildings appear horizontal in top-down view).
-  // Project the longest PCA eigenvector through the up-rotation, then rotate around Y to align with X.
-  const rotatedLongest = longestAxis.clone().applyQuaternion(quat);
-  // Project onto XZ plane and find angle to X axis
-  const xzAngle = Math.atan2(rotatedLongest.z, rotatedLongest.x);
-  if (Math.abs(xzAngle) > 0.01) { // Only rotate if significantly off-axis
-    const yRotation = new THREE.Matrix4().makeRotationY(-xzAngle);
+  if (tiltAngle > 0.087) { // >5° tilt — apply vertical correction
+    console.log(`ENU vertical align: correcting tilt of ${(tiltAngle * 180 / Math.PI).toFixed(1)}°`);
+    const quat = new THREE.Quaternion().setFromUnitVectors(upDir, targetUp);
+    const rotMatrix = new THREE.Matrix4().makeRotationFromQuaternion(quat);
     scene.traverse((child) => {
       if (child instanceof THREE.Mesh && child.geometry) {
-        child.geometry.applyMatrix4(yRotation);
+        child.geometry.applyMatrix4(rotMatrix);
       }
     });
-    enuHorizontalAngle = xzAngle; // Save for OSM polygon rotation
-    console.log(`ENU horizontal align: rotated ${(xzAngle * 180 / Math.PI).toFixed(1)}° around Y`);
+  } else {
+    console.log(`ENU vertical align: tilt is negligible (${(tiltAngle * 180 / Math.PI).toFixed(1)}°), skipping`);
   }
 
-  // Recenter so ground is at Y=0
+  // 2. Horizontal alignment via Minimum Bounding Box Area Sweep.
+  // PCA longest-axis alignment rotates square buildings 45° (diagonal = longest axis).
+  // Instead, sweep 0-90° in 1° steps and find the rotation that minimizes XZ bounding
+  // box area. This correctly handles squares, rectangles, L-shapes, and pentagons.
+  if (!skipHorizontalAlign) {
+    const pointsXZ: { x: number; z: number }[] = [];
+    scene.traverse((child) => {
+      if (!(child instanceof THREE.Mesh) || !child.geometry) return;
+      const posAttr = child.geometry.getAttribute('position') as THREE.BufferAttribute;
+      if (!posAttr) return;
+      const step = Math.max(1, Math.floor(posAttr.count / 500));
+      for (let i = 0; i < posAttr.count; i += step) {
+        pointsXZ.push({ x: posAttr.getX(i), z: posAttr.getZ(i) });
+      }
+    });
+
+    if (pointsXZ.length > 10) {
+      let bestAngle = 0;
+      let minArea = Infinity;
+
+      for (let deg = 0; deg < 90; deg += 1) {
+        const rad = deg * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        let mnX = Infinity, mxX = -Infinity, mnZ = Infinity, mxZ = -Infinity;
+
+        for (const p of pointsXZ) {
+          const rx = p.x * cos - p.z * sin;
+          const rz = p.x * sin + p.z * cos;
+          if (rx < mnX) mnX = rx;
+          if (rx > mxX) mxX = rx;
+          if (rz < mnZ) mnZ = rz;
+          if (rz > mxZ) mxZ = rz;
+        }
+
+        const area = (mxX - mnX) * (mxZ - mnZ);
+        if (area < minArea) {
+          minArea = area;
+          bestAngle = rad;
+        }
+      }
+
+      if (bestAngle > 0.01) {
+        console.log(`ENU horizontal align: rotated ${(bestAngle * 180 / Math.PI).toFixed(1)}° to minimize footprint`);
+        const yRotation = new THREE.Matrix4().makeRotationY(-bestAngle);
+        scene.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.geometry) {
+            child.geometry.applyMatrix4(yRotation);
+          }
+        });
+        enuHorizontalAngle = bestAngle; // Save for OSM polygon rotation
+      }
+    }
+  }
+
+  // Recenter so ground is at Y=0, XZ centered at origin
   const newBox = new THREE.Box3().setFromObject(scene);
-  const shift = new THREE.Vector3(-newBox.min.x, -newBox.min.y, -newBox.min.z);
-  // Center XZ, keep Y at ground=0
   const newSize = new THREE.Vector3();
   newBox.getSize(newSize);
-  shift.x = -(newBox.min.x + newSize.x / 2);
-  shift.z = -(newBox.min.z + newSize.z / 2);
-  shift.y = -newBox.min.y;
+  const shift = new THREE.Vector3(
+    -(newBox.min.x + newSize.x / 2),
+    -newBox.min.y,
+    -(newBox.min.z + newSize.z / 2),
+  );
 
   const shiftMatrix = new THREE.Matrix4().makeTranslation(shift.x, shift.y, shift.z);
   scene.traverse((child) => {
@@ -543,7 +570,7 @@ function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false): void {
  * to the axis along which the data is flattest — i.e., the vertical axis
  * for a mostly-horizontal neighborhood capture.
  */
-function estimateUpDirection(scene: THREE.Group): { minEigenvector: THREE.Vector3; maxEigenvector: THREE.Vector3 } {
+function estimateUpDirection(scene: THREE.Group): { minEigenvector: THREE.Vector3 } {
   // Collect a sample of vertex positions (subsample for performance)
   const positions: THREE.Vector3[] = [];
   const center = new THREE.Vector3();
@@ -560,7 +587,7 @@ function estimateUpDirection(scene: THREE.Group): { minEigenvector: THREE.Vector
     }
   });
 
-  if (positions.length < 10) return new THREE.Vector3(0, 1, 0);
+  if (positions.length < 10) return { minEigenvector: new THREE.Vector3(0, 1, 0) };
 
   center.divideScalar(positions.length);
 
@@ -601,7 +628,7 @@ function estimateUpDirection(scene: THREE.Group): { minEigenvector: THREE.Vector
 function jacobi3x3(
   a11: number, a12: number, a13: number,
   a22: number, a23: number, a33: number,
-): { minEigenvector: THREE.Vector3; maxEigenvector: THREE.Vector3 } {
+): { minEigenvector: THREE.Vector3 } {
   // Matrix A stored as flat array (symmetric, row-major)
   const a = [a11, a12, a13, a12, a22, a23, a13, a23, a33];
   // Eigenvector matrix V starts as identity
@@ -658,19 +685,14 @@ function jacobi3x3(
   // Sort indices by eigenvalue ascending (min first)
   const sortedIdx = [0, 1, 2].sort((a, b) => eigenvalues[a] - eigenvalues[b]);
   const minIdx = sortedIdx[0];
-  const maxIdx = sortedIdx[2]; // Largest eigenvalue = longest axis
 
-  // Min eigenvector (up direction)
+  // Min eigenvector (up direction — flattest axis)
   const ev = new THREE.Vector3(v[0 * 3 + minIdx], v[1 * 3 + minIdx], v[2 * 3 + minIdx]);
   ev.normalize();
   if (ev.y < 0) ev.negate();
 
-  // Max eigenvector (longest horizontal extent for XZ alignment)
-  const maxEv = new THREE.Vector3(v[0 * 3 + maxIdx], v[1 * 3 + maxIdx], v[2 * 3 + maxIdx]);
-  maxEv.normalize();
-
   console.log(`PCA eigenvalues: [${eigenvalues.map(e => e.toFixed(1)).join(', ')}], min axis index: ${minIdx}`);
-  return { minEigenvector: ev, maxEigenvector: maxEv };
+  return { minEigenvector: ev };
 }
 
 // ─── Mesh Analysis ──────────────────────────────────────────────────────────
