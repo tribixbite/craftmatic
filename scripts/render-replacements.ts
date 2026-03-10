@@ -29,6 +29,11 @@ const BUILDINGS: Building[] = [
   { name: 'stpatricks',  lat: 40.7585, satFile: 'st-patricks-satellite', zoom: 20, schemFile: 'stpatricks-v26.schem' },
   { name: 'baker',       lat: 37.8003, satFile: 'baker-3170-satellite',  zoom: 20, schemFile: 'baker-v26.schem' },
   { name: 'green',       lat: 37.7983, satFile: 'green-2390-satellite',  zoom: 20, schemFile: 'green-v26.schem' },
+  { name: 'dakota',      lat: 40.7764, satFile: 'dakota-satellite',      zoom: 20, schemFile: 'dakota-v26.schem' },
+  { name: 'sentinel',    lat: 37.7978, satFile: 'sentinel-satellite',    zoom: 20, schemFile: 'sentinel-v26.schem' },
+  { name: 'noe',         lat: 37.7614, satFile: 'noe-450-satellite',     zoom: 20, schemFile: 'noe-v26.schem' },
+  { name: 'esb',         lat: 40.7484, satFile: 'esb-satellite',         zoom: 20, schemFile: 'esb-v26.schem' },
+  { name: 'chrysler',    lat: 40.7516, satFile: 'chrysler-satellite',    zoom: 20, schemFile: 'chrysler-v26.schem' },
 ];
 
 const RESOLUTION = 4;
