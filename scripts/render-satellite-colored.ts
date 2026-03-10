@@ -2,14 +2,19 @@
 /**
  * Render satellite-colored top-down views for all v16 schematics.
  * Projects Google Static Maps satellite image colors onto voxel heightmap geometry.
- * Usage: bun scripts/render-satellite-colored.ts [--name=newton] [--version=v21]
+ *
+ * Two modes:
+ * - Default: block-resolution render (8px per block, ~120×120 output)
+ * - --hires: satellite-resolution render (1 satellite px = 1 output px, ~400×400)
+ *
+ * Usage: bun scripts/render-satellite-colored.ts [--name=newton] [--version=v25] [--hires]
  */
 import { writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { resolve, join } from 'path';
 import sharp from 'sharp';
 import { parseToGrid } from '../src/schem/parse.js';
-import { renderSatelliteColored } from '../src/render/png-renderer.js';
+import { renderSatelliteColored, renderSatelliteHiRes } from '../src/render/png-renderer.js';
 
 sharp.concurrency(1);
 
@@ -19,27 +24,25 @@ const tilesDir = join(projectRoot, 'output/tiles');
 interface Building {
   name: string;
   lat: number;
-  // Satellite source: [filename suffix, zoom level]
-  // v21 uses higher-zoom z21 satellites for weak buildings where available
   satellites: Record<string, { file: string; zoom: number }>;
 }
 
 // All 12 buildings with available satellite images at different zoom levels
 const BUILDINGS: Building[] = [
-  // v22: z21 only for SF (improved 3→6 at higher zoom); z20 for all others
-  // z21 hurt Seattle (coverage too small) and didn't help Austin/Charleston/SuttonsBay
-  { name: 'sf',          lat: 37.8011, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v21-satellite', zoom: 21 } } },
-  { name: 'newton',      lat: 42.3435, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
-  { name: 'sanjose',     lat: 37.3183, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
-  { name: 'walpole',     lat: 43.0775, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
-  { name: 'byron',       lat: 42.8350, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
-  { name: 'vinalhaven',  lat: 44.1172, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
-  { name: 'suttonsbay',  lat: 44.8946, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
-  { name: 'losangeles',  lat: 34.1162, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
-  { name: 'seattle',     lat: 47.5389, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
-  { name: 'austin',      lat: 30.3714, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
-  { name: 'minneapolis', lat: 45.0180, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
-  { name: 'charleston',  lat: 32.7744, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v22: { file: 'v12-satellite', zoom: 20 } } },
+  // v25: high-res satellite rendering (1:1 satellite px = output px)
+  // z21 only for SF; z20 for all others
+  { name: 'sf',          lat: 37.8011, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v21-satellite', zoom: 21 } } },
+  { name: 'newton',      lat: 42.3435, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
+  { name: 'sanjose',     lat: 37.3183, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
+  { name: 'walpole',     lat: 43.0775, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
+  { name: 'byron',       lat: 42.8350, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
+  { name: 'vinalhaven',  lat: 44.1172, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
+  { name: 'suttonsbay',  lat: 44.8946, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
+  { name: 'losangeles',  lat: 34.1162, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
+  { name: 'seattle',     lat: 47.5389, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
+  { name: 'austin',      lat: 30.3714, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
+  { name: 'minneapolis', lat: 45.0180, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
+  { name: 'charleston',  lat: 32.7744, satellites: { v20: { file: 'v12-satellite', zoom: 20 }, v25: { file: 'v12-satellite', zoom: 20 } } },
 ];
 
 const RESOLUTION = 3; // v16 was voxelized at 3 blocks/meter
@@ -48,7 +51,8 @@ const RESOLUTION = 3; // v16 was voxelized at 3 blocks/meter
 const nameArg = process.argv.find(a => a.startsWith('--name='));
 const filterName = nameArg ? nameArg.split('=')[1] : null;
 const versionArg = process.argv.find(a => a.startsWith('--version='));
-const version = versionArg ? versionArg.split('=')[1] : 'v21';
+const version = versionArg ? versionArg.split('=')[1] : 'v25';
+const hiresMode = process.argv.includes('--hires');
 
 for (const b of BUILDINGS) {
   if (filterName && b.name !== filterName) continue;
@@ -67,7 +71,7 @@ for (const b of BUILDINGS) {
     continue;
   }
 
-  console.log(`=== ${b.name} (z${satInfo.zoom}) ===`);
+  console.log(`=== ${b.name} (z${satInfo.zoom}, ${hiresMode ? 'hires' : 'block-res'}) ===`);
 
   // Load schematic
   const grid = await parseToGrid(schemPath);
@@ -90,15 +94,21 @@ for (const b of BUILDINGS) {
   console.log(`  Satellite: ${satW}x${satH}, coverage ${coverageM.toFixed(1)}m vs grid ${gridExtentM.toFixed(1)}m`);
 
   // Render satellite-colored top-down with hillshade
-  const pngBuf = await renderSatelliteColored(grid, satRgb, satW, satH, {
-    resolution: RESOLUTION,
-    lat: b.lat,
-    zoom: satInfo.zoom,
-    scale: 8,
-  });
+  const pngBuf = hiresMode
+    ? await renderSatelliteHiRes(grid, satRgb, satW, satH, {
+        resolution: RESOLUTION,
+        lat: b.lat,
+        zoom: satInfo.zoom,
+      })
+    : await renderSatelliteColored(grid, satRgb, satW, satH, {
+        resolution: RESOLUTION,
+        lat: b.lat,
+        zoom: satInfo.zoom,
+        scale: 8,
+      });
 
   // Convert to JPEG
-  const jpgBuf = await sharp(pngBuf).jpeg({ quality: 85 }).toBuffer();
+  const jpgBuf = await sharp(pngBuf).jpeg({ quality: 90 }).toBuffer();
   await writeFile(outPath, jpgBuf);
   console.log(`  → ${outPath} (${(jpgBuf.length / 1024).toFixed(0)}KB)\n`);
 }
