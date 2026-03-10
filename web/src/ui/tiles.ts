@@ -644,9 +644,17 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   // 2% global threshold erases legitimate surface details. modeFilter3D handles noise.
   await yieldUI();
 
-  // 8. Sky contamination remap — blue/cyan skylight baked into tiles surfaces.
-  // Dark shadow remaps removed: upstream CIE-Lab pipeline now accurately handles
-  // baked shadows. Dark blocks represent legitimate building materials.
+  // 8. Mode filter — 3x3x3 majority-vote smoother (radius=1).
+  // Runs BEFORE sky remap so cyan won't get voted back by majority neighbors.
+  const modePasses = rec?.modePasses ?? 1;
+  if (modePasses > 0) {
+    const modeSmoothed = modeFilter3D(grid, modePasses, 1);
+    console.log(`[tiles:pp] mode filter 3x3x3: ${modeSmoothed} blocks (${modePasses} passes)`);
+  }
+  await yieldUI();
+
+  // 9. Sky contamination remap — blue/cyan skylight baked into tiles surfaces.
+  // Runs AFTER mode filter so residual cyan clusters get cleaned up.
   const skyRemaps = new Map<string, string>([
     ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
     ['minecraft:cyan_terracotta', 'minecraft:stone'],
@@ -660,15 +668,6 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   if (rec?.remaps && rec.remaps.size > 0) {
     const remapped = constrainPalette(grid, rec.remaps);
     console.log(`[tiles:pp] auto remap: ${remapped} blocks (${rec.remaps.size} rules)`);
-  }
-  await yieldUI();
-
-  // 9. Mode filter — 3x3x3 majority-vote smoother (radius=1).
-  // Was 5x5x5 (radius=2, 125 blocks) which obliterated architectural detail.
-  const modePasses = rec?.modePasses ?? 1;
-  if (modePasses > 0) {
-    const modeSmoothed = modeFilter3D(grid, modePasses, 1);
-    console.log(`[tiles:pp] mode filter 3x3x3: ${modeSmoothed} blocks (${modePasses} passes)`);
   }
   await yieldUI();
 

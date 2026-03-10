@@ -1383,36 +1383,30 @@ async function main(): Promise<void> {
     console.log('Skipping rare-block smoothing (--smooth-pct 0)');
   }
 
-  // Sky contamination remap — Google 3D Tiles bake ambient skylight (blue/cyan)
-  // into upward-facing surfaces. Desaturation handles most of it, but highly
-  // saturated reflections can survive. Remap only these blue/cyan artifacts.
-  // Dark shadow remaps were removed: the upstream CIE-Lab pipeline (desaturation
-  // before luminance clamping + 50% lightness de-weighting + curated WALL_CLUSTERS)
-  // now accurately handles baked shadows. Dark blocks (blackstone, deepslate_bricks)
-  // represent legitimate dark building materials and should be preserved.
-  if (!args.noPalette) {
-    const skyReplacements = new Map<string, string>([
-      ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
-      ['minecraft:cyan_terracotta', 'minecraft:stone'],
-      ['minecraft:light_blue_concrete', 'minecraft:light_gray_concrete'],
-      ['minecraft:cyan_concrete', 'minecraft:stone'],
-    ]);
-    const constrained = constrainPalette(trimmed, skyReplacements);
-    if (constrained > 0) {
-      console.log(`Sky palette: ${constrained} blue/cyan sky-contaminated blocks remapped`);
-    }
-  }
-
   // 3D mode filter — smooth surface textures while preserving color contrast.
-  // Run after palette constraint so corrected colors spread via majority vote.
+  // Runs BEFORE sky remap so cyan won't get voted back by majority neighbors.
   if (args.modePasses > 0) {
-    // Radius 1 (3x3x3) — was 2 (5x5x5, 125 blocks) which obliterated architectural detail
     const modeSmoothed = modeFilter3D(trimmed, args.modePasses, 1);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${args.modePasses} passes)`);
     }
   } else {
     console.log('Skipping mode filter (--mode-passes 0)');
+  }
+
+  // Sky contamination remap — Google 3D Tiles bake ambient skylight (blue/cyan)
+  // into upward-facing surfaces. Always runs (not gated by noPalette) — these
+  // blocks are Google Tiles artifacts, never legitimate building materials.
+  // Runs AFTER mode filter so residual cyan clusters get cleaned up.
+  const skyReplacements = new Map<string, string>([
+    ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
+    ['minecraft:cyan_terracotta', 'minecraft:stone'],
+    ['minecraft:light_blue_concrete', 'minecraft:light_gray_concrete'],
+    ['minecraft:cyan_concrete', 'minecraft:stone'],
+  ]);
+  const constrained = constrainPalette(trimmed, skyReplacements);
+  if (constrained > 0) {
+    console.log(`Sky palette: ${constrained} blue/cyan sky-contaminated blocks remapped`);
   }
 
   // Connected-component cleanup — remove floating debris and disconnected clusters.
