@@ -728,18 +728,24 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
       }
     }
 
-    // Step 3: Luminance clamping — boost desaturated shadow pixels to visible mid-range.
-    // Now operates on already-neutralized grays, so the clamp produces stone/andesite
-    // tones instead of bright terracotta/bricks.
+    // Step 3: Luminance clamping — boost ALL shadow pixels to visible mid-range.
+    // Photogrammetry bakes deep ambient occlusion (near-black) that maps to
+    // blackstone/deepslate, creating "termite damage" noise across facades.
+    // Force-clamp: near-black (<20) gets flat gray boost, dark-gray scales up.
     if (!isGreenish) {
       const lum = (r * 77 + g * 150 + b * 29) >> 8;
       const MIN_BRIGHT = 100;
-      const DARK_THRESHOLD = 30;
-      if (lum >= DARK_THRESHOLD && lum < MIN_BRIGHT) {
-        const scale = MIN_BRIGHT / lum;
-        r = Math.min(255, Math.round(r * scale));
-        g = Math.min(255, Math.round(g * scale));
-        b = Math.min(255, Math.round(b * scale));
+      if (lum < MIN_BRIGHT) {
+        if (lum < 20) {
+          // Flat boost for near-black — avoid multiplying hidden color noise
+          r = MIN_BRIGHT; g = MIN_BRIGHT; b = MIN_BRIGHT;
+        } else {
+          // Scale up dark grays proportionally
+          const scale = MIN_BRIGHT / lum;
+          r = Math.min(255, Math.round(r * scale));
+          g = Math.min(255, Math.round(g * scale));
+          b = Math.min(255, Math.round(b * scale));
+        }
       }
     }
 
