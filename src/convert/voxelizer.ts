@@ -37,11 +37,10 @@ const VEGETATION_BLOCKS = new Set([
   'minecraft:jungle_leaves', 'minecraft:acacia_leaves', 'minecraft:dark_oak_leaves',
   'minecraft:azalea_leaves', 'minecraft:flowering_azalea_leaves',
   'minecraft:grass_block', 'minecraft:moss_carpet',
-  // Dark browns (tree bark mapped colors)
-  'minecraft:dark_oak_planks', 'minecraft:spruce_planks',
-  'minecraft:dark_oak_log', 'minecraft:spruce_log',
-  'minecraft:brown_terracotta', 'minecraft:brown_concrete',
-  'minecraft:brown_wool', 'minecraft:soul_soil', 'minecraft:podzol',
+  // Dark browns — only organic/soil blocks, NOT structural (brick, wood, terracotta)
+  // Removed: dark_oak_planks, spruce_planks, dark_oak_log, spruce_log,
+  // brown_terracotta, brown_concrete, brown_wool — these are valid building materials
+  'minecraft:soul_soil', 'minecraft:podzol',
   'minecraft:mud', 'minecraft:packed_mud',
 ]);
 
@@ -301,11 +300,11 @@ function voxelizeSurface(
   filterVegetation = false,
 ): void {
   const { width, height, length } = grid;
-  // Surface proximity threshold: fills voxels with mesh surface closer than
-  // this. 0.55 is just above exact half-voxel — tight enough to prevent
-  // filling between nearby but separate surfaces, producing thin shell walls.
-  // Interior fill post-processing handles the gaps to create solid walls.
-  const threshold = 0.65 / resolution;
+  // Surface proximity threshold: voxels with mesh surface closer than this get filled.
+  // 0.55 is just above exact half-voxel — tight enough to prevent filling between
+  // nearby but separate surfaces, producing thin shell walls without bloating.
+  // At r=2, threshold=0.275 (tight), at r=1 threshold=0.55 (standard).
+  const threshold = 0.55 / resolution;
 
   // Reusable objects to avoid per-voxel allocation
   const localPoint = new THREE.Vector3();
@@ -379,7 +378,7 @@ async function voxelizeSurfaceAsync(
   filterVegetation = false,
 ): Promise<void> {
   const { width, height, length } = grid;
-  const threshold = 0.65 / resolution;
+  const threshold = 0.55 / resolution;
 
   // Pre-compute bounding boxes for each mesh (in world space) for fast rejection
   const meshBounds: THREE.Box3[] = meshes.map(({ mesh }) => {
@@ -730,7 +729,7 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         } else if (hueDeg >= 85 && hueDeg <= 160 && l < 0.7) {
           s = Math.min(1, s * 1.3); // Vegetation boost
         } else {
-          s *= 0.7; // Mild reduction for other hues
+          s *= 0.85; // Preserve most color — was 0.7, too aggressive for building materials
         }
 
         const hue2rgb = (p: number, q: number, t: number): number => {
