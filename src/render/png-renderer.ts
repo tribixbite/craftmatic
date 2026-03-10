@@ -538,10 +538,10 @@ export async function renderCutawayIso(
  */
 export async function renderTopDown(
   grid: BlockGrid,
-  options: { scale?: number; output?: string } = {}
+  options: { scale?: number; output?: string; flat?: boolean } = {}
 ): Promise<Buffer> {
   const texAtlas = await ensureAtlas();
-  let { scale = 8 } = options;
+  let { scale = 8, flat = false } = options;
   const { width: w, height: h, length: l } = grid;
   const blocks = grid.to3DArray();
 
@@ -627,8 +627,8 @@ export async function renderTopDown(
       // Height-based brightness: taller = slightly brighter (depth cue)
       const heightFactor = topY >= 0 ? 0.7 + 0.3 * (topY / (h - 1 || 1)) : 0.7;
 
-      // Try textured rendering
-      const texData = getTexData(texAtlas, topBlock, 'top');
+      // Try textured rendering (skip in flat mode for cleaner satellite-like output)
+      const texData = flat ? null : getTexData(texAtlas, topBlock, 'top');
       if (texData && scale >= 4) {
         blitTextureTile(pixels, imgW, px, py, scale,
           texData, texAtlas.tileSize, heightFactor, heightFactor, heightFactor);

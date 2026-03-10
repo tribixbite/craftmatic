@@ -12,15 +12,16 @@ sharp.concurrency(1);
 const projectRoot = resolve(import.meta.dir, '..');
 const resolvePath = (p: string) => p.startsWith('/') ? p : resolve(projectRoot, p);
 
-let schemPath = process.argv[2];
-if (!schemPath) { console.error('Usage: bun scripts/render-one-td.ts <path.schem>'); process.exit(1); }
+const flat = process.argv.includes('--flat');
+let schemPath = process.argv.filter(a => !a.startsWith('--'))[2];
+if (!schemPath) { console.error('Usage: bun scripts/render-one-td.ts <path.schem> [--flat]'); process.exit(1); }
 schemPath = resolvePath(schemPath);
 
 const outPath = schemPath.replace(/\.schem$/, '-td.jpg');
 const grid = await parseToGrid(schemPath);
 console.log(`Grid: ${grid.width}x${grid.height}x${grid.length} (${grid.countNonAir()} blocks, ${grid.palette.size} materials)`);
 
-const tdPng = await renderTopDown(grid, { scale: 8 });
+const tdPng = await renderTopDown(grid, { scale: 8, flat });
 const tdJpg = await sharp(tdPng).jpeg({ quality: 85 }).toBuffer();
 await writeFile(outPath, tdJpg);
 console.log(`→ ${outPath} (${(tdJpg.length/1024).toFixed(0)}KB)`);
