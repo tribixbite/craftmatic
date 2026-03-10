@@ -1147,7 +1147,16 @@ async function main(): Promise<void> {
     // Override args with auto recommendations.
     // Respect explicit CLI flags: --generic overrides auto-detect's generic=false.
     if (!args.explicitGeneric) args.generic = rec.generic;
-    if (!args.explicitFill) args.fill = rec.fill;
+    if (!args.explicitFill) {
+      args.fill = rec.fill;
+      // Gate fill on partial captures: when building extends beyond capture boundary,
+      // the clip plane creates sealed walls and fillInteriorGaps flood-fills the
+      // entire "core sample" solid. Disable fill for >15% edge touch.
+      if (args.fill && analysis.isPartialCapture && analysis.edgeTouchPct > 15) {
+        args.fill = false;
+        console.log(`  Fill disabled: partial capture (${analysis.edgeTouchPct.toFixed(1)}% edge touch) would fill solid`);
+      }
+    }
     args.noPalette = rec.noPalette;
     args.noCornice = rec.noCornice;
     args.noFireEscape = rec.noFireEscape;

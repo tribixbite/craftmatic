@@ -136,8 +136,10 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   { rgb: [80, 80, 84], options: ['minecraft:gray_concrete', 'minecraft:polished_deepslate'] },
 
   // ── Darks / Industrial ───────────────────────────────────────────────────────
-  { rgb: [54, 54, 62], options: ['minecraft:deepslate_bricks', 'minecraft:polished_blackstone'] },
-  { rgb: [25, 20, 22], options: ['minecraft:blackstone', 'minecraft:polished_blackstone'] },
+  // Removed blackstone + deepslate_bricks: photogrammetry bakes ambient occlusion
+  // as near-black pixels that snap to these, creating "termite damage" noise across
+  // building facades. Darkest allowed is gray_concrete (L*≈34). Real buildings
+  // rarely have pitch-black materials — dark shadows should clamp to medium gray.
 
   // ── Wood Tones ───────────────────────────────────────────────────────────────
   { rgb: [162, 130, 78], options: ['minecraft:oak_planks', 'minecraft:stripped_oak_log'] },
