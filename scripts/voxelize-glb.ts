@@ -57,6 +57,8 @@ interface CLIArgs {
   outputPath: string;
   infoOnly: boolean;
   generic: boolean;
+  explicitGeneric: boolean; // true if --generic was explicitly passed on CLI
+  explicitFill: boolean;    // true if --fill was explicitly passed on CLI
   preview: boolean;
   smoothPct: number;    // smoothRareBlocks threshold (0 = skip)
   modePasses: number;   // modeFilter3D pass count (0 = skip)
@@ -123,6 +125,8 @@ Options:
   let outputPath = '';
   let infoOnly = false;
   let generic = false;
+  let explicitGeneric = false; // Track if --generic was explicitly passed
+  let explicitFill = false;    // Track if --fill was explicitly passed
   let desaturateOff = false;
   let preview = false;
   let smoothPct = 0.02;
@@ -164,6 +168,7 @@ Options:
       infoOnly = true;
     } else if (arg === '--generic') {
       generic = true;
+      explicitGeneric = true;
     } else if (arg === '--desaturate-off') {
       desaturateOff = true;
     } else if (arg === '--preview') {
@@ -174,6 +179,7 @@ Options:
       modePasses = parseInt(args[++i], 10);
     } else if (arg === '--fill') {
       fill = true;
+      explicitFill = true;
     } else if (arg === '--no-palette') {
       noPalette = true;
     } else if (arg === '--no-cornice') {
@@ -241,7 +247,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1116,15 +1122,20 @@ async function main(): Promise<void> {
     if (args.outputPath) parts.push(`-o ${args.outputPath}`);
     console.log(`\n  Equivalent CLI:\n  ${parts.join(' \\\n    ')}\n`);
 
-    // Override args with auto recommendations
-    args.generic = rec.generic;
-    args.fill = rec.fill;
+    // Override args with auto recommendations.
+    // Respect explicit CLI flags: --generic overrides auto-detect's generic=false.
+    if (!explicitGeneric) args.generic = rec.generic;
+    if (!explicitFill) args.fill = rec.fill;
     args.noPalette = rec.noPalette;
     args.noCornice = rec.noCornice;
     args.noFireEscape = rec.noFireEscape;
     args.smoothPct = rec.smoothPct;
     args.modePasses = rec.modePasses;
-    if (args.cropRadius === 0 && rec.cropRadius > 0) args.cropRadius = rec.cropRadius;
+    // Only apply auto-crop if the detected component is non-trivial (>100 blocks)
+    const centralVol = (aabb.maxX - aabb.minX + 1) * (aabb.maxY - aabb.minY + 1) * (aabb.maxZ - aabb.minZ + 1);
+    if (args.cropRadius === 0 && rec.cropRadius > 0 && centralVol > 100) {
+      args.cropRadius = rec.cropRadius;
+    }
     if (args.cleanMinSize === 0 && rec.cleanMinSize > 0) args.cleanMinSize = rec.cleanMinSize;
     // Merge auto remaps with explicit --remap (explicit wins)
     for (const [from, to] of rec.remaps) {
