@@ -679,9 +679,24 @@ export async function renderSatelliteColored(
   // Blocks per satellite pixel: metersPerPx * resolution
   const blocksPerSatPx = metersPerPx * resolution;
 
-  // Grid center corresponds to satellite image center
-  const gridCenterX = w / 2;
-  const gridCenterZ = l / 2;
+  // Compute centroid of non-air blocks — better satellite alignment than grid center.
+  // Pipeline steps (trim, component cleanup) can shift building within the grid,
+  // but the satellite image is always centered on the geocoded coordinates.
+  let sumX = 0, sumZ = 0, count = 0;
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      for (let y = h - 1; y >= 0; y--) {
+        if (blocks[y][z][x] !== 'minecraft:air') {
+          sumX += x;
+          sumZ += z;
+          count++;
+          break;
+        }
+      }
+    }
+  }
+  const gridCenterX = count > 0 ? sumX / count : w / 2;
+  const gridCenterZ = count > 0 ? sumZ / count : l / 2;
   const satCenterX = satW / 2;
   const satCenterY = satH / 2;
 
