@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, verticalRectify, horizontalRectify, glazeBackplane, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, verticalRectify, horizontalRectify, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -1256,11 +1256,13 @@ async function main(): Promise<void> {
         }
       }
 
-      // Step 3: Isolate main building — keep largest connected component.
-      // With terrain stripped and optionally OSM-masked, building shell is isolated.
-      const preFillCleaned = removeSmallComponents(trimmed, Infinity);
+      // Step 3: Remove noise/debris — keep all components ≥500 voxels.
+      // Threshold 500 preserves legitimate building wings (Pentagon, Capitol) while
+      // removing floating noise from photogrammetry artifacts. Using Infinity here
+      // would sever disconnected wings (Pentagon's 19% fill was caused by this).
+      const preFillCleaned = removeSmallComponents(trimmed, 500);
       if (preFillCleaned > 0) {
-        console.log(`Pre-fill isolation: ${preFillCleaned} blocks removed (kept largest component)`);
+        console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (components < 500 voxels)`);
       }
 
       // Step 4: 3D masked dilation fill — building is now isolated.
@@ -1375,24 +1377,25 @@ async function main(): Promise<void> {
   }
 
   // Connected-component cleanup — remove floating debris and disconnected clusters.
-  // For surface mode (tiles/photogrammetry), keep only the largest component to
-  // isolate the target building from neighbors, trees, and terrain.
-  const componentThreshold = args.mode === 'surface' ? Infinity : args.cleanMinSize;
+  // Use 500-voxel threshold (not Infinity) to preserve legitimate building wings.
+  // A typical noise cluster is <100 voxels; a detached garage/wing is 200-400+.
+  const componentThreshold = args.mode === 'surface' ? 500 : args.cleanMinSize;
   if (componentThreshold > 0) {
     const cleaned = removeSmallComponents(trimmed, componentThreshold);
     if (cleaned > 0) {
-      const label = componentThreshold === Infinity ? 'kept largest only' : `clusters < ${componentThreshold} voxels`;
-      console.log(`Component cleanup: ${cleaned} blocks removed (${label})`);
+      console.log(`Component cleanup: ${cleaned} blocks removed (components < ${componentThreshold} voxels)`);
     }
   }
 
   // fireEscapeFilter removed: over-fitted to 2340 Francisco St — darkened center
   // strip on all buildings regardless of whether they have fire escapes.
 
-  // Glaze backplane — deep per-face raycast to find void back walls.
-  // Works for any building type — finds interior voids and adds window blocks.
-  const glazeCount = glazeBackplane(trimmed, 8, 'minecraft:black_concrete');
-  console.log(`Backplane glazing: ${glazeCount} window blocks placed (black_concrete, depth=8)`);
+  // glazeBackplane removed: was a legacy band-aid from pre-color-fix era.
+  // Previously needed because carveFacadeShadows punched holes in dark window areas.
+  // Now that carveFacadeShadows is removed and CIE-Lab color pipeline maps dark
+  // pixels to dark blocks (gray_concrete, blackstone), windows are already correctly
+  // represented on the surface. Also, AABB raycasting placed black_concrete on
+  // exterior courtyard walls of non-convex buildings (L, U, Pentagon shapes).
 
   // addRoofCornice removed: hardcoded bricks + spruce_planks is wrong for all
   // non-Mediterranean buildings — was the reddish-brown artifact on every output.
