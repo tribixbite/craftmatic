@@ -873,12 +873,73 @@ export async function renderSatelliteColored(
  * The output image is cropped to the building's bounding box in satellite
  * coordinates, with a small margin.
  */
+/**
+ * Rasterize a lat/lng polygon to a grid-space boolean mask using ray-casting PIP.
+ * Returns Uint8Array[w*l] where 1 = inside polygon, 0 = outside.
+ */
+function rasterizePolygonToGridMask(
+  polygon: { lat: number; lon: number }[],
+  centerLat: number,
+  centerLng: number,
+  gridCenterX: number,
+  gridCenterZ: number,
+  resolution: number,
+  w: number,
+  l: number,
+): Uint8Array {
+  const DEG2RAD = Math.PI / 180;
+  const metersPerDegLat = 111320;
+  const metersPerDegLng = 111320 * Math.cos(centerLat * DEG2RAD);
+
+  // Convert polygon vertices from lat/lng to grid (x, z) coordinates
+  const polyXZ: { x: number; z: number }[] = polygon.map(v => ({
+    x: gridCenterX + (v.lon - centerLng) * metersPerDegLng * resolution,
+    z: gridCenterZ + (centerLat - v.lat) * metersPerDegLat * resolution,
+  }));
+
+  // Expand polygon by ~2 blocks to account for voxel edge overlap
+  const cx = polyXZ.reduce((s, p) => s + p.x, 0) / polyXZ.length;
+  const cz = polyXZ.reduce((s, p) => s + p.z, 0) / polyXZ.length;
+  const expandedXZ = polyXZ.map(p => {
+    const dx = p.x - cx, dz = p.z - cz;
+    const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+    return { x: p.x + (dx / dist) * 2, z: p.z + (dz / dist) * 2 };
+  });
+
+  const mask = new Uint8Array(w * l);
+  // Ray-casting point-in-polygon for each grid cell
+  for (let gz = 0; gz < l; gz++) {
+    for (let gx = 0; gx < w; gx++) {
+      let inside = false;
+      const n = expandedXZ.length;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const xi = expandedXZ[i].x, zi = expandedXZ[i].z;
+        const xj = expandedXZ[j].x, zj = expandedXZ[j].z;
+        if ((zi > gz) !== (zj > gz) &&
+            gx < (xj - xi) * (gz - zi) / (zj - zi) + xi) {
+          inside = !inside;
+        }
+      }
+      if (inside) mask[gz * w + gx] = 1;
+    }
+  }
+  return mask;
+}
+
 export async function renderSatelliteHiRes(
   grid: BlockGrid,
   satPixels: Buffer,
   satW: number,
   satH: number,
-  options: { resolution: number; lat: number; zoom: number },
+  options: {
+    resolution: number;
+    lat: number;
+    zoom: number;
+    /** Optional OSM building polygon — restricts building mask to polygon interior */
+    osmPolygon?: { lat: number; lon: number }[];
+    /** Center longitude (needed when osmPolygon is provided) */
+    lng?: number;
+  },
 ): Promise<Buffer> {
   const { resolution, lat, zoom } = options;
   const { width: w, height: h, length: l } = grid;
@@ -941,15 +1002,47 @@ export async function renderSatelliteHiRes(
     }
   }
 
-  // Building mask: any non-air column is treated as building.
-  // Ground filtering attempts (modal, percentile, connected component) all failed
-  // because trees connect to buildings through residual ground voxels.
-  // Browser-captured buildings are already manually isolated; headless captures
-  // include surrounding terrain but no rendering filter can fix bad capture data.
+  // Building mask: combine heightmap (non-air) with optional OSM polygon mask.
+  // OSM polygon restricts building area to actual footprint, filtering out trees.
   const isBuilding = new Uint8Array(w * l);
   let buildingCount = 0;
+
+  let polyMask: Uint8Array | null = null;
+  if (options.osmPolygon && options.osmPolygon.length >= 3 && options.lng !== undefined) {
+    polyMask = rasterizePolygonToGridMask(
+      options.osmPolygon, lat, options.lng,
+      gridCenterX, gridCenterZ, resolution, w, l,
+    );
+    const polyCount = polyMask.reduce((s, v) => s + v, 0);
+    console.log(`  OSM polygon mask: ${polyCount}/${w * l} cells (${(100 * polyCount / (w * l)).toFixed(1)}%)`);
+  }
+
+  // ExG vegetation filter: use satellite color to detect tree canopy in voxels.
+  // Excess Green Index (ExG = 2G - R - B) from remote sensing literature.
+  // Voxels with green satellite color are likely trees, not buildings.
+  const vegMask = new Uint8Array(w * l);
+  const EXG_THRESHOLD = 30; // calibrated: deciduous canopy ExG is typically 40-80
+  for (let z = 0; z < l; z++) {
+    for (let x = 0; x < w; x++) {
+      // Map grid cell to satellite pixel
+      const sx = Math.round(satCenterX + (x - gridCenterX) / blocksPerSatPx);
+      const sy = Math.round(satCenterY + (z - gridCenterZ) / blocksPerSatPx);
+      if (sx < 0 || sx >= satW || sy < 0 || sy >= satH) continue;
+      const idx = (sy * satW + sx) * 3;
+      const r = satPixels[idx], g = satPixels[idx + 1], b = satPixels[idx + 2];
+      const exg = 2 * g - r - b;
+      if (exg > EXG_THRESHOLD) vegMask[z * w + x] = 1;
+    }
+  }
+  const vegCount = vegMask.reduce((s, v) => s + v, 0);
+
   for (let i = 0; i < w * l; i++) {
-    if (heightmap[i] >= 0) { isBuilding[i] = 1; buildingCount++; }
+    if (heightmap[i] >= 0 && (!polyMask || polyMask[i]) && !vegMask[i]) {
+      isBuilding[i] = 1; buildingCount++;
+    }
+  }
+  if (vegCount > 0) {
+    console.log(`  ExG vegetation filter: ${vegCount} cells filtered (${(100 * vegCount / (w * l)).toFixed(1)}%)`);
   }
 
   // Find bounding box of BUILDING blocks in satellite pixel space

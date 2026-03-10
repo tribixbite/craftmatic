@@ -9,6 +9,7 @@ import { resolve, join } from 'path';
 import sharp from 'sharp';
 import { parseToGrid } from '../src/schem/parse.js';
 import { renderSatelliteColored, renderSatelliteHiRes } from '../src/render/png-renderer.js';
+import { searchOSMBuilding } from '../src/gen/api/osm.js';
 
 sharp.concurrency(1);
 const projectRoot = resolve(import.meta.dir, '..');
@@ -83,6 +84,7 @@ const filterName = nameArg ? nameArg.split('=')[1] : null;
 const scaleArg = process.argv.find(a => a.startsWith('--scale='));
 const filterScale = scaleArg ? parseInt(scaleArg.split('=')[1]) : null;
 const hiresMode = process.argv.includes('--hires');
+const osmMode = process.argv.includes('--osm');
 const RESOLUTION = 4;
 
 // Satellite image cache (same lat/lng/zoom → reuse)
@@ -133,16 +135,30 @@ for (const b of BUILDINGS) {
 
   // Hi-res render: satellite pixel resolution with voxel heightmap hillshade
   if (hiresMode) {
-    const hiresPath = join(tilesDir, `sv-${b.schem}-hires.jpg`);
+    // OSM polygon masking: fetch building footprint to filter out trees
+    let osmPolygon: { lat: number; lon: number }[] | undefined;
+    if (osmMode) {
+      const osmData = await searchOSMBuilding(b.lat, b.lng, 100);
+      if (osmData?.polygon && osmData.polygon.length >= 3) {
+        osmPolygon = osmData.polygon;
+        console.log(`  OSM polygon: ${osmPolygon.length} vertices, ${osmData.widthMeters.toFixed(0)}x${osmData.lengthMeters.toFixed(0)}m`);
+      } else {
+        console.log(`  OSM: no building polygon found`);
+      }
+    }
+
+    const suffix = osmPolygon ? '-osm' : '';
+    const hiresPath = join(tilesDir, `sv-${b.schem}-hires${suffix}.jpg`);
     if (existsSync(hiresPath)) {
-      console.log(`  hires: EXISTS`);
+      console.log(`  hires${suffix}: EXISTS`);
     } else {
       const pngBuf = await renderSatelliteHiRes(grid, sat.rgb, sat.w, sat.h, {
         resolution: RESOLUTION, lat: b.lat, zoom: b.zoom,
+        osmPolygon, lng: b.lng,
       });
       const jpgBuf = await sharp(pngBuf).jpeg({ quality: 85 }).toBuffer();
       await writeFile(hiresPath, jpgBuf);
-      console.log(`  hires → ${(jpgBuf.length / 1024).toFixed(0)}KB`);
+      console.log(`  hires${suffix} → ${(jpgBuf.length / 1024).toFixed(0)}KB`);
     }
   }
 
