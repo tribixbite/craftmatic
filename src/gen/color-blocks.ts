@@ -99,7 +99,7 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   // Medium grays — stone, concrete block
   { rgb: [125, 125, 125], options: ['minecraft:stone', 'minecraft:stone_bricks', 'minecraft:polished_andesite'] },
   { rgb: [122, 122, 122], options: ['minecraft:stone_bricks', 'minecraft:stone', 'minecraft:andesite'] },
-  { rgb: [112, 108, 138], options: ['minecraft:light_blue_terracotta', 'minecraft:gray_terracotta', 'minecraft:gray_concrete'] },
+  { rgb: [112, 108, 138], options: ['minecraft:gray_terracotta', 'minecraft:gray_concrete', 'minecraft:polished_andesite'] },
   // Dark grays / charcoal — windows and deep shadows
   { rgb: [76, 81, 84], options: ['minecraft:gray_stained_glass', 'minecraft:gray_concrete', 'minecraft:polished_deepslate'] },
   { rgb: [54, 54, 62], options: ['minecraft:gray_stained_glass', 'minecraft:deepslate_bricks', 'minecraft:polished_blackstone'] },
