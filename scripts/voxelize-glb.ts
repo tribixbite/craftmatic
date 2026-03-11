@@ -1573,6 +1573,8 @@ async function main(): Promise<void> {
   // alternate randomly across facades, creating visual noise. By remapping all
   // non-special blocks to the single most common type, facades become clean and
   // uniform. "Special" blocks (glass, roof, eave, entry) are preserved.
+  // `facadeDominantWall` is hoisted so floor plate section can pick a contrasting block.
+  let facadeDominantWall = 'minecraft:smooth_stone';
   {
     const SPECIAL_BLOCKS = new Set([
       'minecraft:air',
@@ -1598,22 +1600,21 @@ async function main(): Promise<void> {
         }
       }
     }
-    let dominantWall = 'minecraft:light_gray_concrete';
     let dominantCount = 0;
     for (const [block, count] of wallCounts) {
-      if (count > dominantCount) { dominantWall = block; dominantCount = count; }
+      if (count > dominantCount) { facadeDominantWall = block; dominantCount = count; }
     }
 
     // Remap all non-special, non-dominant blocks
     const remaps = new Map<string, string>();
     for (const [block] of wallCounts) {
-      if (block !== dominantWall) {
-        remaps.set(block, dominantWall);
+      if (block !== facadeDominantWall) {
+        remaps.set(block, facadeDominantWall);
       }
     }
     if (remaps.size > 0) {
       const simplified = constrainPalette(trimmed, remaps);
-      console.log(`Facade simplification: ${simplified} blocks → ${dominantWall.replace('minecraft:', '')} (${remaps.size} types merged)`);
+      console.log(`Facade simplification: ${simplified} blocks → ${facadeDominantWall.replace('minecraft:', '')} (${remaps.size} types merged)`);
     }
   }
 
@@ -1647,9 +1648,18 @@ async function main(): Promise<void> {
     const GLASS = 'minecraft:gray_stained_glass';
     const ROOF_BLOCKS = new Set(['minecraft:brown_terracotta', 'minecraft:dark_oak_planks', 'minecraft:spruce_planks']);
     const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    const warmFacade = analysis?.dominantBlock &&
-      /^minecraft:(bricks|brown_|red_|orange_|terracotta$|sandstone$)/.test(analysis.dominantBlock);
-    const bandBlock = warmFacade ? 'minecraft:cut_sandstone' : 'minecraft:stone_bricks';
+    // Pick band material that CONTRASTS with the dominant wall block.
+    // If dominant is already stone_bricks, use smooth_stone instead (and vice versa).
+    // For warm facades, use cut_sandstone vs sandstone alternation.
+    const warmFacade = /^minecraft:(bricks|brown_|red_|orange_|terracotta$|sandstone$)/.test(facadeDominantWall);
+    let bandBlock: string;
+    if (warmFacade) {
+      bandBlock = facadeDominantWall === 'minecraft:cut_sandstone'
+        ? 'minecraft:sandstone' : 'minecraft:cut_sandstone';
+    } else {
+      bandBlock = facadeDominantWall === 'minecraft:stone_bricks'
+        ? 'minecraft:smooth_stone' : 'minecraft:stone_bricks';
+    }
 
     // Find building Y range (lowest and highest non-air layers)
     let baseY = 0, topY = trimmed.height - 1;
