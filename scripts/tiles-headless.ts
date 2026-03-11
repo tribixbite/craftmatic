@@ -103,6 +103,10 @@ let lng: number | null = null;
 let radius = 50;
 let outputPath = '';
 let timeout = 120000; // 2 min default
+// Camera mode: 'ortho' (top-down, best for complex footprints),
+// 'perspective' (45° angle, best for facade detail on skyscrapers),
+// 'street' (ground level, original mode)
+let cameraMode: 'ortho' | 'perspective' | 'street' = 'ortho';
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -112,6 +116,11 @@ for (let i = 0; i < args.length; i++) {
   else if (a.startsWith('-r') && a.length > 2) radius = parseInt(a.slice(2));
   else if (a === '-o' || a === '--output') outputPath = args[++i];
   else if (a === '-t' || a === '--timeout') timeout = parseInt(args[++i]) * 1000;
+  else if (a === '--camera' && i + 1 < args.length) {
+    const mode = args[++i];
+    if (mode === 'ortho' || mode === 'perspective' || mode === 'street') cameraMode = mode;
+    else { console.error(`Unknown camera mode: ${mode}. Use ortho, perspective, or street.`); process.exit(1); }
+  }
   else if (!a.startsWith('-')) addressParts.push(a);
 }
 const address = addressParts.join(' ');
@@ -156,15 +165,35 @@ outputPath = resolve(projectRoot, outputPath);
 console.log(`\nTarget: lat=${lat}, lng=${lng}, radius=${radius}m`);
 console.log(`Output: ${outputPath}`);
 console.log(`Timeout: ${timeout / 1000}s`);
+console.log(`Camera: ${cameraMode}`);
 
-// Set up OrthographicCamera looking straight down
-// The frustum must cover the capture radius with margin for LOD overlap
-const halfExtent = radius * 1.5;
-const camera = new THREE.OrthographicCamera(
-  -halfExtent, halfExtent, halfExtent, -halfExtent, 1, 2000,
-);
-camera.position.set(0, 500, 0);
-camera.lookAt(0, 0, 0);
+// Set up camera based on mode
+// - ortho: OrthographicCamera from Y=500 looking down. Best for complex footprints
+//   (Capitol, Pentagon, sprawling buildings). Captures full XZ extent but low facade detail.
+// - perspective: PerspectiveCamera at 45° angle from moderate height. Best for skyscrapers
+//   (ESB, Chrysler, Willis). Captures vertical detail and facade articulation.
+// - street: PerspectiveCamera at ground level (0,8,8). Original mode. Highest facade detail
+//   for nearby surfaces but frustum clips everything above ~50m.
+let camera: THREE.Camera;
+if (cameraMode === 'ortho') {
+  const halfExtent = radius * 1.5;
+  camera = new THREE.OrthographicCamera(
+    -halfExtent, halfExtent, halfExtent, -halfExtent, 1, 2000,
+  );
+  camera.position.set(0, 500, 0);
+  camera.lookAt(0, 0, 0);
+} else if (cameraMode === 'perspective') {
+  // 45° angle from moderate height — balances footprint coverage with facade visibility
+  camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
+  const dist = radius * 2;
+  camera.position.set(dist * 0.7, dist, dist * 0.7);
+  camera.lookAt(0, radius * 0.3, 0); // look slightly above center
+} else {
+  // Street-level view — best for nearby facade detail
+  camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
+  camera.position.set(0, 8, 8);
+  camera.lookAt(0, 0, 0);
+}
 camera.updateMatrixWorld(true);
 
 // Create TilesRenderer
