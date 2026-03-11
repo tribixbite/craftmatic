@@ -763,8 +763,8 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
     // signal, not baked AO. Preserving dark values lets CIE-Lab match to
     // gray_concrete, polished_andesite, etc. for glazeDarkWindows to convert.
     if (!isGreenish && !isCenterPixelFeature) {
-      const MIN_BRIGHT = 130;
-      const range = 255 - MIN_BRIGHT; // 125
+      const MIN_BRIGHT = 60;
+      const range = 255 - MIN_BRIGHT; // 195 — wider range preserves mid-tone variety
       r = Math.round(MIN_BRIGHT + (r * range) / 255);
       g = Math.round(MIN_BRIGHT + (g * range) / 255);
       b = Math.round(MIN_BRIGHT + (b * range) / 255);
