@@ -2887,10 +2887,10 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     suggestedRemaps.set('minecraft:light_gray_concrete', 'minecraft:prismarine');
     suggestedRemaps.set('minecraft:white_concrete', 'minecraft:prismarine');
   } else if (WHITE_BLOCKS.has(dominantBlock) || WHITE_BLOCKS.has(secondaryBlock)) {
-    // White/light gray building — remap dark shadow artifacts to quartz/concrete
+    // White/light gray building — only remap the darkest noise (stone, cobblestone)
+    // to preserve texture variety from andesite and stone_bricks which add visual
+    // interest to facades (window sills, trim bands, floor separators).
     suggestedRemaps.set('minecraft:stone', 'minecraft:light_gray_concrete');
-    suggestedRemaps.set('minecraft:andesite', 'minecraft:light_gray_concrete');
-    suggestedRemaps.set('minecraft:stone_bricks', 'minecraft:light_gray_concrete');
     suggestedRemaps.set('minecraft:cobblestone', 'minecraft:light_gray_concrete');
   }
 

@@ -730,7 +730,7 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         if (hueDeg >= 190 && hueDeg <= 260) {
           s *= 0.1; // Kill blue skylight contamination
         } else if ((hueDeg <= 70 || hueDeg >= 320) && l < 0.40) {
-          s *= 0.3; // Only desat very dark warm (deep shadow, not brick)
+          s *= 0.6; // Allow warm shadows to stay warm → maps to brown_terracotta/brick
         } else if (hueDeg >= 85 && hueDeg <= 160 && l < 0.7) {
           s = Math.min(1, s * 1.3); // Vegetation boost
         } else {
