@@ -65,7 +65,9 @@ function computeCaptureRadius(widthM: number, lengthM: number): number {
   // Diagonal * 0.75 + 10m buffer for surrounding context
   const diagonal = Math.sqrt(widthM * widthM + lengthM * lengthM);
   const radius = diagonal * 0.75 + 10;
-  return Math.min(100, Math.max(20, Math.round(radius)));
+  // Cap at 150m (was 100m) — skyscrapers need wider capture for full silhouette.
+  // Dynamic errorTarget scales with radius to prevent mobile GPU OOM.
+  return Math.min(150, Math.max(20, Math.round(radius)));
 }
 
 // ─── Resolver ───────────────────────────────────────────────────────────────
