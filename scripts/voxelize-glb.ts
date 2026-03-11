@@ -1249,10 +1249,11 @@ async function main(): Promise<void> {
       if (fill3D > 0.60) {
         console.log(`Skipping fill (3D density ${(fill3D * 100).toFixed(0)}% > 60% — already solid)`);
       } else {
-        // dilation=2 seals 2-block wide gaps in photogrammetry shells before flood-fill.
-        // This creates a more watertight shell → more interior gets filled → cleaner result.
-        const interiorFilled = fillInteriorGaps(trimmed, 2);
-        console.log(`Interior fill (3D masked, dilation=2): ${interiorFilled} voxels filled (3D density was ${(fill3D * 100).toFixed(0)}%)`);
+        // dilation=3 seals 3-block wide gaps in photogrammetry shells before flood-fill.
+        // v58: increased from 2→3 to fill more interior, reducing see-through holes
+        // that were previously masked by solidifyCore's AABB fill.
+        const interiorFilled = fillInteriorGaps(trimmed, 3);
+        console.log(`Interior fill (3D masked, dilation=3): ${interiorFilled} voxels filled (3D density was ${(fill3D * 100).toFixed(0)}%)`);
         // Step 4b: Sky exposure — remove fill in open-air spaces (courtyards, setbacks)
         const openAirCleared = clearOpenAirFill(trimmed);
         if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} fill blocks removed (no solid roof above)`);
@@ -1442,13 +1443,14 @@ async function main(): Promise<void> {
   }
 
   // Morph close — spackle pockmarks/holes in photogrammetry surfaces.
-  // Radius 2 fills 2-voxel deep gaps and cracks, producing smoother facades.
+  // v58: Radius 3 (was 2) fills larger gaps in hollow shells. Without solidifyCore
+  // to mask holes by filling interior solid, we need more aggressive surface sealing.
   // Dilation+erosion fills gaps without changing overall shape.
   // Runs BEFORE smoothSurface so the surface smoother sees healed faces.
   {
-    const closed = morphClose3D(trimmed, 2);
+    const closed = morphClose3D(trimmed, 3);
     if (closed > 0) {
-      console.log(`Morph close (r=2): ${closed} 2-voxel holes filled`);
+      console.log(`Morph close (r=3): ${closed} holes filled`);
     }
   }
 
@@ -1471,11 +1473,9 @@ async function main(): Promise<void> {
   }
 
   // K-Means palette consolidation — cluster 30+ block types into k=3 perceptually
-  // distinct groups BEFORE spatial smoothing. k=3 produces cleaner facades because:
-  // - 3 clusters (light/medium/dark) form large contiguous zones
-  // - Mode filter reaches 33%+ plurality easily → more effective smoothing
-  // - k=5 created 5 similar grays that alternated randomly across facades (visual noise)
-  // - k=7 regressed complex buildings by fragmenting subtle-color geometry
+  // distinct groups BEFORE spatial smoothing. k=3 proven stable: light/medium/dark
+  // zones form large contiguous regions that mode filter can clean effectively.
+  // k=5 tested in v57 — all 5 clusters were gray, no visual benefit.
   {
     const consolidated = consolidateBlockPalette(trimmed, 3);
     if (consolidated > 0) {
@@ -1500,10 +1500,20 @@ async function main(): Promise<void> {
   // 4 passes minimum — with 3 clusters, each pass cleans larger contiguous regions.
   // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap.
   {
-    const passes = Math.max(args.modePasses, 8); // v56: 8 minimum — clean salt-and-pepper from K-Means k=3
+    const passes = Math.max(args.modePasses, 8); // v58: 8 minimum with k=3 clusters
     const modeSmoothed = modeFilter3D(trimmed, passes, 1);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} passes)`);
+    }
+  }
+
+  // Second morphClose pass (v57) — heal surface pockmarks created by mode filter
+  // replacing block types. r=1 is gentle — only fills single-voxel holes without
+  // altering overall shape. Runs AFTER mode filter smooths material distribution.
+  {
+    const closed2 = morphClose3D(trimmed, 1);
+    if (closed2 > 0) {
+      console.log(`Morph close post-filter (r=1): ${closed2} surface pockmarks healed`);
     }
   }
 
