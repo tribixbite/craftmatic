@@ -1326,9 +1326,29 @@ async function main(): Promise<void> {
   // Skip for partial captures where the building extends beyond the capture boundary —
   // cropping would shear off geometry that's already truncated.
   if (args.cropRadius > 0 && !analysis?.isPartialCapture) {
-    const cropped = cropToRect(trimmed, args.cropRadius);
-    if (cropped > 0) {
-      console.log(`Rect crop: ${cropped} blocks removed (half-width ${args.cropRadius})`);
+    // Dry-run: count blocks that would survive crop before mutating grid.
+    // Sprawling campuses (Getty, Apple Park) have geometry offset from grid center,
+    // so center-based rect crop would destroy the entire building.
+    const cx = Math.floor(trimmed.width / 2);
+    const cz = Math.floor(trimmed.length / 2);
+    const r = args.cropRadius;
+    let insideCrop = 0, outsideCrop = 0;
+    for (let y = 0; y < trimmed.height; y++) {
+      for (let z = 0; z < trimmed.length; z++) {
+        for (let x = 0; x < trimmed.width; x++) {
+          if (trimmed.get(x, y, z) === 'minecraft:air') continue;
+          if (Math.abs(x - cx) > r || Math.abs(z - cz) > r) outsideCrop++;
+          else insideCrop++;
+        }
+      }
+    }
+    if (insideCrop < (insideCrop + outsideCrop) * 0.05 && (insideCrop + outsideCrop) > 500) {
+      console.log(`Skipping rect crop (would keep only ${insideCrop}/${insideCrop + outsideCrop} blocks — building offset from grid center)`);
+    } else {
+      const cropped = cropToRect(trimmed, args.cropRadius);
+      if (cropped > 0) {
+        console.log(`Rect crop: ${cropped} blocks removed (half-width ${args.cropRadius})`);
+      }
     }
   } else if (args.cropRadius > 0 && analysis?.isPartialCapture) {
     console.log(`Skipping rect crop (partial capture — building extends beyond boundary)`);
