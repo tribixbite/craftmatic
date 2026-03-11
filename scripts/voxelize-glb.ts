@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -1226,7 +1226,13 @@ async function main(): Promise<void> {
       }
     }
 
-    // Step 3: Component cleanup — remove noise/debris ≥500 voxels
+    // Step 3a: Tower isolation — for skyscrapers with surrounding buildings
+    // fused into the same mesh, sample footprint at 75% height (above neighbors)
+    // and strip everything outside the expanded tower footprint.
+    // Expansion 15 blocks allows for typical skyscraper setbacks (base 2-3x tower width).
+    const towerIsolated = isolateTallestStructure(trimmed, 0.75, 5);
+
+    // Step 3b: Component cleanup — remove noise/debris ≥500 voxels
     const preFillCleaned = removeSmallComponents(trimmed, 500);
     if (preFillCleaned > 0) {
       console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (< 500 voxels)`);
@@ -1320,7 +1326,10 @@ async function main(): Promise<void> {
         }
       }
 
-      // Step 3: Remove noise/debris — keep all components ≥500 voxels.
+      // Step 3a: Tower isolation — strip surrounding buildings for skyscrapers
+      const towerIsolated2 = isolateTallestStructure(trimmed, 0.75, 5);
+
+      // Step 3b: Remove noise/debris — keep all components ≥500 voxels.
       // Threshold 500 preserves legitimate building wings (Pentagon, Capitol) while
       // removing floating noise from photogrammetry artifacts. Using Infinity here
       // would sever disconnected wings (Pentagon's 19% fill was caused by this).

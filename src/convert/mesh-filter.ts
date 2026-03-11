@@ -2444,6 +2444,178 @@ export function removeSmallComponents(grid: BlockGrid, minSize = 50): number {
 }
 
 /**
+ * Isolate the tallest structure from surrounding shorter buildings.
+ *
+ * For skyscrapers captured with photogrammetry, surrounding buildings are often
+ * fused into the same mesh. This filter:
+ * 1. Builds a height map (max occupied Y per XZ column)
+ * 2. Samples the footprint at a fraction of max height (above surrounding buildings)
+ * 3. Expands this footprint by a margin (to capture setbacks at lower levels)
+ * 4. Removes blocks in columns outside the expanded footprint
+ *
+ * Only effective for buildings significantly taller than their surroundings.
+ *
+ * @param grid           Mutable BlockGrid
+ * @param heightFraction Sample footprint at this fraction of max height (default 0.5)
+ * @param expansion      Expand sampled footprint by this many blocks (default 10)
+ * @returns Number of blocks removed
+ */
+export function isolateTallestStructure(grid: BlockGrid, heightFraction = 0.5, expansion = 10): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+
+  // Find max occupied Y
+  let maxOccupiedY = 0;
+  for (let y = height - 1; y >= 0; y--) {
+    let found = false;
+    for (let x = 0; x < width && !found; x++)
+      for (let z = 0; z < length && !found; z++)
+        if (grid.get(x, y, z) !== AIR) { maxOccupiedY = y; found = true; }
+    if (found) break;
+  }
+
+  if (maxOccupiedY < 20) {
+    console.log(`Tower isolation: skipped (max height ${maxOccupiedY} < 20)`);
+    return 0;
+  }
+
+  // Build height map (max Y per XZ column)
+  const heightMap = new Uint16Array(width * length);
+  let occupiedCols = 0;
+  for (let x = 0; x < width; x++) {
+    for (let z = 0; z < length; z++) {
+      for (let y = height - 1; y >= 0; y--) {
+        if (grid.get(x, y, z) !== AIR) {
+          heightMap[z * width + x] = y;
+          occupiedCols++;
+          break;
+        }
+      }
+    }
+  }
+
+  // Compute median height of occupied columns
+  const colHeights = Array.from(heightMap).filter(h => h > 0);
+  colHeights.sort((a, b) => a - b);
+  const medianH = colHeights[Math.floor(colHeights.length * 0.5)] || 0;
+
+  // Only effective if tallest structure rises meaningfully above median surroundings
+  // 1.25x threshold catches NYC skyscrapers surrounded by shorter midtown buildings
+  if (maxOccupiedY < medianH * 1.25) {
+    console.log(`Tower isolation: skipped (maxY ${maxOccupiedY} < median ${medianH} × 1.25 = ${Math.round(medianH * 1.25)})`);
+    return 0;
+  }
+
+  // Per-layer approach: at each Y level, only keep blocks within expansion
+  // distance of the actual occupied footprint at THAT level or any higher level.
+  // This preserves the building's natural silhouette while trimming noise that's
+  // spatially separated from the building at each height.
+  //
+  // Build cumulative top-down footprint: union of all layers from top to current Y.
+  // This captures setbacks naturally (upper layers are narrower, lower layers wider).
+  const cumulativeFootprint = new Uint8Array(width * length);
+  let seedCount = 0;
+
+  // First, count seed columns from top 25%
+  const seedStartY = Math.floor(maxOccupiedY * heightFraction);
+  for (let y = maxOccupiedY; y >= seedStartY; y--) {
+    for (let x = 0; x < width; x++) {
+      for (let z = 0; z < length; z++) {
+        if (!cumulativeFootprint[z * width + x] && grid.get(x, y, z) !== AIR) {
+          cumulativeFootprint[z * width + x] = 1;
+          seedCount++;
+        }
+      }
+    }
+  }
+
+  if (seedCount === 0) return 0;
+
+  // Keep only the largest connected component of the seed (2D 4-connected).
+  // This prevents nearby tall buildings from leaking into the allowed mask.
+  {
+    const seedLabels = new Int32Array(width * length);
+    let nextLabel = 1;
+    const compSizes = new Map<number, number>();
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const i = z * width + x;
+        if (!cumulativeFootprint[i] || seedLabels[i] !== 0) continue;
+        const label = nextLabel++;
+        let size = 0;
+        const queue: [number, number][] = [[x, z]];
+        seedLabels[i] = label;
+        while (queue.length > 0) {
+          const [cx, cz] = queue.pop()!;
+          size++;
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+            const nx = cx + dx, nz = cz + dz;
+            if (nx < 0 || nx >= width || nz < 0 || nz >= length) continue;
+            const ni = nz * width + nx;
+            if (cumulativeFootprint[ni] && seedLabels[ni] === 0) {
+              seedLabels[ni] = label;
+              queue.push([nx, nz]);
+            }
+          }
+        }
+        compSizes.set(label, size);
+      }
+    }
+    // Find largest component
+    let bestLabel = 0, bestSize = 0;
+    for (const [label, size] of compSizes) {
+      if (size > bestSize) { bestSize = size; bestLabel = label; }
+    }
+    // Strip non-largest from seed
+    let stripped = 0;
+    for (let i = 0; i < width * length; i++) {
+      if (cumulativeFootprint[i] && seedLabels[i] !== bestLabel) {
+        cumulativeFootprint[i] = 0;
+        stripped++;
+      }
+    }
+    if (stripped > 0) {
+      seedCount -= stripped;
+      console.log(`Tower isolation: kept largest seed component (${bestSize} cols), stripped ${stripped} cols from ${compSizes.size - 1} other components`);
+    }
+  }
+
+  // Dilate the top-portion footprint by expansion
+  const allowed = new Uint8Array(width * length);
+  const expSq = expansion * expansion;
+  for (let x = 0; x < width; x++) {
+    for (let z = 0; z < length; z++) {
+      if (!cumulativeFootprint[z * width + x]) continue;
+      for (let dx = -expansion; dx <= expansion; dx++) {
+        for (let dz = -expansion; dz <= expansion; dz++) {
+          if (dx * dx + dz * dz > expSq) continue;
+          const nx = x + dx, nz = z + dz;
+          if (nx >= 0 && nx < width && nz >= 0 && nz < length) {
+            allowed[nz * width + nx] = 1;
+          }
+        }
+      }
+    }
+  }
+
+  // Remove blocks outside the allowed mask at ALL heights
+  let removed = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (!allowed[z * width + x] && grid.get(x, y, z) !== AIR) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  console.log(`Tower isolation: seed Y≥${seedStartY}/${maxOccupiedY} (${seedCount} cols), expansion ${expansion} → removed ${removed} blocks`);
+  return removed;
+}
+
+/**
  * Crop grid to keep only blocks within a given XZ radius from the center.
  *
  * Useful for isolating the central building when the capture radius grabs
