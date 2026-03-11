@@ -21,14 +21,14 @@ GLBS[esb]="tiles-empire-state-building-new-york-ny.glb"
 
 for name in dakota flatiron sentinel stpatricks beach chestnut montgomery noe francisco green baker lyon chrysler esb; do
   glb="${DIR}/${GLBS[$name]}"
-  out="${DIR}/${name}-v53.schem"
-  jpg="${DIR}/${name}-v53-iso.jpg"
+  out="${DIR}/${name}-v53c.schem"
+  jpg="${DIR}/${name}-v53c-iso.jpg"
   if [ ! -f "$glb" ]; then
     echo "SKIP $name — GLB not found: $glb"
     continue
   fi
   echo "=== $name ==="
-  $BUN run scripts/voxelize-glb.ts "$glb" --auto -o "$(pwd)/$out" 2>&1 | grep -E "Grid:|Synthetic|Foundation|Window|cornice|Facade|Solidify"
+  $BUN run scripts/voxelize-glb.ts "$glb" --auto -o "$(pwd)/$out" 2>&1 | grep -E "Grid:|Synthetic|Floor|Foundation|Window|cornice|Facade|Solidify"
   $BUN run scripts/_render-one.ts "$(pwd)/$out" "$(pwd)/$jpg" 2>&1 | tail -1
   echo
 done
