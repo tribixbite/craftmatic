@@ -52,16 +52,26 @@ export async function parseLxf(buffer: ArrayBuffer): Promise<ParsedBrick[]> {
     const vals = tf.split(',').map(Number);
     if (vals.length < 12) continue;
 
-    // Last 3 values are translation in cm
+    // vals[0..8]: row-major rotation matrix (LDD Y-up convention)
+    // vals[9..11]: translation in cm
     const tx = vals[9];
     const ty = vals[10];
     const tz = vals[11];
 
+    // Convert LDD rotation to LDraw: flip Y axis via R_ldraw = C × R_ldd × C
+    // where C = diag(1,-1,1). Result: negate elements at row=1 XOR col=1.
+    const rot: number[] = [
+       vals[0], -vals[1],  vals[2],
+      -vals[3],  vals[4], -vals[5],
+       vals[6], -vals[7],  vals[8],
+    ];
+
     bricks.push({
       color,
-      x: tx * CM_TO_LDU,
+      x:  tx * CM_TO_LDU,
       y: -ty * CM_TO_LDU, // LDD Y-up → LDraw Y-down
-      z: tz * CM_TO_LDU,
+      z:  tz * CM_TO_LDU,
+      rot,
       part,
     });
   }

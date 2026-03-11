@@ -21,6 +21,12 @@ export interface ParsedBrick {
   y: number;
   /** World-space Z in LDU */
   z: number;
+  /**
+   * World-space 3×3 rotation matrix in row-major order (9 elements).
+   * Transforms local part coordinates to world coordinates.
+   * Omitted for bricks from non-LDraw parsers; voxelizer defaults to identity.
+   */
+  rot?: number[];
   /** Part filename, e.g. "3001.dat" */
   part: string;
 }
@@ -124,8 +130,8 @@ function expandSection(
       // Recurse into sub-model
       expandSection(subSection.lines, allSections, childRot, [wx, wy, wz], output, depth + 1);
     } else {
-      // Terminal part (.dat or unknown) — record brick placement
-      output.push({ color, x: wx, y: wy, z: wz, part: basename });
+      // Terminal part (.dat or unknown) — record brick placement with rotation
+      output.push({ color, x: wx, y: wy, z: wz, rot: childRot, part: basename });
     }
   }
 }
