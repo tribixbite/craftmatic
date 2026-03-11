@@ -4,8 +4,13 @@
  */
 
 import './style.css';
+import * as THREE from 'three';
 import { BlockGrid } from '@craft/schem/types.js';
 import { createViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
+import { enableSelection } from '@viewer/selection.js';
+import { cropToAABB } from '@craft/convert/mesh-filter.js';
+import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
+import { trimGrid } from '@craft/gen/gen-utils.js';
 import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initImport, type PropertyData } from '@ui/import.js';
@@ -13,7 +18,8 @@ import { initUpload } from '@ui/upload.js';
 import { initGallery } from '@ui/gallery.js';
 import { initComparison } from '@ui/comparison.js';
 import { initMap3d } from '@ui/map3d.js';
-import { initTiles } from '@ui/tiles.js';
+import { initTiles, type TilesResultMeta } from '@ui/tiles.js';
+import { initLego } from '@ui/lego.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -56,6 +62,13 @@ tabs.forEach(tab => {
     tabContents.forEach(tc => tc.classList.toggle('active', tc.id === `tab-${target}`));
   });
 });
+
+// URL ?tab=tiles (or any tab name) auto-activates that tab on load
+const urlTab = new URLSearchParams(location.search).get('tab');
+if (urlTab) {
+  const match = document.querySelector<HTMLButtonElement>(`.nav-tab[data-tab="${urlTab}"]`);
+  if (match) match.click();
+}
 
 // ─── Loading Overlay ─────────────────────────────────────────────────────────
 
@@ -462,19 +475,311 @@ initMap3d(map3dRoot);
 // ─── Tiles (3D Tiles → Schematic) ──────────────────────────────────────────
 
 const tilesRoot = document.getElementById('tiles-root')!;
-initTiles(tilesRoot, (grid, label) => {
+initTiles(tilesRoot, (grid, label, analysis, meta) => {
   exportBasename = slugify(label) || 'tiles';
-  showLoading('Building 3D view...');
+
+  // Confidence threshold: show manual selection when auto-detection is unreliable
+  const SELECTION_THRESHOLD = 7;
+  const needsSelection = analysis && analysis.confidence < SELECTION_THRESHOLD;
+
+  showLoading(needsSelection ? 'Low confidence — preparing selection...' : 'Building 3D view...');
   requestAnimationFrame(() => setTimeout(() => {
     try {
-      // Show inline viewer in the tiles tab's root container
       showInlineViewer(tilesRoot, grid);
+
+      if (needsSelection && inlineViewer) {
+        // Show selection banner with instructions
+        showTilesSelectionBanner(tilesRoot, grid, analysis!, meta);
+      }
     } catch (err) {
       console.warn('3D viewer failed:', err);
       const fallback = document.createElement('div');
       fallback.className = 'viewer-fallback';
       fallback.textContent = '3D preview unavailable. Voxelization succeeded — use download buttons above.';
       tilesRoot.appendChild(fallback);
+    } finally {
+      hideLoading();
+    }
+  }, 0));
+});
+
+<<<<<<< HEAD
+// ─── Satellite Overlay for Selection ──────────────────────────────────────────
+
+/**
+ * Fetch a Google Static Maps satellite image and overlay it on the ground
+ * plane of the 3D viewer. Provides spatial context (roads, neighbors) so the
+ * user can identify the target building during manual XZ selection.
+ *
+ * The image is centered on the geocoded lat/lng and scaled to cover slightly
+ * more area than the voxel grid for surrounding context.
+ *
+ * @returns The overlay mesh (caller must dispose), or null on failure.
+ */
+async function addSatelliteOverlay(
+  scene: THREE.Scene,
+  meta: TilesResultMeta,
+  grid: BlockGrid,
+): Promise<THREE.Mesh | null> {
+  const apiKey = localStorage.getItem('craftmatic_map3d_api_key')
+    ?? localStorage.getItem('craftmatic_google_streetview_key')
+    ?? '';
+  if (!apiKey) return null;
+
+  const { lat, lng, resolution } = meta;
+
+  // Use building bounds for precise zoom if available, otherwise fall back to grid extent
+  let zoom: number;
+  const latRad = lat * Math.PI / 180;
+  if (meta.buildingBounds && meta.buildingBounds.confidence > 0.3) {
+    // Building bounds provide a pre-computed zoom that fits the building with 2x context
+    zoom = meta.buildingBounds.satelliteZoom;
+  } else {
+    // Fallback: derive zoom from voxel grid extent (the old 2.5x approach, reduced to 2x)
+    const widthM = grid.width / resolution;
+    const lengthM = grid.length / resolution;
+    const coverageM = Math.max(widthM, lengthM) * 2.0;
+    const zoomExact = Math.log2(640 * 156543.03392 * Math.cos(latRad) / coverageM);
+    zoom = Math.min(21, Math.max(17, Math.round(zoomExact)));
+  }
+
+  // Actual coverage at the snapped integer zoom
+  const metersPerPx = 156543.03392 * Math.cos(latRad) / Math.pow(2, zoom);
+  const actualCoverageM = 640 * metersPerPx;
+
+  // Fetch satellite image from Google Static Maps API
+  const url = `https://maps.googleapis.com/maps/api/staticmap`
+    + `?center=${lat},${lng}&zoom=${zoom}&size=640x640`
+    + `&maptype=satellite&key=${apiKey}`;
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.crossOrigin = 'anonymous'; // required for Three.js texture use
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Failed to load satellite image'));
+    el.src = url;
+  });
+
+  const texture = new THREE.Texture(img);
+  texture.needsUpdate = true;
+  // Sharpen: linear filter looks better for satellite imagery
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+
+  // Plane size in world/block coords: actual coverage in meters × resolution
+  const planeSizeBlocks = actualCoverageM * resolution;
+
+  const geo = new THREE.PlaneGeometry(planeSizeBlocks, planeSizeBlocks);
+  const mat = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+
+  const plane = new THREE.Mesh(geo, mat);
+  // PlaneGeometry is XY by default — rotate to lie flat on XZ ground
+  plane.rotation.x = -Math.PI / 2;
+  // Position just below the voxel ground level to avoid z-fighting
+  plane.position.y = -0.5;
+  plane.renderOrder = -1;
+  scene.add(plane);
+
+  const boundsInfo = meta.buildingBounds
+    ? `building=${meta.buildingBounds.widthM}×${meta.buildingBounds.lengthM}m, sources=${meta.buildingBounds.sources.join(',')}`
+    : 'no-bounds';
+  console.log(`[satellite] overlay: zoom=${zoom}, coverage=${actualCoverageM.toFixed(0)}m, plane=${planeSizeBlocks.toFixed(0)} blocks, ${boundsInfo}`);
+  return plane;
+}
+
+/**
+ * Show manual selection banner + enable XZ rectangle selection on the viewer.
+ * Appears when auto-detection confidence is below threshold.
+ */
+function showTilesSelectionBanner(
+  container: HTMLElement,
+  grid: BlockGrid,
+  analysis: AnalysisResult,
+  meta: TilesResultMeta | null,
+): void {
+  if (!inlineViewer) return;
+
+  // Create a banner above the viewer
+  const banner = document.createElement('div');
+  banner.className = 'tiles-selection-banner';
+  banner.innerHTML = `
+    <div class="tiles-selection-info">
+      <strong>Low confidence (${analysis.confidence.toFixed(1)}/10)</strong> —
+      Auto-detection may be inaccurate. Tap two corners to outline the building, or skip to use as-is.
+    </div>
+    <div class="tiles-selection-actions">
+      <button class="btn btn-primary btn-sm" id="tiles-sel-start">Select Building</button>
+      <button class="btn btn-secondary btn-sm" id="tiles-sel-skip">Skip</button>
+    </div>
+  `;
+
+  // Insert banner before the viewer canvas
+  const viewerCanvas = container.querySelector('.inline-viewer') ?? container.firstChild;
+  if (viewerCanvas) {
+    container.insertBefore(banner, viewerCanvas);
+  } else {
+    container.appendChild(banner);
+  }
+
+  let selectionCancel: (() => void) | null = null;
+  /** Satellite overlay mesh — cleaned up when selection ends */
+  let satelliteOverlay: THREE.Mesh | null = null;
+
+  const startBtn = banner.querySelector('#tiles-sel-start') as HTMLButtonElement;
+  const skipBtn = banner.querySelector('#tiles-sel-skip') as HTMLButtonElement;
+
+  startBtn.addEventListener('click', async () => {
+    if (!inlineViewer) { banner.remove(); return; }
+
+    // Switch to top-down view for easier XZ selection
+    const { camera, controls, scene } = inlineViewer;
+    const savedPos = camera.position.clone();
+    const savedTarget = controls.target.clone();
+    const savedMinPolar = controls.minPolarAngle;
+    const savedMaxPolar = controls.maxPolarAngle;
+
+    // Move camera directly above looking down — high enough to see satellite context
+    const maxDim = Math.max(grid.width, grid.length);
+    camera.position.set(0, maxDim * 3, 0.01); // 3x for wide satellite view, tiny Z avoids gimbal lock
+    controls.target.set(0, 0, 0);
+    // Lock vertical rotation to top-down (prevent user from tumbling to 3D view)
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = 0.15; // ~8.6° — nearly locked top-down
+    controls.update();
+
+    // Make voxel blocks semi-transparent so satellite imagery shows through.
+    // Save original opacity/transparent state for restoration after selection.
+    const savedMaterials: Array<{ mesh: THREE.InstancedMesh; opacity: number; transparent: boolean }> = [];
+    for (const mesh of inlineViewer.meshes) {
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      savedMaterials.push({ mesh, opacity: mat.opacity, transparent: mat.transparent });
+      mat.transparent = true;
+      mat.opacity = 0.25;
+      mat.needsUpdate = true;
+    }
+
+    // Overlay satellite imagery on the ground plane for spatial context.
+    // Makes the building footprint recognizable relative to roads/neighbors.
+    if (meta) {
+      addSatelliteOverlay(scene, meta, grid).then(mesh => {
+        satelliteOverlay = mesh;
+      }).catch(err => {
+        console.warn('[selection] satellite overlay failed:', err);
+      });
+    }
+
+    // Update banner to show selection instructions
+    banner.innerHTML = `
+      <div class="tiles-selection-info">
+        Tap <strong>first corner</strong> of the building boundary, then <strong>second corner</strong>.
+        <span class="tiles-sel-hint">ESC or Backspace to undo · Pinch/scroll to zoom</span>
+      </div>
+      <div class="tiles-selection-actions">
+        <button class="btn btn-secondary btn-sm" id="tiles-sel-cancel">Cancel</button>
+      </div>
+    `;
+
+    const cancelBtn = banner.querySelector('#tiles-sel-cancel') as HTMLButtonElement;
+
+    const { promise, cancel } = enableSelection(
+      inlineViewer,
+      analysis.groundContactY ?? 0,
+    );
+    selectionCancel = cancel;
+
+    /** Remove satellite overlay and restore block opacity */
+    function cleanupSelection() {
+      // Restore voxel block materials to original opacity
+      for (const { mesh, opacity, transparent } of savedMaterials) {
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        mat.opacity = opacity;
+        mat.transparent = transparent;
+        mat.needsUpdate = true;
+      }
+      // Remove satellite image plane
+      if (satelliteOverlay && inlineViewer) {
+        inlineViewer.scene.remove(satelliteOverlay);
+        satelliteOverlay.geometry.dispose();
+        (satelliteOverlay.material as THREE.Material).dispose();
+        satelliteOverlay = null;
+      }
+    }
+
+    /** Restore original camera position and rotation limits after selection */
+    function restoreCamera() {
+      cleanupSelection();
+      if (!inlineViewer) return;
+      camera.position.copy(savedPos);
+      controls.target.copy(savedTarget);
+      controls.minPolarAngle = savedMinPolar;
+      controls.maxPolarAngle = savedMaxPolar;
+      controls.update();
+    }
+
+    cancelBtn.addEventListener('click', () => {
+      cancel();
+      restoreCamera();
+      banner.remove();
+    });
+
+    const bounds = await promise;
+    selectionCancel = null;
+
+    if (!bounds) {
+      restoreCamera();
+      banner.remove();
+      return;
+    }
+
+    // Clean up satellite overlay before rebuilding viewer
+    cleanupSelection();
+
+    // Apply crop to grid, then trim to tight AABB for cleaner viewer
+    const removed = cropToAABB(grid, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ, 1);
+    const trimmed = trimGrid(grid, 1);
+    console.log(`[tiles-selection] cropped ${removed} blocks → ${trimmed.width}x${trimmed.height}x${trimmed.length}`);
+
+    // Remove banner and re-render viewer with trimmed grid
+    banner.remove();
+    showLoading('Rebuilding view with selection...');
+    requestAnimationFrame(() => setTimeout(() => {
+      try {
+        showInlineViewer(container, trimmed);
+      } finally {
+        hideLoading();
+      }
+    }, 0));
+  });
+
+  skipBtn.addEventListener('click', () => {
+    if (selectionCancel) selectionCancel();
+    banner.remove();
+  });
+}
+
+// ─── LEGO ────────────────────────────────────────────────────────────────────
+
+const legoControls = document.getElementById('lego-controls')!;
+const legoViewer = document.getElementById('lego-viewer')!;
+
+initLego(legoControls, legoViewer, (grid: BlockGrid, label: string) => {
+  exportBasename = slugify(label) || 'lego-set';
+  showLoading('Building 3D view...');
+  requestAnimationFrame(() => setTimeout(() => {
+    try {
+      showInlineViewer(legoViewer, grid);
+    } catch (err) {
+      console.warn('3D viewer failed:', err);
+      const fallback = document.createElement('div');
+      fallback.className = 'viewer-fallback';
+      fallback.textContent = '3D preview unavailable. Export succeeded — use download buttons above.';
+      legoViewer.appendChild(fallback);
     } finally {
       hideLoading();
     }

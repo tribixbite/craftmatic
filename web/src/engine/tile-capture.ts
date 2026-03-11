@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import type { TilesRenderer } from '3d-tiles-renderer';
+import { filterMeshesByHeight } from '@craft/convert/mesh-filter.js';
 
 /** Options for tile mesh capture */
 export interface CaptureOptions {
@@ -15,6 +16,9 @@ export interface CaptureOptions {
   onProgress?: (msg: string) => void;
   /** Timeout in ms before aborting (default: 60000) */
   timeout?: number;
+  /** Minimum vertical extent (meters) above ground for a mesh to be kept (default: 2).
+   *  Filters out flat terrain, roads, sidewalks that add noise to voxelization. */
+  minHeight?: number;
 }
 
 /**
@@ -32,17 +36,18 @@ export async function captureTileMeshes(
   radiusMeters: number,
   options?: CaptureOptions,
 ): Promise<THREE.Group> {
-  const { onProgress, timeout = 60000 } = options ?? {};
+  const { onProgress, timeout = 60000, minHeight = 2 } = options ?? {};
 
   // Wait for tiles to finish downloading and parsing
   await waitForTilesLoaded(tiles, timeout, onProgress);
 
   onProgress?.('Extracting meshes...');
 
-  // Collect all meshes within the capture sphere
-  const captureSphere = new THREE.Sphere(center, radiusMeters);
-  const group = new THREE.Group();
-  let meshCount = 0;
+  // First pass: collect candidate meshes within XZ radius (cylindrical filter).
+  // A sphere rejects meshes above the radius height, clipping tall buildings.
+  // XZ-only distance preserves all vertical geometry (towers, spires, antennas).
+  const centerXZ = new THREE.Vector2(center.x, center.z);
+  const candidates: { child: THREE.Mesh; worldBox: THREE.Box3 }[] = [];
   let tested = 0;
   let rejected = 0;
   let noGeometry = 0;
@@ -59,13 +64,30 @@ export async function captureTileMeshes(
     const worldSphere = geo.boundingSphere!.clone();
     worldSphere.applyMatrix4(child.matrixWorld);
 
-    // Check intersection with capture sphere
-    if (!captureSphere.intersectsSphere(worldSphere)) {
+    // Cylindrical XZ-only filter — accepts meshes at any height within XZ radius
+    const meshCenterXZ = new THREE.Vector2(worldSphere.center.x, worldSphere.center.z);
+    const xzDist = centerXZ.distanceTo(meshCenterXZ) - worldSphere.radius;
+    if (xzDist > radiusMeters) {
       rejected++;
       return;
     }
 
-    // Clone mesh with world transform applied
+    // Compute world-space AABB for ground estimation
+    const worldBox = new THREE.Box3().setFromObject(child);
+    candidates.push({ child, worldBox });
+  });
+
+  // Filter by vertical extent above estimated ground level
+  const { kept, groundY, heightFiltered } = filterMeshesByHeight(candidates, minHeight);
+  if (candidates.length > 0) {
+    onProgress?.(`Ground level estimated at Y=${groundY.toFixed(1)}, filtering meshes...`);
+  }
+
+  // Clone surviving meshes with world transform baked in
+  const group = new THREE.Group();
+  let meshCount = 0;
+
+  for (const { child } of kept) {
     const cloned = child.clone();
     cloned.applyMatrix4(child.matrixWorld);
     // Reset the matrix since we've baked the transform
@@ -76,10 +98,10 @@ export async function captureTileMeshes(
 
     group.add(cloned);
     meshCount++;
-  });
+  }
 
-  onProgress?.(`Captured ${meshCount}/${tested} meshes (${rejected} outside radius, ${noGeometry} no geometry)`);
-  console.log(`[tile-capture] tested=${tested} captured=${meshCount} rejected=${rejected} noGeo=${noGeometry} radius=${radiusMeters}`);
+  onProgress?.(`Captured ${meshCount}/${tested} meshes (${rejected} outside radius, ${heightFiltered} below ${minHeight}m height, ${noGeometry} no geometry)`);
+  console.log(`[tile-capture] tested=${tested} captured=${meshCount} rejected=${rejected} heightFiltered=${heightFiltered} noGeo=${noGeometry} radius=${radiusMeters} groundY=${groundY.toFixed(1)}`);
 
   return group;
 }
@@ -105,39 +127,49 @@ function waitForTilesLoaded(
     const MIN_LOADED = 5;
 
     const check = () => {
-      const elapsed = Date.now() - startTime;
-      if (elapsed > timeoutMs) {
-        const loaded = (tiles.stats as Record<string, number>).loaded ?? 0;
-        onProgress?.(`Timeout reached (${loaded} tiles loaded), using partial data`);
-        resolve();
-        return;
-      }
-
-      const stats = tiles.stats;
-      const downloading = stats.downloading ?? 0;
-      const parsing = stats.parsing ?? 0;
-      const failed = (stats as Record<string, number>).failed ?? 0;
-      const loaded = (stats as Record<string, number>).loaded ?? 0;
-
-      if (failed > 0 && downloading === 0 && parsing === 0) {
-        onProgress?.(`Tiles loaded with ${failed} failures (${loaded} loaded)`);
-        resolve();
-        return;
-      }
-
-      if (downloading === 0 && parsing === 0 && loaded >= MIN_LOADED) {
-        stableFrames++;
-        if (stableFrames >= STABLE_THRESHOLD) {
-          onProgress?.(`Tiles loaded (${loaded} tiles)`);
+      try {
+        const elapsed = Date.now() - startTime;
+        if (elapsed > timeoutMs) {
+          const loaded = (tiles.stats as Record<string, number>).loaded ?? 0;
+          onProgress?.(`Timeout reached (${loaded} tiles loaded), using partial data`);
           resolve();
           return;
         }
-      } else {
-        stableFrames = 0;
-      }
 
-      onProgress?.(`Loading tiles... (${downloading} downloading, ${parsing} parsing, ${loaded} loaded${failed > 0 ? `, ${failed} failed` : ''})`);
-      setTimeout(check, 200);
+        const stats = tiles.stats;
+        if (!stats) {
+          onProgress?.('Error: tiles.stats is null');
+          resolve();
+          return;
+        }
+        const downloading = (stats as Record<string, number>).downloading ?? 0;
+        const parsing = (stats as Record<string, number>).parsing ?? 0;
+        const failed = (stats as Record<string, number>).failed ?? 0;
+        const loaded = (stats as Record<string, number>).loaded ?? 0;
+
+        if (failed > 0 && downloading === 0 && parsing === 0) {
+          onProgress?.(`Tiles loaded with ${failed} failures (${loaded} loaded)`);
+          resolve();
+          return;
+        }
+
+        if (downloading === 0 && parsing === 0 && loaded >= MIN_LOADED) {
+          stableFrames++;
+          if (stableFrames >= STABLE_THRESHOLD) {
+            onProgress?.(`Tiles loaded (${loaded} tiles)`);
+            resolve();
+            return;
+          }
+        } else {
+          stableFrames = 0;
+        }
+
+        onProgress?.(`Waiting for tiles... d:${downloading} p:${parsing} ok:${loaded} fail:${failed} [${Math.round(elapsed / 1000)}s]`);
+        setTimeout(check, 200);
+      } catch (err) {
+        onProgress?.(`waitForTilesLoaded error: ${err instanceof Error ? err.message : String(err)}`);
+        resolve();
+      }
     };
 
     setTimeout(check, 200);

@@ -37,5 +37,22 @@ export default defineConfig({
   server: {
     port: 4000,
     open: true,
+    proxy: {
+      '/ldraw-omr': {
+        target: 'https://library.ldraw.org',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ldraw-omr/, '/library/omr'),
+      },
+      // BFF inventory proxy — dev only, no token injection.
+      // In prod the CF Worker handles the full server-side token exchange.
+      '/bff/inventory': {
+        target: 'https://api.prod.studio.bricklink.info',
+        changeOrigin: true,
+        rewrite: (path) => {
+          const setNum = path.replace(/^\/bff\/inventory\//, '');
+          return `/api/v1/info/set/${setNum}/inventory?breakMinifigures=true&breakParts=true&breakSubsets=true&includeVariants=true`;
+        },
+      },
+    },
   },
 });

@@ -124,8 +124,27 @@ export async function searchOSMBuilding(
   return null;
 }
 
+/** Ray-casting point-in-polygon test for lat/lng coordinates */
+function pointInPolygon(
+  lat: number, lng: number,
+  polygon: { lat: number; lon: number }[],
+): boolean {
+  let inside = false;
+  const n = polygon.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const yi = polygon[i].lat, xi = polygon[i].lon;
+    const yj = polygon[j].lat, xj = polygon[j].lon;
+    if ((yi > lat) !== (yj > lat) &&
+        lng < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
 /**
- * Parse Overpass JSON elements and return the building closest to the query point.
+ * Parse Overpass JSON elements and return the best building match.
+ * Priority: (1) containing polygon with largest area, (2) closest centroid.
  * Exported for testing with mock responses.
  */
 export function parseClosestBuilding(
@@ -133,39 +152,55 @@ export function parseClosestBuilding(
   queryLat: number,
   queryLng: number,
 ): OSMBuildingData | null {
-  let bestElement: OverpassElement | null = null;
-  let bestDist = Infinity;
+  // Extract geometry for each element
+  interface Candidate {
+    el: OverpassElement;
+    geom: { lat: number; lon: number }[];
+    centroidDist: number;
+    area: number;
+    containsQuery: boolean;
+  }
+  const candidates: Candidate[] = [];
 
   for (const el of elements) {
-    // Extract centroid geometry from either way or relation
     let geom: { lat: number; lon: number }[] | undefined;
     if (el.type === 'way' && el.geometry && el.geometry.length >= 3) {
       geom = el.geometry;
     } else if (el.type === 'relation' && el.members) {
-      // For relations, use the first outer member's geometry as the centroid source
       const outerMember = el.members.find(m => m.role === 'outer' && m.geometry && m.geometry.length >= 3);
       geom = outerMember?.geometry;
     }
     if (!geom) continue;
 
-    // Compute centroid of polygon
-    let cLat = 0;
-    let cLon = 0;
-    for (const pt of geom) {
-      cLat += pt.lat;
-      cLon += pt.lon;
-    }
+    let cLat = 0, cLon = 0;
+    for (const pt of geom) { cLat += pt.lat; cLon += pt.lon; }
     cLat /= geom.length;
     cLon /= geom.length;
 
-    const dist = haversineDistance(queryLat, queryLng, cLat, cLon);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestElement = el;
-    }
+    candidates.push({
+      el,
+      geom,
+      centroidDist: haversineDistance(queryLat, queryLng, cLat, cLon),
+      area: polygonArea(geom),
+      containsQuery: pointInPolygon(queryLat, queryLng, geom),
+    });
   }
 
-  if (!bestElement) return null;
+  if (candidates.length === 0) return null;
+
+  // Prefer: (1) buildings that contain the query point, sorted by area descending
+  // (2) otherwise closest centroid
+  const containing = candidates
+    .filter(c => c.containsQuery)
+    .sort((a, b) => b.area - a.area);
+
+  let bestElement: OverpassElement;
+  if (containing.length > 0) {
+    bestElement = containing[0].el;
+  } else {
+    candidates.sort((a, b) => a.centroidDist - b.centroidDist);
+    bestElement = candidates[0].el;
+  }
 
   // Extract outer polygon and inner rings based on element type
   let polygon: { lat: number; lon: number }[];
