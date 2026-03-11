@@ -982,16 +982,28 @@ export function glazeDarkWindows(grid: BlockGrid): number {
     }
   }
 
-  // Phase 3: Count component sizes, glaze blocks in components with ≥2 members
+  // Phase 3: Filter components by size AND vertical extent.
+  // Real windows form vertically coherent chains spanning ≥3 Y levels;
+  // noise/shadow artifacts are scattered with small vertical bounding boxes.
+  const MIN_COMP_SIZE = 3;    // minimum blocks in the chain
+  const MIN_COMP_HEIGHT = 3;  // minimum vertical span (maxY - minY + 1)
+
   const compSize = new Map<number, number>();
+  const compMinY = new Map<number, number>();
+  const compMaxY = new Map<number, number>();
   for (let i = 0; i < facadeBlocks.length; i++) {
     const root = find(i);
+    const { y } = facadeBlocks[i];
     compSize.set(root, (compSize.get(root) ?? 0) + 1);
+    compMinY.set(root, Math.min(compMinY.get(root) ?? y, y));
+    compMaxY.set(root, Math.max(compMaxY.get(root) ?? y, y));
   }
 
   for (let i = 0; i < facadeBlocks.length; i++) {
     const root = find(i);
-    if ((compSize.get(root) ?? 0) >= 2) {
+    const size = compSize.get(root) ?? 0;
+    const vHeight = (compMaxY.get(root) ?? 0) - (compMinY.get(root) ?? 0) + 1;
+    if (size >= MIN_COMP_SIZE && vHeight >= MIN_COMP_HEIGHT) {
       const { x, y, z } = facadeBlocks[i];
       grid.set(x, y, z, 'minecraft:gray_stained_glass');
       glazed++;
