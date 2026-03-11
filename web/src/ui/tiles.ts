@@ -32,6 +32,7 @@ import {
   constrainPalette, modeFilter3D,
   fillInteriorGaps, removeSmallComponents,
   removeGroundPlane, stripVegetation,
+  morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -580,15 +581,17 @@ async function runVoxelizePipeline(
  * Without these steps the browser output is a chaotic mass of noisy colored
  * blocks from baked lighting and surface noise in the Google 3D Tiles data.
  *
- * Steps applied (in order):
- * 1. AABB crop (if analysis recommends it) — isolate central building
- * 2. Fill interior gaps — flood-fill per Y-layer
- * 3. Vertical + horizontal rectify — Manhattan geometry cleanup
- * 4. Smooth rare blocks — eliminate salt-and-pepper noise
- * 5. Sky palette — remap blue/cyan sky contamination only
- * 6. Mode filter — 3D majority-vote surface smoother
- * 7. Component cleanup — remove floating debris
- * 8. Backplane glazing — add window blocks to interior voids
+ * Steps applied (in order, matching CLI v44 pipeline):
+ * 1. Ground plane removal
+ * 2. Component cleanup (≥500 voxels)
+ * 3. AABB crop (if analysis recommends it)
+ * 4-5. Interior fill (dilation=2, two passes)
+ * 6. Vegetation strip
+ * 7. Morph close — spackle 1-voxel pockmarks
+ * 8. Surface smooth + facade flatten
+ * 9. Glaze dark windows (before mode filter — glass is PROTECTED)
+ * 10. Mode filter — 3D majority-vote surface smoother
+ * 11. Sky palette + analysis remaps
  */
 async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null): Promise<void> {
   const t0 = performance.now();
@@ -641,12 +644,40 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   if (vegStripped > 0) console.log(`[tiles:pp] vegetation strip: ${vegStripped} tree/bush blocks removed`);
   await yieldUI();
 
-  // 7. smoothRareBlocks disabled: after interior fill inflates totalNonAir,
-  // 2% global threshold erases legitimate surface details. modeFilter3D handles noise.
+  // 7. Morph close — spackle 1-voxel pockmarks/holes in photogrammetry surfaces.
+  // Dilation+erosion fills small cracks without changing overall shape.
+  // Runs BEFORE smoothSurface so the surface smoother sees healed faces.
+  {
+    const closed = morphClose3D(grid, 1);
+    if (closed > 0) console.log(`[tiles:pp] morph close: ${closed} 1-voxel holes filled`);
+  }
   await yieldUI();
 
-  // 8. Mode filter — 3x3x3 majority-vote smoother (radius=1).
-  // Runs BEFORE sky remap so cyan won't get voted back by majority neighbors.
+  // 8. Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
+  {
+    const surfaceSmoothed = smoothSurface(grid);
+    if (surfaceSmoothed > 0) console.log(`[tiles:pp] surface smooth: ${surfaceSmoothed} protrusions removed`);
+    // For rectangular buildings, snap noisy walls to dominant flat planes
+    if (analysis?.isRectangular) {
+      const snapped = flattenFacades(grid, 2);
+      if (snapped > 0) console.log(`[tiles:pp] facade flatten: ${snapped} voxels snapped`);
+    }
+  }
+  await yieldUI();
+
+  // 9. Glaze dark exterior blocks as windows BEFORE mode filter.
+  // modeFilter3D would erase small dark clusters (windows) as noise.
+  // gray_stained_glass is in modeFilter3D's PROTECTED set, so glazing
+  // first preserves windows while mode filter smooths walls around them.
+  {
+    const glazed = glazeDarkWindows(grid);
+    if (glazed > 0) console.log(`[tiles:pp] window glazing: ${glazed} dark blocks → gray_stained_glass`);
+  }
+  await yieldUI();
+
+  // 10. Mode filter — 3x3x3 majority-vote smoother (radius=1).
+  // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap
+  // so cyan won't get voted back by majority neighbors.
   const modePasses = rec?.modePasses ?? 1;
   if (modePasses > 0) {
     const modeSmoothed = modeFilter3D(grid, modePasses, 1);
@@ -654,7 +685,7 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   }
   await yieldUI();
 
-  // 9. Sky contamination remap — blue/cyan skylight baked into tiles surfaces.
+  // 11. Sky contamination remap — blue/cyan skylight baked into tiles surfaces.
   // Runs AFTER mode filter so residual cyan clusters get cleaned up.
   const skyRemaps = new Map<string, string>([
     ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
