@@ -333,11 +333,12 @@ async function runVoxelizePipeline(
   // uses a fixed camera, so we need every update() call to actually process tiles.
   tiles.registerPlugin(new UnloadTilesPlugin());
 
-  // Force building-level LOD by lowering screen-space error target.
+  // Force building-level LOD, but scale with radius to prevent mobile GPU OOM.
+  // Small radius (30m) → errorTarget 4.0 (high detail, residential buildings)
+  // Large radius (150m) → errorTarget 20.0 (lower detail, prevents crash)
   // Default 16px stops at coarse terrain tiles; lower values demand leaf tiles
-  // with actual building geometry and textures. 4.0 for OrthographicCamera
-  // (SSE calculation differs from perspective — ortho produces larger SSE values).
-  tiles.errorTarget = 4.0;
+  // with actual building geometry and textures.
+  tiles.errorTarget = Math.max(4.0, (radiusMeters / 30) * 4.0);
 
   tiles.setCamera(camera);
   tiles.setResolutionFromRenderer(camera, renderer);
