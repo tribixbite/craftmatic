@@ -30,7 +30,7 @@ import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
 import {
   trimSparseBottomLayers, analyzeGrid, cropToAABB,
   constrainPalette, modeFilter3D,
-  fillInteriorGaps, removeSmallComponents,
+  fillInteriorGaps, clearOpenAirFill, removeSmallComponents,
   removeGroundPlane, stripVegetation,
   morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows,
 } from '@craft/convert/mesh-filter.js';
@@ -627,13 +627,12 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   // but only original air voxels get filled (crisp geometry preserved).
   const interiorFilled = fillInteriorGaps(grid, 2);
   console.log(`[tiles:pp] interior fill (3D masked): ${interiorFilled} voxels`);
+  // 4b. Sky exposure — remove fill in open-air spaces (stadiums, courtyards).
+  const openAirCleared = clearOpenAirFill(grid);
+  if (openAirCleared > 0) console.log(`[tiles:pp] open-air fill cleared: ${openAirCleared} blocks (no roof above)`);
   await yieldUI();
 
-  // 5. verticalRectify + horizontalRectify removed: legacy band-aids from
-  // carveFacadeShadows era. X-only median erodes E/W walls, AABB facade zones
-  // break on non-convex footprints. modeFilter3D handles surface noise.
-
-  // 6. Second fill pass — fill may close more gaps after vegetation strip.
+  // 5. Second fill pass — fill may close more gaps after vegetation strip.
   const interiorFilled2 = fillInteriorGaps(grid, 2);
   if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2 (3D masked): ${interiorFilled2} voxels`);
   await yieldUI();

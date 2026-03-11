@@ -742,6 +742,136 @@ export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
 }
 
 /**
+ * Remove fill blocks that have no solid (non-fill) roof above them.
+ *
+ * After fillInteriorGaps, stadiums, courtyards, and open-air spaces may be
+ * incorrectly filled because the dilation mask closed small rim/wall gaps.
+ * This pass checks each fill voxel for a vertical line-of-sight to the sky:
+ * - If a fill voxel has a non-fill solid block anywhere above it → keep (under a roof)
+ * - If a fill voxel has only air or other fill above → remove (open-air space)
+ *
+ * To avoid false-clearing on buildings truncated by capture radius (where the top
+ * has no roof simply because capture was too short), requires a minimum vertical
+ * clearance of `minClearance` air/fill layers above the fill before classifying
+ * as open-air. This prevents removing fill at truncation boundaries where the
+ * building simply extends beyond the grid.
+ *
+ * @param grid          Source BlockGrid (modified in place)
+ * @param fillBlock     The block ID used by fillInteriorGaps (default: smooth_stone)
+ * @param minClearance  Minimum air layers above fill before classifying as open-air (default: 5)
+ * @returns             Number of fill blocks removed
+ */
+export function clearOpenAirFill(
+  grid: BlockGrid,
+  fillBlock = 'minecraft:smooth_stone',
+  minClearance = 5,
+): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+
+  // 2D connected-component approach:
+  // 1. Build XZ mask of "open-air columns" — has fill, no solid roof above, sufficient clearance
+  // 2. 4-connected flood fill to find contiguous open-air regions
+  // 3. Only clear fill in large regions (≥MIN_OPEN_AIR_COLUMNS) — stadiums/courtyards are large,
+  //    truncation artifacts from missing roof are small/scattered
+  const MIN_OPEN_AIR_COLUMNS = 25; // ~5×5m² minimum open-air region
+
+  // Step 1: Build XZ "open-air" mask
+  // A column is "open-air" if it has fill blocks AND no solid (non-fill) roof above them
+  // AND has sufficient vertical clearance above the topmost real block
+  const openAirMask = new Uint8Array(width * length); // 1 = open-air column
+
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      let hasFill = false;
+      let topRealY = -1;
+      let hasRoofAboveFill = false;
+
+      // Top-down scan: find topmost real block, check for fill without roof
+      let seenRealBlock = false;
+      for (let y = height - 1; y >= 0; y--) {
+        const block = grid.get(x, y, z);
+        if (block !== AIR && block !== fillBlock) {
+          seenRealBlock = true;
+          if (topRealY < 0) topRealY = y;
+        } else if (block === fillBlock) {
+          hasFill = true;
+          if (seenRealBlock) hasRoofAboveFill = true;
+        }
+      }
+
+      // Column is open-air if: has fill, no solid roof above fill, sufficient clearance
+      const clearanceAbove = topRealY >= 0 ? (height - 1 - topRealY) : 0;
+      if (hasFill && !hasRoofAboveFill && clearanceAbove >= minClearance) {
+        openAirMask[z * width + x] = 1;
+      }
+    }
+  }
+
+  // Step 2: 4-connected flood fill to find connected components
+  const componentId = new Int32Array(width * length); // 0 = unassigned
+  const componentSizes: Map<number, number> = new Map();
+  let nextId = 1;
+
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const idx = z * width + x;
+      if (openAirMask[idx] !== 1 || componentId[idx] !== 0) continue;
+
+      // BFS flood fill for this component
+      const id = nextId++;
+      const queue: number[] = [idx];
+      let size = 0;
+      componentId[idx] = id;
+
+      while (queue.length > 0) {
+        const cur = queue.pop()!;
+        size++;
+        const cx = cur % width;
+        const cz = Math.floor(cur / width);
+
+        // 4-connected neighbors
+        const neighbors = [
+          cz > 0 ? (cz - 1) * width + cx : -1,
+          cz < length - 1 ? (cz + 1) * width + cx : -1,
+          cx > 0 ? cz * width + (cx - 1) : -1,
+          cx < width - 1 ? cz * width + (cx + 1) : -1,
+        ];
+        for (const ni of neighbors) {
+          if (ni >= 0 && openAirMask[ni] === 1 && componentId[ni] === 0) {
+            componentId[ni] = id;
+            queue.push(ni);
+          }
+        }
+      }
+
+      componentSizes.set(id, size);
+    }
+  }
+
+  // Step 3: Clear fill only in columns belonging to large components
+  let removed = 0;
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const id = componentId[z * width + x];
+      if (id === 0) continue;
+      const size = componentSizes.get(id)!;
+      if (size < MIN_OPEN_AIR_COLUMNS) continue;
+
+      // Clear all fill blocks in this open-air column (no roof above them)
+      for (let y = height - 1; y >= 0; y--) {
+        if (grid.get(x, y, z) === fillBlock) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
+/**
  * Convert dark exterior surface blocks to gray_stained_glass to represent windows.
  *
  * With center-pixel texture sampling, dark pixels (windows, shadows) now map to

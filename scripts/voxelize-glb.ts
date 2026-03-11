@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -1237,6 +1237,11 @@ async function main(): Promise<void> {
     if (args.fill) {
       const interiorFilled = fillInteriorGaps(trimmed, 2);
       console.log(`Interior fill (3D masked, dilation=2): ${interiorFilled} interior voxels filled`);
+      // Step 4b: Sky exposure — remove fill in open-air spaces (stadiums, courtyards).
+      // fillInteriorGaps may incorrectly fill spaces where the dilation mask closed
+      // small rim/wall gaps. This checks vertical line-of-sight to sky.
+      const openAirCleared = clearOpenAirFill(trimmed);
+      if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} fill blocks removed (no solid roof above)`);
     }
 
     // Step 5: Vegetation strip
@@ -1311,6 +1316,9 @@ async function main(): Promise<void> {
       // dilation=2 seals diagonal gaps in photogrammetry shells
       const interiorFilled = fillInteriorGaps(trimmed, 2);
       console.log(`Interior fill (3D masked, dilation=2): ${interiorFilled} interior voxels filled`);
+      // Step 4b: Sky exposure — remove fill in open-air spaces
+      const openAirCleared = clearOpenAirFill(trimmed);
+      if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} blocks (no solid roof above)`);
 
       // Step 5: Strip vegetation — trees acted as solid walls during fill,
       // revealing the building interior behind canopy instead of leaving holes.
