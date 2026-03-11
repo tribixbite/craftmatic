@@ -669,11 +669,11 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
       const totalKernelPixels = (k * 2 + 1) * (k * 2 + 1);
       const minFeaturePixels = totalKernelPixels * 0.05; // 5% threshold
       const selectedBucket = bucketCount[centerBucket] >= minFeaturePixels ? centerBucket : bestBucket;
-      // Track when center-pixel sampling chose a MUCH darker bucket than the
-      // mode — this pixel is a real feature (window, deep recess) not just
-      // baked shadow. Require ≥2 bucket gap (~64 luminance units) — catches
-      // real windows (40-60 lum darker than concrete) while ignoring mild shadows.
-      isCenterPixelFeature = selectedBucket !== bestBucket && (bestBucket - selectedBucket) >= 2;
+      // Track when center-pixel sampling chose a darker bucket than the mode —
+      // this pixel is a feature (window, trim, recess) whose darkness should be
+      // preserved through the pipeline (skip black-point lift + gamma). ≥1 bucket
+      // gap (~32 luminance units) catches both deep windows and shallow trim.
+      isCenterPixelFeature = selectedBucket !== bestBucket && (bestBucket - selectedBucket) >= 1;
 
       if (bucketCount[selectedBucket] > 0) {
         r = Math.round(bucketR[selectedBucket] / bucketCount[selectedBucket]);
@@ -770,7 +770,13 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
       b = Math.round(MIN_BRIGHT + (b * range) / 255);
     }
 
-    // Apply gamma correction
+    // Apply gamma correction — skip for center-pixel features so dark window/trim
+    // values are preserved as-is for CIE-Lab to match to dark Minecraft blocks.
+    // Without this, gamma 0.5 lifts a dark 51→114 (sqrt curve), causing CIE-Lab
+    // to match to light_gray_concrete instead of gray_concrete/andesite.
+    if (isCenterPixelFeature) {
+      return [r, g, b];
+    }
     return [lut[r], lut[g], lut[b]];
   };
 }

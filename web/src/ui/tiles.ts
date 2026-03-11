@@ -32,7 +32,7 @@ import {
   constrainPalette, modeFilter3D,
   fillInteriorGaps, clearOpenAirFill, removeSmallComponents,
   removeGroundPlane, stripVegetation,
-  morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows,
+  morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows, injectSyntheticWindows,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -671,6 +671,7 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   {
     const glazed = glazeDarkWindows(grid);
     if (glazed > 0) console.log(`[tiles:pp] window glazing: ${glazed} dark blocks → gray_stained_glass`);
+    // NOTE: injectSyntheticWindows reverted — rigid grid pattern degrades non-commercial buildings
   }
   await yieldUI();
 
