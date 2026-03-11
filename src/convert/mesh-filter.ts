@@ -874,13 +874,12 @@ export function clearOpenAirFill(
 /**
  * Convert dark exterior surface blocks to gray_stained_glass to represent windows.
  *
- * Uses frequency-based detection to distinguish windows from shadows:
- * 1. Only glazes blocks on exterior facade surfaces (Y≥2, not top/bottom faces)
- * 2. Checks vertical continuity — real windows repeat vertically across floors
- * 3. Requires minimum dark-block density on the facade for the column to qualify
- *
- * This avoids glazing ground-level blocks, rooftop blocks, and isolated dark
- * blocks that are more likely shadows than windows.
+ * Uses Chebyshev-1 spatial grouping for vertical window columns:
+ * 1. Only considers blocks on exterior facade surfaces (Y≥2, horizontal adjacency to air)
+ * 2. Groups facade dark blocks into vertical chains using Chebyshev-1 XZ tolerance:
+ *    each block connects to the 3×3 XZ neighborhood (x±1, z±1) above, tolerating
+ *    1-block lateral shift per floor (tapers, diagonals, curves)
+ * 3. Glazes all dark blocks in chains with ≥2 members
  *
  * @param grid  Source BlockGrid (modified in place)
  * @returns Number of blocks glazed
@@ -899,21 +898,17 @@ export function glazeDarkWindows(grid: BlockGrid): number {
     'minecraft:andesite',
   ]);
 
-  // For each exterior dark block, check if it's part of a vertical window column:
-  // count dark blocks in the same XZ column that are also on the exterior surface.
-  // Windows repeat vertically across floors; isolated shadows don't.
-  const MIN_VERTICAL_RUN = 2; // need ≥2 dark blocks in the same vertical column
   const MIN_Y = 2; // skip ground-level (foundation, entry, base shadow)
 
-  // Phase 1: Build exterior-dark-block mask indexed by (x,z) → set of y values
-  // A block is "facade exterior" if it's adjacent to air on a horizontal face (X or Z),
-  // NOT just on top/bottom Y faces (those are roof/floor, not windows)
-  const H_DIRS: [number, number, number][] = [
-    [1, 0, 0], [-1, 0, 0],
-    [0, 0, 1], [0, 0, -1],
-  ];
+  // Horizontal directions for facade detection (adjacent to air on X or Z axis)
+  const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
-  const facadeDarkCols: Map<number, number[]> = new Map(); // key = x*length+z → y[]
+  // Phase 1: Collect all facade dark block positions
+  type Pos = { x: number; y: number; z: number };
+  const facadeBlocks: Pos[] = [];
+  // 3D lookup for quick neighbor queries: key = y*W*L + z*W + x
+  const WL = width * length;
+  const facadeSet = new Uint8Array(height * WL);
 
   for (let y = MIN_Y; y < height; y++) {
     for (let z = 0; z < length; z++) {
@@ -923,7 +918,7 @@ export function glazeDarkWindows(grid: BlockGrid): number {
 
         // Check if on a horizontal facade (adjacent to air on X or Z axis)
         let isFacade = false;
-        for (const [dx, , dz] of H_DIRS) {
+        for (const [dx, dz] of H_DIRS) {
           const nx = x + dx, nz = z + dz;
           if (nx < 0 || nx >= width || nz < 0 || nz >= length ||
               grid.get(nx, y, nz) === AIR) {
@@ -931,23 +926,73 @@ export function glazeDarkWindows(grid: BlockGrid): number {
             break;
           }
         }
-        if (!isFacade) continue;
-
-        const key = x * length + z;
-        let arr = facadeDarkCols.get(key);
-        if (!arr) { arr = []; facadeDarkCols.set(key, arr); }
-        arr.push(y);
+        if (isFacade) {
+          facadeBlocks.push({ x, y, z });
+          facadeSet[y * WL + z * width + x] = 1;
+        }
       }
     }
   }
 
-  // Phase 2: Glaze dark blocks in columns with sufficient vertical repetition
-  for (const [key, ys] of facadeDarkCols) {
-    if (ys.length < MIN_VERTICAL_RUN) continue;
+  if (facadeBlocks.length === 0) return 0;
 
-    const x = Math.floor(key / length);
-    const z = key % length;
-    for (const y of ys) {
+  // Phase 2: Union-Find to group facade dark blocks into vertical chains.
+  // Two blocks are connected if they are Chebyshev-1 neighbors in XZ and ±1 in Y.
+  // This means a block at (x,y,z) connects to any facade dark block at
+  // (x±1, y±1, z±1) — tolerating diagonal walls and tapered facades.
+  const parent = new Int32Array(facadeBlocks.length);
+  const rank = new Uint8Array(facadeBlocks.length);
+  for (let i = 0; i < parent.length; i++) parent[i] = i;
+
+  function find(a: number): number {
+    while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; }
+    return a;
+  }
+  function union(a: number, b: number): void {
+    const ra = find(a), rb = find(b);
+    if (ra === rb) return;
+    if (rank[ra] < rank[rb]) parent[ra] = rb;
+    else if (rank[ra] > rank[rb]) parent[rb] = ra;
+    else { parent[rb] = ra; rank[ra]++; }
+  }
+
+  // Build index: for each (y, x, z) → index in facadeBlocks
+  // Only need to check Y+1 direction (each pair found once)
+  const posIndex = new Map<number, number>(); // key → facadeBlocks index
+  for (let i = 0; i < facadeBlocks.length; i++) {
+    const { x, y, z } = facadeBlocks[i];
+    posIndex.set(y * WL + z * width + x, i);
+  }
+
+  for (let i = 0; i < facadeBlocks.length; i++) {
+    const { x, y, z } = facadeBlocks[i];
+    // Check Chebyshev-1 XZ neighbors at Y+1
+    const ny = y + 1;
+    if (ny >= height) continue;
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx, nz = z + dz;
+        if (nx < 0 || nx >= width || nz < 0 || nz >= length) continue;
+        const nIdx = ny * WL + nz * width + nx;
+        if (facadeSet[nIdx]) {
+          const j = posIndex.get(nIdx);
+          if (j !== undefined) union(i, j);
+        }
+      }
+    }
+  }
+
+  // Phase 3: Count component sizes, glaze blocks in components with ≥2 members
+  const compSize = new Map<number, number>();
+  for (let i = 0; i < facadeBlocks.length; i++) {
+    const root = find(i);
+    compSize.set(root, (compSize.get(root) ?? 0) + 1);
+  }
+
+  for (let i = 0; i < facadeBlocks.length; i++) {
+    const root = find(i);
+    if ((compSize.get(root) ?? 0) >= 2) {
+      const { x, y, z } = facadeBlocks[i];
       grid.set(x, y, z, 'minecraft:gray_stained_glass');
       glazed++;
     }
