@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -1452,6 +1452,10 @@ async function main(): Promise<void> {
     if (glazed > 0) {
       console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass`);
     }
+    // NOTE: injectSyntheticWindows was tried and reverted — rigid office-grid pattern
+    // degrades classical architecture (Capitol), glass curtain walls (Willis), and
+    // diagonal facades (Sentinel). Root cause is upstream: kernel=24 averages out
+    // window darkness in the color pipeline. Fix color extraction, not post-hoc generation.
   }
 
   // 3D mode filter — smooth surface textures while preserving color contrast.

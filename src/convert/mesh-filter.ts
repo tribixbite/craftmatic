@@ -1002,6 +1002,150 @@ export function glazeDarkWindows(grid: BlockGrid): number {
 }
 
 /**
+ * Inject synthetic windows on exterior facade blocks that lack dark-block windows.
+ *
+ * When the color pipeline produces a uniformly light facade (e.g. ESB at 78%
+ * white_concrete), glazeDarkWindows can't find dark blocks to convert.
+ * This function detects floor boundaries from horizontal band analysis and places
+ * gray_stained_glass windows in a regular grid pattern between floors.
+ *
+ * Pattern: 1-block window every 2-3 blocks along the facade, at 2/3 of each
+ * floor height. Only modifies exterior facade blocks that are the dominant
+ * facade material (to avoid overwriting trim, corners, or accent blocks).
+ *
+ * @param grid  Source BlockGrid (modified in place)
+ * @param existingGlazed  Number of blocks already glazed by glazeDarkWindows
+ * @returns Number of blocks converted to windows
+ */
+export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  const GLASS = 'minecraft:gray_stained_glass';
+
+  // Only inject if existing glazing was minimal (< 0.5% of non-air blocks)
+  const nonAir = grid.countNonAir();
+  if (existingGlazed > nonAir * 0.005) return 0;
+  if (height < 8) return 0; // too short for synthetic windows
+
+  // Horizontal directions for facade detection
+  const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+  // Step 1: Find dominant facade material by counting exterior surface blocks
+  const facadeCounts = new Map<string, number>();
+  for (let y = 2; y < height - 1; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block === AIR || block === GLASS) continue;
+
+        let isFacade = false;
+        for (const [dx, dz] of H_DIRS) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length ||
+              grid.get(nx, y, nz) === AIR) {
+            isFacade = true; break;
+          }
+        }
+        if (isFacade) {
+          facadeCounts.set(block, (facadeCounts.get(block) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  if (facadeCounts.size === 0) return 0;
+
+  // Find dominant facade block (must be > 40% of facade)
+  let totalFacade = 0;
+  let dominantBlock = '';
+  let dominantCount = 0;
+  for (const [block, count] of facadeCounts) {
+    totalFacade += count;
+    if (count > dominantCount) { dominantCount = count; dominantBlock = block; }
+  }
+  if (dominantCount < totalFacade * 0.4) return 0; // no clear dominant material
+
+  // Step 2: Detect floor boundaries using Y-layer block density analysis
+  // Each Y-layer has a count of solid blocks. Floor/ceiling slabs show as high-density
+  // horizontal bands. The gaps between them are where windows go.
+  const layerDensity = new Float32Array(height);
+  for (let y = 0; y < height; y++) {
+    let count = 0;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) count++;
+      }
+    }
+    layerDensity[y] = count / (width * length);
+  }
+
+  // Estimate floor height from autocorrelation of density profile
+  // Typical floors: 3-4 blocks at 1 block/m. Try periods 3 and 4.
+  let bestPeriod = 3;
+  let bestCorr = -1;
+  for (let period = 3; period <= 5; period++) {
+    let corr = 0;
+    let count = 0;
+    for (let y = 0; y + period < height; y++) {
+      corr += layerDensity[y] * layerDensity[y + period];
+      count++;
+    }
+    corr = count > 0 ? corr / count : 0;
+    if (corr > bestCorr) { bestCorr = corr; bestPeriod = period; }
+  }
+
+  // Step 3: Place windows on exterior dominant-material blocks at regular intervals
+  // Window placement: every bestPeriod Y-layers, skip 1 block from floor, place window
+  // Horizontally: every 2-3 blocks along the facade
+  let injected = 0;
+  const MIN_Y = 3; // skip foundation
+
+  for (let y = MIN_Y; y < height - 2; y++) {
+    // Window rows: not at the very top or bottom of each floor
+    const floorPos = y % bestPeriod;
+    if (floorPos === 0 || floorPos === bestPeriod - 1) continue; // skip floor/ceiling layers
+
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block !== dominantBlock) continue;
+
+        // Must be exterior facade
+        let isFacade = false;
+        for (const [dx, dz] of H_DIRS) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length ||
+              grid.get(nx, y, nz) === AIR) {
+            isFacade = true; break;
+          }
+        }
+        if (!isFacade) continue;
+
+        // Horizontal spacing: window every 3 blocks (1 window, 2 wall)
+        // Use (x + z) to create a consistent pattern across facades
+        if ((x + z) % 3 !== 0) continue;
+
+        // Don't place windows on corner blocks (where two facades meet)
+        let facadeCount = 0;
+        for (const [dx, dz] of H_DIRS) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length ||
+              grid.get(nx, y, nz) === AIR) {
+            facadeCount++;
+          }
+        }
+        if (facadeCount > 1) continue; // corner — skip
+
+        grid.set(x, y, z, GLASS);
+        injected++;
+      }
+    }
+  }
+
+  return injected;
+}
+
+/**
  * Smooth building surfaces via 2D morphological opening per Y-layer.
  *
  * Opening = erode then dilate — removes 1-voxel protrusions from the
