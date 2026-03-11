@@ -210,7 +210,6 @@ const DIMS: Record<string, Dims> = {
   // ── Window / Door Frames ──────────────────────────────────────────────────
   '3853': T(9, 1, 4),  // Window 1×4×3 (9 plates = 3 bricks)
   '3854': T(6, 1, 4),  // Window 1×4×2 (6 plates = 2 bricks)
-  '60593': T(9, 1, 4), // Window 1×4×3 (Studio variant)
   '60616': T(9, 1, 4), // Door 1×4×3 Left
   '60617': T(9, 1, 4), // Door 1×4×3 Right
   '2362': T(6, 1, 2),  // Window 1×2×2 (no pane)
