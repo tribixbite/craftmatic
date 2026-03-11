@@ -1469,6 +1469,8 @@ async function main(): Promise<void> {
   // K-Means palette consolidation — cluster 30+ block types into k=5 perceptually
   // distinct groups BEFORE spatial smoothing. This way modeFilter3D operates on
   // only 5 types instead of 30+, producing coherent material zones instead of noise.
+  // k=7 was tested but regressed complex buildings (St Patrick's 6.3→4.2) by
+  // fragmenting subtle-color geometry. k=5 is the sweet spot.
   {
     const consolidated = consolidateBlockPalette(trimmed, 5);
     if (consolidated > 0) {
