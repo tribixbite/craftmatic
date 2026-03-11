@@ -1638,21 +1638,21 @@ async function main(): Promise<void> {
     }
   }
 
-  // Foundation base zone — darken exterior blocks in the bottom 2 layers to create
-  // visual foundation contrast. Real buildings have a visible base/plinth that
-  // distinguishes them from the ground. Uses stone_bricks for gray facades,
-  // cut_sandstone for warm facades.
+  // Floor plate banding + foundation base — add horizontal articulation to facades.
+  // Real buildings have visible floor divisions (cornices, string courses, spandrel panels).
+  // This converts exterior blocks at floor boundaries to a secondary material, creating
+  // 2-tone facades with clear multi-story layering.
   if (!args.generic) {
     const AIR = 'minecraft:air';
     const GLASS = 'minecraft:gray_stained_glass';
+    const ROOF_BLOCKS = new Set(['minecraft:brown_terracotta', 'minecraft:dark_oak_planks', 'minecraft:spruce_planks']);
     const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
     const warmFacade = analysis?.dominantBlock &&
       /^minecraft:(bricks|brown_|red_|orange_|terracotta$|sandstone$)/.test(analysis.dominantBlock);
-    const baseBlock = warmFacade ? 'minecraft:cut_sandstone' : 'minecraft:stone_bricks';
-    let baseConverted = 0;
+    const bandBlock = warmFacade ? 'minecraft:cut_sandstone' : 'minecraft:stone_bricks';
 
-    // Find the lowest non-air Y layer (building base)
-    let baseY = 0;
+    // Find building Y range (lowest and highest non-air layers)
+    let baseY = 0, topY = trimmed.height - 1;
     for (let y = 0; y < trimmed.height; y++) {
       let hasBlock = false;
       for (let z = 0; z < trimmed.length && !hasBlock; z++) {
@@ -1662,14 +1662,79 @@ async function main(): Promise<void> {
       }
       if (hasBlock) { baseY = y; break; }
     }
+    for (let y = trimmed.height - 1; y >= 0; y--) {
+      let hasBlock = false;
+      for (let z = 0; z < trimmed.length && !hasBlock; z++) {
+        for (let x = 0; x < trimmed.width && !hasBlock; x++) {
+          if (trimmed.get(x, y, z) !== AIR) hasBlock = true;
+        }
+      }
+      if (hasBlock) { topY = y; break; }
+    }
 
-    // Convert exterior blocks in baseY..baseY+1 to base material
+    // Detect floor height via autocorrelation of Y-layer density (same as injectSyntheticWindows)
+    const layerDensity = new Float32Array(trimmed.height);
+    for (let y = 0; y < trimmed.height; y++) {
+      let count = 0;
+      for (let z = 0; z < trimmed.length; z++) {
+        for (let x = 0; x < trimmed.width; x++) {
+          if (trimmed.get(x, y, z) !== AIR) count++;
+        }
+      }
+      layerDensity[y] = count / (trimmed.width * trimmed.length);
+    }
+    let bestPeriod = 3;
+    let bestCorr = -1;
+    for (let period = 3; period <= 5; period++) {
+      let corr = 0, count = 0;
+      for (let y = baseY; y + period <= topY; y++) {
+        corr += layerDensity[y] * layerDensity[y + period];
+        count++;
+      }
+      corr = count > 0 ? corr / count : 0;
+      if (corr > bestCorr) { bestCorr = corr; bestPeriod = period; }
+    }
+
+    let bandConverted = 0;
+    const buildingHeight = topY - baseY + 1;
+
+    // Only add floor plates for buildings tall enough (≥ 3 floors)
+    if (buildingHeight >= bestPeriod * 3) {
+      // Convert exterior blocks at every bestPeriod Y-layer to band material.
+      // Skip the roof area (top 2 layers) and foundation area (bottom 2 layers).
+      for (let y = baseY + 2; y <= topY - 2; y++) {
+        // Floor plate: the bottom layer of each floor (Y % period == 0)
+        if ((y - baseY) % bestPeriod !== 0) continue;
+
+        for (let z = 0; z < trimmed.length; z++) {
+          for (let x = 0; x < trimmed.width; x++) {
+            const block = trimmed.get(x, y, z);
+            if (block === AIR || block === GLASS || ROOF_BLOCKS.has(block)) continue;
+            // Only exterior facade blocks
+            let isExterior = false;
+            for (const [dx, dz] of H_DIRS) {
+              const nx = x + dx, nz = z + dz;
+              if (nx < 0 || nx >= trimmed.width || nz < 0 || nz >= trimmed.length ||
+                  trimmed.get(nx, y, nz) === AIR) {
+                isExterior = true; break;
+              }
+            }
+            if (isExterior) {
+              trimmed.set(x, y, z, bandBlock);
+              bandConverted++;
+            }
+          }
+        }
+      }
+    }
+
+    // Foundation base: bottom 2 Y-layers of exterior → band material
+    let baseConverted = 0;
     for (let y = baseY; y <= Math.min(baseY + 1, trimmed.height - 1); y++) {
       for (let z = 0; z < trimmed.length; z++) {
         for (let x = 0; x < trimmed.width; x++) {
           const block = trimmed.get(x, y, z);
           if (block === AIR || block === GLASS) continue;
-          // Only exterior blocks (adjacent to air in any horizontal direction)
           let isExterior = false;
           for (const [dx, dz] of H_DIRS) {
             const nx = x + dx, nz = z + dz;
@@ -1679,14 +1744,15 @@ async function main(): Promise<void> {
             }
           }
           if (isExterior) {
-            trimmed.set(x, y, z, baseBlock);
+            trimmed.set(x, y, z, bandBlock);
             baseConverted++;
           }
         }
       }
     }
-    if (baseConverted > 0) {
-      console.log(`Foundation base: ${baseConverted} exterior blocks → ${baseBlock.replace('minecraft:', '')} (Y ${baseY}-${baseY + 1})`);
+    if (bandConverted > 0 || baseConverted > 0) {
+      console.log(`Floor plates: ${bandConverted} exterior blocks banded (period=${bestPeriod}, ${bandBlock.replace('minecraft:', '')})`);
+      console.log(`Foundation base: ${baseConverted} exterior blocks → ${bandBlock.replace('minecraft:', '')} (Y ${baseY}-${baseY + 1})`);
     }
   }
 
