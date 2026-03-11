@@ -1249,11 +1249,12 @@ async function main(): Promise<void> {
       if (fill3D > 0.60) {
         console.log(`Skipping fill (3D density ${(fill3D * 100).toFixed(0)}% > 60% — already solid)`);
       } else {
-        // dilation=3 seals 3-block wide gaps in photogrammetry shells before flood-fill.
-        // v58: increased from 2→3 to fill more interior, reducing see-through holes
-        // that were previously masked by solidifyCore's AABB fill.
-        const interiorFilled = fillInteriorGaps(trimmed, 3);
-        console.log(`Interior fill (3D masked, dilation=3): ${interiorFilled} voxels filled (3D density was ${(fill3D * 100).toFixed(0)}%)`);
+        // Density-adaptive dilation: sparse shells (ortho captures, <30% fill) need
+        // wider dilation to seal large wall gaps. Dense shells (street captures, >50%)
+        // only need small dilation — over-dilating seals intentional openings.
+        const dilation = fill3D < 0.30 ? 5 : fill3D < 0.50 ? 4 : 3;
+        const interiorFilled = fillInteriorGaps(trimmed, dilation);
+        console.log(`Interior fill (dilation=${dilation}): ${interiorFilled} voxels filled (3D density ${(fill3D * 100).toFixed(0)}%)`);
         // Step 4b: Sky exposure — remove fill in open-air spaces (courtyards, setbacks)
         const openAirCleared = clearOpenAirFill(trimmed);
         if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} fill blocks removed (no solid roof above)`);
@@ -1448,7 +1449,7 @@ async function main(): Promise<void> {
   // Dilation+erosion fills gaps without changing overall shape.
   // Runs BEFORE smoothSurface so the surface smoother sees healed faces.
   {
-    const closed = morphClose3D(trimmed, 3); // v61: revert to r=3, r=4 over-smoothed
+    const closed = morphClose3D(trimmed, 3); // v65: r=3 (r=4 over-smoothed street captures)
     if (closed > 0) {
       console.log(`Morph close (r=3): ${closed} holes filled`);
     }
@@ -1472,21 +1473,10 @@ async function main(): Promise<void> {
     }
   }
 
-  // K-Means palette consolidation — cluster 30+ block types into k=3 perceptually
-  // distinct groups BEFORE spatial smoothing. k=3 proven stable: light/medium/dark
-  // zones form large contiguous regions that mode filter can clean effectively.
-  // k=5 tested in v57 — all 5 clusters were gray, no visual benefit.
-  {
-    const consolidated = consolidateBlockPalette(trimmed, 3);
-    if (consolidated > 0) {
-      console.log(`Palette consolidation: ${consolidated} blocks merged into 3 clusters (K-Means)`);
-    }
-  }
-
-  // Glaze dark exterior blocks as windows BEFORE mode filter.
-  // modeFilter3D would erase small dark clusters (windows) as noise.
-  // gray_stained_glass is in modeFilter3D's PROTECTED set, so glazing
-  // first preserves windows while mode filter smooths walls around them.
+  // Glaze dark exterior blocks as windows BEFORE zone simplification.
+  // Zone simplification collapses all blocks to roof/wall dominant types,
+  // destroying the dark blocks that indicate windows. By glazing first,
+  // gray_stained_glass enters the SPECIAL_BLOCKS set and survives simplification.
   if (args.mode === 'surface') {
     const glazed = glazeDarkWindows(trimmed);
     if (glazed > 0) {
@@ -1494,33 +1484,93 @@ async function main(): Promise<void> {
     }
   }
 
-  // 3D mode filter — smooth spatial distribution of 3 K-Means block types.
-  // After consolidation, each voxel is one of ~3 types. Mode filter replaces
-  // isolated outliers with their neighborhood majority, creating clean material zones.
-  // 4 passes minimum — with 3 clusters, each pass cleans larger contiguous regions.
-  // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap.
+  // Zone-aware facade simplification (v65): Replaces K-Means palette consolidation.
+  // K-Means k=3 collapsed all colors to gray variants, destroying distinctive features
+  // like red tile roofs (2390 Green St) and copper-green roofs (Sentinel Building).
+  // Zone simplification preserves semantically meaningful color zones:
+  //   - Roof zone (topmost non-air block per XZ column) → roof dominant color
+  //   - Wall zone (everything below) → wall dominant color
+  // This reduces 30+ raw block types to 2-3 types while keeping real roof/wall contrast.
+  // Runs AFTER window glazing so glass blocks are in SPECIAL_BLOCKS.
   {
-    const passes = Math.max(args.modePasses, 12); // v60: 12 minimum for cleaner facades
+    const SPECIAL_BLOCKS = new Set([
+      'minecraft:air',
+      'minecraft:gray_stained_glass',
+      'minecraft:green_concrete',
+      'minecraft:birch_planks',
+    ]);
+
+    // Count blocks per zone: roof = topmost per column, wall = everything below
+    const roofCounts = new Map<string, number>();
+    const wallCounts = new Map<string, number>();
+    for (let x = 0; x < trimmed.width; x++) {
+      for (let z = 0; z < trimmed.length; z++) {
+        let topY = -1;
+        for (let y = trimmed.height - 1; y >= 0; y--) {
+          if (trimmed.get(x, y, z) !== 'minecraft:air') { topY = y; break; }
+        }
+        if (topY < 0) continue;
+        for (let y = 0; y <= topY; y++) {
+          const b = trimmed.get(x, y, z);
+          if (SPECIAL_BLOCKS.has(b)) continue;
+          if (y === topY) {
+            roofCounts.set(b, (roofCounts.get(b) || 0) + 1);
+          } else {
+            wallCounts.set(b, (wallCounts.get(b) || 0) + 1);
+          }
+        }
+      }
+    }
+
+    // Find dominant in each zone
+    let roofDom = 'minecraft:smooth_stone', roofMax = 0;
+    for (const [b, c] of roofCounts) { if (c > roofMax) { roofDom = b; roofMax = c; } }
+    let wallDom = 'minecraft:smooth_stone', wallMax = 0;
+    for (const [b, c] of wallCounts) { if (c > wallMax) { wallDom = b; wallMax = c; } }
+
+    // Apply zone-specific remaps
+    let simplified = 0;
+    for (let x = 0; x < trimmed.width; x++) {
+      for (let z = 0; z < trimmed.length; z++) {
+        let topY = -1;
+        for (let y = trimmed.height - 1; y >= 0; y--) {
+          if (trimmed.get(x, y, z) !== 'minecraft:air') { topY = y; break; }
+        }
+        if (topY < 0) continue;
+        for (let y = 0; y <= topY; y++) {
+          const b = trimmed.get(x, y, z);
+          if (SPECIAL_BLOCKS.has(b)) continue;
+          const target = (y === topY) ? roofDom : wallDom;
+          if (b !== target) { trimmed.set(x, y, z, target); simplified++; }
+        }
+      }
+    }
+    console.log(`Zone facade: ${simplified} blocks | roof=${roofDom.replace('minecraft:', '')} wall=${wallDom.replace('minecraft:', '')}`);
+  }
+
+  // 3D mode filter — smooth spatial distribution of zone-simplified block types.
+  // After zone simplification, each voxel is one of ~3 types (roof/wall/glass).
+  // Mode filter replaces isolated outliers with neighborhood majority.
+  // 12 passes minimum for clean facades.
+  {
+    const passes = Math.max(args.modePasses, 12);
     const modeSmoothed = modeFilter3D(trimmed, passes, 1);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} passes)`);
     }
   }
 
-  // Second morphClose pass (v57) — heal surface pockmarks created by mode filter
-  // replacing block types. r=1 is gentle — only fills single-voxel holes without
-  // altering overall shape. Runs AFTER mode filter smooths material distribution.
+  // Post-filter morphClose — heal surface pockmarks created by mode filter.
+  // r=1 is gentle — only fills single-voxel holes without altering shape.
   {
-    const closed2 = morphClose3D(trimmed, 1); // v61: revert to r=1, r=2 over-smoothed
+    const closed2 = morphClose3D(trimmed, 1);
     if (closed2 > 0) {
       console.log(`Morph close post-filter (r=1): ${closed2} surface pockmarks healed`);
     }
   }
 
   // Sky contamination remap — Google 3D Tiles bake ambient skylight (blue/cyan)
-  // into upward-facing surfaces. Always runs (not gated by noPalette) — these
-  // blocks are Google Tiles artifacts, never legitimate building materials.
-  // Runs AFTER mode filter so residual cyan clusters get cleaned up.
+  // into upward-facing surfaces. These are artifacts, never real materials.
   const skyReplacements = new Map<string, string>([
     ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
     ['minecraft:cyan_terracotta', 'minecraft:stone'],
@@ -1533,69 +1583,11 @@ async function main(): Promise<void> {
   }
 
   // Connected-component cleanup — remove floating debris and disconnected clusters.
-  // Use 500-voxel threshold (not Infinity) to preserve legitimate building wings.
-  // A typical noise cluster is <100 voxels; a detached garage/wing is 200-400+.
   const componentThreshold = args.mode === 'surface' ? 500 : args.cleanMinSize;
   if (componentThreshold > 0) {
     const cleaned = removeSmallComponents(trimmed, componentThreshold);
     if (cleaned > 0) {
       console.log(`Component cleanup: ${cleaned} blocks removed (components < ${componentThreshold} voxels)`);
-    }
-  }
-
-  // fireEscapeFilter removed: over-fitted to 2340 Francisco St — darkened center
-  // strip on all buildings regardless of whether they have fire escapes.
-
-  // glazeBackplane removed: was a legacy band-aid from pre-color-fix era.
-  // Previously needed because carveFacadeShadows punched holes in dark window areas.
-  // Now that carveFacadeShadows is removed and CIE-Lab color pipeline maps dark
-  // pixels to dark blocks (gray_concrete, blackstone), windows are already correctly
-  // represented on the surface. Also, AABB raycasting placed black_concrete on
-  // exterior courtyard walls of non-convex buildings (L, U, Pentagon shapes).
-
-  // Roof cornice REMOVED (v59): Gemini VLM grading identifies brown_terracotta roof as
-  // "anomalous artifact" and "data error". Let K-Means roof color stay natural.
-
-  // Facade simplification (v59/v62): Remap all non-special blocks to dominant type.
-  // Tested alternatives: v61 kept top-3 types (≥5% share) but Gemini still penalized
-  // multi-tone facades as "noisy". Single-dominant gives cleanest scores.
-  // v62: mode filter 12 passes (up from 8) for smoother pre-simplification surface.
-  {
-    const SPECIAL_BLOCKS = new Set([
-      'minecraft:air',
-      'minecraft:gray_stained_glass',
-      'minecraft:green_concrete',
-      'minecraft:birch_planks',
-    ]);
-
-    // Find dominant non-special block
-    const wallCounts = new Map<string, number>();
-    for (let y = 0; y < trimmed.height; y++) {
-      for (let z = 0; z < trimmed.length; z++) {
-        for (let x = 0; x < trimmed.width; x++) {
-          const b = trimmed.get(x, y, z);
-          if (!SPECIAL_BLOCKS.has(b)) {
-            wallCounts.set(b, (wallCounts.get(b) || 0) + 1);
-          }
-        }
-      }
-    }
-    let facadeDominantWall = 'minecraft:smooth_stone';
-    let dominantCount = 0;
-    for (const [block, count] of wallCounts) {
-      if (count > dominantCount) { facadeDominantWall = block; dominantCount = count; }
-    }
-
-    // Remap all non-special, non-dominant blocks to the dominant wall type
-    const remaps = new Map<string, string>();
-    for (const [block] of wallCounts) {
-      if (block !== facadeDominantWall) {
-        remaps.set(block, facadeDominantWall);
-      }
-    }
-    if (remaps.size > 0) {
-      const simplified = constrainPalette(trimmed, remaps);
-      console.log(`Facade simplification: ${simplified} blocks → ${facadeDominantWall.replace('minecraft:', '')} (${remaps.size} types merged)`);
     }
   }
 
