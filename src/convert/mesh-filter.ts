@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import { BlockGrid } from '../schem/types.js';
+import { rgbToLab, deltaESq, WALL_CLUSTERS } from '../gen/color-blocks.js';
 
 /**
  * Filter captured tile meshes by vertical extent above estimated ground level.
@@ -889,13 +890,13 @@ export function glazeDarkWindows(grid: BlockGrid): number {
   const AIR = 'minecraft:air';
   let glazed = 0;
 
-  // Dark blocks that typically represent baked window/shadow regions
+  // Dark blocks that typically represent baked window/shadow regions.
+  // Only the truly dark blocks qualify — mid-grays (andesite, stone_bricks,
+  // polished_andesite) are legitimate facade materials with the wider tonal range.
   const DARK_BLOCKS = new Set([
-    'minecraft:gray_concrete',
-    'minecraft:polished_deepslate',
-    'minecraft:polished_andesite',
-    'minecraft:stone_bricks',
-    'minecraft:andesite',
+    'minecraft:gray_concrete',       // lum ~58 — deep shadow/window
+    'minecraft:polished_deepslate',  // lum ~54 — deep shadow/window
+    'minecraft:brown_concrete',      // lum ~45 — dark recesses
   ]);
 
   const MIN_Y = 2; // skip ground-level (foundation, entry, base shadow)
@@ -3655,4 +3656,168 @@ export function stripVegetation(grid: BlockGrid): number {
   }
 
   return removed;
+}
+
+/**
+ * K-Means block palette consolidation — cluster exterior blocks into k groups
+ * to ensure visual coherence. Without this, per-voxel CIE-Lab matching spreads
+ * similar colors across many blocks (smooth_stone vs andesite vs stone_bricks)
+ * creating noisy facades. This merges similar blocks into the k most distinct
+ * representatives for a cleaner, more intentional look.
+ *
+ * Algorithm: frequency-weighted K-Means++ in CIE-Lab space.
+ * Protected blocks (glass, fill, vegetation) are excluded from consolidation.
+ *
+ * @param grid  The BlockGrid to consolidate in-place
+ * @param k     Number of distinct block clusters to keep (default: 5)
+ * @returns     Number of blocks reassigned
+ */
+export function consolidateBlockPalette(grid: BlockGrid, k = 5): number {
+  // Protected blocks that should not be consolidated
+  const PROTECTED = new Set([
+    'minecraft:air',
+    'minecraft:smooth_stone', // fill block
+    'minecraft:gray_stained_glass', // windows from glazeDarkWindows
+    'minecraft:glass', 'minecraft:glass_pane',
+    'minecraft:smooth_stone_slab', // entry path
+  ]);
+
+  // Build block → RGB lookup from WALL_CLUSTERS
+  const blockRgb = new Map<string, [number, number, number]>();
+  for (const cluster of WALL_CLUSTERS) {
+    for (const opt of cluster.options) {
+      if (!blockRgb.has(opt)) blockRgb.set(opt, [...cluster.rgb] as [number, number, number]);
+    }
+  }
+
+  // Collect non-protected block frequencies
+  const blockCounts = new Map<string, number>();
+  const { width, height, length } = grid;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (PROTECTED.has(block) || !blockRgb.has(block)) continue;
+        blockCounts.set(block, (blockCounts.get(block) || 0) + 1);
+      }
+    }
+  }
+
+  const uniqueBlocks = [...blockCounts.keys()];
+  if (uniqueBlocks.length <= k) return 0; // Already few enough distinct blocks
+
+  // Convert each unique block to Lab space with its count weight
+  type BlockEntry = { block: string; lab: [number, number, number]; count: number };
+  const entries: BlockEntry[] = uniqueBlocks.map(block => ({
+    block,
+    lab: rgbToLab(...blockRgb.get(block)!),
+    count: blockCounts.get(block)!,
+  }));
+
+  // Sort by frequency descending — most common blocks become initial centroids
+  entries.sort((a, b) => b.count - a.count);
+
+  // K-Means++ initialization: pick k centroids weighted by distance to nearest existing centroid
+  const centroids: [number, number, number][] = [entries[0].lab];
+  for (let c = 1; c < k; c++) {
+    // Compute distance from each entry to nearest existing centroid
+    let totalDist = 0;
+    const dists: number[] = [];
+    for (const entry of entries) {
+      let minDist = Infinity;
+      for (const centroid of centroids) {
+        const d = deltaESq(entry.lab[0], entry.lab[1], entry.lab[2], centroid[0], centroid[1], centroid[2]);
+        if (d < minDist) minDist = d;
+      }
+      dists.push(minDist * entry.count); // Weight by frequency
+      totalDist += minDist * entry.count;
+    }
+    // Pick proportional to distance²
+    let target = Math.random() * totalDist;
+    let picked = 0;
+    for (let i = 0; i < dists.length; i++) {
+      target -= dists[i];
+      if (target <= 0) { picked = i; break; }
+    }
+    centroids.push([...entries[picked].lab] as [number, number, number]);
+  }
+
+  // K-Means iterations (max 20)
+  const assignments = new Int32Array(entries.length);
+  for (let iter = 0; iter < 20; iter++) {
+    let changed = 0;
+
+    // Assign each entry to nearest centroid
+    for (let i = 0; i < entries.length; i++) {
+      const { lab } = entries[i];
+      let bestC = 0;
+      let bestDist = deltaESq(lab[0], lab[1], lab[2], centroids[0][0], centroids[0][1], centroids[0][2]);
+      for (let c = 1; c < k; c++) {
+        const d = deltaESq(lab[0], lab[1], lab[2], centroids[c][0], centroids[c][1], centroids[c][2]);
+        if (d < bestDist) { bestDist = d; bestC = c; }
+      }
+      if (assignments[i] !== bestC) { assignments[i] = bestC; changed++; }
+    }
+
+    if (changed === 0) break; // Converged
+
+    // Recompute centroids (weighted by block count)
+    for (let c = 0; c < k; c++) {
+      let sumL = 0, sumA = 0, sumB = 0, totalW = 0;
+      for (let i = 0; i < entries.length; i++) {
+        if (assignments[i] !== c) continue;
+        const w = entries[i].count;
+        sumL += entries[i].lab[0] * w;
+        sumA += entries[i].lab[1] * w;
+        sumB += entries[i].lab[2] * w;
+        totalW += w;
+      }
+      if (totalW > 0) {
+        centroids[c] = [sumL / totalW, sumA / totalW, sumB / totalW];
+      }
+    }
+  }
+
+  // For each cluster, pick the representative block: the most frequent block in the cluster
+  const clusterBlock = new Map<number, string>();
+  for (let c = 0; c < k; c++) {
+    let bestBlock = '';
+    let bestCount = 0;
+    for (let i = 0; i < entries.length; i++) {
+      if (assignments[i] !== c) continue;
+      if (entries[i].count > bestCount) {
+        bestCount = entries[i].count;
+        bestBlock = entries[i].block;
+      }
+    }
+    if (bestBlock) clusterBlock.set(c, bestBlock);
+  }
+
+  // Build remap: for each entry, if its cluster's representative is different, remap
+  const remap = new Map<string, string>();
+  for (let i = 0; i < entries.length; i++) {
+    const rep = clusterBlock.get(assignments[i]);
+    if (rep && rep !== entries[i].block) {
+      remap.set(entries[i].block, rep);
+    }
+  }
+
+  if (remap.size === 0) return 0;
+
+  // Apply remap in-place
+  let reassigned = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        const newBlock = remap.get(block);
+        if (newBlock) {
+          grid.set(x, y, z, newBlock);
+          reassigned++;
+        }
+      }
+    }
+  }
+
+  return reassigned;
 }

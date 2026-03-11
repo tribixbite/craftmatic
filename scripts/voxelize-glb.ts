@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -120,7 +120,7 @@ Options:
   let mode: VoxelizeMode = 'surface';
   let minHeight = 2;
   let trimThreshold = 0.05;
-  let gamma = 0.5; // Google 3D Tiles have baked lighting — 0.5 gamma compensates
+  let gamma = 0.75; // Google 3D Tiles have baked lighting — 0.75 brightens shadows while preserving mid-tones
   let kernel = 12; // Moderate kernel — preserves window/trim features while smoothing noise
   let desaturate = 0.2; // Light desaturation — preserve building-specific colors
   let outputPath = '';
@@ -1468,6 +1468,17 @@ async function main(): Promise<void> {
     }
   } else {
     console.log('Skipping mode filter (--mode-passes 0)');
+  }
+
+  // K-Means palette consolidation — cluster blocks into k=5 perceptually distinct
+  // groups to prevent "20 shades of gray" noise from per-voxel CIE-Lab matching.
+  // Runs AFTER mode filter (which smooths spatial noise) so consolidation operates
+  // on the stable block distribution.
+  {
+    const consolidated = consolidateBlockPalette(trimmed, 5);
+    if (consolidated > 0) {
+      console.log(`Palette consolidation: ${consolidated} blocks merged into 5 clusters (K-Means)`);
+    }
   }
 
   // Sky contamination remap — Google 3D Tiles bake ambient skylight (blue/cyan)
