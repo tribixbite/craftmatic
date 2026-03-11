@@ -31,11 +31,16 @@ export interface VoxelizeResult {
   warning?: string;
 }
 
-export function voxelizeLDraw(bricks: ParsedBrick[]): VoxelizeResult {
+export function voxelizeLDraw(
+  bricks: ParsedBrick[],
+  colorFn?: (id: number) => string,
+): VoxelizeResult {
   if (bricks.length === 0) {
     const grid = new BlockGrid(1, 1, 1);
     return { grid, brickCount: 0, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 } };
   }
+
+  const resolveColor = colorFn ?? ldrawColorToBlock;
 
   // Convert to grid coordinates
   interface Voxel { gx: number; gy: number; gz: number; block: string; color: number }
@@ -43,7 +48,7 @@ export function voxelizeLDraw(bricks: ParsedBrick[]): VoxelizeResult {
     gx: Math.round(b.x / LDU_PER_STUD),
     gy: Math.round(-b.y / LDU_PER_PLATE),
     gz: Math.round(b.z / LDU_PER_STUD),
-    block: ldrawColorToBlock(b.color),
+    block: resolveColor(b.color),
     color: b.color,
   }));
 
