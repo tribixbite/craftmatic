@@ -1553,92 +1553,52 @@ async function main(): Promise<void> {
   // represented on the surface. Also, AABB raycasting placed black_concrete on
   // exterior courtyard walls of non-convex buildings (L, U, Pentagon shapes).
 
-  // Smart roof contrast (v56): Instead of hardcoded brown_terracotta on every building,
-  // sample the actual roof vs wall blocks. Only override if roof and walls are the same
-  // block (no natural contrast). Picks material based on wall tone.
-  if (!args.generic && !args.noCornice) {
-    const AIR = 'minecraft:air';
-    const GLASS = 'minecraft:gray_stained_glass';
+  // Roof cornice REMOVED (v59): Gemini VLM grading identifies brown_terracotta roof as
+  // "anomalous artifact" and "data error". Let K-Means roof color stay natural.
 
-    // Find topY (highest non-air layer)
-    let topY = 0;
-    for (let y = trimmed.height - 1; y >= 0; y--) {
-      let hasBlock = false;
-      for (let z = 0; z < trimmed.length && !hasBlock; z++) {
-        for (let x = 0; x < trimmed.width && !hasBlock; x++) {
-          if (trimmed.get(x, y, z) !== AIR) hasBlock = true;
-        }
-      }
-      if (hasBlock) { topY = y; break; }
-    }
+  // Facade simplification RESTORED (v59): Gemini grading showed that K-Means noise on
+  // facades ("chaotic static", "digital corruption") is the #1 score killer. Buildings
+  // with clean uniform facades (Francisco 7/10) score dramatically better than noisy
+  // ones (Sentinel 1/10, Montgomery 1/10). Remap all non-special blocks to dominant.
+  {
+    const SPECIAL_BLOCKS = new Set([
+      'minecraft:air',
+      'minecraft:gray_stained_glass',
+      // Vegetation/misc
+      'minecraft:green_concrete',
+      'minecraft:birch_planks',
+    ]);
 
-    // Sample top 2 layers (roof) and middle layers (wall) block distributions
-    const roofCounts = new Map<string, number>();
+    // Find dominant non-special block
     const wallCounts = new Map<string, number>();
-    const roofYMin = Math.max(0, topY - 1);
-    const midY = Math.floor(topY * 0.5);
-    const wallYMin = Math.max(0, midY - 2);
-    const wallYMax = Math.min(topY - 2, midY + 2);
-
-    for (let y = roofYMin; y <= topY; y++) {
+    for (let y = 0; y < trimmed.height; y++) {
       for (let z = 0; z < trimmed.length; z++) {
         for (let x = 0; x < trimmed.width; x++) {
           const b = trimmed.get(x, y, z);
-          if (b !== AIR && b !== GLASS) roofCounts.set(b, (roofCounts.get(b) || 0) + 1);
-        }
-      }
-    }
-    for (let y = wallYMin; y <= wallYMax; y++) {
-      for (let z = 0; z < trimmed.length; z++) {
-        for (let x = 0; x < trimmed.width; x++) {
-          const b = trimmed.get(x, y, z);
-          if (b !== AIR && b !== GLASS) wallCounts.set(b, (wallCounts.get(b) || 0) + 1);
-        }
-      }
-    }
-
-    // Find dominant roof and wall blocks
-    let roofDominant = '', roofMax = 0;
-    for (const [b, c] of roofCounts) { if (c > roofMax) { roofDominant = b; roofMax = c; } }
-    let wallDominant = '', wallMax = 0;
-    for (const [b, c] of wallCounts) { if (c > wallMax) { wallDominant = b; wallMax = c; } }
-
-    // Only apply roof override if roof == wall (no natural contrast)
-    if (roofDominant && wallDominant && roofDominant === wallDominant) {
-      // Pick a warm roof material that contrasts with the gray wall
-      const isWarmWall = /^minecraft:(bricks|brown_|red_|orange_|terracotta$|sandstone$)/.test(wallDominant);
-      const roofBlock = isWarmWall ? 'minecraft:dark_oak_planks' : 'minecraft:brown_terracotta';
-
-      // Apply to top 2 layers only (not eaves — those were spruce_planks and looked wrong)
-      let roofConverted = 0;
-      for (let y = roofYMin; y <= topY; y++) {
-        for (let z = 0; z < trimmed.length; z++) {
-          for (let x = 0; x < trimmed.width; x++) {
-            const b = trimmed.get(x, y, z);
-            if (b !== AIR && b !== GLASS) {
-              trimmed.set(x, y, z, roofBlock);
-              roofConverted++;
-            }
+          if (!SPECIAL_BLOCKS.has(b)) {
+            wallCounts.set(b, (wallCounts.get(b) || 0) + 1);
           }
         }
       }
-      if (roofConverted > 0) {
-        console.log(`Smart roof: ${roofConverted} blocks → ${roofBlock.replace('minecraft:', '')} (roof matched wall: ${wallDominant.replace('minecraft:', '')})`);
+    }
+    let facadeDominantWall = 'minecraft:smooth_stone';
+    let dominantCount = 0;
+    for (const [block, count] of wallCounts) {
+      if (count > dominantCount) { facadeDominantWall = block; dominantCount = count; }
+    }
+
+    // Remap all non-special, non-dominant blocks to the dominant wall type
+    const remaps = new Map<string, string>();
+    for (const [block] of wallCounts) {
+      if (block !== facadeDominantWall) {
+        remaps.set(block, facadeDominantWall);
       }
-    } else {
-      console.log(`Roof contrast: natural (roof=${roofDominant?.replace('minecraft:', '') || 'none'} vs wall=${wallDominant?.replace('minecraft:', '') || 'none'})`);
+    }
+    if (remaps.size > 0) {
+      const simplified = constrainPalette(trimmed, remaps);
+      console.log(`Facade simplification: ${simplified} blocks → ${facadeDominantWall.replace('minecraft:', '')} (${remaps.size} types merged)`);
     }
   }
-
-  // Facade simplification REMOVED (v55): Collapsing all wall blocks to single dominant
-  // type destroyed K-Means color zones. The 3-cluster palette already provides clean
-  // material boundaries; forcing to 1 block erased the remaining visual variety.
-
-  // Synthetic windows REMOVED (v55): Regular grid pattern looked mechanical and artificial.
-  // glazeDarkWindows already converts dark exterior blocks to glass from photogrammetry data.
-
-  // Floor plate banding + foundation base REMOVED (v55): Regular horizontal bands at
-  // fixed periods looked mechanical. K-Means palette zones provide natural articulation.
 
   // Custom block remaps — final override, applied after all other processing
   if (args.remaps.size > 0) {
