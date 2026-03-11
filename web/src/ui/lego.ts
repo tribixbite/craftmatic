@@ -10,10 +10,14 @@
  */
 
 import { BlockGrid } from '@craft/schem/types.js';
-import { parseLDraw } from '@engine/ldraw-parser.js';
+import { parseLDraw, type ParsedBrick } from '@engine/ldraw-parser.js';
 import { voxelizeLDraw } from '@engine/ldraw-voxelizer.js';
+import { extractIoLDraw } from '@engine/io-extractor.js';
+import { parseLxf } from '@engine/lxf-parser.js';
+import { studioColorToBlock } from '@engine/studio-colors.js';
+import { fetchBffInventory, bffInventoryToLDraw } from '@engine/bff-loader.js';
 import {
-  ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded, getSeymouriaFilename,
+  ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
 
@@ -66,9 +70,9 @@ function buildUI(): void {
           <circle cx="8" cy="4" r="1"/><circle cx="12" cy="4" r="1"/><circle cx="16" cy="4" r="1"/>
         </svg>
         <span class="lego-upload-zone-text">
-          Drop <code>.mpd</code> / <code>.ldr</code> here, or click to browse
+          Drop <code>.mpd</code> / <code>.ldr</code> / <code>.io</code> / <code>.lxf</code> here, or click to browse
         </span>
-        <input type="file" id="lego-mpd-input" accept=".mpd,.ldr" hidden>
+        <input type="file" id="lego-mpd-input" accept=".mpd,.ldr,.io,.lxf" hidden>
       </label>
       <div class="lego-omr-quick">
         <span class="lego-omr-label">Get files:</span>
@@ -84,7 +88,7 @@ function buildUI(): void {
     <div class="lego-section">
       <div class="lego-search-row">
         <input type="text" id="lego-search" class="lego-input lego-search-input"
-          placeholder="Set name or number (e.g. 75192, Falcon, CFC)…">
+          placeholder="Set name or number (e.g. 75192, Falcon, Technic)…">
         <button class="btn btn-primary btn-sm" id="lego-search-btn">Search</button>
       </div>
       <div class="lego-filters">
@@ -295,10 +299,7 @@ function selectSet(set: CatalogSet): void {
 // ─── OMR Auto-Load ───────────────────────────────────────────────────────────
 
 /**
- * Try to auto-fetch an LDraw file.
- * Sources tried in order:
- *   1. LDraw OMR  (library.ldraw.org)  — official, ~1,470 sets
- *   2. Seymouria  (seymouria.pl)        — community, ~840 additional sets
+ * Try to auto-fetch an LDraw file from LDraw OMR (library.ldraw.org).
  */
 async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
   const btn = document.getElementById('lego-auto-load') as HTMLButtonElement | null;
@@ -318,41 +319,37 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
         await parseMpdFile(new File([text], filename, { type: 'text/plain' }));
         return;
       }
-      // 404 → fall through to seymouria
+      // 404 → not found
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isCors = msg.toLowerCase().includes('cors') ||
-                     msg.toLowerCase().includes('network') ||
-                     msg.toLowerCase().includes('failed to fetch');
-      if (isCors) {
-        setStatus('CORS blocked — try seymouria.pl fallback…', 'info');
-        // fall through to seymouria
-      } else {
-        throw err;
-      }
+      throw err;
     }
   }
 
-  // ── Source 2: Seymouria.pl ───────────────────────────────────────────────
-  const seymouriaFile = getSeymouriaFilename(set.set_num);
-  if (seymouriaFile) {
-    const url = `/seymouria-ldr/${encodeURIComponent(seymouriaFile)}`;
-    setStatus(`Trying seymouria.pl: ${seymouriaFile}…`, 'info');
-    try {
-      const resp = await fetch(url);
-      if (resp.ok) {
-        const text = await resp.text();
+  // ── Source 2: BrickLink BFF inventory (flat colour layout) ───────────────
+  setStatus(`No 3D model found — trying BL parts inventory for ${set.set_num}…`, 'info');
+  try {
+    const parts = await fetchBffInventory(set.set_num);
+    if (parts.length > 0) {
+      const ldrText = bffInventoryToLDraw(set.set_num, parts);
+      const bricks = parseLDraw(ldrText);
+      if (bricks.length > 0) {
+        setStatus(
+          `No 3D model in OMR — showing colour layout from BL parts (${parts.length} part types, ${bricks.length} total)`,
+          'info',
+        );
         if (btn) btn.disabled = false;
-        await parseMpdFile(new File([text], seymouriaFile, { type: 'text/plain' }));
+        await voxelizeAndDisplay(bricks, set.set_num, studioColorToBlock);
         return;
       }
-    } catch { /* fall through */ }
+    }
+  } catch {
+    // BFF unavailable — fall through to manual instructions
   }
 
-  // ── Not found in any source ──────────────────────────────────────────────
+  // ── Not found ────────────────────────────────────────────────────────────
   const omrManual = `${OMR_BASE}/${encodeURIComponent(set.set_num)}.mpd`;
   setStatus(
-    `No LDraw file found for ${set.set_num}. Try BrickLink Studio → export LDraw → upload above.`,
+    `No 3D model found for ${set.set_num}. Try BrickLink Studio → export LDraw → upload above.`,
     'info',
   );
   const omrEl = document.getElementById('lego-omr-links');
@@ -382,25 +379,53 @@ async function parseMpdFile(file: File): Promise<void> {
   setStatus(`Parsing ${file.name}…`, 'info');
 
   try {
-    const text   = await file.text();
+    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    if (ext === 'lxf') {
+      const buf = await file.arrayBuffer();
+      const bricks = await parseLxf(buf);
+      await voxelizeAndDisplay(bricks, file.name);
+      return;
+    }
+
+    let text: string;
+    if (ext === 'io') {
+      const buf = await file.arrayBuffer();
+      text = await extractIoLDraw(buf);
+      const bricks = parseLDraw(text);
+      if (bricks.length === 0) throw new Error('No brick placements found in file.');
+      await voxelizeAndDisplay(bricks, file.name, studioColorToBlock);
+      return;
+    }
+
+    text = await file.text();
     const bricks = parseLDraw(text);
     if (bricks.length === 0) throw new Error('No brick placements found in file.');
-
-    const result = voxelizeLDraw(bricks);
-    if (result.warning) setStatus(result.warning, 'info');
-
-    const label = selectedSet
-      ? `${selectedSet.set_num} ${selectedSet.name}`
-      : file.name.replace(/\.[^.]+$/, '');
-
-    setStatus(
-      `Built ${label}: ${result.grid.width}×${result.grid.height}×${result.grid.length} — ${result.grid.countNonAir().toLocaleString()} blocks`,
-      'success',
-    );
-    onResult(result.grid, label);
+    await voxelizeAndDisplay(bricks, file.name);
   } catch (err) {
     setStatus(`Parse failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
   }
+}
+
+async function voxelizeAndDisplay(
+  bricks: ParsedBrick[],
+  filename: string,
+  colorFn?: (id: number) => string,
+): Promise<void> {
+  if (!onResult) return;
+
+  const result = voxelizeLDraw(bricks, colorFn);
+  if (result.warning) setStatus(result.warning, 'info');
+
+  const label = selectedSet
+    ? `${selectedSet.set_num} ${selectedSet.name}`
+    : filename.replace(/\.[^.]+$/, '');
+
+  setStatus(
+    `Built ${label}: ${result.grid.width}×${result.grid.height}×${result.grid.length} — ${result.grid.countNonAir().toLocaleString()} blocks`,
+    'success',
+  );
+  onResult(result.grid, label);
 }
 
 // ─── Theme Dropdown ──────────────────────────────────────────────────────────

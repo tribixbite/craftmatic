@@ -122,6 +122,63 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
   324: 'minecraft:pink_concrete',         // Rubber Pink
   375: 'minecraft:light_gray_concrete',   // Rubber Light Gray
 
+  // ── Extended colors referenced by LDD/LXF pipeline ─────────────────────
+  21:  'minecraft:lime_concrete',         // Glow In Dark Opaque (yellowish-green)
+  39:  'minecraft:cyan_stained_glass',    // Trans-Dark Turquoise
+  45:  'minecraft:pink_stained_glass',    // Trans-Dark Pink (medium)
+  52:  'minecraft:pink_stained_glass',    // Glitter Trans-Dark Pink
+  54:  'minecraft:gray_concrete',         // Copper/Speckle
+  57:  'minecraft:orange_stained_glass',  // Trans-Orange
+  62:  'minecraft:lime_stained_glass',    // Trans-Light Green
+  63:  'minecraft:blue_concrete',         // Dark Blue (old ID)
+  65:  'minecraft:gold_block',            // Metallic Gold (Chrome)
+  75:  'minecraft:lime_stained_glass',    // Trans-Bright Green
+  79:  'minecraft:white_concrete',        // Milky White
+  89:  'minecraft:purple_concrete',       // Reddish Lilac
+  96:  'minecraft:orange_concrete',       // Very Light Orange
+  129: 'minecraft:iron_block',            // Pearl Very Light Gray
+  133: 'minecraft:light_blue_stained_glass', // Trans-Medium Blue
+  134: 'minecraft:gray_concrete',         // Unknown (gray fallback)
+  135: 'minecraft:white_concrete',        // Satin White
+  137: 'minecraft:gray_concrete',         // Pearl Dark Gray
+  139: 'minecraft:gray_concrete',         // Unknown (gray fallback)
+  142: 'minecraft:lime_stained_glass',    // Trans-Fluorescent Green
+  143: 'minecraft:blue_stained_glass',    // Trans-Fluorescent Blue
+  148: 'minecraft:gray_concrete',         // Metallic Dark Grey
+  150: 'minecraft:glass',                 // Glitter Trans-Clear
+  151: 'minecraft:white_concrete',        // Milky White (alt)
+  178: 'minecraft:sandstone',             // Sandy Yellow
+  179: 'minecraft:iron_block',            // Flat Silver
+  183: 'minecraft:white_concrete',        // Pearl White
+  184: 'minecraft:pink_concrete',         // Chrome Pink
+  218: 'minecraft:orange_concrete',       // Fabuland Orange
+  219: 'minecraft:purple_concrete',       // Lilac
+  232: 'minecraft:light_blue_concrete',   // Sky Blue
+  284: 'minecraft:pink_stained_glass',    // Trans-Medium Reddish Violet
+  285: 'minecraft:lime_stained_glass',    // Trans-Light Green (bright)
+  293: 'minecraft:blue_stained_glass',    // Trans-Blue
+  295: 'minecraft:pink_stained_glass',    // Trans-Bright Pink
+  296: 'minecraft:purple_stained_glass',  // Trans-Light Purple
+  300: 'minecraft:lime_stained_glass',    // Glitter Trans-Neon Green
+  302: 'minecraft:lime_stained_glass',    // Trans-Neon Green
+  306: 'minecraft:lime_stained_glass',    // Trans-Bright Green (alt)
+  329: 'minecraft:pink_stained_glass',    // Trans-Pink
+  330: 'minecraft:green_concrete',        // Olive Green
+  334: 'minecraft:pink_concrete',         // Bright Pink
+  335: 'minecraft:red_concrete',          // Sand Red
+  351: 'minecraft:red_concrete',          // Medium Red
+  353: 'minecraft:pink_concrete',         // Coral
+  366: 'minecraft:orange_concrete',       // Bright Light Orange
+  373: 'minecraft:purple_concrete',       // Sand Purple
+  378: 'minecraft:green_concrete',        // Sand Green
+  379: 'minecraft:light_blue_concrete',   // Sand Blue
+  450: 'minecraft:brown_concrete',        // Fabuland Brown
+  462: 'minecraft:orange_concrete',       // Medium Orange
+  484: 'minecraft:orange_concrete',       // Dark Orange
+  503: 'minecraft:light_gray_concrete',   // Light Stone Gray
+  507: 'minecraft:light_blue_concrete',   // Aqua
+  508: 'minecraft:light_gray_concrete',   // Pearl Very Light Gray (alt)
+
   // ── Edge / Meta ──────────────────────────────────────────────────────────
   16:  'minecraft:gray_concrete',         // Main_Color placeholder
   24:  'minecraft:black_concrete',        // Edge Color
