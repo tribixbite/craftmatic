@@ -1448,7 +1448,7 @@ async function main(): Promise<void> {
   // Dilation+erosion fills gaps without changing overall shape.
   // Runs BEFORE smoothSurface so the surface smoother sees healed faces.
   {
-    const closed = morphClose3D(trimmed, 3);
+    const closed = morphClose3D(trimmed, 3); // v61: revert to r=3, r=4 over-smoothed
     if (closed > 0) {
       console.log(`Morph close (r=3): ${closed} holes filled`);
     }
@@ -1500,7 +1500,7 @@ async function main(): Promise<void> {
   // 4 passes minimum — with 3 clusters, each pass cleans larger contiguous regions.
   // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap.
   {
-    const passes = Math.max(args.modePasses, 8); // v58: 8 minimum with k=3 clusters
+    const passes = Math.max(args.modePasses, 12); // v60: 12 minimum for cleaner facades
     const modeSmoothed = modeFilter3D(trimmed, passes, 1);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} passes)`);
@@ -1511,7 +1511,7 @@ async function main(): Promise<void> {
   // replacing block types. r=1 is gentle — only fills single-voxel holes without
   // altering overall shape. Runs AFTER mode filter smooths material distribution.
   {
-    const closed2 = morphClose3D(trimmed, 1);
+    const closed2 = morphClose3D(trimmed, 1); // v61: revert to r=1, r=2 over-smoothed
     if (closed2 > 0) {
       console.log(`Morph close post-filter (r=1): ${closed2} surface pockmarks healed`);
     }
@@ -1556,15 +1556,14 @@ async function main(): Promise<void> {
   // Roof cornice REMOVED (v59): Gemini VLM grading identifies brown_terracotta roof as
   // "anomalous artifact" and "data error". Let K-Means roof color stay natural.
 
-  // Facade simplification RESTORED (v59): Gemini grading showed that K-Means noise on
-  // facades ("chaotic static", "digital corruption") is the #1 score killer. Buildings
-  // with clean uniform facades (Francisco 7/10) score dramatically better than noisy
-  // ones (Sentinel 1/10, Montgomery 1/10). Remap all non-special blocks to dominant.
+  // Facade simplification (v59/v62): Remap all non-special blocks to dominant type.
+  // Tested alternatives: v61 kept top-3 types (≥5% share) but Gemini still penalized
+  // multi-tone facades as "noisy". Single-dominant gives cleanest scores.
+  // v62: mode filter 12 passes (up from 8) for smoother pre-simplification surface.
   {
     const SPECIAL_BLOCKS = new Set([
       'minecraft:air',
       'minecraft:gray_stained_glass',
-      // Vegetation/misc
       'minecraft:green_concrete',
       'minecraft:birch_planks',
     ]);
