@@ -131,7 +131,7 @@ Options:
   let desaturateOff = false;
   let preview = false;
   let smoothPct = 0; // disabled by default; modeFilter3D handles noise locally
-  let modePasses = 1; // Auto-detect overrides; 1 pass preserves more surface detail
+  let modePasses = 2; // Auto-detect overrides; 2 passes after K-Means for coherent zones
   let fill = false;
   let noPalette = false;
   let noCornice = false;
@@ -1249,6 +1249,9 @@ async function main(): Promise<void> {
       const xzDensity = filledXZ / totalXZ;
       if (xzDensity > 0.70) {
         console.log(`Skipping fill (XZ density ${(xzDensity * 100).toFixed(0)}% > 70% — shell dense enough, fill would destroy concavities)`);
+        // Note: morphClose3D(1) runs later in pipeline to spackle 1-voxel pockmarks.
+        // morphClose3D(2) was tried here but fills too aggressively — destroys pyramid
+        // tapers, setbacks, and facade articulation by bridging across 2-voxel features.
       } else {
         const interiorFilled = fillInteriorGaps(trimmed, 1);
         console.log(`Interior fill (3D masked, dilation=1): ${interiorFilled} voxels filled (XZ density was ${(xzDensity * 100).toFixed(0)}%)`);
@@ -1463,6 +1466,16 @@ async function main(): Promise<void> {
     }
   }
 
+  // K-Means palette consolidation — cluster 30+ block types into k=5 perceptually
+  // distinct groups BEFORE spatial smoothing. This way modeFilter3D operates on
+  // only 5 types instead of 30+, producing coherent material zones instead of noise.
+  {
+    const consolidated = consolidateBlockPalette(trimmed, 5);
+    if (consolidated > 0) {
+      console.log(`Palette consolidation: ${consolidated} blocks merged into 5 clusters (K-Means)`);
+    }
+  }
+
   // Glaze dark exterior blocks as windows BEFORE mode filter.
   // modeFilter3D would erase small dark clusters (windows) as noise.
   // gray_stained_glass is in modeFilter3D's PROTECTED set, so glazing
@@ -1472,15 +1485,12 @@ async function main(): Promise<void> {
     if (glazed > 0) {
       console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass`);
     }
-    // NOTE: injectSyntheticWindows was tried and reverted — rigid office-grid pattern
-    // degrades classical architecture (Capitol), glass curtain walls (Willis), and
-    // diagonal facades (Sentinel). Root cause is upstream: kernel=24 averages out
-    // window darkness in the color pipeline. Fix color extraction, not post-hoc generation.
   }
 
-  // 3D mode filter — smooth surface textures while preserving color contrast.
-  // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap
-  // so cyan won't get voted back by majority neighbors.
+  // 3D mode filter — smooth spatial distribution of 5 K-Means block types.
+  // After consolidation, each voxel is one of ~5 types. Mode filter replaces
+  // isolated outliers with their neighborhood majority, creating clean material zones.
+  // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap.
   if (args.modePasses > 0) {
     const modeSmoothed = modeFilter3D(trimmed, args.modePasses, 1);
     if (modeSmoothed > 0) {
@@ -1488,17 +1498,6 @@ async function main(): Promise<void> {
     }
   } else {
     console.log('Skipping mode filter (--mode-passes 0)');
-  }
-
-  // K-Means palette consolidation — cluster blocks into k=5 perceptually distinct
-  // groups to prevent "20 shades of gray" noise from per-voxel CIE-Lab matching.
-  // Runs AFTER mode filter (which smooths spatial noise) so consolidation operates
-  // on the stable block distribution.
-  {
-    const consolidated = consolidateBlockPalette(trimmed, 5);
-    if (consolidated > 0) {
-      console.log(`Palette consolidation: ${consolidated} blocks merged into 5 clusters (K-Means)`);
-    }
   }
 
   // Sky contamination remap — Google 3D Tiles bake ambient skylight (blue/cyan)
