@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -1233,10 +1233,10 @@ async function main(): Promise<void> {
     }
 
     // Step 4: Interior fill — 3D masked dilation flood-fill
-    // dilation=1 closes single-voxel gaps without over-filling (dilation=2 fills 69%+ as solid mass)
+    // dilation=2 seals diagonal gaps in photogrammetry shells that dilation=1 misses
     if (args.fill) {
-      const interiorFilled = fillInteriorGaps(trimmed, 1);
-      console.log(`Interior fill (3D masked, dilation=1): ${interiorFilled} interior voxels filled`);
+      const interiorFilled = fillInteriorGaps(trimmed, 2);
+      console.log(`Interior fill (3D masked, dilation=2): ${interiorFilled} interior voxels filled`);
     }
 
     // Step 5: Vegetation strip
@@ -1308,9 +1308,9 @@ async function main(): Promise<void> {
       }
 
       // Step 4: 3D masked dilation fill — building is now isolated.
-      // dilation=1 closes single-voxel gaps without over-filling
-      const interiorFilled = fillInteriorGaps(trimmed, 1);
-      console.log(`Interior fill (3D masked, dilation=1): ${interiorFilled} interior voxels filled`);
+      // dilation=2 seals diagonal gaps in photogrammetry shells
+      const interiorFilled = fillInteriorGaps(trimmed, 2);
+      console.log(`Interior fill (3D masked, dilation=2): ${interiorFilled} interior voxels filled`);
 
       // Step 5: Strip vegetation — trees acted as solid walls during fill,
       // revealing the building interior behind canopy instead of leaving holes.
@@ -1390,8 +1390,17 @@ async function main(): Promise<void> {
     console.log('Skipping rare-block smoothing (--smooth-pct 0)');
   }
 
+  // Morph close — spackle 1-voxel pockmarks/holes in photogrammetry surfaces.
+  // Dilation+erosion fills small cracks without changing overall shape.
+  // Runs BEFORE smoothSurface so the surface smoother sees healed faces.
+  {
+    const closed = morphClose3D(trimmed, 1);
+    if (closed > 0) {
+      console.log(`Morph close: ${closed} 1-voxel holes filled`);
+    }
+  }
+
   // Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
-  // Runs before mode filter so color smoothing operates on clean geometry.
   {
     const surfaceSmoothed = smoothSurface(trimmed);
     if (surfaceSmoothed > 0) {
@@ -1406,8 +1415,20 @@ async function main(): Promise<void> {
     }
   }
 
+  // Glaze dark exterior blocks as windows BEFORE mode filter.
+  // modeFilter3D would erase small dark clusters (windows) as noise.
+  // gray_stained_glass is in modeFilter3D's PROTECTED set, so glazing
+  // first preserves windows while mode filter smooths walls around them.
+  if (args.mode === 'surface') {
+    const glazed = glazeDarkWindows(trimmed);
+    if (glazed > 0) {
+      console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass`);
+    }
+  }
+
   // 3D mode filter — smooth surface textures while preserving color contrast.
-  // Runs BEFORE sky remap so cyan won't get voted back by majority neighbors.
+  // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap
+  // so cyan won't get voted back by majority neighbors.
   if (args.modePasses > 0) {
     const modeSmoothed = modeFilter3D(trimmed, args.modePasses, 1);
     if (modeSmoothed > 0) {
@@ -1430,16 +1451,6 @@ async function main(): Promise<void> {
   const constrained = constrainPalette(trimmed, skyReplacements);
   if (constrained > 0) {
     console.log(`Sky palette: ${constrained} blue/cyan sky-contaminated blocks remapped`);
-  }
-
-  // Glaze dark exterior blocks as windows — center-pixel sampling creates dark
-  // blocks (gray_concrete, polished_andesite) where windows/shadows are. Convert
-  // these to gray_stained_glass for material variety and realistic appearance.
-  if (args.mode === 'surface') {
-    const glazed = glazeDarkWindows(trimmed);
-    if (glazed > 0) {
-      console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass`);
-    }
   }
 
   // Connected-component cleanup — remove floating debris and disconnected clusters.
