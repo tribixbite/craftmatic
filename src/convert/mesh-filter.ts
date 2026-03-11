@@ -1525,12 +1525,14 @@ export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1): number {
             }
           }
 
-          // Replace if center disagrees with majority, majority is strong (>50%),
+          // Replace if center disagrees with plurality, plurality is strong (>35%),
           // AND center block is isolated (< 2 same-type neighbors).
+          // 35% threshold works well after K-Means reduces palette to ~5 types —
+          // the dominant type in a 27-voxel neighborhood needs ~7 votes to win.
           // This protects 1-block-wide continuous lines (window frames, trim, pipes)
           // which have ≥2 neighbors of their own type — they're part of a feature, not noise.
           const centerCount = neighborCounts.get(center) ?? 0;
-          if (majorityBlock !== center && majorityCount > totalNeighbors * 0.5 && centerCount < 2) {
+          if (majorityBlock !== center && majorityCount > totalNeighbors * 0.35 && centerCount < 2) {
             grid.set(x, y, z, majorityBlock);
             passReplaced++;
           }
@@ -3546,7 +3548,7 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     smoothPct: 0, // disabled: modeFilter3D handles noise locally; smoothRareBlocks
     // uses global frequency threshold that erases surface details after interior fill
     // inflates totalNonAir (2% of 425K solid = 8500 blocks, erasing windows/trim)
-    modePasses: noisePct > 10 ? 2 : 1, // Reduced: 3→2, 2→1 — less homogenization preserves facades
+    modePasses: noisePct > 10 ? 3 : 2, // After K-Means consolidation: 5 types → mode filter is more effective
     cropRadius: needsCrop && !useAABBCrop ? suggestedCropRadius : 0,
     useAABBCrop,
     cleanMinSize: suggestedClean,
