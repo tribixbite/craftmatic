@@ -874,12 +874,13 @@ export function clearOpenAirFill(
 /**
  * Convert dark exterior surface blocks to gray_stained_glass to represent windows.
  *
- * With center-pixel texture sampling, dark pixels (windows, shadows) now map to
- * dark blocks (gray_concrete, polished_andesite, etc.) on the surface. Converting
- * these to glass adds material variety that VLMs score highly for, and makes the
- * building look like it has actual windows.
+ * Uses frequency-based detection to distinguish windows from shadows:
+ * 1. Only glazes blocks on exterior facade surfaces (Y≥2, not top/bottom faces)
+ * 2. Checks vertical continuity — real windows repeat vertically across floors
+ * 3. Requires minimum dark-block density on the facade for the column to qualify
  *
- * Only glazes blocks that are on the exterior surface (adjacent to air or out-of-bounds).
+ * This avoids glazing ground-level blocks, rooftop blocks, and isolated dark
+ * blocks that are more likely shadows than windows.
  *
  * @param grid  Source BlockGrid (modified in place)
  * @returns Number of blocks glazed
@@ -889,10 +890,8 @@ export function glazeDarkWindows(grid: BlockGrid): number {
   const AIR = 'minecraft:air';
   let glazed = 0;
 
-  // Dark blocks that typically represent baked window shadows in the palette.
-  // These are the blocks that the center-pixel sampling + CIE-Lab matching
-  // produces for dark texture regions (windows, deep shadows, trim).
-  const SHADOW_BLOCKS = new Set([
+  // Dark blocks that typically represent baked window/shadow regions
+  const DARK_BLOCKS = new Set([
     'minecraft:gray_concrete',
     'minecraft:polished_deepslate',
     'minecraft:polished_andesite',
@@ -900,36 +899,60 @@ export function glazeDarkWindows(grid: BlockGrid): number {
     'minecraft:andesite',
   ]);
 
-  const DIRS: [number, number, number][] = [
+  // For each exterior dark block, check if it's part of a vertical window column:
+  // count dark blocks in the same XZ column that are also on the exterior surface.
+  // Windows repeat vertically across floors; isolated shadows don't.
+  const MIN_VERTICAL_RUN = 2; // need ≥2 dark blocks in the same vertical column
+  const MIN_Y = 2; // skip ground-level (foundation, entry, base shadow)
+
+  // Phase 1: Build exterior-dark-block mask indexed by (x,z) → set of y values
+  // A block is "facade exterior" if it's adjacent to air on a horizontal face (X or Z),
+  // NOT just on top/bottom Y faces (those are roof/floor, not windows)
+  const H_DIRS: [number, number, number][] = [
     [1, 0, 0], [-1, 0, 0],
-    [0, 1, 0], [0, -1, 0],
     [0, 0, 1], [0, 0, -1],
   ];
 
-  for (let y = 0; y < height; y++) {
+  const facadeDarkCols: Map<number, number[]> = new Map(); // key = x*length+z → y[]
+
+  for (let y = MIN_Y; y < height; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         const block = grid.get(x, y, z);
-        if (!SHADOW_BLOCKS.has(block)) continue;
+        if (!DARK_BLOCKS.has(block)) continue;
 
-        // Only glaze if it's an exterior surface block (adjacent to air)
-        let isExterior = false;
-        for (const [dx, dy, dz] of DIRS) {
-          const nx = x + dx, ny = y + dy, nz = z + dz;
-          if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length ||
-              grid.get(nx, ny, nz) === AIR) {
-            isExterior = true;
+        // Check if on a horizontal facade (adjacent to air on X or Z axis)
+        let isFacade = false;
+        for (const [dx, , dz] of H_DIRS) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length ||
+              grid.get(nx, y, nz) === AIR) {
+            isFacade = true;
             break;
           }
         }
+        if (!isFacade) continue;
 
-        if (isExterior) {
-          grid.set(x, y, z, 'minecraft:gray_stained_glass');
-          glazed++;
-        }
+        const key = x * length + z;
+        let arr = facadeDarkCols.get(key);
+        if (!arr) { arr = []; facadeDarkCols.set(key, arr); }
+        arr.push(y);
       }
     }
   }
+
+  // Phase 2: Glaze dark blocks in columns with sufficient vertical repetition
+  for (const [key, ys] of facadeDarkCols) {
+    if (ys.length < MIN_VERTICAL_RUN) continue;
+
+    const x = Math.floor(key / length);
+    const z = key % length;
+    for (const y of ys) {
+      grid.set(x, y, z, 'minecraft:gray_stained_glass');
+      glazed++;
+    }
+  }
+
   return glazed;
 }
 
