@@ -5,7 +5,7 @@
 
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { parse as parseNbt } from 'prismarine-nbt';
+import { parseUncompressed as parseNbtUncompressed } from 'prismarine-nbt';
 import type { SchematicData, BlockEntity, ItemSlot, Vec3 } from '../types/index.js';
 import { BlockGrid } from './types.js';
 import { decodeAllVarints } from './varint.js';
@@ -17,7 +17,8 @@ import { decodeAllVarints } from './varint.js';
 export async function parseSchematic(filepath: string): Promise<SchematicData> {
   const raw = readFileSync(filepath);
   const decompressed = raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : Buffer.from(raw);
-  const { parsed } = await parseNbt(decompressed);
+  // Use parseUncompressed for large schematics (r=6+ can exceed prismarine-nbt's 16M array limit)
+  const parsed = parseNbtUncompressed(decompressed, 'big', { noArraySizeCheck: true });
 
   // Navigate to the root compound — prismarine-nbt wraps values
   const root = unwrap(parsed) as Record<string, unknown>;
