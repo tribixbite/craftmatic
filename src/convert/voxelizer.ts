@@ -671,9 +671,9 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
       const selectedBucket = bucketCount[centerBucket] >= minFeaturePixels ? centerBucket : bestBucket;
       // Track when center-pixel sampling chose a MUCH darker bucket than the
       // mode — this pixel is a real feature (window, deep recess) not just
-      // baked shadow. Require ≥3 bucket gap (~96 luminance units) so same-
-      // material shadows still get the black-point lift.
-      isCenterPixelFeature = selectedBucket !== bestBucket && (bestBucket - selectedBucket) >= 3;
+      // baked shadow. Require ≥2 bucket gap (~64 luminance units) — catches
+      // real windows (40-60 lum darker than concrete) while ignoring mild shadows.
+      isCenterPixelFeature = selectedBucket !== bestBucket && (bestBucket - selectedBucket) >= 2;
 
       if (bucketCount[selectedBucket] > 0) {
         r = Math.round(bucketR[selectedBucket] / bucketCount[selectedBucket]);

@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -1323,11 +1323,15 @@ async function main(): Promise<void> {
 
   // Center crop — remove blocks beyond XZ radius to isolate central building.
   // Runs after fill/solidify so each building is solid before we crop peripheral ones.
-  if (args.cropRadius > 0) {
+  // Skip for partial captures where the building extends beyond the capture boundary —
+  // cropping would shear off geometry that's already truncated.
+  if (args.cropRadius > 0 && !analysis?.isPartialCapture) {
     const cropped = cropToRect(trimmed, args.cropRadius);
     if (cropped > 0) {
       console.log(`Rect crop: ${cropped} blocks removed (half-width ${args.cropRadius})`);
     }
+  } else if (args.cropRadius > 0 && analysis?.isPartialCapture) {
+    console.log(`Skipping rect crop (partial capture — building extends beyond boundary)`);
   }
 
   // Ground plane subtraction — remove terrain layer below the building.
@@ -1384,6 +1388,22 @@ async function main(): Promise<void> {
     }
   } else {
     console.log('Skipping rare-block smoothing (--smooth-pct 0)');
+  }
+
+  // Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
+  // Runs before mode filter so color smoothing operates on clean geometry.
+  {
+    const surfaceSmoothed = smoothSurface(trimmed);
+    if (surfaceSmoothed > 0) {
+      console.log(`Surface smoothing: ${surfaceSmoothed} 1-block protrusions removed`);
+    }
+    // For rectangular buildings, snap noisy walls to dominant flat planes
+    if (analysis?.isRectangular) {
+      const snapped = flattenFacades(trimmed, 2);
+      if (snapped > 0) {
+        console.log(`Facade flattening: ${snapped} voxels snapped to dominant planes`);
+      }
+    }
   }
 
   // 3D mode filter — smooth surface textures while preserving color contrast.
