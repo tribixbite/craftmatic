@@ -1617,6 +1617,79 @@ async function main(): Promise<void> {
     }
   }
 
+  // Synthetic window injection — add regular grid-pattern windows to exterior facades.
+  // Runs AFTER facade simplification so it knows the dominant wall block, and AFTER
+  // roof cornice so windows don't get placed on roof blocks.
+  // Only activates when glazeDarkWindows produced very few windows (< 0.5% of blocks),
+  // indicating the photogrammetry textures had no dark window features to detect.
+  if (args.mode === 'surface' && !args.generic) {
+    // Count existing glass blocks for the threshold check
+    let existingGlass = 0;
+    for (let y = 0; y < trimmed.height; y++) {
+      for (let z = 0; z < trimmed.length; z++) {
+        for (let x = 0; x < trimmed.width; x++) {
+          if (trimmed.get(x, y, z) === 'minecraft:gray_stained_glass') existingGlass++;
+        }
+      }
+    }
+    const syntheticWindows = injectSyntheticWindows(trimmed, existingGlass);
+    if (syntheticWindows > 0) {
+      console.log(`Synthetic windows: ${syntheticWindows} blocks → gray_stained_glass (grid pattern, period=${trimmed.height >= 8 ? 'auto' : 'skipped'})`);
+    }
+  }
+
+  // Foundation base zone — darken exterior blocks in the bottom 2 layers to create
+  // visual foundation contrast. Real buildings have a visible base/plinth that
+  // distinguishes them from the ground. Uses stone_bricks for gray facades,
+  // cut_sandstone for warm facades.
+  if (!args.generic) {
+    const AIR = 'minecraft:air';
+    const GLASS = 'minecraft:gray_stained_glass';
+    const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const warmFacade = analysis?.dominantBlock &&
+      /^minecraft:(bricks|brown_|red_|orange_|terracotta$|sandstone$)/.test(analysis.dominantBlock);
+    const baseBlock = warmFacade ? 'minecraft:cut_sandstone' : 'minecraft:stone_bricks';
+    let baseConverted = 0;
+
+    // Find the lowest non-air Y layer (building base)
+    let baseY = 0;
+    for (let y = 0; y < trimmed.height; y++) {
+      let hasBlock = false;
+      for (let z = 0; z < trimmed.length && !hasBlock; z++) {
+        for (let x = 0; x < trimmed.width && !hasBlock; x++) {
+          if (trimmed.get(x, y, z) !== AIR) hasBlock = true;
+        }
+      }
+      if (hasBlock) { baseY = y; break; }
+    }
+
+    // Convert exterior blocks in baseY..baseY+1 to base material
+    for (let y = baseY; y <= Math.min(baseY + 1, trimmed.height - 1); y++) {
+      for (let z = 0; z < trimmed.length; z++) {
+        for (let x = 0; x < trimmed.width; x++) {
+          const block = trimmed.get(x, y, z);
+          if (block === AIR || block === GLASS) continue;
+          // Only exterior blocks (adjacent to air in any horizontal direction)
+          let isExterior = false;
+          for (const [dx, dz] of H_DIRS) {
+            const nx = x + dx, nz = z + dz;
+            if (nx < 0 || nx >= trimmed.width || nz < 0 || nz >= trimmed.length ||
+                trimmed.get(nx, y, nz) === AIR) {
+              isExterior = true; break;
+            }
+          }
+          if (isExterior) {
+            trimmed.set(x, y, z, baseBlock);
+            baseConverted++;
+          }
+        }
+      }
+    }
+    if (baseConverted > 0) {
+      console.log(`Foundation base: ${baseConverted} exterior blocks → ${baseBlock.replace('minecraft:', '')} (Y ${baseY}-${baseY + 1})`);
+    }
+  }
+
   // Custom block remaps — final override, applied after all other processing
   if (args.remaps.size > 0) {
     const remapped = constrainPalette(trimmed, args.remaps);
