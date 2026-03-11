@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, addRoofCornice, solidifyCore } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -1239,29 +1239,21 @@ async function main(): Promise<void> {
     }
 
     // Step 4: Interior fill — 3D masked dilation flood-fill.
-    // Gate by footprint density: dense photogrammetry (>70% XZ fill) already has
-    // solid-enough shells that fill destroys shape (floods concavities, courtyards,
-    // setbacks). Only fill sparse shells that have visible holes.
+    // Gate by 3D fill ratio: photogrammetry shells have high XZ density (93%+ columns
+    // occupied) but low 3D fill (35%) — they're hollow. Use 3D ratio to decide:
+    // >60% 3D fill = genuinely solid (skip), <60% = hollow shell (fill needed).
     if (args.fill) {
-      const totalXZ = trimmed.width * trimmed.length;
-      let filledXZ = 0;
-      for (let z = 0; z < trimmed.length; z++) {
-        for (let x = 0; x < trimmed.width; x++) {
-          for (let y = 0; y < trimmed.height; y++) {
-            if (trimmed.get(x, y, z) !== 'minecraft:air') { filledXZ++; break; }
-          }
-        }
-      }
-      const xzDensity = filledXZ / totalXZ;
-      if (xzDensity > 0.70) {
-        console.log(`Skipping fill (XZ density ${(xzDensity * 100).toFixed(0)}% > 70% — shell dense enough, fill would destroy concavities)`);
-        // Note: morphClose3D(1) runs later in pipeline to spackle 1-voxel pockmarks.
-        // morphClose3D(2) was tried here but fills too aggressively — destroys pyramid
-        // tapers, setbacks, and facade articulation by bridging across 2-voxel features.
+      const totalCells = trimmed.width * trimmed.height * trimmed.length;
+      const nonAirCount = trimmed.countNonAir();
+      const fill3D = nonAirCount / totalCells;
+      if (fill3D > 0.60) {
+        console.log(`Skipping fill (3D density ${(fill3D * 100).toFixed(0)}% > 60% — already solid)`);
       } else {
-        const interiorFilled = fillInteriorGaps(trimmed, 1);
-        console.log(`Interior fill (3D masked, dilation=1): ${interiorFilled} voxels filled (XZ density was ${(xzDensity * 100).toFixed(0)}%)`);
-        // Step 4b: Sky exposure — remove fill in open-air spaces
+        // dilation=2 seals 2-block wide gaps in photogrammetry shells before flood-fill.
+        // This creates a more watertight shell → more interior gets filled → cleaner result.
+        const interiorFilled = fillInteriorGaps(trimmed, 2);
+        console.log(`Interior fill (3D masked, dilation=2): ${interiorFilled} voxels filled (3D density was ${(fill3D * 100).toFixed(0)}%)`);
+        // Step 4b: Sky exposure — remove fill in open-air spaces (courtyards, setbacks)
         const openAirCleared = clearOpenAirFill(trimmed);
         if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} fill blocks removed (no solid roof above)`);
       }
@@ -1271,6 +1263,18 @@ async function main(): Promise<void> {
     if (args.mode === 'surface') {
       const vegStripped = stripVegetation(trimmed);
       if (vegStripped > 0) console.log(`Vegetation strip: ${vegStripped} tree/bush blocks removed`);
+    }
+
+    // Step 6: SolidifyCore — for rectangular buildings, fill the AABB interior per Y layer.
+    // This creates perfectly flat walls and solid mass. Facades (within 4 blocks of AABB edge)
+    // are left untouched to preserve scan data (windows, recesses).
+    // Only for rectangular buildings — non-rectangular shapes (triangular, L-shaped) would
+    // get incorrect AABB fills outside their actual footprint.
+    if (analysis?.isRectangular) {
+      const coreFilled = solidifyCore(trimmed, 4);
+      if (coreFilled > 0) {
+        console.log(`SolidifyCore: ${coreFilled} interior blocks filled (rectangular building, facadeDepth=4)`);
+      }
     }
   } else {
     console.log(`Generic mode: skipping rectify (preserving raw geometry)`);
@@ -1444,13 +1448,14 @@ async function main(): Promise<void> {
     console.log('Skipping rare-block smoothing (--smooth-pct 0)');
   }
 
-  // Morph close — spackle 1-voxel pockmarks/holes in photogrammetry surfaces.
-  // Dilation+erosion fills small cracks without changing overall shape.
+  // Morph close — spackle pockmarks/holes in photogrammetry surfaces.
+  // Radius 2 fills 2-voxel deep gaps and cracks, producing smoother facades.
+  // Dilation+erosion fills gaps without changing overall shape.
   // Runs BEFORE smoothSurface so the surface smoother sees healed faces.
   {
-    const closed = morphClose3D(trimmed, 1);
+    const closed = morphClose3D(trimmed, 2);
     if (closed > 0) {
-      console.log(`Morph close: ${closed} 1-voxel holes filled`);
+      console.log(`Morph close (r=2): ${closed} 2-voxel holes filled`);
     }
   }
 
@@ -1461,29 +1466,27 @@ async function main(): Promise<void> {
       console.log(`Surface smoothing: ${surfaceSmoothed} 1-block protrusions removed`);
     }
     // For rectangular buildings, snap noisy walls to dominant flat planes.
-    // Only do this when analysis specifically detected a rectangular building
-    // AND footprint fill is <70% (dense captures that look "rectangular" may
-    // actually be non-rectangular buildings like wedges/triangles whose shape
-    // got obscured by neighboring structures in the capture volume).
-    if (analysis?.isRectangular && analysis.footprintFill < 0.70) {
+    // tolerance=2 only affects blocks within 2 of the dominant plane per face,
+    // so this is safe even for dense captures — non-rectangular features that
+    // are >2 blocks from a cardinal plane won't be flattened.
+    if (analysis?.isRectangular) {
       const snapped = flattenFacades(trimmed, 2);
       if (snapped > 0) {
         console.log(`Facade flattening: ${snapped} voxels snapped to dominant planes`);
       }
-    } else if (analysis?.isRectangular) {
-      console.log(`Skipping facade flattening (footprint fill ${(analysis.footprintFill * 100).toFixed(0)}% ≥ 70% — may be non-rectangular)`);
     }
   }
 
-  // K-Means palette consolidation — cluster 30+ block types into k=5 perceptually
-  // distinct groups BEFORE spatial smoothing. This way modeFilter3D operates on
-  // only 5 types instead of 30+, producing coherent material zones instead of noise.
-  // k=7 was tested but regressed complex buildings (St Patrick's 6.3→4.2) by
-  // fragmenting subtle-color geometry. k=5 is the sweet spot.
+  // K-Means palette consolidation — cluster 30+ block types into k=3 perceptually
+  // distinct groups BEFORE spatial smoothing. k=3 produces cleaner facades because:
+  // - 3 clusters (light/medium/dark) form large contiguous zones
+  // - Mode filter reaches 33%+ plurality easily → more effective smoothing
+  // - k=5 created 5 similar grays that alternated randomly across facades (visual noise)
+  // - k=7 regressed complex buildings by fragmenting subtle-color geometry
   {
-    const consolidated = consolidateBlockPalette(trimmed, 5);
+    const consolidated = consolidateBlockPalette(trimmed, 3);
     if (consolidated > 0) {
-      console.log(`Palette consolidation: ${consolidated} blocks merged into 5 clusters (K-Means)`);
+      console.log(`Palette consolidation: ${consolidated} blocks merged into 3 clusters (K-Means)`);
     }
   }
 
@@ -1498,17 +1501,17 @@ async function main(): Promise<void> {
     }
   }
 
-  // 3D mode filter — smooth spatial distribution of 5 K-Means block types.
-  // After consolidation, each voxel is one of ~5 types. Mode filter replaces
+  // 3D mode filter — smooth spatial distribution of 3 K-Means block types.
+  // After consolidation, each voxel is one of ~3 types. Mode filter replaces
   // isolated outliers with their neighborhood majority, creating clean material zones.
+  // 4 passes minimum — with 3 clusters, each pass cleans larger contiguous regions.
   // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap.
-  if (args.modePasses > 0) {
-    const modeSmoothed = modeFilter3D(trimmed, args.modePasses, 1);
+  {
+    const passes = Math.max(args.modePasses, 4); // Minimum 4 passes for clean facades
+    const modeSmoothed = modeFilter3D(trimmed, passes, 1);
     if (modeSmoothed > 0) {
-      console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${args.modePasses} passes)`);
+      console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} passes)`);
     }
-  } else {
-    console.log('Skipping mode filter (--mode-passes 0)');
   }
 
   // Sky contamination remap — Google 3D Tiles bake ambient skylight (blue/cyan)
@@ -1547,8 +1550,72 @@ async function main(): Promise<void> {
   // represented on the surface. Also, AABB raycasting placed black_concrete on
   // exterior courtyard walls of non-convex buildings (L, U, Pentagon shapes).
 
-  // addRoofCornice removed: hardcoded bricks + spruce_planks is wrong for all
-  // non-Mediterranean buildings — was the reddish-brown artifact on every output.
+  // Roof cornice — assign warm roof material to the top surface of the building.
+  // Google Tiles photogrammetry bakes lighting into gray textures, so roofs are
+  // indistinguishable from walls. brown_terracotta is a universal warm contrast
+  // that works for most building types (brick, stone, concrete).
+  if (!args.generic && !args.noCornice) {
+    // Pick roof material based on dominant facade: if already warm (brown/brick),
+    // use a darker contrast. Otherwise default warm brown_terracotta.
+    // Check if facade is already warm-colored (actual bricks, not stone_bricks)
+    const warmFacade = analysis?.dominantBlock &&
+      /^minecraft:(bricks|brown_|red_|orange_|terracotta$|sandstone$)/.test(analysis.dominantBlock);
+    const roofBlock = warmFacade ? 'minecraft:dark_oak_planks' : 'minecraft:brown_terracotta';
+    const eaveBlock = 'minecraft:spruce_planks';
+    const corniced = addRoofCornice(trimmed, roofBlock, eaveBlock);
+    if (corniced > 0) {
+      console.log(`Roof cornice: ${corniced} blocks (${roofBlock.replace('minecraft:', '')} + ${eaveBlock.replace('minecraft:', '')} eave)`);
+    }
+  }
+
+  // Facade simplification — remap minority wall blocks to the dominant type.
+  // Photogrammetry textures produce 3-5 slightly-different gray block types that
+  // alternate randomly across facades, creating visual noise. By remapping all
+  // non-special blocks to the single most common type, facades become clean and
+  // uniform. "Special" blocks (glass, roof, eave, entry) are preserved.
+  {
+    const SPECIAL_BLOCKS = new Set([
+      'minecraft:air',
+      'minecraft:gray_stained_glass',
+      'minecraft:brown_terracotta',
+      'minecraft:dark_oak_planks',
+      'minecraft:spruce_planks',
+      'minecraft:smooth_stone_slab',
+      // Vegetation/misc
+      'minecraft:green_concrete',
+      'minecraft:birch_planks',
+    ]);
+
+    // Find dominant non-special block
+    const wallCounts = new Map<string, number>();
+    for (let y = 0; y < trimmed.height; y++) {
+      for (let z = 0; z < trimmed.length; z++) {
+        for (let x = 0; x < trimmed.width; x++) {
+          const b = trimmed.get(x, y, z);
+          if (!SPECIAL_BLOCKS.has(b)) {
+            wallCounts.set(b, (wallCounts.get(b) || 0) + 1);
+          }
+        }
+      }
+    }
+    let dominantWall = 'minecraft:light_gray_concrete';
+    let dominantCount = 0;
+    for (const [block, count] of wallCounts) {
+      if (count > dominantCount) { dominantWall = block; dominantCount = count; }
+    }
+
+    // Remap all non-special, non-dominant blocks
+    const remaps = new Map<string, string>();
+    for (const [block] of wallCounts) {
+      if (block !== dominantWall) {
+        remaps.set(block, dominantWall);
+      }
+    }
+    if (remaps.size > 0) {
+      const simplified = constrainPalette(trimmed, remaps);
+      console.log(`Facade simplification: ${simplified} blocks → ${dominantWall.replace('minecraft:', '')} (${remaps.size} types merged)`);
+    }
+  }
 
   // Custom block remaps — final override, applied after all other processing
   if (args.remaps.size > 0) {
