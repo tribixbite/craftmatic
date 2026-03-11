@@ -1232,16 +1232,30 @@ async function main(): Promise<void> {
       console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (< 500 voxels)`);
     }
 
-    // Step 4: Interior fill — 3D masked dilation flood-fill
-    // dilation=2 seals diagonal gaps in photogrammetry shells that dilation=1 misses
+    // Step 4: Interior fill — 3D masked dilation flood-fill.
+    // Gate by footprint density: dense photogrammetry (>70% XZ fill) already has
+    // solid-enough shells that fill destroys shape (floods concavities, courtyards,
+    // setbacks). Only fill sparse shells that have visible holes.
     if (args.fill) {
-      const interiorFilled = fillInteriorGaps(trimmed, 2);
-      console.log(`Interior fill (3D masked, dilation=2): ${interiorFilled} interior voxels filled`);
-      // Step 4b: Sky exposure — remove fill in open-air spaces (stadiums, courtyards).
-      // fillInteriorGaps may incorrectly fill spaces where the dilation mask closed
-      // small rim/wall gaps. This checks vertical line-of-sight to sky.
-      const openAirCleared = clearOpenAirFill(trimmed);
-      if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} fill blocks removed (no solid roof above)`);
+      const totalXZ = trimmed.width * trimmed.length;
+      let filledXZ = 0;
+      for (let z = 0; z < trimmed.length; z++) {
+        for (let x = 0; x < trimmed.width; x++) {
+          for (let y = 0; y < trimmed.height; y++) {
+            if (trimmed.get(x, y, z) !== 'minecraft:air') { filledXZ++; break; }
+          }
+        }
+      }
+      const xzDensity = filledXZ / totalXZ;
+      if (xzDensity > 0.70) {
+        console.log(`Skipping fill (XZ density ${(xzDensity * 100).toFixed(0)}% > 70% — shell dense enough, fill would destroy concavities)`);
+      } else {
+        const interiorFilled = fillInteriorGaps(trimmed, 1);
+        console.log(`Interior fill (3D masked, dilation=1): ${interiorFilled} voxels filled (XZ density was ${(xzDensity * 100).toFixed(0)}%)`);
+        // Step 4b: Sky exposure — remove fill in open-air spaces
+        const openAirCleared = clearOpenAirFill(trimmed);
+        if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} fill blocks removed (no solid roof above)`);
+      }
     }
 
     // Step 5: Vegetation strip
@@ -1314,8 +1328,8 @@ async function main(): Promise<void> {
 
       // Step 4: 3D masked dilation fill — building is now isolated.
       // dilation=2 seals diagonal gaps in photogrammetry shells
-      const interiorFilled = fillInteriorGaps(trimmed, 2);
-      console.log(`Interior fill (3D masked, dilation=2): ${interiorFilled} interior voxels filled`);
+      const interiorFilled = fillInteriorGaps(trimmed, 1);
+      console.log(`Interior fill (3D masked, dilation=1): ${interiorFilled} interior voxels filled`);
       // Step 4b: Sky exposure — remove fill in open-air spaces
       const openAirCleared = clearOpenAirFill(trimmed);
       if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} blocks (no solid roof above)`);
@@ -1434,12 +1448,18 @@ async function main(): Promise<void> {
     if (surfaceSmoothed > 0) {
       console.log(`Surface smoothing: ${surfaceSmoothed} 1-block protrusions removed`);
     }
-    // For rectangular buildings, snap noisy walls to dominant flat planes
-    if (analysis?.isRectangular) {
+    // For rectangular buildings, snap noisy walls to dominant flat planes.
+    // Only do this when analysis specifically detected a rectangular building
+    // AND footprint fill is <70% (dense captures that look "rectangular" may
+    // actually be non-rectangular buildings like wedges/triangles whose shape
+    // got obscured by neighboring structures in the capture volume).
+    if (analysis?.isRectangular && analysis.footprintFill < 0.70) {
       const snapped = flattenFacades(trimmed, 2);
       if (snapped > 0) {
         console.log(`Facade flattening: ${snapped} voxels snapped to dominant planes`);
       }
+    } else if (analysis?.isRectangular) {
+      console.log(`Skipping facade flattening (footprint fill ${(analysis.footprintFill * 100).toFixed(0)}% ≥ 70% — may be non-rectangular)`);
     }
   }
 
