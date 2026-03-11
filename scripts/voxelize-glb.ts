@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, addRoofCornice, solidifyCore } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -1265,17 +1265,10 @@ async function main(): Promise<void> {
       if (vegStripped > 0) console.log(`Vegetation strip: ${vegStripped} tree/bush blocks removed`);
     }
 
-    // Step 6: SolidifyCore — for rectangular buildings, fill the AABB interior per Y layer.
-    // This creates perfectly flat walls and solid mass. Facades (within 4 blocks of AABB edge)
-    // are left untouched to preserve scan data (windows, recesses).
-    // Only for rectangular buildings — non-rectangular shapes (triangular, L-shaped) would
-    // get incorrect AABB fills outside their actual footprint.
-    if (analysis?.isRectangular) {
-      const coreFilled = solidifyCore(trimmed, 4);
-      if (coreFilled > 0) {
-        console.log(`SolidifyCore: ${coreFilled} interior blocks filled (rectangular building, facadeDepth=4)`);
-      }
-    }
+    // SolidifyCore REMOVED (v54): AABB per Y-layer fill was destroying non-rectangular
+    // shapes. Dakota's U-shaped courtyard got filled, Sentinel's triangle became a rectangle.
+    // Gemini: Sentinel 8→1, Dakota 5→2 due to solidifyCore. fillInteriorGaps (step 4)
+    // already handles hollow shell filling without altering the building footprint.
   } else {
     console.log(`Generic mode: skipping rectify (preserving raw geometry)`);
     if (args.fill) {
@@ -1507,7 +1500,7 @@ async function main(): Promise<void> {
   // 4 passes minimum — with 3 clusters, each pass cleans larger contiguous regions.
   // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap.
   {
-    const passes = Math.max(args.modePasses, 4); // Minimum 4 passes for clean facades
+    const passes = Math.max(args.modePasses, 8); // v56: 8 minimum — clean salt-and-pepper from K-Means k=3
     const modeSmoothed = modeFilter3D(trimmed, passes, 1);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} passes)`);
@@ -1550,128 +1543,15 @@ async function main(): Promise<void> {
   // represented on the surface. Also, AABB raycasting placed black_concrete on
   // exterior courtyard walls of non-convex buildings (L, U, Pentagon shapes).
 
-  // Roof cornice — assign warm roof material to the top surface of the building.
-  // Google Tiles photogrammetry bakes lighting into gray textures, so roofs are
-  // indistinguishable from walls. brown_terracotta is a universal warm contrast
-  // that works for most building types (brick, stone, concrete).
+  // Smart roof contrast (v56): Instead of hardcoded brown_terracotta on every building,
+  // sample the actual roof vs wall blocks. Only override if roof and walls are the same
+  // block (no natural contrast). Picks material based on wall tone.
   if (!args.generic && !args.noCornice) {
-    // Pick roof material based on dominant facade: if already warm (brown/brick),
-    // use a darker contrast. Otherwise default warm brown_terracotta.
-    // Check if facade is already warm-colored (actual bricks, not stone_bricks)
-    const warmFacade = analysis?.dominantBlock &&
-      /^minecraft:(bricks|brown_|red_|orange_|terracotta$|sandstone$)/.test(analysis.dominantBlock);
-    const roofBlock = warmFacade ? 'minecraft:dark_oak_planks' : 'minecraft:brown_terracotta';
-    const eaveBlock = 'minecraft:spruce_planks';
-    const corniced = addRoofCornice(trimmed, roofBlock, eaveBlock);
-    if (corniced > 0) {
-      console.log(`Roof cornice: ${corniced} blocks (${roofBlock.replace('minecraft:', '')} + ${eaveBlock.replace('minecraft:', '')} eave)`);
-    }
-  }
-
-  // Facade simplification — remap minority wall blocks to the dominant type.
-  // Photogrammetry textures produce 3-5 slightly-different gray block types that
-  // alternate randomly across facades, creating visual noise. By remapping all
-  // non-special blocks to the single most common type, facades become clean and
-  // uniform. "Special" blocks (glass, roof, eave, entry) are preserved.
-  // `facadeDominantWall` is hoisted so floor plate section can pick a contrasting block.
-  let facadeDominantWall = 'minecraft:smooth_stone';
-  {
-    const SPECIAL_BLOCKS = new Set([
-      'minecraft:air',
-      'minecraft:gray_stained_glass',
-      'minecraft:brown_terracotta',
-      'minecraft:dark_oak_planks',
-      'minecraft:spruce_planks',
-      'minecraft:smooth_stone_slab',
-      // Vegetation/misc
-      'minecraft:green_concrete',
-      'minecraft:birch_planks',
-    ]);
-
-    // Find dominant non-special block
-    const wallCounts = new Map<string, number>();
-    for (let y = 0; y < trimmed.height; y++) {
-      for (let z = 0; z < trimmed.length; z++) {
-        for (let x = 0; x < trimmed.width; x++) {
-          const b = trimmed.get(x, y, z);
-          if (!SPECIAL_BLOCKS.has(b)) {
-            wallCounts.set(b, (wallCounts.get(b) || 0) + 1);
-          }
-        }
-      }
-    }
-    let dominantCount = 0;
-    for (const [block, count] of wallCounts) {
-      if (count > dominantCount) { facadeDominantWall = block; dominantCount = count; }
-    }
-
-    // Remap all non-special, non-dominant blocks
-    const remaps = new Map<string, string>();
-    for (const [block] of wallCounts) {
-      if (block !== facadeDominantWall) {
-        remaps.set(block, facadeDominantWall);
-      }
-    }
-    if (remaps.size > 0) {
-      const simplified = constrainPalette(trimmed, remaps);
-      console.log(`Facade simplification: ${simplified} blocks → ${facadeDominantWall.replace('minecraft:', '')} (${remaps.size} types merged)`);
-    }
-  }
-
-  // Synthetic window injection — add regular grid-pattern windows to exterior facades.
-  // Runs AFTER facade simplification so it knows the dominant wall block, and AFTER
-  // roof cornice so windows don't get placed on roof blocks.
-  // Only activates when glazeDarkWindows produced very few windows (< 0.5% of blocks),
-  // indicating the photogrammetry textures had no dark window features to detect.
-  if (args.mode === 'surface' && !args.generic) {
-    // Count existing glass blocks for the threshold check
-    let existingGlass = 0;
-    for (let y = 0; y < trimmed.height; y++) {
-      for (let z = 0; z < trimmed.length; z++) {
-        for (let x = 0; x < trimmed.width; x++) {
-          if (trimmed.get(x, y, z) === 'minecraft:gray_stained_glass') existingGlass++;
-        }
-      }
-    }
-    const syntheticWindows = injectSyntheticWindows(trimmed, existingGlass);
-    if (syntheticWindows > 0) {
-      console.log(`Synthetic windows: ${syntheticWindows} blocks → gray_stained_glass (grid pattern, period=${trimmed.height >= 8 ? 'auto' : 'skipped'})`);
-    }
-  }
-
-  // Floor plate banding + foundation base — add horizontal articulation to facades.
-  // Real buildings have visible floor divisions (cornices, string courses, spandrel panels).
-  // This converts exterior blocks at floor boundaries to a secondary material, creating
-  // 2-tone facades with clear multi-story layering.
-  if (!args.generic) {
     const AIR = 'minecraft:air';
     const GLASS = 'minecraft:gray_stained_glass';
-    const ROOF_BLOCKS = new Set(['minecraft:brown_terracotta', 'minecraft:dark_oak_planks', 'minecraft:spruce_planks']);
-    const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    // Pick band material that CONTRASTS with the dominant wall block.
-    // If dominant is already stone_bricks, use smooth_stone instead (and vice versa).
-    // For warm facades, use cut_sandstone vs sandstone alternation.
-    const warmFacade = /^minecraft:(bricks|brown_|red_|orange_|terracotta$|sandstone$)/.test(facadeDominantWall);
-    let bandBlock: string;
-    if (warmFacade) {
-      bandBlock = facadeDominantWall === 'minecraft:cut_sandstone'
-        ? 'minecraft:sandstone' : 'minecraft:cut_sandstone';
-    } else {
-      bandBlock = facadeDominantWall === 'minecraft:stone_bricks'
-        ? 'minecraft:smooth_stone' : 'minecraft:stone_bricks';
-    }
 
-    // Find building Y range (lowest and highest non-air layers)
-    let baseY = 0, topY = trimmed.height - 1;
-    for (let y = 0; y < trimmed.height; y++) {
-      let hasBlock = false;
-      for (let z = 0; z < trimmed.length && !hasBlock; z++) {
-        for (let x = 0; x < trimmed.width && !hasBlock; x++) {
-          if (trimmed.get(x, y, z) !== AIR) hasBlock = true;
-        }
-      }
-      if (hasBlock) { baseY = y; break; }
-    }
+    // Find topY (highest non-air layer)
+    let topY = 0;
     for (let y = trimmed.height - 1; y >= 0; y--) {
       let hasBlock = false;
       for (let z = 0; z < trimmed.length && !hasBlock; z++) {
@@ -1682,89 +1562,73 @@ async function main(): Promise<void> {
       if (hasBlock) { topY = y; break; }
     }
 
-    // Detect floor height via autocorrelation of Y-layer density (same as injectSyntheticWindows)
-    const layerDensity = new Float32Array(trimmed.height);
-    for (let y = 0; y < trimmed.height; y++) {
-      let count = 0;
+    // Sample top 2 layers (roof) and middle layers (wall) block distributions
+    const roofCounts = new Map<string, number>();
+    const wallCounts = new Map<string, number>();
+    const roofYMin = Math.max(0, topY - 1);
+    const midY = Math.floor(topY * 0.5);
+    const wallYMin = Math.max(0, midY - 2);
+    const wallYMax = Math.min(topY - 2, midY + 2);
+
+    for (let y = roofYMin; y <= topY; y++) {
       for (let z = 0; z < trimmed.length; z++) {
         for (let x = 0; x < trimmed.width; x++) {
-          if (trimmed.get(x, y, z) !== AIR) count++;
+          const b = trimmed.get(x, y, z);
+          if (b !== AIR && b !== GLASS) roofCounts.set(b, (roofCounts.get(b) || 0) + 1);
         }
       }
-      layerDensity[y] = count / (trimmed.width * trimmed.length);
     }
-    let bestPeriod = 3;
-    let bestCorr = -1;
-    for (let period = 3; period <= 5; period++) {
-      let corr = 0, count = 0;
-      for (let y = baseY; y + period <= topY; y++) {
-        corr += layerDensity[y] * layerDensity[y + period];
-        count++;
+    for (let y = wallYMin; y <= wallYMax; y++) {
+      for (let z = 0; z < trimmed.length; z++) {
+        for (let x = 0; x < trimmed.width; x++) {
+          const b = trimmed.get(x, y, z);
+          if (b !== AIR && b !== GLASS) wallCounts.set(b, (wallCounts.get(b) || 0) + 1);
+        }
       }
-      corr = count > 0 ? corr / count : 0;
-      if (corr > bestCorr) { bestCorr = corr; bestPeriod = period; }
     }
 
-    let bandConverted = 0;
-    const buildingHeight = topY - baseY + 1;
+    // Find dominant roof and wall blocks
+    let roofDominant = '', roofMax = 0;
+    for (const [b, c] of roofCounts) { if (c > roofMax) { roofDominant = b; roofMax = c; } }
+    let wallDominant = '', wallMax = 0;
+    for (const [b, c] of wallCounts) { if (c > wallMax) { wallDominant = b; wallMax = c; } }
 
-    // Only add floor plates for buildings tall enough (≥ 3 floors)
-    if (buildingHeight >= bestPeriod * 3) {
-      // Convert exterior blocks at every bestPeriod Y-layer to band material.
-      // Skip the roof area (top 2 layers) and foundation area (bottom 2 layers).
-      for (let y = baseY + 2; y <= topY - 2; y++) {
-        // Floor plate: the bottom layer of each floor (Y % period == 0)
-        if ((y - baseY) % bestPeriod !== 0) continue;
+    // Only apply roof override if roof == wall (no natural contrast)
+    if (roofDominant && wallDominant && roofDominant === wallDominant) {
+      // Pick a warm roof material that contrasts with the gray wall
+      const isWarmWall = /^minecraft:(bricks|brown_|red_|orange_|terracotta$|sandstone$)/.test(wallDominant);
+      const roofBlock = isWarmWall ? 'minecraft:dark_oak_planks' : 'minecraft:brown_terracotta';
 
+      // Apply to top 2 layers only (not eaves — those were spruce_planks and looked wrong)
+      let roofConverted = 0;
+      for (let y = roofYMin; y <= topY; y++) {
         for (let z = 0; z < trimmed.length; z++) {
           for (let x = 0; x < trimmed.width; x++) {
-            const block = trimmed.get(x, y, z);
-            if (block === AIR || block === GLASS || ROOF_BLOCKS.has(block)) continue;
-            // Only exterior facade blocks
-            let isExterior = false;
-            for (const [dx, dz] of H_DIRS) {
-              const nx = x + dx, nz = z + dz;
-              if (nx < 0 || nx >= trimmed.width || nz < 0 || nz >= trimmed.length ||
-                  trimmed.get(nx, y, nz) === AIR) {
-                isExterior = true; break;
-              }
-            }
-            if (isExterior) {
-              trimmed.set(x, y, z, bandBlock);
-              bandConverted++;
+            const b = trimmed.get(x, y, z);
+            if (b !== AIR && b !== GLASS) {
+              trimmed.set(x, y, z, roofBlock);
+              roofConverted++;
             }
           }
         }
       }
-    }
-
-    // Foundation base: bottom 2 Y-layers of exterior → band material
-    let baseConverted = 0;
-    for (let y = baseY; y <= Math.min(baseY + 1, trimmed.height - 1); y++) {
-      for (let z = 0; z < trimmed.length; z++) {
-        for (let x = 0; x < trimmed.width; x++) {
-          const block = trimmed.get(x, y, z);
-          if (block === AIR || block === GLASS) continue;
-          let isExterior = false;
-          for (const [dx, dz] of H_DIRS) {
-            const nx = x + dx, nz = z + dz;
-            if (nx < 0 || nx >= trimmed.width || nz < 0 || nz >= trimmed.length ||
-                trimmed.get(nx, y, nz) === AIR) {
-              isExterior = true; break;
-            }
-          }
-          if (isExterior) {
-            trimmed.set(x, y, z, bandBlock);
-            baseConverted++;
-          }
-        }
+      if (roofConverted > 0) {
+        console.log(`Smart roof: ${roofConverted} blocks → ${roofBlock.replace('minecraft:', '')} (roof matched wall: ${wallDominant.replace('minecraft:', '')})`);
       }
-    }
-    if (bandConverted > 0 || baseConverted > 0) {
-      console.log(`Floor plates: ${bandConverted} exterior blocks banded (period=${bestPeriod}, ${bandBlock.replace('minecraft:', '')})`);
-      console.log(`Foundation base: ${baseConverted} exterior blocks → ${bandBlock.replace('minecraft:', '')} (Y ${baseY}-${baseY + 1})`);
+    } else {
+      console.log(`Roof contrast: natural (roof=${roofDominant?.replace('minecraft:', '') || 'none'} vs wall=${wallDominant?.replace('minecraft:', '') || 'none'})`);
     }
   }
+
+  // Facade simplification REMOVED (v55): Collapsing all wall blocks to single dominant
+  // type destroyed K-Means color zones. The 3-cluster palette already provides clean
+  // material boundaries; forcing to 1 block erased the remaining visual variety.
+
+  // Synthetic windows REMOVED (v55): Regular grid pattern looked mechanical and artificial.
+  // glazeDarkWindows already converts dark exterior blocks to glass from photogrammetry data.
+
+  // Floor plate banding + foundation base REMOVED (v55): Regular horizontal bands at
+  // fixed periods looked mechanical. K-Means palette zones provide natural articulation.
 
   // Custom block remaps — final override, applied after all other processing
   if (args.remaps.size > 0) {
