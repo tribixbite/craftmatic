@@ -611,12 +611,13 @@ function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false): void {
       // Diagonal edges create staircase aliasing at 1 block/m that makes
       // rectangles look like diamonds/ovals. Axis-aligned edges give crisp
       // straight lines visible in top-down plan views.
-      // Allow up to 50% bounding box area increase for axis alignment.
+      // Snap to nearest 90° only when area increase is modest (< 50%).
+      // PCA alignment minimizes bounding box by aligning walls with axes —
+      // forcing 0°/90° when walls are at ~40° creates WORSE staircase aliasing.
       const optimalDeg = bestAngle * 180 / Math.PI;
       const snappedDeg = Math.round(optimalDeg / 90) * 90;
       const snappedRad = snappedDeg * Math.PI / 180;
 
-      // Check if snapped angle's bounding box is acceptably close to optimal
       let useSnapped = false;
       if (Math.abs(snappedRad - bestAngle) > 0.01) {
         const cos2 = Math.cos(snappedRad), sin2 = Math.sin(snappedRad);
@@ -2031,21 +2032,20 @@ async function main(): Promise<void> {
     }
   }
 
-  // v71: Enforce OSM footprint polygon — clip exterior + fill interior gaps.
-  // Uses centroid-based alignment (not grid center) for accurate polygon overlay.
-  // Run after all smoothing but before component cleanup so filled columns
-  // connect to the main structure and debris from clipping gets removed.
-  if (osmPolygon && args.coords) {
-    const { clipped: fpClip, filled: fpFill } = enforceFootprintPolygon(
+  // v71: OSM footprint polygon fill — plug empty interior columns.
+  // Clipping is disabled (pre-fill OSM mask already removed neighbors;
+  // post-processing clip destroyed wing connectors in v71 testing).
+  // Only fills empty columns within the core polygon + proximity gate.
+  if (osmPolygon && args.coords && !args.noOsm) {
+    const { filled: fpFill } = enforceFootprintPolygon(
       trimmed,
       osmPolygon,
       args.coords.lat, args.coords.lng,
       args.resolution, enuHorizontalAngle,
       wallDom, roofDom,
-      4, // buffer: 4 blocks clip tolerance for photogrammetry edge bleed
     );
-    if (fpClip > 0 || fpFill > 0) {
-      console.log(`Footprint enforce: ${fpClip} clipped outside + ${fpFill} filled inside polygon`);
+    if (fpFill > 0) {
+      console.log(`Footprint fill: ${fpFill} voxels added to empty interior columns`);
     }
   }
 
