@@ -1461,7 +1461,7 @@ export function constrainPalette(
   return replaced;
 }
 
-export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1): number {
+export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1, extraProtected?: Set<string>): number {
   const { width, height, length } = grid;
 
   // Blocks to never replace (structural/detail elements)
@@ -1471,6 +1471,7 @@ export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1): number {
     'minecraft:gray_stained_glass', 'minecraft:black_stained_glass',
     'minecraft:iron_bars', 'minecraft:iron_block',
   ]);
+  if (extraProtected) for (const b of extraProtected) PROTECTED.add(b);
 
   let totalReplaced = 0;
 

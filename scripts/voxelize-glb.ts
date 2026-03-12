@@ -1539,20 +1539,36 @@ async function main(): Promise<void> {
     }
   }
 
-  // Zone-aware facade simplification (v65): Replaces K-Means palette consolidation.
-  // K-Means k=3 collapsed all colors to gray variants, destroying distinctive features
-  // like red tile roofs (2390 Green St) and copper-green roofs (Sentinel Building).
-  // Zone simplification preserves semantically meaningful color zones:
-  //   - Roof zone (topmost non-air block per XZ column) → roof dominant color
-  //   - Wall zone (everything below) → wall dominant color
-  // This reduces 30+ raw block types to 2-3 types while keeping real roof/wall contrast.
-  // Runs AFTER window glazing so glass blocks are in SPECIAL_BLOCKS.
+  // Zone accent blocks to protect from mode filter (populated by zone simplification)
+  let zoneProtected: Set<string> | undefined;
+
+  // Multi-zone facade simplification (v67): 5 distinct material zones for visual depth.
+  //
+  // v65-v66 collapsed all voxels to 2 blocks (roof + wall), producing monochrome
+  // buildings that score ~1-3/10. v67 derives accent variants from base colors to
+  // create architectural banding without fabricating fake data:
+  //   1. Roof (topmost block per column) — satellite color
+  //   2. Upper wall (top 20% of wall height) — lighter accent
+  //   3. Main wall (middle 60%) — primary wall material
+  //   4. Ground floor (bottom 20%) — darker/contrasting base
+  //   5. Corner trim (edge columns) — structural accent
+  // Glass windows (SPECIAL_BLOCKS) survive all zone assignment.
   {
     const SPECIAL_BLOCKS = new Set([
       'minecraft:air',
       'minecraft:gray_stained_glass',
       'minecraft:green_concrete',
       'minecraft:birch_planks',
+    ]);
+
+    // Neutral grays from baked photogrammetric lighting — no material signal
+    const GRAY_BLOCKS = new Set([
+      'minecraft:smooth_stone',       // rgb 162,162,162
+      'minecraft:light_gray_concrete', // rgb 125,125,115
+      'minecraft:andesite',           // rgb 136,136,136
+      'minecraft:polished_andesite',  // rgb 132,135,134
+      'minecraft:gray_concrete',      // rgb 55,58,62
+      'minecraft:polished_deepslate', // rgb 55,58,62
     ]);
 
     // Count blocks per zone: roof = topmost per column, wall = everything below
@@ -1577,61 +1593,38 @@ async function main(): Promise<void> {
       }
     }
 
-    // Find dominant in each zone (from photogrammetric texture sampling)
+    // Find dominant in each zone
     let roofDom = 'minecraft:smooth_stone', roofMax = 0;
     for (const [b, c] of roofCounts) { if (c > roofMax) { roofDom = b; roofMax = c; } }
     let wallDom = 'minecraft:smooth_stone', wallMax = 0;
     for (const [b, c] of wallCounts) { if (c > wallMax) { wallDom = b; wallMax = c; } }
 
-    // Diagnostic: show top wall/roof block distribution before zone override
+    // Diagnostic: block distribution before zone override
     const sortedWall = [...wallCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
     const sortedRoof = [...roofCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
     console.log(`  Roof blocks: ${sortedRoof.map(([b, c]) => `${b.replace('minecraft:', '')}(${c})`).join(' ')}`);
     console.log(`  Wall blocks: ${sortedWall.map(([b, c]) => `${b.replace('minecraft:', '')}(${c})`).join(' ')}`);
 
-    // Satellite-derived roof color + photogrammetric secondary for walls.
-    //
-    // ROOF: Satellite top-down view gives accurate roof color.
-    // WALL: Photogrammetric dominant is always smooth_stone (baked lighting → gray).
-    //   Instead, use the SECONDARY wall block — the 2nd most common material.
-    //   This survives the baked-lighting averaging because it has slightly different
-    //   texture/hue properties (brick vs plaster, terracotta vs concrete). It's a
-    //   reliable material hint even at 10-15% of wall voxels.
-    //   If secondary is also a gray variant, de-bake the dominant 1.3x brighter.
+    // ── Determine base materials ─────────────────────────────────────────────
+    // Satellite for roof, photogrammetric secondary for walls (same as v66)
     if (args.coords) {
       const extColors = await sampleSatelliteRoof(args.coords.lat, args.coords.lng);
-      if (extColors) {
-        roofDom = extColors.roofBlock;
-      }
+      if (extColors) roofDom = extColors.roofBlock;
 
-      // Wall: prefer photogrammetric secondary (non-gray, non-special) over dominant
-      // Only the most generic/neutral grays — blocks that appear purely from baked
-      // lighting with no material-specific color signal. Excludes stone_bricks (warm
-      // brown tint from brick texture), white_concrete (legitimate white material),
-      // and other blocks that carry real material information.
-      const GRAY_BLOCKS = new Set([
-        'minecraft:smooth_stone',       // rgb 162,162,162 — pure neutral gray
-        'minecraft:light_gray_concrete', // rgb 125,125,115 — neutral gray
-        'minecraft:andesite',           // rgb 136,136,136 — neutral gray
-        'minecraft:polished_andesite',  // rgb 132,135,134 — neutral gray
-        'minecraft:gray_concrete',      // rgb 55,58,62 — dark neutral gray (shadows)
-        'minecraft:polished_deepslate', // rgb 55,58,62 — dark (deep shadows)
-      ]);
       const sorted = [...wallCounts.entries()]
         .filter(([b]) => !SPECIAL_BLOCKS.has(b))
         .sort((a, b) => b[1] - a[1]);
+      const totalWall = sorted.reduce((s, [, c]) => s + c, 0);
 
       // Find first non-gray secondary with ≥5% of total wall blocks
-      const totalWall = sorted.reduce((s, [, c]) => s + c, 0);
       const nonGraySecondary = sorted.find(([b, c]) =>
         !GRAY_BLOCKS.has(b) && c >= totalWall * 0.05
       );
-
       if (nonGraySecondary) {
         wallDom = nonGraySecondary[0];
         console.log(`  Wall: photogrammetric secondary ${wallDom.replace('minecraft:', '')} (${nonGraySecondary[1]} blocks, ${(100 * nonGraySecondary[1] / totalWall).toFixed(0)}%)`);
       } else {
-        // All wall blocks are gray variants — de-bake dominant to recover material
+        // De-bake: boost brightness 1.3x to invert baked lighting
         const wallCluster = WALL_CLUSTERS.find(c => c.options.includes(wallDom));
         if (wallCluster) {
           const [wr, wg, wb] = wallCluster.rgb;
@@ -1644,58 +1637,170 @@ async function main(): Promise<void> {
         }
       }
 
-      // Ensure roof ≠ wall contrast: prefer non-gray fallback when possible
+      // Ensure roof ≠ wall
       if (wallDom === roofDom) {
-        // First try non-gray, non-roof block
-        const nonGrayFallback = sorted.find(([b]) =>
+        const sorted2 = [...wallCounts.entries()]
+          .filter(([b]) => !SPECIAL_BLOCKS.has(b))
+          .sort((a, b) => b[1] - a[1]);
+        const nonGrayFallback = sorted2.find(([b]) =>
           b !== roofDom && !SPECIAL_BLOCKS.has(b) && !GRAY_BLOCKS.has(b)
         );
-        if (nonGrayFallback) {
-          wallDom = nonGrayFallback[0];
-        } else {
-          // All secondaries are gray or match roof — de-bake the dominant
-          const wallCluster = WALL_CLUSTERS.find(c => c.options.includes(roofDom));
-          if (wallCluster) {
-            const [wr, wg, wb] = wallCluster.rgb;
-            const debaked = rgbToWallBlock(
-              Math.min(255, Math.round(wr * 1.3)),
-              Math.min(255, Math.round(wg * 1.3)),
-              Math.min(255, Math.round(wb * 1.3)),
-            );
-            if (debaked !== roofDom) wallDom = debaked;
+        if (nonGrayFallback) wallDom = nonGrayFallback[0];
+        else {
+          const wc = WALL_CLUSTERS.find(c => c.options.includes(roofDom));
+          if (wc) {
+            const [wr, wg, wb] = wc.rgb;
+            const d = rgbToWallBlock(Math.min(255, Math.round(wr * 1.3)), Math.min(255, Math.round(wg * 1.3)), Math.min(255, Math.round(wb * 1.3)));
+            if (d !== roofDom) wallDom = d;
           }
         }
         console.log(`  Wall fallback: ${wallDom.replace('minecraft:', '')} (avoided roof duplicate)`);
       }
     }
 
-    // Apply zone-specific remaps
+    // ── Derive accent materials using complementary color contrast ──────────
+    // Brightness-shifting gray blocks produces more gray blocks. Instead, use
+    // complementary hue/tone shifts to guarantee VISIBLE contrast:
+    //   Cool gray wall → warm accent (sandstone, birch_planks)
+    //   Warm wall (brick, terracotta) → cool accent (stone_bricks, polished_andesite)
+    //   White wall → medium accent (stone_bricks, andesite)
+    //   Dark wall → light accent (smooth_quartz, white_concrete)
+    const wallCluster = WALL_CLUSTERS.find(c => c.options.includes(wallDom));
+    const wallRgb = wallCluster?.rgb ?? [162, 162, 162];
+    const wallLum = (wallRgb[0] + wallRgb[1] + wallRgb[2]) / 3;
+    const wallWarmth = wallRgb[0] - wallRgb[2]; // positive = warm, negative = cool
+
+    // Complementary accent lookup: warm vs cool vs neutral
+    // Each entry: [groundFloor, bandLine, cornerTrim]
+    // Ground: heavier base material. Band: thin floor-divider. Trim: vertical pilaster.
+    let groundBlock: string;
+    let bandBlock: string;
+    let trimBlock: string;
+
+    if (wallLum > 180) {
+      // White/cream walls → medium stone accents
+      groundBlock = 'minecraft:stone_bricks';
+      bandBlock = 'minecraft:smooth_stone_slab';
+      trimBlock = 'minecraft:polished_andesite';
+    } else if (wallLum < 80) {
+      // Dark walls → light accents
+      groundBlock = 'minecraft:smooth_quartz';
+      bandBlock = 'minecraft:smooth_stone_slab';
+      trimBlock = 'minecraft:white_concrete';
+    } else if (wallWarmth > 15) {
+      // Warm walls (brick, terracotta, sandstone) → cool accents
+      groundBlock = 'minecraft:stone_bricks';
+      bandBlock = 'minecraft:smooth_stone_slab';
+      trimBlock = 'minecraft:polished_andesite';
+    } else if (wallWarmth < -5) {
+      // Cool walls (blue, cyan) → warm accents
+      groundBlock = 'minecraft:sandstone';
+      bandBlock = 'minecraft:birch_planks';
+      trimBlock = 'minecraft:smooth_sandstone';
+    } else {
+      // Neutral gray walls → warm accents for contrast
+      groundBlock = 'minecraft:sandstone';
+      bandBlock = 'minecraft:smooth_stone_slab';
+      trimBlock = 'minecraft:birch_planks';
+    }
+
+    // Avoid matching roof or wall blocks — fallback chain
+    const used = new Set([roofDom, wallDom]);
+    const ensureUnique = (block: string, fallbacks: string[]): string => {
+      if (!used.has(block)) { used.add(block); return block; }
+      for (const fb of fallbacks) { if (!used.has(fb)) { used.add(fb); return fb; } }
+      return block; // last resort: allow duplicate
+    };
+    groundBlock = ensureUnique(groundBlock, ['minecraft:stone_bricks', 'minecraft:polished_granite', 'minecraft:andesite']);
+    bandBlock = ensureUnique(bandBlock, ['minecraft:smooth_stone_slab', 'minecraft:stone_brick_slab', 'minecraft:birch_slab']);
+    trimBlock = ensureUnique(trimBlock, ['minecraft:polished_andesite', 'minecraft:stone_bricks', 'minecraft:birch_planks', 'minecraft:smooth_sandstone']);
+
+    console.log(`  Zones: roof=${roofDom.replace('minecraft:', '')} wall=${wallDom.replace('minecraft:', '')} ground=${groundBlock.replace('minecraft:', '')} band=${bandBlock.replace('minecraft:', '')} trim=${trimBlock.replace('minecraft:', '')}`);
+
+    // ── Apply multi-zone remaps ──────────────────────────────────────────────
+    // Zone assignment per voxel:
+    //   - Roof: topmost non-air per column
+    //   - Corner trim: edge columns (1 block from AABB border)
+    //   - Floor bands: every 3rd block from bottom (thin horizontal slab lines)
+    //   - Ground floor: bottom 2 blocks of wall
+    //   - Main wall: everything else
     let simplified = 0;
-    for (let x = 0; x < trimmed.width; x++) {
-      for (let z = 0; z < trimmed.length; z++) {
-        let topY = -1;
-        for (let y = trimmed.height - 1; y >= 0; y--) {
-          if (trimmed.get(x, y, z) !== 'minecraft:air') { topY = y; break; }
+    const { width, height: gh, length: gl } = trimmed;
+
+    // Find grid AABB (non-air extent) for corner/edge detection
+    let minGx = width, maxGx = 0, minGz = gl, maxGz = 0;
+    for (let x = 0; x < width; x++) {
+      for (let z = 0; z < gl; z++) {
+        for (let y = 0; y < gh; y++) {
+          if (trimmed.get(x, y, z) !== 'minecraft:air') {
+            minGx = Math.min(minGx, x); maxGx = Math.max(maxGx, x);
+            minGz = Math.min(minGz, z); maxGz = Math.max(maxGz, z);
+          }
+        }
+      }
+    }
+
+    for (let x = 0; x < width; x++) {
+      for (let z = 0; z < gl; z++) {
+        // Find column extent
+        let topY = -1, bottomY = gh;
+        for (let y = gh - 1; y >= 0; y--) {
+          if (trimmed.get(x, y, z) !== 'minecraft:air') {
+            if (topY < 0) topY = y;
+            bottomY = Math.min(bottomY, y);
+          }
         }
         if (topY < 0) continue;
-        for (let y = 0; y <= topY; y++) {
+
+        // Edge/corner detection for trim pilasters
+        const onXEdge = (x <= minGx + 0 || x >= maxGx - 0);
+        const onZEdge = (z <= minGz + 0 || z >= maxGz - 0);
+        const isCorner = onXEdge && onZEdge;
+
+        const wallH = topY - bottomY;
+
+        for (let y = bottomY; y <= topY; y++) {
           const b = trimmed.get(x, y, z);
           if (SPECIAL_BLOCKS.has(b)) continue;
-          const target = (y === topY) ? roofDom : wallDom;
+
+          let target: string;
+          const hAbove = y - bottomY; // height above ground
+
+          if (y === topY) {
+            // Roof zone — always satellite-derived
+            target = roofDom;
+          } else if (isCorner && wallH >= 5) {
+            // Corner pilasters — vertical trim accent
+            target = trimBlock;
+          } else if (hAbove < 2 && wallH >= 4) {
+            // Ground floor — bottom 2 blocks are heavier base material
+            target = groundBlock;
+          } else if (wallH >= 6 && hAbove > 1 && hAbove % 4 === 0) {
+            // Floor band lines — every 4th block, thin horizontal divider
+            // Creates the visual rhythm of real building floors
+            target = bandBlock;
+          } else {
+            // Main wall body
+            target = wallDom;
+          }
           if (b !== target) { trimmed.set(x, y, z, target); simplified++; }
         }
       }
     }
-    console.log(`Zone facade: ${simplified} blocks | roof=${roofDom.replace('minecraft:', '')} wall=${wallDom.replace('minecraft:', '')}`);
+    console.log(`Zone facade: ${simplified} blocks | roof=${roofDom.replace('minecraft:', '')} wall=${wallDom.replace('minecraft:', '')} ground=${groundBlock.replace('minecraft:', '')} band=${bandBlock.replace('minecraft:', '')} trim=${trimBlock.replace('minecraft:', '')}`);
+
+    // Protect zone accent blocks from mode filter erasure.
+    // Thin features (1-block trim columns, 1-block floor bands) get outvoted
+    // by surrounding wall blocks without protection.
+    zoneProtected = new Set([groundBlock, bandBlock, trimBlock]);
   }
 
-  // 3D mode filter — smooth spatial distribution of zone-simplified block types.
-  // After zone simplification, each voxel is one of ~3 types (roof/wall/glass).
-  // Mode filter replaces isolated outliers with neighborhood majority.
-  // 12 passes minimum for clean facades.
+  // 3D mode filter — smooth spatial noise while preserving multi-zone materials.
+  // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
+  // protected so thin architectural features survive smoothing.
   {
-    const passes = Math.max(args.modePasses, 12);
-    const modeSmoothed = modeFilter3D(trimmed, passes, 1);
+    const passes = Math.max(args.modePasses, 4);
+    const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} passes)`);
     }
