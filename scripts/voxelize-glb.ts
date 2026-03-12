@@ -1805,6 +1805,15 @@ async function main(): Promise<void> {
         console.log(`  Wall contrast: ${wallDom.replace('minecraft:', '')} (lum ${wallLumV.toFixed(0)}) → ${newWall.replace('minecraft:', '')} (lum ${blockLum(newWall).toFixed(0)}) [gap ${newGap.toFixed(0)}<40 or both gray]`);
         wallDom = newWall;
       }
+
+      // Step 3: Cap overly-bright walls — white/cream walls look washed out on VLMs.
+      // The "Beach formula" (dark roof + medium wall + warm ground) requires wall lum
+      // in the 100-180 range. Bright walls (>190) lose texture detail in renders.
+      const wallLumAfter = blockLum(wallDom);
+      if (wallLumAfter > 190 && newRoofLum < 100) {
+        console.log(`  Wall cap: ${wallDom.replace('minecraft:', '')} (lum ${wallLumAfter.toFixed(0)}) → stone_bricks (lum 124) [too bright for dark roof]`);
+        wallDom = 'minecraft:stone_bricks';
+      }
     }
 
     // ── Derive accent materials using complementary color contrast ──────────
