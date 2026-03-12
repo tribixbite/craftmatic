@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
@@ -607,8 +607,42 @@ function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false): void {
         }
       }
 
+      // v71: Snap rotation to nearest 90° to axis-align building edges.
+      // Diagonal edges create staircase aliasing at 1 block/m that makes
+      // rectangles look like diamonds/ovals. Axis-aligned edges give crisp
+      // straight lines visible in top-down plan views.
+      // Allow up to 50% bounding box area increase for axis alignment.
+      const optimalDeg = bestAngle * 180 / Math.PI;
+      const snappedDeg = Math.round(optimalDeg / 90) * 90;
+      const snappedRad = snappedDeg * Math.PI / 180;
+
+      // Check if snapped angle's bounding box is acceptably close to optimal
+      let useSnapped = false;
+      if (Math.abs(snappedRad - bestAngle) > 0.01) {
+        const cos2 = Math.cos(snappedRad), sin2 = Math.sin(snappedRad);
+        let mnX2 = Infinity, mxX2 = -Infinity, mnZ2 = Infinity, mxZ2 = -Infinity;
+        for (const p of pointsXZ) {
+          const rx = p.x * cos2 - p.z * sin2;
+          const rz = p.x * sin2 + p.z * cos2;
+          if (rx < mnX2) mnX2 = rx;
+          if (rx > mxX2) mxX2 = rx;
+          if (rz < mnZ2) mnZ2 = rz;
+          if (rz > mxZ2) mxZ2 = rz;
+        }
+        const snappedArea = (mxX2 - mnX2) * (mxZ2 - mnZ2);
+        if (snappedArea <= minArea * 1.5) {
+          useSnapped = true;
+          bestAngle = snappedRad;
+          console.log(`ENU horizontal align: snapped ${optimalDeg.toFixed(1)}° → ${snappedDeg}° for axis-aligned edges (area +${((snappedArea / minArea - 1) * 100).toFixed(0)}%)`);
+        } else {
+          console.log(`ENU horizontal align: kept ${optimalDeg.toFixed(1)}° (snapping to ${snappedDeg}° would increase area by ${((snappedArea / minArea - 1) * 100).toFixed(0)}%)`);
+        }
+      }
+
       if (bestAngle > 0.01) {
-        console.log(`ENU horizontal align: rotated ${(bestAngle * 180 / Math.PI).toFixed(1)}° to minimize footprint`);
+        if (!useSnapped) {
+          console.log(`ENU horizontal align: rotated ${(bestAngle * 180 / Math.PI).toFixed(1)}° to minimize footprint`);
+        }
         const yRotation = new THREE.Matrix4().makeRotationY(-bestAngle);
         scene.traverse((child) => {
           if (child instanceof THREE.Mesh && child.geometry) {
@@ -1171,6 +1205,7 @@ async function main(): Promise<void> {
   // ── Auto-detection: analyze grid and override pipeline params ──
   let analysis: AnalysisResult | null = null;
   let osmMaskDone = false; // Track if OSM mask ran in pre-fill path
+  let osmPolygon: Array<{ lat: number; lng: number }> | null = null; // Save for post-processing re-mask
   if (args.auto) {
     console.log(`\n--- Auto-Detection Analysis ---`);
     const tAuto = performance.now();
@@ -1297,6 +1332,7 @@ async function main(): Promise<void> {
         } else {
           console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
           osmMaskDone = true;
+          osmPolygon = osmData.polygon; // Save for post-processing re-mask
         }
       }
     }
@@ -1327,7 +1363,10 @@ async function main(): Promise<void> {
         // Density-adaptive dilation: sparse shells (ortho captures, <30% fill) need
         // wider dilation to seal large wall gaps. Dense shells (street captures, >50%)
         // only need small dilation — over-dilating seals intentional openings.
-        const dilation = fill3D < 0.30 ? 5 : fill3D < 0.50 ? 4 : 3;
+        // v71: capped at 4 (was 5). Dilation=5 seals 10-block gaps, destroying
+        // courtyards and setbacks. Dilation=4 seals 8-block gaps, sufficient for
+        // photogrammetry wall holes while preserving architectural voids.
+        const dilation = fill3D < 0.30 ? 4 : fill3D < 0.50 ? 3 : 3;
         const interiorFilled = fillInteriorGaps(trimmed, dilation);
         console.log(`Interior fill (dilation=${dilation}): ${interiorFilled} voxels filled (3D density ${(fill3D * 100).toFixed(0)}%)`);
         // Step 4b: Sky exposure — remove fill in open-air spaces (courtyards, setbacks)
@@ -1395,6 +1434,7 @@ async function main(): Promise<void> {
           } else {
             console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining (polygon ${osmData.polygon.length} vertices)`);
             osmMaskDone = true;
+            osmPolygon = osmData.polygon; // Save for post-processing re-mask
           }
         } else {
           console.log('OSM footprint (pre-fill): no building found at coordinates');
@@ -1519,15 +1559,35 @@ async function main(): Promise<void> {
     console.log('Skipping rare-block smoothing (--smooth-pct 0)');
   }
 
+  // v71: Save 2D footprint bitmap BEFORE morphClose — captures the building outline
+  // after fill/clear/vegetation but before any smoothing that could expand it.
+  // Used after processing to clip columns added by morphClose dilation.
+  let savedFootprint: Uint8Array | null = null;
+  {
+    const { width: gw, height: gh, length: gl } = trimmed;
+    savedFootprint = new Uint8Array(gw * gl);
+    for (let z = 0; z < gl; z++) {
+      for (let x = 0; x < gw; x++) {
+        for (let y = 0; y < gh; y++) {
+          if (trimmed.get(x, y, z) !== 'minecraft:air') {
+            savedFootprint[z * gw + x] = 1;
+            break;
+          }
+        }
+      }
+    }
+  }
+
   // Morph close — spackle pockmarks/holes in photogrammetry surfaces.
-  // v58: Radius 3 (was 2) fills larger gaps in hollow shells. Without solidifyCore
-  // to mask holes by filling interior solid, we need more aggressive surface sealing.
+  // v71: Reduced from r=3 to r=2. r=3 fills voids up to 6 blocks (6m) — destroying
+  // corner details, bay windows, and setbacks. r=2 fills up to 4 blocks, sufficient
+  // for photogrammetry gaps while preserving architectural features.
   // Dilation+erosion fills gaps without changing overall shape.
   // Runs BEFORE smoothSurface so the surface smoother sees healed faces.
   {
-    const closed = morphClose3D(trimmed, 3); // v65: r=3 (r=4 over-smoothed street captures)
+    const closed = morphClose3D(trimmed, 2); // v71: r=2 (r=3 over-smoothed corners/bays)
     if (closed > 0) {
-      console.log(`Morph close (r=3): ${closed} holes filled`);
+      console.log(`Morph close (r=2): ${closed} holes filled`);
     }
   }
 
@@ -1567,6 +1627,9 @@ async function main(): Promise<void> {
 
   // Zone accent blocks to protect from mode filter (populated by zone simplification)
   let zoneProtected: Set<string> | undefined;
+  // Dominant materials — hoisted from zone scope for use by enforceFootprintPolygon
+  let roofDom = 'minecraft:smooth_stone';
+  let wallDom = 'minecraft:smooth_stone';
 
   // Multi-zone facade simplification (v67): 5 distinct material zones for visual depth.
   //
@@ -1619,10 +1682,10 @@ async function main(): Promise<void> {
       }
     }
 
-    // Find dominant in each zone
-    let roofDom = 'minecraft:smooth_stone', roofMax = 0;
+    // Find dominant in each zone (assigns outer-scoped vars for enforceFootprintPolygon)
+    let roofMax = 0;
     for (const [b, c] of roofCounts) { if (c > roofMax) { roofDom = b; roofMax = c; } }
-    let wallDom = 'minecraft:smooth_stone', wallMax = 0;
+    let wallMax = 0;
     for (const [b, c] of wallCounts) { if (c > wallMax) { wallDom = b; wallMax = c; } }
 
     // Diagnostic: block distribution before zone override
@@ -1924,6 +1987,32 @@ async function main(): Promise<void> {
     }
   }
 
+  // v71: Footprint freeze — prevent morphClose/modeFilter from expanding the
+  // building outline beyond its pre-processing shape. Save 2D footprint before
+  // morphClose, then after all processing clip any columns that weren't in
+  // the original footprint. This preserves interior fill while preventing
+  // outline expansion from dilation.
+  // (Applied after morphClose+modeFilter, uses savedFootprint captured earlier)
+  if (savedFootprint) {
+    let footprintClipped = 0;
+    const { width: gw, height: gh, length: gl } = trimmed;
+    for (let z = 0; z < gl; z++) {
+      for (let x = 0; x < gw; x++) {
+        if (savedFootprint[z * gw + x]) continue; // Column was in original footprint — keep
+        // Column was empty before morphClose — clear any blocks added by processing
+        for (let y = 0; y < gh; y++) {
+          if (trimmed.get(x, y, z) !== 'minecraft:air') {
+            trimmed.set(x, y, z, 'minecraft:air');
+            footprintClipped++;
+          }
+        }
+      }
+    }
+    if (footprintClipped > 0) {
+      console.log(`Footprint freeze: ${footprintClipped} blocks clipped (new columns from morphClose/filter)`);
+    }
+  }
+
   // Sky contamination remap — Google 3D Tiles bake ambient skylight (blue/cyan)
   // into upward-facing surfaces. These are artifacts, never real materials.
   // v68: Always apply after zone simplification. Zone assignment already replaced
@@ -1939,6 +2028,24 @@ async function main(): Promise<void> {
     const constrained = constrainPalette(trimmed, skyReplacements);
     if (constrained > 0) {
       console.log(`Sky palette: ${constrained} blue/cyan sky-contaminated blocks remapped`);
+    }
+  }
+
+  // v71: Enforce OSM footprint polygon — clip exterior + fill interior gaps.
+  // Uses centroid-based alignment (not grid center) for accurate polygon overlay.
+  // Run after all smoothing but before component cleanup so filled columns
+  // connect to the main structure and debris from clipping gets removed.
+  if (osmPolygon && args.coords) {
+    const { clipped: fpClip, filled: fpFill } = enforceFootprintPolygon(
+      trimmed,
+      osmPolygon,
+      args.coords.lat, args.coords.lng,
+      args.resolution, enuHorizontalAngle,
+      wallDom, roofDom,
+      4, // buffer: 4 blocks clip tolerance for photogrammetry edge bleed
+    );
+    if (fpClip > 0 || fpFill > 0) {
+      console.log(`Footprint enforce: ${fpClip} clipped outside + ${fpFill} filled inside polygon`);
     }
   }
 

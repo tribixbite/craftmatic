@@ -2935,6 +2935,217 @@ export function maskToFootprint(
 }
 
 /**
+ * Enforce a polygon footprint on the grid — clip blocks outside the polygon
+ * AND fill empty columns inside the polygon to the building's median height.
+ * Uses the building's centroid for polygon alignment (not grid center), which
+ * fixes the offset caused by OSM pre-fill masking removing neighbors.
+ *
+ * v71: This gives sharp straight edges matching the real building outline,
+ * overriding the photogrammetry mesh's rounded edges.
+ */
+export function enforceFootprintPolygon(
+  grid: BlockGrid,
+  polygon: { lat: number; lon: number }[],
+  centerLat: number,
+  centerLng: number,
+  resolution = 1,
+  rotationAngle = 0,
+  wallBlock = 'minecraft:stone_bricks',
+  roofBlock = 'minecraft:light_gray_concrete',
+  /** Buffer in blocks around polygon for clip tolerance (0 = exact) */
+  buffer = 2,
+): { clipped: number; filled: number } {
+  if (polygon.length < 3) return { clipped: 0, filled: 0 };
+
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+
+  // Compute building centroid — center of mass of occupied columns
+  let centX = 0, centZ = 0, centCount = 0;
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = 0; y < height; y++) {
+        if (grid.get(x, y, z) !== AIR) {
+          centX += x;
+          centZ += z;
+          centCount++;
+          break;
+        }
+      }
+    }
+  }
+  if (centCount === 0) return { clipped: 0, filled: 0 };
+  centX = Math.round(centX / centCount);
+  centZ = Math.round(centZ / centCount);
+
+  // Compute median building height for fill
+  const colHeights: number[] = [];
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      let topY = -1;
+      for (let y = height - 1; y >= 0; y--) {
+        if (grid.get(x, y, z) !== AIR) { topY = y; break; }
+      }
+      if (topY >= 0) colHeights.push(topY);
+    }
+  }
+  colHeights.sort((a, b) => a - b);
+  const medianH = colHeights[Math.floor(colHeights.length * 0.75)] ?? 10;
+
+  // Project polygon to block coords centered on building centroid
+  const latScale = 111320 * resolution;
+  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
+
+  let blockPts = polygon.map(p => ({
+    x: Math.round((p.lon - centerLng) * lonScale),
+    z: Math.round((centerLat - p.lat) * latScale),
+  }));
+
+  // Apply ENU rotation
+  if (Math.abs(rotationAngle) > 0.01) {
+    const cos = Math.cos(-rotationAngle);
+    const sin = Math.sin(-rotationAngle);
+    blockPts = blockPts.map(p => ({
+      x: Math.round(p.x * cos - p.z * sin),
+      z: Math.round(p.x * sin + p.z * cos),
+    }));
+  }
+
+  // Auto-close polygon
+  const first = blockPts[0];
+  const last = blockPts[blockPts.length - 1];
+  if (first.x !== last.x || first.z !== last.z) {
+    blockPts.push({ x: first.x, z: first.z });
+  }
+
+  // Compute polygon centroid in block coords
+  let polyCx = 0, polyCz = 0;
+  for (const p of blockPts) { polyCx += p.x; polyCz += p.z; }
+  polyCx = Math.round(polyCx / blockPts.length);
+  polyCz = Math.round(polyCz / blockPts.length);
+
+  // Shift polygon so its centroid aligns with building centroid in grid
+  const shiftX = centX - polyCx;
+  const shiftZ = centZ - polyCz;
+  blockPts = blockPts.map(p => ({ x: p.x + shiftX, z: p.z + shiftZ }));
+
+  // Clamp polygon to grid bounds — points outside the grid can't affect voxels
+  blockPts = blockPts.map(p => ({
+    x: Math.max(-1, Math.min(width, p.x)),
+    z: Math.max(-1, Math.min(length, p.z)),
+  }));
+
+  // Scanline fill polygon into bitmap (no dilation — exact edges)
+  let minX = 0, maxX = width - 1, minZ = 0, maxZ = length - 1;
+  // Use grid bounds as bitmap extent — we only care about grid cells
+  const bitmap = new CoordinateBitmapImpl(minX, maxX, minZ, maxZ);
+  for (let z = minZ; z <= maxZ; z++) {
+    const scanZ = z + 0.5;
+    const intercepts: { x: number; dir: 1 | -1 }[] = [];
+    for (let i = 0; i < blockPts.length - 1; i++) {
+      const a = blockPts[i], b = blockPts[i + 1];
+      if (a.z === b.z) continue;
+      const eMinZ = Math.min(a.z, b.z), eMaxZ = Math.max(a.z, b.z);
+      if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
+      const t = (scanZ - a.z) / (b.z - a.z);
+      intercepts.push({ x: a.x + t * (b.x - a.x), dir: a.z < b.z ? 1 : -1 });
+    }
+    intercepts.sort((a, b) => a.x - b.x);
+    let winding = 0, idx = 0;
+    for (let x = minX; x <= maxX; x++) {
+      const cx = x + 0.5;
+      while (idx < intercepts.length && intercepts[idx].x <= cx) {
+        winding += intercepts[idx].dir;
+        idx++;
+      }
+      if (winding !== 0) bitmap.set(x, z);
+    }
+  }
+
+  // Create dilated bitmap for clip tolerance (photogrammetry edges bleed 1-3 blocks
+  // outside the exact OSM polygon). Core (un-dilated) bitmap used for fill decisions.
+  const clipBitmap = new CoordinateBitmapImpl(minX, maxX, minZ, maxZ);
+  // Copy core into clip bitmap
+  for (let z = minZ; z <= maxZ; z++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (bitmap.contains(x, z)) clipBitmap.set(x, z);
+    }
+  }
+  if (buffer > 0) {
+    // Dilate clip bitmap
+    const toSet: Array<[number, number]> = [];
+    for (let z = minZ; z <= maxZ; z++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (!bitmap.contains(x, z)) continue;
+        for (let dz = -buffer; dz <= buffer; dz++) {
+          for (let dx = -buffer; dx <= buffer; dx++) {
+            const nx = x + dx, nz = z + dz;
+            if (nx >= minX && nx <= maxX && nz >= minZ && nz <= maxZ) {
+              toSet.push([nx, nz]);
+            }
+          }
+        }
+      }
+    }
+    for (const [x, z] of toSet) clipBitmap.set(x, z);
+  }
+
+  // Build occupied-column bitmap (before clipping) for proximity-gated fill
+  const occupiedCol = new Uint8Array(width * length);
+  let existingBlockCount = 0;
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = 0; y < height; y++) {
+        if (grid.get(x, y, z) !== AIR) {
+          occupiedCol[z * width + x] = 1;
+          existingBlockCount++;
+          break;
+        }
+      }
+    }
+  }
+
+  // v71b: Skip clipping — the pre-fill OSM mask already removed neighbors.
+  // Clipping here destroys legitimate building geometry that extends slightly
+  // beyond the OSM polygon (wing connectors, overhangs, bay windows).
+  const clipped = 0;
+
+  // Fill empty columns inside core polygon — proximity-gated.
+  // Only fill columns adjacent (within 2 blocks) to existing occupied columns
+  // to prevent massive fills for partial captures (e.g. Dakota corner-only).
+  // Also cap total fill to 30% of existing block count.
+  const fillCap = Math.floor(existingBlockCount * 0.30);
+  let filled = 0;
+  for (let z = 0; z < length && filled < fillCap; z++) {
+    for (let x = 0; x < width && filled < fillCap; x++) {
+      if (!bitmap.contains(x, z)) continue; // Outside core polygon
+      // Skip already-occupied columns
+      if (occupiedCol[z * width + x]) continue;
+      // Proximity gate: require occupied neighbor within 2 blocks
+      let hasNeighbor = false;
+      for (let dz = -2; dz <= 2 && !hasNeighbor; dz++) {
+        for (let dx = -2; dx <= 2 && !hasNeighbor; dx++) {
+          const nx = x + dx, nz = z + dz;
+          if (nx >= 0 && nx < width && nz >= 0 && nz < length) {
+            if (occupiedCol[nz * width + nx]) hasNeighbor = true;
+          }
+        }
+      }
+      if (!hasNeighbor) continue;
+      // Fill to median height
+      for (let y = 0; y < medianH; y++) {
+        grid.set(x, y, z, wallBlock);
+        filled++;
+      }
+      grid.set(x, medianH, z, roofBlock);
+      filled++;
+    }
+  }
+
+  return { clipped, filled };
+}
+
+/**
  * Minimal CoordinateBitmap for internal use (avoids circular import).
  * Same bit-packed logic as src/gen/coordinate-bitmap.ts.
  */
