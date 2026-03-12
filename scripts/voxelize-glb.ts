@@ -2098,17 +2098,25 @@ async function main(): Promise<void> {
 
   // v80: Post-processing re-mask — re-sharpen edges blurred by morphClose/modeFilter.
   // After all processing (zone assignment, contrast, homogenize), run maskToFootprint
-  // again with tight dilation to clip voxels that expanded beyond the OSM polygon.
-  // This restores sharp straight edges matching the real building outline.
+  // again with same dilation as pre-fill to clip morphClose/modeFilter expansion.
+  // Safety: skip if it would remove >50% of blocks (polygon alignment issue).
   if (osmPolygon && args.coords && !args.noOsm && !args.noPostMask) {
-    const postMaskDilate = Math.max(0, (args.maskDilate ?? 3) - 1); // slightly tighter than initial mask
+    const postMaskDilate = args.maskDilate ?? 3; // same dilation as pre-fill mask
+    const blocksBefore = trimmed.countNonAir();
     const postMasked = maskToFootprint(
       trimmed, osmPolygon,
       args.coords.lat, args.coords.lng,
       Math.round(postMaskDilate * args.resolution), args.resolution, enuHorizontalAngle,
     );
     if (postMasked > 0) {
-      console.log(`Post-morph re-mask: ${postMasked} blocks clipped back to OSM footprint (dilate=${postMaskDilate})`);
+      const pctRemoved = blocksBefore > 0 ? (postMasked / blocksBefore * 100) : 0;
+      if (pctRemoved > 50) {
+        // Too aggressive — polygon may be misaligned. Revert is not possible after maskToFootprint,
+        // so log a warning. Future: clone grid before masking for safe revert.
+        console.log(`Post-morph re-mask: WARNING ${postMasked} blocks (${pctRemoved.toFixed(0)}%) removed — polygon may be misaligned`);
+      } else {
+        console.log(`Post-morph re-mask: ${postMasked} blocks clipped (${pctRemoved.toFixed(0)}%, dilate=${postMaskDilate})`);
+      }
     }
   }
 
