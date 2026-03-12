@@ -782,26 +782,33 @@ export function clearOpenAirFill(
   // AND has sufficient vertical clearance above the topmost real block
   const openAirMask = new Uint8Array(width * length); // 1 = open-air column
 
+  // Minimum real blocks above fill to count as "roofed" — thin photogrammetry
+  // artifacts (1-2 blocks) shouldn't prevent courtyard clearing
+  const MIN_ROOF_THICKNESS = Math.max(2, minClearance);
+
   for (let z = 0; z < length; z++) {
     for (let x = 0; x < width; x++) {
       let hasFill = false;
       let topRealY = -1;
-      let hasRoofAboveFill = false;
+      let realBlocksAboveFill = 0;
 
-      // Top-down scan: find topmost real block, check for fill without roof
-      let seenRealBlock = false;
+      // Top-down scan: find topmost real block, count real blocks above fill
+      let seenFill = false;
       for (let y = height - 1; y >= 0; y--) {
         const block = grid.get(x, y, z);
         if (block !== AIR && block !== fillBlock) {
-          seenRealBlock = true;
           if (topRealY < 0) topRealY = y;
+          if (!seenFill) realBlocksAboveFill++;
         } else if (block === fillBlock) {
           hasFill = true;
-          if (seenRealBlock) hasRoofAboveFill = true;
+          seenFill = true;
         }
       }
 
-      // Column is open-air if: has fill, no solid roof above fill, sufficient clearance
+      // Column is open-air if: has fill, no SUBSTANTIAL roof above fill, sufficient clearance.
+      // A "substantial roof" requires MIN_ROOF_THICKNESS real blocks above the fill —
+      // this prevents thin photogrammetry artifacts from masking courtyards.
+      const hasRoofAboveFill = realBlocksAboveFill >= MIN_ROOF_THICKNESS;
       const clearanceAbove = topRealY >= 0 ? (height - 1 - topRealY) : 0;
       if (hasFill && !hasRoofAboveFill && clearanceAbove >= minClearance) {
         openAirMask[z * width + x] = 1;

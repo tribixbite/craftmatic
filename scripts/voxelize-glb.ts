@@ -1265,7 +1265,7 @@ async function main(): Promise<void> {
         }
         const masked = maskToFootprint(
           trimmed, osmData.polygon,
-          args.coords.lat, args.coords.lng, 3, args.resolution, enuHorizontalAngle,
+          args.coords.lat, args.coords.lng, Math.round(3 * args.resolution), args.resolution, enuHorizontalAngle,
         );
         const remaining = trimmed.countNonAir();
         if (remaining === 0 && snapshot.size > 0) {
@@ -1311,7 +1311,8 @@ async function main(): Promise<void> {
         const interiorFilled = fillInteriorGaps(trimmed, dilation);
         console.log(`Interior fill (dilation=${dilation}): ${interiorFilled} voxels filled (3D density ${(fill3D * 100).toFixed(0)}%)`);
         // Step 4b: Sky exposure — remove fill in open-air spaces (courtyards, setbacks)
-        const openAirCleared = clearOpenAirFill(trimmed);
+        // Scale minClearance by resolution so ~5m vertical clearance is always required
+        const openAirCleared = clearOpenAirFill(trimmed, 'minecraft:smooth_stone', Math.round(5 * args.resolution));
         if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} fill blocks removed (no solid roof above)`);
       }
     }
@@ -1361,7 +1362,7 @@ async function main(): Promise<void> {
 
           const masked = maskToFootprint(
             trimmed, osmData.polygon,
-            args.coords.lat, args.coords.lng, 3, args.resolution, enuHorizontalAngle,
+            args.coords.lat, args.coords.lng, Math.round(3 * args.resolution), args.resolution, enuHorizontalAngle,
           );
           const remaining = trimmed.countNonAir();
           if (remaining === 0 && snapshot.size > 0) {
@@ -1470,7 +1471,7 @@ async function main(): Promise<void> {
 
       const masked = maskToFootprint(
         trimmed, osmData.polygon,
-        args.coords.lat, args.coords.lng, 3, args.resolution, enuHorizontalAngle,
+        args.coords.lat, args.coords.lng, Math.round(3 * args.resolution), args.resolution, enuHorizontalAngle,
       );
       const remaining = trimmed.countNonAir();
       if (remaining === 0 && snapshot.size > 0) {
@@ -1812,7 +1813,10 @@ async function main(): Promise<void> {
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
   {
-    const passes = Math.max(args.modePasses, 4);
+    // Scale passes by sqrt(resolution): linear scaling (4→13) was too aggressive
+    // and destroyed roof detail + courtyard geometry. sqrt gives 4→7 at 3.28x.
+    const basePasses = Math.max(args.modePasses, 4);
+    const passes = Math.round(basePasses * Math.sqrt(args.resolution));
     const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} passes)`);
