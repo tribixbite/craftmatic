@@ -891,7 +891,7 @@ export async function renderSatelliteColored(
  * Rasterize a lat/lng polygon to a grid-space boolean mask using ray-casting PIP.
  * Returns Uint8Array[w*l] where 1 = inside polygon, 0 = outside.
  */
-function rasterizePolygonToGridMask(
+export function rasterizePolygonToGridMask(
   polygon: { lat: number; lon: number }[],
   centerLat: number,
   centerLng: number,
@@ -1565,8 +1565,9 @@ export async function renderFootprintOverlay(
     }
   }
 
-  // Draw height-colored fill (semi-transparent) for building interior
-  // Use height relative to ground floor, not absolute Y, for better dynamic range
+  // Draw height-colored fill (semi-transparent) for building interior.
+  // Each grid cell maps to a filled rectangle in satellite pixels to avoid gaps
+  // at low resolutions where 1 block > 1 satellite pixel.
   const buildingRange = maxH - minHeight;
   for (let z = 0; z < l; z++) {
     for (let x = 0; x < w; x++) {
@@ -1576,11 +1577,12 @@ export async function renderFootprintOverlay(
         ? Math.max(0, Math.min(1, (hy - minHeight) / buildingRange))
         : 0.5;
 
-      const sx = Math.round(satCenterX + (x - gridCenterX) / blocksPerSatPx);
-      const sy = Math.round(satCenterY + (z - gridCenterZ) / blocksPerSatPx);
-      if (sx < 0 || sx >= imgW || sy < 0 || sy >= imgH) continue;
+      // Grid cell → satellite pixel rectangle (covers full cell area)
+      const sx0 = Math.round(satCenterX + (x - 0.5 - gridCenterX) / blocksPerSatPx);
+      const sy0 = Math.round(satCenterY + (z - 0.5 - gridCenterZ) / blocksPerSatPx);
+      const sx1 = Math.round(satCenterX + (x + 0.5 - gridCenterX) / blocksPerSatPx);
+      const sy1 = Math.round(satCenterY + (z + 0.5 - gridCenterZ) / blocksPerSatPx);
 
-      const dstIdx = (sy * imgW + sx) * 4;
       // Height color: low=blue, mid=yellow, high=red
       let cr: number, cg: number, cb: number;
       if (hFrac < 0.5) {
@@ -1595,25 +1597,31 @@ export async function renderFootprintOverlay(
         cb = 0;
       }
 
-      pixels[dstIdx] = clamp(pixels[dstIdx] * (1 - fillOpacity) + cr * fillOpacity);
-      pixels[dstIdx + 1] = clamp(pixels[dstIdx + 1] * (1 - fillOpacity) + cg * fillOpacity);
-      pixels[dstIdx + 2] = clamp(pixels[dstIdx + 2] * (1 - fillOpacity) + cb * fillOpacity);
+      for (let py = Math.max(0, sy0); py <= Math.min(imgH - 1, sy1); py++) {
+        for (let px = Math.max(0, sx0); px <= Math.min(imgW - 1, sx1); px++) {
+          const dstIdx = (py * imgW + px) * 4;
+          pixels[dstIdx] = clamp(pixels[dstIdx] * (1 - fillOpacity) + cr * fillOpacity);
+          pixels[dstIdx + 1] = clamp(pixels[dstIdx + 1] * (1 - fillOpacity) + cg * fillOpacity);
+          pixels[dstIdx + 2] = clamp(pixels[dstIdx + 2] * (1 - fillOpacity) + cb * fillOpacity);
+        }
+      }
     }
   }
 
-  // Draw outline: for each edge cell, draw a thick dot on the satellite image
+  // Draw outline: for each edge cell, fill the cell's satellite rectangle with outline color.
+  // Expands by outlineWidth/2 on each side for thicker lines.
   const halfW = Math.floor(outlineWidth / 2);
   for (let z = 0; z < l; z++) {
     for (let x = 0; x < w; x++) {
       if (!isEdge[z * w + x]) continue;
 
-      const sx = Math.round(satCenterX + (x - gridCenterX) / blocksPerSatPx);
-      const sy = Math.round(satCenterY + (z - gridCenterZ) / blocksPerSatPx);
+      const sx0 = Math.round(satCenterX + (x - 0.5 - gridCenterX) / blocksPerSatPx) - halfW;
+      const sy0 = Math.round(satCenterY + (z - 0.5 - gridCenterZ) / blocksPerSatPx) - halfW;
+      const sx1 = Math.round(satCenterX + (x + 0.5 - gridCenterX) / blocksPerSatPx) + halfW;
+      const sy1 = Math.round(satCenterY + (z + 0.5 - gridCenterZ) / blocksPerSatPx) + halfW;
 
-      for (let dy = -halfW; dy <= halfW; dy++) {
-        for (let dx = -halfW; dx <= halfW; dx++) {
-          const px = sx + dx, py = sy + dy;
-          if (px < 0 || px >= imgW || py < 0 || py >= imgH) continue;
+      for (let py = Math.max(0, sy0); py <= Math.min(imgH - 1, sy1); py++) {
+        for (let px = Math.max(0, sx0); px <= Math.min(imgW - 1, sx1); px++) {
           const dstIdx = (py * imgW + px) * 4;
           pixels[dstIdx] = outlineColor[0];
           pixels[dstIdx + 1] = outlineColor[1];
