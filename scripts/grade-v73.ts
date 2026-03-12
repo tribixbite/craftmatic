@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Grade composites for v72 (2x resolution) buildings.
+ * Grade composites for v73 (2x resolution) buildings.
  * 3-panel: satellite (rotated to match voxel grid) | top-down | isometric
  */
 import { writeFile, readFile, mkdir } from 'fs/promises';
@@ -11,7 +11,7 @@ import sharp from 'sharp';
 sharp.concurrency(1);
 const projectRoot = resolve(import.meta.dir, '..');
 const tilesDir = join(projectRoot, 'output/tiles');
-const gradeDir = join(tilesDir, 'grade-v72');
+const gradeDir = join(tilesDir, 'grade-v73');
 await mkdir(gradeDir, { recursive: true });
 
 let apiKey = '';
@@ -24,13 +24,11 @@ const BUILDINGS: Record<string, { lat: number; lng: number; enuDeg: number }> = 
   flatiron:   { lat: 40.7411, lng: -73.9897,  enuDeg: 51 },
   montgomery: { lat: 37.7954, lng: -122.4029, enuDeg: 39 },
   sentinel:   { lat: 37.7957, lng: -122.4067, enuDeg: 39 },
-  chestnut:   { lat: 37.8007, lng: -122.4378, enuDeg: 37 },
-  beach:      { lat: 37.8004, lng: -122.4365, enuDeg: 40 },
-  francisco:  { lat: 37.7990, lng: -122.4372, enuDeg: 39 },
   green:      { lat: 37.7966, lng: -122.4393, enuDeg: 0 },
   apthorp:    { lat: 40.7857, lng: -73.9759,  enuDeg: 38 },
   ansonia:    { lat: 40.7804, lng: -73.9810,  enuDeg: 0 },
   willis:     { lat: 41.8789, lng: -87.6359,  enuDeg: 50 },
+  dakota:     { lat: 40.7762, lng: -73.9761,  enuDeg: 90 },
 };
 
 const nameArg = process.argv.find(a => a.startsWith('--name='));
@@ -39,8 +37,8 @@ const H = 300;
 
 for (const [name, coords] of Object.entries(BUILDINGS)) {
   if (filterName && name !== filterName) continue;
-  const isoPath = join(tilesDir, 'render-v72', `iso-${name}.jpg`);
-  const topPath = join(tilesDir, 'render-v72', `top-${name}.jpg`);
+  const isoPath = join(tilesDir, 'render-v73', `iso-${name}.jpg`);
+  const topPath = join(tilesDir, 'render-v73', `top-${name}.jpg`);
   if (!existsSync(isoPath)) { console.log(`${name}: SKIP (no render)`); continue; }
 
   console.log(`=== ${name} ===`);

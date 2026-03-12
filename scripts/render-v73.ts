@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Render v72 voxelized buildings — isometric + top-down views.
+ * Render v73 voxelized buildings — isometric + top-down views.
  */
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
@@ -12,16 +12,16 @@ import { renderExterior, renderTopDown } from '../src/render/png-renderer.js';
 sharp.concurrency(1);
 const projectRoot = resolve(import.meta.dir, '..');
 const tilesDir = join(projectRoot, 'output/tiles');
-const outDir = join(tilesDir, 'render-v72');
+const outDir = join(tilesDir, 'render-v73');
 await mkdir(outDir, { recursive: true });
 
-const BUILDINGS = ['flatiron', 'montgomery', 'sentinel', 'chestnut', 'beach', 'francisco', 'green', 'apthorp', 'ansonia', 'willis'];
+const BUILDINGS = ['flatiron', 'montgomery', 'sentinel', 'green', 'apthorp', 'ansonia', 'willis', 'dakota'];
 const nameArg = process.argv.find(a => a.startsWith('--name='));
 const filterName = nameArg ? nameArg.split('=')[1] : null;
 
 for (const name of BUILDINGS) {
   if (filterName && name !== filterName) continue;
-  const schemPath = join(tilesDir, `${name}-v72.schem`);
+  const schemPath = join(tilesDir, `${name}-v73.schem`);
   if (!existsSync(schemPath)) { console.log(`${name}: SKIP (no schem)`); continue; }
   console.log(`\n=== ${name} ===`);
   const grid = await parseToGrid(schemPath);

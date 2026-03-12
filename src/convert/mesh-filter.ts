@@ -1176,7 +1176,7 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number):
  * @param grid  Source BlockGrid (modified in place)
  * @returns Number of surface voxels removed
  */
-export function smoothSurface(grid: BlockGrid, maxY?: number): number {
+export function smoothSurface(grid: BlockGrid, maxY?: number, preserveBoundary = false): number {
   const { width, height, length } = grid;
   const AIR = 'minecraft:air';
   let totalChanged = 0;
@@ -1186,6 +1186,30 @@ export function smoothSurface(grid: BlockGrid, maxY?: number): number {
 
   // Face-adjacent offsets in XZ plane (4-connected)
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
+  // v73: Compute footprint boundary mask — protects silhouette edges (tips, corners)
+  // from erosion. Union of all Y layers' boundaries: any XZ position that has a solid
+  // voxel adjacent to exterior air at any height is protected at ALL heights.
+  let boundaryMask: Set<number> | null = null;
+  if (preserveBoundary) {
+    boundaryMask = new Set<number>();
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          if (grid.get(x, y, z) === AIR) continue;
+          // Check if this solid voxel touches air in XZ
+          for (const [dx, dz] of DIRS) {
+            const nx = x + dx, nz = z + dz;
+            if (nx < 0 || nx >= width || nz < 0 || nz >= length ||
+                grid.get(nx, y, nz) === AIR) {
+              boundaryMask.add(z * width + x);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
 
   for (let y = 0; y < yLimit; y++) {
     // Snapshot this layer
@@ -1200,13 +1224,16 @@ export function smoothSurface(grid: BlockGrid, maxY?: number): number {
       }
     }
 
-    // Erode: remove solid voxels with < 3 solid 4-connected XZ neighbors
+    // Erode: remove solid voxels with < 2 solid 4-connected XZ neighbors
     // (these are 1-block protrusions on the surface)
+    // v73: Skip erosion for boundary voxels when preserveBoundary is enabled
     const eroded: boolean[] = [...layer];
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         const idx = z * width + x;
         if (!layer[idx]) continue;
+        // Protect footprint boundary — tips, corners, edges
+        if (boundaryMask?.has(idx)) continue;
 
         let solidNeighbors = 0;
         for (const [dx, dz] of DIRS) {

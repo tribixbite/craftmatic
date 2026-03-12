@@ -135,6 +135,7 @@ interface CLIArgs {
   noPalette: boolean;   // skip palette constraint (preserve original colors)
   noCornice: boolean;   // skip roof cornice
   noFireEscape: boolean; // skip fire escape filter
+  noGlaze: boolean;     // skip window glazing (reduces surface noise for VLM grading)
   cleanMinSize: number; // removeSmallComponents min size (0 = skip)
   cropRadius: number;   // cropToCenter XZ radius (0 = skip)
   remaps: Map<string, string>; // custom block remaps FROM=TO
@@ -207,6 +208,7 @@ Options:
   let noPalette = false;
   let noCornice = false;
   let noFireEscape = false;
+  let noGlaze = false;
   let cleanMinSize = 0;
   let cropRadius = 0;
   let auto = false;
@@ -262,6 +264,8 @@ Options:
       noCornice = true;
     } else if (arg === '--no-fire-escape') {
       noFireEscape = true;
+    } else if (arg === '--no-glaze') {
+      noGlaze = true;
     } else if (arg === '--keep-vegetation') {
       keepVegetation = true;
     } else if (arg === '--no-enu') {
@@ -326,7 +330,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1593,12 +1597,13 @@ async function main(): Promise<void> {
   }
 
   // Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
-  // v70: Skip smoothing on top 20% of building — preserves roof peaks, gables,
-  // dormers that register as 1-block protrusions. Walls benefit from smoothing
-  // but roof features are real architecture, not noise.
+  // v73: Protect top 40% of building (was 20% in v70). Montgomery's peaked roof
+  // and Ansonia's ornate upper facade were destroyed by smoothing.
+  // Walls below 60% height benefit from smoothing but roof/upper features are real architecture.
   {
-    const roofCutoff = Math.round(trimmed.height * 0.80);
-    const surfaceSmoothed = smoothSurface(trimmed, roofCutoff);
+    const roofCutoff = Math.round(trimmed.height * 0.60);
+    // v73: preserveBoundary=true locks silhouette edges (tips, corners) from erosion
+    const surfaceSmoothed = smoothSurface(trimmed, roofCutoff, true);
     if (surfaceSmoothed > 0) {
       console.log(`Surface smoothing: ${surfaceSmoothed} 1-block protrusions removed (below Y=${roofCutoff})`);
     }
@@ -1619,7 +1624,8 @@ async function main(): Promise<void> {
   // Zone simplification collapses all blocks to roof/wall dominant types,
   // destroying the dark blocks that indicate windows. By glazing first,
   // gray_stained_glass enters the SPECIAL_BLOCKS set and survives simplification.
-  if (args.mode === 'surface') {
+  // v73: --no-glaze disables this — scattered glass reads as "noisy/porous" surface to VLMs
+  if (args.mode === 'surface' && !args.noGlaze) {
     const glazed = glazeDarkWindows(trimmed);
     if (glazed > 0) {
       console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass`);
