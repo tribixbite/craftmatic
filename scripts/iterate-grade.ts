@@ -56,7 +56,7 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/tiles-2130-beach-st-san-francisco-ca.glb`,
     coords: '37.8004,-122.4365',
     satRef: `${DIR}/sat-ref-beach.jpg`,
-    satZoom: 20,
+    satZoom: 21,
     resolution: 2,
     maskDilate: 2,
     extraFlags: [],
@@ -65,13 +65,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Rectangular + curved commercial — v80c: 6.5 (high variance, peaked at 10)
-    key: 'chestnut',
-    glb: `${DIR}/tiles-2001-chestnut-st-san-francisco-ca.glb`,
-    coords: '37.8003,-122.4337',
-    satRef: `${DIR}/sat-ref-chestnut.jpg`,
-    satZoom: 20,
-    resolution: 2,
+    // Beaux-Arts hotel with distinctive rounded triangular footprint, 4.8MB headless capture
+    key: 'ansonia',
+    glb: `${DIR}/nyc-ansonia-headless.glb`,
+    coords: '40.7806,-73.9816',
+    satRef: `${DIR}/sat-ref-ansonia.jpg`,
+    satZoom: 19,
+    resolution: 1,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
@@ -93,27 +93,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Cross-shaped cathedral — distinctive cruciform footprint (A=4 potential)
-    key: 'stpatricks',
-    glb: `${DIR}/tiles-st-patrick-s-cathedral-new-york-ny.glb`,
-    coords: '40.7585,-73.9760',
-    satRef: `${DIR}/sat-ref-stpatricks.jpg`,
+    // Guggenheim Museum — circular/spiral footprint, 5.4MB headless capture
+    key: 'guggenheim',
+    glb: `${DIR}/guggenheim-headless.glb`,
+    coords: '40.7830,-73.9590',
+    satRef: `${DIR}/sat-ref-guggenheim.jpg`,
     satZoom: 19,
-    resolution: 2,
-    maskDilate: 2,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 4,
-    topdownScale: 6,
-  },
-  {
-    // Rounded footprint residential — v80c: 6.5 at 1x, now 2x
-    key: 'noe',
-    glb: `${DIR}/tiles-450-noe-st-san-francisco-ca.glb`,
-    coords: '37.7604,-122.4314',
-    satRef: `${DIR}/sat-ref-noe.jpg`,
-    satZoom: 20,
-    resolution: 2,
+    resolution: 1,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'hard',
@@ -121,10 +107,24 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Large residential, 6.6MB GLB — good capture quality
+    // Commercial flat-roof — 191 Peachtree St NE, Atlanta, headless capture 6.9MB
+    key: 'atlanta',
+    glb: `${DIR}/flatroof-atlanta.glb`,
+    coords: '33.7590,-84.3869',
+    satRef: `${DIR}/sat-ref-atlanta.jpg`,
+    satZoom: 19,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 4,
+    topdownScale: 6,
+  },
+  {
+    // Large residential, 6.6MB GLB — fixed coords to center on building (was on lagoon)
     key: 'lyon',
     glb: `${DIR}/tiles-3601-lyon-st-san-francisco-ca.glb`,
-    coords: '37.8020,-122.4472',
+    coords: '37.8008,-122.4472',
     satRef: `${DIR}/sat-ref-lyon.jpg`,
     satZoom: 20,
     resolution: 2,
@@ -135,13 +135,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Triangular/wedge flatiron at Columbus/Kearny — distinctive footprint
-    key: 'sentinel',
-    glb: `${DIR}/tiles-sentinel-building-san-francisco-ca.glb`,
-    coords: '37.7978,-122.4068',
-    satRef: `${DIR}/sat-ref-sentinel.jpg`,
-    satZoom: 20,
-    resolution: 2,
+    // Apthorp — large courtyard apartment building, hollow-square footprint, 4.5MB headless capture
+    key: 'apthorp',
+    glb: `${DIR}/nyc-apthorp-headless.glb`,
+    coords: '40.7835,-73.9770',
+    satRef: `${DIR}/sat-ref-apthorp.jpg`,
+    satZoom: 19,
+    resolution: 1,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
@@ -163,13 +163,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Large residential, 4.2MB GLB — LA, different region
-    key: 'glendower',
-    glb: `${DIR}/tiles-2607-glendower-ave-los-angeles-ca-90027.glb`,
-    coords: '34.1134,-118.2808',
-    satRef: `${DIR}/sat-ref-glendower.jpg`,
-    satZoom: 20,
-    resolution: 2,
+    // Commercial flat-roof — 402 W Broadway, San Diego, headless capture 6.3MB
+    key: 'sandiego',
+    glb: `${DIR}/flatroof-sandiego.glb`,
+    coords: '32.7158,-117.1652',
+    satRef: `${DIR}/sat-ref-sandiego.jpg`,
+    satZoom: 19,
+    resolution: 1,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
@@ -213,7 +213,8 @@ C) Surface quality (0-3): Are there distinct material zones (roof/wall/ground)? 
 Total = A + B + C (max 10).
 
 Calibration anchors:
-- A perfect 10/10: footprint exactly matches satellite (triangle/L/rectangle clearly visible), correct height and proportions, 3+ distinct material zones with clean separation.
+- A perfect 10/10: footprint exactly matches satellite (triangle/L/circle/rectangle clearly identifiable), correct height and proportions, 3+ distinct material zones with clean separation.
+- A strong 9/10: footprint clearly matches satellite outline with correct proportions and orientation, height/volume proportionate, 3+ material zones visible with reasonable separation. Minor pixelation from block resolution is acceptable.
 - A mediocre 5/10: vaguely correct shape but wrong proportions or rounded where should be angular, 1-2 materials only, ragged or blobby edges.
 - A poor 2/10: shape unrecognizable, wrong proportions entirely, single material, messy.
 
@@ -221,7 +222,7 @@ For EACH building image, respond with EXACTLY this format (one line per building
 NAME: A=X B=X C=X Total=X.X
 Brief 1-line explanation.
 
-Be strict but fair. A perfect Minecraft build at 1 block/meter cannot have pixel-level detail. Score the quality relative to what's achievable in Minecraft at this resolution.`;
+Be fair and calibrated. Use the full range of each sub-score. A Minecraft build at 1 block/meter cannot have pixel-level detail — score the quality relative to what is achievable at this resolution.`;
 
 // ── CLI parsing ──
 const args = process.argv.slice(2);
@@ -233,7 +234,7 @@ function hasFlag(name: string): boolean { return args.includes(name); }
 
 const version = getFlag('--version', 'v80');
 const vlmModel = getFlag('--model', 'gemini-2.5-flash');
-const vlmRuns = parseInt(getFlag('--runs', '5'), 10);
+const vlmRuns = parseInt(getFlag('--runs', '7'), 10);
 const gradeOnly = hasFlag('--grade-only');
 const onlyKeys = getFlag('--only', '').split(',').filter(Boolean);
 const targetScore = 9;
