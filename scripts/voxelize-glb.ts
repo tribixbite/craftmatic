@@ -1752,9 +1752,20 @@ async function main(): Promise<void> {
         }
         if (topY < 0) continue;
 
+        // Resolution-aware zone thresholds (meters → blocks)
+        // At 1 block/m: cornerW=1, groundH=2, corniceH=1, bandInterval=4, minBand=6
+        // At 3.28 block/ft: cornerW=3, groundH=7, corniceH=3, bandInterval=13, minBand=20
+        const res = args.resolution;
+        const cornerW = Math.max(1, Math.round(1 * res));  // ~1m corner pilasters
+        const groundH = Math.max(2, Math.round(2 * res));  // ~2m ground floor
+        const corniceH = Math.max(1, Math.round(1 * res)); // ~1m cornice band
+        const bandInterval = Math.max(4, Math.round(4 * res)); // ~4m floor spacing
+        const minBandH = Math.max(6, Math.round(6 * res)); // ~6m min for bands
+        const minCornerH = Math.max(5, Math.round(5 * res)); // ~5m min for corners
+
         // Edge/corner detection for trim pilasters
-        const onXEdge = (x <= minGx + 0 || x >= maxGx - 0);
-        const onZEdge = (z <= minGz + 0 || z >= maxGz - 0);
+        const onXEdge = (x <= minGx + cornerW - 1 || x >= maxGx - cornerW + 1);
+        const onZEdge = (z <= minGz + cornerW - 1 || z >= maxGz - cornerW + 1);
         const isCorner = onXEdge && onZEdge;
 
         const wallH = topY - bottomY;
@@ -1769,19 +1780,17 @@ async function main(): Promise<void> {
           if (y === topY) {
             // Roof zone — always satellite-derived
             target = roofDom;
-          } else if (y === topY - 1 && wallH >= 5 && !isCorner) {
-            // Cornice band — 1 block below roof, defines wall-roof transition.
-            // Adds visual cap that reads as roofline detail from isometric angle.
+          } else if (y >= topY - corniceH && y < topY && wallH >= minCornerH && !isCorner) {
+            // Cornice band — blocks just below roof, defines wall-roof transition
             target = bandBlock;
-          } else if (isCorner && wallH >= 5) {
+          } else if (isCorner && wallH >= minCornerH) {
             // Corner pilasters — vertical trim accent
             target = trimBlock;
-          } else if (hAbove < 2 && wallH >= 4) {
-            // Ground floor — bottom 2 blocks are heavier base material
+          } else if (hAbove < groundH && wallH >= Math.round(4 * res)) {
+            // Ground floor — heavier base material
             target = groundBlock;
-          } else if (wallH >= 6 && hAbove > 1 && hAbove % 4 === 0) {
-            // Floor band lines — every 4th block, thin horizontal divider
-            // Creates the visual rhythm of real building floors
+          } else if (wallH >= minBandH && hAbove > groundH && hAbove % bandInterval === 0) {
+            // Floor band lines — ~4m intervals, thin horizontal divider
             target = bandBlock;
           } else {
             // Main wall body
@@ -1821,10 +1830,10 @@ async function main(): Promise<void> {
 
   // Sky contamination remap — Google 3D Tiles bake ambient skylight (blue/cyan)
   // into upward-facing surfaces. These are artifacts, never real materials.
-  // SKIP when --coords is used: Street View color sampling intentionally picks
-  // blue/cyan blocks for buildings that really are blue (Victorians, painted facades).
-  // The SV color pipeline already filters vegetation and sky from its samples.
-  if (!args.coords) {
+  // v68: Always apply after zone simplification. Zone assignment already replaced
+  // wall/roof/ground with correct materials, so any remaining blue/cyan blocks
+  // are contamination from unassigned voxels (holes, interior leaks).
+  {
     const skyReplacements = new Map<string, string>([
       ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
       ['minecraft:cyan_terracotta', 'minecraft:stone'],
