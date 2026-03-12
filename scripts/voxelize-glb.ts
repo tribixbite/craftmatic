@@ -52,9 +52,9 @@ import sharp from 'sharp';
  * Returns the nearest Minecraft block for the observed roof and wall colors.
  * Requires Google Maps API key in .env and building coordinates.
  */
-async function sampleBuildingColors(
+async function sampleSatelliteRoof(
   lat: number, lng: number,
-): Promise<{ roofBlock: string; wallBlock: string; roofRgb: [number, number, number]; wallRgb: [number, number, number] } | null> {
+): Promise<{ roofBlock: string; roofRgb: [number, number, number] } | null> {
   // Read API key from .env
   const projectRoot = resolve(import.meta.dir, '..');
   let apiKey: string | undefined;
@@ -63,121 +63,36 @@ async function sampleBuildingColors(
     apiKey = dotenv.match(/GOOGLE_MAPS_API_KEY=(.+)/)?.[1]?.trim();
   } catch { /* no .env */ }
   if (!apiKey) {
-    console.log('  Building color: no API key, skipping');
+    console.log('  Satellite color: no API key, skipping');
     return null;
   }
 
   try {
-    // ── ROOF: Satellite top-down view (zoom 20 ≈ 0.12m/px) ──
-    const satUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=20&size=256x256&maptype=satellite&key=${apiKey}`;
-    const satRes = await fetch(satUrl);
-    if (!satRes.ok) { console.log(`  Satellite: HTTP ${satRes.status}`); return null; }
-    const satBuf = Buffer.from(await satRes.arrayBuffer());
-    const { data: satData, info: satInfo } = await sharp(satBuf).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-    const sw = satInfo.width, sh = satInfo.height;
+    // Satellite top-down view (zoom 20 ≈ 0.12m/px) — accurate roof color
+    const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=20&size=256x256&maptype=satellite&key=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) { console.log(`  Satellite: HTTP ${res.status}`); return null; }
+    const buf = Buffer.from(await res.arrayBuffer());
+    const { data, info } = await sharp(buf).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const w = info.width, h = info.height;
 
-    // Sample center 30% of satellite image for roof
-    const satMargin = Math.floor(sw * 0.35);
+    // Sample center 30% of image for roof color
+    const margin = Math.floor(w * 0.35);
     let rR = 0, rG = 0, rB = 0, rN = 0;
-    for (let y = satMargin; y < sh - satMargin; y++) {
-      for (let x = satMargin; x < sw - satMargin; x++) {
-        const i = (y * sw + x) * 3;
-        rR += satData[i]; rG += satData[i + 1]; rB += satData[i + 2];
+    for (let y = margin; y < h - margin; y++) {
+      for (let x = margin; x < w - margin; x++) {
+        const i = (y * w + x) * 3;
+        rR += data[i]; rG += data[i + 1]; rB += data[i + 2];
         rN++;
       }
     }
     const roofR = Math.round(rR / rN), roofG = Math.round(rG / rN), roofB = Math.round(rB / rN);
     const roofBlock = rgbToWallBlock(roofR, roofG, roofB);
 
-    // ── WALL: Street View facade color ──
-    // Fetch SV metadata first to get actual camera position, then compute
-    // heading to face the building. Use a narrow FOV (60°) and pitch up
-    // slightly (10°) to capture more facade and less road.
-    const svMetaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&source=outdoor&key=${apiKey}`;
-    const svMetaRes = await fetch(svMetaUrl);
-    const svMeta = svMetaRes.ok ? await svMetaRes.json() as { status: string; location?: { lat: number; lng: number } } : null;
-
-    // Compute heading from SV camera to building
-    let heading = 0;
-    if (svMeta?.status === 'OK' && svMeta.location) {
-      const camLat = svMeta.location.lat;
-      const camLng = svMeta.location.lng;
-      const dLng = (lng - camLng) * Math.PI / 180;
-      const lat1 = camLat * Math.PI / 180;
-      const lat2 = lat * Math.PI / 180;
-      const y2 = Math.sin(dLng) * Math.cos(lat2);
-      const x2 = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-      heading = (Math.atan2(y2, x2) * 180 / Math.PI + 360) % 360;
-    }
-
-    // pitch=20° looks above street trees to capture upper facade/building body
-    const svUrl = `https://maps.googleapis.com/maps/api/streetview?location=${lat},${lng}&size=256x256&fov=60&heading=${heading.toFixed(1)}&pitch=20&source=outdoor&key=${apiKey}`;
-    const svRes = await fetch(svUrl);
-    let wallR = Math.round(roofR * 0.85), wallG = Math.round(roofG * 0.85), wallB = Math.round(roofB * 0.85);
-    let wallBlock: string;
-    let wallSource = 'roof-offset';
-
-    if (svRes.ok) {
-      const svBuf = Buffer.from(await svRes.arrayBuffer());
-      const { data: svData, info: svInfo } = await sharp(svBuf).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-      const vw = svInfo.width, vh = svInfo.height;
-
-      // Sample center-low facade zone: 25-75% width, 35-75% height
-      // With pitch=20°, top 35% is mostly sky. Bottom 25% is road/sidewalk.
-      // This zone captures the building facade center.
-      const x0 = Math.floor(vw * 0.25), x1 = Math.floor(vw * 0.75);
-      const y0 = Math.floor(vh * 0.35), y1 = Math.floor(vh * 0.75);
-
-      // Mode-bucket sampling: group pixels by luminance, pick the most common
-      // bucket. This naturally rejects sky (bright), road (dark), and vegetation
-      // (minority population if the building is centered). Does NOT filter by
-      // hue, so colored facades (blue, green, red) are preserved.
-      const NBUCKETS = 6;
-      const BSIZE = 256 / NBUCKETS;
-      const bR = new Float64Array(NBUCKETS);
-      const bG = new Float64Array(NBUCKETS);
-      const bB = new Float64Array(NBUCKETS);
-      const bN = new Uint32Array(NBUCKETS);
-
-      for (let y = y0; y < y1; y++) {
-        for (let x = x0; x < x1; x++) {
-          const i = (y * vw + x) * 3;
-          const pr = svData[i], pg = svData[i + 1], pb = svData[i + 2];
-          const lum = (pr * 77 + pg * 150 + pb * 29) >> 8;
-          // Skip extreme darks/brights (road, sky glare)
-          if (lum < 30 || lum > 235) continue;
-          // Skip green vegetation: G dominates and pixel is mid-luminance
-          if (pg > pr + 20 && pg > pb + 20 && lum < 160) continue;
-          // Skip blue sky: B dominates by ≥30 and pixel is bright
-          if (pb > pr + 30 && pb > pg + 15 && lum > 100) continue;
-          const bi = Math.min(NBUCKETS - 1, Math.floor(lum / BSIZE));
-          bR[bi] += pr; bG[bi] += pg; bB[bi] += pb; bN[bi]++;
-        }
-      }
-
-      // Find mode bucket (most populated)
-      let bestBi = 0, bestBn = 0;
-      for (let i = 0; i < NBUCKETS; i++) {
-        if (bN[i] > bestBn) { bestBn = bN[i]; bestBi = i; }
-      }
-
-      if (bestBn > 50) {
-        wallR = Math.round(bR[bestBi] / bestBn);
-        wallG = Math.round(bG[bestBi] / bestBn);
-        wallB = Math.round(bB[bestBi] / bestBn);
-        wallSource = 'street-view';
-      }
-    }
-
-    wallBlock = rgbToWallBlock(wallR, wallG, wallB);
-    console.log(`  Building color: roof rgb(${roofR},${roofG},${roofB})→${roofBlock.replace('minecraft:', '')} | wall(${wallSource}) rgb(${wallR},${wallG},${wallB})→${wallBlock.replace('minecraft:', '')}`);
-    return {
-      roofBlock, wallBlock,
-      roofRgb: [roofR, roofG, roofB],
-      wallRgb: [wallR, wallG, wallB],
-    };
+    console.log(`  Satellite roof: rgb(${roofR},${roofG},${roofB})→${roofBlock.replace('minecraft:', '')}`);
+    return { roofBlock, roofRgb: [roofR, roofG, roofB] };
   } catch (e) {
-    console.log(`  Building color: ${(e as Error).message}`);
+    console.log(`  Satellite color: ${(e as Error).message}`);
     return null;
   }
 }
@@ -1684,7 +1599,7 @@ async function main(): Promise<void> {
     //   reliable material hint even at 10-15% of wall voxels.
     //   If secondary is also a gray variant, de-bake the dominant 1.3x brighter.
     if (args.coords) {
-      const extColors = await sampleBuildingColors(args.coords.lat, args.coords.lng);
+      const extColors = await sampleSatelliteRoof(args.coords.lat, args.coords.lng);
       if (extColors) {
         roofDom = extColors.roofBlock;
       }
