@@ -129,6 +129,7 @@ interface CLIArgs {
   coords: { lat: number; lng: number } | null; // OSM footprint masking coordinates
   keepVegetation: boolean; // preserve green/brown vegetation blocks (for satellite comparison)
   noEnu: boolean;          // skip ENU reorientation (for pre-oriented headless GLBs)
+  noOsm: boolean;          // skip OSM footprint masking (for misaligned geocodes)
 }
 
 function parseArgs(): CLIArgs {
@@ -164,7 +165,8 @@ Options:
   --batch            Process multiple GLB files with auto-analysis, print summary table
   --coords LAT,LNG   OSM footprint masking — query building polygon at these coords, mask grid
   --keep-vegetation  Preserve green/brown vegetation blocks (for satellite comparison)
-  --no-enu           Skip ENU reorientation (for pre-oriented headless GLBs)`);
+  --no-enu           Skip ENU reorientation (for pre-oriented headless GLBs)
+  --no-osm           Skip OSM footprint masking (when geocode doesn't match building)`);
     process.exit(0);
   }
 
@@ -198,6 +200,7 @@ Options:
   let coords: { lat: number; lng: number } | null = null;
   let keepVegetation = false;
   let noEnu = false;
+  let noOsm = false;
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -248,6 +251,8 @@ Options:
       keepVegetation = true;
     } else if (arg === '--no-enu') {
       noEnu = true;
+    } else if (arg === '--no-osm') {
+      noOsm = true;
     } else if (arg === '--clean') {
       cleanMinSize = parseInt(args[++i], 10);
     } else if (arg === '--crop') {
@@ -306,7 +311,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1250,7 +1255,7 @@ async function main(): Promise<void> {
     // Step 2: OSM footprint mask — carve away everything outside building polygon.
     // For buildings smaller than capture radius, this removes sidewalk/road/neighbors.
     // For buildings larger than capture, mask removes 0 (all blocks inside polygon).
-    if (args.coords && !osmMaskDone) {
+    if (args.coords && !osmMaskDone && !args.noOsm) {
       console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
       const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
       if (osmData && osmData.polygon.length >= 3) {
@@ -1345,7 +1350,7 @@ async function main(): Promise<void> {
 
       // Step 2: OSM footprint mask BEFORE fill — isolate building polygon so fill
       // only fills the building interior, not surrounding terrain/roads/neighbors.
-      if (args.coords) {
+      if (args.coords && !args.noOsm) {
         console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
         const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
         if (osmData && osmData.polygon.length >= 3) {
@@ -1454,7 +1459,7 @@ async function main(): Promise<void> {
 
   // OSM footprint masking — remove all blocks outside the building polygon.
   // Skip if already done in the generic pre-fill path above.
-  if (args.coords && !osmMaskDone) {
+  if (args.coords && !osmMaskDone && !args.noOsm) {
     console.log(`OSM footprint query at ${args.coords.lat},${args.coords.lng}...`);
     const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
     if (osmData && osmData.polygon.length >= 3) {
@@ -1802,6 +1807,72 @@ async function main(): Promise<void> {
       }
     }
     console.log(`Zone facade: ${simplified} blocks | roof=${roofDom.replace('minecraft:', '')} wall=${wallDom.replace('minecraft:', '')} ground=${groundBlock.replace('minecraft:', '')} band=${bandBlock.replace('minecraft:', '')} trim=${trimBlock.replace('minecraft:', '')}`);
+
+    // ── Roof parapet — 1-block raised border on flat roof edges ─────────────
+    // Creates a visible roofline boundary (common in real architecture).
+    // Only add parapet on roof-edge columns that border air at roof level.
+    {
+      // Find global max roof height
+      let globalMaxY = 0;
+      for (let x = 0; x < width; x++) {
+        for (let z = 0; z < gl; z++) {
+          for (let y = gh - 1; y >= 0; y--) {
+            if (trimmed.get(x, y, z) !== 'minecraft:air') {
+              globalMaxY = Math.max(globalMaxY, y);
+              break;
+            }
+          }
+        }
+      }
+
+      // Detect flat roof: >60% of occupied columns at global max Y (±1 block tolerance)
+      let atMax = 0, totalOccupied = 0;
+      for (let x = 0; x < width; x++) {
+        for (let z = 0; z < gl; z++) {
+          let topY = -1;
+          for (let y = gh - 1; y >= 0; y--) {
+            if (trimmed.get(x, y, z) !== 'minecraft:air') { topY = y; break; }
+          }
+          if (topY >= 0) {
+            totalOccupied++;
+            if (topY >= globalMaxY - 1) atMax++;
+          }
+        }
+      }
+      const flatRoof = totalOccupied > 0 && (atMax / totalOccupied) > 0.60;
+
+      if (flatRoof) {
+        let parapetCount = 0;
+        const parapetBlock = trimBlock; // Use trim accent material
+        for (let x = 0; x < width; x++) {
+          for (let z = 0; z < gl; z++) {
+            let topY = -1;
+            for (let y = gh - 1; y >= 0; y--) {
+              if (trimmed.get(x, y, z) !== 'minecraft:air') { topY = y; break; }
+            }
+            if (topY < 0 || topY < globalMaxY - 1) continue;
+            // Check if this column is on the roof perimeter (adjacent air at topY level)
+            let isEdge = false;
+            for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]] as const) {
+              const nx = x + dx, nz = z + dz;
+              if (nx < 0 || nx >= width || nz < 0 || nz >= gl) { isEdge = true; break; }
+              // Air neighbor or significantly shorter neighbor = edge column
+              let nTopY = -1;
+              for (let ny = gh - 1; ny >= 0; ny--) {
+                if (trimmed.get(nx, ny, nz) !== 'minecraft:air') { nTopY = ny; break; }
+              }
+              if (nTopY < topY - 2) { isEdge = true; break; }
+            }
+            if (isEdge) {
+              // Replace the roof block at topY with parapet material (no grid expansion needed)
+              trimmed.set(x, topY, z, parapetBlock);
+              parapetCount++;
+            }
+          }
+        }
+        if (parapetCount > 0) console.log(`Roof parapet: ${parapetCount} blocks placed (${parapetBlock.replace('minecraft:', '')})`);
+      }
+    }
 
     // Protect zone accent blocks from mode filter erasure.
     // Thin features (1-block trim columns, 1-block floor bands) get outvoted
