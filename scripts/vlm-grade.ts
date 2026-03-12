@@ -22,14 +22,19 @@ const STRUCTURED_PROMPT = `You are grading Minecraft voxel reconstructions of re
 Each image has 3 panels: LEFT = satellite photo, CENTER = isometric 3D render, RIGHT = top-down footprint.
 
 Score each building on this rubric:
-A) Footprint accuracy (0-4): Does the top-down footprint match the satellite building shape?
-B) Massing accuracy (0-3): Do proportions/height/volume look correct for the building type?
-C) Surface quality (0-3): Are there distinct material zones (roof/wall/ground)? Clean edges? Visible texture?
+A) Footprint accuracy (0-4): Does the top-down footprint match the satellite building shape? Sharp edges, correct proportions, identifiable outline.
+B) Massing accuracy (0-3): Do proportions/height/volume look correct? Right number of floors, correct width-to-height ratio.
+C) Surface quality (0-3): Are there distinct material zones (roof/wall/ground)? Clean edges? Visible texture contrast?
 
 Total = A + B + C (max 10).
 
-For EACH building image, respond with exactly this format:
-NAME: A=X B=X C=X Total=X
+Calibration anchors:
+- A perfect 10/10: footprint exactly matches satellite (triangle/L/rectangle clearly visible), correct height and proportions, 3+ distinct material zones with clean separation.
+- A mediocre 5/10: vaguely correct shape but wrong proportions or rounded where should be angular, 1-2 materials only, ragged or blobby edges.
+- A poor 2/10: shape unrecognizable, wrong proportions entirely, single material, messy.
+
+For EACH building image, respond with EXACTLY this format:
+NAME: A=X B=X C=X Total=X.X
 Brief 1-line explanation.
 
 Be strict but fair. A perfect Minecraft build at 1 block/meter cannot have pixel-level detail. Score the quality relative to what's achievable in Minecraft at this resolution.`;
@@ -60,7 +65,7 @@ const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: st
 ];
 
 for (const file of files) {
-  const name = basename(file).replace('grade-v79-', '').replace('.jpg', '');
+  const name = basename(file).replace(/^grade-v\d+[a-z]*-/, '').replace('.jpg', '');
   parts.push({ text: `\n--- ${name} ---` });
   const data = readFileSync(file);
   parts.push({ inlineData: { mimeType: 'image/jpeg', data: data.toString('base64') } });
@@ -86,7 +91,7 @@ const res = await fetch(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 4096 },
+      generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
     }),
   },
 );

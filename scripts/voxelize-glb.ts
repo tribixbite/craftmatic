@@ -129,6 +129,7 @@ interface CLIArgs {
   explicitGeneric: boolean; // true if --generic was explicitly passed on CLI
   explicitFill: boolean;    // true if --fill was explicitly passed on CLI
   explicitModePasses: boolean; // true if --mode-passes was explicitly passed on CLI
+  explicitResolution: boolean; // true if -r/--resolution was explicitly passed on CLI
   preview: boolean;
   smoothPct: number;    // smoothRareBlocks threshold (0 = skip)
   modePasses: number;   // modeFilter3D pass count (0 = skip)
@@ -148,6 +149,7 @@ interface CLIArgs {
   keepVegetation: boolean; // preserve green/brown vegetation blocks (for satellite comparison)
   noEnu: boolean;          // skip ENU reorientation (for pre-oriented headless GLBs)
   noOsm: boolean;          // skip OSM footprint masking (for misaligned geocodes)
+  noPostMask: boolean;     // skip post-processing OSM re-mask (v80)
   maskDilate: number;      // OSM polygon dilation in blocks (default 3)
 }
 
@@ -185,7 +187,8 @@ Options:
   --coords LAT,LNG   OSM footprint masking — query building polygon at these coords, mask grid
   --keep-vegetation  Preserve green/brown vegetation blocks (for satellite comparison)
   --no-enu           Skip ENU reorientation (for pre-oriented headless GLBs)
-  --no-osm           Skip OSM footprint masking (when geocode doesn't match building)`);
+  --no-osm           Skip OSM footprint masking (when geocode doesn't match building)
+  --no-post-mask     Skip post-processing OSM re-mask (v80 edge re-sharpening)`);
     process.exit(0);
   }
 
@@ -208,6 +211,7 @@ Options:
   let smoothPct = 0; // disabled by default; modeFilter3D handles noise locally
   let modePasses = 2; // Auto-detect overrides; 2 passes after K-Means for coherent zones
   let explicitModePasses = false;
+  let explicitResolution = false;
   let fill = false;
   let noPalette = false;
   let noCornice = false;
@@ -223,6 +227,7 @@ Options:
   let keepVegetation = false;
   let noEnu = false;
   let noOsm = false;
+  let noPostMask = false;
   let maskDilate = 3;
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
@@ -231,6 +236,7 @@ Options:
     const arg = args[i];
     if (arg === '--resolution' || arg === '-r') {
       resolution = parseFloat(args[++i]);
+      explicitResolution = true;
     } else if (arg === '--mode' || arg === '-m') {
       mode = args[++i] as VoxelizeMode;
     } else if (arg === '--min-height') {
@@ -281,6 +287,8 @@ Options:
       noEnu = true;
     } else if (arg === '--no-osm') {
       noOsm = true;
+    } else if (arg === '--no-post-mask') {
+      noPostMask = true;
     } else if (arg === '--mask-dilate') {
       maskDilate = parseInt(args[++i], 10);
     } else if (arg === '--clean') {
@@ -341,7 +349,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, maskDilate };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, noPostMask, maskDilate };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1112,6 +1120,21 @@ async function main(): Promise<void> {
   if (kept.length === 0) {
     console.error('No meshes survived height filter — try lowering --min-height');
     process.exit(1);
+  }
+
+  // v80: Auto 2x resolution for small buildings — curved shapes need more blocks
+  // to approximate their footprint accurately. At 1 block/m, a 15m-wide building
+  // is only 15 blocks across, making curves indistinguishable from rectangles.
+  if (!args.explicitResolution && args.auto) {
+    const keptBox = new THREE.Box3();
+    for (const k of kept) keptBox.union(k.worldBox);
+    const keptSize = new THREE.Vector3();
+    keptBox.getSize(keptSize);
+    const buildingW = Math.max(keptSize.x, keptSize.z);
+    if (buildingW > 0 && buildingW < 25) {
+      args.resolution = 2;
+      console.log(`Auto 2x resolution: building width ${buildingW.toFixed(0)}m < 25m threshold`);
+    }
   }
 
   // Build a new group from kept meshes (clone with baked world transform)
@@ -2070,6 +2093,22 @@ async function main(): Promise<void> {
     const homogenized = homogenizeFacadesByFace(trimmed, 0.05, 6, facadeProtected);
     if (homogenized > 0) {
       console.log(`Facade homogenization: ${homogenized} minority blocks collapsed per-face`);
+    }
+  }
+
+  // v80: Post-processing re-mask — re-sharpen edges blurred by morphClose/modeFilter.
+  // After all processing (zone assignment, contrast, homogenize), run maskToFootprint
+  // again with tight dilation to clip voxels that expanded beyond the OSM polygon.
+  // This restores sharp straight edges matching the real building outline.
+  if (osmPolygon && args.coords && !args.noOsm && !args.noPostMask) {
+    const postMaskDilate = Math.max(0, (args.maskDilate ?? 3) - 1); // slightly tighter than initial mask
+    const postMasked = maskToFootprint(
+      trimmed, osmPolygon,
+      args.coords.lat, args.coords.lng,
+      Math.round(postMaskDilate * args.resolution), args.resolution, enuHorizontalAngle,
+    );
+    if (postMasked > 0) {
+      console.log(`Post-morph re-mask: ${postMasked} blocks clipped back to OSM footprint (dilate=${postMaskDilate})`);
     }
   }
 
