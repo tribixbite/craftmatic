@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Create satellite|top-down|isometric composite grading images for v71.
- * 3-panel layout: satellite (footprint context) | top-down (footprint shape) | isometric (3D form)
+ * Grade composites for v72 (2x resolution) buildings.
+ * 3-panel: satellite (rotated to match voxel grid) | top-down | isometric
  */
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
@@ -11,29 +11,8 @@ import sharp from 'sharp';
 sharp.concurrency(1);
 const projectRoot = resolve(import.meta.dir, '..');
 const tilesDir = join(projectRoot, 'output/tiles');
-const gradeDir = join(tilesDir, 'grade-v71');
+const gradeDir = join(tilesDir, 'grade-v72');
 await mkdir(gradeDir, { recursive: true });
-
-// ENU horizontal rotation angles from voxelization output (degrees).
-// Used to rotate the top-down voxel render back to satellite orientation
-// so VLM can directly compare footprints without mental rotation.
-// ENU rotation angles — PCA-optimal, used to rotate top-down back to north-up
-const BUILDINGS: Record<string, { lat: number; lng: number; enuDeg: number }> = {
-  green:      { lat: 37.7966, lng: -122.4393, enuDeg: 0 },    // snapped from 14°
-  dakota:     { lat: 40.7764, lng: -73.9762,  enuDeg: 90 },   // snapped from 75°
-  sentinel:   { lat: 37.7957, lng: -122.4067, enuDeg: 39 },
-  francisco:  { lat: 37.7990, lng: -122.4372, enuDeg: 39 },
-  beach:      { lat: 37.8004, lng: -122.4365, enuDeg: 40 },
-  chestnut:   { lat: 37.8007, lng: -122.4378, enuDeg: 37 },
-  flatiron:   { lat: 40.7411, lng: -73.9897,  enuDeg: 51 },
-  lyon:       { lat: 37.8020, lng: -122.4472, enuDeg: 39 },   // SF residential
-  montgomery: { lat: 37.7954, lng: -122.4029, enuDeg: 39 },   // SF commercial
-  glendower:  { lat: 34.1124, lng: -118.2754, enuDeg: 0 },    // LA residential (no ENU snap)
-  guggenheim: { lat: 40.7830, lng: -73.9590,  enuDeg: 0 },    // NYC museum
-  highland:   { lat: 42.3296, lng: -71.2097,  enuDeg: 0 },    // Newton MA residential
-  union:      { lat: 43.0768, lng: -72.4301,  enuDeg: 0 },    // Walpole NH residential
-  bridget:    { lat: 44.9564, lng: -85.6399,  enuDeg: 0 },    // Suttons Bay MI residential
-};
 
 let apiKey = '';
 try {
@@ -41,22 +20,28 @@ try {
   apiKey = dotenv.match(/GOOGLE_MAPS_API_KEY=(.+)/)?.[1]?.trim() ?? '';
 } catch { /* no .env */ }
 
+const BUILDINGS: Record<string, { lat: number; lng: number; enuDeg: number }> = {
+  flatiron:   { lat: 40.7411, lng: -73.9897,  enuDeg: 51 },
+  montgomery: { lat: 37.7954, lng: -122.4029, enuDeg: 39 },
+  sentinel:   { lat: 37.7957, lng: -122.4067, enuDeg: 39 },
+  chestnut:   { lat: 37.8007, lng: -122.4378, enuDeg: 37 },
+  beach:      { lat: 37.8004, lng: -122.4365, enuDeg: 40 },
+  francisco:  { lat: 37.7990, lng: -122.4372, enuDeg: 39 },
+  green:      { lat: 37.7966, lng: -122.4393, enuDeg: 0 },
+};
+
 const nameArg = process.argv.find(a => a.startsWith('--name='));
 const filterName = nameArg ? nameArg.split('=')[1] : null;
-
-const H = 300; // Panel height
+const H = 300;
 
 for (const [name, coords] of Object.entries(BUILDINGS)) {
   if (filterName && name !== filterName) continue;
-  const isoPath = join(tilesDir, 'render-v71', `iso-${name}.jpg`);
-  const topPath = join(tilesDir, 'render-v71', `top-${name}.jpg`);
+  const isoPath = join(tilesDir, 'render-v72', `iso-${name}.jpg`);
+  const topPath = join(tilesDir, 'render-v72', `top-${name}.jpg`);
   if (!existsSync(isoPath)) { console.log(`${name}: SKIP (no render)`); continue; }
 
   console.log(`=== ${name} ===`);
 
-  // Satellite at zoom 20, rotated to match voxel grid orientation.
-  // Rotating satellite by +enuDeg aligns building walls in both images,
-  // giving VLM the best direct comparison (both show same orientation).
   const satUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${coords.lat},${coords.lng}&zoom=20&size=400x400&maptype=satellite&key=${apiKey}`;
   const satRes = await fetch(satUrl);
   if (!satRes.ok) { console.log(`  satellite: HTTP ${satRes.status}`); continue; }
@@ -67,8 +52,6 @@ for (const [name, coords] of Object.entries(BUILDINGS)) {
     .jpeg({ quality: 90 })
     .toBuffer();
 
-  // Top-down plan view — NO rotation, shown in voxel grid orientation.
-  // Satellite is rotated to match instead.
   let topImg: Buffer;
   if (existsSync(topPath)) {
     topImg = await sharp(await readFile(topPath))
@@ -82,7 +65,6 @@ for (const [name, coords] of Object.entries(BUILDINGS)) {
   const topMeta = await sharp(topImg).metadata();
   const topW = topMeta.width ?? H;
 
-  // Isometric 3D view
   const isoImg = await sharp(await readFile(isoPath))
     .resize({ height: H, withoutEnlargement: false })
     .jpeg({ quality: 90 })
@@ -90,7 +72,6 @@ for (const [name, coords] of Object.entries(BUILDINGS)) {
   const isoMeta = await sharp(isoImg).metadata();
   const isoW = isoMeta.width ?? H;
 
-  // 3-panel composite: satellite | top-down | isometric
   const totalW = H + topW + isoW;
   const composite = await sharp({
     create: { width: totalW, height: H, channels: 3, background: { r: 22, g: 22, b: 28 } },
