@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
@@ -136,6 +136,7 @@ interface CLIArgs {
   noCornice: boolean;   // skip roof cornice
   noFireEscape: boolean; // skip fire escape filter
   noGlaze: boolean;     // skip window glazing (reduces surface noise for VLM grading)
+  peakedRoof: boolean;  // add synthetic hip/pyramid roof from footprint erosion
   cleanMinSize: number; // removeSmallComponents min size (0 = skip)
   cropRadius: number;   // cropToCenter XZ radius (0 = skip)
   remaps: Map<string, string>; // custom block remaps FROM=TO
@@ -209,6 +210,7 @@ Options:
   let noCornice = false;
   let noFireEscape = false;
   let noGlaze = false;
+  let peakedRoof = false;
   let cleanMinSize = 0;
   let cropRadius = 0;
   let auto = false;
@@ -266,6 +268,8 @@ Options:
       noFireEscape = true;
     } else if (arg === '--no-glaze') {
       noGlaze = true;
+    } else if (arg === '--peaked-roof') {
+      peakedRoof = true;
     } else if (arg === '--keep-vegetation') {
       keepVegetation = true;
     } else if (arg === '--no-enu') {
@@ -330,7 +334,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -2054,6 +2058,15 @@ async function main(): Promise<void> {
     );
     if (fpFill > 0) {
       console.log(`Footprint fill: ${fpFill} voxels added to empty interior columns`);
+    }
+  }
+
+  // v73: Synthetic peaked/hip roof — stacks progressively inset footprints to create
+  // a sloped roof from any footprint shape. Use --peaked-roof flag.
+  if (args.peakedRoof) {
+    const roofAdded = addPeakedRoof(trimmed, roofDom);
+    if (roofAdded > 0) {
+      console.log(`Peaked roof: ${roofAdded} blocks added (${roofDom.replace('minecraft:', '')})`);
     }
   }
 

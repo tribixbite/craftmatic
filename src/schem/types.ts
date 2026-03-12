@@ -6,8 +6,8 @@
 import type { BlockState, BlockEntity, ItemSlot, Vec3 } from '../types/index.js';
 
 export class BlockGrid {
-  readonly width: number;
-  readonly height: number;
+  width: number;
+  height: number;
   readonly length: number;
 
   private blocks: BlockState[];
@@ -151,6 +151,25 @@ export class BlockGrid {
       }
     }
     return new Uint8Array(result);
+  }
+
+  /** Expand grid height upward (adds air layers on top) */
+  expandHeight(newHeight: number): void {
+    if (newHeight <= this.height) return;
+    const newSize = this.width * newHeight * this.length;
+    const newBlocks = new Array<BlockState>(newSize).fill('minecraft:air');
+    // Copy existing data — same index layout (y * length + z) * width + x
+    for (let y = 0; y < this.height; y++) {
+      for (let z = 0; z < this.length; z++) {
+        const srcBase = (y * this.length + z) * this.width;
+        const dstBase = (y * this.length + z) * this.width;
+        for (let x = 0; x < this.width; x++) {
+          newBlocks[dstBase + x] = this.blocks[srcBase + x];
+        }
+      }
+    }
+    this.blocks = newBlocks;
+    this.height = newHeight;
   }
 
   /** Count non-air blocks */
