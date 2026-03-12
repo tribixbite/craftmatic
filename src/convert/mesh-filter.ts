@@ -2299,6 +2299,297 @@ export function fireEscapeFilter(
  * @returns          Number of blocks placed/changed
  */
 
+// ─── Facade Homogeneity (v74) ──────────────────────────────────────────────
+
+export type FacadeDir = '+x' | '-x' | '+z' | '-z';
+
+/**
+ * Per-face minority block collapse — forces facade surfaces toward homogeneous
+ * materials. For each exterior face direction (+x/-x/+z/-z), blocks that appear
+ * in < minPct of that face's surface are replaced with the nearest majority block
+ * found on the same face at the same Y level, or the face's global mode.
+ *
+ * This pushes heterogeneous facades (54% dominant) toward Flatiron-level
+ * homogeneity (70%+), which VLMs perceive as "clean, complete surfaces" (C=3).
+ *
+ * Run AFTER glazeDarkWindows + modeFilter (so glass is already placed and protected).
+ */
+export function homogenizeFacadesByFace(
+  grid: BlockGrid,
+  minPct = 0.05,
+  searchRadius = 6,
+  protectedBlocks?: Set<string>,
+): number {
+  const AIR = 'minecraft:air';
+  const MIN_SAMPLES = 100;
+
+  // Blocks that should never be replaced (glass, trim accents)
+  const prot = new Set<string>([
+    AIR,
+    'minecraft:gray_stained_glass', 'minecraft:glass', 'minecraft:glass_pane',
+    'minecraft:iron_bars', 'minecraft:smooth_stone_slab',
+  ]);
+  if (protectedBlocks) for (const b of protectedBlocks) prot.add(b);
+
+  const { width, height, length } = grid;
+  const faces: FacadeDir[] = ['+x', '-x', '+z', '-z'];
+  let totalReplaced = 0;
+
+  // For each face direction, collect exterior surface voxels
+  for (const dir of faces) {
+    // Collect surface positions: solid block whose neighbor in dir is air
+    const surface: Array<{ x: number; y: number; z: number; b: string }> = [];
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          const b = grid.get(x, y, z);
+          if (b === AIR || prot.has(b)) continue;
+
+          let isExterior = false;
+          if (dir === '+x') isExterior = x === width - 1 || grid.get(x + 1, y, z) === AIR;
+          else if (dir === '-x') isExterior = x === 0 || grid.get(x - 1, y, z) === AIR;
+          else if (dir === '+z') isExterior = z === length - 1 || grid.get(x, y, z + 1) === AIR;
+          else isExterior = z === 0 || grid.get(x, y, z - 1) === AIR;
+
+          if (isExterior) surface.push({ x, y, z, b });
+        }
+      }
+    }
+
+    if (surface.length < MIN_SAMPLES) continue;
+
+    // Build frequency histogram for this face
+    const freq = new Map<string, number>();
+    for (const p of surface) freq.set(p.b, (freq.get(p.b) ?? 0) + 1);
+
+    // Find face mode (most frequent block)
+    let faceMode = '';
+    let faceModeCount = 0;
+    for (const [b, c] of freq) {
+      if (c > faceModeCount) { faceMode = b; faceModeCount = c; }
+    }
+    if (!faceMode) continue;
+
+    // Identify minority blocks (< minPct of this face)
+    const threshold = surface.length * minPct;
+    const minority = new Set<string>();
+    for (const [b, c] of freq) {
+      if (c < threshold) minority.add(b);
+    }
+    if (minority.size === 0) continue;
+
+    // Replace minority blocks with nearest majority on same face + same Y
+    for (const p of surface) {
+      if (!minority.has(p.b)) continue;
+
+      // Search outward on the face plane (same Y) for nearest non-minority block
+      let bestBlock: string | null = null;
+      for (let r = 1; r <= searchRadius && !bestBlock; r++) {
+        for (let d = -r; d <= r && !bestBlock; d++) {
+          // For x-faces, search along z axis. For z-faces, search along x axis.
+          let nx = p.x, nz = p.z;
+          if (dir === '+x' || dir === '-x') nz = p.z + d;
+          else nx = p.x + d;
+
+          if (!grid.inBounds(nx, p.y, nz)) continue;
+          const nb = grid.get(nx, p.y, nz);
+          if (nb === AIR || prot.has(nb) || minority.has(nb)) continue;
+
+          // Verify it's also on the same face surface
+          let neighborIsExterior = false;
+          if (dir === '+x') neighborIsExterior = nx === width - 1 || grid.get(nx + 1, p.y, nz) === AIR;
+          else if (dir === '-x') neighborIsExterior = nx === 0 || grid.get(nx - 1, p.y, nz) === AIR;
+          else if (dir === '+z') neighborIsExterior = nz === length - 1 || grid.get(nx, p.y, nz + 1) === AIR;
+          else neighborIsExterior = nz === 0 || grid.get(nx, p.y, nz - 1) === AIR;
+
+          if (neighborIsExterior) bestBlock = nb;
+        }
+      }
+
+      if (!bestBlock) bestBlock = faceMode;
+
+      grid.set(p.x, p.y, p.z, bestBlock);
+      totalReplaced++;
+    }
+  }
+
+  return totalReplaced;
+}
+
+// ─── Footprint Edge Straightening (v74) ─────────────────────────────────────
+
+/**
+ * Straighten jagged stair-step edges on near-rectangular building footprints.
+ * For each Y layer, computes the silhouette edge traces (leftmost/rightmost solid
+ * per z-row, and top/bottom solid per x-column), applies a median filter to smooth
+ * stair-steps, then fills or clears the 1-2 block band to match.
+ *
+ * Only shifts edges by up to maxShift blocks to avoid distorting real architectural
+ * features (balconies, setbacks). Run after fill but before facade smoothing.
+ */
+export function straightenFootprintEdges(
+  grid: BlockGrid,
+  maxShift = 2,
+  windowRadius = 2,
+  wallBlock?: string,
+): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  let changed = 0;
+
+  // Determine dominant wall block from bottom 25% of height
+  const wallDom = wallBlock ?? (() => {
+    const counts = new Map<string, number>();
+    const maxY = Math.floor(height * 0.25);
+    for (let y = 0; y <= maxY; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          const b = grid.get(x, y, z);
+          if (b !== AIR) counts.set(b, (counts.get(b) ?? 0) + 1);
+        }
+      }
+    }
+    let best = AIR;
+    let bestC = 0;
+    for (const [b, c] of counts) { if (c > bestC) { best = b; bestC = c; } }
+    return best;
+  })();
+
+  // Median of an array (handles NaN by filtering)
+  function median(arr: number[]): number {
+    const valid = arr.filter(v => v >= 0);
+    if (valid.length === 0) return -1;
+    valid.sort((a, b) => a - b);
+    return valid[Math.floor(valid.length / 2)];
+  }
+
+  // Process each Y layer
+  for (let y = 0; y < height; y++) {
+    // Check if this layer has enough blocks to be worth straightening
+    let layerCount = 0;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) layerCount++;
+      }
+    }
+    if (layerCount < 20) continue; // Skip sparse layers
+
+    // Compute left (min-x) and right (max-x) traces for each z
+    const leftTrace = new Int32Array(length).fill(-1);
+    const rightTrace = new Int32Array(length).fill(-1);
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) {
+          if (leftTrace[z] < 0) leftTrace[z] = x;
+          rightTrace[z] = x;
+        }
+      }
+    }
+
+    // Median-filter the traces
+    for (let z = 0; z < length; z++) {
+      if (leftTrace[z] < 0) continue;
+
+      // Collect window for left trace
+      const leftWindow: number[] = [];
+      const rightWindow: number[] = [];
+      for (let dz = -windowRadius; dz <= windowRadius; dz++) {
+        const nz = z + dz;
+        if (nz >= 0 && nz < length) {
+          if (leftTrace[nz] >= 0) leftWindow.push(leftTrace[nz]);
+          if (rightTrace[nz] >= 0) rightWindow.push(rightTrace[nz]);
+        }
+      }
+
+      const newLeft = median(leftWindow);
+      const newRight = median(rightWindow);
+
+      // Apply left edge correction (within maxShift)
+      if (newLeft >= 0 && Math.abs(newLeft - leftTrace[z]) <= maxShift && newLeft !== leftTrace[z]) {
+        if (newLeft < leftTrace[z]) {
+          // Fill inward (extend building edge)
+          for (let x = newLeft; x < leftTrace[z]; x++) {
+            if (grid.get(x, y, z) === AIR) { grid.set(x, y, z, wallDom); changed++; }
+          }
+        } else {
+          // Clear outward (retract building edge)
+          for (let x = leftTrace[z]; x < newLeft; x++) {
+            if (grid.get(x, y, z) !== AIR) { grid.set(x, y, z, AIR); changed++; }
+          }
+        }
+      }
+
+      // Apply right edge correction
+      if (newRight >= 0 && Math.abs(newRight - rightTrace[z]) <= maxShift && newRight !== rightTrace[z]) {
+        if (newRight > rightTrace[z]) {
+          for (let x = rightTrace[z] + 1; x <= newRight; x++) {
+            if (grid.get(x, y, z) === AIR) { grid.set(x, y, z, wallDom); changed++; }
+          }
+        } else {
+          for (let x = newRight + 1; x <= rightTrace[z]; x++) {
+            if (grid.get(x, y, z) !== AIR) { grid.set(x, y, z, AIR); changed++; }
+          }
+        }
+      }
+    }
+
+    // Same for front/back traces (min-z/max-z per x column)
+    const frontTrace = new Int32Array(width).fill(-1);
+    const backTrace = new Int32Array(width).fill(-1);
+    for (let x = 0; x < width; x++) {
+      for (let z = 0; z < length; z++) {
+        if (grid.get(x, y, z) !== AIR) {
+          if (frontTrace[x] < 0) frontTrace[x] = z;
+          backTrace[x] = z;
+        }
+      }
+    }
+
+    for (let x = 0; x < width; x++) {
+      if (frontTrace[x] < 0) continue;
+
+      const frontWindow: number[] = [];
+      const backWindow: number[] = [];
+      for (let dx = -windowRadius; dx <= windowRadius; dx++) {
+        const nx = x + dx;
+        if (nx >= 0 && nx < width) {
+          if (frontTrace[nx] >= 0) frontWindow.push(frontTrace[nx]);
+          if (backTrace[nx] >= 0) backWindow.push(backTrace[nx]);
+        }
+      }
+
+      const newFront = median(frontWindow);
+      const newBack = median(backWindow);
+
+      if (newFront >= 0 && Math.abs(newFront - frontTrace[x]) <= maxShift && newFront !== frontTrace[x]) {
+        if (newFront < frontTrace[x]) {
+          for (let z = newFront; z < frontTrace[x]; z++) {
+            if (grid.get(x, y, z) === AIR) { grid.set(x, y, z, wallDom); changed++; }
+          }
+        } else {
+          for (let z = frontTrace[x]; z < newFront; z++) {
+            if (grid.get(x, y, z) !== AIR) { grid.set(x, y, z, AIR); changed++; }
+          }
+        }
+      }
+
+      if (newBack >= 0 && Math.abs(newBack - backTrace[x]) <= maxShift && newBack !== backTrace[x]) {
+        if (newBack > backTrace[x]) {
+          for (let z = backTrace[x] + 1; z <= newBack; z++) {
+            if (grid.get(x, y, z) === AIR) { grid.set(x, y, z, wallDom); changed++; }
+          }
+        } else {
+          for (let z = newBack + 1; z <= backTrace[x]; z++) {
+            if (grid.get(x, y, z) !== AIR) { grid.set(x, y, z, AIR); changed++; }
+          }
+        }
+      }
+    }
+  }
+
+  return changed;
+}
+
 /**
  * Add a hip/pyramid roof by stacking progressively inset footprints.
  * Each layer erodes the XZ footprint by 1 block and places it 1 Y higher.
