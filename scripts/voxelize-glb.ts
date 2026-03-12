@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
@@ -1603,6 +1603,16 @@ async function main(): Promise<void> {
     }
   }
 
+  // v74: Edge straightening — median filter on XZ silhouette traces to remove
+  // stair-step jaggies. Run after morphClose (shape healed) but before zone assignment
+  // and facade smoothing. maxShift=2 limits correction to avoid distorting real setbacks.
+  {
+    const straightened = straightenFootprintEdges(trimmed, 2, 2);
+    if (straightened > 0) {
+      console.log(`Edge straightening: ${straightened} blocks adjusted (median filter, maxShift=2)`);
+    }
+  }
+
   // Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
   // v73: Protect top 40% of building (was 20% in v70). Montgomery's peaked roof
   // and Ansonia's ornate upper facade were destroyed by smoothing.
@@ -2000,6 +2010,21 @@ async function main(): Promise<void> {
     const closed2 = morphClose3D(trimmed, 1);
     if (closed2 > 0) {
       console.log(`Morph close post-filter (r=1): ${closed2} surface pockmarks healed`);
+    }
+  }
+
+  // v74: Facade homogenization — per-face minority block collapse.
+  // Replaces blocks below 5% frequency on each cardinal face with the nearest
+  // majority block on that same face+Y. Reduces visual noise while preserving
+  // zone accents (ground/band/trim) and glass windows via protectedBlocks.
+  {
+    const facadeProtected = new Set([
+      'minecraft:gray_stained_glass', 'minecraft:glass', 'minecraft:glass_pane',
+      ...(zoneProtected ?? []),
+    ]);
+    const homogenized = homogenizeFacadesByFace(trimmed, 0.05, 6, facadeProtected);
+    if (homogenized > 0) {
+      console.log(`Facade homogenization: ${homogenized} minority blocks collapsed per-face`);
     }
   }
 
