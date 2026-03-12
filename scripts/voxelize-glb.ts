@@ -39,9 +39,148 @@ import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
 import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
+import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname, resolve } from 'node:path';
+import sharp from 'sharp';
+
+// ─── Satellite Color Sampling ───────────────────────────────────────────────
+
+/**
+ * Fetch satellite image and sample average roof color within the building footprint.
+ * Returns the nearest Minecraft block for the observed roof and wall colors.
+ * Requires Google Maps API key in .env and building coordinates.
+ */
+async function sampleBuildingColors(
+  lat: number, lng: number,
+): Promise<{ roofBlock: string; wallBlock: string; roofRgb: [number, number, number]; wallRgb: [number, number, number] } | null> {
+  // Read API key from .env
+  const projectRoot = resolve(import.meta.dir, '..');
+  let apiKey: string | undefined;
+  try {
+    const dotenv = await Bun.file(join(projectRoot, '.env')).text();
+    apiKey = dotenv.match(/GOOGLE_MAPS_API_KEY=(.+)/)?.[1]?.trim();
+  } catch { /* no .env */ }
+  if (!apiKey) {
+    console.log('  Building color: no API key, skipping');
+    return null;
+  }
+
+  try {
+    // ── ROOF: Satellite top-down view (zoom 20 ≈ 0.12m/px) ──
+    const satUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=20&size=256x256&maptype=satellite&key=${apiKey}`;
+    const satRes = await fetch(satUrl);
+    if (!satRes.ok) { console.log(`  Satellite: HTTP ${satRes.status}`); return null; }
+    const satBuf = Buffer.from(await satRes.arrayBuffer());
+    const { data: satData, info: satInfo } = await sharp(satBuf).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const sw = satInfo.width, sh = satInfo.height;
+
+    // Sample center 30% of satellite image for roof
+    const satMargin = Math.floor(sw * 0.35);
+    let rR = 0, rG = 0, rB = 0, rN = 0;
+    for (let y = satMargin; y < sh - satMargin; y++) {
+      for (let x = satMargin; x < sw - satMargin; x++) {
+        const i = (y * sw + x) * 3;
+        rR += satData[i]; rG += satData[i + 1]; rB += satData[i + 2];
+        rN++;
+      }
+    }
+    const roofR = Math.round(rR / rN), roofG = Math.round(rG / rN), roofB = Math.round(rB / rN);
+    const roofBlock = rgbToWallBlock(roofR, roofG, roofB);
+
+    // ── WALL: Street View facade color ──
+    // Fetch SV metadata first to get actual camera position, then compute
+    // heading to face the building. Use a narrow FOV (60°) and pitch up
+    // slightly (10°) to capture more facade and less road.
+    const svMetaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&source=outdoor&key=${apiKey}`;
+    const svMetaRes = await fetch(svMetaUrl);
+    const svMeta = svMetaRes.ok ? await svMetaRes.json() as { status: string; location?: { lat: number; lng: number } } : null;
+
+    // Compute heading from SV camera to building
+    let heading = 0;
+    if (svMeta?.status === 'OK' && svMeta.location) {
+      const camLat = svMeta.location.lat;
+      const camLng = svMeta.location.lng;
+      const dLng = (lng - camLng) * Math.PI / 180;
+      const lat1 = camLat * Math.PI / 180;
+      const lat2 = lat * Math.PI / 180;
+      const y2 = Math.sin(dLng) * Math.cos(lat2);
+      const x2 = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+      heading = (Math.atan2(y2, x2) * 180 / Math.PI + 360) % 360;
+    }
+
+    // pitch=20° looks above street trees to capture upper facade/building body
+    const svUrl = `https://maps.googleapis.com/maps/api/streetview?location=${lat},${lng}&size=256x256&fov=60&heading=${heading.toFixed(1)}&pitch=20&source=outdoor&key=${apiKey}`;
+    const svRes = await fetch(svUrl);
+    let wallR = Math.round(roofR * 0.85), wallG = Math.round(roofG * 0.85), wallB = Math.round(roofB * 0.85);
+    let wallBlock: string;
+    let wallSource = 'roof-offset';
+
+    if (svRes.ok) {
+      const svBuf = Buffer.from(await svRes.arrayBuffer());
+      const { data: svData, info: svInfo } = await sharp(svBuf).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      const vw = svInfo.width, vh = svInfo.height;
+
+      // Sample center-low facade zone: 25-75% width, 35-75% height
+      // With pitch=20°, top 35% is mostly sky. Bottom 25% is road/sidewalk.
+      // This zone captures the building facade center.
+      const x0 = Math.floor(vw * 0.25), x1 = Math.floor(vw * 0.75);
+      const y0 = Math.floor(vh * 0.35), y1 = Math.floor(vh * 0.75);
+
+      // Mode-bucket sampling: group pixels by luminance, pick the most common
+      // bucket. This naturally rejects sky (bright), road (dark), and vegetation
+      // (minority population if the building is centered). Does NOT filter by
+      // hue, so colored facades (blue, green, red) are preserved.
+      const NBUCKETS = 6;
+      const BSIZE = 256 / NBUCKETS;
+      const bR = new Float64Array(NBUCKETS);
+      const bG = new Float64Array(NBUCKETS);
+      const bB = new Float64Array(NBUCKETS);
+      const bN = new Uint32Array(NBUCKETS);
+
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const i = (y * vw + x) * 3;
+          const pr = svData[i], pg = svData[i + 1], pb = svData[i + 2];
+          const lum = (pr * 77 + pg * 150 + pb * 29) >> 8;
+          // Skip extreme darks/brights (road, sky glare)
+          if (lum < 30 || lum > 235) continue;
+          // Skip green vegetation: G dominates and pixel is mid-luminance
+          if (pg > pr + 20 && pg > pb + 20 && lum < 160) continue;
+          // Skip blue sky: B dominates by ≥30 and pixel is bright
+          if (pb > pr + 30 && pb > pg + 15 && lum > 100) continue;
+          const bi = Math.min(NBUCKETS - 1, Math.floor(lum / BSIZE));
+          bR[bi] += pr; bG[bi] += pg; bB[bi] += pb; bN[bi]++;
+        }
+      }
+
+      // Find mode bucket (most populated)
+      let bestBi = 0, bestBn = 0;
+      for (let i = 0; i < NBUCKETS; i++) {
+        if (bN[i] > bestBn) { bestBn = bN[i]; bestBi = i; }
+      }
+
+      if (bestBn > 50) {
+        wallR = Math.round(bR[bestBi] / bestBn);
+        wallG = Math.round(bG[bestBi] / bestBn);
+        wallB = Math.round(bB[bestBi] / bestBn);
+        wallSource = 'street-view';
+      }
+    }
+
+    wallBlock = rgbToWallBlock(wallR, wallG, wallB);
+    console.log(`  Building color: roof rgb(${roofR},${roofG},${roofB})→${roofBlock.replace('minecraft:', '')} | wall(${wallSource}) rgb(${wallR},${wallG},${wallB})→${wallBlock.replace('minecraft:', '')}`);
+    return {
+      roofBlock, wallBlock,
+      roofRgb: [roofR, roofG, roofB],
+      wallRgb: [wallR, wallG, wallB],
+    };
+  } catch (e) {
+    console.log(`  Building color: ${(e as Error).message}`);
+    return null;
+  }
+}
 
 // ─── CLI Argument Parsing ───────────────────────────────────────────────────
 
@@ -204,8 +343,9 @@ Options:
       autoInfo = true;
     } else if (arg === '--batch') {
       batch = true;
-    } else if (arg === '--coords') {
-      const parts = args[++i].split(',');
+    } else if (arg === '--coords' || arg.startsWith('--coords=')) {
+      const val = arg.startsWith('--coords=') ? arg.slice('--coords='.length) : args[++i];
+      const parts = val.split(',');
       if (parts.length === 2) {
         coords = { lat: parseFloat(parts[0]), lng: parseFloat(parts[1]) };
       }
@@ -1522,11 +1662,97 @@ async function main(): Promise<void> {
       }
     }
 
-    // Find dominant in each zone
+    // Find dominant in each zone (from photogrammetric texture sampling)
     let roofDom = 'minecraft:smooth_stone', roofMax = 0;
     for (const [b, c] of roofCounts) { if (c > roofMax) { roofDom = b; roofMax = c; } }
     let wallDom = 'minecraft:smooth_stone', wallMax = 0;
     for (const [b, c] of wallCounts) { if (c > wallMax) { wallDom = b; wallMax = c; } }
+
+    // Diagnostic: show top wall/roof block distribution before zone override
+    const sortedWall = [...wallCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const sortedRoof = [...roofCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    console.log(`  Roof blocks: ${sortedRoof.map(([b, c]) => `${b.replace('minecraft:', '')}(${c})`).join(' ')}`);
+    console.log(`  Wall blocks: ${sortedWall.map(([b, c]) => `${b.replace('minecraft:', '')}(${c})`).join(' ')}`);
+
+    // Satellite-derived roof color + photogrammetric secondary for walls.
+    //
+    // ROOF: Satellite top-down view gives accurate roof color.
+    // WALL: Photogrammetric dominant is always smooth_stone (baked lighting → gray).
+    //   Instead, use the SECONDARY wall block — the 2nd most common material.
+    //   This survives the baked-lighting averaging because it has slightly different
+    //   texture/hue properties (brick vs plaster, terracotta vs concrete). It's a
+    //   reliable material hint even at 10-15% of wall voxels.
+    //   If secondary is also a gray variant, de-bake the dominant 1.3x brighter.
+    if (args.coords) {
+      const extColors = await sampleBuildingColors(args.coords.lat, args.coords.lng);
+      if (extColors) {
+        roofDom = extColors.roofBlock;
+      }
+
+      // Wall: prefer photogrammetric secondary (non-gray, non-special) over dominant
+      // Only the most generic/neutral grays — blocks that appear purely from baked
+      // lighting with no material-specific color signal. Excludes stone_bricks (warm
+      // brown tint from brick texture), white_concrete (legitimate white material),
+      // and other blocks that carry real material information.
+      const GRAY_BLOCKS = new Set([
+        'minecraft:smooth_stone',       // rgb 162,162,162 — pure neutral gray
+        'minecraft:light_gray_concrete', // rgb 125,125,115 — neutral gray
+        'minecraft:andesite',           // rgb 136,136,136 — neutral gray
+        'minecraft:polished_andesite',  // rgb 132,135,134 — neutral gray
+        'minecraft:gray_concrete',      // rgb 55,58,62 — dark neutral gray (shadows)
+        'minecraft:polished_deepslate', // rgb 55,58,62 — dark (deep shadows)
+      ]);
+      const sorted = [...wallCounts.entries()]
+        .filter(([b]) => !SPECIAL_BLOCKS.has(b))
+        .sort((a, b) => b[1] - a[1]);
+
+      // Find first non-gray secondary with ≥5% of total wall blocks
+      const totalWall = sorted.reduce((s, [, c]) => s + c, 0);
+      const nonGraySecondary = sorted.find(([b, c]) =>
+        !GRAY_BLOCKS.has(b) && c >= totalWall * 0.05
+      );
+
+      if (nonGraySecondary) {
+        wallDom = nonGraySecondary[0];
+        console.log(`  Wall: photogrammetric secondary ${wallDom.replace('minecraft:', '')} (${nonGraySecondary[1]} blocks, ${(100 * nonGraySecondary[1] / totalWall).toFixed(0)}%)`);
+      } else {
+        // All wall blocks are gray variants — de-bake dominant to recover material
+        const wallCluster = WALL_CLUSTERS.find(c => c.options.includes(wallDom));
+        if (wallCluster) {
+          const [wr, wg, wb] = wallCluster.rgb;
+          wallDom = rgbToWallBlock(
+            Math.min(255, Math.round(wr * 1.3)),
+            Math.min(255, Math.round(wg * 1.3)),
+            Math.min(255, Math.round(wb * 1.3)),
+          );
+          console.log(`  Wall: de-baked to ${wallDom.replace('minecraft:', '')} (all grays, 1.3x boost)`);
+        }
+      }
+
+      // Ensure roof ≠ wall contrast: prefer non-gray fallback when possible
+      if (wallDom === roofDom) {
+        // First try non-gray, non-roof block
+        const nonGrayFallback = sorted.find(([b]) =>
+          b !== roofDom && !SPECIAL_BLOCKS.has(b) && !GRAY_BLOCKS.has(b)
+        );
+        if (nonGrayFallback) {
+          wallDom = nonGrayFallback[0];
+        } else {
+          // All secondaries are gray or match roof — de-bake the dominant
+          const wallCluster = WALL_CLUSTERS.find(c => c.options.includes(roofDom));
+          if (wallCluster) {
+            const [wr, wg, wb] = wallCluster.rgb;
+            const debaked = rgbToWallBlock(
+              Math.min(255, Math.round(wr * 1.3)),
+              Math.min(255, Math.round(wg * 1.3)),
+              Math.min(255, Math.round(wb * 1.3)),
+            );
+            if (debaked !== roofDom) wallDom = debaked;
+          }
+        }
+        console.log(`  Wall fallback: ${wallDom.replace('minecraft:', '')} (avoided roof duplicate)`);
+      }
+    }
 
     // Apply zone-specific remaps
     let simplified = 0;
@@ -1571,15 +1797,20 @@ async function main(): Promise<void> {
 
   // Sky contamination remap — Google 3D Tiles bake ambient skylight (blue/cyan)
   // into upward-facing surfaces. These are artifacts, never real materials.
-  const skyReplacements = new Map<string, string>([
-    ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
-    ['minecraft:cyan_terracotta', 'minecraft:stone'],
-    ['minecraft:light_blue_concrete', 'minecraft:light_gray_concrete'],
-    ['minecraft:cyan_concrete', 'minecraft:stone'],
-  ]);
-  const constrained = constrainPalette(trimmed, skyReplacements);
-  if (constrained > 0) {
-    console.log(`Sky palette: ${constrained} blue/cyan sky-contaminated blocks remapped`);
+  // SKIP when --coords is used: Street View color sampling intentionally picks
+  // blue/cyan blocks for buildings that really are blue (Victorians, painted facades).
+  // The SV color pipeline already filters vegetation and sky from its samples.
+  if (!args.coords) {
+    const skyReplacements = new Map<string, string>([
+      ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
+      ['minecraft:cyan_terracotta', 'minecraft:stone'],
+      ['minecraft:light_blue_concrete', 'minecraft:light_gray_concrete'],
+      ['minecraft:cyan_concrete', 'minecraft:stone'],
+    ]);
+    const constrained = constrainPalette(trimmed, skyReplacements);
+    if (constrained > 0) {
+      console.log(`Sky palette: ${constrained} blue/cyan sky-contaminated blocks remapped`);
+    }
   }
 
   // Connected-component cleanup — remove floating debris and disconnected clusters.

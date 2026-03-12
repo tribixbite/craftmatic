@@ -24,7 +24,7 @@ import type { RGB } from '../src/types/index.js';
 sharp.concurrency(1);
 const projectRoot = resolve(import.meta.dir, '..');
 const tilesDir = join(projectRoot, 'output/tiles');
-const outDir = join(tilesDir, 'overlay-v65');
+const outDir = join(tilesDir, 'overlay-v66');
 await mkdir(outDir, { recursive: true });
 
 const dotenv = await Bun.file(join(projectRoot, '.env')).text();
@@ -41,14 +41,14 @@ interface Building {
 }
 
 const BUILDINGS: Building[] = [
-  { name: 'noe',       schem: 'noe-v65',       lat: 37.7604, lng: -122.4314, zoom: 21, satFile: 'noe-450-satellite' },
-  { name: 'green',     schem: 'green-v65',     lat: 37.7954, lng: -122.4332, zoom: 20, satFile: 'green-2390-satellite' },
-  { name: 'francisco', schem: 'francisco-v65', lat: 37.8005, lng: -122.4382, zoom: 20, satFile: 'francisco-2340-satellite' },
-  { name: 'beach',     schem: 'beach-v65',     lat: 37.8031, lng: -122.4397, zoom: 20, satFile: 'beach-2130-satellite' },
-  { name: 'chestnut',  schem: 'chestnut-v65',  lat: 37.8007, lng: -122.4378, zoom: 20, satFile: 'chestnut-2001-satellite' },
-  { name: 'dakota',    schem: 'dakota-v65',    lat: 40.7766, lng: -73.9762,  zoom: 20, satFile: 'dakota-satellite' },
+  { name: 'noe',       schem: 'noe-v66',       lat: 37.7604, lng: -122.4314, zoom: 21, satFile: 'noe-450-satellite' },
+  { name: 'green',     schem: 'green-v66',     lat: 37.7954, lng: -122.4332, zoom: 20, satFile: 'green-2390-satellite' },
+  { name: 'francisco', schem: 'francisco-v66', lat: 37.8005, lng: -122.4382, zoom: 20, satFile: 'francisco-2340-satellite' },
+  { name: 'beach',     schem: 'beach-v66',     lat: 37.8031, lng: -122.4397, zoom: 20, satFile: 'beach-2130-satellite' },
+  { name: 'chestnut',  schem: 'chestnut-v66',  lat: 37.8007, lng: -122.4378, zoom: 20, satFile: 'chestnut-2001-satellite' },
+  { name: 'dakota',    schem: 'dakota-v66',    lat: 40.7766, lng: -73.9762,  zoom: 20, satFile: 'dakota-satellite' },
   // Sentinel Building = Columbus Tower at Columbus Ave / Kearny St
-  { name: 'sentinel',  schem: 'sentinel-v65',  lat: 37.7978, lng: -122.4068, zoom: 20 },
+  { name: 'sentinel',  schem: 'sentinel-v66',  lat: 37.7978, lng: -122.4068, zoom: 20 },
 ];
 
 const nameArg = process.argv.find(a => a.startsWith('--name='));
@@ -318,4 +318,4 @@ for (const b of BUILDINGS) {
   if (typeof Bun !== 'undefined') Bun.gc(true);
 }
 
-console.log('\nDone! Check output/tiles/overlay-v65/');
+console.log('\nDone! Check output/tiles/overlay-v66/');
