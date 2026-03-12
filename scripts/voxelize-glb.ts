@@ -1808,25 +1808,14 @@ async function main(): Promise<void> {
     }
     console.log(`Zone facade: ${simplified} blocks | roof=${roofDom.replace('minecraft:', '')} wall=${wallDom.replace('minecraft:', '')} ground=${groundBlock.replace('minecraft:', '')} band=${bandBlock.replace('minecraft:', '')} trim=${trimBlock.replace('minecraft:', '')}`);
 
-    // ── Roof parapet — 1-block raised border on flat roof edges ─────────────
+    // ── Roof parapet — 1-block accent border on flat roof edges ─────────────
     // Creates a visible roofline boundary (common in real architecture).
-    // Only add parapet on roof-edge columns that border air at roof level.
+    // Uses MODE roof height (most common topY) instead of global max — handles
+    // buildings with towers/spires that exceed the main roof plane.
     {
-      // Find global max roof height
-      let globalMaxY = 0;
-      for (let x = 0; x < width; x++) {
-        for (let z = 0; z < gl; z++) {
-          for (let y = gh - 1; y >= 0; y--) {
-            if (trimmed.get(x, y, z) !== 'minecraft:air') {
-              globalMaxY = Math.max(globalMaxY, y);
-              break;
-            }
-          }
-        }
-      }
-
-      // Detect flat roof: >60% of occupied columns at global max Y (±1 block tolerance)
-      let atMax = 0, totalOccupied = 0;
+      // Build height histogram to find the dominant (mode) roof height
+      const heightHist = new Map<number, number>();
+      let totalOccupied = 0;
       for (let x = 0; x < width; x++) {
         for (let z = 0; z < gl; z++) {
           let topY = -1;
@@ -1835,11 +1824,22 @@ async function main(): Promise<void> {
           }
           if (topY >= 0) {
             totalOccupied++;
-            if (topY >= globalMaxY - 1) atMax++;
+            heightHist.set(topY, (heightHist.get(topY) ?? 0) + 1);
           }
         }
       }
-      const flatRoof = totalOccupied > 0 && (atMax / totalOccupied) > 0.60;
+
+      // Find mode roof height and check if it's dominant (>40% of columns)
+      let modeH = 0, modeCount = 0;
+      for (const [h, c] of heightHist) {
+        if (c > modeCount) { modeH = h; modeCount = c; }
+      }
+      // Count columns within ±1 of mode height (flat section)
+      const atMode = (heightHist.get(modeH - 1) ?? 0) + modeCount + (heightHist.get(modeH + 1) ?? 0);
+      // 25% threshold — catches buildings with towers above a dominant flat section
+      // (Dakota has Y=42 at 27%). Lower threshold is safe because parapet only
+      // touches columns at the mode height, not the whole building.
+      const flatRoof = totalOccupied > 0 && (atMode / totalOccupied) > 0.25;
 
       if (flatRoof) {
         let parapetCount = 0;
@@ -1850,13 +1850,13 @@ async function main(): Promise<void> {
             for (let y = gh - 1; y >= 0; y--) {
               if (trimmed.get(x, y, z) !== 'minecraft:air') { topY = y; break; }
             }
-            if (topY < 0 || topY < globalMaxY - 1) continue;
-            // Check if this column is on the roof perimeter (adjacent air at topY level)
+            // Only apply parapet to columns at or near the mode roof height
+            if (topY < 0 || Math.abs(topY - modeH) > 1) continue;
+            // Check if this column is on the roof perimeter (adjacent air or shorter neighbor)
             let isEdge = false;
             for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]] as const) {
               const nx = x + dx, nz = z + dz;
               if (nx < 0 || nx >= width || nz < 0 || nz >= gl) { isEdge = true; break; }
-              // Air neighbor or significantly shorter neighbor = edge column
               let nTopY = -1;
               for (let ny = gh - 1; ny >= 0; ny--) {
                 if (trimmed.get(nx, ny, nz) !== 'minecraft:air') { nTopY = ny; break; }
@@ -1864,13 +1864,13 @@ async function main(): Promise<void> {
               if (nTopY < topY - 2) { isEdge = true; break; }
             }
             if (isEdge) {
-              // Replace the roof block at topY with parapet material (no grid expansion needed)
+              // Replace the roof block at topY with parapet material
               trimmed.set(x, topY, z, parapetBlock);
               parapetCount++;
             }
           }
         }
-        if (parapetCount > 0) console.log(`Roof parapet: ${parapetCount} blocks placed (${parapetBlock.replace('minecraft:', '')})`);
+        if (parapetCount > 0) console.log(`Roof parapet: ${parapetCount} blocks at mode height ${modeH} (${parapetBlock.replace('minecraft:', '')})`);
       }
     }
 
