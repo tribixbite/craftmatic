@@ -2298,6 +2298,121 @@ export function fireEscapeFilter(
  * @param eaveBlock  Block for wooden eave overhang (default: spruce_planks)
  * @returns          Number of blocks placed/changed
  */
+
+/**
+ * Add a hip/pyramid roof by stacking progressively inset footprints.
+ * Each layer erodes the XZ footprint by 1 block and places it 1 Y higher.
+ * Creates a natural sloped roof from any footprint shape (triangles, rectangles, L-shapes).
+ *
+ * @param grid       Source BlockGrid (modified in place)
+ * @param roofBlock  Block for roof surface (default: same as topmost layer's dominant block)
+ * @param maxLayers  Maximum number of roof layers to add (default: 15)
+ * @returns          Number of blocks placed
+ */
+export function addPeakedRoof(
+  grid: BlockGrid,
+  roofBlock?: string,
+  maxLayers = 15,
+): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let placed = 0;
+
+  // Find the highest non-air Y for each (x, z) — the "roof surface"
+  const heightMap = new Int32Array(width * length).fill(-1);
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = height - 1; y >= 0; y--) {
+        if (grid.get(x, y, z) !== AIR) {
+          heightMap[z * width + x] = y;
+          break;
+        }
+      }
+    }
+  }
+
+  // Find the max height (roof level) and dominant roof block
+  let maxH = 0;
+  const blockCounts = new Map<string, number>();
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const h = heightMap[z * width + x];
+      if (h > maxH) maxH = h;
+    }
+  }
+  // Sample blocks at the top layer to find dominant roof block
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const h = heightMap[z * width + x];
+      if (h >= maxH - 2) { // top 3 layers
+        const b = grid.get(x, h, z);
+        if (b !== AIR) blockCounts.set(b, (blockCounts.get(b) ?? 0) + 1);
+      }
+    }
+  }
+  const dominantRoof = roofBlock ?? [...blockCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'minecraft:andesite';
+
+  // Build roof layers by iteratively eroding the footprint
+  // Start with the top-layer footprint (all positions at maxH or within 2 blocks of it)
+  let currentFootprint = new Set<number>();
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const h = heightMap[z * width + x];
+      if (h >= maxH - 2) { // within 2 blocks of top
+        currentFootprint.add(z * width + x);
+      }
+    }
+  }
+
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
+  for (let layer = 0; layer < maxLayers; layer++) {
+    // Erode: remove boundary voxels (those touching air/outside)
+    const eroded = new Set<number>();
+    for (const idx of currentFootprint) {
+      const x = idx % width;
+      const z = Math.floor(idx / width);
+      let isBoundary = false;
+      for (const [dx, dz] of DIRS) {
+        const nx = x + dx, nz = z + dz;
+        if (nx < 0 || nx >= width || nz < 0 || nz >= length) {
+          isBoundary = true;
+          break;
+        }
+        if (!currentFootprint.has(nz * width + nx)) {
+          isBoundary = true;
+          break;
+        }
+      }
+      if (!isBoundary) {
+        eroded.add(idx);
+      }
+    }
+
+    if (eroded.size === 0) break; // Fully eroded — peak reached
+
+    // Place roof blocks at maxH + 1 + layer for the eroded footprint
+    const placeY = maxH + 1 + layer;
+    if (placeY >= 256) break; // MC height limit
+
+    // Expand grid height if needed (BlockGrid.expandHeight adds air layers on top)
+    if (placeY >= grid.height) {
+      grid.expandHeight(placeY + maxLayers + 1);
+    }
+
+    for (const idx of eroded) {
+      const x = idx % width;
+      const z = Math.floor(idx / width);
+      grid.set(x, placeY, z, dominantRoof);
+      placed++;
+    }
+
+    currentFootprint = eroded;
+  }
+
+  return placed;
+}
+
 export function addRoofCornice(
   grid: BlockGrid,
   tileBlock = 'minecraft:bricks',
