@@ -1769,6 +1769,10 @@ async function main(): Promise<void> {
           if (y === topY) {
             // Roof zone — always satellite-derived
             target = roofDom;
+          } else if (y === topY - 1 && wallH >= 5 && !isCorner) {
+            // Cornice band — 1 block below roof, defines wall-roof transition.
+            // Adds visual cap that reads as roofline detail from isometric angle.
+            target = bandBlock;
           } else if (isCorner && wallH >= 5) {
             // Corner pilasters — vertical trim accent
             target = trimBlock;
