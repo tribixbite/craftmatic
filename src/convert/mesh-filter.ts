@@ -1176,15 +1176,18 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number):
  * @param grid  Source BlockGrid (modified in place)
  * @returns Number of surface voxels removed
  */
-export function smoothSurface(grid: BlockGrid): number {
+export function smoothSurface(grid: BlockGrid, maxY?: number): number {
   const { width, height, length } = grid;
   const AIR = 'minecraft:air';
   let totalChanged = 0;
+  // maxY: optional upper Y bound (exclusive) — skip smoothing above this layer
+  // to preserve roof features (gables, peaks, dormers) that read as noise.
+  const yLimit = maxY !== undefined ? Math.min(maxY, height) : height;
 
   // Face-adjacent offsets in XZ plane (4-connected)
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
-  for (let y = 0; y < height; y++) {
+  for (let y = 0; y < yLimit; y++) {
     // Snapshot this layer
     const layer: boolean[] = new Array(width * length);
     const blocks: string[] = new Array(width * length);

@@ -87,9 +87,24 @@ async function sampleSatelliteRoof(
       }
     }
     const roofR = Math.round(rR / rN), roofG = Math.round(rG / rN), roofB = Math.round(rB / rN);
-    const roofBlock = rgbToWallBlock(roofR, roofG, roofB);
+    let roofBlock = rgbToWallBlock(roofR, roofG, roofB);
 
-    console.log(`  Satellite roof: rgb(${roofR},${roofG},${roofB})→${roofBlock.replace('minecraft:', '')}`);
+    // v70: Force gray satellite colors to neutral blocks — prevents warm-toned
+    // stone_bricks/terracotta from appearing on gray roofs. Satellite imagery
+    // of gray roofs (concrete, slate, asphalt) has very low saturation.
+    const roofMax = Math.max(roofR, roofG, roofB);
+    const roofMin = Math.min(roofR, roofG, roofB);
+    const roofSat = roofMax > 0 ? (roofMax - roofMin) / roofMax : 0;
+    if (roofSat < 0.15) {
+      const lum = (roofR + roofG + roofB) / 3;
+      if (lum < 60) roofBlock = 'minecraft:polished_deepslate';
+      else if (lum < 100) roofBlock = 'minecraft:gray_concrete';
+      else if (lum < 140) roofBlock = 'minecraft:andesite';
+      else if (lum < 180) roofBlock = 'minecraft:light_gray_concrete';
+      else roofBlock = 'minecraft:smooth_stone';
+    }
+
+    console.log(`  Satellite roof: rgb(${roofR},${roofG},${roofB}) sat=${(roofSat*100).toFixed(0)}%→${roofBlock.replace('minecraft:', '')}`);
     return { roofBlock, roofRgb: [roofR, roofG, roofB] };
   } catch (e) {
     console.log(`  Satellite color: ${(e as Error).message}`);
@@ -1517,17 +1532,22 @@ async function main(): Promise<void> {
   }
 
   // Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
+  // v70: Skip smoothing on top 20% of building — preserves roof peaks, gables,
+  // dormers that register as 1-block protrusions. Walls benefit from smoothing
+  // but roof features are real architecture, not noise.
   {
-    const surfaceSmoothed = smoothSurface(trimmed);
+    const roofCutoff = Math.round(trimmed.height * 0.80);
+    const surfaceSmoothed = smoothSurface(trimmed, roofCutoff);
     if (surfaceSmoothed > 0) {
-      console.log(`Surface smoothing: ${surfaceSmoothed} 1-block protrusions removed`);
+      console.log(`Surface smoothing: ${surfaceSmoothed} 1-block protrusions removed (below Y=${roofCutoff})`);
     }
     // For rectangular buildings, snap noisy walls to dominant flat planes.
-    // tolerance=2 only affects blocks within 2 of the dominant plane per face,
-    // so this is safe even for dense captures — non-rectangular features that
-    // are >2 blocks from a cardinal plane won't be flattened.
+    // v70: tolerance reduced from 2 to 1 — tolerance=2 was destroying bay windows
+    // (Green: 15 blocks snapped) and facade setbacks (Dakota: 124 blocks).
+    // tolerance=1 only snaps blocks directly adjacent to the dominant plane,
+    // preserving 2+ block protrusions like bay windows and stepped facades.
     if (analysis?.isRectangular) {
-      const snapped = flattenFacades(trimmed, 2);
+      const snapped = flattenFacades(trimmed, 1);
       if (snapped > 0) {
         console.log(`Facade flattening: ${snapped} voxels snapped to dominant planes`);
       }
@@ -1884,9 +1904,10 @@ async function main(): Promise<void> {
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
   {
-    // Scale passes by sqrt(resolution): linear scaling (4→13) was too aggressive
-    // and destroyed roof detail + courtyard geometry. sqrt gives 4→7 at 3.28x.
-    const basePasses = Math.max(args.modePasses, 4);
+    // Respect auto-detected modePasses (v70): removing floor of 4 so auto-detect
+    // can recommend 2 passes for well-captured buildings. v69's floor of 4 was
+    // over-smoothing bay windows (Green) and roof peaks (Dakota).
+    const basePasses = Math.max(args.modePasses, 1);
     const passes = Math.round(basePasses * Math.sqrt(args.resolution));
     const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
@@ -1936,13 +1957,15 @@ async function main(): Promise<void> {
     console.log(`Custom remap: ${remapped} blocks remapped (${args.remaps.size} rules)`);
   }
 
-  // Entry path — place walkway from grid edge to detected building entrance
-  if (analysis?.entryPosition && analysis.entryPath.length > 0) {
-    const pathPlaced = placeEntryPath(trimmed, analysis);
-    if (pathPlaced > 0) {
-      console.log(`Entry path: ${pathPlaced} blocks placed (smooth_stone_slab, face=${analysis.entryFace})`);
-    }
-  }
+  // Entry path disabled for tiles pipeline (v70): the diagonal walkway from
+  // grid edge to building entrance confuses VLM grading ("strange appendage").
+  // Keep placeEntryPath available for generated buildings but skip it here.
+  // if (analysis?.entryPosition && analysis.entryPath.length > 0) {
+  //   const pathPlaced = placeEntryPath(trimmed, analysis);
+  //   if (pathPlaced > 0) {
+  //     console.log(`Entry path: ${pathPlaced} blocks placed (smooth_stone_slab, face=${analysis.entryFace})`);
+  //   }
+  // }
 
   // Write output
   const nonAir = trimmed.countNonAir();
