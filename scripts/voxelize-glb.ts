@@ -193,7 +193,7 @@ Options:
   let trimThreshold = 0.05;
   let gamma = 0.75; // Google 3D Tiles have baked lighting — 0.75 brightens shadows while preserving mid-tones
   let kernel = 12; // Moderate kernel — preserves window/trim features while smoothing noise
-  let desaturate = 0.2; // Light desaturation — preserve building-specific colors
+  let desaturate = 0.05; // Minimal desaturation — preserve building-specific colors (green copper, brick, etc.)
   let outputPath = '';
   let infoOnly = false;
   let generic = false;
@@ -1883,8 +1883,10 @@ async function main(): Promise<void> {
             // Floor band lines — ~4m intervals, thin horizontal divider
             target = bandBlock;
           } else {
-            // Main wall body
-            target = wallDom;
+            // Main wall body — preserve distinctive (non-gray) colors from photogrammetry.
+            // Gray blocks are baked-lighting artifacts; replace with wallDom.
+            // Non-gray blocks carry real material signal (brick, copper, terracotta); keep them.
+            target = GRAY_BLOCKS.has(b) ? wallDom : b;
           }
           if (b !== target) { trimmed.set(x, y, z, target); simplified++; }
         }
