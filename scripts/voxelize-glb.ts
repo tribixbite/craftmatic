@@ -128,6 +128,7 @@ interface CLIArgs {
   generic: boolean;
   explicitGeneric: boolean; // true if --generic was explicitly passed on CLI
   explicitFill: boolean;    // true if --fill was explicitly passed on CLI
+  explicitModePasses: boolean; // true if --mode-passes was explicitly passed on CLI
   preview: boolean;
   smoothPct: number;    // smoothRareBlocks threshold (0 = skip)
   modePasses: number;   // modeFilter3D pass count (0 = skip)
@@ -205,6 +206,7 @@ Options:
   let preview = false;
   let smoothPct = 0; // disabled by default; modeFilter3D handles noise locally
   let modePasses = 2; // Auto-detect overrides; 2 passes after K-Means for coherent zones
+  let explicitModePasses = false;
   let fill = false;
   let noPalette = false;
   let noCornice = false;
@@ -254,6 +256,7 @@ Options:
       smoothPct = parseFloat(args[++i]);
     } else if (arg === '--mode-passes') {
       modePasses = parseInt(args[++i], 10);
+      explicitModePasses = true;
     } else if (arg === '--fill') {
       fill = true;
       explicitFill = true;
@@ -334,7 +337,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1275,7 +1278,7 @@ async function main(): Promise<void> {
     args.noCornice = rec.noCornice;
     args.noFireEscape = rec.noFireEscape;
     args.smoothPct = rec.smoothPct;
-    args.modePasses = rec.modePasses;
+    if (!args.explicitModePasses) args.modePasses = rec.modePasses;
     // Only apply auto-crop if the detected component is non-trivial (>100 blocks)
     const centralVol = (aabb.maxX - aabb.minX + 1) * (aabb.maxY - aabb.minY + 1) * (aabb.maxZ - aabb.minZ + 1);
     if (args.cropRadius === 0 && rec.cropRadius > 0 && centralVol > 100) {
