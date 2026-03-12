@@ -24,6 +24,7 @@ interface BuildingConfig {
   glb: string;
   coords: string;         // "lat,lng" for OSM mask
   satRef: string;
+  satZoom: number;        // Google Static Maps satellite zoom (19=commercial, 20=residential, 21=tiny)
   resolution: number;     // 1 or 2
   maskDilate: number;     // 0-3
   extraFlags: string[];   // additional voxelize flags
@@ -36,10 +37,12 @@ const DIR = 'output/tiles';
 
 const BUILDINGS: BuildingConfig[] = [
   {
+    // Iconic triangular wedge building — v80c: 10/10, proven winner
     key: 'flatiron',
     glb: `${DIR}/tiles-flatiron-building-new-york-ny.glb`,
     coords: '40.7411,-73.9897',
     satRef: `${DIR}/sat-ref-flatiron.jpg`,
+    satZoom: 19,
     resolution: 2,
     maskDilate: 1,
     extraFlags: [],
@@ -48,11 +51,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
+    // Simple dual-rectangle residential — v80c: 8.2/10
     key: 'beach',
     glb: `${DIR}/tiles-2130-beach-st-san-francisco-ca.glb`,
-    coords: '37.8004,-122.4365', // v70/v71 verified coords (v77/v78 coords were wrong)
+    coords: '37.8004,-122.4365',
     satRef: `${DIR}/sat-ref-beach.jpg`,
-    resolution: 2, // force 2x for better footprint accuracy
+    satZoom: 20,
+    resolution: 2,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'easy',
@@ -60,11 +65,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
+    // Rectangular + curved commercial — v80c: 6.5 (high variance, peaked at 10)
     key: 'chestnut',
     glb: `${DIR}/tiles-2001-chestnut-st-san-francisco-ca.glb`,
     coords: '37.8003,-122.4337',
     satRef: `${DIR}/sat-ref-chestnut.jpg`,
-    resolution: 2, // force 2x for better footprint accuracy
+    satZoom: 20,
+    resolution: 2,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
@@ -72,11 +79,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
+    // Compound building — v80c: 6.3 (partial capture, only one edge)
     key: 'francisco',
-    glb: `${DIR}/tiles-2340-francisco-st-san-francisco-ca.glb`,
+    glb: `${DIR}/tiles-2340-francisco-st-san-francisco-ca-94123.glb`,
     coords: '37.8005,-122.4384',
     satRef: `${DIR}/sat-ref-francisco.jpg`,
-    resolution: 2, // force 2x for better footprint accuracy
+    satZoom: 20,
+    resolution: 2,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'hard',
@@ -84,11 +93,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    key: 'baker',
-    glb: `${DIR}/tiles-3170-baker-st-san-francisco-ca.glb`,
-    coords: '37.7930,-122.4430',
-    satRef: `${DIR}/sat-ref-baker.jpg`,
-    resolution: 2, // force 2x for better footprint accuracy
+    // Cross-shaped cathedral — distinctive cruciform footprint (A=4 potential)
+    key: 'stpatricks',
+    glb: `${DIR}/tiles-st-patrick-s-cathedral-new-york-ny.glb`,
+    coords: '40.7585,-73.9760',
+    satRef: `${DIR}/sat-ref-stpatricks.jpg`,
+    satZoom: 19,
+    resolution: 2,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
@@ -96,23 +107,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
+    // Rounded footprint residential — v80c: 6.5 at 1x, now 2x
     key: 'noe',
     glb: `${DIR}/tiles-450-noe-st-san-francisco-ca.glb`,
     coords: '37.7604,-122.4314',
     satRef: `${DIR}/sat-ref-noe.jpg`,
-    resolution: 1, // iterate-grade will auto-bump to 2x if mesh < 25m
-    maskDilate: 1,
-    extraFlags: [],
-    difficulty: 'hard',
-    tileSize: 8,
-    topdownScale: 12,
-  },
-  {
-    key: 'green',
-    glb: `${DIR}/tiles-2390-green-st-san-francisco-ca.glb`,
-    coords: '37.7972,-122.4378',
-    satRef: `${DIR}/sat-ref-green.jpg`,
-    resolution: 2, // force 2x for better footprint accuracy
+    satZoom: 20,
+    resolution: 2,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'hard',
@@ -120,23 +121,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    key: 'charleston',
-    glb: `${DIR}/tiles-41-legare-st-charleston-sc-29401.glb`,
-    coords: '32.7714,-79.9326',
-    satRef: `${DIR}/sat-ref-charleston.jpg`,
-    resolution: 2, // force 2x for better footprint accuracy
-    maskDilate: 2,
-    extraFlags: [],
-    difficulty: 'hard',
-    tileSize: 4,
-    topdownScale: 6,
-  },
-  {
-    key: 'seattle',
-    glb: `${DIR}/tiles-4810-sw-ledroit-pl-seattle-wa-98136.glb`,
-    coords: '47.5415,-122.3850',
-    satRef: `${DIR}/sat-ref-seattle.jpg`,
-    resolution: 2, // force 2x for better footprint accuracy
+    // Large residential, 6.6MB GLB — good capture quality
+    key: 'lyon',
+    glb: `${DIR}/tiles-3601-lyon-st-san-francisco-ca.glb`,
+    coords: '37.8020,-122.4472',
+    satRef: `${DIR}/sat-ref-lyon.jpg`,
+    satZoom: 20,
+    resolution: 2,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
@@ -144,11 +135,41 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    key: 'sanjose',
-    glb: `${DIR}/tiles-525-s-winchester-blvd-san-jose-ca-95128.glb`,
-    coords: '37.3122,-121.9452',
-    satRef: `${DIR}/sat-ref-sanjose.jpg`,
-    resolution: 2, // force 2x for better footprint accuracy
+    // Triangular/wedge flatiron at Columbus/Kearny — distinctive footprint
+    key: 'sentinel',
+    glb: `${DIR}/tiles-sentinel-building-san-francisco-ca.glb`,
+    coords: '37.7978,-122.4068',
+    satRef: `${DIR}/sat-ref-sentinel.jpg`,
+    satZoom: 20,
+    resolution: 2,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 4,
+    topdownScale: 6,
+  },
+  {
+    // Transamerica area — previously scored 7-10 in v73
+    key: 'montgomery',
+    glb: `${DIR}/tiles-600-montgomery-st-san-francisco-ca.glb`,
+    coords: '37.7954,-122.4029',
+    satRef: `${DIR}/sat-ref-montgomery.jpg`,
+    satZoom: 19,
+    resolution: 2,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 4,
+    topdownScale: 6,
+  },
+  {
+    // Large residential, 4.2MB GLB — LA, different region
+    key: 'glendower',
+    glb: `${DIR}/tiles-2607-glendower-ave-los-angeles-ca-90027.glb`,
+    coords: '34.1134,-118.2808',
+    satRef: `${DIR}/sat-ref-glendower.jpg`,
+    satZoom: 20,
+    resolution: 2,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
@@ -227,10 +248,29 @@ if (selectedBuildings.length === 0) {
   process.exit(1);
 }
 
-// ── API key ──
+// ── API keys ──
 const apiKey = process.env.GOOGLE_API_KEY
   || (existsSync('.env') ? readFileSync('.env', 'utf8').match(/GOOGLE_API_KEY=(.+)/)?.[1]?.trim() : undefined);
 if (!apiKey) { console.error('No GOOGLE_API_KEY'); process.exit(1); }
+
+const mapsKey = process.env.GOOGLE_MAPS_API_KEY || apiKey;
+
+/** Fetch satellite reference image for a building if missing or --refresh-sat flag */
+async function ensureSatRef(b: BuildingConfig): Promise<void> {
+  const refreshSat = hasFlag('--refresh-sat');
+  if (!refreshSat && existsSync(b.satRef)) return;
+  const [lat, lng] = b.coords.split(',');
+  const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${b.satZoom}&size=640x640&maptype=satellite&key=${mapsKey}`;
+  console.log(`  Fetching satellite ref for ${b.key} (z${b.satZoom})...`);
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    console.error(`  Failed to fetch satellite for ${b.key}: ${resp.status}`);
+    return;
+  }
+  const buf = Buffer.from(await resp.arrayBuffer());
+  await Bun.write(b.satRef, buf);
+  console.log(`  Saved: ${b.satRef} (${(buf.length / 1024).toFixed(0)}KB)`);
+}
 
 // ── Helpers ──
 
@@ -283,9 +323,10 @@ async function voxelize(b: BuildingConfig): Promise<string> {
 async function render(b: BuildingConfig, schem: string, actualRes: number): Promise<{ iso: string; topdown: string }> {
   const iso = schem.replace('.schem', '-iso.jpg');
   const topdown = schem.replace('.schem', '-topdown.jpg');
-  // At 2x resolution, use smaller tile size (more blocks per pixel) to fit in frame
-  const tile = actualRes >= 2 ? Math.max(2, Math.floor(b.tileSize / 2)) : b.tileSize;
-  const scale = actualRes >= 2 ? Math.max(4, Math.floor(b.topdownScale / 2)) : b.topdownScale;
+  // Use configured tile/scale directly — at 2x resolution the grid is 2x larger,
+  // so the render is 2x larger. Sharp will downscale to 500px panel → crisp result.
+  const tile = b.tileSize;
+  const scale = b.topdownScale;
   console.log(`  Rendering: iso (tile=${tile}) + topdown (scale=${scale}) [res=${actualRes}x]`);
   await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
   await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
@@ -458,6 +499,9 @@ async function main(): Promise<void> {
 
   for (const b of selectedBuildings) {
     console.log(`\n── ${b.key.toUpperCase()} (${b.difficulty}) ──`);
+
+    // Ensure satellite reference exists (fetch if missing or --refresh-sat)
+    await ensureSatRef(b);
 
     let schem = `${DIR}/${b.key}-${version}.schem`;
     let iso = schem.replace('.schem', '-iso.jpg');
