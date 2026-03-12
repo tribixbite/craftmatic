@@ -50,50 +50,50 @@ const BUILDINGS: BuildingConfig[] = [
   {
     key: 'beach',
     glb: `${DIR}/tiles-2130-beach-st-san-francisco-ca.glb`,
-    coords: '37.8054,-122.4340',
+    coords: '37.8004,-122.4365', // v70/v71 verified coords (v77/v78 coords were wrong)
     satRef: `${DIR}/sat-ref-beach.jpg`,
-    resolution: 1,
-    maskDilate: 1,
+    resolution: 2, // force 2x for better footprint accuracy
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'easy',
-    tileSize: 8,
-    topdownScale: 12,
+    tileSize: 4,
+    topdownScale: 6,
   },
   {
     key: 'chestnut',
     glb: `${DIR}/tiles-2001-chestnut-st-san-francisco-ca.glb`,
     coords: '37.8003,-122.4337',
     satRef: `${DIR}/sat-ref-chestnut.jpg`,
-    resolution: 1,
-    maskDilate: 1,
+    resolution: 2, // force 2x for better footprint accuracy
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
-    tileSize: 8,
-    topdownScale: 12,
+    tileSize: 4,
+    topdownScale: 6,
   },
   {
     key: 'francisco',
     glb: `${DIR}/tiles-2340-francisco-st-san-francisco-ca.glb`,
     coords: '37.8005,-122.4384',
     satRef: `${DIR}/sat-ref-francisco.jpg`,
-    resolution: 1,
-    maskDilate: 1,
+    resolution: 2, // force 2x for better footprint accuracy
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'hard',
-    tileSize: 8,
-    topdownScale: 12,
+    tileSize: 4,
+    topdownScale: 6,
   },
   {
     key: 'baker',
     glb: `${DIR}/tiles-3170-baker-st-san-francisco-ca.glb`,
     coords: '37.7930,-122.4430',
     satRef: `${DIR}/sat-ref-baker.jpg`,
-    resolution: 1,
-    maskDilate: 1,
+    resolution: 2, // force 2x for better footprint accuracy
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
-    tileSize: 8,
-    topdownScale: 12,
+    tileSize: 4,
+    topdownScale: 6,
   },
   {
     key: 'noe',
@@ -112,48 +112,48 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/tiles-2390-green-st-san-francisco-ca.glb`,
     coords: '37.7972,-122.4378',
     satRef: `${DIR}/sat-ref-green.jpg`,
-    resolution: 1,
-    maskDilate: 1,
+    resolution: 2, // force 2x for better footprint accuracy
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'hard',
-    tileSize: 8,
-    topdownScale: 12,
+    tileSize: 4,
+    topdownScale: 6,
   },
   {
     key: 'charleston',
     glb: `${DIR}/tiles-41-legare-st-charleston-sc-29401.glb`,
     coords: '32.7714,-79.9326',
     satRef: `${DIR}/sat-ref-charleston.jpg`,
-    resolution: 1,
-    maskDilate: 1,
+    resolution: 2, // force 2x for better footprint accuracy
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'hard',
-    tileSize: 8,
-    topdownScale: 12,
+    tileSize: 4,
+    topdownScale: 6,
   },
   {
     key: 'seattle',
     glb: `${DIR}/tiles-4810-sw-ledroit-pl-seattle-wa-98136.glb`,
     coords: '47.5415,-122.3850',
     satRef: `${DIR}/sat-ref-seattle.jpg`,
-    resolution: 1,
-    maskDilate: 1,
+    resolution: 2, // force 2x for better footprint accuracy
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
-    tileSize: 8,
-    topdownScale: 12,
+    tileSize: 4,
+    topdownScale: 6,
   },
   {
     key: 'sanjose',
     glb: `${DIR}/tiles-525-s-winchester-blvd-san-jose-ca-95128.glb`,
     coords: '37.3122,-121.9452',
     satRef: `${DIR}/sat-ref-sanjose.jpg`,
-    resolution: 1,
-    maskDilate: 1,
+    resolution: 2, // force 2x for better footprint accuracy
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
-    tileSize: 8,
-    topdownScale: 12,
+    tileSize: 4,
+    topdownScale: 6,
   },
 ];
 
@@ -256,32 +256,39 @@ async function run(cmd: string, timeoutMs = 300_000): Promise<string> {
 /** Voxelize a building: glb → schem */
 async function voxelize(b: BuildingConfig): Promise<string> {
   const schem = `${DIR}/${b.key}-${version}.schem`;
-  const flags = [
+  const flagParts = [
     'bun scripts/voxelize-glb.ts', `"${b.glb}"`, '--auto',
     '--coords', `"${b.coords}"`,
     '--mask-dilate', String(b.maskDilate),
-    '-r', String(b.resolution),
-    '-o', `"${schem}"`,
-    ...b.extraFlags,
-  ].join(' ');
-  console.log(`  Voxelizing: ${b.key} (r=${b.resolution}, dilate=${b.maskDilate})`);
+  ];
+  // Only pass -r when explicitly set (resolution > 0); otherwise let auto-2x decide
+  if (b.resolution > 0) flagParts.push('-r', String(b.resolution));
+  flagParts.push('-o', `"${schem}"`, ...b.extraFlags);
+  const flags = flagParts.join(' ');
+  console.log(`  Voxelizing: ${b.key} (r=${b.resolution > 0 ? b.resolution : 'auto'}, dilate=${b.maskDilate})`);
   const out = await run(flags, 600_000);
-  // Log key lines
+  // Detect actual resolution used (for render tile size adjustment)
+  let actualRes = b.resolution > 0 ? b.resolution : 1;
   for (const line of out.split('\n')) {
-    if (/Grid:|mask|polygon|resolution|contrast|Roof darken|Wall|Zone /i.test(line)) {
+    if (/Grid:|mask|polygon|resolution|contrast|Roof darken|Wall|Zone |Auto 2x/i.test(line)) {
       console.log(`    ${line.trim()}`);
     }
+    // Detect auto-2x resolution bump
+    if (/Auto 2x resolution/.test(line)) actualRes = 2;
   }
-  return schem;
+  return { schem, actualRes };
 }
 
 /** Render iso + topdown JPEGs from schem */
-async function render(b: BuildingConfig, schem: string): Promise<{ iso: string; topdown: string }> {
+async function render(b: BuildingConfig, schem: string, actualRes: number): Promise<{ iso: string; topdown: string }> {
   const iso = schem.replace('.schem', '-iso.jpg');
   const topdown = schem.replace('.schem', '-topdown.jpg');
-  console.log(`  Rendering: iso (tile=${b.tileSize}) + topdown (scale=${b.topdownScale})`);
-  await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${b.tileSize}`);
-  await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${b.topdownScale}`);
+  // At 2x resolution, use smaller tile size (more blocks per pixel) to fit in frame
+  const tile = actualRes >= 2 ? Math.max(2, Math.floor(b.tileSize / 2)) : b.tileSize;
+  const scale = actualRes >= 2 ? Math.max(4, Math.floor(b.topdownScale / 2)) : b.topdownScale;
+  console.log(`  Rendering: iso (tile=${tile}) + topdown (scale=${scale}) [res=${actualRes}x]`);
+  await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
+  await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
   return { iso, topdown };
 }
 
@@ -460,9 +467,10 @@ async function main(): Promise<void> {
     try {
       if (!gradeOnly) {
         // Step 1: Voxelize
-        schem = await voxelize(b);
-        // Step 2: Render
-        const renders = await render(b, schem);
+        const voxResult = await voxelize(b);
+        schem = voxResult.schem;
+        // Step 2: Render (pass actual resolution for tile size adjustment)
+        const renders = await render(b, schem, voxResult.actualRes);
         iso = renders.iso;
         topdown = renders.topdown;
         // Step 3: Composite
