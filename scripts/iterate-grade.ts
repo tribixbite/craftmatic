@@ -68,17 +68,15 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // The Dakota, NYC — iconic courtyard building, 1.8MB browser capture
-    // v93: replaces cambridge (4.8). Browser capture = higher quality than headless.
-    // Distinctive courtyard footprint visible from satellite.
-    key: 'dakota',
-    glb: `${DIR}/tiles-the-dakota-new-york-ny.glb`,
-    coords: '40.7764,-73.9762',
-    satRef: `${DIR}/sat-ref-dakota.jpg`,
-    satZoom: 20,
-    resolution: 2,
-    maskDilate: 1,
-    extraFlags: [],
+    // Scottsdale AZ — 1.4MB headless capture, smallest = cleanest isolation
+    key: 'scottsdale',
+    glb: `${DIR}/tiles-scottsdale-headless.glb`,
+    coords: '33.4877,-111.926',
+    satRef: `${DIR}/sat-ref-scottsdale.jpg`,
+    satZoom: 19,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
     tileSize: 4,
     topdownScale: 6,
@@ -112,23 +110,22 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // 191 Peachtree St NE, Atlanta GA — large commercial, 7.0MB headless
-    // v93: --crop-radius 40 to isolate central building (full capture has too many buildings)
-    key: 'atlanta',
-    glb: `${DIR}/flatroof-atlanta.glb`,
-    coords: '33.7590,-84.3880',
-    satRef: `${DIR}/sat-ref-atlanta.jpg`,
-    satZoom: 19,
-    resolution: 1,
-    maskDilate: 2,
-    extraFlags: ['--crop', '40'],
+    // 4810 SW Ledroit Pl, Seattle WA — 2.3MB browser capture
+    key: 'seattle',
+    glb: `${DIR}/tiles-4810-sw-ledroit-pl-seattle-wa-98136.glb`,
+    coords: '47.5551,-122.3876',
+    satRef: `${DIR}/sat-ref-seattle.jpg`,
+    satZoom: 20,
+    resolution: 2,
+    maskDilate: 1,
+    extraFlags: [],
     difficulty: 'medium',
     tileSize: 4,
     topdownScale: 6,
   },
   {
     // 402 W Broadway, San Diego CA — downtown commercial, 6.4MB headless
-    // v93: replaces tampa. --no-osm because polygon is misaligned (65% over-clip)
+    // v93: --no-osm (polygon misaligned), tile=6 for more render detail
     key: 'sandiego',
     glb: `${DIR}/flatroof-sandiego.glb`,
     coords: '32.7157,-117.1611',
@@ -138,16 +135,15 @@ const BUILDINGS: BuildingConfig[] = [
     maskDilate: 2,
     extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
-    tileSize: 4,
-    topdownScale: 6,
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
-    // 600 Montgomery St, SF — classic SF commercial, 8.7MB browser capture
-    // v93: replaces raleigh (3.3, mask reverted). Browser capture = better isolation.
-    key: 'montgomery',
-    glb: `${DIR}/tiles-600-montgomery-st-san-francisco-ca.glb`,
-    coords: '37.7951,-122.4029',
-    satRef: `${DIR}/sat-ref-montgomery.jpg`,
+    // 450 Noe St, SF — 1.1MB browser capture, SF Victorian
+    key: 'noe',
+    glb: `${DIR}/tiles-450-noe-st-san-francisco-ca-94114.glb`,
+    coords: '37.7604,-122.4314',
+    satRef: `${DIR}/sat-ref-noe.jpg`,
     satZoom: 20,
     resolution: 2,
     maskDilate: 1,
