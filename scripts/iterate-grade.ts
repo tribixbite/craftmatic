@@ -110,18 +110,18 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // 4810 SW Ledroit Pl, Seattle WA — 2.3MB browser capture
-    key: 'seattle',
-    glb: `${DIR}/tiles-4810-sw-ledroit-pl-seattle-wa-98136.glb`,
-    coords: '47.5551,-122.3876',
-    satRef: `${DIR}/sat-ref-seattle.jpg`,
+    // Bellaire TX — 2.2MB headless capture, clean single-component rectangular building
+    key: 'bellaire',
+    glb: `${DIR}/tiles-bellaire-headless.glb`,
+    coords: '29.6931,-95.4678',
+    satRef: `${DIR}/sat-ref-bellaire.jpg`,
     satZoom: 20,
-    resolution: 2,
-    maskDilate: 1,
+    resolution: 1,
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
-    tileSize: 4,
-    topdownScale: 6,
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
     // 402 W Broadway, San Diego CA — downtown commercial, 6.4MB headless
@@ -231,9 +231,9 @@ B) Massing accuracy (0-3):
 - 0: Completely wrong volume.
 
 C) Surface quality (0-3):
-- 3: 3+ distinct material zones (roof/wall/ground), clean edges, no color artifacts.
+- 3: 3+ distinct material zones visible (roof/wall/ground/windows). Clean edges. Glass window blocks (darker rectangles on facades) count as a valid zone.
 - 2: Some material distinction, minor noise.
-- 1: Mostly monochrome OR has blue/colored artifacts on facades.
+- 1: Mostly monochrome with no zone distinction.
 - 0: Single material, messy, heavy artifacts.
 
 Total = A + B + C (max 10).
@@ -242,7 +242,7 @@ IMPORTANT: Score what you actually SEE, not what might be there.
 - If the satellite image is obscured (trees, shadows, low zoom), cap A at 2 and B at 1.
 - If the voxel includes multiple buildings or large surrounding terrain, cap A at 3.
 - If edges are blobby/amorphous (no straight lines or clear corners), cap A at 2.
-- If there are blue, cyan, or miscolored patches on walls/roof, cap C at 1.
+- Dark/tinted glass blocks on facades are WINDOWS (intentional), not artifacts. Do NOT penalize window glass for C score.
 
 Calibration anchors:
 - 10/10: The voxel is immediately recognizable as THIS SPECIFIC building. Someone who knows the building would identify it from the voxel alone. Distinctive features perfectly preserved.
