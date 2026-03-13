@@ -129,7 +129,7 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/flatroof-tampa.glb`,
     coords: '27.9458,-82.4582',
     satRef: `${DIR}/sat-ref-tampa.jpg`,
-    satZoom: 19,
+    satZoom: 20,  // v92: bumped from 19 (shadow-obscured) to 20 (clear roof)
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],

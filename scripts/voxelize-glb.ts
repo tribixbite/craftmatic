@@ -2061,10 +2061,10 @@ async function main(): Promise<void> {
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
   {
-    // Respect auto-detected modePasses (v70): removing floor of 4 so auto-detect
-    // can recommend 2 passes for well-captured buildings. v69's floor of 4 was
-    // over-smoothing bay windows (Green) and roof peaks (Dakota).
-    const basePasses = Math.max(args.modePasses, 1);
+    // v92: floor of 3 passes minimum. Deep review found 2 passes insufficient —
+    // all builds rated "noisy, artifact-ridden". v69's floor of 4 over-smoothed
+    // bay windows but 3 is safe. Auto-detect now recommends 3-4 base.
+    const basePasses = Math.max(args.modePasses, 3);
     const passes = Math.round(basePasses * Math.sqrt(args.resolution));
     const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
@@ -2081,18 +2081,20 @@ async function main(): Promise<void> {
     }
   }
 
-  // v74: Facade homogenization — per-face minority block collapse.
-  // Replaces blocks below 5% frequency on each cardinal face with the nearest
-  // majority block on that same face+Y. Reduces visual noise while preserving
-  // zone accents (ground/band/trim) and glass windows via protectedBlocks.
+  // v74/v92: Facade homogenization — per-face minority block collapse.
+  // v92: bumped threshold 5%→8% and added second pass for cleaner facades.
+  // Deep review found all builds "noisy, artifact-ridden" — stronger homogenization needed.
   {
     const facadeProtected = new Set([
       'minecraft:gray_stained_glass', 'minecraft:glass', 'minecraft:glass_pane',
       ...(zoneProtected ?? []),
     ]);
-    const homogenized = homogenizeFacadesByFace(trimmed, 0.05, 6, facadeProtected);
-    if (homogenized > 0) {
-      console.log(`Facade homogenization: ${homogenized} minority blocks collapsed per-face`);
+    const homogenized1 = homogenizeFacadesByFace(trimmed, 0.08, 6, facadeProtected);
+    // Second pass catches blocks that became minority after first pass reshuffled neighbors
+    const homogenized2 = homogenizeFacadesByFace(trimmed, 0.08, 6, facadeProtected);
+    const total = homogenized1 + homogenized2;
+    if (total > 0) {
+      console.log(`Facade homogenization: ${total} minority blocks collapsed (${homogenized1}+${homogenized2}, 2 passes, 8% threshold)`);
     }
   }
 

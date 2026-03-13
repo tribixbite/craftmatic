@@ -1,98 +1,91 @@
 #!/bin/bash
-# Stop hook: check iterate-state.json — VLM passing, deep review status, score inflation.
+# Stop hook: PERPETUAL ITERATION driver.
+# Always outputs a next action — never silent. Drives indefinite improvement.
 STATE="$CLAUDE_PROJECT_DIR/output/tiles/iterate-state.json"
 
 if [ ! -f "$STATE" ]; then
+  echo "ITERATE: No state file. Start with: bun scripts/iterate-grade.ts --version v92 --runs 5"
   exit 0
 fi
 
-# Parse state with python3
-RESULT=$(python3 -c "
+python3 << PYEOF
 import json, sys
-with open('$STATE') as f:
-    d = json.load(f)
-passing = d.get('passing', 0)
-total = d.get('total', 0)
-buildings = d.get('buildings', {})
-last_deep = d.get('lastDeepReview', '')
-version = d.get('version', '?')
 
+with open("$STATE") as f:
+    d = json.load(f)
+
+buildings = d.get('buildings', {})
 if not buildings:
+    print("ITERATE: Empty state. Run: bun scripts/iterate-grade.ts --version v92 --runs 5")
     sys.exit(0)
 
-# VLM failing buildings
-fails = sorted([k for k,v in buildings.items() if v.get('trimmedMean',0) < 9])
-worst = min(buildings.values(), key=lambda x: x.get('trimmedMean', 0))
-worst_str = f\"{worst['key']} ({worst.get('trimmedMean', 0)})\"
+version = d.get('version', '?')
+passing = d.get('passing', 0)
+total = d.get('total', 0)
+last_deep = d.get('lastDeepReview', '')
+
+# Classify failing buildings
+failing = {}
+for k, v in buildings.items():
+    tm = v.get('trimmedMean', 0)
+    if tm < 9:
+        ss = v.get('subscores', [])
+        n = len(ss) if ss else 1
+        avgA = sum(s.get('A',0) for s in ss) / n if ss else 0
+        avgB = sum(s.get('B',0) for s in ss) / n if ss else 0
+        avgC = sum(s.get('C',0) for s in ss) / n if ss else 0
+        dr = v.get('deepReviewMean')
+        sat = v.get('satRefQuality', 5)
+        diag = v.get('diagnosis', '')
+        failing[k] = {'tm': tm, 'A': avgA, 'B': avgB, 'C': avgC, 'dr': dr, 'sat': sat, 'diag': diag}
 
 # Deep review stats
 deep_reviewed = {k: v for k,v in buildings.items() if v.get('deepReviewMean') is not None}
 deep_count = len(deep_reviewed)
-deep_avg = 0
-vlm_avg = 0
-gap = 0
-deep_passing = 0
-if deep_count > 0:
-    deep_avg = sum(v['deepReviewMean'] for v in deep_reviewed.values()) / deep_count
-    vlm_avg = sum(v['trimmedMean'] for v in deep_reviewed.values()) / deep_count
-    gap = abs(vlm_avg - deep_avg)
-    deep_passing = sum(1 for v in deep_reviewed.values() if v.get('deepReviewMean', 0) >= 8)
+deep_avg = sum(v['deepReviewMean'] for v in deep_reviewed.values()) / deep_count if deep_count else 0
+vlm_avg = sum(v['trimmedMean'] for v in deep_reviewed.values()) / deep_count if deep_count else 0
+deep_passing = sum(1 for v in deep_reviewed.values() if v.get('deepReviewMean', 0) >= 8)
 
-# Sat ref warnings
-bad_sat = [k for k,v in buildings.items() if v.get('satRefQuality', 5) < 3]
+# Bad sat refs
+bad_sat = sorted([k for k,v in buildings.items() if v.get('satRefQuality', 5) < 3])
 
-# Output structured result
-print(f'PASSING={passing}')
-print(f'TOTAL={total}')
-print(f'FAILING={','.join(fails)}')
-print(f'WORST={worst_str}')
-print(f'DEEP_COUNT={deep_count}')
-print(f'DEEP_AVG={deep_avg:.1f}')
-print(f'VLM_AVG={vlm_avg:.1f}')
-print(f'GAP={gap:.1f}')
-print(f'DEEP_PASSING={deep_passing}')
-print(f'BAD_SAT={','.join(bad_sat)}')
-print(f'LAST_DEEP={last_deep}')
-print(f'VERSION={version}')
-" 2>/dev/null)
+# Build prioritized action list
+actions = []
 
-if [ -z "$RESULT" ]; then
-  exit 0
-fi
+if bad_sat:
+    actions.append(f"P0: Replace unclear sat refs: {','.join(bad_sat)}")
 
-# Parse python output
-eval "$RESULT"
+if failing:
+    ranked = sorted(failing.items(), key=lambda x: x[1]['tm'])
+    surface_bad = [k for k,v in ranked if v['C'] < 2]
+    footprint_bad = [k for k,v in ranked if v['A'] < 3]
+    massing_bad = [k for k,v in ranked if v['B'] < 2]
+    near_pass = [(k,v['tm']) for k,v in ranked if v['tm'] >= 7]
 
-TARGET=9
+    if surface_bad:
+        actions.append(f"P1: Fix surface noise [{','.join(surface_bad)}] — more modeFilter passes, stronger homogenization")
+    if footprint_bad:
+        actions.append(f"P2: Fix footprint [{','.join(footprint_bad)}] — tighter OSM mask, 2x res")
+    if massing_bad:
+        actions.append(f"P3: Fix massing [{','.join(massing_bad)}] — check capture height")
+    if near_pass:
+        near_str = ', '.join(f'{k}({v})' for k,v in near_pass)
+        actions.append(f"P4: Near-passing [{near_str}] — fine-tune")
 
-# Report sat ref issues
-if [ -n "$BAD_SAT" ]; then
-  echo "ITERATE: Unclear sat refs (quality <3): ${BAD_SAT}"
-fi
+actions.append(f"P5: Re-grade: bun scripts/iterate-grade.ts --grade-only --version {version} --runs 5")
 
-if [ "$PASSING" -ge "$TARGET" ]; then
-  # VLM target met — check deep review gate
-  if [ "$DEEP_COUNT" -eq 0 ] || [ -z "$LAST_DEEP" ]; then
-    echo "ITERATE: ${PASSING}/${TOTAL} VLM passing but NO deep review. Run:"
-    echo "  bun scripts/iterate-grade.ts --deep-review --grade-only --version ${VERSION}"
-  elif [ "$DEEP_PASSING" -ge 8 ]; then
-    # Both gates passed
-    echo "ITERATE: TARGET MET. ${PASSING}/${TOTAL} VLM passing, ${DEEP_PASSING}/${DEEP_COUNT} deep review passing (>=8)."
-  else
-    echo "ITERATE: ${PASSING}/${TOTAL} VLM passing but deep review only ${DEEP_PASSING}/${DEEP_COUNT} at 8+."
-    echo "  Deep avg=${DEEP_AVG} vs VLM avg=${VLM_AVG} (gap=${GAP})"
-  fi
-  # Always warn on score inflation
-  if [ "$DEEP_COUNT" -gt 0 ]; then
-    GAP_INT=$(echo "$GAP" | cut -d. -f1)
-    if [ "${GAP_INT:-0}" -gt 2 ]; then
-      echo "WARNING: VLM avg ${VLM_AVG} vs deep review avg ${DEEP_AVG} (gap: ${GAP}). Scores may be inflated."
-    fi
-  fi
-else
-  echo "ITERATE: ${PASSING}/${TOTAL} buildings at 9+. Lowest: ${WORST}."
-  if [ -n "$FAILING" ]; then
-    echo "Run: bun scripts/iterate-grade.ts --only ${FAILING}"
-  fi
-  echo "State: output/iterate-state.md"
-fi
+if not last_deep or (deep_count > 0 and deep_avg < 6):
+    actions.append(f"P6: Deep review: bun scripts/iterate-grade.ts --grade-only --deep-review --version {version} --runs 0 --deep-runs 3")
+
+# Output
+deep_str = f"deep avg {deep_avg:.1f} ({deep_passing}/{deep_count} at 8+)" if deep_count else "no deep review"
+print(f"ITERATE: {passing}/{total} VLM passing | {deep_str} | {len(failing)} failing")
+if failing:
+    worst3 = sorted(failing.items(), key=lambda x: x[1]['tm'])[:3]
+    for k, v in worst3:
+        dr_str = f" deep={v['dr']}" if v['dr'] is not None else ""
+        print(f"  {k}: vlm={v['tm']} A={v['A']:.1f} B={v['B']:.1f} C={v['C']:.1f}{dr_str} — {v['diag']}")
+print("NEXT ACTIONS:")
+for a in actions:
+    print(f"  {a}")
+PYEOF

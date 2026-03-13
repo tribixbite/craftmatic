@@ -4375,7 +4375,7 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     smoothPct: 0, // disabled: modeFilter3D handles noise locally; smoothRareBlocks
     // uses global frequency threshold that erases surface details after interior fill
     // inflates totalNonAir (2% of 425K solid = 8500 blocks, erasing windows/trim)
-    modePasses: noisePct > 10 ? 3 : 2, // After K-Means consolidation: 5 types → mode filter is more effective
+    modePasses: noisePct > 10 ? 4 : 3, // v92: bumped 2-3→3-4 for cleaner surfaces (deep review: "noisy, artifact-ridden")
     cropRadius: needsCrop && !useAABBCrop ? suggestedCropRadius : 0,
     useAABBCrop,
     cleanMinSize: suggestedClean,
