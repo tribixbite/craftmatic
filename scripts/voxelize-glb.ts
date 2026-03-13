@@ -1678,9 +1678,10 @@ async function main(): Promise<void> {
 
   // Zone accent blocks to protect from mode filter (populated by zone simplification)
   let zoneProtected: Set<string> | undefined;
-  // Dominant materials — hoisted from zone scope for use by enforceFootprintPolygon
+  // Dominant materials — hoisted from zone scope for use by enforceFootprintPolygon + palette cleanup
   let roofDom = 'minecraft:smooth_stone';
   let wallDom = 'minecraft:smooth_stone';
+  let groundDom = 'minecraft:sandstone';
 
   // Multi-zone facade simplification (v67): 5 distinct material zones for visual depth.
   //
@@ -2051,6 +2052,9 @@ async function main(): Promise<void> {
       }
     }
 
+    // Hoist ground block for later palette cleanup
+    groundDom = groundBlock;
+
     // Protect zone accent blocks from mode filter erasure.
     // Thin features (1-block trim columns, 1-block floor bands) get outvoted
     // by surrounding wall blocks without protection.
@@ -2082,11 +2086,13 @@ async function main(): Promise<void> {
   }
 
   // v74/v92: Facade homogenization — per-face minority block collapse.
-  // v92: bumped threshold 5%→8% and added second pass for cleaner facades.
-  // Deep review found all builds "noisy, artifact-ridden" — stronger homogenization needed.
+  // v92: bumped threshold 5%→8%, 2 passes, glass NO LONGER PROTECTED.
+  // Deep review: scattered gray_stained_glass on facades reads as "noisy artifacts".
+  // If glass is minority on a face (<8%), it collapses to nearest wall block → cleaner facades.
   {
+    // v92: glass removed from protected set — scattered windows hurt C score more than
+    // they help realism. Zone accents still protected.
     const facadeProtected = new Set([
-      'minecraft:gray_stained_glass', 'minecraft:glass', 'minecraft:glass_pane',
       ...(zoneProtected ?? []),
     ]);
     const homogenized1 = homogenizeFacadesByFace(trimmed, 0.08, 6, facadeProtected);
@@ -2095,6 +2101,38 @@ async function main(): Promise<void> {
     const total = homogenized1 + homogenized2;
     if (total > 0) {
       console.log(`Facade homogenization: ${total} minority blocks collapsed (${homogenized1}+${homogenized2}, 2 passes, 8% threshold)`);
+    }
+  }
+
+  // v92: Final palette cleanup — collapse stray block types to zone dominants.
+  // After mode filter + homogenize, any remaining minority blocks not in the zone palette
+  // create visual noise that VLMs score as C=1. Force them to nearest zone block by Y position.
+  if (roofDom && wallDom) {
+    // roofDom/wallDom/groundDom already have 'minecraft:' prefix
+    const zoneBlocks = new Set([roofDom, wallDom, groundDom, 'minecraft:air']);
+    if (zoneProtected) for (const b of zoneProtected) zoneBlocks.add(b);
+
+    const { width: gw, height: gh, length: gl } = trimmed;
+    const roofCutoffY = Math.round(gh * 0.60);
+    const groundCutoffY = Math.min(3, Math.round(gh * 0.10));
+    let cleaned = 0;
+    for (let y = 0; y < gh; y++) {
+      // Determine which zone dominant to use based on height
+      const zoneFallback = y >= roofCutoffY ? roofDom
+        : y <= groundCutoffY ? groundDom
+        : wallDom;
+      for (let z = 0; z < gl; z++) {
+        for (let x = 0; x < gw; x++) {
+          const b = trimmed.get(x, y, z);
+          if (b === 'minecraft:air') continue;
+          if (zoneBlocks.has(b)) continue;
+          trimmed.set(x, y, z, zoneFallback);
+          cleaned++;
+        }
+      }
+    }
+    if (cleaned > 0) {
+      console.log(`Palette cleanup: ${cleaned} stray blocks → zone dominants`);
     }
   }
 
