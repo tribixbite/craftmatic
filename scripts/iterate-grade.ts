@@ -10,8 +10,11 @@
  *   bun scripts/iterate-grade.ts --only flatiron,noe   # specific buildings
  *   bun scripts/iterate-grade.ts --grade-only           # skip voxelize/render
  *   bun scripts/iterate-grade.ts --version v80          # tag iteration
- *   bun scripts/iterate-grade.ts --runs 3               # VLM runs per building (default 5)
+ *   bun scripts/iterate-grade.ts --runs 3               # VLM runs per building (default 11)
  *   bun scripts/iterate-grade.ts --model gemini-2.5-flash  # VLM model override
+ *   bun scripts/iterate-grade.ts --deep-review          # run harsh critic pass with pro model
+ *   bun scripts/iterate-grade.ts --deep-model gemini-2.5-pro  # deep review model (default)
+ *   bun scripts/iterate-grade.ts --deep-runs 3          # deep review runs per building (default 3)
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { resolve, basename } from 'path';
@@ -189,6 +192,9 @@ interface BuildingResult {
   trimmedMean: number;
   diagnosis: string;
   timestamp: string;
+  satRefQuality?: number;        // 1-5 sat ref clarity rating
+  deepReviewScores?: number[];   // scores from gemini-2.5-pro critic
+  deepReviewMean?: number;       // trimmed mean of deep review scores
 }
 
 interface IterateState {
@@ -199,30 +205,55 @@ interface IterateState {
   total: number;
   model: string;
   buildings: Record<string, BuildingResult>;
+  lastDeepReview?: string;       // ISO timestamp of last deep review run
+  deepReviewModel?: string;      // model used for deep review
 }
 
-const STRUCTURED_PROMPT = `You are grading Minecraft voxel reconstructions of real buildings.
+const STRUCTURED_PROMPT = `You are a STRICT grader of Minecraft voxel reconstructions of real buildings.
 
 Each image has 3 panels: LEFT = satellite photo, CENTER = isometric 3D render, RIGHT = top-down footprint.
 
 Score each building on this rubric:
-A) Footprint accuracy (0-4): Does the top-down footprint match the satellite building shape? Sharp edges, correct proportions, identifiable outline.
-B) Massing accuracy (0-3): Do proportions/height/volume look correct? Right number of floors, correct width-to-height ratio.
-C) Surface quality (0-3): Are there distinct material zones (roof/wall/ground)? Clean edges? Visible texture contrast?
+
+A) Footprint accuracy (0-4):
+- 4: Footprint has DISTINCTIVE features (non-rectangular angles, L-shapes, curves, setbacks) that are clearly preserved in the voxel AND match satellite. Would be recognized as this specific building.
+- 3: Footprint shape is correct (right aspect ratio, correct corners) and clearly isolated from surrounding geometry. Rectangular buildings need accurate length:width ratio.
+- 2: Generally correct shape but edges are rough/blobby, or includes significant surrounding geometry, or proportions are approximate.
+- 1: Vaguely building-shaped but doesn't clearly match the satellite footprint.
+- 0: Unrecognizable or amorphous blob.
+
+B) Massing accuracy (0-3):
+- 3: Height and volume clearly match what's visible in satellite (shadow length, relative scale to neighbors). Correct floor count.
+- 2: Approximately correct proportions.
+- 1: Wrong proportions or can't verify against satellite.
+- 0: Completely wrong volume.
+
+C) Surface quality (0-3):
+- 3: 3+ distinct material zones (roof/wall/ground), clean edges, no color artifacts.
+- 2: Some material distinction, minor noise.
+- 1: Mostly monochrome OR has blue/colored artifacts on facades.
+- 0: Single material, messy, heavy artifacts.
 
 Total = A + B + C (max 10).
 
+IMPORTANT: Score what you actually SEE, not what might be there.
+- If the satellite image is obscured (trees, shadows, low zoom), cap A at 2 and B at 1.
+- If the voxel includes multiple buildings or large surrounding terrain, cap A at 3.
+- If edges are blobby/amorphous (no straight lines or clear corners), cap A at 2.
+- If there are blue, cyan, or miscolored patches on walls/roof, cap C at 1.
+
 Calibration anchors:
-- A perfect 10/10: footprint exactly matches satellite (triangle/L/circle/rectangle clearly identifiable), correct height and proportions, 3+ distinct material zones with clean separation.
-- A strong 9/10: footprint clearly matches satellite outline with correct proportions and orientation, height/volume proportionate, 3+ material zones visible with reasonable separation. Minor pixelation from block resolution is acceptable.
-- A mediocre 5/10: vaguely correct shape but wrong proportions or rounded where should be angular, 1-2 materials only, ragged or blobby edges.
-- A poor 2/10: shape unrecognizable, wrong proportions entirely, single material, messy.
+- 10/10: The voxel is immediately recognizable as THIS SPECIFIC building. Someone who knows the building would identify it from the voxel alone. Distinctive features perfectly preserved.
+- 9/10: Footprint precisely matches satellite with all major features (corners, angles, setbacks). Massing is proportionate. 3+ clean material zones. A human would say "yes, that's the building."
+- 7/10: Correct general shape with right proportions. Clean rectangular buildings with matching aspect ratio. Some material distinction.
+- 5/10: Recognizable as A building but not clearly THIS building. Approximate shape, rough edges.
+- 2/10: Blob, artifacts, or shape doesn't correspond to satellite.
 
 For EACH building image, respond with EXACTLY this format (one line per building):
 NAME: A=X B=X C=X Total=X.X
 Brief 1-line explanation.
 
-Be fair and calibrated. Use the full range of each sub-score. A Minecraft build at 1 block/meter cannot have pixel-level detail — score the quality relative to what is achievable at this resolution.`;
+Be harsh and honest. Most voxel builds at 1 block/m deserve 5-7. Only exceptional builds with distinctive, recognizable features get 9-10.`;
 
 // ── CLI parsing ──
 const args = process.argv.slice(2);
@@ -237,6 +268,9 @@ const vlmModel = getFlag('--model', 'gemini-2.5-flash');
 const vlmRuns = parseInt(getFlag('--runs', '11'), 10);
 const gradeOnly = hasFlag('--grade-only');
 const mergeScores = hasFlag('--merge-scores');
+const deepReview = hasFlag('--deep-review');
+const deepReviewModel = getFlag('--deep-model', 'gemini-2.5-pro');
+const deepReviewRuns = parseInt(getFlag('--deep-runs', '3'), 10);
 const onlyKeys = getFlag('--only', '').split(',').filter(Boolean);
 const targetScore = 9;
 
@@ -272,6 +306,38 @@ async function ensureSatRef(b: BuildingConfig): Promise<void> {
   const buf = Buffer.from(await resp.arrayBuffer());
   await Bun.write(b.satRef, buf);
   console.log(`  Saved: ${b.satRef} (${(buf.length / 1024).toFixed(0)}KB)`);
+}
+
+/** Rate how clearly the building is visible in a satellite reference image (1-5) */
+async function validateSatRef(b: BuildingConfig): Promise<number> {
+  if (!existsSync(b.satRef)) return 1;
+  const data = readFileSync(b.satRef);
+  const parts = [
+    { text: 'Rate 1-5 how clearly the main building is visible in this satellite image. 1=obscured by trees/shadows/low resolution. 5=fully visible with clear outline and edges. Respond with ONLY a single number.' },
+    { inlineData: { mimeType: 'image/jpeg', data: data.toString('base64') } },
+  ];
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${vlmModel}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 16 },
+        }),
+      },
+    );
+    if (!res.ok) return 3; // assume mid-quality on API failure
+    const json = await res.json() as { candidates?: Array<{ content: { parts: Array<{ text?: string }> } }> };
+    const text = json.candidates?.[0]?.content?.parts?.map(p => p.text).join('') ?? '';
+    const num = parseInt(text.trim(), 10);
+    if (num >= 1 && num <= 5) return num;
+    return 3;
+  } catch {
+    return 3;
+  }
 }
 
 // ── Helpers ──
@@ -474,6 +540,78 @@ function diagnose(subscores: SubScore[]): string {
   return issues.length > 0 ? issues.join(', ') : 'passing';
 }
 
+const DEEP_REVIEW_PROMPT = `You are a HARSH CRITIC reviewing Minecraft voxel reconstructions.
+Look at the 3 panels: satellite (left), isometric voxel (center), top-down footprint (right).
+
+Be SKEPTICAL. Score ONLY what you can verify.
+- Does the footprint ACTUALLY match the satellite, or is it just "a rectangle like the satellite"?
+- Can you identify distinguishing features in BOTH images?
+- Are there artifacts, extra geometry, or blobby edges?
+- Is the massing (height/width ratio) actually correct, or just plausible?
+
+Score 1-10. Most voxel builds at 1 block/m deserve 5-7. Only exceptional builds get 9-10.
+
+Respond with EXACTLY: Score=X
+Then a 1-2 sentence harsh critique.`;
+
+/** Run deep review grading with gemini-2.5-pro (or configured model), return scores */
+async function deepReviewBuilding(imagePath: string, key: string, runs: number): Promise<{ scores: number[]; mean: number }> {
+  const scores: number[] = [];
+  const data = readFileSync(imagePath);
+
+  for (let i = 0; i < runs; i++) {
+    try {
+      const parts = [
+        { text: DEEP_REVIEW_PROMPT },
+        { text: `\n--- ${key} ---` },
+        { inlineData: { mimeType: 'image/jpeg', data: data.toString('base64') } },
+      ];
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${deepReviewModel}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 512 },
+          }),
+        },
+      );
+      if (!res.ok) {
+        console.error(`    Deep review HTTP ${res.status}`);
+        continue;
+      }
+      const json = await res.json() as { candidates?: Array<{ content: { parts: Array<{ text?: string }> } }> };
+      const text = json.candidates?.[0]?.content?.parts?.map(p => p.text).join('') ?? '';
+      const match = text.match(/Score\s*=\s*([\d.]+)/i);
+      if (match) {
+        const score = parseFloat(match[1]);
+        scores.push(score);
+        // Extract critique text (everything after "Score=X")
+        const critique = text.replace(/Score\s*=\s*[\d.]+/i, '').trim().split('\n')[0];
+        process.stdout.write(`    Deep ${i + 1}/${runs}: ${score}/10 — ${critique}\n`);
+      } else {
+        process.stdout.write(`    Deep ${i + 1}/${runs}: PARSE FAILED\n`);
+      }
+    } catch (err) {
+      process.stdout.write(`    Deep ${i + 1}/${runs}: ERROR\n`);
+    }
+    if (i < runs - 1) await Bun.sleep(1500);
+  }
+
+  // Trimmed mean
+  let mean = 0;
+  if (scores.length >= 3) {
+    const sorted = [...scores].sort((a, b) => a - b);
+    const trimmed = sorted.slice(1, -1);
+    mean = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+  } else if (scores.length > 0) {
+    mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  }
+
+  return { scores, mean: Math.round(mean * 10) / 10 };
+}
+
 // ── Main ──
 async function main(): Promise<void> {
   console.log(`\n=== iterate-grade ${version} | ${selectedBuildings.length} buildings | ${vlmRuns} VLM runs | model: ${vlmModel} ===\n`);
@@ -504,6 +642,14 @@ async function main(): Promise<void> {
 
     // Ensure satellite reference exists (fetch if missing or --refresh-sat)
     await ensureSatRef(b);
+
+    // Validate satellite reference clarity
+    const satQuality = await validateSatRef(b);
+    if (satQuality < 3) {
+      console.log(`  WARNING: Sat ref unclear for ${b.key} (${satQuality}/5) — grades may be unreliable`);
+    } else {
+      console.log(`  Sat ref quality: ${satQuality}/5`);
+    }
 
     let schem = `${DIR}/${b.key}-${version}.schem`;
     let iso = schem.replace('.schem', '-iso.jpg');
@@ -570,6 +716,7 @@ async function main(): Promise<void> {
         trimmedMean: mergedTrimmedMean,
         diagnosis: diagnose(allSubscores),
         timestamp: new Date().toISOString(),
+        satRefQuality: satQuality,
       };
 
       state.buildings[b.key] = result;
@@ -587,6 +734,46 @@ async function main(): Promise<void> {
         diagnosis: `error: ${err}`, timestamp: new Date().toISOString(),
       };
     }
+  }
+
+  // Clean up stale state entries for buildings no longer in BUILDINGS config
+  const validKeys = new Set(BUILDINGS.map(b => b.key));
+  for (const key of Object.keys(state.buildings)) {
+    if (!validKeys.has(key)) {
+      console.log(`  Removing stale state entry: ${key}`);
+      delete state.buildings[key];
+    }
+  }
+
+  // Deep review pass (if --deep-review flag)
+  if (deepReview) {
+    console.log(`\n${'─'.repeat(50)}`);
+    console.log(`DEEP REVIEW with ${deepReviewModel} (${deepReviewRuns} runs, temp=0.3)\n`);
+
+    for (const b of selectedBuildings) {
+      const gradePath = `${DIR}/grade-${version}-${b.key}.jpg`;
+      if (!existsSync(gradePath)) {
+        console.log(`  ${b.key}: no grade image, skipping deep review`);
+        continue;
+      }
+
+      console.log(`  Deep reviewing: ${b.key}...`);
+      const { scores: drScores, mean: drMean } = await deepReviewBuilding(gradePath, b.key, deepReviewRuns);
+
+      const entry = state.buildings[b.key];
+      if (entry) {
+        entry.deepReviewScores = drScores;
+        entry.deepReviewMean = drMean;
+
+        // Compare VLM vs deep review
+        const gap = Math.abs(entry.trimmedMean - drMean);
+        const gapStr = gap > 2 ? ` *** GAP: ${gap.toFixed(1)} ***` : '';
+        console.log(`  → ${b.key}: VLM=${entry.trimmedMean} Deep=${drMean}${gapStr}`);
+      }
+    }
+
+    state.lastDeepReview = new Date().toISOString();
+    state.deepReviewModel = deepReviewModel;
   }
 
   // Compute passing count
@@ -614,11 +801,30 @@ async function main(): Promise<void> {
       console.log(`  ${f.key}: ${f.trimmedMean} — ${f.diagnosis}`);
     }
   }
+
+  // Deep review summary
+  if (deepReview) {
+    const reviewed = allResults.filter(r => r.deepReviewMean != null);
+    if (reviewed.length > 0) {
+      const avgVlm = reviewed.reduce((s, r) => s + r.trimmedMean, 0) / reviewed.length;
+      const avgDeep = reviewed.reduce((s, r) => s + (r.deepReviewMean ?? 0), 0) / reviewed.length;
+      const gap = Math.abs(avgVlm - avgDeep);
+      console.log(`\nDeep review: avg VLM=${avgVlm.toFixed(1)} vs avg Deep=${avgDeep.toFixed(1)} (gap=${gap.toFixed(1)})`);
+      if (gap > 2) console.log(`WARNING: VLM scores may be inflated by ~${gap.toFixed(1)} points`);
+      const deepPassing = reviewed.filter(r => (r.deepReviewMean ?? 0) >= 8).length;
+      console.log(`Deep review passing (>=8): ${deepPassing}/${reviewed.length}`);
+    }
+  }
+
   console.log('='.repeat(50));
 }
 
 /** Write human-readable markdown state file */
 function writeMarkdownState(state: IterateState): void {
+  const hasDeep = Object.values(state.buildings).some(r => r.deepReviewMean != null);
+  const deepHeader = hasDeep ? ' DeepMean |' : '';
+  const deepSep = hasDeep ? '---|' : '';
+
   const lines: string[] = [
     `# Iterate State — ${state.version}`,
     ``,
@@ -626,15 +832,22 @@ function writeMarkdownState(state: IterateState): void {
     `**Current**: ${state.passing}/${state.total} passing`,
     `**Model**: ${state.model} | **Runs/batch**: ${vlmRuns} | **Mode**: ${mergeScores ? 'accumulate' : 'fresh'} (20% trimmed mean)`,
     `**Updated**: ${state.timestamp}`,
-    ``,
-    `| Building | Difficulty | TrimmedMean | Runs | Scores | Avg A | Avg B | Avg C | Status | Diagnosis |`,
-    `|---|---|---|---|---|---|---|---|---|---|`,
   ];
+
+  if (state.lastDeepReview) {
+    lines.push(`**Last deep review**: ${state.lastDeepReview} (${state.deepReviewModel ?? 'unknown'})`);
+  }
+
+  lines.push(
+    ``,
+    `| Building | Difficulty | TrimmedMean |${deepHeader} SatRef | Runs | Avg A | Avg B | Avg C | Status | Diagnosis |`,
+    `|---|---|---|${deepSep}---|---|---|---|---|---|`,
+  );
 
   for (const b of BUILDINGS) {
     const r = state.buildings[b.key];
     if (!r) {
-      lines.push(`| ${b.key} | ${b.difficulty} | — | — | — | — | — | PENDING | — |`);
+      lines.push(`| ${b.key} | ${b.difficulty} | — |${hasDeep ? ' — |' : ''} — | — | — | — | — | PENDING | — |`);
       continue;
     }
     const avgA = r.subscores.length > 0
@@ -644,7 +857,22 @@ function writeMarkdownState(state: IterateState): void {
     const avgC = r.subscores.length > 0
       ? (r.subscores.reduce((s, x) => s + x.C, 0) / r.subscores.length).toFixed(1) : '—';
     const status = r.trimmedMean >= state.target ? 'PASS' : 'FAIL';
-    lines.push(`| ${r.key} | ${r.difficulty} | ${r.trimmedMean} | ${r.scores.length} | [${r.scores.join(',')}] | ${avgA} | ${avgB} | ${avgC} | ${status} | ${r.diagnosis} |`);
+    const satQ = r.satRefQuality != null ? `${r.satRefQuality}/5` : '—';
+    const deepCol = hasDeep ? ` ${r.deepReviewMean ?? '—'} |` : '';
+    lines.push(`| ${r.key} | ${r.difficulty} | ${r.trimmedMean} |${deepCol} ${satQ} | ${r.scores.length} | ${avgA} | ${avgB} | ${avgC} | ${status} | ${r.diagnosis} |`);
+  }
+
+  // VLM vs deep review gap warning
+  if (hasDeep) {
+    const reviewed = Object.values(state.buildings).filter(r => r.deepReviewMean != null);
+    if (reviewed.length > 0) {
+      const avgVlm = reviewed.reduce((s, r) => s + r.trimmedMean, 0) / reviewed.length;
+      const avgDeep = reviewed.reduce((s, r) => s + (r.deepReviewMean ?? 0), 0) / reviewed.length;
+      const gap = Math.abs(avgVlm - avgDeep);
+      if (gap > 2) {
+        lines.push('', `> **WARNING**: VLM avg ${avgVlm.toFixed(1)} vs deep review avg ${avgDeep.toFixed(1)} (gap: ${gap.toFixed(1)}). Scores may be inflated.`);
+      }
+    }
   }
 
   // Action items for failing buildings
@@ -660,6 +888,7 @@ function writeMarkdownState(state: IterateState): void {
       if (avgA < 3) action += 'Improve footprint (post-mask, 2x res, tighter dilate). ';
       if (avgB < 2) action += 'Fix massing (check capture height, mode-passes). ';
       if (f.diagnosis.includes('high-variance')) action += 'Stabilize grading (more runs, check sat-ref quality). ';
+      if ((f.satRefQuality ?? 5) < 3) action += 'Replace/improve sat ref (obscured). ';
       if (!action) action = 'Fine-tune pipeline params. ';
       lines.push(`- [ ] **${f.key}** (${f.trimmedMean}): ${action.trim()}`);
     }
