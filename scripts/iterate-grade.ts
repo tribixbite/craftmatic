@@ -107,11 +107,11 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Commercial flat-roof — 191 Peachtree St NE, Atlanta, headless capture 6.9MB
-    key: 'atlanta',
-    glb: `${DIR}/flatroof-atlanta.glb`,
-    coords: '33.7590,-84.3869',
-    satRef: `${DIR}/sat-ref-atlanta.jpg`,
+    // Art Institute of Chicago — distinctive wing layout, 4.6MB headless
+    key: 'artinstitute',
+    glb: `${DIR}/tiles-artinstitute-headless.glb`,
+    coords: '41.8796,-87.6237',
+    satRef: `${DIR}/sat-ref-artinstitute.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
@@ -149,13 +149,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Transamerica area — previously scored 7-10 in v73
-    key: 'montgomery',
-    glb: `${DIR}/tiles-600-montgomery-st-san-francisco-ca.glb`,
-    coords: '37.7954,-122.4029',
-    satRef: `${DIR}/sat-ref-montgomery.jpg`,
+    // 150 Fayetteville St, Raleigh — downtown commercial, 3.2MB headless
+    key: 'raleigh',
+    glb: `${DIR}/flatroof-raleigh.glb`,
+    coords: '35.7784,-78.6391',
+    satRef: `${DIR}/sat-ref-raleigh.jpg`,
     satZoom: 19,
-    resolution: 2,
+    resolution: 1,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
@@ -163,11 +163,11 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Commercial flat-roof — 402 W Broadway, San Diego, headless capture 6.3MB
-    key: 'sandiego',
-    glb: `${DIR}/flatroof-sandiego.glb`,
-    coords: '32.7158,-117.1652',
-    satRef: `${DIR}/sat-ref-sandiego.jpg`,
+    // 222 2nd Ave N, Nashville — downtown commercial, 3.0MB headless
+    key: 'nashville',
+    glb: `${DIR}/flatroof-nashville.glb`,
+    coords: '36.1656,-86.7770',
+    satRef: `${DIR}/sat-ref-nashville.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
@@ -234,7 +234,7 @@ function hasFlag(name: string): boolean { return args.includes(name); }
 
 const version = getFlag('--version', 'v80');
 const vlmModel = getFlag('--model', 'gemini-2.5-flash');
-const vlmRuns = parseInt(getFlag('--runs', '7'), 10);
+const vlmRuns = parseInt(getFlag('--runs', '11'), 10);
 const gradeOnly = hasFlag('--grade-only');
 const mergeScores = hasFlag('--merge-scores');
 const onlyKeys = getFlag('--only', '').split(',').filter(Boolean);
@@ -545,9 +545,14 @@ async function main(): Promise<void> {
         console.log(`  Merged: ${existing.scores.length} old + ${scores.length} new = ${allScores.length} total`);
       }
 
-      // Recompute trimmed mean on all accumulated scores
+      // Recompute trimmed mean with 20% trim from each end (more robust to outliers)
       let mergedTrimmedMean = 0;
-      if (allScores.length >= 3) {
+      if (allScores.length >= 5) {
+        const sorted = [...allScores].sort((a, b) => a - b);
+        const trimCount = Math.max(1, Math.floor(allScores.length * 0.2));
+        const trimmed = sorted.slice(trimCount, -trimCount);
+        mergedTrimmedMean = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+      } else if (allScores.length >= 3) {
         const sorted = [...allScores].sort((a, b) => a - b);
         const trimmed = sorted.slice(1, -1);
         mergedTrimmedMean = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
@@ -619,7 +624,7 @@ function writeMarkdownState(state: IterateState): void {
     ``,
     `**Target**: 9/${state.total} buildings at ${state.target}+`,
     `**Current**: ${state.passing}/${state.total} passing`,
-    `**Model**: ${state.model} | **Runs/batch**: ${vlmRuns} | **Mode**: ${mergeScores ? 'accumulate' : 'fresh'} (trimmed mean)`,
+    `**Model**: ${state.model} | **Runs/batch**: ${vlmRuns} | **Mode**: ${mergeScores ? 'accumulate' : 'fresh'} (20% trimmed mean)`,
     `**Updated**: ${state.timestamp}`,
     ``,
     `| Building | Difficulty | TrimmedMean | Runs | Scores | Avg A | Avg B | Avg C | Status | Diagnosis |`,
