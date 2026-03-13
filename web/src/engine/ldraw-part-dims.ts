@@ -461,12 +461,24 @@ const DIMS: Record<string, Dims> = {
 
 // ─── ID Normalisation ─────────────────────────────────────────────────────────
 
-/** Strip `.dat`, print suffix (e.g. `p01`), and trailing letter variants (`a`, `b`). */
-function normalizePartId(part: string): string {
+/**
+ * Loose normalization: strips `.dat` extension and print suffixes (e.g. `p01`),
+ * but preserves trailing letter variants (`a`, `b`, `c`).
+ * Used for first-pass lookup so that variant-specific dims are respected
+ * (e.g. `2420b` is a 3×4 wedge plate, distinct from `2420` the 2×2 corner plate).
+ */
+function normalizePartIdLoose(part: string): string {
   return part
-    .replace(/\.dat$/i,  '')  // remove extension
-    .replace(/p[a-z0-9]{2,}$/i, '') // print suffix: p01, pb01, pf01 …
-    .replace(/[a-z]+$/i, ''); // letter variant: a, b, c …
+    .replace(/\.dat$/i, '')           // remove extension
+    .replace(/p[a-z0-9]{2,}$/i, ''); // print suffix: p01, pb01, pf01 …
+}
+
+/**
+ * Full normalization: also strips trailing letter variants.
+ * Used as fallback when the exact variant has no entry.
+ */
+function normalizePartId(part: string): string {
+  return normalizePartIdLoose(part).replace(/[a-z]+$/i, '');
 }
 
 /** Fallback: 1×1×1 plate */
@@ -474,8 +486,17 @@ const DEFAULT_DIMS: Dims = [1, 1, 1];
 
 /** Return [sW, sH, sL] for a part filename or bare part ID. */
 export function getPartDims(part: string): Dims {
-  const id = normalizePartId(part);
-  return DIMS[id] ?? (GENERATED_DIMS[id] as Dims | undefined) ?? DEFAULT_DIMS;
+  const loose  = normalizePartIdLoose(part);
+  const strict = normalizePartId(part);
+  // Try letter-variant specific entry first (e.g. '2420b'), then base number.
+  if (loose !== strict) {
+    return DIMS[loose]
+      ?? (GENERATED_DIMS[loose] as Dims | undefined)
+      ?? DIMS[strict]
+      ?? (GENERATED_DIMS[strict] as Dims | undefined)
+      ?? DEFAULT_DIMS;
+  }
+  return DIMS[strict] ?? (GENERATED_DIMS[strict] as Dims | undefined) ?? DEFAULT_DIMS;
 }
 
 // ─── Shape types ─────────────────────────────────────────────────────────────
@@ -549,12 +570,18 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '93273':'slope','66956':'slope','15068':'slope',
 
   // ── Wedges ───────────────────────────────────────────────────────────────────
+  // True triangular footprint wedge plates/bricks:
   '51739':'wedge','52031':'wedge','41769':'wedge','41770':'wedge',
-  '2419':'wedge','3584':'wedge','4857':'wedge',
+  '2419':'wedge','2420b':'wedge','3584':'wedge','4857':'wedge',
   '62361':'wedge','78441':'wedge',
   '28625':'wedge','29119':'wedge','6564':'wedge','6565':'wedge',
   '50373':'wedge','50374':'wedge',
-  '14719':'wedge','77844':'wedge','73831':'wedge','2639':'wedge',
+  // 14719 (2×2 Corner Tile) is genuinely triangular — wedge masking is correct.
+  // 77844/73831/2639 are L-shaped corner PLATES — NOT triangular. Use flat.
+  '14719':'wedge',
+  // Large wedge plates critical to ISD and Falcon hull shape (missing from earlier table):
+  '30355':'wedge','30356':'wedge',  // Wedge Plate 6×12 Right/Left  [12,1,6]
+  '43722':'wedge','43723':'wedge',  // Wedge Plate 3×2 Right/Left   [3,1,2]
 
   // ── Round ────────────────────────────────────────────────────────────────────
   '3062':'round','85941':'round','6143':'round',
@@ -582,6 +609,10 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
 
 /** Return the shape category for a part filename or bare part ID. */
 export function getPartShape(part: string): PartShape {
-  const id = normalizePartId(part);
-  return PART_SHAPES[id] ?? 'box';
+  const loose  = normalizePartIdLoose(part);
+  const strict = normalizePartId(part);
+  if (loose !== strict) {
+    return PART_SHAPES[loose] ?? PART_SHAPES[strict] ?? 'box';
+  }
+  return PART_SHAPES[strict] ?? 'box';
 }

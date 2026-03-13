@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/improve-next.sh"
+            "command": "node scripts/loop-check.mjs"
           }
         ]
       }

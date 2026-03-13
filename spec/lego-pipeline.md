@@ -30,6 +30,13 @@ LDraw Y is **down**. Grid Y is **up**. Conversion: `grid_y = round(-ldraw_y / 8)
 2. **`GENERATED_DIMS`** — auto-generated from LDraw .dat bounding boxes (7,252 entries)
 3. **`DEFAULT_DIMS`** — `[1, 1, 1]` fallback
 
+### Part ID Normalisation (Pass 3)
+`normalizePartIdLoose()` strips extension and print suffixes only (preserves letter variants).
+`normalizePartId()` additionally strips trailing letters (full normalisation).
+Lookup order: `DIMS[loose] → GENERATED_DIMS[loose] → DIMS[strict] → GENERATED_DIMS[strict] → DEFAULT`.
+This ensures variant-specific entries (e.g. `2420b` = 3×4 wedge-left, distinct from `2420` = 2×2 corner)
+are found correctly rather than falling through to the base part's dimensions.
+
 ### Format: `[sW, sH, sL]`
 - `sW` = Z-span / 20 LDU  (stud width, typically shorter dimension)
 - `sH` = Y-span / 8 LDU   (plate height, uses `Math.floor` to exclude stud bumps)
@@ -46,14 +53,14 @@ sH to prevent stud-bump inflation. Emits `ldraw-part-dims-generated.ts`.
 ```
 box          — default solid fill (AABB)
 flat         — 1-plate tall (plates, tiles) — treated as box
-slope        — triangular prism, ramps upward along ascending axis
-slope_inv    — inverted slope (ramps downward)
-slope_double — tent/ridge shape, peaks at center along ascending axis
-wedge        — triangular horizontal footprint (TODO: masking not yet implemented)
-arch         — curved underside (TODO: masking not yet implemented)
-round        — circular/cylindrical (TODO: masking not yet implemented)
-bracket      — L-shaped (TODO: masking not yet implemented)
-panel        — thin vertical wall (TODO: masking not yet implemented)
+slope        — triangular prism, ramps upward along ascending axis   [IMPLEMENTED]
+slope_inv    — inverted slope (ramps downward)                        [IMPLEMENTED]
+slope_double — tent/ridge shape, peaks at center along ascending axis [IMPLEMENTED]
+wedge        — triangular horizontal footprint                        [IMPLEMENTED Pass 2]
+round        — elliptical horizontal footprint (inscribed ellipse)    [IMPLEMENTED Pass 3]
+arch         — hollow curved underside (semicircle approximation)     [IMPLEMENTED Pass 4]
+bracket      — L-shaped                                               (TODO)
+panel        — thin vertical wall                                     (TODO)
 ```
 
 ### Slope Masking (implemented)
@@ -64,18 +71,33 @@ Ascending direction = `R * [0,0,-1]` where R is the brick's 3×3 rotation matrix
 - `slope_inv`: `yLo = gyMax - round(t * spanY)`
 - `slope_double`: `yHi = gyMin + round((1 - 2|t-0.5|) * spanY)`
 
-### Wedge Masking (NOT YET IMPLEMENTED — HIGH PRIORITY)
+### Wedge Masking (implemented — Pass 2)
 Wedge plates have a triangular footprint in the horizontal plane.
-The taper direction can be derived from R. Algorithm needed:
-- Ascending axis in XZ plane from R (similar to slope)
-- At each (gx, gz): compute horizontal t, apply linear width taper
-- Width at t=0: full sW (or sL), at t=1: 1 stud
+- Taper axis = longer horizontal span (spanX≥spanZ → X, else Z)
+- Narrow-end direction = world projection of local +X = [R[0], _, R[6]]
+- At each (gx, gz): compute t along taper axis ∈ [0,1]
+- `allowedCells = max(1, round((1-t) * totalPerpCells))`; trim symmetrically from both ends
+- Width at t=0: full perpendicular span; at t=1: 1 cell
+
+### Round Masking (implemented — Pass 3)
+Cylindrical/round parts use an inscribed **ellipse** footprint (handles non-square parts):
+- `rx = (spanX+1)/2`, `rz = (spanZ+1)/2`; center at `(gxMin+gxMax)/2, (gzMin+gzMax)/2`
+- Cell (gx, gz) included if `((gx-cx)/rx)² + ((gz-cz)/rz)² ≤ 1`
+- No-op for 1×1 and 2×2 (all cells within ellipse); effective from 4×4+ (cuts corners)
+- Applied only when `spanX > 1 || spanZ > 1` to avoid edge cases with flat parts
+
+### Arch Masking (implemented — Pass 4)
+Arch parts have a semicircular hollow underside. Pillar columns at each end are solid.
+- Span axis = longer horizontal span (spanZ≥spanX → Z, else X)
+- Inner span = span − 2 (one pillar column at each end); skip masking if inner span < 2
+- `archRStuds = inner_span / 2`, `archRPlates = archRStuds * 2.5` (stud→plate ratio)
+- For each column in inner span: `dNorm = |pos − center| / archRStuds`
+- Raise `yLo` to `gyMin + round(archRPlates * sqrt(1 − dNorm²))` — hollow below arch curve
+- Only activates when `spanY > 2` (avoids flat/degenerate arches)
 
 ## Known Issues / Limitations
 
-1. **Wedge masking missing** — ISD and many Star Wars sets use wedge plates extensively.
-   AABB fill for wedge plates creates rectangular blobs instead of pointed shapes. HIGH IMPACT.
-2. **Round masking missing** — Circular/cylindrical parts fill as rectangles.
+1. **Round masking low impact so far** — Most round parts in test sets are 1×1/2×2 so masking is no-op. Large round plates (4150, etc.) would benefit if present in these sets.
 3. **Anti-stud inflation** — Parts with tubes underneath may have extra downward extent.
    Currently mitigated by `Math.floor` for sH in gen script.
 4. **Grader ceiling** — Haiku visual-grade consistently returns 72/100 regardless of
@@ -100,11 +122,11 @@ The taper direction can be derived from R. Algorithm needed:
 
 ## Improvement Priorities (ordered by estimated impact)
 
-1. **Wedge masking** — triangular horizontal fill, high impact for angular models (ISD)
-2. **Panel/bracket masking** — thin vertical surfaces, relevant for detailed models
-3. **Round/arch masking** — circular footprint approximation
-4. **Color coverage audit** — check unmapped colors falling through to gray fallback
-5. **DIMS coverage gaps** — identify part categories with systematic missing entries
-6. **Architecture: geometry sampling** — instead of AABB, sample actual .dat vertices
-   for accurate shape (major undertaking, consider as architecture review topic)
-7. **Grader improvement** — higher resolution renders, better comparison prompt
+1. ~~**Wedge masking**~~ — DONE (Pass 2)
+2. ~~**Round masking**~~ — DONE (Pass 3, ellipse inscribed footprint)
+3. ~~**Arch masking**~~ — DONE (Pass 4, semicircle hollow underside)
+4. **DIMS coverage gaps** — identify parts falling through to [1,1,1] default in test models
+5. **Color coverage audit** — check unmapped colors falling through to gray fallback
+6. **Panel/bracket masking** — thin vertical surfaces (low priority for large-scale models)
+7. **Architecture: geometry sampling** — sample actual .dat vertices (major undertaking)
+8. **Grader improvement** — higher resolution renders, better comparison prompt

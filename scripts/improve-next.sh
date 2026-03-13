@@ -2,62 +2,63 @@
 # Improvement loop driver — triggered by Claude Code Stop hook.
 # Reads .claude/loop-state.json, spawns the next claude improvement pass.
 #
-# To stop the loop:  echo '{"active":false,"pass":0,"max_passes":30}' > .claude/loop-state.json
-# To reset:         edit .claude/loop-state.json and set pass=0, active=true
+# To stop:  set "active" to false in .claude/loop-state.json
+# To reset: set "pass" to 0 and "active" to true in .claude/loop-state.json
 
-set -euo pipefail
-
-PROJ="/c/git/craftmatic"
+PROJ="C:/git/craftmatic"
 STATE="$PROJ/.claude/loop-state.json"
 LOG="$PROJ/.claude/loop-output.log"
 
 # Guard: only run if state file exists
 [ -f "$STATE" ] || exit 0
 
-# Read state
-ACTIVE=$(bun -e "try{const s=JSON.parse(require('fs').readFileSync('$STATE','utf8'));console.log(s.active)}catch(e){console.log('false')}" 2>/dev/null || echo "false")
+# Use node for JSON — with Windows-style paths bun/node can read them
+READ_JSON="node -e \"try{const s=JSON.parse(require('fs').readFileSync('$STATE','utf8'));process.stdout.write(String(s"
+
+ACTIVE=$(node -e "try{const s=JSON.parse(require('fs').readFileSync('$STATE','utf8'));process.stdout.write(String(s.active))}catch(e){process.stdout.write('false')}")
 [ "$ACTIVE" = "true" ] || exit 0
 
-PASS=$(bun -e "const s=JSON.parse(require('fs').readFileSync('$STATE','utf8'));console.log(s.pass)" 2>/dev/null || echo "0")
-MAX=$(bun -e "const s=JSON.parse(require('fs').readFileSync('$STATE','utf8'));console.log(s.max_passes)" 2>/dev/null || echo "30")
+PASS=$(node -e "const s=JSON.parse(require('fs').readFileSync('$STATE','utf8'));process.stdout.write(String(s.pass))")
+MAX=$(node -e "const s=JSON.parse(require('fs').readFileSync('$STATE','utf8'));process.stdout.write(String(s.max_passes))")
 
-# Check if we've hit the limit
+# Check limit
 if [ "$PASS" -ge "$MAX" ]; then
-  bun -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync('$STATE','utf8'));s.active=false;fs.writeFileSync('$STATE',JSON.stringify(s,null,2))" 2>/dev/null
+  node -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync('$STATE','utf8'));s.active=false;fs.writeFileSync('$STATE',JSON.stringify(s,null,2))"
   echo "[loop $(date -Iseconds)] Reached max passes ($MAX). Loop complete." >> "$LOG"
   exit 0
 fi
 
-# Increment pass counter BEFORE spawning (prevents double-fire race)
+# Increment counter BEFORE spawning
 NEXT=$((PASS + 1))
-bun -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync('$STATE','utf8'));s.pass=$NEXT;fs.writeFileSync('$STATE',JSON.stringify(s,null,2))" 2>/dev/null
+node -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync('$STATE','utf8'));s.pass=$NEXT;fs.writeFileSync('$STATE',JSON.stringify(s,null,2))"
 
-echo "" >> "$LOG"
-echo "========================================" >> "$LOG"
-echo "[loop $(date -Iseconds)] Starting pass $NEXT/$MAX" >> "$LOG"
-echo "========================================" >> "$LOG"
+{
+  echo ""
+  echo "========================================"
+  echo "[loop $(date -Iseconds)] Starting pass $NEXT/$MAX"
+  echo "========================================"
+} >> "$LOG"
 
-# Every 3rd pass = architecture review (passes 3, 6, 9, ...)
+# Every 3rd pass = architecture review
 if [ $(( NEXT % 3 )) -eq 0 ]; then
   MODE="ARCHITECTURE REVIEW"
-  TASK_DETAIL="This is an architecture review pass. Step back from individual improvements and:
+  TASK_DETAIL="This is an architecture review pass. Step back from individual improvements:
 - Analyze the overall system design and identify structural weaknesses
-- Review what improvements have worked/failed so far (see improvement-log.md)
-- Consider alternative algorithmic approaches (e.g., geometry sampling vs AABB, different masking strategies)
-- Identify whether the current architecture is on the right path or needs a course correction
+- Review what has worked/failed so far (see improvement-log.md)
+- Consider alternative algorithmic approaches (e.g. geometry sampling vs AABB, different masking)
+- Determine if the current architecture is on the right path or needs course correction
 - Refactor or restructure code if it would meaningfully improve future work
-- Then also implement at least one concrete improvement"
+- Also implement at least one concrete improvement this pass"
 else
   MODE="IMPROVEMENT"
   TASK_DETAIL="This is a focused improvement pass. Implement the single highest-impact improvement:
 - Consult the priority list in spec/lego-pipeline.md
-- Check the log to avoid repeating work already tried
+- Check improvement-log.md to avoid repeating work already done
 - Make a focused, targeted change (not a broad refactor)
-- Prefer improvements that reduce block count waste, improve shape accuracy, or fix systematic errors"
+- Prefer improvements that reduce block count waste or improve shape accuracy"
 fi
 
-# Build prompt
-PROMPT="You are running automated improvement pass $NEXT of $MAX for the craftmatic LEGO voxelization pipeline.
+PROMPT="You are running automated improvement pass $NEXT of $MAX for the craftmatic LEGO voxelization pipeline (C:/git/craftmatic).
 
 PASS TYPE: $MODE
 
@@ -66,17 +67,17 @@ $TASK_DETAIL
 WORKFLOW (follow exactly):
 1. Read spec/lego-pipeline.md      — architecture, scale conventions, known issues
 2. Read spec/improvement-log.md    — history of what has been tried
-3. Plan the improvement (think it through before editing)
-4. Implement it (edit source files as needed)
-5. Run: bun run typecheck           — MUST pass with 0 errors
+3. Plan the improvement
+4. Implement it (edit source files)
+5. Run: bun run typecheck           — MUST pass 0 errors
 6. Run: bun scripts/visual-grade.ts — note block counts and scores
-7. Append a new entry to spec/improvement-log.md with:
-   - Pass number, date, type
+7. Append a new ## Pass $NEXT entry to spec/improvement-log.md with:
+   - Date, pass type
    - What was changed and why
-   - Block counts before/after (compare to previous pass in log)
+   - Block counts before/after
    - Grade scores
    - What to try next
-8. Update spec/lego-pipeline.md if architecture/approach changed
+8. Update spec/lego-pipeline.md if architecture changed
 
 HARD RULES:
 - Do NOT modify scripts/visual-grade.ts
@@ -85,11 +86,14 @@ HARD RULES:
 - Every change must pass typecheck
 - Keep spec files up to date
 
-Current pass: $NEXT / $MAX
-"
+Pass $NEXT / $MAX"
 
-# Spawn next claude session non-interactively (runs in background, triggers next hook when done)
 cd "$PROJ"
-nohup claude --dangerously-skip-permissions -p "$PROMPT" >> "$LOG" 2>&1 &
-CHILD_PID=$!
-echo "[loop $(date -Iseconds)] Spawned pass $NEXT (PID $CHILD_PID)" >> "$LOG"
+
+# Write prompt to temp file (avoids shell quoting issues)
+PROMPT_FILE=$(mktemp /tmp/claude-loop-prompt-XXXXXX.txt)
+printf '%s' "$PROMPT" > "$PROMPT_FILE"
+
+# Spawn run-claude-pass.sh in background (it handles CLAUDECODE unset + claude invocation)
+nohup bash "$PROJ/scripts/run-claude-pass.sh" "$PROMPT_FILE" "$LOG" >> "$LOG" 2>&1 &
+echo "[loop $(date -Iseconds)] Spawned pass $NEXT (PID $!)" >> "$LOG"
