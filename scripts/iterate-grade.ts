@@ -65,11 +65,11 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // 1111 Lincoln Rd parking garage — iconic Miami Beach architecture, 4.4MB headless
-    key: 'miami',
-    glb: `${DIR}/flatroof-miami.glb`,
-    coords: '25.7905,-80.1408',
-    satRef: `${DIR}/sat-ref-miami.jpg`,
+    // Cambridge/Harvard area — 3.4MB headless capture
+    key: 'cambridge',
+    glb: `${DIR}/tiles-cambridge-headless.glb`,
+    coords: '42.3766,-71.1227',
+    satRef: `${DIR}/sat-ref-cambridge.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
@@ -107,11 +107,11 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Art Institute of Chicago — distinctive wing layout, 4.6MB headless
-    key: 'artinstitute',
-    glb: `${DIR}/tiles-artinstitute-headless.glb`,
-    coords: '41.8796,-87.6237',
-    satRef: `${DIR}/sat-ref-artinstitute.jpg`,
+    // Dallas area — 2.9MB headless capture
+    key: 'dallas',
+    glb: `${DIR}/tiles-dallas2-headless.glb`,
+    coords: '32.8220,-96.8085',
+    satRef: `${DIR}/sat-ref-dallas.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
@@ -149,11 +149,11 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // 150 Fayetteville St, Raleigh — downtown commercial, 3.2MB headless
-    key: 'raleigh',
-    glb: `${DIR}/flatroof-raleigh.glb`,
-    coords: '35.7784,-78.6391',
-    satRef: `${DIR}/sat-ref-raleigh.jpg`,
+    // Arlington VA area — 2.5MB headless capture
+    key: 'arlington',
+    glb: `${DIR}/tiles-arlington-headless.glb`,
+    coords: '38.8824,-77.1085',
+    satRef: `${DIR}/sat-ref-arlington.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
