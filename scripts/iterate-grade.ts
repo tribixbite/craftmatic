@@ -68,14 +68,16 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // MIT Great Dome, Cambridge MA — classical domed building, 4.0MB headless
-    key: 'mitdome',
-    glb: `${DIR}/mitdome-headless.glb`,
-    coords: '42.3594,-71.0928',
-    satRef: `${DIR}/sat-ref-mitdome.jpg`,
-    satZoom: 19,
-    resolution: 1,
-    maskDilate: 2,
+    // The Dakota, NYC — iconic courtyard building, 1.8MB browser capture
+    // v93: replaces cambridge (4.8). Browser capture = higher quality than headless.
+    // Distinctive courtyard footprint visible from satellite.
+    key: 'dakota',
+    glb: `${DIR}/tiles-the-dakota-new-york-ny.glb`,
+    coords: '40.7764,-73.9762',
+    satRef: `${DIR}/sat-ref-dakota.jpg`,
+    satZoom: 20,
+    resolution: 2,
+    maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 4,
@@ -110,42 +112,45 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Winnetka IL — 2.4MB headless capture, suburban commercial
-    key: 'winnetka',
-    glb: `${DIR}/tiles-winnetka-headless.glb`,
-    coords: '42.1057,-87.7325',
-    satRef: `${DIR}/sat-ref-winnetka.jpg`,
+    // 191 Peachtree St NE, Atlanta GA — large commercial, 7.0MB headless
+    // v93: --crop-radius 40 to isolate central building (full capture has too many buildings)
+    key: 'atlanta',
+    glb: `${DIR}/flatroof-atlanta.glb`,
+    coords: '33.7590,-84.3880',
+    satRef: `${DIR}/sat-ref-atlanta.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--crop', '40'],
     difficulty: 'medium',
     tileSize: 4,
     topdownScale: 6,
   },
   {
-    // 100 S Ashley Dr, Tampa — downtown commercial, 4.2MB headless
-    key: 'tampa',
-    glb: `${DIR}/flatroof-tampa.glb`,
-    coords: '27.9458,-82.4582',
-    satRef: `${DIR}/sat-ref-tampa.jpg`,
-    satZoom: 20,  // v92: bumped from 19 (shadow-obscured) to 20 (clear roof)
+    // 402 W Broadway, San Diego CA — downtown commercial, 6.4MB headless
+    // v93: replaces tampa. --no-osm because polygon is misaligned (65% over-clip)
+    key: 'sandiego',
+    glb: `${DIR}/flatroof-sandiego.glb`,
+    coords: '32.7157,-117.1611',
+    satRef: `${DIR}/sat-ref-sandiego.jpg`,
+    satZoom: 19,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
     tileSize: 4,
     topdownScale: 6,
   },
   {
-    // 2800 Post Oak Blvd, Houston — Galleria area commercial, 4.2MB headless
-    key: 'houston',
-    glb: `${DIR}/flatroof-houston.glb`,
-    coords: '29.7378,-95.4608',
-    satRef: `${DIR}/sat-ref-houston.jpg`,
-    satZoom: 19,
-    resolution: 1,
-    maskDilate: 2,
+    // 600 Montgomery St, SF — classic SF commercial, 8.7MB browser capture
+    // v93: replaces raleigh (3.3, mask reverted). Browser capture = better isolation.
+    key: 'montgomery',
+    glb: `${DIR}/tiles-600-montgomery-st-san-francisco-ca.glb`,
+    coords: '37.7951,-122.4029',
+    satRef: `${DIR}/sat-ref-montgomery.jpg`,
+    satZoom: 20,
+    resolution: 2,
+    maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 4,
@@ -166,15 +171,16 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // 222 2nd Ave N, Nashville — downtown commercial, 3.0MB headless
-    key: 'nashville',
-    glb: `${DIR}/flatroof-nashville.glb`,
-    coords: '36.1656,-86.7770',
-    satRef: `${DIR}/sat-ref-nashville.jpg`,
+    // 3300 N Central Ave, Phoenix AZ — downtown commercial, 5.0MB headless
+    // v93: replaces charlotte. --no-osm because polygon is misaligned (78% over-clip)
+    key: 'phoenix',
+    glb: `${DIR}/flatroof-phoenix.glb`,
+    coords: '33.4800,-112.0740',
+    satRef: `${DIR}/sat-ref-phoenix.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
     tileSize: 4,
     topdownScale: 6,

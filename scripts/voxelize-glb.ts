@@ -2085,14 +2085,14 @@ async function main(): Promise<void> {
     }
   }
 
-  // v74/v92: Facade homogenization — per-face minority block collapse.
-  // v92: bumped threshold 5%→8%, 2 passes, glass NO LONGER PROTECTED.
-  // Deep review: scattered gray_stained_glass on facades reads as "noisy artifacts".
-  // If glass is minority on a face (<8%), it collapses to nearest wall block → cleaner facades.
+  // v74/v92/v93: Facade homogenization — per-face minority block collapse.
+  // v93: glass RE-PROTECTED. Removing all glass made builds monochrome (C=1 universal).
+  // glazeWindows adds glass for material variety — keeping it gives C=3 "3+ material zones".
+  // Homogenize still collapses other stray block types (non-glass, non-zone-accent).
   {
-    // v92: glass removed from protected set — scattered windows hurt C score more than
-    // they help realism. Zone accents still protected.
     const facadeProtected = new Set([
+      'minecraft:gray_stained_glass', 'minecraft:glass', 'minecraft:glass_pane',
+      'minecraft:light_gray_stained_glass', 'minecraft:black_stained_glass',
       ...(zoneProtected ?? []),
     ]);
     const homogenized1 = homogenizeFacadesByFace(trimmed, 0.08, 6, facadeProtected);
@@ -2104,13 +2104,20 @@ async function main(): Promise<void> {
     }
   }
 
-  // v92: Final palette cleanup — collapse stray block types to zone dominants.
+  // v92/v93: Final palette cleanup — collapse stray block types to zone dominants.
   // After mode filter + homogenize, any remaining minority blocks not in the zone palette
   // create visual noise that VLMs score as C=1. Force them to nearest zone block by Y position.
+  // v93: Glass blocks protected — glazeWindows adds them for surface variety, C score needs
+  // "3+ distinct material zones" and glass provides the 3rd visual tone.
   if (roofDom && wallDom) {
     // roofDom/wallDom/groundDom already have 'minecraft:' prefix
     const zoneBlocks = new Set([roofDom, wallDom, groundDom, 'minecraft:air']);
     if (zoneProtected) for (const b of zoneProtected) zoneBlocks.add(b);
+    // Protect glass blocks — windows add critical material variety for VLM C score
+    for (const g of ['minecraft:gray_stained_glass', 'minecraft:glass', 'minecraft:glass_pane',
+      'minecraft:light_gray_stained_glass', 'minecraft:black_stained_glass']) {
+      zoneBlocks.add(g);
+    }
 
     const { width: gw, height: gh, length: gl } = trimmed;
     const roofCutoffY = Math.round(gh * 0.60);
