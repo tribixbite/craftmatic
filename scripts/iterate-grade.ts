@@ -51,25 +51,25 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Simple dual-rectangle residential — v80c: 8.2/10
-    key: 'beach',
-    glb: `${DIR}/tiles-2130-beach-st-san-francisco-ca.glb`,
-    coords: '37.8004,-122.4365',
-    satRef: `${DIR}/sat-ref-beach.jpg`,
-    satZoom: 21,
+    // Sentinel/Columbus Tower, SF — wedge-shaped copper building, 2.0MB browser capture
+    key: 'sentinel',
+    glb: `${DIR}/tiles-sentinel-building-san-francisco-ca.glb`,
+    coords: '37.7858,-122.4063',
+    satRef: `${DIR}/sat-ref-sentinel.jpg`,
+    satZoom: 20,
     resolution: 2,
-    maskDilate: 2,
+    maskDilate: 1,
     extraFlags: [],
-    difficulty: 'easy',
+    difficulty: 'medium',
     tileSize: 4,
     topdownScale: 6,
   },
   {
-    // Cambridge/Harvard area — 3.4MB headless capture
-    key: 'cambridge',
-    glb: `${DIR}/tiles-cambridge-headless.glb`,
-    coords: '42.3766,-71.1227',
-    satRef: `${DIR}/sat-ref-cambridge.jpg`,
+    // MIT Great Dome, Cambridge MA — classical domed building, 4.0MB headless
+    key: 'mitdome',
+    glb: `${DIR}/mitdome-headless.glb`,
+    coords: '42.3594,-71.0928',
+    satRef: `${DIR}/sat-ref-mitdome.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
@@ -107,11 +107,11 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Dallas area — 2.9MB headless capture
-    key: 'dallas',
-    glb: `${DIR}/tiles-dallas2-headless.glb`,
-    coords: '32.8220,-96.8085',
-    satRef: `${DIR}/sat-ref-dallas.jpg`,
+    // Winnetka IL — 2.4MB headless capture, suburban commercial
+    key: 'winnetka',
+    glb: `${DIR}/tiles-winnetka-headless.glb`,
+    coords: '42.1057,-87.7325',
+    satRef: `${DIR}/sat-ref-winnetka.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
