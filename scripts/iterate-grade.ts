@@ -573,7 +573,7 @@ async function deepReviewBuilding(imagePath: string, key: string, runs: number):
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 512 },
+            generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
           }),
         },
       );
@@ -591,7 +591,7 @@ async function deepReviewBuilding(imagePath: string, key: string, runs: number):
         const critique = text.replace(/Score\s*=\s*[\d.]+/i, '').trim().split('\n')[0];
         process.stdout.write(`    Deep ${i + 1}/${runs}: ${score}/10 — ${critique}\n`);
       } else {
-        process.stdout.write(`    Deep ${i + 1}/${runs}: PARSE FAILED\n`);
+        process.stdout.write(`    Deep ${i + 1}/${runs}: PARSE FAILED — ${text.slice(0, 150)}\n`);
       }
     } catch (err) {
       process.stdout.write(`    Deep ${i + 1}/${runs}: ERROR\n`);
@@ -616,11 +616,11 @@ async function deepReviewBuilding(imagePath: string, key: string, runs: number):
 async function main(): Promise<void> {
   console.log(`\n=== iterate-grade ${version} | ${selectedBuildings.length} buildings | ${vlmRuns} VLM runs | model: ${vlmModel} ===\n`);
 
-  // Load existing state or create new
+  // Load existing state or create new — always preserve existing buildings
+  // when doing --only subset or --runs 0 (deep-review-only)
   const statePath = `${DIR}/iterate-state.json`;
   let state: IterateState;
-  if (existsSync(statePath) && onlyKeys.length > 0) {
-    // Merge into existing state when running --only subset
+  if (existsSync(statePath)) {
     state = JSON.parse(readFileSync(statePath, 'utf8'));
     state.version = version;
     state.timestamp = new Date().toISOString();
@@ -677,7 +677,11 @@ async function main(): Promise<void> {
         }
       }
 
-      // Step 4: VLM grade
+      // Step 4: VLM grade (skip if --runs 0 for deep-review-only mode)
+      if (vlmRuns === 0 && state.buildings[b.key]) {
+        console.log(`  Skipping VLM grading (--runs 0), keeping existing scores`);
+        continue;
+      }
       console.log(`  Grading with ${vlmModel} (${vlmRuns} runs, temp=0.1)...`);
       const { scores, subscores, trimmedMean } = await gradeBuilding(gradePath, b.key, vlmRuns);
 
