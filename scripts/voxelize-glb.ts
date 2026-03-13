@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, enforceZoneContrast } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
@@ -150,6 +150,7 @@ interface CLIArgs {
   noEnu: boolean;          // skip ENU reorientation (for pre-oriented headless GLBs)
   noOsm: boolean;          // skip OSM footprint masking (for misaligned geocodes)
   noPostMask: boolean;     // skip post-processing OSM re-mask (v80)
+  noIsolate: boolean;      // skip automatic building isolation
   maskDilate: number;      // OSM polygon dilation in blocks (default 3)
 }
 
@@ -228,6 +229,7 @@ Options:
   let noEnu = false;
   let noOsm = false;
   let noPostMask = false;
+  let noIsolate = false;
   let maskDilate = 3;
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
@@ -289,6 +291,8 @@ Options:
       noOsm = true;
     } else if (arg === '--no-post-mask') {
       noPostMask = true;
+    } else if (arg === '--no-isolate') {
+      noIsolate = true;
     } else if (arg === '--mask-dilate') {
       maskDilate = parseInt(args[++i], 10);
     } else if (arg === '--clean') {
@@ -349,7 +353,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, noPostMask, maskDilate };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, noPostMask, noIsolate, maskDilate };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1388,6 +1392,14 @@ async function main(): Promise<void> {
       console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (< 500 voxels)`);
     }
 
+    // Step 3c: Auto-isolate primary building when OSM mask failed or was skipped
+    if (!osmMaskDone && !args.noIsolate && analysis && analysis.componentCount > 3) {
+      const isolated = isolatePrimaryBuilding(trimmed, 3, 0.05);
+      if (isolated > 0) {
+        console.log(`Primary building isolation: ${isolated} blocks removed (${analysis.componentCount} components → primary + annexes)`);
+      }
+    }
+
     // Step 4: Interior fill — 3D masked dilation flood-fill.
     // Gate by 3D fill ratio: photogrammetry shells have high XZ density (93%+ columns
     // occupied) but low 3D fill (35%) — they're hollow. Use 3D ratio to decide:
@@ -1490,6 +1502,18 @@ async function main(): Promise<void> {
       const preFillCleaned = removeSmallComponents(trimmed, 500);
       if (preFillCleaned > 0) {
         console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (components < 500 voxels)`);
+      }
+
+      // Step 3c: Auto-isolate primary building when OSM mask failed or was skipped
+      if (!osmMaskDone && !args.noIsolate) {
+        // Re-analyze after cleanup to get current component count
+        const postCleanAnalysis = analyzeGrid(trimmed);
+        if (postCleanAnalysis.componentCount > 3) {
+          const isolated = isolatePrimaryBuilding(trimmed, 3, 0.05);
+          if (isolated > 0) {
+            console.log(`Primary building isolation: ${isolated} blocks removed (${postCleanAnalysis.componentCount} components → primary + annexes)`);
+          }
+        }
       }
 
       // Step 4: 3D masked dilation fill — building is now isolated.
@@ -1669,10 +1693,18 @@ async function main(): Promise<void> {
   // destroying the dark blocks that indicate windows. By glazing first,
   // gray_stained_glass enters the SPECIAL_BLOCKS set and survives simplification.
   // v73: --no-glaze disables this — scattered glass reads as "noisy/porous" surface to VLMs
+  let glazed = 0;
   if (args.mode === 'surface' && !args.noGlaze) {
-    const glazed = glazeDarkWindows(trimmed);
+    glazed = glazeDarkWindows(trimmed);
     if (glazed > 0) {
       console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass`);
+    }
+    // Synthetic windows for bright facades that lack dark blocks to glaze.
+    // injectSyntheticWindows only fires when existing glazing < 0.5% of non-air
+    // and building is ≥ 8 blocks tall, so safe to call unconditionally.
+    const injected = injectSyntheticWindows(trimmed, glazed);
+    if (injected > 0) {
+      console.log(`Synthetic windows: ${injected} blocks (bright facade, glazed=${glazed})`);
     }
   }
 
@@ -1801,42 +1833,19 @@ async function main(): Promise<void> {
       // ── 3-zone contrast enforcement ──────────────────────────────────────────
       // VLMs score surface quality by visible zone differentiation. Testing shows
       // dark roof + medium/textured wall + warm ground = best C scores (Beach 3/3).
-      // Strategy: darken mid-gray satellite roofs → force dark/medium/warm 3-way.
-      const blockLum = (block: string): number => {
-        const c = WALL_CLUSTERS.find(cl => cl.options.includes(block));
-        if (!c) return 128;
-        return (c.rgb[0] + c.rgb[1] + c.rgb[2]) / 3;
-      };
-      const roofLum = blockLum(roofDom);
-      const wallLumV = blockLum(wallDom);
-
-      // Step 1: Darken mid-gray satellite roofs. Real roofs from above appear dark.
-      // Mid-gray (lum 100-155) = baked sunlight artifact. Force to gray_concrete.
-      if (roofLum >= 100 && roofLum <= 155) {
-        console.log(`  Roof darken: ${roofDom.replace('minecraft:', '')} (lum ${roofLum.toFixed(0)}) → gray_concrete (lum 58) [mid-gray → force dark]`);
-        roofDom = 'minecraft:gray_concrete';
+      // Systematic contrast guarantee replaces ad-hoc darken/cap/swap steps.
+      const contrastResult = enforceZoneContrast(roofDom, wallDom, groundDom, 25);
+      if (contrastResult.roof !== roofDom) {
+        console.log(`  Roof contrast: ${roofDom.replace('minecraft:', '')} → ${contrastResult.roof.replace('minecraft:', '')}`);
+        roofDom = contrastResult.roof;
       }
-
-      // Step 2: Ensure wall has visible contrast from darkened roof.
-      // After darkening, roof lum ~58. Wall needs to be >90 for clear separation.
-      // stone_bricks (lum 124, crack texture) is the ideal VLM-friendly wall material.
-      const newRoofLum = blockLum(roofDom);
-      const newGap = Math.abs(newRoofLum - wallLumV);
-      if (newGap < 40 || (GRAY_BLOCKS.has(wallDom) && GRAY_BLOCKS.has(roofDom))) {
-        const newWall = newRoofLum < 100
-          ? 'minecraft:stone_bricks'    // dark roof → medium textured wall
-          : 'minecraft:polished_andesite'; // light roof → slate-toned wall
-        console.log(`  Wall contrast: ${wallDom.replace('minecraft:', '')} (lum ${wallLumV.toFixed(0)}) → ${newWall.replace('minecraft:', '')} (lum ${blockLum(newWall).toFixed(0)}) [gap ${newGap.toFixed(0)}<40 or both gray]`);
-        wallDom = newWall;
+      if (contrastResult.wall !== wallDom) {
+        console.log(`  Wall contrast: ${wallDom.replace('minecraft:', '')} → ${contrastResult.wall.replace('minecraft:', '')}`);
+        wallDom = contrastResult.wall;
       }
-
-      // Step 3: Cap overly-bright walls — white/cream walls look washed out on VLMs.
-      // The "Beach formula" (dark roof + medium wall + warm ground) requires wall lum
-      // in the 100-180 range. Bright walls (>190) lose texture detail in renders.
-      const wallLumAfter = blockLum(wallDom);
-      if (wallLumAfter > 190 && newRoofLum < 100) {
-        console.log(`  Wall cap: ${wallDom.replace('minecraft:', '')} (lum ${wallLumAfter.toFixed(0)}) → stone_bricks (lum 124) [too bright for dark roof]`);
-        wallDom = 'minecraft:stone_bricks';
+      if (contrastResult.ground !== groundDom) {
+        console.log(`  Ground contrast: ${groundDom.replace('minecraft:', '')} → ${contrastResult.ground.replace('minecraft:', '')}`);
+        groundDom = contrastResult.ground;
       }
     }
 
