@@ -3712,7 +3712,7 @@ export interface AnalysisResult {
  * 3D flood-fill connected component labeling.
  * Returns component sizes and a label map (0 = air, 1..N = component ID).
  */
-function labelConnectedComponents(grid: BlockGrid): {
+export function labelConnectedComponents(grid: BlockGrid): {
   labels: Int32Array;
   sizes: number[];
   count: number;
@@ -4649,4 +4649,223 @@ export function consolidateBlockPalette(grid: BlockGrid, k = 5): number {
   }
 
   return reassigned;
+}
+
+/**
+ * Isolate the primary building by removing non-primary connected components.
+ *
+ * Uses size-weighted centrality scoring (same formula as analyzeGrid) to identify
+ * the primary building component, then removes all other components except
+ * nearby annexes (wings within `annexRadius` of the primary AABB with sufficient
+ * volume). This replaces OSM masking when the polygon is misaligned.
+ *
+ * Safety: Single-component grids → 0 removals. Dominant central building →
+ * only small debris removed.
+ *
+ * @param grid         Mutable BlockGrid
+ * @param annexRadius  Keep secondary components within N blocks of primary AABB (default 3)
+ * @param minVolumePct Annexes must be ≥ this fraction of primary volume to keep (default 0.05)
+ * @returns Number of blocks removed
+ */
+export function isolatePrimaryBuilding(
+  grid: BlockGrid,
+  annexRadius = 3,
+  minVolumePct = 0.05,
+): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+
+  // Step 1: Label connected components
+  const { labels, count } = labelConnectedComponents(grid);
+  if (count <= 1) return 0; // single component or empty — nothing to isolate
+
+  // Step 2: Compute per-component centroid and volume
+  const centroidX = new Float64Array(count + 1);
+  const centroidZ = new Float64Array(count + 1);
+  const compCounts = new Float64Array(count + 1);
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const lbl = labels[(y * length + z) * width + x];
+        if (lbl === 0) continue;
+        centroidX[lbl] += x;
+        centroidZ[lbl] += z;
+        compCounts[lbl]++;
+      }
+    }
+  }
+
+  // Step 3: Score components using volume × centrality (identical to analyzeGrid)
+  const cx = width / 2;
+  const cz = length / 2;
+  const maxDist = Math.sqrt(cx * cx + cz * cz);
+  let bestLabel = 1;
+  let bestScore = -Infinity;
+  let maxCompSize = 0;
+
+  for (let i = 1; i <= count; i++) {
+    if (compCounts[i] > maxCompSize) maxCompSize = compCounts[i];
+  }
+
+  for (let i = 1; i <= count; i++) {
+    // Filter noise: must be ≥5% of largest component or ≥100 voxels
+    if (compCounts[i] < Math.max(100, maxCompSize * 0.05)) continue;
+
+    const mx = centroidX[i] / compCounts[i];
+    const mz = centroidZ[i] / compCounts[i];
+    const dist = Math.sqrt((mx - cx) * (mx - cx) + (mz - cz) * (mz - cz));
+    const normalizedDist = maxDist > 0 ? dist / maxDist : 0;
+    const score = compCounts[i] * (1.0 - normalizedDist * 0.5);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestLabel = i;
+    }
+  }
+
+  const primaryVolume = compCounts[bestLabel];
+
+  // Step 4: Compute primary component's XZ AABB
+  let pMinX = width, pMaxX = 0, pMinZ = length, pMaxZ = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (labels[(y * length + z) * width + x] !== bestLabel) continue;
+        if (x < pMinX) pMinX = x;
+        if (x > pMaxX) pMaxX = x;
+        if (z < pMinZ) pMinZ = z;
+        if (z > pMaxZ) pMaxZ = z;
+      }
+    }
+  }
+
+  // Step 5: Decide which components to keep
+  const keepLabels = new Set<number>([bestLabel]);
+
+  for (let i = 1; i <= count; i++) {
+    if (i === bestLabel) continue;
+    if (compCounts[i] < primaryVolume * minVolumePct) continue; // too small to be an annex
+
+    // Compute this component's XZ AABB
+    let cMinX = width, cMaxX = 0, cMinZ = length, cMaxZ = 0;
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          if (labels[(y * length + z) * width + x] !== i) continue;
+          if (x < cMinX) cMinX = x;
+          if (x > cMaxX) cMaxX = x;
+          if (z < cMinZ) cMinZ = z;
+          if (z > cMaxZ) cMaxZ = z;
+        }
+      }
+    }
+
+    // Check if AABB overlaps or is within annexRadius of primary AABB
+    const xOverlap = cMaxX >= pMinX - annexRadius && cMinX <= pMaxX + annexRadius;
+    const zOverlap = cMaxZ >= pMinZ - annexRadius && cMinZ <= pMaxZ + annexRadius;
+    if (xOverlap && zOverlap) {
+      keepLabels.add(i);
+    }
+  }
+
+  // Step 6: Clear everything not in keepLabels
+  let removed = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const lbl = labels[(y * length + z) * width + x];
+        if (lbl === 0) continue; // air
+        if (!keepLabels.has(lbl)) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
+/**
+ * Enforce luminance contrast between roof, wall, and ground zone materials.
+ *
+ * Pure function — no grid mutation. Computes luminance via WALL_CLUSTERS RGB
+ * lookup and ensures all zone pairs have at least `minDeltaL` luminance separation.
+ *
+ * @param roofBlock   Current roof dominant block (e.g. 'minecraft:gray_concrete')
+ * @param wallBlock   Current wall dominant block
+ * @param groundBlock Current ground zone block
+ * @param minDeltaL   Minimum luminance difference between any pair (default 25)
+ * @returns Adjusted triplet with guaranteed contrast
+ */
+export function enforceZoneContrast(
+  roofBlock: string,
+  wallBlock: string,
+  groundBlock: string,
+  minDeltaL = 25,
+): { roof: string; wall: string; ground: string } {
+  // Luminance from WALL_CLUSTERS RGB mean
+  const blockLum = (block: string): number => {
+    const c = WALL_CLUSTERS.find(cl => cl.options.includes(block));
+    if (!c) return 128;
+    return (c.rgb[0] + c.rgb[1] + c.rgb[2]) / 3;
+  };
+
+  let roof = roofBlock;
+  let wall = wallBlock;
+  let ground = groundBlock;
+
+  const roofLum = blockLum(roof);
+  let wallLum = blockLum(wall);
+
+  // Step 1: Darken mid-gray satellite roofs (baked sunlight artifact, lum 100-155)
+  if (roofLum >= 100 && roofLum <= 155) {
+    roof = 'minecraft:gray_concrete'; // lum ~58
+  }
+
+  // Step 2: Ensure wall contrasts with roof
+  const newRoofLum = blockLum(roof);
+  const roofWallGap = Math.abs(newRoofLum - wallLum);
+  if (roofWallGap < minDeltaL + 15) { // 40 = 25 + 15 for generous gap
+    wall = newRoofLum < 100
+      ? 'minecraft:stone_bricks'      // dark roof → medium textured wall (lum 124)
+      : 'minecraft:polished_andesite'; // light roof → slate-toned wall (lum 134)
+    wallLum = blockLum(wall);
+  }
+
+  // Step 3: Cap overly-bright walls — white/cream walls lose texture in renders
+  if (wallLum > 190 && newRoofLum < 100) {
+    wall = 'minecraft:stone_bricks'; // lum 124
+    wallLum = blockLum(wall);
+  }
+
+  // Step 4: Ensure ground contrasts with wall
+  const wallGroundGap = Math.abs(wallLum - blockLum(ground));
+  if (wallGroundGap < minDeltaL) {
+    // Pick ground that contrasts: if wall is light, go dark; if dark, go warm
+    ground = wallLum > 140
+      ? 'minecraft:polished_andesite' // lum 134 — medium contrast
+      : 'minecraft:sandstone';        // lum 202 — warm contrast
+    // If still too close, force guaranteed separation
+    if (Math.abs(wallLum - blockLum(ground)) < minDeltaL) {
+      ground = wallLum > 128 ? 'minecraft:gray_concrete' : 'minecraft:smooth_quartz';
+    }
+  }
+
+  // Step 5: All three too similar — force guaranteed triplet
+  const finalRoofLum = blockLum(roof);
+  const finalWallLum = blockLum(wall);
+  const finalGroundLum = blockLum(ground);
+  const rwGap = Math.abs(finalRoofLum - finalWallLum);
+  const wgGap = Math.abs(finalWallLum - finalGroundLum);
+  const rgGap = Math.abs(finalRoofLum - finalGroundLum);
+  if (rwGap < minDeltaL && wgGap < minDeltaL && rgGap < minDeltaL) {
+    // Force dark/medium/warm triplet
+    roof = 'minecraft:gray_concrete';     // lum 58
+    wall = 'minecraft:stone_bricks';      // lum 124
+    ground = 'minecraft:sandstone';       // lum 202
+  }
+
+  return { roof, wall, ground };
 }

@@ -273,6 +273,8 @@ const mergeScores = hasFlag('--merge-scores');
 const deepReview = hasFlag('--deep-review');
 const deepReviewModel = getFlag('--deep-model', 'gemini-2.5-pro');
 const deepReviewRuns = parseInt(getFlag('--deep-runs', '3'), 10);
+const sweepMode = hasFlag('--sweep');
+const sweepRuns = parseInt(getFlag('--sweep-runs', '3'), 10); // quick-grade runs per variant
 const onlyKeys = getFlag('--only', '').split(',').filter(Boolean);
 const targetScore = 9;
 
@@ -393,20 +395,30 @@ async function voxelize(b: BuildingConfig): Promise<string> {
 async function render(b: BuildingConfig, schem: string, actualRes: number): Promise<{ iso: string; topdown: string }> {
   const iso = schem.replace('.schem', '-iso.jpg');
   const topdown = schem.replace('.schem', '-topdown.jpg');
-  // Use configured tile/scale directly — at 2x resolution the grid is 2x larger,
-  // so the render is 2x larger. Sharp will downscale to 500px panel → crisp result.
-  const tile = b.tileSize;
-  const scale = b.topdownScale;
+  // Minimum tile size = 6 for all renders — more texture detail reduces VLM ambiguity
+  const tile = Math.max(b.tileSize, 6);
+  const scale = Math.max(b.topdownScale, 8);
   console.log(`  Rendering: iso (tile=${tile}) + topdown (scale=${scale}) [res=${actualRes}x]`);
   await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
   await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
   return { iso, topdown };
 }
 
-/** Create grade composite: satellite | iso | topdown */
+/** Create an SVG text label as a sharp-compositable buffer */
+function createLabelSvg(text: string, width: number): Buffer {
+  const svg = `<svg width="${width}" height="28" xmlns="http://www.w3.org/2000/svg">
+    <rect x="0" y="0" width="${width}" height="28" fill="rgba(0,0,0,0.6)" rx="4"/>
+    <text x="${width / 2}" y="20" font-family="monospace" font-size="14" font-weight="bold"
+          fill="white" text-anchor="middle">${text}</text>
+  </svg>`;
+  return Buffer.from(svg);
+}
+
+/** Create grade composite: satellite | iso | topdown with panel labels */
 async function composite(b: BuildingConfig, iso: string, topdown: string): Promise<string> {
   const PANEL = 500;
   const GAP = 20;
+  const LABEL_H = 28; // height reserved for panel label
   const W = PANEL * 3 + GAP * 4;
 
   // Satellite ref (use black placeholder if missing)
@@ -422,13 +434,25 @@ async function composite(b: BuildingConfig, iso: string, topdown: string): Promi
   const tdMeta = await sharp(tdImg).metadata();
   const maxH = Math.max(satMeta.height!, isoMeta.height!, tdMeta.height!);
 
+  // Panel labels reduce VLM confusion about which panel is which
+  const labelW = Math.min(PANEL, 180);
+  const satLabel = createLabelSvg('SATELLITE', labelW);
+  const isoLabel = createLabelSvg('ISOMETRIC', labelW);
+  const tdLabel = createLabelSvg('TOP-DOWN', labelW);
+
+  const panelXs = [GAP, GAP + PANEL + GAP, GAP + (PANEL + GAP) * 2];
+
   const buf = await sharp({
     create: { width: W, height: maxH + GAP * 2, channels: 3, background: { r: 30, g: 30, b: 30 } },
   })
     .composite([
-      { input: sat, left: GAP, top: GAP },
-      { input: isoImg, left: GAP + PANEL + GAP, top: GAP },
-      { input: tdImg, left: GAP + (PANEL + GAP) * 2, top: GAP },
+      { input: sat, left: panelXs[0], top: GAP },
+      { input: isoImg, left: panelXs[1], top: GAP },
+      { input: tdImg, left: panelXs[2], top: GAP },
+      // Labels at bottom of each panel
+      { input: satLabel, left: panelXs[0] + Math.floor((PANEL - labelW) / 2), top: GAP + maxH - LABEL_H - 4 },
+      { input: isoLabel, left: panelXs[1] + Math.floor((PANEL - labelW) / 2), top: GAP + maxH - LABEL_H - 4 },
+      { input: tdLabel, left: panelXs[2] + Math.floor((PANEL - labelW) / 2), top: GAP + maxH - LABEL_H - 4 },
     ])
     .jpeg({ quality: 92 })
     .toBuffer();
@@ -782,6 +806,11 @@ async function main(): Promise<void> {
     state.deepReviewModel = deepReviewModel;
   }
 
+  // Sweep mode — auto-try variants for failing buildings
+  if (sweepMode) {
+    await runSweep(state);
+  }
+
   // Compute passing count
   const allResults = Object.values(state.buildings);
   state.passing = allResults.filter(r => r.trimmedMean >= targetScore).length;
@@ -902,6 +931,187 @@ function writeMarkdownState(state: IterateState): void {
 
   writeFileSync('output/iterate-state.md', lines.join('\n') + '\n');
   console.log(`Summary: output/iterate-state.md`);
+}
+
+// ── Sweep Mode ──
+// When a building fails, automatically try parameter variants, grade each,
+// and pick the best configuration.
+
+interface SweepVariant {
+  label: string;
+  maskDilate?: number;
+  resolution?: number;
+  extraFlags?: string[];
+  tileSize?: number;
+}
+
+/** Generate parameter variants for a failing building based on weakest dimension */
+function generateSweepVariants(b: BuildingConfig, subscores: SubScore[]): SweepVariant[] {
+  const avgA = subscores.length > 0
+    ? subscores.reduce((s, x) => s + x.A, 0) / subscores.length : 0;
+  const avgC = subscores.length > 0
+    ? subscores.reduce((s, x) => s + x.C, 0) / subscores.length : 0;
+
+  const variants: SweepVariant[] = [];
+
+  // Footprint variants (when A < 3)
+  if (avgA < 3) {
+    // Try different mask dilation values
+    for (const d of [0, 1, 2, 3, 4]) {
+      if (d !== b.maskDilate) {
+        variants.push({ label: `dilate-${d}`, maskDilate: d });
+      }
+    }
+    // Try without OSM mask
+    if (!b.extraFlags.includes('--no-osm')) {
+      variants.push({ label: 'no-osm', extraFlags: ['--no-osm', '--no-post-mask'] });
+    }
+    // Try with OSM mask if currently disabled
+    if (b.extraFlags.includes('--no-osm')) {
+      variants.push({ label: 'with-osm', extraFlags: b.extraFlags.filter(f => f !== '--no-osm' && f !== '--no-post-mask') });
+    }
+    // Try resolution toggle
+    if (b.resolution === 1) {
+      variants.push({ label: 'res-2', resolution: 2 });
+    } else if (b.resolution === 2) {
+      variants.push({ label: 'res-1', resolution: 1 });
+    }
+  }
+
+  // Surface variants (when C < 2)
+  if (avgC < 2) {
+    if (!b.extraFlags.includes('--no-glaze')) {
+      variants.push({ label: 'no-glaze', extraFlags: [...b.extraFlags, '--no-glaze'] });
+    } else {
+      variants.push({ label: 'with-glaze', extraFlags: b.extraFlags.filter(f => f !== '--no-glaze') });
+    }
+  }
+
+  return variants;
+}
+
+/** Run sweep mode for failing buildings — try variants, grade, pick best */
+async function sweepBuilding(
+  b: BuildingConfig,
+  existingResult: BuildingResult,
+): Promise<{ bestVariant: SweepVariant | null; bestScore: number }> {
+  const variants = generateSweepVariants(b, existingResult.subscores);
+  if (variants.length === 0) {
+    console.log(`  No sweep variants to try for ${b.key}`);
+    return { bestVariant: null, bestScore: existingResult.trimmedMean };
+  }
+
+  console.log(`  Sweeping ${variants.length} variants for ${b.key} (baseline: ${existingResult.trimmedMean})...`);
+
+  let bestVariant: SweepVariant | null = null;
+  let bestScore = existingResult.trimmedMean;
+
+  for (const variant of variants) {
+    console.log(`    Variant: ${variant.label}`);
+
+    // Build modified config
+    const modConfig: BuildingConfig = {
+      ...b,
+      maskDilate: variant.maskDilate ?? b.maskDilate,
+      resolution: variant.resolution ?? b.resolution,
+      extraFlags: variant.extraFlags ?? b.extraFlags,
+      tileSize: variant.tileSize ?? b.tileSize,
+    };
+
+    try {
+      // Voxelize with variant params
+      const vSuffix = `${version}-sweep-${variant.label}`;
+      const schem = `${DIR}/${b.key}-${vSuffix}.schem`;
+      const flagParts = [
+        'bun scripts/voxelize-glb.ts', `"${modConfig.glb}"`, '--auto',
+        '--coords', `"${modConfig.coords}"`,
+        '--mask-dilate', String(modConfig.maskDilate),
+      ];
+      if (modConfig.resolution > 0) flagParts.push('-r', String(modConfig.resolution));
+      flagParts.push('-o', `"${schem}"`, ...modConfig.extraFlags);
+
+      await run(flagParts.join(' '), 600_000);
+
+      // Render
+      const iso = schem.replace('.schem', '-iso.jpg');
+      const topdown = schem.replace('.schem', '-topdown.jpg');
+      const tile = Math.max(modConfig.tileSize, 6);
+      const scale = Math.max(modConfig.topdownScale, 8);
+      await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
+      await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
+
+      // Composite
+      const gradePath = await composite(modConfig, iso, topdown);
+
+      // Quick grade (fewer runs for speed)
+      const { trimmedMean } = await gradeBuilding(gradePath, b.key, sweepRuns);
+      console.log(`    → ${variant.label}: ${trimmedMean} (${sweepRuns} quick runs)`);
+
+      if (trimmedMean > bestScore) {
+        bestScore = trimmedMean;
+        bestVariant = variant;
+      }
+    } catch (err) {
+      console.log(`    → ${variant.label}: ERROR — ${err}`);
+    }
+  }
+
+  if (bestVariant) {
+    console.log(`  Best variant: ${bestVariant.label} (${bestScore} vs baseline ${existingResult.trimmedMean})`);
+    // Report winning config changes
+    if (bestVariant.maskDilate != null) console.log(`    → maskDilate: ${b.maskDilate} → ${bestVariant.maskDilate}`);
+    if (bestVariant.resolution != null) console.log(`    → resolution: ${b.resolution} → ${bestVariant.resolution}`);
+    if (bestVariant.extraFlags != null) console.log(`    → extraFlags: [${bestVariant.extraFlags.join(', ')}]`);
+  } else {
+    console.log(`  No variant beat baseline (${existingResult.trimmedMean})`);
+  }
+
+  return { bestVariant, bestScore };
+}
+
+// ── Sweep after main grading ──
+async function runSweep(state: IterateState): Promise<void> {
+  console.log(`\n${'─'.repeat(50)}`);
+  console.log(`SWEEP MODE: auto-trying parameter variants for failing buildings\n`);
+
+  const failing = selectedBuildings.filter(b => {
+    const r = state.buildings[b.key];
+    return r && r.trimmedMean < targetScore;
+  });
+
+  if (failing.length === 0) {
+    console.log('  No failing buildings to sweep!');
+    return;
+  }
+
+  for (const b of failing) {
+    const result = state.buildings[b.key];
+    if (!result) continue;
+
+    console.log(`\n── SWEEP: ${b.key.toUpperCase()} (current: ${result.trimmedMean}) ──`);
+    const { bestVariant, bestScore } = await sweepBuilding(b, result);
+
+    if (bestVariant && bestScore > result.trimmedMean) {
+      // Run full grading on best variant to confirm
+      console.log(`  Confirming best variant with ${vlmRuns} full runs...`);
+      const vSuffix = `${version}-sweep-${bestVariant.label}`;
+      const gradePath = `${DIR}/grade-${vSuffix}-${b.key}.jpg`;
+      if (existsSync(gradePath)) {
+        const { scores, subscores, trimmedMean } = await gradeBuilding(gradePath, b.key, vlmRuns);
+        console.log(`  Confirmed: ${trimmedMean} (was ${result.trimmedMean})`);
+
+        // Update state with confirmed result
+        state.buildings[b.key] = {
+          ...result,
+          scores,
+          subscores,
+          trimmedMean,
+          diagnosis: diagnose(subscores),
+          timestamp: new Date().toISOString(),
+        };
+      }
+    }
+  }
 }
 
 main().catch(err => {
