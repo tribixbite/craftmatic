@@ -395,30 +395,20 @@ async function voxelize(b: BuildingConfig): Promise<string> {
 async function render(b: BuildingConfig, schem: string, actualRes: number): Promise<{ iso: string; topdown: string }> {
   const iso = schem.replace('.schem', '-iso.jpg');
   const topdown = schem.replace('.schem', '-topdown.jpg');
-  // Minimum tile size = 6 for all renders — more texture detail reduces VLM ambiguity
-  const tile = Math.max(b.tileSize, 6);
-  const scale = Math.max(b.topdownScale, 8);
+  // At 1x resolution, bump tile to 6 for more texture detail; at 2x, keep configured
+  // size since the grid is already 2x larger (forcing tile=6 makes small buildings tiny).
+  const tile = actualRes >= 2 ? b.tileSize : Math.max(b.tileSize, 6);
+  const scale = actualRes >= 2 ? b.topdownScale : Math.max(b.topdownScale, 8);
   console.log(`  Rendering: iso (tile=${tile}) + topdown (scale=${scale}) [res=${actualRes}x]`);
   await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
   await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
   return { iso, topdown };
 }
 
-/** Create an SVG text label as a sharp-compositable buffer */
-function createLabelSvg(text: string, width: number): Buffer {
-  const svg = `<svg width="${width}" height="28" xmlns="http://www.w3.org/2000/svg">
-    <rect x="0" y="0" width="${width}" height="28" fill="rgba(0,0,0,0.6)" rx="4"/>
-    <text x="${width / 2}" y="20" font-family="monospace" font-size="14" font-weight="bold"
-          fill="white" text-anchor="middle">${text}</text>
-  </svg>`;
-  return Buffer.from(svg);
-}
-
-/** Create grade composite: satellite | iso | topdown with panel labels */
+/** Create grade composite: satellite | iso | topdown */
 async function composite(b: BuildingConfig, iso: string, topdown: string): Promise<string> {
   const PANEL = 500;
   const GAP = 20;
-  const LABEL_H = 28; // height reserved for panel label
   const W = PANEL * 3 + GAP * 4;
 
   // Satellite ref (use black placeholder if missing)
@@ -434,25 +424,13 @@ async function composite(b: BuildingConfig, iso: string, topdown: string): Promi
   const tdMeta = await sharp(tdImg).metadata();
   const maxH = Math.max(satMeta.height!, isoMeta.height!, tdMeta.height!);
 
-  // Panel labels reduce VLM confusion about which panel is which
-  const labelW = Math.min(PANEL, 180);
-  const satLabel = createLabelSvg('SATELLITE', labelW);
-  const isoLabel = createLabelSvg('ISOMETRIC', labelW);
-  const tdLabel = createLabelSvg('TOP-DOWN', labelW);
-
-  const panelXs = [GAP, GAP + PANEL + GAP, GAP + (PANEL + GAP) * 2];
-
   const buf = await sharp({
     create: { width: W, height: maxH + GAP * 2, channels: 3, background: { r: 30, g: 30, b: 30 } },
   })
     .composite([
-      { input: sat, left: panelXs[0], top: GAP },
-      { input: isoImg, left: panelXs[1], top: GAP },
-      { input: tdImg, left: panelXs[2], top: GAP },
-      // Labels at bottom of each panel
-      { input: satLabel, left: panelXs[0] + Math.floor((PANEL - labelW) / 2), top: GAP + maxH - LABEL_H - 4 },
-      { input: isoLabel, left: panelXs[1] + Math.floor((PANEL - labelW) / 2), top: GAP + maxH - LABEL_H - 4 },
-      { input: tdLabel, left: panelXs[2] + Math.floor((PANEL - labelW) / 2), top: GAP + maxH - LABEL_H - 4 },
+      { input: sat, left: GAP, top: GAP },
+      { input: isoImg, left: GAP + PANEL + GAP, top: GAP },
+      { input: tdImg, left: GAP + (PANEL + GAP) * 2, top: GAP },
     ])
     .jpeg({ quality: 92 })
     .toBuffer();
@@ -1035,8 +1013,9 @@ async function sweepBuilding(
       // Render
       const iso = schem.replace('.schem', '-iso.jpg');
       const topdown = schem.replace('.schem', '-topdown.jpg');
-      const tile = Math.max(modConfig.tileSize, 6);
-      const scale = Math.max(modConfig.topdownScale, 8);
+      const actualRes = modConfig.resolution > 0 ? modConfig.resolution : 1;
+      const tile = actualRes >= 2 ? modConfig.tileSize : Math.max(modConfig.tileSize, 6);
+      const scale = actualRes >= 2 ? modConfig.topdownScale : Math.max(modConfig.topdownScale, 8);
       await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
       await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
 
