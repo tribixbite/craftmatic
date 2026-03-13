@@ -65,11 +65,11 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Commercial flat-roof — Charlotte, NC, 5.7MB headless capture
-    key: 'charlotte',
-    glb: `${DIR}/flatroof-charlotte.glb`,
-    coords: '35.2271,-80.8431',
-    satRef: `${DIR}/sat-ref-charlotte.jpg`,
+    // 1111 Lincoln Rd parking garage — iconic Miami Beach architecture, 4.4MB headless
+    key: 'miami',
+    glb: `${DIR}/flatroof-miami.glb`,
+    coords: '25.7905,-80.1408',
+    satRef: `${DIR}/sat-ref-miami.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
@@ -121,13 +121,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Large residential, 6.6MB GLB — fixed coords to center on building (was on lagoon)
-    key: 'lyon',
-    glb: `${DIR}/tiles-3601-lyon-st-san-francisco-ca.glb`,
-    coords: '37.8008,-122.4472',
-    satRef: `${DIR}/sat-ref-lyon.jpg`,
-    satZoom: 20,
-    resolution: 2,
+    // 100 S Ashley Dr, Tampa — downtown commercial, 4.2MB headless
+    key: 'tampa',
+    glb: `${DIR}/flatroof-tampa.glb`,
+    coords: '27.9458,-82.4582',
+    satRef: `${DIR}/sat-ref-tampa.jpg`,
+    satZoom: 19,
+    resolution: 1,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
@@ -135,11 +135,11 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Commercial flat-roof — Phoenix, AZ, 5.0MB headless capture
-    key: 'phoenix',
-    glb: `${DIR}/flatroof-phoenix.glb`,
-    coords: '33.4800,-112.0740',
-    satRef: `${DIR}/sat-ref-phoenix.jpg`,
+    // 2800 Post Oak Blvd, Houston — Galleria area commercial, 4.2MB headless
+    key: 'houston',
+    glb: `${DIR}/flatroof-houston.glb`,
+    coords: '29.7378,-95.4608',
+    satRef: `${DIR}/sat-ref-houston.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
