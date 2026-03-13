@@ -68,18 +68,18 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // 150 Fayetteville St, Raleigh NC — downtown commercial, 3.2MB headless
-    key: 'raleigh',
-    glb: `${DIR}/flatroof-raleigh.glb`,
-    coords: '35.7784,-78.6391',
-    satRef: `${DIR}/sat-ref-raleigh.jpg`,
+    // Scottsdale Fashion Square area — 1.4MB headless, was 9.8 in v93
+    key: 'scottsdale',
+    glb: `${DIR}/tiles-scottsdale-headless.glb`,
+    coords: '33.4877,-111.926',
+    satRef: `${DIR}/sat-ref-scottsdale.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
+    tileSize: 4,
+    topdownScale: 6,
   },
   {
     // Compound building — v80c: 6.3 (partial capture, only one edge)
