@@ -68,18 +68,18 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Scottsdale AZ — 1.4MB headless capture, smallest = cleanest isolation
-    key: 'scottsdale',
-    glb: `${DIR}/tiles-scottsdale-headless.glb`,
-    coords: '33.4877,-111.926',
-    satRef: `${DIR}/sat-ref-scottsdale.jpg`,
-    satZoom: 19,
+    // 150 Fayetteville St, Raleigh NC — downtown commercial, 3.2MB headless
+    key: 'raleigh',
+    glb: `${DIR}/flatroof-raleigh.glb`,
+    coords: '35.7784,-78.6391',
+    satRef: `${DIR}/sat-ref-raleigh.jpg`,
+    satZoom: 20,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: ['--no-osm', '--no-post-mask'],
+    extraFlags: [],
     difficulty: 'medium',
-    tileSize: 4,
-    topdownScale: 6,
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
     // Compound building — v80c: 6.3 (partial capture, only one edge)
@@ -101,7 +101,7 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/flatroof-portland.glb`,
     coords: '45.5235,-122.6812',
     satRef: `${DIR}/sat-ref-portland.jpg`,
-    satZoom: 19,
+    satZoom: 20,
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],
@@ -110,11 +110,25 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Bellaire TX — 2.2MB headless capture, clean single-component rectangular building
-    key: 'bellaire',
-    glb: `${DIR}/tiles-bellaire-headless.glb`,
-    coords: '29.6931,-95.4678',
-    satRef: `${DIR}/sat-ref-bellaire.jpg`,
+    // 2800 Post Oak Blvd, Houston TX — Galleria area commercial, 4.3MB headless
+    key: 'houston',
+    glb: `${DIR}/flatroof-houston.glb`,
+    coords: '29.7378,-95.4608',
+    satRef: `${DIR}/sat-ref-houston.jpg`,
+    satZoom: 20,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 4,
+    topdownScale: 6,
+  },
+  {
+    // 191 Peachtree St NE, Atlanta GA — commercial, 7.2MB headless
+    key: 'atlanta',
+    glb: `${DIR}/flatroof-atlanta.glb`,
+    coords: '33.7590,-84.3869',
+    satRef: `${DIR}/sat-ref-atlanta.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 2,
@@ -125,12 +139,11 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // 402 W Broadway, San Diego CA — downtown commercial, 6.4MB headless
-    // v93: --no-osm (polygon misaligned), tile=6 for more render detail
     key: 'sandiego',
     glb: `${DIR}/flatroof-sandiego.glb`,
     coords: '32.7157,-117.1611',
     satRef: `${DIR}/sat-ref-sandiego.jpg`,
-    satZoom: 19,
+    satZoom: 20,
     resolution: 1,
     maskDilate: 2,
     extraFlags: ['--no-osm', '--no-post-mask'],
@@ -139,26 +152,12 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // 450 Noe St, SF — 1.1MB browser capture, SF Victorian
-    key: 'noe',
-    glb: `${DIR}/tiles-450-noe-st-san-francisco-ca-94114.glb`,
-    coords: '37.7604,-122.4314',
-    satRef: `${DIR}/sat-ref-noe.jpg`,
-    satZoom: 20,
-    resolution: 2,
-    maskDilate: 1,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 4,
-    topdownScale: 6,
-  },
-  {
     // Arlington VA area — 2.5MB headless capture
     key: 'arlington',
     glb: `${DIR}/tiles-arlington-headless.glb`,
     coords: '38.8824,-77.1085',
     satRef: `${DIR}/sat-ref-arlington.jpg`,
-    satZoom: 19,
+    satZoom: 20,
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],
@@ -167,16 +166,15 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // 3300 N Central Ave, Phoenix AZ — downtown commercial, 5.0MB headless
-    // v93: replaces charlotte. --no-osm because polygon is misaligned (78% over-clip)
-    key: 'phoenix',
-    glb: `${DIR}/flatroof-phoenix.glb`,
-    coords: '33.4800,-112.0740',
-    satRef: `${DIR}/sat-ref-phoenix.jpg`,
-    satZoom: 19,
+    // Nashville TN — 3.1MB headless capture, commercial building
+    key: 'nashville',
+    glb: `${DIR}/flatroof-nashville.glb`,
+    coords: '36.1656,-86.7770',
+    satRef: `${DIR}/sat-ref-nashville.jpg`,
+    satZoom: 20,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: ['--no-osm', '--no-post-mask'],
+    extraFlags: [],
     difficulty: 'medium',
     tileSize: 4,
     topdownScale: 6,
@@ -382,7 +380,7 @@ async function voxelize(b: BuildingConfig): Promise<string> {
   // Detect actual resolution used (for render tile size adjustment)
   let actualRes = b.resolution > 0 ? b.resolution : 1;
   for (const line of out.split('\n')) {
-    if (/Grid:|mask|polygon|resolution|contrast|Roof darken|Wall|Zone |Auto 2x/i.test(line)) {
+    if (/Grid:|mask|polygon|resolution|contrast|Roof darken|Wall|Zone |Auto 2x|isolation|isolat|Synthetic|glaz/i.test(line)) {
       console.log(`    ${line.trim()}`);
     }
     // Detect auto-2x resolution bump
