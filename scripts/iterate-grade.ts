@@ -118,10 +118,10 @@ const BUILDINGS: BuildingConfig[] = [
     satZoom: 20,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
-    tileSize: 4,
-    topdownScale: 6,
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
     // 191 Peachtree St NE, Atlanta GA — commercial, 7.2MB headless
