@@ -31,6 +31,7 @@
     "prebuild:lego": "bun scripts/prebuild-lego-catalog.ts",
     "prebuild:omr": "bun scripts/prebuild-omr-index.ts",
     "prebuild:seymouria": "bun scripts/prebuild-seymouria-index.ts",
+    "gen-part-dims": "bun scripts/gen-part-dims.ts",
     "prebuild": "bun run prebuild:lego && bun run prebuild:omr && bun run prebuild:seymouria",
     "scrape:lego-thumbs": "bun scripts/scrape-lego-thumbs.ts",
     "clean": "rm -rf dist web/dist",

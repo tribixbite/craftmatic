@@ -19,7 +19,7 @@
 import { BlockGrid } from '@craft/schem/types.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { ldrawColorToBlock } from './ldraw-colors.js';
-import { getPartDims } from './ldraw-part-dims.js';
+import { getPartDims, getPartShape } from './ldraw-part-dims.js';
 
 /** LDraw units per stud pitch (horizontal cell size) */
 const LDU_PER_STUD = 20;
@@ -94,10 +94,47 @@ export function voxelizeLDraw(
     const gzMin = Math.round(wzMin / LDU_PER_STUD);
     const gzMax = Math.round(wzMax / LDU_PER_STUD);
 
-    for (let x = gxMin; x <= gxMax; x++)
-      for (let y = gyMin; y <= gyMax; y++)
-        for (let z = gzMin; z <= gzMax; z++)
+    const shape = getPartShape(brick.part);
+    const spanX = gxMax - gxMin;
+    const spanZ = gzMax - gzMin;
+    const spanY = gyMax - gyMin;
+
+    // Determine slope ascending axis from rotation matrix.
+    // In local space, a slope ascends along -Z; world-space ascending = R*[0,0,-1].
+    let slopeAxis: 'x' | 'z' | null = null;
+    let slopeAscDir = 1;
+    if ((shape === 'slope' || shape === 'slope_inv' || shape === 'slope_double') && spanY > 0) {
+      const ascX = -R[2];  // world-X component of local -Z
+      const ascZ = -R[8];  // world-Z component of local -Z
+      if (Math.abs(ascX) >= Math.abs(ascZ) && spanX > 0) {
+        slopeAxis = 'x';
+        slopeAscDir = ascX >= 0 ? 1 : -1;
+      } else if (spanZ > 0) {
+        slopeAxis = 'z';
+        slopeAscDir = ascZ >= 0 ? 1 : -1;
+      }
+    }
+
+    for (let x = gxMin; x <= gxMax; x++) {
+      for (let z = gzMin; z <= gzMax; z++) {
+        let yLo = gyMin;
+        let yHi = gyMax;
+        if (slopeAxis !== null) {
+          const t = slopeAxis === 'x'
+            ? (slopeAscDir === 1 ? (x - gxMin) / spanX : (gxMax - x) / spanX)
+            : (slopeAscDir === 1 ? (z - gzMin) / spanZ : (gzMax - z) / spanZ);
+          if (shape === 'slope') {
+            yHi = gyMin + Math.round(t * spanY);
+          } else if (shape === 'slope_inv') {
+            yLo = gyMax - Math.round(t * spanY);
+          } else if (shape === 'slope_double') {
+            yHi = gyMin + Math.round((1 - 2 * Math.abs(t - 0.5)) * spanY);
+          }
+        }
+        for (let y = yLo; y <= yHi; y++)
           cells.push({ gx: x, gy: y, gz: z, block, color: brick.color });
+      }
+    }
   }
 
   if (cells.length === 0) {

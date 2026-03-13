@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bunx vitest run test/lego-pipeline.test.ts"
+            "command": "bash scripts/improve-next.sh"
           }
         ]
       }
