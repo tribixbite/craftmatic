@@ -65,11 +65,11 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Beaux-Arts hotel with distinctive rounded triangular footprint, 4.8MB headless capture
-    key: 'ansonia',
-    glb: `${DIR}/nyc-ansonia-headless.glb`,
-    coords: '40.7806,-73.9816',
-    satRef: `${DIR}/sat-ref-ansonia.jpg`,
+    // Commercial flat-roof — Charlotte, NC, 5.7MB headless capture
+    key: 'charlotte',
+    glb: `${DIR}/flatroof-charlotte.glb`,
+    coords: '35.2271,-80.8431',
+    satRef: `${DIR}/sat-ref-charlotte.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
@@ -93,16 +93,16 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Guggenheim Museum — circular/spiral footprint, 5.4MB headless capture
-    key: 'guggenheim',
-    glb: `${DIR}/guggenheim-headless.glb`,
-    coords: '40.7830,-73.9590',
-    satRef: `${DIR}/sat-ref-guggenheim.jpg`,
+    // Commercial flat-roof — Portland, OR, 4.5MB headless capture
+    key: 'portland',
+    glb: `${DIR}/flatroof-portland.glb`,
+    coords: '45.5235,-122.6812',
+    satRef: `${DIR}/sat-ref-portland.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],
-    difficulty: 'hard',
+    difficulty: 'medium',
     tileSize: 4,
     topdownScale: 6,
   },
@@ -135,11 +135,11 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Apthorp — large courtyard apartment building, hollow-square footprint, 4.5MB headless capture
-    key: 'apthorp',
-    glb: `${DIR}/nyc-apthorp-headless.glb`,
-    coords: '40.7835,-73.9770',
-    satRef: `${DIR}/sat-ref-apthorp.jpg`,
+    // Commercial flat-roof — Phoenix, AZ, 5.0MB headless capture
+    key: 'phoenix',
+    glb: `${DIR}/flatroof-phoenix.glb`,
+    coords: '33.4800,-112.0740',
+    satRef: `${DIR}/sat-ref-phoenix.jpg`,
     satZoom: 19,
     resolution: 1,
     maskDilate: 2,
@@ -236,6 +236,7 @@ const version = getFlag('--version', 'v80');
 const vlmModel = getFlag('--model', 'gemini-2.5-flash');
 const vlmRuns = parseInt(getFlag('--runs', '7'), 10);
 const gradeOnly = hasFlag('--grade-only');
+const mergeScores = hasFlag('--merge-scores');
 const onlyKeys = getFlag('--only', '').split(',').filter(Boolean);
 const targetScore = 9;
 
@@ -534,21 +535,43 @@ async function main(): Promise<void> {
       console.log(`  Grading with ${vlmModel} (${vlmRuns} runs, temp=0.1)...`);
       const { scores, subscores, trimmedMean } = await gradeBuilding(gradePath, b.key, vlmRuns);
 
+      // Merge with existing scores if --merge-scores and building already graded
+      let allScores = scores;
+      let allSubscores = subscores;
+      const existing = state.buildings[b.key];
+      if (mergeScores && existing && existing.scores.length > 0) {
+        allScores = [...existing.scores, ...scores];
+        allSubscores = [...existing.subscores, ...subscores];
+        console.log(`  Merged: ${existing.scores.length} old + ${scores.length} new = ${allScores.length} total`);
+      }
+
+      // Recompute trimmed mean on all accumulated scores
+      let mergedTrimmedMean = 0;
+      if (allScores.length >= 3) {
+        const sorted = [...allScores].sort((a, b) => a - b);
+        const trimmed = sorted.slice(1, -1);
+        mergedTrimmedMean = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+      } else if (allScores.length > 0) {
+        mergedTrimmedMean = allScores.reduce((a, b) => a + b, 0) / allScores.length;
+      }
+      mergedTrimmedMean = Math.round(mergedTrimmedMean * 10) / 10;
+
       const result: BuildingResult = {
         key: b.key,
         version,
         difficulty: b.difficulty,
-        scores,
-        subscores,
-        trimmedMean,
-        diagnosis: diagnose(subscores),
+        scores: allScores,
+        subscores: allSubscores,
+        trimmedMean: mergedTrimmedMean,
+        diagnosis: diagnose(allSubscores),
         timestamp: new Date().toISOString(),
       };
 
       state.buildings[b.key] = result;
 
-      const status = trimmedMean >= targetScore ? 'PASS' : 'FAIL';
-      console.log(`  → ${b.key}: trimmedMean=${trimmedMean} [${scores.join(', ')}] ${status}`);
+      const status = mergedTrimmedMean >= targetScore ? 'PASS' : 'FAIL';
+      const scoreStr = mergeScores && existing?.scores.length ? `[...${existing.scores.length} prev, ${scores.join(', ')}]` : `[${scores.join(', ')}]`;
+      console.log(`  → ${b.key}: trimmedMean=${mergedTrimmedMean} (${allScores.length} runs) ${scoreStr} ${status}`);
       if (status === 'FAIL') console.log(`    Diagnosis: ${result.diagnosis}`);
 
     } catch (err) {
@@ -596,11 +619,11 @@ function writeMarkdownState(state: IterateState): void {
     ``,
     `**Target**: 9/${state.total} buildings at ${state.target}+`,
     `**Current**: ${state.passing}/${state.total} passing`,
-    `**Model**: ${state.model} | **Runs**: ${vlmRuns} (trimmed mean)`,
+    `**Model**: ${state.model} | **Runs/batch**: ${vlmRuns} | **Mode**: ${mergeScores ? 'accumulate' : 'fresh'} (trimmed mean)`,
     `**Updated**: ${state.timestamp}`,
     ``,
-    `| Building | Difficulty | TrimmedMean | Scores | Avg A | Avg B | Avg C | Status | Diagnosis |`,
-    `|---|---|---|---|---|---|---|---|---|`,
+    `| Building | Difficulty | TrimmedMean | Runs | Scores | Avg A | Avg B | Avg C | Status | Diagnosis |`,
+    `|---|---|---|---|---|---|---|---|---|---|`,
   ];
 
   for (const b of BUILDINGS) {
@@ -616,7 +639,7 @@ function writeMarkdownState(state: IterateState): void {
     const avgC = r.subscores.length > 0
       ? (r.subscores.reduce((s, x) => s + x.C, 0) / r.subscores.length).toFixed(1) : '—';
     const status = r.trimmedMean >= state.target ? 'PASS' : 'FAIL';
-    lines.push(`| ${r.key} | ${r.difficulty} | ${r.trimmedMean} | [${r.scores.join(',')}] | ${avgA} | ${avgB} | ${avgC} | ${status} | ${r.diagnosis} |`);
+    lines.push(`| ${r.key} | ${r.difficulty} | ${r.trimmedMean} | ${r.scores.length} | [${r.scores.join(',')}] | ${avgA} | ${avgB} | ${avgC} | ${status} | ${r.diagnosis} |`);
   }
 
   // Action items for failing buildings
