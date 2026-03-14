@@ -139,8 +139,9 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // 402 W Broadway, San Diego CA — downtown commercial, 6.4MB headless
-    // v95: --no-osm is best (OSM post-mask removes 65%). Ceiling 8.6 with 12 runs.
-    // Tested: 2x=6.8, OSM=8.5, --no-osm=8.6. Tampa(5.8)/Miami(6.5) worse replacements.
+    // v95: --no-osm is best (OSM post-mask removes 65%, scores drop 8.0→4.0).
+    // Tested replacements: winnetka(1.8), dallas(6.0), bellaire(7.3), artinstitute(7.0).
+    // Sandiego ceiling ~8.0 — generic rectangular footprint limits A score.
     key: 'sandiego',
     glb: `${DIR}/flatroof-sandiego.glb`,
     coords: '32.7157,-117.1611',
@@ -168,20 +169,20 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Nashville TN — 3.1MB headless capture, commercial building
-    // v95: ceiling 8.3 with 12 runs. Tested: --no-osm(4), dilate=1(4.8). Best: dilate=2.
-    // Tampa(5.8) and Miami(6.5) tested as replacements — both worse.
-    key: 'nashville',
-    glb: `${DIR}/flatroof-nashville.glb`,
-    coords: '36.1656,-86.7770',
-    satRef: `${DIR}/sat-ref-nashville.jpg`,
+    // Raleigh NC — 3.3MB headless capture, commercial building
+    // v94: 8.8 bimodal distribution, replaced by scottsdale. Testing with v95 pipeline.
+    // Previous nashville(6.0), phoenix(4.8), tampa(5.8), miami(6.5), cambridge(4.5).
+    key: 'raleigh',
+    glb: `${DIR}/flatroof-raleigh.glb`,
+    coords: '35.7784,-78.6391',
+    satRef: `${DIR}/sat-ref-raleigh.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
-    topdownScale: 6,
+    topdownScale: 8,
   },
 ];
 
