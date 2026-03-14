@@ -727,14 +727,16 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         // Blue/cyan (190°-260°): heavy desat — kill sky reflection shadows
         // Red/orange/brown (0°-70°, 320°-360°): preserve mid-tones (brick, sandstone)
         // Green (85°-160°, l<0.7): boost — vegetation recovery
+        // v95: Reduced desaturation aggressiveness — 0.1 blue killed copper/teal roofs,
+        // 0.85 default pushed too many materials toward gray CIE-Lab neutral axis.
         if (hueDeg >= 190 && hueDeg <= 260) {
-          s *= 0.1; // Kill blue skylight contamination
+          s *= 0.3; // Reduce sky bleed but preserve real copper/patina
         } else if ((hueDeg <= 70 || hueDeg >= 320) && l < 0.40) {
           s *= 0.6; // Allow warm shadows to stay warm → maps to brown_terracotta/brick
         } else if (hueDeg >= 85 && hueDeg <= 160 && l < 0.7) {
           s = Math.min(1, s * 1.3); // Vegetation boost
         } else {
-          s *= 0.85; // Preserve most color — was 0.7, too aggressive for building materials
+          s *= 0.90; // Preserve more color — was 0.85, too aggressive for building materials
         }
 
         const hue2rgb = (p: number, q: number, t: number): number => {
@@ -762,9 +764,11 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
     // SKIP for center-pixel features (windows, trim): their darkness is the real
     // signal, not baked AO. Preserving dark values lets CIE-Lab match to
     // gray_concrete, polished_andesite, etc. for glazeDarkWindows to convert.
+    // v95: MIN_BRIGHT 60→35. 60 was crushing dark browns/reds/charcoals to identical
+    // gray_concrete. 35 allows distinct dark materials to survive CIE-Lab matching.
     if (!isGreenish && !isCenterPixelFeature) {
-      const MIN_BRIGHT = 60;
-      const range = 255 - MIN_BRIGHT; // 195 — wider range preserves mid-tone variety
+      const MIN_BRIGHT = 35;
+      const range = 255 - MIN_BRIGHT; // 220 — wider range preserves dark material variety
       r = Math.round(MIN_BRIGHT + (r * range) / 255);
       g = Math.round(MIN_BRIGHT + (g * range) / 255);
       b = Math.round(MIN_BRIGHT + (b * range) / 255);

@@ -199,7 +199,7 @@ Options:
   let mode: VoxelizeMode = 'surface';
   let minHeight = 2;
   let trimThreshold = 0.05;
-  let gamma = 0.75; // Google 3D Tiles have baked lighting — 0.75 brightens shadows while preserving mid-tones
+  let gamma = 0.85; // v95: 0.75→0.85 — less mid-tone compression preserves color variety for CIE-Lab matching
   let kernel = 12; // Moderate kernel — preserves window/trim features while smoothing noise
   let desaturate = 0.05; // Minimal desaturation — preserve building-specific colors (green copper, brick, etc.)
   let outputPath = '';
@@ -1392,11 +1392,13 @@ async function main(): Promise<void> {
       console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (< 500 voxels)`);
     }
 
-    // Step 3c: Auto-isolate primary building when OSM mask failed or was skipped
-    if (!osmMaskDone && !args.noIsolate && analysis && analysis.componentCount > 3) {
-      const isolated = isolatePrimaryBuilding(trimmed, 3, 0.05);
+    // Step 3c: Auto-isolate primary building when OSM mask failed or was skipped.
+    // v95: Removed componentCount > 3 gate — even 2-component captures benefit from
+    // isolation. isolatePrimaryBuilding() handles single-component gracefully (returns 0).
+    if (!osmMaskDone && !args.noIsolate) {
+      const isolated = isolatePrimaryBuilding(trimmed);
       if (isolated > 0) {
-        console.log(`Primary building isolation: ${isolated} blocks removed (${analysis.componentCount} components → primary + annexes)`);
+        console.log(`Primary building isolation: ${isolated} blocks removed`);
       }
     }
 
@@ -1504,15 +1506,12 @@ async function main(): Promise<void> {
         console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (components < 500 voxels)`);
       }
 
-      // Step 3c: Auto-isolate primary building when OSM mask failed or was skipped
+      // Step 3c: Auto-isolate primary building when OSM mask failed or was skipped.
+      // v95: Removed componentCount gate, use default tighter thresholds.
       if (!osmMaskDone && !args.noIsolate) {
-        // Re-analyze after cleanup to get current component count
-        const postCleanAnalysis = analyzeGrid(trimmed);
-        if (postCleanAnalysis.componentCount > 3) {
-          const isolated = isolatePrimaryBuilding(trimmed, 3, 0.05);
-          if (isolated > 0) {
-            console.log(`Primary building isolation: ${isolated} blocks removed (${postCleanAnalysis.componentCount} components → primary + annexes)`);
-          }
+        const isolated = isolatePrimaryBuilding(trimmed);
+        if (isolated > 0) {
+          console.log(`Primary building isolation: ${isolated} blocks removed`);
         }
       }
 
@@ -1681,9 +1680,11 @@ async function main(): Promise<void> {
     // tolerance=1 only snaps blocks directly adjacent to the dominant plane,
     // preserving 2+ block protrusions like bay windows and stepped facades.
     if (analysis?.isRectangular) {
-      const snapped = flattenFacades(trimmed, 1);
+      // v95: Pass roofCutoff to skip roof layer — flattenFacades was snapping
+      // roof geometry to facade planes, creating holes visible in top-down views.
+      const snapped = flattenFacades(trimmed, 1, roofCutoff);
       if (snapped > 0) {
-        console.log(`Facade flattening: ${snapped} voxels snapped to dominant planes`);
+        console.log(`Facade flattening: ${snapped} voxels snapped to dominant planes (below Y=${roofCutoff})`);
       }
     }
   }
@@ -2090,18 +2091,20 @@ async function main(): Promise<void> {
     // Protect zone accent blocks from mode filter erasure.
     // Thin features (1-block trim columns, 1-block floor bands) get outvoted
     // by surrounding wall blocks without protection.
-    zoneProtected = new Set([groundBlock, bandBlock, trimBlock]);
+    // v95: Added roofDom — without protection, modeFilter3D outvotes roof blocks
+    // with wall blocks at roof edges, creating swiss-cheese holes in top-down views.
+    zoneProtected = new Set([groundBlock, bandBlock, trimBlock, roofDom]);
   }
 
   // 3D mode filter — smooth spatial noise while preserving multi-zone materials.
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
   {
-    // v92: floor of 3 passes minimum. Deep review found 2 passes insufficient —
-    // all builds rated "noisy, artifact-ridden". v69's floor of 4 over-smoothed
-    // bay windows but 3 is safe. Auto-detect now recommends 3-4 base.
-    const basePasses = Math.max(args.modePasses, 3);
-    const passes = Math.round(basePasses * Math.sqrt(args.resolution));
+    // v95: Hard cap at 3 passes. Previous sqrt(resolution) multiplier gave 4+ passes
+    // at 2x res which erased color variety and produced monotone gray facades.
+    // 3 passes cleans genuine noise; 4+ homogenizes real material differences.
+    const basePasses = Math.max(args.modePasses, 2);
+    const passes = Math.min(3, basePasses);
     const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} passes)`);
@@ -2122,25 +2125,24 @@ async function main(): Promise<void> {
   // glazeWindows adds glass for material variety — keeping it gives C=3 "3+ material zones".
   // Homogenize still collapses other stray block types (non-glass, non-zone-accent).
   {
+    // v95: Reduced from 2 passes at 8% to 1 pass at 10%. Two passes created a
+    // feedback loop — first pass created homogeneity, second locked it in,
+    // destroying all material variety and producing monotone gray facades.
     const facadeProtected = new Set([
       'minecraft:gray_stained_glass', 'minecraft:glass', 'minecraft:glass_pane',
       'minecraft:light_gray_stained_glass', 'minecraft:black_stained_glass',
       ...(zoneProtected ?? []),
     ]);
-    const homogenized1 = homogenizeFacadesByFace(trimmed, 0.08, 6, facadeProtected);
-    // Second pass catches blocks that became minority after first pass reshuffled neighbors
-    const homogenized2 = homogenizeFacadesByFace(trimmed, 0.08, 6, facadeProtected);
-    const total = homogenized1 + homogenized2;
-    if (total > 0) {
-      console.log(`Facade homogenization: ${total} minority blocks collapsed (${homogenized1}+${homogenized2}, 2 passes, 8% threshold)`);
+    const homogenized = homogenizeFacadesByFace(trimmed, 0.10, 6, facadeProtected);
+    if (homogenized > 0) {
+      console.log(`Facade homogenization: ${homogenized} minority blocks collapsed (1 pass, 10% threshold)`);
     }
   }
 
-  // v92/v93: Final palette cleanup — collapse stray block types to zone dominants.
-  // After mode filter + homogenize, any remaining minority blocks not in the zone palette
-  // create visual noise that VLMs score as C=1. Force them to nearest zone block by Y position.
-  // v93: Glass blocks protected — glazeWindows adds them for surface variety, C score needs
-  // "3+ distinct material zones" and glass provides the 3rd visual tone.
+  // v95: Softened palette cleanup — preserve secondary materials that appear ≥3% of
+  // their zone. Previous nuclear cleanup replaced ALL non-dominant blocks with the
+  // single zone dominant, destroying material variety (sandstone trim on stone walls,
+  // brick accents, etc.) and producing monotone gray facades.
   if (roofDom && wallDom) {
     // roofDom/wallDom/groundDom already have 'minecraft:' prefix
     const zoneBlocks = new Set([roofDom, wallDom, groundDom, 'minecraft:air']);
@@ -2154,6 +2156,30 @@ async function main(): Promise<void> {
     const { width: gw, height: gh, length: gl } = trimmed;
     const roofCutoffY = Math.round(gh * 0.60);
     const groundCutoffY = Math.min(3, Math.round(gh * 0.10));
+
+    // v95: Build frequency maps per zone and protect blocks ≥3% of their zone total.
+    // This preserves secondary wall materials instead of forcing everything to the dominant.
+    const wallFreq = new Map<string, number>();
+    const roofFreq = new Map<string, number>();
+    let wallTotal = 0, roofTotal = 0;
+    for (let y = 0; y < gh; y++) {
+      for (let z = 0; z < gl; z++) {
+        for (let x = 0; x < gw; x++) {
+          const b = trimmed.get(x, y, z);
+          if (b === 'minecraft:air') continue;
+          if (y >= roofCutoffY) {
+            roofFreq.set(b, (roofFreq.get(b) || 0) + 1);
+            roofTotal++;
+          } else {
+            wallFreq.set(b, (wallFreq.get(b) || 0) + 1);
+            wallTotal++;
+          }
+        }
+      }
+    }
+    for (const [b, c] of wallFreq) { if (c >= wallTotal * 0.03) zoneBlocks.add(b); }
+    for (const [b, c] of roofFreq) { if (c >= roofTotal * 0.03) zoneBlocks.add(b); }
+
     let cleaned = 0;
     for (let y = 0; y < gh; y++) {
       // Determine which zone dominant to use based on height
@@ -2171,7 +2197,7 @@ async function main(): Promise<void> {
       }
     }
     if (cleaned > 0) {
-      console.log(`Palette cleanup: ${cleaned} stray blocks → zone dominants`);
+      console.log(`Palette cleanup: ${cleaned} stray blocks → zone dominants (${zoneBlocks.size - 1} protected types)`);
     }
   }
 
