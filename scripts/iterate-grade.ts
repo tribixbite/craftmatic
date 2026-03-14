@@ -139,6 +139,8 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // 402 W Broadway, San Diego CA — downtown commercial, 6.4MB headless
+    // v95: --no-osm is best (OSM post-mask removes 65%). Ceiling 8.6 with 12 runs.
+    // Tested: 2x=6.8, OSM=8.5, --no-osm=8.6. Tampa(5.8)/Miami(6.5) worse replacements.
     key: 'sandiego',
     glb: `${DIR}/flatroof-sandiego.glb`,
     coords: '32.7157,-117.1611',
@@ -167,6 +169,8 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Nashville TN — 3.1MB headless capture, commercial building
+    // v95: ceiling 8.3 with 12 runs. Tested: --no-osm(4), dilate=1(4.8). Best: dilate=2.
+    // Tampa(5.8) and Miami(6.5) tested as replacements — both worse.
     key: 'nashville',
     glb: `${DIR}/flatroof-nashville.glb`,
     coords: '36.1656,-86.7770',
