@@ -50,7 +50,7 @@ const BUILDINGS: BuildingConfig[] = [
     maskDilate: 1,
     extraFlags: [],
     difficulty: 'easy',
-    tileSize: 4,
+    tileSize: 6,
     topdownScale: 6,
   },
   {
@@ -64,7 +64,7 @@ const BUILDINGS: BuildingConfig[] = [
     maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
-    tileSize: 4,
+    tileSize: 6,
     topdownScale: 6,
   },
   {
@@ -78,7 +78,7 @@ const BUILDINGS: BuildingConfig[] = [
     maskDilate: 2,
     extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
-    tileSize: 4,
+    tileSize: 6,
     topdownScale: 6,
   },
   {
@@ -92,7 +92,7 @@ const BUILDINGS: BuildingConfig[] = [
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'hard',
-    tileSize: 4,
+    tileSize: 6,
     topdownScale: 6,
   },
   {
@@ -106,7 +106,7 @@ const BUILDINGS: BuildingConfig[] = [
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
-    tileSize: 4,
+    tileSize: 6,
     topdownScale: 6,
   },
   {
@@ -162,7 +162,7 @@ const BUILDINGS: BuildingConfig[] = [
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
-    tileSize: 4,
+    tileSize: 6,
     topdownScale: 6,
   },
   {
@@ -176,7 +176,7 @@ const BUILDINGS: BuildingConfig[] = [
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
-    tileSize: 4,
+    tileSize: 6,
     topdownScale: 6,
   },
 ];

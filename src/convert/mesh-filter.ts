@@ -377,15 +377,18 @@ export function morphClose3D(grid: BlockGrid, radius = 1): number {
  * @param snapRadius  Max distance to snap to a peak (default: 2 voxels)
  * @returns Number of voxels snapped
  */
-export function flattenFacades(grid: BlockGrid, snapRadius = 2): number {
+export function flattenFacades(grid: BlockGrid, snapRadius = 2, maxY?: number): number {
   const { width, height, length } = grid;
+  // v95: maxY limits flattening to wall zone only — protects roof geometry from
+  // being snapped to facade planes, which was creating holes in top-down views.
+  const yLimit = maxY ?? height;
   let snapped = 0;
 
   // ── X-axis flattening: for each Z row, find dominant X planes ──
   for (let z = 0; z < length; z++) {
-    // Build depth histogram across all Y for this Z slice
+    // Build depth histogram across all Y for this Z slice (wall zone only)
     const xHist = new Int32Array(width);
-    for (let y = 0; y < height; y++) {
+    for (let y = 0; y < yLimit; y++) {
       for (let x = 0; x < width; x++) {
         if (grid.get(x, y, z) !== 'minecraft:air') xHist[x]++;
       }
@@ -393,7 +396,7 @@ export function flattenFacades(grid: BlockGrid, snapRadius = 2): number {
 
     // Find peaks: X positions with more voxels than both neighbors
     // A peak must have at least 15% of height to be a real wall plane
-    const minPeak = height * 0.1;
+    const minPeak = yLimit * 0.1;
     const peaks: number[] = [];
     for (let x = 0; x < width; x++) {
       if (xHist[x] < minPeak) continue;
@@ -406,8 +409,8 @@ export function flattenFacades(grid: BlockGrid, snapRadius = 2): number {
 
     if (peaks.length === 0) continue;
 
-    // Snap non-peak voxels to nearest peak within snapRadius
-    for (let y = 0; y < height; y++) {
+    // Snap non-peak voxels to nearest peak within snapRadius (wall zone only)
+    for (let y = 0; y < yLimit; y++) {
       for (let x = 0; x < width; x++) {
         const block = grid.get(x, y, z);
         if (block === 'minecraft:air') continue;
@@ -440,13 +443,13 @@ export function flattenFacades(grid: BlockGrid, snapRadius = 2): number {
   // ── Z-axis flattening: for each X row, find dominant Z planes ──
   for (let x = 0; x < width; x++) {
     const zHist = new Int32Array(length);
-    for (let y = 0; y < height; y++) {
+    for (let y = 0; y < yLimit; y++) {
       for (let z = 0; z < length; z++) {
         if (grid.get(x, y, z) !== 'minecraft:air') zHist[z]++;
       }
     }
 
-    const minPeak = height * 0.1;
+    const minPeak = yLimit * 0.1;
     const peaks: number[] = [];
     for (let z = 0; z < length; z++) {
       if (zHist[z] < minPeak) continue;
@@ -459,7 +462,7 @@ export function flattenFacades(grid: BlockGrid, snapRadius = 2): number {
 
     if (peaks.length === 0) continue;
 
-    for (let y = 0; y < height; y++) {
+    for (let y = 0; y < yLimit; y++) {
       for (let z = 0; z < length; z++) {
         const block = grid.get(x, y, z);
         if (block === 'minecraft:air') continue;
@@ -4669,8 +4672,8 @@ export function consolidateBlockPalette(grid: BlockGrid, k = 5): number {
  */
 export function isolatePrimaryBuilding(
   grid: BlockGrid,
-  annexRadius = 3,
-  minVolumePct = 0.05,
+  annexRadius = 2,      // v95: tightened 3→2 — adjacent buildings must be directly touching
+  minVolumePct = 0.15,  // v95: tightened 0.05→0.15 — annexes must be ≥15% of primary volume
 ): number {
   const AIR = 'minecraft:air';
   const { width, height, length } = grid;
@@ -4716,7 +4719,10 @@ export function isolatePrimaryBuilding(
     const mz = centroidZ[i] / compCounts[i];
     const dist = Math.sqrt((mx - cx) * (mx - cx) + (mz - cz) * (mz - cz));
     const normalizedDist = maxDist > 0 ? dist / maxDist : 0;
-    const score = compCounts[i] * (1.0 - normalizedDist * 0.5);
+    // v95: Reduced distance penalty 0.5→0.2 so volume dominates scoring.
+    // Previously a centered component with 60% of the volume could beat the actual
+    // target building if it was off-center. Now size is the primary signal.
+    const score = compCounts[i] * (1.0 - normalizedDist * 0.2);
 
     if (score > bestScore) {
       bestScore = score;
