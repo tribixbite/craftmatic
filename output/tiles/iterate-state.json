@@ -1,8 +1,8 @@
 {
   "version": "v95",
-  "timestamp": "2026-03-14T05:24:47.100Z",
+  "timestamp": "2026-03-14T06:30:37.870Z",
   "target": 9,
-  "passing": 8,
+  "passing": 9,
   "total": 10,
   "model": "gemini-2.5-flash",
   "buildings": {
@@ -488,91 +488,121 @@
       "timestamp": "2026-03-14T05:10:19.927Z",
       "satRefQuality": 3
     },
-    "tampa": {
-      "key": "tampa",
+    "raleigh": {
+      "key": "raleigh",
       "version": "v95",
       "difficulty": "medium",
       "scores": [
-        5,
-        6,
-        6,
-        3,
-        6,
-        6
+        9,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10
       ],
       "subscores": [
         {
-          "A": 2,
-          "B": 1,
-          "C": 2,
-          "total": 5
-        },
-        {
-          "A": 2,
-          "B": 2,
-          "C": 2,
-          "total": 6
-        },
-        {
-          "A": 2,
-          "B": 2,
-          "C": 2,
-          "total": 6
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 1,
-          "total": 3
-        },
-        {
-          "A": 1,
+          "A": 4,
           "B": 2,
           "C": 3,
-          "total": 6
+          "total": 9
         },
         {
-          "A": 2,
-          "B": 2,
-          "C": 2,
-          "total": 6
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
         }
       ],
-      "trimmedMean": 5.8,
-      "diagnosis": "footprint(1.7/4), massing(1.7/3)",
-      "timestamp": "2026-03-14T05:26:01.961Z",
+      "trimmedMean": 10,
+      "diagnosis": "passing",
+      "timestamp": "2026-03-14T06:18:21.012Z",
       "satRefQuality": 3
     },
-    "miami": {
-      "key": "miami",
+    "sandiego": {
+      "key": "sandiego",
       "version": "v95",
       "difficulty": "medium",
       "scores": [
-        7,
-        5,
-        7,
+        9,
         6,
+        9,
+        9,
         7,
-        6
+        7
       ],
       "subscores": [
         {
-          "A": 2,
-          "B": 2,
+          "A": 3,
+          "B": 3,
           "C": 3,
-          "total": 7
-        },
-        {
-          "A": 1,
-          "B": 2,
-          "C": 2,
-          "total": 5
-        },
-        {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
+          "total": 9
         },
         {
           "A": 2,
@@ -581,21 +611,33 @@
           "total": 6
         },
         {
-          "A": 2,
-          "B": 2,
+          "A": 3,
+          "B": 3,
           "C": 3,
-          "total": 7
+          "total": 9
+        },
+        {
+          "A": 3,
+          "B": 3,
+          "C": 3,
+          "total": 9
         },
         {
           "A": 2,
+          "B": 3,
+          "C": 2,
+          "total": 7
+        },
+        {
+          "A": 3,
           "B": 2,
           "C": 2,
-          "total": 6
+          "total": 7
         }
       ],
-      "trimmedMean": 6.5,
-      "diagnosis": "footprint(1.8/4)",
-      "timestamp": "2026-03-14T05:27:14.018Z",
+      "trimmedMean": 8,
+      "diagnosis": "footprint(2.7/4)",
+      "timestamp": "2026-03-14T06:31:44.012Z",
       "satRefQuality": 3
     }
   },
