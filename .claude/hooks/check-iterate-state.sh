@@ -1,91 +1,125 @@
 #!/bin/bash
 # Stop hook: PERPETUAL ITERATION driver.
-# Always outputs a next action — never silent. Drives indefinite improvement.
+# Always outputs a concrete next action. Never silent when improvements possible.
 STATE="$CLAUDE_PROJECT_DIR/output/tiles/iterate-state.json"
 
 if [ ! -f "$STATE" ]; then
-  echo "ITERATE: No state file. Start with: bun scripts/iterate-grade.ts --version v92 --runs 5"
+  echo "ITERATE: No state file. Run: bun scripts/iterate-grade.ts --version v95 --runs 6"
   exit 0
 fi
 
-python3 << PYEOF
-import json, sys
+python3 << 'PYEOF'
+import json, sys, os
 
-with open("$STATE") as f:
+state_path = os.environ.get("CLAUDE_PROJECT_DIR", ".") + "/output/tiles/iterate-state.json"
+with open(state_path) as f:
     d = json.load(f)
 
 buildings = d.get('buildings', {})
 if not buildings:
-    print("ITERATE: Empty state. Run: bun scripts/iterate-grade.ts --version v92 --runs 5")
+    print("ITERATE: Empty state. Run: bun scripts/iterate-grade.ts --version v95 --runs 6")
     sys.exit(0)
 
 version = d.get('version', '?')
 passing = d.get('passing', 0)
 total = d.get('total', 0)
-last_deep = d.get('lastDeepReview', '')
 
-# Classify failing buildings
-failing = {}
+# Classify all buildings
+failing = []
+borderline = []  # passing but < 9.5
+solid = []       # >= 9.5
+low_runs = []    # < 12 runs (need more data)
+
 for k, v in buildings.items():
     tm = v.get('trimmedMean', 0)
+    runs = len(v.get('scores', []))
+    ss = v.get('subscores', [])
+    n = len(ss) if ss else 1
+    avgA = sum(s.get('A',0) for s in ss) / n if ss else 0
+    avgB = sum(s.get('B',0) for s in ss) / n if ss else 0
+    avgC = sum(s.get('C',0) for s in ss) / n if ss else 0
+    scores = v.get('scores', [])
+    rng = max(scores) - min(scores) if scores else 0
+    diag = v.get('diagnosis', '')
+    info = {'key': k, 'tm': tm, 'A': avgA, 'B': avgB, 'C': avgC, 'runs': runs, 'range': rng, 'diag': diag}
+
     if tm < 9:
-        ss = v.get('subscores', [])
-        n = len(ss) if ss else 1
-        avgA = sum(s.get('A',0) for s in ss) / n if ss else 0
-        avgB = sum(s.get('B',0) for s in ss) / n if ss else 0
-        avgC = sum(s.get('C',0) for s in ss) / n if ss else 0
-        dr = v.get('deepReviewMean')
-        sat = v.get('satRefQuality', 5)
-        diag = v.get('diagnosis', '')
-        failing[k] = {'tm': tm, 'A': avgA, 'B': avgB, 'C': avgC, 'dr': dr, 'sat': sat, 'diag': diag}
+        failing.append(info)
+    elif tm < 9.5:
+        borderline.append(info)
+    else:
+        solid.append(info)
+    if runs < 12:
+        low_runs.append(info)
 
-# Deep review stats
-deep_reviewed = {k: v for k,v in buildings.items() if v.get('deepReviewMean') is not None}
-deep_count = len(deep_reviewed)
-deep_avg = sum(v['deepReviewMean'] for v in deep_reviewed.values()) / deep_count if deep_count else 0
-vlm_avg = sum(v['trimmedMean'] for v in deep_reviewed.values()) / deep_count if deep_count else 0
-deep_passing = sum(1 for v in deep_reviewed.values() if v.get('deepReviewMean', 0) >= 8)
+# Sort by priority
+failing.sort(key=lambda x: x['tm'])
+borderline.sort(key=lambda x: x['tm'])
+low_runs.sort(key=lambda x: x['runs'])
 
-# Bad sat refs
-bad_sat = sorted([k for k,v in buildings.items() if v.get('satRefQuality', 5) < 3])
+# Status line
+print(f"ITERATE {version}: {passing}/{total} passing | {len(failing)} fail | {len(borderline)} borderline | {len(solid)} solid")
 
-# Build prioritized action list
-actions = []
-
-if bad_sat:
-    actions.append(f"P0: Replace unclear sat refs: {','.join(bad_sat)}")
-
+# Priority 1: Fix failing buildings
 if failing:
-    ranked = sorted(failing.items(), key=lambda x: x[1]['tm'])
-    surface_bad = [k for k,v in ranked if v['C'] < 2]
-    footprint_bad = [k for k,v in ranked if v['A'] < 3]
-    massing_bad = [k for k,v in ranked if v['B'] < 2]
-    near_pass = [(k,v['tm']) for k,v in ranked if v['tm'] >= 7]
+    worst = failing[0]
+    names = ','.join(f['key'] for f in failing)
+    print(f"\nFAILING ({len(failing)}): {names}")
+    for f in failing:
+        print(f"  {f['key']}: {f['tm']} (A={f['A']:.1f} B={f['B']:.1f} C={f['C']:.1f}, {f['runs']} runs, range={f['range']}) — {f['diag']}")
 
-    if surface_bad:
-        actions.append(f"P1: Fix surface noise [{','.join(surface_bad)}] — more modeFilter passes, stronger homogenization")
-    if footprint_bad:
-        actions.append(f"P2: Fix footprint [{','.join(footprint_bad)}] — tighter OSM mask, 2x res")
-    if massing_bad:
-        actions.append(f"P3: Fix massing [{','.join(massing_bad)}] — check capture height")
-    if near_pass:
-        near_str = ', '.join(f'{k}({v})' for k,v in near_pass)
-        actions.append(f"P4: Near-passing [{near_str}] — fine-tune")
+    # Specific fix suggestions
+    for f in failing:
+        fixes = []
+        if f['A'] < 3: fixes.append("footprint: try --no-osm, different dilate, or 2x res")
+        if f['B'] < 2.5: fixes.append("massing: check capture completeness, mode-passes")
+        if f['C'] < 2.5: fixes.append("surface: reduce homogenize, check color pipeline")
+        if f['range'] >= 4: fixes.append("high-variance: accumulate 12+ runs, check sat ref")
+        if fixes:
+            print(f"  → {f['key']} fixes: {'; '.join(fixes)}")
 
-actions.append(f"P5: Re-grade: bun scripts/iterate-grade.ts --grade-only --version {version} --runs 5")
+    print(f"\nACTION: Fix worst failing building ({worst['key']} at {worst['tm']}), then re-grade.")
+    sys.exit(0)
 
-if not last_deep or (deep_count > 0 and deep_avg < 6):
-    actions.append(f"P6: Deep review: bun scripts/iterate-grade.ts --grade-only --deep-review --version {version} --runs 0 --deep-runs 3")
+# Priority 2: Stabilize borderline buildings (9.0-9.4) with more runs
+if borderline:
+    unstable = [b for b in borderline if b['runs'] < 12 or b['range'] >= 4]
+    if unstable:
+        names = ','.join(b['key'] for b in unstable)
+        print(f"\nBORDERLINE UNSTABLE ({len(unstable)}): {names}")
+        for b in unstable:
+            print(f"  {b['key']}: {b['tm']} ({b['runs']} runs, range={b['range']}) — needs confirmation")
+        print(f"\nACTION: Accumulate runs on borderline buildings: bun scripts/iterate-grade.ts --version {version} --runs 6 --only {names} --merge-scores")
+        sys.exit(0)
 
-# Output
-deep_str = f"deep avg {deep_avg:.1f} ({deep_passing}/{deep_count} at 8+)" if deep_count else "no deep review"
-print(f"ITERATE: {passing}/{total} VLM passing | {deep_str} | {len(failing)} failing")
-if failing:
-    worst3 = sorted(failing.items(), key=lambda x: x[1]['tm'])[:3]
-    for k, v in worst3:
-        dr_str = f" deep={v['dr']}" if v['dr'] is not None else ""
-        print(f"  {k}: vlm={v['tm']} A={v['A']:.1f} B={v['B']:.1f} C={v['C']:.1f}{dr_str} — {v['diag']}")
-print("NEXT ACTIONS:")
-for a in actions:
-    print(f"  {a}")
+    # Borderline but stable — try to improve them
+    names = ','.join(b['key'] for b in borderline)
+    weakest = borderline[0]
+    print(f"\nBORDERLINE STABLE ({len(borderline)}): {names}")
+    for b in borderline:
+        weak_dim = 'A' if b['A'] == min(b['A'], b['B'], b['C']) else ('B' if b['B'] == min(b['A'], b['B'], b['C']) else 'C')
+        print(f"  {b['key']}: {b['tm']} (A={b['A']:.1f} B={b['B']:.1f} C={b['C']:.1f}) — weakest: {weak_dim}")
+    print(f"\nACTION: Improve weakest borderline ({weakest['key']} at {weakest['tm']}). Analyze composite, tweak pipeline params, re-voxelize and grade.")
+    sys.exit(0)
+
+# Priority 3: Low-run buildings need more data
+if low_runs:
+    names = ','.join(b['key'] for b in low_runs)
+    print(f"\nLOW DATA ({len(low_runs)}): {names} — need 12+ runs for stable trimmed mean")
+    print(f"\nACTION: Accumulate runs: bun scripts/iterate-grade.ts --version {version} --runs 6 --only {names} --merge-scores")
+    sys.exit(0)
+
+# Priority 4: All solid — deep review or visual quality pass
+high_var = [s for s in solid + borderline if s['range'] >= 4]
+if high_var:
+    names = ','.join(h['key'] for h in high_var)
+    print(f"\nHIGH VARIANCE ({len(high_var)}): {names} — scores range >=4, VLM inconsistent")
+    print(f"ACTION: Investigate sat ref quality and composite framing for: {names}")
+    sys.exit(0)
+
+# All buildings solid and stable
+avg_tm = sum(v.get('trimmedMean', 0) for v in buildings.values()) / len(buildings)
+print(f"\nALL {total} BUILDINGS SOLID — avg trimmedMean={avg_tm:.1f}")
+print("No failing or borderline buildings. Pipeline is stable.")
+print(f"ACTION: Run deep review for honest assessment: bun scripts/iterate-grade.ts --version {version} --deep-review --runs 0 --deep-runs 3")
 PYEOF
