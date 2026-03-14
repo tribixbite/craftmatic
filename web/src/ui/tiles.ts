@@ -125,6 +125,11 @@ function buildUI(): void {
           <input type="range" id="tiles-radius" min="20" max="150" step="10" value="30">
           <span id="tiles-radius-label" class="tiles-param-value">30 m</span>
         </label>
+        <label class="tiles-param tiles-scene-toggle">
+          <span>Scene Mode</span>
+          <input type="checkbox" id="tiles-scene-mode">
+          <span class="tiles-param-value" id="tiles-scene-label">Off — building only</span>
+        </label>
       </div>
       <div class="tiles-key-hint">
         <p>${hasTileKey
@@ -163,11 +168,17 @@ function buildUI(): void {
   const radiusSlider = document.getElementById('tiles-radius') as HTMLInputElement;
   const radiusLabel = document.getElementById('tiles-radius-label')!;
 
+  const sceneToggle = document.getElementById('tiles-scene-mode') as HTMLInputElement;
+  const sceneLabel = document.getElementById('tiles-scene-label')!;
+
   resSlider.addEventListener('input', () => {
     resLabel.textContent = `${resSlider.value} block/m`;
   });
   radiusSlider.addEventListener('input', () => {
     radiusLabel.textContent = `${radiusSlider.value} m`;
+  });
+  sceneToggle.addEventListener('change', () => {
+    sceneLabel.textContent = sceneToggle.checked ? 'On — building + environment' : 'Off — building only';
   });
 
   const startVoxelize = async () => {
@@ -535,6 +546,29 @@ async function runVoxelizePipeline(
     setStatus('Post-processing...', 'info');
     await new Promise(r => setTimeout(r, 50));
     await postProcessTilesGrid(trimmedGrid, analysis);
+
+    // ── Scene enrichment (optional) ──
+    const sceneEl = document.getElementById('tiles-scene-mode') as HTMLInputElement | null;
+    if (sceneEl?.checked && geo) {
+      setStatus('Scene enrichment — fetching environment data...', 'info');
+      await new Promise(r => setTimeout(r, 50));
+      try {
+        const { enrichScene } = await import('../../../src/convert/scene-pipeline.js');
+        await enrichScene({
+          grid: trimmedGrid,
+          coords: { lat: geo.lat, lng: geo.lng },
+          resolution,
+          plotRadius: radiusMeters,
+          terrainHeightmap: captureResult.terrainHeightmap,
+          heightmapWidth: captureResult.heightmapWidth,
+          heightmapLength: captureResult.heightmapLength,
+          onProgress: (msg) => setStatus(`Enrichment: ${msg}`, 'info'),
+        });
+      } catch (err) {
+        console.warn('[tiles] scene enrichment failed (non-fatal):', err);
+        setStatus('Scene enrichment failed — continuing with building only', 'warning');
+      }
+    }
 
     const nonAir = trimmedGrid.countNonAir();
     // Debug: expose grid for inspection
