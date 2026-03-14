@@ -40,6 +40,7 @@ import type { VoxelizeMode } from '../src/convert/voxelizer.js';
 import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
+import { enrichScene } from '../src/convert/scene-pipeline.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname, resolve } from 'node:path';
@@ -152,6 +153,7 @@ interface CLIArgs {
   noPostMask: boolean;     // skip post-processing OSM re-mask (v80)
   noIsolate: boolean;      // skip automatic building isolation
   maskDilate: number;      // OSM polygon dilation in blocks (default 3)
+  enrich: boolean;         // run scene enrichment (trees, roads, ground) around building
 }
 
 function parseArgs(): CLIArgs {
@@ -189,7 +191,8 @@ Options:
   --keep-vegetation  Preserve green/brown vegetation blocks (for satellite comparison)
   --no-enu           Skip ENU reorientation (for pre-oriented headless GLBs)
   --no-osm           Skip OSM footprint masking (when geocode doesn't match building)
-  --no-post-mask     Skip post-processing OSM re-mask (v80 edge re-sharpening)`);
+  --no-post-mask     Skip post-processing OSM re-mask (v80 edge re-sharpening)
+  --enrich           Run scene enrichment (trees, roads, ground fill) — requires --coords`);
     process.exit(0);
   }
 
@@ -231,6 +234,7 @@ Options:
   let noPostMask = false;
   let noIsolate = false;
   let maskDilate = 3;
+  let enrich = false;
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -293,6 +297,8 @@ Options:
       noPostMask = true;
     } else if (arg === '--no-isolate') {
       noIsolate = true;
+    } else if (arg === '--enrich') {
+      enrich = true;
     } else if (arg === '--mask-dilate') {
       maskDilate = parseInt(args[++i], 10);
     } else if (arg === '--clean') {
@@ -353,7 +359,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, noPostMask, noIsolate, maskDilate };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, noPostMask, noIsolate, maskDilate, enrich };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -2442,6 +2448,23 @@ async function main(): Promise<void> {
   //     console.log(`Entry path: ${pathPlaced} blocks placed (smooth_stone_slab, face=${analysis.entryFace})`);
   //   }
   // }
+
+  // ─── Scene Enrichment ──────────────────────────────────────────────────────
+  // --enrich: classify voxels, query OSM infrastructure, populate environment
+  if (args.enrich && args.coords) {
+    console.log('\n--- Scene Enrichment ---');
+    const enrichResult = await enrichScene({
+      grid: trimmed,
+      coords: args.coords,
+      resolution: args.resolution,
+      plotRadius: Math.max(trimmed.width, trimmed.length) / 2,
+      onProgress: (msg) => console.log(`  ${msg}`),
+    });
+    const es = enrichResult.meta.envStats;
+    console.log(`  Environment: trees=${es.treesPlaced}, roads=${es.roadsPlaced}, fences=${es.fencesPlaced}, ground=${es.groundFilled}`);
+  } else if (args.enrich && !args.coords) {
+    console.log('\nWARNING: --enrich requires --coords LAT,LNG — skipping enrichment');
+  }
 
   // Write output
   const nonAir = trimmed.countNonAir();
