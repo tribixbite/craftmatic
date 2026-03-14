@@ -68,35 +68,7 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Scottsdale Fashion Square area — 1.4MB headless, was 9.8 in v93
-    key: 'scottsdale',
-    glb: `${DIR}/tiles-scottsdale-headless.glb`,
-    coords: '33.4877,-111.926',
-    satRef: `${DIR}/sat-ref-scottsdale.jpg`,
-    satZoom: 20,
-    resolution: 1,
-    maskDilate: 2,
-    extraFlags: ['--no-osm', '--no-post-mask'],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 6,
-  },
-  {
-    // Compound building — v80c: 6.3 (partial capture, only one edge)
-    key: 'francisco',
-    glb: `${DIR}/tiles-2340-francisco-st-san-francisco-ca-94123.glb`,
-    coords: '37.8005,-122.4384',
-    satRef: `${DIR}/sat-ref-francisco.jpg`,
-    satZoom: 20,
-    resolution: 2,
-    maskDilate: 2,
-    extraFlags: [],
-    difficulty: 'hard',
-    tileSize: 6,
-    topdownScale: 6,
-  },
-  {
-    // Commercial flat-roof — Portland, OR, 4.5MB headless capture
+    // Portland OR — flat-roof commercial, Pro trimmedMean 6.5 (6 runs)
     key: 'portland',
     glb: `${DIR}/flatroof-portland.glb`,
     coords: '45.5235,-122.6812',
@@ -107,14 +79,42 @@ const BUILDINGS: BuildingConfig[] = [
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
-    topdownScale: 6,
+    topdownScale: 8,
   },
   {
-    // 2800 Post Oak Blvd, Houston TX — Galleria area commercial, 4.3MB headless
-    key: 'houston',
-    glb: `${DIR}/flatroof-houston.glb`,
-    coords: '29.7378,-95.4608',
-    satRef: `${DIR}/sat-ref-houston.jpg`,
+    // Raleigh NC — commercial building, scored 10 on Flash v95. Reliable footprint.
+    key: 'raleigh',
+    glb: `${DIR}/flatroof-raleigh.glb`,
+    coords: '35.7784,-78.6391',
+    satRef: `${DIR}/sat-ref-raleigh.jpg`,
+    satZoom: 20,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // The Dakota, NYC — ornate apartment with courtyard, distinctive U-shape, Pro=10
+    key: 'dakota',
+    glb: `${DIR}/tiles-the-dakota-new-york-ny.glb`,
+    coords: '40.7764,-73.9764',
+    satRef: `${DIR}/sat-ref-dakota.jpg`,
+    satZoom: 20,
+    resolution: 1,
+    maskDilate: 1,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // Tampa FL — flat-roof commercial, 4.2MB headless, similar to raleigh/atlanta
+    key: 'tampa',
+    glb: `${DIR}/flatroof-tampa.glb`,
+    coords: '27.9458,-82.4582',
+    satRef: `${DIR}/sat-ref-tampa.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 2,
@@ -138,16 +138,15 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // 402 W Broadway, San Diego CA — downtown commercial, 6.4MB headless
-    // v95: 8.8 with --no-osm. v96: testing with preserved colors.
-    key: 'sandiego',
-    glb: `${DIR}/flatroof-sandiego.glb`,
-    coords: '32.7157,-117.1611',
-    satRef: `${DIR}/sat-ref-sandiego.jpg`,
+    // Nashville TN — flat-roof commercial, 3.0MB headless
+    key: 'nashville',
+    glb: `${DIR}/flatroof-nashville.glb`,
+    coords: '36.1656,-86.7770',
+    satRef: `${DIR}/sat-ref-nashville.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: ['--no-osm', '--no-post-mask'],
+    extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
@@ -167,17 +166,15 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Raleigh NC — 3.3MB headless capture, commercial building
-    // v94: 8.8 bimodal distribution, replaced by scottsdale. Testing with v95 pipeline.
-    // Previous nashville(6.0), phoenix(4.8), tampa(5.8), miami(6.5), cambridge(4.5).
-    key: 'raleigh',
-    glb: `${DIR}/flatroof-raleigh.glb`,
-    coords: '35.7784,-78.6391',
-    satRef: `${DIR}/sat-ref-raleigh.jpg`,
+    // San Diego CA — flat-roof commercial, --no-osm (polygon misaligned), Pro trimmedMean 6.3
+    key: 'sandiego',
+    glb: `${DIR}/flatroof-sandiego.glb`,
+    coords: '32.7157,-117.1611',
+    satRef: `${DIR}/sat-ref-sandiego.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
@@ -451,45 +448,63 @@ async function gradeOne(imagePath: string, buildingKey: string): Promise<SubScor
     { inlineData: { mimeType: 'image/jpeg', data: data.toString('base64') } },
   ];
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${vlmModel}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
-      }),
-    },
-  );
+  // Retry with exponential backoff for transient errors
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${vlmModel}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 16384 },
+          }),
+        },
+      );
 
-  if (!res.ok) {
-    console.error(`    VLM HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    return null;
+      if (res.status === 429 || res.status === 503) {
+        const wait = (attempt + 1) * 10_000; // 10s, 20s, 30s
+        console.error(`    VLM HTTP ${res.status} — retrying in ${wait / 1000}s...`);
+        await Bun.sleep(wait);
+        continue;
+      }
+
+      if (!res.ok) {
+        console.error(`    VLM HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        return null;
+      }
+
+      const json = await res.json() as { candidates?: Array<{ content: { parts: Array<{ text?: string }> } }> };
+      const text = json.candidates?.[0]?.content?.parts?.map(p => p.text).join('') ?? '';
+
+      // Parse "A=X B=X C=X Total=X.X" from response
+      const match = text.match(/A\s*=\s*([\d.]+)\s*B\s*=\s*([\d.]+)\s*C\s*=\s*([\d.]+)\s*Total\s*=\s*([\d.]+)/i);
+      if (match) {
+        return {
+          A: parseFloat(match[1]),
+          B: parseFloat(match[2]),
+          C: parseFloat(match[3]),
+          total: parseFloat(match[4]),
+        };
+      }
+
+      // Fallback: try to parse just "Total=X" or "Score=X"
+      const totalMatch = text.match(/(?:Total|Score)\s*=\s*([\d.]+)/i);
+      if (totalMatch) {
+        const total = parseFloat(totalMatch[1]);
+        return { A: 0, B: 0, C: 0, total };
+      }
+
+      console.error(`    VLM parse failed: ${text.slice(0, 200)}`);
+      return null;
+    } catch (err) {
+      const wait = (attempt + 1) * 10_000;
+      console.error(`    VLM fetch error (attempt ${attempt + 1}/3): ${err} — retrying in ${wait / 1000}s...`);
+      await Bun.sleep(wait);
+    }
   }
-
-  const json = await res.json() as { candidates?: Array<{ content: { parts: Array<{ text?: string }> } }> };
-  const text = json.candidates?.[0]?.content?.parts?.map(p => p.text).join('') ?? '';
-
-  // Parse "A=X B=X C=X Total=X.X" from response
-  const match = text.match(/A\s*=\s*([\d.]+)\s*B\s*=\s*([\d.]+)\s*C\s*=\s*([\d.]+)\s*Total\s*=\s*([\d.]+)/i);
-  if (match) {
-    return {
-      A: parseFloat(match[1]),
-      B: parseFloat(match[2]),
-      C: parseFloat(match[3]),
-      total: parseFloat(match[4]),
-    };
-  }
-
-  // Fallback: try to parse just "Total=X" or "Score=X"
-  const totalMatch = text.match(/(?:Total|Score)\s*=\s*([\d.]+)/i);
-  if (totalMatch) {
-    const total = parseFloat(totalMatch[1]);
-    return { A: 0, B: 0, C: 0, total };
-  }
-
-  console.error(`    VLM parse failed: ${text.slice(0, 200)}`);
+  console.error(`    VLM: all 3 attempts failed`);
   return null;
 }
 
@@ -507,8 +522,8 @@ async function gradeBuilding(imagePath: string, key: string, runs: number): Prom
     } else {
       process.stdout.write(`    Run ${i + 1}/${runs}: FAILED\n`);
     }
-    // Small delay between API calls to avoid rate limiting
-    if (i < runs - 1) await Bun.sleep(1000);
+    // Delay between API calls to avoid rate limiting (Pro model needs more time)
+    if (i < runs - 1) await Bun.sleep(5000);
   }
 
   // Trimmed mean: drop min + max if >= 3 scores, average the rest
@@ -578,7 +593,7 @@ async function deepReviewBuilding(imagePath: string, key: string, runs: number):
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+            generationConfig: { temperature: 0.3, maxOutputTokens: 16384 },
           }),
         },
       );
