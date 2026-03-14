@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
@@ -1348,10 +1348,12 @@ async function main(): Promise<void> {
     // Step 2: OSM footprint mask — carve away everything outside building polygon.
     // For buildings smaller than capture radius, this removes sidewalk/road/neighbors.
     // For buildings larger than capture, mask removes 0 (all blocks inside polygon).
+    let osmQueryPolygon: { lat: number; lon: number }[] | null = null;
     if (args.coords && !osmMaskDone && !args.noOsm) {
       console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
       const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
       if (osmData && osmData.polygon.length >= 3) {
+        osmQueryPolygon = osmData.polygon;
         const snapshot = new Map<string, string>();
         for (let y = 0; y < trimmed.height; y++) {
           for (let z = 0; z < trimmed.length; z++) {
@@ -1367,15 +1369,44 @@ async function main(): Promise<void> {
         );
         const remaining = trimmed.countNonAir();
         if (remaining === 0 && snapshot.size > 0) {
+          // Direct mask failed — try OSM auto-alignment (sliding-window IoU)
           for (const [key, block] of snapshot) {
             const [x, y, z] = key.split(',').map(Number);
             trimmed.set(x, y, z, block);
           }
-          console.log(`OSM mask (pre-fill): reverted (polygon misaligned)`);
+          const alignment = alignOSMToFootprint(
+            trimmed, osmData.polygon,
+            args.coords.lat, args.coords.lng,
+            args.resolution, enuHorizontalAngle,
+            20, 0.25,
+          );
+          if (alignment) {
+            const aligned = maskToFootprintAligned(
+              trimmed, osmData.polygon,
+              args.coords.lat, args.coords.lng,
+              Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
+              alignment.dx, alignment.dz,
+            );
+            const alignRemaining = trimmed.countNonAir();
+            if (alignRemaining > 0) {
+              console.log(`OSM mask (auto-aligned dx=${alignment.dx} dz=${alignment.dz} IoU=${alignment.iou.toFixed(2)}): ${aligned} blocks removed, ${alignRemaining} remaining`);
+              osmMaskDone = true;
+              osmPolygon = osmData.polygon;
+            } else {
+              // Auto-alignment also failed — restore and fall through to geometry isolation
+              for (const [key, block] of snapshot) {
+                const [x2, y2, z2] = key.split(',').map(Number);
+                trimmed.set(x2, y2, z2, block);
+              }
+              console.log(`OSM mask: direct + auto-align both failed (IoU=${alignment.iou.toFixed(2)}), using geometry isolation`);
+            }
+          } else {
+            console.log(`OSM mask: polygon misaligned, no alignment found (IoU<0.25), using geometry isolation`);
+          }
         } else {
           console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
           osmMaskDone = true;
-          osmPolygon = osmData.polygon; // Save for post-processing re-mask
+          osmPolygon = osmData.polygon;
         }
       }
     }
@@ -1392,13 +1423,25 @@ async function main(): Promise<void> {
       console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (< 500 voxels)`);
     }
 
-    // Step 3c: Auto-isolate primary building when OSM mask failed or was skipped.
-    // v95: Removed componentCount > 3 gate — even 2-component captures benefit from
-    // isolation. isolatePrimaryBuilding() handles single-component gracefully (returns 0).
+    // Step 3c: 3-tier building isolation when OSM mask failed or was skipped.
+    // v95: 1) Connected component isolation, 2) Height gradient severing, 3) Watershed
     if (!osmMaskDone && !args.noIsolate) {
+      // Tier 1: Connected component isolation (works when buildings have air gaps)
       const isolated = isolatePrimaryBuilding(trimmed);
       if (isolated > 0) {
-        console.log(`Primary building isolation: ${isolated} blocks removed`);
+        console.log(`Isolation tier 1 (components): ${isolated} blocks removed`);
+      }
+
+      // Tier 2: Height gradient severing (works when buildings have different heights)
+      const severed = severByHeightGradient(trimmed, 3, 200);
+      if (severed > 0) {
+        console.log(`Isolation tier 2 (height gradient): ${severed} blocks severed`);
+      }
+
+      // Tier 3: Watershed (works for same-height fused buildings with dumbbell footprint)
+      const wshed = watershedIsolate(trimmed, 4);
+      if (wshed > 0) {
+        console.log(`Isolation tier 3 (watershed): ${wshed} blocks removed`);
       }
     }
 
@@ -1478,16 +1521,44 @@ async function main(): Promise<void> {
           );
           const remaining = trimmed.countNonAir();
           if (remaining === 0 && snapshot.size > 0) {
-            // Mask removed everything — polygon misaligned, revert
+            // Direct mask failed — try OSM auto-alignment (sliding-window IoU)
             for (const [key, block] of snapshot) {
               const [x, y, z] = key.split(',').map(Number);
               trimmed.set(x, y, z, block);
             }
-            console.log(`OSM mask (pre-fill): reverted (${masked} would remove all ${snapshot.size} blocks — polygon misaligned)`);
+            const alignment = alignOSMToFootprint(
+              trimmed, osmData.polygon,
+              args.coords.lat, args.coords.lng,
+              args.resolution, enuHorizontalAngle,
+              20, 0.25,
+            );
+            if (alignment) {
+              const aligned = maskToFootprintAligned(
+                trimmed, osmData.polygon,
+                args.coords.lat, args.coords.lng,
+                Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
+                alignment.dx, alignment.dz,
+              );
+              const alignRemaining = trimmed.countNonAir();
+              if (alignRemaining > 0) {
+                console.log(`OSM mask (auto-aligned dx=${alignment.dx} dz=${alignment.dz} IoU=${alignment.iou.toFixed(2)}): ${aligned} blocks removed, ${alignRemaining} remaining`);
+                osmMaskDone = true;
+                osmPolygon = osmData.polygon;
+              } else {
+                // Auto-alignment also failed — restore and fall through to geometry isolation
+                for (const [key2, block2] of snapshot) {
+                  const [x2, y2, z2] = key2.split(',').map(Number);
+                  trimmed.set(x2, y2, z2, block2);
+                }
+                console.log(`OSM mask: direct + auto-align both failed (IoU=${alignment.iou.toFixed(2)}), using geometry isolation`);
+              }
+            } else {
+              console.log(`OSM mask: polygon misaligned, no alignment found (IoU<0.25), using geometry isolation`);
+            }
           } else {
-            console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining (polygon ${osmData.polygon.length} vertices)`);
+            console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
             osmMaskDone = true;
-            osmPolygon = osmData.polygon; // Save for post-processing re-mask
+            osmPolygon = osmData.polygon;
           }
         } else {
           console.log('OSM footprint (pre-fill): no building found at coordinates');
@@ -1506,12 +1577,25 @@ async function main(): Promise<void> {
         console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (components < 500 voxels)`);
       }
 
-      // Step 3c: Auto-isolate primary building when OSM mask failed or was skipped.
-      // v95: Removed componentCount gate, use default tighter thresholds.
+      // Step 3c: 3-tier building isolation when OSM mask failed or was skipped.
+      // v95: 1) Connected component isolation, 2) Height gradient severing, 3) Watershed
       if (!osmMaskDone && !args.noIsolate) {
+        // Tier 1: Connected component isolation (works when buildings have air gaps)
         const isolated = isolatePrimaryBuilding(trimmed);
         if (isolated > 0) {
-          console.log(`Primary building isolation: ${isolated} blocks removed`);
+          console.log(`Isolation tier 1 (components): ${isolated} blocks removed`);
+        }
+
+        // Tier 2: Height gradient severing (works when buildings have different heights)
+        const severed = severByHeightGradient(trimmed, 3, 200);
+        if (severed > 0) {
+          console.log(`Isolation tier 2 (height gradient): ${severed} blocks severed`);
+        }
+
+        // Tier 3: Watershed (works for same-height fused buildings with dumbbell footprint)
+        const wshed = watershedIsolate(trimmed, 4);
+        if (wshed > 0) {
+          console.log(`Isolation tier 3 (watershed): ${wshed} blocks removed`);
         }
       }
 

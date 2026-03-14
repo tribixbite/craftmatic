@@ -3370,6 +3370,528 @@ export function maskToFootprint(
   return removed;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// v95: Advanced building isolation — 3-tier strategy for fused meshes
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Auto-align an OSM polygon to the voxel footprint using sliding-window IoU.
+ * Fixes geocoding drift that causes maskToFootprint to clip the entire building.
+ * Slides the polygon bitmask ±searchRadius blocks and finds the offset with max IoU.
+ *
+ * @returns The best (dx, dz) offset and its IoU, or null if no good alignment found.
+ */
+export function alignOSMToFootprint(
+  grid: BlockGrid,
+  polygon: { lat: number; lon: number }[],
+  centerLat: number,
+  centerLng: number,
+  resolution = 1,
+  rotationAngle = 0,
+  searchRadius = 20,
+  minIoU = 0.25,
+): { dx: number; dz: number; iou: number } | null {
+  if (polygon.length < 3) return null;
+
+  const AIR = 'minecraft:air';
+  const { width, length } = grid;
+
+  // Build voxel footprint bitmask (XZ occupied columns)
+  const gridCx = Math.floor(width / 2);
+  const gridCz = Math.floor(length / 2);
+  const voxelFoot = new Set<string>();
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = 0; y < grid.height; y++) {
+        if (grid.get(x, y, z) !== AIR) {
+          voxelFoot.add(`${x - gridCx},${z - gridCz}`);
+          break;
+        }
+      }
+    }
+  }
+  if (voxelFoot.size === 0) return null;
+
+  // Project polygon to block coords (same math as maskToFootprint)
+  const latScale = 111320 * resolution;
+  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
+  let blockPts = polygon.map(p => ({
+    x: (p.lon - centerLng) * lonScale,
+    z: (centerLat - p.lat) * latScale,
+  }));
+  if (Math.abs(rotationAngle) > 0.01) {
+    const cos = Math.cos(-rotationAngle);
+    const sin = Math.sin(-rotationAngle);
+    blockPts = blockPts.map(p => ({
+      x: p.x * cos - p.z * sin,
+      z: p.x * sin + p.z * cos,
+    }));
+  }
+
+  // Rasterize polygon to set of (x,z) cells using scanline fill
+  const rasterizePoly = (pts: { x: number; z: number }[], ox: number, oz: number): Set<string> => {
+    let minZ = Infinity, maxZ = -Infinity;
+    for (const p of pts) {
+      const rz = Math.round(p.z) + oz;
+      if (rz < minZ) minZ = rz;
+      if (rz > maxZ) maxZ = rz;
+    }
+    const cells = new Set<string>();
+    for (let z = minZ; z <= maxZ; z++) {
+      const scanZ = z + 0.5;
+      const intercepts: { x: number; dir: 1 | -1 }[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        const az = Math.round(a.z) + oz, bz = Math.round(b.z) + oz;
+        if (az === bz) continue;
+        const eMinZ = Math.min(az, bz), eMaxZ = Math.max(az, bz);
+        if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
+        const t = (scanZ - (a.z + oz)) / ((b.z + oz) - (a.z + oz));
+        intercepts.push({ x: (a.x + ox) + t * ((b.x + ox) - (a.x + ox)), dir: az < bz ? 1 : -1 });
+      }
+      intercepts.sort((a, b) => a.x - b.x);
+      let winding = 0, idx = 0;
+      let minX = Infinity, maxX = -Infinity;
+      for (const p of pts) {
+        const rx = Math.round(p.x) + ox;
+        if (rx < minX) minX = rx;
+        if (rx > maxX) maxX = rx;
+      }
+      for (let x = minX; x <= maxX; x++) {
+        const cx = x + 0.5;
+        while (idx < intercepts.length && intercepts[idx].x <= cx) {
+          winding += intercepts[idx].dir;
+          idx++;
+        }
+        if (winding !== 0) cells.add(`${x},${z}`);
+      }
+    }
+    return cells;
+  };
+
+  // Slide and find best IoU
+  let bestIoU = 0;
+  let bestDx = 0, bestDz = 0;
+
+  for (let dz = -searchRadius; dz <= searchRadius; dz++) {
+    for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+      const osmCells = rasterizePoly(blockPts, dx, dz);
+      if (osmCells.size === 0) continue;
+
+      let intersection = 0;
+      for (const key of osmCells) {
+        if (voxelFoot.has(key)) intersection++;
+      }
+      const union = voxelFoot.size + osmCells.size - intersection;
+      const iou = union > 0 ? intersection / union : 0;
+
+      if (iou > bestIoU) {
+        bestIoU = iou;
+        bestDx = dx;
+        bestDz = dz;
+      }
+    }
+  }
+
+  if (bestIoU < minIoU) return null;
+  return { dx: bestDx, dz: bestDz, iou: bestIoU };
+}
+
+/**
+ * Apply maskToFootprint with a pre-computed alignment offset.
+ * Shifts the polygon by (dx, dz) blocks before masking.
+ */
+export function maskToFootprintAligned(
+  grid: BlockGrid,
+  polygon: { lat: number; lon: number }[],
+  centerLat: number,
+  centerLng: number,
+  dilate: number,
+  resolution: number,
+  rotationAngle: number,
+  dx: number,
+  dz: number,
+): number {
+  if (polygon.length < 3) return 0;
+
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const latScale = 111320 * resolution;
+  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
+
+  let blockPts = polygon.map(p => ({
+    x: Math.round((p.lon - centerLng) * lonScale) + dx,
+    z: Math.round((centerLat - p.lat) * latScale) + dz,
+  }));
+
+  if (Math.abs(rotationAngle) > 0.01) {
+    const cos = Math.cos(-rotationAngle);
+    const sin = Math.sin(-rotationAngle);
+    blockPts = blockPts.map(p => ({
+      x: Math.round(p.x * cos - p.z * sin),
+      z: Math.round(p.x * sin + p.z * cos),
+    }));
+  }
+
+  // Auto-close
+  const first = blockPts[0], last = blockPts[blockPts.length - 1];
+  if (first.x !== last.x || first.z !== last.z) blockPts.push({ x: first.x, z: first.z });
+
+  // Compute bounds with dilation
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of blockPts) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.z < minZ) minZ = p.z;
+    if (p.z > maxZ) maxZ = p.z;
+  }
+  minX -= dilate; maxX += dilate;
+  minZ -= dilate; maxZ += dilate;
+
+  // Scanline fill
+  const bitmap = new CoordinateBitmapImpl(minX, maxX, minZ, maxZ);
+  for (let z = minZ; z <= maxZ; z++) {
+    const scanZ = z + 0.5;
+    const intercepts: { x: number; dir: 1 | -1 }[] = [];
+    for (let i = 0; i < blockPts.length - 1; i++) {
+      const a = blockPts[i], b = blockPts[i + 1];
+      if (a.z === b.z) continue;
+      const eMinZ = Math.min(a.z, b.z), eMaxZ = Math.max(a.z, b.z);
+      if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
+      const t = (scanZ - a.z) / (b.z - a.z);
+      intercepts.push({ x: a.x + t * (b.x - a.x), dir: a.z < b.z ? 1 : -1 });
+    }
+    intercepts.sort((a, b) => a.x - b.x);
+    let winding = 0, idx = 0;
+    for (let x = minX; x <= maxX; x++) {
+      const cx = x + 0.5;
+      while (idx < intercepts.length && intercepts[idx].x <= cx) {
+        winding += intercepts[idx].dir;
+        idx++;
+      }
+      if (winding !== 0) bitmap.set(x, z);
+    }
+  }
+
+  // Dilate
+  if (dilate > 0 && bitmap.count > 0) {
+    const original: [number, number][] = [];
+    for (let lz = 0; lz <= maxZ - minZ; lz++) {
+      for (let lx = 0; lx <= maxX - minX; lx++) {
+        const x = lx + minX, z = lz + minZ;
+        if (bitmap.contains(x, z)) original.push([x, z]);
+      }
+    }
+    for (const [ox, oz] of original) {
+      for (let ddz = -dilate; ddz <= dilate; ddz++) {
+        for (let ddx = -dilate; ddx <= dilate; ddx++) {
+          bitmap.set(ox + ddx, oz + ddz);
+        }
+      }
+    }
+  }
+
+  // Apply mask
+  const gridCx = Math.floor(width / 2);
+  const gridCz = Math.floor(length / 2);
+  let removed = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) === AIR) continue;
+        if (!bitmap.contains(x - gridCx, z - gridCz)) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+  return removed;
+}
+
+/**
+ * Height gradient severing — splits fused buildings by detecting steep height
+ * discontinuities in the 2D heightmap and severing the 3D grid at those boundaries.
+ * Returns blocks removed (smaller components after severing).
+ */
+export function severByHeightGradient(
+  grid: BlockGrid,
+  gradientThreshold = 3,
+  minComponentVolume = 200,
+): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+
+  // Step 1: Build 2D heightmap (max Y per XZ column)
+  const heightmap = new Int32Array(width * length);
+  heightmap.fill(-1);
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = height - 1; y >= 0; y--) {
+        if (grid.get(x, y, z) !== AIR) {
+          heightmap[z * width + x] = y;
+          break;
+        }
+      }
+    }
+  }
+
+  // Step 2: Compute gradient and mark chasms (steep height drops)
+  const chasmMap = new Uint8Array(width * length); // 1 = chasm
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const h = heightmap[z * width + x];
+      if (h < 0) continue;
+      // Check 4-connected neighbors
+      const neighbors = [
+        x > 0 ? heightmap[z * width + (x - 1)] : -1,
+        x < width - 1 ? heightmap[z * width + (x + 1)] : -1,
+        z > 0 ? heightmap[(z - 1) * width + x] : -1,
+        z < length - 1 ? heightmap[(z + 1) * width + x] : -1,
+      ];
+      for (const nh of neighbors) {
+        if (nh >= 0 && Math.abs(h - nh) > gradientThreshold) {
+          chasmMap[z * width + x] = 1;
+          break;
+        }
+      }
+    }
+  }
+
+  // Step 3: 3D connected component labeling that respects chasms.
+  // Flood fill cannot cross an XZ coordinate marked as chasm.
+  const total = width * height * length;
+  const labels = new Int32Array(total);
+  let nextLabel = 1;
+  const compSizes: number[] = [0];
+  const stack: number[] = [];
+  const offsets = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const;
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * length + z) * width + x;
+        if (labels[idx] !== 0 || grid.get(x, y, z) === AIR) continue;
+
+        const label = nextLabel++;
+        labels[idx] = label;
+        stack.push(idx);
+        let size = 0;
+
+        while (stack.length > 0) {
+          const ci = stack.pop()!;
+          size++;
+          const cx = ci % width;
+          const cz = Math.floor(ci / width) % length;
+          const cy = Math.floor(ci / (width * length));
+
+          for (const [ddx, ddy, ddz] of offsets) {
+            const nx = cx + ddx, ny = cy + ddy, nz = cz + ddz;
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length) continue;
+            const ni = (ny * length + nz) * width + nx;
+            if (labels[ni] !== 0 || grid.get(nx, ny, nz) === AIR) continue;
+
+            // Block crossing through chasm boundaries
+            if (chasmMap[nz * width + nx] === 1 || chasmMap[cz * width + cx] === 1) {
+              // Allow vertical movement within same XZ column (building on its own podium)
+              if (ddx !== 0 || ddz !== 0) continue;
+            }
+
+            labels[ni] = label;
+            stack.push(ni);
+          }
+        }
+        compSizes.push(size);
+      }
+    }
+  }
+
+  if (nextLabel <= 2) return 0; // Single component after severing
+
+  // Step 4: Find largest component (likely the target building)
+  let largestLabel = 1, largestSize = 0;
+  for (let i = 1; i < compSizes.length; i++) {
+    if (compSizes[i] > largestSize) {
+      largestSize = compSizes[i];
+      largestLabel = i;
+    }
+  }
+
+  // Step 5: Recombine — if a smaller component vertically overlaps the largest
+  // (shares XZ columns) and is directly beneath it, keep it (podium/base).
+  const keepLabels = new Set<number>([largestLabel]);
+  const largestXZ = new Set<string>();
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = 0; y < height; y++) {
+        if (labels[(y * length + z) * width + x] === largestLabel) {
+          largestXZ.add(`${x},${z}`);
+          break;
+        }
+      }
+    }
+  }
+  for (let i = 1; i < compSizes.length; i++) {
+    if (i === largestLabel || compSizes[i] < minComponentVolume) continue;
+    // Check if this component shares >50% XZ overlap with largest
+    let overlap = 0, compCols = 0;
+    const seen = new Set<string>();
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const key = `${x},${z}`;
+        if (seen.has(key)) continue;
+        for (let y = 0; y < height; y++) {
+          if (labels[(y * length + z) * width + x] === i) {
+            seen.add(key);
+            compCols++;
+            if (largestXZ.has(key)) overlap++;
+            break;
+          }
+        }
+      }
+    }
+    if (compCols > 0 && overlap / compCols > 0.5) {
+      keepLabels.add(i); // Podium/base of same building
+    }
+  }
+
+  // Step 6: Remove non-kept components
+  let removed = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const lbl = labels[(y * length + z) * width + x];
+        if (lbl === 0) continue;
+        if (!keepLabels.has(lbl)) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+  return removed;
+}
+
+/**
+ * Distance transform + watershed for isolating same-height fused buildings.
+ * Computes Manhattan distance transform on XZ footprint, finds local maxima
+ * (building centers), watershed-grows from them, and keeps the region closest
+ * to grid center. Returns blocks removed.
+ */
+export function watershedIsolate(
+  grid: BlockGrid,
+  minCenterDist = 4,
+): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+
+  // Step 1: Build 2D occupancy footprint
+  const occupied = new Uint8Array(width * length);
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = 0; y < height; y++) {
+        if (grid.get(x, y, z) !== AIR) { occupied[z * width + x] = 1; break; }
+      }
+    }
+  }
+
+  // Step 2: Manhattan distance transform (distance from nearest air/boundary)
+  const dist = new Int32Array(width * length);
+  const INF = width + length;
+  // Forward pass
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      if (occupied[z * width + x] === 0) { dist[z * width + x] = 0; continue; }
+      let d = INF;
+      if (x > 0) d = Math.min(d, dist[z * width + (x - 1)] + 1);
+      if (z > 0) d = Math.min(d, dist[(z - 1) * width + x] + 1);
+      dist[z * width + x] = d;
+    }
+  }
+  // Backward pass
+  for (let z = length - 1; z >= 0; z--) {
+    for (let x = width - 1; x >= 0; x--) {
+      if (occupied[z * width + x] === 0) continue;
+      let d = dist[z * width + x];
+      if (x < width - 1) d = Math.min(d, dist[z * width + (x + 1)] + 1);
+      if (z < length - 1) d = Math.min(d, dist[(z + 1) * width + x] + 1);
+      dist[z * width + x] = d;
+    }
+  }
+
+  // Step 3: Find local maxima (building centers) with minimum distance threshold
+  const maxima: { x: number; z: number; d: number }[] = [];
+  for (let z = 1; z < length - 1; z++) {
+    for (let x = 1; x < width - 1; x++) {
+      const d = dist[z * width + x];
+      if (d < minCenterDist) continue;
+      // Check if local maximum in 8-connected neighborhood
+      let isMax = true;
+      for (let ddz = -1; ddz <= 1 && isMax; ddz++) {
+        for (let ddx = -1; ddx <= 1 && isMax; ddx++) {
+          if (ddx === 0 && ddz === 0) continue;
+          if (dist[(z + ddz) * width + (x + ddx)] > d) isMax = false;
+        }
+      }
+      if (isMax) maxima.push({ x, z, d });
+    }
+  }
+
+  if (maxima.length <= 1) return 0; // Single building center
+
+  // Step 4: Watershed — grow from maxima simultaneously
+  const regionMap = new Int32Array(width * length); // 0=unassigned
+  const queue: { x: number; z: number; region: number; d: number }[] = [];
+
+  // Seed regions from maxima (sorted by distance descending for priority)
+  maxima.sort((a, b) => b.d - a.d);
+  for (let i = 0; i < maxima.length; i++) {
+    const m = maxima[i];
+    const region = i + 1;
+    regionMap[m.z * width + m.x] = region;
+    queue.push({ x: m.x, z: m.z, region, d: m.d });
+  }
+
+  // BFS growth — process in order of decreasing distance (highest priority first)
+  queue.sort((a, b) => b.d - a.d);
+  let qi = 0;
+  while (qi < queue.length) {
+    const { x, z, region } = queue[qi++];
+    for (const [ddx, ddz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = x + ddx, nz = z + ddz;
+      if (nx < 0 || nx >= width || nz < 0 || nz >= length) continue;
+      if (occupied[nz * width + nx] === 0) continue;
+      if (regionMap[nz * width + nx] !== 0) continue;
+      regionMap[nz * width + nx] = region;
+      queue.push({ x: nx, z: nz, region, d: dist[nz * width + nx] });
+    }
+  }
+
+  // Step 5: Find the region closest to grid center
+  const cx = Math.floor(width / 2), cz = Math.floor(length / 2);
+  let bestRegion = 1, bestDist = Infinity;
+  for (let i = 0; i < maxima.length; i++) {
+    const m = maxima[i];
+    const d = Math.abs(m.x - cx) + Math.abs(m.z - cz);
+    if (d < bestDist) { bestDist = d; bestRegion = i + 1; }
+  }
+
+  // Step 6: Remove all voxels not in the best region's XZ columns
+  let removed = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) === AIR) continue;
+        if (regionMap[z * width + x] !== bestRegion) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+  return removed;
+}
+
 /**
  * Enforce a polygon footprint on the grid — clip blocks outside the polygon
  * AND fill empty columns inside the polygon to the building's median height.
