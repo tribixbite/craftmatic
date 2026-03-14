@@ -1368,7 +1368,7 @@ async function main(): Promise<void> {
           args.coords.lat, args.coords.lng, Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
         );
         const remaining = trimmed.countNonAir();
-        if (remaining === 0 && snapshot.size > 0) {
+        if (remaining < snapshot.size * 0.1 && snapshot.size > 0) {
           // Direct mask failed — try OSM auto-alignment (sliding-window IoU)
           for (const [key, block] of snapshot) {
             const [x, y, z] = key.split(',').map(Number);
@@ -1540,7 +1540,7 @@ async function main(): Promise<void> {
             args.coords.lat, args.coords.lng, Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
           );
           const remaining = trimmed.countNonAir();
-          if (remaining === 0 && snapshot.size > 0) {
+          if (remaining < snapshot.size * 0.1 && snapshot.size > 0) {
             // Direct mask failed — try OSM auto-alignment (sliding-window IoU)
             for (const [key, block] of snapshot) {
               const [x, y, z] = key.split(',').map(Number);
@@ -1719,7 +1719,7 @@ async function main(): Promise<void> {
         args.coords.lat, args.coords.lng, Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
       );
       const remaining = trimmed.countNonAir();
-      if (remaining === 0 && snapshot.size > 0) {
+      if (remaining < snapshot.size * 0.1 && snapshot.size > 0) {
         // Mask removed everything — revert (misaligned polygon or no building in tiles)
         for (const [key, block] of snapshot) {
           const [x, y, z] = key.split(',').map(Number);
