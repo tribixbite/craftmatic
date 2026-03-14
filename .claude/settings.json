@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-iterate-state.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-scene-completion.sh",
             "timeout": 10
           }
         ]
