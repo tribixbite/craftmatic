@@ -1439,9 +1439,29 @@ async function main(): Promise<void> {
       }
 
       // Tier 3: Watershed (works for same-height fused buildings with dumbbell footprint)
+      // Snapshot before watershed — revert if it removes >50% of remaining blocks
+      const preWshedCount = trimmed.countNonAir();
+      const wshedSnapshot = new Map<string, string>();
+      for (let y = 0; y < trimmed.height; y++) {
+        for (let z = 0; z < trimmed.length; z++) {
+          for (let x = 0; x < trimmed.width; x++) {
+            const b = trimmed.get(x, y, z);
+            if (b !== 'minecraft:air') wshedSnapshot.set(`${x},${y},${z}`, b);
+          }
+        }
+      }
       const wshed = watershedIsolate(trimmed, 4);
       if (wshed > 0) {
-        console.log(`Isolation tier 3 (watershed): ${wshed} blocks removed`);
+        if (wshed > preWshedCount * 0.5) {
+          // Watershed too aggressive — carved up a single building. Revert.
+          for (const [key, block] of wshedSnapshot) {
+            const [rx, ry, rz] = key.split(',').map(Number);
+            trimmed.set(rx, ry, rz, block);
+          }
+          console.log(`Isolation tier 3 (watershed): REVERTED — would remove ${wshed} of ${preWshedCount} blocks (${Math.round(wshed / preWshedCount * 100)}%)`);
+        } else {
+          console.log(`Isolation tier 3 (watershed): ${wshed} blocks removed`);
+        }
       }
     }
 
@@ -1593,9 +1613,28 @@ async function main(): Promise<void> {
         }
 
         // Tier 3: Watershed (works for same-height fused buildings with dumbbell footprint)
+        // Snapshot before watershed — revert if it removes >50% of remaining blocks
+        const preWshedCount2 = trimmed.countNonAir();
+        const wshedSnap2 = new Map<string, string>();
+        for (let y = 0; y < trimmed.height; y++) {
+          for (let z = 0; z < trimmed.length; z++) {
+            for (let x = 0; x < trimmed.width; x++) {
+              const b = trimmed.get(x, y, z);
+              if (b !== 'minecraft:air') wshedSnap2.set(`${x},${y},${z}`, b);
+            }
+          }
+        }
         const wshed = watershedIsolate(trimmed, 4);
         if (wshed > 0) {
-          console.log(`Isolation tier 3 (watershed): ${wshed} blocks removed`);
+          if (wshed > preWshedCount2 * 0.5) {
+            for (const [key, block] of wshedSnap2) {
+              const [rx, ry, rz] = key.split(',').map(Number);
+              trimmed.set(rx, ry, rz, block);
+            }
+            console.log(`Isolation tier 3 (watershed): REVERTED — would remove ${wshed} of ${preWshedCount2} blocks (${Math.round(wshed / preWshedCount2 * 100)}%)`);
+          } else {
+            console.log(`Isolation tier 3 (watershed): ${wshed} blocks removed`);
+          }
         }
       }
 
