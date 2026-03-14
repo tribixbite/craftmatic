@@ -132,7 +132,7 @@ const BUILDINGS: BuildingConfig[] = [
     satZoom: 20,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
