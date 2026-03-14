@@ -1960,10 +1960,10 @@ async function main(): Promise<void> {
         console.log(`  Wall fallback: ${wallDom.replace('minecraft:', '')} (avoided roof duplicate)`);
       }
 
-      // ── 3-zone contrast enforcement ──────────────────────────────────────────
-      // VLMs score surface quality by visible zone differentiation. Testing shows
-      // dark roof + medium/textured wall + warm ground = best C scores (Beach 3/3).
-      // Strategy: darken mid-gray satellite roofs → force dark/medium/warm 3-way.
+      // ── v96 contrast enforcement ──────────────────────────────────────────────
+      // Preserve satellite-derived colors — only adjust when roof==wall (no contrast).
+      // Previous versions forced dark roofs + medium walls ("Beach formula"), but
+      // gemini-2.5-pro penalizes color inaccuracy more than contrast deficit.
       const blockLum = (block: string): number => {
         const c = WALL_CLUSTERS.find(cl => cl.options.includes(block));
         if (!c) return 128;
@@ -1972,34 +1972,19 @@ async function main(): Promise<void> {
       const roofLum = blockLum(roofDom);
       const wallLumV = blockLum(wallDom);
 
-      // Step 1: Darken mid-gray satellite roofs. Real roofs from above appear dark.
-      // Mid-gray (lum 100-155) = baked sunlight artifact. Force to gray_concrete.
-      if (roofLum >= 100 && roofLum <= 155) {
-        console.log(`  Roof darken: ${roofDom.replace('minecraft:', '')} (lum ${roofLum.toFixed(0)}) → gray_concrete (lum 58) [mid-gray → force dark]`);
-        roofDom = 'minecraft:gray_concrete';
+      // Only enforce contrast when roof and wall are literally the same block
+      if (wallDom === roofDom) {
+        // Pick a complementary wall with visible luminance contrast
+        if (roofLum < 100) {
+          wallDom = 'minecraft:stone_bricks'; // lum ~124, textured
+        } else if (roofLum < 160) {
+          wallDom = 'minecraft:smooth_quartz'; // lum ~220, bright
+        } else {
+          wallDom = 'minecraft:stone_bricks'; // dark against bright roof
+        }
+        console.log(`  Wall contrast: ${wallDom.replace('minecraft:', '')} (lum ${blockLum(wallDom).toFixed(0)}) [was identical to roof]`);
       }
-
-      // Step 2: Ensure wall has visible contrast from darkened roof.
-      // After darkening, roof lum ~58. Wall needs to be >90 for clear separation.
-      // stone_bricks (lum 124, crack texture) is the ideal VLM-friendly wall material.
-      const newRoofLum = blockLum(roofDom);
-      const newGap = Math.abs(newRoofLum - wallLumV);
-      if (newGap < 40 || (GRAY_BLOCKS.has(wallDom) && GRAY_BLOCKS.has(roofDom))) {
-        const newWall = newRoofLum < 100
-          ? 'minecraft:stone_bricks'    // dark roof → medium textured wall
-          : 'minecraft:polished_andesite'; // light roof → slate-toned wall
-        console.log(`  Wall contrast: ${wallDom.replace('minecraft:', '')} (lum ${wallLumV.toFixed(0)}) → ${newWall.replace('minecraft:', '')} (lum ${blockLum(newWall).toFixed(0)}) [gap ${newGap.toFixed(0)}<40 or both gray]`);
-        wallDom = newWall;
-      }
-
-      // Step 3: Cap overly-bright walls — white/cream walls look washed out on VLMs.
-      // The "Beach formula" (dark roof + medium wall + warm ground) requires wall lum
-      // in the 100-180 range. Bright walls (>190) lose texture detail in renders.
-      const wallLumAfter = blockLum(wallDom);
-      if (wallLumAfter > 190 && newRoofLum < 100) {
-        console.log(`  Wall cap: ${wallDom.replace('minecraft:', '')} (lum ${wallLumAfter.toFixed(0)}) → stone_bricks (lum 124) [too bright for dark roof]`);
-        wallDom = 'minecraft:stone_bricks';
-      }
+      console.log(`  Roof lum: ${roofLum.toFixed(0)}, Wall lum: ${blockLum(wallDom).toFixed(0)}, gap: ${Math.abs(blockLum(roofDom) - blockLum(wallDom)).toFixed(0)}`);
     }
 
     // ── Derive accent materials using complementary color contrast ──────────
