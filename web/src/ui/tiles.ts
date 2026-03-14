@@ -432,10 +432,13 @@ async function runVoxelizePipeline(
     const s = tiles.stats;
     console.log(`[tiles] pre-capture: ${totalMeshes} meshes, ${totalVertices} verts, loaded=${s.loaded}, failed=${(s as Record<string, number>).failed ?? 0}`);
 
-    const capturedGroup = await captureTileMeshes(tiles, center, radiusMeters, {
+    const captureResult = await captureTileMeshes(tiles, center, radiusMeters, {
       onProgress: (msg) => setStatus(msg, 'info'),
       timeout: 60000,  // 60s — Google tile hierarchy has ~10+ LOD levels
+      extractHeightmap: true,  // Extract terrain for procedural environment draping
+      heightmapResolution: resolution,
     });
+    const capturedGroup = captureResult.buildingGroup;
     loading = false;
     clearInterval(renderInterval);
 
@@ -447,10 +450,12 @@ async function runVoxelizePipeline(
         loaded: s2.loaded, visible: s2.visible,
       }));
     }
+    if (captureResult.terrainHeightmap) {
+      console.log(`[tiles] terrain heightmap: ${captureResult.heightmapWidth}x${captureResult.heightmapLength}`);
+    }
 
     // Check if we got any meshes
-    let meshCount = 0;
-    capturedGroup.traverse(c => { if (c instanceof THREE.Mesh) meshCount++; });
+    const { captured: meshCount } = captureResult.stats;
     console.log('[tiles] captured meshCount:', meshCount);
     if (meshCount === 0) {
       setStatus('No mesh data captured — try a different address or larger radius', 'error');
