@@ -139,9 +139,7 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // 402 W Broadway, San Diego CA — downtown commercial, 6.4MB headless
-    // v95: --no-osm is best (OSM post-mask removes 65%, scores drop 8.0→4.0).
-    // Tested replacements: winnetka(1.8), dallas(6.0), bellaire(7.3), artinstitute(7.0).
-    // Sandiego ceiling ~8.0 — generic rectangular footprint limits A score.
+    // v95: 8.8 with --no-osm. v96: testing with preserved colors.
     key: 'sandiego',
     glb: `${DIR}/flatroof-sandiego.glb`,
     coords: '32.7157,-117.1611',
