@@ -3820,11 +3820,14 @@ export function watershedIsolate(
   }
 
   // Step 3: Find local maxima (building centers) with minimum distance threshold
-  const maxima: { x: number; z: number; d: number }[] = [];
+  // Scale minCenterDist with building size — prevents splitting single buildings
+  const footprintMin = Math.min(width, length);
+  const effectiveMinDist = Math.max(minCenterDist, Math.floor(footprintMin / 4));
+  const rawMaxima: { x: number; z: number; d: number }[] = [];
   for (let z = 1; z < length - 1; z++) {
     for (let x = 1; x < width - 1; x++) {
       const d = dist[z * width + x];
-      if (d < minCenterDist) continue;
+      if (d < effectiveMinDist) continue;
       // Check if local maximum in 8-connected neighborhood
       let isMax = true;
       for (let ddz = -1; ddz <= 1 && isMax; ddz++) {
@@ -3833,8 +3836,18 @@ export function watershedIsolate(
           if (dist[(z + ddz) * width + (x + ddx)] > d) isMax = false;
         }
       }
-      if (isMax) maxima.push({ x, z, d });
+      if (isMax) rawMaxima.push({ x, z, d });
     }
+  }
+
+  // Merge maxima that are close together (same building plateau)
+  rawMaxima.sort((a, b) => b.d - a.d); // highest distance first
+  const maxima: typeof rawMaxima = [];
+  for (const m of rawMaxima) {
+    const tooClose = maxima.some(
+      (existing) => Math.abs(existing.x - m.x) + Math.abs(existing.z - m.z) < effectiveMinDist,
+    );
+    if (!tooClose) maxima.push(m);
   }
 
   if (maxima.length <= 1) return 0; // Single building center
