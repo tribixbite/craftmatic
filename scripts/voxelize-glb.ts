@@ -1927,16 +1927,22 @@ async function main(): Promise<void> {
         wallDom = nonGraySecondary[0];
         console.log(`  Wall: photogrammetric secondary ${wallDom.replace('minecraft:', '')} (${nonGraySecondary[1]} blocks, ${(100 * nonGraySecondary[1] / totalWall).toFixed(0)}%)`);
       } else {
-        // De-bake: boost brightness 1.3x to invert baked lighting
-        const wallCluster = WALL_CLUSTERS.find(c => c.options.includes(wallDom));
-        if (wallCluster) {
-          const [wr, wg, wb] = wallCluster.rgb;
-          wallDom = rgbToWallBlock(
-            Math.min(255, Math.round(wr * 1.3)),
-            Math.min(255, Math.round(wg * 1.3)),
-            Math.min(255, Math.round(wb * 1.3)),
-          );
-          console.log(`  Wall: de-baked to ${wallDom.replace('minecraft:', '')} (all grays, 1.3x boost)`);
+        wallDom = sorted[0]?.[0] ?? wallDom;
+      }
+      // v96: Always de-bake wall color — photogrammetry textures are baked with
+      // ambient occlusion + shadow, making everything ~30-50% darker than reality.
+      // Boost brightness 1.5x to better match real-world facade appearance.
+      const wallCluster = WALL_CLUSTERS.find(c => c.options.includes(wallDom));
+      if (wallCluster) {
+        const [wr, wg, wb] = wallCluster.rgb;
+        const boosted = rgbToWallBlock(
+          Math.min(255, Math.round(wr * 1.5)),
+          Math.min(255, Math.round(wg * 1.5)),
+          Math.min(255, Math.round(wb * 1.5)),
+        );
+        if (boosted !== wallDom) {
+          console.log(`  Wall de-bake: ${wallDom.replace('minecraft:', '')} → ${boosted.replace('minecraft:', '')} (1.5x brightness boost)`);
+          wallDom = boosted;
         }
       }
 
