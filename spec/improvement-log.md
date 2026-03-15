@@ -1776,3 +1776,42 @@ Block count unchanged (bracket masking is zero-impact per Pass 30 — masked cel
 - Pre-voxelize common parts offline (break through density ceiling)
 - Improve grader resolution and comparison methodology
 - Audit other DIMS errors for inflated GENERATED_DIMS parts not yet in hand table
+
+---
+
+## Pass 31 — 2026-03-14 — IMPROVEMENT
+
+**Type**: Additional bracket coverage + DIMS fix
+
+### Changes
+
+1. **New bracket parts added to PART_SHAPES and BRACKET_SHELF_DIR**:
+   - `3956` — Bracket 2×2 − 2×2 Up [3,6,2] ×10 in Saturn V
+   - `92411` — Bracket 1×2 − 2×2 (alias of 99207) [1,5,2] ×14 in Saturn V
+   - `11215` — Bracket 5×2 [5,4,2] ×4 in Saturn V
+   - `18671` — Bracket 3×2 [3,4,2] ×4 in Falcon
+
+2. **Fixed `14417` DIMS**: P(1,1)→P(1,2) — "Plate 1×2 with Ball Joint" was incorrectly sized as 1×1; the plate body is 1×2 (ball joint extends bbox but isn't extra volume)
+
+### Method
+
+- Ran `scripts/audit-parts.ts` to find all parts using DEFAULT [1,1,1] dims and parts by block volume
+- Verified all DEFAULT hits are genuinely 1×1×1 parts (6141, 85861, 3024, etc.)
+- Ran `scripts/check-bbox.mjs` to verify bbox dims for candidate parts
+- Searched all box-shape parts' LDraw descriptions for missed slope/wedge/arch/bracket keywords
+
+### Block counts
+
+| Set | Before | After | Delta |
+|-----|--------|-------|-------|
+| 21309-1 Saturn V | 11,973 | 11,918 | −55 |
+| 10030-1 ISD | 138,458 | 138,458 | 0 |
+| 10179-1 Falcon | 69,013 | 69,005 | −8 |
+
+**Total from baseline (78,109 Falcon):** 69,005 = **−11.7%**
+
+**What to try next:**
+- No further bracket/slope/wedge/arch coverage gaps found in the three benchmark models
+- Panel masking not viable (panels already 1-stud wide, AABB is exact)
+- Pipeline is at architectural ceiling for AABB+shape-masking
+- Consider geometry-accurate sampling from .dat files for breakthrough improvement

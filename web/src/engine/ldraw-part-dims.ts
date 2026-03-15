@@ -463,7 +463,7 @@ const DIMS: Record<string, Dims> = {
   '24299': B(1,  1),  // 1×1 Modified (Mona Lisa sets)
   '49307': P(1,  1),  // 1×1 Modified Round Top
   '98138': P(1,  1),  // 1×1 Modified Clip Round
-  '14417': P(1,  1),  // 1×1 Modified variant
+  '14417': P(1,  2),  // Plate 1×2 with Ball Joint — plate body is 1×2, ball extends bbox
   '5091':  P(1,  2),  // 1×2 Grille Plate
   '5092':  P(2,  2),  // 2×2 Grille Plate
 };
@@ -703,6 +703,10 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '99781':'bracket','99780':'bracket','36840':'bracket','36841':'bracket',
   '11476':'bracket','15706':'bracket','92438':'bracket',
   '99207':'bracket','44728':'bracket',
+  '92411':'bracket',                   // Bracket 1×2 − 2×2 (alias, same geometry as 99207)
+  '3956':'bracket',                    // Bracket 2×2 − 2×2 Up (wider face arm)
+  '11215':'bracket',                   // Bracket 5×2 (wide arm bracket)
+  '18671':'bracket',                   // Bracket 3×2 (medium wide arm)
 
   // ── Panels ───────────────────────────────────────────────────────────────────
   '3853':'panel','3854':'panel','60616':'panel','60617':'panel',
@@ -786,6 +790,10 @@ const BRACKET_SHELF_DIR: Readonly<Record<string, 'up' | 'down'>> = {
   '99207': 'up',    // Bracket 1×2 – 2×2 Up
   '36840': 'up',    // Bracket 1×2 – 1×2 Up variant
   '15706': 'up',    // Bracket 1×2 – 1×4 Up
+  '92411': 'up',    // Bracket 1×2 − 2×2 (same geometry as 99207 Up)
+  '3956':  'up',    // Bracket 2×2 − 2×2 Up
+  '11215': 'up',    // Bracket 5×2
+  '18671': 'up',    // Bracket 3×2
   '99780': 'down',  // Bracket 1×2 – 1×2 Down
   '44728': 'down',  // Bracket 1×2 – 2×2 Down
   '36841': 'down',  // Bracket 1×2 – 1×2 Down variant
