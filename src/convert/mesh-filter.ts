@@ -3330,8 +3330,10 @@ export function maskToFootprint(
     }
   }
 
-  // Dilate the bitmap by `dilate` blocks (morphological expansion)
+  // Morphological close: dilate then erode by same amount.
+  // Fills internal gaps without expanding the footprint boundary.
   if (dilate > 0 && bitmap.count > 0) {
+    // Step 1: Dilate (expand by dilate blocks)
     const original: [number, number][] = [];
     for (let lz = 0; lz <= maxZ - minZ; lz++) {
       for (let lx = 0; lx <= maxX - minX; lx++) {
@@ -3345,6 +3347,26 @@ export function maskToFootprint(
           bitmap.set(ox + dx, oz + dz);
         }
       }
+    }
+
+    // Step 2: Erode (shrink by dilate blocks) — completes morphological close.
+    // A cell survives erosion only if ALL cells within dilate radius are set.
+    const toRemove: [number, number][] = [];
+    for (let lz = 0; lz <= maxZ - minZ; lz++) {
+      for (let lx = 0; lx <= maxX - minX; lx++) {
+        const x = lx + minX, z = lz + minZ;
+        if (!bitmap.contains(x, z)) continue;
+        let allSet = true;
+        for (let ez = -dilate; ez <= dilate && allSet; ez++) {
+          for (let ex = -dilate; ex <= dilate && allSet; ex++) {
+            if (!bitmap.contains(x + ex, z + ez)) allSet = false;
+          }
+        }
+        if (!allSet) toRemove.push([x, z]);
+      }
+    }
+    for (const [rx, rz] of toRemove) {
+      bitmap.clear(rx, rz);
     }
   }
 
@@ -3388,7 +3410,7 @@ export function alignOSMToFootprint(
   centerLng: number,
   resolution = 1,
   rotationAngle = 0,
-  searchRadius = 20,
+  searchRadius = 40,
   minIoU = 0.25,
 ): { dx: number; dz: number; iou: number } | null {
   if (polygon.length < 3) return null;
@@ -4153,6 +4175,17 @@ class CoordinateBitmapImpl {
     if (lx < 0 || lx >= this.width || lz < 0 || lz >= this.height) return false;
     const i = lz * this.width + lx;
     return ((this.bits[i >> 3] >> (i & 7)) & 1) === 1;
+  }
+
+  clear(x: number, z: number): boolean {
+    const lx = x - this.minX, lz = z - this.minZ;
+    if (lx < 0 || lx >= this.width || lz < 0 || lz >= this.height) return false;
+    const i = lz * this.width + lx;
+    const mask = 1 << (i & 7);
+    if ((this.bits[i >> 3] & mask) === 0) return false;
+    this.bits[i >> 3] &= ~mask;
+    this._count--;
+    return true;
   }
 }
 

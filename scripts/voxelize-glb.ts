@@ -1384,7 +1384,7 @@ async function main(): Promise<void> {
             trimmed, osmData.polygon,
             args.coords.lat, args.coords.lng,
             args.resolution, enuHorizontalAngle,
-            20, 0.25,
+            40, 0.25,
           );
           if (alignment) {
             const aligned = maskToFootprintAligned(
@@ -1556,7 +1556,7 @@ async function main(): Promise<void> {
               trimmed, osmData.polygon,
               args.coords.lat, args.coords.lng,
               args.resolution, enuHorizontalAngle,
-              20, 0.25,
+              40, 0.25,
             );
             if (alignment) {
               const aligned = maskToFootprintAligned(
@@ -2324,10 +2324,23 @@ async function main(): Promise<void> {
   // v80: Post-processing re-mask — re-sharpen edges blurred by morphClose/modeFilter.
   // After all processing (zone assignment, contrast, homogenize), run maskToFootprint
   // again with same dilation as pre-fill to clip morphClose/modeFilter expansion.
-  // Safety: skip if it would remove >50% of blocks (polygon alignment issue).
+  // Safety: snapshot grid before mask, revert if >40% removed (polygon alignment issue).
   if (osmPolygon && args.coords && !args.noOsm && !args.noPostMask) {
     const postMaskDilate = args.maskDilate ?? 3; // same dilation as pre-fill mask
     const blocksBefore = trimmed.countNonAir();
+
+    // Snapshot blocks that might be cleared, so we can revert if mask is too aggressive
+    const snapshot = new Map<number, string>(); // index → blockState
+    const { width: sw, height: sh, length: sl } = trimmed;
+    for (let y = 0; y < sh; y++) {
+      for (let z = 0; z < sl; z++) {
+        for (let x = 0; x < sw; x++) {
+          const b = trimmed.get(x, y, z);
+          if (b !== 'minecraft:air') snapshot.set((y * sl + z) * sw + x, b);
+        }
+      }
+    }
+
     const postMasked = maskToFootprint(
       trimmed, osmPolygon,
       args.coords.lat, args.coords.lng,
@@ -2335,12 +2348,17 @@ async function main(): Promise<void> {
     );
     if (postMasked > 0) {
       const pctRemoved = blocksBefore > 0 ? (postMasked / blocksBefore * 100) : 0;
-      if (pctRemoved > 50) {
-        // Too aggressive — polygon may be misaligned. Revert is not possible after maskToFootprint,
-        // so log a warning. Future: clone grid before masking for safe revert.
-        console.log(`Post-morph re-mask: WARNING ${postMasked} blocks (${pctRemoved.toFixed(0)}%) removed — polygon may be misaligned`);
+      if (pctRemoved > 40) {
+        // Too aggressive — revert all masked blocks
+        for (const [idx, bs] of snapshot) {
+          const x = idx % sw;
+          const z = Math.floor(idx / sw) % sl;
+          const y = Math.floor(idx / (sw * sl));
+          trimmed.set(x, y, z, bs);
+        }
+        console.log(`    Post-morph re-mask: REVERTED — would remove ${pctRemoved.toFixed(0)}% of blocks (polygon misaligned)`);
       } else {
-        console.log(`Post-morph re-mask: ${postMasked} blocks clipped (${pctRemoved.toFixed(0)}%, dilate=${postMaskDilate})`);
+        console.log(`    Post-morph re-mask: ${postMasked} blocks clipped (${pctRemoved.toFixed(0)}%, dilate=${postMaskDilate})`);
       }
     }
   }
