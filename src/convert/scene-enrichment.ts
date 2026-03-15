@@ -740,12 +740,12 @@ export async function enrichForScene(
     const seed = simpleHash(lat, lng);
     const rng = seededRng(seed);
 
-    const baseTreeCount = groundCover === 'desert' ? 2
-      : groundCover === 'forest' ? 7
-      : groundCover === 'urban' ? 3
-      : 5;
-    // Only generate enough to reach minimum, up to the base count
-    const needed = Math.max(0, Math.min(baseTreeCount, 8 - trees.length));
+    const baseTreeCount = groundCover === 'desert' ? 3
+      : groundCover === 'forest' ? 10
+      : groundCover === 'urban' ? 6
+      : 8;
+    // Generate enough to supplement, cap at baseTreeCount total
+    const needed = Math.max(0, Math.min(baseTreeCount, baseTreeCount - trees.length));
 
     for (let i = 0; i < needed; i++) {
       const angle = rng() * Math.PI * 2;

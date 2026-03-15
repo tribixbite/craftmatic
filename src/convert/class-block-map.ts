@@ -34,7 +34,7 @@ const GRASS_BY_COVER: Record<BlockContext['groundCover'], BlockState> = {
   grass: 'minecraft:grass_block',
   forest: 'minecraft:podzol',
   desert: 'minecraft:sand',
-  urban: 'minecraft:stone',
+  urban: 'minecraft:grass_block',
 };
 
 const ROAD_BY_COVER: Record<BlockContext['groundCover'], BlockState> = {
@@ -62,7 +62,7 @@ const TERRAIN_BY_COVER: Record<BlockContext['groundCover'], BlockState> = {
   grass: 'minecraft:dirt',
   forest: 'minecraft:dirt',
   desert: 'minecraft:sandstone',
-  urban: 'minecraft:andesite',
+  urban: 'minecraft:dirt',
 };
 
 // ─── Vegetation Blocks ───────────────────────────────────────────────────────
