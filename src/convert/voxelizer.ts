@@ -492,7 +492,7 @@ function sampleColorAtSurfacePoint(
   }
 
   // Fallback to material base color
-  const col = material.color ?? new THREE.Color(0x808080);
+  const col = material.color ?? new THREE.Color(0xB0B0B0);
   return [Math.round(col.r * 255), Math.round(col.g * 255), Math.round(col.b * 255)];
 }
 
@@ -555,7 +555,7 @@ function getIntersectionColor(
     uvCoord.copy(intersection.uv);
     return sampler(material.map, uvCoord);
   }
-  const c = material.color ?? new THREE.Color(0x808080);
+  const c = material.color ?? new THREE.Color(0xB0B0B0);
   return [Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)];
 }
 
@@ -599,7 +599,7 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
   return (texture: THREE.Texture, uv: THREE.Vector2): RGB => {
     const image = texture.image as { data?: Uint8Array | Uint8ClampedArray; width?: number; height?: number };
     if (!image?.data || !image.width || !image.height) {
-      return [128, 128, 128]; // No raw data — neutral gray
+      return [176, 176, 176]; // No raw data — light gray (maps to plaster, not shadow)
     }
 
     const w = image.width;

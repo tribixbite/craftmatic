@@ -897,7 +897,7 @@ export function clearOpenAirFill(
  * @param grid  Source BlockGrid (modified in place)
  * @returns Number of blocks glazed
  */
-export function glazeDarkWindows(grid: BlockGrid): number {
+export function glazeDarkWindows(grid: BlockGrid, resolution = 1): number {
   const { width, height, length } = grid;
   const AIR = 'minecraft:air';
   let glazed = 0;
@@ -909,9 +909,12 @@ export function glazeDarkWindows(grid: BlockGrid): number {
     'minecraft:gray_concrete',       // lum ~58 — deep shadow/window
     'minecraft:polished_deepslate',  // lum ~54 — deep shadow/window
     'minecraft:brown_concrete',      // lum ~45 — dark recesses
+    'minecraft:black_concrete',      // lum ~25 — deep shadow/window
+    'minecraft:deepslate',           // lum ~48 — dark recesses
   ]);
 
-  const MIN_Y = 2; // skip ground-level (foundation, entry, base shadow)
+  // Scale MIN_Y with resolution: skip ground-level (foundation, entry, base shadow)
+  const MIN_Y = Math.max(2, Math.round(2 * resolution));
 
   // Horizontal directions for facade detection (adjacent to air on X or Z axis)
   const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -952,7 +955,7 @@ export function glazeDarkWindows(grid: BlockGrid): number {
   // Count total non-air exterior blocks for glazing cap.
   // If dark facade blocks exceed MAX_GLAZE_PCT of total facade, the "windows"
   // are actually baked photogrammetry shadows — skip glazing entirely.
-  const MAX_GLAZE_PCT = 0.20; // max 20% of facade can be glazed
+  const MAX_GLAZE_PCT = 0.30; // max 30% of facade can be glazed (commercial buildings have >20% dark)
   let totalFacadeBlocks = 0;
   for (let y = MIN_Y; y < height; y++) {
     for (let z = 0; z < length; z++) {
@@ -1028,7 +1031,8 @@ export function glazeDarkWindows(grid: BlockGrid): number {
   // Real windows form vertically coherent chains spanning ≥3 Y levels;
   // noise/shadow artifacts are scattered with small vertical bounding boxes.
   const MIN_COMP_SIZE = 3;    // minimum blocks in the chain
-  const MIN_COMP_HEIGHT = 3;  // minimum vertical span (maxY - minY + 1)
+  // Scale vertical span threshold with resolution: 3m floor = 9 blocks at res 3
+  const MIN_COMP_HEIGHT = Math.max(2, Math.round(2 * resolution));
 
   const compSize = new Map<number, number>();
   const compMinY = new Map<number, number>();
@@ -1071,7 +1075,7 @@ export function glazeDarkWindows(grid: BlockGrid): number {
  * @param existingGlazed  Number of blocks already glazed by glazeDarkWindows
  * @returns Number of blocks converted to windows
  */
-export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number): number {
+export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number, resolution = 1): number {
   const { width, height, length } = grid;
   const AIR = 'minecraft:air';
   const GLASS = 'minecraft:gray_stained_glass';
@@ -1079,7 +1083,8 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number):
   // Only inject if existing glazing was minimal (< 0.5% of non-air blocks)
   const nonAir = grid.countNonAir();
   if (existingGlazed > nonAir * 0.005) return 0;
-  if (height < 8) return 0; // too short for synthetic windows
+  // Scale minimum height with resolution: 8m = 24 blocks at res 3
+  if (height < Math.max(8, Math.round(8 * resolution))) return 0;
 
   // Horizontal directions for facade detection
   const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -1133,11 +1138,13 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number):
     layerDensity[y] = count / (width * length);
   }
 
-  // Estimate floor height from autocorrelation of density profile
-  // Typical floors: 3-4 blocks at 1 block/m. Try periods 3 and 4.
-  let bestPeriod = 3;
+  // Estimate floor height from autocorrelation of density profile.
+  // At 1 block/m floors are 3-4 blocks; at 3 blocks/m floors are 9-12 blocks.
+  const minPeriod = Math.round(3 * resolution);
+  const maxPeriod = Math.round(5 * resolution);
+  let bestPeriod = minPeriod;
   let bestCorr = -1;
-  for (let period = 3; period <= 5; period++) {
+  for (let period = minPeriod; period <= maxPeriod; period++) {
     let corr = 0;
     let count = 0;
     for (let y = 0; y + period < height; y++) {
@@ -1152,7 +1159,8 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number):
   // Window placement: every bestPeriod Y-layers, skip 1 block from floor, place window
   // Horizontally: every 2-3 blocks along the facade
   let injected = 0;
-  const MIN_Y = 3; // skip foundation
+  // Scale foundation skip with resolution: 3m at res 3 = 9 blocks
+  const MIN_Y = Math.max(3, Math.round(3 * resolution));
 
   for (let y = MIN_Y; y < height - 2; y++) {
     // Window rows: not at the very top or bottom of each floor
@@ -1175,9 +1183,10 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number):
         }
         if (!isFacade) continue;
 
-        // Horizontal spacing: window every 3 blocks (1 window, 2 wall)
+        // Horizontal spacing: window every 3*resolution blocks (scale with resolution)
         // Use (x + z) to create a consistent pattern across facades
-        if ((x + z) % 3 !== 0) continue;
+        const hSpacing = Math.max(3, Math.round(3 * resolution));
+        if ((x + z) % hSpacing !== 0) continue;
 
         // Don't place windows on corner blocks (where two facades meet)
         let facadeCount = 0;

@@ -336,7 +336,8 @@ export function buildEnvironment(
 
     // Scale road width: road.width is in meters, resolution converts to blocks
     const resolution = projection.getResolution();
-    const widthBlocks = Math.max(3, Math.min(7,
+    // Clamp road width: min 2 (narrow paths), max 5 (proportional at higher res)
+    const widthBlocks = Math.max(2, Math.min(5,
       Math.round(road.width * resolution)));
 
     const roadCells = rasterizePolyline(gridNodes, widthBlocks, width, length);
@@ -606,6 +607,15 @@ export function buildEnvironment(
   // This gives the scene a complete ground plane instead of floating in air.
   const groundBlock = GROUND_BLOCKS[enrichment.groundCover] ?? 'minecraft:grass_block';
 
+  // Collect tree trunk XZ positions for ground variety (coarse_dirt near trees)
+  const treeTrunkPositions: Set<string> = new Set();
+  for (const tree of enrichment.trees) {
+    const { x, z } = projection.toGridXZ(tree.lat, tree.lng);
+    if (x >= 0 && x < width && z >= 0 && z < length) {
+      treeTrunkPositions.add(`${x},${z}`);
+    }
+  }
+
   // Seeded RNG for ground variation (e.g., scattered flowers in grass)
   const center = projection.getCenter();
   let groundSeed = Math.abs(Math.round(center.lat * 1e6 + center.lng * 1e6));
@@ -628,12 +638,27 @@ export function buildEnvironment(
       const key = `${x},${z}`;
       if (claimedCells.has(key)) continue;
 
+      // Check proximity to tree trunks for ground variety
+      let nearTree = false;
+      for (const tKey of treeTrunkPositions) {
+        const [tx, tz] = tKey.split(',').map(Number);
+        const tdx = x - tx, tdz = z - tz;
+        if (tdx * tdx + tdz * tdz <= 9) { // within 3 blocks
+          nearTree = true;
+          break;
+        }
+      }
+
       const y = groundY(x, z);
-      if (setIfAir(grid, x, y, z, groundBlock)) {
+      // 10% of grass cells near trees get coarse_dirt for visual variety
+      const block = nearTree && enrichment.groundCover !== 'desert' && groundRng() < 0.10
+        ? 'minecraft:coarse_dirt'
+        : groundBlock;
+      if (setIfAir(grid, x, y, z, block)) {
         stats.groundFilled++;
 
-        // 5% chance to scatter a flower on grass-based ground
-        if (enrichment.groundCover !== 'desert' &&
+        // 5% chance to scatter a flower on grass-based ground (not on coarse_dirt)
+        if (block === groundBlock && enrichment.groundCover !== 'desert' &&
             groundRng() < 0.05) {
           const flowerIdx = Math.floor(groundRng() * SCATTER_FLOWERS.length);
           setIfAir(grid, x, y + 1, z, SCATTER_FLOWERS[flowerIdx]);
