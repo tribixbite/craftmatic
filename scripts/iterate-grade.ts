@@ -166,7 +166,7 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // San Diego CA — flat-roof commercial, --no-osm (polygon misaligned), Pro trimmedMean 6.3
+    // San Diego CA — flat-roof commercial, headless, needs browser recapture
     key: 'sandiego',
     glb: `${DIR}/flatroof-sandiego.glb`,
     coords: '32.7157,-117.1611',
