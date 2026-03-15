@@ -445,3 +445,43 @@ function rasterizeLine(
 
   return Array.from(result.values());
 }
+
+/**
+ * Expand a BlockGrid to larger XZ dimensions, centering the original content.
+ * Creates a new grid with the building voxels copied to the center.
+ * Extra space is filled with air (ready for environment enrichment).
+ *
+ * @param grid       Original BlockGrid
+ * @param newWidth   Target width (must be >= grid.width)
+ * @param newLength  Target length (must be >= grid.length)
+ * @returns New expanded grid with original content centered
+ */
+export function expandGrid(
+  grid: BlockGrid,
+  newWidth: number,
+  newLength: number,
+): BlockGrid {
+  if (newWidth <= grid.width && newLength <= grid.length) return grid;
+
+  const w = Math.max(newWidth, grid.width);
+  const l = Math.max(newLength, grid.length);
+  const expanded = new BlockGrid(w, grid.height, l);
+
+  // Offset to center original content in expanded grid
+  const dx = Math.floor((w - grid.width) / 2);
+  const dz = Math.floor((l - grid.length) / 2);
+
+  // Copy all non-air blocks from original to expanded grid
+  for (let y = 0; y < grid.height; y++) {
+    for (let z = 0; z < grid.length; z++) {
+      for (let x = 0; x < grid.width; x++) {
+        const block = grid.get(x, y, z);
+        if (block !== 'minecraft:air') {
+          expanded.set(x + dx, y, z + dz, block);
+        }
+      }
+    }
+  }
+
+  return expanded;
+}
