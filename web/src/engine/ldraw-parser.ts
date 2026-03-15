@@ -63,7 +63,7 @@ function splitIntoSections(content: string): Section[] {
     // MPD file boundary marker: "0 FILE <name>"
     const fileMatch = /^0\s+FILE\s+(.+)$/i.exec(line);
     if (fileMatch) {
-      current = { name: fileMatch[1].trim().toLowerCase(), lines: [] };
+      current = { name: fileMatch[1].trim().toLowerCase().replace(/\\/g, '/'), lines: [] };
       sections.push(current);
       continue;
     }
@@ -89,6 +89,7 @@ function expandSection(
   parentPos: number[],   // [x, y, z] parent origin in LDU
   output: ParsedBrick[],
   depth: number,
+  parentColor: number = 16, // inherited color context for color-16 resolution
 ): void {
   // Guard against runaway recursion (circular references or deep nesting)
   if (depth > 20) return;
@@ -99,7 +100,9 @@ function expandSection(
     const tokens = line.split(/\s+/);
     if (tokens.length < 15 || tokens[0] !== '1') continue;
 
-    const color = parseInt(tokens[1], 10);
+    const rawColor = parseInt(tokens[1], 10);
+    // LDraw color 16 = "Main Color" — inherit from parent reference context
+    const color = rawColor === 16 ? parentColor : rawColor;
     const lx = parseFloat(tokens[2]);
     const ly = parseFloat(tokens[3]);
     const lz = parseFloat(tokens[4]);
@@ -127,13 +130,41 @@ function expandSection(
     );
 
     if (subSection) {
-      // Recurse into sub-model
-      expandSection(subSection.lines, allSections, childRot, [wx, wy, wz], output, depth + 1);
-    } else {
-      // Terminal part (.dat or unknown) — record brick placement with rotation
+      // Recurse into sub-model, passing resolved color as the new parentColor
+      expandSection(subSection.lines, allSections, childRot, [wx, wy, wz], output, depth + 1, color);
+    } else if (!isLDrawPrimitive(basename)) {
+      // Terminal part (.dat or unknown) — record brick placement with rotation.
+      // Skip LDraw geometry primitives (fraction-named files, anti-stud shapes, etc.)
+      // which are sub-part geometry files, not complete LEGO parts.
       output.push({ color, x: wx, y: wy, z: wz, rot: childRot, part: basename });
     }
   }
+}
+
+// ─── Primitive Detection ─────────────────────────────────────────────────────
+
+/**
+ * Returns true for LDraw geometry primitive files that should NOT be voxelized.
+ *
+ * Primitives are sub-part geometry files used to build up part shapes from
+ * basic geometric shapes (cylinders, rings, edges, etc.). They are NOT complete
+ * LEGO parts and should not appear in the brick list.
+ *
+ * Identification rules:
+ *   1. Fraction-prefix names: "4-4cyli", "1-8edge", "2-4ndis", "3-8chrd", etc.
+ *      Pattern: digit(s) + hyphen + digit(s) at the start of the name.
+ *   2. Anti-stud shapes: "stug-*" (under-stud geometry)
+ *   3. Known axle hole primitives: "axlhole", "axl2hole", "axlehole"
+ */
+function isLDrawPrimitive(basename: string): boolean {
+  const name = basename.replace(/\.dat$/i, '').toLowerCase();
+  // Fraction primitives (most common): 4-4cyli, 1-8edge, 2-4ndis, 3-8chrd, etc.
+  if (/^\d+-\d+/.test(name)) return true;
+  // Anti-stud shape primitives
+  if (name.startsWith('stug')) return true;
+  // Axle hole primitives
+  if (name === 'axl2hole' || name === 'axlhole' || name === 'axlehole') return true;
+  return false;
 }
 
 // ─── 3×3 Matrix Multiply ────────────────────────────────────────────────────

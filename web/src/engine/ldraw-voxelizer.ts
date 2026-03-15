@@ -19,7 +19,7 @@
 import { BlockGrid } from '@craft/schem/types.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { ldrawColorToBlock } from './ldraw-colors.js';
-import { getPartDims, getPartShape } from './ldraw-part-dims.js';
+import { getPartDims, getPartShape, getPartFrameThickness, getBracketShelfDir } from './ldraw-part-dims.js';
 
 /** LDraw units per stud pitch (horizontal cell size) */
 const LDU_PER_STUD = 20;
@@ -27,6 +27,60 @@ const LDU_PER_STUD = 20;
 const LDU_PER_PLATE = 8;
 /** Identity rotation (flat row-major 3×3) */
 const IDENTITY = [1, 0, 0,  0, 1, 0,  0, 0, 1];
+
+/**
+ * Returns true for LDraw geometry primitives that should not be voxelized.
+ *
+ * LDraw primitives are sub-file geometry helpers (cylinders, rings, edges,
+ * discs, stud-bases) that are used inside part .dat files to describe shape.
+ * They are NOT standalone LEGO parts. When an MPD embeds custom parts that
+ * themselves reference library primitives, parseLDraw includes those primitive
+ * references as "leaf bricks" — but they represent internal geometry, not
+ * user-placed pieces.
+ *
+ * Filtering them removes stray 1×1×1 blocks from models like the
+ * UCS Millennium Falcon that include custom flexible-part sub-assemblies.
+ *
+ * Patterns filtered:
+ *   N-Mtype[N]  — standard fraction-denominator primitives:
+ *                 4-4cyli, 1-8edge, 4-4ring2, 2-4ndis, 1-12cyli, …
+ *   stug-*      — stud geometry (stug-2x2, stug-3, …)
+ *   stud[2-9]*  — numbered stud variants (stud2, stud3, stud4a, stud6, …)
+ *   axl2hole    — axle hole primitive
+ *   axlhol*     — axle hole variants
+ *   connect*    — Technic pin connector geometry (connect.dat, connect2.dat, …)
+ *   npeghol*    — notched peg hole geometry (npeghol2.dat, …)
+ *   npeghole*   — notched peg hole without surface (npeghole.dat, …)
+ *   logo*       — LEGO logo for studs (logo.dat, logo2.dat, …)
+ *   NNNNNsNN    — LDraw sub-part files (e.g. 47996s01, 6057s04): internal geometry
+ *                 sub-files for complex parts (rigging, tubes, etc.) referenced
+ *                 within embedded MPD sub-models. Pattern: all-digit prefix + 's' + digits.
+ */
+function isLDrawPrimitive(part: string): boolean {
+  const bare = part.replace(/\.dat$/i, '').toLowerCase();
+  // Strip directory prefix (e.g. "48\" in hi-res primitive paths like "48\4-4edge")
+  const filename = bare.replace(/^.*[/\\]/, '');
+  // Standard fraction primitives: starts with digit-digit (e.g. "4-4", "1-8", "2-4", "3-8")
+  // Also catches hi-res variants like "48\4-4edge", "48\4-4cyli" after prefix strip
+  if (/^\d+-\d+/.test(filename)) return true;
+  // Named geometry primitives (all from LDraw p/ primitives directory)
+  if (bare.startsWith('stug-')) return true;
+  if (bare === 'axl2hole' || bare.startsWith('axlhol')) return true;
+  if (bare.startsWith('connect')) return true;     // Technic connector geometry
+  if (bare.startsWith('npeghol')) return true;     // notched peg hole variants
+  if (bare.startsWith('npeghole')) return true;    // npeghole.dat (without surface)
+  if (bare.startsWith('logo')) return true;        // LEGO logo for studs
+  // All stud variants: stud, stud2-stud9, stud10, studa, stude, etc.
+  // Previous pattern stud[2-9] missed stud itself, stud10, studa, stude, etc.
+  if (bare.startsWith('stud')) return true;
+  // Named box/disc/knob geometry primitives — no real LEGO part uses these bare names
+  if (bare === 'box' || /^box[\da-z]/.test(bare)) return true;   // box.dat, box5.dat, box2-4a.dat…
+  if (bare === 'disc') return true;                               // disc.dat — flat circle
+  if (bare === 'knob' || bare === 'tooth') return true;          // stud detail geometry
+  // LDraw sub-part files: NNNNsNN (e.g. 47996s01, 6057s04) — internal geometry only
+  if (/^\d+s\d+$/.test(bare)) return true;
+  return false;
+}
 /** Maximum grid dimension to prevent browser freeze */
 const MAX_DIM = 256;
 
@@ -55,6 +109,10 @@ export function voxelizeLDraw(
   const cells: Cell[] = [];
 
   for (const brick of bricks) {
+    // Skip LDraw geometry primitives — they describe part shape internally
+    // and should not be voxelized as standalone blocks.
+    if (isLDrawPrimitive(brick.part)) continue;
+
     const R = brick.rot ?? IDENTITY;
     const [sW, sH, sL] = getPartDims(brick.part);
     const block = resolveColor(brick.color);
@@ -150,6 +208,55 @@ export function voxelizeLDraw(
       roundRz = (spanZ + 1) / 2;
     }
 
+    // Frame masking: skip cells in the hollow center void of open-center Technic bricks.
+    // The void is the inner rectangular region with frameThick cells removed from each
+    // AABB edge in both X and Z. Works correctly for all 90° Y-rotations.
+    const frameThick = shape === 'frame' ? getPartFrameThickness(brick.part) : 0;
+
+    // Corner masking: L-shaped Technic corner bricks have two perpendicular 1-stud arms
+    // meeting at one corner; the 3 remaining quadrants of the AABB are hollow.
+    //
+    // The inner corner of the L is at local (-lxHalf, _, -lzHalf). Its world position
+    // determines which AABB corner is the "pivot". For a square part (lxHalf = lzHalf):
+    //   cornerX = (R[0] + R[2]) > 0 ? gxMin : gxMax
+    //   cornerZ = (R[6] + R[8]) > 0 ? gzMin : gzMax
+    //
+    // A cell is kept if it lies on either 1-stud-wide arm from the corner:
+    //   x === cornerX  (Z-axis arm)  OR  z === cornerZ  (X-axis arm)
+    let cornerX = gxMin, cornerZ = gzMin;
+    const isCorner = shape === 'corner';
+    if (isCorner) {
+      cornerX = (R[0] + R[2]) > 0 ? gxMin : gxMax;
+      cornerZ = (R[6] + R[8]) > 0 ? gzMin : gzMax;
+    }
+
+    // Bracket masking: L-shaped plate+face in the vertical plane.
+    // A bracket = 1-stud-wide plate (horizontal arm, full sL span, at one Y row)
+    //           + 1-stud-wide face (vertical arm, full sH span, at one horizontal edge).
+    //
+    // Face is at local -Z; world face direction = R*[0,0,-1] = [-R[2], _, -R[8]].
+    // Plate row: at local -Y (LDraw top). world_Y = -ly/8, so local -lyHalf → world gyMax
+    //   when R[4]≥0 (standard upright), gyMin when R[4]<0 (inverted).
+    //
+    // Keep cell if it lies on the face column OR the plate row:
+    //   (bracketFaceAxis==='z' ? z===bracketFacePos : x===bracketFacePos)  OR  y===bracketPlateY
+    const isBracket = shape === 'bracket';
+    let bracketFaceAxis: 'x' | 'z' = 'z';
+    let bracketFacePos = gzMin;
+    let bracketPlateY = gyMin;
+    if (isBracket && spanY > 0) {
+      const faceWorldX = -R[2], faceWorldZ = -R[8];
+      if (Math.abs(faceWorldZ) >= Math.abs(faceWorldX) && spanZ > 0) {
+        bracketFaceAxis = 'z';
+        bracketFacePos = faceWorldZ >= 0 ? gzMax : gzMin;
+      } else if (spanX > 0) {
+        bracketFaceAxis = 'x';
+        bracketFacePos = faceWorldX >= 0 ? gxMax : gxMin;
+      }
+      const bracketShelfDir = getBracketShelfDir(brick.part);
+      bracketPlateY = (bracketShelfDir === 'up') === (R[4] >= 0) ? gyMax : gyMin;
+    }
+
     // Arch masking: hollow out the curved underside of arch-shaped parts.
     // An arch has solid pillar columns at both span-ends and a semicircular cavity
     // below the crown spanning the inner portion. The cavity height at each span
@@ -216,6 +323,16 @@ export function voxelizeLDraw(
           if (posPerp < perpMin + trimMin || posPerp > perpMax - trimMax) continue;
         }
 
+        // Frame masking: skip cells inside the hollow center void.
+        if (frameThick > 0) {
+          if (x >= gxMin + frameThick && x <= gxMax - frameThick &&
+              z >= gzMin + frameThick && z <= gzMax - frameThick) continue;
+        }
+
+        // Corner masking: skip cells not on either arm of the L-shape.
+        // Keep cell only if it is on the X-arm (z === cornerZ) or Z-arm (x === cornerX).
+        if (isCorner && x !== cornerX && z !== cornerZ) continue;
+
         let yLo = gyMin;
         let yHi = gyMax;
         if (slopeAxis !== null) {
@@ -245,8 +362,14 @@ export function voxelizeLDraw(
             }
           }
         }
-        for (let y = yLo; y <= yHi; y++)
+        for (let y = yLo; y <= yHi; y++) {
+          // Bracket masking: keep only cells on the face column or the plate row.
+          if (isBracket) {
+            const onFace = bracketFaceAxis === 'z' ? z === bracketFacePos : x === bracketFacePos;
+            if (!onFace && y !== bracketPlateY) continue;
+          }
           cells.push({ gx: x, gy: y, gz: z, block, color: brick.color });
+        }
       }
     }
   }
