@@ -234,7 +234,13 @@ C) Surface quality (0-3):
 - 1: Mostly monochrome with no zone distinction.
 - 0: Single material, messy, heavy artifacts.
 
-Total = A + B + C (max 10).
+D) Environment quality (0-3, ONLY if scene includes surrounding plot):
+- 3: Trees, roads, ground cover, and/or fences visible around the building. Environment matches climate/setting.
+- 2: Some environment elements present but sparse or misplaced.
+- 1: Minimal environment — mostly flat ground around building.
+- 0: No environment elements OR not applicable (building-only render).
+
+Total = A + B + C (max 10). If D is scored, Total = A + B + C + D (max 13, normalize to 10).
 
 IMPORTANT: Score what you actually SEE, not what might be there.
 - If the satellite image is obscured (trees, shadows, low zoom), cap A at 2 and B at 1.
@@ -274,6 +280,7 @@ const deepReviewRuns = parseInt(getFlag('--deep-runs', '3'), 10);
 const sweepMode = hasFlag('--sweep');
 const sweepRuns = parseInt(getFlag('--sweep-runs', '3'), 10); // quick-grade runs per variant
 const onlyKeys = getFlag('--only', '').split(',').filter(Boolean);
+const sceneMode = hasFlag('--scene');
 const targetScore = 9;
 
 // Filter buildings
@@ -371,6 +378,8 @@ async function voxelize(b: BuildingConfig): Promise<string> {
     '--coords', `"${b.coords}"`,
     '--mask-dilate', String(b.maskDilate),
   ];
+  // --scene flag: adds environment extraction, feature replacement, plot expansion, enrichment
+  if (sceneMode) flagParts.push('--scene');
   // Only pass -r when explicitly set (resolution > 0); otherwise let auto-2x decide
   if (b.resolution > 0) flagParts.push('-r', String(b.resolution));
   flagParts.push('-o', `"${schem}"`, ...b.extraFlags);
@@ -1021,6 +1030,7 @@ async function sweepBuilding(
         '--coords', `"${modConfig.coords}"`,
         '--mask-dilate', String(modConfig.maskDilate),
       ];
+      if (sceneMode) flagParts.push('--scene');
       if (modConfig.resolution > 0) flagParts.push('-r', String(modConfig.resolution));
       flagParts.push('-o', `"${schem}"`, ...modConfig.extraFlags);
 
