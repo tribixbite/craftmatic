@@ -25,6 +25,7 @@ import type { BlockContext } from './class-block-map.js';
 import { GeoProjection } from './geo-projection.js';
 import { enrichForScene } from './scene-enrichment.js';
 import type { SceneEnrichment } from './scene-enrichment.js';
+import type { ExtractedEnvironment } from './mesh-filter.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,8 @@ export interface ScenePipelineOptions {
     hardinessZone?: number;
     stateAbbreviation?: string;
   };
+  /** Captured environment data from photogrammetry (from extractEnvironmentPositions) */
+  capturedEnvironment?: ExtractedEnvironment;
   /** Progress callback for status updates */
   onProgress?: (msg: string) => void;
 }
@@ -101,6 +104,7 @@ export async function enrichScene(
     calibrationDx = 0,
     calibrationDz = 0,
     propertyFlags,
+    capturedEnvironment,
     onProgress,
   } = options;
 
@@ -133,6 +137,9 @@ export async function enrichScene(
     propertyFlags,
   );
   onProgress?.(`Enrichment: ${enrichment.trees.length} trees, ${enrichment.roads.length} roads, ${enrichment.fences.length} fences, ground=${enrichment.groundCover}`);
+  if (capturedEnvironment) {
+    onProgress?.(`Captured: ${capturedEnvironment.trees.length} trees, ${capturedEnvironment.roads.cells.size} road cells, ${capturedEnvironment.vehicles.length} vehicles`);
+  }
 
   // Step 4: Build environment
   onProgress?.('Building environment...');
@@ -147,14 +154,14 @@ export async function enrichScene(
     groundFilled: 0,
   };
 
-  // 4a. Fill ground layer
+  // 4a. Fill ground layer — use captured ground materials when available
   const groundBlock = resolveBlock(VoxelClass.GROUND_GRASS, blockContext);
+  const capturedRoadCells = capturedEnvironment?.roads.cells;
   for (let z = 0; z < grid.length; z++) {
     for (let x = 0; x < grid.width; x++) {
       // Determine ground Y from heightmap if available
       let groundYGrid = 0;
       if (terrainHeightmap && options.heightmapWidth && options.heightmapLength) {
-        // Map grid coords to heightmap coords
         const hmX = Math.floor(x * options.heightmapWidth / grid.width);
         const hmZ = Math.floor(z * options.heightmapLength / grid.length);
         if (hmX >= 0 && hmX < options.heightmapWidth && hmZ >= 0 && hmZ < options.heightmapLength) {
@@ -162,9 +169,17 @@ export async function enrichScene(
         }
       }
 
-      // Only fill if current cell is air
       const y = Math.max(0, groundYGrid);
-      if (y < grid.height && grid.get(x, y, z) === 'minecraft:air') {
+      if (y >= grid.height || grid.get(x, y, z) !== 'minecraft:air') continue;
+
+      const key = `${x},${z}`;
+      // Use captured road cell positions for road block placement
+      if (capturedRoadCells?.has(key)) {
+        if (writeWithPriority(grid, classified.classes, x, y, z,
+          capturedEnvironment!.roads.surfaceBlock, VoxelClass.GROUND_ROAD)) {
+          envStats.roadsPlaced++;
+        }
+      } else {
         if (writeWithPriority(grid, classified.classes, x, y, z, groundBlock, VoxelClass.GROUND_GRASS)) {
           envStats.groundFilled++;
         }

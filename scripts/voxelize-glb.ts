@@ -37,7 +37,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions } from '../src/convert/mesh-filter.js';
+import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
 import { enrichScene } from '../src/convert/scene-pipeline.js';
@@ -154,6 +155,7 @@ interface CLIArgs {
   noIsolate: boolean;      // skip automatic building isolation
   maskDilate: number;      // OSM polygon dilation in blocks (default 3)
   enrich: boolean;         // run scene enrichment (trees, roads, ground) around building
+  scene: boolean;          // unified scene pipeline: env extraction → strip → enrich
 }
 
 function parseArgs(): CLIArgs {
@@ -192,7 +194,8 @@ Options:
   --no-enu           Skip ENU reorientation (for pre-oriented headless GLBs)
   --no-osm           Skip OSM footprint masking (when geocode doesn't match building)
   --no-post-mask     Skip post-processing OSM re-mask (v80 edge re-sharpening)
-  --enrich           Run scene enrichment (trees, roads, ground fill) — requires --coords`);
+  --enrich           Run scene enrichment (trees, roads, ground fill) — requires --coords
+  --scene            Unified scene pipeline: env extraction + strip + enrich — requires --coords`);
     process.exit(0);
   }
 
@@ -235,6 +238,7 @@ Options:
   let noIsolate = false;
   let maskDilate = 3;
   let enrich = false;
+  let scene = false;
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -299,6 +303,9 @@ Options:
       noIsolate = true;
     } else if (arg === '--enrich') {
       enrich = true;
+    } else if (arg === '--scene') {
+      scene = true;
+      enrich = true; // --scene implies --enrich
     } else if (arg === '--mask-dilate') {
       maskDilate = parseInt(args[++i], 10);
     } else if (arg === '--clean') {
@@ -359,7 +366,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, noPostMask, noIsolate, maskDilate, enrich };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, noPostMask, noIsolate, maskDilate, enrich, scene };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1337,6 +1344,9 @@ async function main(): Promise<void> {
     }
   }
 
+  // Environment data extracted from photogrammetry before vegetation strip (--scene)
+  let envPositions: ExtractedEnvironment | undefined;
+
   if (!args.generic) {
     // === Shape processing (tuned for isolated single-building captures) ===
     // Pipeline order: ground removal → OSM mask → component cleanup → fill → vegetation.
@@ -1498,6 +1508,12 @@ async function main(): Promise<void> {
       }
     }
 
+    // Step 4c: Extract environment positions BEFORE vegetation strip (--scene)
+    if (args.scene && args.coords) {
+      envPositions = extractEnvironmentPositions(trimmed, analysis?.groundPlaneY ?? 0);
+      console.log(`Environment extraction: ${envPositions.trees.length} trees, ${envPositions.roads.cells.size} road cells, ${envPositions.vehicles.length} vehicles`);
+    }
+
     // Step 5: Vegetation strip
     if (args.mode === 'surface') {
       const vegStripped = stripVegetation(trimmed);
@@ -1651,6 +1667,12 @@ async function main(): Promise<void> {
       // Step 4b: Sky exposure — remove fill in open-air spaces
       const openAirCleared = clearOpenAirFill(trimmed);
       if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} blocks (no solid roof above)`);
+
+      // Step 4c: Extract environment positions BEFORE vegetation strip (--scene, generic mode)
+      if (args.scene && args.coords && !envPositions) {
+        envPositions = extractEnvironmentPositions(trimmed, 0);
+        console.log(`Environment extraction: ${envPositions.trees.length} trees, ${envPositions.roads.cells.size} road cells, ${envPositions.vehicles.length} vehicles`);
+      }
 
       // Step 5: Strip vegetation — trees acted as solid walls during fill,
       // revealing the building interior behind canopy instead of leaving holes.
@@ -2459,7 +2481,7 @@ async function main(): Promise<void> {
   // }
 
   // ─── Scene Enrichment ──────────────────────────────────────────────────────
-  // --enrich: classify voxels, query OSM infrastructure, populate environment
+  // --enrich / --scene: classify voxels, query OSM infrastructure, populate environment
   if (args.enrich && args.coords) {
     console.log('\n--- Scene Enrichment ---');
     const enrichResult = await enrichScene({
@@ -2467,6 +2489,7 @@ async function main(): Promise<void> {
       coords: args.coords,
       resolution: args.resolution,
       plotRadius: Math.max(trimmed.width, trimmed.length) / 2,
+      capturedEnvironment: envPositions,
       onProgress: (msg) => console.log(`  ${msg}`),
     });
     const es = enrichResult.meta.envStats;

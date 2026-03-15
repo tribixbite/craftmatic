@@ -5087,6 +5087,264 @@ export function stripVegetation(grid: BlockGrid): number {
   return removed;
 }
 
+// ─── Environment Extraction ─────────────────────────────────────────────────
+
+/** A detected tree cluster from photogrammetry voxels */
+export interface DetectedTree {
+  /** Center X in grid coordinates */
+  x: number;
+  /** Center Z in grid coordinates */
+  z: number;
+  /** Height in blocks (from base to canopy top) */
+  height: number;
+  /** Canopy XZ spread radius in blocks */
+  canopyRadius: number;
+}
+
+/** A detected road region from photogrammetry ground blocks */
+export interface DetectedRoad {
+  /** Set of "x,z" keys for road cells */
+  cells: Set<string>;
+  /** Most common block type in the road region */
+  surfaceBlock: string;
+}
+
+/** A detected vehicle cluster (conservative — better to miss than false-positive) */
+export interface DetectedVehicle {
+  /** Center X in grid coordinates */
+  x: number;
+  /** Center Z in grid coordinates */
+  z: number;
+  /** Width in blocks (smaller XZ dimension) */
+  width: number;
+  /** Length in blocks (larger XZ dimension) */
+  length: number;
+  /** Primary color block */
+  colorBlock: string;
+}
+
+/** Extracted environment data from photogrammetry BEFORE vegetation strip */
+export interface ExtractedEnvironment {
+  /** Tree cluster positions and sizes */
+  trees: DetectedTree[];
+  /** Road/paved surface regions */
+  roads: DetectedRoad;
+  /** Vehicle clusters (conservative detection) */
+  vehicles: DetectedVehicle[];
+  /** Block type at each ground-level XZ cell ("x,z" → block) */
+  groundMaterials: Map<string, string>;
+}
+
+/** Road-like blocks: gray/dark non-vegetation at ground level */
+const ROAD_BLOCKS = new Set([
+  'minecraft:gray_concrete', 'minecraft:light_gray_concrete',
+  'minecraft:stone', 'minecraft:andesite', 'minecraft:polished_andesite',
+  'minecraft:smooth_stone', 'minecraft:stone_bricks',
+  'minecraft:gray_terracotta', 'minecraft:light_gray_terracotta',
+  'minecraft:gray_wool', 'minecraft:light_gray_wool',
+  'minecraft:cobblestone', 'minecraft:gravel',
+]);
+
+/** Vehicle-like blocks: distinctive solid colors at low height */
+const VEHICLE_BLOCKS = new Set([
+  'minecraft:blue_concrete', 'minecraft:red_concrete', 'minecraft:white_concrete',
+  'minecraft:black_concrete', 'minecraft:yellow_concrete', 'minecraft:silver_glazed_terracotta',
+  'minecraft:light_gray_concrete', 'minecraft:cyan_concrete',
+  'minecraft:blue_terracotta', 'minecraft:red_terracotta', 'minecraft:white_terracotta',
+]);
+
+/**
+ * Extract environment feature positions from a voxelized grid BEFORE vegetation
+ * stripping. Detects trees (connected vegetation components), road surfaces,
+ * and vehicle clusters to preserve their positions for later clean replacement.
+ *
+ * Must be called AFTER voxelization but BEFORE stripVegetation().
+ *
+ * @param grid     The voxelized BlockGrid (still has vegetation)
+ * @param groundY  Ground plane Y level (0 for bottom-trimmed grids)
+ * @returns Extracted environment data with tree/road/vehicle positions
+ */
+export function extractEnvironmentPositions(
+  grid: BlockGrid,
+  groundY: number,
+): ExtractedEnvironment {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+
+  // ─── Trees: connected components of vegetation blocks ─────────
+  // BFS flood-fill on VEGETATION_BLOCKS_POST, skip small clusters (< 3 blocks)
+  const visited = new Uint8Array(width * height * length);
+  const trees: DetectedTree[] = [];
+
+  const idx = (x: number, y: number, z: number) => (y * length + z) * width + x;
+
+  for (let y = groundY + 2; y < height; y++) { // Trees start above ground+1
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (!VEGETATION_BLOCKS_POST.has(block) || visited[idx(x, y, z)]) continue;
+
+        // BFS flood-fill this vegetation component
+        const queue: [number, number, number][] = [[x, y, z]];
+        const component: [number, number, number][] = [];
+        visited[idx(x, y, z)] = 1;
+
+        while (queue.length > 0) {
+          const [cx, cy, cz] = queue.pop()!;
+          component.push([cx, cy, cz]);
+
+          // 6-connected neighbors
+          for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]] as const) {
+            const nx = cx + dx, ny = cy + dy, nz = cz + dz;
+            if (!grid.inBounds(nx, ny, nz) || visited[idx(nx, ny, nz)]) continue;
+            const nb = grid.get(nx, ny, nz);
+            if (VEGETATION_BLOCKS_POST.has(nb)) {
+              visited[idx(nx, ny, nz)] = 1;
+              queue.push([nx, ny, nz]);
+            }
+          }
+        }
+
+        // Only record tree clusters taller than 2 blocks
+        if (component.length < 4) continue;
+
+        let minX = width, maxX = 0, minY = height, maxY = 0, minZ = length, maxZ = 0;
+        for (const [cx, cy, cz] of component) {
+          minX = Math.min(minX, cx); maxX = Math.max(maxX, cx);
+          minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
+          minZ = Math.min(minZ, cz); maxZ = Math.max(maxZ, cz);
+        }
+        const treeHeight = maxY - minY + 1;
+        if (treeHeight < 3) continue; // Too short to be a tree
+
+        const centerX = Math.round((minX + maxX) / 2);
+        const centerZ = Math.round((minZ + maxZ) / 2);
+        const canopyRadius = Math.max(1, Math.round(Math.max(maxX - minX, maxZ - minZ) / 2));
+
+        trees.push({ x: centerX, z: centerZ, height: treeHeight, canopyRadius });
+      }
+    }
+  }
+
+  // ─── Roads: gray/dark blocks at ground level ──────────────────
+  const roadCells = new Set<string>();
+  const roadBlockCounts = new Map<string, number>();
+  const groundMaterials = new Map<string, string>();
+
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      // Check ground and ground+1 layers
+      for (let dy = 0; dy <= 1; dy++) {
+        const y = groundY + dy;
+        if (y >= height) continue;
+        const block = grid.get(x, y, z);
+        if (block === AIR) continue;
+
+        // Record ground material
+        if (dy === 0) groundMaterials.set(`${x},${z}`, block);
+
+        // Detect road blocks
+        if (ROAD_BLOCKS.has(block)) {
+          roadCells.add(`${x},${z}`);
+          roadBlockCounts.set(block, (roadBlockCounts.get(block) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  // Find most common road block
+  let roadSurface = 'minecraft:gray_concrete';
+  let maxCount = 0;
+  for (const [block, count] of roadBlockCounts) {
+    if (count > maxCount) { maxCount = count; roadSurface = block; }
+  }
+
+  // ─── Vehicles: small colored clusters at ground+1 ─────────────
+  const vehicles: DetectedVehicle[] = [];
+  const vehicleVisited = new Uint8Array(width * length);
+
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      if (vehicleVisited[z * width + x]) continue;
+
+      // Check ground+1 through ground+3 for vehicle-colored blocks
+      let foundVehicle = false;
+      let vehicleBlock = '';
+      for (let dy = 1; dy <= 3; dy++) {
+        const y = groundY + dy;
+        if (y >= height) break;
+        const block = grid.get(x, y, z);
+        if (VEHICLE_BLOCKS.has(block)) {
+          foundVehicle = true;
+          vehicleBlock = block;
+          break;
+        }
+      }
+      if (!foundVehicle) continue;
+
+      // BFS to find the cluster extent in XZ
+      const clusterQueue: [number, number][] = [[x, z]];
+      const cluster: [number, number][] = [];
+      vehicleVisited[z * width + x] = 1;
+
+      while (clusterQueue.length > 0) {
+        const [cx, cz] = clusterQueue.pop()!;
+        cluster.push([cx, cz]);
+
+        for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]] as const) {
+          const nx = cx + dx, nz = cz + dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length) continue;
+          if (vehicleVisited[nz * width + nx]) continue;
+
+          let hasVehicleBlock = false;
+          for (let dy = 1; dy <= 3; dy++) {
+            const y = groundY + dy;
+            if (y >= height) break;
+            if (VEHICLE_BLOCKS.has(grid.get(nx, y, nz))) {
+              hasVehicleBlock = true;
+              break;
+            }
+          }
+          if (hasVehicleBlock) {
+            vehicleVisited[nz * width + nx] = 1;
+            clusterQueue.push([nx, nz]);
+          }
+        }
+      }
+
+      // Vehicle size check: 2-6 long, 1-3 wide, compact
+      if (cluster.length < 2 || cluster.length > 18) continue;
+      let cMinX = width, cMaxX = 0, cMinZ = length, cMaxZ = 0;
+      for (const [cx, cz] of cluster) {
+        cMinX = Math.min(cMinX, cx); cMaxX = Math.max(cMaxX, cx);
+        cMinZ = Math.min(cMinZ, cz); cMaxZ = Math.max(cMaxZ, cz);
+      }
+      const w = cMaxX - cMinX + 1;
+      const l = cMaxZ - cMinZ + 1;
+      const minDim = Math.min(w, l);
+      const maxDim = Math.max(w, l);
+
+      // Conservative: vehicle-shaped (2-6 long, 1-3 wide)
+      if (minDim >= 1 && minDim <= 3 && maxDim >= 2 && maxDim <= 6) {
+        vehicles.push({
+          x: Math.round((cMinX + cMaxX) / 2),
+          z: Math.round((cMinZ + cMaxZ) / 2),
+          width: minDim,
+          length: maxDim,
+          colorBlock: vehicleBlock,
+        });
+      }
+    }
+  }
+
+  return {
+    trees,
+    roads: { cells: roadCells, surfaceBlock: roadSurface },
+    vehicles,
+    groundMaterials,
+  };
+}
+
 /**
  * K-Means block palette consolidation — cluster exterior blocks into k groups
  * to ensure visual coherence. Without this, per-voxel CIE-Lab matching spreads
