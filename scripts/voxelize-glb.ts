@@ -196,7 +196,9 @@ Options:
   --no-osm           Skip OSM footprint masking (when geocode doesn't match building)
   --no-post-mask     Skip post-processing OSM re-mask (v80 edge re-sharpening)
   --enrich           Run scene enrichment (trees, roads, ground fill) — requires --coords
-  --scene            Unified scene pipeline: env extraction + strip + enrich — requires --coords`);
+  --scene            Unified scene pipeline: env extraction → strip → feature replacement →
+                     plot expansion → enrichment — requires --coords
+  --plot-radius N    Plot context radius in meters (default: auto = building + 15m per side)`);
     process.exit(0);
   }
 
