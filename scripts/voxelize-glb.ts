@@ -1853,14 +1853,14 @@ async function main(): Promise<void> {
   // v73: --no-glaze disables this — scattered glass reads as "noisy/porous" surface to VLMs
   let glazed = 0;
   if (args.mode === 'surface' && !args.noGlaze) {
-    glazed = glazeDarkWindows(trimmed);
+    glazed = glazeDarkWindows(trimmed, args.resolution);
     if (glazed > 0) {
       console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass`);
     }
     // Synthetic windows for bright facades that lack dark blocks to glaze.
     // injectSyntheticWindows only fires when existing glazing < 0.5% of non-air
     // and building is ≥ 8 blocks tall, so safe to call unconditionally.
-    const injected = injectSyntheticWindows(trimmed, glazed);
+    const injected = injectSyntheticWindows(trimmed, glazed, args.resolution);
     if (injected > 0) {
       console.log(`Synthetic windows: ${injected} blocks (bright facade, glazed=${glazed})`);
     }

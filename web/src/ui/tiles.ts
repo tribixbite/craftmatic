@@ -118,8 +118,8 @@ function buildUI(): void {
       <div class="tiles-params">
         <label class="tiles-param">
           <span>Resolution</span>
-          <input type="range" id="tiles-resolution" min="1" max="4" step="1" value="1">
-          <span id="tiles-res-label" class="tiles-param-value">1 block/m</span>
+          <input type="range" id="tiles-resolution" min="1" max="4" step="1" value="3">
+          <span id="tiles-res-label" class="tiles-param-value">3 block/m (1 ft/block)</span>
         </label>
         <label class="tiles-param">
           <span>Capture radius</span>
@@ -173,7 +173,8 @@ function buildUI(): void {
   const sceneLabel = document.getElementById('tiles-scene-label')!;
 
   resSlider.addEventListener('input', () => {
-    resLabel.textContent = `${resSlider.value} block/m`;
+    const v = parseInt(resSlider.value, 10);
+    resLabel.textContent = v === 3 ? '3 block/m (1 ft/block)' : `${v} block/m`;
   });
   radiusSlider.addEventListener('input', () => {
     radiusLabel.textContent = `${radiusSlider.value} m`;
@@ -548,7 +549,7 @@ async function runVoxelizePipeline(
     const isSceneMode = !!(sceneEl?.checked && geo);
     setStatus('Post-processing...', 'info');
     await new Promise(r => setTimeout(r, 50));
-    const envPositions = await postProcessTilesGrid(trimmedGrid, analysis, isSceneMode);
+    const envPositions = await postProcessTilesGrid(trimmedGrid, analysis, isSceneMode, resolution);
 
     // ── Scene-specific steps (window/door, feature replacement, plot expansion, enrichment) ──
     let finalGrid = trimmedGrid;
@@ -665,7 +666,7 @@ async function runVoxelizePipeline(
  * 10. Mode filter — 3D majority-vote surface smoother
  * 11. Sky palette + analysis remaps
  */
-async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null, sceneMode = false): Promise<ExtractedEnvironment | undefined> {
+async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null, sceneMode = false, resolution = 1): Promise<ExtractedEnvironment | undefined> {
   const t0 = performance.now();
   const rec = analysis?.recommended;
 
@@ -737,7 +738,7 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
     if (surfaceSmoothed > 0) console.log(`[tiles:pp] surface smooth: ${surfaceSmoothed} protrusions removed`);
     // For rectangular buildings, snap noisy walls to dominant flat planes
     if (analysis?.isRectangular) {
-      const snapped = flattenFacades(grid, 2);
+      const snapped = flattenFacades(grid, 1);
       if (snapped > 0) console.log(`[tiles:pp] facade flatten: ${snapped} voxels snapped`);
     }
   }
@@ -748,9 +749,11 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   // gray_stained_glass is in modeFilter3D's PROTECTED set, so glazing
   // first preserves windows while mode filter smooths walls around them.
   {
-    const glazed = glazeDarkWindows(grid);
+    const glazed = glazeDarkWindows(grid, resolution);
     if (glazed > 0) console.log(`[tiles:pp] window glazing: ${glazed} dark blocks → gray_stained_glass`);
-    // NOTE: injectSyntheticWindows reverted — rigid grid pattern degrades non-commercial buildings
+    // Synthetic windows for bright facades that lack dark blocks to glaze
+    const injected = injectSyntheticWindows(grid, glazed, resolution);
+    if (injected > 0) console.log(`[tiles:pp] synthetic windows: ${injected} blocks (bright facade, glazed=${glazed})`);
   }
   await yieldUI();
 
@@ -766,10 +769,10 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
 
   // 11. Sky contamination remap — blue/cyan skylight baked into tiles surfaces.
   // Runs AFTER mode filter so residual cyan clusters get cleaned up.
+  // Only remap cyan — light_blue_terracotta is often legitimate facade color
+  // (beige/tan buildings bake slightly blue in photogrammetry)
   const skyRemaps = new Map<string, string>([
-    ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
     ['minecraft:cyan_terracotta', 'minecraft:stone'],
-    ['minecraft:light_blue_concrete', 'minecraft:light_gray_concrete'],
     ['minecraft:cyan_concrete', 'minecraft:stone'],
   ]);
   const constrained = constrainPalette(grid, skyRemaps);

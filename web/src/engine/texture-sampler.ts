@@ -21,7 +21,7 @@ export function createCanvasTextureSampler(): TextureSampler {
     let entry = cache.get(texture);
     if (!entry) {
       const image = texture.image as HTMLImageElement | HTMLCanvasElement | ImageBitmap;
-      if (!image) return [128, 128, 128]; // No image data — neutral gray
+      if (!image) return [176, 176, 176]; // No image data — light gray (maps to plaster, not shadow)
 
       const w = image.width || 64;
       const h = image.height || 64;
