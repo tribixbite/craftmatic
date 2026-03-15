@@ -33,8 +33,9 @@ import {
   fillInteriorGaps, clearOpenAirFill, removeSmallComponents,
   removeGroundPlane, stripVegetation,
   morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows, injectSyntheticWindows,
+  extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
 } from '@craft/convert/mesh-filter.js';
-import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
+import type { AnalysisResult, ExtractedEnvironment } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -543,43 +544,75 @@ async function runVoxelizePipeline(
 
     // ── Post-processing: same essential pipeline as CLI voxelizer ──
     // Without these steps the raw voxelization is noisy photogrammetry chaos.
+    const sceneEl = document.getElementById('tiles-scene-mode') as HTMLInputElement | null;
+    const isSceneMode = !!(sceneEl?.checked && geo);
     setStatus('Post-processing...', 'info');
     await new Promise(r => setTimeout(r, 50));
-    await postProcessTilesGrid(trimmedGrid, analysis);
+    const envPositions = await postProcessTilesGrid(trimmedGrid, analysis, isSceneMode);
 
-    // ── Scene enrichment (optional) ──
-    const sceneEl = document.getElementById('tiles-scene-mode') as HTMLInputElement | null;
-    if (sceneEl?.checked && geo) {
-      setStatus('Scene enrichment — fetching environment data...', 'info');
-      await new Promise(r => setTimeout(r, 50));
+    // ── Scene-specific steps (window/door, feature replacement, plot expansion, enrichment) ──
+    let finalGrid = trimmedGrid;
+    if (isSceneMode && geo) {
       try {
+        // Window & door enhancement
+        setStatus('Enhancing windows & doors...', 'info');
+        await new Promise(r => setTimeout(r, 0));
+        const winResult = detectAndRegularizeWindows(finalGrid, analysis?.groundPlaneY ?? 0);
+        console.log(`[tiles:scene] windows regularized: ${winResult.windowsRegularized}, doors placed: ${winResult.doorsPlaced}`);
+
+        // Clean feature replacement (trees, roads, vehicles at detected positions)
+        if (envPositions) {
+          setStatus('Replacing detected features...', 'info');
+          await new Promise(r => setTimeout(r, 0));
+          const treePalette: import('@craft/gen/structures.js').TreeType[] = ['oak', 'birch', 'dark_oak'];
+          const replaced = replaceWithCleanFeatures(finalGrid, envPositions, treePalette, 'grass', analysis?.groundPlaneY ?? 0);
+          console.log(`[tiles:scene] replaced: ${replaced.trees} trees, ${replaced.roads} road cells, ${replaced.vehicles} vehicles`);
+        }
+
+        // Plot expansion — add 8m padding per side
+        const { expandGrid } = await import('../../../src/convert/scene-pipeline.js');
+        const maxDim = Math.max(finalGrid.width, finalGrid.length);
+        const padding = 8 * resolution;
+        const newDim = maxDim + padding * 2;
+        if (newDim > finalGrid.width || newDim > finalGrid.length) {
+          setStatus(`Expanding plot ${finalGrid.width}x${finalGrid.length} → ${newDim}x${newDim}...`, 'info');
+          await new Promise(r => setTimeout(r, 0));
+          finalGrid = expandGrid(finalGrid, newDim, newDim);
+          console.log(`[tiles:scene] plot expansion: ${newDim}x${newDim}`);
+        }
+
+        // Scene enrichment — populate roads, trees, fences, ground from OSM + climate data
+        setStatus('Scene enrichment — fetching environment data...', 'info');
+        await new Promise(r => setTimeout(r, 50));
         const { enrichScene } = await import('../../../src/convert/scene-pipeline.js');
+        const plotRadius = Math.max(finalGrid.width, finalGrid.length) / (2 * resolution);
         await enrichScene({
-          grid: trimmedGrid,
+          grid: finalGrid,
           coords: { lat: geo.lat, lng: geo.lng },
           resolution,
-          plotRadius: radiusMeters,
+          plotRadius,
+          capturedEnvironment: envPositions,
           terrainHeightmap: captureResult.terrainHeightmap,
           heightmapWidth: captureResult.heightmapWidth,
           heightmapLength: captureResult.heightmapLength,
           onProgress: (msg) => setStatus(`Enrichment: ${msg}`, 'info'),
         });
       } catch (err) {
-        console.warn('[tiles] scene enrichment failed (non-fatal):', err);
+        console.warn('[tiles] scene pipeline failed (non-fatal):', err);
         setStatus('Scene enrichment failed — continuing with building only', 'warning');
       }
     }
 
-    const nonAir = trimmedGrid.countNonAir();
+    const nonAir = finalGrid.countNonAir();
     // Debug: expose grid for inspection
-    (window as Record<string, unknown>).__lastTilesGrid = trimmedGrid;
-    console.log('[tiles] palette:', [...trimmedGrid.palette].join(', '));
+    (window as Record<string, unknown>).__lastTilesGrid = finalGrid;
+    console.log('[tiles] palette:', [...finalGrid.palette].join(', '));
 
     const qualityLabel = analysis
       ? ` (${analysis.dataQuality} quality, confidence ${analysis.confidence.toFixed(1)}/10)`
       : '';
     setStatus(
-      `Done — ${trimmedGrid.width}x${trimmedGrid.height}x${trimmedGrid.length}, ${nonAir.toLocaleString()} blocks, ${trimmedGrid.palette.size} materials${qualityLabel}`,
+      `Done — ${finalGrid.width}x${finalGrid.height}x${finalGrid.length}, ${nonAir.toLocaleString()} blocks, ${finalGrid.palette.size} materials${qualityLabel}`,
       'success',
     );
 
@@ -589,7 +622,7 @@ async function runVoxelizePipeline(
     // Step 5: Pass grid + analysis + geocode metadata to callback
     // If analysis shows poor/fair quality, the callback can trigger manual selection
     if (onResult && !skipCallback) {
-      onResult(trimmedGrid, `tiles-${geo.formattedAddress}`, analysis, {
+      onResult(finalGrid, `tiles-${geo.formattedAddress}`, analysis, {
         lat: geo.lat,
         lng: geo.lng,
         resolution,
@@ -598,7 +631,7 @@ async function runVoxelizePipeline(
       });
     }
 
-    return trimmedGrid;
+    return finalGrid;
 
   } catch (err) {
     loading = false;
@@ -632,7 +665,7 @@ async function runVoxelizePipeline(
  * 10. Mode filter — 3D majority-vote surface smoother
  * 11. Sky palette + analysis remaps
  */
-async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null): Promise<void> {
+async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null, sceneMode = false): Promise<ExtractedEnvironment | undefined> {
   const t0 = performance.now();
   const rec = analysis?.recommended;
 
@@ -675,6 +708,13 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   const interiorFilled2 = fillInteriorGaps(grid, 2);
   if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2 (3D masked): ${interiorFilled2} voxels`);
   await yieldUI();
+
+  // 6a. Extract environment positions BEFORE stripping vegetation (scene mode only)
+  let envPositions: ExtractedEnvironment | undefined;
+  if (sceneMode) {
+    envPositions = extractEnvironmentPositions(grid, groundY);
+    console.log(`[tiles:pp] env extraction: ${envPositions.trees.length} trees, ${envPositions.roads.cells.size} road cells, ${envPositions.vehicles.length} vehicles`);
+  }
 
   // 6b. Strip vegetation — trees acted as solid walls during fill,
   // preventing holes behind canopy. Now building interior is solid.
@@ -748,6 +788,7 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
 
   const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
   console.log(`[tiles:pp] post-processing complete in ${elapsed}s`);
+  return envPositions;
 }
 
 // ─── Viewer Lifecycle ───────────────────────────────────────────────────────
