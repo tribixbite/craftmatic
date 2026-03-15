@@ -41,7 +41,7 @@ import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFil
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
-import { enrichScene } from '../src/convert/scene-pipeline.js';
+import { enrichScene, expandGrid } from '../src/convert/scene-pipeline.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { basename, extname, join, dirname, resolve } from 'node:path';
@@ -156,6 +156,7 @@ interface CLIArgs {
   maskDilate: number;      // OSM polygon dilation in blocks (default 3)
   enrich: boolean;         // run scene enrichment (trees, roads, ground) around building
   scene: boolean;          // unified scene pipeline: env extraction → strip → enrich
+  plotRadius: number;      // plot context expansion radius in meters (0 = auto)
 }
 
 function parseArgs(): CLIArgs {
@@ -239,6 +240,7 @@ Options:
   let maskDilate = 3;
   let enrich = false;
   let scene = false;
+  let plotRadius = 0; // 0 = auto-compute when --scene
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -306,6 +308,8 @@ Options:
     } else if (arg === '--scene') {
       scene = true;
       enrich = true; // --scene implies --enrich
+    } else if (arg === '--plot-radius') {
+      plotRadius = parseInt(args[++i], 10);
     } else if (arg === '--mask-dilate') {
       maskDilate = parseInt(args[++i], 10);
     } else if (arg === '--clean') {
@@ -366,7 +370,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, noPostMask, noIsolate, maskDilate, enrich, scene };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, noPostMask, noIsolate, maskDilate, enrich, scene, plotRadius };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1252,7 +1256,7 @@ async function main(): Promise<void> {
   }
 
   // Trim sparse bottom layers
-  const trimmed = trimSparseBottomLayers(grid, args.trimThreshold);
+  let trimmed = trimSparseBottomLayers(grid, args.trimThreshold);
   if (trimmed !== grid) {
     const removed = grid.height - trimmed.height;
     console.log(`Trimmed ${removed} sparse bottom layers (${grid.height} → ${trimmed.height})`);
@@ -2480,6 +2484,21 @@ async function main(): Promise<void> {
   //   }
   // }
 
+  // ─── Plot Context Expansion ─────────────────────────────────────────────────
+  // --scene + --plot-radius: expand grid XZ to include surrounding plot context
+  if (args.scene && args.coords) {
+    const maxDim = Math.max(trimmed.width, trimmed.length);
+    const plotR = args.plotRadius > 0
+      ? args.plotRadius * args.resolution
+      : maxDim + 30 * args.resolution; // default: building + 15m on each side
+    const newDim = Math.ceil(plotR * 2);
+    if (newDim > trimmed.width || newDim > trimmed.length) {
+      console.log(`\n--- Plot Expansion ---`);
+      console.log(`  Building: ${trimmed.width}x${trimmed.length} → Plot: ${newDim}x${newDim}`);
+      trimmed = expandGrid(trimmed, newDim, newDim);
+    }
+  }
+
   // ─── Scene Enrichment ──────────────────────────────────────────────────────
   // --enrich / --scene: classify voxels, query OSM infrastructure, populate environment
   if (args.enrich && args.coords) {
@@ -2488,7 +2507,7 @@ async function main(): Promise<void> {
       grid: trimmed,
       coords: args.coords,
       resolution: args.resolution,
-      plotRadius: Math.max(trimmed.width, trimmed.length) / 2,
+      plotRadius: Math.max(trimmed.width, trimmed.length) / (2 * args.resolution),
       capturedEnvironment: envPositions,
       onProgress: (msg) => console.log(`  ${msg}`),
     });
