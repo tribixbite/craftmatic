@@ -766,6 +766,60 @@ export function placeTree(
   }
 }
 
+/**
+ * Place a simple vehicle (car) at a position.
+ * 2-wide × 4-long × 2-tall: colored concrete body, glass windshield, black tires.
+ *
+ * @param grid    BlockGrid to modify
+ * @param x       Base X position (center of vehicle)
+ * @param y       Ground Y level
+ * @param z       Base Z position (center of vehicle)
+ * @param facing  Direction the vehicle faces
+ * @param color   Body color as Minecraft block name (e.g. "red_concrete")
+ */
+export function placeVehicle(
+  grid: BlockGrid, x: number, y: number, z: number,
+  facing: 'north' | 'south' | 'east' | 'west' = 'north',
+  color = 'minecraft:red_concrete',
+): void {
+  const tire = 'minecraft:black_concrete';
+  const glass = 'minecraft:light_blue_stained_glass';
+
+  // Vehicle layout relative to facing direction (north = -Z)
+  // 2 wide (perpendicular to facing) × 4 long (along facing) × 2 tall
+  const isNS = facing === 'north' || facing === 'south';
+  const hw = isNS ? 1 : 2; // half-width in X
+  const hl = isNS ? 2 : 1; // half-length in Z
+
+  // Bottom layer: tires at corners, body in middle
+  for (let dx = -hw; dx <= hw; dx++) {
+    for (let dz = -hl; dz <= hl; dz++) {
+      const isCorner = Math.abs(dx) === hw && Math.abs(dz) === hl;
+      const block = isCorner ? tire : color;
+      if (grid.inBounds(x + dx, y, z + dz)) {
+        grid.set(x + dx, y, z + dz, block);
+      }
+    }
+  }
+
+  // Top layer: windshield at front, body elsewhere
+  for (let dx = -hw; dx <= hw; dx++) {
+    for (let dz = -hl; dz <= hl; dz++) {
+      // Skip corners (no roof overhang)
+      if (Math.abs(dx) === hw && Math.abs(dz) === hl) continue;
+      // Front windshield
+      const isFront = (facing === 'north' && dz === -hl) ||
+                       (facing === 'south' && dz === hl) ||
+                       (facing === 'east' && dx === hw) ||
+                       (facing === 'west' && dx === -hw);
+      const block = isFront ? glass : color;
+      if (grid.inBounds(x + dx, y + 1, z + dz)) {
+        grid.set(x + dx, y + 1, z + dz, block);
+      }
+    }
+  }
+}
+
 /** Place a natural-looking hill/mound of grass and dirt */
 export function placeHill(
   grid: BlockGrid, cx: number, cz: number,
