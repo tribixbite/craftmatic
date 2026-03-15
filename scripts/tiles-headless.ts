@@ -92,6 +92,7 @@ import * as THREE from 'three';
 import { TilesRenderer } from '3d-tiles-renderer';
 import { GoogleCloudAuthPlugin, ReorientationPlugin, GLTFExtensionsPlugin } from '3d-tiles-renderer/plugins';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { FIVE_ANGLE_PRESET, positionCameraForAngle, computeCameraDistance, waitForStable } from '../src/convert/multi-angle-capture.js';
 import { writeFile as fsWriteFile } from 'fs/promises';
 import { resolve } from 'path';
 
@@ -107,6 +108,7 @@ let timeout = 120000; // 2 min default
 // 'perspective' (45° angle, best for facade detail on skyscrapers),
 // 'street' (ground level, original mode)
 let cameraMode: 'ortho' | 'perspective' | 'street' = 'ortho';
+let multiAngle = false;
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -116,6 +118,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a.startsWith('-r') && a.length > 2) radius = parseInt(a.slice(2));
   else if (a === '-o' || a === '--output') outputPath = args[++i];
   else if (a === '-t' || a === '--timeout') timeout = parseInt(args[++i]) * 1000;
+  else if (a === '--multi-angle') multiAngle = true;
   else if (a === '--camera' && i + 1 < args.length) {
     const mode = args[++i];
     if (mode === 'ortho' || mode === 'perspective' || mode === 'street') cameraMode = mode;
@@ -327,7 +330,8 @@ function decodeDracoGeometry(draco: any, buffer: ArrayBuffer, taskConfig: any) {
 tiles.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader }));
 
 // Configure LOD — lower errorTarget = higher detail but more tiles
-tiles.errorTarget = 4.0;
+// Multi-angle capture uses lower errorTarget for higher-detail facade tiles
+tiles.errorTarget = multiAngle ? 2.0 : 4.0;
 
 // Register camera (no renderer needed — we fake resolution)
 tiles.setCamera(camera);
@@ -389,6 +393,45 @@ await new Promise<void>((resolve) => {
 const loadTime = ((Date.now() - startTime) / 1000).toFixed(1);
 console.log(`\nTile loading complete in ${loadTime}s`);
 
+// Multi-angle capture: orbit camera through cardinal directions to force
+// high-LOD tile loading on all facades (not just the initial camera angle)
+if (multiAngle) {
+  console.log('\n--- Multi-angle LOD forcing ---');
+  // Compute building bounds from current tiles to determine camera distance
+  const tempBbox = new THREE.Box3();
+  tiles.group.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.geometry) {
+      const geo = child.geometry as THREE.BufferGeometry;
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      const worldBox = geo.boundingBox!.clone().applyMatrix4(child.matrixWorld);
+      tempBbox.union(worldBox);
+    }
+  });
+  const buildingSize = new THREE.Vector3();
+  tempBbox.getSize(buildingSize);
+  const camDist = computeCameraDistance(buildingSize);
+  const center = new THREE.Vector3(0, buildingSize.y * 0.3, 0);
+
+  for (const angle of FIVE_ANGLE_PRESET) {
+    if (angle.name === 'top-down') continue; // already loaded from initial ortho/perspective
+    console.log(`  Angle: ${angle.name}...`);
+
+    // Reposition camera for this angle
+    positionCameraForAngle(camera, center, angle, camDist);
+    tiles.setCamera(camera);
+    tiles.setResolution(camera, 512, 512);
+
+    // Wait for tiles at this angle to stabilize
+    await waitForStable(
+      tiles as unknown as { stats: Record<string, number>; update: () => void },
+      30000,
+      30,
+      (msg) => console.log(`    ${msg}`),
+    );
+  }
+  console.log('  Multi-angle capture complete');
+}
+
 // Extract meshes within capture radius (XZ cylindrical filter)
 const centerXZ = new THREE.Vector2(0, 0); // scene origin = target coordinate
 const group = new THREE.Group();
@@ -440,6 +483,62 @@ const bbox = new THREE.Box3().setFromObject(group);
 const size = new THREE.Vector3();
 bbox.getSize(size);
 console.log(`Bounding box: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} meters`);
+
+// Extract terrain heightmap — rasterize ground-level mesh Y values into Float32Array
+// for terrain-aware enrichment. Saved as .heightmap.bin sidecar alongside the GLB.
+{
+  const hmRes = 1; // 1 sample per meter
+  const hmWidth = Math.ceil(size.x * hmRes);
+  const hmLength = Math.ceil(size.z * hmRes);
+  if (hmWidth > 0 && hmLength > 0 && hmWidth <= 1024 && hmLength <= 1024) {
+    const heightmap = new Float32Array(hmWidth * hmLength);
+    const counts = new Uint8Array(hmWidth * hmLength);
+
+    group.traverse((child) => {
+      if (!(child instanceof THREE.Mesh) || !child.geometry) return;
+      const geo = child.geometry as THREE.BufferGeometry;
+      const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+      if (!pos) return;
+
+      for (let i = 0; i < pos.count; i++) {
+        const wx = pos.getX(i);
+        const wy = pos.getY(i);
+        const wz = pos.getZ(i);
+        // Map world coords to heightmap pixel
+        const px = Math.floor((wx - bbox.min.x) * hmRes);
+        const pz = Math.floor((wz - bbox.min.z) * hmRes);
+        if (px < 0 || px >= hmWidth || pz < 0 || pz >= hmLength) continue;
+        const idx = pz * hmWidth + px;
+        // Keep minimum Y at each XZ cell (ground level)
+        if (counts[idx] === 0 || wy < heightmap[idx]) {
+          heightmap[idx] = wy;
+          counts[idx] = 1;
+        }
+      }
+    });
+
+    // Normalize relative to minimum height
+    let minH = Infinity;
+    for (let i = 0; i < heightmap.length; i++) {
+      if (counts[i] > 0 && heightmap[i] < minH) minH = heightmap[i];
+    }
+    if (isFinite(minH)) {
+      for (let i = 0; i < heightmap.length; i++) {
+        heightmap[i] = counts[i] > 0 ? heightmap[i] - minH : 0;
+      }
+    }
+
+    const hmPath = outputPath.replace(/\.glb$/, '.heightmap.bin');
+    // Write as: [uint16 width] [uint16 length] [float32[] data]
+    const header = new Uint16Array([hmWidth, hmLength]);
+    const hmBuf = Buffer.concat([
+      Buffer.from(header.buffer),
+      Buffer.from(heightmap.buffer),
+    ]);
+    await fsWriteFile(hmPath, hmBuf);
+    console.log(`Heightmap: ${hmWidth}x${hmLength} → ${hmPath} (${hmBuf.length.toLocaleString()} bytes)`);
+  }
+}
 
 // Export as GLB — Three.js GLTFExporter needs Canvas 2D + FileReader (unavailable in headless Bun).
 // Write GLB manually: collect geometry buffers + encode textures with sharp.
