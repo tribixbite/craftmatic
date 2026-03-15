@@ -8,6 +8,7 @@
  * context (trees, roads, sidewalks, fences, pools, driveways).
  */
 
+import { fromUrl } from 'geotiff';
 import type { TreeType } from '../gen/structures.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -352,6 +353,216 @@ function estimateRadius(points: GeoPoint[], centroid: GeoPoint): number {
   return totalDist / points.length;
 }
 
+// ─── OSM Tree Query ─────────────────────────────────────────────────────────
+
+/** Raw Overpass node element from JSON response */
+interface OverpassNodeElement {
+  type: string;
+  id: number;
+  lat: number;
+  lon: number;
+  tags?: Record<string, string>;
+}
+
+/**
+ * Query OSM Overpass for individual tree nodes near a point.
+ * Fetches `natural=tree` nodes with optional species/height/leaf metadata.
+ * Uses the same round-robin and retry pattern as queryPlotInfrastructure.
+ *
+ * @param lat     Center latitude
+ * @param lng     Center longitude
+ * @param radiusM Search radius in meters (default 150)
+ * @returns Array of tree positions with optional metadata, never throws
+ */
+export async function queryOSMTreeNodes(
+  lat: number,
+  lng: number,
+  radiusM = 150,
+): Promise<Array<{
+  lat: number;
+  lng: number;
+  species?: string;
+  height?: number;
+  leafType?: string;
+}>> {
+  const query = `[out:json][timeout:10];node["natural"="tree"](around:${radiusM},${lat},${lng});out body;`;
+  const body = `data=${encodeURIComponent(query)}`;
+  const MAX_RETRIES = 2;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const serverUrl = pickOverpassUrl();
+    try {
+      const resp = await fetch(serverUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if (resp.status === 429 || resp.status === 504) {
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, (attempt + 1) * 2500));
+          continue;
+        }
+        return [];
+      }
+      if (!resp.ok) return [];
+
+      const data = await resp.json() as { elements?: OverpassNodeElement[] };
+      if (!data.elements?.length) return [];
+
+      return data.elements
+        .filter((e): e is OverpassNodeElement & { type: 'node' } => e.type === 'node')
+        .map(node => {
+          const t = node.tags ?? {};
+          // Parse height: "12", "12 m", "12m" → 12
+          let height: number | undefined;
+          if (t['height']) {
+            const h = parseFloat(t['height']);
+            if (!isNaN(h) && h > 0 && h < 100) height = h;
+          }
+          return {
+            lat: node.lat,
+            lng: node.lon,
+            species: t['species'] || t['genus'] || t['taxon'] || undefined,
+            height,
+            leafType: t['leaf_type'] as string | undefined,
+          };
+        });
+    } catch {
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2500));
+        continue;
+      }
+      return [];
+    }
+  }
+  return [];
+}
+
+// ─── OSM Species → TreeType Mapper ──────────────────────────────────────────
+
+/** Known genus/species → Minecraft TreeType mappings */
+const GENUS_MAP: Record<string, TreeType> = {
+  quercus: 'oak', oak: 'oak',
+  picea: 'spruce', spruce: 'spruce', abies: 'spruce', fir: 'spruce',
+  betula: 'birch', birch: 'birch',
+  acer: 'dark_oak', maple: 'dark_oak',
+  prunus: 'cherry', cherry: 'cherry',
+  salix: 'jungle', willow: 'jungle',
+  pinus: 'spruce', pine: 'spruce',
+  cedrus: 'spruce', cedar: 'spruce',
+  ulmus: 'dark_oak', elm: 'dark_oak',
+  fraxinus: 'oak', ash: 'oak',
+  tilia: 'dark_oak', linden: 'dark_oak',
+  platanus: 'oak', sycamore: 'oak',
+  populus: 'birch', poplar: 'birch', aspen: 'birch',
+  magnolia: 'dark_oak',
+  liquidambar: 'dark_oak', sweetgum: 'dark_oak',
+  cornus: 'cherry', dogwood: 'cherry',
+  lagerstroemia: 'cherry', 'crape myrtle': 'cherry',
+  palm: 'jungle', washingtonia: 'jungle', phoenix: 'jungle',
+  eucalyptus: 'acacia',
+  acacia: 'acacia',
+};
+
+/**
+ * Map an OSM species/genus string to a Minecraft TreeType.
+ * Searches for known genus words in the species string (case-insensitive).
+ * Falls back to leaf type inference, then the default palette species.
+ *
+ * @param species      OSM species/genus string (e.g. "Quercus robur")
+ * @param leafType     OSM leaf_type tag ("broadleaved" or "needleleaved")
+ * @param fallback     Default TreeType from hardiness palette
+ */
+export function osmSpeciesToTreeType(
+  species?: string,
+  leafType?: string,
+  fallback: TreeType = 'oak',
+): TreeType {
+  if (species) {
+    const lower = species.toLowerCase();
+    // Check each word against the genus map
+    for (const word of lower.split(/[\s,./()]+/)) {
+      if (GENUS_MAP[word]) return GENUS_MAP[word];
+    }
+    // Check full string for partial matches
+    for (const [key, val] of Object.entries(GENUS_MAP)) {
+      if (lower.includes(key)) return val;
+    }
+  }
+  // Infer from leaf type
+  if (leafType === 'needleleaved') return 'spruce';
+  return fallback;
+}
+
+// ─── ESA WorldCover Land Cover ──────────────────────────────────────────────
+
+/** Build ESA WorldCover tile URL for a lat/lon (3x3 degree tiles, named by SW corner) */
+function worldCoverTileUrl(lat: number, lon: number): string {
+  const tileLat = Math.floor(lat / 3) * 3;
+  const tileLon = Math.floor(lon / 3) * 3;
+  const ns = tileLat >= 0 ? 'N' : 'S';
+  const ew = tileLon >= 0 ? 'E' : 'W';
+  const latStr = String(Math.abs(tileLat)).padStart(2, '0');
+  const lonStr = String(Math.abs(tileLon)).padStart(3, '0');
+  return `https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_${ns}${latStr}${ew}${lonStr}_Map.tif`;
+}
+
+/**
+ * Query ESA WorldCover 2021 land cover class at a lat/lon via HTTP Range Requests.
+ * Returns ground cover classification directly usable by the enrichment pipeline.
+ *
+ * @param lat  Latitude in decimal degrees
+ * @param lon  Longitude in decimal degrees
+ * @returns Ground cover classification or null if query fails
+ */
+export async function queryLandCoverClass(
+  lat: number,
+  lon: number,
+): Promise<'grass' | 'forest' | 'desert' | 'urban' | null> {
+  const url = worldCoverTileUrl(lat, lon);
+  try {
+    const tiff = await fromUrl(url, { allowFullFile: false });
+    const image = await tiff.getImage();
+
+    const [west, south, east, north] = image.getBoundingBox();
+    if (lon < west || lon > east || lat < south || lat > north) return null;
+
+    const w = image.getWidth();
+    const h = image.getHeight();
+    const px = Math.max(0, Math.min(w - 1, Math.floor(((lon - west) / (east - west)) * w)));
+    const py = Math.max(0, Math.min(h - 1, Math.floor(((north - lat) / (north - south)) * h)));
+
+    const data = await image.readRasters({
+      window: [px, py, px + 1, py + 1],
+      samples: [0],
+    });
+
+    const val = (data[0] as Uint8Array)[0];
+    if (!val || val === 0) return null;
+
+    // Map ESA WorldCover class to enrichment ground cover category
+    switch (val) {
+      case 10: return 'forest';    // Tree cover
+      case 20: return 'desert';    // Shrubland → sparse/arid
+      case 30: return 'grass';     // Grassland
+      case 40: return 'grass';     // Cropland → similar ground treatment
+      case 50: return 'urban';     // Built-up
+      case 60: return 'desert';    // Bare / sparse vegetation
+      case 70: return 'grass';     // Snow and ice → cold grassland treatment
+      case 80: return 'grass';     // Water bodies → adjacent is usually grass
+      case 90: return 'grass';     // Herbaceous wetland
+      case 95: return 'forest';    // Mangroves
+      case 100: return 'grass';    // Moss and lichen
+      default: return null;
+    }
+  } catch {
+    // 403/404 = tile doesn't exist (ocean), or network error
+    return null;
+  }
+}
+
 // ─── Deterministic Random ───────────────────────────────────────────────────
 
 /**
@@ -493,54 +704,60 @@ export async function enrichForScene(
     stateAbbreviation?: string;
   },
 ): Promise<SceneEnrichment> {
-  // 1. Query OSM infrastructure in parallel with local computations
+  // 1. Query OSM infrastructure + trees + landcover in parallel
   const infraPromise = queryPlotInfrastructure(lat, lng, radiusM);
+  const osmTreesPromise = queryOSMTreeNodes(lat, lng, Math.max(radiusM, 100));
+  const landcoverPromise = queryLandCoverClass(lat, lng);
 
   // 2. Determine hardiness zone — use override or infer from latitude
   const zoneNum = options?.hardinessZone ?? inferHardinessZoneFromLat(lat);
 
   // 3. Map hardiness zone to tree palette
   const treePalette = hardinessToTreePalette(zoneNum);
+  const defaultSpecies = treePalette[0];
 
-  // 4. Determine ground cover
-  const groundCover = inferGroundCover(lat, options?.stateAbbreviation);
+  // 4. Determine ground cover — prefer real ESA WorldCover data
+  const landcoverResult = await landcoverPromise;
+  const groundCover = landcoverResult ?? inferGroundCover(lat, options?.stateAbbreviation);
 
-  // 5. Generate deterministic tree positions around building perimeter
-  const seed = simpleHash(lat, lng);
-  const rng = seededRng(seed);
-
-  // Scale tree count: colder climates have more coniferous cover,
-  // desert has fewer trees, temperate/forest have moderate density
-  const baseTreeCount = groundCover === 'desert' ? 2
-    : groundCover === 'forest' ? 7
-    : groundCover === 'urban' ? 3
-    : 5;
-  const treeCount = Math.max(3, Math.min(8, baseTreeCount + Math.floor(rng() * 3) - 1));
-
-  // Tree height: colder zones have taller conifers, tropical are mid-height
-  const baseHeight = zoneNum <= 4 ? 6 : zoneNum <= 7 ? 5 : 4;
-
+  // 5. Build tree list — priority: OSM real trees → synthetic scatter fallback
+  const osmTrees = await osmTreesPromise;
   const trees: SceneTree[] = [];
-  for (let i = 0; i < treeCount; i++) {
-    // Scatter trees at random angles around building perimeter
-    const angle = rng() * Math.PI * 2;
-    // Distance between 30% and 90% of plot radius — keeps trees outside
-    // the building footprint but within the scene area
-    const dist = radiusM * (0.3 + rng() * 0.6);
 
-    // Convert polar offset to lat/lng delta
-    const dLatM = Math.cos(angle) * dist;
-    const dLngM = Math.sin(angle) * dist;
-    const treeLat = lat + dLatM / 111320;
-    const treeLng = lng + dLngM / (111320 * Math.cos(lat * Math.PI / 180));
+  // Convert OSM tree nodes to SceneTrees with species mapping
+  const baseHeight = zoneNum <= 4 ? 6 : zoneNum <= 7 ? 5 : 4;
+  for (const osmTree of osmTrees) {
+    const species = osmSpeciesToTreeType(osmTree.species, osmTree.leafType, defaultSpecies);
+    // Convert real height (meters) to trunk blocks, or use climate-based default
+    const height = osmTree.height
+      ? Math.max(3, Math.min(8, Math.round(osmTree.height / 2)))
+      : baseHeight;
+    trees.push({ lat: osmTree.lat, lng: osmTree.lng, species, height });
+  }
 
-    // Select species from palette (deterministic rotation)
-    const species = treePalette[i % treePalette.length];
+  // If OSM returned < 3 trees, supplement with synthetic scatter
+  if (trees.length < 3) {
+    const seed = simpleHash(lat, lng);
+    const rng = seededRng(seed);
 
-    // Vary height +/- 1 block from base
-    const height = Math.max(3, Math.min(8, baseHeight + Math.floor(rng() * 3) - 1));
+    const baseTreeCount = groundCover === 'desert' ? 2
+      : groundCover === 'forest' ? 7
+      : groundCover === 'urban' ? 3
+      : 5;
+    // Only generate enough to reach minimum, up to the base count
+    const needed = Math.max(0, Math.min(baseTreeCount, 8 - trees.length));
 
-    trees.push({ lat: treeLat, lng: treeLng, species, height });
+    for (let i = 0; i < needed; i++) {
+      const angle = rng() * Math.PI * 2;
+      const dist = radiusM * (0.3 + rng() * 0.6);
+      const dLatM = Math.cos(angle) * dist;
+      const dLngM = Math.sin(angle) * dist;
+      const treeLat = lat + dLatM / 111320;
+      const treeLng = lng + dLngM / (111320 * Math.cos(lat * Math.PI / 180));
+      const species = treePalette[i % treePalette.length];
+      const height = Math.max(3, Math.min(8, baseHeight + Math.floor(rng() * 3) - 1));
+      trees.push({ lat: treeLat, lng: treeLng, species, height });
+    }
   }
 
   // 6. Await OSM infrastructure results
