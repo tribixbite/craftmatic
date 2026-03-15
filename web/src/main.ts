@@ -503,7 +503,6 @@ initTiles(tilesRoot, (grid, label, analysis, meta) => {
   }, 0));
 });
 
-<<<<<<< HEAD
 // ─── Satellite Overlay for Selection ──────────────────────────────────────────
 
 /**
