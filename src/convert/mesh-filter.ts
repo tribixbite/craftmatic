@@ -947,6 +947,35 @@ export function glazeDarkWindows(grid: BlockGrid): number {
 
   if (facadeBlocks.length === 0) return 0;
 
+  // Count total non-air exterior blocks for glazing cap.
+  // If dark facade blocks exceed MAX_GLAZE_PCT of total facade, the "windows"
+  // are actually baked photogrammetry shadows — skip glazing entirely.
+  const MAX_GLAZE_PCT = 0.20; // max 20% of facade can be glazed
+  let totalFacadeBlocks = 0;
+  for (let y = MIN_Y; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block === AIR) continue;
+        let onFacade = false;
+        for (const [dx, dz] of H_DIRS) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length ||
+              grid.get(nx, y, nz) === AIR) {
+            onFacade = true;
+            break;
+          }
+        }
+        if (onFacade) totalFacadeBlocks++;
+      }
+    }
+  }
+
+  if (totalFacadeBlocks > 0 && facadeBlocks.length / totalFacadeBlocks > MAX_GLAZE_PCT) {
+    console.log(`    glazeDarkWindows: SKIPPED — ${facadeBlocks.length} dark blocks = ${(100 * facadeBlocks.length / totalFacadeBlocks).toFixed(0)}% of ${totalFacadeBlocks} facade blocks (cap ${(MAX_GLAZE_PCT * 100).toFixed(0)}%)`);
+    return 0;
+  }
+
   // Phase 2: Union-Find to group facade dark blocks into vertical chains.
   // Two blocks are connected if they are Chebyshev-1 neighbors in XZ and ±1 in Y.
   // This means a block at (x,y,z) connects to any facade dark block at

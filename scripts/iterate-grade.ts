@@ -110,12 +110,12 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // 450 Noe St, SF — Victorian residential, browser-captured, distinctive footprint
-    key: 'noe',
-    glb: `${DIR}/tiles-450-noe-st-san-francisco-ca-94114.glb`,
-    coords: '37.7614,-122.4333',
-    satRef: `${DIR}/sat-ref-noe.jpg`,
-    satZoom: 21,
+    // Tampa FL — flat-roof commercial, 4.2MB headless
+    key: 'tampa',
+    glb: `${DIR}/flatroof-tampa.glb`,
+    coords: '27.9458,-82.4582',
+    satRef: `${DIR}/sat-ref-tampa.jpg`,
+    satZoom: 20,
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],
@@ -166,15 +166,15 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // San Diego CA — flat-roof commercial, headless, needs browser recapture
+    // 402 W Broadway, San Diego CA — flat-roof commercial, headless
     key: 'sandiego',
     glb: `${DIR}/flatroof-sandiego.glb`,
-    coords: '32.7157,-117.1611',
+    coords: '32.7158,-117.1672',
     satRef: `${DIR}/sat-ref-sandiego.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: ['--no-osm', '--no-post-mask'],
+    extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
