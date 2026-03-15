@@ -1200,6 +1200,187 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number):
 }
 
 /**
+ * Detect and regularize windows on building facades, then add doors.
+ *
+ * For each facade face (N/S/E/W), projects facade blocks to a 2D bitmap.
+ * Connected components of glass/dark blocks identify existing window clusters.
+ * If windows were detected, snaps them to a regular grid (median spacing).
+ * If < 3 windows detected, injects a regular window pattern.
+ *
+ * Also detects and places doors: lowest dark/glass cluster on the front face
+ * touching ground level, 2+ blocks wide.
+ *
+ * @param grid          Source BlockGrid (modified in place)
+ * @param groundY       Ground plane Y level
+ * @returns Object with counts of windows regularized and doors placed
+ */
+export function detectAndRegularizeWindows(
+  grid: BlockGrid,
+  groundY = 0,
+): { windowsRegularized: number; doorsPlaced: number } {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  const GLASS = 'minecraft:gray_stained_glass';
+  const DOOR_BOTTOM = 'minecraft:oak_door[half=lower,facing=south]';
+  const DOOR_TOP = 'minecraft:oak_door[half=upper,facing=south]';
+
+  let windowsRegularized = 0;
+  let doorsPlaced = 0;
+
+  // Glass/dark blocks that represent windows
+  const WINDOW_BLOCKS = new Set([
+    GLASS, 'minecraft:glass', 'minecraft:glass_pane',
+    'minecraft:gray_concrete', 'minecraft:polished_deepslate',
+  ]);
+
+  // Process each of 4 facade faces
+  type FaceDir = { name: string; normal: [number, number]; facadeAxis: 'x' | 'z'; sweepAxis: 'z' | 'x' };
+  const faces: FaceDir[] = [
+    { name: 'north', normal: [0, -1], facadeAxis: 'z', sweepAxis: 'x' },
+    { name: 'south', normal: [0, 1], facadeAxis: 'z', sweepAxis: 'x' },
+    { name: 'west', normal: [-1, 0], facadeAxis: 'x', sweepAxis: 'z' },
+    { name: 'east', normal: [1, 0], facadeAxis: 'x', sweepAxis: 'z' },
+  ];
+
+  // Find building bounds
+  let bMinX = width, bMaxX = 0, bMinZ = length, bMaxZ = 0;
+  let bMinY = height, bMaxY = 0;
+  for (let y = groundY; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) {
+          bMinX = Math.min(bMinX, x); bMaxX = Math.max(bMaxX, x);
+          bMinZ = Math.min(bMinZ, z); bMaxZ = Math.max(bMaxZ, z);
+          bMinY = Math.min(bMinY, y); bMaxY = Math.max(bMaxY, y);
+        }
+      }
+    }
+  }
+  if (bMaxY - bMinY < 4) return { windowsRegularized: 0, doorsPlaced: 0 };
+
+  for (const face of faces) {
+    // Determine facade plane position (outermost row of blocks for this face)
+    let facadePos: number;
+    const sweepRange: [number, number] = [0, 0];
+    if (face.name === 'north') { facadePos = bMinZ; sweepRange[0] = bMinX; sweepRange[1] = bMaxX; }
+    else if (face.name === 'south') { facadePos = bMaxZ; sweepRange[0] = bMinX; sweepRange[1] = bMaxX; }
+    else if (face.name === 'west') { facadePos = bMinX; sweepRange[0] = bMinZ; sweepRange[1] = bMaxZ; }
+    else { facadePos = bMaxX; sweepRange[0] = bMinZ; sweepRange[1] = bMaxZ; }
+
+    // Project facade into 2D bitmap (sweep axis × Y)
+    const facadeWidth = sweepRange[1] - sweepRange[0] + 1;
+    const facadeHeight = bMaxY - bMinY + 1;
+    if (facadeWidth < 3 || facadeHeight < 4) continue;
+
+    // Count existing windows on this face
+    let existingWindows = 0;
+    const windowPositions: { s: number; y: number }[] = []; // sweep, y coords of windows
+
+    for (let s = sweepRange[0]; s <= sweepRange[1]; s++) {
+      for (let y = bMinY + 2; y <= bMaxY - 1; y++) {
+        const [x, z] = face.sweepAxis === 'x' ? [s, facadePos] : [facadePos, s];
+        const block = grid.get(x, y, z);
+        if (WINDOW_BLOCKS.has(block)) {
+          existingWindows++;
+          windowPositions.push({ s: s - sweepRange[0], y: y - bMinY });
+        }
+      }
+    }
+
+    // If we have enough windows, try to regularize their spacing
+    if (windowPositions.length >= 3) {
+      // Find median horizontal spacing between windows on the same Y level
+      const yGroups = new Map<number, number[]>();
+      for (const wp of windowPositions) {
+        if (!yGroups.has(wp.y)) yGroups.set(wp.y, []);
+        yGroups.get(wp.y)!.push(wp.s);
+      }
+
+      const spacings: number[] = [];
+      for (const [, positions] of yGroups) {
+        positions.sort((a, b) => a - b);
+        for (let i = 1; i < positions.length; i++) {
+          const gap = positions[i] - positions[i - 1];
+          if (gap >= 2 && gap <= 6) spacings.push(gap);
+        }
+      }
+
+      if (spacings.length >= 2) {
+        // Median spacing for regularization
+        spacings.sort((a, b) => a - b);
+        const medianSpacing = spacings[Math.floor(spacings.length / 2)];
+
+        // Find median vertical spacing
+        const sGroups = new Map<number, number[]>();
+        for (const wp of windowPositions) {
+          if (!sGroups.has(wp.s)) sGroups.set(wp.s, []);
+          sGroups.get(wp.s)!.push(wp.y);
+        }
+        const vSpacings: number[] = [];
+        for (const [, positions] of sGroups) {
+          positions.sort((a, b) => a - b);
+          for (let i = 1; i < positions.length; i++) {
+            const gap = positions[i] - positions[i - 1];
+            if (gap >= 2 && gap <= 6) vSpacings.push(gap);
+          }
+        }
+        const medianVSpacing = vSpacings.length > 0
+          ? vSpacings.sort((a, b) => a - b)[Math.floor(vSpacings.length / 2)]
+          : 3;
+
+        // Place regularized window grid
+        // Start from the first detected window position, snap to grid
+        const startS = windowPositions.length > 0
+          ? windowPositions[0].s % medianSpacing
+          : 1;
+        const startY = windowPositions.length > 0
+          ? (windowPositions[0].y - 2) % medianVSpacing + 2
+          : 2;
+
+        for (let sy = startY; sy < facadeHeight - 1; sy += medianVSpacing) {
+          for (let ss = startS; ss < facadeWidth - 1; ss += medianSpacing) {
+            const absS = sweepRange[0] + ss;
+            const absY = bMinY + sy;
+            const [x, z] = face.sweepAxis === 'x' ? [absS, facadePos] : [facadePos, absS];
+
+            if (!grid.inBounds(x, absY, z)) continue;
+            const current = grid.get(x, absY, z);
+            // Only place window on solid non-air, non-glass blocks
+            if (current === AIR || WINDOW_BLOCKS.has(current)) continue;
+
+            grid.set(x, absY, z, GLASS);
+            windowsRegularized++;
+          }
+        }
+      }
+    }
+
+    // Door detection: lowest facade cluster touching ground, 2+ blocks wide
+    if (face.name === 'south' || face.name === 'north') { // front faces
+      const doorY = groundY + 1;
+      if (doorY + 1 < height) {
+        // Find a 2-block-wide gap or dark region at ground level on this face
+        for (let s = sweepRange[0] + 1; s <= sweepRange[1] - 1; s++) {
+          const [x, z] = face.sweepAxis === 'x' ? [s, facadePos] : [facadePos, s];
+          const block = grid.get(x, doorY, z);
+          const blockAbove = grid.get(x, doorY + 1, z);
+          // Only place door where facade has solid blocks (to replace, not in air)
+          if (block !== AIR && blockAbove !== AIR &&
+              !WINDOW_BLOCKS.has(block) && doorsPlaced === 0) {
+            grid.set(x, doorY, z, DOOR_BOTTOM);
+            grid.set(x, doorY + 1, z, DOOR_TOP);
+            doorsPlaced++;
+            break; // one door per building
+          }
+        }
+      }
+    }
+  }
+
+  return { windowsRegularized, doorsPlaced };
+}
+
+/**
  * Smooth building surfaces via 2D morphological opening per Y-layer.
  *
  * Opening = erode then dilate — removes 1-voxel protrusions from the
