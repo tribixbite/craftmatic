@@ -110,12 +110,12 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Tampa FL — flat-roof commercial, 4.2MB headless, similar to raleigh/atlanta
-    key: 'tampa',
-    glb: `${DIR}/flatroof-tampa.glb`,
-    coords: '27.9458,-82.4582',
-    satRef: `${DIR}/sat-ref-tampa.jpg`,
-    satZoom: 20,
+    // 450 Noe St, SF — Victorian residential, browser-captured, distinctive footprint
+    key: 'noe',
+    glb: `${DIR}/tiles-450-noe-st-san-francisco-ca-94114.glb`,
+    coords: '37.7614,-122.4333',
+    satRef: `${DIR}/sat-ref-noe.jpg`,
+    satZoom: 21,
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],
