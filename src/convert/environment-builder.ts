@@ -37,7 +37,7 @@ const GROUND_BLOCKS: Record<string, string> = {
   grass: 'minecraft:grass_block',
   forest: 'minecraft:podzol',
   desert: 'minecraft:sand',
-  urban: 'minecraft:smooth_stone',
+  urban: 'minecraft:grass_block',
 };
 
 /** Road surface blocks by OSM surface tag */
@@ -600,8 +600,8 @@ export function buildEnvironment(
       if (setIfAir(grid, x, y, z, groundBlock)) {
         stats.groundFilled++;
 
-        // 5% chance to scatter a flower on grass/forest ground
-        if ((enrichment.groundCover === 'grass' || enrichment.groundCover === 'forest') &&
+        // 5% chance to scatter a flower on grass-based ground
+        if (enrichment.groundCover !== 'desert' &&
             groundRng() < 0.05) {
           const flowerIdx = Math.floor(groundRng() * SCATTER_FLOWERS.length);
           setIfAir(grid, x, y + 1, z, SCATTER_FLOWERS[flowerIdx]);

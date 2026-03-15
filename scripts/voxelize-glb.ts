@@ -2509,10 +2509,11 @@ async function main(): Promise<void> {
   // --scene + --plot-radius: expand grid XZ to include surrounding plot context
   if (args.scene && args.coords) {
     const maxDim = Math.max(trimmed.width, trimmed.length);
-    const plotR = args.plotRadius > 0
-      ? args.plotRadius * args.resolution
-      : maxDim + 30 * args.resolution; // default: building + 15m on each side
-    const newDim = Math.ceil(plotR * 2);
+    // Plot = building + padding (8m per side at given resolution)
+    const padding = 8 * args.resolution;
+    const newDim = args.plotRadius > 0
+      ? Math.ceil(args.plotRadius * args.resolution * 2)
+      : maxDim + padding * 2;
     if (newDim > trimmed.width || newDim > trimmed.length) {
       console.log(`\n--- Plot Expansion ---`);
       console.log(`  Building: ${trimmed.width}x${trimmed.length} → Plot: ${newDim}x${newDim}`);
