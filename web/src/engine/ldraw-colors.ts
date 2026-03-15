@@ -43,27 +43,28 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
   32:  'minecraft:yellow_concrete',       // Very Light Orange-Yellow
 
   // ── Transparent Colors → Stained Glass ──────────────────────────────────
-  33:  'minecraft:glass',                 // Trans-Clear
-  34:  'minecraft:lime_stained_glass',    // Trans-Neon Green
-  35:  'minecraft:orange_stained_glass',  // Trans-Neon Orange
-  36:  'minecraft:red_stained_glass',     // Trans-Red
-  37:  'minecraft:purple_stained_glass',  // Trans-Dark Pink
-  38:  'minecraft:green_stained_glass',   // Trans-Neon Green alt
-  40:  'minecraft:glass',                 // Trans-Clear
-  41:  'minecraft:red_stained_glass',     // Trans-Red
-  42:  'minecraft:lime_stained_glass',    // Trans-Neon Green
-  43:  'minecraft:blue_stained_glass',    // Trans-Blue
-  44:  'minecraft:yellow_stained_glass',  // Trans-Yellow
-  45:  'minecraft:pink_stained_glass',    // Trans-Dark Pink
-  46:  'minecraft:yellow_stained_glass',  // Trans-Yellow alt
-  47:  'minecraft:glass',                 // Trans-Clear alt
-  48:  'minecraft:green_stained_glass',   // Trans-Green
-  49:  'minecraft:orange_stained_glass',  // Trans-Neon Orange
-  111: 'minecraft:gray_stained_glass',    // Trans-Black
-  113: 'minecraft:light_blue_stained_glass', // Trans-Medium Blue
-  114: 'minecraft:lime_stained_glass',    // Trans-Neon Green
-  117: 'minecraft:light_blue_stained_glass', // Trans-Light Blue
-  234: 'minecraft:orange_stained_glass',  // Trans-Fire Yellow
+  // IDs verified against LDConfig.ldr (LDraw standard color definitions)
+  33:  'minecraft:blue_stained_glass',    // Trans_Dark_Blue  (#0020A0)
+  34:  'minecraft:green_stained_glass',   // Trans_Green      (#237841)
+  35:  'minecraft:lime_stained_glass',    // Trans_Bright_Green (#56E646)
+  36:  'minecraft:red_stained_glass',     // Trans_Red        (#C91A09)
+  37:  'minecraft:pink_stained_glass',    // Trans_Dark_Pink  (#DF6695)
+  38:  'minecraft:orange_stained_glass',  // Trans_Neon_Orange (#FF800D)
+  40:  'minecraft:gray_stained_glass',    // Trans_Black      (#635F52)
+  41:  'minecraft:light_blue_stained_glass', // Trans_Medium_Blue (#559AB7)
+  42:  'minecraft:lime_stained_glass',    // Trans_Neon_Green (#C0FF00)
+  43:  'minecraft:light_blue_stained_glass', // Trans_Light_Blue (#AEE9EF)
+  44:  'minecraft:purple_stained_glass',  // Trans_Light_Purple (#96709F)
+  45:  'minecraft:pink_stained_glass',    // Trans_Pink       (#FC97AC)
+  46:  'minecraft:yellow_stained_glass',  // Trans_Yellow     (#F5CD2F)
+  47:  'minecraft:glass',                 // Trans_Clear      (#FCFCFC)
+  48:  'minecraft:green_stained_glass',   // Trans_Dark_Green (unofficial old ID)
+  49:  'minecraft:orange_stained_glass',  // Trans_Neon_Orange (unofficial old ID)
+  111: 'minecraft:gray_stained_glass',    // Trans_Black (old code 40 alias)
+  113: 'minecraft:light_blue_stained_glass', // Trans_Medium_Blue variant
+  114: 'minecraft:pink_stained_glass',    // Glitter_Trans_Dark_Pink (#DF6695)
+  117: 'minecraft:glass',                 // Glitter_Trans_Clear     (#FFFFFF)
+  234: 'minecraft:orange_stained_glass',  // Trans_Fire_Yellow (orangeish)
 
   // ── Extended Solid Colors ────────────────────────────────────────────────
   68:  'minecraft:orange_concrete',       // Very Light Orange
