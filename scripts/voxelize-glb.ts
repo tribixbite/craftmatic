@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
@@ -2496,6 +2496,13 @@ async function main(): Promise<void> {
       trimmed, envPositions, treePalette, 'grass', analysis?.groundPlaneY ?? 0,
     );
     console.log(`  Replaced: ${replaced.trees} trees, ${replaced.roads} road cells, ${replaced.vehicles} vehicles`);
+  }
+
+  // --scene: regularize windows + place doors
+  if (args.scene) {
+    console.log('\n--- Window & Door Enhancement ---');
+    const winResult = detectAndRegularizeWindows(trimmed, analysis?.groundPlaneY ?? 0);
+    console.log(`  Windows regularized: ${winResult.windowsRegularized}, doors placed: ${winResult.doorsPlaced}`);
   }
 
   // ─── Plot Context Expansion ─────────────────────────────────────────────────
