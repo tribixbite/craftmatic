@@ -8,6 +8,8 @@
 import * as THREE from 'three';
 import { BlockGrid } from '../schem/types.js';
 import { rgbToLab, deltaESq, WALL_CLUSTERS } from '../gen/color-blocks.js';
+import { placeTree, placeVehicle } from '../gen/structures.js';
+import type { TreeType } from '../gen/structures.js';
 
 /**
  * Filter captured tile meshes by vertical extent above estimated ground level.
@@ -5343,6 +5345,76 @@ export function extractEnvironmentPositions(
     vehicles,
     groundMaterials,
   };
+}
+
+// ─── Clean Feature Replacement ──────────────────────────────────────────────
+
+/**
+ * Replace noisy photogrammetry features with clean Minecraft equivalents
+ * at the positions detected by extractEnvironmentPositions().
+ *
+ * Must be called AFTER stripVegetation() has cleared the noisy blobs,
+ * so we're placing clean features into air where vegetation used to be.
+ *
+ * @param grid          Mutable BlockGrid (post-strip)
+ * @param env           Extracted environment positions from pre-strip detection
+ * @param treePalette   Climate-appropriate tree species palette
+ * @param groundCover   Ground cover type for road surface selection
+ * @param groundY       Ground plane Y level
+ * @returns Counts of replaced features
+ */
+export function replaceWithCleanFeatures(
+  grid: BlockGrid,
+  env: ExtractedEnvironment,
+  treePalette: TreeType[],
+  groundCover: string,
+  groundY = 0,
+): { trees: number; roads: number; vehicles: number } {
+  let treesPlaced = 0;
+  let roadsPlaced = 0;
+  let vehiclesPlaced = 0;
+
+  // Replace detected tree clusters with clean Minecraft trees
+  for (const tree of env.trees) {
+    // Select species from palette based on index for variety
+    const species = treePalette[treesPlaced % treePalette.length];
+    // Scale height: photogrammetry trees are in blocks, convert to trunk height
+    const trunkHeight = Math.max(3, Math.min(7, Math.round(tree.height * 0.6)));
+    // Check the tree position has space (canopy needs room)
+    const treeTop = groundY + 1 + trunkHeight + 3; // trunk + canopy
+    if (treeTop >= grid.height) continue;
+    if (!grid.inBounds(tree.x, groundY + 1, tree.z)) continue;
+
+    placeTree(grid, tree.x, groundY + 1, tree.z, species, trunkHeight);
+    treesPlaced++;
+  }
+
+  // Replace detected road cells with appropriate surface blocks
+  const roadBlock = groundCover === 'desert'
+    ? 'minecraft:smooth_sandstone' : 'minecraft:gray_concrete';
+  for (const key of env.roads.cells) {
+    const [xStr, zStr] = key.split(',');
+    const x = parseInt(xStr, 10);
+    const z = parseInt(zStr, 10);
+    if (!grid.inBounds(x, groundY, z)) continue;
+    // Only place road if cell is air (vegetation was stripped)
+    if (grid.get(x, groundY, z) === 'minecraft:air') {
+      grid.set(x, groundY, z, roadBlock);
+      roadsPlaced++;
+    }
+  }
+
+  // Replace detected vehicle clusters with clean vehicle templates
+  for (const vehicle of env.vehicles) {
+    if (!grid.inBounds(vehicle.x, groundY + 1, vehicle.z)) continue;
+    // Determine facing from shape
+    const facing: 'north' | 'south' | 'east' | 'west' =
+      vehicle.length > vehicle.width ? 'north' : 'east';
+    placeVehicle(grid, vehicle.x, groundY + 1, vehicle.z, facing, vehicle.colorBlock);
+    vehiclesPlaced++;
+  }
+
+  return { trees: treesPlaced, roads: roadsPlaced, vehicles: vehiclesPlaced };
 }
 
 /**
