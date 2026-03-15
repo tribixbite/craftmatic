@@ -706,7 +706,8 @@ export async function enrichForScene(
 ): Promise<SceneEnrichment> {
   // 1. Query OSM infrastructure + trees + landcover in parallel
   const infraPromise = queryPlotInfrastructure(lat, lng, radiusM);
-  const osmTreesPromise = queryOSMTreeNodes(lat, lng, Math.max(radiusM, 100));
+  // Query trees within plot radius + small buffer (10m) to catch edge trees
+  const osmTreesPromise = queryOSMTreeNodes(lat, lng, radiusM + 10);
   const landcoverPromise = queryLandCoverClass(lat, lng);
 
   // 2. Determine hardiness zone — use override or infer from latitude
