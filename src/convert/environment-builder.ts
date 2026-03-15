@@ -444,6 +444,38 @@ export function buildEnvironment(
     stats.treesPlaced++;
   }
 
+  // Fallback: if fewer than 3 trees placed (OSM trees out of grid bounds),
+  // scatter synthetic trees around the building perimeter
+  if (stats.treesPlaced < 3 && buildingBounds) {
+    const margin = 4; // blocks from building edge
+    const speciesList = enrichment.trees.length > 0
+      ? [...new Set(enrichment.trees.map(t => t.species))]
+      : ['oak' as const];
+    const defaultHeight = enrichment.trees[0]?.height ?? 5;
+    const candidates: { x: number; z: number }[] = [];
+    // North/south edges
+    for (let xp = buildingBounds.x1 - margin; xp <= buildingBounds.x2 + margin; xp += 6) {
+      candidates.push({ x: xp, z: buildingBounds.z1 - margin });
+      candidates.push({ x: xp, z: buildingBounds.z2 + margin });
+    }
+    // East/west edges
+    for (let zp = buildingBounds.z1; zp <= buildingBounds.z2; zp += 8) {
+      candidates.push({ x: buildingBounds.x1 - margin, z: zp });
+      candidates.push({ x: buildingBounds.x2 + margin, z: zp });
+    }
+    for (const { x: tx, z: tz } of candidates) {
+      if (stats.treesPlaced >= 6) break;
+      if (tx < 1 || tx >= width - 1 || tz < 1 || tz >= length - 1) continue;
+      if (claimedCells.has(`${tx},${tz}`)) continue;
+      const ty = groundY(tx, tz);
+      setIfAir(grid, tx, ty, tz, GROUND_BLOCKS[enrichment.groundCover] ?? 'minecraft:grass_block');
+      const sp = speciesList[stats.treesPlaced % speciesList.length];
+      placeTree(grid, tx, ty + 1, tz, sp, defaultHeight);
+      claimedCells.add(`${tx},${tz}`);
+      stats.treesPlaced++;
+    }
+  }
+
   // ── Step 5: Pool ──────────────────────────────────────────────────
   if (enrichment.hasPool && buildingBounds) {
     // Place pool south of building center (higher Z = south in MC)
