@@ -1805,12 +1805,10 @@ async function main(): Promise<void> {
   }
 
   // Morph close — spackle pockmarks/holes in photogrammetry surfaces.
-  // v71: r=3→r=2. v106: r=2→r=1. r=2 fills up to 4 blocks which rounds acute corners
-  // (Flatiron's 60° triangle tip lost). r=1 fills 1-voxel gaps only — sufficient for
-  // photogrammetry noise without destroying architectural detail.
-  // Matches browser tiles pipeline (tiles.ts) which already uses r=1.
+  // v71: r=3→r=2. v106: r=2→r=1. v118: tested r=2 — bloated small buildings (dallas 9→7,
+  // ansonia 9.3→7). r=1 confirmed optimal: fills 1-voxel gaps without adding blobby mass.
   {
-    const closed = morphClose3D(trimmed, 1); // v106: r=1 (r=2 rounded acute corners)
+    const closed = morphClose3D(trimmed, 1); // v106+: r=1 confirmed (r=2 bloats small buildings)
     if (closed > 0) {
       console.log(`Morph close (r=1): ${closed} holes filled`);
     }
