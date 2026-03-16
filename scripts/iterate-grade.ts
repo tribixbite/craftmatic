@@ -69,47 +69,47 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Portland OR — flat-roof commercial, Pro trimmedMean 6.5 (6 runs)
-    // v113: maskDilate 2→0 — dilate=2 was including adjacent building across alley
+    // Portland OR — flat-roof commercial, v103 golden set (10/10 on Flash).
+    // v115: revert to v103 config — res=2 regressed 10→7.3, dilate=0 was too tight.
     key: 'portland',
     glb: `${DIR}/flatroof-portland.glb`,
     coords: '45.5235,-122.6812',
     satRef: `${DIR}/sat-ref-portland.jpg`,
     satZoom: 20,
-    resolution: 2,
-    maskDilate: 0,
+    resolution: 1,
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // NYC Apthorp — 4.7MB headless. Full-block courtyard apartment building.
-    // v114: replaces mitdome (dome shape never scored above 6, chaotic surface)
-    // Distinctive rectangular footprint with interior courtyard. NYC lat 40.8° = nadir.
-    key: 'apthorp',
-    glb: `${DIR}/nyc-apthorp-headless.glb`,
-    coords: '40.7835,-73.9770',
-    satRef: `${DIR}/sat-ref-apthorp.jpg`,
+    // Raleigh NC — flat-roof commercial, scored 10 on Flash v95/v103.
+    // v115: replaces apthorp (4.3 — OSM mask failed, courtyard not recognizable)
+    // Proven winner from v103 golden set (10/10). Reliable rectangular footprint.
+    key: 'raleigh',
+    glb: `${DIR}/flatroof-raleigh.glb`,
+    coords: '35.7784,-78.6391',
+    satRef: `${DIR}/sat-ref-raleigh.jpg`,
     satZoom: 20,
     resolution: 1,
-    maskDilate: 1,
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // San Jose / Winchester Mystery House — 5.8MB browser capture. Complex footprint.
-    // v114: replaces montgomery (scores 2-7 across runs, unstable pyramid massing)
-    // Large Victorian with distinctive irregular footprint. Lat 37.3° = near-nadir.
-    key: 'sanjose',
-    glb: `${DIR}/tiles-525-s-winchester-blvd-san-jose-ca-95128.glb`,
-    coords: '37.3182,-121.9509',
-    satRef: `${DIR}/sat-ref-sanjose.jpg`,
-    satZoom: 20,
+    // 450 Noe St, SF — Victorian residential, clean isolation, distinctive footprint.
+    // v115: replaces sanjose (4.3 — complex Victorian doesn't voxelize well, B=0.4/3)
+    // Proven winner from v103 golden set (10/10). z21 for tighter residential crop.
+    key: 'noe',
+    glb: `${DIR}/tiles-450-noe-st-san-francisco-ca-94114.glb`,
+    coords: '37.7614,-122.4333',
+    satRef: `${DIR}/sat-ref-noe.jpg`,
+    satZoom: 21,
     resolution: 1,
-    maskDilate: 1,
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
@@ -179,14 +179,14 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // 402 W Broadway, San Diego CA — flat-roof commercial, headless
-    // v110: res 1→2 for detail (near-passing at 7.0), maskDilate 2→1 for tighter isolation
+    // v115: revert to v104 config (scored 9.3). res=2 regressed 9.3→7.0.
     key: 'sandiego',
     glb: `${DIR}/flatroof-sandiego.glb`,
     coords: '32.7158,-117.1672',
     satRef: `${DIR}/sat-ref-sandiego.jpg`,
     satZoom: 20,
-    resolution: 2,
-    maskDilate: 1,
+    resolution: 1,
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
