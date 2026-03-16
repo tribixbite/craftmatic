@@ -211,24 +211,27 @@ interface IterateState {
 
 const STRUCTURED_PROMPT = `You are a STRICT grader of Minecraft voxel reconstructions of real buildings.
 
-Each image has 3 panels: LEFT = satellite photo, CENTER = isometric 3D render, RIGHT = top-down footprint.
+Each image has 3 panels:
+- LEFT = nadir (true top-down) satellite photo of the real building
+- CENTER = top-down voxel render (same perspective as satellite — compare footprints directly)
+- RIGHT = isometric 3D voxel render (shows massing, facades, surface detail)
 
 Score each building on this rubric:
 
-A) Footprint accuracy (0-4):
+A) Footprint accuracy (0-4): Compare LEFT satellite vs CENTER top-down voxel — both are true top-down views.
 - 4: Footprint has DISTINCTIVE features (non-rectangular angles, L-shapes, curves, setbacks) that are clearly preserved in the voxel AND match satellite. Would be recognized as this specific building.
 - 3: Footprint shape is correct (right aspect ratio, correct corners) and clearly isolated from surrounding geometry. Rectangular buildings need accurate length:width ratio.
 - 2: Generally correct shape but edges are rough/blobby, or includes significant surrounding geometry, or proportions are approximate.
 - 1: Vaguely building-shaped but doesn't clearly match the satellite footprint.
 - 0: Unrecognizable or amorphous blob.
 
-B) Massing accuracy (0-3):
-- 3: Height and volume clearly match what's visible in satellite (shadow length, relative scale to neighbors). Correct floor count.
+B) Massing accuracy (0-3): Use the RIGHT isometric render to judge height/volume.
+- 3: Height and volume look proportionate. Correct floor count visible in the isometric view.
 - 2: Approximately correct proportions.
-- 1: Wrong proportions or can't verify against satellite.
+- 1: Wrong proportions or can't verify.
 - 0: Completely wrong volume.
 
-C) Surface quality (0-3):
+C) Surface quality (0-3): Use the RIGHT isometric render for facade/material assessment.
 - 3: 3+ distinct material zones visible (roof/wall/ground/windows). Clean edges. Glass window blocks (darker rectangles on facades) count as a valid zone.
 - 2: Some material distinction, minor noise.
 - 1: Mostly monochrome with no zone distinction.
@@ -243,6 +246,7 @@ D) Environment quality (0-3, ONLY if scene includes surrounding plot):
 Total = A + B + C (max 10). If D is scored, Total = A + B + C + D (max 13, normalize to 10).
 
 IMPORTANT: Score what you actually SEE, not what might be there.
+- For footprint (A): Compare LEFT and CENTER panels directly — they use the SAME top-down perspective.
 - If the satellite image is obscured (trees, shadows, low zoom), cap A at 2 and B at 1.
 - If the voxel includes multiple buildings or large surrounding terrain, cap A at 3.
 - If edges are blobby/amorphous (no straight lines or clear corners), cap A at 2.
@@ -315,6 +319,32 @@ async function ensureSatRef(b: BuildingConfig): Promise<void> {
   const buf = Buffer.from(await resp.arrayBuffer());
   await Bun.write(b.satRef, buf);
   console.log(`  Saved: ${b.satRef} (${(buf.length / 1024).toFixed(0)}KB)`);
+}
+
+/** Nadir satellite path — z18 guaranteed true top-down (no oblique tilt) */
+function nadirSatPath(b: BuildingConfig): string {
+  return b.satRef.replace('.jpg', '-nadir.jpg');
+}
+
+/** Fetch z18 nadir satellite for footprint comparison if missing or --refresh-sat */
+async function ensureNadirSat(b: BuildingConfig): Promise<void> {
+  const refreshSat = hasFlag('--refresh-sat');
+  const path = nadirSatPath(b);
+  if (!refreshSat && existsSync(path)) return;
+  const [lat, lng] = b.coords.split(',');
+  // z18 max — Google Static Maps returns nadir (top-down) at z≤18.
+  // At z19+ it automatically switches to oblique 45° imagery for tall buildings.
+  const zoom = Math.min(b.satZoom, 18);
+  const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${zoom}&size=640x640&maptype=satellite&key=${mapsKey}`;
+  console.log(`  Fetching nadir satellite for ${b.key} (z${zoom}, top-down)...`);
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    console.error(`  Failed to fetch nadir satellite for ${b.key}: ${resp.status}`);
+    return;
+  }
+  const buf = Buffer.from(await resp.arrayBuffer());
+  await Bun.write(path, buf);
+  console.log(`  Saved nadir: ${path} (${(buf.length / 1024).toFixed(0)}KB)`);
 }
 
 /** Rate how clearly the building is visible in a satellite reference image (1-5) */
@@ -412,16 +442,20 @@ async function render(b: BuildingConfig, schem: string, actualRes: number): Prom
   return { iso, topdown };
 }
 
-/** Create grade composite: satellite | iso | topdown */
+/** Create grade composite: nadir satellite | top-down voxel | isometric voxel
+ *  Panel order matches perspective: LEFT+CENTER are both true top-down for
+ *  direct footprint comparison, RIGHT is isometric for massing/surface detail. */
 async function composite(b: BuildingConfig, iso: string, topdown: string): Promise<string> {
   const PANEL = 500;
   const GAP = 20;
   const W = PANEL * 3 + GAP * 4;
 
-  // Satellite ref (use black placeholder if missing)
-  const hasSat = existsSync(b.satRef);
+  // Nadir satellite (z18 top-down) preferred, fall back to oblique sat ref, then black placeholder
+  const nadirPath = nadirSatPath(b);
+  const satPath = existsSync(nadirPath) ? nadirPath : b.satRef;
+  const hasSat = existsSync(satPath);
   const sat = hasSat
-    ? await sharp(resolve(b.satRef)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer()
+    ? await sharp(resolve(satPath)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer()
     : await sharp({ create: { width: PANEL, height: PANEL, channels: 3, background: { r: 30, g: 30, b: 30 } } }).jpeg().toBuffer();
   const isoImg = await sharp(resolve(iso)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer();
   const tdImg = await sharp(resolve(topdown)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer();
@@ -431,20 +465,22 @@ async function composite(b: BuildingConfig, iso: string, topdown: string): Promi
   const tdMeta = await sharp(tdImg).metadata();
   const maxH = Math.max(satMeta.height!, isoMeta.height!, tdMeta.height!);
 
+  // Layout: nadir sat (LEFT) | top-down voxel (CENTER) | iso voxel (RIGHT)
   const buf = await sharp({
     create: { width: W, height: maxH + GAP * 2, channels: 3, background: { r: 30, g: 30, b: 30 } },
   })
     .composite([
       { input: sat, left: GAP, top: GAP },
-      { input: isoImg, left: GAP + PANEL + GAP, top: GAP },
-      { input: tdImg, left: GAP + (PANEL + GAP) * 2, top: GAP },
+      { input: tdImg, left: GAP + PANEL + GAP, top: GAP },
+      { input: isoImg, left: GAP + (PANEL + GAP) * 2, top: GAP },
     ])
     .jpeg({ quality: 92 })
     .toBuffer();
 
   const outPath = `${DIR}/grade-${version}-${b.key}.jpg`;
   await Bun.write(outPath, buf);
-  console.log(`  Composite: ${outPath} (${(buf.length / 1024).toFixed(0)}KB)`);
+  const satLabel = existsSync(nadirPath) ? 'nadir' : 'oblique';
+  console.log(`  Composite: ${outPath} (${(buf.length / 1024).toFixed(0)}KB, sat=${satLabel})`);
   return outPath;
 }
 
@@ -570,7 +606,9 @@ function diagnose(subscores: SubScore[]): string {
 }
 
 const DEEP_REVIEW_PROMPT = `You are a HARSH CRITIC reviewing Minecraft voxel reconstructions.
-Look at the 3 panels: satellite (left), isometric voxel (center), top-down footprint (right).
+Look at the 3 panels: nadir satellite (left), top-down voxel (center), isometric voxel (right).
+LEFT and CENTER share the same top-down perspective — compare footprints directly.
+RIGHT shows 3D massing and surface detail.
 
 Be SKEPTICAL. Score ONLY what you can verify.
 - Does the footprint ACTUALLY match the satellite, or is it just "a rectangle like the satellite"?
@@ -669,10 +707,11 @@ async function main(): Promise<void> {
   for (const b of selectedBuildings) {
     console.log(`\n── ${b.key.toUpperCase()} (${b.difficulty}) ──`);
 
-    // Ensure satellite reference exists (fetch if missing or --refresh-sat)
+    // Ensure satellite references exist (fetch if missing or --refresh-sat)
     await ensureSatRef(b);
+    await ensureNadirSat(b); // z18 nadir for perspective-matched footprint comparison
 
-    // Validate satellite reference clarity
+    // Validate satellite reference clarity (uses nadir if available, falls back to oblique)
     const satQuality = await validateSatRef(b);
     if (satQuality < 3) {
       console.log(`  WARNING: Sat ref unclear for ${b.key} (${satQuality}/5) — grades may be unreliable`);
