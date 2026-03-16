@@ -101,7 +101,7 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/tiles-the-dakota-new-york-ny.glb`,
     coords: '40.7764,-73.9764',
     satRef: `${DIR}/sat-ref-dakota.jpg`,
-    satZoom: 20,
+    satZoom: 19, // v108: z19 is more nadir than z20 for NYC skyscrapers
     resolution: 1,
     maskDilate: 1,
     extraFlags: [],
@@ -138,14 +138,14 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Nashville TN — flat-roof commercial, 3.0MB headless
+    // Nashville TN — flat-roof commercial, 3.0MB headless. Tight mask needed — GLB has blobby photogrammetry.
     key: 'nashville',
     glb: `${DIR}/flatroof-nashville.glb`,
     coords: '36.1656,-86.7770',
     satRef: `${DIR}/sat-ref-nashville.jpg`,
     satZoom: 20,
     resolution: 1,
-    maskDilate: 2,
+    maskDilate: 0, // v108: tightest mask — blobby photogrammetry needs max constraint
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
@@ -212,58 +212,53 @@ interface IterateState {
 const STRUCTURED_PROMPT = `You are a STRICT grader of Minecraft voxel reconstructions of real buildings.
 
 Each image has 3 panels:
-- LEFT = satellite photo of the real building (near-top-down, cropped to match voxel scale)
-- CENTER = top-down voxel render (same perspective and scale as satellite — compare footprints directly)
+- LEFT = satellite photo (near-top-down view of the real building, cropped to match voxel scale)
+- CENTER = top-down voxel render (building only, black background — compare footprint shape directly with LEFT)
 - RIGHT = isometric 3D voxel render (shows massing, facades, surface detail)
 
 Score each building on this rubric:
 
-A) Footprint accuracy (0-4): Compare LEFT satellite vs CENTER top-down voxel — both are true top-down views.
-- 4: Footprint has DISTINCTIVE features (non-rectangular angles, L-shapes, curves, setbacks) that are clearly preserved in the voxel AND match satellite. Would be recognized as this specific building.
-- 3: Footprint shape is correct (right aspect ratio, correct corners) and clearly isolated from surrounding geometry. Rectangular buildings need accurate length:width ratio.
-- 2: Generally correct shape but edges are rough/blobby, or includes significant surrounding geometry, or proportions are approximate.
-- 1: Vaguely building-shaped but doesn't clearly match the satellite footprint.
-- 0: Unrecognizable or amorphous blob.
+A) Footprint accuracy (0-4): Compare LEFT satellite vs CENTER top-down voxel.
+- 4: Distinctive footprint features (angles, L-shapes, curves, setbacks) clearly preserved AND matching satellite. Building is immediately identifiable from shape alone.
+- 3: Correct footprint shape — right aspect ratio, correct corners, clearly isolated. Rectangular buildings need accurate length:width ratio.
+- 2: Generally correct shape but edges are rough/blobby, or proportions are off, or shape includes extra geometry beyond the building.
+- 1: Vaguely building-shaped but doesn't match the satellite footprint.
+- 0: Amorphous blob or unrecognizable.
 
-B) Massing accuracy (0-3): Use the RIGHT isometric render to judge height/volume.
-- 3: Height and volume look proportionate. Correct floor count visible in the isometric view.
+B) Massing accuracy (0-3): Use RIGHT isometric render.
+- 3: Proportionate height/volume, correct floor count visible.
 - 2: Approximately correct proportions.
-- 1: Wrong proportions or can't verify.
+- 1: Wrong proportions.
 - 0: Completely wrong volume.
 
-C) Surface quality (0-3): Use the RIGHT isometric render for facade/material assessment.
-- 3: 3+ distinct material zones visible (roof/wall/ground/windows). Clean edges. Glass window blocks (darker rectangles on facades) count as a valid zone.
+C) Surface quality (0-3): Use RIGHT isometric render.
+- 3: 3+ distinct material zones (roof/wall/ground/windows). Clean edges. Dark glass window blocks are intentional, not artifacts.
 - 2: Some material distinction, minor noise.
-- 1: Mostly monochrome with no zone distinction.
-- 0: Single material, messy, heavy artifacts.
+- 1: Mostly monochrome.
+- 0: Single material or messy artifacts.
 
-D) Environment quality (0-3, ONLY if scene includes surrounding plot):
-- 3: Trees, roads, ground cover, and/or fences visible around the building. Environment matches climate/setting.
-- 2: Some environment elements present but sparse or misplaced.
-- 1: Minimal environment — mostly flat ground around building.
-- 0: No environment elements OR not applicable (building-only render).
+Total = A + B + C (max 10).
 
-Total = A + B + C (max 10). If D is scored, Total = A + B + C + D (max 13, normalize to 10).
+SCORING RULES:
+- Score what you SEE, not what might be there.
+- LEFT and CENTER panels show the SAME top-down perspective at matching scale — compare footprint shapes directly.
+- If satellite is obscured (trees, shadows, oblique angle), cap A at 2 and B at 1.
+- If voxel edges are blobby/amorphous (no straight lines or clear corners), cap A at 2.
+- If voxel includes extra buildings or terrain beyond the target, cap A at 3.
+- The CENTER panel shows ONLY the building (no environment) — this is intentional. Judge only footprint accuracy.
 
-IMPORTANT: Score what you actually SEE, not what might be there.
-- For footprint (A): Compare LEFT and CENTER panels directly — they use the SAME top-down perspective.
-- If the satellite image is obscured (trees, shadows, low zoom), cap A at 2 and B at 1.
-- If the voxel includes multiple buildings or large surrounding terrain, cap A at 3.
-- If edges are blobby/amorphous (no straight lines or clear corners), cap A at 2.
-- Dark/tinted glass blocks on facades are WINDOWS (intentional), not artifacts. Do NOT penalize window glass for C score.
+Calibration:
+- 10/10: Immediately recognizable as THIS SPECIFIC building from voxel alone. Distinctive features perfectly preserved.
+- 9/10: Precise footprint match including major features. Proportionate massing. 3+ material zones.
+- 7/10: Correct general shape with right proportions. Some material distinction.
+- 5/10: Recognizable as A building but not clearly THIS building.
+- 2/10: Blob or shape doesn't correspond to satellite.
 
-Calibration anchors:
-- 10/10: The voxel is immediately recognizable as THIS SPECIFIC building. Someone who knows the building would identify it from the voxel alone. Distinctive features perfectly preserved.
-- 9/10: Footprint precisely matches satellite with all major features (corners, angles, setbacks). Massing is proportionate. 3+ clean material zones. A human would say "yes, that's the building."
-- 7/10: Correct general shape with right proportions. Clean rectangular buildings with matching aspect ratio. Some material distinction.
-- 5/10: Recognizable as A building but not clearly THIS building. Approximate shape, rough edges.
-- 2/10: Blob, artifacts, or shape doesn't correspond to satellite.
-
-For EACH building image, respond with EXACTLY this format (one line per building):
+For EACH building, respond EXACTLY:
 NAME: A=X B=X C=X Total=X.X
 Brief 1-line explanation.
 
-Be harsh and honest. Most voxel builds at 1 block/m deserve 5-7. Only exceptional builds with distinctive, recognizable features get 9-10.`;
+Be harsh and honest. Most 1 block/m voxels deserve 5-7. Only exceptional builds get 9-10.`;
 
 // ── CLI parsing ──
 const args = process.argv.slice(2);
@@ -417,6 +412,8 @@ async function voxelize(b: BuildingConfig): Promise<VoxelizeResult> {
   ];
   // --scene flag: adds environment extraction, feature replacement, plot expansion, enrichment
   if (sceneMode) flagParts.push('--scene');
+  // Preserve real-world orientation for satellite footprint comparison (skip 90° snap)
+  flagParts.push('--no-enu-snap');
   // Only pass -r when explicitly set (resolution > 0); otherwise let auto-2x decide
   if (b.resolution > 0) flagParts.push('-r', String(b.resolution));
   flagParts.push('-o', `"${schem}"`, ...b.extraFlags);
