@@ -1,6 +1,6 @@
 {
-  "version": "v109",
-  "timestamp": "2026-03-16T15:23:21.321Z",
+  "version": "v110",
+  "timestamp": "2026-03-16T16:28:43.100Z",
   "target": 9,
   "passing": 1,
   "total": 10,
@@ -102,54 +102,6 @@
       "timestamp": "2026-03-16T15:28:09.783Z",
       "satRefQuality": 3
     },
-    "arlington": {
-      "key": "arlington",
-      "version": "v109",
-      "difficulty": "medium",
-      "scores": [
-        4,
-        3,
-        3,
-        5,
-        5
-      ],
-      "subscores": [
-        {
-          "A": 0,
-          "B": 1,
-          "C": 3,
-          "total": 4
-        },
-        {
-          "A": 0,
-          "B": 1,
-          "C": 2,
-          "total": 3
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 1,
-          "total": 3
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
-        }
-      ],
-      "trimmedMean": 4,
-      "diagnosis": "footprint(0.6/4), massing(1.0/3)",
-      "timestamp": "2026-03-16T15:42:58.393Z",
-      "satRefQuality": 3
-    },
     "atlanta": {
       "key": "atlanta",
       "version": "v109",
@@ -196,150 +148,6 @@
       "trimmedMean": 5.7,
       "diagnosis": "footprint(1.8/4), massing(1.6/3), high-variance(range=5)",
       "timestamp": "2026-03-16T15:39:22.630Z",
-      "satRefQuality": 3
-    },
-    "raleigh": {
-      "key": "raleigh",
-      "version": "v109",
-      "difficulty": "medium",
-      "scores": [
-        4,
-        7,
-        3,
-        6,
-        5
-      ],
-      "subscores": [
-        {
-          "A": 1,
-          "B": 1,
-          "C": 2,
-          "total": 4
-        },
-        {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
-        },
-        {
-          "A": 2,
-          "B": 0,
-          "C": 1,
-          "total": 3
-        },
-        {
-          "A": 2,
-          "B": 2,
-          "C": 2,
-          "total": 6
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
-        }
-      ],
-      "trimmedMean": 5,
-      "diagnosis": "footprint(1.6/4), massing(1.2/3), high-variance(range=4)",
-      "timestamp": "2026-03-16T15:32:34.106Z",
-      "satRefQuality": 3
-    },
-    "dakota": {
-      "key": "dakota",
-      "version": "v109",
-      "difficulty": "medium",
-      "scores": [
-        4,
-        4,
-        5,
-        5,
-        4
-      ],
-      "subscores": [
-        {
-          "A": 1,
-          "B": 1,
-          "C": 2,
-          "total": 4
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 2,
-          "total": 4
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 2,
-          "total": 4
-        }
-      ],
-      "trimmedMean": 4.3,
-      "diagnosis": "footprint(1.0/4), massing(1.0/3)",
-      "timestamp": "2026-03-16T15:34:10.044Z",
-      "satRefQuality": 3
-    },
-    "nashville": {
-      "key": "nashville",
-      "version": "v109",
-      "difficulty": "medium",
-      "scores": [
-        4,
-        7,
-        3,
-        4,
-        6
-      ],
-      "subscores": [
-        {
-          "A": 2,
-          "B": 1,
-          "C": 1,
-          "total": 4
-        },
-        {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 1,
-          "total": 3
-        },
-        {
-          "A": 2,
-          "B": 1,
-          "C": 1,
-          "total": 4
-        },
-        {
-          "A": 2,
-          "B": 2,
-          "C": 2,
-          "total": 6
-        }
-      ],
-      "trimmedMean": 4.7,
-      "diagnosis": "footprint(1.8/4), massing(1.4/3), surface(1.6/3), high-variance(range=4)",
-      "timestamp": "2026-03-16T15:41:28.992Z",
       "satRefQuality": 3
     },
     "portland": {
@@ -438,52 +246,48 @@
       "timestamp": "2026-03-16T15:44:49.395Z",
       "satRefQuality": 3
     },
-    "tampa": {
-      "key": "tampa",
-      "version": "v109",
+    "charlotte": {
+      "key": "charlotte",
+      "version": "v110",
       "difficulty": "medium",
-      "scores": [
-        6,
-        7,
-        6,
-        7,
-        3
-      ],
-      "subscores": [
-        {
-          "A": 1,
-          "B": 2,
-          "C": 3,
-          "total": 6
-        },
-        {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
-        },
-        {
-          "A": 1,
-          "B": 2,
-          "C": 3,
-          "total": 6
-        },
-        {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 1,
-          "total": 3
-        }
-      ],
-      "trimmedMean": 6.3,
-      "diagnosis": "footprint(1.4/4), massing(1.8/3), high-variance(range=4)",
-      "timestamp": "2026-03-16T15:35:48.664Z",
+      "scores": [],
+      "subscores": [],
+      "trimmedMean": 0,
+      "diagnosis": "no data",
+      "timestamp": "2026-03-16T16:19:58.994Z",
+      "satRefQuality": 3
+    },
+    "montgomery": {
+      "key": "montgomery",
+      "version": "v110",
+      "difficulty": "medium",
+      "scores": [],
+      "subscores": [],
+      "trimmedMean": 0,
+      "diagnosis": "no data",
+      "timestamp": "2026-03-16T16:21:05.888Z",
+      "satRefQuality": 5
+    },
+    "artinstitute": {
+      "key": "artinstitute",
+      "version": "v110",
+      "difficulty": "medium",
+      "scores": [],
+      "subscores": [],
+      "trimmedMean": 0,
+      "diagnosis": "no data",
+      "timestamp": "2026-03-16T16:28:00.087Z",
+      "satRefQuality": 5
+    },
+    "mitdome": {
+      "key": "mitdome",
+      "version": "v110",
+      "difficulty": "medium",
+      "scores": [],
+      "subscores": [],
+      "trimmedMean": 0,
+      "diagnosis": "no data",
+      "timestamp": "2026-03-16T16:28:42.886Z",
       "satRefQuality": 3
     }
   },
