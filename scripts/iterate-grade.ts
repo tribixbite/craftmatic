@@ -212,8 +212,8 @@ interface IterateState {
 const STRUCTURED_PROMPT = `You are a STRICT grader of Minecraft voxel reconstructions of real buildings.
 
 Each image has 3 panels:
-- LEFT = nadir (true top-down) satellite photo of the real building
-- CENTER = top-down voxel render (same perspective as satellite — compare footprints directly)
+- LEFT = satellite photo of the real building (near-top-down, cropped to match voxel scale)
+- CENTER = top-down voxel render (same perspective and scale as satellite — compare footprints directly)
 - RIGHT = isometric 3D voxel render (shows massing, facades, surface detail)
 
 Score each building on this rubric:
@@ -304,47 +304,44 @@ if (!apiKey) { console.error('No GOOGLE_API_KEY'); process.exit(1); }
 
 const mapsKey = process.env.GOOGLE_MAPS_API_KEY || apiKey;
 
-/** Fetch satellite reference image for a building if missing or --refresh-sat flag */
+/** High-res satellite path — scale=2 gives 1280×1280 pixels */
+function hiResSatPath(b: BuildingConfig): string {
+  return b.satRef.replace('.jpg', '-hires.jpg');
+}
+
+/** Fetch high-resolution satellite reference (scale=2 for 1280×1280) at configured zoom.
+ *  z19-20 imagery is near-nadir for most buildings and provides excellent scale match
+ *  with the voxel top-down render. Better than z18 which makes buildings too small. */
 async function ensureSatRef(b: BuildingConfig): Promise<void> {
   const refreshSat = hasFlag('--refresh-sat');
-  if (!refreshSat && existsSync(b.satRef)) return;
+  const hiResPath = hiResSatPath(b);
+  // Fetch both standard and hi-res versions
+  if (!refreshSat && existsSync(b.satRef) && existsSync(hiResPath)) return;
   const [lat, lng] = b.coords.split(',');
-  const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${b.satZoom}&size=640x640&maptype=satellite&key=${mapsKey}`;
-  console.log(`  Fetching satellite ref for ${b.key} (z${b.satZoom})...`);
-  const resp = await fetch(url);
-  if (!resp.ok) {
-    console.error(`  Failed to fetch satellite for ${b.key}: ${resp.status}`);
-    return;
-  }
-  const buf = Buffer.from(await resp.arrayBuffer());
-  await Bun.write(b.satRef, buf);
-  console.log(`  Saved: ${b.satRef} (${(buf.length / 1024).toFixed(0)}KB)`);
-}
 
-/** Nadir satellite path — z18 guaranteed true top-down (no oblique tilt) */
-function nadirSatPath(b: BuildingConfig): string {
-  return b.satRef.replace('.jpg', '-nadir.jpg');
-}
-
-/** Fetch z18 nadir satellite for footprint comparison if missing or --refresh-sat */
-async function ensureNadirSat(b: BuildingConfig): Promise<void> {
-  const refreshSat = hasFlag('--refresh-sat');
-  const path = nadirSatPath(b);
-  if (!refreshSat && existsSync(path)) return;
-  const [lat, lng] = b.coords.split(',');
-  // z18 max — Google Static Maps returns nadir (top-down) at z≤18.
-  // At z19+ it automatically switches to oblique 45° imagery for tall buildings.
-  const zoom = Math.min(b.satZoom, 18);
-  const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${zoom}&size=640x640&maptype=satellite&key=${mapsKey}`;
-  console.log(`  Fetching nadir satellite for ${b.key} (z${zoom}, top-down)...`);
-  const resp = await fetch(url);
-  if (!resp.ok) {
-    console.error(`  Failed to fetch nadir satellite for ${b.key}: ${resp.status}`);
-    return;
+  // Standard res (640×640) — backward compat
+  if (refreshSat || !existsSync(b.satRef)) {
+    const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${b.satZoom}&size=640x640&maptype=satellite&key=${mapsKey}`;
+    console.log(`  Fetching satellite ref for ${b.key} (z${b.satZoom})...`);
+    const resp = await fetch(url);
+    if (resp.ok) {
+      const buf = Buffer.from(await resp.arrayBuffer());
+      await Bun.write(b.satRef, buf);
+      console.log(`  Saved: ${b.satRef} (${(buf.length / 1024).toFixed(0)}KB)`);
+    }
   }
-  const buf = Buffer.from(await resp.arrayBuffer());
-  await Bun.write(path, buf);
-  console.log(`  Saved nadir: ${path} (${(buf.length / 1024).toFixed(0)}KB)`);
+
+  // High-res (scale=2 → 1280×1280 pixels, same geographic extent)
+  if (refreshSat || !existsSync(hiResPath)) {
+    const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${b.satZoom}&size=640x640&scale=2&maptype=satellite&key=${mapsKey}`;
+    console.log(`  Fetching hi-res satellite for ${b.key} (z${b.satZoom}, scale=2, 1280px)...`);
+    const resp = await fetch(url);
+    if (resp.ok) {
+      const buf = Buffer.from(await resp.arrayBuffer());
+      await Bun.write(hiResPath, buf);
+      console.log(`  Saved hi-res: ${hiResPath} (${(buf.length / 1024).toFixed(0)}KB)`);
+    }
+  }
 }
 
 /** Rate how clearly the building is visible in a satellite reference image (1-5) */
@@ -400,8 +397,18 @@ async function run(cmd: string, timeoutMs = 300_000): Promise<string> {
   return stdout + stderr;
 }
 
-/** Voxelize a building: glb → schem */
-async function voxelize(b: BuildingConfig): Promise<string> {
+/** Voxelize result with grid metadata for scale matching */
+interface VoxelizeResult {
+  schem: string;
+  actualRes: number;
+  gridWidth: number;   // X dimension in blocks
+  gridHeight: number;  // Y dimension in blocks
+  gridLength: number;  // Z dimension in blocks
+  blockCount: number;
+}
+
+/** Voxelize a building: glb → schem, returns grid dimensions for composite scale matching */
+async function voxelize(b: BuildingConfig): Promise<VoxelizeResult> {
   const schem = `${DIR}/${b.key}-${version}.schem`;
   const flagParts = [
     'bun scripts/voxelize-glb.ts', `"${b.glb}"`, '--auto',
@@ -416,56 +423,118 @@ async function voxelize(b: BuildingConfig): Promise<string> {
   const flags = flagParts.join(' ');
   console.log(`  Voxelizing: ${b.key} (r=${b.resolution > 0 ? b.resolution : 'auto'}, dilate=${b.maskDilate})`);
   const out = await run(flags, 600_000);
-  // Detect actual resolution used (for render tile size adjustment)
+  // Parse grid dimensions and actual resolution from output
   let actualRes = b.resolution > 0 ? b.resolution : 1;
+  let gridWidth = 0, gridHeight = 0, gridLength = 0, blockCount = 0;
   for (const line of out.split('\n')) {
     if (/Grid:|mask|polygon|resolution|contrast|Roof darken|Wall|Zone |Auto 2x|isolation|isolat|Synthetic|glaz/i.test(line)) {
       console.log(`    ${line.trim()}`);
     }
     // Detect auto-2x resolution bump
     if (/Auto 2x resolution/.test(line)) actualRes = 2;
+    // Parse "Grid: 111x63x111 | Blocks: 178,872 | Palette: 23"
+    const gridMatch = line.match(/Grid:\s*(\d+)x(\d+)x(\d+)\s*\|\s*Blocks:\s*([\d,]+)/);
+    if (gridMatch) {
+      gridWidth = parseInt(gridMatch[1], 10);
+      gridHeight = parseInt(gridMatch[2], 10);
+      gridLength = parseInt(gridMatch[3], 10);
+      blockCount = parseInt(gridMatch[4].replace(/,/g, ''), 10);
+    }
   }
-  return { schem, actualRes };
+  console.log(`  Grid: ${gridWidth}×${gridHeight}×${gridLength} (${blockCount} blocks, ${actualRes}x res)`);
+  return { schem, actualRes, gridWidth, gridHeight, gridLength, blockCount };
 }
 
-/** Render iso + topdown JPEGs from schem */
+/** Render iso + topdown JPEGs from schem at high quality */
 async function render(b: BuildingConfig, schem: string, actualRes: number): Promise<{ iso: string; topdown: string }> {
   const iso = schem.replace('.schem', '-iso.jpg');
   const topdown = schem.replace('.schem', '-topdown.jpg');
-  // At 1x resolution, bump tile to 6 for more texture detail; at 2x, keep configured
-  // size since the grid is already 2x larger (forcing tile=6 makes small buildings tiny).
-  const tile = actualRes >= 2 ? b.tileSize : Math.max(b.tileSize, 6);
-  const scale = actualRes >= 2 ? b.topdownScale : Math.max(b.topdownScale, 8);
+  // Higher tile/scale for grade composites — quality matters for VLM comparison.
+  // At 2x resolution the grid is already large so moderate tile (8) suffices.
+  // At 1x resolution, bump higher (10) for sharper texture detail.
+  const tile = actualRes >= 2 ? Math.max(b.tileSize, 8) : Math.max(b.tileSize, 10);
+  const scale = actualRes >= 2 ? Math.max(b.topdownScale, 10) : Math.max(b.topdownScale, 12);
   console.log(`  Rendering: iso (tile=${tile}) + topdown (scale=${scale}) [res=${actualRes}x]`);
   await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
   await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
   return { iso, topdown };
 }
 
-/** Create grade composite: nadir satellite | top-down voxel | isometric voxel
- *  Panel order matches perspective: LEFT+CENTER are both true top-down for
- *  direct footprint comparison, RIGHT is isometric for massing/surface detail. */
-async function composite(b: BuildingConfig, iso: string, topdown: string): Promise<string> {
-  const PANEL = 500;
-  const GAP = 20;
+/** Create grade composite: satellite | top-down voxel | isometric voxel
+ *  Uses hi-res satellite (scale=2, 1280px) at configured zoom (z19-20) — near-nadir
+ *  with excellent scale match. Center-crops satellite to match voxel grid extent when
+ *  building is small relative to the satellite frame.
+ *
+ *  Panel order: LEFT satellite (top-down) | CENTER voxel top-down | RIGHT voxel iso */
+async function composite(
+  b: BuildingConfig, iso: string, topdown: string,
+  gridInfo?: { gridWidth: number; gridLength: number; actualRes: number },
+): Promise<string> {
+  const PANEL = 640; // higher resolution for sharper VLM comparison
+  const GAP = 16;
   const W = PANEL * 3 + GAP * 4;
 
-  // Nadir satellite (z18 top-down) preferred, fall back to oblique sat ref, then black placeholder
-  const nadirPath = nadirSatPath(b);
-  const satPath = existsSync(nadirPath) ? nadirPath : b.satRef;
+  // Prefer hi-res satellite (1280px, scale=2), fallback to standard, then black placeholder
+  const hiResPath = hiResSatPath(b);
+  const satPath = existsSync(hiResPath) ? hiResPath : b.satRef;
   const hasSat = existsSync(satPath);
-  const sat = hasSat
-    ? await sharp(resolve(satPath)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer()
-    : await sharp({ create: { width: PANEL, height: PANEL, channels: 3, background: { r: 30, g: 30, b: 30 } } }).jpeg().toBuffer();
+
+  let sat: Buffer;
+  if (hasSat) {
+    const rawSat = sharp(resolve(satPath));
+    const satMeta = await rawSat.metadata();
+    const satW = satMeta.width || 640;
+    const satH = satMeta.height || 640;
+
+    // Smart crop: if we know the voxel grid extent, crop satellite to match.
+    // This ensures both panels show the building at similar scale.
+    if (gridInfo && gridInfo.gridWidth > 0) {
+      const res = gridInfo.actualRes || 1;
+      // Real-world extent of the voxel grid (meters)
+      const extentM = Math.max(gridInfo.gridWidth, gridInfo.gridLength) / res;
+      // Satellite ground resolution at this zoom and latitude
+      const lat = parseFloat(b.coords.split(',')[0]);
+      const groundRes = 156543.03 * Math.cos(lat * Math.PI / 180) / Math.pow(2, b.satZoom);
+      // Pixels per meter in the satellite image (account for scale=2)
+      const satScale = satW > 800 ? 2 : 1; // hi-res if >800px wide
+      const pxPerMeter = satScale / groundRes;
+      // How many pixels the voxel extent covers in the satellite
+      const extentPx = extentM * pxPerMeter;
+      // Add 30% margin around the building for context
+      const cropPx = Math.round(extentPx * 1.3);
+
+      if (cropPx < satW * 0.85) {
+        // Building is significantly smaller than satellite frame — crop to match
+        const cropSize = Math.min(cropPx, Math.min(satW, satH));
+        const cropX = Math.round((satW - cropSize) / 2);
+        const cropY = Math.round((satH - cropSize) / 2);
+        console.log(`  Sat crop: ${cropSize}×${cropSize} from ${satW}×${satH} (extent=${extentM.toFixed(0)}m, margin=30%)`);
+        sat = await sharp(resolve(satPath))
+          .extract({ left: cropX, top: cropY, width: cropSize, height: cropSize })
+          .resize(PANEL, PANEL, { fit: 'cover' })
+          .toBuffer();
+      } else {
+        // Building fills most of the satellite frame — use full image
+        sat = await sharp(resolve(satPath)).resize(PANEL, PANEL, { fit: 'cover' }).toBuffer();
+      }
+    } else {
+      // No grid info — use full satellite
+      sat = await sharp(resolve(satPath)).resize(PANEL, PANEL, { fit: 'cover' }).toBuffer();
+    }
+  } else {
+    sat = await sharp({ create: { width: PANEL, height: PANEL, channels: 3, background: { r: 30, g: 30, b: 30 } } }).jpeg().toBuffer();
+  }
+
+  // Voxel renders — fit=cover for consistent square panels, sharper detail
   const isoImg = await sharp(resolve(iso)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer();
   const tdImg = await sharp(resolve(topdown)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer();
 
-  const satMeta = await sharp(sat).metadata();
+  const satMeta2 = await sharp(sat).metadata();
   const isoMeta = await sharp(isoImg).metadata();
   const tdMeta = await sharp(tdImg).metadata();
-  const maxH = Math.max(satMeta.height!, isoMeta.height!, tdMeta.height!);
+  const maxH = Math.max(satMeta2.height!, isoMeta.height!, tdMeta.height!);
 
-  // Layout: nadir sat (LEFT) | top-down voxel (CENTER) | iso voxel (RIGHT)
+  // Layout: satellite (LEFT) | top-down voxel (CENTER) | iso voxel (RIGHT)
   const buf = await sharp({
     create: { width: W, height: maxH + GAP * 2, channels: 3, background: { r: 30, g: 30, b: 30 } },
   })
@@ -474,13 +543,13 @@ async function composite(b: BuildingConfig, iso: string, topdown: string): Promi
       { input: tdImg, left: GAP + PANEL + GAP, top: GAP },
       { input: isoImg, left: GAP + (PANEL + GAP) * 2, top: GAP },
     ])
-    .jpeg({ quality: 92 })
+    .jpeg({ quality: 95 })
     .toBuffer();
 
   const outPath = `${DIR}/grade-${version}-${b.key}.jpg`;
   await Bun.write(outPath, buf);
-  const satLabel = existsSync(nadirPath) ? 'nadir' : 'oblique';
-  console.log(`  Composite: ${outPath} (${(buf.length / 1024).toFixed(0)}KB, sat=${satLabel})`);
+  const satLabel = existsSync(hiResPath) ? 'hires' : 'std';
+  console.log(`  Composite: ${outPath} (${(buf.length / 1024).toFixed(0)}KB, sat=${satLabel}, panel=${PANEL}px)`);
   return outPath;
 }
 
@@ -606,8 +675,8 @@ function diagnose(subscores: SubScore[]): string {
 }
 
 const DEEP_REVIEW_PROMPT = `You are a HARSH CRITIC reviewing Minecraft voxel reconstructions.
-Look at the 3 panels: nadir satellite (left), top-down voxel (center), isometric voxel (right).
-LEFT and CENTER share the same top-down perspective — compare footprints directly.
+Look at the 3 panels: satellite (left), top-down voxel (center), isometric voxel (right).
+LEFT and CENTER share the same near-top-down perspective at similar scale — compare footprints directly.
 RIGHT shows 3D massing and surface detail.
 
 Be SKEPTICAL. Score ONLY what you can verify.
@@ -709,9 +778,8 @@ async function main(): Promise<void> {
 
     // Ensure satellite references exist (fetch if missing or --refresh-sat)
     await ensureSatRef(b);
-    await ensureNadirSat(b); // z18 nadir for perspective-matched footprint comparison
 
-    // Validate satellite reference clarity (uses nadir if available, falls back to oblique)
+    // Validate satellite reference clarity
     const satQuality = await validateSatRef(b);
     if (satQuality < 3) {
       console.log(`  WARNING: Sat ref unclear for ${b.key} (${satQuality}/5) — grades may be unreliable`);
@@ -723,18 +791,20 @@ async function main(): Promise<void> {
     let iso = schem.replace('.schem', '-iso.jpg');
     let topdown = schem.replace('.schem', '-topdown.jpg');
     let gradePath = `${DIR}/grade-${version}-${b.key}.jpg`;
+    let gridInfo: { gridWidth: number; gridLength: number; actualRes: number } | undefined;
 
     try {
       if (!gradeOnly) {
-        // Step 1: Voxelize
+        // Step 1: Voxelize — returns grid dimensions for composite scale matching
         const voxResult = await voxelize(b);
         schem = voxResult.schem;
-        // Step 2: Render (pass actual resolution for tile size adjustment)
+        gridInfo = { gridWidth: voxResult.gridWidth, gridLength: voxResult.gridLength, actualRes: voxResult.actualRes };
+        // Step 2: Render at high quality
         const renders = await render(b, schem, voxResult.actualRes);
         iso = renders.iso;
         topdown = renders.topdown;
-        // Step 3: Composite
-        gradePath = await composite(b, iso, topdown);
+        // Step 3: Composite with scale-matched satellite crop
+        gradePath = await composite(b, iso, topdown, gridInfo);
       } else if (!existsSync(gradePath)) {
         // grade-only but no composite — try to build from existing renders
         if (existsSync(iso) && existsSync(topdown)) {
