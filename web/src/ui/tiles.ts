@@ -551,16 +551,19 @@ async function runVoxelizePipeline(
     await new Promise(r => setTimeout(r, 50));
     const envPositions = await postProcessTilesGrid(trimmedGrid, analysis, isSceneMode, resolution);
 
-    // ── Scene-specific steps (window/door, feature replacement, plot expansion, enrichment) ──
+    // ── Window/door regularization — always run when quality is decent ──
+    // v106: Moved out of scene-only block. Window patterns improve VLM scores universally.
     let finalGrid = trimmedGrid;
+    if ((analysis?.confidence ?? 0) > 0.5 || isSceneMode) {
+      setStatus('Enhancing windows & doors...', 'info');
+      await new Promise(r => setTimeout(r, 0));
+      const winResult = detectAndRegularizeWindows(finalGrid, analysis?.groundPlaneY ?? 0);
+      console.log(`[tiles] windows regularized: ${winResult.windowsRegularized}, doors placed: ${winResult.doorsPlaced}`);
+    }
+
+    // ── Scene-specific steps (feature replacement, plot expansion, enrichment) ──
     if (isSceneMode && geo) {
       try {
-        // Window & door enhancement
-        setStatus('Enhancing windows & doors...', 'info');
-        await new Promise(r => setTimeout(r, 0));
-        const winResult = detectAndRegularizeWindows(finalGrid, analysis?.groundPlaneY ?? 0);
-        console.log(`[tiles:scene] windows regularized: ${winResult.windowsRegularized}, doors placed: ${winResult.doorsPlaced}`);
-
         // Clean feature replacement (trees, roads, vehicles at detected positions)
         if (envPositions) {
           setStatus('Replacing detected features...', 'info');

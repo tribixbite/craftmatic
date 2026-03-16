@@ -117,7 +117,7 @@ const BUILDINGS: BuildingConfig[] = [
     satRef: `${DIR}/sat-ref-tampa.jpg`,
     satZoom: 20,
     resolution: 1,
-    maskDilate: 2,
+    maskDilate: 1, // v106: tightened from 2 — surrounding geometry was bleeding in
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
@@ -131,7 +131,7 @@ const BUILDINGS: BuildingConfig[] = [
     satRef: `${DIR}/sat-ref-atlanta.jpg`,
     satZoom: 20,
     resolution: 1,
-    maskDilate: 2,
+    maskDilate: 1, // v106: tightened from 2 — blobby output from loose isolation
     extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
     tileSize: 6,
