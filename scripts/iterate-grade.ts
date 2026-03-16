@@ -86,13 +86,13 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // MIT Great Dome, Cambridge MA — 4.0MB headless. Distinctive circular dome shape.
-    // v110: replaces raleigh (rounded blob GLB). High latitude (42.4°) = nadir satellite.
+    // v111: res 1→2 to better capture dome curvature in voxels.
     key: 'mitdome',
     glb: `${DIR}/mitdome-headless.glb`,
     coords: '42.3594,-71.0928',
     satRef: `${DIR}/sat-ref-mitdome.jpg`,
     satZoom: 20,
-    resolution: 1,
+    resolution: 2,
     maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
@@ -101,13 +101,13 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // 600 Montgomery St / Transamerica Pyramid area, SF — 8.5MB browser capture
-    // v110: replaces dakota. Distinctive triangle footprint. z19 for less oblique.
+    // v111: z19→20 for tighter zoom on the triangle footprint, res 1→2 for pyramid taper detail
     key: 'montgomery',
     glb: `${DIR}/tiles-600-montgomery-st-san-francisco-ca.glb`,
     coords: '37.7954,-122.4029',
     satRef: `${DIR}/sat-ref-montgomery.jpg`,
-    satZoom: 19,
-    resolution: 1,
+    satZoom: 20,
+    resolution: 2,
     maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
@@ -115,42 +115,44 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Charlotte NC — Mint Museum, 5.7MB headless. Clean rectangular footprint, nadir satellite.
-    // v110: replaces tampa (oblique satellite at all zoom levels, blobby voxel)
-    key: 'charlotte',
-    glb: `${DIR}/flatroof-charlotte.glb`,
-    coords: '35.2271,-80.8431',
-    satRef: `${DIR}/sat-ref-charlotte.jpg`,
+    // 3601 Lyon St, San Francisco CA — large 7-story residential, 6.8MB browser GLB
+    // v111: replaces charlotte (off-center satellite, OSM mask failed, footprint 0.6/4)
+    // SF lat 37.8° = nadir satellite. Distinctive multi-story residential facade.
+    key: 'lyon',
+    glb: `${DIR}/tiles-3601-lyon-st-san-francisco-ca.glb`,
+    coords: '37.8020,-122.4472',
+    satRef: `${DIR}/sat-ref-lyon.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 1,
-    extraFlags: [],
+    extraFlags: ['--no-osm'],  // OSM polygon misaligned for this building
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
   },
   {
     // 191 Peachtree St NE, Atlanta GA — commercial, 7.2MB headless
-    // v110: z20→z19 (was oblique showing facades), removed --no-osm to enable OSM mask
+    // v111: maskDilate 1→0 for tighter isolation (82×71 grid captures entire block at dilate=1)
     key: 'atlanta',
     glb: `${DIR}/flatroof-atlanta.glb`,
     coords: '33.7590,-84.3869',
     satRef: `${DIR}/sat-ref-atlanta.jpg`,
     satZoom: 19,
     resolution: 1,
-    maskDilate: 1,
+    maskDilate: 0,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // Art Institute of Chicago — 4.6MB headless. Large commercial, distinctive wing layout.
-    // v110: replaces nashville (amorphous blob GLB). High latitude (41.9°) = nadir satellite.
-    key: 'artinstitute',
-    glb: `${DIR}/tiles-artinstitute-headless.glb`,
-    coords: '41.8796,-87.6237',
-    satRef: `${DIR}/sat-ref-artinstitute.jpg`,
+    // Cambridge MA — institutional/church, 3.5MB headless capture.
+    // v111: replaces artinstitute (only captured 1 wing of massive complex, scored 3.7)
+    // High latitude (42.4°) = guaranteed nadir satellite. Multi-wing footprint.
+    key: 'cambridge',
+    glb: `${DIR}/tiles-cambridge-headless.glb`,
+    coords: '42.3766,-71.1227',
+    satRef: `${DIR}/sat-ref-cambridge.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 1,
@@ -160,16 +162,17 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Phoenix AZ — flat-roof commercial, 5.0MB headless. L-shaped building.
-    // v110: replaces arlington (thin strip voxel, bad 2.5MB GLB, oblique satellite)
-    key: 'phoenix',
-    glb: `${DIR}/flatroof-phoenix.glb`,
-    coords: '33.4800,-112.0740',
-    satRef: `${DIR}/sat-ref-phoenix.jpg`,
-    satZoom: 19, // lower latitude — z19 for more nadir
+    // 2800 Post Oak Blvd, Houston TX — Williams Tower area, 4.3MB headless.
+    // v111: replaces phoenix (oblique satellite z19 at lat 33.5°, OSM mask failed)
+    // Flat-roof commercial, v93 rated 4/5 footprint match.
+    key: 'houston',
+    glb: `${DIR}/flatroof-houston.glb`,
+    coords: '29.7365,-95.4613',
+    satRef: `${DIR}/sat-ref-houston.jpg`,
+    satZoom: 19,
     resolution: 1,
     maskDilate: 1,
-    extraFlags: [],
+    extraFlags: ['--no-osm'],  // OSM polygon misaligned (coords geocode to park entrance)
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
