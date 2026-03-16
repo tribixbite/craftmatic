@@ -55,11 +55,10 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Sentinel/Columbus Tower, SF — wedge-shaped copper building, 2.0MB browser capture
-    // v113: coords fixed from 37.7858→37.7976 (was 130m south, wrong building polygon)
-    //        Columbus Tower is at 916 Kearny St / Columbus Ave intersection
+    // v114: revert coords to 37.7858 (v113 coords 37.7976 regressed 7→4; GLB aligned to original)
     key: 'sentinel',
     glb: `${DIR}/tiles-sentinel-building-san-francisco-ca.glb`,
-    coords: '37.7976,-122.4069',
+    coords: '37.7858,-122.4063',
     satRef: `${DIR}/sat-ref-sentinel.jpg`,
     satZoom: 20,
     resolution: 1,
@@ -85,12 +84,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // MIT Great Dome, Cambridge MA — 4.0MB headless. Distinctive circular dome shape.
-    // v113: revert res 2→1 (2x regressed 6.0→4.7 — dome surface becomes chaotic at higher res)
-    key: 'mitdome',
-    glb: `${DIR}/mitdome-headless.glb`,
-    coords: '42.3594,-71.0928',
-    satRef: `${DIR}/sat-ref-mitdome.jpg`,
+    // NYC Apthorp — 4.7MB headless. Full-block courtyard apartment building.
+    // v114: replaces mitdome (dome shape never scored above 6, chaotic surface)
+    // Distinctive rectangular footprint with interior courtyard. NYC lat 40.8° = nadir.
+    key: 'apthorp',
+    glb: `${DIR}/nyc-apthorp-headless.glb`,
+    coords: '40.7835,-73.9770',
+    satRef: `${DIR}/sat-ref-apthorp.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 1,
@@ -100,12 +100,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // 600 Montgomery St / Transamerica Pyramid area, SF — 8.5MB browser capture
-    // v113: revert res 2→1 (2x regressed 7.7→6.7 — massing B=0.8 at 2x, was 1.6 at 1x)
-    key: 'montgomery',
-    glb: `${DIR}/tiles-600-montgomery-st-san-francisco-ca.glb`,
-    coords: '37.7954,-122.4029',
-    satRef: `${DIR}/sat-ref-montgomery.jpg`,
+    // San Jose / Winchester Mystery House — 5.8MB browser capture. Complex footprint.
+    // v114: replaces montgomery (scores 2-7 across runs, unstable pyramid massing)
+    // Large Victorian with distinctive irregular footprint. Lat 37.3° = near-nadir.
+    key: 'sanjose',
+    glb: `${DIR}/tiles-525-s-winchester-blvd-san-jose-ca-95128.glb`,
+    coords: '37.3182,-121.9509',
+    satRef: `${DIR}/sat-ref-sanjose.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 1,
@@ -147,13 +148,13 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // NYC Ansonia Hotel — 5.0MB headless. Distinctive Beaux-Arts round turrets, large footprint.
-    // v113: resolution 1→2 for smoother rounded turrets + curved facade (key for A score)
+    // v114: revert resolution 2→1 (2x regressed 8.3→6.0 — grid too large, captures surroundings)
     key: 'ansonia',
     glb: `${DIR}/nyc-ansonia-headless.glb`,
     coords: '40.7806,-73.9816',
     satRef: `${DIR}/sat-ref-ansonia.jpg`,
     satZoom: 20,
-    resolution: 2,
+    resolution: 1,
     maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
