@@ -55,13 +55,15 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Sentinel/Columbus Tower, SF — wedge-shaped copper building, 2.0MB browser capture
+    // v110: res 2→1 (2x created 196K blocks covering entire block, not just building),
+    //        maskDilate 1→0 (tightest isolation for small wedge building)
     key: 'sentinel',
     glb: `${DIR}/tiles-sentinel-building-san-francisco-ca.glb`,
     coords: '37.7858,-122.4063',
     satRef: `${DIR}/sat-ref-sentinel.jpg`,
     satZoom: 20,
-    resolution: 2,
-    maskDilate: 1,
+    resolution: 1,
+    maskDilate: 0,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
@@ -69,12 +71,13 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Portland OR — flat-roof commercial, Pro trimmedMean 6.5 (6 runs)
+    // v110: res 1→2 for more detail (near-passing at 7.3, monochrome gray)
     key: 'portland',
     glb: `${DIR}/flatroof-portland.glb`,
     coords: '45.5235,-122.6812',
     satRef: `${DIR}/sat-ref-portland.jpg`,
     satZoom: 20,
-    resolution: 1,
+    resolution: 2,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'medium',
@@ -82,26 +85,13 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Raleigh NC — commercial building, scored 10 on Flash v95. Reliable footprint.
-    key: 'raleigh',
-    glb: `${DIR}/flatroof-raleigh.glb`,
-    coords: '35.7784,-78.6391',
-    satRef: `${DIR}/sat-ref-raleigh.jpg`,
+    // MIT Great Dome, Cambridge MA — 4.0MB headless. Distinctive circular dome shape.
+    // v110: replaces raleigh (rounded blob GLB). High latitude (42.4°) = nadir satellite.
+    key: 'mitdome',
+    glb: `${DIR}/mitdome-headless.glb`,
+    coords: '42.3594,-71.0928',
+    satRef: `${DIR}/sat-ref-mitdome.jpg`,
     satZoom: 20,
-    resolution: 1,
-    maskDilate: 2,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // The Dakota, NYC — ornate apartment with courtyard, distinctive U-shape, Pro=10
-    key: 'dakota',
-    glb: `${DIR}/tiles-the-dakota-new-york-ny.glb`,
-    coords: '40.7764,-73.9764',
-    satRef: `${DIR}/sat-ref-dakota.jpg`,
-    satZoom: 19, // v108: z19 is more nadir than z20 for NYC skyscrapers
     resolution: 1,
     maskDilate: 1,
     extraFlags: [],
@@ -110,14 +100,30 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Tampa FL — flat-roof commercial, 4.2MB headless
-    key: 'tampa',
-    glb: `${DIR}/flatroof-tampa.glb`,
-    coords: '27.9458,-82.4582',
-    satRef: `${DIR}/sat-ref-tampa.jpg`,
+    // 600 Montgomery St / Transamerica Pyramid area, SF — 8.5MB browser capture
+    // v110: replaces dakota. Distinctive triangle footprint. z19 for less oblique.
+    key: 'montgomery',
+    glb: `${DIR}/tiles-600-montgomery-st-san-francisco-ca.glb`,
+    coords: '37.7954,-122.4029',
+    satRef: `${DIR}/sat-ref-montgomery.jpg`,
+    satZoom: 19,
+    resolution: 1,
+    maskDilate: 1,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // Charlotte NC — Mint Museum, 5.7MB headless. Clean rectangular footprint, nadir satellite.
+    // v110: replaces tampa (oblique satellite at all zoom levels, blobby voxel)
+    key: 'charlotte',
+    glb: `${DIR}/flatroof-charlotte.glb`,
+    coords: '35.2271,-80.8431',
+    satRef: `${DIR}/sat-ref-charlotte.jpg`,
     satZoom: 20,
     resolution: 1,
-    maskDilate: 1, // v106: tightened from 2 — surrounding geometry was bleeding in
+    maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
@@ -125,55 +131,59 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // 191 Peachtree St NE, Atlanta GA — commercial, 7.2MB headless
+    // v110: z20→z19 (was oblique showing facades), removed --no-osm to enable OSM mask
     key: 'atlanta',
     glb: `${DIR}/flatroof-atlanta.glb`,
     coords: '33.7590,-84.3869',
     satRef: `${DIR}/sat-ref-atlanta.jpg`,
-    satZoom: 20,
+    satZoom: 19,
     resolution: 1,
-    maskDilate: 1, // v106: tightened from 2 — blobby output from loose isolation
-    extraFlags: ['--no-osm', '--no-post-mask'],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // Nashville TN — flat-roof commercial, 3.0MB headless. Tight mask needed — GLB has blobby photogrammetry.
-    key: 'nashville',
-    glb: `${DIR}/flatroof-nashville.glb`,
-    coords: '36.1656,-86.7770',
-    satRef: `${DIR}/sat-ref-nashville.jpg`,
-    satZoom: 20,
-    resolution: 1,
-    maskDilate: 0, // v108: tightest mask — blobby photogrammetry needs max constraint
+    maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // Arlington VA area — 2.5MB headless capture
-    key: 'arlington',
-    glb: `${DIR}/tiles-arlington-headless.glb`,
-    coords: '38.8824,-77.1085',
-    satRef: `${DIR}/sat-ref-arlington.jpg`,
+    // Art Institute of Chicago — 4.6MB headless. Large commercial, distinctive wing layout.
+    // v110: replaces nashville (amorphous blob GLB). High latitude (41.9°) = nadir satellite.
+    key: 'artinstitute',
+    glb: `${DIR}/tiles-artinstitute-headless.glb`,
+    coords: '41.8796,-87.6237',
+    satRef: `${DIR}/sat-ref-artinstitute.jpg`,
     satZoom: 20,
     resolution: 1,
-    maskDilate: 2,
+    maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
-    topdownScale: 6,
+    topdownScale: 8,
+  },
+  {
+    // Phoenix AZ — flat-roof commercial, 5.0MB headless. L-shaped building.
+    // v110: replaces arlington (thin strip voxel, bad 2.5MB GLB, oblique satellite)
+    key: 'phoenix',
+    glb: `${DIR}/flatroof-phoenix.glb`,
+    coords: '33.4800,-112.0740',
+    satRef: `${DIR}/sat-ref-phoenix.jpg`,
+    satZoom: 19, // lower latitude — z19 for more nadir
+    resolution: 1,
+    maskDilate: 1,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
     // 402 W Broadway, San Diego CA — flat-roof commercial, headless
+    // v110: res 1→2 for detail (near-passing at 7.0), maskDilate 2→1 for tighter isolation
     key: 'sandiego',
     glb: `${DIR}/flatroof-sandiego.glb`,
     coords: '32.7158,-117.1672',
     satRef: `${DIR}/sat-ref-sandiego.jpg`,
     satZoom: 20,
-    resolution: 1,
-    maskDilate: 2,
+    resolution: 2,
+    maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
