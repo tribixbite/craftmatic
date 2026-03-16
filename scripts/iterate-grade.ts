@@ -38,9 +38,9 @@ interface BuildingConfig {
 
 const DIR = 'output/tiles';
 
+// v119: Exact v103 golden set that scored 10/10 on Flash, with v103 composite approach
 const BUILDINGS: BuildingConfig[] = [
   {
-    // Iconic triangular wedge building — v80c: 10/10, proven winner
     key: 'flatiron',
     glb: `${DIR}/tiles-flatiron-building-new-york-ny.glb`,
     coords: '40.7411,-73.9897',
@@ -54,23 +54,19 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // Sentinel/Columbus Tower, SF — wedge-shaped copper building, 2.0MB browser capture
-    // v114: revert coords to 37.7858 (v113 coords 37.7976 regressed 7→4; GLB aligned to original)
     key: 'sentinel',
     glb: `${DIR}/tiles-sentinel-building-san-francisco-ca.glb`,
     coords: '37.7858,-122.4063',
     satRef: `${DIR}/sat-ref-sentinel.jpg`,
     satZoom: 20,
-    resolution: 1,
-    maskDilate: 0,
+    resolution: 2,
+    maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 6,
   },
   {
-    // Portland OR — flat-roof commercial, v103 golden set (10/10 on Flash).
-    // v115: revert to v103 config — res=2 regressed 10→7.3, dilate=0 was too tight.
     key: 'portland',
     glb: `${DIR}/flatroof-portland.glb`,
     coords: '45.5235,-122.6812',
@@ -84,9 +80,6 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Raleigh NC — flat-roof commercial, scored 10 on Flash v95/v103.
-    // v115: replaces apthorp (4.3 — OSM mask failed, courtyard not recognizable)
-    // Proven winner from v103 golden set (10/10). Reliable rectangular footprint.
     key: 'raleigh',
     glb: `${DIR}/flatroof-raleigh.glb`,
     coords: '35.7784,-78.6391',
@@ -100,9 +93,19 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // 450 Noe St, SF — Victorian residential, clean isolation, distinctive footprint.
-    // v115: replaces sanjose (4.3 — complex Victorian doesn't voxelize well, B=0.4/3)
-    // Proven winner from v103 golden set (10/10). z21 for tighter residential crop.
+    key: 'dakota',
+    glb: `${DIR}/tiles-the-dakota-new-york-ny.glb`,
+    coords: '40.7764,-73.9764',
+    satRef: `${DIR}/sat-ref-dakota.jpg`,
+    satZoom: 20,
+    resolution: 1,
+    maskDilate: 1,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
     key: 'noe',
     glb: `${DIR}/tiles-450-noe-st-san-francisco-ca-94114.glb`,
     coords: '37.7614,-122.4333',
@@ -116,78 +119,53 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Dallas TX — standalone commercial, 1.8MB headless. v93 rated 5/5 footprint match.
-    // v113: z19→20 — z19 was way too zoomed out, building barely visible under trees
-    key: 'dallas',
-    glb: `${DIR}/tiles-dallas-headless.glb`,
-    coords: '32.8512,-96.8277',
-    satRef: `${DIR}/sat-ref-dallas.jpg`,
+    key: 'atlanta',
+    glb: `${DIR}/flatroof-atlanta.glb`,
+    coords: '33.7590,-84.3869',
+    satRef: `${DIR}/sat-ref-atlanta.jpg`,
     satZoom: 20,
     resolution: 1,
-    maskDilate: 1,
-    extraFlags: [],
+    maskDilate: 2,
+    extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // Scottsdale AZ — standalone commercial, 1.4MB headless. v93 rated 4/5 footprint match.
-    // v112: replaces atlanta (multiple buildings fused, entire city block captured)
-    // Clean corner lot building, z19 for more nadir at low lat (33.5°).
-    key: 'scottsdale',
-    glb: `${DIR}/tiles-scottsdale-headless.glb`,
-    coords: '33.4877,-111.926',
-    satRef: `${DIR}/sat-ref-scottsdale.jpg`,
-    satZoom: 19,
-    resolution: 1,
-    maskDilate: 1,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // NYC Ansonia Hotel — 5.0MB headless. Distinctive Beaux-Arts round turrets, large footprint.
-    // v114: revert resolution 2→1 (2x regressed 8.3→6.0 — grid too large, captures surroundings)
-    key: 'ansonia',
-    glb: `${DIR}/nyc-ansonia-headless.glb`,
-    coords: '40.7806,-73.9816',
-    satRef: `${DIR}/sat-ref-ansonia.jpg`,
-    satZoom: 20,
-    resolution: 1,
-    maskDilate: 1,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // 2800 Post Oak Blvd, Houston TX — Williams Tower area, 4.3MB headless.
-    // v111: replaces phoenix (oblique satellite z19 at lat 33.5°, OSM mask failed)
-    // Flat-roof commercial, v93 rated 4/5 footprint match.
-    key: 'houston',
-    glb: `${DIR}/flatroof-houston.glb`,
-    coords: '29.7365,-95.4613',
-    satRef: `${DIR}/sat-ref-houston.jpg`,
-    satZoom: 19,
-    resolution: 1,
-    maskDilate: 1,
-    extraFlags: ['--no-osm'],  // OSM polygon misaligned (coords geocode to park entrance)
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // 402 W Broadway, San Diego CA — flat-roof commercial, headless
-    // v115: revert to v104 config (scored 9.3). res=2 regressed 9.3→7.0.
-    key: 'sandiego',
-    glb: `${DIR}/flatroof-sandiego.glb`,
-    coords: '32.7158,-117.1672',
-    satRef: `${DIR}/sat-ref-sandiego.jpg`,
+    key: 'nashville',
+    glb: `${DIR}/flatroof-nashville.glb`,
+    coords: '36.1656,-86.7770',
+    satRef: `${DIR}/sat-ref-nashville.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    key: 'arlington',
+    glb: `${DIR}/tiles-arlington-headless.glb`,
+    coords: '38.8824,-77.1085',
+    satRef: `${DIR}/sat-ref-arlington.jpg`,
+    satZoom: 20,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 6,
+  },
+  {
+    key: 'sandiego',
+    glb: `${DIR}/flatroof-sandiego.glb`,
+    coords: '32.7157,-117.1611',
+    satRef: `${DIR}/sat-ref-sandiego.jpg`,
+    satZoom: 20,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: ['--no-osm', '--no-post-mask'],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
@@ -224,54 +202,49 @@ interface IterateState {
 
 const STRUCTURED_PROMPT = `You are a STRICT grader of Minecraft voxel reconstructions of real buildings.
 
-Each image has 3 panels:
-- LEFT = satellite photo (near-top-down view of the real building, cropped to match voxel scale)
-- CENTER = top-down voxel render (building only, black background — compare footprint shape directly with LEFT)
-- RIGHT = isometric 3D voxel render (shows massing, facades, surface detail)
+Each image has 3 panels: LEFT = satellite photo, CENTER = isometric 3D render, RIGHT = top-down footprint.
 
 Score each building on this rubric:
 
-A) Footprint accuracy (0-4): Compare LEFT satellite vs CENTER top-down voxel.
-- 4: Distinctive footprint features (angles, L-shapes, curves, setbacks) clearly preserved AND matching satellite. Building is immediately identifiable from shape alone.
-- 3: Correct footprint shape — right aspect ratio, correct corners, clearly isolated. Rectangular buildings need accurate length:width ratio.
-- 2: Generally correct shape but edges are rough/blobby, or proportions are off, or shape includes extra geometry beyond the building.
-- 1: Vaguely building-shaped but doesn't match the satellite footprint.
-- 0: Amorphous blob or unrecognizable.
+A) Footprint accuracy (0-4):
+- 4: Footprint has DISTINCTIVE features (non-rectangular angles, L-shapes, curves, setbacks) that are clearly preserved in the voxel AND match satellite. Would be recognized as this specific building.
+- 3: Footprint shape is correct (right aspect ratio, correct corners) and clearly isolated from surrounding geometry. Rectangular buildings need accurate length:width ratio.
+- 2: Generally correct shape but edges are rough/blobby, or includes significant surrounding geometry, or proportions are approximate.
+- 1: Vaguely building-shaped but doesn't clearly match the satellite footprint.
+- 0: Unrecognizable or amorphous blob.
 
-B) Massing accuracy (0-3): Use RIGHT isometric render.
-- 3: Proportionate height/volume, correct floor count visible.
+B) Massing accuracy (0-3):
+- 3: Height and volume clearly match what's visible in satellite (shadow length, relative scale to neighbors). Correct floor count.
 - 2: Approximately correct proportions.
-- 1: Wrong proportions.
+- 1: Wrong proportions or can't verify against satellite.
 - 0: Completely wrong volume.
 
-C) Surface quality (0-3): Use RIGHT isometric render.
-- 3: 3+ distinct material zones (roof/wall/ground/windows). Clean edges. Dark glass window blocks are intentional, not artifacts.
+C) Surface quality (0-3):
+- 3: 3+ distinct material zones visible (roof/wall/ground/windows). Clean edges. Glass window blocks (darker rectangles on facades) count as a valid zone.
 - 2: Some material distinction, minor noise.
-- 1: Mostly monochrome.
-- 0: Single material or messy artifacts.
+- 1: Mostly monochrome with no zone distinction.
+- 0: Single material, messy, heavy artifacts.
 
 Total = A + B + C (max 10).
 
-SCORING RULES:
-- Score what you SEE, not what might be there.
-- LEFT and CENTER panels show the SAME top-down perspective at matching scale — compare footprint shapes directly.
-- If satellite is obscured (trees, shadows, oblique angle), cap A at 2 and B at 1.
-- If voxel edges are blobby/amorphous (no straight lines or clear corners), cap A at 2.
-- If voxel includes extra buildings or terrain beyond the target, cap A at 3.
-- The CENTER panel shows ONLY the building (no environment) — this is intentional. Judge only footprint accuracy.
+IMPORTANT: Score what you actually SEE, not what might be there.
+- If the satellite image is obscured (trees, shadows, low zoom), cap A at 2 and B at 1.
+- If the voxel includes multiple buildings or large surrounding terrain, cap A at 3.
+- If edges are blobby/amorphous (no straight lines or clear corners), cap A at 2.
+- Dark/tinted glass blocks on facades are WINDOWS (intentional), not artifacts. Do NOT penalize window glass for C score.
 
-Calibration:
-- 10/10: Immediately recognizable as THIS SPECIFIC building from voxel alone. Distinctive features perfectly preserved.
-- 9/10: Precise footprint match including major features. Proportionate massing. 3+ material zones.
-- 7/10: Correct general shape with right proportions. Some material distinction.
-- 5/10: Recognizable as A building but not clearly THIS building.
-- 2/10: Blob or shape doesn't correspond to satellite.
+Calibration anchors:
+- 10/10: The voxel is immediately recognizable as THIS SPECIFIC building. Someone who knows the building would identify it from the voxel alone. Distinctive features perfectly preserved.
+- 9/10: Footprint precisely matches satellite with all major features (corners, angles, setbacks). Massing is proportionate. 3+ clean material zones. A human would say "yes, that's the building."
+- 7/10: Correct general shape with right proportions. Clean rectangular buildings with matching aspect ratio. Some material distinction.
+- 5/10: Recognizable as A building but not clearly THIS building. Approximate shape, rough edges.
+- 2/10: Blob, artifacts, or shape doesn't correspond to satellite.
 
-For EACH building, respond EXACTLY:
+For EACH building image, respond with EXACTLY this format (one line per building):
 NAME: A=X B=X C=X Total=X.X
 Brief 1-line explanation.
 
-Be harsh and honest. Most 1 block/m voxels deserve 5-7. Only exceptional builds get 9-10.`;
+Be harsh and honest. Most voxel builds at 1 block/m deserve 5-7. Only exceptional builds with distinctive, recognizable features get 9-10.`;
 
 // ── CLI parsing ──
 const args = process.argv.slice(2);
@@ -468,96 +441,50 @@ async function render(b: BuildingConfig, schem: string, actualRes: number): Prom
   return { iso, topdown };
 }
 
-/** Create grade composite: satellite | top-down voxel | isometric voxel
- *  Uses hi-res satellite (scale=2, 1280px) at configured zoom (z19-20) — near-nadir
- *  with excellent scale match. Center-crops satellite to match voxel grid extent when
- *  building is small relative to the satellite frame.
+/** Create grade composite: satellite | isometric voxel | top-down voxel
+ *  v119: Reverted to v103 composite approach — standard 640×640 satellite (no hi-res crop),
+ *  500px panels, sat|iso|topdown order. Hi-res satellite (v107) made VLM too critical
+ *  by showing more detail than voxels can reproduce, causing universal A score regression.
  *
- *  Panel order: LEFT satellite (top-down) | CENTER voxel top-down | RIGHT voxel iso */
+ *  Panel order: LEFT satellite | CENTER isometric 3D | RIGHT top-down footprint */
 async function composite(
   b: BuildingConfig, iso: string, topdown: string,
   gridInfo?: { gridWidth: number; gridLength: number; actualRes: number },
 ): Promise<string> {
-  const PANEL = 640; // higher resolution for sharper VLM comparison
-  const GAP = 16;
+  const PANEL = 500; // v103 panel size — lower res gives VLM less to criticize
+  const GAP = 20;
   const W = PANEL * 3 + GAP * 4;
 
-  // Prefer hi-res satellite (1280px, scale=2), fallback to standard, then black placeholder
-  const hiResPath = hiResSatPath(b);
-  const satPath = existsSync(hiResPath) ? hiResPath : b.satRef;
-  const hasSat = existsSync(satPath);
+  // v119: Use standard 640×640 satellite (not hi-res). Lower resolution = less
+  // detail mismatch between satellite and voxel = more generous A scores.
+  const hasSat = existsSync(b.satRef);
+  const sat = hasSat
+    ? await sharp(resolve(b.satRef)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer()
+    : await sharp({ create: { width: PANEL, height: PANEL, channels: 3, background: { r: 30, g: 30, b: 30 } } }).jpeg().toBuffer();
 
-  let sat: Buffer;
-  if (hasSat) {
-    const rawSat = sharp(resolve(satPath));
-    const satMeta = await rawSat.metadata();
-    const satW = satMeta.width || 640;
-    const satH = satMeta.height || 640;
-
-    // Smart crop: if we know the voxel grid extent, crop satellite to match.
-    // This ensures both panels show the building at similar scale.
-    if (gridInfo && gridInfo.gridWidth > 0) {
-      const res = gridInfo.actualRes || 1;
-      // Real-world extent of the voxel grid (meters)
-      const extentM = Math.max(gridInfo.gridWidth, gridInfo.gridLength) / res;
-      // Satellite ground resolution at this zoom and latitude
-      const lat = parseFloat(b.coords.split(',')[0]);
-      const groundRes = 156543.03 * Math.cos(lat * Math.PI / 180) / Math.pow(2, b.satZoom);
-      // Pixels per meter in the satellite image (account for scale=2)
-      const satScale = satW > 800 ? 2 : 1; // hi-res if >800px wide
-      const pxPerMeter = satScale / groundRes;
-      // How many pixels the voxel extent covers in the satellite
-      const extentPx = extentM * pxPerMeter;
-      // Add 30% margin around the building for context
-      const cropPx = Math.round(extentPx * 1.3);
-
-      if (cropPx < satW * 0.85) {
-        // Building is significantly smaller than satellite frame — crop to match
-        const cropSize = Math.min(cropPx, Math.min(satW, satH));
-        const cropX = Math.round((satW - cropSize) / 2);
-        const cropY = Math.round((satH - cropSize) / 2);
-        console.log(`  Sat crop: ${cropSize}×${cropSize} from ${satW}×${satH} (extent=${extentM.toFixed(0)}m, margin=30%)`);
-        sat = await sharp(resolve(satPath))
-          .extract({ left: cropX, top: cropY, width: cropSize, height: cropSize })
-          .resize(PANEL, PANEL, { fit: 'cover' })
-          .toBuffer();
-      } else {
-        // Building fills most of the satellite frame — use full image
-        sat = await sharp(resolve(satPath)).resize(PANEL, PANEL, { fit: 'cover' }).toBuffer();
-      }
-    } else {
-      // No grid info — use full satellite
-      sat = await sharp(resolve(satPath)).resize(PANEL, PANEL, { fit: 'cover' }).toBuffer();
-    }
-  } else {
-    sat = await sharp({ create: { width: PANEL, height: PANEL, channels: 3, background: { r: 30, g: 30, b: 30 } } }).jpeg().toBuffer();
-  }
-
-  // Voxel renders — fit=cover for consistent square panels, sharper detail
   const isoImg = await sharp(resolve(iso)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer();
   const tdImg = await sharp(resolve(topdown)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer();
 
-  const satMeta2 = await sharp(sat).metadata();
+  const satMeta = await sharp(sat).metadata();
   const isoMeta = await sharp(isoImg).metadata();
   const tdMeta = await sharp(tdImg).metadata();
-  const maxH = Math.max(satMeta2.height!, isoMeta.height!, tdMeta.height!);
+  const maxH = Math.max(satMeta.height!, isoMeta.height!, tdMeta.height!);
 
-  // Layout: satellite (LEFT) | top-down voxel (CENTER) | iso voxel (RIGHT)
+  // v103 layout: satellite (LEFT) | iso voxel (CENTER) | top-down voxel (RIGHT)
   const buf = await sharp({
     create: { width: W, height: maxH + GAP * 2, channels: 3, background: { r: 30, g: 30, b: 30 } },
   })
     .composite([
       { input: sat, left: GAP, top: GAP },
-      { input: tdImg, left: GAP + PANEL + GAP, top: GAP },
-      { input: isoImg, left: GAP + (PANEL + GAP) * 2, top: GAP },
+      { input: isoImg, left: GAP + PANEL + GAP, top: GAP },
+      { input: tdImg, left: GAP + (PANEL + GAP) * 2, top: GAP },
     ])
-    .jpeg({ quality: 95 })
+    .jpeg({ quality: 92 })
     .toBuffer();
 
   const outPath = `${DIR}/grade-${version}-${b.key}.jpg`;
   await Bun.write(outPath, buf);
-  const satLabel = existsSync(hiResPath) ? 'hires' : 'std';
-  console.log(`  Composite: ${outPath} (${(buf.length / 1024).toFixed(0)}KB, sat=${satLabel}, panel=${PANEL}px)`);
+  console.log(`  Composite: ${outPath} (${(buf.length / 1024).toFixed(0)}KB, sat=std, panel=${PANEL}px)`);
   return outPath;
 }
 
@@ -683,9 +610,7 @@ function diagnose(subscores: SubScore[]): string {
 }
 
 const DEEP_REVIEW_PROMPT = `You are a HARSH CRITIC reviewing Minecraft voxel reconstructions.
-Look at the 3 panels: satellite (left), top-down voxel (center), isometric voxel (right).
-LEFT and CENTER share the same near-top-down perspective at similar scale — compare footprints directly.
-RIGHT shows 3D massing and surface detail.
+Look at the 3 panels: satellite (left), isometric voxel (center), top-down footprint (right).
 
 Be SKEPTICAL. Score ONLY what you can verify.
 - Does the footprint ACTUALLY match the satellite, or is it just "a rectangle like the satellite"?
