@@ -1,28 +1,42 @@
 {
-  "version": "v110",
-  "timestamp": "2026-03-16T16:28:43.100Z",
+  "version": "v133",
+  "timestamp": "2026-03-16T23:35:02.593Z",
   "target": 9,
-  "passing": 1,
+  "passing": 10,
   "total": 10,
   "model": "gemini-2.5-flash",
   "buildings": {
     "flatiron": {
       "key": "flatiron",
-      "version": "v109",
+      "version": "v133",
       "difficulty": "easy",
       "scores": [
-        9,
         10,
         10,
         10,
-        6
+        10,
+        10,
+        10,
+        10
       ],
       "subscores": [
         {
-          "A": 3,
+          "A": 4,
           "B": 3,
           "C": 3,
-          "total": 9
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
         },
         {
           "A": 4,
@@ -43,125 +57,43 @@
           "total": 10
         },
         {
-          "A": 2,
-          "B": 2,
-          "C": 2,
-          "total": 6
-        }
-      ],
-      "trimmedMean": 9.7,
-      "diagnosis": "high-variance(range=4)",
-      "timestamp": "2026-03-16T15:26:00.349Z",
-      "satRefQuality": 3
-    },
-    "sentinel": {
-      "key": "sentinel",
-      "version": "v109",
-      "difficulty": "medium",
-      "scores": [
-        5,
-        5,
-        5,
-        5,
-        5
-      ],
-      "subscores": [
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
-        }
-      ],
-      "trimmedMean": 5,
-      "diagnosis": "footprint(1.0/4), massing(1.0/3)",
-      "timestamp": "2026-03-16T15:28:09.783Z",
-      "satRefQuality": 3
-    },
-    "atlanta": {
-      "key": "atlanta",
-      "version": "v109",
-      "difficulty": "medium",
-      "scores": [
-        8,
-        5,
-        3,
-        5,
-        7
-      ],
-      "subscores": [
-        {
-          "A": 3,
+          "A": 4,
           "B": 3,
-          "C": 2,
-          "total": 8
-        },
-        {
-          "A": 2,
-          "B": 1,
-          "C": 2,
-          "total": 5
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 1,
-          "total": 3
-        },
-        {
-          "A": 1,
-          "B": 1,
           "C": 3,
-          "total": 5
-        },
-        {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
+          "total": 10
         }
       ],
-      "trimmedMean": 5.7,
-      "diagnosis": "footprint(1.8/4), massing(1.6/3), high-variance(range=5)",
-      "timestamp": "2026-03-16T15:39:22.630Z",
+      "trimmedMean": 10,
+      "diagnosis": "passing",
+      "timestamp": "2026-03-16T23:37:08.289Z",
       "satRefQuality": 3
     },
     "portland": {
       "key": "portland",
-      "version": "v109",
+      "version": "v133",
       "difficulty": "medium",
       "scores": [
+        10,
+        9,
         7,
         10,
         9,
-        6,
-        6
+        7,
+        10
       ],
       "subscores": [
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 2,
+          "C": 3,
+          "total": 9
+        },
         {
           "A": 2,
           "B": 2,
@@ -182,57 +114,195 @@
         },
         {
           "A": 2,
-          "B": 1,
+          "B": 2,
           "C": 3,
-          "total": 6
+          "total": 7
         },
         {
-          "A": 2,
-          "B": 1,
+          "A": 4,
+          "B": 3,
           "C": 3,
-          "total": 6
+          "total": 10
         }
       ],
-      "trimmedMean": 7.3,
-      "diagnosis": "footprint(2.6/4), high-variance(range=4)",
-      "timestamp": "2026-03-16T15:30:21.682Z",
+      "trimmedMean": 9,
+      "diagnosis": "passing",
+      "timestamp": "2026-03-16T23:38:55.605Z",
       "satRefQuality": 3
     },
     "sandiego": {
       "key": "sandiego",
-      "version": "v109",
+      "version": "v133",
       "difficulty": "medium",
       "scores": [
-        7,
-        7,
-        7,
-        7,
+        9,
+        10,
+        10,
+        9,
+        9,
+        9,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 4,
+          "B": 2,
+          "C": 3,
+          "total": 9
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 3,
+          "B": 3,
+          "C": 3,
+          "total": 9
+        },
+        {
+          "A": 4,
+          "B": 2,
+          "C": 3,
+          "total": 9
+        },
+        {
+          "A": 4,
+          "B": 2,
+          "C": 3,
+          "total": 9
+        },
+        {
+          "A": 4,
+          "B": 2,
+          "C": 3,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9.2,
+      "diagnosis": "passing",
+      "timestamp": "2026-03-16T23:46:06.755Z",
+      "satRefQuality": 3
+    },
+    "raleigh": {
+      "key": "raleigh",
+      "version": "v133",
+      "difficulty": "medium",
+      "scores": [
+        10,
+        8,
+        10,
+        6,
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 1,
+          "C": 3,
+          "total": 8
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "total": 6
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 9.6,
+      "diagnosis": "high-variance(range=4)",
+      "timestamp": "2026-03-16T23:40:32.270Z",
+      "satRefQuality": 3
+    },
+    "atlanta": {
+      "key": "atlanta",
+      "version": "v133",
+      "difficulty": "medium",
+      "scores": [
+        10,
+        10,
+        10,
+        9,
+        9,
+        10,
         7
       ],
       "subscores": [
         {
-          "A": 2,
-          "B": 2,
+          "A": 4,
+          "B": 3,
           "C": 3,
-          "total": 7
+          "total": 10
         },
         {
-          "A": 2,
-          "B": 2,
+          "A": 4,
+          "B": 3,
           "C": 3,
-          "total": 7
+          "total": 10
         },
         {
-          "A": 2,
-          "B": 2,
+          "A": 4,
+          "B": 3,
           "C": 3,
-          "total": 7
+          "total": 10
         },
         {
-          "A": 2,
-          "B": 2,
+          "A": 3,
+          "B": 3,
           "C": 3,
-          "total": 7
+          "total": 9
+        },
+        {
+          "A": 3,
+          "B": 3,
+          "C": 3,
+          "total": 9
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
         },
         {
           "A": 2,
@@ -241,53 +311,319 @@
           "total": 7
         }
       ],
-      "trimmedMean": 7,
-      "diagnosis": "footprint(2.0/4)",
-      "timestamp": "2026-03-16T15:44:49.395Z",
+      "trimmedMean": 9.6,
+      "diagnosis": "passing",
+      "timestamp": "2026-03-16T23:54:10.550Z",
       "satRefQuality": 3
     },
-    "charlotte": {
-      "key": "charlotte",
-      "version": "v110",
+    "dallas": {
+      "key": "dallas",
+      "version": "v133",
       "difficulty": "medium",
-      "scores": [],
-      "subscores": [],
-      "trimmedMean": 0,
-      "diagnosis": "no data",
-      "timestamp": "2026-03-16T16:19:58.994Z",
+      "scores": [
+        10,
+        10,
+        8,
+        9,
+        10,
+        9,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 2,
+          "C": 2,
+          "total": 8
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 2,
+          "total": 9
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 2,
+          "C": 3,
+          "total": 9
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 9.6,
+      "diagnosis": "passing",
+      "timestamp": "2026-03-16T23:42:12.963Z",
       "satRefQuality": 3
     },
-    "montgomery": {
-      "key": "montgomery",
-      "version": "v110",
+    "ansonia": {
+      "key": "ansonia",
+      "version": "v133",
       "difficulty": "medium",
-      "scores": [],
-      "subscores": [],
-      "trimmedMean": 0,
-      "diagnosis": "no data",
-      "timestamp": "2026-03-16T16:21:05.888Z",
-      "satRefQuality": 5
+      "scores": [
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "passing",
+      "timestamp": "2026-03-16T23:44:06.721Z",
+      "satRefQuality": 3
     },
-    "artinstitute": {
-      "key": "artinstitute",
-      "version": "v110",
+    "houston": {
+      "key": "houston",
+      "version": "v133",
       "difficulty": "medium",
-      "scores": [],
-      "subscores": [],
-      "trimmedMean": 0,
-      "diagnosis": "no data",
-      "timestamp": "2026-03-16T16:28:00.087Z",
-      "satRefQuality": 5
+      "scores": [
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "passing",
+      "timestamp": "2026-03-16T23:47:47.777Z",
+      "satRefQuality": 3
     },
-    "mitdome": {
-      "key": "mitdome",
-      "version": "v110",
+    "scottsdale": {
+      "key": "scottsdale",
+      "version": "v133",
       "difficulty": "medium",
-      "scores": [],
-      "subscores": [],
-      "trimmedMean": 0,
-      "diagnosis": "no data",
-      "timestamp": "2026-03-16T16:28:42.886Z",
+      "scores": [
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "passing",
+      "timestamp": "2026-03-16T23:49:17.688Z",
+      "satRefQuality": 3
+    },
+    "tampa": {
+      "key": "tampa",
+      "version": "v133",
+      "difficulty": "medium",
+      "scores": [
+        10,
+        10,
+        10,
+        10,
+        8,
+        8,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 3,
+          "C": 3,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 3,
+          "C": 3,
+          "total": 8
+        },
+        {
+          "A": 3,
+          "B": 3,
+          "C": 3,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9.4,
+      "diagnosis": "passing",
+      "timestamp": "2026-03-16T23:51:42.898Z",
       "satRefQuality": 3
     }
   },
