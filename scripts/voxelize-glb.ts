@@ -150,6 +150,7 @@ interface CLIArgs {
   coords: { lat: number; lng: number } | null; // OSM footprint masking coordinates
   keepVegetation: boolean; // preserve green/brown vegetation blocks (for satellite comparison)
   noEnu: boolean;          // skip ENU reorientation (for pre-oriented headless GLBs)
+  noEnuSnap: boolean;      // ENU tilt-only — skip 90° horizontal snap (preserves real-world orientation)
   noOsm: boolean;          // skip OSM footprint masking (for misaligned geocodes)
   noPostMask: boolean;     // skip post-processing OSM re-mask (v80)
   noIsolate: boolean;      // skip automatic building isolation
@@ -193,6 +194,7 @@ Options:
   --coords LAT,LNG   OSM footprint masking — query building polygon at these coords, mask grid
   --keep-vegetation  Preserve green/brown vegetation blocks (for satellite comparison)
   --no-enu           Skip ENU reorientation (for pre-oriented headless GLBs)
+  --no-enu-snap      ENU tilt correction only — skip 90° horizontal snap (preserves real-world orientation)
   --no-osm           Skip OSM footprint masking (when geocode doesn't match building)
   --no-post-mask     Skip post-processing OSM re-mask (v80 edge re-sharpening)
   --enrich           Run scene enrichment (trees, roads, ground fill) — requires --coords
@@ -236,6 +238,7 @@ Options:
   let coords: { lat: number; lng: number } | null = null;
   let keepVegetation = false;
   let noEnu = false;
+  let noEnuSnap = false;
   let noOsm = false;
   let noPostMask = false;
   let noIsolate = false;
@@ -299,6 +302,8 @@ Options:
       keepVegetation = true;
     } else if (arg === '--no-enu') {
       noEnu = true;
+    } else if (arg === '--no-enu-snap') {
+      noEnuSnap = true;
     } else if (arg === '--no-osm') {
       noOsm = true;
     } else if (arg === '--no-post-mask') {
@@ -372,7 +377,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noOsm, noPostMask, noIsolate, maskDilate, enrich, scene, plotRadius };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, enrich, scene, plotRadius };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -584,7 +589,7 @@ async function decodeTexturesWithSharp(
  * Used to rotate OSM polygon to match the grid after PCA alignment. */
 let enuHorizontalAngle = 0;
 
-function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false): void {
+function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false, skipSnap = false): void {
   const box = new THREE.Box3().setFromObject(scene);
   const size = new THREE.Vector3();
   box.getSize(size);
@@ -665,7 +670,9 @@ function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false): void {
       const snappedRad = snappedDeg * Math.PI / 180;
 
       let useSnapped = false;
-      if (Math.abs(snappedRad - bestAngle) > 0.01) {
+      if (skipSnap) {
+        console.log(`ENU horizontal align: rotated ${optimalDeg.toFixed(1)}° (snap disabled — preserving real-world orientation)`);
+      } else if (Math.abs(snappedRad - bestAngle) > 0.01) {
         const cos2 = Math.cos(snappedRad), sin2 = Math.sin(snappedRad);
         let mnX2 = Infinity, mxX2 = -Infinity, mnZ2 = Infinity, mxZ2 = -Infinity;
         for (const p of pointsXZ) {
@@ -687,7 +694,7 @@ function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false): void {
       }
 
       if (bestAngle > 0.01) {
-        if (!useSnapped) {
+        if (!useSnapped && !skipSnap) {
           console.log(`ENU horizontal align: rotated ${(bestAngle * 180 / Math.PI).toFixed(1)}° to minimize footprint`);
         }
         const yRotation = new THREE.Matrix4().makeRotationY(-bestAngle);
@@ -1123,7 +1130,7 @@ async function main(): Promise<void> {
     });
     console.log(`Centered: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} m`);
   } else {
-    reorientToENU(scene);
+    reorientToENU(scene, false, args.noEnuSnap);
   }
 
   // Height filter: collect candidate meshes and filter by vertical extent
