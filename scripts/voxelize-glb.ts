@@ -1891,24 +1891,18 @@ async function main(): Promise<void> {
       'minecraft:birch_planks',
     ]);
 
-    // v106: Split grays into light/dark families for depth preservation.
-    // Collapsing ALL grays to wallDom produced monochrome facades (Portland, Tampa).
-    // Light grays (L>100) and dark grays (L<80) are distinct shade families —
-    // only collapse a gray to wallDom if they're in the same family.
-    const LIGHT_GRAYS = new Set([
+    // Neutral grays from baked photogrammetric lighting — no material signal.
+    // All grays collapse to wallDom. Gray variety preservation (v106 attempt) caused
+    // regressions — wallDom is typically smooth_stone (light gray), so dark grays
+    // survived as scattered noise on Nashville (10→3.3), Dakota (9→6.4).
+    const GRAY_BLOCKS = new Set([
       'minecraft:smooth_stone',       // rgb 162,162,162
       'minecraft:light_gray_concrete', // rgb 125,125,115
       'minecraft:andesite',           // rgb 136,136,136
       'minecraft:polished_andesite',  // rgb 132,135,134
-    ]);
-    const DARK_GRAYS = new Set([
       'minecraft:gray_concrete',      // rgb 55,58,62
       'minecraft:polished_deepslate', // rgb 55,58,62
     ]);
-    const GRAY_BLOCKS = new Set([...LIGHT_GRAYS, ...DARK_GRAYS]);
-    // Determine which gray family wallDom belongs to (if any)
-    const wallIsLightGray = LIGHT_GRAYS.has(wallDom);
-    const wallIsDarkGray = DARK_GRAYS.has(wallDom);
 
     // Count blocks per zone: roof = topmost per column, wall = everything below
     const roofCounts = new Map<string, number>();
@@ -2165,16 +2159,9 @@ async function main(): Promise<void> {
             target = bandBlock;
           } else {
             // Main wall body — preserve distinctive (non-gray) colors from photogrammetry.
-            // v106: Only collapse grays that are in the SAME shade family as wallDom.
-            // Cross-family grays (e.g. dark gray on a light wall) provide facade depth.
+            // Gray blocks are baked-lighting artifacts; replace with wallDom.
             // Non-gray blocks carry real material signal (brick, copper, terracotta); keep them.
-            if (GRAY_BLOCKS.has(b)) {
-              const sameFamily = (wallIsLightGray && LIGHT_GRAYS.has(b))
-                || (wallIsDarkGray && DARK_GRAYS.has(b));
-              target = sameFamily ? wallDom : b;
-            } else {
-              target = b;
-            }
+            target = GRAY_BLOCKS.has(b) ? wallDom : b;
           }
           if (b !== target) { trimmed.set(x, y, z, target); simplified++; }
         }
@@ -2263,11 +2250,11 @@ async function main(): Promise<void> {
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
   {
-    // v106: Capped to 1 pass. The triple-homogenization cascade (GRAY_BLOCKS collapse
-    // → homogenizeFacadesByFace → modeFilter 2+ passes) destroyed color variety and
-    // produced monochrome gray facades. Single pass removes isolated noise voxels;
-    // 2+ passes create positive-feedback erasure of legitimate material variation.
-    const passes = Math.min(1, Math.max(args.modePasses, 1));
+    // v106: Capped to 2 passes. Previous 3-pass cap allowed positive-feedback erasure
+    // at 2x resolution. 1 pass left too much noise (Nashville, Dakota regressed).
+    // 2 passes is the sweet spot: cleans genuine noise without cascading homogenization.
+    const basePasses = Math.max(args.modePasses, 2);
+    const passes = Math.min(2, basePasses);
     const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} pass)`);
