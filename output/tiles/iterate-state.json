@@ -1,517 +1,489 @@
 {
-  "version": "v104",
-  "timestamp": "2026-03-15T04:38:04.175Z",
+  "version": "v106",
+  "timestamp": "2026-03-16T09:31:47.944Z",
   "target": 9,
-  "passing": 10,
+  "passing": 0,
   "total": 10,
   "model": "gemini-2.5-flash",
   "buildings": {
     "flatiron": {
       "key": "flatiron",
-      "version": "v100",
+      "version": "v106",
       "difficulty": "easy",
       "scores": [
-        9,
-        9,
-        9,
-        10,
-        10,
-        9
+        6.9,
+        8.5,
+        8.5,
+        8.5,
+        10
       ],
       "subscores": [
         {
-          "A": 4,
-          "B": 2,
-          "C": 3,
-          "total": 9
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.9
         },
         {
-          "A": 4,
-          "B": 2,
-          "C": 3,
-          "total": 9
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 8.5
         },
         {
-          "A": 4,
-          "B": 2,
-          "C": 3,
-          "total": 9
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 8.5
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 8.5
+        },
+        {
+          "A": 0,
+          "B": 0,
+          "C": 0,
           "total": 10
-        },
-        {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
-        },
-        {
-          "A": 4,
-          "B": 2,
-          "C": 3,
-          "total": 9
         }
       ],
-      "trimmedMean": 9.3,
-      "diagnosis": "passing",
-      "timestamp": "2026-03-14T23:02:34.213Z",
+      "trimmedMean": 8.5,
+      "diagnosis": "footprint(0.0/4), massing(0.0/3), surface(0.0/3), high-variance(range=3.0999999999999996)",
+      "timestamp": "2026-03-16T09:19:02.255Z",
       "satRefQuality": 3
     },
     "sentinel": {
       "key": "sentinel",
-      "version": "v100",
+      "version": "v106",
       "difficulty": "medium",
       "scores": [
-        10,
-        10,
-        10,
-        8,
-        10,
-        10
+        6.2,
+        7.7,
+        8.5,
+        7.7,
+        7.7
       ],
       "subscores": [
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.2
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 7.7
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 8.5
         },
         {
-          "A": 2,
-          "B": 3,
-          "C": 3,
-          "total": 8
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 7.7
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
-        },
-        {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 7.7
         }
       ],
-      "trimmedMean": 10,
-      "diagnosis": "passing",
-      "timestamp": "2026-03-14T23:03:57.232Z",
+      "trimmedMean": 7.7,
+      "diagnosis": "footprint(0.0/4), massing(0.0/3), surface(0.0/3)",
+      "timestamp": "2026-03-16T09:20:19.438Z",
       "satRefQuality": 3
     },
     "arlington": {
       "key": "arlington",
-      "version": "v100",
+      "version": "v106",
       "difficulty": "medium",
       "scores": [
+        5.4,
         10,
-        8,
-        6,
-        9,
-        10,
-        10
+        4.6,
+        5.4,
+        6.2
       ],
       "subscores": [
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 5.4
+        },
+        {
+          "A": 0,
+          "B": 0,
+          "C": 0,
           "total": 10
         },
         {
-          "A": 4,
-          "B": 1,
-          "C": 3,
-          "total": 8
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 4.6
         },
         {
-          "A": 2,
-          "B": 1,
-          "C": 3,
-          "total": 6
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 5.4
         },
         {
-          "A": 4,
-          "B": 2,
-          "C": 3,
-          "total": 9
-        },
-        {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
-        },
-        {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.2
         }
       ],
-      "trimmedMean": 9.3,
-      "diagnosis": "high-variance(range=4)",
-      "timestamp": "2026-03-14T23:12:26.786Z",
+      "trimmedMean": 5.7,
+      "diagnosis": "footprint(0.0/4), massing(0.0/3), surface(0.0/3), high-variance(range=5.4)",
+      "timestamp": "2026-03-16T09:39:28.784Z",
       "satRefQuality": 3
     },
     "atlanta": {
       "key": "atlanta",
-      "version": "v100",
+      "version": "v106",
       "difficulty": "medium",
       "scores": [
-        10,
-        10,
-        10,
-        9,
-        10,
-        10
+        3,
+        6.2,
+        5.4,
+        5.4,
+        7
       ],
       "subscores": [
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 1,
+          "B": 1,
+          "C": 1,
+          "total": 3
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.2
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 5.4
         },
         {
-          "A": 4,
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 5.4
+        },
+        {
+          "A": 2,
           "B": 2,
           "C": 3,
-          "total": 9
-        },
-        {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
-        },
-        {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "total": 7
         }
       ],
-      "trimmedMean": 10,
-      "diagnosis": "passing",
-      "timestamp": "2026-03-14T23:10:03.470Z",
+      "trimmedMean": 5.7,
+      "diagnosis": "footprint(0.6/4), massing(0.6/3), surface(0.8/3), high-variance(range=4)",
+      "timestamp": "2026-03-16T09:36:52.831Z",
       "satRefQuality": 3
     },
     "raleigh": {
       "key": "raleigh",
-      "version": "v100",
+      "version": "v106",
       "difficulty": "medium",
       "scores": [
-        10,
-        8,
-        10,
-        7,
-        10,
-        10
+        7.7,
+        6.9,
+        3.8,
+        3.8,
+        5.4
       ],
       "subscores": [
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 7.7
         },
         {
-          "A": 3,
-          "B": 2,
-          "C": 3,
-          "total": 8
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.9
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 3.8
         },
         {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 3.8
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
-        },
-        {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 5.4
         }
       ],
-      "trimmedMean": 9.5,
-      "diagnosis": "passing",
-      "timestamp": "2026-03-14T23:06:30.491Z",
+      "trimmedMean": 5.4,
+      "diagnosis": "footprint(0.0/4), massing(0.0/3), surface(0.0/3), high-variance(range=3.9000000000000004)",
+      "timestamp": "2026-03-16T09:33:05.920Z",
       "satRefQuality": 3
     },
     "dakota": {
       "key": "dakota",
-      "version": "v100",
+      "version": "v106",
       "difficulty": "medium",
       "scores": [
-        7,
-        5,
-        10,
-        10,
-        9,
-        10
+        7.7,
+        9.2,
+        6.9,
+        7.7,
+        7.7
       ],
       "subscores": [
         {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 7.7
         },
         {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "total": 5
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 9.2
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.9
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 7.7
         },
         {
-          "A": 3,
-          "B": 3,
-          "C": 3,
-          "total": 9
-        },
-        {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 7.7
         }
       ],
-      "trimmedMean": 9,
-      "diagnosis": "high-variance(range=5)",
-      "timestamp": "2026-03-14T23:07:50.490Z",
-      "satRefQuality": 3
+      "trimmedMean": 7.7,
+      "diagnosis": "footprint(0.0/4), massing(0.0/3), surface(0.0/3)",
+      "timestamp": "2026-03-16T09:34:32.598Z",
+      "satRefQuality": 5
     },
     "nashville": {
       "key": "nashville",
-      "version": "v103",
+      "version": "v106",
       "difficulty": "medium",
       "scores": [
-        10,
-        10,
-        9
+        3.8,
+        2.3,
+        3.8,
+        4.6,
+        3.1
       ],
       "subscores": [
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 3.8
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 2.3
         },
         {
-          "A": 4,
-          "B": 2,
-          "C": 3,
-          "total": 9
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 3.8
+        },
+        {
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 4.6
+        },
+        {
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 3.1
         }
       ],
-      "trimmedMean": 10,
-      "diagnosis": "passing",
-      "timestamp": "2026-03-15T02:30:43.607Z",
+      "trimmedMean": 3.6,
+      "diagnosis": "footprint(0.0/4), massing(0.0/3), surface(0.0/3)",
+      "timestamp": "2026-03-16T09:38:14.727Z",
       "satRefQuality": 3
     },
     "portland": {
       "key": "portland",
-      "version": "v103",
+      "version": "v106",
       "difficulty": "medium",
       "scores": [
-        10,
-        10,
-        10
+        6.2,
+        8.5,
+        8.5,
+        6.2,
+        6.2
       ],
       "subscores": [
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.2
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 8.5
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 8.5
+        },
+        {
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.2
+        },
+        {
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.2
         }
       ],
-      "trimmedMean": 10,
-      "diagnosis": "passing",
-      "timestamp": "2026-03-15T02:28:53.844Z",
+      "trimmedMean": 7,
+      "diagnosis": "footprint(0.0/4), massing(0.0/3), surface(0.0/3)",
+      "timestamp": "2026-03-16T09:21:33.913Z",
       "satRefQuality": 3
     },
     "sandiego": {
       "key": "sandiego",
-      "version": "v104",
+      "version": "v106",
       "difficulty": "medium",
       "scores": [
-        7,
-        10,
-        10,
-        10,
-        7,
-        10
+        6.2,
+        6.2,
+        9.2,
+        4.6,
+        8.5
       ],
       "subscores": [
         {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.2
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.2
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 9.2
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 4.6
         },
         {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
-        },
-        {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 8.5
         }
       ],
-      "trimmedMean": 9.3,
-      "diagnosis": "passing",
-      "timestamp": "2026-03-15T04:40:16.399Z",
+      "trimmedMean": 7,
+      "diagnosis": "footprint(0.0/4), massing(0.0/3), surface(0.0/3), high-variance(range=4.6)",
+      "timestamp": "2026-03-16T09:40:37.595Z",
       "satRefQuality": 3
     },
     "tampa": {
       "key": "tampa",
-      "version": "v104",
+      "version": "v106",
       "difficulty": "medium",
       "scores": [
-        10,
-        9,
-        10,
-        7,
-        10,
-        9
+        7.7,
+        6.9,
+        7.7,
+        6.9,
+        6.9
       ],
       "subscores": [
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 7.7
         },
         {
-          "A": 3,
-          "B": 3,
-          "C": 3,
-          "total": 9
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.9
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 7.7
         },
         {
-          "A": 2,
-          "B": 2,
-          "C": 3,
-          "total": 7
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.9
         },
         {
-          "A": 4,
-          "B": 3,
-          "C": 3,
-          "total": 10
-        },
-        {
-          "A": 3,
-          "B": 3,
-          "C": 3,
-          "total": 9
+          "A": 0,
+          "B": 0,
+          "C": 0,
+          "total": 6.9
         }
       ],
-      "trimmedMean": 9.5,
-      "diagnosis": "passing",
-      "timestamp": "2026-03-15T04:39:04.469Z",
+      "trimmedMean": 7.2,
+      "diagnosis": "footprint(0.0/4), massing(0.0/3), surface(0.0/3)",
+      "timestamp": "2026-03-16T09:35:45.554Z",
       "satRefQuality": 3
     }
   },
