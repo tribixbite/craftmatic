@@ -3632,7 +3632,12 @@ export function alignOSMToFootprint(
   resolution = 1,
   rotationAngle = 0,
   searchRadius = 40,
-  minIoU = 0.25,
+  // v116: Lowered from 0.25 to 0.15. When the voxel grid captures attached row houses
+  // or dense neighborhoods (e.g. SF Victorians), the building polygon is small relative
+  // to the grid. Even with perfect alignment, IoU ≈ polygonArea/totalArea = ~0.20.
+  // 0.25 rejected correct alignments; 0.15 accepts them while still rejecting truly
+  // misaligned polygons (IoU ≈ 0).
+  minIoU = 0.15,
 ): { dx: number; dz: number; iou: number } | null {
   if (polygon.length < 3) return null;
 

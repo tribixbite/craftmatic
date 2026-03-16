@@ -1407,7 +1407,7 @@ async function main(): Promise<void> {
             trimmed, osmData.polygon,
             args.coords.lat, args.coords.lng,
             args.resolution, enuHorizontalAngle,
-            40, 0.25,
+            40, 0.15,  // v116: lowered from 0.25 — dense grids have naturally low IoU
           );
           if (alignment) {
             const aligned = maskToFootprintAligned(
@@ -1430,7 +1430,7 @@ async function main(): Promise<void> {
               console.log(`OSM mask: direct + auto-align both failed (IoU=${alignment.iou.toFixed(2)}), using geometry isolation`);
             }
           } else {
-            console.log(`OSM mask: polygon misaligned, no alignment found (IoU<0.25), using geometry isolation`);
+            console.log(`OSM mask: polygon misaligned, no alignment found (IoU<0.15), using geometry isolation`);
           }
         } else {
           console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
@@ -1585,7 +1585,7 @@ async function main(): Promise<void> {
               trimmed, osmData.polygon,
               args.coords.lat, args.coords.lng,
               args.resolution, enuHorizontalAngle,
-              40, 0.25,
+              40, 0.15,  // v116: lowered from 0.25 — dense grids have naturally low IoU
             );
             if (alignment) {
               const aligned = maskToFootprintAligned(
@@ -1608,7 +1608,7 @@ async function main(): Promise<void> {
                 console.log(`OSM mask: direct + auto-align both failed (IoU=${alignment.iou.toFixed(2)}), using geometry isolation`);
               }
             } else {
-              console.log(`OSM mask: polygon misaligned, no alignment found (IoU<0.25), using geometry isolation`);
+              console.log(`OSM mask: polygon misaligned, no alignment found (IoU<0.15), using geometry isolation`);
             }
           } else {
             console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
@@ -2257,12 +2257,10 @@ async function main(): Promise<void> {
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
   {
-    // v106: Capped to 2 passes. v115: Reduced to 1 pass to preserve sharper footprint
-    // edges. 2 passes rounded corners/edges, causing VLM to score A≤2 ("blobby edges").
-    // Nashville/Dakota regressed at 1 pass (v106) but neither is in current set.
-    // Trade-off: slightly more noise (mitigated by facade homogenization) for cleaner edges.
-    const basePasses = Math.max(args.modePasses, 1);
-    const passes = Math.min(1, basePasses);
+    // v106: Capped to 2 passes. v116: Tested 1 pass — no effect on footprint A scores
+    // (stays at 2), only adds surface noise. 2 passes remains the sweet spot.
+    const basePasses = Math.max(args.modePasses, 2);
+    const passes = Math.min(2, basePasses);
     const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} pass)`);
