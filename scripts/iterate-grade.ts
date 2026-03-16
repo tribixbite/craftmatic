@@ -412,8 +412,6 @@ async function voxelize(b: BuildingConfig): Promise<VoxelizeResult> {
   ];
   // --scene flag: adds environment extraction, feature replacement, plot expansion, enrichment
   if (sceneMode) flagParts.push('--scene');
-  // Preserve real-world orientation for satellite footprint comparison (skip 90° snap)
-  flagParts.push('--no-enu-snap');
   // Only pass -r when explicitly set (resolution > 0); otherwise let auto-2x decide
   if (b.resolution > 0) flagParts.push('-r', String(b.resolution));
   flagParts.push('-o', `"${schem}"`, ...b.extraFlags);
