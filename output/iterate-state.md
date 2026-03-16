@@ -1,59 +1,53 @@
-# Iterate State — v106
+# Iterate State — v106 (nadir composites)
 
 **Target**: 9/10 buildings at 9+
-**Current**: 1/10 passing (flash), 0/10 (3.1-pro-preview — model drift detected)
-**Model**: gemini-2.5-flash + gemini-3.1-pro-preview | **Runs/batch**: 5 (flash), 3 (pro)
-**Updated**: 2026-03-16T07:30:00Z
+**Current**: 0/10 passing (flash w/ nadir sat), 1/10 passing (flash w/ oblique sat)
+**Model**: gemini-2.5-flash | **Runs/batch**: 5 | **Mode**: fresh (20% trimmed mean)
+**Updated**: 2026-03-16T10:00:00Z
 **Last deep review**: 2026-03-13T05:54:05.303Z (gemini-2.5-pro)
 
-## v106 Changes (from v105)
-- morphClose3D r=2→r=1: preserves acute corners (Flatiron triangle)
-- modeFilter3D capped to 2 passes (was 2-3): reduces cascade homogenization
-- homogenizeFacadesByFace threshold 10%→15%: preserves architectural accents
-- Tampa/Atlanta maskDilate 2→1: tighter isolation
-- detectAndRegularizeWindows runs for all tiles (was scene-only)
+## v106 Nadir Satellite Fix
 
-## Flash Scores (gemini-2.5-flash, 5 runs)
+Composite panel order changed from `oblique sat | iso | topdown` to `nadir sat | topdown | iso`.
+This gives the VLM matched perspectives (LEFT+CENTER both top-down) for honest footprint comparison.
 
-| Building | Difficulty | TrimmedMean | Status | Notes |
-|---|---|---|---|---|
-| flatiron | easy | 9.2 | PASS | +3.0 from v105 (was 6.2 on pro) |
-| sentinel | medium | 8.0 | FAIL | was 10 on v105 pro — model diff? |
-| portland | medium | 8.7 | near-PASS | +3.3 from v105 (was 5.4 on pro) |
-| raleigh | medium | 6.9 | FAIL | was 9.5 on v105 pro |
-| dakota | medium | 6.9 | FAIL | was 9 on v105 pro |
-| tampa | medium | 8.7 | near-PASS | +4.9 from v105 (was 3.8 on pro) |
-| atlanta | medium | 7.0 | FAIL | was 10 on v105 pro |
-| nashville | medium | 3.8 | FAIL | was 10 on v105 pro |
-| arlington | medium | 6.4 | FAIL | was 9.3 on v105 pro |
-| sandiego | medium | 6.9 | FAIL | was 9.3 on v105 pro |
+**Result**: Scores dropped ~0.5-1.5 points across the board. The nadir composites expose
+real footprint issues that oblique imagery masked. Previous "passing" scores were inflated by
+the VLM's inability to compare mismatched perspectives.
 
-## Pro Scores (gemini-3.1-pro-preview, 3 runs — MODEL DRIFT)
+## Flash Scores (nadir composites, 5 runs each)
 
-| Building | v105 Pro | v106 Pro | Delta | Notes |
-|---|---|---|---|---|
-| flatiron | 6.2 | **8.5** | +2.3 | pipeline improvement confirmed |
-| sentinel | 10 | 5.4 | -4.6 | model drift (identical voxel for sentinel) |
-| portland | 5.4 | 5.4 | 0 | no change |
-| dakota | 9 | 1.5 | -7.5 | severe model drift |
-| tampa | 3.8 | 3.1 | -0.7 | slight regression |
-| nashville | 10 | 0 | -10 | catastrophic model drift |
+| Building | Difficulty | Nadir Score | Oblique Score | Delta | Notes |
+|---|---|---|---|---|---|
+| flatiron | easy | 8.5 | 9.2 | -0.7 | Still strong, close to passing |
+| sentinel | medium | 7.7 | 8.0 | -0.3 | Wedge shape visible but messy edges |
+| portland | medium | 7.0 | 8.7 | -1.7 | Rectangular, hard to distinguish |
+| raleigh | medium | 5.4 | 6.9 | -1.5 | High variance (3.8-7.7 range) |
+| dakota | medium | 7.7 | 6.9 | +0.8 | Improved — z18 shows courtyard better |
+| tampa | medium | 7.2 | 8.7 | -1.5 | Triangular footprint, z18 still oblique |
+| atlanta | medium | 5.7 | 7.0 | -1.3 | Surrounding geometry bleed |
+| nashville | medium | 3.6 | 3.8 | -0.2 | Blobby amorphous — pipeline issue |
+| arlington | medium | 5.7 | 6.4 | -0.7 | High variance (4.6-10 range) |
+| sandiego | medium | 7.0 | 6.9 | +0.1 | High variance (4.6-9.2 range) |
 
-## Analysis
+**Average**: 6.25 (nadir) vs 7.25 (oblique)
 
-gemini-3.1-pro-preview has drifted since v105 baseline — preview models rotate.
-Buildings scored 9-10 two days ago now score 0-5 with IDENTICAL or improved voxels.
-Sub-scores (A/B/C) mostly 0 — model not outputting structured scores reliably.
+## Key Issues Exposed by Nadir Composites
 
-Pipeline changes ARE helping the 3 target buildings (Flatiron +2.3 on Pro, +3.0 on Flash).
-But model instability makes cross-version comparison unreliable on Pro.
+1. **Surrounding geometry bleed**: Nashville, Atlanta, Raleigh voxels include neighboring buildings/terrain. OSM mask not tight enough.
+2. **Blobby footprints**: Nashville, Tampa, Atlanta have amorphous edges — morphClose + modeFilter rounding corners.
+3. **z18 still oblique in NYC**: Dakota, Flatiron z18 still has slight tilt. May need z17 for truly nadir in dense urban.
+4. **Flash not outputting sub-scores**: A/B/C all 0 — flash ignores structured format, just gives totals.
 
 ## Action Items
 
-- [ ] **Model stability**: Switch to gemini-2.5-flash as primary grader (stable) or gemini-2.5-pro (stable, expensive)
-- [ ] **nashville** (3.8 flash): Investigate — may need better GLB capture or building-specific tuning
-- [ ] **arlington** (6.4 flash): High variance (4-10 range) — needs more runs or sat ref improvement
-- [ ] **raleigh/dakota/sandiego** (~6.9 flash): Near-miss buildings — could benefit from sat ref quality improvement
-- [ ] **atlanta** (7.0 flash): Isolation still imperfect despite dilate=1; --no-osm + --no-post-mask flags may interfere
-- [ ] **sentinel** (8.0 flash): Close to passing — investigate render angle or window detail
-- [ ] **portland/tampa** (8.7 flash): Nearly passing — may improve with more runs (variance)
+- [ ] **Nashville** (3.6): Worst performer. Blobby footprint, need tighter mask + possibly different capture.
+- [ ] **Raleigh** (5.4): High variance. May need better sat ref or tighter isolation.
+- [ ] **Arlington/Atlanta** (5.7): Surrounding geometry. Tighter maskDilate or OSM mask needed.
+- [ ] **Portland** (7.0): Rectangular — hard to score high without distinctive features.
+- [ ] **San Diego** (7.0): High variance. Could benefit from more runs for stable mean.
+- [ ] **Tampa** (7.2): z18 Tampa satellite still somewhat oblique. Good voxel though.
+- [ ] **Sentinel** (7.7): Close. Better edge cleanup could push to 8+.
+- [ ] **Dakota** (7.7): Actually improved with nadir. Courtyard visible at z18.
+- [ ] **Flatiron** (8.5): Closest to passing. Triangle clear in both views. Needs fewer stray blocks.
+- [ ] **Sub-score parsing**: Flash model ignores A/B/C format. May need simpler prompt or different model.
