@@ -1798,15 +1798,14 @@ async function main(): Promise<void> {
   }
 
   // Morph close — spackle pockmarks/holes in photogrammetry surfaces.
-  // v71: Reduced from r=3 to r=2. r=3 fills voids up to 6 blocks (6m) — destroying
-  // corner details, bay windows, and setbacks. r=2 fills up to 4 blocks, sufficient
-  // for photogrammetry gaps while preserving architectural features.
-  // Dilation+erosion fills gaps without changing overall shape.
-  // Runs BEFORE smoothSurface so the surface smoother sees healed faces.
+  // v71: r=3→r=2. v106: r=2→r=1. r=2 fills up to 4 blocks which rounds acute corners
+  // (Flatiron's 60° triangle tip lost). r=1 fills 1-voxel gaps only — sufficient for
+  // photogrammetry noise without destroying architectural detail.
+  // Matches browser tiles pipeline (tiles.ts) which already uses r=1.
   {
-    const closed = morphClose3D(trimmed, 2); // v71: r=2 (r=3 over-smoothed corners/bays)
+    const closed = morphClose3D(trimmed, 1); // v106: r=1 (r=2 rounded acute corners)
     if (closed > 0) {
-      console.log(`Morph close (r=2): ${closed} holes filled`);
+      console.log(`Morph close (r=1): ${closed} holes filled`);
     }
   }
 
@@ -1892,15 +1891,24 @@ async function main(): Promise<void> {
       'minecraft:birch_planks',
     ]);
 
-    // Neutral grays from baked photogrammetric lighting — no material signal
-    const GRAY_BLOCKS = new Set([
+    // v106: Split grays into light/dark families for depth preservation.
+    // Collapsing ALL grays to wallDom produced monochrome facades (Portland, Tampa).
+    // Light grays (L>100) and dark grays (L<80) are distinct shade families —
+    // only collapse a gray to wallDom if they're in the same family.
+    const LIGHT_GRAYS = new Set([
       'minecraft:smooth_stone',       // rgb 162,162,162
       'minecraft:light_gray_concrete', // rgb 125,125,115
       'minecraft:andesite',           // rgb 136,136,136
       'minecraft:polished_andesite',  // rgb 132,135,134
+    ]);
+    const DARK_GRAYS = new Set([
       'minecraft:gray_concrete',      // rgb 55,58,62
       'minecraft:polished_deepslate', // rgb 55,58,62
     ]);
+    const GRAY_BLOCKS = new Set([...LIGHT_GRAYS, ...DARK_GRAYS]);
+    // Determine which gray family wallDom belongs to (if any)
+    const wallIsLightGray = LIGHT_GRAYS.has(wallDom);
+    const wallIsDarkGray = DARK_GRAYS.has(wallDom);
 
     // Count blocks per zone: roof = topmost per column, wall = everything below
     const roofCounts = new Map<string, number>();
@@ -2157,9 +2165,16 @@ async function main(): Promise<void> {
             target = bandBlock;
           } else {
             // Main wall body — preserve distinctive (non-gray) colors from photogrammetry.
-            // Gray blocks are baked-lighting artifacts; replace with wallDom.
+            // v106: Only collapse grays that are in the SAME shade family as wallDom.
+            // Cross-family grays (e.g. dark gray on a light wall) provide facade depth.
             // Non-gray blocks carry real material signal (brick, copper, terracotta); keep them.
-            target = GRAY_BLOCKS.has(b) ? wallDom : b;
+            if (GRAY_BLOCKS.has(b)) {
+              const sameFamily = (wallIsLightGray && LIGHT_GRAYS.has(b))
+                || (wallIsDarkGray && DARK_GRAYS.has(b));
+              target = sameFamily ? wallDom : b;
+            } else {
+              target = b;
+            }
           }
           if (b !== target) { trimmed.set(x, y, z, target); simplified++; }
         }
@@ -2248,14 +2263,14 @@ async function main(): Promise<void> {
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
   {
-    // v95: Hard cap at 3 passes. Previous sqrt(resolution) multiplier gave 4+ passes
-    // at 2x res which erased color variety and produced monotone gray facades.
-    // 3 passes cleans genuine noise; 4+ homogenizes real material differences.
-    const basePasses = Math.max(args.modePasses, 2);
-    const passes = Math.min(3, basePasses);
+    // v106: Capped to 1 pass. The triple-homogenization cascade (GRAY_BLOCKS collapse
+    // → homogenizeFacadesByFace → modeFilter 2+ passes) destroyed color variety and
+    // produced monochrome gray facades. Single pass removes isolated noise voxels;
+    // 2+ passes create positive-feedback erasure of legitimate material variation.
+    const passes = Math.min(1, Math.max(args.modePasses, 1));
     const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
-      console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} passes)`);
+      console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} pass)`);
     }
   }
 
@@ -2281,9 +2296,11 @@ async function main(): Promise<void> {
       'minecraft:light_gray_stained_glass', 'minecraft:black_stained_glass',
       ...(zoneProtected ?? []),
     ]);
-    const homogenized = homogenizeFacadesByFace(trimmed, 0.10, 6, facadeProtected);
+    // v106: Raised from 10% to 15%. Blocks at 10-15% of a face are likely real
+    // architectural accents (copper trim, stone bands), not noise.
+    const homogenized = homogenizeFacadesByFace(trimmed, 0.15, 6, facadeProtected);
     if (homogenized > 0) {
-      console.log(`Facade homogenization: ${homogenized} minority blocks collapsed (1 pass, 10% threshold)`);
+      console.log(`Facade homogenization: ${homogenized} minority blocks collapsed (1 pass, 15% threshold)`);
     }
   }
 
