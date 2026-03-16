@@ -55,11 +55,11 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Sentinel/Columbus Tower, SF — wedge-shaped copper building, 2.0MB browser capture
-    // v110: res 2→1 (2x created 196K blocks covering entire block, not just building),
-    //        maskDilate 1→0 (tightest isolation for small wedge building)
+    // v113: coords fixed from 37.7858→37.7976 (was 130m south, wrong building polygon)
+    //        Columbus Tower is at 916 Kearny St / Columbus Ave intersection
     key: 'sentinel',
     glb: `${DIR}/tiles-sentinel-building-san-francisco-ca.glb`,
-    coords: '37.7858,-122.4063',
+    coords: '37.7976,-122.4069',
     satRef: `${DIR}/sat-ref-sentinel.jpg`,
     satZoom: 20,
     resolution: 1,
@@ -71,14 +71,14 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Portland OR — flat-roof commercial, Pro trimmedMean 6.5 (6 runs)
-    // v110: res 1→2 for more detail (near-passing at 7.3, monochrome gray)
+    // v113: maskDilate 2→0 — dilate=2 was including adjacent building across alley
     key: 'portland',
     glb: `${DIR}/flatroof-portland.glb`,
     coords: '45.5235,-122.6812',
     satRef: `${DIR}/sat-ref-portland.jpg`,
     satZoom: 20,
     resolution: 2,
-    maskDilate: 2,
+    maskDilate: 0,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
@@ -86,13 +86,13 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // MIT Great Dome, Cambridge MA — 4.0MB headless. Distinctive circular dome shape.
-    // v111: res 1→2 to better capture dome curvature in voxels.
+    // v113: revert res 2→1 (2x regressed 6.0→4.7 — dome surface becomes chaotic at higher res)
     key: 'mitdome',
     glb: `${DIR}/mitdome-headless.glb`,
     coords: '42.3594,-71.0928',
     satRef: `${DIR}/sat-ref-mitdome.jpg`,
     satZoom: 20,
-    resolution: 2,
+    resolution: 1,
     maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
@@ -101,13 +101,13 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // 600 Montgomery St / Transamerica Pyramid area, SF — 8.5MB browser capture
-    // v111: z19→20 for tighter zoom on the triangle footprint, res 1→2 for pyramid taper detail
+    // v113: revert res 2→1 (2x regressed 7.7→6.7 — massing B=0.8 at 2x, was 1.6 at 1x)
     key: 'montgomery',
     glb: `${DIR}/tiles-600-montgomery-st-san-francisco-ca.glb`,
     coords: '37.7954,-122.4029',
     satRef: `${DIR}/sat-ref-montgomery.jpg`,
     satZoom: 20,
-    resolution: 2,
+    resolution: 1,
     maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
@@ -116,13 +116,12 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Dallas TX — standalone commercial, 1.8MB headless. v93 rated 5/5 footprint match.
-    // v112: replaces lyon (geocode pointed to park, satellite shows pond not building)
-    // Clean freestanding building, z19 for more nadir at low lat (32.8°).
+    // v113: z19→20 — z19 was way too zoomed out, building barely visible under trees
     key: 'dallas',
     glb: `${DIR}/tiles-dallas-headless.glb`,
     coords: '32.8512,-96.8277',
     satRef: `${DIR}/sat-ref-dallas.jpg`,
-    satZoom: 19,
+    satZoom: 20,
     resolution: 1,
     maskDilate: 1,
     extraFlags: [],
@@ -148,14 +147,13 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // NYC Ansonia Hotel — 5.0MB headless. Distinctive Beaux-Arts round turrets, large footprint.
-    // v112: replaces cambridge (tree canopy voxelized as building, ground features captured)
-    // NYC lat 40.8° = near-nadir satellite. Corner building with distinctive rounded facade.
+    // v113: resolution 1→2 for smoother rounded turrets + curved facade (key for A score)
     key: 'ansonia',
     glb: `${DIR}/nyc-ansonia-headless.glb`,
     coords: '40.7806,-73.9816',
     satRef: `${DIR}/sat-ref-ansonia.jpg`,
     satZoom: 20,
-    resolution: 1,
+    resolution: 2,
     maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
