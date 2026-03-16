@@ -115,44 +115,45 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // 3601 Lyon St, San Francisco CA — large 7-story residential, 6.8MB browser GLB
-    // v111: replaces charlotte (off-center satellite, OSM mask failed, footprint 0.6/4)
-    // SF lat 37.8° = nadir satellite. Distinctive multi-story residential facade.
-    key: 'lyon',
-    glb: `${DIR}/tiles-3601-lyon-st-san-francisco-ca.glb`,
-    coords: '37.8020,-122.4472',
-    satRef: `${DIR}/sat-ref-lyon.jpg`,
-    satZoom: 20,
-    resolution: 1,
-    maskDilate: 1,
-    extraFlags: ['--no-osm'],  // OSM polygon misaligned for this building
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // 191 Peachtree St NE, Atlanta GA — commercial, 7.2MB headless
-    // v111: maskDilate 1→0 for tighter isolation (82×71 grid captures entire block at dilate=1)
-    key: 'atlanta',
-    glb: `${DIR}/flatroof-atlanta.glb`,
-    coords: '33.7590,-84.3869',
-    satRef: `${DIR}/sat-ref-atlanta.jpg`,
+    // Dallas TX — standalone commercial, 1.8MB headless. v93 rated 5/5 footprint match.
+    // v112: replaces lyon (geocode pointed to park, satellite shows pond not building)
+    // Clean freestanding building, z19 for more nadir at low lat (32.8°).
+    key: 'dallas',
+    glb: `${DIR}/tiles-dallas-headless.glb`,
+    coords: '32.8512,-96.8277',
+    satRef: `${DIR}/sat-ref-dallas.jpg`,
     satZoom: 19,
     resolution: 1,
-    maskDilate: 0,
+    maskDilate: 1,
     extraFlags: [],
     difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // Cambridge MA — institutional/church, 3.5MB headless capture.
-    // v111: replaces artinstitute (only captured 1 wing of massive complex, scored 3.7)
-    // High latitude (42.4°) = guaranteed nadir satellite. Multi-wing footprint.
-    key: 'cambridge',
-    glb: `${DIR}/tiles-cambridge-headless.glb`,
-    coords: '42.3766,-71.1227',
-    satRef: `${DIR}/sat-ref-cambridge.jpg`,
+    // Scottsdale AZ — standalone commercial, 1.4MB headless. v93 rated 4/5 footprint match.
+    // v112: replaces atlanta (multiple buildings fused, entire city block captured)
+    // Clean corner lot building, z19 for more nadir at low lat (33.5°).
+    key: 'scottsdale',
+    glb: `${DIR}/tiles-scottsdale-headless.glb`,
+    coords: '33.4877,-111.926',
+    satRef: `${DIR}/sat-ref-scottsdale.jpg`,
+    satZoom: 19,
+    resolution: 1,
+    maskDilate: 1,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // NYC Ansonia Hotel — 5.0MB headless. Distinctive Beaux-Arts round turrets, large footprint.
+    // v112: replaces cambridge (tree canopy voxelized as building, ground features captured)
+    // NYC lat 40.8° = near-nadir satellite. Corner building with distinctive rounded facade.
+    key: 'ansonia',
+    glb: `${DIR}/nyc-ansonia-headless.glb`,
+    coords: '40.7806,-73.9816',
+    satRef: `${DIR}/sat-ref-ansonia.jpg`,
     satZoom: 20,
     resolution: 1,
     maskDilate: 1,
