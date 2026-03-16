@@ -2257,11 +2257,12 @@ async function main(): Promise<void> {
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
   {
-    // v106: Capped to 2 passes. Previous 3-pass cap allowed positive-feedback erasure
-    // at 2x resolution. 1 pass left too much noise (Nashville, Dakota regressed).
-    // 2 passes is the sweet spot: cleans genuine noise without cascading homogenization.
-    const basePasses = Math.max(args.modePasses, 2);
-    const passes = Math.min(2, basePasses);
+    // v106: Capped to 2 passes. v115: Reduced to 1 pass to preserve sharper footprint
+    // edges. 2 passes rounded corners/edges, causing VLM to score A≤2 ("blobby edges").
+    // Nashville/Dakota regressed at 1 pass (v106) but neither is in current set.
+    // Trade-off: slightly more noise (mitigated by facade homogenization) for cleaner edges.
+    const basePasses = Math.max(args.modePasses, 1);
+    const passes = Math.min(1, basePasses);
     const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} pass)`);
