@@ -212,6 +212,7 @@ Options:
   let trimThreshold = 0.05;
   let gamma = 0.85; // v95: 0.75→0.85 — less mid-tone compression preserves color variety for CIE-Lab matching
   let kernel = 12; // Moderate kernel — preserves window/trim features while smoothing noise
+  let explicitKernel = false; // Track if --kernel was explicitly passed
   let desaturate = 0.05; // Minimal desaturation — preserve building-specific colors (green copper, brick, etc.)
   let outputPath = '';
   let infoOnly = false;
@@ -264,6 +265,7 @@ Options:
       gamma = parseFloat(args[++i]);
     } else if (arg === '--kernel' || arg === '-k') {
       kernel = parseInt(args[++i], 10);
+      explicitKernel = true;
     } else if (arg === '--desaturate') {
       desaturate = parseFloat(args[++i]);
     } else if (arg === '--output' || arg === '-o') {
@@ -377,7 +379,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, enrich, scene, plotRadius };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, enrich, scene, plotRadius };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1152,18 +1154,44 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // v80: Auto 2x resolution for small buildings — curved shapes need more blocks
-  // to approximate their footprint accurately. At 1 block/m, a 15m-wide building
-  // is only 15 blocks across, making curves indistinguishable from rectangles.
+  // Dynamic resolution scaling based on building dimensions.
+  // Goal: fit building within reasonable MC block counts while preserving detail.
   if (!args.explicitResolution && args.auto) {
     const keptBox = new THREE.Box3();
     for (const k of kept) keptBox.union(k.worldBox);
     const keptSize = new THREE.Vector3();
     keptBox.getSize(keptSize);
+    const buildingH = keptSize.y;
     const buildingW = Math.max(keptSize.x, keptSize.z);
-    if (buildingW > 0 && buildingW < 25) {
+    if (buildingH > 100) {
+      // Tall building (ESB 443m, Willis 442m, Chrysler 319m): cap at 1 block/m
+      // to fit within 350 MC blocks height. Higher res would exceed practical limits.
+      args.resolution = 1;
+      console.log(`Auto resolution=1: tall building ${buildingH.toFixed(0)}m (cap at 1 block/m)`);
+    } else if (buildingH < 40 && buildingW < 40) {
+      // Small building (Guggenheim 28m, Geisel 39m): higher res for curve fidelity.
+      // 3 blocks/m gives 84-117 blocks — enough to resolve curves and details.
+      args.resolution = Math.min(3, Math.ceil(40 / buildingW));
+      console.log(`Auto resolution=${args.resolution}: small building ${buildingW.toFixed(0)}×${buildingH.toFixed(0)}m`);
+    } else if (buildingW > 0 && buildingW < 25) {
+      // v80: medium-small buildings — 2x for curve approximation
       args.resolution = 2;
       console.log(`Auto 2x resolution: building width ${buildingW.toFixed(0)}m < 25m threshold`);
+    }
+  }
+
+  // Dynamic kernel scaling: reduce kernel for tall/complex buildings to preserve facade detail.
+  // 24px (kernel=12) averages out window patterns, cornices, and material transitions on towers.
+  // 12px (kernel=6) preserves these details while still smoothing photogrammetry noise.
+  if (args.auto && !args.explicitKernel) {
+    const kBox = new THREE.Box3();
+    for (const k of kept) kBox.union(k.worldBox);
+    const kSize = new THREE.Vector3();
+    kBox.getSize(kSize);
+    const aspectRatio = kSize.y / Math.max(Math.max(kSize.x, kSize.z), 1);
+    if (aspectRatio > 1.5) {
+      args.kernel = 6; // Tower: preserve facade detail (windows, cornices, material bands)
+      console.log(`Auto kernel=6: tower aspect ratio ${aspectRatio.toFixed(2)} (height ${kSize.y.toFixed(0)}m)`);
     }
   }
 
@@ -1286,6 +1314,7 @@ async function main(): Promise<void> {
     console.log(`  Components: ${analysis.componentCount} (central: ${cW}x${cH}x${cL} blocks)`);
     console.log(`  Partial capture: ${analysis.isPartialCapture ? `YES (${analysis.edgeTouchPct.toFixed(1)}% edge touch)` : `no (${analysis.edgeTouchPct.toFixed(1)}%)`}`);
     console.log(`  Typology: ${analysis.typology} | Aspect: ${analysis.aspectRatio.toFixed(2)} | Footprint fill: ${(analysis.footprintFill * 100).toFixed(0)}% | Rectangular: ${analysis.isRectangular}`);
+    console.log(`  Shape: OBB rectangularity=${(analysis.rectangularity * 100).toFixed(0)}% | Setbacks: ${analysis.hasSetbacks} | Profile: ${analysis.heightProfile}`);
     console.log(`  Roof: ${analysis.isFlatRoof ? 'flat' : 'pitched'} (variance ${analysis.roofVariance.toFixed(1)})`);
     console.log(`  Facade: dominant=${analysis.dominantBlock.replace('minecraft:', '')} (${analysis.dominantPct.toFixed(0)}%) secondary=${analysis.secondaryBlock.replace('minecraft:', '')}`);
     console.log(`  Noise: ${analysis.noisePct.toFixed(1)}% protrusions (${analysis.protrusion1vCount} single-voxel)`);
@@ -1444,7 +1473,16 @@ async function main(): Promise<void> {
     // fused into the same mesh, sample footprint at 75% height (above neighbors)
     // and strip everything outside the expanded tower footprint.
     // Expansion 15 blocks allows for typical skyscraper setbacks (base 2-3x tower width).
-    const towerIsolated = isolateTallestStructure(trimmed, 0.75, 5);
+    // SKIP for setback buildings — 75% height sampling shears off stepped base (ESB, Capitol).
+    // The 3D CC isolation in step 3c preserves setbacks because base+tower are connected.
+    if (!analysis?.hasSetbacks) {
+      const towerIsolated = isolateTallestStructure(trimmed, 0.75, 5);
+      if (towerIsolated > 0) {
+        console.log(`Tower isolation: ${towerIsolated} blocks removed (75% height footprint)`);
+      }
+    } else {
+      console.log(`Tower isolation: SKIPPED (building has setbacks — using 3D CC instead)`);
+    }
 
     // Step 3b: Component cleanup — remove noise/debris ≥500 voxels
     const preFillCleaned = removeSmallComponents(trimmed, 500);
@@ -1621,7 +1659,15 @@ async function main(): Promise<void> {
       }
 
       // Step 3a: Tower isolation — strip surrounding buildings for skyscrapers
-      const towerIsolated2 = isolateTallestStructure(trimmed, 0.75, 5);
+      // SKIP for setback buildings — 75% height sampling shears off stepped base.
+      if (!analysis?.hasSetbacks) {
+        const towerIsolated2 = isolateTallestStructure(trimmed, 0.75, 5);
+        if (towerIsolated2 > 0) {
+          console.log(`Tower isolation: ${towerIsolated2} blocks removed (75% height footprint)`);
+        }
+      } else {
+        console.log(`Tower isolation: SKIPPED (building has setbacks)`);
+      }
 
       // Step 3b: Remove noise/debris — keep all components ≥500 voxels.
       // Threshold 500 preserves legitimate building wings (Pentagon, Capitol) while
@@ -1804,49 +1850,72 @@ async function main(): Promise<void> {
     }
   }
 
+  // Determine if building has complex geometry (non-rectangular footprint or setbacks)
+  // that should be protected from destructive post-processing filters.
+  const isComplexShape = (analysis?.rectangularity ?? 1) < 0.85 || (analysis?.hasSetbacks ?? false);
+  if (isComplexShape) {
+    console.log(`Complex shape detected: rectangularity=${(analysis?.rectangularity ?? 1).toFixed(2)}, setbacks=${analysis?.hasSetbacks}, profile=${analysis?.heightProfile}`);
+  }
+
   // Morph close — spackle pockmarks/holes in photogrammetry surfaces.
   // v71: r=3→r=2. v106: r=2→r=1. v118: tested r=2 — bloated small buildings (dallas 9→7,
   // ansonia 9.3→7). r=1 confirmed optimal: fills 1-voxel gaps without adding blobby mass.
+  // For complex shapes: only apply to bottom 30% to protect crown/spire/dome geometry.
   {
-    const closed = morphClose3D(trimmed, 1); // v106+: r=1 confirmed (r=2 bloats small buildings)
-    if (closed > 0) {
-      console.log(`Morph close (r=1): ${closed} holes filled`);
+    if (isComplexShape) {
+      // Restrict morph close to bottom portion — upper structure has real tapering/stepping
+      const maxY = Math.round(trimmed.height * 0.30);
+      const closed = morphClose3D(trimmed, 1, maxY);
+      if (closed > 0) {
+        console.log(`Morph close (r=1, maxY=${maxY}): ${closed} holes filled (complex shape — bottom 30% only)`);
+      }
+    } else {
+      const closed = morphClose3D(trimmed, 1);
+      if (closed > 0) {
+        console.log(`Morph close (r=1): ${closed} holes filled`);
+      }
     }
   }
 
   // v74: Edge straightening — median filter on XZ silhouette traces to remove
   // stair-step jaggies. Run after morphClose (shape healed) but before zone assignment
   // and facade smoothing. maxShift=2 limits correction to avoid distorting real setbacks.
-  {
+  // Skip for complex shapes — setbacks and tapers are NOT staircase noise.
+  if (!isComplexShape) {
     const straightened = straightenFootprintEdges(trimmed, 2, 2);
     if (straightened > 0) {
       console.log(`Edge straightening: ${straightened} blocks adjusted (median filter, maxShift=2)`);
     }
+  } else {
+    console.log(`Edge straightening: SKIPPED (complex shape — setbacks are real geometry)`);
   }
 
   // Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
   // v73: Protect top 40% of building (was 20% in v70). Montgomery's peaked roof
   // and Ansonia's ornate upper facade were destroyed by smoothing.
   // Walls below 60% height benefit from smoothing but roof/upper features are real architecture.
+  // For complex shapes: reduce protected zone to 70% (only smooth bottom 30%)
   {
-    const roofCutoff = Math.round(trimmed.height * 0.60);
+    const roofCutoff = isComplexShape
+      ? Math.round(trimmed.height * 0.30) // Complex: protect top 70% (crown, setbacks, dome)
+      : Math.round(trimmed.height * 0.60); // Rectangular: protect top 40%
     // v73: preserveBoundary=true locks silhouette edges (tips, corners) from erosion
     const surfaceSmoothed = smoothSurface(trimmed, roofCutoff, true);
     if (surfaceSmoothed > 0) {
-      console.log(`Surface smoothing: ${surfaceSmoothed} 1-block protrusions removed (below Y=${roofCutoff})`);
+      console.log(`Surface smoothing: ${surfaceSmoothed} 1-block protrusions removed (below Y=${roofCutoff}${isComplexShape ? ', complex shape' : ''})`);
     }
-    // For rectangular buildings, snap noisy walls to dominant flat planes.
-    // v70: tolerance reduced from 2 to 1 — tolerance=2 was destroying bay windows
-    // (Green: 15 blocks snapped) and facade setbacks (Dakota: 124 blocks).
-    // tolerance=1 only snaps blocks directly adjacent to the dominant plane,
-    // preserving 2+ block protrusions like bay windows and stepped facades.
-    if (analysis?.isRectangular) {
+    // For rectangular buildings (OBB ≥0.85 AND no setbacks), snap noisy walls to dominant flat planes.
+    // v70: tolerance reduced from 2 to 1 — tolerance=2 was destroying bay windows.
+    // Skip entirely for non-rectangular or setback buildings — their walls ARE the shape.
+    if (!isComplexShape && analysis?.isRectangular) {
       // v95: Pass roofCutoff to skip roof layer — flattenFacades was snapping
       // roof geometry to facade planes, creating holes visible in top-down views.
       const snapped = flattenFacades(trimmed, 1, roofCutoff);
       if (snapped > 0) {
         console.log(`Facade flattening: ${snapped} voxels snapped to dominant planes (below Y=${roofCutoff})`);
       }
+    } else if (isComplexShape) {
+      console.log(`Facade flattening: SKIPPED (complex shape — walls define building identity)`);
     }
   }
 

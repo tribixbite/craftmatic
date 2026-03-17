@@ -646,6 +646,163 @@ export async function renderTopDown(
 }
 
 /**
+ * Render a front elevation view — orthographic projection of the building facade.
+ * For each (horizontal, Y) position, finds the first non-air block along the view axis.
+ * Reveals setbacks, spires, domes, and tapering that iso/topdown views compress away.
+ *
+ * @param face - Which face to render. 'auto' picks the longest horizontal extent.
+ *   'north'/'south' look along Z axis, 'east'/'west' look along X axis.
+ */
+export async function renderFrontElevation(
+  grid: BlockGrid,
+  options: { scale?: number; face?: 'north' | 'south' | 'east' | 'west' | 'auto' } = {}
+): Promise<Buffer> {
+  const texAtlas = await ensureAtlas();
+  let { scale = 8, face = 'auto' } = options;
+  const { width: w, height: h, length: l } = grid;
+  const blocks = grid.to3DArray();
+
+  // Find non-air bounding box
+  let minX = w, maxX = 0, minY = h, maxY = 0, minZ = l, maxZ = 0;
+  for (let y = 0; y < h; y++) {
+    for (let z = 0; z < l; z++) {
+      for (let x = 0; x < w; x++) {
+        if (blocks[y][z][x] !== 'minecraft:air') {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+          if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+        }
+      }
+    }
+  }
+  if (minX > maxX) { minX = 0; maxX = w - 1; minY = 0; maxY = h - 1; minZ = 0; maxZ = l - 1; }
+
+  // Auto-pick face: show the face with the longest horizontal extent
+  if (face === 'auto') {
+    const xExtent = maxX - minX + 1;
+    const zExtent = maxZ - minZ + 1;
+    face = xExtent >= zExtent ? 'south' : 'east'; // south shows X-axis width, east shows Z-axis depth
+  }
+
+  // Determine horizontal/depth axes based on face direction
+  const lookAlongZ = face === 'north' || face === 'south';
+  const hMin = lookAlongZ ? minX : minZ;
+  const hMax = lookAlongZ ? maxX : maxZ;
+  const hExtent = hMax - hMin + 1;
+  const vExtent = maxY - minY + 1;
+
+  const pad = 2;
+  const margin = Math.max(4, scale);
+  let imgW = (hExtent + pad * 2) * scale + margin * 2;
+  let imgH = (vExtent + pad * 2) * scale + margin * 2;
+
+  // Clamp to MAX_DIM
+  if (Math.max(imgW, imgH) > MAX_DIM) {
+    const ratio = MAX_DIM / Math.max(imgW, imgH);
+    scale = Math.max(2, Math.round(scale * ratio));
+    const m2 = Math.max(4, scale);
+    imgW = (hExtent + pad * 2) * scale + m2 * 2;
+    imgH = (vExtent + pad * 2) * scale + m2 * 2;
+  }
+
+  const ox = Math.max(4, scale) + pad * scale;
+  const oy = Math.max(4, scale) + pad * scale;
+
+  const pixels = Buffer.alloc(imgW * imgH * 4);
+  fillRect(pixels, imgW, 0, 0, imgW, imgH, [20, 20, 20]);
+
+  // Cache block color lookups
+  const colorCache = new Map<string, RGB | null>();
+  function cachedBlockColor(bs: string): RGB | null {
+    let c = colorCache.get(bs);
+    if (c !== undefined) return c;
+    c = getBlockColor(bs);
+    colorCache.set(bs, c);
+    return c;
+  }
+
+  // For each (horizontal, Y) find the first non-air block along the depth axis
+  for (let hIdx = 0; hIdx < hExtent; hIdx++) {
+    const hCoord = hMin + hIdx;
+    for (let y = minY; y <= maxY; y++) {
+      let frontBlock = 'minecraft:air';
+      let depth = -1;
+
+      if (lookAlongZ) {
+        // Looking along Z: sweep from viewer toward building
+        if (face === 'south') {
+          // Viewer at -Z looking +Z
+          for (let z = minZ; z <= maxZ; z++) {
+            if (blocks[y][z][hCoord] !== 'minecraft:air') {
+              frontBlock = blocks[y][z][hCoord];
+              depth = z - minZ;
+              break;
+            }
+          }
+        } else {
+          // north: Viewer at +Z looking -Z
+          for (let z = maxZ; z >= minZ; z--) {
+            if (blocks[y][z][hCoord] !== 'minecraft:air') {
+              frontBlock = blocks[y][z][hCoord];
+              depth = maxZ - z;
+              break;
+            }
+          }
+        }
+      } else {
+        // Looking along X: sweep from viewer toward building
+        if (face === 'east') {
+          // Viewer at -X looking +X
+          for (let x = minX; x <= maxX; x++) {
+            if (blocks[y][hCoord][x] !== 'minecraft:air') {
+              frontBlock = blocks[y][hCoord][x];
+              depth = x - minX;
+              break;
+            }
+          }
+        } else {
+          // west: Viewer at +X looking -X
+          for (let x = maxX; x >= minX; x--) {
+            if (blocks[y][hCoord][x] !== 'minecraft:air') {
+              frontBlock = blocks[y][hCoord][x];
+              depth = maxX - x;
+              break;
+            }
+          }
+        }
+      }
+
+      const color = cachedBlockColor(frontBlock);
+      if (color === null) continue;
+
+      const px = ox + hIdx * scale;
+      // Y is inverted: top of building at top of image
+      const py = oy + (maxY - y) * scale;
+
+      // Depth-based brightness: closer = brighter (0.6–1.0 range)
+      const maxDepth = lookAlongZ ? (maxZ - minZ + 1) : (maxX - minX + 1);
+      const depthFactor = depth >= 0 ? 1.0 - 0.4 * (depth / Math.max(maxDepth, 1)) : 0.7;
+
+      // Texture-based rendering
+      const texFace = lookAlongZ ? (face === 'south' ? 'north' : 'south') : (face === 'east' ? 'west' : 'east');
+      const texData = getTexData(texAtlas, frontBlock, texFace);
+      if (texData && scale >= 4) {
+        blitTextureTile(pixels, imgW, px, py, scale,
+          texData, texAtlas.tileSize, depthFactor, depthFactor, depthFactor);
+      } else {
+        let [r, g, b] = color;
+        r = clamp(r * depthFactor);
+        g = clamp(g * depthFactor);
+        b = clamp(b * depthFactor);
+        fillRect(pixels, imgW, px, py, scale, scale, [r, g, b]);
+      }
+    }
+  }
+
+  return encodePNG(pixels, imgW, imgH);
+}
+
+/**
  * Render a top-down view using satellite image colors projected onto voxel geometry.
  * Combines accurate real-world colors from satellite imagery with 3D height detail
  * from voxelization. Each XZ column samples the satellite image at the corresponding
