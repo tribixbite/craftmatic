@@ -11,7 +11,7 @@ import { enableSelection } from '@viewer/selection.js';
 import { cropToAABB } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { trimGrid } from '@craft/gen/gen-utils.js';
-import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
+import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportHTML, exportThreeJSON, exportLayerGuide } from '@viewer/exporter.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initImport, type PropertyData } from '@ui/import.js';
 import { initUpload } from '@ui/upload.js';
@@ -129,6 +129,7 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
         <button class="download-item" data-format="obj">OBJ<span class="download-desc">Universal</span></button>
         <button class="download-item" data-format="three">Three.js JSON<span class="download-desc">Scene</span></button>
         <button class="download-item" data-format="html">HTML<span class="download-desc">Standalone</span></button>
+        <button class="download-item" data-format="layer-guide">Layer Guide<span class="download-desc">Print to PDF</span></button>
       </div>
     </div>
     <button class="btn btn-secondary btn-sm" id="inline-expand" title="Expand to full viewer">
@@ -309,6 +310,10 @@ function wireDownloadDropdown(
           case 'html':
             if (!viewer) return;
             exportHTML(viewer, `${exportBasename}.html`);
+            break;
+          case 'layer-guide':
+            if (!grid) return;
+            exportLayerGuide(grid, exportBasename, `${exportBasename}-layer-guide.html`);
             break;
         }
       } catch (err) {
