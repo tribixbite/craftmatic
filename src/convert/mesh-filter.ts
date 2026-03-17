@@ -250,8 +250,10 @@ export function smoothRareBlocks(grid: BlockGrid, minFrequency = 0.02): number {
  * @param radius  Structuring element radius (default: 1 = fills 1-voxel gaps)
  * @returns Number of voxels changed (net fills after erode)
  */
-export function morphClose3D(grid: BlockGrid, radius = 1): number {
+export function morphClose3D(grid: BlockGrid, radius = 1, maxY?: number): number {
   const { width, height, length } = grid;
+  // Optional Y limit — only process layers 0..maxY (protects crown/spire/dome above)
+  const yLimit = maxY !== undefined ? Math.min(maxY, height) : height;
 
   // Snapshot before dilation
   const before: string[] = new Array(width * height * length);
@@ -267,7 +269,7 @@ export function morphClose3D(grid: BlockGrid, radius = 1): number {
   // For each air voxel, check if any solid neighbor within radius exists.
   // If so, assign the most common neighbor block.
   let dilated = 0;
-  for (let y = 0; y < height; y++) {
+  for (let y = 0; y < yLimit; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         if (before[(y * length + z) * width + x] !== 'minecraft:air') continue;
@@ -324,7 +326,7 @@ export function morphClose3D(grid: BlockGrid, radius = 1): number {
     }
   }
 
-  for (let y = 0; y < height; y++) {
+  for (let y = 0; y < yLimit; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         // Only consider voxels that were added by dilation (were air before)
@@ -4445,6 +4447,11 @@ export interface AnalysisResult {
   footprintFill: number;       // fraction of XZ bounding rect filled at ground level
   isRectangular: boolean;      // footprintFill > 0.7
 
+  // 4b. Shape classification for filter gating
+  rectangularity: number;      // footprint area / OBB area (0-1, <0.85 = non-rectangular)
+  hasSetbacks: boolean;        // footprint shrinks >20% between Y quartiles
+  heightProfile: 'uniform' | 'tapered' | 'stepped' | 'domed';
+
   // 5. Roof analysis
   isFlatRoof: boolean;         // low heightmap variance in top 10%
   roofVariance: number;        // normalized variance of top-layer height distribution
@@ -4785,6 +4792,73 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     typology = 'block';
   } else {
     typology = 'house';
+  }
+
+  // ── 4b. OBB rectangularity + setback detection ──
+  // Compute oriented bounding box via brute-force angular sweep (36 steps = 5° each).
+  // Collect occupied XZ columns of central component at mid-height.
+  const obbColumns: { x: number; z: number }[] = [];
+  for (let z = cMinZ; z <= cMaxZ; z++) {
+    for (let x = cMinX; x <= cMaxX; x++) {
+      if (labels[(midY * length + z) * width + x] === centralLabel) {
+        obbColumns.push({ x: x - cMinX, z: z - cMinZ });
+      }
+    }
+  }
+
+  let rectangularity = 1.0;
+  if (obbColumns.length > 2) {
+    let minOBBArea = Infinity;
+    for (let deg = 0; deg < 180; deg += 5) {
+      const theta = deg * Math.PI / 180;
+      const cos = Math.cos(theta);
+      const sin = Math.sin(theta);
+      let rMinU = Infinity, rMaxU = -Infinity;
+      let rMinV = Infinity, rMaxV = -Infinity;
+      for (const col of obbColumns) {
+        const u = col.x * cos - col.z * sin;
+        const v = col.x * sin + col.z * cos;
+        if (u < rMinU) rMinU = u;
+        if (u > rMaxU) rMaxU = u;
+        if (v < rMinV) rMinV = v;
+        if (v > rMaxV) rMaxV = v;
+      }
+      // +1 because columns are discrete cells
+      const area = (rMaxU - rMinU + 1) * (rMaxV - rMinV + 1);
+      if (area < minOBBArea) minOBBArea = area;
+    }
+    rectangularity = Math.min(1.0, obbColumns.length / minOBBArea);
+  }
+
+  // Detect setbacks: compare footprint area at height quartiles.
+  // Count occupied XZ columns at 25%, 50%, 75% height of central component.
+  const quartileAreas: number[] = [];
+  for (const pct of [0.25, 0.50, 0.75]) {
+    const sampleY = Math.floor(cMinY + (cMaxY - cMinY) * pct);
+    let count = 0;
+    for (let z = cMinZ; z <= cMaxZ; z++) {
+      for (let x = cMinX; x <= cMaxX; x++) {
+        if (labels[(sampleY * length + z) * width + x] === centralLabel) count++;
+      }
+    }
+    quartileAreas.push(count);
+  }
+  const hasSetbacks = quartileAreas[0] > 0 && quartileAreas[2] < quartileAreas[0] * 0.80;
+
+  // Classify height profile
+  let heightProfile: 'uniform' | 'tapered' | 'stepped' | 'domed' = 'uniform';
+  if (quartileAreas[0] > 0) {
+    const ratio50 = quartileAreas[1] / quartileAreas[0];
+    const ratio75 = quartileAreas[2] / quartileAreas[0];
+    if (ratio75 < 0.3) {
+      // Top is much narrower — check if linear taper or discrete steps
+      heightProfile = ratio50 < 0.65 ? 'tapered' : 'stepped';
+    } else if (ratio50 > ratio75 && ratio50 > 1.05) {
+      // Middle is wider than bottom and top — dome/bulge
+      heightProfile = 'domed';
+    } else if (hasSetbacks) {
+      heightProfile = 'stepped';
+    }
   }
 
   // ── 5. Roof flatness ──
@@ -5158,8 +5232,8 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
   const t = typology as BuildingTypology; // widen for future flatiron support
   const useAABBCrop = needsCrop && (t === 'flatiron' || t === 'complex');
   // solidifyCore works for rectangular buildings (block, tower, house).
-  // Non-rectangular (flatiron, complex) need generic mode to preserve shape.
-  const useGeneric = t === 'flatiron' || t === 'complex';
+  // Non-rectangular (flatiron, complex, or OBB <0.85) need generic mode to preserve shape.
+  const useGeneric = t === 'flatiron' || t === 'complex' || rectangularity < 0.85 || hasSetbacks;
   // Use full palette only for white/gray rectangular buildings where it was tuned.
   // Non-rectangular and colored buildings need colors preserved.
   const wantFullPalette = !useGeneric && (WHITE_BLOCKS.has(dominantBlock) || WHITE_BLOCKS.has(secondaryBlock));
@@ -5184,6 +5258,7 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
     componentCount, centralAABB, suggestedCropRadius,
     edgeTouchPct, isPartialCapture,
     typology, aspectRatio, footprintFill, isRectangular,
+    rectangularity, hasSetbacks, heightProfile,
     isFlatRoof, roofVariance,
     dominantBlock, secondaryBlock, dominantPct, suggestedRemaps,
     protrusion1vCount, noisePct, suggestedClean,

@@ -179,7 +179,7 @@ const BUILDINGS: BuildingConfig[] = [
 ];
 
 // ── VLM Grading ──
-interface SubScore { A: number; B: number; C: number; total: number }
+interface SubScore { A: number; B: number; C: number; D: number; total: number }
 interface BuildingResult {
   key: string;
   version: string;
@@ -208,7 +208,11 @@ interface IterateState {
 
 const STRUCTURED_PROMPT = `You are a STRICT grader of Minecraft voxel reconstructions of real buildings.
 
-Each image has 3 panels: LEFT = satellite photo, CENTER = isometric 3D render, RIGHT = top-down footprint.
+Each image has 4 panels in a 2×2 grid:
+- TOP-LEFT: satellite photo (real-world reference)
+- TOP-RIGHT: isometric 3D voxel render
+- BOTTOM-LEFT: front elevation voxel render (shows building silhouette/profile)
+- BOTTOM-RIGHT: top-down footprint voxel render
 
 Score each building on this rubric:
 
@@ -220,7 +224,7 @@ A) Footprint accuracy (0-4):
 - 0: Unrecognizable or amorphous blob.
 
 B) Massing accuracy (0-3):
-- 3: Height and volume clearly match what's visible in satellite (shadow length, relative scale to neighbors). Correct floor count.
+- 3: Height and volume clearly match what's visible in satellite (shadow length, relative scale to neighbors). Correct floor count. Use the front elevation (bottom-left) to judge vertical massing — setbacks, tapering, spires, and domes should be visible there.
 - 2: Approximately correct proportions.
 - 1: Wrong proportions or can't verify against satellite.
 - 0: Completely wrong volume.
@@ -231,26 +235,34 @@ C) Surface quality (0-3):
 - 1: Mostly monochrome with no zone distinction.
 - 0: Single material, messy, heavy artifacts.
 
-Total = A + B + C (max 10).
+D) Identity (0-2 BONUS):
+- 2: Distinctive non-rectangular form clearly reproduced (dome, spire, wedge, setbacks, tapering). Someone who knows the building would identify it from the voxel alone.
+- 1: Some distinctive features partially visible but not immediately recognizable.
+- 0: Rectangular box or distinctive features not visible. (Most buildings correctly score 0.)
+
+Total = A + B + C + D (max 12), then normalize: Score = round(Total × 10 / 12, 1).
+
+HARD CAP: If the building is known to have a distinctive silhouette (spire, dome, setbacks, wedge) but the voxel shows only a rectangular box, cap Total at 5/10 regardless of other scores.
 
 IMPORTANT: Score what you actually SEE, not what might be there.
 - If the satellite image is obscured (trees, shadows, low zoom), cap A at 2 and B at 1.
 - If the voxel includes multiple buildings or large surrounding terrain, cap A at 3.
 - If edges are blobby/amorphous (no straight lines or clear corners), cap A at 2.
 - Dark/tinted glass blocks on facades are WINDOWS (intentional), not artifacts. Do NOT penalize window glass for C score.
+- Use the front elevation (bottom-left panel) to judge vertical accuracy — it shows setbacks, spires, and domes that are invisible in top-down or compressed in isometric views.
 
 Calibration anchors:
-- 10/10: The voxel is immediately recognizable as THIS SPECIFIC building. Someone who knows the building would identify it from the voxel alone. Distinctive features perfectly preserved.
-- 9/10: Footprint precisely matches satellite with all major features (corners, angles, setbacks). Massing is proportionate. 3+ clean material zones. A human would say "yes, that's the building."
-- 7/10: Correct general shape with right proportions. Clean rectangular buildings with matching aspect ratio. Some material distinction.
-- 5/10: Recognizable as A building but not clearly THIS building. Approximate shape, rough edges.
+- 10/10: Distinctive building form perfectly reproduced. Spire/dome/wedge/setbacks clearly visible in front elevation. Someone familiar with the building identifies it instantly.
+- 8/10: Shape mostly correct with visible distinctive features. Good material zones. Minor imperfections.
+- 6/10: Correct general shape with right proportions. Clean rectangular buildings with matching aspect ratio. Some material distinction.
+- 4/10: Recognizable as A building but not clearly THIS building. Distinctive features lost.
 - 2/10: Blob, artifacts, or shape doesn't correspond to satellite.
 
 For EACH building image, respond with EXACTLY this format (one line per building):
-NAME: A=X B=X C=X Total=X.X
+NAME: A=X B=X C=X D=X Total=X.X
 Brief 1-line explanation.
 
-Be harsh and honest. Most voxel builds at 1 block/m deserve 5-7. Only exceptional builds with distinctive, recognizable features get 9-10.`;
+Be harsh and honest. Most voxel builds at 1 block/m deserve 4-6. Only exceptional builds with distinctive, recognizable features get 8-10.`;
 
 // ── CLI parsing ──
 const args = process.argv.slice(2);
@@ -432,37 +444,36 @@ async function voxelize(b: BuildingConfig): Promise<VoxelizeResult> {
   return { schem, actualRes, gridWidth, gridHeight, gridLength, blockCount };
 }
 
-/** Render iso + topdown JPEGs from schem at high quality */
-async function render(b: BuildingConfig, schem: string, actualRes: number): Promise<{ iso: string; topdown: string }> {
+/** Render iso + topdown + front elevation JPEGs from schem at high quality */
+async function render(b: BuildingConfig, schem: string, actualRes: number): Promise<{ iso: string; topdown: string; front: string }> {
   const iso = schem.replace('.schem', '-iso.jpg');
   const topdown = schem.replace('.schem', '-topdown.jpg');
+  const front = schem.replace('.schem', '-front.jpg');
   // Higher tile/scale for grade composites — quality matters for VLM comparison.
   // At 2x resolution the grid is already large so moderate tile (8) suffices.
   // At 1x resolution, bump higher (10) for sharper texture detail.
   const tile = actualRes >= 2 ? Math.max(b.tileSize, 8) : Math.max(b.tileSize, 10);
   const scale = actualRes >= 2 ? Math.max(b.topdownScale, 10) : Math.max(b.topdownScale, 12);
-  console.log(`  Rendering: iso (tile=${tile}) + topdown (scale=${scale}) [res=${actualRes}x]`);
+  console.log(`  Rendering: iso (tile=${tile}) + topdown (scale=${scale}) + front [res=${actualRes}x]`);
   await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
   await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
-  return { iso, topdown };
+  await run(`bun scripts/_render-front.ts "${schem}" "${front}" --scale ${scale}`);
+  return { iso, topdown, front };
 }
 
-/** Create grade composite: satellite | isometric voxel | top-down voxel
- *  v119: Reverted to v103 composite approach — standard 640×640 satellite (no hi-res crop),
- *  500px panels, sat|iso|topdown order. Hi-res satellite (v107) made VLM too critical
- *  by showing more detail than voxels can reproduce, causing universal A score regression.
- *
- *  Panel order: LEFT satellite | CENTER isometric 3D | RIGHT top-down footprint */
+/** Create grade composite: 2×2 grid for identity-aware grading.
+ *  TL=satellite, TR=isometric 3D, BL=front elevation, BR=top-down footprint.
+ *  Each panel ~480px in a ~990×990 image (fits 1950px constraint). */
 async function composite(
-  b: BuildingConfig, iso: string, topdown: string,
+  b: BuildingConfig, iso: string, topdown: string, front?: string,
   gridInfo?: { gridWidth: number; gridLength: number; actualRes: number },
 ): Promise<string> {
-  const PANEL = 500; // v103 panel size — lower res gives VLM less to criticize
-  const GAP = 20;
-  const W = PANEL * 3 + GAP * 4;
+  const PANEL = 480;
+  const GAP = 15;
+  const W = PANEL * 2 + GAP * 3; // ~975px
+  const H = PANEL * 2 + GAP * 3;
 
-  // v119: Use standard 640×640 satellite (not hi-res). Lower resolution = less
-  // detail mismatch between satellite and voxel = more generous A scores.
+  // Satellite reference image
   const hasSat = existsSync(b.satRef);
   const sat = hasSat
     ? await sharp(resolve(b.satRef)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer()
@@ -471,26 +482,30 @@ async function composite(
   const isoImg = await sharp(resolve(iso)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer();
   const tdImg = await sharp(resolve(topdown)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer();
 
-  const satMeta = await sharp(sat).metadata();
-  const isoMeta = await sharp(isoImg).metadata();
-  const tdMeta = await sharp(tdImg).metadata();
-  const maxH = Math.max(satMeta.height!, isoMeta.height!, tdMeta.height!);
+  // Front elevation — use placeholder if not available
+  let frontImg: Buffer;
+  if (front && existsSync(front)) {
+    frontImg = await sharp(resolve(front)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer();
+  } else {
+    frontImg = await sharp({ create: { width: PANEL, height: PANEL, channels: 3, background: { r: 30, g: 30, b: 30 } } }).jpeg().toBuffer();
+  }
 
-  // v103 layout: satellite (LEFT) | iso voxel (CENTER) | top-down voxel (RIGHT)
+  // 2×2 layout: satellite (TL) | iso (TR) | front (BL) | topdown (BR)
   const buf = await sharp({
-    create: { width: W, height: maxH + GAP * 2, channels: 3, background: { r: 30, g: 30, b: 30 } },
+    create: { width: W, height: H, channels: 3, background: { r: 30, g: 30, b: 30 } },
   })
     .composite([
       { input: sat, left: GAP, top: GAP },
       { input: isoImg, left: GAP + PANEL + GAP, top: GAP },
-      { input: tdImg, left: GAP + (PANEL + GAP) * 2, top: GAP },
+      { input: frontImg, left: GAP, top: GAP + PANEL + GAP },
+      { input: tdImg, left: GAP + PANEL + GAP, top: GAP + PANEL + GAP },
     ])
     .jpeg({ quality: 92 })
     .toBuffer();
 
   const outPath = `${DIR}/grade-${version}-${b.key}.jpg`;
   await Bun.write(outPath, buf);
-  console.log(`  Composite: ${outPath} (${(buf.length / 1024).toFixed(0)}KB, sat=std, panel=${PANEL}px)`);
+  console.log(`  Composite: ${outPath} (${(buf.length / 1024).toFixed(0)}KB, 2x2, panel=${PANEL}px)`);
   return outPath;
 }
 
@@ -533,14 +548,15 @@ async function gradeOne(imagePath: string, buildingKey: string): Promise<SubScor
       const json = await res.json() as { candidates?: Array<{ content: { parts: Array<{ text?: string }> } }> };
       const text = json.candidates?.[0]?.content?.parts?.map(p => p.text).join('') ?? '';
 
-      // Parse "A=X B=X C=X Total=X.X" from response
-      const match = text.match(/A\s*=\s*([\d.]+)\s*B\s*=\s*([\d.]+)\s*C\s*=\s*([\d.]+)\s*Total\s*=\s*([\d.]+)/i);
+      // Parse "A=X B=X C=X D=X Total=X.X" from response (D is optional for backward compat)
+      const match = text.match(/A\s*=\s*([\d.]+)\s*B\s*=\s*([\d.]+)\s*C\s*=\s*([\d.]+)\s*(?:D\s*=\s*([\d.]+)\s*)?Total\s*=\s*([\d.]+)/i);
       if (match) {
         return {
           A: parseFloat(match[1]),
           B: parseFloat(match[2]),
           C: parseFloat(match[3]),
-          total: parseFloat(match[4]),
+          D: match[4] ? parseFloat(match[4]) : 0,
+          total: parseFloat(match[5]),
         };
       }
 
@@ -548,7 +564,7 @@ async function gradeOne(imagePath: string, buildingKey: string): Promise<SubScor
       const totalMatch = text.match(/(?:Total|Score)\s*=\s*([\d.]+)/i);
       if (totalMatch) {
         const total = parseFloat(totalMatch[1]);
-        return { A: 0, B: 0, C: 0, total };
+        return { A: 0, B: 0, C: 0, D: 0, total };
       }
 
       console.error(`    VLM parse failed: ${text.slice(0, 200)}`);
@@ -573,7 +589,7 @@ async function gradeBuilding(imagePath: string, key: string, runs: number): Prom
     if (result) {
       scores.push(result.total);
       subscores.push(result);
-      process.stdout.write(`    Run ${i + 1}/${runs}: ${result.total} (A=${result.A} B=${result.B} C=${result.C})\n`);
+      process.stdout.write(`    Run ${i + 1}/${runs}: ${result.total} (A=${result.A} B=${result.B} C=${result.C} D=${result.D})\n`);
     } else {
       process.stdout.write(`    Run ${i + 1}/${runs}: FAILED\n`);
     }
@@ -601,11 +617,13 @@ function diagnose(subscores: SubScore[]): string {
   const avgA = subscores.reduce((s, x) => s + x.A, 0) / subscores.length;
   const avgB = subscores.reduce((s, x) => s + x.B, 0) / subscores.length;
   const avgC = subscores.reduce((s, x) => s + x.C, 0) / subscores.length;
+  const avgD = subscores.reduce((s, x) => s + x.D, 0) / subscores.length;
 
   const issues: string[] = [];
   if (avgA < 3) issues.push(`footprint(${avgA.toFixed(1)}/4)`);
   if (avgB < 2) issues.push(`massing(${avgB.toFixed(1)}/3)`);
   if (avgC < 2) issues.push(`surface(${avgC.toFixed(1)}/3)`);
+  if (avgD > 0) issues.push(`identity(${avgD.toFixed(1)}/2)`); // Show when identity bonus awarded
 
   // Check variance
   const totals = subscores.map(s => s.total);
@@ -616,7 +634,7 @@ function diagnose(subscores: SubScore[]): string {
 }
 
 const DEEP_REVIEW_PROMPT = `You are a HARSH CRITIC reviewing Minecraft voxel reconstructions.
-Look at the 3 panels: satellite (left), isometric voxel (center), top-down footprint (right).
+Look at the 4 panels: satellite (TL), isometric (TR), front elevation (BL), top-down (BR).
 
 Be SKEPTICAL. Score ONLY what you can verify.
 - Does the footprint ACTUALLY match the satellite, or is it just "a rectangle like the satellite"?
@@ -729,6 +747,7 @@ async function main(): Promise<void> {
     let schem = `${DIR}/${b.key}-${version}.schem`;
     let iso = schem.replace('.schem', '-iso.jpg');
     let topdown = schem.replace('.schem', '-topdown.jpg');
+    let front = schem.replace('.schem', '-front.jpg');
     let gradePath = `${DIR}/grade-${version}-${b.key}.jpg`;
     let gridInfo: { gridWidth: number; gridLength: number; actualRes: number } | undefined;
 
@@ -738,16 +757,17 @@ async function main(): Promise<void> {
         const voxResult = await voxelize(b);
         schem = voxResult.schem;
         gridInfo = { gridWidth: voxResult.gridWidth, gridLength: voxResult.gridLength, actualRes: voxResult.actualRes };
-        // Step 2: Render at high quality
+        // Step 2: Render at high quality (iso + topdown + front elevation)
         const renders = await render(b, schem, voxResult.actualRes);
         iso = renders.iso;
         topdown = renders.topdown;
-        // Step 3: Composite with scale-matched satellite crop
-        gradePath = await composite(b, iso, topdown, gridInfo);
+        front = renders.front;
+        // Step 3: 2×2 composite (satellite, iso, front, topdown)
+        gradePath = await composite(b, iso, topdown, front, gridInfo);
       } else if (!existsSync(gradePath)) {
         // grade-only but no composite — try to build from existing renders
         if (existsSync(iso) && existsSync(topdown)) {
-          gradePath = await composite(b, iso, topdown);
+          gradePath = await composite(b, iso, topdown, existsSync(front) ? front : undefined);
         } else {
           console.log(`  SKIP: no grade image and no renders found`);
           continue;
@@ -926,14 +946,14 @@ function writeMarkdownState(state: IterateState): void {
 
   lines.push(
     ``,
-    `| Building | Difficulty | TrimmedMean |${deepHeader} SatRef | Runs | Avg A | Avg B | Avg C | Status | Diagnosis |`,
-    `|---|---|---|${deepSep}---|---|---|---|---|---|`,
+    `| Building | Difficulty | TrimmedMean |${deepHeader} SatRef | Runs | Avg A | Avg B | Avg C | Avg D | Status | Diagnosis |`,
+    `|---|---|---|${deepSep}---|---|---|---|---|---|---|`,
   );
 
   for (const b of BUILDINGS) {
     const r = state.buildings[b.key];
     if (!r) {
-      lines.push(`| ${b.key} | ${b.difficulty} | — |${hasDeep ? ' — |' : ''} — | — | — | — | — | PENDING | — |`);
+      lines.push(`| ${b.key} | ${b.difficulty} | — |${hasDeep ? ' — |' : ''} — | — | — | — | — | — | PENDING | — |`);
       continue;
     }
     const avgA = r.subscores.length > 0
@@ -942,10 +962,12 @@ function writeMarkdownState(state: IterateState): void {
       ? (r.subscores.reduce((s, x) => s + x.B, 0) / r.subscores.length).toFixed(1) : '—';
     const avgC = r.subscores.length > 0
       ? (r.subscores.reduce((s, x) => s + x.C, 0) / r.subscores.length).toFixed(1) : '—';
+    const avgD = r.subscores.length > 0
+      ? (r.subscores.reduce((s, x) => s + x.D, 0) / r.subscores.length).toFixed(1) : '—';
     const status = r.trimmedMean >= state.target ? 'PASS' : 'FAIL';
     const satQ = r.satRefQuality != null ? `${r.satRefQuality}/5` : '—';
     const deepCol = hasDeep ? ` ${r.deepReviewMean ?? '—'} |` : '';
-    lines.push(`| ${r.key} | ${r.difficulty} | ${r.trimmedMean} |${deepCol} ${satQ} | ${r.scores.length} | ${avgA} | ${avgB} | ${avgC} | ${status} | ${r.diagnosis} |`);
+    lines.push(`| ${r.key} | ${r.difficulty} | ${r.trimmedMean} |${deepCol} ${satQ} | ${r.scores.length} | ${avgA} | ${avgB} | ${avgC} | ${avgD} | ${status} | ${r.diagnosis} |`);
   }
 
   // VLM vs deep review gap warning
@@ -1087,14 +1109,16 @@ async function sweepBuilding(
       // Render
       const iso = schem.replace('.schem', '-iso.jpg');
       const topdown = schem.replace('.schem', '-topdown.jpg');
+      const frontElev = schem.replace('.schem', '-front.jpg');
       const actualRes = modConfig.resolution > 0 ? modConfig.resolution : 1;
       const tile = actualRes >= 2 ? modConfig.tileSize : Math.max(modConfig.tileSize, 6);
       const scale = actualRes >= 2 ? modConfig.topdownScale : Math.max(modConfig.topdownScale, 8);
       await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
       await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
+      await run(`bun scripts/_render-front.ts "${schem}" "${frontElev}" --scale ${scale}`);
 
-      // Composite
-      const gradePath = await composite(modConfig, iso, topdown);
+      // Composite (2×2: satellite, iso, front, topdown)
+      const gradePath = await composite(modConfig, iso, topdown, frontElev);
 
       // Quick grade (fewer runs for speed)
       const { trimmedMean } = await gradeBuilding(gradePath, b.key, sweepRuns);
