@@ -40,14 +40,17 @@ const DIR = 'output/tiles';
 
 // v133: 10/10 at 9+ — raleigh maskDilate=1, atlanta re-enabled OSM masking
 // Methodology: 7 VLM runs, 20% trimmed mean, gemini-2.5-flash, temp=0.1
+// v200+: Architecturally distinctive building set — all have non-trivial forms.
+// Replaces v133 set which had 5/10 trivially-easy rectangles scoring 10/10.
 const BUILDINGS: BuildingConfig[] = [
   {
+    // Baseline: triangular wedge — proven 10/10, tests wedge preservation
     key: 'flatiron',
     glb: `${DIR}/tiles-flatiron-building-new-york-ny.glb`,
     coords: '40.7411,-73.9897',
     satRef: `${DIR}/sat-ref-flatiron.jpg`,
     satZoom: 19,
-    resolution: 2,
+    resolution: 2, // small footprint needs 2x for detail
     maskDilate: 1,
     extraFlags: [],
     difficulty: 'easy',
@@ -55,126 +58,130 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    key: 'portland',
-    glb: `${DIR}/flatroof-portland.glb`,
-    coords: '45.5235,-122.6812',
-    satRef: `${DIR}/sat-ref-portland.jpg`,
-    satZoom: 20,
-    resolution: 1,
+    // 443m tower with tapered setbacks — tests setback preservation
+    key: 'esb',
+    glb: `${DIR}/esb-headless.glb`,
+    coords: '40.7484,-73.9857',
+    satRef: `${DIR}/sat-ref-esb.jpg`,
+    satZoom: 18,
+    resolution: 1, // tall building: auto caps at 1
     maskDilate: 2,
     extraFlags: [],
-    difficulty: 'medium',
+    difficulty: 'hard',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // v133: maskDilate=1 (was 2), trimmedMean=9.6
-    key: 'raleigh',
-    glb: `${DIR}/flatroof-raleigh.glb`,
-    coords: '35.7784,-78.6391',
-    satRef: `${DIR}/sat-ref-raleigh.jpg`,
-    satZoom: 20,
+    // Art deco crown with spire — tests crown/spire preservation
+    key: 'chrysler',
+    glb: `${DIR}/chrysler-headless.glb`,
+    coords: '40.7516,-73.9755',
+    satRef: `${DIR}/sat-ref-chrysler.jpg`,
+    satZoom: 18,
     resolution: 1,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // Spiral rotunda — tests curve preservation at high resolution
+    key: 'guggenheim',
+    glb: `${DIR}/guggenheim-headless.glb`,
+    coords: '40.7830,-73.9590',
+    satRef: `${DIR}/sat-ref-guggenheim.jpg`,
+    satZoom: 20,
+    resolution: 0, // auto: small building → 3x for curve fidelity
     maskDilate: 1,
     extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
+    difficulty: 'hard',
+    tileSize: 8,
+    topdownScale: 10,
   },
   {
-    key: 'dallas',
-    glb: `${DIR}/tiles-dallas-headless.glb`,
-    coords: '32.8512,-96.8277',
-    satRef: `${DIR}/sat-ref-dallas.jpg`,
-    satZoom: 20,
-    resolution: 1,
-    maskDilate: 1,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    key: 'ansonia',
-    glb: `${DIR}/nyc-ansonia-headless.glb`,
-    coords: '40.7806,-73.9816',
-    satRef: `${DIR}/sat-ref-ansonia.jpg`,
-    satZoom: 20,
-    resolution: 1,
-    maskDilate: 1,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    key: 'sandiego',
-    glb: `${DIR}/flatroof-sandiego.glb`,
-    coords: '32.7158,-117.1672',
-    satRef: `${DIR}/sat-ref-sandiego.jpg`,
-    satZoom: 20,
+    // Pyramidal taper — tests taper preservation
+    key: 'transamerica',
+    glb: `${DIR}/transamerica-headless.glb`,
+    coords: '37.7952,-122.4028',
+    satRef: `${DIR}/sat-ref-transamerica.jpg`,
+    satZoom: 18,
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],
-    difficulty: 'medium',
+    difficulty: 'hard',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // v122: scored 10/10/10 (3 runs) — perfect A=4.0
-    key: 'houston',
-    glb: `${DIR}/flatroof-houston.glb`,
-    coords: '29.7365,-95.4613',
-    satRef: `${DIR}/sat-ref-houston.jpg`,
-    satZoom: 19,
+    // Dome + wings — tests dome preservation with extended footprint
+    key: 'uscapitol',
+    glb: `${DIR}/uscapitol-headless.glb`,
+    coords: '38.8897,-77.0089',
+    satRef: `${DIR}/sat-ref-uscapitol.jpg`,
+    satZoom: 18,
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],
-    difficulty: 'medium',
+    difficulty: 'hard',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // v122: scored 10/10/8 (3 runs) — A variance but trimmedMean=10
-    key: 'scottsdale',
-    glb: `${DIR}/tiles-scottsdale-headless.glb`,
-    coords: '33.4877,-111.926',
-    satRef: `${DIR}/sat-ref-scottsdale.jpg`,
-    satZoom: 19,
-    resolution: 1,
-    maskDilate: 2,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // v130: res=2 pushed A-score from ~2 to ~3.5 → trimmedMean 9.4 (7 runs)
-    key: 'tampa',
-    glb: `${DIR}/flatroof-tampa.glb`,
-    coords: '27.9458,-82.4582',
-    satRef: `${DIR}/sat-ref-tampa.jpg`,
+    // Dome on rectangular base — tests dome at medium resolution
+    key: 'mitdome',
+    glb: `${DIR}/mitdome-headless.glb`,
+    coords: '42.3597,-71.0935',
+    satRef: `${DIR}/sat-ref-mitdome.jpg`,
     satZoom: 20,
     resolution: 2,
     maskDilate: 1,
     extraFlags: [],
+    difficulty: 'hard',
+    tileSize: 8,
+    topdownScale: 10,
+  },
+  {
+    // Beaux-Arts facade with wings — tests facade detail and L-shape
+    key: 'artinstitute',
+    glb: `${DIR}/tiles-artinstitute-headless.glb`,
+    coords: '41.8796,-87.6237',
+    satRef: `${DIR}/sat-ref-artinstitute.jpg`,
+    satZoom: 19,
+    resolution: 2,
+    maskDilate: 1,
+    extraFlags: [],
     difficulty: 'medium',
+    tileSize: 8,
+    topdownScale: 10,
+  },
+  {
+    // Bundled tube setbacks — tests stepped massing
+    key: 'willistower',
+    glb: `${DIR}/willistower-headless.glb`,
+    coords: '41.8789,-87.6359',
+    satRef: `${DIR}/sat-ref-willistower.jpg`,
+    satZoom: 18,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'hard',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // v133: re-enabled OSM masking (was --no-osm), trimmedMean=9.6
-    key: 'atlanta',
-    glb: `${DIR}/flatroof-atlanta.glb`,
-    coords: '33.7590,-84.3869',
-    satRef: `${DIR}/sat-ref-atlanta.jpg`,
+    // Brutalist inverted pyramid — tests inverted taper
+    key: 'geisel',
+    glb: `${DIR}/geisel-headless.glb`,
+    coords: '32.8812,-117.2376',
+    satRef: `${DIR}/sat-ref-geisel.jpg`,
     satZoom: 20,
-    resolution: 1,
-    maskDilate: 2,
+    resolution: 2,
+    maskDilate: 1,
     extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
+    difficulty: 'hard',
+    tileSize: 8,
+    topdownScale: 10,
   },
 ];
 
@@ -235,14 +242,14 @@ C) Surface quality (0-3):
 - 1: Mostly monochrome with no zone distinction.
 - 0: Single material, messy, heavy artifacts.
 
-D) Identity (0-2 BONUS):
+D) Identity (0-2):
 - 2: Distinctive non-rectangular form clearly reproduced (dome, spire, wedge, setbacks, tapering). Someone who knows the building would identify it from the voxel alone.
 - 1: Some distinctive features partially visible but not immediately recognizable.
 - 0: Rectangular box or distinctive features not visible. (Most buildings correctly score 0.)
 
-Total = A + B + C + D (max 12), then normalize: Score = round(Total × 10 / 12, 1).
+Total = A + B + C (max 10). Report D separately.
 
-HARD CAP: If the building is known to have a distinctive silhouette (spire, dome, setbacks, wedge) but the voxel shows only a rectangular box, cap Total at 5/10 regardless of other scores.
+IMPORTANT: Do NOT include D in the Total calculation. Total is ALWAYS A + B + C only.
 
 IMPORTANT: Score what you actually SEE, not what might be there.
 - If the satellite image is obscured (trees, shadows, low zoom), cap A at 2 and B at 1.
@@ -252,17 +259,18 @@ IMPORTANT: Score what you actually SEE, not what might be there.
 - Use the front elevation (bottom-left panel) to judge vertical accuracy — it shows setbacks, spires, and domes that are invisible in top-down or compressed in isometric views.
 
 Calibration anchors:
-- 10/10: Distinctive building form perfectly reproduced. Spire/dome/wedge/setbacks clearly visible in front elevation. Someone familiar with the building identifies it instantly.
-- 8/10: Shape mostly correct with visible distinctive features. Good material zones. Minor imperfections.
-- 6/10: Correct general shape with right proportions. Clean rectangular buildings with matching aspect ratio. Some material distinction.
-- 4/10: Recognizable as A building but not clearly THIS building. Distinctive features lost.
+- 10/10: Footprint precisely matches satellite with all distinctive features. Massing proportionate. 3+ material zones. Front elevation shows correct silhouette.
+- 9/10: Shape clearly matches with most distinctive features. Minor imperfections acceptable.
+- 7/10: Correct general shape with right proportions. Clean edges. Some material distinction.
+- 5/10: Recognizable as A building but not clearly THIS building. Approximate shape, rough edges.
 - 2/10: Blob, artifacts, or shape doesn't correspond to satellite.
 
 For EACH building image, respond with EXACTLY this format (one line per building):
-NAME: A=X B=X C=X D=X Total=X.X
+NAME: A=X B=X C=X D=X Total=X
 Brief 1-line explanation.
 
-Be harsh and honest. Most voxel builds at 1 block/m deserve 4-6. Only exceptional builds with distinctive, recognizable features get 8-10.`;
+Total = A + B + C only (max 10). D is reported separately and NOT included in Total.
+Be harsh and honest. Most voxel builds at 1 block/m deserve 5-7. Only exceptional builds with distinctive, recognizable features get 9-10.`;
 
 // ── CLI parsing ──
 const args = process.argv.slice(2);
