@@ -513,3 +513,176 @@ export function exportHTML(viewer: ViewerState, filename = 'craftmatic.html'): v
   const blob = new Blob([html], { type: 'text/html' });
   downloadBlob(blob, filename);
 }
+
+// ── Block palette for layer guide ──────────────────────────────────────────
+
+const LAYER_GUIDE_HEX: Record<string, string> = {
+  'minecraft:black_concrete':           '#080a0f',
+  'minecraft:blue_concrete':            '#2c2e8f',
+  'minecraft:green_concrete':           '#495b24',
+  'minecraft:cyan_concrete':            '#157788',
+  'minecraft:red_concrete':             '#8e2121',
+  'minecraft:magenta_concrete':         '#a9309f',
+  'minecraft:brown_concrete':           '#603b1f',
+  'minecraft:light_gray_concrete':      '#7d7d73',
+  'minecraft:gray_concrete':            '#373a3e',
+  'minecraft:light_blue_concrete':      '#2489c7',
+  'minecraft:lime_concrete':            '#5ea818',
+  'minecraft:pink_concrete':            '#d5658f',
+  'minecraft:yellow_concrete':          '#f0af15',
+  'minecraft:white_concrete':           '#cfd5d6',
+  'minecraft:orange_concrete':          '#e06100',
+  'minecraft:purple_concrete':          '#64209c',
+  'minecraft:sandstone':                '#d8c794',
+  'minecraft:glass':                    '#afd5e4',
+  'minecraft:lime_stained_glass':       '#80c71f',
+  'minecraft:red_stained_glass':        '#993333',
+  'minecraft:blue_stained_glass':       '#4040ff',
+  'minecraft:yellow_stained_glass':     '#e5e533',
+  'minecraft:purple_stained_glass':     '#7f3fb2',
+  'minecraft:orange_stained_glass':     '#d87f33',
+  'minecraft:green_stained_glass':      '#667f33',
+  'minecraft:gray_stained_glass':       '#4c4c4c',
+  'minecraft:light_blue_stained_glass': '#6699d8',
+  'minecraft:pink_stained_glass':       '#f27fa5',
+  'minecraft:cyan_stained_glass':       '#4c7f99',
+};
+
+/**
+ * Export a layer-by-layer building guide as a standalone HTML file.
+ * Each Y-level is rendered as a canvas grid (top-down view, X × Z).
+ * Open in browser and Print → Save as PDF.
+ */
+export function exportLayerGuide(grid: BlockGrid, label: string, filename = 'layer-guide.html'): void {
+  const { width: W, height: H, length: L } = grid;
+
+  // Build indexed palette
+  const nameToIdx = new Map<string, number>();
+  const palette: string[] = [];
+  const paletteFriendly: string[] = []; // short display name
+
+  function blockIdx(block: string): number {
+    const key = block.split('[')[0]!;
+    let idx = nameToIdx.get(key);
+    if (idx === undefined) {
+      idx = palette.length;
+      nameToIdx.set(key, idx);
+      palette.push(LAYER_GUIDE_HEX[key] ?? '#969696');
+      paletteFriendly.push(key.replace('minecraft:', '').replace(/_/g, ' '));
+    }
+    return idx;
+  }
+
+  // Build layer data: each layer is [x, z, colorIdx][] (air omitted)
+  const layers: Array<[number, number, number][]> = [];
+  const totals: number[] = []; // count per palette index
+
+  for (let y = 0; y < H; y++) {
+    const cells: [number, number, number][] = [];
+    for (let x = 0; x < W; x++) {
+      for (let z = 0; z < L; z++) {
+        const b = grid.get(x, y, z);
+        if (b === 'minecraft:air') continue;
+        const ci = blockIdx(b);
+        cells.push([x, z, ci]);
+        totals[ci] = (totals[ci] ?? 0) + 1;
+      }
+    }
+    layers.push(cells);
+  }
+
+  // Sort palette by usage for legend
+  const legendOrder = palette.map((_, i) => i).sort((a, b) => (totals[b] ?? 0) - (totals[a] ?? 0));
+
+  const dataJs = `const W=${W},H=${H},L=${L};
+const PALETTE=${JSON.stringify(palette)};
+const NAMES=${JSON.stringify(paletteFriendly)};
+const TOTALS=${JSON.stringify(totals.map(t => t ?? 0))};
+const LEGEND_ORDER=${JSON.stringify(legendOrder)};
+const LAYERS=${JSON.stringify(layers)};
+const LABEL=${JSON.stringify(label)};`;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Building Guide — ${label}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#fff;color:#111;padding:20px}
+h1{font-size:1.4rem;margin-bottom:4px}
+.meta{font-size:.85rem;color:#555;margin-bottom:16px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:20px}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:.75rem}
+.swatch{width:14px;height:14px;border:1px solid rgba(0,0,0,.15);border-radius:2px;flex-shrink:0}
+.layers{display:flex;flex-wrap:wrap;gap:12px 16px}
+.layer-block{break-inside:avoid}
+.layer-label{font-size:.7rem;color:#666;margin-bottom:2px}
+canvas{display:block;image-rendering:pixelated;border:1px solid #e0e0e0}
+@media print{
+  body{padding:8px}
+  .legend{margin-bottom:12px}
+  .layers{gap:8px 12px}
+}
+</style>
+</head>
+<body>
+<h1 id="title"></h1>
+<div class="meta" id="meta"></div>
+<div class="legend" id="legend"></div>
+<div class="layers" id="layers"></div>
+<script>
+${dataJs}
+
+// Determine cell size: target ~480px max canvas dimension, min 3px
+const CELL = Math.max(3, Math.min(12, Math.floor(480 / Math.max(W, L))));
+
+document.getElementById('title').textContent = LABEL + ' — Building Guide';
+document.getElementById('meta').textContent =
+  W + '×' + H + '×' + L + ' blocks  •  ' +
+  TOTALS.reduce((a,b)=>a+b,0).toLocaleString() + ' total blocks  •  ' +
+  palette.length + ' block types';
+
+// Legend
+const lgEl = document.getElementById('legend');
+for (const ci of LEGEND_ORDER) {
+  const div = document.createElement('div');
+  div.className = 'legend-item';
+  const sw = document.createElement('div');
+  sw.className = 'swatch';
+  sw.style.background = PALETTE[ci];
+  const lbl = document.createElement('span');
+  lbl.textContent = NAMES[ci] + ' (' + (TOTALS[ci]||0).toLocaleString() + ')';
+  div.appendChild(sw);
+  div.appendChild(lbl);
+  lgEl.appendChild(div);
+}
+
+// Layers (bottom to top)
+const layersEl = document.getElementById('layers');
+for (let y = 0; y < H; y++) {
+  const block = document.createElement('div');
+  block.className = 'layer-block';
+  const lbl = document.createElement('div');
+  lbl.className = 'layer-label';
+  lbl.textContent = 'Layer ' + (y + 1) + ' (Y=' + y + ')';
+  const cvs = document.createElement('canvas');
+  cvs.width = W * CELL;
+  cvs.height = L * CELL;
+  const ctx = cvs.getContext('2d');
+  ctx.fillStyle = '#f4f4f4';
+  ctx.fillRect(0, 0, cvs.width, cvs.height);
+  for (const [x, z, ci] of LAYERS[y]) {
+    ctx.fillStyle = PALETTE[ci];
+    ctx.fillRect(x * CELL, z * CELL, CELL, CELL);
+  }
+  block.appendChild(lbl);
+  block.appendChild(cvs);
+  layersEl.appendChild(block);
+}
+</script>
+</body>
+</html>`;
+
+  downloadBlob(new Blob([html], { type: 'text/html' }), filename);
+}

@@ -11,7 +11,7 @@
 
 import { BlockGrid } from '@craft/schem/types.js';
 import { parseLDraw, type ParsedBrick } from '@engine/ldraw-parser.js';
-import { voxelizeLDraw } from '@engine/ldraw-voxelizer.js';
+import { voxelizeLDraw, type VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
 import { extractIoLDraw } from '@engine/io-extractor.js';
 import { parseLxf } from '@engine/lxf-parser.js';
 import { studioColorToBlock } from '@engine/studio-colors.js';
@@ -33,6 +33,8 @@ let rootEl: HTMLElement;
 let onResult: ((grid: BlockGrid, label: string) => void) | null = null;
 let selectedSet: CatalogSet | null = null;
 let searchResults: CatalogSet[] = [];
+/** When true, use 1 stud = 1 block in all axes (no 2.5× vertical stretch). */
+let cubicScale = false;
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
@@ -56,6 +58,15 @@ function buildUI(): void {
   rootEl.innerHTML = `
     <!-- Status (shared) -->
     <div class="lego-status" id="lego-status" hidden></div>
+
+    <!-- Scale mode toggle -->
+    <div class="lego-section lego-scale-row">
+      <span class="lego-section-label" style="font-size:0.75rem;opacity:0.7">Scale</span>
+      <div class="lego-scale-btns" id="lego-scale-btns">
+        <button class="lego-scale-btn active" data-mode="accurate" title="1 plate = 1 block — maximum vertical detail, 2.5× taller than real LEGO proportions">Accurate</button>
+        <button class="lego-scale-btn" data-mode="cubic" title="1 stud = 1 block in all axes — correct LEGO proportions, flat models look flat">Cubic</button>
+      </div>
+    </div>
 
     <!-- Primary: Upload LDraw file -->
     <div class="lego-section">
@@ -118,6 +129,15 @@ function buildUI(): void {
 }
 
 function wireEvents(): void {
+  // ── Scale mode toggle ──────────────────────────────────────────────────────
+  document.getElementById('lego-scale-btns')?.addEventListener('click', e => {
+    const btn = (e.target as HTMLElement).closest('[data-mode]') as HTMLElement | null;
+    if (!btn) return;
+    cubicScale = btn.dataset['mode'] === 'cubic';
+    document.querySelectorAll('.lego-scale-btn').forEach(b =>
+      b.classList.toggle('active', b === btn));
+  });
+
   // ── MPD file upload ────────────────────────────────────────────────────────
   const mpdInput = document.getElementById('lego-mpd-input') as HTMLInputElement;
   const uploadZone = document.getElementById('lego-upload-zone') as HTMLLabelElement;
@@ -414,17 +434,29 @@ async function voxelizeAndDisplay(
 ): Promise<void> {
   if (!onResult) return;
 
-  const result = voxelizeLDraw(bricks, colorFn);
-  if (result.warning) setStatus(result.warning, 'info');
+  const opts: VoxelizeOptions = { cubicScale };
+  const result = voxelizeLDraw(bricks, colorFn, opts);
 
+  const { width: w, height: h, length: l } = result.grid;
+  const blockCount = result.grid.countNonAir();
   const label = selectedSet
     ? `${selectedSet.set_num} ${selectedSet.name}`
     : filename.replace(/\.[^.]+$/, '');
 
-  setStatus(
-    `Built ${label}: ${result.grid.width}×${result.grid.height}×${result.grid.length} — ${result.grid.countNonAir().toLocaleString()} blocks`,
-    'success',
-  );
+  // Build status + warnings
+  const warnings: string[] = [];
+  if (result.warning) warnings.push(result.warning);
+  if (!cubicScale && h > 256) {
+    warnings.push(`Height ${h} exceeds Minecraft's legacy Y=256 limit — try Cubic scale`);
+  }
+  if (Math.max(w, h, l) > 200 && !cubicScale) {
+    warnings.push(`Large model (${w}×${h}×${l}) — Cubic scale reduces proportionally`);
+  }
+
+  const statusMsg = `Built ${label}: ${w}×${h}×${l} — ${blockCount.toLocaleString()} blocks` +
+    (cubicScale ? ' (cubic)' : '');
+  setStatus(statusMsg + (warnings.length ? ` ⚠ ${warnings.join('; ')}` : ''), warnings.length ? 'info' : 'success');
+
   onResult(result.grid, label);
 }
 

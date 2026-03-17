@@ -2155,6 +2155,34 @@ html, body {
   border-bottom: 1px solid var(--border);
 }
 
+/* Scale mode toggle */
+.lego-scale-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+}
+.lego-scale-btns {
+  display: flex;
+  gap: 4px;
+}
+.lego-scale-btn {
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.lego-scale-btn:hover { background: var(--bg-hover, rgba(255,255,255,0.06)); }
+.lego-scale-btn.active {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border-color: transparent;
+}
+
 .lego-section-inner { padding: 8px 16px; border-bottom: none; }
 
 .lego-label-row {

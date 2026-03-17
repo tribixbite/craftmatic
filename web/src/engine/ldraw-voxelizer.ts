@@ -92,9 +92,23 @@ export interface VoxelizeResult {
   warning?: string;
 }
 
+export interface VoxelizeOptions {
+  /**
+   * When true, use 1 stud (20 LDU) for the vertical cell size instead of
+   * 1 plate (8 LDU). This makes all three axes equal (cubic voxels) and
+   * corrects the 2.5× vertical stretch that makes flat models like the ISD
+   * look like towers. Trade-off: loses plate-level vertical detail.
+   *
+   * Accurate mode (default): 1 plate = 1 cell. ISD → 125×136×79
+   * Cubic mode:              1 stud  = 1 cell. ISD → 125×55×79
+   */
+  cubicScale?: boolean;
+}
+
 export function voxelizeLDraw(
   bricks: ParsedBrick[],
   colorFn?: (id: number) => string,
+  options?: VoxelizeOptions,
 ): VoxelizeResult {
   if (bricks.length === 0) {
     const grid = new BlockGrid(1, 1, 1);
@@ -102,6 +116,9 @@ export function voxelizeLDraw(
   }
 
   const resolveColor = colorFn ?? ldrawColorToBlock;
+  // In cubic mode Y uses the same pitch as X/Z (20 LDU = 1 stud), eliminating
+  // the 2.5× vertical stretch. In accurate mode 1 plate (8 LDU) = 1 cell.
+  const LDU_PER_Y = options?.cubicScale ? LDU_PER_STUD : LDU_PER_PLATE;
 
   // ── Expand each brick into grid cells ────────────────────────────────────
 
@@ -144,11 +161,11 @@ export function voxelizeLDraw(
     }
 
     // Convert world AABB to grid cells.
-    // X/Z: stud pitch (20 LDU); Y: plate height (8 LDU), flipped
+    // X/Z: stud pitch (20 LDU); Y: LDU_PER_Y (plate=8 or stud=20), flipped
     const gxMin = Math.round(wxMin / LDU_PER_STUD);
     const gxMax = Math.round(wxMax / LDU_PER_STUD);
-    const gyMin = Math.round(-wyMax / LDU_PER_PLATE);
-    const gyMax = Math.round(-wyMin / LDU_PER_PLATE);
+    const gyMin = Math.round(-wyMax / LDU_PER_Y);
+    const gyMax = Math.round(-wyMin / LDU_PER_Y);
     const gzMin = Math.round(wzMin / LDU_PER_STUD);
     const gzMax = Math.round(wzMax / LDU_PER_STUD);
 
