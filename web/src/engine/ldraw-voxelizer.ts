@@ -248,20 +248,40 @@ export function voxelizeLDraw(
       }
     }
 
-    // Round masking: elliptical horizontal footprint for cylindrical/round parts.
-    // Include cell (gx, gz) only if inside the inscribed ellipse of the AABB:
-    //   ((x - cx)/rx)² + ((z - cz)/rz)² ≤ 1
-    // Half-radii: rx = (spanX+1)/2, rz = (spanZ+1)/2.
-    // Applied when the footprint is at least 3 cells in either direction (spanX>1
-    // or spanZ>1); smaller footprints (1×1, 2×2) fill completely within the ellipse.
-    let roundCx = 0, roundCz = 0, roundRx = 1, roundRz = 1;
-    const isRound = shape === 'round' && (spanX > 1 || spanZ > 1);
-    if (isRound) {
-      roundCx = (gxMin + gxMax) / 2;
-      roundCz = (gzMin + gzMax) / 2;
-      roundRx = (spanX + 1) / 2;
-      roundRz = (spanZ + 1) / 2;
+    // Round masking: elliptical footprint for cylindrical/round parts.
+    // Detects the hub axis (shortest world span) and masks the perpendicular plane:
+    //   spanY shortest → hub along Y → mask in XZ (horizontal disc, vertical cylinder)
+    //   spanX shortest → hub along X → mask in YZ (vehicle tire / end-on wheel)
+    //   spanZ shortest → hub along Z → mask in XY (cylinder facing front/back)
+    // Tie-breaker: prefer XZ (default for most horizontal studs/round plates).
+    let roundCx = 0, roundCy = 0, roundCz = 0;
+    let roundRx = 1, roundRy = 1, roundRz = 1;
+    let roundMaskPlane: 'xz' | 'yz' | 'xy' | null = null;
+    if (shape === 'round') {
+      if (spanX < spanY && spanX < spanZ && (spanY > 1 || spanZ > 1)) {
+        // Hub along X → circular in YZ (e.g., vehicle tires, axle-mounted wheels)
+        roundMaskPlane = 'yz';
+        roundCy = (gyMin + gyMax) / 2;
+        roundCz = (gzMin + gzMax) / 2;
+        roundRy = (spanY + 1) / 2;
+        roundRz = (spanZ + 1) / 2;
+      } else if (spanZ < spanX && spanZ < spanY && (spanX > 1 || spanY > 1)) {
+        // Hub along Z → circular in XY (e.g., end-on engine cylinders)
+        roundMaskPlane = 'xy';
+        roundCx = (gxMin + gxMax) / 2;
+        roundCy = (gyMin + gyMax) / 2;
+        roundRx = (spanX + 1) / 2;
+        roundRy = (spanY + 1) / 2;
+      } else if (spanX > 1 || spanZ > 1) {
+        // Hub along Y (default) → circular in XZ
+        roundMaskPlane = 'xz';
+        roundCx = (gxMin + gxMax) / 2;
+        roundCz = (gzMin + gzMax) / 2;
+        roundRx = (spanX + 1) / 2;
+        roundRz = (spanZ + 1) / 2;
+      }
     }
+    const isRound = roundMaskPlane !== null;
 
     // Frame masking: skip cells in the hollow center void of open-center Technic bricks.
     // The void is the inner rectangular region with frameThick cells removed from each
@@ -345,8 +365,8 @@ export function voxelizeLDraw(
 
     for (let x = gxMin; x <= gxMax; x++) {
       for (let z = gzMin; z <= gzMax; z++) {
-        // Round masking: skip cells outside the inscribed ellipse.
-        if (isRound) {
+        // Round masking XZ: skip cells outside inscribed ellipse in horizontal plane.
+        if (roundMaskPlane === 'xz') {
           const dx = (x - roundCx) / roundRx;
           const dz = (z - roundCz) / roundRz;
           if (dx * dx + dz * dz > 1) continue;
@@ -418,6 +438,18 @@ export function voxelizeLDraw(
           }
         }
         for (let y = yLo; y <= yHi; y++) {
+          // Round masking YZ: skip cells outside inscribed ellipse in YZ plane (hub along X).
+          if (roundMaskPlane === 'yz') {
+            const dy = (y - roundCy) / roundRy;
+            const dz = (z - roundCz) / roundRz;
+            if (dy * dy + dz * dz > 1) continue;
+          }
+          // Round masking XY: skip cells outside inscribed ellipse in XY plane (hub along Z).
+          if (roundMaskPlane === 'xy') {
+            const dx = (x - roundCx) / roundRx;
+            const dy = (y - roundCy) / roundRy;
+            if (dx * dx + dy * dy > 1) continue;
+          }
           // Bracket masking: keep only cells on the face column or the plate row.
           if (isBracket) {
             const onFace = bracketFaceAxis === 'z' ? z === bracketFacePos : x === bracketFacePos;

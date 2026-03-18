@@ -458,6 +458,14 @@ const DIMS: Record<string, Dims> = {
   '6015':  P(2,  4),  // Wheel Centre Large
   '50951': P(2,  4),  // Wheel 2×4 Motorcycle
   '2903':  P(2,  2),  // Wheel Hub Small
+  // Large tires/rims: placed with 90° rotation in models (hub along local Z in model space).
+  // After voxelizer X-Z swap + that rotation, sW maps to tire-diameter world-cells,
+  // sH maps to tire-height Y-cells, sL maps to hub-width world-cells.
+  '32019': [7, 16, 4],  // Tyre 20/64×37 S — Technic vehicles; diameter ≈7 cells, hub ≈4 cells
+  '86652': [5, 12, 4],  // Wheel Rim 18×37 — sits inside 32019; diameter ≈5 cells, hub ≈4 cells
+  // Propeller: hub along local Z, blades in local XY plane, placed with identity rotation.
+  // After voxelizer X-Z swap, sW→world-X (blade span), sH→world-Y (blade span), sL→world-Z (hub).
+  '2742':  [15, 35, 3], // Propellor 3 Blade 15 Diameter — 15-stud disc in XY, 3-stud hub in Z
 
   // ── Art / specialty ──────────────────────────────────────────────────────────
   '24299': B(1,  1),  // 1×1 Modified (Mona Lisa sets)
@@ -677,6 +685,8 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   // Pass 6 (arch review): large cylindrical parts used as engine/column elements
   '2573':'round',    // Wheel 48×76 with Tread on Sidewall — ISD engine cylinders ×3; [10,25,6]
                      // cuts ~12 cells/layer × 25 layers = 300 cells per instance, ×3 = 900 saved
+  '32019':'round',   // Tyre 20/64×37 S — Technic vehicles; circular cross-section in side view
+  '86652':'round',   // Wheel Rim 18×37 — circular cross-section; inside Tyre 32019
   // Pass 12: cones and round plates found in Saturn V audit
   '48310':'round',   // Cone 8×4×6 Half — Saturn V ×2; cuts corners per layer
   '6233':'round',    // Cone 3×3×2 — Saturn V ×6
