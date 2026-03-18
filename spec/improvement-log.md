@@ -1815,3 +1815,31 @@ Block count unchanged (bracket masking is zero-impact per Pass 30 — masked cel
 - Panel masking not viable (panels already 1-stud wide, AABB is exact)
 - Pipeline is at architectural ceiling for AABB+shape-masking
 - Consider geometry-accurate sampling from .dat files for breakthrough improvement
+
+---
+
+## Pass 1 — 2026-03-17
+
+### Items completed
+- **GAP-01**: BFF Fallback → Real 3D Models
+  - Added Vite dev plugin serving `/lego-reconstructed/` from `C:\git\clego\lego_sets\Reconstructed\`
+  - Generated `web/public/lego-reconstructed-index.json` (3,565 set IDs, 25KB)
+  - Added Source 2 tier in `lego.ts` auto-load chain: OMR → Reconstructed LDR → BFF mosaic
+  - Added `getReconstructedIndex()` lazy-loader and `baseSetNum()` helper
+  - BFF fallback now labeled "⚠ 2D colour map only — no 3D model available"
+- **GAP-03**: Unknown Color IDs → Silent Gray
+  - Added `unmappedColors: number[]` to `VoxelizeResult` interface
+  - Imported `LDRAW_COLOR_TO_BLOCK` map in voxelizer; tracks IDs not in map
+  - Status bar now shows: `⚠ N unmapped color IDs (id1, id2, ...) → gray`
+- **GAP-05**: Recursion Depth Limit Too Low
+  - Increased `MAX_DEPTH` from 20 → 50 in `ldraw-parser.ts`
+
+### Files changed
+- `web/src/engine/ldraw-voxelizer.ts` — `unmappedColors` tracking
+- `web/src/ui/lego.ts` — reconstructed LDR tier + unmapped color warning
+- `web/src/engine/ldraw-parser.ts` — depth limit 20→50
+- `web/vite.config.ts` — Vite dev plugin for `/lego-reconstructed/`
+- `web/public/lego-reconstructed-index.json` — NEW: 3,565 set IDs
+
+### Typecheck
+Clean (`tsc --noEmit` 0 errors)

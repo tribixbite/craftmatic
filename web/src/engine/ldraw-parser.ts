@@ -92,7 +92,7 @@ function expandSection(
   parentColor: number = 16, // inherited color context for color-16 resolution
 ): void {
   // Guard against runaway recursion (circular references or deep nesting)
-  if (depth > 20) return;
+  if (depth > 50) return;
 
   for (const line of lines) {
     if (!line || line.startsWith('0')) continue;

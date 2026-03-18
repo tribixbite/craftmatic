@@ -18,7 +18,7 @@
 
 import { BlockGrid } from '@craft/schem/types.js';
 import type { ParsedBrick } from './ldraw-parser.js';
-import { ldrawColorToBlock } from './ldraw-colors.js';
+import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { getPartDims, getPartShape, getPartFrameThickness, getBracketShelfDir } from './ldraw-part-dims.js';
 
 /** LDraw units per stud pitch (horizontal cell size) */
@@ -90,6 +90,8 @@ export interface VoxelizeResult {
   uniqueColors: number;
   dimensions: { w: number; h: number; l: number };
   warning?: string;
+  /** Color IDs that had no mapping entry and fell back to gray */
+  unmappedColors: number[];
 }
 
 export interface VoxelizeOptions {
@@ -112,10 +114,14 @@ export function voxelizeLDraw(
 ): VoxelizeResult {
   if (bricks.length === 0) {
     const grid = new BlockGrid(1, 1, 1);
-    return { grid, brickCount: 0, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 } };
+    return { grid, brickCount: 0, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 }, unmappedColors: [] };
   }
 
   const resolveColor = colorFn ?? ldrawColorToBlock;
+  // Track color IDs not in the default LDraw map (may still resolve via custom colorFn).
+  // We flag IDs absent from LDRAW_COLOR_TO_BLOCK when using the default resolver.
+  const isDefaultFn = colorFn == null;
+  const unmappedColorSet = new Set<number>();
   // In cubic mode Y uses the same pitch as X/Z (20 LDU = 1 stud), eliminating
   // the 2.5× vertical stretch. In accurate mode 1 plate (8 LDU) = 1 cell.
   const LDU_PER_Y = options?.cubicScale ? LDU_PER_STUD : LDU_PER_PLATE;
@@ -133,6 +139,9 @@ export function voxelizeLDraw(
     const R = brick.rot ?? IDENTITY;
     const [sW, sH, sL] = getPartDims(brick.part);
     const block = resolveColor(brick.color);
+    if (isDefaultFn && !(brick.color in LDRAW_COLOR_TO_BLOCK)) {
+      unmappedColorSet.add(brick.color);
+    }
 
     // Local bounding box corners using stud-center positions.
     // X: stud centers at -(sW-1)/2 … +(sW-1)/2 studs
@@ -393,7 +402,7 @@ export function voxelizeLDraw(
 
   if (cells.length === 0) {
     const grid = new BlockGrid(1, 1, 1);
-    return { grid, brickCount: bricks.length, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 } };
+    return { grid, brickCount: bricks.length, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 }, unmappedColors: [...unmappedColorSet] };
   }
 
   // ── Compute axis-aligned bounding box ─────────────────────────────────────
@@ -436,7 +445,7 @@ export function voxelizeLDraw(
     colors.add(c.color);
   }
 
-  return { grid, brickCount: bricks.length, uniqueColors: colors.size, dimensions: { w, h, l }, warning };
+  return { grid, brickCount: bricks.length, uniqueColors: colors.size, dimensions: { w, h, l }, warning, unmappedColors: [...unmappedColorSet] };
 }
 
 function clamp(v: number, min: number, max: number): number {
