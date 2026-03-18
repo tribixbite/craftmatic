@@ -125,6 +125,10 @@ export function voxelizeLDraw(
   // In cubic mode Y uses the same pitch as X/Z (20 LDU = 1 stud), eliminating
   // the 2.5× vertical stretch. In accurate mode 1 plate (8 LDU) = 1 cell.
   const LDU_PER_Y = options?.cubicScale ? LDU_PER_STUD : LDU_PER_PLATE;
+  // Ratio of horizontal stud pitch to vertical cell pitch.
+  // Used to convert stud-radius → plate-radius for arch semicircle formula.
+  // Accurate: 20/8 = 2.5.  Cubic: 20/20 = 1.0.
+  const studToYCell = LDU_PER_STUD / LDU_PER_Y;
 
   // ── Expand each brick into grid cells ────────────────────────────────────
 
@@ -308,7 +312,7 @@ export function voxelizeLDraw(
       }
       if (archSpanAxis !== null && archInnerEnd > archInnerStart) {
         archRStuds  = (archInnerEnd - archInnerStart) / 2;
-        archRPlates = archRStuds * 2.5; // stud → plate (20 LDU / 8 LDU = 2.5)
+        archRPlates = archRStuds * studToYCell; // stud → Y-cell (2.5 accurate, 1.0 cubic)
       } else {
         archSpanAxis = null; // inner span too narrow, skip masking
       }
