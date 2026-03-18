@@ -1967,3 +1967,30 @@ Clean (`tsc --noEmit` 0 errors)
 
 ### Remaining OPEN items
 GAP-20 (PDF pipeline / "View Instructions" link)
+
+---
+
+## Pass 7 — 2026-03-17 — GAP-20
+
+**GAP count**: 1 item
+
+### Changes
+
+- **GAP-20**: "View Instructions" PDF link in LEGO set detail panel
+  - Generated `web/public/lego-instructions.json` (963 KB) from clego's `biapp_instructions.json`
+    - Maps set base number → array of LEGO CDN PDF URLs (lego.com/cdn/...)
+    - 7,524 sets with at least one instruction PDF URL
+  - Added `getInstructionsMap()` lazy loader in `lego.ts` (same pattern as `getReconstructedIndex`)
+  - In `selectSet()`: after rendering detail panel, async-injects "Instructions PDF ↗" link(s) inline with the Rebrickable link
+  - Sets with multiple booklets get numbered links: "Instructions 1 PDF ↗", "Instructions 2 PDF ↗"
+  - Step sequencing (GAP-18) was already implemented; this completes GAP-20's "link + step slider" acceptance criteria
+
+### Files changed
+- `web/public/lego-instructions.json` — NEW: 7,524 set → PDF URL mappings
+- `web/src/ui/lego.ts` — `_instructionsMap`, `getInstructionsMap()`, instructions link injection in `selectSet()`
+
+### Typecheck
+Clean (`tsc --noEmit` 0 errors)
+
+### All 20 GAPs resolved
+GAP-01 through GAP-20 are all now marked DONE.
