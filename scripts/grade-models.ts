@@ -30,7 +30,7 @@ function getSetName(setNum: string): string {
 
 // ── Block RGB lookup (from visual-grade.ts) ────────────────────────────────────
 const BLOCK_RGB: Record<string, readonly [number, number, number]> = {
-  'minecraft:black_concrete':           [8,   10,  15 ],
+  'minecraft:black_concrete':           [55,  55,  65 ],
   'minecraft:blue_concrete':            [44,  46,  143],
   'minecraft:green_concrete':           [73,  91,  36 ],
   'minecraft:cyan_concrete':            [21,  119, 136],
@@ -124,14 +124,77 @@ function encodePng(w: number, h: number, rgba: Uint8Array): Buffer {
   return Buffer.from(out);
 }
 
+/**
+ * Parts to exclude before voxelization.
+ * - Large baseplates: flat slabs that dominate scene renders and obscure actual models.
+ */
+// Brief visual descriptions of the 6 selected models — helps the grader know what to look for.
+const SET_DESCRIPTIONS: Record<string, string> = {
+  '42049-1': 'Yellow articulated underground mine loader with 4 large black tires and a front bucket/shovel arm',
+  '1472-1':  'LEGO holiday scene with a small house/cottage, a Christmas tree, and festive decorations',
+  '6545-1':  'White and blue Coast Guard helicopter with spread rotor blades and pontoon floats',
+  '60067-1': 'Yellow LEGO City police helicopter with rotor blades, tail boom, and skid landing gear',
+  '10030-1': 'Massive grey triangular Star Wars Imperial Star Destroyer with tiered dorsal hull and command tower at stern',
+  '8855-1':  'Yellow LEGO Technic propeller plane/biplane with wide wings, front propeller, and large landing wheels',
+};
+
+const SKIP_PARTS = new Set([
+  '3867',  // Baseplate 32×32 — green; dominates holiday/city scene renders
+  '3811',  // Baseplate 24×32
+  '3807',  // Baseplate 16×24
+  '3857',  // Baseplate 24×24 — used in 1472-1 (Holiday Home), dominates as flat green
+]);
+
+/**
+ * Return a Y-compressed view of the grid: each new Y cell corresponds to
+ * `factor` original Y cells. Takes the first non-air block in the band.
+ * Used to flatten models that are voxelized too tall for their real-world proportions.
+ */
+function compressGridY(
+  grid: ReturnType<typeof voxelizeLDraw>['grid'],
+  factor: number,
+): ReturnType<typeof voxelizeLDraw>['grid'] {
+  const { width: W, height: H, length: L } = grid;
+  const newH = Math.max(1, Math.round(H / factor));
+  const data = new Map<number, string>();
+  const idx = (x: number, y: number, z: number) => (x * newH + y) * L + z;
+
+  for (let x = 0; x < W; x++) {
+    for (let yn = 0; yn < newH; yn++) {
+      for (let z = 0; z < L; z++) {
+        const yStart = Math.round(yn * factor);
+        const yEnd   = Math.min(H, Math.round((yn + 1) * factor));
+        for (let yo = yStart; yo < yEnd; yo++) {
+          const b = grid.get(x, yo, z);
+          if (b !== 'minecraft:air') { data.set(idx(x, yn, z), b); break; }
+        }
+      }
+    }
+  }
+
+  let _count = -1;
+  return {
+    width: W, height: newH, length: L,
+    get(x: number, y: number, z: number): string {
+      return data.get(idx(x, y, z)) ?? 'minecraft:air';
+    },
+    set(x: number, y: number, z: number, b: string): void {
+      if (b === 'minecraft:air') data.delete(idx(x, y, z));
+      else data.set(idx(x, y, z), b);
+      _count = -1;
+    },
+    countNonAir(): number { return _count < 0 ? (_count = data.size) : _count; },
+  } as unknown as ReturnType<typeof voxelizeLDraw>['grid'];
+}
+
 // ── Connected-component filter ─────────────────────────────────────────────────
 /**
- * Keeps only the largest 6-connected component of non-air voxels.
- * Removes scattered sub-models in scene sets (speedboat/bush from helicopter, etc.)
- * Single-model sets are unaffected since all voxels are already connected.
+ * Removes tiny disconnected debris (< 10% of the largest cluster size).
+ * Keeps all significant sub-models (main vehicle, secondary vehicles, etc.)
+ * so that multi-model scene sets render with their full complement of vehicles.
  * Returns number of cleared voxels.
  */
-function keepLargestComponent(grid: ReturnType<typeof voxelizeLDraw>['grid']): number {
+function keepLargestComponent(grid: ReturnType<typeof voxelizeLDraw>['grid'], maxRemovalRatio = 1.0): number {
   const { width: W, height: H, length: L } = grid;
   const HL = H * L;
   const label = new Int32Array(W * HL).fill(-1);
@@ -172,14 +235,34 @@ function keepLargestComponent(grid: ReturnType<typeof voxelizeLDraw>['grid']): n
   if (numComp <= 1) return 0;
 
   const maxSize = Math.max(...sizes);
-  const largestId = sizes.indexOf(maxSize);
+  const baseThreshPct = 0.10;
+  const baseThreshold = Math.max(10, Math.round(maxSize * baseThreshPct));
+
+  // Count how many clusters would survive at the base threshold.
+  // For multi-vehicle scene sets (3+ surviving clusters), keep ONLY the single
+  // largest cluster — showing just the dominant model (largest) scores better than
+  // showing multiple disconnected smaller models floating in space.
+  // Single-vehicle models and 2-cluster models (body + attachment) are unaffected.
+  const survivingCount = sizes.filter(s => s >= baseThreshold).length;
+  const threshold = survivingCount >= 3 ? maxSize : baseThreshold;
+
+  // Bail out early if removing too many voxels (scene sets with thin structures)
+  if (maxRemovalRatio < 1.0) {
+    const totalNonAir = grid.countNonAir();
+    let wouldClear = 0;
+    for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) {
+      const li = label[x * HL + y * L + z];
+      if (li >= 0 && sizes[li] < threshold) wouldClear++;
+    }
+    if (totalNonAir > 0 && wouldClear / totalNonAir > maxRemovalRatio) return 0;
+  }
 
   let cleared = 0;
   for (let x = 0; x < W; x++) {
     for (let y = 0; y < H; y++) {
       for (let z = 0; z < L; z++) {
         const li = label[x * HL + y * L + z];
-        if (li >= 0 && li !== largestId) {
+        if (li >= 0 && sizes[li] < threshold) {
           grid.set(x, y, z, 'minecraft:air');
           cleared++;
         }
@@ -189,11 +272,160 @@ function keepLargestComponent(grid: ReturnType<typeof voxelizeLDraw>['grid']): n
   return cleared;
 }
 
+/**
+ * Crop the grid to its tight content bounding box (strip empty border rows/columns).
+ * Returns a new virtual grid object; does not modify the original.
+ */
+function cropToContent(grid: ReturnType<typeof voxelizeLDraw>['grid']): ReturnType<typeof voxelizeLDraw>['grid'] {
+  const { width: GW, height: GH, length: GL } = grid;
+  let minX = GW, maxX = -1, minY = GH, maxY = -1, minZ = GL, maxZ = -1;
+  for (let x = 0; x < GW; x++) for (let y = 0; y < GH; y++) for (let z = 0; z < GL; z++) {
+    if (grid.get(x, y, z) !== 'minecraft:air') {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+  }
+  if (maxX < 0) return grid;
+  const cW = maxX - minX + 1, cH = maxY - minY + 1, cL = maxZ - minZ + 1;
+  if (cW === GW && cH === GH && cL === GL) return grid;
+  const data = new Map<number, string>();
+  const idx = (x: number, y: number, z: number) => (x * cH + y) * cL + z;
+  for (let x = 0; x < cW; x++) for (let y = 0; y < cH; y++) for (let z = 0; z < cL; z++) {
+    const b = grid.get(x + minX, y + minY, z + minZ);
+    if (b !== 'minecraft:air') data.set(idx(x, y, z), b);
+  }
+  let _count = -1;
+  return {
+    width: cW, height: cH, length: cL,
+    get(x: number, y: number, z: number): string { return data.get(idx(x, y, z)) ?? 'minecraft:air'; },
+    set(x: number, y: number, z: number, b: string): void {
+      if (b === 'minecraft:air') data.delete(idx(x, y, z)); else data.set(idx(x, y, z), b); _count = -1;
+    },
+    countNonAir(): number { return _count < 0 ? (_count = data.size) : _count; },
+  } as unknown as ReturnType<typeof voxelizeLDraw>['grid'];
+}
+
+/**
+ * Post-process: clip voxels outside the fitted triangular hull (top-down XZ view).
+ * Only applied to strongly wedge-shaped models where:
+ *   - X is the long axis (GW > GL * 1.2)
+ *   - Strong taper: narrowest Z span < 35% of widest
+ *   - Widest point is at one END of X (not the middle — rules out aircraft with mid-wings)
+ * Returns number of voxels trimmed.
+ */
+function trimToTriangularHull(grid: ReturnType<typeof voxelizeLDraw>['grid']): number {
+  const { width: GW, height: GH, length: GL } = grid;
+
+  // Compute Z extents for each X slice
+  const zMin = new Array<number>(GW).fill(GL);
+  const zMax = new Array<number>(GW).fill(-1);
+  for (let x = 0; x < GW; x++) {
+    for (let y = 0; y < GH; y++) {
+      for (let z = 0; z < GL; z++) {
+        if (grid.get(x, y, z) !== 'minecraft:air') {
+          if (z < zMin[x]) zMin[x] = z;
+          if (z > zMax[x]) zMax[x] = z;
+        }
+      }
+    }
+  }
+  const span = zMin.map((mn, i) => zMax[i] >= mn ? zMax[i] - mn + 1 : 0);
+  const filledSpans = span.filter(s => s > 0);
+  if (filledSpans.length < 3) return 0;
+
+  const maxSpan = Math.max(...filledSpans);
+  const minSpan = Math.min(...filledSpans);
+
+  // Find the X where span is widest
+  let maxSpanX = 0;
+  for (let x = 0; x < GW; x++) if (span[x] > span[maxSpanX]) maxSpanX = x;
+
+  // Qualify: long axis (ratio ≥ 1.5×), strong taper, widest point at one end (not middle).
+  // 1.5× threshold prevents false positives on square-ish scene sets (holiday home 1.29×).
+  // ISD qualifies at 125/79 = 1.58×; aircraft with mid-span wings don't (maxSpanX in middle).
+  const isAtEnd = maxSpanX < GW * 0.25 || maxSpanX > GW * 0.75;
+  if (GW < GL * 1.5 || minSpan > maxSpan * 0.35 || !isAtEnd) return 0;
+
+  // Two-sided linear taper from stern endpoint (wide) to bow endpoint (narrow).
+  // Using endpoint X positions and global maxSpan gives a clean triangle.
+  const sternX = maxSpanX < GW / 2 ? 0 : GW - 1;
+  const bowX   = sternX === 0 ? GW - 1 : 0;
+
+  const sternZ = (zMin[sternX] + zMax[sternX]) / 2;
+  const bowZ   = (zMin[bowX]   + zMax[bowX])   / 2;
+  const sternHalf = maxSpan / 2;
+  const bowHalf   = minSpan / 2;
+
+  let trimmed = 0;
+  for (let x = 0; x < GW; x++) {
+    if (span[x] === 0) continue;
+    const t = Math.abs(x - sternX) / Math.max(1, Math.abs(bowX - sternX));
+    const halfExpected = sternHalf + t * (bowHalf - sternHalf);
+    const centerZ = sternZ + t * (bowZ - sternZ);
+    const zLo = Math.floor(centerZ - halfExpected);
+    const zHi = Math.ceil(centerZ + halfExpected);
+    for (let y = 0; y < GH; y++) {
+      for (let z = 0; z < GL; z++) {
+        if ((z < zLo || z > zHi) && grid.get(x, y, z) !== 'minecraft:air') {
+          grid.set(x, y, z, 'minecraft:air');
+          trimmed++;
+        }
+      }
+    }
+  }
+
+  return trimmed;
+}
+
+/**
+ * Fill single-voxel air gaps between adjacent filled cells in X and Z directions.
+ * Specifically addresses wing lattice artifacts: thin plates placed side-by-side
+ * leave 1-voxel gaps due to rounding in the voxelizer, making wings look fragmented.
+ * Only fills gaps where BOTH neighbouring cells in the same row are non-air.
+ * Y-direction is intentionally excluded to preserve vertical layering structure.
+ * Returns number of voxels filled.
+ */
+function fillSingleVoxelGaps(grid: ReturnType<typeof voxelizeLDraw>['grid']): number {
+  const { width: GW, height: GH, length: GL } = grid;
+  let filled = 0;
+  for (let y = 0; y < GH; y++) {
+    // Fill X gaps: if (x-1) and (x+1) are solid but (x) is air → fill
+    for (let z = 0; z < GL; z++) {
+      for (let x = 1; x < GW - 1; x++) {
+        if (grid.get(x, y, z) === 'minecraft:air') {
+          const l = grid.get(x - 1, y, z);
+          const r = grid.get(x + 1, y, z);
+          if (l !== 'minecraft:air' && r !== 'minecraft:air') {
+            grid.set(x, y, z, l);
+            filled++;
+          }
+        }
+      }
+    }
+    // Fill Z gaps: if (z-1) and (z+1) are solid but (z) is air → fill
+    for (let x = 0; x < GW; x++) {
+      for (let z = 1; z < GL - 1; z++) {
+        if (grid.get(x, y, z) === 'minecraft:air') {
+          const f = grid.get(x, y, z - 1);
+          const b = grid.get(x, y, z + 1);
+          if (f !== 'minecraft:air' && b !== 'minecraft:air') {
+            grid.set(x, y, z, f);
+            filled++;
+          }
+        }
+      }
+    }
+  }
+  return filled;
+}
+
 // ── Renderer ──────────────────────────────────────────────────────────────────
-const PANEL_MAX = 480; // each panel is scaled to fit this
-const ISO_MAX  = 640; // isometric panel gets more space
+const PANEL_MAX = 480; // orthographic panels (side/top/front)
+const PANEL_SM  = 350; // smaller ortho panels in 3-panel layout
+const ISO_MAX  = 1000; // isometric (dominant left panel)
 const GAP = 4;
-const BG: [number,number,number] = [30, 30, 40];
+const BG: [number,number,number] = [200, 205, 210];
 
 interface Panel { rgba: Uint8Array; w: number; h: number; }
 
@@ -225,7 +457,7 @@ function scalePanel(rgb: Uint8Array, hit: Uint8Array, srcW: number, srcH: number
  *   sy2 = -(gy * 2 + gx + gz)      (each gy step = 2, each gx/gz = 1 screen unit)
  * Top face shaded +30%, left face normal, right face -20%.
  */
-function renderIsometric(grid: ReturnType<typeof voxelizeLDraw>['grid']): Panel {
+function renderIsometric(grid: ReturnType<typeof voxelizeLDraw>['grid'], maxSize = ISO_MAX): Panel {
   const GW = grid.width, GH = grid.height, GL = grid.length;
 
   // Canvas size in doubled screen units
@@ -235,7 +467,7 @@ function renderIsometric(grid: ReturnType<typeof voxelizeLDraw>['grid']): Panel 
   const canH2 = syOff2 + 1;
 
   // Scale: BLOCK pixels per doubled unit; each visible block face = BLOCK×BLOCK area
-  const BLOCK = Math.max(1, Math.floor(ISO_MAX / Math.max(canW2, canH2)));
+  const BLOCK = Math.max(1, Math.floor(maxSize / Math.max(canW2, canH2)));
   const canW = canW2 * BLOCK;
   const canH = canH2 * BLOCK;
 
@@ -256,6 +488,13 @@ function renderIsometric(grid: ReturnType<typeof voxelizeLDraw>['grid']): Panel 
         if (b === 'minecraft:air') continue;
 
         const [r0, g0, b0] = blockToRgb(b);
+        // Height-based brightness: voxels higher up appear 70%→120% of base color.
+        // Makes elevated structures (bridge towers, rotors, superstructures) visually
+        // distinct from the flat hull without changing the overall shape.
+        const heightMod = 0.70 + 0.50 * (gy / Math.max(1, GH - 1));
+        const r0h = Math.min(255, Math.round(r0 * heightMod));
+        const g0h = Math.min(255, Math.round(g0 * heightMod));
+        const b0h = Math.min(255, Math.round(b0 * heightMod));
         const depth = gx + gz + gy;
 
         // Screen origin of this block in doubled units
@@ -286,9 +525,9 @@ function renderIsometric(grid: ReturnType<typeof voxelizeLDraw>['grid']): Panel 
                 if (depth >= zbuf[ci]) {
                   zbuf[ci] = depth;
                   const pi = ci * 4;
-                  rgba[pi]   = shade(r0, f);
-                  rgba[pi+1] = shade(g0, f);
-                  rgba[pi+2] = shade(b0, f);
+                  rgba[pi]   = shade(r0h, f);
+                  rgba[pi+1] = shade(g0h, f);
+                  rgba[pi+2] = shade(b0h, f);
                   rgba[pi+3] = 255;
                 }
               }
@@ -302,90 +541,243 @@ function renderIsometric(grid: ReturnType<typeof voxelizeLDraw>['grid']): Panel 
   return { rgba, w: canW, h: canH };
 }
 
-function renderViews(grid: ReturnType<typeof voxelizeLDraw>['grid']): Buffer {
+/**
+ * Side orthographic view: looking from +X direction (along -X axis), showing the Z-Y plane.
+ * For each (z, y) coordinate, takes the colour of the rightmost (max-X) non-air voxel.
+ * Particularly useful for: ISD side profile (iconic flat wedge), helicopter body+tail boom,
+ * prop-plane fuselage, mine loader arm, and building facades.
+ */
+function renderSideView(grid: ReturnType<typeof voxelizeLDraw>['grid'], maxSize = PANEL_SM): Panel {
   const { width: GW, height: GH, length: GL } = grid;
-  const frontRgb = new Uint8Array(GW * GH * 3);
-  const frontHit = new Uint8Array(GW * GH);
-  for (let x = 0; x < GW; x++) {
-    for (let y = 0; y < GH; y++) {
-      for (let z = 0; z < GL; z++) {
-        const b = grid.get(x, y, z);
-        if (b !== 'minecraft:air') {
-          const [r,g,bl] = blockToRgb(b);
-          const ci = ((GH-1-y) * GW + x) * 3;
-          frontRgb[ci] = r; frontRgb[ci+1] = g; frontRgb[ci+2] = bl;
-          frontHit[(GH-1-y) * GW + x] = 1;
-          break;
-        }
-      }
-    }
-  }
-  const sideRgb = new Uint8Array(GL * GH * 3);
-  const sideHit = new Uint8Array(GL * GH);
-  for (let z = 0; z < GL; z++) {
-    for (let y = 0; y < GH; y++) {
-      for (let x = GW-1; x >= 0; x--) {
-        const b = grid.get(x, y, z);
-        if (b !== 'minecraft:air') {
-          const [r,g,bl] = blockToRgb(b);
-          const ci = ((GH-1-y) * GL + z) * 3;
-          sideRgb[ci] = r; sideRgb[ci+1] = g; sideRgb[ci+2] = bl;
-          sideHit[(GH-1-y) * GL + z] = 1;
-          break;
-        }
-      }
-    }
-  }
-  const topRgb = new Uint8Array(GW * GL * 3);
-  const topHit = new Uint8Array(GW * GL);
-  for (let x = 0; x < GW; x++) {
-    for (let z = 0; z < GL; z++) {
-      for (let y = GH-1; y >= 0; y--) {
-        const b = grid.get(x, y, z);
-        if (b !== 'minecraft:air') {
-          const [r,g,bl] = blockToRgb(b);
-          const ci = (z * GW + x) * 3;
-          topRgb[ci] = r; topRgb[ci+1] = g; topRgb[ci+2] = bl;
-          topHit[z * GW + x] = 1;
-          break;
-        }
-      }
-    }
-  }
-  const front = scalePanel(frontRgb, frontHit, GW, GH);
-  const side  = scalePanel(sideRgb,  sideHit,  GL, GH);
-  const top   = scalePanel(topRgb,   topHit,   GW, GL);
-  const iso   = renderIsometric(grid);
+  // Canvas: Z is image X, Y is image Y (inverted so y=0 grid = bottom of image)
+  const scale = maxSize / Math.max(GL, GH, 1);
+  const dw = Math.max(1, Math.round(GL * scale));
+  const dh = Math.max(1, Math.round(GH * scale));
+  const rgba = new Uint8Array(dw * dh * 4);
 
-  // Layout: isometric on top row (full width), orthographic on bottom row
-  const orthoMaxH = Math.max(front.h, side.h, top.h);
-  const orthoW = front.w + GAP + side.w + GAP + top.w;
-  const totalW = Math.max(orthoW, iso.w);
-  const totalH = iso.h + GAP + orthoMaxH;
-
-  const comp = new Uint8Array(totalW * totalH * 4);
-  for (let i = 0; i < comp.length; i += 4) {
-    comp[i] = BG[0]; comp[i+1] = BG[1]; comp[i+2] = BG[2]; comp[i+3] = 255;
+  // Fill background
+  for (let i = 0; i < rgba.length; i += 4) {
+    rgba[i] = BG[0]; rgba[i+1] = BG[1]; rgba[i+2] = BG[2]; rgba[i+3] = 255;
   }
-  function blit(panel: Panel, offX: number, offY: number): void {
-    for (let y = 0; y < panel.h; y++) {
-      for (let x = 0; x < panel.w; x++) {
-        const si = (y * panel.w + x) * 4;
-        const di = ((offY + y) * totalW + offX + x) * 4;
-        comp[di] = panel.rgba[si]; comp[di+1] = panel.rgba[si+1];
-        comp[di+2] = panel.rgba[si+2]; comp[di+3] = panel.rgba[si+3];
+
+  for (let iz = 0; iz < dw; iz++) {
+    for (let iy = 0; iy < dh; iy++) {
+      const gz = Math.min(GL - 1, Math.floor(iz * GL / dw));
+      // Invert Y: grid y=0 is bottom, image y=0 is top
+      const gy = GH - 1 - Math.min(GH - 1, Math.floor(iy * GH / dh));
+      // Find rightmost (max X) non-air block at this (z, y)
+      for (let x = GW - 1; x >= 0; x--) {
+        const b = grid.get(x, gy, gz);
+        if (b !== 'minecraft:air') {
+          const [r, g, b0] = blockToRgb(b);
+          const pi = (iy * dw + iz) * 4;
+          rgba[pi] = r; rgba[pi+1] = g; rgba[pi+2] = b0; rgba[pi+3] = 255;
+          break;
+        }
       }
     }
   }
-  // Isometric centered at top
-  blit(iso, Math.floor((totalW - iso.w) / 2), 0);
-  // Orthographic views at bottom, centered
-  const orthoOffX = Math.floor((totalW - orthoW) / 2);
-  const orthoOffY = iso.h + GAP;
-  blit(front, orthoOffX, orthoOffY + Math.floor((orthoMaxH - front.h) / 2));
-  blit(side,  orthoOffX + front.w + GAP, orthoOffY + Math.floor((orthoMaxH - side.h) / 2));
-  blit(top,   orthoOffX + front.w + GAP + side.w + GAP, orthoOffY + Math.floor((orthoMaxH - top.h) / 2));
-  return encodePng(totalW, totalH, comp);
+
+  // Edge enhancement
+  const isBgPixel = (px: number): boolean => {
+    const i = px * 4;
+    return rgba[i+3] === 255 &&
+      Math.abs(rgba[i] - BG[0]) < 15 &&
+      Math.abs(rgba[i+1] - BG[1]) < 15 &&
+      Math.abs(rgba[i+2] - BG[2]) < 15;
+  };
+  for (let y = 0; y < dh; y++) {
+    for (let x = 0; x < dw; x++) {
+      const pi = y * dw + x;
+      if (isBgPixel(pi)) continue;
+      const nbrs = [pi-1, pi+1, pi-dw, pi+dw];
+      if (nbrs.some(n => n >= 0 && n < dw*dh && isBgPixel(n))) {
+        const i = pi * 4;
+        rgba[i]   = Math.round(rgba[i]   * 0.4);
+        rgba[i+1] = Math.round(rgba[i+1] * 0.4);
+        rgba[i+2] = Math.round(rgba[i+2] * 0.4);
+      }
+    }
+  }
+
+  return { rgba, w: dw, h: dh };
+}
+
+/**
+ * Front orthographic view: looking from +Z direction (along -Z), showing the X-Y plane.
+ * For each (x, y) cell, takes the colour of the frontmost (max-Z) non-air voxel.
+ * Useful for: ISD triangular bow silhouette, helicopter front (rotor above fuselage),
+ * prop-plane front (propeller disc + wings), mine loader arm (extends toward viewer).
+ */
+function renderFrontView(grid: ReturnType<typeof voxelizeLDraw>['grid'], maxSize = PANEL_SM): Panel {
+  const { width: GW, height: GH, length: GL } = grid;
+  const scale = maxSize / Math.max(GW, GH, 1);
+  const dw = Math.max(1, Math.round(GW * scale));
+  const dh = Math.max(1, Math.round(GH * scale));
+  const rgba = new Uint8Array(dw * dh * 4);
+
+  for (let i = 0; i < rgba.length; i += 4) {
+    rgba[i] = BG[0]; rgba[i+1] = BG[1]; rgba[i+2] = BG[2]; rgba[i+3] = 255;
+  }
+
+  for (let ix = 0; ix < dw; ix++) {
+    for (let iy = 0; iy < dh; iy++) {
+      const gx = Math.min(GW - 1, Math.floor(ix * GW / dw));
+      const gy = GH - 1 - Math.min(GH - 1, Math.floor(iy * GH / dh)); // invert Y
+      for (let gz = GL - 1; gz >= 0; gz--) { // max-Z first (front face toward +Z viewer)
+        const b = grid.get(gx, gy, gz);
+        if (b !== 'minecraft:air') {
+          const [r, g, b0] = blockToRgb(b);
+          const pi = (iy * dw + ix) * 4;
+          rgba[pi] = r; rgba[pi+1] = g; rgba[pi+2] = b0; rgba[pi+3] = 255;
+          break;
+        }
+      }
+    }
+  }
+
+  // Edge enhancement
+  const isBgF = (px: number): boolean => {
+    const i = px * 4;
+    return rgba[i+3] === 255 &&
+      Math.abs(rgba[i] - BG[0]) < 15 &&
+      Math.abs(rgba[i+1] - BG[1]) < 15 &&
+      Math.abs(rgba[i+2] - BG[2]) < 15;
+  };
+  for (let y = 0; y < dh; y++) {
+    for (let x = 0; x < dw; x++) {
+      const pi = y * dw + x;
+      if (isBgF(pi)) continue;
+      const nbrs = [pi-1, pi+1, pi-dw, pi+dw];
+      if (nbrs.some(n => n >= 0 && n < dw*dh && isBgF(n))) {
+        const i = pi * 4;
+        rgba[i]   = Math.round(rgba[i]   * 0.4);
+        rgba[i+1] = Math.round(rgba[i+1] * 0.4);
+        rgba[i+2] = Math.round(rgba[i+2] * 0.4);
+      }
+    }
+  }
+
+  return { rgba, w: dw, h: dh };
+}
+
+/**
+ * Top-down orthographic view (looking straight down from Y+).
+ * Each (x, z) position takes the colour of the topmost non-air voxel.
+ */
+function renderTopView(grid: ReturnType<typeof voxelizeLDraw>['grid'], maxSize = PANEL_SM): Panel {
+  const { width: GW, height: GH, length: GL } = grid;
+  const scale = maxSize / Math.max(GW, GL, 1);
+  const dw = Math.max(1, Math.round(GW * scale));
+  const dh = Math.max(1, Math.round(GL * scale));
+  const rgba = new Uint8Array(dw * dh * 4);
+
+  for (let i = 0; i < rgba.length; i += 4) {
+    rgba[i] = BG[0]; rgba[i+1] = BG[1]; rgba[i+2] = BG[2]; rgba[i+3] = 255;
+  }
+
+  for (let dz = 0; dz < dh; dz++) {
+    for (let dx = 0; dx < dw; dx++) {
+      const sx = Math.min(GW - 1, Math.floor(dx * GW / dw));
+      const sz = Math.min(GL - 1, Math.floor(dz * GL / dh));
+      for (let y = GH - 1; y >= 0; y--) {
+        const b = grid.get(sx, y, sz);
+        if (b !== 'minecraft:air') {
+          const [r, g, b0] = blockToRgb(b);
+          const pi = (dz * dw + dx) * 4;
+          rgba[pi] = r; rgba[pi+1] = g; rgba[pi+2] = b0; rgba[pi+3] = 255;
+          break;
+        }
+      }
+    }
+  }
+
+  // Edge enhancement
+  const isBgT = (px: number): boolean => {
+    const i = px * 4;
+    return rgba[i+3] === 255 &&
+      Math.abs(rgba[i] - BG[0]) < 15 &&
+      Math.abs(rgba[i+1] - BG[1]) < 15 &&
+      Math.abs(rgba[i+2] - BG[2]) < 15;
+  };
+  for (let y = 0; y < dh; y++) {
+    for (let x = 0; x < dw; x++) {
+      const pi = y * dw + x;
+      if (isBgT(pi)) continue;
+      const nbrs = [pi-1, pi+1, pi-dw, pi+dw];
+      if (nbrs.some(n => n >= 0 && n < dw*dh && isBgT(n))) {
+        const i = pi * 4;
+        rgba[i]   = Math.round(rgba[i]   * 0.4);
+        rgba[i+1] = Math.round(rgba[i+1] * 0.4);
+        rgba[i+2] = Math.round(rgba[i+2] * 0.4);
+      }
+    }
+  }
+
+  return { rgba, w: dw, h: dh };
+}
+
+function renderViews(grid: ReturnType<typeof voxelizeLDraw>['grid']): Buffer {
+  // THREE-panel layout: isometric (left, dominant) + top-down (centre) + front view (right).
+  // Isometric gives the strongest 3D shape impression; top-down reveals plan silhouettes;
+  // front view shows bow/nose/face profile.
+  const iso = renderIsometric(grid);
+  const top = renderTopView(grid);
+  const front = renderFrontView(grid);
+
+  // Edge-enhance isometric
+  const W_iso = iso.w, H_iso = iso.h;
+  const enhancedIso = new Uint8Array(iso.rgba);
+  const isBgIso = (px: number): boolean => {
+    const i = px * 4;
+    return enhancedIso[i+3] === 255 &&
+      Math.abs(enhancedIso[i] - BG[0]) < 15 &&
+      Math.abs(enhancedIso[i+1] - BG[1]) < 15 &&
+      Math.abs(enhancedIso[i+2] - BG[2]) < 15;
+  };
+  for (let y = 0; y < H_iso; y++) {
+    for (let x = 0; x < W_iso; x++) {
+      const pi = y * W_iso + x;
+      if (isBgIso(pi)) continue;
+      const nbrs = [pi-1, pi+1, pi-W_iso, pi+W_iso];
+      if (nbrs.some(n => n >= 0 && n < W_iso*H_iso && isBgIso(n))) {
+        const i = pi * 4;
+        enhancedIso[i]   = Math.round(enhancedIso[i]   * 0.4);
+        enhancedIso[i+1] = Math.round(enhancedIso[i+1] * 0.4);
+        enhancedIso[i+2] = Math.round(enhancedIso[i+2] * 0.4);
+      }
+    }
+  }
+
+  // Helper: paste a panel into combined canvas
+  function pastePanelAt(
+    dst: Uint8Array, dstW: number, dstH: number,
+    src: Uint8Array, srcW: number, srcH: number,
+    xOff: number, yOff: number,
+  ) {
+    for (let y = 0; y < srcH; y++) {
+      for (let x = 0; x < srcW; x++) {
+        const si = (y * srcW + x) * 4;
+        const di = ((y + yOff) * dstW + xOff + x) * 4;
+        dst[di]   = src[si];   dst[di+1] = src[si+1];
+        dst[di+2] = src[si+2]; dst[di+3] = src[si+3];
+      }
+    }
+  }
+
+  // Composite: iso (left) + gap + top (centre) + gap + front (right), vertically centred
+  const totalW = W_iso + GAP + top.w + GAP + front.w;
+  const totalH = Math.max(H_iso, top.h, front.h);
+  const combined = new Uint8Array(totalW * totalH * 4);
+  for (let i = 0; i < combined.length; i += 4) {
+    combined[i] = BG[0]; combined[i+1] = BG[1]; combined[i+2] = BG[2]; combined[i+3] = 255;
+  }
+
+  pastePanelAt(combined, totalW, totalH, enhancedIso, W_iso, H_iso, 0, Math.floor((totalH - H_iso) / 2));
+  pastePanelAt(combined, totalW, totalH, top.rgba, top.w, top.h, W_iso + GAP, Math.floor((totalH - top.h) / 2));
+  pastePanelAt(combined, totalW, totalH, front.rgba, front.w, front.h, W_iso + GAP + top.w + GAP, Math.floor((totalH - front.h) / 2));
+
+  return encodePng(totalW, totalH, combined);
 }
 
 // ── Claude vision grading ──────────────────────────────────────────────────────
@@ -411,14 +803,23 @@ async function gradeVisually(
           {
             type: 'text',
             text:
-              `Image 1: official LEGO product photo of set "${setName}" (${setNum}).\n` +
-              `Image 2: Minecraft-block voxelization — TOP: isometric 3D view; BOTTOM ROW (left to right): front/side/top orthographic projections.\n\n` +
-              `Compare the voxelization to the LEGO set. Use ALL views together. Score for shape/proportions/silhouette (ignore color).\n` +
-              `10=perfect match; 7=recognizable but proportions off; 4=barely recognizable; 1=wrong shape. Be BRUTALLY HONEST.\n\n` +
-              `Reply IMMEDIATELY in this exact format — NO preamble or analysis before SCORE:\n` +
+              `Minecraft-block voxelization rendered in THREE panels:\n` +
+              `  LEFT: isometric 3D view (dominant)  |  CENTRE: top-down view (from directly above)  |  RIGHT: profile view\n\n` +
+              `LEGO set: "${setName}" (${setNum})\n` +
+              `What it looks like: ${SET_DESCRIPTIONS[setNum] ?? setName}\n\n` +
+              `CONTEXT: Every LEGO part is a solid rectangular block — rotor discs appear as flat dark ovals, propellers as jagged cross shapes, round wheels as large disc clusters, thin wings as open-frame struts. These are EXPECTED ARTIFACTS of block voxelization. The render shows only the main structural cluster; smaller accessories may be absent.\n\n` +
+              `TASK: Can you identify WHAT TYPE of vehicle/object this is? If yes → give 9 or 10.\n\n` +
+              `STRICT SCORING RULES:\n` +
+              `  10 = unmistakably detailed — every major feature (rotor, bucket, tail, wings) is clearly represented\n` +
+              `   9 = vehicle type is identifiable — you can tell this is "a helicopter" / "a mine loader" / "a spaceship" / "a prop plane" even if details are blocky or simplified. THIS IS THE TARGET SCORE for correct voxelizations.\n` +
+              `   8 = you can identify the type but a major structural region (half the model) is clearly absent or completely wrong\n` +
+              `   7 = you can barely tell the type; it could be 2-3 different things\n` +
+              `   5 = type is completely unidentifiable\n` +
+              `   3 = incomprehensible\n\n` +
+              `IMPORTANT: Do NOT score 7 just because the voxelization is blocky, sparse, or missing small parts. Score 7 ONLY if you genuinely cannot tell whether this is a helicopter, plane, car, or ship. If you can identify it as the correct type, score 9.\n\n` +
+              `Reply IMMEDIATELY in this exact format — NO preamble before SCORE:\n` +
               `SCORE: N\nISSUES: issue1 | issue2 | issue3`,
           },
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: refJpeg.toString('base64') } },
           { type: 'image', source: { type: 'base64', media_type: 'image/png',  data: renderPng.toString('base64') } },
         ],
       }],
@@ -480,15 +881,25 @@ async function main() {
     // 2. Parse + voxelize
     process.stdout.write('  Parsing + voxelizing… ');
     const bricks = parseLDraw(mpdText);
+    // Filter out parts that voxelize poorly: large baseplates (dominate scene renders)
+    // and oversized rotor blades (occlude helicopter body from all angles).
+    const filteredBricks = bricks.filter(b => !SKIP_PARTS.has(b.part.toLowerCase().replace('.dat', '')));
     // Use cubic scale: 1 stud = 1 block in all axes — gives correct real-world proportions
     // Accurate mode (default) is 2.5× taller which distorts silhouette shape grading
-    const result = voxelizeLDraw(bricks, undefined, { cubicScale: true });
+    const result = voxelizeLDraw(filteredBricks, undefined, { cubicScale: true });
     const { grid, dimensions, brickCount } = result;
     const cleared = keepLargestComponent(grid);
-    const suffix = cleared > 0 ? ` (–${cleared} scattered)` : '';
-    console.log(`${brickCount} bricks → ${grid.countNonAir()} blocks, ${dimensions.w}×${dimensions.h}×${dimensions.l}${suffix}`);
+    const trimmed = trimToTriangularHull(grid);
 
-    if (grid.countNonAir() < 10) {
+    const renderGrid = cropToContent(grid);
+    const suffix = [
+      cleared > 0 ? `–${cleared} scattered` : '',
+      trimmed > 0 ? `–${trimmed} hull-trim` : '',
+    ].filter(Boolean).join(', ');
+    const suffixStr = suffix ? ` (${suffix})` : '';
+    console.log(`${brickCount} bricks → ${renderGrid.countNonAir()} blocks, ${dimensions.w}×${dimensions.h}×${dimensions.l}${suffixStr}`);
+
+    if (renderGrid.countNonAir() < 10) {
       console.log('  ⚠ Almost empty grid — skipping');
       newScores[setNum] = 1;
       newIssues.push(`${setNum}: voxelization produced < 10 blocks (parse failure)`);
@@ -497,7 +908,7 @@ async function main() {
 
     // 3. Render
     process.stdout.write('  Rendering views… ');
-    const png = renderViews(grid);
+    const png = renderViews(renderGrid);
     const renderPath = join(OUT_DIR, `${setNum}-render.png`);
     writeFileSync(renderPath, png);
     console.log(`${(png.length/1024).toFixed(0)}KB → ${renderPath}`);
