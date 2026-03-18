@@ -30,6 +30,18 @@ const OMR_FETCH_BASE = '/ldraw-omr';
 const RECONSTRUCTED_BASE = '/lego-reconstructed';
 // Lazily loaded set of reconstructed set IDs
 let _reconstructedIndex: Set<string> | null = null;
+// Lazily loaded map of set base-number → instruction PDF URLs
+let _instructionsMap: Record<string, string[]> | null = null;
+
+async function getInstructionsMap(): Promise<Record<string, string[]>> {
+  if (_instructionsMap) return _instructionsMap;
+  try {
+    const r = await fetch('/lego-instructions.json');
+    if (r.ok) _instructionsMap = await r.json() as Record<string, string[]>;
+  } catch { /* offline */ }
+  _instructionsMap ??= {};
+  return _instructionsMap;
+}
 
 async function getReconstructedIndex(): Promise<Set<string>> {
   if (_reconstructedIndex) return _reconstructedIndex;
@@ -339,6 +351,7 @@ function selectSet(set: CatalogSet): void {
         <a href="${escAttr(set.set_url)}" target="_blank" rel="noopener" class="lego-ext-link">
           Rebrickable ↗
         </a>
+        <span id="lego-instr-links"></span>
       </div>
     </div>
     <button class="btn btn-primary lego-auto-load-btn" id="lego-auto-load">
@@ -349,6 +362,18 @@ function selectSet(set: CatalogSet): void {
   // Wire auto-load button
   const autoBtn = document.getElementById('lego-auto-load') as HTMLButtonElement;
   autoBtn.addEventListener('click', () => autoLoadFromOMR(set));
+
+  // Async: inject instruction PDF links when map is loaded
+  getInstructionsMap().then(map => {
+    const urls = map[setNumBase];
+    const linksEl = document.getElementById('lego-instr-links');
+    if (!urls || urls.length === 0 || !linksEl) return;
+    linksEl.innerHTML = urls.map((url, i) =>
+      `<a href="${escAttr(url)}" target="_blank" rel="noopener" class="lego-ext-link">
+        Instructions${urls.length > 1 ? ` ${i + 1}` : ''} PDF ↗
+      </a>`
+    ).join('');
+  });
 
   const omrFileUrl = `${OMR_BASE}/${encodeURIComponent(set.set_num)}.mpd`;
   omrEl.innerHTML = `

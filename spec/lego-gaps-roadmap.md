@@ -277,7 +277,7 @@ grep -r "Bracket" C:/git/clego/extracted/studio_release/app/ldraw/parts/ --inclu
 
 ---
 
-### GAP-20 — PDF → Assembly Step Reconstruction [OPEN] ★★★★
+### GAP-20 — PDF → Assembly Step Reconstruction [DONE — Pass 7] ★★★★
 **Current**: No PDF parsing in craftmatic at all. clego has 11,700 PDFs and a 2,566-line reconstruction pipeline.
 **Integration approach** (NOT porting the full Python pipeline — too complex):
 1. **Immediate**: Use clego's already-reconstructed 5,005 .ldr files (covered in GAP-01). This gives 3D models for 5,005 sets without needing the PDF pipeline.
