@@ -216,11 +216,13 @@ function getLocalBBox(absPath: string, depth = 0): BBox | null {
 
 // ─── Normalization ────────────────────────────────────────────────────────────
 
-/** Strip extension, print suffixes (p01, pb01…), and trailing letter variants */
+/** Strip extension, print suffixes (p01, pb01…), and trailing letter variants.
+ * Only strips trailing letters when the stem contains digits (numeric part IDs). */
 function normalizeId(stem: string): string {
-  return stem
-    .toLowerCase()
-    .replace(/\.dat$/i, '')
+  const lower = stem.toLowerCase().replace(/\.dat$/i, '');
+  // Only apply variant-stripping to numeric part IDs (contain at least one digit)
+  if (!/\d/.test(lower)) return lower;  // pure-alpha names (flowers, light, etc.) → keep as-is
+  return lower
     .replace(/p[a-z0-9]{2,}$/, '')   // print suffix: p01, pb01, pf01 …
     .replace(/[a-z]+$/, '');          // letter variant: a, b, c, ab …
 }
@@ -229,12 +231,22 @@ function normalizeId(stem: string): string {
 
 console.log('Indexing LDraw parts…');
 
-// List all .dat files in parts/ (not recursing into s/)
-const allParts = readdirSync(PARTS_DIR)
-  .filter(f => f.toLowerCase().endsWith('.dat') && !f.includes('/') && !f.includes('\\'))
-  .sort(); // alphabetical so plain "3001.dat" < "3001a.dat"
+// List all .dat files in parts/ and UnOfficial/parts/ (not recursing into s/)
+function listDatFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter(f => f.toLowerCase().endsWith('.dat') && !f.includes('/') && !f.includes('\\'))
+    .map(f => join(dir, f));
+}
 
-console.log(`Found ${allParts.length} parts. Computing bounding boxes…`);
+const officialFiles = listDatFiles(PARTS_DIR);
+const unofficialFiles = listDatFiles(UNOFF_PARTS);
+// Sort to ensure plain name (3001.dat) comes before variants (3001a.dat)
+const allPartFiles = [...officialFiles, ...unofficialFiles].sort((a, b) =>
+  basename(a).localeCompare(basename(b), undefined, { numeric: true }),
+);
+
+console.log(`Found ${officialFiles.length} official + ${unofficialFiles.length} unofficial parts. Computing bounding boxes…`);
 
 const dims: Map<string, [number, number, number]> = new Map();
 let processed = 0;
@@ -243,9 +255,8 @@ let noGeometry = 0;
 
 const startTime = Date.now();
 
-for (const filename of allParts) {
-  const absPath = join(PARTS_DIR, filename);
-  const stem = basename(filename, '.dat');
+for (const absPath of allPartFiles) {
+  const stem = basename(absPath, '.dat');
   const id = normalizeId(stem);
 
   // Skip if we already have an entry for this normalized ID (prefer plain name)
@@ -287,7 +298,7 @@ console.log(`\nDone.`);
 console.log(`  Non-trivial entries: ${dims.size}`);
 console.log(`  Trivial (1×1×1) skipped: ${skipped1x1}`);
 console.log(`  No geometry: ${noGeometry}`);
-console.log(`  Total processed: ${allParts.length}`);
+console.log(`  Total processed: ${allPartFiles.length}`);
 console.log(`  Elapsed: ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
 
 // ─── Emit TypeScript file ────────────────────────────────────────────────────

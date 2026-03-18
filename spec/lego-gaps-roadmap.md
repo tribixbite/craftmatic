@@ -48,7 +48,7 @@
 
 ---
 
-### GAP-02 — Cubic Mode + Slope Angles are Squashed [OPEN] ★★★★
+### GAP-02 — Cubic Mode + Slope Angles are Squashed [DONE — Pass 2] ★★★★
 **Current**: When `cubicScale=true`, `LDU_PER_Y=20` (studs) instead of 8 (plates). But the slope ramp height `spanY` is computed in *grid cells*, so the linear taper `round(t * spanY)` is unaffected by the LDU scale. However, arch radius uses `archRPlates = archRStuds * 2.5` which hardcodes the plate-to-stud ratio. In cubic mode this multiplier should be `1.0` not `2.5`.
 
 **Investigation needed**: Read `voxelizeLDraw` in `ldraw-voxelizer.ts`. Find every place where `2.5` or `LDU_PER_PLATE / LDU_PER_STUD` is implicitly assumed. Specifically:
@@ -74,7 +74,7 @@
 
 ---
 
-### GAP-04 — LDraw Part Dims: 11,000 Parts with No Entry [OPEN] ★★★★
+### GAP-04 — LDraw Part Dims: 11,000 Parts with No Entry [DONE — Pass 2] ★★★★
 **Current**: `ldraw-part-dims-generated.ts` has 7,252 entries. LDraw library has 19,075 parts. ~11,800 parts fall back to `[1,1,1]`.
 **Why the gap**: `gen-part-dims.ts` skips parts whose computed bbox rounds to `[1,1,1]` (same as default, no point emitting). But many parts that should have larger dims fail to compute correctly due to:
   - Sub-file resolution failures (missing primitives)

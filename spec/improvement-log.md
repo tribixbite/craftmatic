@@ -1843,3 +1843,27 @@ Block count unchanged (bracket masking is zero-impact per Pass 30 — masked cel
 
 ### Typecheck
 Clean (`tsc --noEmit` 0 errors)
+
+---
+
+## Pass 2 — 2026-03-18
+
+### Items completed
+- **GAP-02**: Cubic mode arch radius fix
+  - Added `studToYCell = LDU_PER_STUD / LDU_PER_Y` ratio (2.5 accurate, 1.0 cubic)
+  - Arch radius: `archRPlates = archRStuds * studToYCell` (was hardcoded `* 2.5`)
+  - In cubic mode, arch hollows now produce correct semicircular shapes without distortion
+- **GAP-04**: LDraw part dims expansion — unofficial parts
+  - `gen-part-dims.ts`: now also iterates `UnOfficial/parts/` (22,692 additional files)
+  - Fixed `normalizeId` to not strip trailing letters from pure-alpha filenames (`flowers`, `light`)
+  - Generated entries: 7,252 → 12,169 (+4,917, +68%)
+  - Rebuilt `web/src/engine/ldraw-part-dims-generated.ts`
+
+### Files changed
+- `web/src/engine/ldraw-voxelizer.ts` — `studToYCell` ratio for arch masking
+- `scripts/gen-part-dims.ts` — unofficial parts iteration + normalizeId fix
+- `web/src/engine/ldraw-part-dims-generated.ts` — regenerated (12,169 entries)
+- `spec/lego-gaps-roadmap.md` — GAP-02, GAP-04 marked DONE
+
+### Typecheck
+Clean (`tsc --noEmit` 0 errors)
