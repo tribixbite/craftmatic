@@ -467,6 +467,10 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
     }
 
     mesh.instanceMatrix.needsUpdate = true;
+    // Required for correct frustum culling on InstancedMesh — without this,
+    // Three.js uses the base geometry bounding sphere (centered at origin),
+    // which prevents proper view-frustum culling of off-screen block groups.
+    mesh.computeBoundingSphere();
     mesh.userData.yPositions = yPositions;
     mesh.userData.originalMatrices = originals;
     scene.add(mesh);

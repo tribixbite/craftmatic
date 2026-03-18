@@ -238,7 +238,7 @@ grep -r "Bracket" C:/git/clego/extracted/studio_release/app/ldraw/parts/ --inclu
 
 ---
 
-### GAP-17 — LOD for Large Models in 3D Viewer [OPEN] ★★
+### GAP-17 — LOD for Large Models in 3D Viewer [DONE — Pass 6] ★★
 **Current**: Three.js renders every block at full geometry. ISD at 138K blocks can cause frame drops on mobile.
 **Fix**:
 1. In `scene.ts`, add a `LOD_THRESHOLD = 50_000` constant.

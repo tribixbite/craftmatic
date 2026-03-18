@@ -1944,3 +1944,26 @@ Clean (`tsc --noEmit` 0 errors)
 
 ### Remaining OPEN items
 GAP-17 (LOD/culling for large models), GAP-20 (PDF pipeline / instruction link)
+
+---
+
+## Pass 6 — 2026-03-17 — GAP-17
+
+**GAP count**: 1 item
+
+### Changes
+
+- **GAP-17**: Three.js InstancedMesh frustum culling fix
+  - Added `mesh.computeBoundingSphere()` after `mesh.instanceMatrix.needsUpdate = true` for every InstancedMesh group
+  - Without this call, Three.js uses the base geometry bounding sphere (tiny cube at origin), preventing proper view-frustum culling of mesh groups that are off-screen
+  - Interior block culling via `isFullyOccluded` was already implemented and working (confirmed: `BlockGrid.get()` returns air for OOB, so edge blocks are never incorrectly culled)
+  - After the fix, groups of blocks outside the camera frustum will be skipped by the GPU pipeline, reducing draw calls when panning large models like ISD
+
+### Files changed
+- `web/src/viewer/scene.ts` — `mesh.computeBoundingSphere()` called after populating instance matrices
+
+### Typecheck
+Clean (`tsc --noEmit` 0 errors)
+
+### Remaining OPEN items
+GAP-20 (PDF pipeline / "View Instructions" link)
