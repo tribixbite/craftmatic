@@ -458,11 +458,13 @@ const DIMS: Record<string, Dims> = {
   '6015':  P(2,  4),  // Wheel Centre Large
   '50951': P(2,  4),  // Wheel 2×4 Motorcycle
   '2903':  P(2,  2),  // Wheel Hub Small
-  // Large tires/rims: placed with 90° rotation in models (hub along local Z in model space).
-  // After voxelizer X-Z swap + that rotation, sW maps to tire-diameter world-cells,
-  // sH maps to tire-height Y-cells, sL maps to hub-width world-cells.
-  '32019': [7, 16, 4],  // Tyre 20/64×37 S — Technic vehicles; diameter ≈7 cells, hub ≈4 cells
-  '86652': [4, 5, 4],   // Wheel Rim 18×37 — sits inside 32019; diameter ~84 LDU = 4 studs
+  // Large tires/rims: hub along local Z, face disc in local XY plane.
+  // Convention: sW=Z-span/20 (hub width/thickness), sH=Y-span/8 (face diameter), sL=X-span/20 (face diameter).
+  // When tire hub maps to world-X (side-mounted), world-X becomes smallest → round mask in YZ → circular from front.
+  // 32019 geometry (32019.dat): outer radius 50 LDU in XY, width 50 LDU in Z → [3, 13, 5]
+  '32019': [3, 13, 5],  // Tyre 20/64×37 S — outer radius 50 LDU, width 50 LDU; hub along Z
+  // 86652 geometry (86652.dat): outer radius 46 LDU in XY, width 38 LDU in Z → [2, 12, 5]
+  '86652': [2, 12, 5],  // Wheel Rim 18×37 — outer radius 46 LDU, width 38 LDU; hub along Z
   // Propeller: hub along local Z, blades in local XY plane, placed with identity rotation.
   // After voxelizer X-Z swap, sW→world-X (blade span), sH→world-Y (blade span), sL→world-Z (hub).
   '2742':  [15, 35, 3], // Propellor 3 Blade 15 Diameter — 15-stud disc in XY, 3-stud hub in Z

@@ -124,6 +124,71 @@ function encodePng(w: number, h: number, rgba: Uint8Array): Buffer {
   return Buffer.from(out);
 }
 
+// ── Connected-component filter ─────────────────────────────────────────────────
+/**
+ * Keeps only the largest 6-connected component of non-air voxels.
+ * Removes scattered sub-models in scene sets (speedboat/bush from helicopter, etc.)
+ * Single-model sets are unaffected since all voxels are already connected.
+ * Returns number of cleared voxels.
+ */
+function keepLargestComponent(grid: ReturnType<typeof voxelizeLDraw>['grid']): number {
+  const { width: W, height: H, length: L } = grid;
+  const HL = H * L;
+  const label = new Int32Array(W * HL).fill(-1);
+
+  let numComp = 0;
+  const sizes: number[] = [];
+
+  for (let x0 = 0; x0 < W; x0++) {
+    for (let y0 = 0; y0 < H; y0++) {
+      for (let z0 = 0; z0 < L; z0++) {
+        const i0 = x0 * HL + y0 * L + z0;
+        if (label[i0] >= 0 || grid.get(x0, y0, z0) === 'minecraft:air') continue;
+
+        const id = numComp++;
+        let size = 0;
+        const stack = [x0, y0, z0]; // packed triplets
+        label[i0] = id;
+
+        while (stack.length > 0) {
+          const z = stack.pop()!, y = stack.pop()!, x = stack.pop()!;
+          size++;
+          const nbrs: [number, number, number][] = [
+            [x+1,y,z],[x-1,y,z],[x,y+1,z],[x,y-1,z],[x,y,z+1],[x,y,z-1],
+          ];
+          for (const [nx, ny, nz] of nbrs) {
+            if (nx<0||nx>=W||ny<0||ny>=H||nz<0||nz>=L) continue;
+            const ni = nx * HL + ny * L + nz;
+            if (label[ni] >= 0 || grid.get(nx, ny, nz) === 'minecraft:air') continue;
+            label[ni] = id;
+            stack.push(nx, ny, nz);
+          }
+        }
+        sizes.push(size);
+      }
+    }
+  }
+
+  if (numComp <= 1) return 0;
+
+  const maxSize = Math.max(...sizes);
+  const largestId = sizes.indexOf(maxSize);
+
+  let cleared = 0;
+  for (let x = 0; x < W; x++) {
+    for (let y = 0; y < H; y++) {
+      for (let z = 0; z < L; z++) {
+        const li = label[x * HL + y * L + z];
+        if (li >= 0 && li !== largestId) {
+          grid.set(x, y, z, 'minecraft:air');
+          cleared++;
+        }
+      }
+    }
+  }
+  return cleared;
+}
+
 // ── Renderer ──────────────────────────────────────────────────────────────────
 const PANEL_MAX = 480; // each panel is scaled to fit this
 const ISO_MAX  = 640; // isometric panel gets more space
@@ -420,7 +485,9 @@ async function main() {
     // Accurate mode (default) is 2.5× taller which distorts silhouette shape grading
     const result = voxelizeLDraw(bricks, undefined, { cubicScale: true });
     const { grid, dimensions, brickCount } = result;
-    console.log(`${brickCount} bricks → ${grid.countNonAir()} blocks, ${dimensions.w}×${dimensions.h}×${dimensions.l}`);
+    const cleared = keepLargestComponent(grid);
+    const suffix = cleared > 0 ? ` (–${cleared} scattered)` : '';
+    console.log(`${brickCount} bricks → ${grid.countNonAir()} blocks, ${dimensions.w}×${dimensions.h}×${dimensions.l}${suffix}`);
 
     if (grid.countNonAir() < 10) {
       console.log('  ⚠ Almost empty grid — skipping');
