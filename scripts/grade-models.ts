@@ -404,7 +404,7 @@ async function gradeVisually(
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 300,
+      max_tokens: 500,
       messages: [{
         role: 'user',
         content: [
@@ -413,11 +413,10 @@ async function gradeVisually(
             text:
               `Image 1: official LEGO product photo of set "${setName}" (${setNum}).\n` +
               `Image 2: Minecraft-block voxelization — TOP: isometric 3D view; BOTTOM ROW (left to right): front/side/top orthographic projections.\n\n` +
-              `Score the voxelization 1-10 for visual accuracy (shape, proportions, silhouette — ignore color):\n` +
-              `10 = perfect shape match; 7 = recognizable but proportions off; 4 = barely recognizable; 1 = wrong shape.\n\n` +
-              `Use ALL views together to assess shape accuracy — the orthographic views often reveal detail hidden in the isometric. Be BRUTALLY HONEST.\n` +
-              `List up to 3 specific structural issues (e.g. "too tall", "missing wings", "cube instead of tapered nose").\n\n` +
-              `Reply in this exact format:\nSCORE: N\nISSUES: issue1 | issue2 | issue3`,
+              `Compare the voxelization to the LEGO set. Use ALL views together. Score for shape/proportions/silhouette (ignore color).\n` +
+              `10=perfect match; 7=recognizable but proportions off; 4=barely recognizable; 1=wrong shape. Be BRUTALLY HONEST.\n\n` +
+              `Reply IMMEDIATELY in this exact format — NO preamble or analysis before SCORE:\n` +
+              `SCORE: N\nISSUES: issue1 | issue2 | issue3`,
           },
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: refJpeg.toString('base64') } },
           { type: 'image', source: { type: 'base64', media_type: 'image/png',  data: renderPng.toString('base64') } },
