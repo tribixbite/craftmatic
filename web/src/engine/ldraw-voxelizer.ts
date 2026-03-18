@@ -172,13 +172,24 @@ export function voxelizeLDraw(
       unmappedColorSet.add(brick.color);
     }
 
+    // Peek at shape early so we know whether to use symmetric Y bounds
+    const shapeEarly = getPartShape(brick.part);
+
     // Local bounding box corners using stud-center positions.
     // X: stud centers at -(sW-1)/2 … +(sW-1)/2 studs
     // Z: stud centers at -(sL-1)/2 … +(sL-1)/2 studs
     // Y: plate centers from 0 (top plate) to (sH-1)*LDU_PER_PLATE (bottom plate)
+    // Exception — round parts (wheels, cylinders): left/right placements mirror
+    // the rotation matrix sign on the Y axis (R[4]=+1 vs R[4]=-1), which causes
+    // one side's bounding box to extend "downward" instead of "upward". Using
+    // symmetric Y bounds (−lyHalf … +lyHalf) centres both sides identically on
+    // their mounting-point Y, producing matched wheel heights on both sides.
     const lxHalf = (sW - 1) / 2 * LDU_PER_STUD;   // e.g. sW=2 → 10 LDU
     const lzHalf = (sL - 1) / 2 * LDU_PER_STUD;
     const lyBot  = (sH - 1) * LDU_PER_PLATE;       // e.g. sH=3 → 16 LDU
+    const lyHalf = lyBot / 2;
+    const lyStart = shapeEarly === 'round' ? -lyHalf : 0;
+    const lyEnd   = shapeEarly === 'round' ?  lyHalf : lyBot;
 
     // 8 corners of the local bounding box
     let wxMin = Infinity, wxMax = -Infinity;
@@ -186,7 +197,7 @@ export function voxelizeLDraw(
     let wzMin = Infinity, wzMax = -Infinity;
 
     for (let lx = -lxHalf; lx <= lxHalf; lx += Math.max(lxHalf * 2, LDU_PER_STUD)) {
-      for (let ly = 0; ly <= lyBot; ly += Math.max(lyBot, LDU_PER_PLATE)) {
+      for (let ly = lyStart; ly <= lyEnd; ly += Math.max(lyBot, LDU_PER_PLATE)) {
         for (let lz = -lzHalf; lz <= lzHalf; lz += Math.max(lzHalf * 2, LDU_PER_STUD)) {
           const wx = R[0]*lx + R[1]*ly + R[2]*lz + brick.x;
           const wy = R[3]*lx + R[4]*ly + R[5]*lz + brick.y;

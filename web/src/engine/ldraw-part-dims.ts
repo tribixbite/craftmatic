@@ -462,7 +462,7 @@ const DIMS: Record<string, Dims> = {
   // After voxelizer X-Z swap + that rotation, sW maps to tire-diameter world-cells,
   // sH maps to tire-height Y-cells, sL maps to hub-width world-cells.
   '32019': [7, 16, 4],  // Tyre 20/64×37 S — Technic vehicles; diameter ≈7 cells, hub ≈4 cells
-  '86652': [5, 12, 4],  // Wheel Rim 18×37 — sits inside 32019; diameter ≈5 cells, hub ≈4 cells
+  '86652': [4, 5, 4],   // Wheel Rim 18×37 — sits inside 32019; diameter ~84 LDU = 4 studs
   // Propeller: hub along local Z, blades in local XY plane, placed with identity rotation.
   // After voxelizer X-Z swap, sW→world-X (blade span), sH→world-Y (blade span), sL→world-Z (hub).
   '2742':  [15, 35, 3], // Propellor 3 Blade 15 Diameter — 15-stud disc in XY, 3-stud hub in Z
@@ -687,6 +687,8 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
                      // cuts ~12 cells/layer × 25 layers = 300 cells per instance, ×3 = 900 saved
   '32019':'round',   // Tyre 20/64×37 S — Technic vehicles; circular cross-section in side view
   '86652':'round',   // Wheel Rim 18×37 — circular cross-section; inside Tyre 32019
+  '2742':'round',    // Propellor 3 Blade 15 Diameter — 3-blade disc in XY plane (hub along Z)
+  '30332':'round',   // Propellor 3 Blade 9 Diameter — tail rotor; hub along Z, disc in XY
   // Pass 12: cones and round plates found in Saturn V audit
   '48310':'round',   // Cone 8×4×6 Half — Saturn V ×2; cuts corners per layer
   '6233':'round',    // Cone 3×3×2 — Saturn V ×6
