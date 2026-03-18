@@ -707,6 +707,12 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '3956':'bracket',                    // Bracket 2×2 − 2×2 Up (wider face arm)
   '11215':'bracket',                   // Bracket 5×2 (wide arm bracket)
   '18671':'bracket',                   // Bracket 3×2 (medium wide arm)
+  '41682':'bracket',                   // Bracket 2×2 − 1×2 Up Centred
+  '98287':'bracket',                   // Bracket 3×4 − 3×4 Up
+  '4585':'bracket',                    // Bracket 2×1 − 2×1 Up Centred
+  '5090':'bracket',                    // Bracket 1×6 − 2×6 Up
+  '7452':'bracket',                    // Bracket 1×2 − 2×4 Up
+  '2422':'bracket',                    // Bracket 2×2 − 1×4
 
   // ── Panels ───────────────────────────────────────────────────────────────────
   '3853':'panel','3854':'panel','60616':'panel','60617':'panel',
@@ -725,6 +731,8 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '32532':'frame',   // Technic Brick 6×8 with Open Center 4×6 (alt ID) — Falcon ×2
   '40344':'frame',   // =Technic Brick 4×6 with Open Center 2×4 (alt ID) — ISD ×3
   '32324':'frame',   // Technic Brick 4×4 with Open Centre 2×2 — ISD ×9; inner void [2×2]
+  '43123':'frame',   // Technic Brick 4×6 with Open Center 2×4 Dual Pins on End [4,3,7]
+  '52668':'frame',   // Technic Brick 6×8 with Open Center 4×6 Dual Pins on Ends [7,3,10]
 
   // ── Corners (L-shaped Technic corner bricks) ─────────────────────────────────
   // Pass 18: two perpendicular arms meeting at one corner; hollow opposite quadrant.
@@ -768,6 +776,8 @@ const PART_FRAME_THICKNESS: Readonly<Record<string, number>> = {
   '32532': 1,  // Technic Brick 6×8 with Open Center 4×6 (alt ID)
   '40344': 1,  // =Technic Brick 4×6 with Open Center 2×4 (alt ID)
   '32324': 1,  // Technic Brick 4×4 with Open Centre 2×2
+  '43123': 1,  // Technic Brick 4×6 with Open Center 2×4 Dual Pins on End
+  '52668': 1,  // Technic Brick 6×8 with Open Center 4×6 Dual Pins on Ends
 };
 
 /** Return the frame border thickness (in stud cells) for a 'frame' part, or 0 if unknown. */
@@ -794,6 +804,12 @@ const BRACKET_SHELF_DIR: Readonly<Record<string, 'up' | 'down'>> = {
   '3956':  'up',    // Bracket 2×2 − 2×2 Up
   '11215': 'up',    // Bracket 5×2
   '18671': 'up',    // Bracket 3×2
+  '41682': 'up',    // Bracket 2×2 − 1×2 Up Centred
+  '98287': 'up',    // Bracket 3×4 − 3×4 Up
+  '4585':  'up',    // Bracket 2×1 − 2×1 Up Centred
+  '5090':  'up',    // Bracket 1×6 − 2×6 Up
+  '7452':  'up',    // Bracket 1×2 − 2×4 Up
+  '2422':  'up',    // Bracket 2×2 − 1×4 (no Up/Down in name; default up)
   '99780': 'down',  // Bracket 1×2 – 1×2 Down
   '44728': 'down',  // Bracket 1×2 – 2×2 Down
   '36841': 'down',  // Bracket 1×2 – 1×2 Down variant

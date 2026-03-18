@@ -1867,3 +1867,29 @@ Clean (`tsc --noEmit` 0 errors)
 
 ### Typecheck
 Clean (`tsc --noEmit` 0 errors)
+
+---
+
+## Pass 3 — 2026-03-18
+
+### Items completed
+- **GAP-06**: LXF rotation flip validated — C×R×C formula mathematically verified against 3 test cases; no code change needed
+- **GAP-09**: MAX_DIM 256→384 — voxelizer now allows up to 384 blocks in any dimension; Saturn V no longer scaled
+- **GAP-10**: Standalone .ldr parsing verified working — reconstructed LDR files produce correct brick counts (ISD: 2,189, Metro Liner: 720)
+- **GAP-11**: BFF "2D colour map only" label — already implemented in Pass 1; confirmed present in lego.ts
+- **GAP-12**: Bracket coverage expansion — added 10 new bracket parts to PART_SHAPES + BRACKET_SHELF_DIR: 41682, 98287, 4585, 5090, 7452, 2422 (all Up orientation)
+- **GAP-14**: Frame coverage expansion — added 43123, 52668 (Technic open-center Dual Pins variants) with frameThickness=1
+- **GAP-16**: Model orientation normalization — detect upside-down models (Y centroid < -20 LDU); auto-flip by negating Y; `wasFlipped` returned and surfaced in UI
+- **GAP-19**: Color accuracy — mapped 17 previously unmapped LDConfig colors (Chrome/Speckle/Rubber/Special series) to appropriate Minecraft blocks
+
+### Files changed
+- `web/src/engine/ldraw-voxelizer.ts` — MAX_DIM 256→384; orientation normalization; VoxelizeResult.wasFlipped
+- `web/src/ui/lego.ts` — wasFlipped warning; updated height/size threshold (256→384, 200→300)
+- `web/src/engine/ldraw-part-dims.ts` — 10 new bracket + 2 new frame parts
+- `web/src/engine/ldraw-colors.ts` — 17 new LDConfig color mappings
+
+### Typecheck
+Clean (`tsc --noEmit` 0 errors)
+
+### Remaining OPEN items
+GAP-07 (minifig shapes), GAP-08 (transparent adjacency), GAP-13 (asymmetric arch), GAP-15 (corner expansion), GAP-17 (LOD), GAP-18 (assembly steps), GAP-20 (PDF pipeline)

@@ -489,15 +489,16 @@ async function voxelizeAndDisplay(
   // Build status + warnings
   const warnings: string[] = [];
   if (result.warning) warnings.push(result.warning);
+  if (result.wasFlipped) warnings.push('Model Y-axis was auto-flipped (upside-down source file)');
   if (result.unmappedColors.length > 0) {
     const ids = result.unmappedColors.slice(0, 5).join(', ');
     const more = result.unmappedColors.length > 5 ? ` +${result.unmappedColors.length - 5} more` : '';
     warnings.push(`${result.unmappedColors.length} unmapped color IDs (${ids}${more}) → gray`);
   }
-  if (!cubicScale && h > 256) {
-    warnings.push(`Height ${h} exceeds Minecraft's legacy Y=256 limit — try Cubic scale`);
+  if (!cubicScale && h > 384) {
+    warnings.push(`Height ${h} exceeds render limit (384) — try Cubic scale`);
   }
-  if (Math.max(w, h, l) > 200 && !cubicScale) {
+  if (Math.max(w, h, l) > 300 && !cubicScale) {
     warnings.push(`Large model (${w}×${h}×${l}) — Cubic scale reduces proportionally`);
   }
 
