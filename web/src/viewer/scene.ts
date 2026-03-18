@@ -218,18 +218,9 @@ function makeProceduralTexture(r: number, g: number, b: number, blockName: strin
       }
     }
   } else if (name.includes('glass')) {
+    // Uniform translucent tint — no grid-line border so adjacent glass blocks
+    // appear as one continuous transparent surface (avoids internal grid lines).
     for (let i = 0; i < d.length; i += 4) d[i+3] = 180;
-    for (let x = 0; x < size; x++) {
-      for (let y = 0; y < size; y++) {
-        const idx = (y * size + x) * 4;
-        if (x <= 1 || y <= 1) {
-          d[idx] = Math.min(255, d[idx] + 50);
-          d[idx+1] = Math.min(255, d[idx+1] + 50);
-          d[idx+2] = Math.min(255, d[idx+2] + 50);
-          d[idx+3] = 220;
-        }
-      }
-    }
   } else if (name.includes('wool') || name.includes('carpet') || name.includes('concrete')) {
     for (let i = 0; i < d.length; i += 4) {
       const n = (rand() - 0.5) * 8;
