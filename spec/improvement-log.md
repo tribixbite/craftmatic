@@ -1921,3 +1921,26 @@ Clean (`tsc --noEmit` 0 errors)
 
 ### Remaining OPEN items
 GAP-08 (transparent adjacency), GAP-17 (LOD), GAP-20 (PDF pipeline)
+
+---
+
+## Pass 5 — 2026-03-17 — GAP-08
+
+**GAP count**: 1 item
+
+### Changes
+
+- **GAP-08**: Transparent block texture fix — removed grid-line border effect from glass texture generation in `scene.ts`
+  - Each glass block previously rendered a 2px bright border on its left/top edges (to simulate Minecraft-style block outlines)
+  - Adjacent transparent blocks rendered internal grid lines visible through the glass
+  - Fix: removed the border loop; glass texture is now a uniform translucent tint (alpha=180)
+  - Adjacent glass panes now appear as one continuous transparent surface
+
+### Files changed
+- `web/src/viewer/scene.ts` — glass texture: removed border highlight loop
+
+### Typecheck
+Clean (`tsc --noEmit` 0 errors)
+
+### Remaining OPEN items
+GAP-17 (LOD/culling for large models), GAP-20 (PDF pipeline / instruction link)

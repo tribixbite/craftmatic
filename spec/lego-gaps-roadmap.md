@@ -128,7 +128,7 @@
 
 ---
 
-### GAP-08 — Transparent Parts: Adjacent Face Bleed [OPEN] ★★
+### GAP-08 — Transparent Parts: Adjacent Face Bleed [DONE — Pass 5] ★★
 **Current**: Transparent LEGO maps to stained glass. But adjacent transparent blocks don't merge faces in Minecraft's Three.js renderer — large transparent surfaces (windshields, cockpit canopies) render with internal grid lines visible.
 **Fix**: In the Three.js renderer (scene.ts), transparent blocks that are adjacent should share a merged face. Options:
 1. Post-process the grid: replace large contiguous glass regions with a single merged transparent mesh.
