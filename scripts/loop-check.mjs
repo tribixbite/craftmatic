@@ -43,38 +43,26 @@ process.stdin.on('end', () => {
 
   appendFileSync(LOG, `\n[loop ${new Date().toISOString()}] Pass ${s.pass}/${s.max_passes} — ${mode}\n`);
 
-  const taskDetail = isArchReview
-    ? `ARCHITECTURE REVIEW (every 3rd pass):
-  - Read improvement-log.md — what has worked, what hasn't
-  - Step back and assess the overall approach
-  - Identify any structural weaknesses or dead-ends
-  - Consider alternative algorithms (e.g. vertex sampling vs AABB, different masking)
-  - Refactor or restructure if it would unlock better future improvements
-  - Also implement at least one concrete improvement this pass`
-    : `IMPROVEMENT PASS:
-  - Check the priority list in spec/lego-pipeline.md
-  - Check improvement-log.md to avoid repeating work already done
-  - Implement the single highest-impact improvement
-  - Keep it focused: one targeted change per pass`;
-
   const reason = `\
-AUTOMATED IMPROVEMENT PASS ${s.pass}/${s.max_passes} — ${mode}
-
-${taskDetail}
+AUTOMATED GAP-FIX PASS ${s.pass}/${s.max_passes}
 
 WORKFLOW (follow exactly):
-1. Read spec/lego-pipeline.md      (architecture, priorities, known issues)
-2. Read spec/improvement-log.md    (history — do not repeat past work)
-3. Plan the improvement (think before editing)
-4. Implement it
+1. Read spec/lego-gaps-roadmap.md   (master gap list — find first OPEN item)
+2. Read spec/improvement-log.md     (history — verify item not already done)
+3. Read spec/lego-pipeline.md       (architecture reference)
+4. Pick the first OPEN gap and implement it completely and thoroughly
 5. Run: bun run typecheck           (must pass 0 errors)
-6. Run: bun scripts/visual-grade.ts (record block counts + scores)
-7. Append a new "## Pass ${s.pass}" section to spec/improvement-log.md
-8. Update spec/lego-pipeline.md if architecture changed
+6. Run: bun scripts/visual-grade.ts if voxelizer changed (record scores)
+7. Mark the gap [DONE — Pass ${s.pass}] in spec/lego-gaps-roadmap.md
+8. Append a detailed "## Pass ${s.pass}" section to spec/improvement-log.md
+9. Update spec/lego-pipeline.md if architecture changed
 
 HARD RULES:
-- Do NOT touch: scripts/visual-grade.ts, .claude/loop-state.json, scripts/loop-check.mjs
-- typecheck must pass before finishing`;
+- Do NOT touch: .claude/loop-state.json, scripts/loop-check.mjs
+- typecheck must pass clean before finishing
+- One gap per pass (except trivially small gaps — combine at most 2)
+- Be thorough: implement the complete fix, not just a stub
+- If a gap requires investigation first, do the investigation AND implement the fix in the same pass`;
 
   process.stdout.write(JSON.stringify({ decision: 'block', reason }));
   process.exit(0);

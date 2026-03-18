@@ -1,5 +1,9 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { existsSync, createReadStream } from 'node:fs';
+
+// Path to clego's reconstructed LDR files (dev only)
+const CLEGO_RECONSTRUCTED = 'C:/git/clego/lego_sets/Reconstructed';
 
 /** Build-time version string: v2026.02.20 */
 const appVersion = `v${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}`;
@@ -34,6 +38,23 @@ export default defineConfig({
       '@craft': resolve(__dirname, '../src'),
     },
   },
+  plugins: [
+    {
+      name: 'serve-clego-reconstructed',
+      configureServer(server) {
+        server.middlewares.use('/lego-reconstructed', (req, res, next) => {
+          if (!existsSync(CLEGO_RECONSTRUCTED)) { next(); return; }
+          const filename = (req.url ?? '').replace(/^\//, '').replace(/\.\./g, '');
+          if (!filename) { next(); return; }
+          const filePath = `${CLEGO_RECONSTRUCTED}/${filename}`;
+          if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          createReadStream(filePath).pipe(res);
+        });
+      },
+    },
+  ],
   server: {
     port: 4000,
     open: true,

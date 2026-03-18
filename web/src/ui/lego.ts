@@ -26,6 +26,28 @@ import {
 const OMR_BASE = 'https://library.ldraw.org/library/omr';
 // Route through local proxy (Vite in dev, CF Pages Function in prod) to avoid CORS
 const OMR_FETCH_BASE = '/ldraw-omr';
+// Reconstructed 3D LDR files served locally from clego project (dev server middleware)
+const RECONSTRUCTED_BASE = '/lego-reconstructed';
+// Lazily loaded set of reconstructed set IDs
+let _reconstructedIndex: Set<string> | null = null;
+
+async function getReconstructedIndex(): Promise<Set<string>> {
+  if (_reconstructedIndex) return _reconstructedIndex;
+  try {
+    const r = await fetch('/lego-reconstructed-index.json');
+    if (r.ok) {
+      const ids: string[] = await r.json();
+      _reconstructedIndex = new Set(ids);
+    }
+  } catch { /* offline or prod — no reconstructed files available */ }
+  _reconstructedIndex ??= new Set();
+  return _reconstructedIndex;
+}
+
+/** Strip the '-1', '-2' etc suffix to get the base set number used in clego filenames. */
+function baseSetNum(setNum: string): string {
+  return setNum.replace(/-\d+$/, '');
+}
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -345,7 +367,28 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
     }
   }
 
-  // ── Source 2: BrickLink BFF inventory (flat colour layout) ───────────────
+  // ── Source 2: Clego reconstructed LDR (3D assembled model from PDF/IO) ──
+  const reconIdx = await getReconstructedIndex();
+  const baseNum = baseSetNum(set.set_num);
+  if (reconIdx.has(baseNum)) {
+    const filename = `${baseNum}_reconstructed.ldr`;
+    setStatus(`Trying reconstructed 3D model: ${filename}…`, 'info');
+    try {
+      const resp = await fetch(`${RECONSTRUCTED_BASE}/${filename}`);
+      if (resp.ok) {
+        const text = await resp.text();
+        const bricks = parseLDraw(text, filename);
+        if (bricks.length > 0) {
+          if (btn) btn.disabled = false;
+          setStatus(`Loaded reconstructed 3D model for ${set.set_num} (${bricks.length} parts)`, 'info');
+          await voxelizeAndDisplay(bricks, set.set_num);
+          return;
+        }
+      }
+    } catch { /* fall through */ }
+  }
+
+  // ── Source 3: BrickLink BFF inventory (flat colour layout — last resort) ─
   setStatus(`No 3D model found — trying BL parts inventory for ${set.set_num}…`, 'info');
   try {
     const parts = await fetchBffInventory(set.set_num);
@@ -354,7 +397,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       const bricks = parseLDraw(ldrText);
       if (bricks.length > 0) {
         setStatus(
-          `No 3D model in OMR — showing colour layout from BL parts (${parts.length} part types, ${bricks.length} total)`,
+          `⚠ 2D colour map only — no 3D model available (${parts.length} part types from BL inventory)`,
           'info',
         );
         if (btn) btn.disabled = false;
@@ -446,6 +489,11 @@ async function voxelizeAndDisplay(
   // Build status + warnings
   const warnings: string[] = [];
   if (result.warning) warnings.push(result.warning);
+  if (result.unmappedColors.length > 0) {
+    const ids = result.unmappedColors.slice(0, 5).join(', ');
+    const more = result.unmappedColors.length > 5 ? ` +${result.unmappedColors.length - 5} more` : '';
+    warnings.push(`${result.unmappedColors.length} unmapped color IDs (${ids}${more}) → gray`);
+  }
   if (!cubicScale && h > 256) {
     warnings.push(`Height ${h} exceeds Minecraft's legacy Y=256 limit — try Cubic scale`);
   }
