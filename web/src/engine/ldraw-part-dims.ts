@@ -461,8 +461,9 @@ const DIMS: Record<string, Dims> = {
   // Large tires/rims: hub along local Z, face disc in local XY plane.
   // Convention: sW=Z-span/20 (hub width/thickness), sH=Y-span/8 (face diameter), sL=X-span/20 (face diameter).
   // When tire hub maps to world-X (side-mounted), world-X becomes smallest → round mask in YZ → circular from front.
-  // 32019 geometry (32019.dat): outer radius 50 LDU in XY, width 50 LDU in Z → [3, 13, 5]
-  '32019': [3, 13, 5],  // Tyre 20/64×37 S — outer radius 50 LDU, width 50 LDU; hub along Z
+  // 32019 geometry: carcass circles at radius 50 LDU but tread lugs (s\32019s01.dat) extend to ~78 LDU.
+  // Total diameter ≈ 156 LDU → sH=round(156/8)=20, sL=round(156/20)=8; width 50 LDU → sW=3.
+  '32019': [3, 20, 8],  // Tyre 20/64×37 S — tread outer radius ~78 LDU, width 50 LDU; hub along Z
   // 86652 geometry (86652.dat): outer radius 46 LDU in XY, width 38 LDU in Z → [2, 12, 5]
   '86652': [2, 12, 5],  // Wheel Rim 18×37 — outer radius 46 LDU, width 38 LDU; hub along Z
   // Propeller: hub along local Z, blades in local XY plane, placed with identity rotation.
