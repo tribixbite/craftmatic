@@ -192,6 +192,28 @@ function isLDrawPrimitive(basename: string): boolean {
   if (name.startsWith('stug')) return true;
   // Axle hole primitives
   if (name === 'axl2hole' || name === 'axlhole' || name === 'axlehole') return true;
+
+  // ── p/ directory geometric primitives ─────────────────────────────────────
+  // Rectangle primitives: rect, rect1, rect2, rect2p, rect2a, rect3, etc.
+  if (/^rect[0-9a-z]*$/.test(name)) return true;
+  // Stud primitives: stud, stud2, stud2a, stud2s, stud3, stud4, stud4a, etc.
+  // (NOT "stug" — that's handled above. NOT "study" — not a real name.)
+  if (/^stud[0-9a-z]*$/.test(name)) return true;
+  // Box primitives: box, box2, box3, box4, box5, box2-5, box3u7a, box4-4a, etc.
+  if (/^box[0-9a-z-]*$/.test(name)) return true;
+  // Disc/ring primitives: disc, ndis, ring, etc. (non-fraction forms)
+  if (/^(disc|ndis|ring)[0-9a-z]*$/.test(name)) return true;
+  // Triangle primitives
+  if (/^tri[0-9a-z]*$/.test(name)) return true;
+  // Cylinder/cone primitives (non-fraction)
+  if (/^(cyli|cone|cylc)[0-9a-z]*$/.test(name)) return true;
+  // Edge-only primitives
+  if (/^edge[0-9a-z]*$/.test(name)) return true;
+  // Logo / text stamps embedded as geometry
+  if (/^logo[0-9a-z]*$/.test(name)) return true;
+  // Chord, bump, and other misc geometry primitives
+  if (/^(chrd|bump|ldu)[0-9a-z]*$/.test(name)) return true;
+
   return false;
 }
 
