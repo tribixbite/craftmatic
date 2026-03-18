@@ -347,10 +347,10 @@ async function gradeVisually(
             type: 'text',
             text:
               `Image 1: official LEGO product photo of set "${setName}" (${setNum}).\n` +
-              `Image 2: Minecraft-block voxelization — TOP HALF is an isometric 3D view (best for shape comparison); BOTTOM HALF has orthographic front/side/top flat projections.\n\n` +
+              `Image 2: Minecraft-block voxelization — TOP: isometric 3D view; BOTTOM ROW (left to right): front/side/top orthographic projections.\n\n` +
               `Score the voxelization 1-10 for visual accuracy (shape, proportions, silhouette — ignore color):\n` +
               `10 = perfect shape match; 7 = recognizable but proportions off; 4 = barely recognizable; 1 = wrong shape.\n\n` +
-              `Focus primarily on the isometric view for shape recognition. Be BRUTALLY HONEST.\n` +
+              `Use ALL views together to assess shape accuracy — the orthographic views often reveal detail hidden in the isometric. Be BRUTALLY HONEST.\n` +
               `List up to 3 specific structural issues (e.g. "too tall", "missing wings", "cube instead of tapered nose").\n\n` +
               `Reply in this exact format:\nSCORE: N\nISSUES: issue1 | issue2 | issue3`,
           },
