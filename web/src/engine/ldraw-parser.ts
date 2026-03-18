@@ -29,6 +29,12 @@ export interface ParsedBrick {
   rot?: number[];
   /** Part filename, e.g. "3001.dat" */
   part: string;
+  /**
+   * Assembly step number (1-based) from LDraw STEP meta-commands.
+   * Step 1 = bricks before the first STEP marker.
+   * Undefined for parsers that don't emit step info.
+   */
+  step?: number;
 }
 
 interface Section {
@@ -39,6 +45,7 @@ interface Section {
 /**
  * Parse an LDraw MPD or LDR file string and return all brick placements.
  * Recursively resolves sub-model references with full transform accumulation.
+ * Bricks include a `step` number (1-based) derived from `0 STEP` meta-commands.
  */
 export function parseLDraw(content: string): ParsedBrick[] {
   const sections = splitIntoSections(content);
@@ -46,8 +53,19 @@ export function parseLDraw(content: string): ParsedBrick[] {
 
   const bricks: ParsedBrick[] = [];
   const IDENTITY = [1, 0, 0,  0, 1, 0,  0, 0, 1];
-  expandSection(sections[0].lines, sections, IDENTITY, [0, 0, 0], bricks, 0);
+  const stepRef = { step: 1 };
+  expandSection(sections[0].lines, sections, IDENTITY, [0, 0, 0], bricks, 0, 16, stepRef);
   return bricks;
+}
+
+/**
+ * Returns the total number of STEP markers in the given ParsedBrick array.
+ * Useful for setting up a step slider.
+ */
+export function countSteps(bricks: ParsedBrick[]): number {
+  if (bricks.length === 0) return 0;
+  const maxStep = bricks.reduce((m, b) => Math.max(m, b.step ?? 1), 1);
+  return maxStep;
 }
 
 // ─── Section Splitting ───────────────────────────────────────────────────────
@@ -90,12 +108,21 @@ function expandSection(
   output: ParsedBrick[],
   depth: number,
   parentColor: number = 16, // inherited color context for color-16 resolution
+  stepRef: { step: number } = { step: 1 }, // shared step counter (mutated at depth 0)
 ): void {
   // Guard against runaway recursion (circular references or deep nesting)
   if (depth > 50) return;
 
   for (const line of lines) {
-    if (!line || line.startsWith('0')) continue;
+    if (!line) continue;
+
+    // At top level only: track assembly step markers
+    if (line.startsWith('0')) {
+      if (depth === 0 && /^0\s+STEP\s*$/i.test(line)) {
+        stepRef.step++;
+      }
+      continue;
+    }
 
     const tokens = line.split(/\s+/);
     if (tokens.length < 15 || tokens[0] !== '1') continue;
@@ -130,13 +157,14 @@ function expandSection(
     );
 
     if (subSection) {
-      // Recurse into sub-model, passing resolved color as the new parentColor
-      expandSection(subSection.lines, allSections, childRot, [wx, wy, wz], output, depth + 1, color);
+      // Recurse into sub-model, passing resolved color as the new parentColor.
+      // Step tracking is only done at depth 0; sub-models don't have their own STEP markers.
+      expandSection(subSection.lines, allSections, childRot, [wx, wy, wz], output, depth + 1, color, stepRef);
     } else if (!isLDrawPrimitive(basename)) {
       // Terminal part (.dat or unknown) — record brick placement with rotation.
       // Skip LDraw geometry primitives (fraction-named files, anti-stud shapes, etc.)
       // which are sub-part geometry files, not complete LEGO parts.
-      output.push({ color, x: wx, y: wy, z: wz, rot: childRot, part: basename });
+      output.push({ color, x: wx, y: wy, z: wz, rot: childRot, part: basename, step: stepRef.step });
     }
   }
 }

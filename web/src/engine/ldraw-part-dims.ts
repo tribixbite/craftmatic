@@ -740,6 +740,13 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '32555':'corner',  // Technic Brick 5×5 Corner with Holes — Falcon ×16, ISD ×n; [5,3,5]
   // Pass 24: additional L-shaped Technic liftarms
   '32140':'corner',  // Technic Beam 2×4 Liftarm Bent 90 — Falcon ×21; [4,2,2]; saves 6 cells/inst
+  // Pass 35: more Bent 90 liftarm corners
+  '32056':'corner',  // Technic Beam 3×3 Liftarm Bent 90 (thin) [3,1,3]
+  '32249':'corner',  // Technic Beam 3×3 Liftarm Bent 90 Quarter Circle [3,1,3]
+  '32526':'corner',  // Technic Beam 3×5 Bent 90 [5,2,3]
+  // ── Minifig parts (Pass 35) ───────────────────────────────────────────────
+  // Add round shape for head; other minifig parts keep default rectangular bbox
+  '3626':'round',    // Minifig Head [1,3,1] — round cylinder, not square
 
   // ── Additional slopes (Pass 18) ───────────────────────────────────────────────
   '6239':'slope',    // Tail Shuttle 2×6×4 — Saturn V ×4; fins taper from base to tip [6,11,2]

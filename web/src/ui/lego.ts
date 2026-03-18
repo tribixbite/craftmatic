@@ -10,7 +10,7 @@
  */
 
 import { BlockGrid } from '@craft/schem/types.js';
-import { parseLDraw, type ParsedBrick } from '@engine/ldraw-parser.js';
+import { parseLDraw, countSteps, type ParsedBrick } from '@engine/ldraw-parser.js';
 import { voxelizeLDraw, type VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
 import { extractIoLDraw } from '@engine/io-extractor.js';
 import { parseLxf } from '@engine/lxf-parser.js';
@@ -57,6 +57,14 @@ let selectedSet: CatalogSet | null = null;
 let searchResults: CatalogSet[] = [];
 /** When true, use 1 stud = 1 block in all axes (no 2.5× vertical stretch). */
 let cubicScale = false;
+/** Current parsed bricks for step-slider re-voxelization */
+let currentBricks: ParsedBrick[] | null = null;
+let currentBricksLabel = '';
+let currentBricksColorFn: ((id: number) => string) | undefined;
+/** Total number of steps in the current model (1 = no step markers) */
+let totalSteps = 1;
+/** Current step being shown (undefined = all steps) */
+let currentStep: number | undefined;
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
@@ -88,6 +96,13 @@ function buildUI(): void {
         <button class="lego-scale-btn active" data-mode="accurate" title="1 plate = 1 block — maximum vertical detail, 2.5× taller than real LEGO proportions">Accurate</button>
         <button class="lego-scale-btn" data-mode="cubic" title="1 stud = 1 block in all axes — correct LEGO proportions, flat models look flat">Cubic</button>
       </div>
+    </div>
+
+    <!-- Assembly step slider (hidden until model with steps is loaded) -->
+    <div class="lego-section lego-scale-row" id="lego-step-row" hidden>
+      <span class="lego-section-label" style="font-size:0.75rem;opacity:0.7">Step</span>
+      <input type="range" id="lego-step-slider" min="1" max="1" value="1" style="flex:1;min-width:60px">
+      <span id="lego-step-label" style="font-size:0.75rem;min-width:3.5em;text-align:right">1/1</span>
     </div>
 
     <!-- Primary: Upload LDraw file -->
@@ -158,6 +173,20 @@ function wireEvents(): void {
     cubicScale = btn.dataset['mode'] === 'cubic';
     document.querySelectorAll('.lego-scale-btn').forEach(b =>
       b.classList.toggle('active', b === btn));
+  });
+
+  // ── Step slider ────────────────────────────────────────────────────────────
+  document.getElementById('lego-step-slider')?.addEventListener('input', async e => {
+    const slider = e.target as HTMLInputElement;
+    const step = parseInt(slider.value, 10);
+    const label = document.getElementById('lego-step-label');
+    if (label) label.textContent = `${step}/${totalSteps}`;
+    currentStep = step < totalSteps ? step : undefined; // undefined = show all
+    if (currentBricks) {
+      const opts: VoxelizeOptions = { cubicScale, maxStep: currentStep };
+      const result = voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
+      if (onResult) onResult(result.grid, currentBricksLabel.replace(/\.[^.]+$/, ''));
+    }
   });
 
   // ── MPD file upload ────────────────────────────────────────────────────────
@@ -470,6 +499,20 @@ async function parseMpdFile(file: File): Promise<void> {
   }
 }
 
+function updateStepSlider(): void {
+  const row = document.getElementById('lego-step-row');
+  const slider = document.getElementById('lego-step-slider') as HTMLInputElement | null;
+  const label = document.getElementById('lego-step-label');
+  if (!row || !slider || !label) return;
+  const hasSteps = totalSteps > 1;
+  row.hidden = !hasSteps;
+  if (hasSteps) {
+    slider.max = String(totalSteps);
+    slider.value = String(totalSteps); // default: show all steps
+    label.textContent = `${totalSteps}/${totalSteps}`;
+  }
+}
+
 async function voxelizeAndDisplay(
   bricks: ParsedBrick[],
   filename: string,
@@ -477,7 +520,15 @@ async function voxelizeAndDisplay(
 ): Promise<void> {
   if (!onResult) return;
 
-  const opts: VoxelizeOptions = { cubicScale };
+  // Store for step-slider re-voxelization
+  currentBricks = bricks;
+  currentBricksLabel = filename;
+  currentBricksColorFn = colorFn;
+  totalSteps = countSteps(bricks);
+  currentStep = undefined;
+  updateStepSlider();
+
+  const opts: VoxelizeOptions = { cubicScale, maxStep: currentStep };
   const result = voxelizeLDraw(bricks, colorFn, opts);
 
   const { width: w, height: h, length: l } = result.grid;

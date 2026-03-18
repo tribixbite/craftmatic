@@ -1893,3 +1893,31 @@ Clean (`tsc --noEmit` 0 errors)
 
 ### Remaining OPEN items
 GAP-07 (minifig shapes), GAP-08 (transparent adjacency), GAP-13 (asymmetric arch), GAP-15 (corner expansion), GAP-17 (LOD), GAP-18 (assembly steps), GAP-20 (PDF pipeline)
+
+---
+
+## Pass 4 — 2026-03-18
+
+### Items completed
+- **GAP-07**: Minifig parts — added head (3626) as 'round' shape, added corner shape for 3 new Bent 90 liftarms (32056, 32249, 32526)
+- **GAP-13**: Arch asymmetric investigation — all arch parts in PART_SHAPES are symmetric; no code change needed
+- **GAP-15**: Corner masking expansion — added 32056, 32249, 32526 (Technic Beam Bent 90 variants)
+- **GAP-18**: Assembly step sequencing implemented
+  - `ParsedBrick.step?: number` field added
+  - `parseLDraw` tracks `0 STEP` markers at depth=0; bricks get step number
+  - `countSteps()` utility exported from ldraw-parser.ts
+  - `VoxelizeOptions.maxStep?: number` filters bricks by step ≤ N
+  - Step slider UI in lego.ts: shows when totalSteps > 1, re-voxelizes on change
+  - Verified: Falcon (10179-1.mpd) has 97 steps — slider works
+
+### Files changed
+- `web/src/engine/ldraw-parser.ts` — ParsedBrick.step, stepRef tracking, countSteps()
+- `web/src/engine/ldraw-voxelizer.ts` — VoxelizeOptions.maxStep, effectiveBricks filter
+- `web/src/engine/ldraw-part-dims.ts` — 3626 as 'round', 32056/32249/32526 as 'corner'
+- `web/src/ui/lego.ts` — step slider HTML+JS, updateStepSlider(), voxelizeAndDisplay stores bricks
+
+### Typecheck
+Clean (`tsc --noEmit` 0 errors)
+
+### Remaining OPEN items
+GAP-08 (transparent adjacency), GAP-17 (LOD), GAP-20 (PDF pipeline)

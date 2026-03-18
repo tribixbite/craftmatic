@@ -107,6 +107,11 @@ export interface VoxelizeOptions {
    * Cubic mode:              1 stud  = 1 cell. ISD → 125×55×79
    */
   cubicScale?: boolean;
+  /**
+   * If set, only include bricks with step ≤ maxStep. Used for step-by-step
+   * assembly playback. Undefined = include all steps.
+   */
+  maxStep?: number;
 }
 
 export function voxelizeLDraw(
@@ -143,8 +148,11 @@ export function voxelizeLDraw(
   // If the centroid is strongly negative (model extends upward in LDraw space),
   // the model is flipped. Auto-correct by negating Y across all bricks.
   const shouldFlip = yCentroid < -LDU_PER_STUD; // at least 1 stud above origin
-  const effectiveBricks: ParsedBrick[] = shouldFlip
-    ? bricks.map(b => ({ ...b, y: -b.y }))
+  const maxStep = options?.maxStep;
+  const effectiveBricks: ParsedBrick[] = (shouldFlip || maxStep != null)
+    ? bricks
+        .filter(b => maxStep == null || (b.step ?? 1) <= maxStep)
+        .map(b => shouldFlip ? { ...b, y: -b.y } : b)
     : bricks;
 
   // ── Expand each brick into grid cells ────────────────────────────────────

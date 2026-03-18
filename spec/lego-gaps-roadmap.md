@@ -113,7 +113,7 @@
 
 ---
 
-### GAP-07 — Minifig Parts: 1×1 Plate → Humanoid Shape [OPEN] ★★
+### GAP-07 — Minifig Parts: 1×1 Plate → Humanoid Shape [DONE — Pass 4] ★★
 **Current**: Minifig parts (head 3626c, torso 973c, hips 3815, legs 3816/3817, arms 3819/3818) have dims in the table but no special assembly. A full minifig renders as a 2×5×2 block pillar.
 **Fix**:
 1. Detect minifig part clusters in `voxelizeLDraw`: if a model contains ≥3 of the key minifig part IDs within a small spatial neighborhood, treat them as a unit.
@@ -194,7 +194,7 @@ grep -r "Bracket" C:/git/clego/extracted/studio_release/app/ldraw/parts/ --inclu
 
 ---
 
-### GAP-13 — Arch Masking: Asymmetric Pillar Support [OPEN] ★
+### GAP-13 — Arch Masking: Asymmetric Pillar Support [DONE — Pass 4] ★
 **Current**: Arch masking assumes symmetric pillars at both ends of the arch span. Some arch parts (corner arches, curved wall sections) are asymmetric (pillar only at one end, or different-width pillars).
 **Investigation**: Read all parts tagged `arch` in `PART_SHAPES`. Look up their LDraw descriptions. Identify any that are asymmetric.
 **Fix**: Add `archPillarLeft: number` and `archPillarRight: number` to `PartShapeEntry` (default 1 for both). For asymmetric parts, set different values. Update arch masking to use per-part pillar widths.
@@ -214,7 +214,7 @@ grep -r "Bracket" C:/git/clego/extracted/studio_release/app/ldraw/parts/ --inclu
 
 ---
 
-### GAP-15 — Corner Masking Coverage Expansion [OPEN] ★
+### GAP-15 — Corner Masking Coverage Expansion [DONE — Pass 4] ★
 **Current**: Only 2 corner parts in `PART_SHAPES` (both are Technic frame corners from Falcon).
 **Fix**:
 1. Search for "Corner" in LDraw part descriptions.
@@ -250,7 +250,7 @@ grep -r "Bracket" C:/git/clego/extracted/studio_release/app/ldraw/parts/ --inclu
 
 ---
 
-### GAP-18 — Assembly Step Sequencing from LDR [OPEN] ★★★
+### GAP-18 — Assembly Step Sequencing from LDR [DONE — Pass 4] ★★★
 **Current**: No step-by-step assembly support. LDraw files use `0 STEP` meta-commands to separate build steps.
 **clego resource**: `reconstruct_from_pdf.py` accumulates parts page-by-page (each page = one build step).
 **Fix**:
