@@ -82,7 +82,7 @@ function isLDrawPrimitive(part: string): boolean {
   return false;
 }
 /** Maximum grid dimension to prevent browser freeze */
-const MAX_DIM = 256;
+const MAX_DIM = 384; // Modern Minecraft supports builds up to 4096; 384 is a practical browser limit
 
 export interface VoxelizeResult {
   grid: BlockGrid;
@@ -92,6 +92,8 @@ export interface VoxelizeResult {
   warning?: string;
   /** Color IDs that had no mapping entry and fell back to gray */
   unmappedColors: number[];
+  /** True if the model Y axis was auto-flipped to correct an upside-down orientation */
+  wasFlipped?: boolean;
 }
 
 export interface VoxelizeOptions {
@@ -130,12 +132,27 @@ export function voxelizeLDraw(
   // Accurate: 20/8 = 2.5.  Cubic: 20/20 = 1.0.
   const studToYCell = LDU_PER_STUD / LDU_PER_Y;
 
+  // ── Orientation normalization ─────────────────────────────────────────────
+  // LDraw convention: Y increases downward. Properly oriented models have
+  // the floor at Y≈0 and extend into positive Y (downward bounding box).
+  // Models from old tools (BL Studio 1.x, some LXF exports) may be upside-
+  // down (negative Y centroid). Detect and auto-flip such models.
+  const nonPrimBricks = bricks.filter(b => !isLDrawPrimitive(b.part));
+  const ySum = nonPrimBricks.reduce((s, b) => s + b.y, 0);
+  const yCentroid = nonPrimBricks.length > 0 ? ySum / nonPrimBricks.length : 0;
+  // If the centroid is strongly negative (model extends upward in LDraw space),
+  // the model is flipped. Auto-correct by negating Y across all bricks.
+  const shouldFlip = yCentroid < -LDU_PER_STUD; // at least 1 stud above origin
+  const effectiveBricks: ParsedBrick[] = shouldFlip
+    ? bricks.map(b => ({ ...b, y: -b.y }))
+    : bricks;
+
   // ── Expand each brick into grid cells ────────────────────────────────────
 
   interface Cell { gx: number; gy: number; gz: number; block: string; color: number }
   const cells: Cell[] = [];
 
-  for (const brick of bricks) {
+  for (const brick of effectiveBricks) {
     // Skip LDraw geometry primitives — they describe part shape internally
     // and should not be voxelized as standalone blocks.
     if (isLDrawPrimitive(brick.part)) continue;
@@ -406,7 +423,7 @@ export function voxelizeLDraw(
 
   if (cells.length === 0) {
     const grid = new BlockGrid(1, 1, 1);
-    return { grid, brickCount: bricks.length, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 }, unmappedColors: [...unmappedColorSet] };
+    return { grid, brickCount: bricks.length, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 }, unmappedColors: [...unmappedColorSet], wasFlipped: shouldFlip };
   }
 
   // ── Compute axis-aligned bounding box ─────────────────────────────────────
@@ -449,7 +466,7 @@ export function voxelizeLDraw(
     colors.add(c.color);
   }
 
-  return { grid, brickCount: bricks.length, uniqueColors: colors.size, dimensions: { w, h, l }, warning, unmappedColors: [...unmappedColorSet] };
+  return { grid, brickCount: bricks.length, uniqueColors: colors.size, dimensions: { w, h, l }, warning, unmappedColors: [...unmappedColorSet], wasFlipped: shouldFlip };
 }
 
 function clamp(v: number, min: number, max: number): number {

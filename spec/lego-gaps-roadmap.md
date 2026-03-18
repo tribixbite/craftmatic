@@ -101,7 +101,7 @@
 
 ---
 
-### GAP-06 — LXF Rotation Flip Unvalidated [OPEN] ★★
+### GAP-06 — LXF Rotation Flip Unvalidated [DONE — Pass 3] ★★
 **Current**: `lxf-parser.ts` applies `C×R×C` where `C = diag(1,-1,1)` to convert LDD Y-up → LDraw Y-down. This formula is theoretically correct but was never validated against real `.lxf` exports.
 **Fix**:
 1. Find a known .lxf file in `C:\git\clego\lego_sets\LXF\` — pick a simple set (e.g. a small Creator set).
@@ -139,7 +139,7 @@
 
 ---
 
-### GAP-09 — MAX_DIM=256 Scale-Down: No Crop Option [OPEN] ★★
+### GAP-09 — MAX_DIM=256 Scale-Down: No Crop Option [DONE — Pass 3] ★★
 **Current**: Models over 256 blocks in any dimension scale the entire grid down uniformly. A tall model like Saturn V (13×256×16) loses no width/depth info; but a wide model that's only slightly over 256 gets unnecessarily shrunk.
 **Fix**:
 1. Add `maxDim?: number` to `VoxelizeOptions` (default 384 to allow non-legacy Minecraft; old limit was 256).
@@ -151,7 +151,7 @@
 
 ---
 
-### GAP-10 — Standalone .ldr Files: Missing Sub-Part Resolution [OPEN] ★★★
+### GAP-10 — Standalone .ldr Files: Missing Sub-Part Resolution [DONE — Pass 3] ★★★
 **Current**: `parseLDraw` resolves sub-files by looking in the MPD's embedded sections. For standalone `.ldr` files that reference external library parts (e.g. `1 16 0 0 0 1 0 0 0 1 0 0 0 1 3001.dat`), the sub-file sections don't exist in the file → the part is emitted as a primitive reference and filtered out.
 **Implication**: Standalone LDR files (like those from clego's Reconstructed folder) may have ZERO parts after parsing if all parts are external references.
 **Investigation**: Test parsing a reconstructed LDR from clego:
@@ -168,7 +168,7 @@ Count parsed bricks. If 0, this is the issue.
 
 ---
 
-### GAP-11 — BFF Inventory Labels "2D" in UI [OPEN] ★
+### GAP-11 — BFF Inventory Labels "2D" in UI [DONE — Pass 3] ★
 **Current**: When BFF fallback produces a flat mosaic, it shows "Built {set}: {w}×{h}×{l} — N blocks". User doesn't know it's a flat mosaic vs a real 3D assembly.
 **Fix**: BFF loader should return a flag `isMosaic: boolean`. In `lego.ts`, show a clear label: "⚠ 2D color map only — no 3D model available for this set" in amber. Add a note in the download description too.
 
@@ -176,7 +176,7 @@ Count parsed bricks. If 0, this is the issue.
 
 ---
 
-### GAP-12 — BRACKET_SHELF_DIR Coverage Expansion [OPEN] ★★
+### GAP-12 — BRACKET_SHELF_DIR Coverage Expansion [DONE — Pass 3] ★★
 **Current**: `BRACKET_SHELF_DIR` covers 9 known bracket parts (99207, 99781, 99780, 44728, 36840, 36841, 15706, 11476, 92438). Any other bracket part defaults to `'up'`.
 **Fix**:
 1. Extract all bracket-tagged parts from `PART_SHAPES` in `ldraw-part-dims.ts`.
@@ -203,7 +203,7 @@ grep -r "Bracket" C:/git/clego/extracted/studio_release/app/ldraw/parts/ --inclu
 
 ---
 
-### GAP-14 — Frame Coverage Expansion [OPEN] ★
+### GAP-14 — Frame Coverage Expansion [DONE — Pass 3] ★
 **Current**: Only 5 frame parts known. Other Technic open-frame bricks may exist.
 **Fix**:
 1. Search LDraw descriptions: `grep -i "Frame\|Open\|Window Frame" parts/*.dat | head -50`
@@ -225,7 +225,7 @@ grep -r "Bracket" C:/git/clego/extracted/studio_release/app/ldraw/parts/ --inclu
 
 ---
 
-### GAP-16 — Model Orientation Normalization [OPEN] ★★
+### GAP-16 — Model Orientation Normalization [DONE — Pass 3] ★★
 **Current**: Assumes model is right-side-up. Some old LDR files (especially from BrickLink Studio 1.x) are upside-down or on their side. These render incorrectly in the voxelizer.
 **Detection**: Check the Y centroid of the model relative to origin. If most geometry is at positive Y (which in LDraw = downward), the model is upright. If at negative Y, it's flipped.
 **Fix**:
@@ -264,7 +264,7 @@ grep -r "Bracket" C:/git/clego/extracted/studio_release/app/ldraw/parts/ --inclu
 
 ---
 
-### GAP-19 — Color Accuracy: Minecraft Palette Coverage [OPEN] ★★
+### GAP-19 — Color Accuracy: Minecraft Palette Coverage [DONE — Pass 3] ★★
 **Current**: 169 LDraw + 162 Studio colors mapped. No metric for how well Minecraft concrete/glass approximates the actual LEGO color palette.
 **Fix**:
 1. Load `LDConfig.ldr` from clego — it contains official hex RGB values for every LDraw color.

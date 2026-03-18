@@ -180,6 +180,25 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
   507: 'minecraft:light_blue_concrete',   // Aqua
   508: 'minecraft:light_gray_concrete',   // Pearl Very Light Gray (alt)
 
+  // ── Chrome / Speckle / Rubber / Special — LDConfig colours not yet mapped ──
+  605: 'minecraft:orange_stained_glass',     // Trans_Light_Orange
+  383: 'minecraft:light_gray_concrete',      // Chrome_Silver (#E0E0E0)
+   60: 'minecraft:gray_terracotta',          // Chrome_Antique_Brass (#645A4C)
+   64: 'minecraft:black_concrete',           // Chrome_Black (#1B2A34)
+   61: 'minecraft:light_blue_concrete',      // Chrome_Blue (#6C96BF)
+  601: 'minecraft:white_terracotta',         // Glow_In_Dark_White (#BDC6AD)
+  132: 'minecraft:black_concrete',           // Speckle_Black_Silver
+   76: 'minecraft:gray_concrete',            // Speckle_Dark_Bluish_Gray_Silver
+   66: 'minecraft:yellow_stained_glass',     // Rubber_Trans_Yellow
+   67: 'minecraft:glass',                    // Rubber_Trans_Clear
+  350: 'minecraft:orange_concrete',          // Rubber_Orange (#D06610)
+  406: 'minecraft:blue_concrete',            // Rubber_Dark_Blue (#001D68)
+  449: 'minecraft:purple_concrete',          // Rubber_Purple (#81007B)
+  490: 'minecraft:lime_concrete',            // Rubber_Lime (#D7F000)
+  504: 'minecraft:gray_concrete',            // Rubber_Flat_Silver (#898788)
+  511: 'minecraft:white_concrete',           // Rubber_White (#FAFAFA)
+  493: 'minecraft:gray_concrete',            // Magnet (#656761)
+
   // ── Edge / Meta ──────────────────────────────────────────────────────────
   16:  'minecraft:gray_concrete',         // Main_Color placeholder
   24:  'minecraft:black_concrete',        // Edge Color
