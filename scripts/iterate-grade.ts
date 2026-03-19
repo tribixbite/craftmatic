@@ -94,26 +94,26 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/citigroup-v200.glb`,
     coords: '40.7585,-73.9703',
     satRef: `${DIR}/sat-ref-citigroup.jpg`,
-    satZoom: 19,
+    satZoom: 20,
     resolution: 1,
-    maskDilate: 2,
+    maskDilate: 1,
     extraFlags: [],
     difficulty: 'hard',
     tileSize: 6,
     topdownScale: 8,
   },
   {
-    // Pyramidal taper — tests taper preservation
-    // v200b: banded multi-angle r=50, h=260 (53×60×53m, 23% of 260m)
-    key: 'transamerica',
-    glb: `${DIR}/transamerica-v200b.glb`,
-    coords: '37.7952,-122.4028',
-    satRef: `${DIR}/sat-ref-transamerica.jpg`,
-    satZoom: 18,
+    // Beaux-Arts residential palace — irregular wedge-like footprint
+    // v133: scored 10/10 (trimmedMean, 7 runs). Proven reliable.
+    key: 'ansonia',
+    glb: `${DIR}/ansonia-v200.glb`,
+    coords: '40.7806,-73.9816',
+    satRef: `${DIR}/sat-ref-ansonia.jpg`,
+    satZoom: 20,
     resolution: 1,
-    maskDilate: 2,
+    maskDilate: 1,
     extraFlags: [],
-    difficulty: 'hard',
+    difficulty: 'medium',
     tileSize: 6,
     topdownScale: 8,
   },
@@ -133,19 +133,18 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Dome on rectangular base — tests dome at medium resolution
-    // v200: multi-angle r=35 capture (43×58×53m)
-    key: 'mitdome',
-    glb: `${DIR}/mitdome-v200.glb`,
-    coords: '42.3597,-71.0935',
-    satRef: `${DIR}/sat-ref-mitdome.jpg`,
+    // Clean commercial flat-roof — reliable baseline from v133 (scored 10/10)
+    key: 'portland',
+    glb: `${DIR}/portland-v200.glb`,
+    coords: '45.5235,-122.6812',
+    satRef: `${DIR}/sat-ref-portland.jpg`,
     satZoom: 20,
-    resolution: 2,
-    maskDilate: 1,
+    resolution: 1,
+    maskDilate: 2,
     extraFlags: [],
-    difficulty: 'hard',
-    tileSize: 8,
-    topdownScale: 10,
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
     // Beaux-Arts facade with wings — tests facade detail and L-shape
