@@ -109,6 +109,7 @@ let timeout = 120000; // 2 min default
 // 'street' (ground level, original mode)
 let cameraMode: 'ortho' | 'perspective' | 'street' = 'ortho';
 let multiAngle = false;
+let buildingHeight = 0; // expected building height in meters (0 = unknown)
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -119,6 +120,8 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '-o' || a === '--output') outputPath = args[++i];
   else if (a === '-t' || a === '--timeout') timeout = parseInt(args[++i]) * 1000;
   else if (a === '--multi-angle') multiAngle = true;
+  else if (a === '--height' && i + 1 < args.length) buildingHeight = parseFloat(args[++i]);
+  else if (a.startsWith('--height=')) buildingHeight = parseFloat(a.split('=')[1]);
   else if (a === '--camera' && i + 1 < args.length) {
     const mode = args[++i];
     if (mode === 'ortho' || mode === 'perspective' || mode === 'street') cameraMode = mode;
@@ -168,29 +171,32 @@ outputPath = resolve(projectRoot, outputPath);
 console.log(`\nTarget: lat=${lat}, lng=${lng}, radius=${radius}m`);
 console.log(`Output: ${outputPath}`);
 console.log(`Timeout: ${timeout / 1000}s`);
-console.log(`Camera: ${cameraMode}`);
+console.log(`Camera: ${cameraMode}${buildingHeight ? ` height=${buildingHeight}m` : ''}`);
 
 // Set up camera based on mode
-// - ortho: OrthographicCamera from Y=500 looking down. Best for complex footprints
+// - ortho: OrthographicCamera from Y=500+ looking down. Best for complex footprints
 //   (Capitol, Pentagon, sprawling buildings). Captures full XZ extent but low facade detail.
-// - perspective: PerspectiveCamera at 45° angle from moderate height. Best for skyscrapers
-//   (ESB, Chrysler, Willis). Captures vertical detail and facade articulation.
-// - street: PerspectiveCamera at ground level (0,8,8). Original mode. Highest facade detail
+// - perspective: PerspectiveCamera at 45° angle from height proportional to building.
+//   Best for skyscrapers (ESB, Chrysler, Willis). Captures vertical detail + facade.
+// - street: PerspectiveCamera at ground level (0,8,8). Highest facade detail
 //   for nearby surfaces but frustum clips everything above ~50m.
 let camera: THREE.Camera;
 if (cameraMode === 'ortho') {
   const halfExtent = radius * 1.5;
+  // Position above the tallest expected point so the full building is in frustum
+  const camY = Math.max(500, buildingHeight * 1.2 + 50);
   camera = new THREE.OrthographicCamera(
-    -halfExtent, halfExtent, halfExtent, -halfExtent, 1, 2000,
+    -halfExtent, halfExtent, halfExtent, -halfExtent, 1, camY + 500,
   );
-  camera.position.set(0, 500, 0);
+  camera.position.set(0, camY, 0);
   camera.lookAt(0, 0, 0);
 } else if (cameraMode === 'perspective') {
-  // 45° angle from moderate height — balances footprint coverage with facade visibility
+  // Initial perspective view captures base detail; multi-angle bands handle height.
+  // Camera stays close (2x radius) for high-LOD tiles on the lower floors.
   camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
   const dist = radius * 2;
   camera.position.set(dist * 0.7, dist, dist * 0.7);
-  camera.lookAt(0, radius * 0.3, 0); // look slightly above center
+  camera.lookAt(0, radius * 0.3, 0);
 } else {
   // Street-level view — best for nearby facade detail
   camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
@@ -393,80 +399,116 @@ await new Promise<void>((resolve) => {
 const loadTime = ((Date.now() - startTime) / 1000).toFixed(1);
 console.log(`\nTile loading complete in ${loadTime}s`);
 
-// Multi-angle capture: orbit camera through cardinal directions to force
-// high-LOD tile loading on all facades (not just the initial camera angle)
-if (multiAngle) {
-  console.log('\n--- Multi-angle LOD forcing ---');
-  // Compute building bounds from current tiles to determine camera distance
-  const tempBbox = new THREE.Box3();
-  tiles.group.traverse((child) => {
-    if (child instanceof THREE.Mesh && child.geometry) {
-      const geo = child.geometry as THREE.BufferGeometry;
-      if (!geo.boundingBox) geo.computeBoundingBox();
-      const worldBox = geo.boundingBox!.clone().applyMatrix4(child.matrixWorld);
-      tempBbox.union(worldBox);
-    }
-  });
-  const buildingSize = new THREE.Vector3();
-  tempBbox.getSize(buildingSize);
-  const camDist = computeCameraDistance(buildingSize);
-  const center = new THREE.Vector3(0, buildingSize.y * 0.3, 0);
-
-  for (const angle of FIVE_ANGLE_PRESET) {
-    if (angle.name === 'top-down') continue; // already loaded from initial ortho/perspective
-    console.log(`  Angle: ${angle.name}...`);
-
-    // Reposition camera for this angle
-    positionCameraForAngle(camera, center, angle, camDist);
-    tiles.setCamera(camera);
-    tiles.setResolution(camera, 512, 512);
-
-    // Wait for tiles at this angle to stabilize
-    await waitForStable(
-      tiles as unknown as { stats: Record<string, number>; update: () => void },
-      30000,
-      30,
-      (msg) => console.log(`    ${msg}`),
-    );
-  }
-  console.log('  Multi-angle capture complete');
-}
-
-// Extract meshes within capture radius (XZ cylindrical filter)
+// Helper: extract meshes within capture radius (XZ cylindrical filter)
+// Clones them into the output group before LOD GC can evict them
 const centerXZ = new THREE.Vector2(0, 0); // scene origin = target coordinate
 const group = new THREE.Group();
 let tested = 0;
 let captured = 0;
 let rejected = 0;
+// Track already-captured mesh UUIDs to avoid duplicates across multi-angle passes
+const capturedUUIDs = new Set<string>();
 
-tiles.group.traverse((child) => {
-  if (!(child instanceof THREE.Mesh)) return;
-  if (!child.geometry) return;
-  tested++;
+function extractMeshes(source: THREE.Object3D, label: string): number {
+  let count = 0;
+  source.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    if (!child.geometry) return;
+    if (capturedUUIDs.has(child.uuid)) return; // already captured in a previous pass
+    tested++;
 
-  const geo = child.geometry as THREE.BufferGeometry;
-  if (!geo.boundingSphere) geo.computeBoundingSphere();
-  const worldSphere = geo.boundingSphere!.clone();
-  worldSphere.applyMatrix4(child.matrixWorld);
+    const geo = child.geometry as THREE.BufferGeometry;
+    if (!geo.boundingSphere) geo.computeBoundingSphere();
+    const worldSphere = geo.boundingSphere!.clone();
+    worldSphere.applyMatrix4(child.matrixWorld);
 
-  // XZ-only distance check (cylindrical filter preserves tall buildings)
-  const meshXZ = new THREE.Vector2(worldSphere.center.x, worldSphere.center.z);
-  const xzDist = centerXZ.distanceTo(meshXZ) - worldSphere.radius;
-  if (xzDist > radius) {
-    rejected++;
-    return;
+    // XZ-only distance check (cylindrical filter preserves tall buildings)
+    const meshXZ = new THREE.Vector2(worldSphere.center.x, worldSphere.center.z);
+    const xzDist = centerXZ.distanceTo(meshXZ) - worldSphere.radius;
+    if (xzDist > radius) {
+      rejected++;
+      return;
+    }
+
+    // Clone with world transform baked in
+    const cloned = child.clone();
+    cloned.applyMatrix4(child.matrixWorld);
+    cloned.position.set(0, 0, 0);
+    cloned.rotation.set(0, 0, 0);
+    cloned.scale.set(1, 1, 1);
+    cloned.updateMatrix();
+
+    // Vertex-level bounding box check: reject meshes whose actual geometry
+    // extends way beyond the capture radius (large low-LOD tiles pass the
+    // sphere check but span hundreds of meters).
+    // Height-adaptive: tiles at higher elevations are inherently larger (lower LOD),
+    // so we scale the threshold up with mesh center height.
+    if (!cloned.geometry.boundingBox) cloned.geometry.computeBoundingBox();
+    const bb = cloned.geometry.boundingBox!;
+    const meshSpanX = bb.max.x - bb.min.x;
+    const meshSpanZ = bb.max.z - bb.min.z;
+    const meshCenterY = (bb.max.y + bb.min.y) / 2;
+    // Base threshold: 2x radius. Increases by 0.5x per 100m of height.
+    const heightFactor = Math.max(0, meshCenterY) / 100;
+    const spanThreshold = radius * (2 + heightFactor * 0.5);
+    if (meshSpanX > spanThreshold || meshSpanZ > spanThreshold) {
+      rejected++;
+      return;
+    }
+
+    group.add(cloned);
+    capturedUUIDs.add(child.uuid);
+    captured++;
+    count++;
+  });
+  if (count > 0) console.log(`  ${label}: +${count} meshes (total: ${captured})`);
+  return count;
+}
+
+// Extract meshes from initial camera pass
+extractMeshes(tiles.group, 'initial');
+
+// Multi-angle capture: orbit camera through cardinal directions to force
+// high-LOD tile loading on all facades, extracting meshes after each pass
+// before the LOD system garbage-collects tiles from previous angles.
+if (multiAngle) {
+  console.log('\n--- Multi-angle LOD forcing ---');
+
+  // For tall buildings (>100m), capture in vertical bands so the camera stays
+  // close enough for high-LOD tiles at each height zone. Each band covers ~100m.
+  const effectiveHeight = buildingHeight || 60;
+  const bandHeight = 100; // meters per vertical band
+  const numBands = Math.max(1, Math.ceil(effectiveHeight / bandHeight));
+  const bandCamDist = Math.max(radius * 2, 80); // close enough for detail
+
+  // Cardinal directions for facade capture (skip top-down, already covered)
+  const facadeAngles = FIVE_ANGLE_PRESET.filter((a) => a.name !== 'top-down');
+
+  for (let band = 0; band < numBands; band++) {
+    const bandCenterY = band * bandHeight + bandHeight * 0.4;
+    const bandLabel = numBands > 1 ? ` band ${band + 1}/${numBands} (Y=${Math.round(bandCenterY)}m)` : '';
+    console.log(`  Height${bandLabel}`);
+
+    for (const angle of facadeAngles) {
+      console.log(`    ${angle.name}...`);
+      const center = new THREE.Vector3(0, bandCenterY, 0);
+      positionCameraForAngle(camera, center, angle, bandCamDist);
+      tiles.setCamera(camera);
+      tiles.setResolution(camera, 512, 512);
+
+      await waitForStable(
+        tiles as unknown as { stats: Record<string, number>; update: () => void },
+        30000,
+        30,
+        (msg) => console.log(`      ${msg}`),
+      );
+
+      // Extract meshes from this angle BEFORE next angle evicts them
+      extractMeshes(tiles.group, `${angle.name}${bandLabel}`);
+    }
   }
-
-  // Clone with world transform baked in
-  const cloned = child.clone();
-  cloned.applyMatrix4(child.matrixWorld);
-  cloned.position.set(0, 0, 0);
-  cloned.rotation.set(0, 0, 0);
-  cloned.scale.set(1, 1, 1);
-  cloned.updateMatrix();
-  group.add(cloned);
-  captured++;
-});
+  console.log('  Multi-angle capture complete');
+}
 
 console.log(`\nMeshes: tested=${tested} captured=${captured} rejected=${rejected}`);
 
