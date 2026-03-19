@@ -1,8 +1,8 @@
 {
   "version": "v200",
-  "timestamp": "2026-03-17T11:46:59.322Z",
+  "timestamp": "2026-03-19T09:37:57.284Z",
   "target": 9,
-  "passing": 1,
+  "passing": 0,
   "total": 10,
   "model": "gemini-2.5-flash",
   "buildings": {
@@ -11,11 +11,27 @@
       "version": "v200",
       "difficulty": "easy",
       "scores": [
+        9,
+        8,
         10,
         9,
-        9
+        6
       ],
       "subscores": [
+        {
+          "A": 4,
+          "B": 2,
+          "C": 3,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 4,
+          "B": 2,
+          "C": 2,
+          "D": 2,
+          "total": 8
+        },
         {
           "A": 4,
           "B": 3,
@@ -32,34 +48,135 @@
         },
         {
           "A": 4,
-          "B": 2,
-          "C": 3,
-          "D": 2,
-          "total": 9
+          "B": 1,
+          "C": 1,
+          "D": 1,
+          "total": 6
         }
       ],
-      "trimmedMean": 9,
-      "diagnosis": "identity(2.0/2)",
-      "timestamp": "2026-03-17T11:46:52.218Z",
+      "trimmedMean": 8.7,
+      "diagnosis": "identity(1.8/2), high-variance(range=4)",
+      "timestamp": "2026-03-19T09:19:53.142Z",
       "satRefQuality": 3
     },
-    "esb": {
-      "key": "esb",
+    "citigroup": {
+      "key": "citigroup",
       "version": "v200",
       "difficulty": "hard",
       "scores": [
-        3,
-        4,
-        4
+        10,
+        8,
+        9,
+        9,
+        5
       ],
       "subscores": [
+        {
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 3,
+          "C": 3,
+          "D": 0,
+          "total": 8
+        },
+        {
+          "A": 3,
+          "B": 3,
+          "C": 3,
+          "D": 0,
+          "total": 9
+        },
+        {
+          "A": 3,
+          "B": 3,
+          "C": 3,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 2,
+          "C": 1,
+          "D": 0,
+          "total": 5
+        }
+      ],
+      "trimmedMean": 8.7,
+      "diagnosis": "footprint(2.8/4), identity(0.8/2), high-variance(range=5)",
+      "timestamp": "2026-03-19T09:30:06.141Z",
+      "satRefQuality": 5
+    },
+    "ansonia": {
+      "key": "ansonia",
+      "version": "v200",
+      "difficulty": "medium",
+      "scores": [
+        5,
+        6,
+        2,
+        4,
+        3
+      ],
+      "subscores": [
+        {
+          "A": 1,
+          "B": 1,
+          "C": 3,
+          "D": 0,
+          "total": 5
+        },
+        {
+          "A": 1,
+          "B": 2,
+          "C": 3,
+          "D": 0,
+          "total": 6
+        },
+        {
+          "A": 1,
+          "B": 1,
+          "C": 0,
+          "D": 0,
+          "total": 2
+        },
+        {
+          "A": 1,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 4
+        },
         {
           "A": 1,
           "B": 1,
           "C": 1,
           "D": 0,
           "total": 3
-        },
+        }
+      ],
+      "trimmedMean": 4,
+      "diagnosis": "footprint(1.0/4), massing(1.2/3), surface(1.8/3), high-variance(range=4)",
+      "timestamp": "2026-03-19T09:32:20.244Z",
+      "satRefQuality": 3
+    },
+    "portland": {
+      "key": "portland",
+      "version": "v200",
+      "difficulty": "medium",
+      "scores": [
+        4,
+        7,
+        8,
+        5,
+        6
+      ],
+      "subscores": [
         {
           "A": 1,
           "B": 1,
@@ -69,92 +186,354 @@
         },
         {
           "A": 2,
-          "B": 1,
-          "C": 1,
-          "D": 0,
-          "total": 4
-        }
-      ],
-      "trimmedMean": 4,
-      "diagnosis": "footprint(1.3/4), massing(1.0/3), surface(1.3/3)",
-      "timestamp": "2026-03-17T11:49:44.640Z",
-      "satRefQuality": 5
-    },
-    "guggenheim": {
-      "key": "guggenheim",
-      "version": "v200",
-      "difficulty": "hard",
-      "scores": [
-        4,
-        3,
-        3
-      ],
-      "subscores": [
-        {
-          "A": 1,
-          "B": 1,
-          "C": 2,
-          "D": 0,
-          "total": 4
-        },
-        {
-          "A": 1,
-          "B": 0,
-          "C": 2,
-          "D": 0,
-          "total": 3
-        },
-        {
-          "A": 0,
-          "B": 0,
+          "B": 2,
           "C": 3,
           "D": 0,
-          "total": 3
+          "total": 7
+        },
+        {
+          "A": 2,
+          "B": 3,
+          "C": 3,
+          "D": 0,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 5
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 0,
+          "total": 6
         }
       ],
-      "trimmedMean": 3,
-      "diagnosis": "footprint(0.7/4), massing(0.3/3)",
-      "timestamp": "2026-03-17T11:52:11.293Z",
-      "satRefQuality": 5
+      "trimmedMean": 6,
+      "diagnosis": "footprint(1.8/4), massing(1.6/3), high-variance(range=4)",
+      "timestamp": "2026-03-19T09:34:26.605Z",
+      "satRefQuality": 3
     },
-    "transamerica": {
-      "key": "transamerica",
+    "pennzoil": {
+      "key": "pennzoil",
       "version": "v200",
       "difficulty": "hard",
       "scores": [
+        10,
+        8,
         6,
-        2,
-        2
+        9,
+        7
       ],
       "subscores": [
         {
-          "A": 3,
-          "B": 0,
+          "A": 4,
+          "B": 3,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 3,
+          "C": 3,
+          "D": 1,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 1,
           "C": 3,
           "D": 0,
           "total": 6
         },
         {
-          "A": 0,
-          "B": 0,
+          "A": 3,
+          "B": 3,
+          "C": 3,
+          "D": 1,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 2,
+          "C": 3,
+          "D": 0,
+          "total": 7
+        }
+      ],
+      "trimmedMean": 8,
+      "diagnosis": "footprint(2.6/4), identity(0.8/2), high-variance(range=4)",
+      "timestamp": "2026-03-19T09:37:15.007Z",
+      "satRefQuality": 3
+    },
+    "chrysler": {
+      "key": "chrysler",
+      "version": "v200",
+      "difficulty": "hard",
+      "scores": [
+        6,
+        3,
+        6,
+        5,
+        5
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 2,
           "C": 2,
+          "D": 0,
+          "total": 6
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 0,
+          "D": 0,
+          "total": 3
+        },
+        {
+          "A": 2,
+          "B": 2,
+          "C": 2,
+          "D": 0,
+          "total": 6
+        },
+        {
+          "A": 2,
+          "B": 2,
+          "C": 1,
+          "D": 0,
+          "total": 5
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 5
+        }
+      ],
+      "trimmedMean": 5.3,
+      "diagnosis": "footprint(2.0/4), massing(1.6/3), surface(1.4/3)",
+      "timestamp": "2026-03-19T09:51:19.040Z",
+      "satRefQuality": 3
+    },
+    "oculus": {
+      "key": "oculus",
+      "version": "v200",
+      "difficulty": "hard",
+      "scores": [
+        9,
+        6,
+        5,
+        7,
+        7
+      ],
+      "subscores": [
+        {
+          "A": 3,
+          "B": 3,
+          "C": 3,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 2,
+          "C": 2,
+          "D": 1,
+          "total": 6
+        },
+        {
+          "A": 1,
+          "B": 2,
+          "C": 2,
+          "D": 1,
+          "total": 5
+        },
+        {
+          "A": 2,
+          "B": 2,
+          "C": 3,
+          "D": 2,
+          "total": 7
+        },
+        {
+          "A": 2,
+          "B": 3,
+          "C": 2,
+          "D": 2,
+          "total": 7
+        }
+      ],
+      "trimmedMean": 6.7,
+      "diagnosis": "footprint(2.0/4), identity(1.6/2), high-variance(range=4)",
+      "timestamp": "2026-03-19T10:03:49.310Z",
+      "satRefQuality": 3
+    },
+    "artinstitute": {
+      "key": "artinstitute",
+      "version": "v200",
+      "difficulty": "medium",
+      "scores": [
+        3,
+        3,
+        4,
+        2,
+        5
+      ],
+      "subscores": [
+        {
+          "A": 1,
+          "B": 1,
+          "C": 1,
+          "D": 0,
+          "total": 3
+        },
+        {
+          "A": 1,
+          "B": 1,
+          "C": 1,
+          "D": 0,
+          "total": 3
+        },
+        {
+          "A": 1,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 4
+        },
+        {
+          "A": 1,
+          "B": 0,
+          "C": 1,
           "D": 0,
           "total": 2
         },
         {
-          "A": 0,
-          "B": 0,
+          "A": 2,
+          "B": 1,
           "C": 2,
           "D": 0,
-          "total": 2
+          "total": 5
         }
       ],
-      "trimmedMean": 2,
-      "diagnosis": "footprint(1.0/4), massing(0.0/3), high-variance(range=4)",
-      "timestamp": "2026-03-17T11:55:14.160Z",
+      "trimmedMean": 3.3,
+      "diagnosis": "footprint(1.2/4), massing(0.8/3), surface(1.4/3)",
+      "timestamp": "2026-03-19T10:06:11.027Z",
+      "satRefQuality": 5
+    },
+    "willistower": {
+      "key": "willistower",
+      "version": "v200",
+      "difficulty": "hard",
+      "scores": [
+        6,
+        9,
+        8,
+        5,
+        6
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 2,
+          "C": 2,
+          "D": 2,
+          "total": 6
+        },
+        {
+          "A": 3,
+          "B": 3,
+          "C": 3,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 3,
+          "C": 3,
+          "D": 2,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 5
+        },
+        {
+          "A": 2,
+          "B": 2,
+          "C": 2,
+          "D": 2,
+          "total": 6
+        }
+      ],
+      "trimmedMean": 6.7,
+      "diagnosis": "footprint(2.2/4), identity(1.6/2), high-variance(range=4)",
+      "timestamp": "2026-03-19T10:10:33.542Z",
       "satRefQuality": 3
+    },
+    "esb": {
+      "key": "esb",
+      "version": "v200",
+      "difficulty": "hard",
+      "scores": [
+        4,
+        6,
+        4,
+        6,
+        5
+      ],
+      "subscores": [
+        {
+          "A": 1,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 4
+        },
+        {
+          "A": 2,
+          "B": 2,
+          "C": 2,
+          "D": 1,
+          "total": 6
+        },
+        {
+          "A": 1,
+          "B": 2,
+          "C": 1,
+          "D": 0,
+          "total": 4
+        },
+        {
+          "A": 1,
+          "B": 2,
+          "C": 3,
+          "D": 1,
+          "total": 6
+        },
+        {
+          "A": 1,
+          "B": 2,
+          "C": 2,
+          "D": 0,
+          "total": 5
+        }
+      ],
+      "trimmedMean": 5.0,
+      "diagnosis": "footprint(1.4/4), massing(1.6/3), identity(0.4/2)",
+      "timestamp": "2026-03-19T09:30:00.000Z"
     }
-  },
-  "lastDeepReview": "2026-03-13T05:54:05.303Z",
-  "deepReviewModel": "gemini-2.5-pro"
+  }
 }
