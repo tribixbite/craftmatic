@@ -439,7 +439,7 @@ async function voxelize(b: BuildingConfig): Promise<VoxelizeResult> {
   flagParts.push('-o', `"${schem}"`, ...b.extraFlags);
   const flags = flagParts.join(' ');
   console.log(`  Voxelizing: ${b.key} (r=${b.resolution > 0 ? b.resolution : 'auto'}, dilate=${b.maskDilate})`);
-  const out = await run(flags, 600_000);
+  const out = await run(flags, 2_400_000); // 40min — ESB v200b takes ~20min on ARM
   // Parse grid dimensions and actual resolution from output
   let actualRes = b.resolution > 0 ? b.resolution : 1;
   let gridWidth = 0, gridHeight = 0, gridLength = 0, blockCount = 0;
