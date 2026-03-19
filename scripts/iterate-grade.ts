@@ -88,19 +88,19 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Spiral rotunda — tests curve preservation at high resolution
-    // v200: multi-angle r=30 capture (42×58×53m, tighter than headless)
-    key: 'guggenheim',
-    glb: `${DIR}/guggenheim-v200.glb`,
-    coords: '40.7830,-73.9590',
-    satRef: `${DIR}/sat-ref-guggenheim.jpg`,
-    satZoom: 20,
-    resolution: 3, // small building needs 3x for curve fidelity (auto didn't trigger)
-    maskDilate: 1,
+    // 45° sloped roof crown — tests angular crown preservation
+    // Citigroup Center, 279m, 49m square footprint. Diagonal roof is voxel-friendly.
+    key: 'citigroup',
+    glb: `${DIR}/citigroup-v200.glb`,
+    coords: '40.7585,-73.9703',
+    satRef: `${DIR}/sat-ref-citigroup.jpg`,
+    satZoom: 19,
+    resolution: 1,
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'hard',
-    tileSize: 8,
-    topdownScale: 10,
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
     // Pyramidal taper — tests taper preservation
@@ -118,15 +118,15 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Dome + wings — tests dome preservation with extended footprint
-    // v200: multi-angle r=80 — NOTE: only captured ~40m section, needs r=150+ for full building
-    key: 'uscapitol',
-    glb: `${DIR}/uscapitol-v200.glb`,
-    coords: '38.8897,-77.0089',
-    satRef: `${DIR}/sat-ref-uscapitol.jpg`,
-    satZoom: 18,
-    resolution: 1,
-    maskDilate: 2,
+    // Angular wing structure — tests wide angular form with OSM isolation
+    // Oculus WTC Transportation Hub, NYC, 48m tall, dramatic angular wings
+    key: 'oculus',
+    glb: `${DIR}/oculus-v200.glb`,
+    coords: '40.7112,-74.0134',
+    satRef: `${DIR}/sat-ref-oculus.jpg`,
+    satZoom: 19,
+    resolution: 2,
+    maskDilate: 1,
     extraFlags: [],
     difficulty: 'hard',
     tileSize: 6,
@@ -178,19 +178,19 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Brutalist inverted pyramid — tests inverted taper
-    // v200: multi-angle r=25 capture (50×59×52m)
-    key: 'geisel',
-    glb: `${DIR}/geisel-v200.glb`,
-    coords: '32.8812,-117.2376',
-    satRef: `${DIR}/sat-ref-geisel.jpg`,
-    satZoom: 20,
-    resolution: 2,
-    maskDilate: 1,
+    // Twin trapezoidal towers with 45° angled tops — tests twin massing + angular crown
+    // Pennzoil Place, Houston, 151m, ~90×50m total with 3m gap between towers
+    key: 'pennzoil',
+    glb: `${DIR}/pennzoil-v200.glb`,
+    coords: '29.7601,-95.3698',
+    satRef: `${DIR}/sat-ref-pennzoil.jpg`,
+    satZoom: 19,
+    resolution: 1,
+    maskDilate: 2,
     extraFlags: [],
     difficulty: 'hard',
-    tileSize: 8,
-    topdownScale: 10,
+    tileSize: 6,
+    topdownScale: 8,
   },
 ];
 
