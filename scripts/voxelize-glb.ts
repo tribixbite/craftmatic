@@ -1409,7 +1409,7 @@ async function main(): Promise<void> {
     let osmQueryPolygon: { lat: number; lon: number }[] | null = null;
     if (args.coords && !osmMaskDone && !args.noOsm) {
       console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
-      const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
+      const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
       if (osmData && osmData.polygon.length >= 3) {
         osmQueryPolygon = osmData.polygon;
         const snapshot = new Map<string, string>();
@@ -1595,7 +1595,7 @@ async function main(): Promise<void> {
       // only fills the building interior, not surrounding terrain/roads/neighbors.
       if (args.coords && !args.noOsm) {
         console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
-        const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
+        const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
         if (osmData && osmData.polygon.length >= 3) {
           // Snapshot blocks before masking for revert if polygon is misaligned
           const snapshot = new Map<string, string>();
@@ -1788,7 +1788,7 @@ async function main(): Promise<void> {
   // Skip if already done in the generic pre-fill path above.
   if (args.coords && !osmMaskDone && !args.noOsm) {
     console.log(`OSM footprint query at ${args.coords.lat},${args.coords.lng}...`);
-    const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 50);
+    const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
     if (osmData && osmData.polygon.length >= 3) {
       // Snapshot blocks before masking so we can revert if mask removes everything
       const snapshot = new Map<string, string>();

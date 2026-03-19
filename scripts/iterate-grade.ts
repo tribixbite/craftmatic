@@ -59,8 +59,9 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // 443m tower with tapered setbacks — tests setback preservation
+    // v200b: banded multi-angle capture (232m of 443m height, shows setbacks)
     key: 'esb',
-    glb: `${DIR}/esb-headless.glb`,
+    glb: `${DIR}/esb-v200b.glb`,
     coords: '40.7484,-73.9857',
     satRef: `${DIR}/sat-ref-esb.jpg`,
     satZoom: 18,
@@ -73,8 +74,9 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Art deco crown with spire — tests crown/spire preservation
+    // v200: banded multi-angle r=60, h=319 (86×118×108m, 37% of 319m)
     key: 'chrysler',
-    glb: `${DIR}/chrysler-headless.glb`,
+    glb: `${DIR}/chrysler-v200.glb`,
     coords: '40.7516,-73.9755',
     satRef: `${DIR}/sat-ref-chrysler.jpg`,
     satZoom: 18,
@@ -87,12 +89,13 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Spiral rotunda — tests curve preservation at high resolution
+    // v200: multi-angle r=30 capture (42×58×53m, tighter than headless)
     key: 'guggenheim',
-    glb: `${DIR}/guggenheim-headless.glb`,
+    glb: `${DIR}/guggenheim-v200.glb`,
     coords: '40.7830,-73.9590',
     satRef: `${DIR}/sat-ref-guggenheim.jpg`,
     satZoom: 20,
-    resolution: 0, // auto: small building → 3x for curve fidelity
+    resolution: 3, // small building needs 3x for curve fidelity (auto didn't trigger)
     maskDilate: 1,
     extraFlags: [],
     difficulty: 'hard',
@@ -101,8 +104,9 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Pyramidal taper — tests taper preservation
+    // v200b: banded multi-angle r=50, h=260 (53×60×53m, 23% of 260m)
     key: 'transamerica',
-    glb: `${DIR}/transamerica-headless.glb`,
+    glb: `${DIR}/transamerica-v200b.glb`,
     coords: '37.7952,-122.4028',
     satRef: `${DIR}/sat-ref-transamerica.jpg`,
     satZoom: 18,
@@ -115,8 +119,9 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Dome + wings — tests dome preservation with extended footprint
+    // v200: multi-angle r=80 — NOTE: only captured ~40m section, needs r=150+ for full building
     key: 'uscapitol',
-    glb: `${DIR}/uscapitol-headless.glb`,
+    glb: `${DIR}/uscapitol-v200.glb`,
     coords: '38.8897,-77.0089',
     satRef: `${DIR}/sat-ref-uscapitol.jpg`,
     satZoom: 18,
@@ -129,8 +134,9 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Dome on rectangular base — tests dome at medium resolution
+    // v200: multi-angle r=35 capture (43×58×53m)
     key: 'mitdome',
-    glb: `${DIR}/mitdome-headless.glb`,
+    glb: `${DIR}/mitdome-v200.glb`,
     coords: '42.3597,-71.0935',
     satRef: `${DIR}/sat-ref-mitdome.jpg`,
     satZoom: 20,
@@ -143,8 +149,9 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Beaux-Arts facade with wings — tests facade detail and L-shape
+    // v200: multi-angle r=40 capture (31×54×53m)
     key: 'artinstitute',
-    glb: `${DIR}/tiles-artinstitute-headless.glb`,
+    glb: `${DIR}/artinstitute-v200.glb`,
     coords: '41.8796,-87.6237',
     satRef: `${DIR}/sat-ref-artinstitute.jpg`,
     satZoom: 19,
@@ -157,8 +164,9 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Bundled tube setbacks — tests stepped massing
+    // v200: banded multi-angle r=60, h=442 (60×83×81m, 19% of 442m)
     key: 'willistower',
-    glb: `${DIR}/willistower-headless.glb`,
+    glb: `${DIR}/willistower-v200.glb`,
     coords: '41.8789,-87.6359',
     satRef: `${DIR}/sat-ref-willistower.jpg`,
     satZoom: 18,
@@ -171,8 +179,9 @@ const BUILDINGS: BuildingConfig[] = [
   },
   {
     // Brutalist inverted pyramid — tests inverted taper
+    // v200: multi-angle r=25 capture (50×59×52m)
     key: 'geisel',
-    glb: `${DIR}/geisel-headless.glb`,
+    glb: `${DIR}/geisel-v200.glb`,
     coords: '32.8812,-117.2376',
     satRef: `${DIR}/sat-ref-geisel.jpg`,
     satZoom: 20,
