@@ -421,6 +421,7 @@ async function voxelize(b: BuildingConfig): Promise<VoxelizeResult> {
     'bun scripts/voxelize-glb.ts', `"${b.glb}"`, '--auto',
     '--coords', `"${b.coords}"`,
     '--mask-dilate', String(b.maskDilate),
+    '--no-enu', // headless GLBs are pre-oriented (ReorientationPlugin), skip PCA ENU
   ];
   // --scene flag: adds environment extraction, feature replacement, plot expansion, enrichment
   if (sceneMode) flagParts.push('--scene');
@@ -1107,6 +1108,7 @@ async function sweepBuilding(
         'bun scripts/voxelize-glb.ts', `"${modConfig.glb}"`, '--auto',
         '--coords', `"${modConfig.coords}"`,
         '--mask-dilate', String(modConfig.maskDilate),
+        '--no-enu', // headless GLBs are pre-oriented
       ];
       if (sceneMode) flagParts.push('--scene');
       if (modConfig.resolution > 0) flagParts.push('-r', String(modConfig.resolution));
