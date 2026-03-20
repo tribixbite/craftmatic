@@ -45,7 +45,7 @@ Key insight: angular features (45° cuts, trapezoids, stepped setbacks) survive 
 | # | Building | City | Height | Distinctive Feature |
 |---|----------|------|--------|---------------------|
 | 8 | Denver Art Museum (Hamilton) | Denver | 38m | Chaotic non-orthogonal intersecting angular planes |
-| 9 | USAF Academy Cadet Chapel | Colorado Springs | 46m | 17 repeated sharp triangular aluminum spires |
+| 9 | USAF Academy Cadet Chapel | Colorado Springs | 46m | 17 repeated sharp triangular aluminum spires (requires resolution 2-3 — at 1 block/m, spires are ~5 blocks wide and will fuse) |
 | 10 | LA City Hall | Los Angeles | 138m | Stepped "wedding cake" massing with setbacks |
 
 All cities confirmed to have Google 3D Tiles photogrammetry coverage.
@@ -75,7 +75,7 @@ interface BuildingAlignment {
 **Location**: `src/convert/mesh-filter.ts`
 
 **Algorithm**: Minimum Area Bounding Rectangle via edge-aligned sweep on convex hull:
-1. **Project lat/lon to local meters** using the same conversion as `maskToFootprint()` (mesh-filter.ts:3494-3495): `x = (lon - centerLng) * 111320 * cos(centerLat)`, `z = (centerLat - lat) * 111320`. This avoids distortion at non-equatorial latitudes.
+1. **Project lat/lon to local meters** using the same conversion as `maskToFootprint()` (mesh-filter.ts:3494-3495): `x = (lon - centerLng) * 111320 * cos(centerLat * Math.PI / 180)`, `z = (centerLat - lat) * 111320`. The `cos()` input must be radians (note the `* Math.PI / 180` — omitting this severely distorts the MBR aspect ratio at non-equatorial latitudes).
 2. Compute convex hull of projected polygon vertices (Andrew's monotone chain, O(n log n))
 3. For each edge of the convex hull:
    - Compute angle of edge relative to north
@@ -182,9 +182,9 @@ Replace the 5-zone facade system with a hybrid approach:
 - Ground/foundation band: bottom 2m forced to sandstone/stone (anchoring)
 - No cornice band, no corner trim, no floor bands — these add uniformity that destroys character
 
-**D. Remove facade homogenization and downstream zone consumers**
+**D. Reduce facade homogenization (don't remove entirely)**
 - Skip `homogenizeFacadesByFace()` (voxelize-glb.ts:2361) — it collapses facade color variation
-- Skip `modeFilter3D()` for facade blocks — mode voting replaces minority colors
+- **Keep `modeFilter3D()` but reduce to 1 pass** (currently runs multiple passes). Without any spatial consensus, photogrammetry baked-in shadows, reflections, and sensor noise cause a single concrete wall to map to a chaotic mix of `stone`, `andesite`, `cyan_terracotta` (sky reflection), `gray_concrete` — the "confetti" problem. One pass of mode filtering provides enough consensus to avoid this while preserving intentional material variation.
 - `roofDom` is still computed (needed for roof zone) but `wallDom`/`groundDom`/`bandBlock`/`trimBlock` variables are no longer used to remap wall blocks. The palette cleanup pass (voxelize-glb.ts:2367-2379) that uses these zone variables is skipped.
 - Cornice generation and floor banding logic (which depend on `bandBlock`/`trimBlock`) are removed — these forced artificial uniformity
 
@@ -196,7 +196,7 @@ Replace the 5-zone facade system with a hybrid approach:
 
 Algorithm (operates after OSM mask, before fill):
 
-**Pre-step: Build footprint protection mask.** Rasterize the OSM polygon (from `BuildingAlignment`) to a 2D XZ bitmap at the grid's resolution. All voxels whose XZ position falls inside this bitmap are marked "protected" and exempt from erosion. This prevents eroding the Flatiron's 1-2 block wide acute tip (which IS the building, not a pole) and other narrow but legitimate building features at street level.
+**Pre-step: Build footprint protection mask.** Rasterize the **translated** OSM polygon (the polygon after `alignOSMToFootprint()` has applied its `dx, dz` offset to correct for GPS drift) to a 2D XZ bitmap at the grid's resolution. Using the raw OSM coordinates would offset the mask from the actual voxel footprint, potentially exposing building edges to erosion while protecting empty street. All voxels whose XZ position falls inside this translated bitmap are marked "protected" and exempt from erosion. This prevents eroding the Flatiron's 1-2 block wide acute tip (which IS the building, not a pole) and other narrow but legitimate building features at street level.
 
 1. **Targeted 3D erosion** of bottom `Math.round(15 * resolution)` layers (street level) with radius=1
    - Only erodes voxels OUTSIDE the OSM footprint protection mask
@@ -236,6 +236,8 @@ Nadir capture pass (replaces existing `FIVE_ANGLE_PRESET[0]` in multi-angle-capt
 - Captures roof textures at maximum resolution (no oblique stretching)
 - Critical for buildings where the roof IS the identity (e.g., stepped setbacks)
 
+**Orthographic LOD gotcha**: `3d-tiles-renderer` calculates SSE differently for orthographic cameras (uniform distance across projection). This may load very low-resolution textures compared to perspective. Lower `tiles.errorTarget` from `2.0` to `0.5` specifically for orthographic passes in `tiles-headless.ts` to force high-LOD textures.
+
 Capture radius: AABB + 15m buffer (tight). Don't capture extra context — let OSM mask do isolation.
 
 ## Rendering Pipeline Changes
@@ -246,9 +248,12 @@ Capture radius: AABB + 15m buffer (tight). Don't capture extra context — let O
 
 For each visible surface block in isometric and front elevation renders:
 1. Cast ray along light direction vector `[1, 1, 1]` (45° azimuth, 45° elevation — standard isometric sun)
-2. Step through grid using 3D DDA (Digital Differential Analyzer) — trivial in voxel grid
-3. If ray hits solid block before exiting grid → darken origin block by 40%
-4. Combine with base block color
+2. **Offset ray origin** by +1 block along the exposed face's normal direction to avoid self-intersection (without this, the DDA immediately hits the origin block itself)
+3. Step through grid using 3D DDA (Digital Differential Analyzer) — trivial in voxel grid
+4. If ray hits solid block before exiting grid → darken origin block by 40%
+5. Combine with base block color
+
+**Important**: Shadow darkening is render-only (applied to final RGB pixels in png-renderer.ts). Do NOT change Minecraft block IDs based on shadow state — that would create permanent dark stripes in the schematic.
 
 This defines massing, reveals setbacks, and makes facade recesses visible — currently impossible because everything is flat-lit.
 
@@ -256,14 +261,12 @@ This defines massing, reveals setbacks, and makes facade recesses visible — cu
 
 **File**: `src/render/png-renderer.ts`
 
-For each visible surface block:
-1. Count exposed cardinal faces (6 neighbors: up, down, north, south, east, west)
-2. 3+ exposed faces = corner/edge → no darkening (0%)
-3. 2 exposed faces = standard surface → 10% darkening
-4. 1 exposed face = inside corner/recess → 20% darkening
-5. Multiply with directional shadow result
+Reuse and tune the existing `getAO()` function (png-renderer.ts:373-383) which already checks 10 neighbors (cardinals + diagonals) for volumetric AO. The proposed 6-cardinal-neighbor approach is flawed — a voxel in a flat wall has exactly 1 exposed face, same as an inside corner, making them indistinguishable.
 
-Cheap approximation that adds depth to recessed areas (Boston City Hall's deep voids, window recesses).
+Tune the existing `getAO()` multiplier for stronger effect:
+- Current: subtle darkening that's barely visible
+- Target: 15-25% darkening in recessed areas (Boston City Hall's deep voids, window recesses)
+- Multiply AO result with directional shadow result for compound shading
 
 ### Change 7: Second Isometric Angle
 
@@ -288,6 +291,7 @@ Replace numeric A/B/C/D subscores with binary defect detection:
   "floating_artifacts": false,
   "neighbor_buildings_merged": false,
   "footprint_wrong_shape": false,
+  "false_positives_merged": false,
   "building_recognizable": true,
   "proportions_correct": true,
   "surface_detail_visible": true
@@ -302,6 +306,7 @@ if (defects.facade_holes_visible) score -= 2;
 if (defects.floating_artifacts) score -= 2;
 if (defects.neighbor_buildings_merged) score -= 2;
 if (defects.footprint_wrong_shape) score -= 2;
+if (defects.false_positives_merged) score -= 2;
 if (!defects.building_recognizable) score -= 3;
 if (!defects.proportions_correct) score -= 1;
 if (!defects.surface_detail_visible) score -= 1;
