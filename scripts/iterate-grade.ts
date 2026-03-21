@@ -59,7 +59,7 @@ const BUILDINGS: BuildingConfig[] = [
     satRef: `${DIR}/sat-ref-flatiron.jpg`,
     resolution: 2, // small footprint needs 2x for detail
     maskDilate: 1,
-    extraFlags: [],
+    extraFlags: ['--no-enu'], // pre-oriented headless GLB — ENU rotation breaks OSM mask alignment
     difficulty: 'easy',
     tileSize: 6,
     topdownScale: 6,
@@ -73,7 +73,7 @@ const BUILDINGS: BuildingConfig[] = [
     satRef: `${DIR}/sat-ref-pennzoil.jpg`,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-enu'], // pre-oriented headless GLB
     difficulty: 'hard',
     tileSize: 6,
     topdownScale: 8,
@@ -144,7 +144,7 @@ const BUILDINGS: BuildingConfig[] = [
     satRef: `${DIR}/sat-ref-citigroup.jpg`,
     resolution: 1,
     maskDilate: 1,
-    extraFlags: [],
+    extraFlags: ['--no-enu'], // pre-oriented headless GLB
     difficulty: 'hard',
     tileSize: 6,
     topdownScale: 8,
