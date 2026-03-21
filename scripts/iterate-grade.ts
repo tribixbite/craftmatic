@@ -11,7 +11,7 @@
  *   bun scripts/iterate-grade.ts --grade-only           # skip voxelize/render
  *   bun scripts/iterate-grade.ts --version v80          # tag iteration
  *   bun scripts/iterate-grade.ts --runs 3               # VLM runs per building (default 11)
- *   bun scripts/iterate-grade.ts --model gemini-2.5-flash  # VLM model override
+ *   bun scripts/iterate-grade.ts --model gemini-2.5-pro   # VLM model override (default: gemini-2.5-pro)
  *   bun scripts/iterate-grade.ts --deep-review          # run harsh critic pass with pro model
  *   bun scripts/iterate-grade.ts --deep-model gemini-2.5-pro  # deep review model (default)
  *   bun scripts/iterate-grade.ts --deep-runs 3          # deep review runs per building (default 3)
@@ -22,6 +22,7 @@ import { $ } from 'bun';
 import sharp from 'sharp';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
+import { scoreFromDefects, type DefectChecklist } from '../src/grade/defect-score.js';
 
 // ── Building configs ──
 interface BuildingConfig {
@@ -41,7 +42,7 @@ interface BuildingConfig {
 const DIR = 'output/tiles';
 
 // v133: 10/10 at 9+ — raleigh maskDilate=1, atlanta re-enabled OSM masking
-// Methodology: 7 VLM runs, 20% trimmed mean, gemini-2.5-flash, temp=0.1
+// Methodology: 11 VLM runs, 20% trimmed mean, gemini-2.5-pro, temp=0.0, binary defect checklist
 // v200+: Architecturally distinctive building set — all have non-trivial forms.
 // Replaces v133 set which had 5/10 trivially-easy rectangles scoring 10/10.
 const BUILDINGS: BuildingConfig[] = [
@@ -197,6 +198,7 @@ const BUILDINGS: BuildingConfig[] = [
 
 // ── VLM Grading ──
 interface SubScore { A: number; B: number; C: number; D: number; total: number }
+
 interface BuildingResult {
   key: string;
   version: string;
@@ -223,64 +225,32 @@ interface IterateState {
   deepReviewModel?: string;      // model used for deep review
 }
 
-const STRUCTURED_PROMPT = `You are a STRICT grader of Minecraft voxel reconstructions of real buildings.
+const DEFECT_PROMPT = `You are evaluating a Minecraft voxel recreation of a real building.
 
-Each image has 4 panels in a 2×2 grid:
-- TOP-LEFT: satellite photo (real-world reference)
-- TOP-RIGHT: isometric 3D voxel render
-- BOTTOM-LEFT: front elevation voxel render (shows building silhouette/profile)
-- BOTTOM-RIGHT: top-down footprint voxel render
+You will see 5 images:
+1. Satellite reference (rotated to match voxel orientation, building outlined in cyan)
+2. Top-down view of the voxel model
+3. Front elevation of the voxel model
+4. Isometric front-right view of the voxel model
+5. Isometric back-left view of the voxel model
 
-Score each building on this rubric:
+Answer each question with true or false:
 
-A) Footprint accuracy (0-4):
-- 4: Footprint has DISTINCTIVE features (non-rectangular angles, L-shapes, curves, setbacks) that are clearly preserved in the voxel AND match satellite. Would be recognized as this specific building.
-- 3: Footprint shape is correct (right aspect ratio, correct corners) and clearly isolated from surrounding geometry. Rectangular buildings need accurate length:width ratio.
-- 2: Generally correct shape but edges are rough/blobby, or includes significant surrounding geometry, or proportions are approximate.
-- 1: Vaguely building-shaped but doesn't clearly match the satellite footprint.
-- 0: Unrecognizable or amorphous blob.
+{
+  "height_truncated": [true if building appears cut off / much shorter than reference],
+  "facade_holes_visible": [true if walls have swiss-cheese holes or missing patches],
+  "floating_artifacts": [true if there are floating blocks, disconnected pieces, or noise],
+  "neighbor_buildings_merged": [true if adjacent buildings are merged into the target],
+  "footprint_wrong_shape": [true if footprint shape doesn't match satellite outline],
+  "false_positives_merged": [true if large unrelated structures are attached to the building],
+  "building_recognizable": [true if someone familiar with this building would identify it],
+  "proportions_correct": [true if width/height/depth ratios roughly match the reference],
+  "surface_detail_visible": [true if facade has visible material variation, not uniform gray]
+}
 
-B) Massing accuracy (0-3):
-- 3: Height and volume clearly match what's visible in satellite (shadow length, relative scale to neighbors). Correct floor count. Use the front elevation (bottom-left) to judge vertical massing — setbacks, tapering, spires, and domes should be visible there.
-- 2: Approximately correct proportions.
-- 1: Wrong proportions or can't verify against satellite.
-- 0: Completely wrong volume.
+Respond with ONLY the JSON object, no explanation.`;
 
-C) Surface quality (0-3):
-- 3: 3+ distinct material zones visible (roof/wall/ground/windows). Clean edges. Glass window blocks (darker rectangles on facades) count as a valid zone.
-- 2: Some material distinction, minor noise.
-- 1: Mostly monochrome with no zone distinction.
-- 0: Single material, messy, heavy artifacts.
-
-D) Identity (0-2):
-- 2: Distinctive non-rectangular form clearly reproduced (dome, spire, wedge, setbacks, tapering). Someone who knows the building would identify it from the voxel alone.
-- 1: Some distinctive features partially visible but not immediately recognizable.
-- 0: Rectangular box or distinctive features not visible. (Most buildings correctly score 0.)
-
-Total = A + B + C (max 10). Report D separately.
-
-IMPORTANT: Do NOT include D in the Total calculation. Total is ALWAYS A + B + C only.
-
-IMPORTANT: Score what you actually SEE, not what might be there.
-- If the satellite image is obscured (trees, shadows, low zoom), cap A at 2 and B at 1.
-- If the voxel includes multiple buildings or large surrounding terrain, cap A at 3.
-- If edges are blobby/amorphous (no straight lines or clear corners), cap A at 2.
-- Dark/tinted glass blocks on facades are WINDOWS (intentional), not artifacts. Do NOT penalize window glass for C score.
-- Use the front elevation (bottom-left panel) to judge vertical accuracy — it shows setbacks, spires, and domes that are invisible in top-down or compressed in isometric views.
-
-Calibration anchors:
-- 10/10: Footprint precisely matches satellite with all distinctive features. Massing proportionate. 3+ material zones. Front elevation shows correct silhouette.
-- 9/10: Shape clearly matches with most distinctive features. Minor imperfections acceptable.
-- 7/10: Correct general shape with right proportions. Clean edges. Some material distinction.
-- 5/10: Recognizable as A building but not clearly THIS building. Approximate shape, rough edges.
-- 2/10: Blob, artifacts, or shape doesn't correspond to satellite.
-
-For EACH building image, respond with EXACTLY this format (one line per building):
-NAME: A=X B=X C=X D=X Total=X
-Brief 1-line explanation.
-
-Total = A + B + C only (max 10). D is reported separately and NOT included in Total.
-Be harsh and honest. Most voxel builds at 1 block/m deserve 5-7. Only exceptional builds with distinctive, recognizable features get 9-10.`;
+// scoreFromDefects and DefectChecklist are imported from src/grade/defect-score.ts
 
 // ── CLI parsing ──
 const args = process.argv.slice(2);
@@ -291,7 +261,7 @@ function getFlag(name: string, def: string): string {
 function hasFlag(name: string): boolean { return args.includes(name); }
 
 const version = getFlag('--version', 'v80');
-const vlmModel = getFlag('--model', 'gemini-2.5-flash');
+const vlmModel = getFlag('--model', 'gemini-2.5-pro');
 const vlmRuns = parseInt(getFlag('--runs', '11'), 10);
 const gradeOnly = hasFlag('--grade-only');
 const mergeScores = hasFlag('--merge-scores');
@@ -499,21 +469,23 @@ async function voxelize(b: BuildingConfig): Promise<VoxelizeResult> {
   return { schem, actualRes, gridWidth, gridHeight, gridLength, blockCount };
 }
 
-/** Render iso + topdown + front elevation JPEGs from schem at high quality */
-async function render(b: BuildingConfig, schem: string, actualRes: number): Promise<{ iso: string; topdown: string; front: string }> {
+/** Render iso + topdown + front elevation + back-left iso JPEGs from schem at high quality */
+async function render(b: BuildingConfig, schem: string, actualRes: number): Promise<{ iso: string; topdown: string; front: string; isoBackLeft: string }> {
   const iso = schem.replace('.schem', '-iso.jpg');
   const topdown = schem.replace('.schem', '-topdown.jpg');
   const front = schem.replace('.schem', '-front.jpg');
+  const isoBackLeft = schem.replace('.schem', '-iso-bl.jpg');
   // Higher tile/scale for grade composites — quality matters for VLM comparison.
   // At 2x resolution the grid is already large so moderate tile (8) suffices.
   // At 1x resolution, bump higher (10) for sharper texture detail.
   const tile = actualRes >= 2 ? Math.max(b.tileSize, 8) : Math.max(b.tileSize, 10);
   const scale = actualRes >= 2 ? Math.max(b.topdownScale, 10) : Math.max(b.topdownScale, 12);
-  console.log(`  Rendering: iso (tile=${tile}) + topdown (scale=${scale}) + front [res=${actualRes}x]`);
+  console.log(`  Rendering: iso (tile=${tile}) + topdown (scale=${scale}) + front + iso-bl [res=${actualRes}x]`);
   await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
   await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
   await run(`bun scripts/_render-front.ts "${schem}" "${front}" --scale ${scale}`);
-  return { iso, topdown, front };
+  await run(`bun scripts/_render-backleft.ts "${schem}" "${isoBackLeft}" --tile ${tile}`);
+  return { iso, topdown, front, isoBackLeft };
 }
 
 /** Create grade composite: 2×2 grid for identity-aware grading.
@@ -566,14 +538,44 @@ async function composite(
   return outPath;
 }
 
-/** Grade one building image with VLM, return parsed sub-scores */
-async function gradeOne(imagePath: string, buildingKey: string): Promise<SubScore | null> {
-  const data = readFileSync(imagePath);
-  const parts = [
-    { text: STRUCTURED_PROMPT },
-    { text: `\n--- ${buildingKey} ---` },
-    { inlineData: { mimeType: 'image/jpeg', data: data.toString('base64') } },
-  ];
+/**
+ * Grade one building using 5 separate images and the binary defect checklist.
+ *
+ * Images (in order):
+ *   1. Satellite reference (rotated, cyan outline)
+ *   2. Top-down view
+ *   3. Front elevation
+ *   4. Isometric front-right
+ *   5. Isometric back-left
+ *
+ * Returns a SubScore computed deterministically from the DefectChecklist,
+ * preserving backward compatibility with BuildingResult.subscores storage.
+ * A/B/C/D fields are mapped from defect categories for diagnosis().
+ */
+async function gradeOne(
+  images: { satRef: string; topdown: string; front: string; iso: string; isoBackLeft: string },
+  buildingKey: string,
+): Promise<SubScore | null> {
+  // Load all 5 images — missing files fall back gracefully
+  function loadImg(p: string): { inlineData: { mimeType: 'image/jpeg'; data: string } } | null {
+    if (!existsSync(p)) return null;
+    return { inlineData: { mimeType: 'image/jpeg', data: readFileSync(p).toString('base64') } };
+  }
+
+  const satPart   = loadImg(images.satRef);
+  const tdPart    = loadImg(images.topdown);
+  const frontPart = loadImg(images.front);
+  const isoPart   = loadImg(images.iso);
+  const blPart    = loadImg(images.isoBackLeft);
+
+  // Build parts array: prompt text followed by each image inline
+  type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
+  const parts: Part[] = [{ text: DEFECT_PROMPT }];
+  if (satPart)   parts.push(satPart);
+  if (tdPart)    parts.push(tdPart);
+  if (frontPart) parts.push(frontPart);
+  if (isoPart)   parts.push(isoPart);
+  if (blPart)    parts.push(blPart);
 
   // Retry with exponential backoff for transient errors
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -585,7 +587,8 @@ async function gradeOne(imagePath: string, buildingKey: string): Promise<SubScor
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 16384 },
+            // temp=0.0 for deterministic binary answers; Pro requires ≥16384 output tokens
+            generationConfig: { temperature: 0.0, maxOutputTokens: 16384 },
           }),
         },
       );
@@ -603,29 +606,63 @@ async function gradeOne(imagePath: string, buildingKey: string): Promise<SubScor
       }
 
       const json = await res.json() as { candidates?: Array<{ content: { parts: Array<{ text?: string }> } }> };
-      const text = json.candidates?.[0]?.content?.parts?.map(p => p.text).join('') ?? '';
+      const text = (json.candidates?.[0]?.content?.parts?.map(p => p.text).join('') ?? '').trim();
 
-      // Parse "A=X B=X C=X D=X Total=X.X" from response (D is optional for backward compat)
-      const match = text.match(/A\s*=\s*([\d.]+)\s*B\s*=\s*([\d.]+)\s*C\s*=\s*([\d.]+)\s*(?:D\s*=\s*([\d.]+)\s*)?Total\s*=\s*([\d.]+)/i);
-      if (match) {
-        return {
-          A: parseFloat(match[1]),
-          B: parseFloat(match[2]),
-          C: parseFloat(match[3]),
-          D: match[4] ? parseFloat(match[4]) : 0,
-          total: parseFloat(match[5]),
-        };
+      // Extract JSON object from response — model may wrap it in markdown fences
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.error(`    VLM parse failed (no JSON): ${text.slice(0, 300)}`);
+        return null;
       }
 
-      // Fallback: try to parse just "Total=X" or "Score=X"
-      const totalMatch = text.match(/(?:Total|Score)\s*=\s*([\d.]+)/i);
-      if (totalMatch) {
-        const total = parseFloat(totalMatch[1]);
-        return { A: 0, B: 0, C: 0, D: 0, total };
+      let defects: Partial<DefectChecklist>;
+      try {
+        defects = JSON.parse(jsonMatch[0]) as Partial<DefectChecklist>;
+      } catch {
+        console.error(`    VLM JSON.parse failed: ${jsonMatch[0].slice(0, 200)}`);
+        return null;
       }
 
-      console.error(`    VLM parse failed: ${text.slice(0, 200)}`);
-      return null;
+      // Normalise: boolean coercion handles string "true"/"false" from some models
+      const checklist: DefectChecklist = {
+        height_truncated:          Boolean(defects.height_truncated),
+        facade_holes_visible:      Boolean(defects.facade_holes_visible),
+        floating_artifacts:        Boolean(defects.floating_artifacts),
+        neighbor_buildings_merged: Boolean(defects.neighbor_buildings_merged),
+        footprint_wrong_shape:     Boolean(defects.footprint_wrong_shape),
+        false_positives_merged:    Boolean(defects.false_positives_merged),
+        building_recognizable:     Boolean(defects.building_recognizable),
+        proportions_correct:       Boolean(defects.proportions_correct),
+        surface_detail_visible:    Boolean(defects.surface_detail_visible),
+      };
+
+      const total = scoreFromDefects(checklist);
+
+      // Map defect fields to legacy A/B/C/D sub-scores for diagnose() and markdown table.
+      // A (footprint, 0-4): penalise footprint_wrong_shape + false_positives_merged + neighbor_buildings_merged
+      // B (massing, 0-3):   penalise height_truncated + !proportions_correct
+      // C (surface, 0-3):   penalise !surface_detail_visible + facade_holes_visible + floating_artifacts
+      // D (identity, 0-2):  bonus when building_recognizable
+      const scoreA = 4
+        - (checklist.footprint_wrong_shape     ? 2 : 0)
+        - (checklist.false_positives_merged    ? 1 : 0)
+        - (checklist.neighbor_buildings_merged ? 1 : 0);
+      const scoreB = 3
+        - (checklist.height_truncated      ? 2 : 0)
+        - (!checklist.proportions_correct  ? 1 : 0);
+      const scoreC = 3
+        - (!checklist.surface_detail_visible ? 1 : 0)
+        - (checklist.facade_holes_visible    ? 1 : 0)
+        - (checklist.floating_artifacts      ? 1 : 0);
+      const scoreD = checklist.building_recognizable ? 2 : 0;
+
+      return {
+        A: Math.max(0, scoreA),
+        B: Math.max(0, scoreB),
+        C: Math.max(0, scoreC),
+        D: scoreD,
+        total,
+      };
     } catch (err) {
       const wait = (attempt + 1) * 10_000;
       console.error(`    VLM fetch error (attempt ${attempt + 1}/3): ${err} — retrying in ${wait / 1000}s...`);
@@ -637,12 +674,16 @@ async function gradeOne(imagePath: string, buildingKey: string): Promise<SubScor
 }
 
 /** Run N VLM grades, compute trimmed mean (drop min+max, avg rest) */
-async function gradeBuilding(imagePath: string, key: string, runs: number): Promise<{ scores: number[]; subscores: SubScore[]; trimmedMean: number }> {
+async function gradeBuilding(
+  images: { satRef: string; topdown: string; front: string; iso: string; isoBackLeft: string },
+  key: string,
+  runs: number,
+): Promise<{ scores: number[]; subscores: SubScore[]; trimmedMean: number }> {
   const scores: number[] = [];
   const subscores: SubScore[] = [];
 
   for (let i = 0; i < runs; i++) {
-    const result = await gradeOne(imagePath, key);
+    const result = await gradeOne(images, key);
     if (result) {
       scores.push(result.total);
       subscores.push(result);
@@ -817,6 +858,7 @@ async function main(): Promise<void> {
     let iso = schem.replace('.schem', '-iso.jpg');
     let topdown = schem.replace('.schem', '-topdown.jpg');
     let front = schem.replace('.schem', '-front.jpg');
+    let isoBackLeft = schem.replace('.schem', '-iso-bl.jpg');
     let gradePath = `${DIR}/grade-${version}-${b.key}.jpg`;
     let gridInfo: { gridWidth: number; gridLength: number; actualRes: number } | undefined;
 
@@ -826,12 +868,13 @@ async function main(): Promise<void> {
         const voxResult = await voxelize(b);
         schem = voxResult.schem;
         gridInfo = { gridWidth: voxResult.gridWidth, gridLength: voxResult.gridLength, actualRes: voxResult.actualRes };
-        // Step 2: Render at high quality (iso + topdown + front elevation)
+        // Step 2: Render at high quality (iso + topdown + front elevation + back-left iso)
         const renders = await render(b, schem, voxResult.actualRes);
         iso = renders.iso;
         topdown = renders.topdown;
         front = renders.front;
-        // Step 3: 2×2 composite (satellite, iso, front, topdown)
+        isoBackLeft = renders.isoBackLeft;
+        // Step 3: 2×2 composite (satellite, iso, front, topdown) — kept for deep review
         gradePath = await composite(b, iso, topdown, front, gridInfo, gradeSatPath);
       } else if (!existsSync(gradePath)) {
         // grade-only but no composite — try to build from existing renders
@@ -848,8 +891,10 @@ async function main(): Promise<void> {
         console.log(`  Skipping VLM grading (--runs 0), keeping existing scores`);
         continue;
       }
-      console.log(`  Grading with ${vlmModel} (${vlmRuns} runs, temp=0.1)...`);
-      const { scores, subscores, trimmedMean } = await gradeBuilding(gradePath, b.key, vlmRuns);
+      console.log(`  Grading with ${vlmModel} (${vlmRuns} runs, temp=0.0)...`);
+      // Primary grading uses 5 separate images (defect checklist pipeline)
+      const gradeImages = { satRef: gradeSatPath, topdown, front, iso, isoBackLeft };
+      const { scores, subscores, trimmedMean } = await gradeBuilding(gradeImages, b.key, vlmRuns);
 
       // Merge with existing scores if --merge-scores and building already graded
       let allScores = scores;
@@ -1180,18 +1225,21 @@ async function sweepBuilding(
       const iso = schem.replace('.schem', '-iso.jpg');
       const topdown = schem.replace('.schem', '-topdown.jpg');
       const frontElev = schem.replace('.schem', '-front.jpg');
+      const isoBlSweep = schem.replace('.schem', '-iso-bl.jpg');
       const actualRes = modConfig.resolution > 0 ? modConfig.resolution : 1;
       const tile = actualRes >= 2 ? modConfig.tileSize : Math.max(modConfig.tileSize, 6);
       const scale = actualRes >= 2 ? modConfig.topdownScale : Math.max(modConfig.topdownScale, 8);
       await run(`bun scripts/_render-one.ts "${schem}" "${iso}" --tile ${tile}`);
       await run(`bun scripts/_render-topdown.ts "${schem}" "${topdown}" --scale ${scale}`);
       await run(`bun scripts/_render-front.ts "${schem}" "${frontElev}" --scale ${scale}`);
+      await run(`bun scripts/_render-backleft.ts "${schem}" "${isoBlSweep}" --tile ${tile}`);
 
-      // Composite (2×2: satellite, iso, front, topdown)
-      const gradePath = await composite(modConfig, iso, topdown, frontElev);
+      // Composite (2×2: satellite, iso, front, topdown) — kept for deep review
+      await composite(modConfig, iso, topdown, frontElev);
 
-      // Quick grade (fewer runs for speed)
-      const { trimmedMean } = await gradeBuilding(gradePath, b.key, sweepRuns);
+      // Quick grade with 5 separate images (defect checklist pipeline)
+      const sweepGradeImages = { satRef: modConfig.satRef, topdown, front: frontElev, iso, isoBackLeft: isoBlSweep };
+      const { trimmedMean } = await gradeBuilding(sweepGradeImages, b.key, sweepRuns);
       console.log(`    → ${variant.label}: ${trimmedMean} (${sweepRuns} quick runs)`);
 
       if (trimmedMean > bestScore) {
@@ -1239,12 +1287,19 @@ async function runSweep(state: IterateState): Promise<void> {
     const { bestVariant, bestScore } = await sweepBuilding(b, result);
 
     if (bestVariant && bestScore > result.trimmedMean) {
-      // Run full grading on best variant to confirm
+      // Run full grading on best variant to confirm (using 5 separate images)
       console.log(`  Confirming best variant with ${vlmRuns} full runs...`);
       const vSuffix = `${version}-sweep-${bestVariant.label}`;
-      const gradePath = `${DIR}/grade-${vSuffix}-${b.key}.jpg`;
-      if (existsSync(gradePath)) {
-        const { scores, subscores, trimmedMean } = await gradeBuilding(gradePath, b.key, vlmRuns);
+      const confirmSchem = `${DIR}/${b.key}-${vSuffix}.schem`;
+      const confirmImages = {
+        satRef: b.satRef,
+        topdown: confirmSchem.replace('.schem', '-topdown.jpg'),
+        front:   confirmSchem.replace('.schem', '-front.jpg'),
+        iso:     confirmSchem.replace('.schem', '-iso.jpg'),
+        isoBackLeft: confirmSchem.replace('.schem', '-iso-bl.jpg'),
+      };
+      if (existsSync(confirmImages.iso)) {
+        const { scores, subscores, trimmedMean } = await gradeBuilding(confirmImages, b.key, vlmRuns);
         console.log(`  Confirmed: ${trimmedMean} (was ${result.trimmedMean})`);
 
         // Update state with confirmed result
