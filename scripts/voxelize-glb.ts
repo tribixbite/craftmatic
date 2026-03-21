@@ -229,7 +229,7 @@ Options:
   let noPalette = false;
   let noCornice = false;
   let noFireEscape = false;
-  let noGlaze = false;
+  let noGlaze = true; // v300: glazing off by default — swiss-cheese on dark facades
   let peakedRoof = false;
   let cleanMinSize = 0;
   let cropRadius = 0;
@@ -296,6 +296,8 @@ Options:
       noCornice = true;
     } else if (arg === '--no-fire-escape') {
       noFireEscape = true;
+    } else if (arg === '--glaze') {
+      noGlaze = false; // v300: re-enable glazing
     } else if (arg === '--no-glaze') {
       noGlaze = true;
     } else if (arg === '--peaked-roof') {
