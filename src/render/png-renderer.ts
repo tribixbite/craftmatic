@@ -1631,6 +1631,96 @@ export async function renderExterior(
   return encodePNG(pixels, imgW, imgH);
 }
 
+/**
+ * Render a full-exterior isometric view from the back-left angle.
+ * Mirror of renderExterior: projection uses (z - x) * tile instead of (x - z) * tile.
+ * Iteration order: z ascending, x descending — paints back-right faces visible from back-left.
+ * Used as the 5th image panel in the v300 defect-checklist grading pipeline.
+ */
+export async function renderExteriorBackLeft(
+  grid: BlockGrid,
+  options: { tile?: number; output?: string } = {}
+): Promise<Buffer> {
+  const texAtlas = await ensureAtlas();
+  let { tile = 10 } = options;
+  const { width: w, height: h, length: l } = grid;
+  const blocks = grid.to3DArray();
+
+  const corners = [
+    [0, 0, 0], [w, 0, 0], [0, h, 0], [0, 0, l],
+    [w, h, 0], [w, 0, l], [0, h, l], [w, h, l],
+  ];
+  // Back-left projection: sx = (z - x) * tile (mirrored from renderExterior)
+  let sxs = corners.map(([x, _y, z]) => (z - x) * tile);
+  let sys = corners.map(([x, y, z]) => -(y * tile) + (x + z) * Math.floor(tile / 2));
+  const margin = tile * 4;
+
+  let minSx = Math.min(...sxs) - margin;
+  let maxSx = Math.max(...sxs) + margin;
+  let minSy = Math.min(...sys) - margin;
+  let maxSy = Math.max(...sys) + margin;
+  let imgW = maxSx - minSx;
+  let imgH = maxSy - minSy;
+
+  if (Math.max(imgW, imgH) > MAX_DIM) {
+    const ratio = MAX_DIM / Math.max(imgW, imgH);
+    tile = Math.max(2, Math.round(tile * ratio));
+    sxs = corners.map(([x, _y, z]) => (z - x) * tile);
+    sys = corners.map(([x, y, z]) => -(y * tile) + (x + z) * Math.floor(tile / 2));
+    const m2 = tile * 4;
+    minSx = Math.min(...sxs) - m2; maxSx = Math.max(...sxs) + m2;
+    minSy = Math.min(...sys) - m2; maxSy = Math.max(...sys) + m2;
+    imgW = maxSx - minSx; imgH = maxSy - minSy;
+  }
+
+  const cx = -minSx;
+  const cy = -minSy;
+  const pixels = Buffer.alloc(imgW * imgH * 4);
+  fillRect(pixels, imgW, 0, 0, imgW, imgH, [22, 22, 28]);
+
+  const colorCache = new Map<string, RGB | null>();
+  function cachedBlockColor(bs: string): RGB | null {
+    let c = colorCache.get(bs);
+    if (c !== undefined) return c;
+    c = getBlockColor(bs);
+    colorCache.set(bs, c);
+    return c;
+  }
+
+  // Back-left iteration: z ascending (near to far from back-left POV), x descending
+  for (let y = 0; y < h; y++) {
+    for (let z = 0; z < l; z++) {
+      for (let x = w - 1; x >= 0; x--) {
+        const bs = blocks[y][z][x];
+        const color = cachedBlockColor(bs);
+        if (color === null) continue;
+
+        // Skip fully interior blocks — never visible from any isometric angle
+        if (x > 0 && x < w - 1 && y > 0 && y < h - 1 && z > 0 && z < l - 1 &&
+            cachedBlockColor(blocks[y + 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y - 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y][z][x - 1]) !== null &&
+            cachedBlockColor(blocks[y][z][x + 1]) !== null &&
+            cachedBlockColor(blocks[y][z - 1][x]) !== null &&
+            cachedBlockColor(blocks[y][z + 1][x]) !== null) {
+          continue;
+        }
+
+        const ao = getAO(grid, x, y, z);
+        const shadow = computeShadow(grid, x, y, z, 'up');
+        const combined = ao * shadow;
+        const sx = (z - x) * tile + cx;
+        const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
+        const halfT = Math.floor(tile / 2);
+
+        renderIsoBlock(pixels, imgW, texAtlas, bs, color, combined, sx, sy, tile, halfT);
+      }
+    }
+  }
+
+  return encodePNG(pixels, imgW, imgH);
+}
+
 // ─── Pixel Drawing Helpers ───────────────────────────────────────────────────
 
 function setPixel(buf: Buffer, imgW: number, x: number, y: number, [r, g, b]: RGB): void {
