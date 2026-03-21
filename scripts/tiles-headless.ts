@@ -92,7 +92,9 @@ import * as THREE from 'three';
 import { TilesRenderer } from '3d-tiles-renderer';
 import { GoogleCloudAuthPlugin, ReorientationPlugin, GLTFExtensionsPlugin } from '3d-tiles-renderer/plugins';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import { FIVE_ANGLE_PRESET, positionCameraForAngle, computeCameraDistance, waitForStable } from '../src/convert/multi-angle-capture.js';
+import { FIVE_ANGLE_PRESET, positionCameraForAngle, computeCameraDistance, waitForStable, getAlignedAngles } from '../src/convert/multi-angle-capture.js';
+import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
+import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { writeFile as fsWriteFile } from 'fs/promises';
 import { resolve } from 'path';
 
@@ -172,6 +174,19 @@ console.log(`\nTarget: lat=${lat}, lng=${lng}, radius=${radius}m`);
 console.log(`Output: ${outputPath}`);
 console.log(`Timeout: ${timeout / 1000}s`);
 console.log(`Camera: ${cameraMode}${buildingHeight ? ` height=${buildingHeight}m` : ''}`);
+
+// v300: Query OSM for building polygon and compute alignment
+let alignment: BuildingAlignment | undefined;
+try {
+  const osmResult = await searchOSMBuilding(lat!, lng!, 150);
+  if (osmResult?.polygon?.length >= 3) {
+    // OSMBuildingData.polygon uses {lat, lon} — matches LatLon interface directly
+    alignment = computeBuildingAlignment(osmResult.polygon, lat!, lng!);
+    console.log(`Building alignment: ${alignment.rotationDeg.toFixed(1)}° MBR ${alignment.mbrWidth.toFixed(0)}×${alignment.mbrDepth.toFixed(0)}m`);
+  }
+} catch (e) {
+  console.warn('OSM query for alignment failed, using default camera angles');
+}
 
 // Set up camera based on mode
 // - ortho: OrthographicCamera from Y=500+ looking down. Best for complex footprints
@@ -339,6 +354,12 @@ tiles.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader }));
 // Multi-angle capture uses lower errorTarget for higher-detail facade tiles
 tiles.errorTarget = multiAngle ? 2.0 : 4.0;
 
+// v300: Higher LOD when orthographic camera + alignment for detail
+if (alignment) {
+  tiles.errorTarget = Math.min(tiles.errorTarget, 1.0);
+  console.log(`  errorTarget reduced to ${tiles.errorTarget} (alignment available)`);
+}
+
 // Register camera (no renderer needed — we fake resolution)
 tiles.setCamera(camera);
 tiles.setResolution(camera, 512, 512);
@@ -481,8 +502,9 @@ if (multiAngle) {
   const numBands = Math.max(1, Math.ceil(effectiveHeight / bandHeight));
   const bandCamDist = Math.max(radius * 2, 80); // close enough for detail
 
-  // Cardinal directions for facade capture (skip top-down, already covered)
-  const facadeAngles = FIVE_ANGLE_PRESET.filter((a) => a.name !== 'top-down');
+  // Use building-aligned angles when OSM polygon available, else cardinal preset
+  const allAngles = alignment ? getAlignedAngles(alignment.rotationDeg) : FIVE_ANGLE_PRESET;
+  const facadeAngles = allAngles.filter((a) => a.name !== 'top-down');
 
   for (let band = 0; band < numBands; band++) {
     const bandCenterY = band * bandHeight + bandHeight * 0.4;
