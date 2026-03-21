@@ -232,18 +232,18 @@ You will see 5 images:
 4. Isometric front-right view of the voxel model
 5. Isometric back-left view of the voxel model
 
-Answer each question with true or false:
+Answer each question with true or false. Be conservative — only flag CLEAR, SIGNIFICANT defects:
 
 {
-  "height_truncated": [true if building appears cut off / much shorter than reference],
-  "facade_holes_visible": [true if walls have swiss-cheese holes or missing patches],
-  "floating_artifacts": [true if there are floating blocks, disconnected pieces, or noise],
-  "neighbor_buildings_merged": [true if adjacent buildings are merged into the target],
-  "footprint_wrong_shape": [true if footprint shape doesn't match satellite outline],
-  "false_positives_merged": [true if large unrelated structures are attached to the building],
-  "building_recognizable": [true if someone familiar with this building would identify it],
-  "proportions_correct": [true if width/height/depth ratios roughly match the reference],
-  "surface_detail_visible": [true if facade has visible material variation, not uniform gray]
+  "height_truncated": [true ONLY if ≥30% of the building height is clearly missing — the top is sliced off at an unnatural flat line. False for buildings that are simply short or have flat roofs.],
+  "facade_holes_visible": [true ONLY if large wall sections (5+ blocks) are completely missing, revealing hollow interior or sky behind. NOT dark texture patches or color variation.],
+  "floating_artifacts": [true ONLY if clearly separate structures are floating in mid-air, disconnected from the building by visible air gaps. NOT minor surface bumps or ground-level debris.],
+  "neighbor_buildings_merged": [true if a second distinct building is clearly attached to or fused with the target building],
+  "footprint_wrong_shape": [true if the footprint shape fundamentally differs from the satellite — e.g., rectangle instead of triangle, or circle instead of square],
+  "false_positives_merged": [true if large non-building structures (bridges, walls, roads) are visibly merged into the building],
+  "building_recognizable": [true if the distinctive architectural form visible in the satellite (e.g., triangular footprint, angular roof, tower shape) is reproduced in the voxel model],
+  "proportions_correct": [true if the building's width-to-height-to-depth ratios approximately match the satellite reference],
+  "surface_detail_visible": [true if the facade shows multiple distinct Minecraft block types with visible color or texture variation]
 }
 
 Respond with ONLY the JSON object, no explanation.`;

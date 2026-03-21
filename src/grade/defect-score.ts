@@ -31,22 +31,22 @@ export interface DefectChecklist {
 /**
  * Compute a deterministic 0-10 score from a binary defect checklist.
  *
- * Penalty weights:
- *   height_truncated          -3  (severe: destroys massing identity)
+ * Penalty weights (total max = 16):
  *   !building_recognizable    -3  (severe: build fails primary objective)
+ *   height_truncated          -2  (moderate: massing truncation)
  *   facade_holes_visible      -2  (moderate: structural integrity)
- *   floating_artifacts        -2  (moderate: noise pollution)
  *   neighbor_buildings_merged -2  (moderate: footprint contamination)
  *   footprint_wrong_shape     -2  (moderate: shape accuracy)
  *   false_positives_merged    -2  (moderate: footprint contamination)
+ *   floating_artifacts        -1  (minor: noise — common false positive from texture variation)
  *   !proportions_correct      -1  (minor: proportional accuracy)
  *   !surface_detail_visible   -1  (minor: material quality)
  */
 export function scoreFromDefects(defects: DefectChecklist): number {
   let score = 10;
-  if (defects.height_truncated)          score -= 3;
+  if (defects.height_truncated)          score -= 2;
   if (defects.facade_holes_visible)      score -= 2;
-  if (defects.floating_artifacts)        score -= 2;
+  if (defects.floating_artifacts)        score -= 1;
   if (defects.neighbor_buildings_merged) score -= 2;
   if (defects.footprint_wrong_shape)     score -= 2;
   if (defects.false_positives_merged)    score -= 2;

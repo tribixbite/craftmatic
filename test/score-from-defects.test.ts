@@ -22,16 +22,16 @@ describe('scoreFromDefects', () => {
     expect(scoreFromDefects(makeChecklist())).toBe(10);
   });
 
-  it('deducts 3 for height_truncated', () => {
-    expect(scoreFromDefects(makeChecklist({ height_truncated: true }))).toBe(7);
+  it('deducts 2 for height_truncated', () => {
+    expect(scoreFromDefects(makeChecklist({ height_truncated: true }))).toBe(8);
   });
 
   it('deducts 2 for facade_holes_visible', () => {
     expect(scoreFromDefects(makeChecklist({ facade_holes_visible: true }))).toBe(8);
   });
 
-  it('deducts 2 for floating_artifacts', () => {
-    expect(scoreFromDefects(makeChecklist({ floating_artifacts: true }))).toBe(8);
+  it('deducts 1 for floating_artifacts', () => {
+    expect(scoreFromDefects(makeChecklist({ floating_artifacts: true }))).toBe(9);
   });
 
   it('deducts 2 for neighbor_buildings_merged', () => {
@@ -58,11 +58,11 @@ describe('scoreFromDefects', () => {
     expect(scoreFromDefects(makeChecklist({ surface_detail_visible: false }))).toBe(9);
   });
 
-  it('accumulates penalties: height + not-recognizable = 4 points off', () => {
+  it('accumulates penalties: height + not-recognizable = 5 points off', () => {
     expect(scoreFromDefects(makeChecklist({
-      height_truncated:      true, // -3
+      height_truncated:      true, // -2
       building_recognizable: false, // -3
-    }))).toBe(4);
+    }))).toBe(5);
   });
 
   it('accumulates all minor defects', () => {
@@ -74,9 +74,9 @@ describe('scoreFromDefects', () => {
 
   it('never goes below 0 even with all defects', () => {
     const worst: DefectChecklist = {
-      height_truncated:          true,  // -3
+      height_truncated:          true,  // -2
       facade_holes_visible:      true,  // -2
-      floating_artifacts:        true,  // -2
+      floating_artifacts:        true,  // -1
       neighbor_buildings_merged: true,  // -2
       footprint_wrong_shape:     true,  // -2
       false_positives_merged:    true,  // -2
@@ -84,7 +84,7 @@ describe('scoreFromDefects', () => {
       proportions_correct:       false, // -1
       surface_detail_visible:    false, // -1
     };
-    // Total penalties = 18, but clamped to 0
+    // Total penalties = 16, but clamped to 0
     expect(scoreFromDefects(worst)).toBe(0);
   });
 
