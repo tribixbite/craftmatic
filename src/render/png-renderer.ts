@@ -383,6 +383,50 @@ function getAO(grid: BlockGrid, x: number, y: number, z: number): number {
 }
 
 /**
+ * Compute shadow factor for a surface voxel via DDA raycast along [1,1,1] light.
+ * Returns 1.0 (fully lit) or 0.6 (40% darkened, in shadow).
+ *
+ * Self-intersection avoidance: for lateral faces (+x/-x/+z/-z), the ray origin
+ * is offset along the face normal so the loop starts outside the source block.
+ * For 'up', the loop starts at step=1 which already skips the source block
+ * without a Y offset — allowing the DDA to check (x+1, y+1, z+1) at step 1.
+ *
+ * @param face - Which face is visible; determines origin offset direction.
+ */
+export function computeShadow(
+  grid: BlockGrid,
+  x: number, y: number, z: number,
+  face: 'up' | '+x' | '-x' | '+z' | '-z',
+): number {
+  // Offset origin along face normal for lateral faces only.
+  // 'up': no Y offset needed — step=1 ensures (x+1, y+1, z+1) skips source.
+  let ox = x, oy = y, oz = z;
+  switch (face) {
+    case '+x':  ox += 1; break;
+    case '-x':  ox -= 1; break;
+    case '+z':  oz += 1; break;
+    case '-z':  oz -= 1; break;
+    default: break; // 'up': no offset, self-skip via step >= 1
+  }
+
+  // DDA along [1,1,1] — uniform direction, advance 1 in each axis per step.
+  // step=1 means first sample at (ox+1, oy+1, oz+1), safely past the source block.
+  const maxSteps = Math.max(grid.width, grid.height, grid.length);
+  for (let step = 1; step <= maxSteps; step++) {
+    const sx = ox + step;
+    const sy = oy + step;
+    const sz = oz + step;
+    if (sx >= grid.width || sy >= grid.height || sz >= grid.length) break;
+    if (sx < 0 || sy < 0 || sz < 0) continue;
+    const block = grid.get(sx, sy, sz);
+    if (block !== 'minecraft:air') {
+      return 0.6; // 40% shadow darkening
+    }
+  }
+  return 1.0; // fully lit
+}
+
+/**
  * Render isometric blocks with texture support.
  * Shared by renderCutawayIso and renderExterior.
  */
@@ -519,11 +563,13 @@ export async function renderCutawayIso(
         }
 
         const ao = getAO(grid, x, y, z);
+        const shadow = computeShadow(grid, x, y, z, 'up');
+        const combined = ao * shadow;
         const sx = (x - z) * tile + cx;
         const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
         const halfT = Math.floor(tile / 2);
 
-        renderIsoBlock(pixels, imgW, texAtlas, bs, color, ao, sx, sy, tile, halfT);
+        renderIsoBlock(pixels, imgW, texAtlas, bs, color, combined, sx, sy, tile, halfT);
       }
     }
   }
@@ -727,6 +773,8 @@ export async function renderFrontElevation(
     for (let y = minY; y <= maxY; y++) {
       let frontBlock = 'minecraft:air';
       let depth = -1;
+      // Track actual grid coordinates of the found block for shadow computation
+      let actualX = 0, actualZ = 0;
 
       if (lookAlongZ) {
         // Looking along Z: sweep from viewer toward building
@@ -736,6 +784,7 @@ export async function renderFrontElevation(
             if (blocks[y][z][hCoord] !== 'minecraft:air') {
               frontBlock = blocks[y][z][hCoord];
               depth = z - minZ;
+              actualX = hCoord; actualZ = z;
               break;
             }
           }
@@ -745,6 +794,7 @@ export async function renderFrontElevation(
             if (blocks[y][z][hCoord] !== 'minecraft:air') {
               frontBlock = blocks[y][z][hCoord];
               depth = maxZ - z;
+              actualX = hCoord; actualZ = z;
               break;
             }
           }
@@ -757,6 +807,7 @@ export async function renderFrontElevation(
             if (blocks[y][hCoord][x] !== 'minecraft:air') {
               frontBlock = blocks[y][hCoord][x];
               depth = x - minX;
+              actualX = x; actualZ = hCoord;
               break;
             }
           }
@@ -766,6 +817,7 @@ export async function renderFrontElevation(
             if (blocks[y][hCoord][x] !== 'minecraft:air') {
               frontBlock = blocks[y][hCoord][x];
               depth = maxX - x;
+              actualX = x; actualZ = hCoord;
               break;
             }
           }
@@ -783,17 +835,21 @@ export async function renderFrontElevation(
       const maxDepth = lookAlongZ ? (maxZ - minZ + 1) : (maxX - minX + 1);
       const depthFactor = depth >= 0 ? 1.0 - 0.4 * (depth / Math.max(maxDepth, 1)) : 0.7;
 
+      // DDA directional shadow from [1,1,1] light — top-lit for front elevation
+      const shadow = computeShadow(grid, actualX, y, actualZ, 'up');
+      const brightnessFactor = depthFactor * shadow;
+
       // Texture-based rendering
       const texFace = lookAlongZ ? (face === 'south' ? 'north' : 'south') : (face === 'east' ? 'west' : 'east');
       const texData = getTexData(texAtlas, frontBlock, texFace);
       if (texData && scale >= 4) {
         blitTextureTile(pixels, imgW, px, py, scale,
-          texData, texAtlas.tileSize, depthFactor, depthFactor, depthFactor);
+          texData, texAtlas.tileSize, brightnessFactor, brightnessFactor, brightnessFactor);
       } else {
         let [r, g, b] = color;
-        r = clamp(r * depthFactor);
-        g = clamp(g * depthFactor);
-        b = clamp(b * depthFactor);
+        r = clamp(r * brightnessFactor);
+        g = clamp(g * brightnessFactor);
+        b = clamp(b * brightnessFactor);
         fillRect(pixels, imgW, px, py, scale, scale, [r, g, b]);
       }
     }
@@ -1457,11 +1513,13 @@ export async function renderExterior(
         }
 
         const ao = getAO(grid, x, y, z);
+        const shadow = computeShadow(grid, x, y, z, 'up');
+        const combined = ao * shadow;
         const sx = (x - z) * tile + cx;
         const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
         const halfT = Math.floor(tile / 2);
 
-        renderIsoBlock(pixels, imgW, texAtlas, bs, color, ao, sx, sy, tile, halfT);
+        renderIsoBlock(pixels, imgW, texAtlas, bs, color, combined, sx, sy, tile, halfT);
       }
     }
   }
