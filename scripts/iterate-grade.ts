@@ -20,6 +20,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { resolve, basename } from 'path';
 import { $ } from 'bun';
 import sharp from 'sharp';
+import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
+import { searchOSMBuilding } from '../src/gen/api/osm.js';
 
 // ── Building configs ──
 interface BuildingConfig {
@@ -359,6 +361,42 @@ async function ensureSatRef(b: BuildingConfig): Promise<void> {
   }
 }
 
+/** Compute BuildingAlignment from OSM polygon for a building config */
+async function computeAlignment(b: BuildingConfig): Promise<BuildingAlignment | undefined> {
+  try {
+    const [latStr, lngStr] = b.coords.split(',');
+    const lat = parseFloat(latStr), lng = parseFloat(lngStr);
+    const osmData = await searchOSMBuilding(lat, lng, 150);
+    if (osmData?.polygon?.length >= 3) {
+      const polygon = osmData.polygon.map((p: { lat: number; lng: number }) => ({ lat: p.lat, lon: p.lng }));
+      return computeBuildingAlignment(polygon, lat, lng);
+    }
+  } catch {
+    // OSM query may fail for some buildings — non-fatal
+  }
+  return undefined;
+}
+
+/** Generate rotated satellite image aligned to building MBR orientation.
+ *  Rotates by -rotationDeg so the primary facade faces south (matching voxel grid).
+ *  Saves to a separate *-rotated.jpg path to preserve the original cache. */
+async function ensureRotatedSatRef(b: BuildingConfig, alignment: BuildingAlignment): Promise<string> {
+  const rotatedPath = b.satRef.replace('.jpg', '-rotated.jpg');
+  const refreshSat = hasFlag('--refresh-sat');
+  if (!refreshSat && existsSync(rotatedPath)) return rotatedPath;
+
+  const srcPath = existsSync(hiResSatPath(b)) ? hiResSatPath(b) : b.satRef;
+  if (!existsSync(srcPath)) return b.satRef; // no satellite to rotate
+
+  const rotated = await sharp(srcPath)
+    .rotate(-alignment.rotationDeg, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+  await Bun.write(rotatedPath, rotated);
+  console.log(`  Rotated satellite: ${rotatedPath} (${alignment.rotationDeg.toFixed(1)}°)`);
+  return rotatedPath;
+}
+
 /** Rate how clearly the building is visible in a satellite reference image (1-5) */
 async function validateSatRef(b: BuildingConfig): Promise<number> {
   if (!existsSync(b.satRef)) return 1;
@@ -484,16 +522,18 @@ async function render(b: BuildingConfig, schem: string, actualRes: number): Prom
 async function composite(
   b: BuildingConfig, iso: string, topdown: string, front?: string,
   gridInfo?: { gridWidth: number; gridLength: number; actualRes: number },
+  satOverride?: string, // v300: rotated satellite path (default: b.satRef)
 ): Promise<string> {
   const PANEL = 480;
   const GAP = 15;
   const W = PANEL * 2 + GAP * 3; // ~975px
   const H = PANEL * 2 + GAP * 3;
 
-  // Satellite reference image
-  const hasSat = existsSync(b.satRef);
+  // Satellite reference image — use rotated version when available
+  const satPath = satOverride && existsSync(satOverride) ? satOverride : b.satRef;
+  const hasSat = existsSync(satPath);
   const sat = hasSat
-    ? await sharp(resolve(b.satRef)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer()
+    ? await sharp(resolve(satPath)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer()
     : await sharp({ create: { width: PANEL, height: PANEL, channels: 3, background: { r: 30, g: 30, b: 30 } } }).jpeg().toBuffer();
 
   const isoImg = await sharp(resolve(iso)).resize(PANEL, PANEL, { fit: 'inside' }).toBuffer();
@@ -753,6 +793,18 @@ async function main(): Promise<void> {
     // Ensure satellite references exist (fetch if missing or --refresh-sat)
     await ensureSatRef(b);
 
+    // v300: Compute building alignment for satellite rotation
+    const alignment = await computeAlignment(b);
+    if (alignment) {
+      console.log(`  Alignment: ${alignment.rotationDeg.toFixed(1)}° MBR ${alignment.mbrWidth.toFixed(0)}×${alignment.mbrDepth.toFixed(0)}m`);
+    }
+
+    // Generate rotated satellite for VLM grading (matches voxel orientation)
+    let gradeSatPath = b.satRef;
+    if (alignment && Math.abs(alignment.rotationDeg) > 2) {
+      gradeSatPath = await ensureRotatedSatRef(b, alignment);
+    }
+
     // Validate satellite reference clarity
     const satQuality = await validateSatRef(b);
     if (satQuality < 3) {
@@ -780,11 +832,11 @@ async function main(): Promise<void> {
         topdown = renders.topdown;
         front = renders.front;
         // Step 3: 2×2 composite (satellite, iso, front, topdown)
-        gradePath = await composite(b, iso, topdown, front, gridInfo);
+        gradePath = await composite(b, iso, topdown, front, gridInfo, gradeSatPath);
       } else if (!existsSync(gradePath)) {
         // grade-only but no composite — try to build from existing renders
         if (existsSync(iso) && existsSync(topdown)) {
-          gradePath = await composite(b, iso, topdown, existsSync(front) ? front : undefined);
+          gradePath = await composite(b, iso, topdown, existsSync(front) ? front : undefined, undefined, gradeSatPath);
         } else {
           console.log(`  SKIP: no grade image and no renders found`);
           continue;
