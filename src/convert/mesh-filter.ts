@@ -5990,6 +5990,296 @@ export function isolatePrimaryBuilding(
   return removed;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// v300 Task 5: Street furniture removal — poles, lampposts, antennas
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Ray-casting point-in-polygon test in 2D block coordinates.
+ * Uses the classic even-odd crossing algorithm on integer grid points.
+ *
+ * @param px       Query X (integer block coord)
+ * @param pz       Query Z (integer block coord)
+ * @param polygon  Polygon as array of {x, z} integer points (auto-closed)
+ * @returns true if (px, pz) is inside the polygon
+ */
+function pointInPolygonXZ(
+  px: number,
+  pz: number,
+  polygon: Array<{ x: number; z: number }>,
+): boolean {
+  // Cast a ray in +X direction, count crossings with polygon edges.
+  // Using half-pixel offset (px + 0.5) avoids exact-vertex ambiguity.
+  const qx = px + 0.5;
+  const qz = pz + 0.5;
+  let inside = false;
+  const n = polygon.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const ai = polygon[i];
+    const aj = polygon[j];
+    // Edge between aj and ai crosses the horizontal ray at qz?
+    const crossesZ = (ai.z > qz) !== (aj.z > qz);
+    if (!crossesZ) continue;
+    // X-intercept of the edge at qz
+    const tZ = (qz - aj.z) / (ai.z - aj.z);
+    const xIntercept = aj.x + tZ * (ai.x - aj.x);
+    if (qx < xIntercept) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Remove street furniture (poles, lampposts, antennas) from a voxelized grid.
+ *
+ * Algorithm:
+ * 1. Build a 2D XZ protection mask from the OSM polygon (if provided).
+ *    Grid cells inside the polygon are protected from erasure.
+ * 2. Erode the bottom `15 * resolution` layers OUTSIDE the protection mask
+ *    using radius-1 surface erosion. This severs thin vertical pole connections
+ *    to the building at ground level — poles have no horizontal neighbors outside
+ *    the footprint, so they become disconnected after surface erosion.
+ * 3. Run 3D connected component labeling on the eroded grid.
+ * 4. Keep only the single largest component (the building); remove all others.
+ * 5. Restore any eroded voxels that are now adjacent (6-connected) to at least
+ *    one surviving building block, so legitimate edge blocks aren't lost.
+ * 6. Aspect-ratio fallback (no OSM polygon): re-run CCL on the restored grid and
+ *    delete any component whose height/footprint aspect ratio exceeds 8 (pole-like).
+ *
+ * @param grid           Mutable BlockGrid (modified in place)
+ * @param resolution     Blocks per meter — scales the erosion depth and polygon projection
+ * @param osmPolygon     Optional OSM building polygon ({lat, lon}[])
+ * @param centerLat      Capture center latitude (degrees) — required with osmPolygon
+ * @param centerLon      Capture center longitude (degrees) — required with osmPolygon
+ * @param translationDx  Optional X offset applied to projected polygon (blocks)
+ * @param translationDz  Optional Z offset applied to projected polygon (blocks)
+ * @returns Total number of voxels removed
+ */
+export function severStreetFurniture(
+  grid: BlockGrid,
+  resolution: number,
+  osmPolygon?: { lat: number; lon: number }[],
+  centerLat?: number,
+  centerLon?: number,
+  translationDx = 0,
+  translationDz = 0,
+): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const gridCx = Math.floor(width / 2);
+  const gridCz = Math.floor(length / 2);
+
+  // ── Step 1: Build XZ protection mask from OSM polygon ──────────────────
+  // Each cell (x, z) in grid coords is marked as protected if it falls inside
+  // the projected OSM polygon. Protected cells are never eroded in Step 2,
+  // ensuring legitimate building footprint blocks aren't disconnected.
+  const protectedXZ = new Uint8Array(width * length); // 1 = protected
+
+  if (osmPolygon && osmPolygon.length >= 3 && centerLat !== undefined && centerLon !== undefined) {
+    // Project polygon lat/lon → block offsets relative to grid center.
+    // Matches the coordinate convention in maskToFootprint():
+    //   lon → +X (east), lat → -Z (south/north flipped)
+    const latScale = 111320 * resolution; // deg→meters * blocks/meter
+    const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
+
+    let blockPts = osmPolygon.map(p => ({
+      x: Math.round((p.lon - centerLon) * lonScale) + translationDx,
+      z: Math.round((centerLat - p.lat) * latScale) + translationDz,
+    }));
+
+    // Auto-close the polygon if not already closed
+    const pFirst = blockPts[0], pLast = blockPts[blockPts.length - 1];
+    if (pFirst.x !== pLast.x || pFirst.z !== pLast.z) {
+      blockPts.push({ x: pFirst.x, z: pFirst.z });
+    }
+
+    // Mark all grid XZ cells inside the polygon as protected.
+    // Grid XZ (x, z) → polygon space offset from grid center (bx, bz).
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const bx = x - gridCx;
+        const bz = z - gridCz;
+        if (pointInPolygonXZ(bx, bz, blockPts)) {
+          protectedXZ[z * width + x] = 1;
+        }
+      }
+    }
+  }
+
+  // ── Step 2: Surface erosion in bottom erosionLayers, outside protection mask ──
+  // For each Y layer, a block is "surface" if it has at least one air neighbor
+  // in the XZ plane. We erode (remove) surface blocks outside the protected zone.
+  // This severs horizontal bridges between poles and the building at ground level.
+  //
+  // IMPORTANT: Collect candidates from the ORIGINAL layer state BEFORE any erasure,
+  // then erase them all at once. Without this snapshot approach, in-place mutation
+  // cascades — erasing block A exposes its neighbor B as surface, then B is erased,
+  // exposing C, etc., eating the entire building from the outside in.
+  const erosionLayers = Math.round(15 * resolution);
+  const eroded: Array<{ x: number; y: number; z: number; block: string }> = [];
+
+  const xzOffsets = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
+  for (let y = 0; y < Math.min(erosionLayers, height); y++) {
+    // Phase A: collect surface candidates based on the original state of this Y layer
+    const toErase: Array<{ x: number; y: number; z: number; block: string }> = [];
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block === AIR) continue;
+        // Skip protected cells (inside OSM footprint polygon)
+        if (protectedXZ[z * width + x]) continue;
+        // Check if this is a surface block (has an XZ air neighbor in the CURRENT layer)
+        let isSurface = false;
+        for (const [dx, dz] of xzOffsets) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length) {
+            isSurface = true; // edge of grid counts as surface
+            break;
+          }
+          if (grid.get(nx, y, nz) === AIR) {
+            isSurface = true;
+            break;
+          }
+        }
+        if (isSurface) {
+          toErase.push({ x, y, z, block });
+        }
+      }
+    }
+    // Phase B: erase all collected candidates at once (snapshot semantics)
+    for (const e of toErase) {
+      grid.set(e.x, e.y, e.z, AIR);
+      eroded.push(e);
+    }
+  }
+
+  // ── Step 3 & 4: Connected component labeling — keep largest component ──
+  const { labels, sizes, count } = labelConnectedComponents(grid);
+
+  if (count === 0) {
+    // Grid is empty — restore eroded blocks and return 0
+    for (const e of eroded) grid.set(e.x, e.y, e.z, e.block);
+    return 0;
+  }
+
+  // Find the largest component label
+  let largestLabel = 1;
+  let largestSize = sizes[1] ?? 0;
+  for (let i = 2; i <= count; i++) {
+    if (sizes[i] > largestSize) {
+      largestSize = sizes[i];
+      largestLabel = i;
+    }
+  }
+
+  // Remove all voxels not in the largest component
+  let removed = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const lbl = labels[(y * length + z) * width + x];
+        if (lbl === 0) continue; // air
+        if (lbl !== largestLabel) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  // ── Step 5: Restore eroded voxels adjacent to surviving building ──
+  // An eroded block is restored if any of its 6 neighbors is now a surviving
+  // building block (non-air). This prevents over-erosion at building edges.
+  const allOffsets = [
+    [1, 0, 0], [-1, 0, 0],
+    [0, 1, 0], [0, -1, 0],
+    [0, 0, 1], [0, 0, -1],
+  ] as const;
+
+  for (const { x, y, z, block } of eroded) {
+    let hasSurvivingNeighbor = false;
+    for (const [dx, dy, dz] of allOffsets) {
+      const nx = x + dx, ny = y + dy, nz = z + dz;
+      if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length) continue;
+      if (grid.get(nx, ny, nz) !== AIR) {
+        hasSurvivingNeighbor = true;
+        break;
+      }
+    }
+    if (hasSurvivingNeighbor) {
+      grid.set(x, y, z, block);
+    } else {
+      // Permanently removed — count as a removed voxel (street furniture severed)
+      removed++;
+    }
+  }
+
+  // ── Step 6: Aspect-ratio fallback when no OSM polygon ──────────────────
+  // Without an OSM polygon, thin pole-like components that survived CCL
+  // (e.g. attached to the building by a single block) are caught here.
+  // Any component with height / max(footprintWidth, footprintDepth) > 8 is removed.
+  if (!osmPolygon || osmPolygon.length < 3) {
+    const { labels: labels2, count: count2 } = labelConnectedComponents(grid);
+
+    if (count2 > 1) {
+      // For each component compute its 3D AABB
+      const compMinX = new Int32Array(count2 + 1).fill(width);
+      const compMaxX = new Int32Array(count2 + 1).fill(-1);
+      const compMinY = new Int32Array(count2 + 1).fill(height);
+      const compMaxY = new Int32Array(count2 + 1).fill(-1);
+      const compMinZ = new Int32Array(count2 + 1).fill(length);
+      const compMaxZ = new Int32Array(count2 + 1).fill(-1);
+
+      for (let y = 0; y < height; y++) {
+        for (let z = 0; z < length; z++) {
+          for (let x = 0; x < width; x++) {
+            const lbl = labels2[(y * length + z) * width + x];
+            if (lbl === 0) continue;
+            if (x < compMinX[lbl]) compMinX[lbl] = x;
+            if (x > compMaxX[lbl]) compMaxX[lbl] = x;
+            if (y < compMinY[lbl]) compMinY[lbl] = y;
+            if (y > compMaxY[lbl]) compMaxY[lbl] = y;
+            if (z < compMinZ[lbl]) compMinZ[lbl] = z;
+            if (z > compMaxZ[lbl]) compMaxZ[lbl] = z;
+          }
+        }
+      }
+
+      // Identify pole-like components: height > 8 × max(footprint dimension)
+      const poleLabels = new Set<number>();
+      for (let i = 1; i <= count2; i++) {
+        if (compMaxY[i] < 0) continue; // empty component
+        const compH = compMaxY[i] - compMinY[i] + 1;
+        const footprintW = compMaxX[i] - compMinX[i] + 1;
+        const footprintD = compMaxZ[i] - compMinZ[i] + 1;
+        const maxFootprint = Math.max(footprintW, footprintD);
+        if (maxFootprint > 0 && compH / maxFootprint > 8) {
+          poleLabels.add(i);
+        }
+      }
+
+      if (poleLabels.size > 0) {
+        for (let y = 0; y < height; y++) {
+          for (let z = 0; z < length; z++) {
+            for (let x = 0; x < width; x++) {
+              const lbl = labels2[(y * length + z) * width + x];
+              if (lbl !== 0 && poleLabels.has(lbl)) {
+                // Only remove if not inside a protected zone (belt-and-suspenders)
+                if (!protectedXZ[z * width + x]) {
+                  grid.set(x, y, z, AIR);
+                  removed++;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
 /**
  * Enforce luminance contrast between roof, wall, and ground zone materials.
  *
