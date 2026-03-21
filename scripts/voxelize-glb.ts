@@ -1476,6 +1476,7 @@ async function main(): Promise<void> {
             args.coords.lat, args.coords.lng,
             args.resolution, enuHorizontalAngle,
             40, 0.15,  // v116: lowered from 0.25 — dense grids have naturally low IoU
+            !!buildingAlignment, // v300: tighter search when MBR alignment available
           );
           if (alignment) {
             const aligned = maskToFootprintAligned(
@@ -1663,6 +1664,7 @@ async function main(): Promise<void> {
               args.coords.lat, args.coords.lng,
               args.resolution, enuHorizontalAngle,
               40, 0.15,  // v116: lowered from 0.25 — dense grids have naturally low IoU
+              !!buildingAlignment, // v300: tighter search when MBR alignment available
             );
             if (alignment) {
               const aligned = maskToFootprintAligned(

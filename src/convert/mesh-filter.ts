@@ -3640,8 +3640,13 @@ export function alignOSMToFootprint(
   // 0.25 rejected correct alignments; 0.15 accepts them while still rejecting truly
   // misaligned polygons (IoU ≈ 0).
   minIoU = 0.15,
+  // v300: When BuildingAlignment provides precise rotation, tighter translation search suffices
+  hasAlignment = false,
 ): { dx: number; dz: number; iou: number } | null {
   if (polygon.length < 3) return null;
+
+  // v300: When alignment provides precise rotation, only need tight translation search
+  const effectiveRadius = hasAlignment ? Math.min(searchRadius, 10) : searchRadius;
 
   const AIR = 'minecraft:air';
   const { width, length } = grid;
@@ -3723,8 +3728,8 @@ export function alignOSMToFootprint(
   let bestIoU = 0;
   let bestDx = 0, bestDz = 0;
 
-  for (let dz = -searchRadius; dz <= searchRadius; dz++) {
-    for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+  for (let dz = -effectiveRadius; dz <= effectiveRadius; dz++) {
+    for (let dx = -effectiveRadius; dx <= effectiveRadius; dx++) {
       const osmCells = rasterizePoly(blockPts, dx, dz);
       if (osmCells.size === 0) continue;
 
