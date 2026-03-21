@@ -40,6 +40,7 @@ import type { VoxelizeMode } from '../src/convert/voxelizer.js';
 import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
+import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
 import { enrichScene, expandGrid } from '../src/convert/scene-pipeline.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
@@ -597,7 +598,7 @@ async function decodeTexturesWithSharp(
  * Used to rotate OSM polygon to match the grid after PCA alignment. */
 let enuHorizontalAngle = 0;
 
-function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false, skipSnap = false): void {
+function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false, skipSnap = false, alignment?: BuildingAlignment): void {
   const box = new THREE.Box3().setFromObject(scene);
   const size = new THREE.Vector3();
   box.getSize(size);
@@ -629,89 +630,104 @@ function reorientToENU(scene: THREE.Group, skipHorizontalAlign = false, skipSnap
   // Instead, sweep 0-90° in 1° steps and find the rotation that minimizes XZ bounding
   // box area. This correctly handles squares, rectangles, L-shapes, and pentagons.
   if (!skipHorizontalAlign) {
-    const pointsXZ: { x: number; z: number }[] = [];
-    scene.traverse((child) => {
-      if (!(child instanceof THREE.Mesh) || !child.geometry) return;
-      const posAttr = child.geometry.getAttribute('position') as THREE.BufferAttribute;
-      if (!posAttr) return;
-      const step = Math.max(1, Math.floor(posAttr.count / 500));
-      for (let i = 0; i < posAttr.count; i += step) {
-        pointsXZ.push({ x: posAttr.getX(i), z: posAttr.getZ(i) });
-      }
-    });
-
-    if (pointsXZ.length > 10) {
-      let bestAngle = 0;
-      let minArea = Infinity;
-
-      for (let deg = 0; deg < 90; deg += 1) {
-        const rad = deg * Math.PI / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-        let mnX = Infinity, mxX = -Infinity, mnZ = Infinity, mxZ = -Infinity;
-
-        for (const p of pointsXZ) {
-          const rx = p.x * cos - p.z * sin;
-          const rz = p.x * sin + p.z * cos;
-          if (rx < mnX) mnX = rx;
-          if (rx > mxX) mxX = rx;
-          if (rz < mnZ) mnZ = rz;
-          if (rz > mxZ) mxZ = rz;
+    if (alignment) {
+      // v300: Exact rotation from OSM MBR — primary facade faces -Z.
+      // Apply via geometry transform (consistent with PCA vertical alignment above).
+      // Avoids quantization error from 1°-step sweep and prevents 90° snap flips.
+      const yRotation = new THREE.Matrix4().makeRotationY(-alignment.rotationRad);
+      scene.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.geometry) {
+          child.geometry.applyMatrix4(yRotation);
         }
-
-        const area = (mxX - mnX) * (mxZ - mnZ);
-        if (area < minArea) {
-          minArea = area;
-          bestAngle = rad;
+      });
+      enuHorizontalAngle = alignment.rotationRad;
+      console.log(`ENU horizontal align: exact OSM MBR rotation ${alignment.rotationDeg.toFixed(1)}° (skip sweep+snap)`);
+    } else {
+      // Fallback: angular sweep + 90° snap when no OSM alignment is available.
+      const pointsXZ: { x: number; z: number }[] = [];
+      scene.traverse((child) => {
+        if (!(child instanceof THREE.Mesh) || !child.geometry) return;
+        const posAttr = child.geometry.getAttribute('position') as THREE.BufferAttribute;
+        if (!posAttr) return;
+        const step = Math.max(1, Math.floor(posAttr.count / 500));
+        for (let i = 0; i < posAttr.count; i += step) {
+          pointsXZ.push({ x: posAttr.getX(i), z: posAttr.getZ(i) });
         }
-      }
+      });
 
-      // v71: Snap rotation to nearest 90° to axis-align building edges.
-      // Diagonal edges create staircase aliasing at 1 block/m that makes
-      // rectangles look like diamonds/ovals. Axis-aligned edges give crisp
-      // straight lines visible in top-down plan views.
-      // Snap to nearest 90° only when area increase is modest (< 50%).
-      // PCA alignment minimizes bounding box by aligning walls with axes —
-      // forcing 0°/90° when walls are at ~40° creates WORSE staircase aliasing.
-      const optimalDeg = bestAngle * 180 / Math.PI;
-      const snappedDeg = Math.round(optimalDeg / 90) * 90;
-      const snappedRad = snappedDeg * Math.PI / 180;
+      if (pointsXZ.length > 10) {
+        let bestAngle = 0;
+        let minArea = Infinity;
 
-      let useSnapped = false;
-      if (skipSnap) {
-        console.log(`ENU horizontal align: rotated ${optimalDeg.toFixed(1)}° (snap disabled — preserving real-world orientation)`);
-      } else if (Math.abs(snappedRad - bestAngle) > 0.01) {
-        const cos2 = Math.cos(snappedRad), sin2 = Math.sin(snappedRad);
-        let mnX2 = Infinity, mxX2 = -Infinity, mnZ2 = Infinity, mxZ2 = -Infinity;
-        for (const p of pointsXZ) {
-          const rx = p.x * cos2 - p.z * sin2;
-          const rz = p.x * sin2 + p.z * cos2;
-          if (rx < mnX2) mnX2 = rx;
-          if (rx > mxX2) mxX2 = rx;
-          if (rz < mnZ2) mnZ2 = rz;
-          if (rz > mxZ2) mxZ2 = rz;
-        }
-        const snappedArea = (mxX2 - mnX2) * (mxZ2 - mnZ2);
-        if (snappedArea <= minArea * 1.5) {
-          useSnapped = true;
-          bestAngle = snappedRad;
-          console.log(`ENU horizontal align: snapped ${optimalDeg.toFixed(1)}° → ${snappedDeg}° for axis-aligned edges (area +${((snappedArea / minArea - 1) * 100).toFixed(0)}%)`);
-        } else {
-          console.log(`ENU horizontal align: kept ${optimalDeg.toFixed(1)}° (snapping to ${snappedDeg}° would increase area by ${((snappedArea / minArea - 1) * 100).toFixed(0)}%)`);
-        }
-      }
+        for (let deg = 0; deg < 90; deg += 1) {
+          const rad = deg * Math.PI / 180;
+          const cos = Math.cos(rad);
+          const sin = Math.sin(rad);
+          let mnX = Infinity, mxX = -Infinity, mnZ = Infinity, mxZ = -Infinity;
 
-      if (bestAngle > 0.01) {
-        if (!useSnapped && !skipSnap) {
-          console.log(`ENU horizontal align: rotated ${(bestAngle * 180 / Math.PI).toFixed(1)}° to minimize footprint`);
-        }
-        const yRotation = new THREE.Matrix4().makeRotationY(-bestAngle);
-        scene.traverse((child) => {
-          if (child instanceof THREE.Mesh && child.geometry) {
-            child.geometry.applyMatrix4(yRotation);
+          for (const p of pointsXZ) {
+            const rx = p.x * cos - p.z * sin;
+            const rz = p.x * sin + p.z * cos;
+            if (rx < mnX) mnX = rx;
+            if (rx > mxX) mxX = rx;
+            if (rz < mnZ) mnZ = rz;
+            if (rz > mxZ) mxZ = rz;
           }
-        });
-        enuHorizontalAngle = bestAngle; // Save for OSM polygon rotation
+
+          const area = (mxX - mnX) * (mxZ - mnZ);
+          if (area < minArea) {
+            minArea = area;
+            bestAngle = rad;
+          }
+        }
+
+        // v71: Snap rotation to nearest 90° to axis-align building edges.
+        // Diagonal edges create staircase aliasing at 1 block/m that makes
+        // rectangles look like diamonds/ovals. Axis-aligned edges give crisp
+        // straight lines visible in top-down plan views.
+        // Snap to nearest 90° only when area increase is modest (< 50%).
+        // PCA alignment minimizes bounding box by aligning walls with axes —
+        // forcing 0°/90° when walls are at ~40° creates WORSE staircase aliasing.
+        const optimalDeg = bestAngle * 180 / Math.PI;
+        const snappedDeg = Math.round(optimalDeg / 90) * 90;
+        const snappedRad = snappedDeg * Math.PI / 180;
+
+        let useSnapped = false;
+        if (skipSnap) {
+          console.log(`ENU horizontal align: rotated ${optimalDeg.toFixed(1)}° (snap disabled — preserving real-world orientation)`);
+        } else if (Math.abs(snappedRad - bestAngle) > 0.01) {
+          const cos2 = Math.cos(snappedRad), sin2 = Math.sin(snappedRad);
+          let mnX2 = Infinity, mxX2 = -Infinity, mnZ2 = Infinity, mxZ2 = -Infinity;
+          for (const p of pointsXZ) {
+            const rx = p.x * cos2 - p.z * sin2;
+            const rz = p.x * sin2 + p.z * cos2;
+            if (rx < mnX2) mnX2 = rx;
+            if (rx > mxX2) mxX2 = rx;
+            if (rz < mnZ2) mnZ2 = rz;
+            if (rz > mxZ2) mxZ2 = rz;
+          }
+          const snappedArea = (mxX2 - mnX2) * (mxZ2 - mnZ2);
+          if (snappedArea <= minArea * 1.5) {
+            useSnapped = true;
+            bestAngle = snappedRad;
+            console.log(`ENU horizontal align: snapped ${optimalDeg.toFixed(1)}° → ${snappedDeg}° for axis-aligned edges (area +${((snappedArea / minArea - 1) * 100).toFixed(0)}%)`);
+          } else {
+            console.log(`ENU horizontal align: kept ${optimalDeg.toFixed(1)}° (snapping to ${snappedDeg}° would increase area by ${((snappedArea / minArea - 1) * 100).toFixed(0)}%)`);
+          }
+        }
+
+        if (bestAngle > 0.01) {
+          if (!useSnapped && !skipSnap) {
+            console.log(`ENU horizontal align: rotated ${(bestAngle * 180 / Math.PI).toFixed(1)}° to minimize footprint`);
+          }
+          const yRotation = new THREE.Matrix4().makeRotationY(-bestAngle);
+          scene.traverse((child) => {
+            if (child instanceof THREE.Mesh && child.geometry) {
+              child.geometry.applyMatrix4(yRotation);
+            }
+          });
+          enuHorizontalAngle = bestAngle; // Save for OSM polygon rotation
+        }
       }
     }
   }
@@ -1138,7 +1154,23 @@ async function main(): Promise<void> {
     });
     console.log(`Centered: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} m`);
   } else {
-    reorientToENU(scene, false, args.noEnuSnap);
+    // v300: Compute BuildingAlignment from OSM for precise mesh rotation.
+    // Must run before reorientToENU — the main OSM query happens later (post-voxelization).
+    // This early query is lightweight (same endpoint, same coords) and only used for alignment.
+    if (args.coords && !args.noOsm) {
+      try {
+        const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
+        if (osmData?.polygon?.length >= 3) {
+          // OSM returns {lat, lng} but computeBuildingAlignment expects {lat, lon}
+          const polygon = osmData.polygon.map((p: { lat: number; lng: number }) => ({ lat: p.lat, lon: p.lng }));
+          buildingAlignment = computeBuildingAlignment(polygon, args.coords.lat, args.coords.lng);
+          console.log(`Building alignment: ${buildingAlignment.rotationDeg.toFixed(1)}° MBR ${buildingAlignment.mbrWidth.toFixed(0)}×${buildingAlignment.mbrDepth.toFixed(0)}m`);
+        }
+      } catch (e) {
+        console.warn('Early OSM query for alignment failed, using angular sweep fallback');
+      }
+    }
+    reorientToENU(scene, false, args.noEnuSnap, buildingAlignment);
   }
 
   // Height filter: collect candidate meshes and filter by vertical extent
@@ -1309,6 +1341,7 @@ async function main(): Promise<void> {
   let analysis: AnalysisResult | null = null;
   let osmMaskDone = false; // Track if OSM mask ran in pre-fill path
   let osmPolygon: Array<{ lat: number; lng: number }> | null = null; // Save for post-processing re-mask
+  let buildingAlignment: BuildingAlignment | undefined; // v300: exact MBR rotation from OSM polygon
   if (args.auto) {
     console.log(`\n--- Auto-Detection Analysis ---`);
     const tAuto = performance.now();
