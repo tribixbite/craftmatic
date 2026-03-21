@@ -65,6 +65,41 @@ export const FIVE_ANGLE_PRESET: CameraAngle[] = [
 ];
 
 /**
+ * Generate 5-angle capture preset aligned to building faces via BuildingAlignment.
+ * Cardinal cameras orbit at angles relative to the MBR long axis instead of
+ * fixed compass directions, ensuring each facade gets a head-on capture.
+ *
+ * @param rotationDeg CW from north, from BuildingAlignment.rotationDeg
+ * @returns CameraAngle[] with top-down + 4 facade-aligned angles
+ */
+export function getAlignedAngles(rotationDeg: number): CameraAngle[] {
+  const rad = rotationDeg * Math.PI / 180;
+  return [
+    { name: 'top-down', offset: new THREE.Vector3(0, 1, 0), orthographic: true },
+    {
+      name: 'front',
+      offset: new THREE.Vector3(Math.sin(rad) * 0.707, 0.707, -Math.cos(rad) * 0.707),
+      orthographic: false,
+    },
+    {
+      name: 'right',
+      offset: new THREE.Vector3(Math.sin(rad + Math.PI / 2) * 0.707, 0.707, -Math.cos(rad + Math.PI / 2) * 0.707),
+      orthographic: false,
+    },
+    {
+      name: 'rear',
+      offset: new THREE.Vector3(Math.sin(rad + Math.PI) * 0.707, 0.707, -Math.cos(rad + Math.PI) * 0.707),
+      orthographic: false,
+    },
+    {
+      name: 'left',
+      offset: new THREE.Vector3(Math.sin(rad + 3 * Math.PI / 2) * 0.707, 0.707, -Math.cos(rad + 3 * Math.PI / 2) * 0.707),
+      orthographic: false,
+    },
+  ];
+}
+
+/**
  * Options for multi-angle capture sequence.
  */
 export interface MultiAngleCaptureOptions {
