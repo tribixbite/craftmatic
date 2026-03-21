@@ -210,7 +210,7 @@ Options:
   let mode: VoxelizeMode = 'surface';
   let minHeight = 2;
   let trimThreshold = 0.05;
-  let gamma = 0.85; // v95: 0.75→0.85 — less mid-tone compression preserves color variety for CIE-Lab matching
+  let gamma = 0.7; // v300: stronger gamma lifts shadows without clipping highlights or destroying saturation
   let kernel = 12; // Moderate kernel — preserves window/trim features while smoothing noise
   let explicitKernel = false; // Track if --kernel was explicitly passed
   let desaturate = 0.05; // Minimal desaturation — preserve building-specific colors (green copper, brick, etc.)
