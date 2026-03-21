@@ -1138,6 +1138,9 @@ async function main(): Promise<void> {
   // this in the browser, but the exported GLB may retain ECEF orientation.
   // --no-enu: skip for headless GLBs that are already ENU-oriented
   // (tiles-headless.ts uses ReorientationPlugin → meshes already have Y-up).
+  // v300: BuildingAlignment for precise mesh rotation (declared early, populated if OSM available)
+  let buildingAlignment: BuildingAlignment | undefined;
+
   if (args.noEnu) {
     console.log('ENU reorientation: SKIPPED (--no-enu, pre-oriented headless GLB)');
     // Still center the scene at origin for consistent grid coordinates
@@ -1341,7 +1344,6 @@ async function main(): Promise<void> {
   let analysis: AnalysisResult | null = null;
   let osmMaskDone = false; // Track if OSM mask ran in pre-fill path
   let osmPolygon: Array<{ lat: number; lng: number }> | null = null; // Save for post-processing re-mask
-  let buildingAlignment: BuildingAlignment | undefined; // v300: exact MBR rotation from OSM polygon
   if (args.auto) {
     console.log(`\n--- Auto-Detection Analysis ---`);
     const tAuto = performance.now();
