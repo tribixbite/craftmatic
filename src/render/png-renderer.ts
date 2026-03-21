@@ -798,10 +798,17 @@ export async function renderTopDown(
  */
 export async function renderFrontElevation(
   grid: BlockGrid,
-  options: { scale?: number; face?: 'north' | 'south' | 'east' | 'west' | 'auto' } = {}
+  options: {
+    scale?: number;
+    face?: 'north' | 'south' | 'east' | 'west' | 'auto';
+    alignedToBuilding?: boolean; // v300: when true, always render south face (-Z = primary facade after BuildingAlignment rotation)
+  } = {}
 ): Promise<Buffer> {
   const texAtlas = await ensureAtlas();
   let { scale = 8, face = 'auto' } = options;
+  if (options.alignedToBuilding) {
+    face = 'south'; // -Z is always primary facade after BuildingAlignment rotation
+  }
   const { width: w, height: h, length: l } = grid;
   const blocks = grid.to3DArray();
 
