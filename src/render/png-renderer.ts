@@ -379,7 +379,7 @@ function getAO(grid: BlockGrid, x: number, y: number, z: number): number {
   for (const [cx, cy, cz] of checks) {
     if (isSolidBlock(grid.get(cx, cy, cz))) solidNeighbors++;
   }
-  return 1.0 - (solidNeighbors / checks.length) * 0.4;
+  return 1.0 - (solidNeighbors / checks.length) * 0.6; // v300: stronger AO for visible recesses
 }
 
 /**
@@ -566,6 +566,103 @@ export async function renderCutawayIso(
         const shadow = computeShadow(grid, x, y, z, 'up');
         const combined = ao * shadow;
         const sx = (x - z) * tile + cx;
+        const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
+        const halfT = Math.floor(tile / 2);
+
+        renderIsoBlock(pixels, imgW, texAtlas, bs, color, combined, sx, sy, tile, halfT);
+      }
+    }
+  }
+
+  return encodePNG(pixels, imgW, imgH);
+}
+
+/**
+ * Render a cutaway isometric view from the back-left angle (mirrored from renderCutawayIso).
+ * Iteration order: z ascending, x descending — exposes faces hidden in the front-right view.
+ * Projection: sx = (z - x) * tile + cx (mirrored x/z swap relative to front-right).
+ * Used as a second VLM grading angle in the v300 pipeline.
+ */
+export async function renderCutawayIsoBackLeft(
+  grid: BlockGrid, story: number,
+  options: { tile?: number; storyH?: number; output?: string; title?: string } = {}
+): Promise<Buffer> {
+  const texAtlas = await ensureAtlas();
+  let { tile = 16 } = options;
+  const { storyH = 5 } = options;
+  const { width: w, height: h, length: l } = grid;
+  const blocks = grid.to3DArray();
+  const baseY = story * storyH;
+  const topY = Math.min(baseY + storyH, h);
+
+  // Back-left projection corners: sx = (z - x) * tile, sy unchanged
+  const corners = [
+    [0, baseY, 0], [w, baseY, 0], [0, topY, 0], [0, baseY, l],
+    [w, topY, 0], [w, baseY, l], [0, topY, l], [w, topY, l],
+  ];
+  let sxs = corners.map(([x, _y, z]) => (z - x) * tile);
+  let sys = corners.map(([x, y, z]) => -(y * tile) + (x + z) * Math.floor(tile / 2));
+  const margin = tile * 3;
+
+  let minSx = Math.min(...sxs) - margin;
+  let maxSx = Math.max(...sxs) + margin;
+  let minSy = Math.min(...sys) - margin;
+  let maxSy = Math.max(...sys) + margin + tile * 3;
+  let imgW = maxSx - minSx;
+  let imgH = maxSy - minSy;
+
+  if (Math.max(imgW, imgH) > MAX_DIM) {
+    const ratio = MAX_DIM / Math.max(imgW, imgH);
+    tile = Math.max(2, Math.round(tile * ratio));
+    sxs = corners.map(([x, _y, z]) => (z - x) * tile);
+    sys = corners.map(([x, y, z]) => -(y * tile) + (x + z) * Math.floor(tile / 2));
+    const m2 = tile * 3;
+    minSx = Math.min(...sxs) - m2;
+    maxSx = Math.max(...sxs) + m2;
+    minSy = Math.min(...sys) - m2;
+    maxSy = Math.max(...sys) + m2 + tile * 3;
+    imgW = maxSx - minSx;
+    imgH = maxSy - minSy;
+  }
+
+  const cx = -minSx;
+  const cy = -minSy;
+  const pixels = Buffer.alloc(imgW * imgH * 4);
+  fillRect(pixels, imgW, 0, 0, imgW, imgH, [22, 22, 28]);
+
+  // Cache block color lookups
+  const colorCache = new Map<string, RGB | null>();
+  function cachedBlockColor(bs: string): RGB | null {
+    let c = colorCache.get(bs);
+    if (c !== undefined) return c;
+    c = getBlockColor(bs);
+    colorCache.set(bs, c);
+    return c;
+  }
+
+  // Back-left iteration: z ascending (front-to-back), x descending (right-to-left)
+  for (let y = baseY; y < topY; y++) {
+    for (let z = 0; z < l; z++) {
+      for (let x = w - 1; x >= 0; x--) {
+        const bs = blocks[y][z][x];
+        const color = cachedBlockColor(bs);
+        if (color === null) continue;
+
+        // Skip fully interior blocks — never visible from any isometric angle
+        if (x > 0 && x < w - 1 && y > baseY && y < topY - 1 && z > 0 && z < l - 1 &&
+            cachedBlockColor(blocks[y + 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y - 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y][z][x - 1]) !== null &&
+            cachedBlockColor(blocks[y][z][x + 1]) !== null &&
+            cachedBlockColor(blocks[y][z - 1][x]) !== null &&
+            cachedBlockColor(blocks[y][z + 1][x]) !== null) {
+          continue;
+        }
+
+        const ao = getAO(grid, x, y, z);
+        const shadow = computeShadow(grid, x, y, z, 'up');
+        const combined = ao * shadow;
+        const sx = (z - x) * tile + cx; // mirrored projection: z leads, x follows
         const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
         const halfT = Math.floor(tile / 2);
 
