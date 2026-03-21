@@ -623,22 +623,24 @@ async function gradeOne(
         return null;
       }
 
-      // Normalise: boolean coercion handles string "true"/"false" from some models
+      // Normalise: handle string "true"/"false" from some models (Boolean("false")===true, so check explicitly)
+      const toBool = (v: unknown): boolean => v === true || v === 'true';
       const checklist: DefectChecklist = {
-        height_truncated:          Boolean(defects.height_truncated),
-        facade_holes_visible:      Boolean(defects.facade_holes_visible),
-        floating_artifacts:        Boolean(defects.floating_artifacts),
-        neighbor_buildings_merged: Boolean(defects.neighbor_buildings_merged),
-        footprint_wrong_shape:     Boolean(defects.footprint_wrong_shape),
-        false_positives_merged:    Boolean(defects.false_positives_merged),
-        building_recognizable:     Boolean(defects.building_recognizable),
-        proportions_correct:       Boolean(defects.proportions_correct),
-        surface_detail_visible:    Boolean(defects.surface_detail_visible),
+        height_truncated:          toBool(defects.height_truncated),
+        facade_holes_visible:      toBool(defects.facade_holes_visible),
+        floating_artifacts:        toBool(defects.floating_artifacts),
+        neighbor_buildings_merged: toBool(defects.neighbor_buildings_merged),
+        footprint_wrong_shape:     toBool(defects.footprint_wrong_shape),
+        false_positives_merged:    toBool(defects.false_positives_merged),
+        building_recognizable:     toBool(defects.building_recognizable),
+        proportions_correct:       toBool(defects.proportions_correct),
+        surface_detail_visible:    toBool(defects.surface_detail_visible),
       };
 
       const total = scoreFromDefects(checklist);
 
       // Map defect fields to legacy A/B/C/D sub-scores for diagnose() and markdown table.
+      // NOTE: These are diagnostic-only approximations. `total` from scoreFromDefects() is the authoritative score.
       // A (footprint, 0-4): penalise footprint_wrong_shape + false_positives_merged + neighbor_buildings_merged
       // B (massing, 0-3):   penalise height_truncated + !proportions_correct
       // C (surface, 0-3):   penalise !surface_detail_visible + facade_holes_visible + floating_artifacts
