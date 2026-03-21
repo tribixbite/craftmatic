@@ -435,7 +435,9 @@ async function voxelize(b: BuildingConfig): Promise<VoxelizeResult> {
     'bun scripts/voxelize-glb.ts', `"${b.glb}"`, '--auto',
     '--coords', `"${b.coords}"`,
     '--mask-dilate', String(b.maskDilate),
-    '--no-enu', // headless GLBs are pre-oriented (ReorientationPlugin), skip PCA ENU
+    // v300: allow reorientToENU to fire — uses BuildingAlignment for precise rotation
+    // when OSM polygon is available, falls back to PCA sweep otherwise
+    '--gamma', '0.4', // stronger gamma compensates for raw CIELAB baked-lighting darkness
   ];
   // --scene flag: adds environment extraction, feature replacement, plot expansion, enrichment
   if (sceneMode) flagParts.push('--scene');
@@ -566,14 +568,14 @@ async function gradeOne(
   const isoPart   = loadImg(images.iso);
   const blPart    = loadImg(images.isoBackLeft);
 
-  // Build parts array: prompt text followed by each image inline
+  // Build parts array: prompt text, then labeled images so VLM knows which is which
   type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
   const parts: Part[] = [{ text: DEFECT_PROMPT }];
-  if (satPart)   parts.push(satPart);
-  if (tdPart)    parts.push(tdPart);
-  if (frontPart) parts.push(frontPart);
-  if (isoPart)   parts.push(isoPart);
-  if (blPart)    parts.push(blPart);
+  if (satPart)   { parts.push({ text: 'Image 1 — Satellite reference:' }); parts.push(satPart); }
+  if (tdPart)    { parts.push({ text: 'Image 2 — Top-down voxel:' }); parts.push(tdPart); }
+  if (frontPart) { parts.push({ text: 'Image 3 — Front elevation:' }); parts.push(frontPart); }
+  if (isoPart)   { parts.push({ text: 'Image 4 — Isometric front-right:' }); parts.push(isoPart); }
+  if (blPart)    { parts.push({ text: 'Image 5 — Isometric back-left:' }); parts.push(blPart); }
 
   // Retry with exponential backoff for transient errors
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -636,6 +638,17 @@ async function gradeOne(
       };
 
       const total = scoreFromDefects(checklist);
+
+      // Debug: log which defects were flagged for diagnostic visibility
+      const flagged = Object.entries(checklist).filter(([, v]) => {
+        // For negative-sense booleans (recognizable/proportions/surface), flag when false
+        return v === true;
+      }).map(([k]) => k);
+      const missing = ['building_recognizable', 'proportions_correct', 'surface_detail_visible']
+        .filter(k => !(checklist as Record<string, boolean>)[k]);
+      if (flagged.length > 0 || missing.length > 0) {
+        console.error(`      Defects: ${[...flagged, ...missing.map(k => `!${k}`)].join(', ')} → ${total}/10`);
+      }
 
       // Map defect fields to legacy A/B/C/D sub-scores for diagnose() and markdown table.
       // NOTE: These are diagnostic-only approximations. `total` from scoreFromDefects() is the authoritative score.
@@ -1213,7 +1226,7 @@ async function sweepBuilding(
         'bun scripts/voxelize-glb.ts', `"${modConfig.glb}"`, '--auto',
         '--coords', `"${modConfig.coords}"`,
         '--mask-dilate', String(modConfig.maskDilate),
-        '--no-enu', // headless GLBs are pre-oriented
+        '--gamma', '0.4', // v300: stronger gamma for raw CIELAB
       ];
       if (sceneMode) flagParts.push('--scene');
       if (modConfig.resolution > 0) flagParts.push('-r', String(modConfig.resolution));
