@@ -30,8 +30,8 @@ interface BuildingConfig {
   glb: string;
   coords: string;         // "lat,lng" for OSM mask
   satRef: string;
-  satZoom: number;        // Google Static Maps satellite zoom (19=commercial, 20=residential, 21=tiny)
-  resolution: number;     // 1 or 2
+  satZoom?: number;       // Google Static Maps satellite zoom (computed from MBR width when absent)
+  resolution: number;     // 1 or 2 (0 = auto)
   maskDilate: number;     // 0-3
   extraFlags: string[];   // additional voxelize flags
   difficulty: 'easy' | 'medium' | 'hard';
@@ -39,20 +39,24 @@ interface BuildingConfig {
   topdownScale: number;   // topdown render scale
 }
 
+/** Compute satellite zoom from MBR width. Smaller buildings get higher zoom. */
+function computeSatZoom(mbrWidth: number): number {
+  return Math.min(20, Math.floor(22 - Math.log2(mbrWidth / 10)));
+}
+
 const DIR = 'output/tiles';
 
-// v133: 10/10 at 9+ — raleigh maskDilate=1, atlanta re-enabled OSM masking
-// Methodology: 11 VLM runs, 20% trimmed mean, gemini-2.5-pro, temp=0.0, binary defect checklist
-// v200+: Architecturally distinctive building set — all have non-trivial forms.
-// Replaces v133 set which had 5/10 trivially-easy rectangles scoring 10/10.
+// v300: 10 angular buildings — all have distinctive non-rectangular forms.
+// Methodology: 11 VLM runs, 20% trimmed mean, gemini-2.5-pro, temp=0.0, binary defect checklist.
+// Satellite zoom computed dynamically from MBR width via computeSatZoom().
 const BUILDINGS: BuildingConfig[] = [
+  // ── Tier 1: proven or high-confidence ──
   {
-    // Baseline: triangular wedge — proven 10/10, tests wedge preservation
+    // Triangular wedge — proven 10/10 in v200, tests wedge preservation
     key: 'flatiron',
     glb: `${DIR}/tiles-flatiron-building-new-york-ny.glb`,
     coords: '40.7411,-73.9897',
     satRef: `${DIR}/sat-ref-flatiron.jpg`,
-    satZoom: 19,
     resolution: 2, // small footprint needs 2x for detail
     maskDilate: 1,
     extraFlags: [],
@@ -61,138 +65,132 @@ const BUILDINGS: BuildingConfig[] = [
     topdownScale: 6,
   },
   {
-    // 443m tower with tapered setbacks — tests setback preservation
-    // v200b: banded multi-angle capture (232m of 443m height, shows setbacks)
-    key: 'esb',
-    glb: `${DIR}/esb-v200b.glb`,
-    coords: '40.7484,-73.9857',
-    satRef: `${DIR}/sat-ref-esb.jpg`,
-    satZoom: 18,
-    resolution: 1, // tall building: auto caps at 1
-    maskDilate: 2,
-    extraFlags: [],
-    difficulty: 'hard',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // Art deco crown with spire — tests crown/spire preservation
-    // v200: banded multi-angle r=60, h=319 (86×118×108m, 37% of 319m)
-    key: 'chrysler',
-    glb: `${DIR}/chrysler-v200.glb`,
-    coords: '40.7516,-73.9755',
-    satRef: `${DIR}/sat-ref-chrysler.jpg`,
-    satZoom: 18,
-    resolution: 1,
-    maskDilate: 2,
-    extraFlags: [],
-    difficulty: 'hard',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // 45° sloped roof crown — tests angular crown preservation
-    // Citigroup Center, 279m, 49m square footprint. Diagonal roof is voxel-friendly.
-    key: 'citigroup',
-    glb: `${DIR}/citigroup-v200.glb`,
-    coords: '40.7585,-73.9703',
-    satRef: `${DIR}/sat-ref-citigroup.jpg`,
-    satZoom: 20,
-    resolution: 1,
-    maskDilate: 1,
-    extraFlags: [],
-    difficulty: 'hard',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // Beaux-Arts residential palace — irregular wedge-like footprint
-    // v133: scored 10/10 (trimmedMean, 7 runs). Proven reliable.
-    key: 'ansonia',
-    glb: `${DIR}/ansonia-v200.glb`,
-    coords: '40.7806,-73.9816',
-    satRef: `${DIR}/sat-ref-ansonia.jpg`,
-    satZoom: 20,
-    resolution: 1,
-    maskDilate: 1,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // Angular wing structure — tests wide angular form with OSM isolation
-    // Oculus WTC Transportation Hub, NYC, 48m tall, dramatic angular wings
-    key: 'oculus',
-    glb: `${DIR}/oculus-v200.glb`,
-    coords: '40.7112,-74.0134',
-    satRef: `${DIR}/sat-ref-oculus.jpg`,
-    satZoom: 19,
-    resolution: 2,
-    maskDilate: 1,
-    extraFlags: [],
-    difficulty: 'hard',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // Clean commercial flat-roof — reliable baseline from v133 (scored 10/10)
-    key: 'portland',
-    glb: `${DIR}/portland-v200.glb`,
-    coords: '45.5235,-122.6812',
-    satRef: `${DIR}/sat-ref-portland.jpg`,
-    satZoom: 20,
-    resolution: 1,
-    maskDilate: 2,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // Beaux-Arts facade with wings — tests facade detail and L-shape
-    // v200: multi-angle r=40 capture (31×54×53m)
-    key: 'artinstitute',
-    glb: `${DIR}/artinstitute-v200.glb`,
-    coords: '41.8796,-87.6237',
-    satRef: `${DIR}/sat-ref-artinstitute.jpg`,
-    satZoom: 19,
-    resolution: 2,
-    maskDilate: 1,
-    extraFlags: [],
-    difficulty: 'medium',
-    tileSize: 8,
-    topdownScale: 10,
-  },
-  {
-    // Bundled tube setbacks — tests stepped massing
-    // v200: banded multi-angle r=60, h=442 (60×83×81m, 19% of 442m)
-    key: 'willistower',
-    glb: `${DIR}/willistower-v200.glb`,
-    coords: '41.8789,-87.6359',
-    satRef: `${DIR}/sat-ref-willistower.jpg`,
-    satZoom: 18,
-    resolution: 1,
-    maskDilate: 2,
-    extraFlags: [],
-    difficulty: 'hard',
-    tileSize: 6,
-    topdownScale: 8,
-  },
-  {
-    // Twin trapezoidal towers with 45° angled tops — tests twin massing + angular crown
+    // Twin trapezoidal towers with 45° angled tops — proven 8.0 in v200
     // Pennzoil Place, Houston, 151m, ~90×50m total with 3m gap between towers
     key: 'pennzoil',
     glb: `${DIR}/pennzoil-v200.glb`,
     coords: '29.7601,-95.3698',
     satRef: `${DIR}/sat-ref-pennzoil.jpg`,
-    satZoom: 19,
     resolution: 1,
     maskDilate: 2,
     extraFlags: [],
     difficulty: 'hard',
     tileSize: 6,
     topdownScale: 8,
+  },
+  {
+    // Trapezoidal footprint with angular walls — National Gallery of Art East Building
+    // I.M. Pei, Washington DC, 39m, distinctive triangular plan
+    key: 'nga-east',
+    glb: 'models/nga-east.glb',
+    coords: '38.8913,-77.0180',
+    satRef: `${DIR}/sat-ref-nga-east.jpg`,
+    resolution: 2,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'medium',
+    tileSize: 10,
+    topdownScale: 12,
+  },
+  // ── Tier 2: medium confidence ──
+  {
+    // Inverted pyramid city hall — Dallas City Hall, I.M. Pei
+    // 37m, cantilevered inverted pyramid form
+    key: 'dallas-cityhall',
+    glb: 'models/dallas-cityhall.glb',
+    coords: '32.7763,-96.7968',
+    satRef: `${DIR}/sat-ref-dallas-cityhall.jpg`,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'hard',
+    tileSize: 10,
+    topdownScale: 12,
+  },
+  {
+    // Faceted glass diamond — Seattle Central Library, Rem Koolhaas
+    // 56m, angular faceted form with distinct diamond cross-section
+    key: 'seattle-library',
+    glb: 'models/seattle-library.glb',
+    coords: '47.6067,-122.3326',
+    satRef: `${DIR}/sat-ref-seattle-library.jpg`,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'hard',
+    tileSize: 10,
+    topdownScale: 12,
+  },
+  {
+    // Brutalist inverted ziggurat — Boston City Hall, Kallmann McKinnell & Knowles
+    // 60m, stepped cantilevered form
+    key: 'boston-cityhall',
+    glb: 'models/boston-cityhall.glb',
+    coords: '42.3605,-71.0580',
+    satRef: `${DIR}/sat-ref-boston-cityhall.jpg`,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'hard',
+    tileSize: 10,
+    topdownScale: 12,
+  },
+  {
+    // 45° sloped roof crown — proven 8.7 in v200, angular crown is voxel-friendly
+    // Citigroup Center, 279m, 49m square footprint
+    key: 'citigroup',
+    glb: `${DIR}/citigroup-v200.glb`,
+    coords: '40.7585,-73.9703',
+    satRef: `${DIR}/sat-ref-citigroup.jpg`,
+    resolution: 1,
+    maskDilate: 1,
+    extraFlags: [],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  // ── Tier 3: harder, need capture ──
+  {
+    // Titanium-clad angular sculpture — Denver Art Museum, Daniel Libeskind
+    // 45m, sharp angular spikes and faceted walls
+    key: 'denver-art',
+    glb: 'models/denver-art.glb',
+    coords: '39.7372,-104.9893',
+    satRef: `${DIR}/sat-ref-denver-art.jpg`,
+    resolution: 2,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'hard',
+    tileSize: 10,
+    topdownScale: 12,
+  },
+  {
+    // 17 pointed spires — USAF Academy Cadet Chapel, Walter Netsch
+    // 46m, triangular aluminum spires in a row
+    key: 'usaf-chapel',
+    glb: 'models/usaf-chapel.glb',
+    coords: '38.9984,-104.8615',
+    satRef: `${DIR}/sat-ref-usaf-chapel.jpg`,
+    resolution: 3, // small footprint, high detail needed
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'hard',
+    tileSize: 10,
+    topdownScale: 12,
+  },
+  {
+    // Art deco tower with pyramid crown — LA City Hall
+    // 138m, stepped setbacks with beacon tower
+    key: 'la-cityhall',
+    glb: 'models/la-cityhall.glb',
+    coords: '34.0537,-118.2430',
+    satRef: `${DIR}/sat-ref-la-cityhall.jpg`,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: [],
+    difficulty: 'hard',
+    tileSize: 10,
+    topdownScale: 12,
   },
 ];
 
@@ -297,19 +295,19 @@ function hiResSatPath(b: BuildingConfig): string {
 }
 
 /** Fetch high-resolution satellite reference (scale=2 for 1280×1280) at configured zoom.
- *  z19-20 imagery is near-nadir for most buildings and provides excellent scale match
- *  with the voxel top-down render. Better than z18 which makes buildings too small. */
-async function ensureSatRef(b: BuildingConfig): Promise<void> {
+ *  Zoom is computed dynamically from alignment MBR width when no explicit satZoom is set. */
+async function ensureSatRef(b: BuildingConfig, alignment?: BuildingAlignment): Promise<void> {
   const refreshSat = hasFlag('--refresh-sat');
   const hiResPath = hiResSatPath(b);
   // Fetch both standard and hi-res versions
   if (!refreshSat && existsSync(b.satRef) && existsSync(hiResPath)) return;
   const [lat, lng] = b.coords.split(',');
+  const zoom = b.satZoom ?? (alignment ? computeSatZoom(alignment.mbrWidth) : 19);
 
   // Standard res (640×640) — backward compat
   if (refreshSat || !existsSync(b.satRef)) {
-    const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${b.satZoom}&size=640x640&maptype=satellite&key=${mapsKey}`;
-    console.log(`  Fetching satellite ref for ${b.key} (z${b.satZoom})...`);
+    const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${zoom}&size=640x640&maptype=satellite&key=${mapsKey}`;
+    console.log(`  Fetching satellite ref for ${b.key} (z${zoom})...`);
     const resp = await fetch(url);
     if (resp.ok) {
       const buf = Buffer.from(await resp.arrayBuffer());
@@ -320,8 +318,8 @@ async function ensureSatRef(b: BuildingConfig): Promise<void> {
 
   // High-res (scale=2 → 1280×1280 pixels, same geographic extent)
   if (refreshSat || !existsSync(hiResPath)) {
-    const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${b.satZoom}&size=640x640&scale=2&maptype=satellite&key=${mapsKey}`;
-    console.log(`  Fetching hi-res satellite for ${b.key} (z${b.satZoom}, scale=2, 1280px)...`);
+    const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${zoom}&size=640x640&scale=2&maptype=satellite&key=${mapsKey}`;
+    console.log(`  Fetching hi-res satellite for ${b.key} (z${zoom}, scale=2, 1280px)...`);
     const resp = await fetch(url);
     if (resp.ok) {
       const buf = Buffer.from(await resp.arrayBuffer());
@@ -833,14 +831,14 @@ async function main(): Promise<void> {
   for (const b of selectedBuildings) {
     console.log(`\n── ${b.key.toUpperCase()} (${b.difficulty}) ──`);
 
-    // Ensure satellite references exist (fetch if missing or --refresh-sat)
-    await ensureSatRef(b);
-
-    // v300: Compute building alignment for satellite rotation
+    // v300: Compute building alignment first — needed for dynamic satellite zoom + rotation
     const alignment = await computeAlignment(b);
     if (alignment) {
       console.log(`  Alignment: ${alignment.rotationDeg.toFixed(1)}° MBR ${alignment.mbrWidth.toFixed(0)}×${alignment.mbrDepth.toFixed(0)}m`);
     }
+
+    // Ensure satellite references exist (uses alignment for dynamic zoom when satZoom not set)
+    await ensureSatRef(b, alignment);
 
     // Generate rotated satellite for VLM grading (matches voxel orientation)
     let gradeSatPath = b.satRef;
