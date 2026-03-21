@@ -158,6 +158,7 @@ interface CLIArgs {
   enrich: boolean;         // run scene enrichment (trees, roads, ground) around building
   scene: boolean;          // unified scene pipeline: env extraction → strip → enrich
   plotRadius: number;      // plot context expansion radius in meters (0 = auto)
+  zoneNormalize: boolean;  // apply 5-zone facade normalization (default: off, preserves raw photogrammetric colors)
 }
 
 function parseArgs(): CLIArgs {
@@ -247,6 +248,7 @@ Options:
   let enrich = false;
   let scene = false;
   let plotRadius = 0; // 0 = auto-compute when --scene
+  let zoneNormalize = false; // v300: off by default — preserve raw photogrammetric CIELAB colors
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -321,6 +323,8 @@ Options:
       enrich = true; // --scene implies --enrich
     } else if (arg === '--plot-radius') {
       plotRadius = parseInt(args[++i], 10);
+    } else if (arg === '--zone-normalize') {
+      zoneNormalize = true;
     } else if (arg === '--mask-dilate') {
       maskDilate = parseInt(args[++i], 10);
     } else if (arg === '--clean') {
@@ -381,7 +385,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, enrich, scene, plotRadius };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, enrich, scene, plotRadius, zoneNormalize };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1959,7 +1963,10 @@ async function main(): Promise<void> {
   //   4. Ground floor (bottom 20%) — darker/contrasting base
   //   5. Corner trim (edge columns) — structural accent
   // Glass windows (SPECIAL_BLOCKS) survive all zone assignment.
-  {
+  //
+  // v300: gated behind --zone-normalize flag. Default off — raw CIELAB wall colors
+  // produce richer textures than any derived 5-zone scheme on photogrammetric meshes.
+  if (args.zoneNormalize) {
     const SPECIAL_BLOCKS = new Set([
       'minecraft:air',
       'minecraft:gray_stained_glass',
@@ -2320,15 +2327,32 @@ async function main(): Promise<void> {
     // v95: Added roofDom — without protection, modeFilter3D outvotes roof blocks
     // with wall blocks at roof edges, creating swiss-cheese holes in top-down views.
     zoneProtected = new Set([groundBlock, bandBlock, trimBlock, roofDom]);
+  } else {
+    // v300 hybrid: preserve raw photogrammetric CIELAB colors on walls.
+    // Only apply ground foundation band for clean bottom edge — photogrammetric
+    // tiles often have noisy bottom voxels from incomplete ground scan coverage.
+    const groundH = Math.round(2 * args.resolution);
+    for (let y = 0; y < Math.min(groundH, trimmed.height); y++) {
+      for (let x = 0; x < trimmed.width; x++) {
+        for (let z = 0; z < trimmed.length; z++) {
+          const block = trimmed.get(x, y, z);
+          if (block !== 'minecraft:air') {
+            trimmed.set(x, y, z, 'minecraft:sandstone');
+          }
+        }
+      }
+    }
   }
 
   // 3D mode filter — smooth spatial noise while preserving multi-zone materials.
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
+  // v300: 1 pass when not zone-normalizing — avoids confetti noise on raw CIELAB surfaces.
   {
     // v106: Capped to 2 passes. v116: Tested 1 pass — no effect on footprint A scores
     // (stays at 2), only adds surface noise. 2 passes remains the sweet spot.
-    const basePasses = Math.max(args.modePasses, 2);
+    // v300: raw CIELAB mode uses 1 pass to avoid confetti on photogrammetric surfaces.
+    const basePasses = args.zoneNormalize ? Math.max(args.modePasses, 2) : 1;
     const passes = Math.min(2, basePasses);
     const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
@@ -2349,7 +2373,9 @@ async function main(): Promise<void> {
   // v93: glass RE-PROTECTED. Removing all glass made builds monochrome (C=1 universal).
   // glazeWindows adds glass for material variety — keeping it gives C=3 "3+ material zones".
   // Homogenize still collapses other stray block types (non-glass, non-zone-accent).
-  {
+  // v300: only applies when zone-normalizing — raw CIELAB mode preserves photogrammetric
+  // surface diversity that homogenization would incorrectly treat as noise.
+  if (args.zoneNormalize) {
     // v95: Reduced from 2 passes at 8% to 1 pass at 10%. Two passes created a
     // feedback loop — first pass created homogeneity, second locked it in,
     // destroying all material variety and producing monotone gray facades.
@@ -2370,7 +2396,8 @@ async function main(): Promise<void> {
   // their zone. Previous nuclear cleanup replaced ALL non-dominant blocks with the
   // single zone dominant, destroying material variety (sandstone trim on stone walls,
   // brick accents, etc.) and producing monotone gray facades.
-  if (roofDom && wallDom) {
+  // v300: skipped when not zone-normalizing — raw CIELAB blocks are the palette.
+  if (args.zoneNormalize && roofDom && wallDom) {
     // roofDom/wallDom/groundDom already have 'minecraft:' prefix
     const zoneBlocks = new Set([roofDom, wallDom, groundDom, 'minecraft:air']);
     if (zoneProtected) for (const b of zoneProtected) zoneBlocks.add(b);
