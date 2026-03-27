@@ -624,12 +624,20 @@ canvas{display:block;image-rendering:pixelated;border:1px solid #e0e0e0}
   .legend{margin-bottom:12px}
   .layers{gap:8px 12px}
 }
+.bom{margin:20px 0 24px}
+.bom h2{font-size:1rem;margin-bottom:8px}
+.bom table{border-collapse:collapse;font-size:.8rem}
+.bom td,.bom th{padding:3px 10px 3px 4px;text-align:left}
+.bom th{border-bottom:1px solid #ccc;font-weight:600}
+.bom .bom-swatch{width:14px;height:14px;border:1px solid rgba(0,0,0,.15);border-radius:2px;display:inline-block;vertical-align:middle;margin-right:4px}
+@media print{.bom{margin:12px 0 16px}}
 </style>
 </head>
 <body>
 <h1 id="title"></h1>
 <div class="meta" id="meta"></div>
 <div class="legend" id="legend"></div>
+<div class="bom" id="bom"></div>
 <div class="layers" id="layers"></div>
 <script>
 ${dataJs}
@@ -657,6 +665,34 @@ for (const ci of LEGEND_ORDER) {
   div.appendChild(lbl);
   lgEl.appendChild(div);
 }
+
+// BOM table
+const bomEl = document.getElementById('bom');
+const bomH2 = document.createElement('h2');
+bomH2.textContent = 'Bill of Materials';
+bomEl.appendChild(bomH2);
+const tbl = document.createElement('table');
+const hdr = tbl.createTHead().insertRow();
+['Block','Count'].forEach(t => { const th=document.createElement('th'); th.textContent=t; hdr.appendChild(th); });
+const tbody = tbl.createTBody();
+const grand = TOTALS.reduce((a,b)=>a+b,0);
+for (const ci of LEGEND_ORDER) {
+  const tr = tbody.insertRow();
+  const td0 = tr.insertCell();
+  const sw = document.createElement('span');
+  sw.className = 'bom-swatch';
+  sw.style.background = PALETTE[ci];
+  td0.appendChild(sw);
+  td0.appendChild(document.createTextNode(NAMES[ci]));
+  const td1 = tr.insertCell();
+  td1.textContent = (TOTALS[ci]||0).toLocaleString();
+  td1.style.textAlign = 'right';
+}
+const tftr = tbl.createTFoot().insertRow();
+const tdl = tftr.insertCell(); tdl.textContent = 'Total';
+tftr.insertCell().textContent = grand.toLocaleString();
+tftr.style.fontWeight = '600';
+bomEl.appendChild(tbl);
 
 // Layers (bottom to top)
 const layersEl = document.getElementById('layers');

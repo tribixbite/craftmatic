@@ -469,6 +469,16 @@ const DIMS: Record<string, Dims> = {
   // Propeller: hub along local Z, blades in local XY plane, placed with identity rotation.
   // After voxelizer X-Z swap, sW→world-X (blade span), sH→world-Y (blade span), sL→world-Z (hub).
   '2742':  [15, 35, 3], // Propellor 3 Blade 15 Diameter — 15-stud disc in XY, 3-stud hub in Z
+  // Small propellers: hub along local Z → voxelizer sees spanZ shortest → XY disc mask
+  '4617b': [1, 14, 6],  // Propellor 3 Blade 5.5 Diameter — disc ~5.5 studs dia, hub along Z
+  '4617':  [1, 14, 6],  // Propellor 3 Blade 5.5 Diameter (alt mold) — same geometry
+  // Helicopter rotor blade (individual wedge plate): 2 studs wide × 16 studs long × thin.
+  // 6 blades arranged at 60° intervals around hub; each blade is a separate brick with own R.
+  // At each rotation angle, voxelizer computes world-space AABB → spanY shortest → XZ ellipse strip.
+  // 6 strips at 60° intervals produce the characteristic 6-arm rotor star pattern.
+  // Note: keep these dims — they inflate the helicopter cluster so it's larger than the speedboat,
+  // ensuring the helicopter wins the "keep largest cluster" competition in 60067-1.
+  '62743': [2, 1, 8],   // Wedge Plate 2×16×0.333 Triple — helicopter main rotor blade
 
   // ── Art / specialty ──────────────────────────────────────────────────────────
   '24299': B(1,  1),  // 1×1 Modified (Mona Lisa sets)
@@ -692,6 +702,8 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '86652':'round',   // Wheel Rim 18×37 — circular cross-section; inside Tyre 32019
   '2742':'round',    // Propellor 3 Blade 15 Diameter — 3-blade disc in XY plane (hub along Z)
   '30332':'round',   // Propellor 3 Blade 9 Diameter — tail rotor; hub along Z, disc in XY
+  '4617b':'round',   // Propellor 3 Blade 5.5 Diameter — 6545-1 helicopter rotor; hub=Z, disc in XY
+  '62743':'round',   // Wedge Plate 2×16×0.333 Triple — 60067-1 rotor (6× at 60°, hub=Y → XZ disc)
   // Pass 12: cones and round plates found in Saturn V audit
   '48310':'round',   // Cone 8×4×6 Half — Saturn V ×2; cuts corners per layer
   '6233':'round',    // Cone 3×3×2 — Saturn V ×6
@@ -771,6 +783,34 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
 
   // ── Additional flat parts (Pass 18) ───────────────────────────────────────────
   '6205':'flat',     // Tile 6×16 with Studs on 3 Edges — ISD ×8; [6,1,16]
+
+  // Pass 33: additional tiles and flat parts
+  '3070b':'flat',    // Tile 1×1 with Groove
+  '72188':'flat',    // Tile 4×4 Round
+  '27507':'flat',    // Tile Wedge 4×2 Left
+  '27504':'flat',    // Tile Wedge 4×2 Right
+  '27503':'flat',    // Tile Wedge 4×3 Right
+  '27506':'flat',    // Tile Wedge 4×3 Left
+
+  // Pass 33: more round/cylindrical parts
+  '85080':'round',   // Cylinder 1×1
+  '22885':'round',   // Brick 1×1 Round with Open Stud
+  '3062b':'round',   // Brick 1×1 Round with Hollow Stud
+  '3062a':'round',   // Brick 1×1 Round without Stud
+  '87081b':'round',  // Brick 1×1 Round with Headlight (variant)
+  '30361':'round',   // Brick 4×4 Round
+  '39223':'round',   // Column 2×2×10
+  '30516':'round',   // Column 2×2×2
+  '4589b':'round',   // Cone 1×1 with Internal Ridges
+  '3942':'round',    // Cone 2×2×2
+  '2343':'round',    // Cone 4×4×2 with Hole
+
+  // Pass 33: more slope bricks
+  '11153':'slope',   // Slope Brick Curved 4×1 No Studs
+  '35464':'slope',   // Slope Brick Curved 2×1 No Studs
+  '47456':'slope',   // Slope Brick Curved 2×1×1 No Studs
+  '3010':'slope',    // Brick 1×4 Sloped
+  '13547':'slope',   // Slope 45 4×1 Quadruple with Inner Cutout
 };
 
 /** Return the shape category for a part filename or bare part ID. */
@@ -844,4 +884,12 @@ export function getBracketShelfDir(part: string): 'up' | 'down' {
   const loose  = normalizePartIdLoose(part);
   const strict = normalizePartId(part);
   return BRACKET_SHELF_DIR[loose] ?? BRACKET_SHELF_DIR[strict] ?? 'up';
+}
+
+/** Returns true if the part has an explicit dims entry (manual or generated). */
+export function hasDims(part: string): boolean {
+  const strict = normalizePartId(part);
+  const loose  = normalizePartIdLoose(part);
+  return (strict in DIMS) || (loose in DIMS) ||
+         (strict in GENERATED_DIMS) || (loose in GENERATED_DIMS);
 }

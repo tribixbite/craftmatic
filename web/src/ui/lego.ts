@@ -185,6 +185,7 @@ function wireEvents(): void {
     cubicScale = btn.dataset['mode'] === 'cubic';
     document.querySelectorAll('.lego-scale-btn').forEach(b =>
       b.classList.toggle('active', b === btn));
+    if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
   });
 
   // ── Step slider ────────────────────────────────────────────────────────────
@@ -431,7 +432,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       const resp = await fetch(`${RECONSTRUCTED_BASE}/${filename}`);
       if (resp.ok) {
         const text = await resp.text();
-        const bricks = parseLDraw(text, filename);
+        const bricks = parseLDraw(text);
         if (bricks.length > 0) {
           if (btn) btn.disabled = false;
           setStatus(`Loaded reconstructed 3D model for ${set.set_num} (${bricks.length} parts)`, 'info');
@@ -576,6 +577,9 @@ async function voxelizeAndDisplay(
   }
   if (Math.max(w, h, l) > 300 && !cubicScale) {
     warnings.push(`Large model (${w}×${h}×${l}) — Cubic scale reduces proportionally`);
+  }
+  if (result.fallbackPartCount > 0) {
+    warnings.push(`${result.fallbackPartCount} parts had unknown dims (fell back to 1×1×1)`);
   }
 
   const statusMsg = `Built ${label}: ${w}×${h}×${l} — ${blockCount.toLocaleString()} blocks` +
