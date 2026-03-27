@@ -15,6 +15,10 @@
  *   Clamp all values to ≥ 1.
  *
  * Usage: bun scripts/gen-part-dims.ts
+ *
+ * Generates: web/src/engine/ldraw-part-dims-generated.ts
+ *   A Record mapping normalized part IDs to [width, height, length] voxel tuples.
+ *   Re-run whenever the LDraw library is updated (new parts added or geometry changed).
  */
 
 import { readFileSync, existsSync, readdirSync, writeFileSync } from 'node:fs';

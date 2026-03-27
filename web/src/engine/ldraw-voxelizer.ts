@@ -19,7 +19,7 @@
 import { BlockGrid } from '@craft/schem/types.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
-import { getPartDims, getPartShape, getPartFrameThickness, getBracketShelfDir } from './ldraw-part-dims.js';
+import { getPartDims, getPartShape, getPartFrameThickness, getBracketShelfDir, hasDims } from './ldraw-part-dims.js';
 
 /** LDraw units per stud pitch (horizontal cell size) */
 const LDU_PER_STUD = 20;
@@ -94,6 +94,8 @@ export interface VoxelizeResult {
   unmappedColors: number[];
   /** True if the model Y axis was auto-flipped to correct an upside-down orientation */
   wasFlipped?: boolean;
+  /** Number of parts that had no explicit dims entry and fell back to 1×1×1 */
+  fallbackPartCount: number;
 }
 
 export interface VoxelizeOptions {
@@ -121,7 +123,7 @@ export function voxelizeLDraw(
 ): VoxelizeResult {
   if (bricks.length === 0) {
     const grid = new BlockGrid(1, 1, 1);
-    return { grid, brickCount: 0, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 }, unmappedColors: [] };
+    return { grid, brickCount: 0, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 }, unmappedColors: [], fallbackPartCount: 0 };
   }
 
   const resolveColor = colorFn ?? ldrawColorToBlock;
@@ -159,6 +161,7 @@ export function voxelizeLDraw(
 
   interface Cell { gx: number; gy: number; gz: number; block: string; color: number }
   const cells: Cell[] = [];
+  let fallbackPartCount = 0;
 
   for (const brick of effectiveBricks) {
     // Skip LDraw geometry primitives — they describe part shape internally
@@ -167,6 +170,7 @@ export function voxelizeLDraw(
 
     const R = brick.rot ?? IDENTITY;
     const [sW, sH, sL] = getPartDims(brick.part);
+    if (!hasDims(brick.part) && !isLDrawPrimitive(brick.part)) fallbackPartCount++;
     const block = resolveColor(brick.color);
     if (isDefaultFn && !(brick.color in LDRAW_COLOR_TO_BLOCK)) {
       unmappedColorSet.add(brick.color);
@@ -474,7 +478,7 @@ export function voxelizeLDraw(
 
   if (cells.length === 0) {
     const grid = new BlockGrid(1, 1, 1);
-    return { grid, brickCount: bricks.length, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 }, unmappedColors: [...unmappedColorSet], wasFlipped: shouldFlip };
+    return { grid, brickCount: bricks.length, uniqueColors: 0, dimensions: { w: 1, h: 1, l: 1 }, unmappedColors: [...unmappedColorSet], wasFlipped: shouldFlip, fallbackPartCount };
   }
 
   // ── Compute axis-aligned bounding box ─────────────────────────────────────
@@ -517,7 +521,10 @@ export function voxelizeLDraw(
     colors.add(c.color);
   }
 
-  return { grid, brickCount: bricks.length, uniqueColors: colors.size, dimensions: { w, h, l }, warning, unmappedColors: [...unmappedColorSet], wasFlipped: shouldFlip };
+  if (fallbackPartCount > 0) {
+    console.warn(`[voxelizer] ${fallbackPartCount} parts fell back to 1×1×1 (unknown dims)`);
+  }
+  return { grid, brickCount: bricks.length, uniqueColors: colors.size, dimensions: { w, h, l }, warning, unmappedColors: [...unmappedColorSet], wasFlipped: shouldFlip, fallbackPartCount };
 }
 
 function clamp(v: number, min: number, max: number): number {
