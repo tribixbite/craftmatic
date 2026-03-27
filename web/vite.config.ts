@@ -4,6 +4,8 @@ import { existsSync, createReadStream } from 'node:fs';
 
 // Path to clego's reconstructed LDR files (dev only)
 const CLEGO_RECONSTRUCTED = 'C:/git/clego/lego_sets/Reconstructed';
+// Path to LDraw parts library (dev only — served at /ldraw-parts for geometry-accurate mode)
+const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 
 /** Build-time version string: v2026.02.20 */
 const appVersion = `v${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}`;
@@ -39,6 +41,21 @@ export default defineConfig({
     },
   },
   plugins: [
+    {
+      name: 'serve-ldraw-parts',
+      configureServer(server) {
+        server.middlewares.use('/ldraw-parts', (req, res, next) => {
+          if (!existsSync(LDRAW_ROOT)) { next(); return; }
+          const urlPath = (req.url ?? '').replace(/^\//, '').replace(/\.\./g, '');
+          if (!urlPath) { next(); return; }
+          const filePath = `${LDRAW_ROOT}/${urlPath}`;
+          if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          createReadStream(filePath).pipe(res);
+        });
+      },
+    },
     {
       name: 'serve-clego-reconstructed',
       configureServer(server) {

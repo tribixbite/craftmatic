@@ -12,6 +12,7 @@
 import { BlockGrid } from '@craft/schem/types.js';
 import { parseLDraw, countSteps, type ParsedBrick } from '@engine/ldraw-parser.js';
 import { voxelizeLDraw, type VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
+import { voxelizeLDrawGeometry } from '@engine/ldraw-geometry.js';
 import { extractIoLDraw } from '@engine/io-extractor.js';
 import { parseLxf } from '@engine/lxf-parser.js';
 import { studioColorToBlock } from '@engine/studio-colors.js';
@@ -69,6 +70,8 @@ let selectedSet: CatalogSet | null = null;
 let searchResults: CatalogSet[] = [];
 /** When true, use 1 stud = 1 block in all axes (no 2.5× vertical stretch). */
 let cubicScale = false;
+/** When true, fetch real .dat triangle geometry for accurate shape rendering (slow, dev-only). */
+let geometryMode = false;
 /** Current parsed bricks for step-slider re-voxelization */
 let currentBricks: ParsedBrick[] | null = null;
 let currentBricksLabel = '';
@@ -108,6 +111,10 @@ function buildUI(): void {
         <button class="lego-scale-btn active" data-mode="accurate" title="1 plate = 1 block — maximum vertical detail, 2.5× taller than real LEGO proportions">Accurate</button>
         <button class="lego-scale-btn" data-mode="cubic" title="1 stud = 1 block in all axes — correct LEGO proportions, flat models look flat">Cubic</button>
       </div>
+      <label title="Fetch real .dat triangle geometry for accurate shape rendering (dev only — requires /ldraw-parts)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-geometry-mode" style="margin:0">
+        Geometry
+      </label>
     </div>
 
     <!-- Assembly step slider (hidden until model with steps is loaded) -->
@@ -188,6 +195,12 @@ function wireEvents(): void {
     if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
   });
 
+  // ── Geometry mode toggle ───────────────────────────────────────────────────
+  document.getElementById('lego-geometry-mode')?.addEventListener('change', e => {
+    geometryMode = (e.target as HTMLInputElement).checked;
+    if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
+  });
+
   // ── Step slider ────────────────────────────────────────────────────────────
   document.getElementById('lego-step-slider')?.addEventListener('input', async e => {
     const slider = e.target as HTMLInputElement;
@@ -197,7 +210,9 @@ function wireEvents(): void {
     currentStep = step < totalSteps ? step : undefined; // undefined = show all
     if (currentBricks) {
       const opts: VoxelizeOptions = { cubicScale, maxStep: currentStep };
-      const result = voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
+      const result = geometryMode
+        ? await voxelizeLDrawGeometry(currentBricks, currentBricksColorFn, opts)
+        : voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
       if (onResult) onResult(result.grid, currentBricksLabel.replace(/\.[^.]+$/, ''));
     }
   });
@@ -555,7 +570,10 @@ async function voxelizeAndDisplay(
   updateStepSlider();
 
   const opts: VoxelizeOptions = { cubicScale, maxStep: currentStep };
-  const result = voxelizeLDraw(bricks, colorFn, opts);
+  if (geometryMode) setStatus('Loading triangle geometry…', 'info');
+  const result = geometryMode
+    ? await voxelizeLDrawGeometry(bricks, colorFn, opts)
+    : voxelizeLDraw(bricks, colorFn, opts);
 
   const { width: w, height: h, length: l } = result.grid;
   const blockCount = result.grid.countNonAir();
