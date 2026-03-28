@@ -186,7 +186,7 @@ const BUILDINGS: BuildingConfig[] = [
     coords: '34.0537,-118.2430',
     satRef: `${DIR}/sat-ref-la-cityhall.jpg`,
     resolution: 1,
-    maskDilate: 2,
+    maskDilate: 1, // tighter mask — dilate=2 created blob footprint in topdown
     extraFlags: ['--no-enu'],
     difficulty: 'hard',
     tileSize: 6,
@@ -241,7 +241,7 @@ Answer each question with true or false. Be VERY conservative — only flag defe
   "neighbor_buildings_merged": [true ONLY if a second clearly distinct building is attached to or fused with the target building — not interior courtyards or wings of the same building],
   "footprint_wrong_shape": [true ONLY if the overall footprint CATEGORY is wrong — e.g., voxel is a circle but satellite shows a rectangle, or voxel is an L-shape but satellite shows a triangle. False if the shapes are the same category (both rectangles, both L-shapes) even if proportions differ slightly. Irregular edges from voxelization are expected and NOT a shape error.],
   "false_positives_merged": [true ONLY if large non-building structures (bridges, walls, roads) are visibly merged into the building],
-  "building_recognizable": [true if the overall 3D form — footprint shape, height profile, massing — is a reasonable voxel approximation of what you see in the satellite. Perfect reproduction is NOT required.],
+  "building_recognizable": [true if the isometric 3D views show a structure whose general type and massing match the satellite — e.g., both show a tower, both show a wide building, both show a stepped form. Judge from the ISOMETRIC views (images 4-5), not from the top-down. False ONLY if the voxel is clearly a different type of structure than the satellite shows.],
   "proportions_correct": [true if the building's width-to-height-to-depth ratios are within ~30% of the satellite reference. Voxel quantization creates minor proportion shifts — only flag MAJOR distortions like 2:1 becoming 1:1.],
   "surface_detail_visible": [true if the facade shows multiple distinct Minecraft block types with visible color or texture variation]
 }
@@ -653,16 +653,15 @@ async function gradeOne(
       // Map defect fields to legacy A/B/C/D sub-scores for diagnose() and markdown table.
       // NOTE: These are diagnostic-only approximations. `total` from scoreFromDefects() is the authoritative score.
       // A (footprint, 0-3): penalise footprint_wrong_shape + false_positives_merged + neighbor_buildings_merged
-      // B (massing, 0-3):   penalise height_truncated + !proportions_correct
+      // B (massing, 0-2):   penalise height_truncated only (proportions_correct has 0 scoring weight)
       // C (surface, 0-3):   penalise !surface_detail_visible + facade_holes_visible + floating_artifacts
       // D (identity, 0-2):  bonus when building_recognizable
       const scoreA = 3
         - (checklist.footprint_wrong_shape     ? 1 : 0)
         - (checklist.false_positives_merged    ? 1 : 0)
         - (checklist.neighbor_buildings_merged ? 1 : 0);
-      const scoreB = 3
-        - (checklist.height_truncated      ? 2 : 0)
-        - (!checklist.proportions_correct  ? 1 : 0);
+      const scoreB = 2
+        - (checklist.height_truncated ? 2 : 0);
       const scoreC = 3
         - (!checklist.surface_detail_visible ? 1 : 0)
         - (checklist.facade_holes_visible    ? 1 : 0)
@@ -731,8 +730,8 @@ function diagnose(subscores: SubScore[]): string {
   const avgD = subscores.reduce((s, x) => s + x.D, 0) / subscores.length;
 
   const issues: string[] = [];
-  if (avgA < 3) issues.push(`footprint(${avgA.toFixed(1)}/4)`);
-  if (avgB < 2) issues.push(`massing(${avgB.toFixed(1)}/3)`);
+  if (avgA < 3) issues.push(`footprint(${avgA.toFixed(1)}/3)`);
+  if (avgB < 2) issues.push(`massing(${avgB.toFixed(1)}/2)`);
   if (avgC < 2) issues.push(`surface(${avgC.toFixed(1)}/3)`);
   if (avgD > 0) issues.push(`identity(${avgD.toFixed(1)}/2)`); // Show when identity bonus awarded
 

@@ -31,18 +31,22 @@ export interface DefectChecklist {
 /**
  * Compute a deterministic 0-10 score from a binary defect checklist.
  *
- * Penalty weights (total max = 12):
+ * Penalty weights (total max = 10):
  *   height_truncated          -2  (moderate: massing truncation)
  *   neighbor_buildings_merged -2  (moderate: footprint contamination)
- *   footprint_wrong_shape     -1  (minor: voxelization inherently approximates shapes;
- *                                  prompt restricts to category mismatches but VLM still
- *                                  flags subtle approximations. Reduced from -2 to -1.)
  *   false_positives_merged    -2  (moderate: footprint contamination)
+ *   footprint_wrong_shape     -1  (minor: voxelization inherently approximates shapes)
  *   facade_holes_visible      -1  (minor: often false positive from DDA shadow stripes)
  *   floating_artifacts        -1  (minor: noise — common false positive from texture variation)
- *   !building_recognizable    -1  (minor: comparison-based, not knowledge-based)
- *   !proportions_correct      -1  (minor: proportional accuracy)
+ *   !building_recognizable    -1  (minor: overall form + proportion assessment combined)
  *   !surface_detail_visible   -1  (minor: material quality)
+ *
+ * proportions_correct is retained in the checklist for diagnostics but
+ * has zero scoring weight — it is redundant with building_recognizable
+ * (if proportions are wildly wrong the building won't be recognizable)
+ * and the VLM flags both together ~95% of the time, creating an
+ * unjustified double-penalty. Even verified-good builds (flatiron 10/10)
+ * get both flagged on ~33% of runs as false positives.
  */
 export function scoreFromDefects(defects: DefectChecklist): number {
   let score = 10;
@@ -53,7 +57,7 @@ export function scoreFromDefects(defects: DefectChecklist): number {
   if (defects.footprint_wrong_shape)     score -= 1;
   if (defects.false_positives_merged)    score -= 2;
   if (!defects.building_recognizable)    score -= 1;
-  if (!defects.proportions_correct)      score -= 1;
+  // proportions_correct: 0 penalty — redundant with building_recognizable (see comment above)
   if (!defects.surface_detail_visible)   score -= 1;
   return Math.max(0, score);
 }
