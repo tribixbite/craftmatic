@@ -6286,6 +6286,137 @@ export function severStreetFurniture(
 }
 
 /**
+ * Remove thin vertical pillar columns (street lights, traffic signals) from the grid.
+ *
+ * Uses a top-slice isolation strategy:
+ * 1. Find the building's 75th percentile column height
+ * 2. At that Y level, run 2D connected component labeling on the XZ slice
+ * 3. Any component smaller than minComponentSize is a pole protruding above the mass
+ * 4. Remove ALL blocks in those XZ columns (from bottom to top)
+ *
+ * This works because poles protrude above the main building body. At the building's
+ * upper height levels, poles are spatially separated from the building even though
+ * they're connected at ground level.
+ *
+ * @param grid               BlockGrid to modify in-place
+ * @param minComponentSize   Minimum XZ component size at the check height to keep (default 20)
+ * @returns Number of blocks removed
+ */
+export function removeThinPillars(
+  grid: BlockGrid,
+  minComponentSize = 20,
+): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+
+  // Step 1: Compute per-column max Y and find the 75th percentile height
+  const columnMaxY = new Int32Array(width * length).fill(-1);
+  const columnMinY = new Int32Array(width * length).fill(height);
+  const maxYValues: number[] = [];
+
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const idx = z * width + x;
+      for (let y = 0; y < height; y++) {
+        if (grid.get(x, y, z) !== AIR) {
+          if (y > columnMaxY[idx]) columnMaxY[idx] = y;
+          if (y < columnMinY[idx]) columnMinY[idx] = y;
+        }
+      }
+      if (columnMaxY[idx] >= 0) {
+        maxYValues.push(columnMaxY[idx]);
+      }
+    }
+  }
+
+  if (maxYValues.length === 0) return 0;
+  maxYValues.sort((a, b) => a - b);
+  const p75Height = maxYValues[Math.floor(maxYValues.length * 0.75)];
+  if (p75Height <= 0) return 0;
+
+  // Step 2: Create a 2D bitmap at the check level — which XZ positions are occupied?
+  // Check at multiple heights around the 75th percentile for robustness
+  const checkYs = [p75Height, Math.floor(p75Height * 0.9), Math.floor(p75Height * 0.8)];
+  const occupiedAtCheck = new Uint8Array(width * length); // union of all check levels
+  for (const checkY of checkYs) {
+    if (checkY < 0 || checkY >= height) continue;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, checkY, z) !== AIR) {
+          occupiedAtCheck[z * width + x] = 1;
+        }
+      }
+    }
+  }
+
+  // Step 3: 2D connected-component labeling on the XZ bitmap (4-connected)
+  const labels = new Int32Array(width * length); // 0 = unvisited/empty
+  const sizes: number[] = [0]; // sizes[label] = component size
+  let nextLabel = 1;
+
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const idx = z * width + x;
+      if (!occupiedAtCheck[idx] || labels[idx] !== 0) continue;
+
+      // BFS flood fill
+      const label = nextLabel++;
+      const queue: Array<[number, number]> = [[x, z]];
+      labels[idx] = label;
+      let size = 0;
+
+      while (queue.length > 0) {
+        const [cx, cz] = queue.pop()!;
+        size++;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = cx + dx, nz = cz + dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length) continue;
+          const nidx = nz * width + nx;
+          if (occupiedAtCheck[nidx] && labels[nidx] === 0) {
+            labels[nidx] = label;
+            queue.push([nx, nz]);
+          }
+        }
+      }
+
+      sizes.push(size);
+    }
+  }
+
+  // Step 4: Find the largest component (the building)
+  let largestLabel = 1;
+  let largestSize = 0;
+  for (let i = 1; i < sizes.length; i++) {
+    if (sizes[i] > largestSize) {
+      largestSize = sizes[i];
+      largestLabel = i;
+    }
+  }
+
+  // Step 5: Remove all columns that belong to small components (poles)
+  // Only remove columns that are NOT part of the main building component
+  let removed = 0;
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const idx = z * width + x;
+      const lbl = labels[idx];
+      if (lbl === 0 || lbl === largestLabel) continue; // empty or building
+      if (sizes[lbl] >= minComponentSize) continue; // large enough to keep
+
+      // This XZ column belongs to a small component at the check height — remove all blocks
+      for (let y = 0; y < height; y++) {
+        if (grid.get(x, y, z) !== AIR) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
+/**
  * Enforce luminance contrast between roof, wall, and ground zone materials.
  *
  * Pure function — no grid mutation. Computes luminance via WALL_CLUSTERS RGB
