@@ -790,8 +790,9 @@ export function clearOpenAirFill(
   const openAirMask = new Uint8Array(width * length); // 1 = open-air column
 
   // Minimum real blocks above fill to count as "roofed" — thin photogrammetry
-  // artifacts (1-2 blocks) shouldn't prevent courtyard clearing
-  const MIN_ROOF_THICKNESS = Math.max(2, minClearance);
+  // artifacts (1 block) shouldn't prevent courtyard clearing, but 2+ blocks of
+  // solid roof should be trusted even if photogrammetry is imperfect.
+  const MIN_ROOF_THICKNESS = 2;
 
   for (let z = 0; z < length; z++) {
     for (let x = 0; x < width; x++) {

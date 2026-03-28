@@ -1763,9 +1763,10 @@ async function main(): Promise<void> {
       }
 
       // Step 4: 3D masked dilation fill — building is now isolated.
-      // dilation=2 seals diagonal gaps in photogrammetry shells
-      const interiorFilled = fillInteriorGaps(trimmed, 1);
-      console.log(`Interior fill (3D masked, dilation=1): ${interiorFilled} interior voxels filled`);
+      // v300: dilation=2 seals diagonal gaps in photogrammetry shells more effectively.
+      // Previous dilation=1 left larger facade holes open, causing interior hollowing.
+      const interiorFilled = fillInteriorGaps(trimmed, 2);
+      console.log(`Interior fill (3D masked, dilation=2): ${interiorFilled} interior voxels filled`);
       // Step 4b: Sky exposure — remove fill in open-air spaces
       const openAirCleared = clearOpenAirFill(trimmed);
       if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} blocks (no solid roof above)`);
@@ -1903,20 +1904,12 @@ async function main(): Promise<void> {
   // Morph close — spackle pockmarks/holes in photogrammetry surfaces.
   // v71: r=3→r=2. v106: r=2→r=1. v118: tested r=2 — bloated small buildings (dallas 9→7,
   // ansonia 9.3→7). r=1 confirmed optimal: fills 1-voxel gaps without adding blobby mass.
-  // For complex shapes: only apply to bottom 30% to protect crown/spire/dome geometry.
+  // v300: Apply r=1 to full height for all buildings. At r=1, spire/crown geometry is
+  // safe (solid structures have no 1-voxel gaps to fill), but facade holes are healed.
   {
-    if (isComplexShape) {
-      // Restrict morph close to bottom portion — upper structure has real tapering/stepping
-      const maxY = Math.round(trimmed.height * 0.30);
-      const closed = morphClose3D(trimmed, 1, maxY);
-      if (closed > 0) {
-        console.log(`Morph close (r=1, maxY=${maxY}): ${closed} holes filled (complex shape — bottom 30% only)`);
-      }
-    } else {
-      const closed = morphClose3D(trimmed, 1);
-      if (closed > 0) {
-        console.log(`Morph close (r=1): ${closed} holes filled`);
-      }
+    const closed = morphClose3D(trimmed, 1);
+    if (closed > 0) {
+      console.log(`Morph close (r=1): ${closed} holes filled`);
     }
   }
 

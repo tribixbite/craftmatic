@@ -652,12 +652,12 @@ async function gradeOne(
 
       // Map defect fields to legacy A/B/C/D sub-scores for diagnose() and markdown table.
       // NOTE: These are diagnostic-only approximations. `total` from scoreFromDefects() is the authoritative score.
-      // A (footprint, 0-4): penalise footprint_wrong_shape + false_positives_merged + neighbor_buildings_merged
+      // A (footprint, 0-3): penalise footprint_wrong_shape + false_positives_merged + neighbor_buildings_merged
       // B (massing, 0-3):   penalise height_truncated + !proportions_correct
       // C (surface, 0-3):   penalise !surface_detail_visible + facade_holes_visible + floating_artifacts
       // D (identity, 0-2):  bonus when building_recognizable
-      const scoreA = 4
-        - (checklist.footprint_wrong_shape     ? 2 : 0)
+      const scoreA = 3
+        - (checklist.footprint_wrong_shape     ? 1 : 0)
         - (checklist.false_positives_merged    ? 1 : 0)
         - (checklist.neighbor_buildings_merged ? 1 : 0);
       const scoreB = 3
