@@ -653,20 +653,20 @@ async function gradeOne(
       // Map defect fields to legacy A/B/C/D sub-scores for diagnose() and markdown table.
       // NOTE: These are diagnostic-only approximations. `total` from scoreFromDefects() is the authoritative score.
       // A (footprint, 0-3): penalise footprint_wrong_shape + false_positives_merged + neighbor_buildings_merged
-      // B (massing, 0-2):   penalise height_truncated only (proportions_correct has 0 scoring weight)
+      // B (massing, 0-1):   penalise height_truncated only (reduced weight — LOD limitation)
       // C (surface, 0-3):   penalise !surface_detail_visible + facade_holes_visible + floating_artifacts
-      // D (identity, 0-2):  bonus when building_recognizable
+      // D (identity, 0-2):  informational only (building_recognizable has 0 scoring weight)
       const scoreA = 3
         - (checklist.footprint_wrong_shape     ? 1 : 0)
         - (checklist.false_positives_merged    ? 1 : 0)
         - (checklist.neighbor_buildings_merged ? 1 : 0);
-      const scoreB = 2
-        - (checklist.height_truncated ? 2 : 0);
+      const scoreB = 1
+        - (checklist.height_truncated ? 1 : 0);
       const scoreC = 3
         - (!checklist.surface_detail_visible ? 1 : 0)
         - (checklist.facade_holes_visible    ? 1 : 0)
         - (checklist.floating_artifacts      ? 1 : 0);
-      const scoreD = checklist.building_recognizable ? 2 : 0;
+      const scoreD = checklist.building_recognizable ? 2 : 0; // informational
 
       return {
         A: Math.max(0, scoreA),
@@ -731,7 +731,7 @@ function diagnose(subscores: SubScore[]): string {
 
   const issues: string[] = [];
   if (avgA < 3) issues.push(`footprint(${avgA.toFixed(1)}/3)`);
-  if (avgB < 2) issues.push(`massing(${avgB.toFixed(1)}/2)`);
+  if (avgB < 1) issues.push(`massing(${avgB.toFixed(1)}/1)`);
   if (avgC < 2) issues.push(`surface(${avgC.toFixed(1)}/3)`);
   if (avgD > 0) issues.push(`identity(${avgD.toFixed(1)}/2)`); // Show when identity bonus awarded
 
