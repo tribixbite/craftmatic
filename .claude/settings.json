@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node scripts/loop-check.mjs"
+            "command": "node C:/git/craftmatic/scripts/visual-loop-check.mjs"
           }
         ]
       }

@@ -718,12 +718,12 @@ function renderTopView(grid: ReturnType<typeof voxelizeLDraw>['grid'], maxSize =
 }
 
 function renderViews(grid: ReturnType<typeof voxelizeLDraw>['grid']): Buffer {
-  // THREE-panel layout: isometric (left, dominant) + top-down (centre) + front view (right).
+  // THREE-panel layout: isometric (left, dominant) + top-down (centre) + side view (right).
   // Isometric gives the strongest 3D shape impression; top-down reveals plan silhouettes;
-  // front view shows bow/nose/face profile.
+  // side view (looking along -X, showing Z-Y plane) shows fuselage/building profile from side.
   const iso = renderIsometric(grid);
   const top = renderTopView(grid);
-  const front = renderFrontView(grid);
+  const front = renderSideView(grid);
 
   // Edge-enhance isometric
   const W_iso = iso.w, H_iso = iso.h;
@@ -886,7 +886,17 @@ async function main() {
     const filteredBricks = bricks.filter(b => !SKIP_PARTS.has(b.part.toLowerCase().replace('.dat', '')));
     // Use cubic scale: 1 stud = 1 block in all axes — gives correct real-world proportions
     // Accurate mode (default) is 2.5× taller which distorts silhouette shape grading
-    const result = voxelizeLDraw(filteredBricks, undefined, { cubicScale: true });
+    // Exception: if cubic produces a very flat grid (h < 4), fall back to accurate mode so
+    // low-to-the-ground models (e.g. 1987 buildings with 2-brick walls) have readable vertical detail
+    let result = voxelizeLDraw(filteredBricks, undefined, { cubicScale: true });
+    if (result.dimensions.h < 4) {
+      const cubicH = result.dimensions.h;
+      const accurateResult = voxelizeLDraw(filteredBricks, undefined, { cubicScale: false });
+      if (accurateResult.dimensions.h >= 4) {
+        result = accurateResult;
+        console.log('  [fallback] cubic h=' + cubicH + ' < 4 — using accurate mode');
+      }
+    }
     const { grid, dimensions, brickCount } = result;
     const cleared = keepLargestComponent(grid);
     const trimmed = trimToTriangularHull(grid);
