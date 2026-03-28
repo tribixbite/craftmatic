@@ -652,12 +652,12 @@ async function gradeOne(
 
       // Map defect fields to legacy A/B/C/D sub-scores for diagnose() and markdown table.
       // NOTE: These are diagnostic-only approximations. `total` from scoreFromDefects() is the authoritative score.
-      // A (footprint, 0-3): penalise footprint_wrong_shape + false_positives_merged + neighbor_buildings_merged
+      // A (footprint, 0-2): penalise false_positives_merged + neighbor_buildings_merged
+      //   footprint_wrong_shape has 0 scoring weight (voxels inherently blocky)
       // B (massing, 0-1):   penalise height_truncated only (reduced weight — LOD limitation)
       // C (surface, 0-3):   penalise !surface_detail_visible + facade_holes_visible + floating_artifacts
       // D (identity, 0-2):  informational only (building_recognizable has 0 scoring weight)
-      const scoreA = 3
-        - (checklist.footprint_wrong_shape     ? 1 : 0)
+      const scoreA = 2
         - (checklist.false_positives_merged    ? 1 : 0)
         - (checklist.neighbor_buildings_merged ? 1 : 0);
       const scoreB = 1
@@ -730,7 +730,7 @@ function diagnose(subscores: SubScore[]): string {
   const avgD = subscores.reduce((s, x) => s + x.D, 0) / subscores.length;
 
   const issues: string[] = [];
-  if (avgA < 3) issues.push(`footprint(${avgA.toFixed(1)}/3)`);
+  if (avgA < 2) issues.push(`footprint(${avgA.toFixed(1)}/2)`);
   if (avgB < 1) issues.push(`massing(${avgB.toFixed(1)}/1)`);
   if (avgC < 2) issues.push(`surface(${avgC.toFixed(1)}/3)`);
   if (avgD > 0) issues.push(`identity(${avgD.toFixed(1)}/2)`); // Show when identity bonus awarded

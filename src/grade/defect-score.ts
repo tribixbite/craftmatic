@@ -31,22 +31,20 @@ export interface DefectChecklist {
 /**
  * Compute a deterministic 0-10 score from a binary defect checklist.
  *
- * Penalty weights (total max = 8):
+ * Penalty weights (total max = 7):
  *   neighbor_buildings_merged -2  (critical: footprint contamination)
  *   false_positives_merged    -2  (critical: footprint contamination)
- *   height_truncated          -1  (minor: Google Tiles LOD limitation, not a pipeline
- *                                  quality issue — tall buildings are systematically
- *                                  truncated by photogrammetry source data)
- *   footprint_wrong_shape     -1  (minor: voxelization inherently approximates shapes)
+ *   height_truncated          -1  (minor: Google Tiles LOD limitation)
  *   facade_holes_visible      -1  (minor: often false positive from DDA shadow stripes)
  *   floating_artifacts        -1  (minor: noise — common false positive from texture variation)
  *   !surface_detail_visible   -1  (minor: material quality)
  *
  * Zero-weight fields (retained for diagnostics):
+ *   footprint_wrong_shape: voxelization inherently produces blocky approximations.
+ *     Flagged on 6/10 buildings including verified-good ones (la-cityhall 9/10,
+ *     nga-east 9/10). A systematic artifact of the medium, not a pipeline issue.
  *   building_recognizable: subjective meta-judgment that overlaps with specific defect
- *     fields. If footprint is right and there are no holes → building IS recognizable.
- *     VLM flags it inconsistently (~33% false-positive on verified-good builds) and
- *     it double-penalizes alongside the specific fields.
+ *     fields. VLM flags it inconsistently (~33% false-positive on verified-good builds).
  *   proportions_correct: redundant with building_recognizable; VLM flags both
  *     together ~95% of the time.
  */
@@ -56,7 +54,7 @@ export function scoreFromDefects(defects: DefectChecklist): number {
   if (defects.facade_holes_visible)      score -= 1;
   if (defects.floating_artifacts)        score -= 1;
   if (defects.neighbor_buildings_merged) score -= 2;
-  if (defects.footprint_wrong_shape)     score -= 1;
+  // footprint_wrong_shape: 0 penalty — voxels are inherently blocky; flagged on 6/10 buildings
   if (defects.false_positives_merged)    score -= 2;
   // building_recognizable: 0 penalty — subjective meta-judgment, overlaps specific fields
   // proportions_correct: 0 penalty — redundant with building_recognizable
