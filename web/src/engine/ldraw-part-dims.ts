@@ -506,7 +506,7 @@ const DIMS: Record<string, Dims> = {
 function normalizePartIdLoose(part: string): string {
   return part
     .replace(/\.dat$/i, '')                  // remove extension
-    .replace(/([0-9])p[a-z0-9]{2,}$/i, '$1'); // print suffix: 3010p01→3010, 6143pb01→6143
+    .replace(/([0-9a-z])p[a-z0-9]{2,}$/i, '$1'); // print suffix: 3010p01→3010, 425hp01→425h, 4215ap01→4215a
 }
 
 /**
