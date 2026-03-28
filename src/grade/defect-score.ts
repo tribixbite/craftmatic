@@ -31,10 +31,12 @@ export interface DefectChecklist {
 /**
  * Compute a deterministic 0-10 score from a binary defect checklist.
  *
- * Penalty weights (total max = 13):
+ * Penalty weights (total max = 12):
  *   height_truncated          -2  (moderate: massing truncation)
  *   neighbor_buildings_merged -2  (moderate: footprint contamination)
- *   footprint_wrong_shape     -2  (moderate: shape accuracy)
+ *   footprint_wrong_shape     -1  (minor: voxelization inherently approximates shapes;
+ *                                  prompt restricts to category mismatches but VLM still
+ *                                  flags subtle approximations. Reduced from -2 to -1.)
  *   false_positives_merged    -2  (moderate: footprint contamination)
  *   facade_holes_visible      -1  (minor: often false positive from DDA shadow stripes)
  *   floating_artifacts        -1  (minor: noise — common false positive from texture variation)
@@ -48,7 +50,7 @@ export function scoreFromDefects(defects: DefectChecklist): number {
   if (defects.facade_holes_visible)      score -= 1;
   if (defects.floating_artifacts)        score -= 1;
   if (defects.neighbor_buildings_merged) score -= 2;
-  if (defects.footprint_wrong_shape)     score -= 2;
+  if (defects.footprint_wrong_shape)     score -= 1;
   if (defects.false_positives_merged)    score -= 2;
   if (!defects.building_recognizable)    score -= 1;
   if (!defects.proportions_correct)      score -= 1;
