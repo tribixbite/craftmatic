@@ -85,7 +85,7 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/national-gallery-east.glb`,
     coords: '38.8913,-77.0199',
     satRef: `${DIR}/sat-ref-nga-east.jpg`,
-    resolution: 2,
+    resolution: 1, // r=2 bloats grid (OSM polygon = entire National Gallery complex)
     maskDilate: 2,
     extraFlags: ['--no-enu'],
     difficulty: 'medium',
@@ -232,17 +232,17 @@ You will see 5 images:
 4. Isometric front-right view of the voxel model
 5. Isometric back-left view of the voxel model
 
-Answer each question with true or false. Be conservative — only flag CLEAR, SIGNIFICANT defects:
+Answer each question with true or false. Be VERY conservative — only flag defects you are CERTAIN about. This is a Minecraft voxel model, so expect blocky approximations, not pixel-perfect reproduction. When in doubt, answer false for defect questions and true for quality questions.
 
 {
   "height_truncated": [true ONLY if ≥30% of the building height is clearly missing — the top is sliced off at an unnatural flat line. False for buildings that are simply short or have flat roofs.],
-  "facade_holes_visible": [true ONLY if large wall sections (5+ blocks) are completely missing, revealing hollow interior or sky behind. NOT dark texture patches or color variation.],
+  "facade_holes_visible": [true ONLY if large wall sections (5+ blocks) are completely missing, revealing hollow interior or sky behind. NOT dark texture patches, color variation, or window recesses.],
   "floating_artifacts": [true ONLY if clearly separate structures are floating in mid-air, disconnected from the building by visible air gaps. NOT minor surface bumps or ground-level debris.],
-  "neighbor_buildings_merged": [true if a second distinct building is clearly attached to or fused with the target building],
-  "footprint_wrong_shape": [true if the footprint shape fundamentally differs from the satellite — e.g., rectangle instead of triangle, or circle instead of square],
-  "false_positives_merged": [true if large non-building structures (bridges, walls, roads) are visibly merged into the building],
-  "building_recognizable": [true if the distinctive architectural form visible in the satellite (e.g., triangular footprint, angular roof, tower shape) is reproduced in the voxel model],
-  "proportions_correct": [true if the building's width-to-height-to-depth ratios approximately match the satellite reference],
+  "neighbor_buildings_merged": [true ONLY if a second clearly distinct building is attached to or fused with the target building — not interior courtyards or wings of the same building],
+  "footprint_wrong_shape": [true ONLY if the overall footprint CATEGORY is wrong — e.g., voxel is a circle but satellite shows a rectangle, or voxel is an L-shape but satellite shows a triangle. False if the shapes are the same category (both rectangles, both L-shapes) even if proportions differ slightly. Irregular edges from voxelization are expected and NOT a shape error.],
+  "false_positives_merged": [true ONLY if large non-building structures (bridges, walls, roads) are visibly merged into the building],
+  "building_recognizable": [true if the overall 3D form — footprint shape, height profile, massing — is a reasonable voxel approximation of what you see in the satellite. Perfect reproduction is NOT required.],
+  "proportions_correct": [true if the building's width-to-height-to-depth ratios are within ~30% of the satellite reference. Voxel quantization creates minor proportion shifts — only flag MAJOR distortions like 2:1 becoming 1:1.],
   "surface_detail_visible": [true if the facade shows multiple distinct Minecraft block types with visible color or texture variation]
 }
 
