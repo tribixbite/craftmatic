@@ -82,58 +82,58 @@ const BUILDINGS: BuildingConfig[] = [
     // Trapezoidal footprint with angular walls — National Gallery of Art East Building
     // I.M. Pei, Washington DC, 39m, distinctive triangular plan
     key: 'nga-east',
-    glb: 'models/nga-east.glb',
+    glb: `${DIR}/national-gallery-east.glb`,
     coords: '38.8913,-77.0180',
     satRef: `${DIR}/sat-ref-nga-east.jpg`,
     resolution: 2,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-enu'],
     difficulty: 'medium',
-    tileSize: 10,
-    topdownScale: 12,
+    tileSize: 6,
+    topdownScale: 8,
   },
   // ── Tier 2: medium confidence ──
   {
     // Inverted pyramid city hall — Dallas City Hall, I.M. Pei
     // 37m, cantilevered inverted pyramid form
     key: 'dallas-cityhall',
-    glb: 'models/dallas-cityhall.glb',
+    glb: `${DIR}/dallas-cityhall.glb`,
     coords: '32.7763,-96.7968',
     satRef: `${DIR}/sat-ref-dallas-cityhall.jpg`,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-enu'],
     difficulty: 'hard',
-    tileSize: 10,
-    topdownScale: 12,
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
     // Faceted glass diamond — Seattle Central Library, Rem Koolhaas
     // 56m, angular faceted form with distinct diamond cross-section
     key: 'seattle-library',
-    glb: 'models/seattle-library.glb',
+    glb: `${DIR}/seattle-library.glb`,
     coords: '47.6067,-122.3326',
     satRef: `${DIR}/sat-ref-seattle-library.jpg`,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-enu'],
     difficulty: 'hard',
-    tileSize: 10,
-    topdownScale: 12,
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
     // Brutalist inverted ziggurat — Boston City Hall, Kallmann McKinnell & Knowles
     // 60m, stepped cantilevered form
     key: 'boston-cityhall',
-    glb: 'models/boston-cityhall.glb',
+    glb: `${DIR}/boston-cityhall.glb`,
     coords: '42.3605,-71.0580',
     satRef: `${DIR}/sat-ref-boston-cityhall.jpg`,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-enu'],
     difficulty: 'hard',
-    tileSize: 10,
-    topdownScale: 12,
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
     // 45° sloped roof crown — proven 8.7 in v200, angular crown is voxel-friendly
@@ -149,48 +149,48 @@ const BUILDINGS: BuildingConfig[] = [
     tileSize: 6,
     topdownScale: 8,
   },
-  // ── Tier 3: harder, need capture ──
+  // ── Tier 3: proven GLBs ──
   {
-    // Titanium-clad angular sculpture — Denver Art Museum, Daniel Libeskind
-    // 45m, sharp angular spikes and faceted walls
-    key: 'denver-art',
-    glb: 'models/denver-art.glb',
-    coords: '39.7372,-104.9893',
-    satRef: `${DIR}/sat-ref-denver-art.jpg`,
+    // Brutalist inverted pyramid — Geisel Library, UCSD, William Pereira
+    // 39m, mushroom-cap form on narrow stem, angular cantilevers
+    key: 'geisel',
+    glb: `${DIR}/geisel-v200.glb`,
+    coords: '32.8811,-117.2376',
+    satRef: `${DIR}/sat-ref-geisel.jpg`,
     resolution: 2,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-enu'],
     difficulty: 'hard',
-    tileSize: 10,
-    topdownScale: 12,
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
-    // 17 pointed spires — USAF Academy Cadet Chapel, Walter Netsch
-    // 46m, triangular aluminum spires in a row
-    key: 'usaf-chapel',
-    glb: 'models/usaf-chapel.glb',
-    coords: '38.9984,-104.8615',
-    satRef: `${DIR}/sat-ref-usaf-chapel.jpg`,
-    resolution: 3, // small footprint, high detail needed
+    // Pyramidal taper — Transamerica Pyramid, William Pereira
+    // 260m, tapered to point, distinctive triangular silhouette
+    key: 'transamerica',
+    glb: `${DIR}/transamerica-v200b.glb`,
+    coords: '37.7952,-122.4028',
+    satRef: `${DIR}/sat-ref-transamerica.jpg`,
+    resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-enu'],
     difficulty: 'hard',
-    tileSize: 10,
-    topdownScale: 12,
+    tileSize: 6,
+    topdownScale: 8,
   },
   {
     // Art deco tower with pyramid crown — LA City Hall
     // 138m, stepped setbacks with beacon tower
     key: 'la-cityhall',
-    glb: 'models/la-cityhall.glb',
+    glb: `${DIR}/la-cityhall.glb`,
     coords: '34.0537,-118.2430',
     satRef: `${DIR}/sat-ref-la-cityhall.jpg`,
     resolution: 1,
     maskDilate: 2,
-    extraFlags: [],
+    extraFlags: ['--no-enu'],
     difficulty: 'hard',
-    tileSize: 10,
-    topdownScale: 12,
+    tileSize: 6,
+    topdownScale: 8,
   },
 ];
 
