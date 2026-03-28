@@ -83,7 +83,7 @@ const BUILDINGS: BuildingConfig[] = [
     // I.M. Pei, Washington DC, 39m, distinctive triangular plan
     key: 'nga-east',
     glb: `${DIR}/national-gallery-east.glb`,
-    coords: '38.8913,-77.0180',
+    coords: '38.8913,-77.0199',
     satRef: `${DIR}/sat-ref-nga-east.jpg`,
     resolution: 2,
     maskDilate: 2,

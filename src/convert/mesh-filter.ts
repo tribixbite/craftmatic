@@ -1812,6 +1812,151 @@ export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1, extraProte
 }
 
 /**
+ * Replace shadow-artifact blocks that are significantly darker than their neighborhood.
+ *
+ * Photogrammetry textures bake shadow into pixel data. After CIELAB block matching,
+ * shadow regions map to dark Minecraft blocks creating leopard-spot noise patterns
+ * that obscure building form. This function identifies blocks that are luminance
+ * outliers relative to their local context and replaces them with the neighborhood mode.
+ *
+ * Two-pass approach:
+ * 1. Replace very dark blocks (luminance ≤ 0.22) with brighter neighborhood mode
+ * 2. Replace contrast outliers: blocks much darker than their neighborhood median
+ *
+ * @param contrastDelta - Min luminance gap below neighborhood median to trigger replacement (default 0.20)
+ * @param radius - Neighborhood radius for context (default 2 → 5×5×5)
+ */
+export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius = 2): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  let totalReplaced = 0;
+
+  // Pass 1: Replace very dark blocks (absolute luminance floor)
+  const DARK_FLOOR = 0.22;
+  {
+    const replacements: Array<{ x: number; y: number; z: number; replacement: string }> = [];
+
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          const block = grid.get(x, y, z);
+          if (block === AIR) continue;
+          if (blockLuminance(block) > DARK_FLOOR) continue;
+
+          const best = findBrightNeighborMode(grid, x, y, z, radius, DARK_FLOOR);
+          if (best) replacements.push({ x, y, z, replacement: best });
+        }
+      }
+    }
+
+    for (const { x, y, z, replacement } of replacements) {
+      grid.set(x, y, z, replacement);
+    }
+    totalReplaced += replacements.length;
+  }
+
+  // Pass 2: Replace contrast outliers (dark blocks in bright neighborhoods)
+  {
+    const replacements: Array<{ x: number; y: number; z: number; replacement: string }> = [];
+
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          const block = grid.get(x, y, z);
+          if (block === AIR) continue;
+
+          const lum = blockLuminance(block);
+
+          // Collect neighbor luminances to compute median
+          const neighborLums: number[] = [];
+          const neighborCounts = new Map<string, number>();
+          for (let dy = -radius; dy <= radius; dy++) {
+            const ny = y + dy;
+            if (ny < 0 || ny >= height) continue;
+            for (let dz = -radius; dz <= radius; dz++) {
+              const nz = z + dz;
+              if (nz < 0 || nz >= length) continue;
+              for (let dx = -radius; dx <= radius; dx++) {
+                if (dx === 0 && dy === 0 && dz === 0) continue;
+                const nx = x + dx;
+                if (nx < 0 || nx >= width) continue;
+                const nb = grid.get(nx, ny, nz);
+                if (nb === AIR) continue;
+                const nl = blockLuminance(nb);
+                neighborLums.push(nl);
+                neighborCounts.set(nb, (neighborCounts.get(nb) ?? 0) + 1);
+              }
+            }
+          }
+
+          if (neighborLums.length < 4) continue;
+
+          // Compute median luminance of neighborhood
+          neighborLums.sort((a, b) => a - b);
+          const median = neighborLums[Math.floor(neighborLums.length / 2)];
+
+          // Replace if this block is much darker than its neighborhood median
+          if (median - lum >= contrastDelta) {
+            // Find the dominant block with luminance near the median
+            let bestBlock = '';
+            let bestCount = 0;
+            for (const [b, c] of neighborCounts) {
+              const bl = blockLuminance(b);
+              if (bl < median - 0.10) continue; // skip other dark blocks
+              if (c > bestCount) { bestBlock = b; bestCount = c; }
+            }
+            if (bestBlock) {
+              replacements.push({ x, y, z, replacement: bestBlock });
+            }
+          }
+        }
+      }
+    }
+
+    for (const { x, y, z, replacement } of replacements) {
+      grid.set(x, y, z, replacement);
+    }
+    totalReplaced += replacements.length;
+  }
+
+  return totalReplaced;
+}
+
+/** Find the dominant block brighter than a threshold in a neighborhood */
+function findBrightNeighborMode(
+  grid: BlockGrid, cx: number, cy: number, cz: number,
+  radius: number, lumFloor: number,
+): string | null {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const neighborCounts = new Map<string, number>();
+
+  for (let dy = -radius; dy <= radius; dy++) {
+    const ny = cy + dy;
+    if (ny < 0 || ny >= height) continue;
+    for (let dz = -radius; dz <= radius; dz++) {
+      const nz = cz + dz;
+      if (nz < 0 || nz >= length) continue;
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (dx === 0 && dy === 0 && dz === 0) continue;
+        const nx = cx + dx;
+        if (nx < 0 || nx >= width) continue;
+        const nb = grid.get(nx, ny, nz);
+        if (nb === AIR || blockLuminance(nb) <= lumFloor) continue;
+        neighborCounts.set(nb, (neighborCounts.get(nb) ?? 0) + 1);
+      }
+    }
+  }
+
+  let bestBlock = '';
+  let bestCount = 0;
+  for (const [b, c] of neighborCounts) {
+    if (c > bestCount) { bestBlock = b; bestCount = c; }
+  }
+  return bestBlock || null;
+}
+
+/**
  * Approximate luminance for Minecraft blocks (0 = black, 1 = white).
  * Used by carveFacadeShadows to identify shadow/depth regions.
  * Values are empirical approximations of the block's average visual brightness.

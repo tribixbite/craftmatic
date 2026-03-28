@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
@@ -212,7 +212,7 @@ Options:
   let mode: VoxelizeMode = 'surface';
   let minHeight = 2;
   let trimThreshold = 0.05;
-  let gamma = 0.7; // v300: stronger gamma lifts shadows without clipping highlights or destroying saturation
+  let gamma = 0.5; // v300: aggressive gamma eliminates shadow-baked dark noise from photogrammetry textures
   let kernel = 12; // Moderate kernel — preserves window/trim features while smoothing noise
   let explicitKernel = false; // Track if --kernel was explicitly passed
   let desaturate = 0.05; // Minimal desaturation — preserve building-specific colors (green copper, brick, etc.)
@@ -2403,6 +2403,16 @@ async function main(): Promise<void> {
     const closed2 = morphClose3D(trimmed, 1);
     if (closed2 > 0) {
       console.log(`Morph close post-filter (r=1): ${closed2} surface pockmarks healed`);
+    }
+  }
+
+  // v300: Smooth dark shadow artifacts — photogrammetry bakes shadow into texture,
+  // mapping shadow pixels to very dark blocks (polished_deepslate, nether_bricks, etc.)
+  // that create visual noise obscuring building form. Replace with neighborhood mode.
+  if (!args.zoneNormalize) {
+    const darkSmoothed = smoothDarkBlocks(trimmed);
+    if (darkSmoothed > 0) {
+      console.log(`Dark block smoothing: ${darkSmoothed} shadow-artifact blocks replaced (floor + contrast)`);
     }
   }
 
