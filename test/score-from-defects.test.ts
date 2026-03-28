@@ -26,8 +26,8 @@ describe('scoreFromDefects', () => {
     expect(scoreFromDefects(makeChecklist({ height_truncated: true }))).toBe(8);
   });
 
-  it('deducts 2 for facade_holes_visible', () => {
-    expect(scoreFromDefects(makeChecklist({ facade_holes_visible: true }))).toBe(8);
+  it('deducts 1 for facade_holes_visible', () => {
+    expect(scoreFromDefects(makeChecklist({ facade_holes_visible: true }))).toBe(9);
   });
 
   it('deducts 1 for floating_artifacts', () => {
@@ -46,8 +46,8 @@ describe('scoreFromDefects', () => {
     expect(scoreFromDefects(makeChecklist({ false_positives_merged: true }))).toBe(8);
   });
 
-  it('deducts 3 when building_recognizable is false', () => {
-    expect(scoreFromDefects(makeChecklist({ building_recognizable: false }))).toBe(7);
+  it('deducts 1 when building_recognizable is false', () => {
+    expect(scoreFromDefects(makeChecklist({ building_recognizable: false }))).toBe(9);
   });
 
   it('deducts 1 when proportions_correct is false', () => {
@@ -58,11 +58,11 @@ describe('scoreFromDefects', () => {
     expect(scoreFromDefects(makeChecklist({ surface_detail_visible: false }))).toBe(9);
   });
 
-  it('accumulates penalties: height + not-recognizable = 5 points off', () => {
+  it('accumulates penalties: height + not-recognizable = 3 points off', () => {
     expect(scoreFromDefects(makeChecklist({
       height_truncated:      true, // -2
-      building_recognizable: false, // -3
-    }))).toBe(5);
+      building_recognizable: false, // -1
+    }))).toBe(7);
   });
 
   it('accumulates all minor defects', () => {
@@ -75,16 +75,16 @@ describe('scoreFromDefects', () => {
   it('never goes below 0 even with all defects', () => {
     const worst: DefectChecklist = {
       height_truncated:          true,  // -2
-      facade_holes_visible:      true,  // -2
+      facade_holes_visible:      true,  // -1
       floating_artifacts:        true,  // -1
       neighbor_buildings_merged: true,  // -2
       footprint_wrong_shape:     true,  // -2
       false_positives_merged:    true,  // -2
-      building_recognizable:     false, // -3
+      building_recognizable:     false, // -1
       proportions_correct:       false, // -1
       surface_detail_visible:    false, // -1
     };
-    // Total penalties = 16, but clamped to 0
+    // Total penalties = 13, but clamped to 0
     expect(scoreFromDefects(worst)).toBe(0);
   });
 
@@ -98,7 +98,7 @@ describe('scoreFromDefects', () => {
   it('typical bad build: wrong shape + not recognizable', () => {
     expect(scoreFromDefects(makeChecklist({
       footprint_wrong_shape:  true,  // -2
-      building_recognizable:  false, // -3
-    }))).toBe(5);
+      building_recognizable:  false, // -1
+    }))).toBe(7);
   });
 });
