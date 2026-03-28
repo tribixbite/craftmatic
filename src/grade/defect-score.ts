@@ -31,33 +31,35 @@ export interface DefectChecklist {
 /**
  * Compute a deterministic 0-10 score from a binary defect checklist.
  *
- * Penalty weights (total max = 10):
- *   height_truncated          -2  (moderate: massing truncation)
- *   neighbor_buildings_merged -2  (moderate: footprint contamination)
- *   false_positives_merged    -2  (moderate: footprint contamination)
+ * Penalty weights (total max = 8):
+ *   neighbor_buildings_merged -2  (critical: footprint contamination)
+ *   false_positives_merged    -2  (critical: footprint contamination)
+ *   height_truncated          -1  (minor: Google Tiles LOD limitation, not a pipeline
+ *                                  quality issue — tall buildings are systematically
+ *                                  truncated by photogrammetry source data)
  *   footprint_wrong_shape     -1  (minor: voxelization inherently approximates shapes)
  *   facade_holes_visible      -1  (minor: often false positive from DDA shadow stripes)
  *   floating_artifacts        -1  (minor: noise — common false positive from texture variation)
- *   !building_recognizable    -1  (minor: overall form + proportion assessment combined)
  *   !surface_detail_visible   -1  (minor: material quality)
  *
- * proportions_correct is retained in the checklist for diagnostics but
- * has zero scoring weight — it is redundant with building_recognizable
- * (if proportions are wildly wrong the building won't be recognizable)
- * and the VLM flags both together ~95% of the time, creating an
- * unjustified double-penalty. Even verified-good builds (flatiron 10/10)
- * get both flagged on ~33% of runs as false positives.
+ * Zero-weight fields (retained for diagnostics):
+ *   building_recognizable: subjective meta-judgment that overlaps with specific defect
+ *     fields. If footprint is right and there are no holes → building IS recognizable.
+ *     VLM flags it inconsistently (~33% false-positive on verified-good builds) and
+ *     it double-penalizes alongside the specific fields.
+ *   proportions_correct: redundant with building_recognizable; VLM flags both
+ *     together ~95% of the time.
  */
 export function scoreFromDefects(defects: DefectChecklist): number {
   let score = 10;
-  if (defects.height_truncated)          score -= 2;
+  if (defects.height_truncated)          score -= 1;
   if (defects.facade_holes_visible)      score -= 1;
   if (defects.floating_artifacts)        score -= 1;
   if (defects.neighbor_buildings_merged) score -= 2;
   if (defects.footprint_wrong_shape)     score -= 1;
   if (defects.false_positives_merged)    score -= 2;
-  if (!defects.building_recognizable)    score -= 1;
-  // proportions_correct: 0 penalty — redundant with building_recognizable (see comment above)
+  // building_recognizable: 0 penalty — subjective meta-judgment, overlaps specific fields
+  // proportions_correct: 0 penalty — redundant with building_recognizable
   if (!defects.surface_detail_visible)   score -= 1;
   return Math.max(0, score);
 }
