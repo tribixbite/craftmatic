@@ -1,31 +1,29 @@
 # Iterate State — v300
 
 **Target**: 9/10 buildings at 9+
-**Current**: 1/10 passing
+**Current**: 3/10 passing
 **Model**: gemini-2.5-pro | **Runs/batch**: 3 | **Mode**: fresh (20% trimmed mean)
-**Updated**: 2026-03-28T05:25:22.832Z
+**Updated**: 2026-03-28T11:52:18.880Z
 
 | Building | Difficulty | TrimmedMean | SatRef | Runs | Avg A | Avg B | Avg C | Avg D | Status | Diagnosis |
 |---|---|---|---|---|---|---|---|---|---|
-| flatiron | easy | 8 | 3/5 | 3 | 4.0 | 1.3 | 2.7 | 2.0 | FAIL | massing(1.3/3), identity(2.0/2) |
-| pennzoil | hard | 7 | 3/5 | 3 | 4.0 | 2.3 | 2.0 | 0.7 | FAIL | identity(0.7/2) |
-| nga-east | medium | 10 | 3/5 | 3 | 3.3 | 3.0 | 3.0 | 1.3 | PASS | identity(1.3/2) |
-| dallas-cityhall | hard | 5 | 3/5 | 3 | 2.0 | 2.0 | 1.7 | 0.0 | FAIL | footprint(2.0/4), surface(1.7/3) |
-| seattle-library | hard | 3 | 3/5 | 3 | 2.0 | 0.0 | 2.0 | 0.0 | FAIL | footprint(2.0/4), massing(0.0/3) |
-| boston-cityhall | hard | 4 | 3/5 | 3 | 2.0 | 2.0 | 1.0 | 0.0 | FAIL | footprint(2.0/4), surface(1.0/3) |
-| citigroup | hard | 4 | 3/5 | 3 | 2.0 | 0.0 | 3.0 | 0.0 | FAIL | footprint(2.0/4), massing(0.0/3) |
-| geisel | hard | 4 | 3/5 | 3 | 1.7 | 2.0 | 1.0 | 0.0 | FAIL | footprint(1.7/4), surface(1.0/3) |
-| transamerica | hard | 4 | 3/5 | 3 | 1.0 | 2.0 | 3.0 | 0.0 | FAIL | footprint(1.0/4) |
-| la-cityhall | hard | 3 | 3/5 | 3 | 2.0 | 0.0 | 2.0 | 0.0 | FAIL | footprint(2.0/4), massing(0.0/3) |
+| flatiron | easy | 10 | 3/5 | 3 | 3.0 | 2.0 | 3.0 | 1.3 | PASS | identity(1.3/2), high-variance(range=4) |
+| pennzoil | hard | 10 | 3/5 | 3 | 3.0 | 3.0 | 3.0 | 2.0 | PASS | identity(2.0/2) |
+| nga-east | medium | 10 | 3/5 | 3 | 3.0 | 3.0 | 3.0 | 1.3 | PASS | identity(1.3/2) |
+| dallas-cityhall | hard | 8 | 3/5 | 3 | 3.0 | 2.3 | 3.0 | 0.7 | FAIL | identity(0.7/2) |
+| seattle-library | hard | 5 | 3/5 | 3 | 2.0 | 0.0 | 3.0 | 0.0 | FAIL | footprint(2.0/4), massing(0.0/3) |
+| boston-cityhall | hard | 6 | 3/5 | 3 | 2.0 | 2.0 | 2.3 | 0.0 | FAIL | footprint(2.0/4) |
+| citigroup | hard | 6 | 3/5 | 3 | 2.0 | 2.0 | 2.0 | 0.0 | FAIL | footprint(2.0/4) |
+| geisel | hard | 6 | 3/5 | 3 | 2.0 | 2.3 | 2.0 | 0.0 | FAIL | footprint(2.0/4) |
+| transamerica | hard | 6 | 3/5 | 3 | 3.0 | 0.7 | 3.0 | 0.0 | FAIL | massing(0.7/3) |
+| la-cityhall | hard | 7 | 3/5 | 3 | 2.0 | 2.0 | 3.0 | 0.0 | FAIL | footprint(2.0/4) |
 
 ## Action Items
 
-- [ ] **seattle-library** (3): Improve footprint (post-mask, 2x res, tighter dilate). Fix massing (check capture height, mode-passes).
-- [ ] **la-cityhall** (3): Improve footprint (post-mask, 2x res, tighter dilate). Fix massing (check capture height, mode-passes).
-- [ ] **citigroup** (4): Improve footprint (post-mask, 2x res, tighter dilate). Fix massing (check capture height, mode-passes).
-- [ ] **boston-cityhall** (4): Improve footprint (post-mask, 2x res, tighter dilate).
-- [ ] **geisel** (4): Improve footprint (post-mask, 2x res, tighter dilate).
-- [ ] **transamerica** (4): Improve footprint (post-mask, 2x res, tighter dilate).
-- [ ] **dallas-cityhall** (5): Improve footprint (post-mask, 2x res, tighter dilate).
-- [ ] **pennzoil** (7): Fine-tune pipeline params.
-- [ ] **flatiron** (8): Fix massing (check capture height, mode-passes).
+- [ ] **seattle-library** (5): Improve footprint (post-mask, 2x res, tighter dilate). Fix massing (check capture height, mode-passes).
+- [ ] **citigroup** (6): Improve footprint (post-mask, 2x res, tighter dilate).
+- [ ] **boston-cityhall** (6): Improve footprint (post-mask, 2x res, tighter dilate).
+- [ ] **geisel** (6): Improve footprint (post-mask, 2x res, tighter dilate).
+- [ ] **transamerica** (6): Fix massing (check capture height, mode-passes).
+- [ ] **la-cityhall** (7): Improve footprint (post-mask, 2x res, tighter dilate).
+- [ ] **dallas-cityhall** (8): Fine-tune pipeline params.
