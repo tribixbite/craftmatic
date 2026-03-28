@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
@@ -2610,6 +2610,18 @@ async function main(): Promise<void> {
     const cleaned = removeSmallComponents(trimmed, componentThreshold);
     if (cleaned > 0) {
       console.log(`Component cleanup: ${cleaned} blocks removed (components < ${componentThreshold} voxels)`);
+    }
+  }
+
+  // v300: Remove thin pillar columns (street light poles, traffic signals, etc.)
+  // that survived CCL because they're connected to the building at ground level.
+  // Scans every XZ column — removes those with small cross-section that extend
+  // above the building median height. Run after all processing to catch poles
+  // that survived footprint freeze, post-mask, and component cleanup.
+  {
+    const pillarsRemoved = removeThinPillars(trimmed);
+    if (pillarsRemoved > 0) {
+      console.log(`Pillar removal: ${pillarsRemoved} blocks removed (thin vertical columns)`);
     }
   }
 
