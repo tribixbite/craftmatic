@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit manually. Run: bun scripts/gen-part-dims.ts
-// Generated: 2026-03-18T01:53:34.652Z
+// Generated: 2026-03-28T04:03:26.525Z
 // Source: C:\git\clego\extracted\studio_release\app\ldraw
 // Entries: 12169 non-trivial parts (1×1×1 parts omitted; fall back to default)
 export const GENERATED_DIMS: Record<string, readonly [number, number, number]> = {

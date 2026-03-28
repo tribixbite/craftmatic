@@ -470,25 +470,7 @@ export function voxelizeLDraw(
             const onFace = bracketFaceAxis === 'z' ? z === bracketFacePos : x === bracketFacePos;
             if (!onFace && y !== bracketPlateY) continue;
           }
-          // P3-2: For slope/slope_inv, emit Minecraft stair block at the exposed surface
-          // face instead of a full block. Bottom of each column gets full blocks; only
-          // the topmost cell (slope) or bottommost cell (slope_inv) uses a stair shape.
-          let cellBlock = block;
-          if (slopeAxis !== null && shape !== 'slope_double' && spanY > 0) {
-            const isSlopeSurface =
-              (shape === 'slope' && y === yHi) ||
-              (shape === 'slope_inv' && y === yLo);
-            if (isSlopeSurface) {
-              // slope_inv descends in slopeAscDir, so its exposed face points opposite
-              const ascDir = shape === 'slope_inv' ? -slopeAscDir : slopeAscDir;
-              const facing = slopeAxis === 'x'
-                ? (ascDir >= 0 ? 'east' : 'west')
-                : (ascDir >= 0 ? 'south' : 'north');
-              const half = shape === 'slope_inv' ? 'top' : 'bottom';
-              cellBlock = `minecraft:stone_stairs[facing=${facing},half=${half},shape=straight]`;
-            }
-          }
-          cells.push({ gx: x, gy: y, gz: z, block: cellBlock, color: brick.color });
+          cells.push({ gx: x, gy: y, gz: z, block, color: brick.color });
         }
       }
     }
