@@ -1115,8 +1115,9 @@ async function main(): Promise<void> {
     }
   }
 
-  // Clean up stale state entries for buildings no longer in BUILDINGS config
-  const validKeys = new Set(BUILDINGS.map(b => b.key));
+  // Clean up stale state entries for buildings no longer in any config
+  const allConfigBuildings = [...BUILDINGS, ...BUILDINGS_NEW];
+  const validKeys = new Set(allConfigBuildings.map(b => b.key));
   for (const key of Object.keys(state.buildings)) {
     if (!validKeys.has(key)) {
       console.log(`  Removing stale state entry: ${key}`);
