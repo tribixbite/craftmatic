@@ -1204,6 +1204,46 @@ async function main(): Promise<void> {
           const polygon = osmData.polygon.map((p: { lat: number; lon: number }) => ({ lat: p.lat, lon: p.lon }));
           buildingAlignment = computeBuildingAlignment(polygon, args.coords.lat, args.coords.lng);
           console.log(`Building alignment: ${buildingAlignment.rotationDeg.toFixed(1)}° MBR ${buildingAlignment.mbrWidth.toFixed(0)}×${buildingAlignment.mbrDepth.toFixed(0)}m`);
+
+          // v302: Pre-clip meshes to OSM building bounds + buffer.
+          // Fixed capture produces GLBs with ALL meshes in capture radius (~100-160m diameter).
+          // Without clipping, the voxel grid is dominated by surrounding context and OSM mask
+          // can't match (IoU near zero). Clip to building dimensions to get a building-sized grid.
+          const clipHalfX = Math.max(buildingAlignment.mbrWidth, buildingAlignment.mbrDepth) / 2 + 15;
+          const clipHalfZ = clipHalfX;
+          // The capture center (building) maps to grid origin after centering + rotation + re-centering.
+          // Clip meshes whose bounding boxes are entirely outside the clip box.
+          let clippedCount = 0;
+          const meshesToRemove: THREE.Object3D[] = [];
+          scene.traverse((child) => {
+            if (!(child instanceof THREE.Mesh) || !child.geometry) return;
+            const geo = child.geometry as THREE.BufferGeometry;
+            if (!geo.boundingBox) geo.computeBoundingBox();
+            const bb = geo.boundingBox!;
+            // Check if mesh is entirely outside clip box in XZ
+            if (bb.max.x < -clipHalfX || bb.min.x > clipHalfX ||
+                bb.max.z < -clipHalfZ || bb.min.z > clipHalfZ) {
+              meshesToRemove.push(child);
+              clippedCount++;
+            }
+          });
+          for (const m of meshesToRemove) m.removeFromParent();
+
+          if (clippedCount > 0) {
+            // Re-center after clipping
+            const cb = new THREE.Box3().setFromObject(scene);
+            const cc = new THREE.Vector3();
+            cb.getCenter(cc);
+            const cbs = new THREE.Vector3();
+            cb.getSize(cbs);
+            const clipShift = new THREE.Matrix4().makeTranslation(-cc.x, -cb.min.y, -cc.z);
+            scene.traverse((child) => {
+              if (child instanceof THREE.Mesh && child.geometry) {
+                child.geometry.applyMatrix4(clipShift);
+              }
+            });
+            console.log(`Pre-clip: removed ${clippedCount} meshes outside building bounds (±${clipHalfX.toFixed(0)}m), grid now ${cbs.x.toFixed(0)}×${cbs.y.toFixed(0)}×${cbs.z.toFixed(0)}m`);
+          }
         }
       } catch (e) {
         console.warn('OSM alignment query failed');
