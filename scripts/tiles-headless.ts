@@ -451,9 +451,13 @@ function extractMeshes(source: THREE.Object3D, label: string): number {
       return;
     }
 
-    // Clone with world transform baked in
+    // Clone with world transform baked into GEOMETRY vertices.
+    // child.matrixWorld maps tile-local (GLTF Y-up) → scene world (OBJECT_FRAME).
+    // Object3D.applyMatrix4 only changes the object matrix, NOT vertex positions.
+    // Must deep-clone geometry and apply matrixWorld to vertex data directly.
     const cloned = child.clone();
-    cloned.applyMatrix4(child.matrixWorld);
+    cloned.geometry = child.geometry.clone();
+    cloned.geometry.applyMatrix4(child.matrixWorld);
     cloned.position.set(0, 0, 0);
     cloned.rotation.set(0, 0, 0);
     cloned.scale.set(1, 1, 1);

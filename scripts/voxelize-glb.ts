@@ -580,6 +580,20 @@ async function decodeTexturesWithSharp(
   console.log(`[voxelize] Decoded ${validCount}/${imageBuffers.length} textures, assigned to ${replaced} meshes`);
 }
 
+// ─── North-Alignment for Headless GLBs ──────────────────────────────────────
+//
+// 3d-tiles-renderer's ReorientationPlugin uses OBJECT_FRAME which maps:
+//   +X = West,  +Y = Up,  +Z = North
+// (confirmed from Ellipsoid.js OBJECT_FRAME rotation: Euler(-π/2, 0, π, 'XYZ'))
+//
+// Our topdown renderer maps X→right, Z→down, so without correction:
+//   right = West (should be East), down = North (should be South)
+//
+// Fix: rotate 180° around Y to negate both X and Z:
+//   +X = East, +Z = South → right=East, down=South → north-up ✓
+//
+const HEADLESS_NORTH_ALIGN = Math.PI; // 180° Y-rotation to fix OBJECT_FRAME convention
+
 // ─── ENU Reorientation ──────────────────────────────────────────────────────
 
 /**
@@ -1156,6 +1170,45 @@ async function main(): Promise<void> {
       }
     });
     console.log(`Centered: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} m`);
+
+    // v302: North-align headless GLBs by correcting OBJECT_FRAME convention.
+    // ReorientationPlugin produces +X=West, +Z=North. Rotate 180° around Y
+    // to get +X=East, +Z=South — matching satellite north-up convention.
+    const yFlip = new THREE.Matrix4().makeRotationY(HEADLESS_NORTH_ALIGN);
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        child.geometry.applyMatrix4(yFlip);
+      }
+    });
+    // Re-center after rotation
+    const nb = new THREE.Box3().setFromObject(scene);
+    const nc = new THREE.Vector3();
+    nb.getCenter(nc);
+    const reshift = new THREE.Matrix4().makeTranslation(-nc.x, -nb.min.y, -nc.z);
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        child.geometry.applyMatrix4(reshift);
+      }
+    });
+    const ns = new THREE.Vector3();
+    nb.getSize(ns);
+    // enuHorizontalAngle stays 0: after 180° rotation, mesh frame is X=East, Z=South
+    // which matches the OSM polygon projection convention directly — no additional rotation needed.
+    console.log(`North-aligned (180° Y-flip): ${ns.x.toFixed(1)} x ${ns.y.toFixed(1)} x ${ns.z.toFixed(1)} m`);
+
+    // Still query OSM for building alignment (used by satellite zoom, masking, etc.)
+    if (args.coords && !args.noOsm) {
+      try {
+        const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
+        if (osmData?.polygon?.length >= 3) {
+          const polygon = osmData.polygon.map((p: { lat: number; lon: number }) => ({ lat: p.lat, lon: p.lon }));
+          buildingAlignment = computeBuildingAlignment(polygon, args.coords.lat, args.coords.lng);
+          console.log(`Building alignment: ${buildingAlignment.rotationDeg.toFixed(1)}° MBR ${buildingAlignment.mbrWidth.toFixed(0)}×${buildingAlignment.mbrDepth.toFixed(0)}m`);
+        }
+      } catch (e) {
+        console.warn('OSM alignment query failed');
+      }
+    }
   } else {
     // v300: Compute BuildingAlignment from OSM for precise mesh rotation.
     // Must run before reorientToENU — the main OSM query happens later (post-voxelization).
@@ -1164,8 +1217,8 @@ async function main(): Promise<void> {
       try {
         const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
         if (osmData?.polygon?.length >= 3) {
-          // OSM returns {lat, lng} but computeBuildingAlignment expects {lat, lon}
-          const polygon = osmData.polygon.map((p: { lat: number; lng: number }) => ({ lat: p.lat, lon: p.lng }));
+          // OSM returns {lat, lon} — same as computeBuildingAlignment expects
+          const polygon = osmData.polygon.map((p: { lat: number; lon: number }) => ({ lat: p.lat, lon: p.lon }));
           buildingAlignment = computeBuildingAlignment(polygon, args.coords.lat, args.coords.lng);
           console.log(`Building alignment: ${buildingAlignment.rotationDeg.toFixed(1)}° MBR ${buildingAlignment.mbrWidth.toFixed(0)}×${buildingAlignment.mbrDepth.toFixed(0)}m`);
         }
