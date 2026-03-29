@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>v301 Building Review</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0e0e1a; color: #e0e0e0; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; height: 100vh; display: flex; }
+
+  /* Sidebar */
+  #sidebar { width: 240px; min-width: 240px; background: #14141f; border-right: 1px solid #2a2a3a; overflow-y: auto; display: flex; flex-direction: column; }
+  #sidebar h2 { font-size: 13px; padding: 12px 14px 4px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+  .group-label {
+    font-size: 10px; padding: 10px 14px 4px; color: #555; text-transform: uppercase;
+    letter-spacing: 0.1em; border-top: 1px solid #1e1e2e;
+  }
+  .group-label:first-of-type { border-top: none; }
+  .group-summary { font-size: 11px; padding: 2px 14px 6px; color: #4ade80; }
+  .group-summary.has-fail { color: #fbbf24; }
+  .building-card {
+    display: flex; align-items: center; gap: 10px; padding: 7px 14px; cursor: pointer;
+    transition: background 0.15s; border-left: 3px solid transparent;
+  }
+  .building-card:hover { background: #1e1e2e; }
+  .building-card.active { background: #1a1a30; border-left-color: #6a8cff; }
+  .building-card img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; background: #222; }
+  .building-card .info { flex: 1; min-width: 0; }
+  .building-card .name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .building-card .meta { font-size: 10px; margin-top: 2px; display: flex; gap: 8px; align-items: center; }
+  .building-card .score-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px; font-weight: 600;
+    font-size: 10px; letter-spacing: 0.02em;
+  }
+  .building-card .score-badge.pass { background: #16a34a22; color: #4ade80; }
+  .building-card .score-badge.fail { background: #dc262622; color: #f87171; }
+  .building-card .difficulty { color: #666; font-size: 10px; }
+
+  /* Main area */
+  #main-area { flex: 1; display: flex; flex-direction: column; position: relative; }
+
+  /* View mode tabs */
+  #view-tabs {
+    display: flex; gap: 0; background: #14141f; border-bottom: 1px solid #2a2a3a;
+    padding: 0 12px; flex-shrink: 0;
+  }
+  .view-tab {
+    padding: 8px 16px; font-size: 12px; color: #666; cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.15s;
+  }
+  .view-tab:hover { color: #aaa; }
+  .view-tab.active { color: #e0e0e0; border-bottom-color: #6a8cff; }
+
+  /* Viewer */
+  #viewer-area { flex: 1; position: relative; background: #1a1a2e; }
+  #viewer-area canvas { display: block; width: 100%; height: 100%; }
+  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #666; font-size: 14px; z-index: 5; }
+  #hud {
+    position: absolute; top: 12px; right: 12px; background: rgba(10,10,20,0.85);
+    border-radius: 6px; padding: 10px 14px; font-size: 12px; line-height: 1.6;
+    backdrop-filter: blur(8px); border: 1px solid #2a2a3a; pointer-events: none; z-index: 3;
+  }
+  #hud .label { color: #888; }
+  #controls-bar {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(10,10,20,0.85); border-radius: 6px; padding: 8px 16px;
+    display: flex; align-items: center; gap: 14px; backdrop-filter: blur(8px);
+    border: 1px solid #2a2a3a; font-size: 12px; z-index: 3;
+  }
+  #controls-bar label { color: #888; white-space: nowrap; }
+  #cutaway { width: 100px; accent-color: #6a8cff; }
+  #empty-state {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; color: #444; font-size: 14px; gap: 8px;
+  }
+  #empty-state .hint { font-size: 11px; color: #333; }
+
+  /* Grade composite overlay */
+  #grade-view { flex: 1; position: relative; background: #111; display: none; overflow: auto; }
+  #grade-view img {
+    max-width: 100%; max-height: 100%; display: block; margin: auto;
+    object-fit: contain; image-rendering: auto;
+  }
+  #grade-view .no-grade {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: #444; font-size: 14px;
+  }
+
+  /* Mobile */
+  @media (max-width: 700px) {
+    body { flex-direction: column; }
+    #sidebar { width: 100%; min-width: 100%; max-height: 30vh; flex-direction: row; flex-wrap: wrap; align-content: flex-start; overflow-x: auto; }
+    #sidebar h2, .group-label, .group-summary { width: 100%; }
+    .building-card { flex: 0 0 auto; padding: 5px 8px; }
+    .building-card img { width: 32px; height: 32px; }
+    .building-card .name { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>v301 Buildings</h2>
+  <div class="group-label">Old (v300 set)</div>
+  <div class="group-summary has-fail" id="old-summary"></div>
+  <div id="old-list"></div>
+  <div class="group-label">New (v301 set)</div>
+  <div class="group-summary" id="new-summary"></div>
+  <div id="new-list"></div>
+</div>
+
+<div id="main-area">
+  <div id="view-tabs">
+    <div class="view-tab active" data-view="3d">3D Viewer</div>
+    <div class="view-tab" data-view="grade">Grade Composite</div>
+  </div>
+
+  <div id="viewer-area">
+    <div id="empty-state">
+      <div>Select a building to view</div>
+      <div class="hint">Click a building in the sidebar, then orbit/pan/zoom in 3D</div>
+    </div>
+    <div id="loading" hidden>Loading .schem...</div>
+    <div id="hud" hidden></div>
+    <div id="controls-bar" hidden>
+      <label>Cutaway</label>
+      <input type="range" id="cutaway" min="0" max="100" value="100">
+      <span id="cutaway-label">All</span>
+    </div>
+  </div>
+
+  <div id="grade-view">
+    <div class="no-grade">Select a building to view its grade composite</div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── Building manifest (updated 2026-03-29) ──
+const OLD_BUILDINGS = [
+  { key: 'flatiron', name: 'Flatiron Building', score: 9, difficulty: 'easy' },
+  { key: 'pennzoil', name: 'Pennzoil Place', score: 10, difficulty: 'hard' },
+  { key: 'nga-east', name: 'NGA East Building', score: 10, difficulty: 'medium' },
+  { key: 'dallas-cityhall', name: 'Dallas City Hall', score: 10, difficulty: 'hard' },
+  { key: 'seattle-library', name: 'Seattle Library', score: 9, difficulty: 'hard' },
+  { key: 'boston-cityhall', name: 'Boston City Hall', score: 9, difficulty: 'hard' },
+  { key: 'citigroup', name: 'Citigroup Center', score: 8, difficulty: 'hard' },
+  { key: 'geisel', name: 'Geisel Library', score: 9.3, difficulty: 'hard' },
+  { key: 'transamerica', name: 'Transamerica Pyramid', score: 9.3, difficulty: 'hard' },
+  { key: 'la-cityhall', name: 'LA City Hall', score: 10, difficulty: 'hard' },
+];
+const NEW_BUILDINGS = [
+  { key: 'marina-city', name: 'Marina City', score: 10, difficulty: 'hard' },
+  { key: 'hearst-tower', name: 'Hearst Tower', score: 10, difficulty: 'hard' },
+  { key: 'guggenheim', name: 'Guggenheim Museum', score: 9, difficulty: 'hard' },
+  { key: 'fbi-hq', name: 'FBI Headquarters', score: 10, difficulty: 'medium' },
+  { key: 'mopop', name: 'MoPOP Seattle', score: 9, difficulty: 'hard' },
+  { key: 'natl-cathedral', name: 'National Cathedral', score: 10, difficulty: 'hard' },
+  { key: 'boa-tower', name: 'BoA Tower NYC', score: 9, difficulty: 'hard' },
+  { key: 'tribune-tower', name: 'Tribune Tower', score: 10, difficulty: 'hard' },
+  { key: 'vessel-nyc', name: 'Vessel NYC', score: 9.3, difficulty: 'hard' },
+  { key: 'disney-hall', name: 'Disney Concert Hall', score: 10, difficulty: 'hard' },
+];
+
+// ── Block colors (subset of colors.ts) ──
+const BLOCK_COLORS = {
+  'minecraft:stone': [125,125,125], 'minecraft:stone_bricks': [122,122,122],
+  'minecraft:cobblestone': [127,127,127], 'minecraft:smooth_stone': [165,165,165],
+  'minecraft:smooth_quartz': [235,229,222], 'minecraft:quartz_block': [235,230,224],
+  'minecraft:bricks': [150,97,83], 'minecraft:andesite': [136,136,136],
+  'minecraft:polished_andesite': [136,136,132], 'minecraft:polished_deepslate': [72,72,76],
+  'minecraft:deepslate_bricks': [76,76,80], 'minecraft:polished_blackstone': [53,48,56],
+  'minecraft:blackstone': [42,36,41], 'minecraft:nether_bricks': [72,30,35],
+  'minecraft:iron_block': [220,220,220], 'minecraft:iron_bars': [160,160,160],
+  'minecraft:white_concrete': [207,213,214], 'minecraft:light_gray_concrete': [125,125,115],
+  'minecraft:gray_concrete': [54,57,61], 'minecraft:black_concrete': [8,10,15],
+  'minecraft:brown_concrete': [96,60,32], 'minecraft:red_concrete': [142,33,33],
+  'minecraft:orange_concrete': [224,97,1], 'minecraft:yellow_concrete': [241,175,21],
+  'minecraft:lime_concrete': [94,169,25], 'minecraft:green_concrete': [73,91,36],
+  'minecraft:cyan_concrete': [21,119,136], 'minecraft:light_blue_concrete': [36,137,199],
+  'minecraft:blue_concrete': [45,47,143], 'minecraft:purple_concrete': [100,32,156],
+  'minecraft:magenta_concrete': [169,48,159], 'minecraft:pink_concrete': [214,101,143],
+  'minecraft:terracotta': [152,94,67], 'minecraft:white_terracotta': [210,178,161],
+  'minecraft:brown_terracotta': [77,51,36], 'minecraft:red_terracotta': [143,61,47],
+  'minecraft:orange_terracotta': [162,84,38], 'minecraft:gray_terracotta': [57,42,36],
+  'minecraft:light_gray_terracotta': [135,107,98], 'minecraft:green_terracotta': [76,83,42],
+  'minecraft:cyan_terracotta': [86,91,91],
+  'minecraft:sandstone': [218,210,158], 'minecraft:smooth_sandstone': [223,214,170],
+  'minecraft:end_stone_bricks': [218,224,162], 'minecraft:birch_planks': [192,175,121],
+  'minecraft:oak_planks': [162,131,79], 'minecraft:spruce_planks': [115,85,49],
+  'minecraft:dark_oak_planks': [67,43,20], 'minecraft:acacia_planks': [168,90,50],
+  'minecraft:glass': [200,220,240], 'minecraft:glass_pane': [200,220,240],
+  'minecraft:gray_stained_glass': [76,76,76], 'minecraft:black_stained_glass': [25,25,30],
+  'minecraft:light_gray_stained_glass': [153,153,153],
+  'minecraft:white_stained_glass': [230,230,230],
+  'minecraft:blue_stained_glass': [51,76,178], 'minecraft:light_blue_stained_glass': [102,153,216],
+  'minecraft:cyan_stained_glass': [76,127,153], 'minecraft:green_stained_glass': [102,127,51],
+  'minecraft:red_stained_glass': [153,51,51], 'minecraft:orange_stained_glass': [216,127,51],
+  'minecraft:yellow_stained_glass': [229,229,51], 'minecraft:pink_stained_glass': [242,127,165],
+  'minecraft:purple_stained_glass': [127,63,178], 'minecraft:magenta_stained_glass': [178,76,216],
+  'minecraft:brown_stained_glass': [102,76,51], 'minecraft:lime_stained_glass': [127,204,25],
+  'minecraft:polished_granite': [154,106,89], 'minecraft:granite': [153,114,99],
+  'minecraft:diorite': [188,188,188], 'minecraft:polished_diorite': [192,192,195],
+  'minecraft:prismarine': [99,162,148], 'minecraft:dark_prismarine': [51,91,75],
+  'minecraft:chain': [55,55,70], 'minecraft:end_rod': [220,220,200],
+  'minecraft:lightning_rod': [200,150,80],
+  'minecraft:deepslate_tiles': [54,54,58], 'minecraft:deepslate_tile_stairs': [54,54,58],
+  'minecraft:copper_block': [192,107,79], 'minecraft:oxidized_copper': [82,162,132],
+  'minecraft:tuff': [108,109,102], 'minecraft:calcite': [224,224,220],
+  'minecraft:mud_bricks': [137,104,80], 'minecraft:packed_mud': [142,106,80],
+};
+
+function getBlockColor(block) {
+  if (block === 'minecraft:air') return null;
+  if (BLOCK_COLORS[block]) return BLOCK_COLORS[block];
+  const base = block.replace(/\[.*\]/, '');
+  if (BLOCK_COLORS[base]) return BLOCK_COLORS[base];
+  // Check for stained glass pane variants
+  if (base.includes('stained_glass_pane')) {
+    const glassBase = base.replace('_pane', '');
+    if (BLOCK_COLORS[glassBase]) return BLOCK_COLORS[glassBase];
+  }
+  // Fallback: hash to color
+  let h = 0;
+  for (let i = 0; i < base.length; i++) h = ((h << 5) - h + base.charCodeAt(i)) | 0;
+  return [(h & 0xFF0000) >> 16 | 80, (h & 0x00FF00) >> 8 | 80, (h & 0x0000FF) | 80];
+}
+
+// ── Schem parser (inline, minimal) ──
+function parseSchem(buffer) {
+  const compressed = new Uint8Array(buffer);
+  let data;
+  try { data = pako.inflate(compressed); } catch { data = compressed; }
+
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  let pos = 0;
+
+  function readByte() { return view.getInt8(pos++); }
+  function readShort() { const v = view.getInt16(pos); pos += 2; return v; }
+  function readInt() { const v = view.getInt32(pos); pos += 4; return v; }
+  function readString() {
+    const len = view.getUint16(pos); pos += 2;
+    const bytes = data.subarray(pos, pos + len); pos += len;
+    return new TextDecoder().decode(bytes);
+  }
+  function readByteArray() { const len = readInt(); const arr = data.slice(pos, pos + len); pos += len; return arr; }
+  function readIntArray() { const len = readInt(); const arr = new Int32Array(len); for (let i = 0; i < len; i++) arr[i] = readInt(); return arr; }
+
+  function readTag(tagType) {
+    switch (tagType) {
+      case 1: return readByte();
+      case 2: return readShort();
+      case 3: return readInt();
+      case 4: { const v = view.getBigInt64(pos); pos += 8; return Number(v); }
+      case 5: { const v = view.getFloat32(pos); pos += 4; return v; }
+      case 6: { const v = view.getFloat64(pos); pos += 8; return v; }
+      case 7: return readByteArray();
+      case 8: return readString();
+      case 9: {
+        const listType = readByte();
+        const len = readInt();
+        const arr = [];
+        for (let i = 0; i < len; i++) arr.push(readTag(listType));
+        return arr;
+      }
+      case 10: return readCompound();
+      case 11: return readIntArray();
+      case 12: { const len = readInt(); for (let i = 0; i < len; i++) pos += 8; return null; }
+      default: throw new Error(`Unknown NBT tag: ${tagType}`);
+    }
+  }
+
+  function readCompound() {
+    const obj = {};
+    while (true) {
+      const type = readByte();
+      if (type === 0) break;
+      const name = readString();
+      obj[name] = readTag(type);
+    }
+    return obj;
+  }
+
+  const rootType = readByte();
+  readString();
+  const root = readCompound();
+  const sch = root['Schematic'] || root;
+
+  const W = sch['Width'], H = sch['Height'], L = sch['Length'];
+  const palette = {};
+  for (const [block, id] of Object.entries(sch['Palette'] || {})) palette[id] = block;
+
+  const raw = sch['BlockData'];
+  const blocks = [];
+  let o = 0;
+  for (let i = 0; i < W * H * L; i++) {
+    let val = 0, shift = 0;
+    while (true) {
+      const b = raw[o++];
+      val |= (b & 0x7f) << shift;
+      if ((b & 0x80) === 0) break;
+      shift += 7;
+    }
+    blocks.push(palette[val] || 'minecraft:air');
+  }
+
+  return { width: W, height: H, length: L, blocks };
+}
+
+// ── Three.js viewer ──
+let scene, camera, renderer, controls, meshGroup;
+let currentGrid = null;
+let currentBuilding = null;
+let instanceData = [];
+let activeView = '3d';
+
+const viewerArea = document.getElementById('viewer-area');
+const gradeView = document.getElementById('grade-view');
+const loading = document.getElementById('loading');
+const hud = document.getElementById('hud');
+const controlsBar = document.getElementById('controls-bar');
+const emptyState = document.getElementById('empty-state');
+const cutawaySlider = document.getElementById('cutaway');
+const cutawayLabel = document.getElementById('cutaway-label');
+
+// ── View tab switching ──
+document.querySelectorAll('.view-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    activeView = tab.dataset.view;
+    viewerArea.style.display = activeView === '3d' ? '' : 'none';
+    gradeView.style.display = activeView === 'grade' ? 'flex' : 'none';
+    if (activeView === 'grade' && currentBuilding) {
+      showGradeComposite(currentBuilding);
+    }
+    // Force resize when switching back to 3D
+    if (activeView === '3d' && renderer) {
+      const w = viewerArea.clientWidth, h = viewerArea.clientHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+  });
+});
+
+function showGradeComposite(b) {
+  const gradePath = `grade-v301-${b.key}.jpg`;
+  gradeView.innerHTML = `<img src="${gradePath}" alt="Grade composite for ${b.name}" onerror="this.outerHTML='<div class=no-grade>No grade composite found for ${b.name}</div>'">`;
+}
+
+function initThree() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1a1a2e);
+  scene.fog = new THREE.FogExp2(0x1a1a2e, 0.003);
+
+  camera = new THREE.PerspectiveCamera(55, viewerArea.clientWidth / viewerArea.clientHeight, 0.1, 2000);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(viewerArea.clientWidth, viewerArea.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  viewerArea.appendChild(renderer.domElement);
+
+  // Lighting
+  scene.add(new THREE.AmbientLight(0x606080, 0.5));
+  scene.add(new THREE.HemisphereLight(0x87ceeb, 0x443322, 0.6));
+  const sun = new THREE.DirectionalLight(0xfff0dd, 1.8);
+  sun.position.set(40, 60, 25);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.bias = -0.001;
+  scene.add(sun);
+  scene.add(new THREE.DirectionalLight(0x8899cc, 0.4).translateOnAxis(new THREE.Vector3(-1, 0.7, -0.7).normalize(), 50));
+
+  // Ground plane
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(500, 500),
+    new THREE.MeshStandardMaterial({ color: 0x2a3a1a, roughness: 0.9 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.5;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.maxPolarAngle = Math.PI * 0.48; // prevent going under ground
+
+  meshGroup = new THREE.Group();
+  scene.add(meshGroup);
+
+  (function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  })();
+
+  new ResizeObserver(() => {
+    if (activeView !== '3d') return;
+    const w = viewerArea.clientWidth, h = viewerArea.clientHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  }).observe(viewerArea);
+}
+
+function clearMeshes() {
+  while (meshGroup.children.length > 0) {
+    const child = meshGroup.children[0];
+    meshGroup.remove(child);
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (child.material.map) child.material.map.dispose();
+      child.material.dispose();
+    }
+  }
+  instanceData = [];
+}
+
+function buildScene(grid) {
+  clearMeshes();
+  currentGrid = grid;
+  const { width, height, length, blocks } = grid;
+
+  // Group blocks by color + material type for instanced rendering
+  const groups = new Map();
+  const isGlass = (b) => b.includes('glass') || b.includes('_pane') || b === 'minecraft:iron_bars';
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * length + z) * width + x;
+        const block = blocks[idx];
+        if (block === 'minecraft:air') continue;
+        const rgb = getBlockColor(block);
+        if (!rgb) continue;
+        const glass = isGlass(block);
+        const key = `${rgb[0]},${rgb[1]},${rgb[2]},${glass ? 1 : 0}`;
+        if (!groups.has(key)) groups.set(key, { color: rgb, glass, positions: [] });
+        groups.get(key).positions.push([x - width / 2, y, z - length / 2]);
+      }
+    }
+  }
+
+  // InstancedMesh per color group
+  const geo = new THREE.BoxGeometry(1.002, 1.002, 1.002);
+  const dummy = new THREE.Object3D();
+
+  // Sort: opaque first, then glass (for correct transparency)
+  const sorted = [...groups.entries()].sort((a, b) => (a[1].glass ? 1 : 0) - (b[1].glass ? 1 : 0));
+
+  for (const [, group] of sorted) {
+    const { color, glass, positions } = group;
+    const mat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(color[0] / 255, color[1] / 255, color[2] / 255),
+      roughness: glass ? 0.05 : 0.85,
+      metalness: glass ? 0.4 : 0.0,
+      transparent: glass,
+      opacity: glass ? 0.65 : 1.0,
+      depthWrite: !glass,
+    });
+    const mesh = new THREE.InstancedMesh(geo, mat, positions.length);
+    mesh.castShadow = !glass;
+    mesh.receiveShadow = !glass;
+
+    const yPositions = new Float32Array(positions.length);
+    for (let i = 0; i < positions.length; i++) {
+      const [px, py, pz] = positions[i];
+      dummy.position.set(px, py, pz);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      yPositions[i] = py;
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.userData.yPositions = yPositions;
+    mesh.userData.positions = positions;
+    meshGroup.add(mesh);
+    instanceData.push(mesh);
+  }
+
+  // Camera positioning
+  const maxDim = Math.max(width, height, length);
+  camera.position.set(maxDim * 0.9, maxDim * 0.65, maxDim * 0.9);
+  controls.target.set(0, height / 3, 0);
+  controls.maxDistance = maxDim * 4;
+  controls.update();
+
+  // Shadow bounds
+  const sun = scene.children.find(c => c.isDirectionalLight && c.castShadow);
+  if (sun) {
+    const r = maxDim * 1.2;
+    sun.shadow.camera.left = -r;
+    sun.shadow.camera.right = r;
+    sun.shadow.camera.top = r;
+    sun.shadow.camera.bottom = -r;
+    sun.shadow.camera.far = r * 4;
+    sun.shadow.camera.updateProjectionMatrix();
+  }
+
+  cutawaySlider.max = height;
+  cutawaySlider.value = height;
+  cutawayLabel.textContent = 'All';
+}
+
+// Cutaway slider
+cutawaySlider.addEventListener('input', () => {
+  if (!currentGrid) return;
+  const maxY = parseInt(cutawaySlider.value);
+  cutawayLabel.textContent = maxY >= currentGrid.height ? 'All' : `Y ${maxY}/${currentGrid.height}`;
+  const dummy = new THREE.Object3D();
+  for (const mesh of instanceData) {
+    const yPos = mesh.userData.yPositions;
+    const positions = mesh.userData.positions;
+    for (let i = 0; i < yPos.length; i++) {
+      if (yPos[i] > maxY) {
+        dummy.position.set(99999, 99999, 99999);
+      } else {
+        dummy.position.set(positions[i][0], positions[i][1], positions[i][2]);
+      }
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+});
+
+// ── Sidebar population ──
+function createCard(b, container) {
+  const card = document.createElement('div');
+  card.className = 'building-card';
+  card.dataset.key = b.key;
+  const isoPath = `${b.key}-v301-iso.jpg`;
+  const scoreClass = b.score >= 9 ? 'pass' : 'fail';
+  card.innerHTML = `
+    <img src="${isoPath}" alt="${b.name}" loading="lazy"
+      onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 1 1%22><rect fill=%22%23333%22 width=%221%22 height=%221%22/></svg>'">
+    <div class="info">
+      <div class="name">${b.name}</div>
+      <div class="meta">
+        <span class="score-badge ${scoreClass}">${b.score}</span>
+        <span class="difficulty">${b.difficulty}</span>
+      </div>
+    </div>
+  `;
+  card.addEventListener('click', () => loadBuilding(b, card));
+  container.appendChild(card);
+}
+
+// Group summaries
+function updateSummary(buildings, el) {
+  const pass = buildings.filter(b => b.score >= 9).length;
+  const total = buildings.length;
+  el.textContent = `${pass}/${total} at 9+`;
+  el.classList.toggle('has-fail', pass < total);
+}
+
+OLD_BUILDINGS.forEach(b => createCard(b, document.getElementById('old-list')));
+NEW_BUILDINGS.forEach(b => createCard(b, document.getElementById('new-list')));
+updateSummary(OLD_BUILDINGS, document.getElementById('old-summary'));
+updateSummary(NEW_BUILDINGS, document.getElementById('new-summary'));
+
+async function loadBuilding(b, card) {
+  document.querySelectorAll('.building-card').forEach(c => c.classList.remove('active'));
+  card.classList.add('active');
+  currentBuilding = b;
+
+  // Update grade view regardless of current tab
+  showGradeComposite(b);
+
+  // Handle 3D view
+  emptyState.hidden = true;
+  loading.hidden = false;
+  controlsBar.hidden = true;
+  hud.hidden = true;
+
+  if (!renderer) initThree();
+
+  try {
+    const schemPath = `${b.key}-v301.schem`;
+    const resp = await fetch(schemPath);
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+    const buffer = await resp.arrayBuffer();
+    const grid = parseSchem(buffer);
+
+    buildScene(grid);
+
+    let blockCount = 0;
+    const paletteSet = new Set();
+    for (const bl of grid.blocks) {
+      if (bl !== 'minecraft:air') {
+        blockCount++;
+        paletteSet.add(bl.replace(/\[.*\]/, ''));
+      }
+    }
+
+    hud.innerHTML = `
+      <div><span class="label">Building:</span> ${b.name}</div>
+      <div><span class="label">Grid:</span> ${grid.width} x ${grid.height} x ${grid.length}</div>
+      <div><span class="label">Blocks:</span> ${blockCount.toLocaleString()}</div>
+      <div><span class="label">Palette:</span> ${paletteSet.size} types</div>
+      <div><span class="label">Score:</span> <span style="color:${b.score >= 9 ? '#4ade80' : '#f87171'}">${b.score}/10</span></div>
+    `;
+    hud.hidden = false;
+    controlsBar.hidden = false;
+  } catch (err) {
+    console.error('Load failed:', err);
+    hud.innerHTML = `<div style="color:#f87171">Failed to load: ${err.message}</div>`;
+    hud.hidden = false;
+  } finally {
+    loading.hidden = true;
+  }
+}
+
+// Auto-select from URL hash
+const hash = location.hash.slice(1);
+if (hash) {
+  const all = [...OLD_BUILDINGS, ...NEW_BUILDINGS];
+  const b = all.find(x => x.key === hash);
+  if (b) {
+    const card = document.querySelector(`.building-card[data-key="${hash}"]`);
+    if (card) setTimeout(() => loadBuilding(b, card), 100);
+  }
+}
+
+// Keyboard: left/right to navigate, G to toggle grade view
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'g' || e.key === 'G') {
+    const target = activeView === '3d' ? 'grade' : '3d';
+    document.querySelector(`.view-tab[data-view="${target}"]`).click();
+    return;
+  }
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const all = [...OLD_BUILDINGS, ...NEW_BUILDINGS];
+  const idx = currentBuilding ? all.findIndex(b => b.key === currentBuilding.key) : -1;
+  const next = e.key === 'ArrowRight' ? (idx + 1) % all.length : (idx - 1 + all.length) % all.length;
+  const b = all[next];
+  const card = document.querySelector(`.building-card[data-key="${b.key}"]`);
+  if (card) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    loadBuilding(b, card);
+  }
+});
+</script>
+</body>
+</html>
