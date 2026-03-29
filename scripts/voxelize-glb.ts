@@ -1209,8 +1209,18 @@ async function main(): Promise<void> {
           // Fixed capture produces GLBs with ALL meshes in capture radius (~100-160m diameter).
           // Without clipping, the voxel grid is dominated by surrounding context and OSM mask
           // can't match (IoU near zero). Clip to building dimensions to get a building-sized grid.
-          const clipHalfX = Math.max(buildingAlignment.mbrWidth, buildingAlignment.mbrDepth) / 2 + 15;
-          const clipHalfZ = clipHalfX;
+          // Compute axis-aligned clip bounds from the rotated MBR.
+          // rotationDeg = compass bearing of MBR long axis (CW from north).
+          // Grid after 180° Y-rotation: +X=East, +Z=South.
+          // MBR long axis direction in grid: X=sin(θ), Z=cos(θ)
+          const theta = buildingAlignment.rotationDeg * Math.PI / 180;
+          const sinT = Math.abs(Math.sin(theta));
+          const cosT = Math.abs(Math.cos(theta));
+          const halfW = buildingAlignment.mbrWidth / 2;   // long axis half-length
+          const halfD = buildingAlignment.mbrDepth / 2;    // short axis half-length
+          // AABB of the rotated MBR + 15m buffer
+          const clipHalfX = halfW * sinT + halfD * cosT + 15;
+          const clipHalfZ = halfW * cosT + halfD * sinT + 15;
           // The capture center (building) maps to grid origin after centering + rotation + re-centering.
           // Clip meshes whose bounding boxes are entirely outside the clip box.
           let clippedCount = 0;
@@ -1242,7 +1252,7 @@ async function main(): Promise<void> {
                 child.geometry.applyMatrix4(clipShift);
               }
             });
-            console.log(`Pre-clip: removed ${clippedCount} meshes outside building bounds (±${clipHalfX.toFixed(0)}m), grid now ${cbs.x.toFixed(0)}×${cbs.y.toFixed(0)}×${cbs.z.toFixed(0)}m`);
+            console.log(`Pre-clip: removed ${clippedCount} meshes outside building bounds (±${clipHalfX.toFixed(0)}×${clipHalfZ.toFixed(0)}m), grid now ${cbs.x.toFixed(0)}×${cbs.y.toFixed(0)}×${cbs.z.toFixed(0)}m`);
           }
         }
       } catch (e) {
