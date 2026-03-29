@@ -129,14 +129,19 @@ export async function captureTileMeshes(
     onProgress?.(`Ground level estimated at Y=${groundY.toFixed(1)}, filtering meshes...`);
   }
 
-  // Clone surviving meshes with world transform baked in
+  // Clone surviving meshes with world transform baked into GEOMETRY vertices.
+  // child.matrixWorld maps from tile-local (GLTF Y-up) → scene world (OBJECT_FRAME).
+  // We must apply this to the geometry directly — Object3D.applyMatrix4 only changes
+  // the object matrix, not the vertex positions.
   const group = new THREE.Group();
   let meshCount = 0;
 
   for (const { child } of kept) {
     const cloned = child.clone();
-    cloned.applyMatrix4(child.matrixWorld);
-    // Reset the matrix since we've baked the transform
+    // Deep-clone geometry so we can modify vertices without affecting the original tile mesh
+    cloned.geometry = child.geometry.clone();
+    cloned.geometry.applyMatrix4(child.matrixWorld);
+    // Identity object transform — world coords are now baked into geometry
     cloned.position.set(0, 0, 0);
     cloned.rotation.set(0, 0, 0);
     cloned.scale.set(1, 1, 1);
@@ -181,7 +186,8 @@ function extractTerrainHeightmap(
     const verticalExtent = worldBox.max.y - groundY;
     if (verticalExtent < 1.5) {
       const cloned = child.clone();
-      cloned.applyMatrix4(child.matrixWorld);
+      cloned.geometry = child.geometry.clone();
+      cloned.geometry.applyMatrix4(child.matrixWorld);
       cloned.position.set(0, 0, 0);
       cloned.rotation.set(0, 0, 0);
       cloned.scale.set(1, 1, 1);

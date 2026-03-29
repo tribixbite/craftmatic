@@ -1004,11 +1004,9 @@ async function main(): Promise<void> {
     // Ensure satellite references exist (uses alignment for dynamic zoom when satZoom not set)
     await ensureSatRef(b, alignment);
 
-    // Generate rotated satellite for VLM grading (matches voxel orientation)
-    let gradeSatPath = b.satRef;
-    if (alignment && Math.abs(alignment.rotationDeg) > 2) {
-      gradeSatPath = await ensureRotatedSatRef(b, alignment);
-    }
+    // v302: Voxels are now north-aligned (via computeNorthAlignCorrection in voxelize-glb.ts),
+    // so satellite should be used as-is (north-up) — no rotation needed.
+    const gradeSatPath = existsSync(hiResSatPath(b)) ? hiResSatPath(b) : b.satRef;
 
     // Validate satellite reference clarity
     const satQuality = await validateSatRef(b);
