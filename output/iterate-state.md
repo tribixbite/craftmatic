@@ -3,7 +3,7 @@
 **Target**: 9/10 buildings at 9+
 **Current**: 9/10 passing
 **Model**: gemini-2.5-pro | **Runs/batch**: 5 | **Mode**: fresh (20% trimmed mean)
-**Updated**: 2026-03-29T05:05:56.750Z
+**Updated**: 2026-03-29T13:07:47.705Z
 
 | Building | Difficulty | TrimmedMean | SatRef | Runs | Avg A | Avg B | Avg C | Avg D | Status | Diagnosis |
 |---|---|---|---|---|---|---|---|---|---|

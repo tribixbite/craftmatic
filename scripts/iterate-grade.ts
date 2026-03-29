@@ -213,12 +213,12 @@ const BUILDINGS_NEW: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Twisted tower — Turning Torso, Malmö, Santiago Calatrava
-    // 190m, 90° twist over 54 floors, 2005
-    key: 'turning-torso',
-    glb: `${DIR}/turning-torso.glb`,
-    coords: '55.6131,12.9753',
-    satRef: `${DIR}/sat-ref-turning-torso.jpg`,
+    // Diagrid glass tower — Hearst Tower, NYC, Foster + Partners
+    // 182m, distinctive triangulated diamond-pattern facade on Art Deco base, 2006
+    key: 'hearst-tower',
+    glb: `${DIR}/hearst-tower.glb`,
+    coords: '40.7666,-73.9810',
+    satRef: `${DIR}/sat-ref-hearst-tower.jpg`,
     resolution: 1,
     maskDilate: 2,
     extraFlags: ['--no-enu'],
@@ -227,18 +227,18 @@ const BUILDINGS_NEW: BuildingConfig[] = [
     topdownScale: 8,
   },
   {
-    // Geodesic dome — Biosphere, Montreal, Buckminster Fuller
-    // 62m diameter sphere, 1967 expo pavilion
-    key: 'biosphere-mtl',
-    glb: `${DIR}/biosphere-mtl.glb`,
-    coords: '45.5146,-73.5311',
-    satRef: `${DIR}/sat-ref-biosphere-mtl.jpg`,
-    resolution: 2, // dome needs higher res for curve fidelity
+    // Spiral rotunda — Solomon R. Guggenheim Museum, NYC, Frank Lloyd Wright
+    // 28m, inverted ziggurat with spiral ramp gallery, 1959
+    key: 'guggenheim',
+    glb: `${DIR}/guggenheim.glb`,
+    coords: '40.7830,-73.9590',
+    satRef: `${DIR}/sat-ref-guggenheim.jpg`,
+    resolution: 2, // small organic form needs detail
     maskDilate: 2,
     extraFlags: ['--no-enu'],
     difficulty: 'hard',
     tileSize: 6,
-    topdownScale: 8,
+    topdownScale: 6,
   },
   {
     // Hexagonal brutalist — FBI Building (J. Edgar Hoover), Washington DC
