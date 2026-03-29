@@ -1728,13 +1728,24 @@ export function constrainPalette(
 export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1, extraProtected?: Set<string>): number {
   const { width, height, length } = grid;
 
-  // Blocks to never replace (structural/detail elements)
+  // Blocks to never replace (structural/detail elements).
+  // All 16 MC color stained glass + pane variants protected — glass-facade buildings
+  // (Seattle Library, Citigroup) lose glass to majority-vote wall material without this.
+  const MC_COLORS = [
+    'white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray',
+    'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black',
+  ];
   const PROTECTED = new Set([
     'minecraft:air',
     'minecraft:glass', 'minecraft:glass_pane',
-    'minecraft:gray_stained_glass', 'minecraft:black_stained_glass',
     'minecraft:iron_bars', 'minecraft:iron_block',
+    'minecraft:chain', 'minecraft:end_rod', 'minecraft:lightning_rod',
   ]);
+  // Add all 32 colored glass variants (16 colors × glass + glass_pane)
+  for (const color of MC_COLORS) {
+    PROTECTED.add(`minecraft:${color}_stained_glass`);
+    PROTECTED.add(`minecraft:${color}_stained_glass_pane`);
+  }
   if (extraProtected) for (const b of extraProtected) PROTECTED.add(b);
 
   let totalReplaced = 0;
@@ -1832,8 +1843,35 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
   const { width, height, length } = grid;
   let totalReplaced = 0;
 
-  // Pass 1: Replace very dark blocks (absolute luminance floor)
-  const DARK_FLOOR = 0.22;
+  // Adaptive thresholds: compute grid luminance stats to avoid destroying
+  // legitimate dark blocks on dark stone/brick buildings while still cleaning
+  // baked shadows on bright buildings.
+  const lumValues: number[] = [];
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const b = grid.get(x, y, z);
+        if (b === AIR) continue;
+        const lum = blockLuminance(b);
+        if (lum > 0) lumValues.push(lum); // skip 0-luminance (unknown blocks)
+      }
+    }
+  }
+  let DARK_FLOOR = 0.22;
+  let adaptiveContrastDelta = contrastDelta;
+  if (lumValues.length > 100) {
+    lumValues.sort((a, b) => a - b);
+    const p10 = lumValues[Math.floor(lumValues.length * 0.10)];
+    const p90 = lumValues[Math.floor(lumValues.length * 0.90)];
+    // Dark buildings (p10=0.10): floor=0.12, keeping dark blocks that ARE the building
+    // Bright buildings (p10=0.40): floor=0.30, aggressively cleaning shadows
+    DARK_FLOOR = Math.max(0.12, Math.min(0.30, p10 * 0.8));
+    // Narrow range (all similar): small contrast delta (less aggressive)
+    // Wide range (bright walls + dark shadows): large delta (more aggressive)
+    adaptiveContrastDelta = Math.max(0.12, Math.min(0.28, (p90 - p10) * 0.5));
+  }
+
+  // Pass 1: Replace very dark blocks (adaptive luminance floor)
   {
     const replacements: Array<{ x: number; y: number; z: number; replacement: string }> = [];
 
@@ -1897,7 +1935,7 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
           const median = neighborLums[Math.floor(neighborLums.length / 2)];
 
           // Replace if this block is much darker than its neighborhood median
-          if (median - lum >= contrastDelta) {
+          if (median - lum >= adaptiveContrastDelta) {
             // Find the dominant block with luminance near the median
             let bestBlock = '';
             let bestCount = 0;

@@ -1221,19 +1221,24 @@ async function main(): Promise<void> {
     }
   }
 
-  // Dynamic kernel scaling: reduce kernel for tall/complex buildings to preserve facade detail.
-  // 24px (kernel=12) averages out window patterns, cornices, and material transitions on towers.
-  // 12px (kernel=6) preserves these details while still smoothing photogrammetry noise.
+  // Dynamic kernel scaling: resolution-aware + building-size-aware.
+  // Base kernel 12 (24px diameter) smooths photogrammetry noise, but at higher resolutions
+  // 12px covers fewer meters (1x=1.4m, 2x=0.7m). Scale inversely with resolution.
+  // Towers need smaller kernels to preserve facade detail (windows, cornices, material bands).
+  // Large buildings need slightly larger kernels — more noise, coarser textures.
   if (args.auto && !args.explicitKernel) {
     const kBox = new THREE.Box3();
     for (const k of kept) kBox.union(k.worldBox);
     const kSize = new THREE.Vector3();
     kBox.getSize(kSize);
-    const aspectRatio = kSize.y / Math.max(Math.max(kSize.x, kSize.z), 1);
-    if (aspectRatio > 1.5) {
-      args.kernel = 6; // Tower: preserve facade detail (windows, cornices, material bands)
-      console.log(`Auto kernel=6: tower aspect ratio ${aspectRatio.toFixed(2)} (height ${kSize.y.toFixed(0)}m)`);
-    }
+    const buildingWidth = Math.max(kSize.x, kSize.z);
+    const aspectRatio = kSize.y / Math.max(buildingWidth, 1);
+    // Scale factors: resolution (2x→0.5), tower aspect (>1.5→0.5), building size
+    const resScale = 1 / args.resolution;         // 2x→0.5, 1x→1.0, 3x→0.33
+    const towerScale = aspectRatio > 1.5 ? 0.5 : 1.0;
+    const sizeScale = buildingWidth > 80 ? 1.3 : buildingWidth < 25 ? 0.7 : 1.0;
+    args.kernel = Math.max(4, Math.min(16, Math.round(12 * resScale * towerScale * sizeScale)));
+    console.log(`Auto kernel=${args.kernel}: res=${args.resolution} (×${resScale.toFixed(2)}), aspect=${aspectRatio.toFixed(2)} (×${towerScale}), width=${buildingWidth.toFixed(0)}m (×${sizeScale})`);
   }
 
   // Build a new group from kept meshes (clone with baked world transform)
@@ -1526,10 +1531,13 @@ async function main(): Promise<void> {
       console.log(`Tower isolation: SKIPPED (building has setbacks — using 3D CC instead)`);
     }
 
-    // Step 3b: Component cleanup — remove noise/debris ≥500 voxels
-    const preFillCleaned = removeSmallComponents(trimmed, 500);
+    // Step 3b: Component cleanup — remove noise/debris.
+    // Resolution-aware: 500 voxels at 1x = 500m³. At 2x, 500 voxels = 62.5m³ — too aggressive.
+    // Scale by resolution³ to maintain same physical volume threshold.
+    const compMinSize = Math.round(500 * Math.pow(args.resolution, 3));
+    const preFillCleaned = removeSmallComponents(trimmed, compMinSize);
     if (preFillCleaned > 0) {
-      console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (< 500 voxels)`);
+      console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (< ${compMinSize} voxels, res=${args.resolution})`);
     }
 
     // Step 3c: 3-tier building isolation when OSM mask failed or was skipped.
@@ -1585,13 +1593,12 @@ async function main(): Promise<void> {
       if (fill3D > 0.60) {
         console.log(`Skipping fill (3D density ${(fill3D * 100).toFixed(0)}% > 60% — already solid)`);
       } else {
-        // Density-adaptive dilation: sparse shells (ortho captures, <30% fill) need
-        // wider dilation to seal large wall gaps. Dense shells (street captures, >50%)
-        // only need small dilation — over-dilating seals intentional openings.
-        // v71: capped at 4 (was 5). Dilation=5 seals 10-block gaps, destroying
-        // courtyards and setbacks. Dilation=4 seals 8-block gaps, sufficient for
-        // photogrammetry wall holes while preserving architectural voids.
-        const dilation = fill3D < 0.30 ? 4 : fill3D < 0.50 ? 3 : 3;
+        // Density-adaptive dilation: target physical gap size (in meters), then scale by resolution.
+        // Sparse shells (<30% fill) have large gaps needing ~4m dilation.
+        // Dense shells (>50%) only need ~2m — over-dilating seals intentional openings.
+        // v301: resolution-aware — at 2x, dilation=4 closes only 2m; at 1x, 4m.
+        const targetMeters = fill3D < 0.30 ? 4 : fill3D < 0.50 ? 3 : 2;
+        const dilation = Math.max(1, Math.round(targetMeters * args.resolution));
         const interiorFilled = fillInteriorGaps(trimmed, dilation);
         console.log(`Interior fill (dilation=${dilation}): ${interiorFilled} voxels filled (3D density ${(fill3D * 100).toFixed(0)}%)`);
         // Step 4b: Sky exposure — remove fill in open-air spaces (courtyards, setbacks)
@@ -1712,13 +1719,13 @@ async function main(): Promise<void> {
         console.log(`Tower isolation: SKIPPED (building has setbacks)`);
       }
 
-      // Step 3b: Remove noise/debris — keep all components ≥500 voxels.
-      // Threshold 500 preserves legitimate building wings (Pentagon, Capitol) while
-      // removing floating noise from photogrammetry artifacts. Using Infinity here
-      // would sever disconnected wings (Pentagon's 19% fill was caused by this).
-      const preFillCleaned = removeSmallComponents(trimmed, 500);
+      // Step 3b: Remove noise/debris — resolution-aware threshold.
+      // Base 500 voxels at 1x = 500m³. Scale by resolution³ for consistent physical volume.
+      // Preserves legitimate building wings (Pentagon, Capitol) while removing noise.
+      const compMinSize2 = Math.round(500 * Math.pow(args.resolution, 3));
+      const preFillCleaned = removeSmallComponents(trimmed, compMinSize2);
       if (preFillCleaned > 0) {
-        console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (components < 500 voxels)`);
+        console.log(`Pre-fill cleanup: ${preFillCleaned} blocks removed (components < ${compMinSize2} voxels, res=${args.resolution})`);
       }
 
       // Step 3c: 3-tier building isolation when OSM mask failed or was skipped.
@@ -1902,17 +1909,25 @@ async function main(): Promise<void> {
   }
 
   // Morph close — spackle pockmarks/holes in photogrammetry surfaces.
-  // v71: r=3→r=2. v106: r=2→r=1. v118: tested r=2 — bloated small buildings (dallas 9→7,
-  // ansonia 9.3→7). r=1 confirmed optimal: fills 1-voxel gaps without adding blobby mass.
-  // For complex shapes: only apply to bottom 30% to protect crown/spire/dome geometry.
-  // v300: Tested full-height r=1 — regressed pennzoil 8→7, dallas 8→7, transamerica 8→6.
-  // The added material at top altered shape enough to trigger new VLM defects.
+  // v71: r=3→r=2. v106: r=2→r=1. r=1 fills 1-voxel gaps without adding blobby mass.
+  // v301: Profile-aware height limit for complex shapes. Tapered buildings (Transamerica)
+  // need tip protected, domed need dome protected, stepped need step edges preserved.
+  // The fraction controls how much of the building (from bottom) gets morph-close treatment.
   {
     if (isComplexShape) {
-      const maxY = Math.round(trimmed.height * 0.30);
+      // Profile-aware: protect more of the distinctive geometry at top
+      const profile = analysis?.heightProfile ?? 'uniform';
+      const closeFraction: Record<string, number> = {
+        tapered: 0.20,  // protect 80% — tip/taper defines building
+        stepped: 0.40,  // protect 60% — step edges are real architecture
+        domed: 0.30,    // protect 70% — dome curvature is critical
+        uniform: 0.50,  // protect 50% — standard complex shape
+      };
+      const fraction = closeFraction[profile] ?? 0.30;
+      const maxY = Math.max(10, Math.round(trimmed.height * fraction));
       const closed = morphClose3D(trimmed, 1, maxY);
       if (closed > 0) {
-        console.log(`Morph close (r=1, maxY=${maxY}): ${closed} holes filled (complex shape — bottom 30% only)`);
+        console.log(`Morph close (r=1, maxY=${maxY}, profile=${profile}): ${closed} holes filled (complex shape — bottom ${Math.round(fraction * 100)}%)`);
       }
     } else {
       const closed = morphClose3D(trimmed, 1);
@@ -1936,18 +1951,27 @@ async function main(): Promise<void> {
   }
 
   // Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
-  // v73: Protect top 40% of building (was 20% in v70). Montgomery's peaked roof
-  // and Ansonia's ornate upper facade were destroyed by smoothing.
-  // Walls below 60% height benefit from smoothing but roof/upper features are real architecture.
-  // For complex shapes: reduce protected zone to 70% (only smooth bottom 30%)
+  // v73: Protect top 40% of rectangular buildings. v301: profile-aware for complex shapes.
+  // Tapered buildings need nearly all height protected (tip IS the building).
+  // Stepped/domed need moderate protection. Rectangular gets standard treatment.
   {
-    const roofCutoff = isComplexShape
-      ? Math.round(trimmed.height * 0.30) // Complex: protect top 70% (crown, setbacks, dome)
-      : Math.round(trimmed.height * 0.60); // Rectangular: protect top 40%
+    let roofCutoff: number;
+    if (isComplexShape) {
+      const profile = analysis?.heightProfile ?? 'uniform';
+      const smoothFraction: Record<string, number> = {
+        tapered: 0.15,  // protect 85% — aggressive smoothing would erode taper
+        stepped: 0.50,  // protect 50% — steps define silhouette above midpoint
+        domed: 0.25,    // protect 75% — dome curvature starts early
+        uniform: 0.40,  // protect 60% — standard complex shape
+      };
+      roofCutoff = Math.round(trimmed.height * (smoothFraction[profile] ?? 0.30));
+    } else {
+      roofCutoff = Math.round(trimmed.height * 0.60); // Rectangular: protect top 40%
+    }
     // v73: preserveBoundary=true locks silhouette edges (tips, corners) from erosion
     const surfaceSmoothed = smoothSurface(trimmed, roofCutoff, true);
     if (surfaceSmoothed > 0) {
-      console.log(`Surface smoothing: ${surfaceSmoothed} 1-block protrusions removed (below Y=${roofCutoff}${isComplexShape ? ', complex shape' : ''})`);
+      console.log(`Surface smoothing: ${surfaceSmoothed} 1-block protrusions removed (below Y=${roofCutoff}${isComplexShape ? `, profile=${analysis?.heightProfile ?? 'uniform'}` : ''})`);
     }
     // For rectangular buildings (OBB ≥0.85 AND no setbacks), snap noisy walls to dominant flat planes.
     // v70: tolerance reduced from 2 to 1 — tolerance=2 was destroying bay windows.
@@ -2617,11 +2641,13 @@ async function main(): Promise<void> {
   }
 
   // Connected-component cleanup — remove floating debris and disconnected clusters.
-  const componentThreshold = args.mode === 'surface' ? 500 : args.cleanMinSize;
+  // Resolution-aware: scale base threshold by resolution³ for consistent physical volume.
+  const baseCompThreshold = args.mode === 'surface' ? 500 : args.cleanMinSize;
+  const componentThreshold = Math.round(baseCompThreshold * Math.pow(args.resolution, 3));
   if (componentThreshold > 0) {
     const cleaned = removeSmallComponents(trimmed, componentThreshold);
     if (cleaned > 0) {
-      console.log(`Component cleanup: ${cleaned} blocks removed (components < ${componentThreshold} voxels)`);
+      console.log(`Component cleanup: ${cleaned} blocks removed (components < ${componentThreshold} voxels, res=${args.resolution})`);
     }
   }
 
