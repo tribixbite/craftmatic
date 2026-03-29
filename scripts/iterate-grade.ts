@@ -12,6 +12,7 @@
  *   bun scripts/iterate-grade.ts --version v80          # tag iteration
  *   bun scripts/iterate-grade.ts --runs 3               # VLM runs per building (default 11)
  *   bun scripts/iterate-grade.ts --model gemini-2.5-pro   # VLM model override (default: gemini-2.5-pro)
+ *   bun scripts/iterate-grade.ts --group old|new|all     # building set (default: old)
  *   bun scripts/iterate-grade.ts --deep-review          # run harsh critic pass with pro model
  *   bun scripts/iterate-grade.ts --deep-model gemini-2.5-pro  # deep review model (default)
  *   bun scripts/iterate-grade.ts --deep-runs 3          # deep review runs per building (default 3)
@@ -194,6 +195,151 @@ const BUILDINGS: BuildingConfig[] = [
   },
 ];
 
+// v301: 10 new diverse buildings — selected for geographic/shape/height diversity.
+// No overlap with BUILDINGS above. Mix of heights, shapes, materials, eras.
+const BUILDINGS_NEW: BuildingConfig[] = [
+  {
+    // Cylindrical tower — Marina City, Chicago, Bertrand Goldberg
+    // 179m, two corncob-shaped cylindrical towers, 1964
+    key: 'marina-city',
+    glb: `${DIR}/marina-city.glb`,
+    coords: '41.8887,-87.6355',
+    satRef: `${DIR}/sat-ref-marina-city.jpg`,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: ['--no-enu'],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // Twisted tower — Turning Torso, Malmö, Santiago Calatrava
+    // 190m, 90° twist over 54 floors, 2005
+    key: 'turning-torso',
+    glb: `${DIR}/turning-torso.glb`,
+    coords: '55.6131,12.9753',
+    satRef: `${DIR}/sat-ref-turning-torso.jpg`,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: ['--no-enu'],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // Geodesic dome — Biosphere, Montreal, Buckminster Fuller
+    // 62m diameter sphere, 1967 expo pavilion
+    key: 'biosphere-mtl',
+    glb: `${DIR}/biosphere-mtl.glb`,
+    coords: '45.5146,-73.5311',
+    satRef: `${DIR}/sat-ref-biosphere-mtl.jpg`,
+    resolution: 2, // dome needs higher res for curve fidelity
+    maskDilate: 2,
+    extraFlags: ['--no-enu'],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // Hexagonal brutalist — FBI Building (J. Edgar Hoover), Washington DC
+    // 49m, massive poured-concrete brutalist slab, 1975
+    key: 'fbi-hq',
+    glb: `${DIR}/fbi-hq.glb`,
+    coords: '38.8948,-77.0247',
+    satRef: `${DIR}/sat-ref-fbi-hq.jpg`,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: ['--no-enu'],
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // Organic blob — Experience Music Project (MoPOP), Seattle, Frank Gehry
+    // 21m, amorphous metallic form, 2000
+    key: 'mopop',
+    glb: `${DIR}/mopop.glb`,
+    coords: '47.6215,-122.3481',
+    satRef: `${DIR}/sat-ref-mopop.jpg`,
+    resolution: 2, // small + organic needs higher res
+    maskDilate: 2,
+    extraFlags: ['--no-enu'],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 6,
+  },
+  {
+    // Gothic cathedral — Washington National Cathedral
+    // 91m tower, cruciform plan with flying buttresses, 1990
+    key: 'natl-cathedral',
+    glb: `${DIR}/natl-cathedral.glb`,
+    coords: '38.9306,-77.0707',
+    satRef: `${DIR}/sat-ref-natl-cathedral.jpg`,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: ['--no-enu'],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // Supertall with crown — Bank of America Tower, NYC, Cook+Fox
+    // 366m, faceted crystalline crown, 2009
+    key: 'boa-tower',
+    glb: `${DIR}/boa-tower.glb`,
+    coords: '40.7555,-73.9848',
+    satRef: `${DIR}/sat-ref-boa-tower.jpg`,
+    resolution: 1,
+    maskDilate: 1,
+    extraFlags: ['--no-enu'],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // Art deco + stepped — Tribune Tower, Chicago, Howells & Hood
+    // 141m, neo-gothic with flying buttresses, 1925
+    key: 'tribune-tower',
+    glb: `${DIR}/tribune-tower.glb`,
+    coords: '41.8903,-87.6233',
+    satRef: `${DIR}/sat-ref-tribune-tower.jpg`,
+    resolution: 1,
+    maskDilate: 2,
+    extraFlags: ['--no-enu'],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 8,
+  },
+  {
+    // Curved glass — The Vessel (Shed), NYC, Heatherwick Studio
+    // 46m, honeycomb staircase structure, 2019
+    key: 'vessel-nyc',
+    glb: `${DIR}/vessel-nyc.glb`,
+    coords: '40.7536,-74.0022',
+    satRef: `${DIR}/sat-ref-vessel-nyc.jpg`,
+    resolution: 2, // small intricate form
+    maskDilate: 2,
+    extraFlags: ['--no-enu'],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 6,
+  },
+  {
+    // Compound angular — Walt Disney Concert Hall, LA, Frank Gehry
+    // 36m, billowing stainless steel sails, 2003
+    key: 'disney-hall',
+    glb: `${DIR}/disney-hall.glb`,
+    coords: '34.0553,-118.2498',
+    satRef: `${DIR}/sat-ref-disney-hall.jpg`,
+    resolution: 2, // organic form needs detail
+    maskDilate: 2,
+    extraFlags: ['--no-enu'],
+    difficulty: 'hard',
+    tileSize: 6,
+    topdownScale: 6,
+  },
+];
+
 // ── VLM Grading ──
 interface SubScore { A: number; B: number; C: number; D: number; total: number }
 
@@ -270,12 +416,18 @@ const sweepMode = hasFlag('--sweep');
 const sweepRuns = parseInt(getFlag('--sweep-runs', '3'), 10); // quick-grade runs per variant
 const onlyKeys = getFlag('--only', '').split(',').filter(Boolean);
 const sceneMode = hasFlag('--scene');
+const buildingGroup = getFlag('--group', 'old') as 'old' | 'new' | 'all';
 const targetScore = 9;
+
+// Select building group: old (v300 set), new (v301 set), all (both)
+const groupBuildings = buildingGroup === 'new' ? BUILDINGS_NEW
+  : buildingGroup === 'all' ? [...BUILDINGS, ...BUILDINGS_NEW]
+  : BUILDINGS;
 
 // Filter buildings
 const selectedBuildings = onlyKeys.length > 0
-  ? BUILDINGS.filter(b => onlyKeys.includes(b.key))
-  : BUILDINGS;
+  ? groupBuildings.filter(b => onlyKeys.includes(b.key))
+  : groupBuildings;
 
 if (selectedBuildings.length === 0) {
   console.error(`No buildings matched --only ${onlyKeys.join(',')}`);
