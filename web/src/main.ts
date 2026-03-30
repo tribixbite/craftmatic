@@ -20,6 +20,7 @@ import { initComparison } from '@ui/comparison.js';
 import { initMap3d } from '@ui/map3d.js';
 import { initTiles, type TilesResultMeta } from '@ui/tiles.js';
 import { initLego } from '@ui/lego.js';
+import { initReview } from '@ui/review.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -779,6 +780,25 @@ initLego(legoControls, legoViewer, (grid: BlockGrid, label: string) => {
       fallback.className = 'viewer-fallback';
       fallback.textContent = '3D preview unavailable. Export succeeded — use download buttons above.';
       legoViewer.appendChild(fallback);
+    } finally {
+      hideLoading();
+    }
+  }, 0));
+});
+
+// ─── Review ──────────────────────────────────────────────────────────────────
+
+const reviewRoot = document.getElementById('tab-review')!;
+initReview(reviewRoot, (grid: BlockGrid, label: string) => {
+  exportBasename = slugify(label) || 'review';
+  showLoading('Building 3D view...');
+  requestAnimationFrame(() => setTimeout(() => {
+    try {
+      const reviewViewerEl = document.getElementById('review-viewer')!;
+      showInlineViewer(reviewViewerEl, grid);
+    } catch (err) {
+      console.warn('3D viewer failed:', err);
+      showError('3D viewer requires WebGL');
     } finally {
       hideLoading();
     }
