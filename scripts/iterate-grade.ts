@@ -87,7 +87,7 @@ const BUILDINGS: BuildingConfig[] = [
     coords: '38.8913,-77.0199',
     satRef: `${DIR}/sat-ref-nga-east.jpg`,
     resolution: 1, // r=2 bloats grid (OSM polygon = entire National Gallery complex)
-    maskDilate: 0, // v303: tighten from 2 — OSM covers entire complex, tight mask isolates East Building
+    maskDilate: 2, // v303: dilate=0 hurt (6.7), revert — OSM polygon covers full complex
     extraFlags: ['--no-enu'],
     difficulty: 'medium',
     tileSize: 6,

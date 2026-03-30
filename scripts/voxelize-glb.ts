@@ -2549,11 +2549,14 @@ async function main(): Promise<void> {
   // protected so thin architectural features survive smoothing.
   // v300: 1 pass when not zone-normalizing — avoids confetti noise on raw CIELAB surfaces.
   {
-    // v106: Capped to 2 passes. v116: Tested 1 pass — no effect on footprint A scores
-    // (stays at 2), only adds surface noise. 2 passes remains the sweet spot.
-    // v300: raw CIELAB mode uses 1 pass to avoid confetti on photogrammetric surfaces.
-    const basePasses = args.zoneNormalize ? Math.max(args.modePasses, 2) : 1;
-    const passes = Math.min(2, basePasses);
+    // v106: Capped to 2 passes. v300: CIELAB mode hardcoded 1 pass (confetti avoidance).
+    // v303: CIELAB default raised to 2 — v301 expanded glass/dark block protection
+    // handles confetti without needing single-pass restriction. Explicit --mode-passes
+    // overrides all caps (allows 3+ for testing surface quality improvement).
+    const basePasses = args.explicitModePasses
+      ? args.modePasses
+      : Math.max(args.modePasses, 2); // floor at 2 passes regardless of zoneNormalize
+    const passes = args.explicitModePasses ? basePasses : Math.min(3, basePasses);
     const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
     if (modeSmoothed > 0) {
       console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} pass)`);
