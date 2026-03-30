@@ -42,6 +42,8 @@ export type SeasonalWeather = 'snow' | 'spring' | 'summer' | 'fall';
 export interface PropertyData {
   address: string;
   stories: number;
+  /** When true, stories was explicitly set via CLI --floors and bypasses all inference/capping */
+  storiesExplicit?: boolean;
   sqft: number;
   bedrooms: number;
   bathrooms: number;
@@ -1306,7 +1308,10 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
       effectiveStories = heightDerivedFloors;
     }
   }
-  const floors = Math.max(minFloors, Math.min(maxFloors, effectiveStories));
+  // When stories was explicitly set via CLI --floors, bypass all inference and capping
+  const floors = prop.storiesExplicit
+    ? prop.stories
+    : Math.max(minFloors, Math.min(maxFloors, effectiveStories));
 
   // ── Dimensions ────────────────────────────────────────────────────
   // Priority: OSM footprint (real) > satellite footprint > Solar area > sqft estimate
@@ -1501,6 +1506,11 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // Priority: bitmap classification > OSM polygon heuristic > SV plan shape > SV symmetry hint
   // A symmetric facade strongly suggests a simple rectangular floor plan
   let floorPlanShape = prop.floorPlanShape ?? prop.svPlanShape ?? (prop.svSymmetric ? 'rect' as const : undefined);
+  // Large multi-family buildings with no OSM polygon data default to L-shape
+  // (real apartment blocks rarely have simple rectangular footprints)
+  if (!floorPlanShape && effectiveMultiUnit && width > 30) {
+    floorPlanShape = 'L';
+  }
 
   // Rasterize OSM polygon into a block-level bitmap for pixel-perfect footprints.
   // For multipolygon buildings, subtract inner rings (courtyards) from the outer ring.
@@ -1587,5 +1597,31 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     orientation,
     resolvedPalette,
     landscape,
+    skipCompound: true, // Real addresses produce standalone buildings, not fantasy compounds
+    decorators: pickAddressDecorators(prop, resolvedPalette),
   };
+}
+
+/**
+ * Select appropriate decorators for real-address generation based on property data.
+ * Unlike the fantasy defaults, these are chosen for architectural accuracy.
+ */
+function pickAddressDecorators(
+  prop: PropertyData,
+  palette?: import('./styles.js').StylePalette,
+): string[] {
+  const decorators: string[] = [];
+  const year = prop.yearBuilt || 2000;
+  const ptype = (prop.propertyType || '').toLowerCase();
+  const isMultiFamily = ptype.includes('multi') || ptype.includes('apartment')
+    || ptype.includes('condo') || (prop.stories ?? 1) >= 4;
+  const isBrick = palette?.wall?.includes('brick') || prop.constructionType?.toLowerCase().includes('masonry')
+    || prop.osmMaterial?.includes('brick');
+
+  // Historic urban buildings (pre-1940, multi-story, masonry)
+  if (year < 1940 && isMultiFamily && isBrick) {
+    decorators.push('historic-urban');
+  }
+
+  return decorators;
 }
