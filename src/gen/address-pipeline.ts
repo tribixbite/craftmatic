@@ -1209,9 +1209,14 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   const isHeuristicMultiUnit = (pt === 'OTHER' && prop.bedrooms >= 6 && prop.bathrooms >= 6)
     || (pt === 'HOUSE' && prop.bedrooms >= 8 && prop.bathrooms >= 8);  // 8+ bed+bath "house" is multi-unit
 
+  // SV Vision label can override wrong Parcl classification (e.g. "apartment building"
+  // classified as SINGLE_FAMILY). This catches lofts, converted warehouses, etc.
+  const svLabel = (prop.svArchitectureLabel ?? '').toLowerCase();
+  const isSvMultiUnit = /\b(apartment|multi.?story|multi.?unit|loft|condo|dormitor)/i.test(svLabel);
+
   // ── Floor clamping ───────────────────────────────────────────────
   // Clamp floors to realistic per-type limits to prevent inflated story counts
-  const effectiveMultiUnit = isMultiUnit(prop.propertyType) || isMapboxMultiUnit || isHeuristicMultiUnit;
+  const effectiveMultiUnit = isMultiUnit(prop.propertyType) || isMapboxMultiUnit || isHeuristicMultiUnit || isSvMultiUnit;
   let maxFloors = effectiveMultiUnit ? 8
     : prop.sqft > 10000 ? 5   // large mansions (e.g. Winchester)
     : 4;                        // standard single-family
@@ -1308,6 +1313,11 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
       effectiveStories = heightDerivedFloors;
     }
   }
+  // SV Vision "multi-story" override — VLM sees the whole facade and can count floors
+  // more reliably than heuristic SV structure analysis. Minimum 4 floors for "multi-story".
+  if (isSvMultiUnit && /multi.?story/i.test(svLabel) && effectiveStories < 4) {
+    effectiveStories = 4;
+  }
   // When stories was explicitly set via CLI --floors, bypass all inference and capping
   const floors = prop.storiesExplicit
     ? prop.stories
@@ -1320,8 +1330,17 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
 
   if (prop.osmWidth && prop.osmLength) {
     // Priority 1: OSM polygon (real building footprint from OpenStreetMap)
-    width = prop.osmWidth;
-    length = prop.osmLength;
+    // Convention: width = facade width (x-axis), length = depth (z-axis).
+    // OSM bbox dimensions may not align with facade — if the "length" dimension
+    // is much larger, swap so the facade gets the wider dimension (buildings
+    // typically have their facade facing the street as the wider side).
+    if (prop.osmLength > prop.osmWidth * 2.5) {
+      width = prop.osmLength;
+      length = prop.osmWidth;
+    } else {
+      width = prop.osmWidth;
+      length = prop.osmLength;
+    }
   } else if (
     prop.satFootprintWidth && prop.satFootprintLength &&
     (prop.satFootprintConfidence ?? 0) >= 0.6
@@ -1506,10 +1525,12 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
   // Priority: bitmap classification > OSM polygon heuristic > SV plan shape > SV symmetry hint
   // A symmetric facade strongly suggests a simple rectangular floor plan
   let floorPlanShape = prop.floorPlanShape ?? prop.svPlanShape ?? (prop.svSymmetric ? 'rect' as const : undefined);
-  // Large multi-family buildings with no OSM polygon data default to L-shape
-  // (real apartment blocks rarely have simple rectangular footprints)
+  // Large multi-family buildings get L-shape with multi-story wing to create
+  // the multi-section footprint visible in satellite imagery (different roof heights).
+  let wingFloors: number | undefined;
   if (!floorPlanShape && effectiveMultiUnit && width > 30) {
-    floorPlanShape = 'L';
+    floorPlanShape = 'L'; // L-shape adds asymmetric rear wing for complex satellite footprints
+    wingFloors = Math.max(2, floors - 1); // One floor shorter than main
   }
 
   // Rasterize OSM polygon into a block-level bitmap for pixel-perfect footprints.
@@ -1590,6 +1611,7 @@ export function convertToGenerationOptions(prop: PropertyData): GenerationOption
     roofOverride: resolvedPalette ? undefined : roofOverride,
     features,
     floorPlanShape,
+    wingFloors,
     roofHeightOverride,
     windowSpacing,
     season: prop.season,
@@ -1613,13 +1635,15 @@ function pickAddressDecorators(
   const decorators: string[] = [];
   const year = prop.yearBuilt || 2000;
   const ptype = (prop.propertyType || '').toLowerCase();
+  const svLbl = (prop.svArchitectureLabel ?? '').toLowerCase();
   const isMultiFamily = ptype.includes('multi') || ptype.includes('apartment')
-    || ptype.includes('condo') || (prop.stories ?? 1) >= 4;
+    || ptype.includes('condo') || (prop.stories ?? 1) >= 4
+    || /\b(apartment|multi.?story|loft)\b/.test(svLbl);
   const isBrick = palette?.wall?.includes('brick') || prop.constructionType?.toLowerCase().includes('masonry')
-    || prop.osmMaterial?.includes('brick');
+    || prop.osmMaterial?.includes('brick') || svLbl.includes('brick');
 
-  // Historic urban buildings (pre-1940, multi-story, masonry)
-  if (year < 1940 && isMultiFamily && isBrick) {
+  // Historic urban buildings (pre-1940 OR SV-detected multi-story brick)
+  if ((year < 1940 || /multi.?story.*brick|brick.*multi.?story/.test(svLbl)) && isMultiFamily && isBrick) {
     decorators.push('historic-urban');
   }
 
