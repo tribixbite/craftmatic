@@ -87,7 +87,7 @@ const BUILDINGS: BuildingConfig[] = [
     coords: '38.8913,-77.0199',
     satRef: `${DIR}/sat-ref-nga-east.jpg`,
     resolution: 1, // r=2 bloats grid (OSM polygon = entire National Gallery complex)
-    maskDilate: 2,
+    maskDilate: 0, // v303: tighten from 2 — OSM covers entire complex, tight mask isolates East Building
     extraFlags: ['--no-enu'],
     difficulty: 'medium',
     tileSize: 6,
@@ -101,8 +101,8 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/dallas-cityhall.glb`,
     coords: '32.7763,-96.7968',
     satRef: `${DIR}/sat-ref-dallas-cityhall.jpg`,
-    resolution: 1,
-    maskDilate: 2,
+    resolution: 2, // v303: try 2x for surface detail (was 1)
+    maskDilate: 1, // v303: tighten from 2 — reduce surface noise
     extraFlags: ['--no-enu'],
     difficulty: 'hard',
     tileSize: 6,
@@ -115,8 +115,8 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/seattle-library.glb`,
     coords: '47.6067,-122.3326',
     satRef: `${DIR}/sat-ref-seattle-library.jpg`,
-    resolution: 1,
-    maskDilate: 2,
+    resolution: 2, // v303: try 2x for diamond facets (was 1)
+    maskDilate: 1, // v303: tighten from 2
     extraFlags: ['--no-enu'],
     difficulty: 'hard',
     tileSize: 6,
@@ -173,7 +173,7 @@ const BUILDINGS: BuildingConfig[] = [
     coords: '37.7952,-122.4028',
     satRef: `${DIR}/sat-ref-transamerica.jpg`,
     resolution: 1,
-    maskDilate: 2,
+    maskDilate: 0, // v303: tighten from 2 — base has adjacent building debris
     extraFlags: ['--no-enu'],
     difficulty: 'hard',
     tileSize: 6,
@@ -318,7 +318,7 @@ const BUILDINGS_NEW: BuildingConfig[] = [
     coords: '40.7536,-74.0022',
     satRef: `${DIR}/sat-ref-vessel-nyc.jpg`,
     resolution: 2, // small intricate form
-    maskDilate: 2,
+    maskDilate: 1, // v303: tighten from 2 — borderline footprint noise
     extraFlags: ['--no-enu'],
     difficulty: 'hard',
     tileSize: 6,
@@ -332,7 +332,7 @@ const BUILDINGS_NEW: BuildingConfig[] = [
     coords: '34.0553,-118.2498',
     satRef: `${DIR}/sat-ref-disney-hall.jpg`,
     resolution: 2, // organic form needs detail
-    maskDilate: 2,
+    maskDilate: 0, // v303: tighten from 2 — Music Center campus merges neighbors
     extraFlags: ['--no-enu'],
     difficulty: 'hard',
     tileSize: 6,
