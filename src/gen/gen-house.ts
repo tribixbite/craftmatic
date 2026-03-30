@@ -212,6 +212,7 @@ export function generateHouse(
   planShape?: FloorPlanShape, roofHeightOverride?: number,
   windowSpacing?: number, footprintBitmap?: CoordinateBitmap,
   sections?: BuildingSection[], landscape?: LandscapeData,
+  decoratorNames?: string[],
 ): BlockGrid {
   // Use style's preferred roof shape when no explicit override
   const roofShape: RoofShape = roofShapeOpt ?? style.defaultRoofShape;
@@ -462,7 +463,7 @@ export function generateHouse(
   }
 
   // ── Style decorators — compositional details extracted to gen-decorators.ts ──
-  applyDecorators(undefined, {
+  applyDecorators(decoratorNames, {
     grid, style, rng, floors, roofShape, effectiveRoofH,
     bx1, bx2, bz1, bz2, bw, bl, xMid, zMid,
     roofBase, porchDepth, landscape,

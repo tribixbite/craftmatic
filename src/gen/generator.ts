@@ -461,7 +461,7 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
       break;
     case 'house':
     default:
-      grid = generateHouse(floors, style, rooms, width, length, rng, options.roofShape, options.features, options.floorPlanShape, options.roofHeightOverride, options.windowSpacing, options.footprintBitmap, options.sections, options.landscape);
+      grid = generateHouse(floors, style, rooms, width, length, rng, options.roofShape, options.features, options.floorPlanShape, options.roofHeightOverride, options.windowSpacing, options.footprintBitmap, options.sections, options.landscape, options.decorators);
       break;
   }
 
@@ -472,7 +472,10 @@ export function generateStructure(options: GenerationOptions): BlockGrid {
   }
 
   // Expand single-building grids into compound sites with companion structures
-  grid = compoundify(grid, type, style, rng, styleName, floors);
+  // Skip for real-address generation where the building should stand alone
+  if (!options.skipCompound) {
+    grid = compoundify(grid, type, style, rng, styleName, floors);
+  }
 
   // Add ground plane — grass for land structures, water for ships/bridges
   // Village already has its own grass layer, skip it
