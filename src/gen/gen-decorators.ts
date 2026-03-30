@@ -872,7 +872,7 @@ function steampunkWorkshop(ctx: DecoratorContext): void {
 /** Historic urban building: arched entrance + iron balconies + stone cornice + front stairs + iron fence.
  *  Matches pre-1920 brick commercial/institutional buildings (Romanesque, Richardson, Beaux-Arts). */
 function historicUrban(ctx: DecoratorContext): void {
-  const { grid, floors, bx1, bx2, bz1, bz2, xMid, roofBase, landscape, style } = ctx;
+  const { grid, floors, bx1, bx2, bz1, bz2, xMid, roofBase, landscape } = ctx;
   const fenceBlk = landscape?.fenceBlock ?? 'minecraft:iron_bars';
   const trimBlk = 'minecraft:stone_bricks';
   const archBlk = 'minecraft:sandstone';             // High contrast against red brick
@@ -885,9 +885,13 @@ function historicUrban(ctx: DecoratorContext): void {
   // Historic urban buildings are uniformly red brick. Replace ALL non-protected
   // solid blocks with brick to eliminate sandstone/end_stone from the gothic base generator.
   // This is more aggressive than exterior-only cleanup but matches the real building.
-  const isProtected = (b: string) => !b || b === 'minecraft:air' || b.includes('glass')
-    || b.includes('door') || b.includes('torch') || b.includes('lantern')
-    || b === 'minecraft:iron_bars' || b === wallBlk
+  // Only protect blocks the decorator itself will place later. Remove base generator's
+  // glass_pane/torch/lantern to get a clean brick canvas — decorator adds its own.
+  // Keep iron_bars (used for balcony railings) and doors.
+  const isProtected = (b: string) => !b || b === 'minecraft:air'
+    || b === 'minecraft:iron_bars' || b.includes('door')
+    || b.includes('glass')  // Preserve base generator's natural windows
+    || b === wallBlk
     || b.includes('grass') || b.includes('dirt');  // Don't replace ground
   for (let y = 0; y < grid.height; y++) {
     for (let x = 0; x < grid.width; x++) {
@@ -965,18 +969,23 @@ function historicUrban(ctx: DecoratorContext): void {
     }
   }
 
-  // Stepped arch curve — clear visible arch shape using full blocks
-  // Pattern: each row from spring point up narrows by 1 block each side
+  // Rounded arch curve — stairs at inner edges for smooth semi-circular appearance
+  // Pattern: each row narrows by 1, innermost blocks use stairs for curvature
+  const archStairE = 'minecraft:sandstone_stairs[facing=east,half=bottom]';
+  const archStairW = 'minecraft:sandstone_stairs[facing=west,half=bottom]';
   for (let y = archStartY; y <= archH; y++) {
     const rowFromSpring = y - archStartY;
     const halfOpen = Math.max(0, Math.floor(openW / 2) - rowFromSpring);
     for (const z of [bz2, bz2 + 1]) {
-      // Fill sandstone from pillar edge inward to the opening edge
       for (let dx = -Math.floor(openW / 2); dx <= Math.floor(openW / 2); dx++) {
         if (Math.abs(dx) > halfOpen) {
-          // This position is part of the arch curve — fill with sandstone
-          if (grid.inBounds(xMid + dx, y, z))
+          if (!grid.inBounds(xMid + dx, y, z)) continue;
+          // Innermost block on each side uses a stair for rounded curve
+          if (Math.abs(dx) === halfOpen + 1) {
+            grid.set(xMid + dx, y, z, dx < 0 ? archStairE : archStairW);
+          } else {
             grid.set(xMid + dx, y, z, archBlk);
+          }
         }
       }
     }
@@ -995,11 +1004,19 @@ function historicUrban(ctx: DecoratorContext): void {
     }
   }
 
-  // Back wall of recess — black concrete for maximum depth contrast
+  // Back wall of recess — dark with glass doors and transom window
   for (let x = ax1 + pillarW; x <= ax2 - pillarW; x++) {
     for (let y = 0; y <= archStartY - 1; y++) {
-      if (grid.inBounds(x, y, bz2 - recessDepth))
+      if (!grid.inBounds(x, y, bz2 - recessDepth)) continue;
+      // Transom windows above door height (y >= 4)
+      if (y >= 4 && y <= archStartY - 1) {
+        grid.set(x, y, bz2 - recessDepth, 'minecraft:black_stained_glass_pane');
+      } else if (y >= 1 && y <= 3) {
+        // Dark glass doors
+        grid.set(x, y, bz2 - recessDepth, 'minecraft:gray_stained_glass_pane');
+      } else {
         grid.set(x, y, bz2 - recessDepth, 'minecraft:black_concrete');
+      }
     }
   }
 
@@ -1019,38 +1036,46 @@ function historicUrban(ctx: DecoratorContext): void {
     }
   }
 
-  // ── Individual projecting balconies on floors 2+ — per window bay ──
-  // 3-wide slab platform + iron railing, spaced to avoid continuous bands
+  // ── Dark metal balconies on floors 2+ — defining facade feature ──
+  // Real building has prominent black balconies below upper-floor windows.
+  // Use dark slab + dark fence for high contrast against red brick.
+  const balcPlatform = 'minecraft:smooth_stone_slab[type=bottom]'; // Thin gray platform
+  const balcRail = 'minecraft:iron_bars'; // Open railing, not solid fence
   for (let story = 1; story < floors; story++) {
     const by = story * STORY_H;
-    for (let x = bx1 + 4; x <= bx2 - 4; x += 8) {
+    for (let x = bx1 + 3; x <= bx2 - 3; x += 7) {
       if (x >= ax1 - 2 && x <= ax2 + 2) continue; // Skip arch zone
       // 3-wide platform projecting 1 block out from facade
       const balcZ = bz2 + 1;
       for (let dx = -1; dx <= 1; dx++) {
         if (!grid.inBounds(x + dx, by, balcZ)) continue;
-        grid.set(x + dx, by, balcZ, 'minecraft:stone_brick_slab[type=bottom]');
-        // Iron railing on top
+        grid.set(x + dx, by, balcZ, balcPlatform);
+        // Dark fence railing on top — visible at all render scales
         if (grid.inBounds(x + dx, by + 1, balcZ))
-          grid.set(x + dx, by + 1, balcZ, 'minecraft:iron_bars');
+          grid.set(x + dx, by + 1, balcZ, balcRail);
       }
     }
   }
 
-  // ── Large windows — 2 wide × 2 tall for realistic proportions ──
+  // ── Multi-pane grouped windows — 3-wide × 3-tall with projecting sills ──
+  // Glass flush with wall. Stone sill projects outward for depth.
+  const winGlass = 'minecraft:black_stained_glass_pane';
   for (let story = 0; story < floors; story++) {
     const by = story * STORY_H;
-    for (let x = bx1 + 2; x <= bx2 - 3; x += 4) {
+    for (let x = bx1 + 3; x <= bx2 - 4; x += 7) {
       // Skip arch zone on ground floor
-      if (story === 0 && x >= ax1 - 1 && x <= ax2 + 1) continue;
-      // Front and back walls — 2-wide × 2-tall windows
-      for (const z of [bz2, bz1]) {
-        for (let dy = 2; dy <= 3; dy++) {
-          for (let dx = 0; dx <= 1; dx++) {
-            if (grid.inBounds(x + dx, by + dy, z))
-              grid.set(x + dx, by + dy, z, 'minecraft:gray_stained_glass_pane');
-          }
+      if (story === 0 && x >= ax1 - 2 && x <= ax2 + 2) continue;
+      // Front wall — 3-wide × 3-tall grouped dark windows
+      for (let dy = 2; dy <= 4; dy++) {
+        for (let dx = 0; dx <= 2; dx++) {
+          if (grid.inBounds(x + dx, by + dy, bz2))
+            grid.set(x + dx, by + dy, bz2, winGlass);
         }
+      }
+      // Projecting stone sill below window — 1 block outward for depth
+      for (let dx = 0; dx <= 2; dx++) {
+        if (grid.inBounds(x + dx, by + 1, bz2 + 1))
+          grid.set(x + dx, by + 1, bz2 + 1, 'minecraft:stone_brick_slab[type=top]');
       }
     }
   }
