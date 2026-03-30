@@ -1538,6 +1538,40 @@ async function main(): Promise<void> {
   // Environment data extracted from photogrammetry before vegetation strip (--scene)
   let envPositions: ExtractedEnvironment | undefined;
 
+  // Block-level distance clip — remove blocks outside MBR bounds.
+  // Mesh-level pre-clip (above) can't help when individual tile meshes span the boundary.
+  // This block-level clip uses the building MBR dimensions to remove voxels that are
+  // clearly outside the target building, complementing the downstream OSM polygon mask.
+  // Runs before generic/non-generic branch so it applies to all pipeline modes.
+  if (buildingAlignment && buildingAlignment.mbrWidth > 0 && buildingAlignment.mbrDepth > 0) {
+    const theta = buildingAlignment.rotationDeg * Math.PI / 180;
+    const sinT = Math.abs(Math.sin(theta));
+    const cosT = Math.abs(Math.cos(theta));
+    const halfW = buildingAlignment.mbrWidth / 2;
+    const halfD = buildingAlignment.mbrDepth / 2;
+    // Axis-aligned clip bounds in meters, then convert to blocks
+    const bufferM = 10; // keep 10m buffer around MBR
+    const clipRadiusX = Math.ceil((halfW * sinT + halfD * cosT + bufferM) * args.resolution);
+    const clipRadiusZ = Math.ceil((halfW * cosT + halfD * sinT + bufferM) * args.resolution);
+    const cx = Math.floor(trimmed.width / 2);
+    const cz = Math.floor(trimmed.length / 2);
+    let distClipped = 0;
+    for (let y = 0; y < trimmed.height; y++) {
+      for (let z = 0; z < trimmed.length; z++) {
+        for (let x = 0; x < trimmed.width; x++) {
+          if (trimmed.get(x, y, z) === 'minecraft:air') continue;
+          if (Math.abs(x - cx) > clipRadiusX || Math.abs(z - cz) > clipRadiusZ) {
+            trimmed.set(x, y, z, 'minecraft:air');
+            distClipped++;
+          }
+        }
+      }
+    }
+    if (distClipped > 0) {
+      console.log(`Block distance clip: ${distClipped} blocks removed outside MBR bounds (±${clipRadiusX}×${clipRadiusZ} blocks from center)`);
+    }
+  }
+
   if (!args.generic) {
     // === Shape processing (tuned for isolated single-building captures) ===
     // Pipeline order: ground removal → OSM mask → component cleanup → fill → vegetation.
