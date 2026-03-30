@@ -34,6 +34,8 @@ interface BuildingConfig {
   satZoom?: number;       // Google Static Maps satellite zoom (computed from MBR width when absent)
   resolution: number;     // 1 or 2 (0 = auto)
   maskDilate: number;     // 0-3
+  osmId?: string;         // explicit OSM element ID (e.g. "way/66418590") to bypass proximity search
+  modePasses?: number;    // explicit --mode-passes override (1-4, undefined = auto)
   extraFlags: string[];   // additional voxelize flags
   difficulty: 'easy' | 'medium' | 'hard';
   tileSize: number;       // iso render tile size
@@ -86,8 +88,9 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/national-gallery-east.glb`,
     coords: '38.8913,-77.0199',
     satRef: `${DIR}/sat-ref-nga-east.jpg`,
-    resolution: 1, // r=2 bloats grid (OSM polygon = entire National Gallery complex)
-    maskDilate: 2, // v303: dilate=0 hurt (6.7), revert — OSM polygon covers full complex
+    resolution: 1,
+    maskDilate: 0, // v305: tight mask — now using specific East Building polygon, not full complex
+    osmId: 'way/66418590', // v305: specific East Wing polygon (was picking whole NGA complex way/66418944)
     extraFlags: ['--no-enu'],
     difficulty: 'medium',
     tileSize: 6,
@@ -115,8 +118,9 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/seattle-library.glb`,
     coords: '47.6067,-122.3326',
     satRef: `${DIR}/sat-ref-seattle-library.jpg`,
-    resolution: 2, // v303: try 2x for diamond facets (was 1)
+    resolution: 2, // v303: 2x for diamond facets (was 1)
     maskDilate: 1, // v303: tighten from 2
+    modePasses: 1, // v305: glass facade needs less smoothing — 2 passes killed surface detail (C: 2→1.2)
     extraFlags: ['--no-enu'],
     difficulty: 'hard',
     tileSize: 6,
@@ -332,7 +336,9 @@ const BUILDINGS_NEW: BuildingConfig[] = [
     coords: '34.0553,-118.2498',
     satRef: `${DIR}/sat-ref-disney-hall.jpg`,
     resolution: 2, // organic form needs detail
-    maskDilate: 0, // v303: tighten from 2 — Music Center campus merges neighbors
+    maskDilate: 0, // v303: tighten — Music Center campus merges neighbors
+    osmId: 'relation/6333150', // v305: explicit Disney Hall multipolygon (98-node outer ring)
+    modePasses: 1, // v305: organic metallic form — less smoothing preserves sail geometry
     extraFlags: ['--no-enu'],
     difficulty: 'hard',
     tileSize: 6,
@@ -595,6 +601,10 @@ async function voxelize(b: BuildingConfig): Promise<VoxelizeResult> {
   if (sceneMode) flagParts.push('--scene');
   // Only pass -r when explicitly set (resolution > 0); otherwise let auto-2x decide
   if (b.resolution > 0) flagParts.push('-r', String(b.resolution));
+  // Explicit OSM element ID — bypass proximity search for complex/campus buildings
+  if (b.osmId) flagParts.push('--osm-id', b.osmId);
+  // Explicit mode filter passes — override auto 2-3 for glass facades or surface-sensitive buildings
+  if (b.modePasses !== undefined) flagParts.push('--mode-passes', String(b.modePasses));
   flagParts.push('-o', `"${schem}"`, ...b.extraFlags);
   const flags = flagParts.join(' ');
   console.log(`  Voxelizing: ${b.key} (r=${b.resolution > 0 ? b.resolution : 'auto'}, dilate=${b.maskDilate})`);

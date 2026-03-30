@@ -39,7 +39,7 @@ import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
 import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, clearOpenAirFill, removeSmallComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
-import { searchOSMBuilding } from '../src/gen/api/osm.js';
+import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
 import { enrichScene, expandGrid } from '../src/convert/scene-pipeline.js';
@@ -156,6 +156,7 @@ interface CLIArgs {
   noPostMask: boolean;     // skip post-processing OSM re-mask (v80)
   noIsolate: boolean;      // skip automatic building isolation
   maskDilate: number;      // OSM polygon dilation in blocks (default 3)
+  osmId: { type: 'way' | 'relation'; id: number } | null; // explicit OSM element ID (bypass proximity search)
   enrich: boolean;         // run scene enrichment (trees, roads, ground) around building
   scene: boolean;          // unified scene pipeline: env extraction → strip → enrich
   plotRadius: number;      // plot context expansion radius in meters (0 = auto)
@@ -199,6 +200,7 @@ Options:
   --no-enu-snap      ENU tilt correction only — skip 90° horizontal snap (preserves real-world orientation)
   --no-osm           Skip OSM footprint masking (when geocode doesn't match building)
   --no-post-mask     Skip post-processing OSM re-mask (v80 edge re-sharpening)
+  --osm-id TYPE/ID   Use specific OSM element (e.g. way/66418590) instead of proximity search
   --enrich           Run scene enrichment (trees, roads, ground fill) — requires --coords
   --scene            Unified scene pipeline: env extraction → strip → feature replacement →
                      plot expansion → enrichment — requires --coords
@@ -246,6 +248,7 @@ Options:
   let noPostMask = false;
   let noIsolate = false;
   let maskDilate = 3;
+  let osmId: { type: 'way' | 'relation'; id: number } | null = null;
   let enrich = false;
   let scene = false;
   let plotRadius = 0; // 0 = auto-compute when --scene
@@ -317,6 +320,16 @@ Options:
       noPostMask = true;
     } else if (arg === '--no-isolate') {
       noIsolate = true;
+    } else if (arg === '--osm-id') {
+      const val = args[++i]; // e.g. "way/66418590" or "relation/6333150"
+      const slashIdx = val.indexOf('/');
+      if (slashIdx > 0) {
+        const t = val.slice(0, slashIdx) as 'way' | 'relation';
+        const id = parseInt(val.slice(slashIdx + 1), 10);
+        if ((t === 'way' || t === 'relation') && !isNaN(id)) {
+          osmId = { type: t, id };
+        }
+      }
     } else if (arg === '--enrich') {
       enrich = true;
     } else if (arg === '--scene') {
@@ -386,7 +399,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, enrich, scene, plotRadius, zoneNormalize };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1004,6 +1017,14 @@ async function main(): Promise<void> {
   const args = parseArgs();
   const t0 = performance.now();
 
+  // Helper: query OSM building — uses explicit ID when provided, else proximity search
+  async function queryOSM(lat: number, lng: number, radius = 150) {
+    if (args.osmId) {
+      return fetchOSMById(args.osmId.type, args.osmId.id);
+    }
+    return searchOSMBuilding(lat, lng, radius);
+  }
+
   // ── Batch mode: analyze multiple GLBs, output summary table ──
   if (args.batch) {
     const allPaths = [args.inputPath, ...args.batchPaths];
@@ -1199,7 +1220,7 @@ async function main(): Promise<void> {
     // Still query OSM for building alignment (used by satellite zoom, masking, etc.)
     if (args.coords && !args.noOsm) {
       try {
-        const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
+        const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
         if (osmData?.polygon?.length >= 3) {
           const polygon = osmData.polygon.map((p: { lat: number; lon: number }) => ({ lat: p.lat, lon: p.lon }));
           buildingAlignment = computeBuildingAlignment(polygon, args.coords.lat, args.coords.lng);
@@ -1265,7 +1286,7 @@ async function main(): Promise<void> {
     // This early query is lightweight (same endpoint, same coords) and only used for alignment.
     if (args.coords && !args.noOsm) {
       try {
-        const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
+        const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
         if (osmData?.polygon?.length >= 3) {
           // OSM returns {lat, lon} — same as computeBuildingAlignment expects
           const polygon = osmData.polygon.map((p: { lat: number; lon: number }) => ({ lat: p.lat, lon: p.lon }));
@@ -1592,7 +1613,7 @@ async function main(): Promise<void> {
     let osmQueryPolygon: { lat: number; lon: number }[] | null = null;
     if (args.coords && !osmMaskDone && !args.noOsm) {
       console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
-      const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
+      const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
       if (osmData && osmData.polygon.length >= 3) {
         osmQueryPolygon = osmData.polygon;
         const snapshot = new Map<string, string>();
@@ -1781,7 +1802,7 @@ async function main(): Promise<void> {
       // only fills the building interior, not surrounding terrain/roads/neighbors.
       if (args.coords && !args.noOsm) {
         console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
-        const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
+        const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
         if (osmData && osmData.polygon.length >= 3) {
           // Snapshot blocks before masking for revert if polygon is misaligned
           const snapshot = new Map<string, string>();
@@ -1976,7 +1997,7 @@ async function main(): Promise<void> {
   // Skip if already done in the generic pre-fill path above.
   if (args.coords && !osmMaskDone && !args.noOsm) {
     console.log(`OSM footprint query at ${args.coords.lat},${args.coords.lng}...`);
-    const osmData = await searchOSMBuilding(args.coords.lat, args.coords.lng, 150);
+    const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
     if (osmData && osmData.polygon.length >= 3) {
       // Snapshot blocks before masking so we can revert if mask removes everything
       const snapshot = new Map<string, string>();

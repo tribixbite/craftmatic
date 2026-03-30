@@ -124,6 +124,133 @@ export async function searchOSMBuilding(
   return null;
 }
 
+/**
+ * Fetch a specific OSM building by way or relation ID.
+ * Bypasses proximity search — useful when the nearest polygon covers a campus/complex
+ * and a specific sub-building way exists (e.g. NGA East Building within full NGA complex).
+ *
+ * @param osmType 'way' or 'relation'
+ * @param osmId Numeric OSM element ID
+ * @returns Building data with polygon and tags, or null if not found
+ */
+export async function fetchOSMById(
+  osmType: 'way' | 'relation',
+  osmId: number,
+): Promise<OSMBuildingData | null> {
+  const query = `[out:json][timeout:15];${osmType}(${osmId});out geom;`;
+  const body = `data=${encodeURIComponent(query)}`;
+
+  const MAX_RETRIES = 5;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const serverUrl = pickOverpassUrl();
+    try {
+      const resp = await fetch(serverUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: AbortSignal.timeout(20000),
+      });
+
+      if (resp.status === 429 || resp.status === 504) {
+        if (attempt < MAX_RETRIES) {
+          const delay = (attempt + 1) * 3000;
+          console.warn(`OSM Overpass: HTTP ${resp.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        console.warn(`OSM Overpass: HTTP ${resp.status} after ${MAX_RETRIES} retries`);
+        return null;
+      }
+
+      if (!resp.ok) {
+        console.warn(`OSM Overpass: HTTP ${resp.status}`);
+        return null;
+      }
+
+      const data = await resp.json() as { elements?: OverpassElement[] };
+      const elements = data.elements;
+      if (!Array.isArray(elements) || elements.length === 0) {
+        console.warn(`OSM Overpass: ${osmType}/${osmId} not found`);
+        return null;
+      }
+
+      const el = elements[0];
+      // Extract polygon from the element
+      let polygon: { lat: number; lon: number }[];
+      let innerPolygons: { lat: number; lon: number }[][] | undefined;
+
+      if (el.type === 'relation' && el.members) {
+        const outerMember = el.members.find(m => m.role === 'outer' && m.geometry && m.geometry.length >= 3);
+        if (!outerMember?.geometry) {
+          console.warn(`OSM: relation/${osmId} has no outer geometry`);
+          return null;
+        }
+        polygon = outerMember.geometry.map(pt => ({ lat: pt.lat, lon: pt.lon }));
+        const inners = el.members
+          .filter(m => m.role === 'inner' && m.geometry && m.geometry.length >= 3)
+          .map(m => m.geometry!.map(pt => ({ lat: pt.lat, lon: pt.lon })));
+        if (inners.length > 0) innerPolygons = inners;
+      } else if (el.geometry && el.geometry.length >= 3) {
+        polygon = el.geometry.map(pt => ({ lat: pt.lat, lon: pt.lon }));
+      } else {
+        console.warn(`OSM: ${osmType}/${osmId} has no usable geometry`);
+        return null;
+      }
+
+      const { widthMeters, lengthMeters } = polygonBoundingDimensions(polygon);
+      let footprintAreaSqm = polygonArea(polygon);
+      if (innerPolygons) {
+        for (const inner of innerPolygons) {
+          footprintAreaSqm -= polygonArea(inner);
+        }
+        footprintAreaSqm = Math.max(0, footprintAreaSqm);
+      }
+
+      const tags = el.tags ?? {};
+      const bboxArea = widthMeters * lengthMeters;
+      const fillRatio = bboxArea > 0 ? footprintAreaSqm / bboxArea : 1;
+      const aspectRatio = lengthMeters > 0 ? widthMeters / lengthMeters : 1;
+      let effectiveWidth = widthMeters;
+      let effectiveLength = lengthMeters;
+      if (fillRatio < 0.88 && footprintAreaSqm > 0) {
+        effectiveWidth = Math.sqrt(footprintAreaSqm * aspectRatio);
+        effectiveLength = Math.sqrt(footprintAreaSqm / aspectRatio);
+      }
+      const levelsRaw = tags['building:levels'];
+      const levels = levelsRaw ? parseInt(levelsRaw, 10) : undefined;
+
+      console.log(`OSM: fetched ${osmType}/${osmId} — ${tags.name || 'unnamed'} (${Math.round(effectiveWidth)}×${Math.round(effectiveLength)}m)`);
+
+      return {
+        polygon,
+        innerPolygons,
+        widthMeters: Math.round(effectiveWidth * 10) / 10,
+        lengthMeters: Math.round(effectiveLength * 10) / 10,
+        widthBlocks: Math.max(6, Math.min(60, Math.round(effectiveWidth))),
+        lengthBlocks: Math.max(6, Math.min(60, Math.round(effectiveLength))),
+        footprintAreaSqm: Math.round(footprintAreaSqm * 10) / 10,
+        levels: levels && !isNaN(levels) ? levels : undefined,
+        material: tags['building:material'] || undefined,
+        roofShape: tags['roof:shape'] || undefined,
+        roofMaterial: tags['roof:material'] || undefined,
+        buildingColour: normalizeOSMColour(tags['building:colour']),
+        roofColour: normalizeOSMColour(tags['roof:colour']),
+        tags,
+      };
+    } catch (err) {
+      if (attempt < MAX_RETRIES) {
+        const delay = (attempt + 1) * 3000;
+        console.warn(`OSM Overpass: error, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      console.warn('OSM Overpass request failed:', err);
+      return null;
+    }
+  }
+  return null;
+}
+
 /** Ray-casting point-in-polygon test for lat/lng coordinates */
 function pointInPolygon(
   lat: number, lng: number,
