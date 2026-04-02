@@ -1809,6 +1809,15 @@ export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1, extraProte
           // which have ≥2 neighbors of their own type — they're part of a feature, not noise.
           const centerCount = neighborCounts.get(center) ?? 0;
           if (majorityBlock !== center && majorityCount > totalNeighbors * 0.35 && centerCount < 2) {
+            // v306: CIE-Lab guard — skip replacement if center and majority are very different
+            // colors (delta-E > 20). Preserves terracotta accents in stone walls, brick bands
+            // in concrete, etc. Only replaces same-color-family noise.
+            const cLab = getBlockLab(center);
+            const mLab = getBlockLab(majorityBlock);
+            if (cLab && mLab) {
+              const dE = (cLab[0] - mLab[0]) ** 2 + (cLab[1] - mLab[1]) ** 2 + (cLab[2] - mLab[2]) ** 2;
+              if (dE > 400) continue; // delta-E² > 20² → skip, colors too different
+            }
             grid.set(x, y, z, majorityBlock);
             passReplaced++;
           }
@@ -1882,6 +1891,11 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
           if (block === AIR) continue;
           if (blockLuminance(block) > DARK_FLOOR) continue;
 
+          // v306: Chroma guard — skip saturated dark materials (brick, terracotta, dark wood).
+          // Shadow artifacts map to neutral blocks (a*≈0, b*≈0) and are still cleaned.
+          const lab1 = getBlockLab(block);
+          if (lab1 && (Math.abs(lab1[1]) > 8 || Math.abs(lab1[2]) > 8)) continue;
+
           const best = findBrightNeighborMode(grid, x, y, z, radius, DARK_FLOOR);
           if (best) replacements.push({ x, y, z, replacement: best });
         }
@@ -1933,6 +1947,10 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
           // Compute median luminance of neighborhood
           neighborLums.sort((a, b) => a - b);
           const median = neighborLums[Math.floor(neighborLums.length / 2)];
+
+          // v306: Chroma guard — skip saturated dark materials in contrast pass too
+          const lab2 = getBlockLab(block);
+          if (lab2 && (Math.abs(lab2[1]) > 8 || Math.abs(lab2[2]) > 8)) continue;
 
           // Replace if this block is much darker than its neighborhood median
           if (median - lum >= adaptiveContrastDelta) {
@@ -2042,6 +2060,30 @@ const BLOCK_LUMINANCE = new Map<string, number>([
  */
 function blockLuminance(block: string): number {
   return BLOCK_LUMINANCE.get(block) ?? 0.5;
+}
+
+/** Lazy-init cache: block name → [L*, a*, b*] from WALL_CLUSTERS RGB entries */
+let _blockLabCache: Map<string, [number, number, number]> | null = null;
+
+/**
+ * Get CIE-Lab coordinates for a Minecraft block. Returns null for unknown blocks.
+ * Used by modeFilter3D and smoothDarkBlocks to make color-aware decisions.
+ */
+function getBlockLab(block: string): [number, number, number] | null {
+  if (!_blockLabCache) {
+    _blockLabCache = new Map();
+    for (const cluster of WALL_CLUSTERS) {
+      const [r, g, b] = cluster.rgb;
+      const lab = rgbToLab(r, g, b);
+      for (const opt of cluster.options) {
+        // Strip minecraft: prefix variants — options always include it
+        if (!_blockLabCache.has(opt)) {
+          _blockLabCache.set(opt, lab);
+        }
+      }
+    }
+  }
+  return _blockLabCache.get(block) ?? null;
 }
 
 /**

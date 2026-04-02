@@ -131,12 +131,14 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   // so CIE-Lab matching picks blocks that render at the expected brightness.
   // smooth_stone (lum 162) — separate from light_gray_concrete (lum 124) because
   // their actual textures differ by 38 luminance despite similar catalog colors.
-  { rgb: [162, 162, 162], options: ['minecraft:smooth_stone'] },
+  // v306: Added multi-option alternatives to gray clusters so seed-based variety
+  // creates subtle weathering patches instead of uniform monochrome.
+  { rgb: [162, 162, 162], options: ['minecraft:smooth_stone', 'minecraft:smooth_stone_slab[type=double]'] },
   // Light gray concrete — actual texture is darker than name suggests (lum 124)
-  { rgb: [125, 125, 115], options: ['minecraft:light_gray_concrete'] },
+  { rgb: [125, 125, 115], options: ['minecraft:light_gray_concrete', 'minecraft:clay'] },
   // Medium stone — andesite is the brightest (136), stone_bricks darkest (123)
-  { rgb: [136, 136, 136], options: ['minecraft:andesite'] },
-  { rgb: [124, 123, 124], options: ['minecraft:stone_bricks'] },
+  { rgb: [136, 136, 136], options: ['minecraft:andesite', 'minecraft:stone'] },
+  { rgb: [124, 123, 124], options: ['minecraft:stone_bricks', 'minecraft:stone'] },
   // Blue-gray / slate — polished_andesite (132,135,134)
   { rgb: [132, 135, 134], options: ['minecraft:polished_andesite', 'minecraft:gray_terracotta'] },
   // Dark concrete — actual texture is very dark (55,58,62)

@@ -729,14 +729,16 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         // Green (85°-160°, l<0.7): boost — vegetation recovery
         // v95: Reduced desaturation aggressiveness — 0.1 blue killed copper/teal roofs,
         // 0.85 default pushed too many materials toward gray CIE-Lab neutral axis.
+        // v306: Raised multipliers to preserve color diversity through CIE-Lab matching.
+        // Previous values pushed too many materials toward gray neutral axis.
         if (hueDeg >= 190 && hueDeg <= 260) {
-          s *= 0.3; // Reduce sky bleed but preserve real copper/patina
+          s *= 0.5; // Was 0.3 — preserve copper/teal/patina roofs
         } else if ((hueDeg <= 70 || hueDeg >= 320) && l < 0.40) {
-          s *= 0.6; // Allow warm shadows to stay warm → maps to brown_terracotta/brick
+          s *= 0.8; // Was 0.6 — preserve brick/sandstone in shadow
         } else if (hueDeg >= 85 && hueDeg <= 160 && l < 0.7) {
           s = Math.min(1, s * 1.3); // Vegetation boost
         } else {
-          s *= 0.90; // Preserve more color — was 0.85, too aggressive for building materials
+          s *= 0.95; // Was 0.90 — near-identity for other hues
         }
 
         const hue2rgb = (p: number, q: number, t: number): number => {
@@ -767,8 +769,11 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
     // v95: MIN_BRIGHT 60→35. 60 was crushing dark browns/reds/charcoals to identical
     // gray_concrete. 35 allows distinct dark materials to survive CIE-Lab matching.
     if (!isGreenish && !isCenterPixelFeature) {
-      const MIN_BRIGHT = 35;
-      const range = 255 - MIN_BRIGHT; // 220 — wider range preserves dark material variety
+      // v306: 35→20 — allows more dark material variety through CIE-Lab.
+      // Dark red brick (RGB 80,50,40) keeps enough color to match brown_terracotta
+      // instead of gray_concrete. Shadow artifacts still caught by smoothDarkBlocks.
+      const MIN_BRIGHT = 20;
+      const range = 255 - MIN_BRIGHT; // 235 — wider range preserves dark material variety
       r = Math.round(MIN_BRIGHT + (r * range) / 255);
       g = Math.round(MIN_BRIGHT + (g * range) / 255);
       b = Math.round(MIN_BRIGHT + (b * range) / 255);
