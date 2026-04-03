@@ -62,6 +62,23 @@ export function initReview(
     imageInput.value = '';
   });
 
+  // ─── Auto-load from URL params ─────────────────────────────────────────────
+  // ?load=review/flatiron-v307.schem,review/seattle-library-v307.schem,...
+  const loadParam = new URLSearchParams(window.location.search).get('load');
+  if (loadParam) {
+    const urls = loadParam.split(',').map(u => u.trim()).filter(Boolean);
+    for (const url of urls) {
+      fetch(url)
+        .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.arrayBuffer(); })
+        .then(async buf => {
+          const name = url.split('/').pop() ?? url;
+          const file = new File([buf], name);
+          await loadSchematic(file);
+        })
+        .catch(err => console.error(`[review] Failed to fetch ${url}:`, err));
+    }
+  }
+
   // ─── Drag-drop on entire review tab ────────────────────────────────────────
 
   root.addEventListener('dragover', (e) => {
