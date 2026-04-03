@@ -2076,7 +2076,7 @@ async function main(): Promise<void> {
       // Profile-aware: protect more of the distinctive geometry at top
       const profile = analysis?.heightProfile ?? 'uniform';
       const closeFraction: Record<string, number> = {
-        tapered: 0.20,  // protect 80% — tip/taper defines building
+        tapered: 0.35,  // v307: protect 65% — raised from 0.20 to compensate for skipped post-filter morphClose
         stepped: 0.40,  // protect 60% — step edges are real architecture
         domed: 0.30,    // protect 70% — dome curvature is critical
         uniform: 0.50,  // protect 50% — standard complex shape
@@ -2586,11 +2586,16 @@ async function main(): Promise<void> {
 
   // Post-filter morphClose — heal surface pockmarks created by mode filter.
   // r=1 is gentle — only fills single-voxel holes without altering shape.
-  {
+  // v307: Skip for complex shapes — their 1-voxel gaps between geometric features
+  // (sail separations, facet transitions) are real architecture, not pockmarks.
+  // With modePasses=1, mode filter creates few pockmarks anyway.
+  if (!isComplexShape) {
     const closed2 = morphClose3D(trimmed, 1);
     if (closed2 > 0) {
       console.log(`Morph close post-filter (r=1): ${closed2} surface pockmarks healed`);
     }
+  } else {
+    console.log(`Morph close post-filter: SKIPPED (complex shape — gaps are real geometry)`);
   }
 
   // v300: Smooth dark shadow artifacts — photogrammetry bakes shadow into texture,
