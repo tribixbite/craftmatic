@@ -734,7 +734,8 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         if (hueDeg >= 190 && hueDeg <= 260) {
           s *= 0.5; // Was 0.3 — preserve copper/teal/patina roofs
         } else if ((hueDeg <= 70 || hueDeg >= 320) && l < 0.40) {
-          s *= 0.8; // Was 0.6 — preserve brick/sandstone in shadow
+          s *= 0.95; // v308: was 0.8 — near-identity for brick/sandstone in shadow.
+          // 0.8 killed red/brown chroma so CIE-Lab picked gray_concrete over brown_terracotta.
         } else if (hueDeg >= 85 && hueDeg <= 160 && l < 0.7) {
           s = Math.min(1, s * 1.3); // Vegetation boost
         } else {

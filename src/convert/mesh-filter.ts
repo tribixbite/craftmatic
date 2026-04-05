@@ -1891,10 +1891,11 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
           if (block === AIR) continue;
           if (blockLuminance(block) > DARK_FLOOR) continue;
 
-          // v306: Chroma guard — skip saturated dark materials (brick, terracotta, dark wood).
+          // v306/v308: Chroma guard — skip saturated dark materials (brick, terracotta, dark wood).
           // Shadow artifacts map to neutral blocks (a*≈0, b*≈0) and are still cleaned.
+          // v308: Lowered threshold 8→5 — brown_terracotta has b*≈8, was on the edge.
           const lab1 = getBlockLab(block);
-          if (lab1 && (Math.abs(lab1[1]) > 8 || Math.abs(lab1[2]) > 8)) continue;
+          if (lab1 && (Math.abs(lab1[1]) > 5 || Math.abs(lab1[2]) > 5)) continue;
 
           const best = findBrightNeighborMode(grid, x, y, z, radius, DARK_FLOOR);
           if (best) replacements.push({ x, y, z, replacement: best });
@@ -1948,9 +1949,9 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
           neighborLums.sort((a, b) => a - b);
           const median = neighborLums[Math.floor(neighborLums.length / 2)];
 
-          // v306: Chroma guard — skip saturated dark materials in contrast pass too
+          // v306/v308: Chroma guard — skip saturated dark materials in contrast pass too
           const lab2 = getBlockLab(block);
-          if (lab2 && (Math.abs(lab2[1]) > 8 || Math.abs(lab2[2]) > 8)) continue;
+          if (lab2 && (Math.abs(lab2[1]) > 5 || Math.abs(lab2[2]) > 5)) continue;
 
           // Replace if this block is much darker than its neighborhood median
           if (median - lum >= adaptiveContrastDelta) {

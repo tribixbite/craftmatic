@@ -890,9 +890,9 @@ function historicUrban(ctx: DecoratorContext): void {
   // Keep iron_bars (used for balcony railings) and doors.
   const isProtected = (b: string) => !b || b === 'minecraft:air'
     || b === 'minecraft:iron_bars' || b.includes('door')
-    || b.includes('glass')  // Preserve base generator's natural windows
+    || b.includes('glass')  // Preserve base generator windows on all sides
     || b === wallBlk
-    || b.includes('grass') || b.includes('dirt');  // Don't replace ground
+    || b.includes('grass') || b.includes('dirt');
   for (let y = 0; y < grid.height; y++) {
     for (let x = 0; x < grid.width; x++) {
       for (let z = 0; z < grid.length; z++) {
@@ -1057,8 +1057,10 @@ function historicUrban(ctx: DecoratorContext): void {
     }
   }
 
-  // ── Multi-pane grouped windows — 3-wide × 3-tall with projecting sills ──
-  // Glass flush with wall. Stone sill projects outward for depth.
+  // ── Multi-pane grouped windows — 3-wide × 3-tall on main body front ──
+  // Base generator windows survive via isProtected (glass), giving natural
+  // window placement on sides/back/wing. Decorator adds larger grouped
+  // windows only on the main front facade.
   const winGlass = 'minecraft:black_stained_glass_pane';
   for (let story = 0; story < floors; story++) {
     const by = story * STORY_H;
