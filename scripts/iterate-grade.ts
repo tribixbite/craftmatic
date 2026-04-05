@@ -344,6 +344,23 @@ const BUILDINGS_NEW: BuildingConfig[] = [
     tileSize: 6,
     topdownScale: 6,
   },
+  {
+    // School complex — Coit Creative Arts Academy, Grand Rapids, MI
+    // ~12m, multi-wing brick institutional building with flat roofs, mixed eras
+    // Tests: compound L-shape footprint, brick color mapping, low-rise institutional
+    key: 'coit-grandrapids',
+    glb: `${DIR}/coit-grandrapids.glb`,
+    coords: '42.9742448,-85.6653327',
+    satRef: `${DIR}/sat-ref-coit-grandrapids.jpg`,
+    resolution: 2, // large compound footprint benefits from 2x detail
+    maskDilate: 1, // v308: raised from 0 — tight mask clips thin corridors between wings
+    osmId: 'way/223060418', // v308: explicit school footprint — excludes 3 nearby building=yes ways
+    modePasses: 3,
+    extraFlags: ['--no-enu'],
+    difficulty: 'medium',
+    tileSize: 6,
+    topdownScale: 6,
+  },
 ];
 
 // ── VLM Grading ──

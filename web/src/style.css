@@ -640,8 +640,8 @@ html, body {
 
 @media (max-width: 768px) {
   #nav { padding: 0 10px; gap: 10px; }
-  .nav-tabs { gap: 2px; justify-content: flex-start; min-width: 0; }
-  .nav-tab { padding: 6px 10px; font-size: 11px; flex-shrink: 0; }
+  .nav-tabs { gap: 2px; justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
+  .nav-tab { padding: 5px 8px; font-size: 10.5px; flex-shrink: 0; }
   .nav-title { display: none; }
 
   .panel-layout { flex-direction: column; }
