@@ -29,6 +29,22 @@ import type { ExtractedEnvironment } from './mesh-filter.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+/** Granular toggles for which scene environment features to include */
+export interface SceneFeatureFlags {
+  /** Ground plane fill (grass/dirt/sand) — default true */
+  ground?: boolean;
+  /** OSM trees + synthetic scatter — default true */
+  trees?: boolean;
+  /** OSM roads + auto-sidewalks — default true */
+  roads?: boolean;
+  /** Footways/cycleways — default true */
+  paths?: boolean;
+  /** Barriers from OSM (fence/wall/hedge) — default true */
+  fences?: boolean;
+  /** Pool + driveway placement — default true */
+  pools?: boolean;
+}
+
 /** Options for the scene pipeline */
 export interface ScenePipelineOptions {
   /** Pre-voxelized BlockGrid (from tiles pipeline or GLB voxelizer) */
@@ -57,6 +73,8 @@ export interface ScenePipelineOptions {
   };
   /** Captured environment data from photogrammetry (from extractEnvironmentPositions) */
   capturedEnvironment?: ExtractedEnvironment;
+  /** Granular feature toggles (default-true: omitted = enabled) */
+  features?: SceneFeatureFlags;
   /** Progress callback for status updates */
   onProgress?: (msg: string) => void;
 }
@@ -105,6 +123,7 @@ export async function enrichScene(
     calibrationDz = 0,
     propertyFlags,
     capturedEnvironment,
+    features,
     onProgress,
   } = options;
 
@@ -130,11 +149,20 @@ export async function enrichScene(
     calibrationDz,
   );
 
-  // Step 3: Fetch enrichment data from APIs
+  // Step 3: Fetch enrichment data from APIs (skip calls for disabled features)
+  const needInfra = (features?.roads !== false) || (features?.paths !== false) ||
+    (features?.fences !== false) || (features?.pools !== false);
+  const needTrees = features?.trees !== false;
+  const needLandcover = features?.ground !== false;
   onProgress?.('Fetching scene enrichment data...');
   const enrichment = await enrichForScene(
     coords.lat, coords.lng, plotRadius,
     propertyFlags,
+    {
+      infrastructure: !needInfra,
+      trees: !needTrees,
+      landcover: !needLandcover,
+    },
   );
   onProgress?.(`Enrichment: ${enrichment.trees.length} trees, ${enrichment.roads.length} roads, ${enrichment.fences.length} fences, ground=${enrichment.groundCover}`);
   if (capturedEnvironment) {
@@ -155,107 +183,111 @@ export async function enrichScene(
   };
 
   // 4a. Fill ground layer — use captured ground materials when available
-  const groundBlock = resolveBlock(VoxelClass.GROUND_GRASS, blockContext);
-  const capturedRoadCells = capturedEnvironment?.roads.cells;
-  for (let z = 0; z < grid.length; z++) {
-    for (let x = 0; x < grid.width; x++) {
-      // Determine ground Y from heightmap if available
-      let groundYGrid = 0;
-      if (terrainHeightmap && options.heightmapWidth && options.heightmapLength) {
-        const hmX = Math.floor(x * options.heightmapWidth / grid.width);
-        const hmZ = Math.floor(z * options.heightmapLength / grid.length);
-        if (hmX >= 0 && hmX < options.heightmapWidth && hmZ >= 0 && hmZ < options.heightmapLength) {
-          groundYGrid = Math.round(terrainHeightmap[hmZ * options.heightmapWidth + hmX] * resolution);
+  if (features?.ground !== false) {
+    const groundBlock = resolveBlock(VoxelClass.GROUND_GRASS, blockContext);
+    const capturedRoadCells = capturedEnvironment?.roads.cells;
+    for (let z = 0; z < grid.length; z++) {
+      for (let x = 0; x < grid.width; x++) {
+        // Determine ground Y from heightmap if available
+        let groundYGrid = 0;
+        if (terrainHeightmap && options.heightmapWidth && options.heightmapLength) {
+          const hmX = Math.floor(x * options.heightmapWidth / grid.width);
+          const hmZ = Math.floor(z * options.heightmapLength / grid.length);
+          if (hmX >= 0 && hmX < options.heightmapWidth && hmZ >= 0 && hmZ < options.heightmapLength) {
+            groundYGrid = Math.round(terrainHeightmap[hmZ * options.heightmapWidth + hmX] * resolution);
+          }
         }
-      }
 
-      const y = Math.max(0, groundYGrid);
-      if (y >= grid.height || grid.get(x, y, z) !== 'minecraft:air') continue;
+        const y = Math.max(0, groundYGrid);
+        if (y >= grid.height || grid.get(x, y, z) !== 'minecraft:air') continue;
 
-      const key = `${x},${z}`;
-      // Use captured road cell positions for road block placement
-      if (capturedRoadCells?.has(key)) {
-        if (writeWithPriority(grid, classified.classes, x, y, z,
-          capturedEnvironment!.roads.surfaceBlock, VoxelClass.GROUND_ROAD)) {
-          envStats.roadsPlaced++;
-        }
-      } else {
-        if (writeWithPriority(grid, classified.classes, x, y, z, groundBlock, VoxelClass.GROUND_GRASS)) {
-          envStats.groundFilled++;
+        const key = `${x},${z}`;
+        // Use captured road cell positions for road block placement
+        if (capturedRoadCells?.has(key)) {
+          if (writeWithPriority(grid, classified.classes, x, y, z,
+            capturedEnvironment!.roads.surfaceBlock, VoxelClass.GROUND_ROAD)) {
+            envStats.roadsPlaced++;
+          }
+        } else {
+          if (writeWithPriority(grid, classified.classes, x, y, z, groundBlock, VoxelClass.GROUND_GRASS)) {
+            envStats.groundFilled++;
+          }
         }
       }
     }
+    onProgress?.(`Ground: ${envStats.groundFilled} blocks filled`);
   }
-  onProgress?.(`Ground: ${envStats.groundFilled} blocks filled`);
 
   // 4b. Place roads
-  const roadBlock = resolveBlock(VoxelClass.GROUND_ROAD, blockContext);
-  const sidewalkBlock = resolveBlock(VoxelClass.GROUND_SIDEWALK, blockContext);
-  for (const road of enrichment.roads) {
-    // Project road nodes to grid coordinates
-    const gridPoints: { x: number; z: number }[] = [];
-    for (const node of road.nodes) {
-      const gp = projection.toGridXZ(node.lat, node.lng);
-      if (projection.isInBounds(gp.x, gp.z, grid.width, grid.length)) {
-        gridPoints.push(gp);
+  if (features?.roads !== false) {
+    const roadBlock = resolveBlock(VoxelClass.GROUND_ROAD, blockContext);
+    const sidewalkBlock = resolveBlock(VoxelClass.GROUND_SIDEWALK, blockContext);
+    for (const road of enrichment.roads) {
+      const gridPoints: { x: number; z: number }[] = [];
+      for (const node of road.nodes) {
+        const gp = projection.toGridXZ(node.lat, node.lng);
+        if (projection.isInBounds(gp.x, gp.z, grid.width, grid.length)) {
+          gridPoints.push(gp);
+        }
       }
-    }
-    if (gridPoints.length < 2) continue;
+      if (gridPoints.length < 2) continue;
 
-    // Rasterize road centerline with width
-    const roadWidth = Math.max(1, Math.round(road.width * resolution));
-    const rasterized = rasterizeLine(gridPoints, roadWidth, grid.width, grid.length);
+      const roadWidth = Math.max(1, Math.round(road.width * resolution));
+      const rasterized = rasterizeLine(gridPoints, roadWidth, grid.width, grid.length);
 
-    for (const pt of rasterized) {
-      if (writeWithPriority(grid, classified.classes, pt.x, 0, pt.z, roadBlock, VoxelClass.GROUND_ROAD)) {
-        envStats.roadsPlaced++;
+      for (const pt of rasterized) {
+        if (writeWithPriority(grid, classified.classes, pt.x, 0, pt.z, roadBlock, VoxelClass.GROUND_ROAD)) {
+          envStats.roadsPlaced++;
+        }
       }
-    }
 
-    // Add sidewalks on both sides (1 block wider than road)
-    const sidewalkRaster = rasterizeLine(gridPoints, roadWidth + 2, grid.width, grid.length);
-    for (const pt of sidewalkRaster) {
-      // Only place sidewalk where road wasn't placed (edges)
-      writeWithPriority(grid, classified.classes, pt.x, 0, pt.z, sidewalkBlock, VoxelClass.GROUND_SIDEWALK);
+      // Add sidewalks on both sides (1 block wider than road)
+      const sidewalkRaster = rasterizeLine(gridPoints, roadWidth + 2, grid.width, grid.length);
+      for (const pt of sidewalkRaster) {
+        writeWithPriority(grid, classified.classes, pt.x, 0, pt.z, sidewalkBlock, VoxelClass.GROUND_SIDEWALK);
+      }
     }
   }
 
   // 4c. Place paths
-  const pathBlock = resolveBlock(VoxelClass.GROUND_PATH, blockContext);
-  for (const path of enrichment.paths) {
-    const gridPoints: { x: number; z: number }[] = [];
-    for (const node of path.nodes) {
-      const gp = projection.toGridXZ(node.lat, node.lng);
-      if (projection.isInBounds(gp.x, gp.z, grid.width, grid.length)) {
-        gridPoints.push(gp);
+  if (features?.paths !== false) {
+    const pathBlock = resolveBlock(VoxelClass.GROUND_PATH, blockContext);
+    for (const path of enrichment.paths) {
+      const gridPoints: { x: number; z: number }[] = [];
+      for (const node of path.nodes) {
+        const gp = projection.toGridXZ(node.lat, node.lng);
+        if (projection.isInBounds(gp.x, gp.z, grid.width, grid.length)) {
+          gridPoints.push(gp);
+        }
       }
-    }
-    if (gridPoints.length < 2) continue;
+      if (gridPoints.length < 2) continue;
 
-    const pathWidth = Math.max(1, Math.round(path.width * resolution));
-    const rasterized = rasterizeLine(gridPoints, pathWidth, grid.width, grid.length);
-    for (const pt of rasterized) {
-      writeWithPriority(grid, classified.classes, pt.x, 0, pt.z, pathBlock, VoxelClass.GROUND_PATH);
+      const pathWidth = Math.max(1, Math.round(path.width * resolution));
+      const rasterized = rasterizeLine(gridPoints, pathWidth, grid.width, grid.length);
+      for (const pt of rasterized) {
+        writeWithPriority(grid, classified.classes, pt.x, 0, pt.z, pathBlock, VoxelClass.GROUND_PATH);
+      }
     }
   }
 
   // 4d. Place fences
-  const fenceBlock = resolveBlock(VoxelClass.FENCE, blockContext);
-  for (const fence of enrichment.fences) {
-    const gridPoints: { x: number; z: number }[] = [];
-    for (const node of fence.nodes) {
-      const gp = projection.toGridXZ(node.lat, node.lng);
-      if (projection.isInBounds(gp.x, gp.z, grid.width, grid.length)) {
-        gridPoints.push(gp);
+  if (features?.fences !== false) {
+    const fenceBlock = resolveBlock(VoxelClass.FENCE, blockContext);
+    for (const fence of enrichment.fences) {
+      const gridPoints: { x: number; z: number }[] = [];
+      for (const node of fence.nodes) {
+        const gp = projection.toGridXZ(node.lat, node.lng);
+        if (projection.isInBounds(gp.x, gp.z, grid.width, grid.length)) {
+          gridPoints.push(gp);
+        }
       }
-    }
-    if (gridPoints.length < 2) continue;
+      if (gridPoints.length < 2) continue;
 
-    const rasterized = rasterizeLine(gridPoints, 1, grid.width, grid.length);
-    for (const pt of rasterized) {
-      // Fence posts at ground+1
-      if (writeWithPriority(grid, classified.classes, pt.x, 1, pt.z, fenceBlock, VoxelClass.FENCE)) {
-        envStats.fencesPlaced++;
+      const rasterized = rasterizeLine(gridPoints, 1, grid.width, grid.length);
+      for (const pt of rasterized) {
+        if (writeWithPriority(grid, classified.classes, pt.x, 1, pt.z, fenceBlock, VoxelClass.FENCE)) {
+          envStats.fencesPlaced++;
+        }
       }
     }
   }
@@ -263,59 +295,58 @@ export async function enrichScene(
   // 4e. Place trees (using direct grid.set — trees are multi-block structures
   // that write leaves+logs, so we check building bounds before placing)
   const { buildingBounds: bb } = classified;
-  for (const tree of enrichment.trees) {
-    const gp = projection.toGridXZ(tree.lat, tree.lng);
-    if (!projection.isInBounds(gp.x, gp.z, grid.width, grid.length)) continue;
+  if (features?.trees !== false) {
+    for (const tree of enrichment.trees) {
+      const gp = projection.toGridXZ(tree.lat, tree.lng);
+      if (!projection.isInBounds(gp.x, gp.z, grid.width, grid.length)) continue;
 
-    // Skip trees that would overlap with building bounds (with 2-block margin)
-    if (gp.x >= bb.minX - 2 && gp.x <= bb.maxX + 2 &&
-        gp.z >= bb.minZ - 2 && gp.z <= bb.maxZ + 2) continue;
+      // Skip trees that would overlap with building bounds (with 2-block margin)
+      if (gp.x >= bb.minX - 2 && gp.x <= bb.maxX + 2 &&
+          gp.z >= bb.minZ - 2 && gp.z <= bb.maxZ + 2) continue;
 
-    // Determine ground Y
-    let treeY = 1; // default: on top of ground block
-    if (terrainHeightmap && options.heightmapWidth && options.heightmapLength) {
-      const hmX = Math.floor(gp.x * options.heightmapWidth / grid.width);
-      const hmZ = Math.floor(gp.z * options.heightmapLength / grid.length);
-      if (hmX >= 0 && hmX < options.heightmapWidth && hmZ >= 0 && hmZ < options.heightmapLength) {
-        treeY = Math.max(1, Math.round(terrainHeightmap[hmZ * options.heightmapWidth + hmX] * resolution) + 1);
+      // Determine ground Y
+      let treeY = 1; // default: on top of ground block
+      if (terrainHeightmap && options.heightmapWidth && options.heightmapLength) {
+        const hmX = Math.floor(gp.x * options.heightmapWidth / grid.width);
+        const hmZ = Math.floor(gp.z * options.heightmapLength / grid.length);
+        if (hmX >= 0 && hmX < options.heightmapWidth && hmZ >= 0 && hmZ < options.heightmapLength) {
+          treeY = Math.max(1, Math.round(terrainHeightmap[hmZ * options.heightmapWidth + hmX] * resolution) + 1);
+        }
       }
-    }
 
-    if (treeY >= grid.height - tree.height - 5) continue; // skip if too tall for grid
+      if (treeY >= grid.height - tree.height - 5) continue; // skip if too tall for grid
 
-    // Place tree trunk and canopy directly
-    // Simple tree: log trunk + leaf canopy (mirrors structures.ts placeTree pattern)
-    const trunkBlock = treeTypeToLog(tree.species);
-    const leafBlock = treeTypeToLeaves(tree.species);
+      // Simple tree: log trunk + leaf canopy (mirrors structures.ts placeTree pattern)
+      const trunkBlock = treeTypeToLog(tree.species);
+      const leafBlock = treeTypeToLeaves(tree.species);
 
-    // Trunk
-    for (let y = treeY; y < treeY + tree.height && y < grid.height; y++) {
-      grid.set(gp.x, y, gp.z, trunkBlock);
-    }
+      // Trunk
+      for (let y = treeY; y < treeY + tree.height && y < grid.height; y++) {
+        grid.set(gp.x, y, gp.z, trunkBlock);
+      }
 
-    // Canopy — simple sphere of leaves around top of trunk
-    const canopyY = treeY + tree.height;
-    const canopyR = Math.max(2, Math.min(3, Math.floor(tree.height / 2)));
-    for (let dy = -1; dy <= canopyR; dy++) {
-      const layerR = dy < canopyR - 1 ? canopyR : canopyR - 1; // taper at top
-      for (let dx = -layerR; dx <= layerR; dx++) {
-        for (let dz = -layerR; dz <= layerR; dz++) {
-          // Spherical check
-          if (dx * dx + dy * dy + dz * dz > (canopyR + 0.5) * (canopyR + 0.5)) continue;
-          const lx = gp.x + dx, ly = canopyY + dy, lz = gp.z + dz;
-          if (grid.inBounds(lx, ly, lz) && grid.get(lx, ly, lz) === 'minecraft:air') {
-            grid.set(lx, ly, lz, leafBlock);
+      // Canopy — simple sphere of leaves around top of trunk
+      const canopyY = treeY + tree.height;
+      const canopyR = Math.max(2, Math.min(3, Math.floor(tree.height / 2)));
+      for (let dy = -1; dy <= canopyR; dy++) {
+        const layerR = dy < canopyR - 1 ? canopyR : canopyR - 1; // taper at top
+        for (let dx = -layerR; dx <= layerR; dx++) {
+          for (let dz = -layerR; dz <= layerR; dz++) {
+            if (dx * dx + dy * dy + dz * dz > (canopyR + 0.5) * (canopyR + 0.5)) continue;
+            const lx = gp.x + dx, ly = canopyY + dy, lz = gp.z + dz;
+            if (grid.inBounds(lx, ly, lz) && grid.get(lx, ly, lz) === 'minecraft:air') {
+              grid.set(lx, ly, lz, leafBlock);
+            }
           }
         }
       }
+      envStats.treesPlaced++;
     }
-    envStats.treesPlaced++;
   }
   onProgress?.(`Trees: ${envStats.treesPlaced} placed, Roads: ${envStats.roadsPlaced}, Fences: ${envStats.fencesPlaced}`);
 
   // 4f. Place pool if detected
-  if (enrichment.hasPool) {
-    // Place south of building center, if space available
+  if (features?.pools !== false && enrichment.hasPool) {
     const poolX = Math.floor(grid.width / 2) - 2;
     const poolZ = bb.maxZ + 3;
     const poolW = 5, poolL = 7;
@@ -333,9 +364,8 @@ export async function enrichScene(
   }
 
   // 4g. Place driveway if detected
-  if (enrichment.hasDriveway) {
+  if (features?.pools !== false && enrichment.hasDriveway) {
     const drivewayBlock = 'minecraft:smooth_stone';
-    // Simple 3-wide strip from building front (minZ) to grid edge
     const driveX = Math.floor(grid.width / 2) - 1;
     for (let z = 0; z < bb.minZ; z++) {
       for (let dx = 0; dx < 3; dx++) {

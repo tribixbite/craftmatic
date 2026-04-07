@@ -131,6 +131,14 @@ function buildUI(): void {
           <input type="checkbox" id="tiles-scene-mode">
           <span class="tiles-param-value" id="tiles-scene-label">Off — building only</span>
         </label>
+        <div class="tiles-scene-options" id="tiles-scene-options" style="display:none">
+          <label><input type="checkbox" id="scene-ground" checked> Ground (grass/terrain)</label>
+          <label><input type="checkbox" id="scene-trees" checked> Trees & vegetation</label>
+          <label><input type="checkbox" id="scene-roads" checked> Roads & sidewalks</label>
+          <label><input type="checkbox" id="scene-paths" checked> Paths (footways)</label>
+          <label><input type="checkbox" id="scene-fences" checked> Fences & walls</label>
+          <label><input type="checkbox" id="scene-pools" checked> Pool / driveway</label>
+        </div>
       </div>
       <div class="tiles-key-hint">
         <p>${hasTileKey
@@ -179,8 +187,10 @@ function buildUI(): void {
   radiusSlider.addEventListener('input', () => {
     radiusLabel.textContent = `${radiusSlider.value} m`;
   });
+  const sceneOptions = document.getElementById('tiles-scene-options')!;
   sceneToggle.addEventListener('change', () => {
     sceneLabel.textContent = sceneToggle.checked ? 'On — building + environment' : 'Off — building only';
+    sceneOptions.style.display = sceneToggle.checked ? '' : 'none';
   });
 
   const startVoxelize = async () => {
@@ -590,6 +600,18 @@ async function runVoxelizePipeline(
         await new Promise(r => setTimeout(r, 50));
         const { enrichScene } = await import('../../../src/convert/scene-pipeline.js');
         const plotRadius = Math.max(finalGrid.width, finalGrid.length) / (2 * resolution);
+
+        // Read granular scene feature toggles from UI checkboxes
+        const readCheck = (id: string) => (document.getElementById(id) as HTMLInputElement)?.checked ?? true;
+        const sceneFeatures: import('../../../src/convert/scene-pipeline.js').SceneFeatureFlags = {
+          ground: readCheck('scene-ground'),
+          trees: readCheck('scene-trees'),
+          roads: readCheck('scene-roads'),
+          paths: readCheck('scene-paths'),
+          fences: readCheck('scene-fences'),
+          pools: readCheck('scene-pools'),
+        };
+
         await enrichScene({
           grid: finalGrid,
           coords: { lat: geo.lat, lng: geo.lng },
@@ -599,6 +621,7 @@ async function runVoxelizePipeline(
           terrainHeightmap: captureResult.terrainHeightmap,
           heightmapWidth: captureResult.heightmapWidth,
           heightmapLength: captureResult.heightmapLength,
+          features: sceneFeatures,
           onProgress: (msg) => setStatus(`Enrichment: ${msg}`, 'info'),
         });
       } catch (err) {
