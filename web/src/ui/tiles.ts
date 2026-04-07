@@ -35,6 +35,7 @@ import {
   removeGroundPlane, stripVegetation,
   morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows, injectSyntheticWindows,
   extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
+  smoothFacadeColors, smoothRoofPlane,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult, ExtractedEnvironment } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -879,6 +880,23 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   if (modePasses > 0) {
     const modeSmoothed = modeFilter3D(grid, modePasses, 1);
     console.log(`[tiles:pp] mode filter 3x3x3: ${modeSmoothed} blocks (${modePasses} passes)`);
+  }
+  await yieldUI();
+
+  // 10b. Facade color coherence — 5×5×1 Lab-weighted average on facade planes.
+  // Snaps noisy outliers (delta-E > 15) to local majority. Runs after mode filter
+  // to refine remaining per-facade noise.
+  {
+    const facadeSmoothed = smoothFacadeColors(grid);
+    if (facadeSmoothed > 0) console.log(`[tiles:pp] facade smooth: ${facadeSmoothed} color outliers replaced`);
+  }
+  await yieldUI();
+
+  // 10c. Roof plane smoothing — aggressive 5×5 horizontal majority-vote on top 20%.
+  // Roofs in photogrammetry are noisy (HVAC, shadows, varied materials).
+  {
+    const roofSmoothed = smoothRoofPlane(grid);
+    if (roofSmoothed > 0) console.log(`[tiles:pp] roof smooth: ${roofSmoothed} roof blocks replaced`);
   }
   await yieldUI();
 

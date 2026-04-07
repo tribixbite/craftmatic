@@ -2076,6 +2076,176 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
   return totalReplaced;
 }
 
+/**
+ * Phase 4c: Smooth facade colors using 5×5×1 Lab-weighted averaging on facade planes.
+ *
+ * For each facade block (adjacent to air on X or Z axis), averages the color of
+ * co-planar neighbors in a 5×5 window along the facade plane. Snaps blocks with
+ * delta-E > 15 from the local average to the majority color — preserves real
+ * trim-vs-wall transitions while smoothing noise.
+ *
+ * @param grid  BlockGrid (modified in place)
+ * @returns Number of blocks replaced
+ */
+export function smoothFacadeColors(grid: BlockGrid): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  let replaced = 0;
+
+  // Snapshot for reading while modifying
+  const snapshot: string[] = new Array(width * height * length);
+  for (let y = 0; y < height; y++)
+    for (let z = 0; z < length; z++)
+      for (let x = 0; x < width; x++)
+        snapshot[(y * length + z) * width + x] = grid.get(x, y, z);
+
+  const getSnap = (x: number, y: number, z: number) => snapshot[(y * length + z) * width + x];
+
+  // Process each voxel that's on a facade
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = getSnap(x, y, z);
+        if (block === AIR) continue;
+
+        // Detect which facade face this block is on
+        let facadeNormal: [number, number] | null = null;
+        for (const [dx, dz] of H_DIRS) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length || getSnap(nx, y, nz) === AIR) {
+            facadeNormal = [dx, dz];
+            break;
+          }
+        }
+        if (!facadeNormal) continue; // interior block
+
+        // 5×5 window co-planar with this facade (along Y and the perpendicular horizontal axis)
+        const isXFacade = facadeNormal[0] !== 0; // Facade faces X direction → window in Y,Z
+        const neighborCounts = new Map<string, number>();
+        const R = 2; // half-size of 5×5 window
+
+        for (let dy = -R; dy <= R; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= height) continue;
+          for (let dp = -R; dp <= R; dp++) {
+            const nx2 = isXFacade ? x : x + dp;
+            const nz2 = isXFacade ? z + dp : z;
+            if (nx2 < 0 || nx2 >= width || nz2 < 0 || nz2 >= length) continue;
+            const nb = getSnap(nx2, ny, nz2);
+            if (nb === AIR) continue;
+            neighborCounts.set(nb, (neighborCounts.get(nb) ?? 0) + 1);
+          }
+        }
+
+        // Find majority block in window
+        let majorBlock = block;
+        let majorCount = 0;
+        for (const [b, c] of neighborCounts) {
+          if (c > majorCount) { majorBlock = b; majorCount = c; }
+        }
+
+        // Replace if center block differs from majority AND delta-E > 15
+        if (majorBlock !== block) {
+          const cLab = getBlockLab(block);
+          const mLab = getBlockLab(majorBlock);
+          if (cLab && mLab) {
+            const dE = Math.sqrt(
+              (cLab[0] - mLab[0]) ** 2 + (cLab[1] - mLab[1]) ** 2 + (cLab[2] - mLab[2]) ** 2,
+            );
+            // Only replace noisy outliers (delta-E > 15) — preserves real trim/accent transitions
+            if (dE > 15) {
+              grid.set(x, y, z, majorBlock);
+              replaced++;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return replaced;
+}
+
+/**
+ * Phase 4e: Smooth roof plane blocks with aggressive majority-vote filtering.
+ *
+ * Identifies roof voxels (Y > 80% of building height, facing upward = no solid above)
+ * and applies a 5×5 horizontal majority-vote filter. Roof surfaces in photogrammetry
+ * are noisy (HVAC equipment, varied materials, shadows) and benefit from stronger
+ * smoothing than facade surfaces.
+ *
+ * @param grid  BlockGrid (modified in place)
+ * @returns Number of roof blocks replaced
+ */
+export function smoothRoofPlane(grid: BlockGrid): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  let replaced = 0;
+
+  // Find building height (topmost non-air Y)
+  let maxY = 0;
+  for (let y = height - 1; y >= 0; y--) {
+    let found = false;
+    for (let z = 0; z < length && !found; z++)
+      for (let x = 0; x < width && !found; x++)
+        if (grid.get(x, y, z) !== AIR) { maxY = y; found = true; }
+    if (found) break;
+  }
+
+  const roofThreshold = Math.floor(maxY * 0.8); // Top 20% of building
+  const R = 2; // 5×5 horizontal window
+
+  // Snapshot for reading
+  const snapshot: string[] = new Array(width * height * length);
+  for (let y = 0; y < height; y++)
+    for (let z = 0; z < length; z++)
+      for (let x = 0; x < width; x++)
+        snapshot[(y * length + z) * width + x] = grid.get(x, y, z);
+
+  const getSnap = (x: number, y: number, z: number) => snapshot[(y * length + z) * width + x];
+
+  for (let y = roofThreshold; y <= maxY; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = getSnap(x, y, z);
+        if (block === AIR) continue;
+
+        // Check if this is a roof voxel: no solid block directly above
+        const hasRoof = y < height - 1 && getSnap(x, y + 1, z) !== AIR;
+        if (hasRoof) continue; // Not a top surface
+
+        // 5×5 horizontal majority vote
+        const counts = new Map<string, number>();
+        for (let dz = -R; dz <= R; dz++) {
+          const nz = z + dz;
+          if (nz < 0 || nz >= length) continue;
+          for (let dx = -R; dx <= R; dx++) {
+            const nx = x + dx;
+            if (nx < 0 || nx >= width) continue;
+            const nb = getSnap(nx, y, nz);
+            if (nb === AIR) continue;
+            counts.set(nb, (counts.get(nb) ?? 0) + 1);
+          }
+        }
+
+        let bestBlock = block;
+        let bestCount = 0;
+        for (const [b, c] of counts) {
+          if (c > bestCount) { bestBlock = b; bestCount = c; }
+        }
+
+        if (bestBlock !== block) {
+          grid.set(x, y, z, bestBlock);
+          replaced++;
+        }
+      }
+    }
+  }
+
+  return replaced;
+}
+
 /** Find the dominant block brighter than a threshold in a neighborhood */
 function findBrightNeighborMode(
   grid: BlockGrid, cx: number, cy: number, cz: number,
