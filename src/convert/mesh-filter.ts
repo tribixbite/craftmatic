@@ -750,6 +750,102 @@ export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
 }
 
 /**
+ * Scanline-based interior fill — 2D per-Y-slice with sky-visibility check.
+ *
+ * Algorithm:
+ * 1. For each Y-layer, scanline-fill in both X and Z directions
+ * 2. A voxel is "interior" if BOTH X-scanline AND Z-scanline agree (odd crossing)
+ * 3. Sky-visibility check: if a voxel has an unobstructed vertical path to the
+ *    sky (no solid block above), it's exterior (courtyard/open-air) — skip filling
+ *
+ * Compared to `fillInteriorGaps` (dilation + 3D flood):
+ * - Faster: O(W×H×L) scanlines vs O(W×H×L × dilateRadius³) dilation
+ * - Better courtyard handling: sky-check is inherent, not post-hoc
+ * - May miss some interior pockets in 3D — use as complement, not replacement
+ *
+ * @param grid  Source BlockGrid (modified in place)
+ * @returns Number of interior air voxels filled
+ */
+export function scanlineInteriorFill(grid: BlockGrid): number {
+  const AIR = 'minecraft:air';
+  const FILL_BLOCK = 'minecraft:smooth_stone';
+  const { width, height, length } = grid;
+  let filled = 0;
+
+  // Pre-compute sky-visibility map: for each (x,z), find the topmost solid Y.
+  // A voxel at (x, y, z) has sky visibility if there's no solid block above it
+  // (i.e., y > topSolid for that column).
+  const topSolid = new Int32Array(width * length);
+  topSolid.fill(-1);
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = height - 1; y >= 0; y--) {
+        if (grid.get(x, y, z) !== AIR) {
+          topSolid[z * width + x] = y;
+          break;
+        }
+      }
+    }
+  }
+
+  for (let y = 0; y < height; y++) {
+    // X-direction scanline: for each Z row, count boundary crossings traversing X
+    const insideX = new Uint8Array(width * length);
+    for (let z = 0; z < length; z++) {
+      let crossings = 0;
+      let prevSolid = false;
+      for (let x = 0; x < width; x++) {
+        const solid = grid.get(x, y, z) !== AIR;
+        // Transition from air→solid = entering wall
+        if (solid && !prevSolid) crossings++;
+        // Transition from solid→air = exiting wall (only count one transition per wall)
+        if (!solid && prevSolid) {
+          // We're now in a region after an odd number of crossings = inside
+        }
+        if (!solid) {
+          insideX[z * width + x] = crossings % 2 === 1 ? 1 : 0;
+        }
+        prevSolid = solid;
+      }
+    }
+
+    // Z-direction scanline: for each X column, count boundary crossings traversing Z
+    const insideZ = new Uint8Array(width * length);
+    for (let x = 0; x < width; x++) {
+      let crossings = 0;
+      let prevSolid = false;
+      for (let z = 0; z < length; z++) {
+        const solid = grid.get(x, y, z) !== AIR;
+        if (solid && !prevSolid) crossings++;
+        if (!solid) {
+          insideZ[z * width + x] = crossings % 2 === 1 ? 1 : 0;
+        }
+        prevSolid = solid;
+      }
+    }
+
+    // Fill voxels that BOTH scanlines agree are interior AND have no sky visibility
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) continue;
+        const idx = z * width + x;
+        if (insideX[idx] && insideZ[idx]) {
+          // Sky-visibility check: if there's a solid block above this position,
+          // it's under a roof → safe to fill. If sky is visible → courtyard → skip.
+          const top = topSolid[idx];
+          if (top > y) {
+            grid.set(x, y, z, FILL_BLOCK);
+            filled++;
+          }
+        }
+      }
+    }
+  }
+
+  return filled;
+}
+
+/**
  * Remove fill blocks that have no solid (non-fill) roof above them.
  *
  * After fillInteriorGaps, stadiums, courtyards, and open-air spaces may be

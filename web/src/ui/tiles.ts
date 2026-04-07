@@ -30,7 +30,7 @@ import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
 import {
   trimSparseBottomLayers, analyzeGrid, cropToAABB,
   constrainPalette, modeFilter3D,
-  fillInteriorGaps, clearOpenAirFill, removeSmallComponents,
+  fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents,
   removeGroundPlane, stripVegetation,
   morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows, injectSyntheticWindows,
   extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
@@ -806,6 +806,13 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   // 4b. Sky exposure — remove fill in open-air spaces (stadiums, courtyards).
   const openAirCleared = clearOpenAirFill(grid);
   if (openAirCleared > 0) console.log(`[tiles:pp] open-air fill cleared: ${openAirCleared} blocks (no roof above)`);
+  await yieldUI();
+
+  // 4c. Scanline interior fill — per-Y-layer boundary-crossing algorithm with
+  // sky-visibility check. Catches thin interior gaps that dilation+flood may miss.
+  // Sky check inherently prevents courtyard filling (unlike dilation which needs clearOpenAirFill).
+  const scanlineFilled = scanlineInteriorFill(grid);
+  if (scanlineFilled > 0) console.log(`[tiles:pp] scanline interior fill: ${scanlineFilled} voxels`);
   await yieldUI();
 
   // 5. Second fill pass — fill may close more gaps after vegetation strip.
