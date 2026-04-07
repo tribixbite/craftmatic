@@ -456,6 +456,19 @@ async function voxelizeSurfaceAsync(
  * Uses UV interpolation to sample the texture at the exact surface point,
  * or falls back to material.color if no texture/UV data is available.
  */
+/**
+ * Multi-sample barycentric jitter offsets for Phase 4a.
+ * 5 samples: center + 4 jittered positions within the triangle.
+ * Offsets are small perturbations in barycentric space to sample nearby texels.
+ */
+const BARY_JITTER = [
+  [0, 0, 0],       // center (original)
+  [0.08, -0.04, -0.04],  // toward vertex A
+  [-0.04, 0.08, -0.04],  // toward vertex B
+  [-0.04, -0.04, 0.08],  // toward vertex C
+  [0.04, 0.04, -0.08],   // toward edge AB
+] as const;
+
 function sampleColorAtSurfacePoint(
   geometry: THREE.BufferGeometry,
   faceIndex: number,
@@ -464,7 +477,8 @@ function sampleColorAtSurfacePoint(
   sampler: TextureSampler | undefined,
   uvCoord: THREE.Vector2,
 ): RGB {
-  // Interpolate UV at the closest surface point using barycentric coordinates
+  // Multi-sample UV: jitter barycentric coordinates to sample 5 nearby texels,
+  // then average in Lab space with outlier rejection (Phase 4a).
   if (sampler && material.map) {
     const uvAttr = geometry.getAttribute('uv') as THREE.BufferAttribute | null;
     if (uvAttr) {
@@ -473,30 +487,117 @@ function sampleColorAtSurfacePoint(
       const i1 = index ? index.getX(faceIndex * 3 + 1) : faceIndex * 3 + 1;
       const i2 = index ? index.getX(faceIndex * 3 + 2) : faceIndex * 3 + 2;
 
-      // Get triangle vertices and compute barycentric (all using pre-allocated scratch)
       const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
       _triA.fromBufferAttribute(posAttr, i0);
       _triB.fromBufferAttribute(posAttr, i1);
       _triC.fromBufferAttribute(posAttr, i2);
       computeBarycentric(closestPoint, _triA, _triB, _triC, _baryOut);
 
-      // Interpolate UV using barycentric weights
       _uv0.fromBufferAttribute(uvAttr, i0);
       _uv1.fromBufferAttribute(uvAttr, i1);
       _uv2.fromBufferAttribute(uvAttr, i2);
 
-      uvCoord.set(
-        _uv0.x * _baryOut.x + _uv1.x * _baryOut.y + _uv2.x * _baryOut.z,
-        _uv0.y * _baryOut.x + _uv1.y * _baryOut.y + _uv2.y * _baryOut.z,
-      );
+      // Collect multi-sample colors in Lab space
+      const samples: RGB[] = [];
+      for (const [du, dv, dw] of BARY_JITTER) {
+        let bu = _baryOut.x + du;
+        let bv = _baryOut.y + dv;
+        let bw = _baryOut.z + dw;
+        // Clamp to stay inside triangle (all components >= 0, sum = 1)
+        const minB = Math.min(bu, bv, bw);
+        if (minB < 0) { bu -= minB; bv -= minB; bw -= minB; }
+        const sum = bu + bv + bw;
+        bu /= sum; bv /= sum; bw /= sum;
 
-      return sampler(material.map, uvCoord);
+        uvCoord.set(
+          _uv0.x * bu + _uv1.x * bv + _uv2.x * bw,
+          _uv0.y * bu + _uv1.y * bv + _uv2.y * bw,
+        );
+        samples.push(sampler(material.map, uvCoord));
+      }
+
+      // Average in Lab space with outlier rejection (> 2σ)
+      return averageLabColors(samples);
     }
   }
 
   // Fallback to material base color
   const col = material.color ?? new THREE.Color(0xB0B0B0);
   return [Math.round(col.r * 255), Math.round(col.g * 255), Math.round(col.b * 255)];
+}
+
+/**
+ * Average RGB colors in CIE-Lab space with 2σ outlier rejection.
+ * Converts to Lab, computes mean + stddev, rejects outliers, then averages
+ * remaining samples and converts back to RGB.
+ */
+function averageLabColors(samples: RGB[]): RGB {
+  if (samples.length <= 1) return samples[0] ?? [128, 128, 128];
+
+  // Convert to Lab
+  const labs: [number, number, number][] = samples.map(([r, g, b]) => {
+    const rl = srgbLinear(r); const gl = srgbLinear(g); const bl = srgbLinear(b);
+    const x = rl * 0.4124564 + gl * 0.3575761 + bl * 0.1804375;
+    const y = rl * 0.2126729 + gl * 0.7151522 + bl * 0.0721750;
+    const z = rl * 0.0193339 + gl * 0.1191920 + bl * 0.9503041;
+    const fx = labFn(x / 0.95047); const fy = labFn(y / 1.0); const fz = labFn(z / 1.08883);
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+  });
+
+  // Mean Lab
+  let mL = 0, mA = 0, mB = 0;
+  for (const [l, a, b] of labs) { mL += l; mA += a; mB += b; }
+  mL /= labs.length; mA /= labs.length; mB /= labs.length;
+
+  // Stddev (Euclidean distance in Lab from mean)
+  let varSum = 0;
+  for (const [l, a, b] of labs) {
+    varSum += (l - mL) ** 2 + (a - mA) ** 2 + (b - mB) ** 2;
+  }
+  const sigma = Math.sqrt(varSum / labs.length);
+  const threshold = 2 * sigma; // 2σ rejection
+
+  // Reject outliers, recompute mean
+  let fL = 0, fA = 0, fB = 0, count = 0;
+  for (const [l, a, b] of labs) {
+    const dist = Math.sqrt((l - mL) ** 2 + (a - mA) ** 2 + (b - mB) ** 2);
+    if (dist <= threshold || threshold < 1) { // Keep all if variance is tiny
+      fL += l; fA += a; fB += b; count++;
+    }
+  }
+  if (count === 0) { fL = mL; fA = mA; fB = mB; count = 1; }
+  fL /= count; fA /= count; fB /= count;
+
+  // Lab → RGB (inverse transform)
+  const fy = (fL + 16) / 116;
+  const fx = fA / 500 + fy;
+  const fz = fy - fB / 200;
+  const x = 0.95047 * (fx > 0.206897 ? fx * fx * fx : (fx - 16 / 116) / 7.787);
+  const y = 1.0 * (fy > 0.206897 ? fy * fy * fy : (fy - 16 / 116) / 7.787);
+  const z = 1.08883 * (fz > 0.206897 ? fz * fz * fz : (fz - 16 / 116) / 7.787);
+
+  // XYZ → linear RGB
+  const rl = x * 3.2404542 - y * 1.5371385 - z * 0.4985314;
+  const gl = -x * 0.9692660 + y * 1.8760108 + z * 0.0415560;
+  const bl = x * 0.0556434 - y * 0.2040259 + z * 1.0572252;
+
+  // Gamma compress + clamp
+  const gamma = (c: number) => Math.max(0, Math.min(255, Math.round(
+    (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055) * 255,
+  )));
+
+  return [gamma(rl), gamma(gl), gamma(bl)];
+}
+
+/** sRGB → linear (for Lab conversion in multi-sample averaging) */
+function srgbLinear(c: number): number {
+  const s = c / 255;
+  return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+
+/** Lab nonlinear transform */
+function labFn(t: number): number {
+  return t > 0.008856 ? Math.cbrt(t) : (903.3 * t + 16) / 116;
 }
 
 /**
