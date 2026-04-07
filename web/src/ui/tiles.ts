@@ -30,7 +30,8 @@ import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
 import {
   trimSparseBottomLayers, analyzeGrid, cropToAABB,
   constrainPalette, modeFilter3D,
-  fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents,
+  fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill,
+  removeSmallComponents, removeArtifactComponents,
   removeGroundPlane, stripVegetation,
   morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows, injectSyntheticWindows,
   extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
@@ -788,6 +789,10 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   // removing photogrammetry artifacts. Infinity would sever disconnected wings.
   const cleaned = removeSmallComponents(grid, 500);
   if (cleaned > 0) console.log(`[tiles:pp] component cleanup: ${cleaned} blocks removed (< 500 voxels)`);
+  // 2b. Density + distance artifact cleanup — removes sparse needle artifacts
+  // (density < 0.1) and distant debris (centroid > 1.5× building radius).
+  const artifactCleaned = removeArtifactComponents(grid, 0.1, 1.5);
+  if (artifactCleaned > 0) console.log(`[tiles:pp] artifact cleanup: ${artifactCleaned} blocks removed (sparse/distant)`);
   await yieldUI();
 
   // 3. AABB crop — isolate the central building if analysis detected multiple components
