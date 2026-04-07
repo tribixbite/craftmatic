@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, glazeReflectiveWindows } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
@@ -2165,6 +2165,12 @@ async function main(): Promise<void> {
     if (glazed > 0) {
       console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass`);
     }
+    // Phase 5a: Sky-reflecting window detection — catches blue/grey specular blocks
+    const reflective = glazeReflectiveWindows(trimmed, args.resolution);
+    if (reflective > 0) {
+      console.log(`Reflective windows: ${reflective} blue/grey facade blocks → glass`);
+    }
+    glazed += reflective;
     // Synthetic windows for bright facades that lack dark blocks to glaze.
     // injectSyntheticWindows only fires when existing glazing < 0.5% of non-air
     // and building is ≥ 8 blocks tall, so safe to call unconditionally.
