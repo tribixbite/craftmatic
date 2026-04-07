@@ -1159,6 +1159,244 @@ export function glazeDarkWindows(grid: BlockGrid, resolution = 1): number {
 }
 
 /**
+ * Phase 5a: Detect sky-reflecting windows on photogrammetry facades.
+ *
+ * In photogrammetry, windows often reflect the sky (blue/grey/white) rather than
+ * appearing dark. This function detects blocks on vertical facades whose Lab color
+ * is blue-shifted (b* < -5) or has high delta-E from the dominant facade material.
+ *
+ * Per-facade process:
+ * 1. Collect all exterior facade blocks grouped by face direction (N/S/E/W)
+ * 2. Compute dominant wall material per face
+ * 3. Identify "reflective" candidates: blue-shifted or high-contrast from dominant
+ * 4. Detect grid regularity in candidate positions (median H/V spacing)
+ * 5. Fill in missing grid positions where >60% of a row already has candidates
+ *
+ * @param grid        BlockGrid (modified in place)
+ * @param resolution  Blocks per meter (default: 1)
+ * @returns Number of blocks converted to glass
+ */
+export function glazeReflectiveWindows(grid: BlockGrid, resolution = 1): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  const GLASS_BLOCKS = new Set([
+    'minecraft:gray_stained_glass', 'minecraft:glass', 'minecraft:glass_pane',
+    'minecraft:light_gray_stained_glass', 'minecraft:black_stained_glass',
+    'minecraft:light_blue_stained_glass',
+  ]);
+  const GLASS = 'minecraft:gray_stained_glass';
+  const MIN_Y = Math.max(2, Math.round(2 * resolution));
+  let totalGlazed = 0;
+
+  // Face directions: [normalDx, normalDz, sweepAxis, depthAxis]
+  // For each face, sweepAxis runs along the facade, depthAxis is the normal direction
+  const faces = [
+    { dx: -1, dz: 0, name: 'W' }, // facade facing west (air to the west)
+    { dx: 1, dz: 0, name: 'E' },  // facade facing east
+    { dx: 0, dz: -1, name: 'N' }, // facade facing north
+    { dx: 0, dz: 1, name: 'S' },  // facade facing south
+  ];
+
+  for (const face of faces) {
+    // Collect facade blocks for this face
+    type FacadePos = { x: number; y: number; z: number; block: string };
+    const facadeBlocks: FacadePos[] = [];
+
+    for (let y = MIN_Y; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          const block = grid.get(x, y, z);
+          if (block === AIR || GLASS_BLOCKS.has(block)) continue;
+
+          // Check if this block faces air in the specified direction
+          const nx = x + face.dx, nz = z + face.dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length) {
+            facadeBlocks.push({ x, y, z, block });
+          } else if (grid.get(nx, y, nz) === AIR) {
+            facadeBlocks.push({ x, y, z, block });
+          }
+        }
+      }
+    }
+
+    if (facadeBlocks.length < 10) continue;
+
+    // Find dominant wall material on this face
+    const blockCounts = new Map<string, number>();
+    for (const { block } of facadeBlocks) {
+      blockCounts.set(block, (blockCounts.get(block) ?? 0) + 1);
+    }
+    let dominantBlock = '';
+    let dominantCount = 0;
+    for (const [b, c] of blockCounts) {
+      if (c > dominantCount) { dominantBlock = b; dominantCount = c; }
+    }
+    if (dominantCount < facadeBlocks.length * 0.25) continue; // no clear dominant
+
+    const dominantLab = getBlockLab(dominantBlock);
+    if (!dominantLab) continue;
+
+    // Identify reflective window candidates: blue-shifted or high delta-E from dominant
+    // Key insight: sky-reflecting windows have Lab b* < -5 (blue) and/or a* near 0 (achromatic)
+    const candidates: FacadePos[] = [];
+    for (const pos of facadeBlocks) {
+      if (pos.block === dominantBlock) continue;
+      const lab = getBlockLab(pos.block);
+      if (!lab) continue;
+
+      const dE = Math.sqrt(
+        (lab[0] - dominantLab[0]) ** 2 +
+        (lab[1] - dominantLab[1]) ** 2 +
+        (lab[2] - dominantLab[2]) ** 2,
+      );
+
+      // Blue-shifted reflective: b* < -5 and delta-E > 10 from wall
+      const isBlueShifted = lab[2] < -5 && dE > 10;
+      // High-contrast achromatic: low chroma (|a*| < 10 and |b*| < 10) and delta-E > 20
+      const isAchromatic = Math.abs(lab[1]) < 10 && Math.abs(lab[2]) < 10 && dE > 20;
+
+      if (isBlueShifted || isAchromatic) {
+        candidates.push(pos);
+      }
+    }
+
+    if (candidates.length < 3) continue;
+
+    // Cap: if candidates > 25% of face, it's not windows — it's facade variation
+    if (candidates.length > facadeBlocks.length * 0.25) continue;
+
+    // Project candidates onto 2D facade grid for regularity detection.
+    // Sweep axis: for X-facing facade → Z is sweep, for Z-facing → X is sweep.
+    // Vertical axis: Y always.
+    const isXFace = face.dx !== 0;
+
+    // Build a map of candidate positions: key = (sweep, y)
+    const candidateGrid = new Map<string, FacadePos>();
+    for (const pos of candidates) {
+      const sweep = isXFace ? pos.z : pos.x;
+      const key = `${sweep},${pos.y}`;
+      candidateGrid.set(key, pos);
+    }
+
+    // Detect horizontal spacing: for each Y level with >1 candidate, compute gaps
+    const yLevels = new Map<number, number[]>(); // y → sweep positions sorted
+    for (const pos of candidates) {
+      const sweep = isXFace ? pos.z : pos.x;
+      if (!yLevels.has(pos.y)) yLevels.set(pos.y, []);
+      yLevels.get(pos.y)!.push(sweep);
+    }
+
+    // Collect all horizontal gaps
+    const hGaps: number[] = [];
+    for (const [, sweeps] of yLevels) {
+      if (sweeps.length < 2) continue;
+      sweeps.sort((a, b) => a - b);
+      for (let i = 1; i < sweeps.length; i++) {
+        const gap = sweeps[i] - sweeps[i - 1];
+        if (gap >= 2 && gap <= 6 * resolution) hGaps.push(gap);
+      }
+    }
+
+    // Detect vertical spacing: for each sweep with >1 candidate, compute gaps
+    const sweepLevels = new Map<number, number[]>(); // sweep → Y positions sorted
+    for (const pos of candidates) {
+      const sweep = isXFace ? pos.z : pos.x;
+      if (!sweepLevels.has(sweep)) sweepLevels.set(sweep, []);
+      sweepLevels.get(sweep)!.push(pos.y);
+    }
+
+    const vGaps: number[] = [];
+    for (const [, ys] of sweepLevels) {
+      if (ys.length < 2) continue;
+      ys.sort((a, b) => a - b);
+      for (let i = 1; i < ys.length; i++) {
+        const gap = ys[i] - ys[i - 1];
+        if (gap >= 2 && gap <= 6 * resolution) vGaps.push(gap);
+      }
+    }
+
+    // Need at least some regularity signal to proceed
+    if (hGaps.length < 2 && vGaps.length < 2) continue;
+
+    // Median spacing (robust to outliers)
+    const medianOf = (arr: number[]) => {
+      const s = [...arr].sort((a, b) => a - b);
+      return s[Math.floor(s.length / 2)];
+    };
+    const hSpacing = hGaps.length >= 2 ? medianOf(hGaps) : 0;
+    const vSpacing = vGaps.length >= 2 ? medianOf(vGaps) : 0;
+
+    if (hSpacing === 0 && vSpacing === 0) continue;
+
+    // Glaze all existing candidates
+    for (const pos of candidates) {
+      grid.set(pos.x, pos.y, pos.z, GLASS);
+      totalGlazed++;
+    }
+
+    // Fill missing grid positions where >60% of a row already has candidates
+    if (hSpacing > 0 && vSpacing > 0) {
+      // Build sweep/Y ranges from candidates
+      const sweepMax = Math.max(...candidates.map(p => isXFace ? p.z : p.x));
+      const yMin = Math.min(...candidates.map(p => p.y));
+      const yMax = Math.max(...candidates.map(p => p.y));
+
+      // Find the best-populated reference row to anchor the grid
+      let bestRowY = yMin;
+      let bestRowCount = 0;
+      for (const [y, sweeps] of yLevels) {
+        if (sweeps.length > bestRowCount) { bestRowCount = sweeps.length; bestRowY = y; }
+      }
+
+      // Expected window positions along sweep axis from reference row
+      const refSweeps = yLevels.get(bestRowY) ?? [];
+      if (refSweeps.length < 2) continue;
+      refSweeps.sort((a, b) => a - b);
+      const refStart = refSweeps[0];
+
+      // Generate expected grid positions
+      for (let gy = yMin; gy <= yMax; gy += vSpacing) {
+        // Count how many expected positions in this row already have windows
+        let expectedCount = 0;
+        let filledCount = 0;
+        const missingPositions: number[] = [];
+
+        for (let gs = refStart; gs <= sweepMax; gs += hSpacing) {
+          expectedCount++;
+          if (candidateGrid.has(`${gs},${gy}`)) {
+            filledCount++;
+          } else {
+            missingPositions.push(gs);
+          }
+        }
+
+        // Fill if >60% of row already has windows
+        if (expectedCount > 0 && filledCount / expectedCount > 0.6) {
+          for (const gs of missingPositions) {
+            const fx = isXFace ? candidates[0].x : gs;
+            const fz = isXFace ? gs : candidates[0].z;
+            if (fx < 0 || fx >= width || fz < 0 || fz >= length) continue;
+            if (gy < 0 || gy >= height) continue;
+            const existing = grid.get(fx, gy, fz);
+            if (existing === AIR || GLASS_BLOCKS.has(existing)) continue;
+            // Only fill if this position is on the facade (has air neighbor in face direction)
+            const checkX = fx + face.dx, checkZ = fz + face.dz;
+            const isOnFacade = checkX < 0 || checkX >= width || checkZ < 0 || checkZ >= length ||
+              grid.get(checkX, gy, checkZ) === AIR;
+            if (isOnFacade) {
+              grid.set(fx, gy, fz, GLASS);
+              totalGlazed++;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return totalGlazed;
+}
+
+/**
  * Inject synthetic windows on exterior facade blocks that lack dark-block windows.
  *
  * When the color pipeline produces a uniformly light facade (e.g. ESB at 78%

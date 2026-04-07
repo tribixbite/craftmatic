@@ -33,7 +33,8 @@ import {
   fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill,
   removeSmallComponents, removeArtifactComponents,
   removeGroundPlane, stripVegetation,
-  morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows, injectSyntheticWindows,
+  morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows, glazeReflectiveWindows,
+  injectSyntheticWindows,
   extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
   smoothFacadeColors, smoothRoofPlane,
 } from '@craft/convert/mesh-filter.js';
@@ -867,9 +868,13 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   {
     const glazed = glazeDarkWindows(grid, resolution);
     if (glazed > 0) console.log(`[tiles:pp] window glazing: ${glazed} dark blocks → gray_stained_glass`);
+    // Phase 5a: Sky-reflecting window detection — catches blue/grey specular blocks
+    // that photogrammetry maps from sky reflections in real windows.
+    const reflective = glazeReflectiveWindows(grid, resolution);
+    if (reflective > 0) console.log(`[tiles:pp] reflective windows: ${reflective} blue/grey blocks → glass`);
     // Synthetic windows for bright facades that lack dark blocks to glaze
-    const injected = injectSyntheticWindows(grid, glazed, resolution);
-    if (injected > 0) console.log(`[tiles:pp] synthetic windows: ${injected} blocks (bright facade, glazed=${glazed})`);
+    const injected = injectSyntheticWindows(grid, glazed + reflective, resolution);
+    if (injected > 0) console.log(`[tiles:pp] synthetic windows: ${injected} blocks (bright facade, glazed=${glazed + reflective})`);
   }
   await yieldUI();
 
