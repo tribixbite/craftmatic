@@ -497,6 +497,368 @@ export function flattenFacades(grid: BlockGrid, snapRadius = 2, maxY?: number): 
 }
 
 /**
+ * Phase 2c: Facade-aligned morphological close (dilate→erode) along facade normals.
+ *
+ * Standard morphClose3D operates uniformly in all 3 axes, which can fill depth
+ * features (balconies, recesses) that are real geometry. This version detects
+ * each facade surface's normal direction and only dilates/erodes along that axis,
+ * closing 2-voxel pockmarks in facades without adding unwanted depth.
+ *
+ * @param grid    BlockGrid (modified in place)
+ * @param radius  Close radius along facade normal (default: 2)
+ * @returns Number of voxels changed
+ */
+export function morphCloseFacadeAligned(grid: BlockGrid, radius = 2): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  let changed = 0;
+
+  // Snapshot for reading
+  const snap: string[] = new Array(width * height * length);
+  for (let y = 0; y < height; y++)
+    for (let z = 0; z < length; z++)
+      for (let x = 0; x < width; x++)
+        snap[(y * length + z) * width + x] = grid.get(x, y, z);
+
+  const getSnap = (x: number, y: number, z: number) => snap[(y * length + z) * width + x];
+
+  // For each air voxel on a facade surface, check if it's a gap along the facade normal
+  // direction (solid blocks on both sides within radius). If so, fill it.
+  const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (getSnap(x, y, z) !== AIR) continue;
+
+        // Check each horizontal axis: is this gap bounded by solid on both sides?
+        for (const [dx, dz] of H_DIRS) {
+          // Only check if this is along a single axis (X or Z)
+          // Look for solid blocks within radius in both directions along this axis
+          let solidPos: string | null = null;
+          let solidNeg: string | null = null;
+
+          for (let r = 1; r <= radius; r++) {
+            const px = x + dx * r, pz = z + dz * r;
+            if (px >= 0 && px < width && pz >= 0 && pz < length) {
+              const b = getSnap(px, y, pz);
+              if (b !== AIR) { solidPos = b; break; }
+            }
+          }
+
+          for (let r = 1; r <= radius; r++) {
+            const px = x - dx * r, pz = z - dz * r;
+            if (px >= 0 && px < width && pz >= 0 && pz < length) {
+              const b = getSnap(px, y, pz);
+              if (b !== AIR) { solidNeg = b; break; }
+            }
+          }
+
+          // Fill gap if solid on both sides along this axis
+          if (solidPos && solidNeg) {
+            grid.set(x, y, z, solidPos);
+            changed++;
+            break; // Don't try other directions
+          }
+        }
+      }
+    }
+  }
+
+  return changed;
+}
+
+/**
+ * Phase 5b: Detect and preserve cornices — horizontal edge features where facade
+ * depth changes ≥2 blocks across the full building width.
+ *
+ * Scans each facade face for Y-layers where the depth profile shifts abruptly
+ * (e.g., a ledge, cornice, or setback boundary). Returns the set of Y levels
+ * that should be excluded from facade flattening. Optionally marks cornice
+ * blocks with a trim material for architectural detail.
+ *
+ * @param grid          BlockGrid (read-only scan)
+ * @param minDepthDelta Minimum depth change to qualify as cornice (default: 2)
+ * @param applyTrim     If true, replace topmost cornice blocks with stone_brick_slab
+ * @returns Set of Y levels identified as cornices
+ */
+export function detectCornices(
+  grid: BlockGrid,
+  minDepthDelta = 2,
+  applyTrim = false,
+): Set<number> {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const corniceYs = new Set<number>();
+
+  // For each axis direction, compute the facade depth profile per Y layer.
+  // Facade depth = how far inward the outermost solid block sits from the AABB edge.
+
+  // X-axis: scan from minX and maxX edges
+  for (let z = 0; z < length; z++) {
+    // West edge depth per Y
+    const westDepth = new Int32Array(height);
+    for (let y = 0; y < height; y++) {
+      let depth = width; // no block found
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) { depth = x; break; }
+      }
+      westDepth[y] = depth;
+    }
+
+    // Detect Y-layers where depth changes sharply
+    for (let y = 1; y < height; y++) {
+      if (westDepth[y] === width || westDepth[y - 1] === width) continue;
+      const delta = Math.abs(westDepth[y] - westDepth[y - 1]);
+      if (delta >= minDepthDelta) {
+        corniceYs.add(y);
+        corniceYs.add(y - 1);
+      }
+    }
+
+    // East edge depth per Y
+    const eastDepth = new Int32Array(height);
+    for (let y = 0; y < height; y++) {
+      let depth = width;
+      for (let x = width - 1; x >= 0; x--) {
+        if (grid.get(x, y, z) !== AIR) { depth = width - 1 - x; break; }
+      }
+      eastDepth[y] = depth;
+    }
+
+    for (let y = 1; y < height; y++) {
+      if (eastDepth[y] === width || eastDepth[y - 1] === width) continue;
+      if (Math.abs(eastDepth[y] - eastDepth[y - 1]) >= minDepthDelta) {
+        corniceYs.add(y);
+        corniceYs.add(y - 1);
+      }
+    }
+  }
+
+  // Z-axis: scan from minZ and maxZ edges
+  for (let x = 0; x < width; x++) {
+    const northDepth = new Int32Array(height);
+    for (let y = 0; y < height; y++) {
+      let depth = length;
+      for (let z2 = 0; z2 < length; z2++) {
+        if (grid.get(x, y, z2) !== AIR) { depth = z2; break; }
+      }
+      northDepth[y] = depth;
+    }
+
+    for (let y = 1; y < height; y++) {
+      if (northDepth[y] === length || northDepth[y - 1] === length) continue;
+      if (Math.abs(northDepth[y] - northDepth[y - 1]) >= minDepthDelta) {
+        corniceYs.add(y);
+        corniceYs.add(y - 1);
+      }
+    }
+
+    const southDepth = new Int32Array(height);
+    for (let y = 0; y < height; y++) {
+      let depth = length;
+      for (let z2 = length - 1; z2 >= 0; z2--) {
+        if (grid.get(x, y, z2) !== AIR) { depth = length - 1 - z2; break; }
+      }
+      southDepth[y] = depth;
+    }
+
+    for (let y = 1; y < height; y++) {
+      if (southDepth[y] === length || southDepth[y - 1] === length) continue;
+      if (Math.abs(southDepth[y] - southDepth[y - 1]) >= minDepthDelta) {
+        corniceYs.add(y);
+        corniceYs.add(y - 1);
+      }
+    }
+  }
+
+  // Optionally apply trim material to cornice edges
+  if (applyTrim && corniceYs.size > 0) {
+    const TRIM = 'minecraft:stone_brick_slab';
+    const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+    for (const y of corniceYs) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          const block = grid.get(x, y, z);
+          if (block === AIR) continue;
+
+          // Only trim exterior blocks (adjacent to air)
+          let isExterior = false;
+          for (const [dx, dz] of H_DIRS) {
+            const nx = x + dx, nz = z + dz;
+            if (nx < 0 || nx >= width || nz < 0 || nz >= length || grid.get(nx, y, nz) === AIR) {
+              isExterior = true; break;
+            }
+          }
+          // Also check above — cornices protrude upward
+          if (!isExterior && y + 1 < height && grid.get(x, y + 1, z) === AIR) {
+            isExterior = true;
+          }
+
+          if (isExterior) {
+            grid.set(x, y, z, TRIM);
+          }
+        }
+      }
+    }
+  }
+
+  return corniceYs;
+}
+
+/**
+ * Phase 5c: Setback-aware facade flattening — detects multiple facade planes
+ * per wall at different Y-height ranges and flattens each section independently.
+ *
+ * Buildings with setbacks (Art Deco towers, zoning-stepped buildings) have
+ * different facade planes above and below setback levels. Standard flattenFacades
+ * picks a single dominant plane that doesn't match either section. This version
+ * splits the Y range at detected setback Y levels and runs per-section flattening.
+ *
+ * @param grid          BlockGrid (modified in place)
+ * @param corniceYs     Set of Y levels to exclude from flattening (from detectCornices)
+ * @param snapRadius    Max snap distance for flattening (default: 2)
+ * @returns Number of voxels snapped
+ */
+export function flattenFacadesSetbackAware(
+  grid: BlockGrid,
+  corniceYs: Set<number>,
+  snapRadius = 2,
+): number {
+  const { width, height, length } = grid;
+  let totalSnapped = 0;
+
+  // Sort cornice Y levels to define sections
+  const sortedCornices = [...corniceYs].sort((a, b) => a - b);
+
+  // Build Y-range sections: [0, firstCornice), [firstCornice, secondCornice), ...
+  const sections: [number, number][] = [];
+  let prevY = 0;
+  for (const cy of sortedCornices) {
+    if (cy > prevY + 2) { // Minimum section height of 3
+      sections.push([prevY, cy]);
+      prevY = cy;
+    }
+  }
+  // Final section from last cornice to top
+  if (prevY < height) {
+    sections.push([prevY, height]);
+  }
+
+  // If no meaningful sections detected, fall back to standard flatten
+  if (sections.length <= 1) {
+    return flattenFacades(grid, snapRadius);
+  }
+
+  // Flatten each section independently — each gets its own dominant plane detection
+  for (const [yMin, yMax] of sections) {
+    const sectionHeight = yMax - yMin;
+    if (sectionHeight < 3) continue; // Too thin to flatten meaningfully
+
+    // X-axis flattening for this Y section
+    for (let z = 0; z < length; z++) {
+      const xHist = new Int32Array(width);
+      for (let y = yMin; y < yMax; y++) {
+        if (corniceYs.has(y)) continue; // Skip cornice layers
+        for (let x = 0; x < width; x++) {
+          if (grid.get(x, y, z) !== 'minecraft:air') xHist[x]++;
+        }
+      }
+
+      const minPeak = sectionHeight * 0.1;
+      const peaks: number[] = [];
+      for (let x = 0; x < width; x++) {
+        if (xHist[x] < minPeak) continue;
+        const left = x > 0 ? xHist[x - 1] : 0;
+        const right = x < width - 1 ? xHist[x + 1] : 0;
+        if (xHist[x] >= left && xHist[x] >= right) {
+          peaks.push(x);
+        }
+      }
+      if (peaks.length === 0) continue;
+
+      for (let y = yMin; y < yMax; y++) {
+        if (corniceYs.has(y)) continue; // Don't flatten cornices
+        for (let x = 0; x < width; x++) {
+          const block = grid.get(x, y, z);
+          if (block === 'minecraft:air') continue;
+          if (peaks.includes(x)) continue;
+
+          let nearestPeak = -1;
+          let nearestDist = snapRadius + 1;
+          for (const peak of peaks) {
+            const dist = Math.abs(x - peak);
+            if (dist <= snapRadius && dist < nearestDist) {
+              nearestDist = dist; nearestPeak = peak;
+            }
+          }
+
+          if (nearestPeak >= 0 && nearestPeak !== x) {
+            if (grid.get(nearestPeak, y, z) === 'minecraft:air') {
+              grid.set(nearestPeak, y, z, block);
+              grid.set(x, y, z, 'minecraft:air');
+              totalSnapped++;
+            }
+          }
+        }
+      }
+    }
+
+    // Z-axis flattening for this Y section
+    for (let x = 0; x < width; x++) {
+      const zHist = new Int32Array(length);
+      for (let y = yMin; y < yMax; y++) {
+        if (corniceYs.has(y)) continue;
+        for (let z = 0; z < length; z++) {
+          if (grid.get(x, y, z) !== 'minecraft:air') zHist[z]++;
+        }
+      }
+
+      const minPeak = sectionHeight * 0.1;
+      const peaks: number[] = [];
+      for (let z = 0; z < length; z++) {
+        if (zHist[z] < minPeak) continue;
+        const prev = z > 0 ? zHist[z - 1] : 0;
+        const next = z < length - 1 ? zHist[z + 1] : 0;
+        if (zHist[z] >= prev && zHist[z] >= next) {
+          peaks.push(z);
+        }
+      }
+      if (peaks.length === 0) continue;
+
+      for (let y = yMin; y < yMax; y++) {
+        if (corniceYs.has(y)) continue;
+        for (let z = 0; z < length; z++) {
+          const block = grid.get(x, y, z);
+          if (block === 'minecraft:air') continue;
+          if (peaks.includes(z)) continue;
+
+          let nearestPeak = -1;
+          let nearestDist = snapRadius + 1;
+          for (const peak of peaks) {
+            const dist = Math.abs(z - peak);
+            if (dist <= snapRadius && dist < nearestDist) {
+              nearestDist = dist; nearestPeak = peak;
+            }
+          }
+
+          if (nearestPeak >= 0 && nearestPeak !== z) {
+            if (grid.get(x, y, nearestPeak) === 'minecraft:air') {
+              grid.set(x, y, nearestPeak, block);
+              grid.set(x, y, z, 'minecraft:air');
+              totalSnapped++;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return totalSnapped;
+}
+
+/**
  * Replace unwanted blocks with their nearest safe alternative.
  * Photogrammetry color noise can produce red_terracotta/bricks on stucco walls.
  * This constrains the palette to architecturally plausible blocks.

@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, glazeReflectiveWindows } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, glazeReflectiveWindows, morphCloseFacadeAligned, detectCornices, flattenFacadesSetbackAware } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
@@ -2103,6 +2103,15 @@ async function main(): Promise<void> {
     }
   }
 
+  // Phase 2c: Facade-aligned morph close — radius-2 gap filling along facade normals.
+  // Closes 2-voxel pockmarks in facade surfaces without adding unwanted depth.
+  {
+    const facadeClosed = morphCloseFacadeAligned(trimmed, 2);
+    if (facadeClosed > 0) {
+      console.log(`Facade morph close (r=2): ${facadeClosed} facade gaps filled (normal-aligned)`);
+    }
+  }
+
   // v74: Edge straightening — median filter on XZ silhouette traces to remove
   // stair-step jaggies. Run after morphClose (shape healed) but before zone assignment
   // and facade smoothing. maxShift=2 limits correction to avoid distorting real setbacks.
@@ -2143,11 +2152,21 @@ async function main(): Promise<void> {
     // v70: tolerance reduced from 2 to 1 — tolerance=2 was destroying bay windows.
     // Skip entirely for non-rectangular or setback buildings — their walls ARE the shape.
     if (!isComplexShape && analysis?.isRectangular) {
-      // v95: Pass roofCutoff to skip roof layer — flattenFacades was snapping
-      // roof geometry to facade planes, creating holes visible in top-down views.
-      const snapped = flattenFacades(trimmed, 1, roofCutoff);
-      if (snapped > 0) {
-        console.log(`Facade flattening: ${snapped} voxels snapped to dominant planes (below Y=${roofCutoff})`);
+      // Phase 5b+5c: Detect cornices then apply setback-aware flattening
+      const corniceYs = detectCornices(trimmed, 2, true);
+      if (corniceYs.size > 0) {
+        console.log(`Cornice detection: ${corniceYs.size} Y levels preserved as architectural features`);
+        const snapped = flattenFacadesSetbackAware(trimmed, corniceYs, 1);
+        if (snapped > 0) {
+          console.log(`Setback-aware facade flattening: ${snapped} voxels snapped (${corniceYs.size} cornice levels excluded)`);
+        }
+      } else {
+        // Fallback: standard flattening when no cornices detected
+        // v95: Pass roofCutoff to skip roof layer
+        const snapped = flattenFacades(trimmed, 1, roofCutoff);
+        if (snapped > 0) {
+          console.log(`Facade flattening: ${snapped} voxels snapped to dominant planes (below Y=${roofCutoff})`);
+        }
       }
     } else if (isComplexShape) {
       console.log(`Facade flattening: SKIPPED (complex shape — walls define building identity)`);

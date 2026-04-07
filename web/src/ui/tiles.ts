@@ -33,8 +33,9 @@ import {
   fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill,
   removeSmallComponents, removeArtifactComponents,
   removeGroundPlane, stripVegetation,
-  morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows, glazeReflectiveWindows,
-  injectSyntheticWindows,
+  morphClose3D, morphCloseFacadeAligned, smoothSurface,
+  flattenFacades, detectCornices, flattenFacadesSetbackAware,
+  glazeDarkWindows, glazeReflectiveWindows, injectSyntheticWindows,
   extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
   smoothFacadeColors, smoothRoofPlane,
 } from '@craft/convert/mesh-filter.js';
@@ -847,16 +848,29 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
     const closed = morphClose3D(grid, 1);
     if (closed > 0) console.log(`[tiles:pp] morph close: ${closed} 1-voxel holes filled`);
   }
+  // 7b. Facade-aligned morph close — radius-2 gap filling along facade normals only.
+  // Closes 2-voxel pockmarks in facade surfaces without affecting depth profile.
+  {
+    const facadeClosed = morphCloseFacadeAligned(grid, 2);
+    if (facadeClosed > 0) console.log(`[tiles:pp] facade morph close: ${facadeClosed} facade gaps filled (r=2)`);
+  }
   await yieldUI();
 
   // 8. Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
   {
     const surfaceSmoothed = smoothSurface(grid);
     if (surfaceSmoothed > 0) console.log(`[tiles:pp] surface smooth: ${surfaceSmoothed} protrusions removed`);
-    // For rectangular buildings, snap noisy walls to dominant flat planes
+    // For rectangular buildings, detect cornices then apply setback-aware flattening
     if (analysis?.isRectangular) {
-      const snapped = flattenFacades(grid, 1);
-      if (snapped > 0) console.log(`[tiles:pp] facade flatten: ${snapped} voxels snapped`);
+      const corniceYs = detectCornices(grid, 2, true);
+      if (corniceYs.size > 0) {
+        console.log(`[tiles:pp] cornices detected: ${corniceYs.size} Y levels preserved`);
+        const snapped = flattenFacadesSetbackAware(grid, corniceYs, 1);
+        if (snapped > 0) console.log(`[tiles:pp] setback-aware flatten: ${snapped} voxels snapped`);
+      } else {
+        const snapped = flattenFacades(grid, 1);
+        if (snapped > 0) console.log(`[tiles:pp] facade flatten: ${snapped} voxels snapped`);
+      }
     }
   }
   await yieldUI();
