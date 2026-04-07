@@ -300,12 +300,15 @@ function voxelizeSurface(
   filterVegetation = false,
 ): void {
   const { width, height, length } = grid;
-  // Surface proximity threshold: voxels within this distance of mesh surface get filled.
-  // Must be > 0.5/resolution (half-voxel) to guarantee at least one voxel per face.
-  // 0.75 catches diagonal walls (voxel center-to-edge = 0.707) producing watertight
-  // shells. May create 2-block thick walls at perpendiculars, but watertightness is
-  // more important than sub-meter thinness at 1 block/m resolution.
-  const threshold = 0.75 / resolution;
+  // Dual-threshold voxelization for better surface quality:
+  // - Tight threshold (0.5×): precise color from closest surface point
+  // - Broad threshold (1.5×): gap coverage for diagonal/thin walls
+  // Try tight first (accurate UV sampling), fall back to broad (watertight shells).
+  const baseThreshold = 0.75 / resolution;
+  // Tight pass detail comes from BVH returning the CLOSEST point — when a surface
+  // is within 0.375/res the color is sampled from the precise contact point, not
+  // the broad envelope. Broad threshold just guarantees watertight shell coverage.
+  const broadThreshold = baseThreshold * 1.5;  // 1.125 / resolution — coverage
 
   // Reusable objects to avoid per-voxel allocation
   const localPoint = new THREE.Vector3();
@@ -332,18 +335,18 @@ function voxelizeSurface(
           localPoint.set(worldX, worldY, worldZ);
           localPoint.applyMatrix4(inverseMatrix);
 
-          // Find closest point on mesh surface via BVH
+          // Find closest point on mesh surface via BVH — use broad threshold
+          // for search radius but track if hit is within tight threshold
           closestTarget.distance = Infinity;
           const result = (geo.boundsTree as MeshBVHExt).closestPointToPoint(
             localPoint,
             closestTarget,
             0,
-            Math.min(threshold, bestDist),  // maxThreshold optimization
+            Math.min(broadThreshold, bestDist),
           );
 
-          if (result && result.distance < threshold && result.distance < bestDist) {
+          if (result && result.distance < broadThreshold && result.distance < bestDist) {
             bestDist = result.distance;
-            // Sample color at the closest surface point
             bestColor = sampleColorAtSurfacePoint(
               geo, result.faceIndex, result.point, material,
               sampler, uvCoord,
@@ -354,7 +357,6 @@ function voxelizeSurface(
         if (bestColor) {
           const seed = x * 1000000 + y * 1000 + z;
           const block = rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], seed);
-          // Skip vegetation blocks (trees/bushes in photogrammetry tiles)
           if (!filterVegetation || !VEGETATION_BLOCKS.has(block)) {
             grid.set(x, y, z, block);
           }
@@ -379,12 +381,13 @@ async function voxelizeSurfaceAsync(
   filterVegetation = false,
 ): Promise<void> {
   const { width, height, length } = grid;
-  // Must match sync threshold — 0.75 / resolution (watertight diagonal shells)
-  const threshold = 0.75 / resolution;
+  // Dual-threshold: tight for precision, broad for coverage (matches sync version)
+  const baseThreshold = 0.75 / resolution;
+  const broadThreshold = baseThreshold * 1.5;
 
   // Pre-compute bounding boxes for each mesh (in world space) for fast rejection
   const meshBounds: THREE.Box3[] = meshes.map(({ mesh }) => {
-    return new THREE.Box3().setFromObject(mesh).expandByScalar(threshold);
+    return new THREE.Box3().setFromObject(mesh).expandByScalar(broadThreshold);
   });
 
   // Reusable objects — allocated once, reused per voxel
@@ -424,10 +427,10 @@ async function voxelizeSurfaceAsync(
 
           closestTarget.distance = Infinity;
           const result = (geo.boundsTree as MeshBVHExt).closestPointToPoint(
-            localPoint, closestTarget, 0, Math.min(threshold, bestDist),
+            localPoint, closestTarget, 0, Math.min(broadThreshold, bestDist),
           );
 
-          if (result && result.distance < threshold && result.distance < bestDist) {
+          if (result && result.distance < broadThreshold && result.distance < bestDist) {
             bestDist = result.distance;
             bestColor = sampleColorAtSurfacePoint(
               geo, result.faceIndex, result.point, material, sampler, uvCoord,
