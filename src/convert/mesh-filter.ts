@@ -3437,6 +3437,162 @@ export function removeSmallComponents(grid: BlockGrid, minSize = 50): number {
 }
 
 /**
+ * Remove artifact components using density + distance heuristics.
+ *
+ * Goes beyond simple size thresholds:
+ * 3a. Density-based: density = voxel_count / bbox_volume. Components with
+ *     density < minDensity are removed regardless of size (catches sparse needles,
+ *     string-like artifacts that have many voxels but low volume density).
+ * 3b. Distance-based: components whose centroid is > maxDistanceRatio × building
+ *     radius from the main building centroid are removed (catches distant debris).
+ *
+ * The largest component is always kept as the main building.
+ *
+ * @param grid              BlockGrid (modified in place)
+ * @param minDensity        Minimum density to keep a non-largest component (default: 0.1)
+ * @param maxDistanceRatio  Max centroid distance as ratio of building radius (default: 1.5)
+ * @returns Number of blocks removed
+ */
+export function removeArtifactComponents(
+  grid: BlockGrid,
+  minDensity = 0.1,
+  maxDistanceRatio = 1.5,
+): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const total = width * height * length;
+
+  // Label connected components (6-connected)
+  const labels = new Int32Array(total);
+  const idx = (x: number, y: number, z: number) => (y * length + z) * width + x;
+  const offsets: [number, number, number][] = [
+    [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+  ];
+
+  // Mark air
+  for (let y = 0; y < height; y++)
+    for (let z = 0; z < length; z++)
+      for (let x = 0; x < width; x++)
+        if (grid.get(x, y, z) === AIR) labels[idx(x, y, z)] = -1;
+
+  // Component data: size, bounding box, centroid sum
+  interface CompData {
+    size: number;
+    minX: number; minY: number; minZ: number;
+    maxX: number; maxY: number; maxZ: number;
+    sumX: number; sumY: number; sumZ: number;
+  }
+  const components = new Map<number, CompData>();
+  let nextLabel = 1;
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const i = idx(x, y, z);
+        if (labels[i] !== 0) continue;
+
+        const label = nextLabel++;
+        const data: CompData = {
+          size: 0,
+          minX: x, minY: y, minZ: z,
+          maxX: x, maxY: y, maxZ: z,
+          sumX: 0, sumY: 0, sumZ: 0,
+        };
+        const queue: [number, number, number][] = [[x, y, z]];
+        labels[i] = label;
+
+        while (queue.length > 0) {
+          const [cx, cy, cz] = queue.pop()!;
+          data.size++;
+          data.sumX += cx; data.sumY += cy; data.sumZ += cz;
+          if (cx < data.minX) data.minX = cx;
+          if (cy < data.minY) data.minY = cy;
+          if (cz < data.minZ) data.minZ = cz;
+          if (cx > data.maxX) data.maxX = cx;
+          if (cy > data.maxY) data.maxY = cy;
+          if (cz > data.maxZ) data.maxZ = cz;
+
+          for (const [dx, dy, dz] of offsets) {
+            const nx = cx + dx, ny = cy + dy, nz = cz + dz;
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length) continue;
+            const ni = idx(nx, ny, nz);
+            if (labels[ni] !== 0) continue;
+            labels[ni] = label;
+            queue.push([nx, ny, nz]);
+          }
+        }
+
+        components.set(label, data);
+      }
+    }
+  }
+
+  // Find the largest component
+  let largestLabel = 0;
+  let largestSize = 0;
+  for (const [label, data] of components) {
+    if (data.size > largestSize) {
+      largestSize = data.size;
+      largestLabel = label;
+    }
+  }
+
+  // Main building centroid and radius (from largest component)
+  const main = components.get(largestLabel);
+  if (!main) return 0;
+  const mainCx = main.sumX / main.size;
+  const mainCy = main.sumY / main.size;
+  const mainCz = main.sumZ / main.size;
+  const mainRadius = Math.max(
+    main.maxX - main.minX,
+    main.maxY - main.minY,
+    main.maxZ - main.minZ,
+  ) / 2;
+  const maxDist = mainRadius * maxDistanceRatio;
+
+  // Remove components failing density or distance checks
+  let removed = 0;
+  for (const [label, data] of components) {
+    if (label === largestLabel) continue; // always keep main building
+
+    // 3a: Density check — voxel_count / bbox_volume
+    const bboxVol = Math.max(1,
+      (data.maxX - data.minX + 1) *
+      (data.maxY - data.minY + 1) *
+      (data.maxZ - data.minZ + 1),
+    );
+    const density = data.size / bboxVol;
+
+    // 3b: Distance check — centroid distance from main building
+    const cx = data.sumX / data.size;
+    const cy = data.sumY / data.size;
+    const cz = data.sumZ / data.size;
+    const dist = Math.sqrt(
+      (cx - mainCx) ** 2 + (cy - mainCy) ** 2 + (cz - mainCz) ** 2,
+    );
+
+    // Remove if sparse OR too far from main building
+    const shouldRemove = density < minDensity || dist > maxDist;
+    if (shouldRemove) {
+      // Mark for removal — set all voxels in this component to air
+      for (let y = data.minY; y <= data.maxY; y++) {
+        for (let z = data.minZ; z <= data.maxZ; z++) {
+          for (let x = data.minX; x <= data.maxX; x++) {
+            const i = idx(x, y, z);
+            if (labels[i] === label) {
+              grid.set(x, y, z, AIR);
+              removed++;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
+/**
  * Isolate the tallest structure from surrounding shorter buildings.
  *
  * For skyscrapers captured with photogrammetry, surrounding buildings are often
