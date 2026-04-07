@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
@@ -2613,6 +2613,24 @@ async function main(): Promise<void> {
     const darkSmoothed = smoothDarkBlocks(trimmed);
     if (darkSmoothed > 0) {
       console.log(`Dark block smoothing: ${darkSmoothed} shadow-artifact blocks replaced (floor + contrast)`);
+    }
+  }
+
+  // Phase 4c: Facade color coherence — 5×5×1 Lab-weighted average on facade planes.
+  // Snaps noisy outliers (delta-E > 15) to local majority color.
+  if (!args.zoneNormalize) {
+    const facadeSmoothed = smoothFacadeColors(trimmed);
+    if (facadeSmoothed > 0) {
+      console.log(`Facade color smoothing: ${facadeSmoothed} outlier blocks replaced (delta-E > 15)`);
+    }
+  }
+
+  // Phase 4e: Roof plane smoothing — aggressive 5×5 horizontal majority-vote on top 20%.
+  // Roofs in photogrammetry are noisy (HVAC equipment, shadows, varied materials).
+  if (!args.zoneNormalize) {
+    const roofSmoothed = smoothRoofPlane(trimmed);
+    if (roofSmoothed > 0) {
+      console.log(`Roof plane smoothing: ${roofSmoothed} roof blocks replaced (5x5 majority vote)`);
     }
   }
 
