@@ -1993,9 +1993,12 @@ html, body {
   flex-wrap: wrap;
   gap: 6px 14px;
   margin-left: 20px;
-  padding: 6px 0;
+  padding: 8px 12px;
   font-size: 12px;
   color: var(--text-secondary);
+  border-left: 2px solid var(--border-focus);
+  background: var(--bg-surface);
+  border-radius: 0 6px 6px 0;
 }
 
 .tiles-scene-options label {
@@ -2003,10 +2006,20 @@ html, body {
   align-items: center;
   gap: 4px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .tiles-scene-options input[type="checkbox"] {
   accent-color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .tiles-scene-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 12px;
+    margin-left: 12px;
+  }
 }
 
 .tiles-key-hint {
