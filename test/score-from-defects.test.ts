@@ -22,8 +22,8 @@ describe('scoreFromDefects', () => {
     expect(scoreFromDefects(makeChecklist())).toBe(10);
   });
 
-  it('deducts 2 for height_truncated', () => {
-    expect(scoreFromDefects(makeChecklist({ height_truncated: true }))).toBe(8);
+  it('deducts 1 for height_truncated', () => {
+    expect(scoreFromDefects(makeChecklist({ height_truncated: true }))).toBe(9);
   });
 
   it('deducts 1 for facade_holes_visible', () => {
@@ -38,67 +38,66 @@ describe('scoreFromDefects', () => {
     expect(scoreFromDefects(makeChecklist({ neighbor_buildings_merged: true }))).toBe(8);
   });
 
-  it('deducts 2 for footprint_wrong_shape', () => {
-    expect(scoreFromDefects(makeChecklist({ footprint_wrong_shape: true }))).toBe(8);
+  it('footprint_wrong_shape has zero weight (voxels are inherently blocky)', () => {
+    expect(scoreFromDefects(makeChecklist({ footprint_wrong_shape: true }))).toBe(10);
   });
 
   it('deducts 2 for false_positives_merged', () => {
     expect(scoreFromDefects(makeChecklist({ false_positives_merged: true }))).toBe(8);
   });
 
-  it('deducts 1 when building_recognizable is false', () => {
-    expect(scoreFromDefects(makeChecklist({ building_recognizable: false }))).toBe(9);
+  it('building_recognizable has zero weight (subjective meta-judgment)', () => {
+    expect(scoreFromDefects(makeChecklist({ building_recognizable: false }))).toBe(10);
   });
 
-  it('deducts 1 when proportions_correct is false', () => {
-    expect(scoreFromDefects(makeChecklist({ proportions_correct: false }))).toBe(9);
+  it('proportions_correct has zero weight (redundant with recognizable)', () => {
+    expect(scoreFromDefects(makeChecklist({ proportions_correct: false }))).toBe(10);
   });
 
   it('deducts 1 when surface_detail_visible is false', () => {
     expect(scoreFromDefects(makeChecklist({ surface_detail_visible: false }))).toBe(9);
   });
 
-  it('accumulates penalties: height + not-recognizable = 3 points off', () => {
+  it('accumulates penalties: height + facade_holes = 2 points off', () => {
     expect(scoreFromDefects(makeChecklist({
-      height_truncated:      true, // -2
-      building_recognizable: false, // -1
-    }))).toBe(7);
+      height_truncated:      true, // -1
+      facade_holes_visible:  true, // -1
+    }))).toBe(8);
   });
 
   it('accumulates all minor defects', () => {
     expect(scoreFromDefects(makeChecklist({
-      proportions_correct:    false, // -1
+      height_truncated:       true,  // -1
       surface_detail_visible: false, // -1
     }))).toBe(8);
   });
 
   it('never goes below 0 even with all defects', () => {
     const worst: DefectChecklist = {
-      height_truncated:          true,  // -2
+      height_truncated:          true,  // -1
       facade_holes_visible:      true,  // -1
       floating_artifacts:        true,  // -1
       neighbor_buildings_merged: true,  // -2
-      footprint_wrong_shape:     true,  // -2
+      footprint_wrong_shape:     true,  // 0 (zero-weight)
       false_positives_merged:    true,  // -2
-      building_recognizable:     false, // -1
-      proportions_correct:       false, // -1
+      building_recognizable:     false, // 0 (zero-weight)
+      proportions_correct:       false, // 0 (zero-weight)
       surface_detail_visible:    false, // -1
     };
-    // Total penalties = 13, but clamped to 0
-    expect(scoreFromDefects(worst)).toBe(0);
+    // Total penalties = 8, 10-8 = 2, clamped to 2
+    expect(scoreFromDefects(worst)).toBe(2);
   });
 
-  it('typical partially-good build: shape ok but surface missing', () => {
+  it('typical partially-good build: surface missing only', () => {
     expect(scoreFromDefects(makeChecklist({
       surface_detail_visible: false, // -1
-      proportions_correct:    false, // -1
-    }))).toBe(8);
+    }))).toBe(9);
   });
 
-  it('typical bad build: wrong shape + not recognizable', () => {
+  it('typical bad build: neighbors merged + false positives', () => {
     expect(scoreFromDefects(makeChecklist({
-      footprint_wrong_shape:  true,  // -2
-      building_recognizable:  false, // -1
-    }))).toBe(7);
+      neighbor_buildings_merged: true, // -2
+      false_positives_merged:    true, // -2
+    }))).toBe(6);
   });
 });
