@@ -357,12 +357,15 @@ async function runVoxelizePipeline(
   // uses a fixed camera, so we need every update() call to actually process tiles.
   tiles.registerPlugin(new UnloadTilesPlugin());
 
-  // Force building-level LOD, but scale with radius to prevent mobile GPU OOM.
-  // Small radius (30m) → errorTarget 4.0 (high detail, residential buildings)
-  // Large radius (150m) → errorTarget 20.0 (lower detail, prevents crash)
-  // Default 16px stops at coarse terrain tiles; lower values demand leaf tiles
-  // with actual building geometry and textures.
-  tiles.errorTarget = Math.max(4.0, (radiusMeters / 30) * 4.0);
+  // Progressive LOD: start coarse (20) for fast hierarchy traversal, then
+  // refine to target before capture. Lower errorTarget = higher detail tiles.
+  // Capped at 6.0 for buildings < 200m to force facade-level LOD without
+  // crashing mobile GPUs. For very large captures (>200m), allow scaling up.
+  let targetErrorTarget = radiusMeters > 200
+    ? Math.max(6.0, (radiusMeters / 30) * 4.0)
+    : Math.min(6.0, Math.max(4.0, (radiusMeters / 30) * 4.0));
+  // Start coarse for fast initial hierarchy traversal (root→regional→local)
+  tiles.errorTarget = 20;
 
   tiles.setCamera(camera);
   tiles.setResolutionFromRenderer(camera, renderer);
@@ -378,7 +381,11 @@ async function runVoxelizePipeline(
   if (bounds && bounds.confidence > 0.5) {
     // Auto-set capture radius from building dimensions
     radiusMeters = bounds.captureRadiusM;
-    console.log(`[tiles] auto-radius: ${radiusMeters}m (building ~${bounds.widthM}×${bounds.lengthM}m, sources: ${bounds.sources.join(',')})`);
+    // Recalculate LOD target for updated radius
+    targetErrorTarget = radiusMeters > 200
+      ? Math.max(6.0, (radiusMeters / 30) * 4.0)
+      : Math.min(6.0, Math.max(4.0, (radiusMeters / 30) * 4.0));
+    console.log(`[tiles] auto-radius: ${radiusMeters}m (building ~${bounds.widthM}×${bounds.lengthM}m, sources: ${bounds.sources.join(',')}), LOD target: ${targetErrorTarget.toFixed(1)}`);
     setStatus(
       `${geo.formattedAddress} — building ~${bounds.widthM}×${bounds.lengthM}m, capture radius ${radiusMeters}m`,
       'info',
@@ -415,8 +422,16 @@ async function runVoxelizePipeline(
   // a limited batch of tiles per frame. We need many cycles for the
   // root → regional → local → building tile chain to fully resolve.
   // Show loading progress and continue until tiles start downloading.
+  // Progressive LOD refinement: ramp errorTarget from 20 → target over 200 frames.
+  // First 50 frames at coarse LOD loads the hierarchy quickly. Remaining 150
+  // frames progressively demand higher-detail tiles as the hierarchy settles.
   let sawDownloads = false;
   for (let i = 0; i < 200; i++) {
+    // Progressive refinement: hold coarse for first 50 frames, then linear ramp
+    if (tiles && i >= 50) {
+      const t = (i - 50) / 150; // 0→1 over frames 50-200
+      tiles.errorTarget = 20 - t * (20 - targetErrorTarget);
+    }
     renderForLoading();
     const st = tiles.stats;
     const d = (st as Record<string, number>).downloading ?? 0;
@@ -426,10 +441,72 @@ async function runVoxelizePipeline(
     const f = (st as Record<string, number>).failed ?? 0;
     if (d > 0 || p > 0 || l > 0) sawDownloads = true;
     if (i % 10 === 0) {
-      setStatus(`Loading 3D tiles... (${d} downloading, ${p} parsing, ${l} loaded${f > 0 ? `, ${f} failed` : ''})`, 'info');
+      setStatus(`Loading 3D tiles... (${d} downloading, ${p} parsing, ${l} loaded${f > 0 ? `, ${f} failed` : ''}, LOD ${tiles.errorTarget.toFixed(1)})`, 'info');
     }
     await new Promise(r => setTimeout(r, 100));
   }
+  // Ensure target LOD is set before capture
+  if (tiles) tiles.errorTarget = targetErrorTarget;
+
+  // ── Phase 1b: Multi-camera LOD forcing ──
+  // The top-down orthographic camera only loads top-of-building LOD.
+  // Cycle through 4 side cameras (N/S/E/W) at building-height level to force
+  // the TilesRenderer to request high-LOD facade tiles for each wall.
+  // Estimate building height from bounds or radius; cameras at 2× building width out.
+  const estimatedHeight = bounds?.lengthM
+    ? Math.max(bounds.widthM, bounds.lengthM) * 1.5
+    : radiusMeters;
+  const camDist = radiusMeters * 2;
+  const sideHalfExtent = radiusMeters * 1.5;
+  const sideCamHeight = estimatedHeight * 0.5; // Aim at mid-height
+
+  // 4 cardinal directions: +X (E), -X (W), +Z (S), -Z (N)
+  const sidePositions: [number, number, number][] = [
+    [camDist, sideCamHeight, 0],
+    [-camDist, sideCamHeight, 0],
+    [0, sideCamHeight, camDist],
+    [0, sideCamHeight, -camDist],
+  ];
+
+  setStatus('Loading facade detail (side cameras)...', 'info');
+  await new Promise(r => setTimeout(r, 50));
+
+  for (let ci = 0; ci < sidePositions.length; ci++) {
+    const [cx, cy, cz] = sidePositions[ci];
+    // Create a temporary side camera looking at the building center
+    const sideCam = new THREE.OrthographicCamera(
+      -sideHalfExtent, sideHalfExtent,
+      estimatedHeight, -estimatedHeight * 0.1,
+      1, camDist * 3,
+    );
+    sideCam.position.set(cx, cy, cz);
+    sideCam.lookAt(0, sideCamHeight, 0);
+    sideCam.updateMatrixWorld();
+
+    // Switch TilesRenderer to side camera and render frames to trigger LOD requests
+    tiles.setCamera(sideCam);
+    tiles.setResolutionFromRenderer(sideCam, renderer);
+    for (let f = 0; f < 30; f++) {
+      try {
+        sideCam.updateMatrixWorld();
+        tiles.setResolutionFromRenderer(sideCam, renderer);
+        tiles.update();
+        renderer.render(scene, sideCam);
+      } catch { /* ignore render errors during LOD forcing */ }
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    const dirNames = ['East', 'West', 'South', 'North'];
+    const st2 = tiles.stats;
+    setStatus(
+      `Facade LOD: ${dirNames[ci]} done (${(st2 as Record<string, number>).loaded ?? 0} tiles)`,
+      'info',
+    );
+  }
+
+  // Restore the top-down camera for capture (captureTileMeshes uses it for waitForTilesLoaded)
+  tiles.setCamera(camera);
+  tiles.setResolutionFromRenderer(camera, renderer);
 
   // Keep rendering while waiting for tiles — use setInterval to avoid
   // requestAnimationFrame throttling on mobile browsers
