@@ -2768,6 +2768,189 @@ export function smoothFacadeColors(grid: BlockGrid): number {
 }
 
 /**
+ * Phase 4d: Per-facade K-means palette clustering.
+ *
+ * Reduces per-facade block diversity from 15-20 noisy variants down to k coherent
+ * materials. For each facade face (N/S/E/W), collects all facade block Lab colors,
+ * runs K-means clustering (k=3-5 adaptive), then maps each cluster center to the
+ * nearest WALL_CLUSTERS MC block.
+ *
+ * Subsample: uses every Nth facade voxel (N = ceil(count/100)) for cluster center
+ * computation, then nearest-neighbor assigns the full set for O(N) performance.
+ *
+ * @param grid  BlockGrid (modified in place)
+ * @param k     Max number of palette clusters per facade (default: 4)
+ * @returns Number of blocks replaced
+ */
+export function clusterFacadePalette(grid: BlockGrid, k = 4): number {
+  const AIR = 'minecraft:air';
+  const { width, height, length } = grid;
+  const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  let replaced = 0;
+
+  // Group facade voxels by face direction (4 cardinal faces)
+  // Key: "dx,dz" → list of {x, y, z, block, lab}
+  type FacadeVoxel = { x: number; y: number; z: number; block: string; lab: [number, number, number] };
+  const faceGroups = new Map<string, FacadeVoxel[]>();
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block === AIR) continue;
+
+        // Find which face this block is exposed on
+        for (const [dx, dz] of H_DIRS) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length || grid.get(nx, y, nz) === AIR) {
+            const lab = getBlockLab(block);
+            if (!lab) break; // unknown block — skip
+            const key = `${dx},${dz}`;
+            let group = faceGroups.get(key);
+            if (!group) { group = []; faceGroups.set(key, group); }
+            group.push({ x, y, z, block, lab });
+            break; // only assign to first exposed face
+          }
+        }
+      }
+    }
+  }
+
+  // K-means++ initialization: pick centers that are far apart in Lab space
+  function kmeansInit(samples: [number, number, number][], numK: number): [number, number, number][] {
+    const centers: [number, number, number][] = [];
+    // First center: random (use middle sample for determinism)
+    centers.push([...samples[Math.floor(samples.length / 2)]]);
+
+    for (let c = 1; c < numK; c++) {
+      // For each sample, find min distance to existing centers
+      let totalDist = 0;
+      const dists: number[] = new Array(samples.length);
+      for (let i = 0; i < samples.length; i++) {
+        let minD = Infinity;
+        for (const ct of centers) {
+          const d = (samples[i][0] - ct[0]) ** 2 + (samples[i][1] - ct[1]) ** 2 + (samples[i][2] - ct[2]) ** 2;
+          if (d < minD) minD = d;
+        }
+        dists[i] = minD;
+        totalDist += minD;
+      }
+      // Pick next center proportional to distance squared (deterministic: pick the farthest)
+      let maxD = 0, maxIdx = 0;
+      for (let i = 0; i < dists.length; i++) {
+        if (dists[i] > maxD) { maxD = dists[i]; maxIdx = i; }
+      }
+      centers.push([...samples[maxIdx]]);
+    }
+    return centers;
+  }
+
+  // K-means iteration
+  function kmeans(
+    samples: [number, number, number][],
+    numK: number,
+    maxIter = 20,
+  ): [number, number, number][] {
+    if (samples.length <= numK) return samples.map(s => [...s] as [number, number, number]);
+
+    const centers = kmeansInit(samples, numK);
+    const assignments = new Int32Array(samples.length);
+
+    for (let iter = 0; iter < maxIter; iter++) {
+      let changed = false;
+
+      // Assign each sample to nearest center
+      for (let i = 0; i < samples.length; i++) {
+        let bestC = 0, bestD = Infinity;
+        for (let c = 0; c < centers.length; c++) {
+          const d = (samples[i][0] - centers[c][0]) ** 2 +
+                    (samples[i][1] - centers[c][1]) ** 2 +
+                    (samples[i][2] - centers[c][2]) ** 2;
+          if (d < bestD) { bestD = d; bestC = c; }
+        }
+        if (assignments[i] !== bestC) { assignments[i] = bestC; changed = true; }
+      }
+
+      if (!changed) break;
+
+      // Recompute centers
+      const sums: [number, number, number][] = centers.map(() => [0, 0, 0]);
+      const counts = new Int32Array(centers.length);
+      for (let i = 0; i < samples.length; i++) {
+        const c = assignments[i];
+        sums[c][0] += samples[i][0];
+        sums[c][1] += samples[i][1];
+        sums[c][2] += samples[i][2];
+        counts[c]++;
+      }
+      for (let c = 0; c < centers.length; c++) {
+        if (counts[c] > 0) {
+          centers[c][0] = sums[c][0] / counts[c];
+          centers[c][1] = sums[c][1] / counts[c];
+          centers[c][2] = sums[c][2] / counts[c];
+        }
+      }
+    }
+
+    return centers;
+  }
+
+  // Map a Lab center to the nearest WALL_CLUSTERS MC block
+  function labToBlock(lab: [number, number, number]): string {
+    let bestBlock = WALL_CLUSTERS[0].options[0];
+    let bestDist = Infinity;
+    for (const cluster of WALL_CLUSTERS) {
+      const cLab = rgbToLab(cluster.rgb[0], cluster.rgb[1], cluster.rgb[2]);
+      const d = (lab[0] - cLab[0]) ** 2 + (lab[1] - cLab[1]) ** 2 + (lab[2] - cLab[2]) ** 2;
+      if (d < bestDist) { bestDist = d; bestBlock = cluster.options[0]; }
+    }
+    return bestBlock;
+  }
+
+  // Process each facade face
+  for (const [_key, voxels] of faceGroups) {
+    if (voxels.length < 6) continue; // too few to cluster
+
+    // Count unique blocks to determine actual k
+    const uniqueBlocks = new Set(voxels.map(v => v.block));
+    if (uniqueBlocks.size <= 2) continue; // already minimal palette
+
+    const actualK = Math.min(k, Math.max(2, uniqueBlocks.size - 1));
+
+    // Subsample for cluster center computation (1/100 or min 50)
+    const step = Math.max(1, Math.ceil(voxels.length / 100));
+    const samples: [number, number, number][] = [];
+    for (let i = 0; i < voxels.length; i += step) {
+      samples.push(voxels[i].lab);
+    }
+
+    // Run K-means
+    const centers = kmeans(samples, actualK);
+
+    // Map each center to a MC block
+    const centerBlocks = centers.map(c => labToBlock(c));
+
+    // Assign every facade voxel to nearest center and replace
+    for (const v of voxels) {
+      let bestC = 0, bestD = Infinity;
+      for (let c = 0; c < centers.length; c++) {
+        const d = (v.lab[0] - centers[c][0]) ** 2 +
+                  (v.lab[1] - centers[c][1]) ** 2 +
+                  (v.lab[2] - centers[c][2]) ** 2;
+        if (d < bestD) { bestD = d; bestC = c; }
+      }
+      const newBlock = centerBlocks[bestC];
+      if (newBlock !== v.block) {
+        grid.set(v.x, v.y, v.z, newBlock);
+        replaced++;
+      }
+    }
+  }
+
+  return replaced;
+}
+
+/**
  * Phase 4e: Smooth roof plane blocks with aggressive majority-vote filtering.
  *
  * Identifies roof voxels (Y > 80% of building height, facing upward = no solid above)
