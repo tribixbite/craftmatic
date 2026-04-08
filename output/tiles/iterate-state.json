@@ -1,103 +1,35 @@
 {
-  "version": "v80",
-  "timestamp": "2026-04-05T05:21:09.956Z",
+  "version": "v310",
+  "timestamp": "2026-04-08T16:46:45.580Z",
   "target": 9,
-  "passing": 14,
+  "passing": 19,
   "total": 10,
   "model": "gemini-2.5-pro",
   "buildings": {
     "flatiron": {
       "key": "flatiron",
-      "version": "v80",
+      "version": "v310",
       "difficulty": "easy",
       "scores": [
-        8
-      ],
-      "subscores": [
-        {
-          "A": 2,
-          "B": 0,
-          "C": 2,
-          "D": 0,
-          "total": 8
-        }
-      ],
-      "trimmedMean": 8,
-      "diagnosis": "massing(0.0/1)",
-      "timestamp": "2026-04-05T05:25:33.952Z",
-      "satRefQuality": 3
-    },
-    "citigroup": {
-      "key": "citigroup",
-      "version": "v80",
-      "difficulty": "hard",
-      "scores": [
-        10
-      ],
-      "subscores": [
-        {
-          "A": 2,
-          "B": 1,
-          "C": 3,
-          "D": 2,
-          "total": 10
-        }
-      ],
-      "trimmedMean": 10,
-      "diagnosis": "identity(2.0/2)",
-      "timestamp": "2026-04-05T05:53:38.602Z",
-      "satRefQuality": 3
-    },
-    "pennzoil": {
-      "key": "pennzoil",
-      "version": "v80",
-      "difficulty": "hard",
-      "scores": [
-        10
-      ],
-      "subscores": [
-        {
-          "A": 2,
-          "B": 1,
-          "C": 3,
-          "D": 2,
-          "total": 10
-        }
-      ],
-      "trimmedMean": 10,
-      "diagnosis": "identity(2.0/2)",
-      "timestamp": "2026-04-05T05:27:04.338Z",
-      "satRefQuality": 3
-    },
-    "nga-east": {
-      "key": "nga-east",
-      "version": "v80",
-      "difficulty": "medium",
-      "scores": [
-        7
-      ],
-      "subscores": [
-        {
-          "A": 1,
-          "B": 1,
-          "C": 2,
-          "D": 0,
-          "total": 7
-        }
-      ],
-      "trimmedMean": 7,
-      "diagnosis": "footprint(1.0/2)",
-      "timestamp": "2026-04-05T05:29:05.199Z",
-      "satRefQuality": 3
-    },
-    "dallas-cityhall": {
-      "key": "dallas-cityhall",
-      "version": "v80",
-      "difficulty": "hard",
-      "scores": [
+        9,
+        9,
         9
       ],
       "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
         {
           "A": 2,
           "B": 1,
@@ -108,38 +40,107 @@
       ],
       "trimmedMean": 9,
       "diagnosis": "identity(2.0/2)",
-      "timestamp": "2026-04-05T05:33:42.968Z",
+      "timestamp": "2026-04-08T16:10:03.244Z",
       "satRefQuality": 3
     },
-    "seattle-library": {
-      "key": "seattle-library",
-      "version": "v80",
+    "citigroup": {
+      "key": "citigroup",
+      "version": "v310",
       "difficulty": "hard",
       "scores": [
-        8
+        10,
+        10,
+        10
       ],
       "subscores": [
         {
           "A": 2,
-          "B": 0,
-          "C": 2,
-          "D": 0,
-          "total": 8
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
         }
       ],
-      "trimmedMean": 8,
-      "diagnosis": "massing(0.0/1)",
-      "timestamp": "2026-04-05T05:47:26.648Z",
+      "trimmedMean": 10,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-04-08T16:18:58.793Z",
       "satRefQuality": 3
     },
-    "boston-cityhall": {
-      "key": "boston-cityhall",
-      "version": "v80",
+    "pennzoil": {
+      "key": "pennzoil",
+      "version": "v310",
       "difficulty": "hard",
       "scores": [
+        9,
+        9,
         9
       ],
       "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-04-08T16:12:23.514Z",
+      "satRefQuality": 3
+    },
+    "nga-east": {
+      "key": "nga-east",
+      "version": "v309",
+      "difficulty": "medium",
+      "scores": [
+        9,
+        9,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 9
+        },
         {
           "A": 2,
           "B": 1,
@@ -150,14 +151,16 @@
       ],
       "trimmedMean": 9,
       "diagnosis": "passing",
-      "timestamp": "2026-04-05T05:48:47.171Z",
+      "timestamp": "2026-04-08T06:54:06.925Z",
       "satRefQuality": 3
     },
-    "geisel": {
-      "key": "geisel",
-      "version": "v80",
+    "dallas-cityhall": {
+      "key": "dallas-cityhall",
+      "version": "v310",
       "difficulty": "hard",
       "scores": [
+        8,
+        8,
         8
       ],
       "subscores": [
@@ -165,23 +168,164 @@
           "A": 2,
           "B": 1,
           "C": 1,
-          "D": 0,
+          "D": 2,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 1,
+          "D": 2,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 1,
+          "D": 2,
           "total": 8
         }
       ],
       "trimmedMean": 8,
-      "diagnosis": "surface(1.0/3)",
-      "timestamp": "2026-04-05T05:59:10.154Z",
+      "diagnosis": "surface(1.0/3), identity(2.0/2)",
+      "timestamp": "2026-04-08T16:27:02.467Z",
+      "satRefQuality": 3
+    },
+    "seattle-library": {
+      "key": "seattle-library",
+      "version": "v310",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        8,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 0,
+          "C": 2,
+          "D": 0,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "massing(0.7/1), identity(1.3/2)",
+      "timestamp": "2026-04-08T16:44:05.205Z",
+      "satRefQuality": 3
+    },
+    "boston-cityhall": {
+      "key": "boston-cityhall",
+      "version": "v309",
+      "difficulty": "hard",
+      "scores": [
+        9,
+        9,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-04-08T07:25:45.743Z",
+      "satRefQuality": 3
+    },
+    "geisel": {
+      "key": "geisel",
+      "version": "v309",
+      "difficulty": "hard",
+      "scores": [
+        9,
+        9,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 0,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9,
+      "diagnosis": "passing",
+      "timestamp": "2026-04-08T07:18:00.127Z",
       "satRefQuality": 3
     },
     "transamerica": {
       "key": "transamerica",
-      "version": "v80",
+      "version": "v309",
       "difficulty": "hard",
       "scores": [
+        10,
+        10,
         10
       ],
       "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
         {
           "A": 2,
           "B": 1,
@@ -192,18 +336,45 @@
       ],
       "trimmedMean": 10,
       "diagnosis": "identity(2.0/2)",
-      "timestamp": "2026-04-05T06:01:16.414Z",
+      "timestamp": "2026-04-08T06:51:24.870Z",
       "satRefQuality": 3
     },
     "la-cityhall": {
       "key": "la-cityhall",
-      "version": "v80",
+      "version": "v309",
       "difficulty": "hard",
-      "scores": [],
-      "subscores": [],
-      "trimmedMean": 0,
-      "diagnosis": "error: Error: Command failed: bun scripts/voxelize-glb.ts \"output/tiles/la-cityhall.glb\" --auto --coords \"34.0537,-118.2430\" --mask-dilate 1 --gamma 0.4 -r 1 -o \"output/tiles/la-cityhall-v80.schem\" --no-enu",
-      "timestamp": "2026-04-05T06:01:54.162Z"
+      "scores": [
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-04-08T07:29:42.799Z",
+      "satRefQuality": 3
     },
     "marina-city": {
       "key": "marina-city",
@@ -260,11 +431,9 @@
     },
     "hearst-tower": {
       "key": "hearst-tower",
-      "version": "v302",
+      "version": "v310",
       "difficulty": "hard",
       "scores": [
-        10,
-        10,
         10,
         10,
         10
@@ -290,25 +459,11 @@
           "C": 3,
           "D": 2,
           "total": 10
-        },
-        {
-          "A": 2,
-          "B": 1,
-          "C": 3,
-          "D": 2,
-          "total": 10
-        },
-        {
-          "A": 2,
-          "B": 1,
-          "C": 3,
-          "D": 2,
-          "total": 10
         }
       ],
       "trimmedMean": 10,
       "diagnosis": "identity(2.0/2)",
-      "timestamp": "2026-03-29T21:19:26.907Z",
+      "timestamp": "2026-04-08T16:51:33.017Z",
       "satRefQuality": 3
     },
     "guggenheim": {
@@ -631,14 +786,12 @@
     },
     "vessel-nyc": {
       "key": "vessel-nyc",
-      "version": "v303",
+      "version": "v310",
       "difficulty": "hard",
       "scores": [
         10,
-        8,
         10,
-        10,
-        9
+        10
       ],
       "subscores": [
         {
@@ -651,23 +804,83 @@
         {
           "A": 2,
           "B": 1,
-          "C": 1,
+          "C": 3,
           "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-04-08T16:57:27.612Z",
+      "satRefQuality": 3
+    },
+    "disney-hall": {
+      "key": "disney-hall",
+      "version": "v310",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-04-08T17:36:53.512Z",
+      "satRefQuality": 3
+    },
+    "coit-grandrapids": {
+      "key": "coit-grandrapids",
+      "version": "v310",
+      "difficulty": "medium",
+      "scores": [
+        8,
+        8,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 0,
+          "C": 2,
+          "D": 0,
           "total": 8
         },
         {
           "A": 2,
-          "B": 1,
-          "C": 3,
+          "B": 0,
+          "C": 2,
           "D": 2,
-          "total": 10
-        },
-        {
-          "A": 2,
-          "B": 1,
-          "C": 3,
-          "D": 2,
-          "total": 10
+          "total": 8
         },
         {
           "A": 2,
@@ -677,115 +890,9 @@
           "total": 9
         }
       ],
-      "trimmedMean": 9.7,
-      "diagnosis": "identity(2.0/2)",
-      "timestamp": "2026-03-30T02:07:57.165Z",
-      "satRefQuality": 3
-    },
-    "disney-hall": {
-      "key": "disney-hall",
-      "version": "v307",
-      "difficulty": "hard",
-      "scores": [
-        8,
-        7,
-        8,
-        8,
-        8
-      ],
-      "subscores": [
-        {
-          "A": 2,
-          "B": 1,
-          "C": 1,
-          "D": 0,
-          "total": 8
-        },
-        {
-          "A": 1,
-          "B": 1,
-          "C": 2,
-          "D": 0,
-          "total": 7
-        },
-        {
-          "A": 2,
-          "B": 1,
-          "C": 1,
-          "D": 0,
-          "total": 8
-        },
-        {
-          "A": 2,
-          "B": 1,
-          "C": 1,
-          "D": 0,
-          "total": 8
-        },
-        {
-          "A": 2,
-          "B": 1,
-          "C": 1,
-          "D": 0,
-          "total": 8
-        }
-      ],
       "trimmedMean": 8,
-      "diagnosis": "footprint(1.8/2), surface(1.2/3)",
-      "timestamp": "2026-04-03T02:47:21.831Z",
-      "satRefQuality": 3
-    },
-    "coit-grandrapids": {
-      "key": "coit-grandrapids",
-      "version": "v308b",
-      "difficulty": "medium",
-      "scores": [
-        8,
-        7,
-        10,
-        7,
-        7
-      ],
-      "subscores": [
-        {
-          "A": 1,
-          "B": 1,
-          "C": 3,
-          "D": 2,
-          "total": 8
-        },
-        {
-          "A": 1,
-          "B": 0,
-          "C": 3,
-          "D": 0,
-          "total": 7
-        },
-        {
-          "A": 2,
-          "B": 1,
-          "C": 3,
-          "D": 2,
-          "total": 10
-        },
-        {
-          "A": 1,
-          "B": 0,
-          "C": 3,
-          "D": 2,
-          "total": 7
-        },
-        {
-          "A": 1,
-          "B": 0,
-          "C": 3,
-          "D": 0,
-          "total": 7
-        }
-      ],
-      "trimmedMean": 7.3,
-      "diagnosis": "footprint(1.2/2), massing(0.4/1), identity(1.2/2)",
-      "timestamp": "2026-04-05T04:52:50.633Z",
+      "diagnosis": "massing(0.3/1), identity(1.3/2)",
+      "timestamp": "2026-04-08T16:46:30.200Z",
       "satRefQuality": 3
     }
   }
