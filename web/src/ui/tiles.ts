@@ -37,7 +37,7 @@ import {
   flattenFacades, detectCornices, flattenFacadesSetbackAware,
   glazeDarkWindows, glazeReflectiveWindows, injectSyntheticWindows,
   extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
-  smoothFacadeColors, smoothRoofPlane,
+  smoothFacadeColors, smoothRoofPlane, clusterFacadePalette,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult, ExtractedEnvironment } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -452,58 +452,72 @@ async function runVoxelizePipeline(
   // Ensure target LOD is set before capture
   if (tiles) tiles.errorTarget = targetErrorTarget;
 
-  // ── Phase 1b: Multi-camera LOD forcing ──
+  // ── Phase 1b+1c: Multi-camera LOD forcing with vertical slices ──
   // The top-down orthographic camera only loads top-of-building LOD.
-  // Cycle through 4 side cameras (N/S/E/W) at building-height level to force
-  // the TilesRenderer to request high-LOD facade tiles for each wall.
-  // Estimate building height from bounds or radius; cameras at 2× building width out.
+  // Cycle through side cameras to force facade tile loading.
+  // Phase 1c: For tall buildings (height > radius), add multiple height levels
+  // to force LOD loading of upper-floor facades that a single mid-height camera misses.
   const estimatedHeight = bounds?.lengthM
     ? Math.max(bounds.widthM, bounds.lengthM) * 1.5
     : radiusMeters;
   const camDist = radiusMeters * 2;
   const sideHalfExtent = radiusMeters * 1.5;
-  const sideCamHeight = estimatedHeight * 0.5; // Aim at mid-height
+
+  // Phase 1c: Compute vertical slice heights. For buildings taller than the capture
+  // radius, a single mid-height camera can't force LOD for the full facade. Split
+  // into slices every ~radiusMeters in height, with a minimum of 1 (original behavior).
+  const sliceInterval = Math.max(radiusMeters, 30); // At least 30m between slices
+  const numSlices = Math.max(1, Math.ceil(estimatedHeight / sliceInterval));
+  const sliceHeights: number[] = [];
+  for (let s = 0; s < numSlices; s++) {
+    // Distribute slices evenly from 25% to 75% of estimated height
+    const t = numSlices === 1 ? 0.5 : 0.25 + (s / (numSlices - 1)) * 0.5;
+    sliceHeights.push(estimatedHeight * t);
+  }
 
   // 4 cardinal directions: +X (E), -X (W), +Z (S), -Z (N)
-  const sidePositions: [number, number, number][] = [
-    [camDist, sideCamHeight, 0],
-    [-camDist, sideCamHeight, 0],
-    [0, sideCamHeight, camDist],
-    [0, sideCamHeight, -camDist],
-  ];
+  const dirOffsets: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const dirNames = ['East', 'West', 'South', 'North'];
 
-  setStatus('Loading facade detail (side cameras)...', 'info');
+  setStatus(`Loading facade detail (${dirOffsets.length}×${sliceHeights.length} cameras)...`, 'info');
   await new Promise(r => setTimeout(r, 50));
 
-  for (let ci = 0; ci < sidePositions.length; ci++) {
-    const [cx, cy, cz] = sidePositions[ci];
-    // Create a temporary side camera looking at the building center
-    const sideCam = new THREE.OrthographicCamera(
-      -sideHalfExtent, sideHalfExtent,
-      estimatedHeight, -estimatedHeight * 0.1,
-      1, camDist * 3,
-    );
-    sideCam.position.set(cx, cy, cz);
-    sideCam.lookAt(0, sideCamHeight, 0);
-    sideCam.updateMatrixWorld();
+  // Fewer frames per camera when doing multiple slices to keep total time manageable
+  const framesPerCam = numSlices > 2 ? 15 : 30;
 
-    // Switch TilesRenderer to side camera and render frames to trigger LOD requests
-    tiles.setCamera(sideCam);
-    tiles.setResolutionFromRenderer(sideCam, renderer);
-    for (let f = 0; f < 30; f++) {
-      try {
-        sideCam.updateMatrixWorld();
-        tiles.setResolutionFromRenderer(sideCam, renderer);
-        tiles.update();
-        renderer.render(scene, sideCam);
-      } catch { /* ignore render errors during LOD forcing */ }
-      await new Promise(r => setTimeout(r, 100));
+  for (let si = 0; si < sliceHeights.length; si++) {
+    const sliceY = sliceHeights[si];
+    for (let di = 0; di < dirOffsets.length; di++) {
+      const [dx, dz] = dirOffsets[di];
+      const cx = dx * camDist, cz = dz * camDist;
+
+      // Ortho camera sized to see a vertical slice of the building
+      const sliceHalfH = sliceInterval * 0.6; // Vertical extent of this slice
+      const sideCam = new THREE.OrthographicCamera(
+        -sideHalfExtent, sideHalfExtent,
+        sliceHalfH, -sliceHalfH,
+        1, camDist * 3,
+      );
+      sideCam.position.set(cx, sliceY, cz);
+      sideCam.lookAt(0, sliceY, 0);
+      sideCam.updateMatrixWorld();
+
+      tiles.setCamera(sideCam);
+      tiles.setResolutionFromRenderer(sideCam, renderer);
+      for (let f = 0; f < framesPerCam; f++) {
+        try {
+          sideCam.updateMatrixWorld();
+          tiles.setResolutionFromRenderer(sideCam, renderer);
+          tiles.update();
+          renderer.render(scene, sideCam);
+        } catch { /* ignore render errors during LOD forcing */ }
+        await new Promise(r => setTimeout(r, 100));
+      }
     }
 
-    const dirNames = ['East', 'West', 'South', 'North'];
     const st2 = tiles.stats;
     setStatus(
-      `Facade LOD: ${dirNames[ci]} done (${(st2 as Record<string, number>).loaded ?? 0} tiles)`,
+      `Facade LOD: slice ${si + 1}/${sliceHeights.length} at ${sliceY.toFixed(0)}m (${(st2 as Record<string, number>).loaded ?? 0} tiles)`,
       'info',
     );
   }
@@ -911,7 +925,14 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   }
   await yieldUI();
 
-  // 10c. Roof plane smoothing — aggressive 5×5 horizontal majority-vote on top 20%.
+  // 10c. K-means facade palette — cluster each facade to k=4 coherent materials.
+  {
+    const paletteReplaced = clusterFacadePalette(grid, 4);
+    if (paletteReplaced > 0) console.log(`[tiles:pp] palette cluster: ${paletteReplaced} blocks reassigned (k=4)`);
+  }
+  await yieldUI();
+
+  // 10d. Roof plane smoothing — aggressive 5×5 horizontal majority-vote on top 20%.
   // Roofs in photogrammetry are noisy (HVAC, shadows, varied materials).
   {
     const roofSmoothed = smoothRoofPlane(grid);
