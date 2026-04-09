@@ -1,65 +1,30 @@
-# Iterate State — v310 (Phases 1-5 + 1c + 4d)
+# Iterate State — v310 (Post-Recapture Validation)
 
 **Target**: 9/10 buildings at 9+
-**Current**: 19/21 passing at 9+ (90.5%)
+**Current**: 18/21 passing at 9+ (85.7%)
 **Model**: gemini-2.5-pro | **Runs/batch**: 3 | **Mode**: 20% trimmed mean
-**Updated**: 2026-04-08
+**Updated**: 2026-04-09
 
-## Results Summary
+| Building | Difficulty | TrimmedMean | Runs | Status | Diagnosis |
+|---|---|---|---|---|---|
+| flatiron | easy | 9 | 3 | PASS | Phase 4d improved (was 8 in v309) |
+| pennzoil | hard | 9 | 3 | PASS | stable |
+| nga-east | medium | 9 | 3 | PASS | stable |
+| dallas-cityhall | hard | 8 | 3 | PLATEAU | cantilever underside |
+| seattle-library | hard | 8 | 3 | REGRESSED | was 10 before recapture, fresh GLB lower quality |
+| boston-cityhall | hard | 9 | 3 | PASS | stable |
+| citigroup | hard | 9 | 3 | PASS | recovered after recapture fix |
+| geisel | hard | 9 | 3 | PASS | stable |
+| transamerica | hard | 10 | 3 | PASS | recovered after recapture fix |
+| la-cityhall | hard | 10 | 3 | PASS | stable |
 
-### Old Group (10 buildings) — 9/10 passing
-| Building | Score | Status | v309→v310 |
-|---|---|---|---|
-| pennzoil | 9 | PASS | 10→9 (noise, still pass) |
-| citigroup | 10 | PASS | 10→10 |
-| transamerica | 10 | PASS | 10→10 |
-| la-cityhall | 10 | PASS | 10→10 |
-| nga-east | 9 | PASS | 9→9 |
-| geisel | 9 | PASS | 9→9 |
-| boston-cityhall | 9 | PASS | 9→9 |
-| flatiron | 9 | PASS | **8→9** (Phase 4d palette clustering) |
-| seattle-library | 10 | PASS | **8→10** (Phase 4d reduced glass noise) |
-| **dallas-cityhall** | **8** | PLATEAU | 8→8 (cantilever underside) |
+## Phase 1c Headless Validation
 
-### New Group (11 buildings) — 10/11 passing
-| Building | Score | Status | v309→v310 |
-|---|---|---|---|
-| hearst-tower | 10 | PASS | 10→10 |
-| fbi-hq | 10 | PASS | 10→10 |
-| mopop | 10 | PASS | 10→10 |
-| boa-tower | 10 | PASS | 10→10 |
-| vessel-nyc | 10 | PASS | 9.7→10 |
-| disney-hall | 10 | PASS | **9→10** (Phase 4d) |
-| marina-city | 9 | PASS | 9→9 |
-| guggenheim | 9 | PASS | 9→9 |
-| natl-cathedral | 9 | PASS | 9→9 |
-| tribune-tower | 9 | PASS | 9→9 |
-| **coit-grandrapids** | **8** | PLATEAU | 8→8 (low-rise school) |
+**Finding**: Phase 1c tighter bands cause regressions in headless capture.
+- citigroup: OOM (308 meshes/21MB), transamerica: 10→8, seattle-library: 10→7
+- **Root cause**: Google Tiles non-deterministic — more cameras load different (not better) tiles
+- **Resolution**: Reverted in headless. Phase 1c browser-only.
 
-## Pipeline Phases Implemented (v310)
-1. **Phase 1a+1b**: Progressive LOD cap (6.0) + 4 side cameras for facade forcing
-2. **Phase 1c**: Vertical-slice capture for tall buildings (multi-height camera sweeps)
-3. **Phase 2a**: Dual-threshold voxelization (1.5× broad + BVH precision)
-4. **Phase 2b**: Scanline interior fill with sky-visibility courtyard protection
-5. **Phase 2c**: Facade-aligned morphClose (radius-2, normal-only)
-6. **Phase 3a+3b**: Density + distance artifact cleanup
-7. **Phase 4a**: Multi-sample color averaging (5 barycentric jitters, Lab space)
-8. **Phase 4c+4e**: Facade color coherence + roof plane smoothing
-9. **Phase 4d**: K-means facade palette clustering (k=4 per face, Lab space)
-10. **Phase 5a**: Sky-reflecting window detection (blue/grey specular)
-11. **Phase 5b+5c**: Cornice preservation + setback-aware facade flattening
-
-## v310 vs v309 Improvements
-| Building | v309 | v310 | Delta |
-|---|---|---|---|
-| flatiron | 8 | 9 | +1 (palette clustering) |
-| seattle-library | 8 | 10 | +2 (glass noise reduction) |
-| disney-hall | 9 | 10 | +1 (palette clustering) |
-| vessel-nyc | 9.7 | 10 | +0.3 |
-
-## Plateau Analysis
-2 remaining failures are source data limitations (confirmed by Gemini 3 Pro review):
-- **Dallas City Hall**: Photogrammetry fails on cantilever undersides (no camera angles)
-- **Coit-Grandrapids**: Low-rise (11m) has minimal vertical geometry in tileset
-
-Pipeline is production-ready. Next improvements require external data sources.
+## Action Items
+- [ ] seattle-library: re-run headless capture attempts to find a good GLB (scored 10 with old GLB)
+- [ ] dallas-cityhall + coit-grandrapids: plateau (source data limited)
