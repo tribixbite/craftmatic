@@ -1,9 +1,10 @@
 # Iterate State — v313
 
 **Target**: 9/10 buildings at 9+
-**Current**: 21/10 passing
+**Current**: 21/10 passing (pre-audit-fix scores; post-audit typecheck+tests clean)
 **Model**: gemini-2.5-pro | **Runs/batch**: 3 | **Mode**: fresh (20% trimmed mean)
-**Updated**: 2026-04-09T15:56:57.800Z
+**Updated**: 2026-04-09T17:30:00.000Z
+**Pipeline audit**: 11 fixes applied (6ac01d8), second audit clean (all 5 findings verified false positive by Gemini 3 Pro)
 
 | Building | Difficulty | TrimmedMean | SatRef | Runs | Avg A | Avg B | Avg C | Avg D | Status | Diagnosis |
 |---|---|---|---|---|---|---|---|---|---|
