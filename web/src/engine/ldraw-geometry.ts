@@ -18,7 +18,8 @@
 import type { ParsedBrick } from './ldraw-parser.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
-import type { VoxelizeResult, VoxelizeOptions } from './ldraw-voxelizer.js';
+import { type VoxelizeResult, type VoxelizeOptions, TECHNIC_INTERNAL_PARTS } from './ldraw-voxelizer.js';
+import { getPartDims } from './ldraw-part-dims.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,12 +61,26 @@ function isLDrawPrimitive(part: string): boolean {
   if (bare === 'disc')               return true;
   if (bare === 'knob' || bare === 'tooth') return true;
   if (/^\d+s\d+$/.test(bare))       return true;
+  if (/^ls\d+/.test(bare))          return true;  // LSynth virtual hose/cable segments
   return false;
 }
 
 // ─── Fetching ─────────────────────────────────────────────────────────────────
 
-const LDRAW_BASE = '/ldraw-parts';
+/** Browser URL path for dev server, or filesystem root for CLI usage. */
+let LDRAW_BASE = '/ldraw-parts';
+/** When true, read .dat files from local filesystem instead of fetch(). */
+let useFilesystem = false;
+
+/**
+ * Configure the LDraw parts library root.
+ * Call before voxelizing in CLI scripts where fetch() won't reach the dev server.
+ * @param fsRoot Absolute path to the LDraw library root (e.g. 'C:/git/clego/extracted/studio_release/app/ldraw')
+ */
+export function setLDrawRoot(fsRoot: string): void {
+  LDRAW_BASE = fsRoot.replace(/\\/g, '/').replace(/\/$/, '');
+  useFilesystem = true;
+}
 
 async function fetchDatText(id: string): Promise<string | null> {
   const key = normId(id);
@@ -75,7 +90,6 @@ async function fetchDatText(id: string): Promise<string | null> {
   const stem = key.split('/').pop()!;
 
   const paths: string[] = [];
-  // Handle sub-directory refs (e.g. "s/12345", "48/4-4cyli")
   if (key.includes('/')) {
     if (key.startsWith('s/'))
       paths.push(`${LDRAW_BASE}/parts/${key}.dat`);
@@ -93,11 +107,22 @@ async function fetchDatText(id: string): Promise<string | null> {
   const promise = (async (): Promise<string | null> => {
     for (const path of paths) {
       try {
-        const r = await fetch(path);
-        if (r.ok) {
-          const text = await r.text();
-          datTextCache.set(key, text);
-          return text;
+        if (useFilesystem) {
+          // CLI: read from local filesystem
+          const { readFileSync, existsSync } = await import('node:fs');
+          if (existsSync(path)) {
+            const text = readFileSync(path, 'utf-8');
+            datTextCache.set(key, text);
+            return text;
+          }
+        } else {
+          // Browser: fetch from dev server
+          const r = await fetch(path);
+          if (r.ok) {
+            const text = await r.text();
+            datTextCache.set(key, text);
+            return text;
+          }
         }
       } catch { /* try next path */ }
     }
@@ -119,7 +144,7 @@ async function fetchDatText(id: string): Promise<string | null> {
  * Results are cached — concurrent calls for the same ID share one promise.
  */
 async function resolvePartTriangles(id: string, depth = 0): Promise<Triangle[]> {
-  if (depth > 5) return [];
+  if (depth > 12) return [];
   const key = normId(id);
 
   if (partGeomCache.has(key)) return partGeomCache.get(key)!;
@@ -152,7 +177,7 @@ async function resolvePartTriangles(id: string, depth = 0): Promise<Triangle[]> 
         const v3: Vec3 = [+tok[11]!, +tok[12]!, +tok[13]!];
         tris.push([v0, v1, v2]);
         tris.push([v0, v2, v3]);       // quad → 2 triangles
-      } else if (tok[0] === '1' && tok.length >= 15 && depth < 4) {
+      } else if (tok[0] === '1' && tok.length >= 15 && depth < 11) {
         const tx = +tok[2]!, ty = +tok[3]!, tz = +tok[4]!;
         const R = [+tok[5]!,+tok[6]!,+tok[7]!, +tok[8]!,+tok[9]!,+tok[10]!, +tok[11]!,+tok[12]!,+tok[13]!];
         const T: Vec3 = [tx, ty, tz];
@@ -184,42 +209,89 @@ export async function prefetchPartGeometry(partIds: string[]): Promise<void> {
   await Promise.all(unique.map(id => resolvePartTriangles(id)));
 }
 
-// ─── Ray-triangle intersection ────────────────────────────────────────────────
-
-/**
- * Möller-Trumbore: ray origin (ox, oy, 0), direction (0, 0, 1) in world LDU.
- * Returns the Z-coordinate of intersection, or null if none.
- */
-function rayZHit(ox: number, oy: number, v0: Vec3, v1: Vec3, v2: Vec3): number | null {
-  const e1x = v1[0]-v0[0], e1y = v1[1]-v0[1], e1z = v1[2]-v0[2];
-  const e2x = v2[0]-v0[0], e2y = v2[1]-v0[1], e2z = v2[2]-v0[2];
-  // h = (0,0,1) × E2 = (-E2y, E2x, 0)
-  const hx = -e2y, hy = e2x;
-  const a  = e1x*hx + e1y*hy;
-  if (Math.abs(a) < 1e-9) return null;     // ray parallel to triangle
-  const f = 1 / a;
-  const sx = ox - v0[0], sy = oy - v0[1], sz = -v0[2];
-  const u  = f * (sx*hx + sy*hy);
-  if (u < 0 || u > 1) return null;
-  const qx = sy*e1z - sz*e1y;
-  const qy = sz*e1x - sx*e1z;
-  const qz = sx*e1y - sy*e1x;
-  const v  = f * qz;
-  if (v < 0 || u + v > 1) return null;
-  return f * (e2x*qx + e2y*qy + e2z*qz);  // intersection Z
-}
-
-// ─── Rasterization ────────────────────────────────────────────────────────────
+// ─── Ray-triangle intersection (generic axis) ───────────────────────────────
 
 const LDU_STUD = 20;
 
 /**
- * Rasterize world-LDU triangles into grid cells using Z-sweep ray casting.
- * Casts a ray in +Z for each (gx, gy) pair and parity-fills between intersections.
+ * Generic Möller-Trumbore ray-triangle intersection.
+ * Ray origin at (o0, o1) in the plane perpendicular to the sweep axis,
+ * direction along the sweep axis (+1).
  *
- * @param worldTris Triangles in world LDU (already transformed with brick's rot/pos)
- * @param LDU_PER_Y LDU per vertical grid cell (8 for accurate, 20 for cubic)
- * @returns Array of absolute [gx, gy, gz] grid coordinates
+ * Vertex components are indexed by i0, i1 (perpendicular) and iSweep (sweep).
+ * Returns the sweep-axis coordinate of intersection, or null.
+ */
+function rayAxisHit(
+  o0: number, o1: number,
+  v0: Vec3, v1: Vec3, v2: Vec3,
+  i0: number, i1: number, iSweep: number,
+): number | null {
+  const e1_0 = v1[i0] - v0[i0], e1_1 = v1[i1] - v0[i1], e1_s = v1[iSweep] - v0[iSweep];
+  const e2_0 = v2[i0] - v0[i0], e2_1 = v2[i1] - v0[i1], e2_s = v2[iSweep] - v0[iSweep];
+  // h = dir × E2, where dir=(0,0,1) in (i0,i1,iSweep) space → h = (-e2_1, e2_0, 0)
+  const h0 = -e2_1, h1 = e2_0;
+  const a = e1_0 * h0 + e1_1 * h1;
+  if (Math.abs(a) < 1e-9) return null;
+  const f = 1 / a;
+  const s0 = o0 - v0[i0], s1 = o1 - v0[i1], ss = -v0[iSweep];
+  const u = f * (s0 * h0 + s1 * h1);
+  if (u < 0 || u > 1) return null;
+  const q0 = s1 * e1_s - ss * e1_1;
+  const q1 = ss * e1_0 - s0 * e1_s;
+  const q2 = s0 * e1_1 - s1 * e1_0;
+  const v = f * q2;
+  if (v < 0 || u + v > 1) return null;
+  return f * (e2_0 * q0 + e2_1 * q1 + e2_s * q2);
+}
+
+/**
+ * Parity-fill ray hits into grid cells along one axis.
+ * Returns filled grid positions along the sweep axis.
+ */
+function parityFill(hits: number[], cellSize: number): number[] {
+  if (hits.length === 0) return [];
+  hits.sort((a, b) => a - b);
+
+  // Deduplicate near-identical hits (shared triangle edges)
+  const dedup: number[] = [hits[0]!];
+  for (let i = 1; i < hits.length; i++) {
+    if (hits[i]! - dedup[dedup.length - 1]! > 0.1) dedup.push(hits[i]!);
+  }
+
+  // Parity fill: pairs [t0,t1], [t2,t3], …
+  // Odd count (non-watertight mesh) → fill only the surface cells at each hit
+  // point instead of the full [min,max] range (which over-fills thin parts).
+  if (dedup.length % 2 !== 0) {
+    const result: number[] = [];
+    for (const hit of dedup) result.push(Math.round(hit / cellSize));
+    return result;
+  }
+  const pairs = dedup;
+
+  const result: number[] = [];
+  for (let i = 0; i < pairs.length - 1; i += 2) {
+    const g0 = Math.round(pairs[i]! / cellSize);
+    const g1 = Math.round(pairs[i + 1]! / cellSize);
+    for (let g = Math.min(g0, g1); g <= Math.max(g0, g1); g++) {
+      result.push(g);
+    }
+  }
+  return result;
+}
+
+// ─── Rasterization (tri-axis) ────────────────────────────────────────────────
+
+/**
+ * Rasterize world-LDU triangles into grid cells using tri-axis ray casting.
+ *
+ * Casts rays along X, Y, and Z axes independently, then unions the results.
+ * This captures geometry that a single-axis sweep would miss (thin plates
+ * parallel to the sweep direction, angled panels, etc.).
+ *
+ * Grid coordinate system:
+ *   gx = world_x / LDU_STUD        (LDraw X → grid X)
+ *   gy = -world_y / LDU_PER_Y      (LDraw Y-down → grid Y-up)
+ *   gz = world_z / LDU_STUD         (LDraw Z → grid Z)
  */
 function rasterizeTriangles(
   worldTris: Triangle[],
@@ -227,63 +299,89 @@ function rasterizeTriangles(
 ): Array<readonly [number, number, number]> {
   if (worldTris.length === 0) return [];
 
-  // Bounding box in world LDU
+  // Full 3D bounding box in world LDU
   let wxMin = Infinity, wxMax = -Infinity;
   let wyMin = Infinity, wyMax = -Infinity;
+  let wzMin = Infinity, wzMax = -Infinity;
 
   for (const [v0, v1, v2] of worldTris) {
     for (const v of [v0, v1, v2]) {
       if (v[0] < wxMin) wxMin = v[0]; if (v[0] > wxMax) wxMax = v[0];
       if (v[1] < wyMin) wyMin = v[1]; if (v[1] > wyMax) wyMax = v[1];
+      if (v[2] < wzMin) wzMin = v[2]; if (v[2] > wzMax) wzMax = v[2];
     }
   }
 
-  // Grid Y range (LDraw Y-down → gy = -wy / LDU_PER_Y)
+  // Grid ranges
   const gxMin = Math.floor(wxMin / LDU_STUD);
   const gxMax = Math.ceil(wxMax / LDU_STUD);
   const gyMin = Math.floor(-wyMax / LDU_PER_Y);
   const gyMax = Math.ceil(-wyMin / LDU_PER_Y);
+  const gzMin = Math.floor(wzMin / LDU_STUD);
+  const gzMax = Math.ceil(wzMax / LDU_STUD);
 
-  const cells: Array<readonly [number, number, number]> = [];
+  // Use a Set to deduplicate cells from all 3 sweep axes
+  const cellSet = new Set<string>();
 
+  const addCell = (gx: number, gy: number, gz: number) => {
+    cellSet.add(`${gx},${gy},${gz}`);
+  };
+
+  // ── Sweep along Z (rays in XY plane, casting +Z) ──────────────────────────
+  // Indices: i0=0(X), i1=1(Y), iSweep=2(Z)
   for (let gx = gxMin; gx <= gxMax; gx++) {
     for (let gy = gyMin; gy <= gyMax; gy++) {
-      // Ray origin in world LDU: center of this (gx, gy) grid column
       const ox = (gx + 0.5) * LDU_STUD;
-      // Invert grid Y back to LDraw Y-down: wy = -(gy + 0.5) * LDU_PER_Y
       const oy = -(gy + 0.5) * LDU_PER_Y;
-
       const hits: number[] = [];
       for (const [v0, v1, v2] of worldTris) {
-        const t = rayZHit(ox, oy, v0, v1, v2);
+        const t = rayAxisHit(ox, oy, v0, v1, v2, 0, 1, 2);
         if (t !== null) hits.push(t);
       }
-      if (hits.length === 0) continue;
+      for (const gz of parityFill(hits, LDU_STUD)) addCell(gx, gy, gz);
+    }
+  }
 
-      hits.sort((a, b) => a - b);
-
-      // Remove near-duplicates (shared edges between adjacent triangles)
-      const dedup: number[] = [hits[0]!];
-      for (let i = 1; i < hits.length; i++) {
-        if (hits[i]! - dedup[dedup.length - 1]! > 0.1) dedup.push(hits[i]!);
+  // ── Sweep along X (rays in YZ plane, casting +X) ──────────────────────────
+  // Indices: i0=1(Y), i1=2(Z), iSweep=0(X)
+  for (let gy = gyMin; gy <= gyMax; gy++) {
+    for (let gz = gzMin; gz <= gzMax; gz++) {
+      const oy = -(gy + 0.5) * LDU_PER_Y;
+      const oz = (gz + 0.5) * LDU_STUD;
+      const hits: number[] = [];
+      for (const [v0, v1, v2] of worldTris) {
+        const t = rayAxisHit(oy, oz, v0, v1, v2, 1, 2, 0);
+        if (t !== null) hits.push(t);
       }
+      for (const gx of parityFill(hits, LDU_STUD)) addCell(gx, gy, gz);
+    }
+  }
 
-      // Parity fill: pairs [t0,t1], [t2,t3], … fill solid interior
-      // Odd count (degenerate mesh) → use full [min,max] range
-      const pairs = dedup.length % 2 === 0
-        ? dedup
-        : [dedup[0]!, dedup[dedup.length - 1]!];
-
-      for (let i = 0; i < pairs.length - 1; i += 2) {
-        const gz0 = Math.round(pairs[i]! / LDU_STUD);
-        const gz1 = Math.round(pairs[i + 1]! / LDU_STUD);
-        for (let gz = Math.min(gz0, gz1); gz <= Math.max(gz0, gz1); gz++) {
-          cells.push([gx, gy, gz] as const);
-        }
+  // ── Sweep along Y (rays in XZ plane, casting +Y in LDraw = -Y in grid) ───
+  // LDraw Y is inverted (positive = down). Must negate raw hits BEFORE dividing
+  // by LDU_PER_Y so parity fill operates in grid-Y space (positive = up).
+  // Indices: i0=0(X), i1=2(Z), iSweep=1(Y)
+  for (let gx = gxMin; gx <= gxMax; gx++) {
+    for (let gz = gzMin; gz <= gzMax; gz++) {
+      const ox = (gx + 0.5) * LDU_STUD;
+      const oz = (gz + 0.5) * LDU_STUD;
+      const hits: number[] = [];
+      for (const [v0, v1, v2] of worldTris) {
+        const t = rayAxisHit(ox, oz, v0, v1, v2, 0, 2, 1);
+        if (t !== null) hits.push(-t); // negate LDraw Y → grid Y BEFORE division
+      }
+      for (const gy of parityFill(hits, LDU_PER_Y)) {
+        addCell(gx, gy, gz);
       }
     }
   }
 
+  // Convert Set back to array
+  const cells: Array<readonly [number, number, number]> = [];
+  for (const key of cellSet) {
+    const [x, y, z] = key.split(',').map(Number) as [number, number, number];
+    cells.push([x, y, z]);
+  }
   return cells;
 }
 
@@ -342,6 +440,9 @@ export async function voxelizeLDrawGeometry(
 
   for (const brick of effectiveBricks) {
     if (isLDrawPrimitive(brick.part)) continue;
+    // Skip Technic structural parts (pins, axles, bushes) — same as bbox voxelizer
+    const barePartId = brick.part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
+    if (TECHNIC_INTERNAL_PARTS.has(barePartId)) continue;
 
     const block = resolveColor(brick.color);
     if (isDefaultFn && !(brick.color in LDRAW_COLOR_TO_BLOCK)) {
@@ -349,12 +450,39 @@ export async function voxelizeLDrawGeometry(
     }
 
     const localTris = partGeomCache.get(normId(brick.part));
+    const R = brick.rot ?? IDENTITY;
+
     if (!localTris || localTris.length === 0) {
+      // Fallback: use AABB dims fill (same as bbox voxelizer)
       fallbackPartCount++;
+      const [sW, sH, sL] = getPartDims(brick.part);
+      const lxHalf = (sW - 1) / 2 * LDU_STUD;
+      const lzHalf = (sL - 1) / 2 * LDU_STUD;
+      const lyBot = (sH - 1) * 8;
+      let bxMin = Infinity, bxMax = -Infinity;
+      let byMin = Infinity, byMax = -Infinity;
+      let bzMin = Infinity, bzMax = -Infinity;
+      for (const lx of [-lxHalf, lxHalf]) {
+        for (const ly of [0, lyBot]) {
+          for (const lz of [-lzHalf, lzHalf]) {
+            const wx = R[0]! * lx + R[1]! * ly + R[2]! * lz + brick.x;
+            const wy = R[3]! * lx + R[4]! * ly + R[5]! * lz + brick.y;
+            const wz = R[6]! * lx + R[7]! * ly + R[8]! * lz + brick.z;
+            if (wx < bxMin) bxMin = wx; if (wx > bxMax) bxMax = wx;
+            if (wy < byMin) byMin = wy; if (wy > byMax) byMax = wy;
+            if (wz < bzMin) bzMin = wz; if (wz > bzMax) bzMax = wz;
+          }
+        }
+      }
+      const fbxMin = Math.round(bxMin / LDU_STUD), fbxMax = Math.round(bxMax / LDU_STUD);
+      const fbyMin = Math.round(-byMax / LDU_PER_Y), fbyMax = Math.round(-byMin / LDU_PER_Y);
+      const fbzMin = Math.round(bzMin / LDU_STUD), fbzMax = Math.round(bzMax / LDU_STUD);
+      for (let x = fbxMin; x <= fbxMax; x++)
+        for (let y = fbyMin; y <= fbyMax; y++)
+          for (let z = fbzMin; z <= fbzMax; z++)
+            cells.push({ gx: x, gy: y, gz: z, block, color: brick.color });
       continue;
     }
-
-    const R = brick.rot ?? IDENTITY;
     const T: Vec3 = [brick.x, brick.y, brick.z];
 
     // Transform local triangles → world LDU

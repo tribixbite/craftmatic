@@ -4,6 +4,7 @@ import { existsSync, createReadStream } from 'node:fs';
 
 // Path to clego's reconstructed LDR files (dev only)
 const CLEGO_RECONSTRUCTED = 'C:/git/clego/lego_sets/Reconstructed';
+const CLEGO_LDR = 'C:/git/clego/lego_sets/LDR';
 // Path to LDraw parts library (dev only — served at /ldraw-parts for geometry-accurate mode)
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 
@@ -52,6 +53,21 @@ export default defineConfig({
           if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
           res.setHeader('Content-Type', 'text/plain; charset=utf-8');
           res.setHeader('Cache-Control', 'public, max-age=86400');
+          createReadStream(filePath).pipe(res);
+        });
+      },
+    },
+    {
+      name: 'serve-clego-ldr',
+      configureServer(server) {
+        server.middlewares.use('/lego-sets', (req, res, next) => {
+          if (!existsSync(CLEGO_LDR)) { next(); return; }
+          const filename = decodeURIComponent((req.url ?? '').replace(/^\//, '')).replace(/\.\./g, '');
+          if (!filename) { next(); return; }
+          const filePath = `${CLEGO_LDR}/${filename}`;
+          if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
           createReadStream(filePath).pipe(res);
         });
       },
