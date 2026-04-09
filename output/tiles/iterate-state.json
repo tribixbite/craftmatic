@@ -1,8 +1,8 @@
 {
   "version": "v310",
-  "timestamp": "2026-04-08T16:46:45.580Z",
+  "timestamp": "2026-04-09T04:54:37.832Z",
   "target": 9,
-  "passing": 19,
+  "passing": 18,
   "total": 10,
   "model": "gemini-2.5-pro",
   "buildings": {
@@ -40,7 +40,7 @@
       ],
       "trimmedMean": 9,
       "diagnosis": "identity(2.0/2)",
-      "timestamp": "2026-04-08T16:10:03.244Z",
+      "timestamp": "2026-04-09T05:04:26.601Z",
       "satRefQuality": 3
     },
     "citigroup": {
@@ -48,17 +48,17 @@
       "version": "v310",
       "difficulty": "hard",
       "scores": [
+        9,
         10,
-        10,
-        10
+        9
       ],
       "subscores": [
         {
           "A": 2,
           "B": 1,
-          "C": 3,
+          "C": 2,
           "D": 2,
-          "total": 10
+          "total": 9
         },
         {
           "A": 2,
@@ -70,14 +70,14 @@
         {
           "A": 2,
           "B": 1,
-          "C": 3,
-          "D": 2,
-          "total": 10
+          "C": 2,
+          "D": 0,
+          "total": 9
         }
       ],
-      "trimmedMean": 10,
-      "diagnosis": "identity(2.0/2)",
-      "timestamp": "2026-04-08T16:18:58.793Z",
+      "trimmedMean": 9,
+      "diagnosis": "identity(1.3/2)",
+      "timestamp": "2026-04-09T05:32:21.768Z",
       "satRefQuality": 3
     },
     "pennzoil": {
@@ -188,7 +188,7 @@
       ],
       "trimmedMean": 8,
       "diagnosis": "surface(1.0/3), identity(2.0/2)",
-      "timestamp": "2026-04-08T16:27:02.467Z",
+      "timestamp": "2026-04-09T04:16:47.579Z",
       "satRefQuality": 3
     },
     "seattle-library": {
@@ -196,18 +196,11 @@
       "version": "v310",
       "difficulty": "hard",
       "scores": [
-        10,
         8,
-        10
+        8,
+        8
       ],
       "subscores": [
-        {
-          "A": 2,
-          "B": 1,
-          "C": 3,
-          "D": 2,
-          "total": 10
-        },
         {
           "A": 2,
           "B": 0,
@@ -217,15 +210,22 @@
         },
         {
           "A": 2,
-          "B": 1,
-          "C": 3,
+          "B": 0,
+          "C": 2,
           "D": 2,
-          "total": 10
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 0,
+          "C": 2,
+          "D": 0,
+          "total": 8
         }
       ],
-      "trimmedMean": 10,
-      "diagnosis": "massing(0.7/1), identity(1.3/2)",
-      "timestamp": "2026-04-08T16:44:05.205Z",
+      "trimmedMean": 8,
+      "diagnosis": "massing(0.0/1), identity(0.7/2)",
+      "timestamp": "2026-04-09T05:24:40.060Z",
       "satRefQuality": 3
     },
     "boston-cityhall": {
@@ -304,7 +304,7 @@
     },
     "transamerica": {
       "key": "transamerica",
-      "version": "v309",
+      "version": "v310",
       "difficulty": "hard",
       "scores": [
         10,
@@ -336,7 +336,7 @@
       ],
       "trimmedMean": 10,
       "diagnosis": "identity(2.0/2)",
-      "timestamp": "2026-04-08T06:51:24.870Z",
+      "timestamp": "2026-04-09T05:42:43.249Z",
       "satRefQuality": 3
     },
     "la-cityhall": {
