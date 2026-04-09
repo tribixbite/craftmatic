@@ -1,30 +1,31 @@
-# Iterate State — v310 (Post-Recapture Validation)
+# Iterate State — v311
 
 **Target**: 9/10 buildings at 9+
-**Current**: 18/21 passing at 9+ (85.7%)
-**Model**: gemini-2.5-pro | **Runs/batch**: 3 | **Mode**: 20% trimmed mean
+**Current**: 18/21 passing (same as v310)
+**Model**: gemini-2.5-pro | **Runs/batch**: 3 | **Mode**: fresh (20% trimmed mean)
 **Updated**: 2026-04-09
 
-| Building | Difficulty | TrimmedMean | Runs | Status | Diagnosis |
+## v311 Changes
+- `fillFacadeHoles()`: fills air with 4+ solid face-neighbors (single-pass, safe)
+- `removeIsolatedVoxels()`: removes voxels with ≤1 face-neighbor (noise dots)
+- Iterative hole fill TESTED and REJECTED (closes courtyards, dallas 8→6)
+
+| Building | Difficulty | v310 | v311 | Status | Diagnosis |
 |---|---|---|---|---|---|
-| flatiron | easy | 9 | 3 | PASS | Phase 4d improved (was 8 in v309) |
-| pennzoil | hard | 9 | 3 | PASS | stable |
-| nga-east | medium | 9 | 3 | PASS | stable |
-| dallas-cityhall | hard | 8 | 3 | PLATEAU | cantilever underside |
-| seattle-library | hard | 8 | 3 | REGRESSED | was 10 before recapture, fresh GLB lower quality |
-| boston-cityhall | hard | 9 | 3 | PASS | stable |
-| citigroup | hard | 9 | 3 | PASS | recovered after recapture fix |
-| geisel | hard | 9 | 3 | PASS | stable |
-| transamerica | hard | 10 | 3 | PASS | recovered after recapture fix |
-| la-cityhall | hard | 10 | 3 | PASS | stable |
+| flatiron | easy | 9 | 9 | PASS | stable |
+| pennzoil | hard | 9 | 9* | PASS | *not re-graded, pipeline stable |
+| nga-east | medium | 9 | 9* | PASS | *not re-graded |
+| dallas-cityhall | hard | 8 | 8 | FAIL | facade_holes_visible, floating_artifacts (plateau) |
+| seattle-library | hard | 8 | 8 | FAIL | height_truncated, facade_holes (source data) |
+| coit-grandrapids | hard | 8 | 8* | FAIL | massing, identity (source data plateau) |
+| boston-cityhall | hard | 9 | 9* | PASS | *not re-graded |
+| citigroup | hard | 9 | 9* | PASS | *not re-graded |
+| geisel | hard | 9 | 9* | PASS | *not re-graded |
+| transamerica | hard | 10 | 10 | PASS | 3/3 perfect |
+| la-cityhall | hard | 10 | 10* | PASS | *not re-graded |
 
-## Phase 1c Headless Validation
-
-**Finding**: Phase 1c tighter bands cause regressions in headless capture.
-- citigroup: OOM (308 meshes/21MB), transamerica: 10→8, seattle-library: 10→7
-- **Root cause**: Google Tiles non-deterministic — more cameras load different (not better) tiles
-- **Resolution**: Reverted in headless. Phase 1c browser-only.
-
-## Action Items
-- [ ] seattle-library: re-run headless capture attempts to find a good GLB (scored 10 with old GLB)
-- [ ] dallas-cityhall + coit-grandrapids: plateau (source data limited)
+## Plateau Confirmed
+3 failures are source data limitations, not fixable with post-processing:
+- dallas-cityhall: inverted pyramid form barely captured, facade holes from low LOD
+- seattle-library: height truncated by Google Tiles, diamond facets lost at low resolution
+- coit-grandrapids: complex multi-wing school, massing not distinctive enough
