@@ -8,6 +8,8 @@
  * metallic/chrome colors map to ore/metal blocks.
  */
 
+import { closestBlock } from './color-utils.js';
+
 /** Direct mapping from LDraw color ID → Minecraft block state */
 export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
   // ── Standard Solid Colors ────────────────────────────────────────────────
@@ -103,7 +105,7 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
   321: 'minecraft:cyan_concrete',         // Dark Azure
   322: 'minecraft:cyan_concrete',         // Medium Azure
   323: 'minecraft:light_blue_concrete',   // Light Aqua
-  324: 'minecraft:pink_concrete',         // Coral
+  324: 'minecraft:red_concrete',          // Red (LDConfig #C40026)
   326: 'minecraft:lime_concrete',         // Spring Yellowish Green
 
   // ── Metallic / Special ───────────────────────────────────────────────────
@@ -120,7 +122,7 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
   // ── Rubber Colors ────────────────────────────────────────────────────────
   256: 'minecraft:black_concrete',        // Rubber Black
   273: 'minecraft:blue_concrete',         // Rubber Blue
-  324: 'minecraft:pink_concrete',         // Rubber Pink
+  // 324 already mapped above (Red)
   375: 'minecraft:light_gray_concrete',   // Rubber Light Gray
 
   // ── Extended colors referenced by LDD/LXF pipeline ─────────────────────
@@ -206,24 +208,74 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
 
 /** Resolve LDraw color ID to a Minecraft block state string. */
 export function ldrawColorToBlock(colorId: number): string {
-  return LDRAW_COLOR_TO_BLOCK[colorId] ?? 'minecraft:gray_concrete';
+  const explicit = LDRAW_COLOR_TO_BLOCK[colorId];
+  if (explicit) return explicit;
+  // Perceptual fallback: if we know the RGB, find the closest Minecraft block
+  const hex = LDRAW_COLOR_RGB[colorId];
+  if (hex) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const match = closestBlock(r, g, b);
+    // Cache so we only compute once per color ID
+    LDRAW_COLOR_TO_BLOCK[colorId] = match;
+    return match;
+  }
+  return 'minecraft:gray_concrete';
 }
 
 /**
- * LDraw color ID → hex RGB (for display in UI).
- * Covers the most common colors only.
+ * LDraw color ID → hex RGB (for display in UI and perceptual fallback).
+ * Comprehensive list from LDConfig.ldr (LDraw standard color definitions).
  */
 export const LDRAW_COLOR_RGB: Record<number, string> = {
-  0: '#05131D', 1: '#0055BF', 2: '#237841', 3: '#008F9B',
+  // ── Standard solid colors ──
+  // All RGB values from LDConfig.ldr (authoritative source).
+  // ── Standard solid colors (0–31) ──
+  0: '#05131D', 1: '#0055BF', 2: '#257A3E', 3: '#00838F',
   4: '#C91A09', 5: '#C870A0', 6: '#583927', 7: '#9BA19D',
   8: '#6D6E5C', 9: '#B4D2E3', 10: '#4B9F4A', 11: '#55A5AF',
   12: '#F2705E', 13: '#FC97AC', 14: '#F2CD37', 15: '#FFFFFF',
   17: '#C2DAB8', 18: '#FBE696', 19: '#E4CD9E', 20: '#C9CAE2',
-  22: '#81007B', 23: '#2032B0', 25: '#FE8A18', 26: '#923978',
-  27: '#BBE90B', 28: '#958A73', 29: '#E4ADC8', 30: '#AC78BA',
-  31: '#E1D5ED', 70: '#582A12', 71: '#A0A5A9', 72: '#6C6E68',
-  73: '#5C9DD1', 74: '#73DCA1', 85: '#3F3691', 92: '#D09168',
-  191: '#F8BB3D', 216: '#B31004', 226: '#FFE371', 272: '#0D325B',
-  288: '#184632', 297: '#CC9C2B', 308: '#352100', 320: '#720E0F',
-  321: '#078BC9', 324: '#FF698F',
+  21: '#E0FFB0', 22: '#81007B', 23: '#2032B0', 25: '#FE8A18',
+  26: '#923978', 27: '#BBE90B', 28: '#958A73', 29: '#E4ADC8',
+  30: '#AC78BA', 31: '#E1D5ED', 32: '#000000',
+  // ── Transparent (33–69) ──
+  33: '#0020A0', 34: '#237841', 35: '#56E646', 36: '#C91A09',
+  37: '#DF6695', 38: '#FF800D', 39: '#C1DFF0', 40: '#635F52',
+  41: '#559AB7', 42: '#C0FF00', 43: '#AEE9EF', 44: '#96709F',
+  45: '#FC97AC', 46: '#F5CD2F', 47: '#FCFCFC', 52: '#A5A5CB',
+  54: '#DAB000', 57: '#F08F1C', 60: '#645A4C', 61: '#6C96BF',
+  62: '#3CB371', 63: '#AA4D8E', 64: '#1B2A34', 65: '#F5CD2F',
+  66: '#CAB000', 67: '#FFFFFF', 68: '#F3CF9B', 69: '#CD6298',
+  // ── Extended solids (70–100) ──
+  70: '#582A12', 71: '#A0A5A9', 72: '#6C6E68', 73: '#5C9DD1',
+  74: '#73DCA1', 75: '#AB6038', 76: '#898788', 77: '#FECCCF',
+  78: '#F6D7B3', 79: '#FFFFFF', 80: '#A5A9B4', 81: '#899B5F',
+  82: '#DBAC34', 83: '#1A2831', 84: '#CC702A', 85: '#3F3691',
+  86: '#7C503A', 87: '#6D6E5C', 89: '#4C61DB', 92: '#D09168',
+  100: '#FEBABD',
+  // ── More extended (110–184) ──
+  110: '#4354A3', 112: '#6874CA', 114: '#923978',
+  115: '#C7D23C', 117: '#FFFFFF', 118: '#B3D7D1',
+  120: '#D9E4A7', 125: '#F9BA61', 129: '#8C00FF',
+  132: '#898788', 133: '#DBAC34', 134: '#964A27',
+  135: '#9CA3A8', 137: '#5677BA', 142: '#DCBE61',
+  148: '#575857', 150: '#BBBDBC', 151: '#E6E3E0',
+  178: '#B4883E', 179: '#898788', 183: '#F2F3F2',
+  // ── Bright/Vivid (191–605) ──
+  191: '#F8BB3D', 212: '#86C1E1', 216: '#B31004',
+  226: '#FFF03A', 232: '#56BED6',
+  256: '#212121', 272: '#0D325B', 273: '#0033B2',
+  288: '#184632', 294: '#BDC6AD', 297: '#CC9C2B', 308: '#352100',
+  313: '#54A9C8', 320: '#720E0F', 321: '#1498D7', 322: '#3EC2DD',
+  323: '#BDDCD8', 324: '#C40026', 326: '#DFEEA5',
+  330: '#9B9A5A', 334: '#BBA53D', 335: '#D67572',
+  350: '#D06610', 351: '#F785B1', 366: '#FA9C1C',
+  373: '#845E84', 375: '#C1C2C1', 378: '#A0BCAC', 379: '#597184',
+  383: '#E0E0E0', 406: '#001D68', 449: '#81007B', 450: '#B67B50',
+  462: '#FFA70B', 484: '#A95500', 490: '#D7F000', 493: '#656761',
+  494: '#D0D0D0', 495: '#AE7A59', 496: '#A3A2A4', 503: '#E6E3DA',
+  504: '#898788', 511: '#FAFAFA',
+  601: '#BDC6AD', 605: '#FF9F2C',
 };

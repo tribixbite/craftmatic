@@ -11,7 +11,7 @@
 
 import { BlockGrid } from '@craft/schem/types.js';
 import { parseLDraw, countSteps, type ParsedBrick } from '@engine/ldraw-parser.js';
-import { voxelizeLDraw, type VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
+import { voxelizeLDraw, solidifyColumns, fillSingleVoxelGaps, keepLargestComponent, type VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
 import { voxelizeLDrawGeometry } from '@engine/ldraw-geometry.js';
 import { extractIoLDraw } from '@engine/io-extractor.js';
 import { parseLxf } from '@engine/lxf-parser.js';
@@ -65,7 +65,7 @@ function baseSetNum(setNum: string): string {
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let rootEl: HTMLElement;
-let onResult: ((grid: BlockGrid, label: string) => void) | null = null;
+let onResult: ((grid: BlockGrid, label: string, isCubic: boolean) => void) | null = null;
 let selectedSet: CatalogSet | null = null;
 let searchResults: CatalogSet[] = [];
 /** When true, use 1 stud = 1 block in all axes (no 2.5× vertical stretch). */
@@ -86,7 +86,7 @@ let currentStep: number | undefined;
 export function initLego(
   controls: HTMLElement,
   _viewer: HTMLElement,
-  callback: (grid: BlockGrid, label: string) => void,
+  callback: (grid: BlockGrid, label: string, isCubic: boolean) => void,
 ): void {
   rootEl = controls;
   onResult = callback;
@@ -213,7 +213,7 @@ function wireEvents(): void {
       const result = geometryMode
         ? await voxelizeLDrawGeometry(currentBricks, currentBricksColorFn, opts)
         : voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
-      if (onResult) onResult(result.grid, currentBricksLabel.replace(/\.[^.]+$/, ''));
+      if (onResult) onResult(result.grid, currentBricksLabel.replace(/\.[^.]+$/, ''), cubicScale);
     }
   });
 
@@ -600,11 +600,23 @@ async function voxelizeAndDisplay(
     warnings.push(`${result.fallbackPartCount} parts had unknown dims (fell back to 1×1×1)`);
   }
 
+  // Post-processing differs by mode:
+  // AABB mode: fill hollows + gaps (bounding boxes leave interior voids)
+  // Geometry mode: remove debris + light gap-fill (ray casting is mostly accurate but
+  // non-watertight meshes leave 1-cell holes in surfaces)
+  if (geometryMode) {
+    keepLargestComponent(result.grid);
+    fillSingleVoxelGaps(result.grid); // close 1-2 cell surface holes from mesh gaps
+  } else {
+    solidifyColumns(result.grid, 6);
+    fillSingleVoxelGaps(result.grid);
+  }
+
   const statusMsg = `Built ${label}: ${w}×${h}×${l} — ${blockCount.toLocaleString()} blocks` +
     (cubicScale ? ' (cubic)' : '');
   setStatus(statusMsg + (warnings.length ? ` ⚠ ${warnings.join('; ')}` : ''), warnings.length ? 'info' : 'success');
 
-  onResult(result.grid, label);
+  onResult(result.grid, label, cubicScale);
 }
 
 // ─── Theme Dropdown ──────────────────────────────────────────────────────────

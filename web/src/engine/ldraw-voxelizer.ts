@@ -21,6 +21,74 @@ import type { ParsedBrick } from './ldraw-parser.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { getPartDims, getPartShape, getPartFrameThickness, getBracketShelfDir, hasDims } from './ldraw-part-dims.js';
 
+/**
+ * Large flat LEGO baseplates that dominate the view and obscure the model.
+ * Skipped by default (skipBaseplates option). IDs are the official LDraw part numbers.
+ */
+const BASEPLATE_PARTS = new Set([
+  '3867',  // Baseplate 32×32
+  '3811',  // Baseplate 24×32
+  '3807',  // Baseplate 16×24
+  '3857',  // Baseplate 24×24
+  '3626b', // Baseplate 50×50 (unofficial)
+  '4186',  // Baseplate 48×48
+  '3334',  // Baseplate 8×16
+  '3958',  // Baseplate 6×12
+  '2419',  // Baseplate 16×16
+  '3795',  // Plate 2×6 (sometimes used as mini-base)
+]);
+
+/**
+ * Technic structural parts that go INSIDE beam/liftarm holes and add noise
+ * without contributing to the visual appearance. Skipped during voxelization
+ * to produce cleaner output for Technic models.
+ */
+export const TECHNIC_INTERNAL_PARTS = new Set([
+  // Pins (go inside beam holes — not visible from outside)
+  '3673',   // Technic Pin
+  '4274',   // Technic Pin 1/2
+  '6558',   // Technic Pin with Long Friction Ridges
+  '4459',   // Technic Pin with Friction Ridges
+  '32054',  // Technic Pin Long with Friction Ridges
+  '32556',  // Technic Pin Long with Stop Bush
+  '65304',  // Technic Pin Long with 2L Friction
+  '6562',   // Technic Pin Long with Friction (3L)
+  '32002',  // Technic Pin 3/4
+  '43093',  // Technic Axle Pin with Friction
+  '6628',   // Technic Axle Pin with Friction (variant)
+  '11214',  // Technic Axle+Pin 1.5L with Perpendicular Axle Connector
+  // Axles (thin rods hidden inside beam holes)
+  '32062',  // Technic Axle 2 Notched
+  '4519',   // Technic Axle 3
+  '3705',   // Technic Axle 4
+  '32073',  // Technic Axle 5
+  '3706',   // Technic Axle 6
+  '3707',   // Technic Axle 8
+  '3737',   // Technic Axle 10
+  '3708',   // Technic Axle 12
+  '50451',  // Technic Axle 16
+  // Bushes & spacers (cylindrical — fit around axles)
+  '4265c',  // Technic Bush 1/2 Smooth
+  '3713b',  // Technic Bush
+  '32123',  // Technic Bush 1/2 Smooth Type 2
+  // Cross blocks & small connectors
+  '6536',   // Technic Axle Joiner Perpendicular
+  '6538b',  // Technic Axle Joiner Inline
+  '6538',   // Technic Axle Joiner Inline (variant)
+  '48989',  // Technic Pin Connector Hub 2 Perpendicular
+  '87082',  // Technic Pin Connector Perpendicular Long
+  '32034',  // Technic Angle Connector #2 (180°)
+  '32192',  // Technic Angle Connector #4 (135°)
+  '32014',  // Technic Angle Connector #6 (90°)
+  '32184',  // Technic Cross Block 1×3 (Perpendicular Axle Hole)
+  '42003',  // Technic Cross Block Double (2-hole perpendicular)
+  '32015',  // Technic Angle Connector #1
+  '32016',  // Technic Angle Connector #3 (157.5°)
+  '32013',  // Technic Angle Connector #5 (112.5°)
+  '32039',  // Technic Connector with Axle Hole
+  '32449',  // Technic Connector with Pin (locking)
+]);
+
 /** LDraw units per stud pitch (horizontal cell size) */
 const LDU_PER_STUD = 20;
 /** LDraw units per plate height (vertical cell size) */
@@ -60,6 +128,8 @@ function isLDrawPrimitive(part: string): boolean {
   const bare = part.replace(/\.dat$/i, '').toLowerCase();
   // Strip directory prefix (e.g. "48\" in hi-res primitive paths like "48\4-4edge")
   const filename = bare.replace(/^.*[/\\]/, '');
+  // LSynth virtual parts (hose/cable cross-sections, not real LEGO parts)
+  if (/^ls\d+/.test(filename)) return true;
   // Standard fraction primitives: starts with digit-digit (e.g. "4-4", "1-8", "2-4", "3-8")
   // Also catches hi-res variants like "48\4-4edge", "48\4-4cyli" after prefix strip
   if (/^\d+-\d+/.test(filename)) return true;
@@ -114,6 +184,12 @@ export interface VoxelizeOptions {
    * assembly playback. Undefined = include all steps.
    */
   maxStep?: number;
+  /**
+   * When true, skip large LEGO baseplates (3867, 3811, 3807, 3857, 3626b…).
+   * Default: true. These flat plates typically dominate the view and obscure
+   * the model. Set to false to include them in the exported schematic.
+   */
+  skipBaseplates?: boolean;
 }
 
 export function voxelizeLDraw(
@@ -131,6 +207,7 @@ export function voxelizeLDraw(
   // We flag IDs absent from LDRAW_COLOR_TO_BLOCK when using the default resolver.
   const isDefaultFn = colorFn == null;
   const unmappedColorSet = new Set<number>();
+  const skipBaseplates = options?.skipBaseplates !== false; // default true
   // In cubic mode Y uses the same pitch as X/Z (20 LDU = 1 stud), eliminating
   // the 2.5× vertical stretch. In accurate mode 1 plate (8 LDU) = 1 cell.
   const LDU_PER_Y = options?.cubicScale ? LDU_PER_STUD : LDU_PER_PLATE;
@@ -167,6 +244,12 @@ export function voxelizeLDraw(
     // Skip LDraw geometry primitives — they describe part shape internally
     // and should not be voxelized as standalone blocks.
     if (isLDrawPrimitive(brick.part)) continue;
+    // Skip large flat baseplates that dominate the 3D view (opt-out via skipBaseplates:false)
+    const barePartId = brick.part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
+    if (skipBaseplates && BASEPLATE_PARTS.has(barePartId)) continue;
+    // Skip Technic structural parts (pins, axles, bushes) — they go inside beam holes
+    // and add noise without contributing to the visual silhouette.
+    if (TECHNIC_INTERNAL_PARTS.has(barePartId)) continue;
 
     const R = brick.rot ?? IDENTITY;
     const [sW, sH, sL] = getPartDims(brick.part);
@@ -221,6 +304,46 @@ export function voxelizeLDraw(
     const gyMax = Math.round(-wyMin / LDU_PER_Y);
     const gzMin = Math.round(wzMin / LDU_PER_STUD);
     const gzMax = Math.round(wzMax / LDU_PER_STUD);
+
+    // ── Thin-beam line rasterization ──────────────────────────────────────────
+    // For elongated thin parts (sH=1, one horizontal dim=1, other ≥4), the AABB
+    // fill creates huge solid rectangles when rotated at non-axis-aligned angles.
+    // Instead, trace the beam's center axis as a line through grid space and fill
+    // only cells along the line. This produces a thin diagonal strip rather than
+    // a solid rectangle.
+    const maxHoriz = Math.max(sW, sL);
+    const minHoriz = Math.min(sW, sL);
+    const isElongatedThin = sH <= 1 && minHoriz <= 1 && maxHoriz >= 3;
+    if (isElongatedThin && shapeEarly !== 'round') {
+      // The beam's long axis is local Z if sL>sW, else local X.
+      const halfLen = (maxHoriz - 1) / 2 * LDU_PER_STUD;
+      const useZ = sL >= sW;
+      // Endpoints of the beam in local space
+      const e0x = useZ ? 0 : -halfLen, e0y = 0, e0z = useZ ? -halfLen : 0;
+      const e1x = useZ ? 0 :  halfLen, e1y = 0, e1z = useZ ?  halfLen : 0;
+      // Transform to world space
+      const w0x = R[0]*e0x + R[1]*e0y + R[2]*e0z + brick.x;
+      const w0y = R[3]*e0x + R[4]*e0y + R[5]*e0z + brick.y;
+      const w0z = R[6]*e0x + R[7]*e0y + R[8]*e0z + brick.z;
+      const w1x = R[0]*e1x + R[1]*e1y + R[2]*e1z + brick.x;
+      const w1y = R[3]*e1x + R[4]*e1y + R[5]*e1z + brick.y;
+      const w1z = R[6]*e1x + R[7]*e1y + R[8]*e1z + brick.z;
+      // Convert to grid coordinates
+      const g0x = w0x / LDU_PER_STUD, g0y = -w0y / LDU_PER_Y, g0z = w0z / LDU_PER_STUD;
+      const g1x = w1x / LDU_PER_STUD, g1y = -w1y / LDU_PER_Y, g1z = w1z / LDU_PER_STUD;
+      // Rasterize line: step along the longest axis, compute the other two
+      const steps = Math.max(1, Math.round(Math.max(
+        Math.abs(g1x - g0x), Math.abs(g1y - g0y), Math.abs(g1z - g0z)
+      )));
+      for (let i = 0; i <= steps; i++) {
+        const t = steps > 0 ? i / steps : 0;
+        const gx = Math.round(g0x + t * (g1x - g0x));
+        const gy = Math.round(g0y + t * (g1y - g0y));
+        const gz = Math.round(g0z + t * (g1z - g0z));
+        cells.push({ gx, gy, gz, block, color: brick.color });
+      }
+      continue; // skip normal AABB fill
+    }
 
     const shape = getPartShape(brick.part);
     const spanX = gxMax - gxMin;
@@ -529,4 +652,150 @@ export function voxelizeLDraw(
 
 function clamp(v: number, min: number, max: number): number {
   return v < min ? min : v > max ? max : v;
+}
+
+// ─── Post-processing helpers ──────────────────────────────────────────────────
+
+/**
+ * Fill vertical air gaps that are completely bounded (solid below AND above).
+ * Uses majority colour from the column as fill. maxGap=Infinity fills all
+ * bounded voids regardless of size, making hollow-shell LEGO models look solid.
+ */
+export function solidifyColumns(grid: BlockGrid, maxGap = 1000): number {
+  const { width: GW, height: GH, length: GL } = grid;
+  let filled = 0;
+  for (let x = 0; x < GW; x++) {
+    for (let z = 0; z < GL; z++) {
+      const colorCount = new Map<string, number>();
+      for (let y = 0; y < GH; y++) {
+        const b = grid.get(x, y, z);
+        if (b !== 'minecraft:air') colorCount.set(b, (colorCount.get(b) ?? 0) + 1);
+      }
+      if (colorCount.size === 0) continue;
+      let fillColor = 'minecraft:gray_concrete';
+      let best = 0;
+      for (const [col, cnt] of colorCount) { if (cnt > best) { best = cnt; fillColor = col; } }
+
+      let hadSolid = false;
+      let runStart = -1;
+      for (let y = 0; y < GH; y++) {
+        const isSolid = grid.get(x, y, z) !== 'minecraft:air';
+        if (isSolid) {
+          if (runStart >= 0 && hadSolid) {
+            const runLen = y - runStart;
+            if (runLen <= maxGap) {
+              for (let fy = runStart; fy < y; fy++) { grid.set(x, fy, z, fillColor); filled++; }
+            }
+          }
+          hadSolid = true;
+          runStart = -1;
+        } else if (hadSolid && runStart < 0) {
+          runStart = y;
+        }
+      }
+    }
+  }
+  return filled;
+}
+
+/**
+ * Fill horizontal air gaps up to 2 cells wide (X and Z) that are flanked on
+ * both sides by non-air. Fixes lattice/rounding artefacts on flat surfaces.
+ */
+export function fillSingleVoxelGaps(grid: BlockGrid): number {
+  const { width: GW, height: GH, length: GL } = grid;
+  let filled = 0;
+  for (let y = 0; y < GH; y++) {
+    for (let z = 0; z < GL; z++) {
+      for (let x = 1; x < GW - 1; x++) {
+        if (grid.get(x, y, z) === 'minecraft:air') {
+          const l = grid.get(x - 1, y, z);
+          const r = grid.get(x + 1, y, z);
+          if (l !== 'minecraft:air' && r !== 'minecraft:air') {
+            grid.set(x, y, z, l); filled++;
+          } else if (x + 2 < GW && l !== 'minecraft:air' && r === 'minecraft:air') {
+            const r2 = grid.get(x + 2, y, z);
+            if (r2 !== 'minecraft:air') {
+              grid.set(x, y, z, l); filled++;
+              if (grid.get(x + 1, y, z) === 'minecraft:air') { grid.set(x + 1, y, z, l); filled++; }
+            }
+          }
+        }
+      }
+    }
+    for (let x = 0; x < GW; x++) {
+      for (let z = 1; z < GL - 1; z++) {
+        if (grid.get(x, y, z) === 'minecraft:air') {
+          const f = grid.get(x, y, z - 1);
+          const b = grid.get(x, y, z + 1);
+          if (f !== 'minecraft:air' && b !== 'minecraft:air') {
+            grid.set(x, y, z, f); filled++;
+          } else if (z + 2 < GL && f !== 'minecraft:air' && b === 'minecraft:air') {
+            const b2 = grid.get(x, y, z + 2);
+            if (b2 !== 'minecraft:air') {
+              grid.set(x, y, z, f); filled++;
+              if (grid.get(x, y, z + 1) === 'minecraft:air') { grid.set(x, y, z + 1, f); filled++; }
+            }
+          }
+        }
+      }
+    }
+  }
+  return filled;
+}
+
+/**
+ * Remove small disconnected clusters, keeping only the largest connected component.
+ * Uses flood-fill to label connected regions; removes clusters smaller than 10%
+ * of the largest component. Returns the number of cells cleared.
+ */
+export function keepLargestComponent(grid: BlockGrid): number {
+  const { width: W, height: H, length: L } = grid;
+  const HL = H * L;
+  const label = new Int32Array(W * HL).fill(-1);
+  let numComp = 0;
+  const sizes: number[] = [];
+
+  for (let x0 = 0; x0 < W; x0++) {
+    for (let y0 = 0; y0 < H; y0++) {
+      for (let z0 = 0; z0 < L; z0++) {
+        const i0 = x0 * HL + y0 * L + z0;
+        if (label[i0] >= 0 || grid.get(x0, y0, z0) === 'minecraft:air') continue;
+        const id = numComp++;
+        let size = 0;
+        const stack = [x0, y0, z0];
+        label[i0] = id;
+        while (stack.length > 0) {
+          const z = stack.pop()!, y = stack.pop()!, x = stack.pop()!;
+          size++;
+          for (const [nx, ny, nz] of [[x+1,y,z],[x-1,y,z],[x,y+1,z],[x,y-1,z],[x,y,z+1],[x,y,z-1]] as [number,number,number][]) {
+            if (nx < 0 || nx >= W || ny < 0 || ny >= H || nz < 0 || nz >= L) continue;
+            const ni = nx * HL + ny * L + nz;
+            if (label[ni] >= 0 || grid.get(nx, ny, nz) === 'minecraft:air') continue;
+            label[ni] = id;
+            stack.push(nx, ny, nz);
+          }
+        }
+        sizes.push(size);
+      }
+    }
+  }
+  if (numComp <= 1) return 0;
+
+  const maxSize = Math.max(...sizes);
+  const threshold = Math.max(10, Math.round(maxSize * 0.10));
+
+  let cleared = 0;
+  for (let x = 0; x < W; x++) {
+    for (let y = 0; y < H; y++) {
+      for (let z = 0; z < L; z++) {
+        const li = label[x * HL + y * L + z];
+        if (li >= 0 && sizes[li]! < threshold) {
+          grid.set(x, y, z, 'minecraft:air');
+          cleared++;
+        }
+      }
+    }
+  }
+  return cleared;
 }

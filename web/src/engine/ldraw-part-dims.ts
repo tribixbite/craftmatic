@@ -415,6 +415,57 @@ const DIMS: Record<string, Dims> = {
   '3749':  P(1,  4),  // 1×4  with Holes
   '3709b': P(2,  4),  // 2×4  with Holes (Pass 29: was DEFAULT [1,1,1]; Falcon ×41)
 
+  // ── Technic pins, axles, connectors ──────────────────────────────────────────
+  // These go INSIDE beam/liftarm holes — keep dims small to avoid bloating models.
+  // Generated dims inflate them because .dat bounding boxes include pin stubs.
+  '3673':  P(1,  1),  // Technic Pin (most common Technic part — 1 stud × 2 plates tall)
+  '4274':  P(1,  1),  // Technic Pin 1/2 (half-pin — flush one side)
+  '6558':  P(1,  1),  // Technic Pin with Long Friction Ridges (goes inside beam hole)
+  '4459':  P(1,  1),  // Technic Pin with Friction Ridges (pin with friction)
+  '32054': P(1,  1),  // Technic Pin Long with Friction Ridges (same functional footprint)
+  '32556': P(1,  1),  // Technic Pin Long with Stop Bush (pin + stop)
+  '65304': P(1,  1),  // Technic Pin Long with 2L Friction variant
+  '6562':  P(1,  1),  // Technic Pin Long with Friction (3L)
+  '32002': P(1,  1),  // Technic Pin 3/4
+
+  // Technic axles — thin rods, 1 stud diameter, length in studs
+  '32062': P(1,  2),  // Technic Axle 2 Notched
+  '4519':  P(1,  3),  // Technic Axle 3
+  '3705':  P(1,  4),  // Technic Axle 4
+  '32073': P(1,  5),  // Technic Axle 5
+  '3706':  P(1,  6),  // Technic Axle 6
+  '3707':  P(1,  8),  // Technic Axle 8
+  '3737':  P(1, 10),  // Technic Axle 10
+  '3708':  P(1, 12),  // Technic Axle 12
+  '50451': P(1, 16),  // Technic Axle 16
+
+  // Technic axle + pin combos
+  '11214': P(1,  2),  // Technic Axle+Pin 1.5L with Perpendicular Axle Connector
+  '43093': P(1,  1),  // Technic Axle Pin with Friction
+  '6628':  P(1,  1),  // Technic Axle Pin with Friction (variant)
+
+  // Technic bushes & spacers (cylindrical — fit around axles)
+  '4265c': P(1,  1),  // Technic Bush 1/2 Smooth
+  '3713b': P(1,  1),  // Technic Bush
+  '32123': P(1,  1),  // Technic Bush 1/2 Smooth Type 2
+
+  // Technic cross blocks & connectors
+  '6536':  P(1,  1),  // Technic Axle Joiner Perpendicular (small cross connector)
+  '6538b': P(1,  1),  // Technic Axle Joiner Inline (small cross connector)
+  '6538':  P(1,  1),  // Technic Axle Joiner Inline (variant)
+  '32184': T(3, 1,  1),  // Technic Cross Block 1×3 (Perpendicular Axle Hole)
+  '42003': T(3, 1,  2),  // Technic Cross Block Double (2-hole perpendicular)
+  '48989': P(1,  1),  // Technic Pin Connector Hub 2 Perpendicular (small connector)
+  '87082': P(1,  1),  // Technic Pin Connector Perpendicular Long
+  '32034': P(1,  2),  // Technic Angle Connector #2 (180°)
+  '32192': P(1,  2),  // Technic Angle Connector #4 (135°)
+  '32014': P(1,  2),  // Technic Angle Connector #6 (90°)
+
+  // Technic thin liftarms (1 plate tall, 1 stud wide)
+  '6632':  P(1,  3),  // Technic Liftarm 1×3 Thin (generated [3,1,1] was transposed)
+  '41677': P(1,  2),  // Technic Liftarm 1×2 Thin
+  '32065': P(1,  7),  // Technic Liftarm 1×7 Thin
+
   // ── Technic liftarms (beams)  [sW=1, sH=1, sL=N]  ───────────────────────────
   // Oriented along their length axis; rotation handles real-world direction.
   '43857': P(1,  2),  // Liftarm 1×2
@@ -435,6 +486,19 @@ const DIMS: Record<string, Dims> = {
   '32348': P(3,  7),  // Liftarm 1×7  Bent (4-hole)
   '40902': P(3, 11),  // Liftarm 1×11 Bent
 
+  // ── Large body panels / curved slopes ────────────────────────────────────────
+  // These are thin curved body panels for Technic supercars (Enzo, Lamborghini, etc.)
+  // Generated dims inflate sW because the .dat bounding box includes the full curve.
+  // Override with sW=1 (thin shell) and appropriate sH/sL.
+  '50965': T(23, 1, 10),  // Slope Curved 10×1 with Pin Holes — Enzo body panel (was [3,23,10])
+  '44771': T(21, 1, 10),  // Slope Curved 1×6×7 2/3 — wing/fender panel (was [4,21,10])
+  '44772': T(19, 1,  8),  // Slope Curved 1×6×5 2/3 — wing/fender panel (was [4,19,8])
+  '44770': T(15, 1,  8),  // Slope Curved 1×6×3 — smaller body panel
+  '6044':  T(9,  1,  4),  // Slope Curved 2×1×1 — small vehicle body curve
+  '61678': T(9,  1,  6),  // Slope Curved 4×1 — medium vehicle panel
+  '32195b': P(1,  2),     // Technic Liftarm 1×2 3/4 Thin — small connector
+  '44294': T(3, 1,  3),   // Technic Axle 7 — thin rod
+
   // ════════════════════════════════════════════════════════════════════════════
   // HINGES, CLIPS, SPECIALTY
   // ════════════════════════════════════════════════════════════════════════════
@@ -442,10 +506,6 @@ const DIMS: Record<string, Dims> = {
   '3937':  P(1,  2),  // Hinge Plate 1×2 Bottom
   '3938':  P(1,  2),  // Hinge Plate 1×2 Top
   '30383': P(1,  2),  // Hinge Plate Locking variant
-
-  // ── Cones & cylinders ────────────────────────────────────────────────────────
-  '4589':  B(1,  1),  // Cone 1×1
-  '6188':  P(1,  1),  // Cone 1×1 Flat
 
   // ── Minifig (approximate footprint) ─────────────────────────────────────────
   '3626':  P(1,  1),  // Head
@@ -471,7 +531,7 @@ const DIMS: Record<string, Dims> = {
   '2742':  [15, 35, 3], // Propellor 3 Blade 15 Diameter — 15-stud disc in XY, 3-stud hub in Z
   // Small propellers: hub along local Z → voxelizer sees spanZ shortest → XY disc mask
   '4617b': [1, 14, 6],  // Propellor 3 Blade 5.5 Diameter — disc ~5.5 studs dia, hub along Z
-  '4617':  [1, 14, 6],  // Propellor 3 Blade 5.5 Diameter (alt mold) — same geometry
+  '4617':  [1, 14, 6],  // Propellor 3 Blade 5.5 Diameter (alt mold) — hub along Z, face-on at identity
   // Helicopter rotor blade (individual wedge plate): 2 studs wide × 16 studs long × thin.
   // 6 blades arranged at 60° intervals around hub; each blade is a separate brick with own R.
   // At each rotation angle, voxelizer computes world-space AABB → spanY shortest → XZ ellipse strip.
@@ -479,6 +539,12 @@ const DIMS: Record<string, Dims> = {
   // Note: keep these dims — they inflate the helicopter cluster so it's larger than the speedboat,
   // ensuring the helicopter wins the "keep largest cluster" competition in 60067-1.
   '62743': [2, 1, 8],   // Wedge Plate 2×16×0.333 Triple — helicopter main rotor blade
+
+  // ── MPD-embedded unofficial parts ────────────────────────────────────────────
+  // These parts are defined as geometry sub-models inside an MPD file.
+  // The parser would normally recurse into them and lose the atomic shape.
+  // With the fix to treat .dat sub-sections as terminal, these dims are used.
+  // '42049 - 15361': [8, 9, 5],  // barrel — removed: large dims distort mine loader top-down view
 
   // ── Art / specialty ──────────────────────────────────────────────────────────
   '24299': B(1,  1),  // 1×1 Modified (Mona Lisa sets)
@@ -582,7 +648,7 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   // Tiles
   '3070':'flat','3069':'flat','63864':'flat','2431':'flat',
   '6636':'flat','4162':'flat',
-  '14719':'flat','3068':'flat','26603':'flat','87079':'flat',
+  '3068':'flat','26603':'flat','87079':'flat',
   '69729':'flat','6934':'flat','27263':'flat',
   '1751':'flat','10202':'flat','4515':'flat','90498':'flat',
   '48288':'flat','4974':'flat','26601':'flat','35787':'flat',
@@ -627,6 +693,11 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '2875':'slope',         // Slope Brick 45 2×6×0.667 [2,3,6]
   '11290':'slope_double', // Slope Brick Curved 2×8×2 Double [2,6,8] — tent spans 8 Z-cells
   '11301':'slope_inv',    // Slope Brick Curved 2×8×2 Inverted Double [2,6,8]
+  // Large curved body panels (Technic supercars) — slope masking for thin shell appearance
+  '50965':'slope',   // Slope Curved 10×1 with Pin Holes — Enzo body panel
+  '44771':'slope',   // Slope Curved 1×6×7 2/3 — wing/fender panel
+  '44772':'slope',   // Slope Curved 1×6×5 2/3 — wing/fender panel
+  '44770':'slope',   // Slope Curved 1×6×3 — smaller body panel
 
   // ── Wedges ───────────────────────────────────────────────────────────────────
   // True triangular footprint wedge plates/bricks:
@@ -658,6 +729,7 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '43719':'wedge',   // Wing 4×4 with 2×2 Cutout [4,1,4] — ×3 in Falcon
   '90194':'wedge',   // Wing 3×4 with 1×2 Cutout [3,1,4] — ×2 in Falcon
   '2625':'wedge',    // Boat Bow Plate 6×7 [7,1,6] — ISD ×6; triangular hull plate (~-20 cells/part)
+
   // Pass 13: slope parts
   '3676':'slope_double', // Slope Brick 45 2×2 Inverted Double Convex [2,3,2] — ×2 in ISD
 
@@ -703,7 +775,8 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '2742':'round',    // Propellor 3 Blade 15 Diameter — 3-blade disc in XY plane (hub along Z)
   '30332':'round',   // Propellor 3 Blade 9 Diameter — tail rotor; hub along Z, disc in XY
   '4617b':'round',   // Propellor 3 Blade 5.5 Diameter — 6545-1 helicopter rotor; hub=Z, disc in XY
-  '62743':'round',   // Wedge Plate 2×16×0.333 Triple — 60067-1 rotor (6× at 60°, hub=Y → XZ disc)
+  // '62743' (Wedge Plate 2×16×0.333 Triple) intentionally NOT 'round' — renders as flat 2×1×8 strips
+  // 6 strips at 60° form a visible rotor disc without solidifyColumns over-filling a sphere
   // Pass 12: cones and round plates found in Saturn V audit
   '48310':'round',   // Cone 8×4×6 Half — Saturn V ×2; cuts corners per layer
   '6233':'round',    // Cone 3×3×2 — Saturn V ×6
@@ -792,6 +865,9 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '27503':'flat',    // Tile Wedge 4×3 Right
   '27506':'flat',    // Tile Wedge 4×3 Left
 
+  // MPD-embedded unofficial parts
+  // '42049 - 15361' uses box fallback — round caused propeller-like disc in top-down view
+
   // Pass 33: more round/cylindrical parts
   '85080':'round',   // Cylinder 1×1
   '22885':'round',   // Brick 1×1 Round with Open Stud
@@ -811,6 +887,10 @@ const PART_SHAPES: Readonly<Record<string, PartShape>> = {
   '47456':'slope',   // Slope Brick Curved 2×1×1 No Studs
   '3010':'slope',    // Brick 1×4 Sloped
   '13547':'slope',   // Slope 45 4×1 Quadruple with Inner Cutout
+
+  // Pass 34: roof tiles for 1472-1 Holiday Home A-frame roof
+  '4719c01':'slope', // Roof Tile 1×3 with 45° (colored shortcut) — A-frame roof section
+  '4719':'slope',    // Roof Tile 1×3 with 45°
 };
 
 /** Return the shape category for a part filename or bare part ID. */
