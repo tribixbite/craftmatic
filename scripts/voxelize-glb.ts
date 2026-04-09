@@ -2105,9 +2105,8 @@ async function main(): Promise<void> {
 
   // Phase 2c: Facade-aligned morph close — radius-2 gap filling along facade normals.
   // Closes facade pockmarks without adding unwanted depth.
-  // Complex shapes get r=3 to seal larger gaps (facades aren't flattened later).
   {
-    const r = isComplexShape ? 3 : 2;
+    const r = 2;
     const facadeClosed = morphCloseFacadeAligned(trimmed, r);
     if (facadeClosed > 0) {
       console.log(`Facade morph close (r=${r}): ${facadeClosed} facade gaps filled (normal-aligned)`);
@@ -2115,12 +2114,12 @@ async function main(): Promise<void> {
   }
 
   // v311: Fill single-block facade holes — air voxels surrounded by solid neighbors.
-  // Complex shapes use minSolid=3 + 3 passes: their irregular facades create more holes
-  // that only have 3 solid neighbors (edges of overhangs, setbacks, etc.).
-  // Regular shapes use minSolid=4 + 1 pass (conservative — avoids closing walkways).
+  // Complex shapes: minSolid=3 (overhangs/setbacks create 3-neighbor gaps), 1 pass.
+  // Regular shapes: minSolid=4 (conservative — avoids closing walkways), 1 pass.
+  // Note: 3-pass was too aggressive for boston-cityhall (changed proportions → height_truncated).
   {
     const ms = isComplexShape ? 3 : 4;
-    const mp = isComplexShape ? 3 : 1;
+    const mp = 1;
     const holeFilled = fillFacadeHoles(trimmed, ms, mp);
     if (holeFilled > 0) {
       console.log(`Facade hole fill: ${holeFilled} voids patched (${ms}+ solid neighbors, ${mp} passes)`);
@@ -2200,7 +2199,7 @@ async function main(): Promise<void> {
     // Second fillFacadeHoles pass — scanline fill creates new anchor points
     // that enable previously unfillable holes to be filled.
     if (sealed > 0) {
-      const holeFilled2 = fillFacadeHoles(trimmed, isComplexShape ? 3 : 4);
+      const holeFilled2 = fillFacadeHoles(trimmed, 4);
       if (holeFilled2 > 0) {
         console.log(`Facade hole fill pass 2: ${holeFilled2} voids patched (post-scanline)`);
       }
