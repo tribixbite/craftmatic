@@ -376,6 +376,31 @@ function rasterizeTriangles(
     }
   }
 
+  // ── Surface pass: mark every cell any triangle surface touches ────────────
+  // Ray casting misses thin surfaces (< 1 cell thick) that fall between grid
+  // lines. This pass ensures all visible surfaces are present by computing
+  // each triangle's grid-space AABB and adding those cells.
+  for (const [v0, v1, v2] of worldTris) {
+    const txMin = Math.min(v0[0], v1[0], v2[0]);
+    const txMax = Math.max(v0[0], v1[0], v2[0]);
+    const tyMin = Math.min(v0[1], v1[1], v2[1]);
+    const tyMax = Math.max(v0[1], v1[1], v2[1]);
+    const tzMin = Math.min(v0[2], v1[2], v2[2]);
+    const tzMax = Math.max(v0[2], v1[2], v2[2]);
+
+    const tgxMin = Math.round(txMin / LDU_STUD);
+    const tgxMax = Math.round(txMax / LDU_STUD);
+    const tgyMin = Math.round(-tyMax / LDU_PER_Y);
+    const tgyMax = Math.round(-tyMin / LDU_PER_Y);
+    const tgzMin = Math.round(tzMin / LDU_STUD);
+    const tgzMax = Math.round(tzMax / LDU_STUD);
+
+    for (let x = tgxMin; x <= tgxMax; x++)
+      for (let y = tgyMin; y <= tgyMax; y++)
+        for (let z = tgzMin; z <= tgzMax; z++)
+          addCell(x, y, z);
+  }
+
   // Convert Set back to array
   const cells: Array<readonly [number, number, number]> = [];
   for (const key of cellSet) {
