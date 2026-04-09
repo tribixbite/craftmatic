@@ -8255,3 +8255,229 @@ export function enforceZoneContrast(
 
   return { roof, wall, ground };
 }
+
+/**
+ * Targeted facade-plane hole filler — fills medium-sized gaps (2-5 blocks)
+ * that survive the single-pass `fillFacadeHoles()` by operating in 2D on
+ * detected facade planes.
+ *
+ * Algorithm:
+ * 1. For each cardinal direction, detect facade voxels (solid with air neighbor
+ *    in that direction) and find the dominant depth coordinate per Y×perp cell.
+ * 2. Project the facade to a 2D bitmap (Y × perpendicular axis).
+ * 3. Flood-fill exterior air from edges to classify interior vs. exterior air.
+ * 4. Fill interior air pockets (bounded holes) whose area ≤ maxGapArea.
+ * 5. Write filled voxels back to 3D grid at the facade depth coordinate.
+ *
+ * This avoids the courtyard problem because courtyards connect to exterior air
+ * in the 2D projection. Only true enclosed holes on the facade surface get filled.
+ *
+ * @param grid        BlockGrid (modified in place)
+ * @param maxGapArea  Maximum 2D air pocket area to fill (default: 25 = 5×5 block region)
+ * @returns Number of voxels filled
+ */
+export function fillFacadePlaneHoles(grid: BlockGrid, maxGapArea = 25): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let totalFilled = 0;
+
+  // 4 cardinal facade directions: axis=X or Z, sign=+1 or -1
+  const directions: Array<{
+    // perpSize: size along the perpendicular horizontal axis
+    perpSize: number;
+    // axisSize: size along the facade normal axis
+    axisSize: number;
+    // Convert (axis, perp, y) back to grid (x, y, z)
+    toXYZ: (a: number, p: number, y: number) => [number, number, number];
+    // Direction from solid toward exterior air (the outward normal)
+    normalSign: number;
+  }> = [
+    // +X facade: solid block has air at x+1
+    { perpSize: length, axisSize: width,
+      toXYZ: (a, p, y) => [a, y, p], normalSign: 1 },
+    // -X facade: solid block has air at x-1
+    { perpSize: length, axisSize: width,
+      toXYZ: (a, p, y) => [a, y, p], normalSign: -1 },
+    // +Z facade: solid block has air at z+1
+    { perpSize: width, axisSize: length,
+      toXYZ: (a, p, y) => [p, y, a], normalSign: 1 },
+    // -Z facade: solid block has air at z-1
+    { perpSize: width, axisSize: length,
+      toXYZ: (a, p, y) => [p, y, a], normalSign: -1 },
+  ];
+
+  for (const dir of directions) {
+    const { perpSize, axisSize, toXYZ, normalSign } = dir;
+    const mapSize = perpSize * height;
+
+    // For each (perp, y) cell, find the facade surface coordinate along the axis.
+    // Facade = solid block with air in the normal direction (or at grid edge).
+    // Store the outermost such coordinate per (perp, y) cell.
+    const surfaceAxis = new Int16Array(mapSize).fill(-1);
+    const surfaceBlock: string[] = new Array(mapSize).fill(AIR);
+
+    for (let p = 0; p < perpSize; p++) {
+      for (let y = 0; y < height; y++) {
+        // Scan from the outside inward to find the outermost facade block
+        const start = normalSign > 0 ? axisSize - 1 : 0;
+        const end = normalSign > 0 ? -1 : axisSize;
+        const step = normalSign > 0 ? -1 : 1;
+
+        for (let a = start; a !== end; a += step) {
+          const [x, gy, z] = toXYZ(a, p, y);
+          const block = grid.get(x, gy, z);
+          if (block !== AIR) {
+            // Check if air is on the outward side (facade condition)
+            const outA = a + normalSign;
+            const isFacade = outA < 0 || outA >= axisSize ||
+              grid.get(...toXYZ(outA, p, y)) === AIR;
+            if (isFacade) {
+              const idx = p * height + y;
+              surfaceAxis[idx] = a;
+              surfaceBlock[idx] = block;
+            }
+            break; // Only the outermost block matters
+          }
+        }
+      }
+    }
+
+    // Build 2D bitmap: 1 = has facade block, 0 = air gap on facade plane
+    const bitmap = new Uint8Array(mapSize);
+    for (let i = 0; i < mapSize; i++) {
+      if (surfaceAxis[i] >= 0) bitmap[i] = 1;
+    }
+
+    // Flood-fill exterior from edges (4-connected in 2D: perp × Y)
+    const EXTERIOR = 2;
+    const visited = new Uint8Array(mapSize);
+    const queue: number[] = [];
+
+    // Seed boundary cells that are air
+    for (let p = 0; p < perpSize; p++) {
+      for (const y of [0, height - 1]) {
+        const idx = p * height + y;
+        if (bitmap[idx] === 0 && !visited[idx]) {
+          visited[idx] = EXTERIOR;
+          queue.push(idx);
+        }
+      }
+    }
+    for (let y = 0; y < height; y++) {
+      for (const p of [0, perpSize - 1]) {
+        const idx = p * height + y;
+        if (bitmap[idx] === 0 && !visited[idx]) {
+          visited[idx] = EXTERIOR;
+          queue.push(idx);
+        }
+      }
+    }
+
+    // BFS flood fill exterior air
+    let head = 0;
+    while (head < queue.length) {
+      const idx = queue[head++];
+      const p = Math.floor(idx / height);
+      const y = idx % height;
+
+      for (const [dp, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const np = p + dp, ny = y + dy;
+        if (np < 0 || np >= perpSize || ny < 0 || ny >= height) continue;
+        const ni = np * height + ny;
+        if (visited[ni] || bitmap[ni] === 1) continue;
+        visited[ni] = EXTERIOR;
+        queue.push(ni);
+      }
+    }
+
+    // Find interior air pockets (not exterior, not solid) via connected-component labeling
+    let nextLabel = 1;
+    const labels = new Int16Array(mapSize); // 0 = unlabeled
+    const components: Map<number, number[]> = new Map();
+
+    for (let i = 0; i < mapSize; i++) {
+      if (bitmap[i] === 0 && visited[i] !== EXTERIOR && labels[i] === 0) {
+        // BFS to label this interior pocket
+        const label = nextLabel++;
+        const pocket: number[] = [];
+        const bfsQueue = [i];
+        labels[i] = label;
+
+        let bfsHead = 0;
+        while (bfsHead < bfsQueue.length) {
+          const ci = bfsQueue[bfsHead++];
+          pocket.push(ci);
+          const cp = Math.floor(ci / height);
+          const cy = ci % height;
+
+          for (const [dp, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const np2 = cp + dp, ny2 = cy + dy;
+            if (np2 < 0 || np2 >= perpSize || ny2 < 0 || ny2 >= height) continue;
+            const ni2 = np2 * height + ny2;
+            if (labels[ni2] || bitmap[ni2] === 1 || visited[ni2] === EXTERIOR) continue;
+            labels[ni2] = label;
+            bfsQueue.push(ni2);
+          }
+        }
+
+        if (pocket.length <= maxGapArea) {
+          components.set(label, pocket);
+        }
+      }
+    }
+
+    // Fill each small interior pocket with the mode block of its boundary
+    for (const [, pocket] of components) {
+      // Collect boundary blocks around this pocket
+      const boundaryCounts = new Map<string, number>();
+      for (const ci of pocket) {
+        const cp = Math.floor(ci / height);
+        const cy = ci % height;
+        for (const [dp, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const np = cp + dp, ny = cy + dy;
+          if (np < 0 || np >= perpSize || ny < 0 || ny >= height) continue;
+          const ni = np * height + ny;
+          if (surfaceAxis[ni] >= 0 && surfaceBlock[ni] !== AIR) {
+            boundaryCounts.set(surfaceBlock[ni], (boundaryCounts.get(surfaceBlock[ni]) ?? 0) + 1);
+          }
+        }
+      }
+
+      // Find mode block
+      let fillBlock = 'minecraft:stone';
+      let bestCount = 0;
+      for (const [b, c] of boundaryCounts) {
+        if (c > bestCount) { fillBlock = b; bestCount = c; }
+      }
+
+      // Fill pocket voxels — place at average depth of surrounding facade surface
+      let depthSum = 0, depthN = 0;
+      for (const ci of pocket) {
+        const cp = Math.floor(ci / height);
+        const cy = ci % height;
+        for (const [dp, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const np = cp + dp, ny = cy + dy;
+          if (np < 0 || np >= perpSize || ny < 0 || ny >= height) continue;
+          const ni = np * height + ny;
+          if (surfaceAxis[ni] >= 0) { depthSum += surfaceAxis[ni]; depthN++; }
+        }
+      }
+      const fillDepth = depthN > 0 ? Math.round(depthSum / depthN) : -1;
+      if (fillDepth < 0) continue;
+
+      for (const ci of pocket) {
+        const cp = Math.floor(ci / height);
+        const cy = ci % height;
+        const [fx, fy, fz] = toXYZ(fillDepth, cp, cy);
+        if (fx >= 0 && fx < width && fy >= 0 && fy < height && fz >= 0 && fz < length) {
+          if (grid.get(fx, fy, fz) === AIR) {
+            grid.set(fx, fy, fz, fillBlock);
+            totalFilled++;
+          }
+        }
+      }
+    }
+  }
+
+  return totalFilled;
+}

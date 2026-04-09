@@ -37,14 +37,18 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, clusterFacadePalette, glazeReflectiveWindows, morphCloseFacadeAligned, detectCornices, flattenFacadesSetbackAware, fillFacadeHoles, removeIsolatedVoxels, fillFacadeVoids2D } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, clusterFacadePalette, glazeReflectiveWindows, morphCloseFacadeAligned, detectCornices, flattenFacadesSetbackAware, fillFacadeHoles, removeIsolatedVoxels, fillFacadeVoids2D, fillFacadePlaneHoles } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
 import { enrichScene, expandGrid } from '../src/convert/scene-pipeline.js';
+import { resolveSemanticPalette, applySemanticPalette } from '../src/convert/semantic-palette.js';
+import type { SemanticPalette } from '../src/convert/semantic-palette.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
 import { writeSchematic } from '../src/schem/write.js';
+import { queryStreetViewMetadata } from '../src/gen/api/google-streetview.js';
+import { extractColors } from '../src/gen/api/streetview-analysis.js';
 import { basename, extname, join, dirname, resolve } from 'node:path';
 import sharp from 'sharp';
 
@@ -161,6 +165,7 @@ interface CLIArgs {
   scene: boolean;          // unified scene pipeline: env extraction → strip → enrich
   plotRadius: number;      // plot context expansion radius in meters (0 = auto)
   zoneNormalize: boolean;  // apply 5-zone facade normalization (default: off, preserves raw photogrammetric colors)
+  recolor: boolean;        // v314: SV/satellite-driven facade+roof recoloring (requires --coords)
 }
 
 function parseArgs(): CLIArgs {
@@ -204,7 +209,8 @@ Options:
   --enrich           Run scene enrichment (trees, roads, ground fill) — requires --coords
   --scene            Unified scene pipeline: env extraction → strip → feature replacement →
                      plot expansion → enrichment — requires --coords
-  --plot-radius N    Plot context radius in meters (default: auto = building + 15m per side)`);
+  --plot-radius N    Plot context radius in meters (default: auto = building + 15m per side)
+  --recolor          SV/satellite-driven facade+roof recoloring — requires --coords`);
     process.exit(0);
   }
 
@@ -253,6 +259,7 @@ Options:
   let scene = false;
   let plotRadius = 0; // 0 = auto-compute when --scene
   let zoneNormalize = false; // v300: off by default — preserve raw photogrammetric CIELAB colors
+  let recolor = false; // v314: SV/satellite facade+roof recoloring
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -339,6 +346,8 @@ Options:
       plotRadius = parseInt(args[++i], 10);
     } else if (arg === '--zone-normalize') {
       zoneNormalize = true;
+    } else if (arg === '--recolor') {
+      recolor = true;
     } else if (arg === '--mask-dilate') {
       maskDilate = parseInt(args[++i], 10);
     } else if (arg === '--clean') {
@@ -399,7 +408,7 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize, recolor };
 }
 
 // ─── GLB Loading ────────────────────────────────────────────────────────────
@@ -1479,6 +1488,7 @@ async function main(): Promise<void> {
   let analysis: AnalysisResult | null = null;
   let osmMaskDone = false; // Track if OSM mask ran in pre-fill path
   let osmPolygon: Array<{ lat: number; lng: number }> | null = null; // Save for post-processing re-mask
+  let osmTags: Record<string, string> = {}; // v314: OSM tags for semantic palette
   if (args.auto) {
     console.log(`\n--- Auto-Detection Analysis ---`);
     const tAuto = performance.now();
@@ -1661,6 +1671,7 @@ async function main(): Promise<void> {
               console.log(`OSM mask (auto-aligned dx=${alignment.dx} dz=${alignment.dz} IoU=${alignment.iou.toFixed(2)}): ${aligned} blocks removed, ${alignRemaining} remaining`);
               osmMaskDone = true;
               osmPolygon = osmData.polygon;
+              osmTags = osmData.tags ?? {};
             } else {
               // Auto-alignment also failed — restore and fall through to geometry isolation
               for (const [key, block] of snapshot) {
@@ -1676,6 +1687,7 @@ async function main(): Promise<void> {
           console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
           osmMaskDone = true;
           osmPolygon = osmData.polygon;
+          osmTags = osmData.tags ?? {};
         }
       }
     }
@@ -1859,6 +1871,7 @@ async function main(): Promise<void> {
                 console.log(`OSM mask (auto-aligned dx=${alignment.dx} dz=${alignment.dz} IoU=${alignment.iou.toFixed(2)}): ${aligned} blocks removed, ${alignRemaining} remaining`);
                 osmMaskDone = true;
                 osmPolygon = osmData.polygon;
+                osmTags = osmData.tags ?? {};
               } else {
                 // Auto-alignment also failed — restore and fall through to geometry isolation
                 for (const [key2, block2] of snapshot) {
@@ -1874,6 +1887,7 @@ async function main(): Promise<void> {
             console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
             osmMaskDone = true;
             osmPolygon = osmData.polygon;
+            osmTags = osmData.tags ?? {};
           }
         } else {
           console.log('OSM footprint (pre-fill): no building found at coordinates');
@@ -2038,6 +2052,7 @@ async function main(): Promise<void> {
         console.log(`OSM footprint mask: reverted (${masked} would remove all ${snapshot.size} blocks — polygon misaligned)`);
       } else {
         console.log(`OSM footprint mask: ${masked} blocks removed, ${remaining} remaining (polygon ${osmData.polygon.length} vertices)`);
+        osmTags = osmData.tags ?? {};
       }
     } else {
       console.log('OSM footprint: no building found at coordinates');
@@ -2209,6 +2224,17 @@ async function main(): Promise<void> {
       if (holeFilled2 > 0) {
         console.log(`Facade hole fill pass 2: ${holeFilled2} voids patched (post-scanline)`);
       }
+    }
+  }
+
+  // v314: Targeted facade-plane hole fill — 2D flood-fill on each facade plane
+  // to find and fill bounded interior air pockets ≤ 25 blocks. Runs after
+  // fillFacadeVoids2D which handles scanline gaps. This catches medium holes
+  // (3-5 blocks) that need 2D connectivity analysis to distinguish from courtyards.
+  {
+    const planeFilled = fillFacadePlaneHoles(trimmed, 25);
+    if (planeFilled > 0) {
+      console.log(`Facade plane holes: ${planeFilled} bounded air pockets filled (2D flood-fill)`);
     }
   }
 
@@ -2717,6 +2743,100 @@ async function main(): Promise<void> {
     if (isolated > 0) {
       console.log(`Isolated voxel removal: ${isolated} single-block artifacts removed (≤1 neighbor)`);
     }
+  }
+
+  // ─── v314: Semantic Palette + SV/Satellite Recoloring ──────────────────────
+  // When --recolor is active (requires --coords), resolve a semantic material palette
+  // from OSM tags, then optionally override with Street View wall color and satellite
+  // roof color. Only replaces gray-family blocks — preserves existing colorful materials.
+  if (args.recolor && args.coords && !args.zoneNormalize) {
+    console.log('\n--- Semantic Recoloring (v314) ---');
+
+    // Estimate building height from grid
+    let maxSolidY = 0;
+    for (let y = trimmed.height - 1; y >= 0; y--) {
+      let hasBlock = false;
+      for (let z = 0; z < trimmed.length && !hasBlock; z++) {
+        for (let x = 0; x < trimmed.width && !hasBlock; x++) {
+          if (trimmed.get(x, y, z) !== 'minecraft:air') hasBlock = true;
+        }
+      }
+      if (hasBlock) { maxSolidY = y; break; }
+    }
+    const heightM = maxSolidY / args.resolution;
+
+    // Fetch OSM tags if not already captured from masking pipeline
+    if (Object.keys(osmTags).length === 0) {
+      const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
+      if (osmData) osmTags = osmData.tags ?? {};
+    }
+
+    // Phase B: Resolve semantic palette from OSM metadata
+    let palette = resolveSemanticPalette(osmTags, heightM);
+    if (palette) {
+      console.log(`  Semantic palette: ${palette.source}`);
+      console.log(`  Wall blocks: ${palette.wallBlocks.map(b => b.replace('minecraft:', '')).join(', ')}`);
+    } else {
+      console.log('  Semantic palette: no OSM material/colour data available');
+    }
+
+    // Phase C: SV facade color override
+    try {
+      const svMeta = await queryStreetViewMetadata(args.coords.lat, args.coords.lng);
+      if (svMeta?.imageUrl) {
+        console.log(`  SV image: heading=${svMeta.heading.toFixed(0)}° date=${svMeta.date}`);
+        // Download and extract colors
+        const resp = await fetch(svMeta.imageUrl, { signal: AbortSignal.timeout(15000) });
+        if (resp.ok) {
+          const buf = Buffer.from(await resp.arrayBuffer());
+          const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+          const pixels = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+          const svColors = extractColors(pixels, info.width, info.height);
+          if (svColors) {
+            const { r, g, b } = svColors.wallColor;
+            console.log(`  SV wall color: rgb(${r},${g},${b}) → ${svColors.wallBlock.replace('minecraft:', '')}`);
+            // Override or create palette with SV wall color
+            if (palette) {
+              palette.wallColor = { r, g, b };
+              palette.source += ' + SV wall color';
+            } else {
+              palette = {
+                wallBlocks: [svColors.wallBlock],
+                wallColor: { r, g, b },
+                source: 'SV wall color',
+              };
+            }
+          }
+        }
+      } else {
+        console.log('  SV: no street view imagery available');
+      }
+    } catch (e) {
+      console.log(`  SV: ${(e as Error).message}`);
+    }
+
+    // Phase D: Satellite roof color override
+    const satRoof = await sampleSatelliteRoof(args.coords.lat, args.coords.lng);
+    if (satRoof && palette) {
+      palette.roofBlocks = [satRoof.roofBlock];
+      palette.roofColor = { r: satRoof.roofRgb[0], g: satRoof.roofRgb[1], b: satRoof.roofRgb[2] };
+      palette.source += ' + satellite roof';
+    } else if (satRoof && !palette) {
+      palette = {
+        wallBlocks: [],
+        roofBlocks: [satRoof.roofBlock],
+        roofColor: { r: satRoof.roofRgb[0], g: satRoof.roofRgb[1], b: satRoof.roofRgb[2] },
+        source: 'satellite roof only',
+      };
+    }
+
+    // Apply palette to grid
+    if (palette && (palette.wallBlocks.length > 0 || palette.wallColor || palette.roofBlocks)) {
+      const recolored = applySemanticPalette(trimmed, palette);
+      console.log(`  Applied: ${recolored} gray blocks recolored (${palette.source})`);
+    }
+  } else if (args.recolor && !args.coords) {
+    console.log('\nWARNING: --recolor requires --coords LAT,LNG — skipping recoloring');
   }
 
   // v74/v92/v93: Facade homogenization — per-face minority block collapse.
