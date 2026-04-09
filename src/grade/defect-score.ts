@@ -16,16 +16,13 @@ export interface DefectChecklist {
   floating_artifacts: boolean;
   /** True if adjacent buildings are merged into the target */
   neighbor_buildings_merged: boolean;
-  /** True if footprint shape doesn't match satellite outline */
-  footprint_wrong_shape: boolean;
   /** True if large unrelated structures are attached to the building */
   false_positives_merged: boolean;
-  /** True if someone familiar with this building would identify it */
-  building_recognizable: boolean;
-  /** True if width/height/depth ratios roughly match the reference */
-  proportions_correct: boolean;
   /** True if facade has visible material variation, not uniform gray */
   surface_detail_visible: boolean;
+  // Removed zero-weight fields (v313): footprint_wrong_shape, building_recognizable,
+  // proportions_correct — VLM hallucinated these on 33-60% of verified-good builds.
+  // Removing saves ~30% VLM output tokens per grading call.
 }
 
 /**
@@ -39,14 +36,10 @@ export interface DefectChecklist {
  *   floating_artifacts        -1  (minor: noise — common false positive from texture variation)
  *   !surface_detail_visible   -1  (minor: material quality)
  *
- * Zero-weight fields (retained for diagnostics):
- *   footprint_wrong_shape: voxelization inherently produces blocky approximations.
- *     Flagged on 6/10 buildings including verified-good ones (la-cityhall 9/10,
- *     nga-east 9/10). A systematic artifact of the medium, not a pipeline issue.
- *   building_recognizable: subjective meta-judgment that overlaps with specific defect
- *     fields. VLM flags it inconsistently (~33% false-positive on verified-good builds).
- *   proportions_correct: redundant with building_recognizable; VLM flags both
- *     together ~95% of the time.
+ * Removed zero-weight fields (v313):
+ *   footprint_wrong_shape: VLM flagged 6/10 verified-good builds — systematic voxel artifact.
+ *   building_recognizable: subjective meta-judgment, ~33% false-positive.
+ *   proportions_correct: redundant with building_recognizable (95% co-occurrence).
  */
 export function scoreFromDefects(defects: DefectChecklist): number {
   let score = 10;
@@ -54,10 +47,7 @@ export function scoreFromDefects(defects: DefectChecklist): number {
   if (defects.facade_holes_visible)      score -= 1;
   if (defects.floating_artifacts)        score -= 1;
   if (defects.neighbor_buildings_merged) score -= 2;
-  // footprint_wrong_shape: 0 penalty — voxels are inherently blocky; flagged on 6/10 buildings
   if (defects.false_positives_merged)    score -= 2;
-  // building_recognizable: 0 penalty — subjective meta-judgment, overlaps specific fields
-  // proportions_correct: 0 penalty — redundant with building_recognizable
   if (!defects.surface_detail_visible)   score -= 1;
   return Math.max(0, score);
 }

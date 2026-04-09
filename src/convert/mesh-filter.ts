@@ -338,13 +338,13 @@ export function morphClose3D(grid: BlockGrid, radius = 1, maxY?: number): number
         let hasAirNeighbor = false;
         for (let dy = -radius; dy <= radius && !hasAirNeighbor; dy++) {
           const ny = y + dy;
-          if (ny < 0 || ny >= height) { hasAirNeighbor = true; continue; }
+          if (ny < 0 || ny >= height) continue; // OOB = solid (standard morphClose boundary)
           for (let dz = -radius; dz <= radius && !hasAirNeighbor; dz++) {
             const nz = z + dz;
-            if (nz < 0 || nz >= length) { hasAirNeighbor = true; continue; }
+            if (nz < 0 || nz >= length) continue; // OOB = solid
             for (let dx = -radius; dx <= radius && !hasAirNeighbor; dx++) {
               const nx = x + dx;
-              if (nx < 0 || nx >= width) { hasAirNeighbor = true; continue; }
+              if (nx < 0 || nx >= width) continue; // OOB = solid
               if (afterDilate[(ny * length + nz) * width + nx] === 'minecraft:air') {
                 hasAirNeighbor = true;
               }
@@ -1734,6 +1734,11 @@ export function glazeDarkWindows(grid: BlockGrid, resolution = 1): number {
         const block = grid.get(x, y, z);
         if (!DARK_BLOCKS.has(block)) continue;
 
+        // Reject overhang undersides (soffits): a true facade block rests on
+        // something solid. If air directly below, it's a downward-facing surface
+        // whose shadow should not be glazed as a window.
+        if (grid.get(x, y - 1, z) === AIR) continue;
+
         // Check if on a horizontal facade (adjacent to air on X or Z axis)
         let isFacade = false;
         for (const [dx, dz] of H_DIRS) {
@@ -2917,10 +2922,14 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
     adaptiveContrastDelta = Math.max(0.12, Math.min(0.28, (p90 - p10) * 0.5));
   }
 
+  // Batch all replacements from both passes before writing — prevents Pass 1's
+  // modifications from cascading into Pass 2's neighborhood median computation.
+  // Keyed by 1D index to deduplicate (Pass 1 wins if both match same voxel).
+  const allReplacements = new Map<number, { x: number; y: number; z: number; replacement: string }>();
+  const idx1d = (x: number, y: number, z: number) => (y * length + z) * width + x;
+
   // Pass 1: Replace very dark blocks (adaptive luminance floor)
   {
-    const replacements: Array<{ x: number; y: number; z: number; replacement: string }> = [];
-
     for (let y = 0; y < height; y++) {
       for (let z = 0; z < length; z++) {
         for (let x = 0; x < width; x++) {
@@ -2935,24 +2944,20 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
           if (lab1 && (Math.abs(lab1[1]) > 5 || Math.abs(lab1[2]) > 5)) continue;
 
           const best = findBrightNeighborMode(grid, x, y, z, radius, DARK_FLOOR);
-          if (best) replacements.push({ x, y, z, replacement: best });
+          if (best) allReplacements.set(idx1d(x, y, z), { x, y, z, replacement: best });
         }
       }
     }
-
-    for (const { x, y, z, replacement } of replacements) {
-      grid.set(x, y, z, replacement);
-    }
-    totalReplaced += replacements.length;
   }
 
   // Pass 2: Replace contrast outliers (dark blocks in bright neighborhoods)
+  // Reads original grid state (Pass 1 writes deferred), preventing cascading brightness inflation.
   {
-    const replacements: Array<{ x: number; y: number; z: number; replacement: string }> = [];
-
     for (let y = 0; y < height; y++) {
       for (let z = 0; z < length; z++) {
         for (let x = 0; x < width; x++) {
+          const key = idx1d(x, y, z);
+          if (allReplacements.has(key)) continue; // already scheduled by Pass 1
           const block = grid.get(x, y, z);
           if (block === AIR) continue;
 
@@ -3001,18 +3006,19 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
               if (c > bestCount) { bestBlock = b; bestCount = c; }
             }
             if (bestBlock) {
-              replacements.push({ x, y, z, replacement: bestBlock });
+              allReplacements.set(key, { x, y, z, replacement: bestBlock });
             }
           }
         }
       }
     }
-
-    for (const { x, y, z, replacement } of replacements) {
-      grid.set(x, y, z, replacement);
-    }
-    totalReplaced += replacements.length;
   }
+
+  // Apply all deferred replacements in a single write pass
+  for (const { x, y, z, replacement } of allReplacements.values()) {
+    grid.set(x, y, z, replacement);
+  }
+  totalReplaced += allReplacements.size;
 
   return totalReplaced;
 }
@@ -3409,48 +3415,26 @@ function findBrightNeighborMode(
  * Used by carveFacadeShadows to identify shadow/depth regions.
  * Values are empirical approximations of the block's average visual brightness.
  */
-const BLOCK_LUMINANCE = new Map<string, number>([
-  // Very dark (shadow indicators — likely recesses, balconies, windows)
-  ['minecraft:blackstone', 0.10],
-  ['minecraft:deepslate_bricks', 0.15],
-  ['minecraft:polished_deepslate', 0.18],
-  ['minecraft:polished_blackstone', 0.15],
-  ['minecraft:nether_bricks', 0.15],
+/** Overrides for blocks whose in-game brightness differs from texture RGB
+ * (transparency, emissivity, or rendering effects not captured by flat color) */
+const LUMINANCE_OVERRIDES = new Map<string, number>([
   ['minecraft:black_stained_glass', 0.05],
-  // Dark (could be shadow or material)
   ['minecraft:gray_stained_glass', 0.25],
-  ['minecraft:gray_concrete', 0.30],
-  ['minecraft:brown_terracotta', 0.30],
-  ['minecraft:green_concrete', 0.30],
-  ['minecraft:stone', 0.35],
-  ['minecraft:andesite', 0.35],
-  ['minecraft:stone_bricks', 0.38],
-  // Medium (structural/material)
-  ['minecraft:polished_andesite', 0.42],
-  ['minecraft:smooth_stone', 0.45],
-  ['minecraft:cobblestone', 0.35],
-  ['minecraft:iron_block', 0.70],
-  ['minecraft:light_gray_concrete', 0.55],
-  // Light (wall material)
-  ['minecraft:birch_planks', 0.70],
-  ['minecraft:end_stone_bricks', 0.75],
-  ['minecraft:smooth_sandstone', 0.80],
-  ['minecraft:sandstone', 0.80],
-  ['minecraft:smooth_quartz', 0.90],
-  ['minecraft:quartz_block', 0.90],
-  ['minecraft:white_concrete', 0.95],
-  // Terracotta variants
-  ['minecraft:red_terracotta', 0.30],
-  ['minecraft:orange_terracotta', 0.40],
-  ['minecraft:bricks', 0.35],
-  ['minecraft:red_concrete', 0.30],
+  ['minecraft:glass', 0.80],
+  ['minecraft:glass_pane', 0.80],
 ]);
 
 /**
- * Get block luminance (0-1). Returns 0.5 for unknown blocks.
+ * Get perceptual luminance (0-1) for a Minecraft block.
+ * Uses CIE L* lightness from WALL_CLUSTERS (via getBlockLab), scaled to 0-1.
+ * Falls back to 0.5 for unknown blocks not in any palette cluster.
  */
 function blockLuminance(block: string): number {
-  return BLOCK_LUMINANCE.get(block) ?? 0.5;
+  const override = LUMINANCE_OVERRIDES.get(block);
+  if (override !== undefined) return override;
+  const lab = getBlockLab(block);
+  if (lab) return lab[0] / 100; // L* ranges 0-100
+  return 0.5;
 }
 
 /** Lazy-init cache: block name → [L*, a*, b*] from WALL_CLUSTERS RGB entries */

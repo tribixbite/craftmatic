@@ -270,8 +270,7 @@ function voxelizeSolid(
         }
 
         if (hitColor) {
-          const seed = x * 1000000 + y * 1000 + z;
-          grid.set(x, y, z, rgbToWallBlock(hitColor[0], hitColor[1], hitColor[2], seed));
+          grid.set(x, y, z, rgbToWallBlock(hitColor[0], hitColor[1], hitColor[2], x, y, z));
         }
       }
     }
@@ -355,8 +354,7 @@ function voxelizeSurface(
         }
 
         if (bestColor) {
-          const seed = x * 1000000 + y * 1000 + z;
-          const block = rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], seed);
+          const block = rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], x, y, z);
           if (!filterVegetation || !VEGETATION_BLOCKS.has(block)) {
             grid.set(x, y, z, block);
           }
@@ -439,8 +437,7 @@ async function voxelizeSurfaceAsync(
         }
 
         if (bestColor) {
-          const seed = x * 1000000 + y * 1000 + z;
-          const block = rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], seed);
+          const block = rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], x, y, z);
           // Skip vegetation blocks (trees/bushes in photogrammetry tiles)
           if (!filterVegetation || !VEGETATION_BLOCKS.has(block)) {
             grid.set(x, y, z, block);
@@ -736,7 +733,10 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
       const bucketB = new Float64Array(BUCKET_COUNT);
       const bucketCount = new Uint32Array(BUCKET_COUNT);
 
-      const k = kernelSize;
+      // Clamp kernel to 10% of texture dimension — on small LOD textures (64x64),
+      // the default 24px kernel would cover 75%+ of the image, collapsing all
+      // voxels to the same dominant color and destroying material diversity.
+      const k = Math.min(kernelSize, Math.floor(Math.min(w, h) * 0.1));
       for (let dy = -k; dy <= k; dy++) {
         const py = Math.min(h - 1, Math.max(0, cy + dy));
         for (let dx = -k; dx <= k; dx++) {
