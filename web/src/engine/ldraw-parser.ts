@@ -156,8 +156,22 @@ function expandSection(
       s => s.name === basename || s.name === filename,
     );
 
-    if (subSection) {
-      // Recurse into sub-model, passing resolved color as the new parentColor.
+    // LDraw .dat sub-sections embedded in MPDs can be either:
+    //   • Unofficial_Part / Unofficial_Subpart — geometry-only definitions that yield
+    //     no meaningful terminal bricks when recursed. Treat as terminal so the dims
+    //     table can assign the correct bounding box.
+    //   • Unofficial_Shortcut — assemblies of multiple parts; MUST be recursed so each
+    //     constituent part (e.g. propeller + axle) is individually voxelized.
+    //
+    // Detect via !LDRAW_ORG metadata in the first 15 lines of the section.
+    const isEmbeddedPartDef = subSection != null
+      && subSection.name.endsWith('.dat')
+      && subSection.lines.slice(0, 15).some(
+        l => /^0\s+!LDRAW_ORG\s+Unofficial_(?:Part|Subpart)/i.test(l),
+      );
+
+    if (subSection && !isEmbeddedPartDef) {
+      // Recurse into sub-model assembly, passing resolved color as the new parentColor.
       // Step tracking is only done at depth 0; sub-models don't have their own STEP markers.
       expandSection(subSection.lines, allSections, childRot, [wx, wy, wz], output, depth + 1, color, stepRef);
     } else if (!isLDrawPrimitive(basename)) {

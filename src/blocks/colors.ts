@@ -155,14 +155,24 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:lime_stained_glass': [127, 204, 25],
   'minecraft:lime_stained_glass_pane': [127, 204, 25],
 
-  // Concrete
-  'minecraft:white_concrete': [207, 213, 214],
-  'minecraft:light_gray_concrete': [125, 125, 115],
-  'minecraft:gray_concrete': [54, 57, 61],
-  'minecraft:black_concrete': [8, 10, 15],
-  'minecraft:blue_concrete': [45, 47, 143],
-  'minecraft:cyan_concrete': [21, 119, 136],
-  'minecraft:light_blue_concrete': [36, 137, 199],
+  // Concrete — LEGO-accurate palette (values tuned to match LEGO plastic colours)
+  'minecraft:white_concrete':      [242, 243, 243], // LEGO White      #F2F3F2
+  'minecraft:light_gray_concrete': [160, 165, 169], // LEGO Lt Bluish  #A0A5A9
+  'minecraft:gray_concrete':       [89,  93,  96],  // LEGO Dark Blish #595D60
+  'minecraft:black_concrete':      [33,  33,  33],  // LEGO Black      #212121
+  'minecraft:blue_concrete':       [0,   87,  166], // LEGO Blue       #0057A6
+  'minecraft:cyan_concrete':       [0,   167, 186], // LEGO Cyan/Azure #00A7BA
+  'minecraft:light_blue_concrete': [105, 196, 221], // LEGO Lt Blue    #69C4DD
+  'minecraft:yellow_concrete':     [242, 205, 55],  // LEGO Yellow     #F2CD37
+  'minecraft:lime_concrete':       [88,  183, 45],  // LEGO Lime       #58B72D
+  'minecraft:green_concrete':      [35,  120, 65],  // LEGO Green      #237841
+  'minecraft:orange_concrete':     [254, 138, 24],  // LEGO Orange     #FE8A18
+  'minecraft:red_concrete':        [201, 26,  9],   // LEGO Red        #C91A09
+  'minecraft:pink_concrete':       [252, 151, 172], // LEGO Pink       #FC97AC
+  'minecraft:magenta_concrete':    [167, 48,  157], // LEGO Magenta    #A7309D
+  'minecraft:purple_concrete':     [100, 32,  156], // LEGO Purple     #64209C
+  'minecraft:brown_concrete':      [88,  42,  18],  // LEGO Brown      #582A12
+  'minecraft:sandstone':           [216, 200, 141], // LEGO Tan/Sand   #D8C88D
 
   // Lighting
   'minecraft:lantern': [210, 170, 80],
@@ -341,7 +351,6 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:dark_prismarine_slab': [64, 108, 88],
 
   // Sandstone variants
-  'minecraft:sandstone': [216, 203, 155],
   'minecraft:sandstone_stairs': [216, 203, 155],
   'minecraft:sandstone_slab': [216, 203, 155],
   'minecraft:sandstone_wall': [210, 197, 149],
