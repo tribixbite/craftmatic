@@ -2104,20 +2104,26 @@ async function main(): Promise<void> {
   }
 
   // Phase 2c: Facade-aligned morph close — radius-2 gap filling along facade normals.
-  // Closes 2-voxel pockmarks in facade surfaces without adding unwanted depth.
+  // Closes facade pockmarks without adding unwanted depth.
+  // Complex shapes get r=3 to seal larger gaps (facades aren't flattened later).
   {
-    const facadeClosed = morphCloseFacadeAligned(trimmed, 2);
+    const r = isComplexShape ? 3 : 2;
+    const facadeClosed = morphCloseFacadeAligned(trimmed, r);
     if (facadeClosed > 0) {
-      console.log(`Facade morph close (r=2): ${facadeClosed} facade gaps filled (normal-aligned)`);
+      console.log(`Facade morph close (r=${r}): ${facadeClosed} facade gaps filled (normal-aligned)`);
     }
   }
 
-  // v311: Fill single-block facade holes — air voxels surrounded by 4+ solid neighbors.
-  // Single pass only — iterative fill risks closing courtyards and walkways.
+  // v311: Fill single-block facade holes — air voxels surrounded by solid neighbors.
+  // Complex shapes use minSolid=3 + 3 passes: their irregular facades create more holes
+  // that only have 3 solid neighbors (edges of overhangs, setbacks, etc.).
+  // Regular shapes use minSolid=4 + 1 pass (conservative — avoids closing walkways).
   {
-    const holeFilled = fillFacadeHoles(trimmed, 4);
+    const ms = isComplexShape ? 3 : 4;
+    const mp = isComplexShape ? 3 : 1;
+    const holeFilled = fillFacadeHoles(trimmed, ms, mp);
     if (holeFilled > 0) {
-      console.log(`Facade hole fill: ${holeFilled} single-block voids patched (4+ solid neighbors)`);
+      console.log(`Facade hole fill: ${holeFilled} voids patched (${ms}+ solid neighbors, ${mp} passes)`);
     }
   }
 
@@ -2189,7 +2195,15 @@ async function main(): Promise<void> {
   {
     const sealed = fillFacadeVoids2D(trimmed);
     if (sealed > 0) {
-      console.log(`Facade void sealing (2D flood-fill): ${sealed} enclosed voids filled`);
+      console.log(`Facade void sealing (scanline): ${sealed} enclosed voids filled`);
+    }
+    // Second fillFacadeHoles pass — scanline fill creates new anchor points
+    // that enable previously unfillable holes to be filled.
+    if (sealed > 0) {
+      const holeFilled2 = fillFacadeHoles(trimmed, isComplexShape ? 3 : 4);
+      if (holeFilled2 > 0) {
+        console.log(`Facade hole fill pass 2: ${holeFilled2} voids patched (post-scanline)`);
+      }
     }
   }
 

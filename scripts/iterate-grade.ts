@@ -104,7 +104,7 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/dallas-cityhall.glb`,
     coords: '32.7763,-96.7968',
     satRef: `${DIR}/sat-ref-dallas-cityhall.jpg`,
-    resolution: 2, // v303: try 2x for surface detail (was 1)
+    resolution: 1, // v313: 1x — 2x creates too many small holes and color noise
     maskDilate: 1, // v303: tighten from 2 — reduce surface noise
     extraFlags: ['--no-enu'],
     difficulty: 'hard',
