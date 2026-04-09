@@ -1116,6 +1116,206 @@ export function removeIsolatedVoxels(grid: BlockGrid, maxNeighbors = 1): number 
 }
 
 /**
+ * Seal multi-block holes on facade surfaces using per-Y scanline fill.
+ *
+ * For each cardinal direction (N/S/E/W) and each Y level independently,
+ * projects the facade surface onto a 1D scanline (perpendicular axis),
+ * finds the building extent (leftmost/rightmost solid), and fills interior
+ * air gaps that are smaller than `maxGapWidth`.
+ *
+ * Works per-Y-layer (no vertical flood-fill), so buildings with open lower
+ * levels (columns, pilotis) don't leak exterior air into upper-floor holes.
+ * Courtyard-safe: courtyards create gaps wider than maxGapWidth.
+ *
+ * Also runs vertical scanlines (per-perp-column) to catch vertically-oriented
+ * holes missed by horizontal passes.
+ *
+ * @param grid  Source BlockGrid (modified in place)
+ * @param maxGapWidth  Max gap width to fill in scanline (default: 15 blocks).
+ *   Wider gaps are left alone (probably courtyards or intentional openings).
+ * @returns Number of air voxels filled
+ */
+export function fillFacadeVoids2D(grid: BlockGrid, maxGapWidth = 15): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+  let totalFilled = 0;
+
+  // Process 4 facade directions
+  const directions: Array<{
+    label: string;
+    perpSize: number;
+    toXYZ: (a: number, p: number, y: number) => [number, number, number];
+    rayStart: number;
+    rayEnd: number;
+    rayStep: number;
+  }> = [
+    { label: '+X', perpSize: length,
+      toXYZ: (a, p, y) => [a, y, p],
+      rayStart: width - 1, rayEnd: -1, rayStep: -1 },
+    { label: '-X', perpSize: length,
+      toXYZ: (a, p, y) => [a, y, p],
+      rayStart: 0, rayEnd: width, rayStep: 1 },
+    { label: '+Z', perpSize: width,
+      toXYZ: (a, p, y) => [p, y, a],
+      rayStart: length - 1, rayEnd: -1, rayStep: -1 },
+    { label: '-Z', perpSize: width,
+      toXYZ: (a, p, y) => [p, y, a],
+      rayStart: 0, rayEnd: length, rayStep: 1 },
+  ];
+
+  for (const dir of directions) {
+    const { perpSize, toXYZ, rayStart, rayEnd, rayStep } = dir;
+
+    // For each (perp, y), find the outermost solid block = facade surface
+    const surfaceDepth = new Int32Array(perpSize * height).fill(-1);
+    const surfaceBlock: string[] = new Array(perpSize * height).fill(AIR);
+
+    for (let p = 0; p < perpSize; p++) {
+      for (let y = 0; y < height; y++) {
+        for (let a = rayStart; a !== rayEnd; a += rayStep) {
+          const [x, gy, z] = toXYZ(a, p, y);
+          const block = grid.get(x, gy, z);
+          if (block !== AIR) {
+            surfaceDepth[p * height + y] = a;
+            surfaceBlock[p * height + y] = block;
+            break;
+          }
+        }
+      }
+    }
+
+    // --- Pass 1: Horizontal scanlines (fill gaps along perp axis per Y level) ---
+    for (let y = 0; y < height; y++) {
+      // Find building extent at this Y level
+      let pMin = -1, pMax = -1;
+      for (let p = 0; p < perpSize; p++) {
+        if (surfaceDepth[p * height + y] >= 0) {
+          if (pMin < 0) pMin = p;
+          pMax = p;
+        }
+      }
+      if (pMin < 0) continue; // no building at this Y level
+
+      // Scan within building extent for air gaps
+      let gapStart = -1;
+      for (let p = pMin; p <= pMax + 1; p++) {
+        const hasSolid = p <= pMax && surfaceDepth[p * height + y] >= 0;
+
+        if (!hasSolid && gapStart < 0) {
+          gapStart = p; // start of gap
+        } else if (hasSolid && gapStart >= 0) {
+          // End of gap — fill if narrow enough
+          const gapLen = p - gapStart;
+          if (gapLen <= maxGapWidth) {
+            // Collect neighbor depths and blocks for fill material
+            const neighborDepths: number[] = [];
+            const neighborCounts = new Map<string, number>();
+
+            // Look at solid neighbors on both sides of the gap
+            for (const np of [gapStart - 1, p]) {
+              if (np >= 0 && np < perpSize) {
+                const d = surfaceDepth[np * height + y];
+                const b = surfaceBlock[np * height + y];
+                if (d >= 0 && b !== AIR) {
+                  neighborDepths.push(d);
+                  neighborCounts.set(b, (neighborCounts.get(b) || 0) + 1);
+                }
+              }
+            }
+            if (neighborDepths.length === 0) { gapStart = -1; continue; }
+
+            // Fill block = most common neighbor
+            let fillBlock = AIR;
+            let bestCount = 0;
+            for (const [b, c] of neighborCounts) {
+              if (c > bestCount) { fillBlock = b; bestCount = c; }
+            }
+
+            // Fill depth = average of neighbor depths
+            const fillDepth = Math.round(
+              neighborDepths.reduce((s, d) => s + d, 0) / neighborDepths.length
+            );
+
+            for (let fp = gapStart; fp < p; fp++) {
+              const [x, gy, z] = toXYZ(fillDepth, fp, y);
+              if (grid.get(x, gy, z) === AIR) {
+                grid.set(x, gy, z, fillBlock);
+                totalFilled++;
+                // Update surface arrays so vertical pass sees the fill
+                surfaceDepth[fp * height + y] = fillDepth;
+                surfaceBlock[fp * height + y] = fillBlock;
+              }
+            }
+          }
+          gapStart = -1;
+        }
+      }
+    }
+
+    // --- Pass 2: Vertical scanlines (fill gaps along Y axis per perp column) ---
+    for (let p = 0; p < perpSize; p++) {
+      // Find building extent at this perp column
+      let yMin = -1, yMax = -1;
+      for (let y = 0; y < height; y++) {
+        if (surfaceDepth[p * height + y] >= 0) {
+          if (yMin < 0) yMin = y;
+          yMax = y;
+        }
+      }
+      if (yMin < 0) continue;
+
+      let gapStart = -1;
+      for (let y = yMin; y <= yMax + 1; y++) {
+        const hasSolid = y <= yMax && surfaceDepth[p * height + y] >= 0;
+
+        if (!hasSolid && gapStart < 0) {
+          gapStart = y;
+        } else if (hasSolid && gapStart >= 0) {
+          const gapLen = y - gapStart;
+          if (gapLen <= maxGapWidth) {
+            const neighborDepths: number[] = [];
+            const neighborCounts = new Map<string, number>();
+
+            for (const ny of [gapStart - 1, y]) {
+              if (ny >= 0 && ny < height) {
+                const d = surfaceDepth[p * height + ny];
+                const b = surfaceBlock[p * height + ny];
+                if (d >= 0 && b !== AIR) {
+                  neighborDepths.push(d);
+                  neighborCounts.set(b, (neighborCounts.get(b) || 0) + 1);
+                }
+              }
+            }
+            if (neighborDepths.length === 0) { gapStart = -1; continue; }
+
+            let fillBlock = AIR;
+            let bestCount = 0;
+            for (const [b, c] of neighborCounts) {
+              if (c > bestCount) { fillBlock = b; bestCount = c; }
+            }
+
+            const fillDepth = Math.round(
+              neighborDepths.reduce((s, d) => s + d, 0) / neighborDepths.length
+            );
+
+            for (let fy = gapStart; fy < y; fy++) {
+              const [x, gy, z] = toXYZ(fillDepth, p, fy);
+              if (grid.get(x, gy, z) === AIR) {
+                grid.set(x, gy, z, fillBlock);
+                totalFilled++;
+              }
+            }
+          }
+          gapStart = -1;
+        }
+      }
+    }
+  }
+
+  return totalFilled;
+}
+
+/**
  * Fill building interiors using 2D flood-fill per Y-layer.
  *
  * Photogrammetry meshes produce porous voxel shells — surfaces riddled with

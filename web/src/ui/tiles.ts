@@ -38,7 +38,7 @@ import {
   glazeDarkWindows, glazeReflectiveWindows, injectSyntheticWindows,
   extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
   smoothFacadeColors, smoothRoofPlane, clusterFacadePalette,
-  fillFacadeHoles, removeIsolatedVoxels,
+  fillFacadeHoles, removeIsolatedVoxels, fillFacadeVoids2D,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult, ExtractedEnvironment } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -893,6 +893,12 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
       }
     }
   }
+  // 8b. Seal multi-block facade holes using 2D flood-fill projection.
+  {
+    const sealed = fillFacadeVoids2D(grid);
+    if (sealed > 0) console.log(`[tiles:pp] facade void sealing (2D): ${sealed} enclosed voids filled`);
+  }
+
   await yieldUI();
 
   // 9. Glaze dark exterior blocks as windows BEFORE mode filter.
