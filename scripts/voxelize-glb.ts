@@ -1017,12 +1017,18 @@ async function main(): Promise<void> {
   const args = parseArgs();
   const t0 = performance.now();
 
-  // Helper: query OSM building — uses explicit ID when provided, else proximity search
-  async function queryOSM(lat: number, lng: number, radius = 150) {
-    if (args.osmId) {
-      return fetchOSMById(args.osmId.type, args.osmId.id);
+  // Helper: query OSM building — uses explicit ID when provided, else proximity search.
+  // Caches the Promise to avoid redundant Overpass API hits (same building queried
+  // at up to 5 pipeline stages). Promise-level cache also handles concurrent calls.
+  const osmCache = new Map<string, Promise<Awaited<ReturnType<typeof searchOSMBuilding>>>>();
+  function queryOSM(lat: number, lng: number, radius = 150) {
+    const key = args.osmId ? `${args.osmId.type}-${args.osmId.id}` : `${lat},${lng},${radius}`;
+    if (!osmCache.has(key)) {
+      osmCache.set(key, args.osmId
+        ? fetchOSMById(args.osmId.type, args.osmId.id)
+        : searchOSMBuilding(lat, lng, radius));
     }
-    return searchOSMBuilding(lat, lng, radius);
+    return osmCache.get(key)!;
   }
 
   // ── Batch mode: analyze multiple GLBs, output summary table ──
@@ -2631,6 +2637,18 @@ async function main(): Promise<void> {
     }
   }
 
+  // v300: Smooth dark shadow artifacts — photogrammetry bakes shadow into texture,
+  // mapping shadow pixels to very dark blocks (polished_deepslate, nether_bricks, etc.)
+  // that create visual noise obscuring building form. Replace with neighborhood mode.
+  // v313: Moved BEFORE modeFilter3D — dark artifacts in shadow bands (2×2+ clusters)
+  // would survive majority voting and get propagated. Cleaning first starves mode filter.
+  if (!args.zoneNormalize) {
+    const darkSmoothed = smoothDarkBlocks(trimmed);
+    if (darkSmoothed > 0) {
+      console.log(`Dark block smoothing: ${darkSmoothed} shadow-artifact blocks replaced (floor + contrast)`);
+    }
+  }
+
   // 3D mode filter — smooth spatial noise while preserving multi-zone materials.
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
@@ -2662,16 +2680,6 @@ async function main(): Promise<void> {
     }
   } else {
     console.log(`Morph close post-filter: SKIPPED (complex shape — gaps are real geometry)`);
-  }
-
-  // v300: Smooth dark shadow artifacts — photogrammetry bakes shadow into texture,
-  // mapping shadow pixels to very dark blocks (polished_deepslate, nether_bricks, etc.)
-  // that create visual noise obscuring building form. Replace with neighborhood mode.
-  if (!args.zoneNormalize) {
-    const darkSmoothed = smoothDarkBlocks(trimmed);
-    if (darkSmoothed > 0) {
-      console.log(`Dark block smoothing: ${darkSmoothed} shadow-artifact blocks replaced (floor + contrast)`);
-    }
   }
 
   // Phase 4c: Facade color coherence — 5×5×1 Lab-weighted average on facade planes.
@@ -2801,6 +2809,7 @@ async function main(): Promise<void> {
   // After all processing (zone assignment, contrast, homogenize), run maskToFootprint
   // again with same dilation as pre-fill to clip morphClose/modeFilter expansion.
   // Safety: snapshot grid before mask, revert if >40% removed (polygon alignment issue).
+  let postMaskApplied = false;
   if (osmPolygon && args.coords && !args.noOsm && !args.noPostMask) {
     const postMaskDilate = args.maskDilate ?? 3; // same dilation as pre-fill mask
     const blocksBefore = trimmed.countNonAir();
@@ -2834,6 +2843,7 @@ async function main(): Promise<void> {
         }
         console.log(`    Post-morph re-mask: REVERTED — would remove ${pctRemoved.toFixed(0)}% of blocks (polygon misaligned)`);
       } else {
+        postMaskApplied = true;
         console.log(`    Post-morph re-mask: ${postMasked} blocks clipped (${pctRemoved.toFixed(0)}%, dilate=${postMaskDilate})`);
       }
     }
@@ -2844,8 +2854,10 @@ async function main(): Promise<void> {
   // morphClose, then after all processing clip any columns that weren't in
   // the original footprint. This preserves interior fill while preventing
   // outline expansion from dilation.
-  // (Applied after morphClose+modeFilter, uses savedFootprint captured earlier)
-  if (savedFootprint) {
+  // Skip when OSM post-mask was applied — the polygon is more authoritative than
+  // the pre-morphClose bitmap, and the two conflict when morphClose fills valid
+  // gaps within the OSM polygon that the bitmap doesn't know about.
+  if (savedFootprint && !postMaskApplied) {
     let footprintClipped = 0;
     const { width: gw, height: gh, length: gl } = trimmed;
     for (let z = 0; z < gl; z++) {

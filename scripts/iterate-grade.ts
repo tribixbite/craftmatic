@@ -408,10 +408,7 @@ Answer each question with true or false. Be VERY conservative — only flag defe
   "facade_holes_visible": [true ONLY if large wall sections (5+ blocks) are completely missing, revealing hollow interior or sky behind. NOT dark texture patches, color variation, or window recesses.],
   "floating_artifacts": [true ONLY if clearly separate structures are floating in mid-air, disconnected from the building by visible air gaps. NOT minor surface bumps or ground-level debris.],
   "neighbor_buildings_merged": [true ONLY if a second clearly distinct building is attached to or fused with the target building — not interior courtyards or wings of the same building],
-  "footprint_wrong_shape": [true ONLY if the overall footprint CATEGORY is wrong — e.g., voxel is a circle but satellite shows a rectangle, or voxel is an L-shape but satellite shows a triangle. False if the shapes are the same category (both rectangles, both L-shapes) even if proportions differ slightly. Irregular edges from voxelization are expected and NOT a shape error.],
   "false_positives_merged": [true ONLY if large non-building structures (bridges, walls, roads) are visibly merged into the building],
-  "building_recognizable": [true if the isometric 3D views show a structure whose general type and massing match the satellite — e.g., both show a tower, both show a wide building, both show a stepped form. Judge from the ISOMETRIC views (images 4-5), not from the top-down. False ONLY if the voxel is clearly a different type of structure than the satellite shows.],
-  "proportions_correct": [true if the building's width-to-height-to-depth ratios are within ~30% of the satellite reference. Voxel quantization creates minor proportion shifts — only flag MAJOR distortions like 2:1 becoming 1:1.],
   "surface_detail_visible": [true if the facade shows multiple distinct Minecraft block types with visible color or texture variation]
 }
 
@@ -809,33 +806,28 @@ async function gradeOne(
         facade_holes_visible:      toBool(defects.facade_holes_visible),
         floating_artifacts:        toBool(defects.floating_artifacts),
         neighbor_buildings_merged: toBool(defects.neighbor_buildings_merged),
-        footprint_wrong_shape:     toBool(defects.footprint_wrong_shape),
         false_positives_merged:    toBool(defects.false_positives_merged),
-        building_recognizable:     toBool(defects.building_recognizable),
-        proportions_correct:       toBool(defects.proportions_correct),
         surface_detail_visible:    toBool(defects.surface_detail_visible),
       };
 
       const total = scoreFromDefects(checklist);
 
       // Debug: log which defects were flagged for diagnostic visibility
-      const flagged = Object.entries(checklist).filter(([, v]) => {
-        // For negative-sense booleans (recognizable/proportions/surface), flag when false
+      const flagged = Object.entries(checklist).filter(([k, v]) => {
+        // surface_detail_visible is positive-sense (true = good), flag when false
+        if (k === 'surface_detail_visible') return !v;
         return v === true;
-      }).map(([k]) => k);
-      const missing = ['building_recognizable', 'proportions_correct', 'surface_detail_visible']
-        .filter(k => !(checklist as Record<string, boolean>)[k]);
-      if (flagged.length > 0 || missing.length > 0) {
-        console.error(`      Defects: ${[...flagged, ...missing.map(k => `!${k}`)].join(', ')} → ${total}/10`);
+      }).map(([k, v]) => k === 'surface_detail_visible' ? `!${k}` : k);
+      if (flagged.length > 0) {
+        console.error(`      Defects: ${flagged.join(', ')} → ${total}/10`);
       }
 
       // Map defect fields to legacy A/B/C/D sub-scores for diagnose() and markdown table.
       // NOTE: These are diagnostic-only approximations. `total` from scoreFromDefects() is the authoritative score.
       // A (footprint, 0-2): penalise false_positives_merged + neighbor_buildings_merged
-      //   footprint_wrong_shape has 0 scoring weight (voxels inherently blocky)
       // B (massing, 0-1):   penalise height_truncated only (reduced weight — LOD limitation)
       // C (surface, 0-3):   penalise !surface_detail_visible + facade_holes_visible + floating_artifacts
-      // D (identity, 0-2):  informational only (building_recognizable has 0 scoring weight)
+      // D (identity, 0-2):  always 2 (removed zero-weight building_recognizable field)
       const scoreA = 2
         - (checklist.false_positives_merged    ? 1 : 0)
         - (checklist.neighbor_buildings_merged ? 1 : 0);
@@ -845,7 +837,7 @@ async function gradeOne(
         - (!checklist.surface_detail_visible ? 1 : 0)
         - (checklist.facade_holes_visible    ? 1 : 0)
         - (checklist.floating_artifacts      ? 1 : 0);
-      const scoreD = checklist.building_recognizable ? 2 : 0; // informational
+      const scoreD = 2; // was: building_recognizable — removed zero-weight VLM field
 
       return {
         A: Math.max(0, scoreA),
