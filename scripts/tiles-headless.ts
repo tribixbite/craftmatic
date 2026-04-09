@@ -499,10 +499,11 @@ extractMeshes(tiles.group, 'initial');
 if (multiAngle) {
   console.log('\n--- Multi-angle LOD forcing ---');
 
-  // For tall buildings (>100m), capture in vertical bands so the camera stays
-  // close enough for high-LOD tiles at each height zone. Each band covers ~100m.
+  // Phase 1c: For tall buildings, capture in vertical bands so the camera stays
+  // close enough for high-LOD tiles at each height zone. Band height matches
+  // the capture radius (min 30m) — tighter than the old 100m fixed bands.
   const effectiveHeight = buildingHeight || 60;
-  const bandHeight = 100; // meters per vertical band
+  const bandHeight = Math.max(radius, 30); // Phase 1c: radius-proportional bands
   const numBands = Math.max(1, Math.ceil(effectiveHeight / bandHeight));
   const bandCamDist = Math.max(radius * 2, 80); // close enough for detail
 
@@ -511,7 +512,9 @@ if (multiAngle) {
   const facadeAngles = allAngles.filter((a) => a.name !== 'top-down');
 
   for (let band = 0; band < numBands; band++) {
-    const bandCenterY = band * bandHeight + bandHeight * 0.4;
+    // Phase 1c: distribute band centers from 25% to 75% of building height
+    const t = numBands === 1 ? 0.5 : 0.25 + (band / (numBands - 1)) * 0.5;
+    const bandCenterY = effectiveHeight * t;
     const bandLabel = numBands > 1 ? ` band ${band + 1}/${numBands} (Y=${Math.round(bandCenterY)}m)` : '';
     console.log(`  Height${bandLabel}`);
 
