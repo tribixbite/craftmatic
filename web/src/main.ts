@@ -7,6 +7,7 @@ import './style.css';
 import * as THREE from 'three';
 import { BlockGrid } from '@craft/schem/types.js';
 import { createViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
+import { createLegoViewer, ACCURATE_Y_SCALE } from '@viewer/lego-scene.js';
 import { enableSelection } from '@viewer/selection.js';
 import { cropToAABB } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
@@ -26,6 +27,8 @@ import { initLego } from '@ui/lego.js';
 let activeViewer: ViewerState | null = null;
 let activeGrid: BlockGrid | null = null;
 let inlineViewer: ViewerState | null = null;
+/** When set, the current inline/full viewer uses LEGO proportions (ACCURATE_Y_SCALE or 1.0 cubic). */
+let activeLegoYScale: number | null = null;
 /** Base filename (no extension) for exports — derived from address or generator config */
 let exportBasename = 'craftmatic';
 
@@ -93,7 +96,7 @@ function showError(message: string): void {
 
 // ─── Inline Viewer (embedded in tab panels) ──────────────────────────────────
 
-function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
+function showInlineViewer(container: HTMLElement, grid: BlockGrid, legoYScale?: number): void {
   // Dispose previous inline viewer
   if (inlineViewer) {
     inlineViewer.dispose();
@@ -167,7 +170,10 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
   });
 
   // Create and mount 3D viewer (may fail without WebGL — controls still work)
-  inlineViewer = createViewer(container, grid);
+  activeLegoYScale = legoYScale ?? null;
+  inlineViewer = legoYScale !== undefined
+    ? createLegoViewer(container, grid, { yScale: legoYScale })
+    : createViewer(container, grid);
 }
 
 // ─── Full Viewer Overlay ─────────────────────────────────────────────────────
@@ -207,7 +213,9 @@ function openFullViewer(grid: BlockGrid): void {
   overlayDownloadMenu.hidden = false;
   overlayDownloadDropdown.classList.add('open');
 
-  activeViewer = createViewer(viewerCanvas, grid);
+  activeViewer = activeLegoYScale !== null
+    ? createLegoViewer(viewerCanvas, grid, { yScale: activeLegoYScale })
+    : createViewer(viewerCanvas, grid);
 }
 
 function closeFullViewer(): void {
@@ -772,12 +780,12 @@ function showTilesSelectionBanner(
 const legoControls = document.getElementById('lego-controls')!;
 const legoViewer = document.getElementById('lego-viewer')!;
 
-initLego(legoControls, legoViewer, (grid: BlockGrid, label: string) => {
+initLego(legoControls, legoViewer, (grid: BlockGrid, label: string, isCubic: boolean) => {
   exportBasename = slugify(label) || 'lego-set';
   showLoading('Building 3D view...');
   requestAnimationFrame(() => setTimeout(() => {
     try {
-      showInlineViewer(legoViewer, grid);
+      showInlineViewer(legoViewer, grid, isCubic ? 1.0 : ACCURATE_Y_SCALE);
     } catch (err) {
       console.warn('3D viewer failed:', err);
       const fallback = document.createElement('div');

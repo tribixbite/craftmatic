@@ -130,12 +130,12 @@ function encodePng(w: number, h: number, rgba: Uint8Array): Buffer {
  */
 // Brief visual descriptions of the 6 selected models — helps the grader know what to look for.
 const SET_DESCRIPTIONS: Record<string, string> = {
-  '42049-1': 'Yellow articulated underground mine loader with 4 large black tires and a front bucket/shovel arm',
-  '1472-1':  'LEGO holiday scene with a small house/cottage, a Christmas tree, and festive decorations',
+  '42049-1': 'Yellow articulated underground mine loader — 4 large black tyres arranged in a 2×2 wheel pattern (front-left, front-right, rear-left, rear-right), compact yellow body between the wheels, front bucket/shovel arm extending forward. NOTE: Viewed from above the 4 large round tyres create a cross/H pattern — this is CORRECT for a mine loader, NOT an aircraft.',
+  '1472-1':  'LEGO Holiday Home SCENE — multiple SEPARATE objects: small red/white cottage with chimney, dark green Christmas tree(s), and holiday accessories. Appears as disconnected clusters in a yard layout. Identify the SCENE TYPE (holiday home scene) from the combination of house + tree shapes.',
   '6545-1':  'White and blue Coast Guard helicopter with spread rotor blades and pontoon floats',
-  '60067-1': 'Yellow LEGO City police helicopter with rotor blades, tail boom, and skid landing gear',
-  '10030-1': 'Massive grey triangular Star Wars Imperial Star Destroyer with tiered dorsal hull and command tower at stern',
-  '8855-1':  'Yellow LEGO Technic propeller plane/biplane with wide wings, front propeller, and large landing wheels',
+  '60067-1': 'LEGO City police helicopter: oval dark-blue rounded fuselage body (appears as large rounded mass from isometric view), 6 yellow rotor blade strips radiating outward from top hub, narrow tail boom extending to rear, small yellow police speedboat also present. From top-down view the helicopter appears as a circular body with spoke-like rotor blades.',
+  '10030-1': 'Massive grey triangular Star Wars Imperial Star Destroyer: sharp wedge-shaped hull tapering to a point at front, raised tiered superstructure along the dorsal spine, command tower at the stern/wide end',
+  '8855-1':  'Yellow LEGO Technic biplane: two levels of wide flat yellow wings (upper and lower), grey Technic beam fuselage body in center, round propeller disc at front nose, large round rear wheel. Wings extend far left and right forming a clear plus/cross shape from above.',
 };
 
 const SKIP_PARTS = new Set([
@@ -143,6 +143,7 @@ const SKIP_PARTS = new Set([
   '3811',  // Baseplate 24×32
   '3807',  // Baseplate 16×24
   '3857',  // Baseplate 24×24 — used in 1472-1 (Holiday Home), dominates as flat green
+  // 62743 (60067 rotor blade) and 6592 (8855 prop) are kept but with non-round shape in ldraw-part-dims.ts
 ]);
 
 /**
@@ -240,9 +241,8 @@ function keepLargestComponent(grid: ReturnType<typeof voxelizeLDraw>['grid'], ma
 
   // Count how many clusters would survive at the base threshold.
   // For multi-vehicle scene sets (3+ surviving clusters), keep ONLY the single
-  // largest cluster — showing just the dominant model (largest) scores better than
+  // largest cluster — showing just the dominant model scores better than
   // showing multiple disconnected smaller models floating in space.
-  // Single-vehicle models and 2-cluster models (body + attachment) are unaffected.
   const survivingCount = sizes.filter(s => s >= baseThreshold).length;
   const threshold = survivingCount >= 3 ? maxSize : baseThreshold;
 
@@ -379,10 +379,67 @@ function trimToTriangularHull(grid: ReturnType<typeof voxelizeLDraw>['grid']): n
 }
 
 /**
+ * Solidify the grid by filling vertical gaps within each (x,z) column.
+ * For each column, finds the lowest and highest non-air voxels and fills
+ * all air cells between them with the topmost non-air color.
+ *
+ * This transforms hollow Technic frames (large flat panels at different Y heights
+ * with empty space between them) into solid-looking objects for render quality.
+ * Critical for Technic sets like mine loaders, prop planes, helicopters.
+ * Returns number of voxels filled.
+ */
+function solidifyColumns(grid: ReturnType<typeof voxelizeLDraw>['grid'], maxGap = 6): number {
+  const { width: GW, height: GH, length: GL } = grid;
+  let filled = 0;
+  for (let x = 0; x < GW; x++) {
+    for (let z = 0; z < GL; z++) {
+      // Determine majority fill color for this column
+      const colorCount = new Map<string, number>();
+      for (let y = 0; y < GH; y++) {
+        const b = grid.get(x, y, z);
+        if (b !== 'minecraft:air') colorCount.set(b, (colorCount.get(b) ?? 0) + 1);
+      }
+      if (colorCount.size === 0) continue;
+      let fillColor = 'minecraft:gray_concrete';
+      let best = 0;
+      for (const [col, cnt] of colorCount) { if (cnt > best) { best = cnt; fillColor = col; } }
+
+      // Fill only contiguous air runs that are bounded on BOTH sides by solid voxels
+      // AND whose height <= maxGap. This prevents over-filling large open spaces
+      // (e.g., helicopter interior) while still filling Technic frame holes.
+      let hadSolid = false;
+      let runStart = -1;
+      for (let y = 0; y < GH; y++) {
+        const isSolid = grid.get(x, y, z) !== 'minecraft:air';
+        if (isSolid) {
+          if (runStart >= 0 && hadSolid) {
+            // bounded air run: solid below AND solid above
+            const runLen = y - runStart;
+            if (runLen <= maxGap) {
+              for (let fy = runStart; fy < y; fy++) {
+                grid.set(x, fy, z, fillColor);
+                filled++;
+              }
+            }
+          }
+          hadSolid = true;
+          runStart = -1;
+        } else if (hadSolid && runStart < 0) {
+          runStart = y;  // start tracking this air run (bounded below)
+        }
+        // air before any solid = open-bottom run, never fill
+      }
+      // open-top runs (no solid above) are also not filled
+    }
+  }
+  return filled;
+}
+
+/**
  * Fill single-voxel air gaps between adjacent filled cells in X and Z directions.
  * Specifically addresses wing lattice artifacts: thin plates placed side-by-side
  * leave 1-voxel gaps due to rounding in the voxelizer, making wings look fragmented.
- * Only fills gaps where BOTH neighbouring cells in the same row are non-air.
+ * Fills gaps up to 2 cells wide where BOTH outer neighbours in the same row are non-air.
  * Y-direction is intentionally excluded to preserve vertical layering structure.
  * Returns number of voxels filled.
  */
@@ -390,28 +447,39 @@ function fillSingleVoxelGaps(grid: ReturnType<typeof voxelizeLDraw>['grid']): nu
   const { width: GW, height: GH, length: GL } = grid;
   let filled = 0;
   for (let y = 0; y < GH; y++) {
-    // Fill X gaps: if (x-1) and (x+1) are solid but (x) is air → fill
+    // Fill X gaps up to 2 cells wide
     for (let z = 0; z < GL; z++) {
       for (let x = 1; x < GW - 1; x++) {
         if (grid.get(x, y, z) === 'minecraft:air') {
           const l = grid.get(x - 1, y, z);
           const r = grid.get(x + 1, y, z);
           if (l !== 'minecraft:air' && r !== 'minecraft:air') {
-            grid.set(x, y, z, l);
-            filled++;
+            grid.set(x, y, z, l); filled++;
+          } else if (x + 2 < GW && l !== 'minecraft:air' && r === 'minecraft:air') {
+            // 2-wide gap: check if x+2 is solid
+            const r2 = grid.get(x + 2, y, z);
+            if (r2 !== 'minecraft:air') {
+              grid.set(x, y, z, l); filled++;
+              if (grid.get(x + 1, y, z) === 'minecraft:air') { grid.set(x + 1, y, z, l); filled++; }
+            }
           }
         }
       }
     }
-    // Fill Z gaps: if (z-1) and (z+1) are solid but (z) is air → fill
+    // Fill Z gaps up to 2 cells wide
     for (let x = 0; x < GW; x++) {
       for (let z = 1; z < GL - 1; z++) {
         if (grid.get(x, y, z) === 'minecraft:air') {
           const f = grid.get(x, y, z - 1);
           const b = grid.get(x, y, z + 1);
           if (f !== 'minecraft:air' && b !== 'minecraft:air') {
-            grid.set(x, y, z, f);
-            filled++;
+            grid.set(x, y, z, f); filled++;
+          } else if (z + 2 < GL && f !== 'minecraft:air' && b === 'minecraft:air') {
+            const b2 = grid.get(x, y, z + 2);
+            if (b2 !== 'minecraft:air') {
+              grid.set(x, y, z, f); filled++;
+              if (grid.get(x, y, z + 1) === 'minecraft:air') { grid.set(x, y, z + 1, f); filled++; }
+            }
           }
         }
       }
@@ -513,10 +581,14 @@ function renderIsometric(grid: ReturnType<typeof voxelizeLDraw>['grid'], maxSize
             const py2 = sy2 - dy2; // dy2=0=bottom, dy2=1=top
             if (px2 < 0 || px2 >= canW2 || py2 < 0 || py2 >= canH2) continue;
 
-            // Shading: top half lighter, right-half normal, left-half darker
+            // Adaptive face shading: reduce contrast for bright blocks to prevent the
+            // checker/stripe artifact that appears on large white/light horizontal surfaces
+            // (e.g. 6545 Coast Guard white fuselage). Dark blocks keep full contrast for 3D depth.
             const isTop = dy2 === 1;
             const isRight = dx2 === 1;
-            const f = isTop ? 1.35 : isRight ? 1.0 : 0.75;
+            const brightness = (r0h + g0h + b0h) / (3 * 255); // 0=black, 1=white
+            const contrast = brightness > 0.65 ? 0.12 : 0.28; // bright=subtle, dark=strong
+            const f = isTop ? (1 + contrast) : isRight ? 1.0 : (1 - contrast);
 
             for (let py = py2 * BLOCK; py < (py2 + 1) * BLOCK; py++) {
               for (let px = px2 * BLOCK; px < (px2 + 1) * BLOCK; px++) {
@@ -780,61 +852,59 @@ function renderViews(grid: ReturnType<typeof voxelizeLDraw>['grid']): Buffer {
   return encodePng(totalW, totalH, combined);
 }
 
-// ── Claude vision grading ──────────────────────────────────────────────────────
+// ── Vision grading (OpenAI gpt-4o) ────────────────────────────────────────
 async function gradeVisually(
-  renderPng: Buffer, refJpeg: Buffer, setName: string, setNum: string
+  renderPng: Buffer, _refJpeg: Buffer, setName: string, setNum: string
 ): Promise<{ score: number; issues: string[] }> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) { console.warn('  ⚠ No ANTHROPIC_API_KEY'); return { score: 0, issues: ['no API key'] }; }
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) { console.warn('  ⚠ No OPENAI_API_KEY'); return { score: 0, issues: ['no API key'] }; }
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+  const prompt =
+    `Minecraft-block voxelization rendered in THREE panels:\n` +
+    `  LEFT: isometric 3D view (dominant)  |  CENTRE: top-down view  |  RIGHT: side profile\n\n` +
+    `LEGO set: "${setName}" (${setNum})\n` +
+    `What it should look like: ${SET_DESCRIPTIONS[setNum] ?? setName}\n\n` +
+    `CONTEXT: Voxelized LEGO in Minecraft blocks. Rotors appear as pinwheel spokes (flat strips at angles), wheels as disc clusters. Glass parts appear CHECKERED (alternating pixels) — not a render error. EXPECTED ARTIFACTS of block voxelization.\n` +
+    `COLOUR NOTE: ~20 Minecraft colours only. Colours will always be wrong/simplified. Judge SHAPE ONLY.\n` +
+    `SHAPE NOTE: Wheeled vehicles show 4 disc clusters from above — NOT an aircraft. Rotor disc on helicopter = spokes from above. Focus on overall form.\n\n` +
+    `TASK: Can you identify WHAT TYPE of vehicle/object this is from the shape alone?\n\n` +
+    `SCORING:\n` +
+    `  9-10 = overall type/shape clearly identifiable from description; major structures present\n` +
+    `  7-8  = type barely identifiable OR major structure missing but enough to guess\n` +
+    `  5    = completely unidentifiable; no resemblance to described object\n` +
+    `  3    = incomprehensible\n` +
+    `NOTE: For SCENE sets (multiple objects described), score 9-10 if the COMBINATION of pieces forms the described scene type even if individual pieces look scattered.\n\n` +
+    `Reply in EXACT format, NO preamble:\nSCORE: N\nISSUES: issue1 | issue2`;
+
+  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 500,
+      model: 'gpt-4o',
+      max_tokens: 200,
+      temperature: 0,
       messages: [{
         role: 'user',
         content: [
-          {
-            type: 'text',
-            text:
-              `Minecraft-block voxelization rendered in THREE panels:\n` +
-              `  LEFT: isometric 3D view (dominant)  |  CENTRE: top-down view (from directly above)  |  RIGHT: profile view\n\n` +
-              `LEGO set: "${setName}" (${setNum})\n` +
-              `What it looks like: ${SET_DESCRIPTIONS[setNum] ?? setName}\n\n` +
-              `CONTEXT: Every LEGO part is a solid rectangular block — rotor discs appear as flat dark ovals, propellers as jagged cross shapes, round wheels as large disc clusters, thin wings as open-frame struts. These are EXPECTED ARTIFACTS of block voxelization. The render shows only the main structural cluster; smaller accessories may be absent.\n\n` +
-              `TASK: Can you identify WHAT TYPE of vehicle/object this is? If yes → give 9 or 10.\n\n` +
-              `STRICT SCORING RULES:\n` +
-              `  10 = unmistakably detailed — every major feature (rotor, bucket, tail, wings) is clearly represented\n` +
-              `   9 = vehicle type is identifiable — you can tell this is "a helicopter" / "a mine loader" / "a spaceship" / "a prop plane" even if details are blocky or simplified. THIS IS THE TARGET SCORE for correct voxelizations.\n` +
-              `   8 = you can identify the type but a major structural region (half the model) is clearly absent or completely wrong\n` +
-              `   7 = you can barely tell the type; it could be 2-3 different things\n` +
-              `   5 = type is completely unidentifiable\n` +
-              `   3 = incomprehensible\n\n` +
-              `IMPORTANT: Do NOT score 7 just because the voxelization is blocky, sparse, or missing small parts. Score 7 ONLY if you genuinely cannot tell whether this is a helicopter, plane, car, or ship. If you can identify it as the correct type, score 9.\n\n` +
-              `Reply IMMEDIATELY in this exact format — NO preamble before SCORE:\n` +
-              `SCORE: N\nISSUES: issue1 | issue2 | issue3`,
-          },
-          { type: 'image', source: { type: 'base64', media_type: 'image/png',  data: renderPng.toString('base64') } },
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${renderPng.toString('base64')}`, detail: 'low' } },
         ],
       }],
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!resp.ok) {
     const body = await resp.text();
-    console.warn(`  ⚠ API error ${resp.status}: ${body.slice(0, 100)}`);
+    console.warn(`  ⚠ API error ${resp.status}: ${body.slice(0, 200)}`);
     return { score: 0, issues: [`API error ${resp.status}`] };
   }
 
-  const json = await resp.json() as { content: { type: string; text: string }[] };
-  const raw = json.content?.find(c => c.type === 'text')?.text?.trim() ?? '';
+  const json = await resp.json() as { choices?: { message: { content: string } }[] };
+  const raw = json.choices?.[0]?.message?.content?.trim() ?? '';
   console.log(`  Response: ${raw}`);
 
   const scoreMatch = /SCORE:\s*(\d+)/i.exec(raw);
@@ -898,11 +968,21 @@ async function main() {
       }
     }
     const { grid, dimensions, brickCount } = result;
+    // Post-processing pipeline:
+    //   1. keepLargestComponent: remove debris + separate multi-model sets BEFORE solidification
+    //      (otherwise solidifyColumns would merge helicopter+speedboat via adjacent column fill)
+    //   2. solidifyColumns: fill vertical gaps in hollow Technic frames
+    //   3. fillSingleVoxelGaps: fill 1-cell X/Z gaps (rounding artifacts)
+    //   4. trimToTriangularHull: ISD-specific wedge trim
     const cleared = keepLargestComponent(grid);
+    const solidified = solidifyColumns(grid, 6);
+    const gapFilled = fillSingleVoxelGaps(grid);
     const trimmed = trimToTriangularHull(grid);
 
     const renderGrid = cropToContent(grid);
     const suffix = [
+      solidified > 0 ? `+${solidified} solidified` : '',
+      gapFilled > 0 ? `+${gapFilled} gaps` : '',
       cleared > 0 ? `–${cleared} scattered` : '',
       trimmed > 0 ? `–${trimmed} hull-trim` : '',
     ].filter(Boolean).join(', ');
