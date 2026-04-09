@@ -118,7 +118,7 @@ const BUILDINGS: BuildingConfig[] = [
     glb: `${DIR}/seattle-library.glb`,
     coords: '47.6067,-122.3326',
     satRef: `${DIR}/sat-ref-seattle-library.jpg`,
-    resolution: 2, // v303: 2x for diamond facets (was 1)
+    resolution: 1, // v313: 1x — 2x creates facade holes on glass building. 1x averaging helps.
     maskDilate: 1, // v303: tighten from 2
     modePasses: 1, // v305: glass facade needs less smoothing — 2 passes killed surface detail (C: 2→1.2)
     extraFlags: ['--no-enu'],
@@ -352,7 +352,7 @@ const BUILDINGS_NEW: BuildingConfig[] = [
     glb: `${DIR}/coit-grandrapids.glb`,
     coords: '42.9742448,-85.6653327',
     satRef: `${DIR}/sat-ref-coit-grandrapids.jpg`,
-    resolution: 2, // large compound footprint benefits from 2x detail
+    resolution: 1, // v313: 1x — 2x creates noise on low-rise building. 1x averaging helps.
     maskDilate: 1, // v308: raised from 0 — tight mask clips thin corridors between wings
     osmId: 'way/223060418', // v308: explicit school footprint — excludes 3 nearby building=yes ways
     modePasses: 3,
