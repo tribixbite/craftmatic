@@ -37,7 +37,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
 import type { VoxelizeMode } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, clusterFacadePalette, glazeReflectiveWindows, morphCloseFacadeAligned, detectCornices, flattenFacadesSetbackAware } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, clusterFacadePalette, glazeReflectiveWindows, morphCloseFacadeAligned, detectCornices, flattenFacadesSetbackAware, fillFacadeHoles, removeIsolatedVoxels } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
@@ -2112,6 +2112,15 @@ async function main(): Promise<void> {
     }
   }
 
+  // v311: Fill single-block facade holes — air voxels surrounded by 4+ solid neighbors.
+  // Single pass only — iterative fill risks closing courtyards and walkways.
+  {
+    const holeFilled = fillFacadeHoles(trimmed, 4);
+    if (holeFilled > 0) {
+      console.log(`Facade hole fill: ${holeFilled} single-block voids patched (4+ solid neighbors)`);
+    }
+  }
+
   // v74: Edge straightening — median filter on XZ silhouette traces to remove
   // stair-step jaggies. Run after morphClose (shape healed) but before zone assignment
   // and facade smoothing. maxShift=2 limits correction to avoid distorting real setbacks.
@@ -2665,6 +2674,16 @@ async function main(): Promise<void> {
     const roofSmoothed = smoothRoofPlane(trimmed);
     if (roofSmoothed > 0) {
       console.log(`Roof plane smoothing: ${roofSmoothed} roof blocks replaced (5x5 majority vote)`);
+    }
+  }
+
+  // v311: Remove isolated single voxels — scattered 1-block artifacts (0-1 face neighbors).
+  // These are the "noise dots" visible in topdown and facade views from photogrammetry fragments.
+  // Runs after all color smoothing so it only catches truly disconnected remnants.
+  {
+    const isolated = removeIsolatedVoxels(trimmed, 1);
+    if (isolated > 0) {
+      console.log(`Isolated voxel removal: ${isolated} single-block artifacts removed (≤1 neighbor)`);
     }
   }
 

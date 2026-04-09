@@ -38,6 +38,7 @@ import {
   glazeDarkWindows, glazeReflectiveWindows, injectSyntheticWindows,
   extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
   smoothFacadeColors, smoothRoofPlane, clusterFacadePalette,
+  fillFacadeHoles, removeIsolatedVoxels,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult, ExtractedEnvironment } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -868,6 +869,11 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
     const facadeClosed = morphCloseFacadeAligned(grid, 2);
     if (facadeClosed > 0) console.log(`[tiles:pp] facade morph close: ${facadeClosed} facade gaps filled (r=2)`);
   }
+  // 7c. Fill single-block facade holes — air voxels with 4+ solid neighbors.
+  {
+    const holeFilled = fillFacadeHoles(grid, 4);
+    if (holeFilled > 0) console.log(`[tiles:pp] facade hole fill: ${holeFilled} voids patched`);
+  }
   await yieldUI();
 
   // 8. Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
@@ -937,6 +943,11 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   {
     const roofSmoothed = smoothRoofPlane(grid);
     if (roofSmoothed > 0) console.log(`[tiles:pp] roof smooth: ${roofSmoothed} roof blocks replaced`);
+  }
+  // 10e. Remove isolated single voxels — noise dots with 0-1 face neighbors.
+  {
+    const isolated = removeIsolatedVoxels(grid, 1);
+    if (isolated > 0) console.log(`[tiles:pp] isolated voxels: ${isolated} artifacts removed`);
   }
   await yieldUI();
 

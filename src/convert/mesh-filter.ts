@@ -975,6 +975,147 @@ export function erodeSurfaceBumps(grid: BlockGrid, minNeighbors = 3): number {
 }
 
 /**
+ * Fill air holes on facades and interior surfaces with iterative convergence.
+ *
+ * Each pass fills air voxels with `minSolid`+ solid face-neighbors, assigning
+ * the most common neighbor block. Multiple passes gradually close larger holes
+ * from the walls inward — pass 1 fills strict 1-block holes, pass 2 fills the
+ * next ring (now exposed by pass-1 fills), and so on up to `maxPasses`.
+ *
+ * This catches the visible "black pixel" holes on otherwise solid facades
+ * that morphClose3D (radius=1) misses because it operates as dilate+erode
+ * rather than targeted single-voxel infill.
+ *
+ * @param grid  Source BlockGrid (modified in place)
+ * @param minSolid  Minimum face-adjacent solid neighbors to consider a hole (default: 4)
+ * @param maxPasses  Maximum fill iterations (default: 1). Higher values risk filling
+ *   intentional openings (courtyards, walkways). Use 1 for safety.
+ * @returns Number of air voxels filled across all passes
+ */
+export function fillFacadeHoles(grid: BlockGrid, minSolid = 4, maxPasses = 1): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+
+  const FACES: readonly [number, number, number][] = [
+    [1, 0, 0], [-1, 0, 0],
+    [0, 1, 0], [0, -1, 0],
+    [0, 0, 1], [0, 0, -1],
+  ];
+
+  let totalFilled = 0;
+
+  for (let pass = 0; pass < maxPasses; pass++) {
+    // Fresh snapshot each pass so we see previous pass's fills as solid
+    const snap: string[] = new Array(width * height * length);
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          snap[(y * length + z) * width + x] = grid.get(x, y, z);
+        }
+      }
+    }
+
+    let passFilled = 0;
+    for (let y = 0; y < height; y++) {
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          if (snap[(y * length + z) * width + x] !== AIR) continue;
+
+          // Count solid face-neighbors and track block types
+          let solidFaces = 0;
+          const counts = new Map<string, number>();
+          for (const [dx, dy, dz] of FACES) {
+            const nx = x + dx, ny = y + dy, nz = z + dz;
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < length) {
+              const nb = snap[(ny * length + nz) * width + nx];
+              if (nb !== AIR) {
+                solidFaces++;
+                counts.set(nb, (counts.get(nb) ?? 0) + 1);
+              }
+            }
+          }
+
+          if (solidFaces >= minSolid) {
+            let best = 'minecraft:stone';
+            let bestC = 0;
+            for (const [b, c] of counts) {
+              if (c > bestC) { best = b; bestC = c; }
+            }
+            grid.set(x, y, z, best);
+            passFilled++;
+          }
+        }
+      }
+    }
+
+    totalFilled += passFilled;
+    // Converged — no more holes to fill
+    if (passFilled === 0) break;
+  }
+
+  return totalFilled;
+}
+
+/**
+ * Remove isolated single voxels with very few solid neighbors.
+ *
+ * Targets scattered 1-block artifacts — the "noise dots" visible in topdown
+ * and facade views. These are typically photogrammetry fragments that survive
+ * component filtering because they touch the main body at a single face.
+ *
+ * Only removes voxels with 0 or 1 solid face-neighbor to avoid eroding
+ * legitimate thin features (cornices, antenna bases, etc).
+ *
+ * @param grid  Source BlockGrid (modified in place)
+ * @param maxNeighbors  Maximum solid face-neighbors to consider isolated (default: 1)
+ * @returns Number of voxels removed
+ */
+export function removeIsolatedVoxels(grid: BlockGrid, maxNeighbors = 1): number {
+  const { width, height, length } = grid;
+  const AIR = 'minecraft:air';
+
+  const FACES: readonly [number, number, number][] = [
+    [1, 0, 0], [-1, 0, 0],
+    [0, 1, 0], [0, -1, 0],
+    [0, 0, 1], [0, 0, -1],
+  ];
+
+  // Snapshot for consistent reads
+  const snap: string[] = new Array(width * height * length);
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        snap[(y * length + z) * width + x] = grid.get(x, y, z);
+      }
+    }
+  }
+
+  let removed = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (snap[(y * length + z) * width + x] === AIR) continue;
+
+        let solidFaces = 0;
+        for (const [dx, dy, dz] of FACES) {
+          const nx = x + dx, ny = y + dy, nz = z + dz;
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < length) {
+            if (snap[(ny * length + nz) * width + nx] !== AIR) solidFaces++;
+          }
+        }
+
+        if (solidFaces <= maxNeighbors) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
+/**
  * Fill building interiors using 2D flood-fill per Y-layer.
  *
  * Photogrammetry meshes produce porous voxel shells — surfaces riddled with
