@@ -1,0 +1,1002 @@
+{
+  "passingBatches": [
+    {
+      "batch": 1,
+      "models": [
+        {
+          "file": "10030 Imperial Star Destroyer.mpd",
+          "parts": 3037,
+          "blocks": 77252,
+          "fallbacks": 3,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "10338.ldr",
+          "parts": 801,
+          "blocks": 3653,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10002,10047"
+          ]
+        },
+        {
+          "file": "71515.ldr",
+          "parts": 1313,
+          "blocks": 6727,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070",
+            "very sparse (4.1% fill)"
+          ]
+        },
+        {
+          "file": "10242 Mini Cooper.ldr",
+          "parts": 1071,
+          "blocks": 6304,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047"
+          ]
+        },
+        {
+          "file": "71459_sm02.ldr",
+          "parts": 628,
+          "blocks": 5786,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10026,10484,10047"
+          ]
+        },
+        {
+          "file": "75353.ldr",
+          "parts": 525,
+          "blocks": 3812,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10002,10484,10047"
+          ]
+        },
+        {
+          "file": "71461_sm01.ldr",
+          "parts": 1097,
+          "blocks": 8787,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10002,10484,10026,10047",
+            "very sparse (3.8% fill)"
+          ]
+        },
+        {
+          "file": "5770 Lighthouse.ldr",
+          "parts": 514,
+          "blocks": 4823,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047,10070"
+          ]
+        },
+        {
+          "file": "71837.ldr",
+          "parts": 2896,
+          "blocks": 20949,
+          "fallbacks": 2,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047,10002,10320,10484"
+          ]
+        },
+        {
+          "file": "7962 Anakin & Sebulbas Podracers.mpd",
+          "parts": 854,
+          "blocks": 6289,
+          "fallbacks": 10,
+          "score": 10,
+          "issues": []
+        }
+      ],
+      "allPassing": true,
+      "timestamp": "2026-04-10T02:02:25.936Z"
+    },
+    {
+      "batch": 4,
+      "models": [
+        {
+          "file": "76304.ldr",
+          "parts": 717,
+          "blocks": 4219,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10002,10026,10047"
+          ]
+        },
+        {
+          "file": "10358.ldr",
+          "parts": 1272,
+          "blocks": 6541,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "42620.ldr",
+          "parts": 1010,
+          "blocks": 12827,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10002,10320,10026,10047,10070"
+          ]
+        },
+        {
+          "file": "6399 Airport Shuttle.mpd",
+          "parts": 788,
+          "blocks": 20641,
+          "fallbacks": 9,
+          "score": 10,
+          "issues": [
+            "very sparse (2.7% fill)"
+          ]
+        },
+        {
+          "file": "31313 Mindstorms EV3 Spike3r.mpd",
+          "parts": 3362,
+          "blocks": 6250,
+          "fallbacks": 5,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "6986 Mission Commander.mpd",
+          "parts": 611,
+          "blocks": 6440,
+          "fallbacks": 3,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "10230 Mini Modulars.mpd",
+          "parts": 1355,
+          "blocks": 4133,
+          "fallbacks": 11,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "3450 Statue of Liberty.ldr",
+          "parts": 2874,
+          "blocks": 26802,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "8868 Air Tech Claw Rig [Model B] Dump Truck.mpd",
+          "parts": 1925,
+          "blocks": 11576,
+          "fallbacks": 8,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "43019.ldr",
+          "parts": 1295,
+          "blocks": 12442,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047,10002,10070"
+          ]
+        }
+      ],
+      "allPassing": true,
+      "timestamp": "2026-04-10T02:22:20.991Z"
+    },
+    {
+      "batch": 7,
+      "models": [
+        {
+          "file": "42670.ldr",
+          "parts": 1780,
+          "blocks": 12772,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047,10070,10002,10484,10026"
+          ]
+        },
+        {
+          "file": "10332.ldr",
+          "parts": 2952,
+          "blocks": 20791,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10484,10002,10320,10047"
+          ]
+        },
+        {
+          "file": "60409.ldr",
+          "parts": 986,
+          "blocks": 8248,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10002,10047"
+          ]
+        },
+        {
+          "file": "910015_sm02.ldr",
+          "parts": 541,
+          "blocks": 3205,
+          "fallbacks": 1,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10320,10047,10026"
+          ]
+        },
+        {
+          "file": "80026.ldr",
+          "parts": 628,
+          "blocks": 5144,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10002,10047,10484,10320",
+            "very sparse (4.8% fill)"
+          ]
+        },
+        {
+          "file": "21304 Doctor Who.ldr",
+          "parts": 623,
+          "blocks": 4099,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047,10070,10320"
+          ]
+        },
+        {
+          "file": "5893 Offroad Power [Model A].ldr",
+          "parts": 1027,
+          "blocks": 9227,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047"
+          ]
+        },
+        {
+          "file": "60295.ldr",
+          "parts": 614,
+          "blocks": 10115,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10002,10026,10047",
+            "very sparse (2.8% fill)"
+          ]
+        },
+        {
+          "file": "76273.ldr",
+          "parts": 622,
+          "blocks": 5026,
+          "fallbacks": 2,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "71487_sm02.ldr",
+          "parts": 632,
+          "blocks": 3855,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": []
+        }
+      ],
+      "allPassing": true,
+      "timestamp": "2026-04-10T02:46:09.399Z"
+    },
+    {
+      "batch": 8,
+      "models": [
+        {
+          "file": "71774.ldr",
+          "parts": 845,
+          "blocks": 4920,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10484,10070",
+            "very sparse (2.5% fill)"
+          ]
+        },
+        {
+          "file": "76976.ldr",
+          "parts": 879,
+          "blocks": 7337,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047,10002,10320,10484"
+          ]
+        },
+        {
+          "file": "4404 Land Busters [Model A].ldr",
+          "parts": 751,
+          "blocks": 9308,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047"
+          ]
+        },
+        {
+          "file": "7735 Freight Train.mpd",
+          "parts": 433,
+          "blocks": 12144,
+          "fallbacks": 6,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "75912 Porsche 911 GT Finish Line.ldr",
+          "parts": 552,
+          "blocks": 6571,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047,10070,10002"
+          ]
+        },
+        {
+          "file": "10329.ldr",
+          "parts": 650,
+          "blocks": 4305,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10484,10070,10002,10047,10320"
+          ]
+        },
+        {
+          "file": "9748 Droid Development Kit [Model B] R2-D2.mpd",
+          "parts": 1159,
+          "blocks": 4498,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "8019 Republic Attack Shuttle.mpd",
+          "parts": 689,
+          "blocks": 10333,
+          "fallbacks": 3,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "70669.ldr",
+          "parts": 568,
+          "blocks": 4291,
+          "fallbacks": 4,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10320,10002,10026"
+          ]
+        },
+        {
+          "file": "10318.ldr",
+          "parts": 1782,
+          "blocks": 15232,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070",
+            "very sparse (3.0% fill)"
+          ]
+        }
+      ],
+      "allPassing": true,
+      "timestamp": "2026-04-10T02:53:04.222Z"
+    },
+    {
+      "batch": 9,
+      "models": [
+        {
+          "file": "8404 Public Transport Station.mpd",
+          "parts": 903,
+          "blocks": 12379,
+          "fallbacks": 18,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "75640.ldr",
+          "parts": 3015,
+          "blocks": 18511,
+          "fallbacks": 1,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10320,10484,10026,10047"
+          ]
+        },
+        {
+          "file": "60432.ldr",
+          "parts": 646,
+          "blocks": 6330,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10484,10070,10047"
+          ]
+        },
+        {
+          "file": "10359.ldr",
+          "parts": 1213,
+          "blocks": 6312,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10484,10070,10002"
+          ]
+        },
+        {
+          "file": "7735 Freight Train - model B.mpd",
+          "parts": 361,
+          "blocks": 11235,
+          "fallbacks": 6,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "42049 Mine Loader.mpd",
+          "parts": 479,
+          "blocks": 3878,
+          "fallbacks": 7,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "42008 Service Truck [Model B].ldr",
+          "parts": 1214,
+          "blocks": 10500,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10002,10047"
+          ]
+        },
+        {
+          "file": "71497_sm02.ldr",
+          "parts": 829,
+          "blocks": 4745,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047"
+          ]
+        },
+        {
+          "file": "9395 Pick-up Tow Truck [Model A].ldr",
+          "parts": 931,
+          "blocks": 9314,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047"
+          ]
+        },
+        {
+          "file": "31141_sm01.ldr",
+          "parts": 1355,
+          "blocks": 10108,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047,10002,10484,10026"
+          ]
+        }
+      ],
+      "allPassing": true,
+      "timestamp": "2026-04-10T03:04:51.293Z"
+    }
+  ],
+  "failedBatches": [
+    {
+      "batch": 2,
+      "models": [
+        {
+          "file": "10248 Ferrari F40.ldr",
+          "parts": 1156,
+          "blocks": 4954,
+          "fallbacks": 2,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "21161_sm03.ldr",
+          "parts": 550,
+          "blocks": 6036,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10002,10070"
+          ]
+        },
+        {
+          "file": "31215.ldr",
+          "parts": 2339,
+          "blocks": 15906,
+          "fallbacks": 1,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10484,10002,10070,10320"
+          ]
+        },
+        {
+          "file": "60051 High-speed Passenger Train.ldr",
+          "parts": 573,
+          "blocks": 13484,
+          "fallbacks": 6,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10320,10002,10047,10484,10070",
+            "very sparse (4.3% fill)"
+          ]
+        },
+        {
+          "file": "7893 Passenger Plane.mpd",
+          "parts": 438,
+          "blocks": 7630,
+          "fallbacks": 28,
+          "score": 10,
+          "issues": [
+            "28 fallback parts (6%)",
+            "very sparse (3.8% fill)"
+          ]
+        },
+        {
+          "file": "76300.ldr",
+          "parts": 2551,
+          "blocks": 20400,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047,10070,10320,10002,10484",
+            "very sparse (4.1% fill)"
+          ]
+        },
+        {
+          "file": "7249 XXL Mobile Crane.ldr",
+          "parts": 590,
+          "blocks": 10142,
+          "fallbacks": 1,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "8263_fin.ldr",
+          "parts": 806,
+          "blocks": 4807,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "41843.ldr",
+          "parts": 2469,
+          "blocks": 12374,
+          "fallbacks": 4,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10002,10070,10320,10484,10047"
+          ]
+        },
+        {
+          "file": "31141_sm02.ldr",
+          "parts": 1355,
+          "blocks": 7879,
+          "fallbacks": 0,
+          "score": 8,
+          "issues": [
+            "unmapped colors: 10002,10047,10070,10026,10484",
+            "very sparse (0.6% fill)"
+          ]
+        }
+      ],
+      "allPassing": false,
+      "timestamp": "2026-04-10T02:09:15.164Z"
+    },
+    {
+      "batch": 3,
+      "models": [
+        {
+          "file": "76470.ldr",
+          "parts": 747,
+          "blocks": 4251,
+          "fallbacks": 2,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047,10484"
+          ]
+        },
+        {
+          "file": "31131_sm01.ldr",
+          "parts": 513,
+          "blocks": 3306,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047,10320,10002,10026"
+          ]
+        },
+        {
+          "file": "75350.ldr",
+          "parts": 750,
+          "blocks": 3772,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10002"
+          ]
+        },
+        {
+          "file": "6542 Launch & Load Seaport.mpd",
+          "parts": 1188,
+          "blocks": 15929,
+          "fallbacks": 7,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "31150_sm02.ldr",
+          "parts": 680,
+          "blocks": 3577,
+          "fallbacks": 0,
+          "score": 8,
+          "issues": [
+            "unmapped colors: 10484,10070,10002,10026",
+            "very sparse (1.1% fill)"
+          ]
+        },
+        {
+          "file": "21249_sm01.ldr",
+          "parts": 594,
+          "blocks": 6443,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10002,10047,10484,10026"
+          ]
+        },
+        {
+          "file": "80024.ldr",
+          "parts": 1800,
+          "blocks": 16900,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10484,10002,10320"
+          ]
+        },
+        {
+          "file": "10357.ldr",
+          "parts": 971,
+          "blocks": 4645,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047,10484,10320,10002"
+          ]
+        },
+        {
+          "file": "7190 Millennium Falcon.ldr",
+          "parts": 692,
+          "blocks": 12059,
+          "fallbacks": 5,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "8011 Jango Fett.mpd",
+          "parts": 924,
+          "blocks": 1949,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": []
+        }
+      ],
+      "allPassing": false,
+      "timestamp": "2026-04-10T02:16:08.070Z"
+    },
+    {
+      "batch": 5,
+      "models": [
+        {
+          "file": "42621.ldr",
+          "parts": 884,
+          "blocks": 8555,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047,10026,10002"
+          ]
+        },
+        {
+          "file": "75393.ldr",
+          "parts": 934,
+          "blocks": 5990,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10320,10047",
+            "very sparse (4.1% fill)"
+          ]
+        },
+        {
+          "file": "80023.ldr",
+          "parts": 1364,
+          "blocks": 13912,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047,10320,10002,10484",
+            "very sparse (3.6% fill)"
+          ]
+        },
+        {
+          "file": "10179 UCS Millenium Falcon.mpd",
+          "parts": 5210,
+          "blocks": 54654,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "1682 Space Shuttle.mpd",
+          "parts": 1370,
+          "blocks": 5788,
+          "fallbacks": 813,
+          "score": 7,
+          "issues": [
+            "813 fallback parts (59%)"
+          ]
+        },
+        {
+          "file": "76403.ldr",
+          "parts": 861,
+          "blocks": 7254,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10026,10070,10484,10047,10320"
+          ]
+        },
+        {
+          "file": "75396.ldr",
+          "parts": 502,
+          "blocks": 4016,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10320,10484,10047"
+          ]
+        },
+        {
+          "file": "10258 London Bus.mpd",
+          "parts": 1682,
+          "blocks": 10422,
+          "fallbacks": 29,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "60422.ldr",
+          "parts": 1120,
+          "blocks": 14153,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10484,10047,10320",
+            "very sparse (4.8% fill)"
+          ]
+        },
+        {
+          "file": "60508.ldr",
+          "parts": 1084,
+          "blocks": 9466,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10026,10047,10070,10320,10002",
+            "very sparse (2.9% fill)"
+          ]
+        }
+      ],
+      "allPassing": false,
+      "timestamp": "2026-04-10T02:29:13.907Z"
+    },
+    {
+      "batch": 6,
+      "models": [
+        {
+          "file": "8109 Flatbed Truck [Model B].ldr",
+          "parts": 886,
+          "blocks": 9314,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047"
+          ]
+        },
+        {
+          "file": "71437_sm02.ldr",
+          "parts": 1259,
+          "blocks": 9709,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10484,10002,10070,10320"
+          ]
+        },
+        {
+          "file": "10258 London Bus.mpd",
+          "parts": 1682,
+          "blocks": 10420,
+          "fallbacks": 29,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "7713 Bridge Walker and White Lightning.ldr",
+          "parts": 656,
+          "blocks": 11260,
+          "fallbacks": 1,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10047"
+          ]
+        },
+        {
+          "file": "4002025.ldr",
+          "parts": 1516,
+          "blocks": 11711,
+          "fallbacks": 1,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10002,10070,10320,10047,10484"
+          ]
+        },
+        {
+          "file": "31138_sm03.ldr",
+          "parts": 508,
+          "blocks": 4215,
+          "fallbacks": 0,
+          "score": 8,
+          "issues": [
+            "unmapped colors: 10002,10070,10047,10484",
+            "very sparse (1.2% fill)"
+          ]
+        },
+        {
+          "file": "10269 Harley-Davidson Fat Boy.ldr",
+          "parts": 1027,
+          "blocks": 5879,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "8010 Darth Vader.mpd",
+          "parts": 662,
+          "blocks": 1818,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": []
+        },
+        {
+          "file": "21358.ldr",
+          "parts": 1228,
+          "blocks": 8179,
+          "fallbacks": 0,
+          "score": 10,
+          "issues": [
+            "unmapped colors: 10070,10047,10002",
+            "very sparse (2.4% fill)"
+          ]
+        },
+        {
+          "file": "7750 Steam Engine.mpd",
+          "parts": 572,
+          "blocks": 2729,
+          "fallbacks": 312,
+          "score": 7,
+          "issues": [
+            "312 fallback parts (55%)"
+          ]
+        }
+      ],
+      "allPassing": false,
+      "timestamp": "2026-04-10T02:39:13.697Z"
+    }
+  ],
+  "currentBatch": 9,
+  "commonIssues": {
+    "unmapped colors: 10070,10002,10047": 2,
+    "unmapped colors: 10070": 2,
+    "very sparse (4.1% fill)": 3,
+    "unmapped colors: 10070,10047": 2,
+    "unmapped colors: 10070,10026,10484,10047": 1,
+    "unmapped colors: 10070,10002,10484,10047": 1,
+    "unmapped colors: 10070,10002,10484,10026,10047": 1,
+    "very sparse (3.8% fill)": 2,
+    "unmapped colors: 10047,10070": 1,
+    "unmapped colors: 10070,10047,10002,10320,10484": 2,
+    "unmapped colors: 10002,10070": 1,
+    "unmapped colors: 10484,10002,10070,10320": 2,
+    "unmapped colors: 10320,10002,10047,10484,10070": 1,
+    "very sparse (4.3% fill)": 1,
+    "28 fallback parts (6%)": 1,
+    "unmapped colors: 10047,10070,10320,10002,10484": 1,
+    "unmapped colors: 10002,10070,10320,10484,10047": 1,
+    "unmapped colors: 10002,10047,10070,10026,10484": 1,
+    "very sparse (0.6% fill)": 1,
+    "unmapped colors: 10070,10047,10484": 1,
+    "unmapped colors: 10070,10047,10320,10002,10026": 1,
+    "unmapped colors: 10002": 1,
+    "unmapped colors: 10484,10070,10002,10026": 1,
+    "very sparse (1.1% fill)": 1,
+    "unmapped colors: 10070,10002,10047,10484,10026": 1,
+    "unmapped colors: 10070,10484,10002,10320": 1,
+    "unmapped colors: 10070,10047,10484,10320,10002": 1,
+    "unmapped colors: 10002,10026,10047": 1,
+    "unmapped colors: 10002,10320,10026,10047,10070": 1,
+    "very sparse (2.7% fill)": 1,
+    "unmapped colors: 10047,10002,10070": 1,
+    "unmapped colors: 10070,10047,10026,10002": 1,
+    "unmapped colors: 10070,10320,10047": 1,
+    "unmapped colors: 10070,10047,10320,10002,10484": 1,
+    "very sparse (3.6% fill)": 1,
+    "813 fallback parts (59%)": 1,
+    "unmapped colors: 10026,10070,10484,10047,10320": 1,
+    "unmapped colors: 10070,10320,10484,10047": 1,
+    "unmapped colors: 10070,10484,10047,10320": 1,
+    "very sparse (4.8% fill)": 2,
+    "unmapped colors: 10026,10047,10070,10320,10002": 1,
+    "very sparse (2.9% fill)": 1,
+    "unmapped colors: 10047": 5,
+    "unmapped colors: 10002,10070,10320,10047,10484": 1,
+    "unmapped colors: 10002,10070,10047,10484": 1,
+    "very sparse (1.2% fill)": 1,
+    "unmapped colors: 10070,10047,10002": 1,
+    "very sparse (2.4% fill)": 1,
+    "312 fallback parts (55%)": 1,
+    "unmapped colors: 10047,10070,10002,10484,10026": 1,
+    "unmapped colors: 10070,10484,10002,10320,10047": 1,
+    "unmapped colors: 10070,10320,10047,10026": 1,
+    "unmapped colors: 10070,10002,10047,10484,10320": 1,
+    "unmapped colors: 10047,10070,10320": 1,
+    "unmapped colors: 10070,10002,10026,10047": 1,
+    "very sparse (2.8% fill)": 1,
+    "unmapped colors: 10484,10070": 1,
+    "very sparse (2.5% fill)": 1,
+    "unmapped colors: 10047,10070,10002": 1,
+    "unmapped colors: 10484,10070,10002,10047,10320": 1,
+    "unmapped colors: 10070,10320,10002,10026": 1,
+    "very sparse (3.0% fill)": 1,
+    "unmapped colors: 10070,10320,10484,10026,10047": 1,
+    "unmapped colors: 10484,10070,10047": 1,
+    "unmapped colors: 10484,10070,10002": 1,
+    "unmapped colors: 10002,10047": 1,
+    "unmapped colors: 10070,10047,10002,10484,10026": 1
+  }
+}
