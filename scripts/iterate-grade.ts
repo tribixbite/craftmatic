@@ -436,6 +436,7 @@ const sweepMode = hasFlag('--sweep');
 const sweepRuns = parseInt(getFlag('--sweep-runs', '3'), 10); // quick-grade runs per variant
 const onlyKeys = getFlag('--only', '').split(',').filter(Boolean);
 const sceneMode = hasFlag('--scene');
+const recolorMode = hasFlag('--recolor'); // v314: SV/satellite facade+roof recoloring
 const buildingGroup = getFlag('--group', 'old') as 'old' | 'new' | 'all';
 const targetScore = 9;
 
@@ -613,6 +614,8 @@ async function voxelize(b: BuildingConfig): Promise<VoxelizeResult> {
   ];
   // --scene flag: adds environment extraction, feature replacement, plot expansion, enrichment
   if (sceneMode) flagParts.push('--scene');
+  // --recolor flag: SV/satellite-driven facade+roof recoloring from OSM tags
+  if (recolorMode) flagParts.push('--recolor');
   // Only pass -r when explicitly set (resolution > 0); otherwise let auto-2x decide
   if (b.resolution > 0) flagParts.push('-r', String(b.resolution));
   // Explicit OSM element ID — bypass proximity search for complex/campus buildings
