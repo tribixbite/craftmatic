@@ -388,19 +388,23 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
   }
   const groups = new Map<string, BlockEntry[]>();
 
+  // For large grids (>1M cells), skip the isFullyOccluded check — the per-cell
+  // iteration through 93% air blocks is the bottleneck, not the occlusion test.
+  const totalCells = width * height * length;
+  const skipOcclusion = totalCells > 1_000_000;
+
   for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         const bs = grid.get(x, y, z);
         if (isAir(bs)) continue;
-        if (isFullyOccluded(grid, x, y, z)) continue;
+        if (!skipOcclusion && isFullyOccluded(grid, x, y, z)) continue;
 
         const color = getBlockColor(bs);
         if (!color) continue;
 
         const name = getBlockName(bs);
         const kind = getGeometryKind(name);
-        // Group by color + name + geometry kind
         const key = `${color[0]},${color[1]},${color[2]}:${name}:${kind}`;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key)!.push({ x, y, z, color, name, blockState: bs });
