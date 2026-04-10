@@ -441,7 +441,7 @@ export async function createLDrawViewer(
       metalness: metallic ? 0.8 : 0.04,
       transparent,
       opacity: transparent ? 0.5 : 1.0,
-      side: THREE.DoubleSide,
+      side: transparent ? THREE.DoubleSide : THREE.FrontSide,
       depthWrite: !transparent,
       flatShading: true,
     });
