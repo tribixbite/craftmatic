@@ -21,6 +21,12 @@ import type { ViewerState } from './scene.js';
 
 type Vec3 = readonly [number, number, number];
 type Triangle = readonly [Vec3, Vec3, Vec3];
+type Edge = readonly [Vec3, Vec3];
+
+interface PartGeom {
+  tris: Triangle[];
+  edges: Edge[];
+}
 
 export interface LDrawViewerOptions {
   /** Background color (default: 0x1a1a2e) */
@@ -82,9 +88,9 @@ function applyMat(v: Vec3, R: readonly number[], T: Vec3): Vec3 {
 // ─── .dat fetching and triangle resolution ──────────────────────────────────
 
 const datTextCache  = new Map<string, string | null>();
-const partGeomCache = new Map<string, Triangle[]>();
+const partGeomCache = new Map<string, PartGeom>();
 const datInFlight   = new Map<string, Promise<string | null>>();
-const geomInFlight  = new Map<string, Promise<Triangle[]>>();
+const geomInFlight  = new Map<string, Promise<PartGeom>>();
 
 let LDRAW_BASE = '/ldraw-parts';
 
@@ -130,19 +136,20 @@ async function fetchDatText(id: string): Promise<string | null> {
   return result;
 }
 
-async function resolvePartTriangles(id: string, depth = 0): Promise<Triangle[]> {
-  if (depth > 12) return [];
+async function resolvePartGeometry(id: string, depth = 0): Promise<PartGeom> {
+  const EMPTY: PartGeom = { tris: [], edges: [] };
+  if (depth > 12) return EMPTY;
   const key = normId(id);
 
   if (partGeomCache.has(key)) return partGeomCache.get(key)!;
   if (geomInFlight.has(key))  return geomInFlight.get(key)!;
 
-  const promise = (async (): Promise<Triangle[]> => {
+  const promise = (async (): Promise<PartGeom> => {
     const text = await fetchDatText(key);
-    if (!text) return [];
+    if (!text) return EMPTY;
 
-    const tris: Triangle[] = [];
-    partGeomCache.set(key, tris); // cache early (cycle guard)
+    const geom: PartGeom = { tris: [], edges: [] };
+    partGeomCache.set(key, geom); // cache early (cycle guard)
 
     const subPromises: Promise<void>[] = [];
 
@@ -151,8 +158,14 @@ async function resolvePartTriangles(id: string, depth = 0): Promise<Triangle[]> 
       if (!line) continue;
       const tok = line.split(/\s+/);
 
-      if (tok[0] === '3' && tok.length >= 11) {
-        tris.push([
+      if (tok[0] === '2' && tok.length >= 8) {
+        // Type 2: edge line
+        geom.edges.push([
+          [+tok[2]!, +tok[3]!, +tok[4]!],
+          [+tok[5]!, +tok[6]!, +tok[7]!],
+        ]);
+      } else if (tok[0] === '3' && tok.length >= 11) {
+        geom.tris.push([
           [+tok[2]!, +tok[3]!, +tok[4]!],
           [+tok[5]!, +tok[6]!, +tok[7]!],
           [+tok[8]!, +tok[9]!, +tok[10]!],
@@ -162,7 +175,7 @@ async function resolvePartTriangles(id: string, depth = 0): Promise<Triangle[]> 
         const v1: Vec3 = [+tok[5]!, +tok[6]!, +tok[7]!];
         const v2: Vec3 = [+tok[8]!, +tok[9]!, +tok[10]!];
         const v3: Vec3 = [+tok[11]!, +tok[12]!, +tok[13]!];
-        tris.push([v0, v1, v2], [v0, v2, v3]);
+        geom.tris.push([v0, v1, v2], [v0, v2, v3]);
       } else if (tok[0] === '1' && tok.length >= 15 && depth < 11) {
         const tx = +tok[2]!, ty = +tok[3]!, tz = +tok[4]!;
         const R = [+tok[5]!,+tok[6]!,+tok[7]!, +tok[8]!,+tok[9]!,+tok[10]!, +tok[11]!,+tok[12]!,+tok[13]!];
@@ -170,9 +183,12 @@ async function resolvePartTriangles(id: string, depth = 0): Promise<Triangle[]> 
         const subId = tok.slice(14).join(' ').trim();
 
         subPromises.push(
-          resolvePartTriangles(subId, depth + 1).then(subTris => {
-            for (const [sv0, sv1, sv2] of subTris) {
-              tris.push([applyMat(sv0, R, T), applyMat(sv1, R, T), applyMat(sv2, R, T)]);
+          resolvePartGeometry(subId, depth + 1).then(sub => {
+            for (const [sv0, sv1, sv2] of sub.tris) {
+              geom.tris.push([applyMat(sv0, R, T), applyMat(sv1, R, T), applyMat(sv2, R, T)]);
+            }
+            for (const [ev0, ev1] of sub.edges) {
+              geom.edges.push([applyMat(ev0, R, T), applyMat(ev1, R, T)]);
             }
           }),
         );
@@ -180,7 +196,7 @@ async function resolvePartTriangles(id: string, depth = 0): Promise<Triangle[]> 
     }
 
     await Promise.all(subPromises);
-    return tris;
+    return geom;
   })();
 
   geomInFlight.set(key, promise);
@@ -254,17 +270,20 @@ export async function createLDrawViewer(
   // Prefetch all unique parts in parallel
   let done = 0;
   await Promise.all(uniqueParts.map(async (partId) => {
-    await resolvePartTriangles(partId);
+    await resolvePartGeometry(partId);
     done++;
     onProgress?.(done, uniqueParts.length);
   }));
 
-  // ── Build world-space triangles grouped by color ───────────────────────
+  // ── Build world-space triangles grouped by color + collect edge lines ──
   interface ColorGroup {
     positions: number[];  // flat xyz array
     normals: number[];    // flat xyz array
   }
   const colorGroups = new Map<number, ColorGroup>();
+  const edgePositions: number[] = []; // all edge lines (dark outlines)
+  let renderedCount = 0;
+  let missingCount = 0;
 
   function getGroup(colorId: number): ColorGroup {
     let g = colorGroups.get(colorId);
@@ -276,26 +295,24 @@ export async function createLDrawViewer(
   }
 
   for (const brick of filteredBricks) {
-    const localTris = partGeomCache.get(normId(brick.part));
-    if (!localTris || localTris.length === 0) continue;
+    const geom = partGeomCache.get(normId(brick.part));
+    if (!geom || geom.tris.length === 0) { missingCount++; continue; }
+    renderedCount++;
 
     const R = brick.rot ?? IDENTITY;
     const T: Vec3 = [brick.x, brick.y, brick.z];
 
     const group = getGroup(brick.color);
 
-    for (const [lv0, lv1, lv2] of localTris) {
-      // Transform local → world LDU
+    for (const [lv0, lv1, lv2] of geom.tris) {
       const wv0 = applyMat(lv0, R, T);
       const wv1 = applyMat(lv1, R, T);
       const wv2 = applyMat(lv2, R, T);
 
-      // Convert LDU → scene units, negate Y (LDraw Y-down → Three.js Y-up)
       const x0 = wv0[0] * scale, y0 = -wv0[1] * scale, z0 = wv0[2] * scale;
       const x1 = wv1[0] * scale, y1 = -wv1[1] * scale, z1 = wv1[2] * scale;
       const x2 = wv2[0] * scale, y2 = -wv2[1] * scale, z2 = wv2[2] * scale;
 
-      // Compute face normal
       const e1x = x1 - x0, e1y = y1 - y0, e1z = z1 - z0;
       const e2x = x2 - x0, e2y = y2 - y0, e2z = z2 - z0;
       let nx = e1y * e2z - e1z * e2y;
@@ -307,6 +324,20 @@ export async function createLDrawViewer(
       group.positions.push(x0, y0, z0, x1, y1, z1, x2, y2, z2);
       group.normals.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
     }
+
+    // Collect edge lines for dark outlines
+    for (const [ev0, ev1] of geom.edges) {
+      const we0 = applyMat(ev0, R, T);
+      const we1 = applyMat(ev1, R, T);
+      edgePositions.push(
+        we0[0] * scale, -we0[1] * scale, we0[2] * scale,
+        we1[0] * scale, -we1[1] * scale, we1[2] * scale,
+      );
+    }
+  }
+
+  if (missingCount > 0) {
+    console.warn(`[ldraw-renderer] ${missingCount} bricks had no geometry (${renderedCount} rendered)`);
   }
 
   // ── Scene setup ────────────────────────────────────────────────────────
@@ -426,6 +457,21 @@ export async function createLDrawViewer(
     if (transparent) mesh.renderOrder = 1; // render after opaque
     scene.add(mesh);
     meshes.push(mesh);
+  }
+
+  // ── Edge lines (dark outlines between bricks) ─────────────────────────
+  if (edgePositions.length > 0) {
+    const edgeGeo = new THREE.BufferGeometry();
+    edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
+    const edgeMat = new THREE.LineBasicMaterial({
+      color: 0x333333,
+      transparent: true,
+      opacity: 0.25,
+      depthWrite: false,
+    });
+    const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
+    edgeLines.renderOrder = 2;
+    scene.add(edgeLines);
   }
 
   // ── Compute model center and size ──────────────────────────────────────
