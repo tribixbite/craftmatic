@@ -325,8 +325,8 @@ export async function createLDrawViewer(
       group.normals.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
     }
 
-    // Collect edge lines for dark outlines
-    for (const [ev0, ev1] of geom.edges) {
+    // Collect edge lines for dark outlines (cap at 500K segments to prevent GPU overload)
+    if (edgePositions.length < 3_000_000) for (const [ev0, ev1] of geom.edges) {
       const we0 = applyMat(ev0, R, T);
       const we1 = applyMat(ev1, R, T);
       edgePositions.push(
