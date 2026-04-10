@@ -234,7 +234,7 @@ export async function createLDrawViewer(
   bricks: ParsedBrick[],
   options?: LDrawViewerOptions,
 ): Promise<ViewerState> {
-  const bgColor = options?.background ?? 0x1a1a2e;
+  const bgColor = options?.background ?? 0x2d2d3d;
   const groundColor = options?.groundColor ?? 0x3a3a3a;
   const scale = options?.scale ?? LDU_TO_UNITS;
   const onProgress = options?.onProgress;
@@ -348,15 +348,15 @@ export async function createLDrawViewer(
 
   // ── Lighting (product photography style) ───────────────────────────────
   // Soft ambient fill
-  const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.7);
   scene.add(ambient);
 
   // Hemisphere light for sky/ground gradient
-  const hemi = new THREE.HemisphereLight(0xc8e0ff, 0x443322, 0.5);
+  const hemi = new THREE.HemisphereLight(0xc8e0ff, 0x443322, 0.6);
   scene.add(hemi);
 
   // Key light (main directional — warm, upper-right)
-  const keyLight = new THREE.DirectionalLight(0xfff5e6, 1.6);
+  const keyLight = new THREE.DirectionalLight(0xfff5e6, 2.0);
   keyLight.position.set(50, 80, 40);
   keyLight.castShadow = true;
   keyLight.shadow.mapSize.set(2048, 2048);
