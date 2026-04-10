@@ -2780,39 +2780,52 @@ async function main(): Promise<void> {
       console.log('  Semantic palette: no OSM material/colour data available');
     }
 
-    // Phase C: SV facade color override
-    try {
-      const svMeta = await queryStreetViewMetadata(args.coords.lat, args.coords.lng);
-      if (svMeta?.imageUrl) {
-        console.log(`  SV image: heading=${svMeta.heading.toFixed(0)}° date=${svMeta.date}`);
-        // Download and extract colors
-        const resp = await fetch(svMeta.imageUrl, { signal: AbortSignal.timeout(15000) });
-        if (resp.ok) {
-          const buf = Buffer.from(await resp.arrayBuffer());
-          const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-          const pixels = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-          const svColors = extractColors(pixels, info.width, info.height);
-          if (svColors) {
-            const { r, g, b } = svColors.wallColor;
-            console.log(`  SV wall color: rgb(${r},${g},${b}) → ${svColors.wallBlock.replace('minecraft:', '')}`);
-            // Override or create palette with SV wall color
-            if (palette) {
-              palette.wallColor = { r, g, b };
-              palette.source += ' + SV wall color';
-            } else {
-              palette = {
-                wallBlocks: [svColors.wallBlock],
-                wallColor: { r, g, b },
-                source: 'SV wall color',
-              };
+    // Phase C: SV facade color — only when OSM didn't provide building:colour.
+    // SV images are often desaturated (gray street context bleeds in), so we skip
+    // low-saturation SV colors entirely to avoid replacing photogrammetric color
+    // with worse gray. OSM building:colour is always more reliable when present.
+    if (!palette?.wallColor) {
+      try {
+        const svMeta = await queryStreetViewMetadata(args.coords.lat, args.coords.lng);
+        if (svMeta?.imageUrl) {
+          console.log(`  SV image: heading=${svMeta.heading.toFixed(0)}° date=${svMeta.date}`);
+          const resp = await fetch(svMeta.imageUrl, { signal: AbortSignal.timeout(15000) });
+          if (resp.ok) {
+            const buf = Buffer.from(await resp.arrayBuffer());
+            const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+            const pixels = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+            const svColors = extractColors(pixels, info.width, info.height);
+            if (svColors) {
+              const { r, g, b } = svColors.wallColor;
+              // Skip desaturated SV colors — they're photogrammetry gray, not real facade color
+              const svMax = Math.max(r, g, b);
+              const svMin = Math.min(r, g, b);
+              const svSat = svMax > 0 ? (svMax - svMin) / svMax : 0;
+              if (svSat < 0.10) {
+                console.log(`  SV wall color: rgb(${r},${g},${b}) sat=${(svSat * 100).toFixed(0)}% — SKIPPED (too gray)`);
+              } else {
+                console.log(`  SV wall color: rgb(${r},${g},${b}) sat=${(svSat * 100).toFixed(0)}% → ${svColors.wallBlock.replace('minecraft:', '')}`);
+                if (palette) {
+                  palette.wallColor = { r, g, b };
+                  palette.source += ' + SV wall color';
+                } else {
+                  palette = {
+                    wallBlocks: [svColors.wallBlock],
+                    wallColor: { r, g, b },
+                    source: 'SV wall color',
+                  };
+                }
+              }
             }
           }
+        } else {
+          console.log('  SV: no street view imagery available');
         }
-      } else {
-        console.log('  SV: no street view imagery available');
+      } catch (e) {
+        console.log(`  SV: ${(e as Error).message}`);
       }
-    } catch (e) {
-      console.log(`  SV: ${(e as Error).message}`);
+    } else {
+      console.log(`  SV: skipped (OSM building:colour already provides wall color)`);
     }
 
     // Phase D: Satellite roof color override

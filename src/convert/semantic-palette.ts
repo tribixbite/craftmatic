@@ -149,6 +149,13 @@ export function resolveSemanticPalette(
   if (wallColor) {
     // Use rgbToWallBlock to get the nearest Minecraft block for this color
     const primary = rgbToWallBlock(wallColor.r, wallColor.g, wallColor.b);
+
+    // Skip if the colour resolves to a gray-family block — photogrammetry already
+    // provides natural gray texture variety. Recoloring gray→gray reduces diversity.
+    if (GRAY_FAMILY.has(primary)) {
+      return null;
+    }
+
     const palette: SemanticPalette = {
       wallBlocks: [primary],
       wallColor,
