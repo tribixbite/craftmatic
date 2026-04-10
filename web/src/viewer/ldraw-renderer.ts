@@ -453,8 +453,13 @@ export async function createLDrawViewer(
 
     // Slight emissive tint for richer plastic look
     if (!transparent && !metallic) {
-      (material as THREE.MeshPhysicalMaterial).emissive = color.clone().multiplyScalar(0.02);
+      (material as THREE.MeshPhysicalMaterial).emissive = color.clone().multiplyScalar(0.01);
     }
+
+    // Reduce z-fighting between overlapping coplanar surfaces
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = 1;
+    material.polygonOffsetUnits = 1;
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
