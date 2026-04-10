@@ -73,6 +73,8 @@ let cubicScale = false;
 let detailScale = false;
 /** When true, fetch real .dat triangle geometry for accurate shape rendering (slow, dev-only). */
 let geometryMode = false;
+/** When true, render LDraw brick geometry directly as 3D meshes instead of voxelizing. */
+let directRenderMode = false;
 /** Current parsed bricks for step-slider re-voxelization */
 let currentBricks: ParsedBrick[] | null = null;
 let currentBricksLabel = '';
@@ -116,6 +118,10 @@ function buildUI(): void {
       <label title="Fetch real .dat triangle geometry for accurate shape rendering (dev only — requires /ldraw-parts)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
         <input type="checkbox" id="lego-geometry-mode" style="margin:0">
         Geometry
+      </label>
+      <label title="Render actual LDraw brick geometry as 3D meshes — closest to assembled LEGO set (dev only)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-direct-render" style="margin:0">
+        3D Render
       </label>
     </div>
 
@@ -202,6 +208,12 @@ function wireEvents(): void {
   // ── Geometry mode toggle ───────────────────────────────────────────────────
   document.getElementById('lego-geometry-mode')?.addEventListener('change', e => {
     geometryMode = (e.target as HTMLInputElement).checked;
+    if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
+  });
+
+  // ── Direct 3D render toggle ───────────────────────────────────────────────
+  document.getElementById('lego-direct-render')?.addEventListener('change', e => {
+    directRenderMode = (e.target as HTMLInputElement).checked;
     if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
   });
 
@@ -572,6 +584,27 @@ async function voxelizeAndDisplay(
   totalSteps = countSteps(bricks);
   currentStep = undefined;
   updateStepSlider();
+
+  // ── Direct 3D Render mode: render LDraw triangles as meshes, skip voxelization ──
+  if (directRenderMode) {
+    const label = selectedSet
+      ? `${selectedSet.set_num} ${selectedSet.name}`
+      : filename.replace(/\.[^.]+$/, '');
+    setStatus(`Rendering ${label} — ${bricks.length} bricks (loading geometry…)`, 'info');
+    try {
+      const { createLDrawViewer } = await import('@viewer/ldraw-renderer.js');
+      const viewerEl = rootEl.closest('.tab-content')?.querySelector('.viewer-area, .inline-viewer') as HTMLElement
+        ?? document.getElementById('lego-viewer');
+      if (viewerEl) {
+        viewerEl.innerHTML = '';
+        const viewer = await createLDrawViewer(viewerEl, bricks);
+        setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry`, 'success');
+      }
+    } catch (e) {
+      setStatus(`3D render failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    }
+    return;
+  }
 
   const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
   if (geometryMode) setStatus('Loading triangle geometry…', 'info');
