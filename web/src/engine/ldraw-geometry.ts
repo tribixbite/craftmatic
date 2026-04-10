@@ -442,7 +442,10 @@ export async function voxelizeLDrawGeometry(
   // Auto-flip detection (same logic as voxelizeLDraw)
   const nonPrimBricks = bricks.filter(b => !isLDrawPrimitive(b.part));
   const ySum = nonPrimBricks.reduce((s, b) => s + b.y, 0);
-  const shouldFlip = nonPrimBricks.length > 0 && ySum / nonPrimBricks.length < -LDU_STUD;
+  // Auto-flip disabled: LDraw convention is Y-down, and our grid conversion
+  // (gy = -wy / LDU_PER_Y) already handles the inversion. Flipping was
+  // incorrectly inverting models with all-negative Y (standard LDraw orientation).
+  const shouldFlip = false;
   const maxStep = options?.maxStep;
 
   const effectiveBricks = (shouldFlip || maxStep != null)

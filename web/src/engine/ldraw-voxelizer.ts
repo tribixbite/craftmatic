@@ -226,7 +226,10 @@ export function voxelizeLDraw(
   const yCentroid = nonPrimBricks.length > 0 ? ySum / nonPrimBricks.length : 0;
   // If the centroid is strongly negative (model extends upward in LDraw space),
   // the model is flipped. Auto-correct by negating Y across all bricks.
-  const shouldFlip = yCentroid < -LDU_PER_STUD; // at least 1 stud above origin
+  // Auto-flip disabled: LDraw convention is Y-down, grid conversion handles
+  // the inversion (gy = -wy / LDU_PER_Y). Previous heuristic incorrectly
+  // flipped models with all-negative Y (standard upward-pointing models).
+  const shouldFlip = false;
   const maxStep = options?.maxStep;
   const effectiveBricks: ParsedBrick[] = (shouldFlip || maxStep != null)
     ? bricks
