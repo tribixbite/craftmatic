@@ -170,8 +170,11 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid, legoYScale?: 
   });
 
   // Create and mount 3D viewer (may fail without WebGL — controls still work)
+  // For very large models (>80K blocks), skip LEGO stud rendering to avoid freezing.
   activeLegoYScale = legoYScale ?? null;
-  inlineViewer = legoYScale !== undefined
+  const blockCount = grid.countNonAir();
+  const useLego = legoYScale !== undefined && blockCount < 80_000;
+  inlineViewer = useLego
     ? createLegoViewer(container, grid, { yScale: legoYScale })
     : createViewer(container, grid);
 }
