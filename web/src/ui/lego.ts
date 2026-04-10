@@ -70,6 +70,7 @@ let selectedSet: CatalogSet | null = null;
 let searchResults: CatalogSet[] = [];
 /** When true, use 1 stud = 1 block in all axes (no 2.5× vertical stretch). */
 let cubicScale = false;
+let detailScale = false;
 /** When true, fetch real .dat triangle geometry for accurate shape rendering (slow, dev-only). */
 let geometryMode = false;
 /** Current parsed bricks for step-slider re-voxelization */
@@ -110,6 +111,7 @@ function buildUI(): void {
       <div class="lego-scale-btns" id="lego-scale-btns">
         <button class="lego-scale-btn active" data-mode="accurate" title="1 plate = 1 block — maximum vertical detail, 2.5× taller than real LEGO proportions">Accurate</button>
         <button class="lego-scale-btn" data-mode="cubic" title="1 stud = 1 block in all axes — correct LEGO proportions, flat models look flat">Cubic</button>
+        <button class="lego-scale-btn" data-mode="detail" title="1 plate = 1 block in ALL axes — 2.5× more horizontal detail, captures thin walls and windows">Detail</button>
       </div>
       <label title="Fetch real .dat triangle geometry for accurate shape rendering (dev only — requires /ldraw-parts)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
         <input type="checkbox" id="lego-geometry-mode" style="margin:0">
@@ -189,7 +191,9 @@ function wireEvents(): void {
   document.getElementById('lego-scale-btns')?.addEventListener('click', e => {
     const btn = (e.target as HTMLElement).closest('[data-mode]') as HTMLElement | null;
     if (!btn) return;
-    cubicScale = btn.dataset['mode'] === 'cubic';
+    const mode = btn.dataset['mode'];
+    cubicScale = mode === 'cubic';
+    detailScale = mode === 'detail';
     document.querySelectorAll('.lego-scale-btn').forEach(b =>
       b.classList.toggle('active', b === btn));
     if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
@@ -209,7 +213,7 @@ function wireEvents(): void {
     if (label) label.textContent = `${step}/${totalSteps}`;
     currentStep = step < totalSteps ? step : undefined; // undefined = show all
     if (currentBricks) {
-      const opts: VoxelizeOptions = { cubicScale, maxStep: currentStep };
+      const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
       const result = geometryMode
         ? await voxelizeLDrawGeometry(currentBricks, currentBricksColorFn, opts)
         : voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
@@ -569,7 +573,7 @@ async function voxelizeAndDisplay(
   currentStep = undefined;
   updateStepSlider();
 
-  const opts: VoxelizeOptions = { cubicScale, maxStep: currentStep };
+  const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
   if (geometryMode) setStatus('Loading triangle geometry…', 'info');
   const result = geometryMode
     ? await voxelizeLDrawGeometry(bricks, colorFn, opts)

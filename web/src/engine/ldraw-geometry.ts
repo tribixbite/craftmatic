@@ -296,6 +296,7 @@ function parityFill(hits: number[], cellSize: number): number[] {
 function rasterizeTriangles(
   worldTris: Triangle[],
   LDU_PER_Y: number,
+  LDU_PER_XZ: number = LDU_STUD,
 ): Array<readonly [number, number, number]> {
   if (worldTris.length === 0) return [];
 
@@ -313,12 +314,12 @@ function rasterizeTriangles(
   }
 
   // Grid ranges
-  const gxMin = Math.floor(wxMin / LDU_STUD);
-  const gxMax = Math.ceil(wxMax / LDU_STUD);
+  const gxMin = Math.floor(wxMin / LDU_PER_XZ);
+  const gxMax = Math.ceil(wxMax / LDU_PER_XZ);
   const gyMin = Math.floor(-wyMax / LDU_PER_Y);
   const gyMax = Math.ceil(-wyMin / LDU_PER_Y);
-  const gzMin = Math.floor(wzMin / LDU_STUD);
-  const gzMax = Math.ceil(wzMax / LDU_STUD);
+  const gzMin = Math.floor(wzMin / LDU_PER_XZ);
+  const gzMax = Math.ceil(wzMax / LDU_PER_XZ);
 
   // Use a Set to deduplicate cells from all 3 sweep axes
   const cellSet = new Set<string>();
@@ -328,47 +329,42 @@ function rasterizeTriangles(
   };
 
   // ── Sweep along Z (rays in XY plane, casting +Z) ──────────────────────────
-  // Indices: i0=0(X), i1=1(Y), iSweep=2(Z)
   for (let gx = gxMin; gx <= gxMax; gx++) {
     for (let gy = gyMin; gy <= gyMax; gy++) {
-      const ox = (gx + 0.5) * LDU_STUD;
+      const ox = (gx + 0.5) * LDU_PER_XZ;
       const oy = -(gy + 0.5) * LDU_PER_Y;
       const hits: number[] = [];
       for (const [v0, v1, v2] of worldTris) {
         const t = rayAxisHit(ox, oy, v0, v1, v2, 0, 1, 2);
         if (t !== null) hits.push(t);
       }
-      for (const gz of parityFill(hits, LDU_STUD)) addCell(gx, gy, gz);
+      for (const gz of parityFill(hits, LDU_PER_XZ)) addCell(gx, gy, gz);
     }
   }
 
   // ── Sweep along X (rays in YZ plane, casting +X) ──────────────────────────
-  // Indices: i0=1(Y), i1=2(Z), iSweep=0(X)
   for (let gy = gyMin; gy <= gyMax; gy++) {
     for (let gz = gzMin; gz <= gzMax; gz++) {
       const oy = -(gy + 0.5) * LDU_PER_Y;
-      const oz = (gz + 0.5) * LDU_STUD;
+      const oz = (gz + 0.5) * LDU_PER_XZ;
       const hits: number[] = [];
       for (const [v0, v1, v2] of worldTris) {
         const t = rayAxisHit(oy, oz, v0, v1, v2, 1, 2, 0);
         if (t !== null) hits.push(t);
       }
-      for (const gx of parityFill(hits, LDU_STUD)) addCell(gx, gy, gz);
+      for (const gx of parityFill(hits, LDU_PER_XZ)) addCell(gx, gy, gz);
     }
   }
 
-  // ── Sweep along Y (rays in XZ plane, casting +Y in LDraw = -Y in grid) ───
-  // LDraw Y is inverted (positive = down). Must negate raw hits BEFORE dividing
-  // by LDU_PER_Y so parity fill operates in grid-Y space (positive = up).
-  // Indices: i0=0(X), i1=2(Z), iSweep=1(Y)
+  // ── Sweep along Y (rays in XZ plane, casting -Y in LDraw = +Y in grid) ───
   for (let gx = gxMin; gx <= gxMax; gx++) {
     for (let gz = gzMin; gz <= gzMax; gz++) {
-      const ox = (gx + 0.5) * LDU_STUD;
-      const oz = (gz + 0.5) * LDU_STUD;
+      const ox = (gx + 0.5) * LDU_PER_XZ;
+      const oz = (gz + 0.5) * LDU_PER_XZ;
       const hits: number[] = [];
       for (const [v0, v1, v2] of worldTris) {
         const t = rayAxisHit(ox, oz, v0, v1, v2, 0, 2, 1);
-        if (t !== null) hits.push(-t); // negate LDraw Y → grid Y BEFORE division
+        if (t !== null) hits.push(-t);
       }
       for (const gy of parityFill(hits, LDU_PER_Y)) {
         addCell(gx, gy, gz);
@@ -377,9 +373,6 @@ function rasterizeTriangles(
   }
 
   // ── Surface pass: mark every cell any triangle surface touches ────────────
-  // Ray casting misses thin surfaces (< 1 cell thick) that fall between grid
-  // lines. This pass ensures all visible surfaces are present by computing
-  // each triangle's grid-space AABB and adding those cells.
   for (const [v0, v1, v2] of worldTris) {
     const txMin = Math.min(v0[0], v1[0], v2[0]);
     const txMax = Math.max(v0[0], v1[0], v2[0]);
@@ -388,12 +381,12 @@ function rasterizeTriangles(
     const tzMin = Math.min(v0[2], v1[2], v2[2]);
     const tzMax = Math.max(v0[2], v1[2], v2[2]);
 
-    const tgxMin = Math.round(txMin / LDU_STUD);
-    const tgxMax = Math.round(txMax / LDU_STUD);
+    const tgxMin = Math.round(txMin / LDU_PER_XZ);
+    const tgxMax = Math.round(txMax / LDU_PER_XZ);
     const tgyMin = Math.round(-tyMax / LDU_PER_Y);
     const tgyMax = Math.round(-tyMin / LDU_PER_Y);
-    const tgzMin = Math.round(tzMin / LDU_STUD);
-    const tgzMax = Math.round(tzMax / LDU_STUD);
+    const tgzMin = Math.round(tzMin / LDU_PER_XZ);
+    const tgzMax = Math.round(tzMax / LDU_PER_XZ);
 
     for (let x = tgxMin; x <= tgxMax; x++)
       for (let y = tgyMin; y <= tgyMax; y++)
@@ -437,7 +430,9 @@ export async function voxelizeLDrawGeometry(
   const resolveColor = colorFn ?? ldrawColorToBlock;
   const isDefaultFn  = colorFn == null;
   const unmappedColorSet = new Set<number>();
-  const LDU_PER_Y = options?.cubicScale ? LDU_STUD : 8;
+  const detail = options?.detailScale === true;
+  const LDU_PER_Y = detail ? 8 : (options?.cubicScale ? LDU_STUD : 8);
+  const LDU_XZ = detail ? 8 : LDU_STUD;
 
   // Auto-flip detection (same logic as voxelizeLDraw)
   const nonPrimBricks = bricks.filter(b => !isLDrawPrimitive(b.part));
@@ -502,9 +497,9 @@ export async function voxelizeLDrawGeometry(
           }
         }
       }
-      const fbxMin = Math.round(bxMin / LDU_STUD), fbxMax = Math.round(bxMax / LDU_STUD);
+      const fbxMin = Math.round(bxMin / LDU_XZ), fbxMax = Math.round(bxMax / LDU_XZ);
       const fbyMin = Math.round(-byMax / LDU_PER_Y), fbyMax = Math.round(-byMin / LDU_PER_Y);
-      const fbzMin = Math.round(bzMin / LDU_STUD), fbzMax = Math.round(bzMax / LDU_STUD);
+      const fbzMin = Math.round(bzMin / LDU_XZ), fbzMax = Math.round(bzMax / LDU_XZ);
       for (let x = fbxMin; x <= fbxMax; x++)
         for (let y = fbyMin; y <= fbyMax; y++)
           for (let z = fbzMin; z <= fbzMax; z++)
@@ -520,7 +515,7 @@ export async function voxelizeLDrawGeometry(
       applyMat(v2, R, T),
     ]);
 
-    for (const [gx, gy, gz] of rasterizeTriangles(worldTris, LDU_PER_Y)) {
+    for (const [gx, gy, gz] of rasterizeTriangles(worldTris, LDU_PER_Y, LDU_XZ)) {
       cells.push({ gx, gy, gz, block, color: brick.color });
     }
   }

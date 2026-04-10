@@ -180,6 +180,15 @@ export interface VoxelizeOptions {
    */
   cubicScale?: boolean;
   /**
+   * When true, use plate resolution (8 LDU) for ALL axes, not just Y.
+   * Gives 2.5× more horizontal detail — captures thin walls, windows,
+   * and architectural features that are lost at stud resolution.
+   *
+   * Detail mode: 8 LDU = 1 cell in all axes. Castle → 180×102×158
+   * Overrides cubicScale when set.
+   */
+  detailScale?: boolean;
+  /**
    * If set, only include bricks with step ≤ maxStep. Used for step-by-step
    * assembly playback. Undefined = include all steps.
    */
@@ -210,7 +219,9 @@ export function voxelizeLDraw(
   const skipBaseplates = options?.skipBaseplates !== false; // default true
   // In cubic mode Y uses the same pitch as X/Z (20 LDU = 1 stud), eliminating
   // the 2.5× vertical stretch. In accurate mode 1 plate (8 LDU) = 1 cell.
-  const LDU_PER_Y = options?.cubicScale ? LDU_PER_STUD : LDU_PER_PLATE;
+  const detail = options?.detailScale === true;
+  const LDU_PER_Y = detail ? LDU_PER_PLATE : (options?.cubicScale ? LDU_PER_STUD : LDU_PER_PLATE);
+  const LDU_PER_XZ = detail ? LDU_PER_PLATE : LDU_PER_STUD;
   // Ratio of horizontal stud pitch to vertical cell pitch.
   // Used to convert stud-radius → plate-radius for arch semicircle formula.
   // Accurate: 20/8 = 2.5.  Cubic: 20/20 = 1.0.
@@ -301,12 +312,12 @@ export function voxelizeLDraw(
 
     // Convert world AABB to grid cells.
     // X/Z: stud pitch (20 LDU); Y: LDU_PER_Y (plate=8 or stud=20), flipped
-    const gxMin = Math.round(wxMin / LDU_PER_STUD);
-    const gxMax = Math.round(wxMax / LDU_PER_STUD);
+    const gxMin = Math.round(wxMin / LDU_PER_XZ);
+    const gxMax = Math.round(wxMax / LDU_PER_XZ);
     const gyMin = Math.round(-wyMax / LDU_PER_Y);
     const gyMax = Math.round(-wyMin / LDU_PER_Y);
-    const gzMin = Math.round(wzMin / LDU_PER_STUD);
-    const gzMax = Math.round(wzMax / LDU_PER_STUD);
+    const gzMin = Math.round(wzMin / LDU_PER_XZ);
+    const gzMax = Math.round(wzMax / LDU_PER_XZ);
 
     // ── Thin-beam line rasterization ──────────────────────────────────────────
     // For elongated thin parts (sH=1, one horizontal dim=1, other ≥4), the AABB
@@ -332,8 +343,8 @@ export function voxelizeLDraw(
       const w1y = R[3]*e1x + R[4]*e1y + R[5]*e1z + brick.y;
       const w1z = R[6]*e1x + R[7]*e1y + R[8]*e1z + brick.z;
       // Convert to grid coordinates
-      const g0x = w0x / LDU_PER_STUD, g0y = -w0y / LDU_PER_Y, g0z = w0z / LDU_PER_STUD;
-      const g1x = w1x / LDU_PER_STUD, g1y = -w1y / LDU_PER_Y, g1z = w1z / LDU_PER_STUD;
+      const g0x = w0x / LDU_PER_XZ, g0y = -w0y / LDU_PER_Y, g0z = w0z / LDU_PER_XZ;
+      const g1x = w1x / LDU_PER_XZ, g1y = -w1y / LDU_PER_Y, g1z = w1z / LDU_PER_XZ;
       // Rasterize line: step along the longest axis, compute the other two
       const steps = Math.max(1, Math.round(Math.max(
         Math.abs(g1x - g0x), Math.abs(g1y - g0y), Math.abs(g1z - g0z)
