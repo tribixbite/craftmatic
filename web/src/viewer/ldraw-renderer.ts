@@ -374,7 +374,7 @@ export async function createLDrawViewer(
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  renderer.toneMappingExposure = 1.4;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
 
@@ -436,20 +436,24 @@ export async function createLDrawViewer(
     const transparent = isTransparentColor(colorId);
     const metallic = isMetallicColor(colorId);
 
-    const material = new THREE.MeshStandardMaterial({
-      color,
-      roughness: metallic ? 0.2 : 0.35,
-      metalness: metallic ? 0.8 : 0.04,
-      transparent,
-      opacity: transparent ? 0.5 : 1.0,
-      side: transparent ? THREE.DoubleSide : THREE.FrontSide,
-      depthWrite: !transparent,
-      flatShading: true,
-    });
+    const material = transparent
+      ? new THREE.MeshStandardMaterial({
+          color, roughness: 0.1, metalness: 0.0,
+          transparent: true, opacity: 0.4,
+          side: THREE.DoubleSide, depthWrite: false, flatShading: true,
+        })
+      : new THREE.MeshPhysicalMaterial({
+          color,
+          roughness: metallic ? 0.15 : 0.3,
+          metalness: metallic ? 0.85 : 0.0,
+          clearcoat: metallic ? 0.0 : 0.4,
+          clearcoatRoughness: 0.3,
+          side: THREE.FrontSide, flatShading: true,
+        });
 
     // Slight emissive tint for richer plastic look
     if (!transparent && !metallic) {
-      material.emissive = color.clone().multiplyScalar(0.03);
+      (material as THREE.MeshPhysicalMaterial).emissive = color.clone().multiplyScalar(0.02);
     }
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -465,9 +469,9 @@ export async function createLDrawViewer(
     const edgeGeo = new THREE.BufferGeometry();
     edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
     const edgeMat = new THREE.LineBasicMaterial({
-      color: 0x333333,
+      color: 0x222222,
       transparent: true,
-      opacity: 0.25,
+      opacity: 0.35,
       depthWrite: false,
     });
     const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
