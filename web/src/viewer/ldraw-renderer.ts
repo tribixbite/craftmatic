@@ -47,14 +47,15 @@ export interface LDrawViewerOptions {
 
 function isLDrawPrimitive(part: string): boolean {
   const bare = part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
-  if (/^\d+-\d+/.test(bare))         return true;
-  if (bare.startsWith('stug-'))      return true;
+  if (/^\d+-\d+/.test(bare))         return true;  // fraction primitives (4-4cyli, etc.)
+  if (bare.startsWith('stug-'))      return true;  // anti-stud geometry
   if (bare === 'axl2hole' || bare.startsWith('axlhol')) return true;
   if (bare.startsWith('connect'))    return true;
   if (bare.startsWith('npeghol'))    return true;
   if (bare.startsWith('npeghole'))   return true;
-  if (bare.startsWith('logo'))       return true;
-  if (bare.startsWith('stud'))       return true;
+  if (bare.startsWith('logo'))       return true;  // LEGO text stamps
+  // KEEP studs (stud.dat, stud2.dat, etc.) — they're essential for the LEGO look!
+  // Only skip stug- (under-stud geometry) and stud internal variants
   if (bare === 'box' || /^box[\da-z]/.test(bare)) return true;
   if (bare === 'disc')               return true;
   if (bare === 'knob' || bare === 'tooth') return true;
@@ -251,7 +252,7 @@ export async function createLDrawViewer(
   options?: LDrawViewerOptions,
 ): Promise<ViewerState> {
   const bgColor = options?.background ?? 0x2d2d3d;
-  const groundColor = options?.groundColor ?? 0x3a3a3a;
+  const groundColor = options?.groundColor ?? 0x4a4a5a;
   const scale = options?.scale ?? LDU_TO_UNITS;
   const onProgress = options?.onProgress;
 
@@ -490,7 +491,7 @@ export async function createLDrawViewer(
   scene.add(keyLight.target);
 
   // ── Ground plane ───────────────────────────────────────────────────────
-  const groundSize = maxDim * 4;
+  const groundSize = maxDim * 2;
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(groundSize, groundSize),
     new THREE.MeshStandardMaterial({
