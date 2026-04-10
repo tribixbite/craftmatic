@@ -117,13 +117,20 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
   297: 'minecraft:gold_block',            // Pearl Gold
   494: 'minecraft:iron_block',            // Electric Contact / Chrome Silver
   495: 'minecraft:iron_block',            // Chrome Antique Brass
-  496: 'minecraft:iron_block',            // Chrome Silver
+  496: 'minecraft:light_gray_concrete',   // Light Bluish Gray (#A3A2A4)
 
   // ── Rubber Colors ────────────────────────────────────────────────────────
   256: 'minecraft:black_concrete',        // Rubber Black
   273: 'minecraft:blue_concrete',         // Rubber Blue
   // 324 already mapped above (Red)
   375: 'minecraft:light_gray_concrete',   // Rubber Light Gray
+  // BrickLink Studio 10xxx rubber color IDs (used in tree foliage, tires, etc.)
+  10002: 'minecraft:lime_concrete',       // Rubber Green (#58AB41)
+  10070: 'minecraft:brown_concrete',      // Rubber Reddish Brown (#5F3109)
+  10320: 'minecraft:red_concrete',        // Rubber Dark Red (#720012)
+  10484: 'minecraft:orange_concrete',     // Rubber Dark Orange (#91501C)
+  10047: 'minecraft:white_concrete',      // Rubber White
+  10026: 'minecraft:red_concrete',        // Rubber Red
 
   // ── Extended colors referenced by LDD/LXF pipeline ─────────────────────
   21:  'minecraft:lime_concrete',         // Glow In Dark Opaque (yellowish-green)
@@ -278,4 +285,7 @@ export const LDRAW_COLOR_RGB: Record<number, string> = {
   494: '#D0D0D0', 495: '#AE7A59', 496: '#A3A2A4', 503: '#E6E3DA',
   504: '#898788', 511: '#FAFAFA',
   601: '#BDC6AD', 605: '#FF9F2C',
+  // BrickLink Studio 10xxx rubber color IDs (from StudioColorDefinition.txt)
+  10002: '#58AB41', 10026: '#B40000', 10047: '#FFFFFF',
+  10070: '#5F3109', 10320: '#720012', 10484: '#91501C',
 };
