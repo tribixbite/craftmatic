@@ -79,6 +79,8 @@ let directRenderMode = false;
 let currentBricks: ParsedBrick[] | null = null;
 let currentBricksLabel = '';
 let currentBricksColorFn: ((id: number) => string) | undefined;
+/** Raw MPD/LDR content for inline sub-model resolution in 3D renderer */
+let currentMpdContent: string | undefined;
 /** Total number of steps in the current model (1 = no step markers) */
 let totalSteps = 1;
 /** Current step being shown (undefined = all steps) */
@@ -541,6 +543,7 @@ async function parseMpdFile(file: File): Promise<void> {
     if (ext === 'io') {
       const buf = await file.arrayBuffer();
       text = await extractIoLDraw(buf);
+      currentMpdContent = text;
       const bricks = parseLDraw(text);
       if (bricks.length === 0) throw new Error('No brick placements found in file.');
       await voxelizeAndDisplay(bricks, file.name, studioColorToBlock);
@@ -548,6 +551,7 @@ async function parseMpdFile(file: File): Promise<void> {
     }
 
     text = await file.text();
+    currentMpdContent = text; // store for 3D renderer inline sub-model resolution
     const bricks = parseLDraw(text);
     if (bricks.length === 0) throw new Error('No brick placements found in file.');
     await voxelizeAndDisplay(bricks, file.name);
@@ -597,7 +601,7 @@ async function voxelizeAndDisplay(
         ?? document.getElementById('lego-viewer');
       if (viewerEl) {
         viewerEl.innerHTML = '';
-        const viewer = await createLDrawViewer(viewerEl, bricks);
+        const viewer = await createLDrawViewer(viewerEl, bricks, { mpdContent: currentMpdContent });
         setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry`, 'success');
       }
     } catch (e) {
