@@ -30,12 +30,17 @@ interface PartGeom {
 }
 
 export interface LDrawViewerOptions {
-  /** Background color (default: 0x1a1a2e) */
+  /** Background color (default: 0x2d2d3d) */
   background?: number;
-  /** Ground plane color (default: 0x3a3a3a) */
+  /** Ground plane color (default: 0x4a4a5a) */
   groundColor?: number;
   /** Scale factor override (default: 1/20 — 1 stud = 1 unit) */
   scale?: number;
+  /**
+   * Raw MPD/LDR file content. When provided, inline sub-model sections are
+   * pre-loaded into the .dat cache so they resolve without HTTP fetches.
+   */
+  mpdContent?: string;
   /**
    * Progress callback, called as parts are resolved.
    * @param done Number of parts resolved so far
@@ -260,6 +265,28 @@ export async function createLDrawViewer(
   const groundColor = options?.groundColor ?? 0x4a4a5a;
   const scale = options?.scale ?? LDU_TO_UNITS;
   const onProgress = options?.onProgress;
+
+  // ── Pre-load MPD inline sub-models into the .dat cache ─────────────────
+  if (options?.mpdContent) {
+    const lines = options.mpdContent.split(/\r?\n/);
+    let currentName: string | null = null;
+    let currentLines: string[] = [];
+    for (const line of lines) {
+      const fileMatch = /^0\s+FILE\s+(.+)$/i.exec(line.trim());
+      if (fileMatch) {
+        if (currentName) {
+          datTextCache.set(normId(currentName), currentLines.join('\n'));
+        }
+        currentName = fileMatch[1].trim();
+        currentLines = [];
+      } else if (currentName) {
+        currentLines.push(line);
+      }
+    }
+    if (currentName) {
+      datTextCache.set(normId(currentName), currentLines.join('\n'));
+    }
+  }
 
   // ── Filter bricks ──────────────────────────────────────────────────────
   const filteredBricks = bricks.filter(b => {
