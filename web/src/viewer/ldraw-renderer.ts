@@ -57,7 +57,7 @@ function isLDrawPrimitive(part: string): boolean {
   // the actual curved geometry for cylinders, arcs, rings, slopes. Essential!
   // KEEP studs, knobs, discs — they're visible geometry.
   // KEEP box primitives — used for internal geometry shapes.
-  if (bare.startsWith('stug-'))      return true;  // anti-stud (under-brick void) — not visible
+  // KEEP stug- (anti-stud / under-brick tubes) — visible from below on elevated sections
   if (bare.startsWith('logo'))       return true;  // LEGO text stamps — too small to see
   if (/^ls\d+/.test(bare))          return true;  // LSynth virtual hose segments
   return false;
@@ -182,10 +182,16 @@ async function resolvePartGeometry(id: string, depth = 0): Promise<PartGeom> {
         const T: Vec3 = [tx, ty, tz];
         const subId = tok.slice(14).join(' ').trim();
 
+        // Detect mirrored transforms: negative determinant means triangle winding is flipped
+        const det = R[0]*(R[4]*R[8]-R[5]*R[7]) - R[1]*(R[3]*R[8]-R[5]*R[6]) + R[2]*(R[3]*R[7]-R[4]*R[6]);
+        const mirrored = det < 0;
+
         subPromises.push(
           resolvePartGeometry(subId, depth + 1).then(sub => {
             for (const [sv0, sv1, sv2] of sub.tris) {
-              geom.tris.push([applyMat(sv0, R, T), applyMat(sv1, R, T), applyMat(sv2, R, T)]);
+              const wv0 = applyMat(sv0, R, T), wv1 = applyMat(sv1, R, T), wv2 = applyMat(sv2, R, T);
+              // Swap v1/v2 for mirrored transforms to maintain correct face winding
+              geom.tris.push(mirrored ? [wv0, wv2, wv1] : [wv0, wv1, wv2]);
             }
             for (const [ev0, ev1] of sub.edges) {
               geom.edges.push([applyMat(ev0, R, T), applyMat(ev1, R, T)]);
@@ -317,7 +323,7 @@ export async function createLDrawViewer(
     }
 
     // Collect edge lines for dark outlines (cap at 500K segments to prevent GPU overload)
-    if (edgePositions.length < 3_000_000) for (const [ev0, ev1] of geom.edges) {
+    if (edgePositions.length < 12_000_000) for (const [ev0, ev1] of geom.edges) {
       const we0 = applyMat(ev0, R, T);
       const we1 = applyMat(ev1, R, T);
       edgePositions.push(
@@ -367,6 +373,19 @@ export async function createLDrawViewer(
   renderer.toneMappingExposure = 1.4;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
+
+  // ── Environment map for realistic plastic reflections ──────────────────
+  {
+    const pmremGen = new THREE.PMREMGenerator(renderer);
+    pmremGen.compileEquirectangularShader();
+    // Create a simple studio environment: white top hemisphere, gray bottom
+    const envScene = new THREE.Scene();
+    envScene.background = new THREE.Color(0xcccccc);
+    const envLight = new THREE.HemisphereLight(0xffffff, 0x888888, 1.0);
+    envScene.add(envLight);
+    scene.environment = pmremGen.fromScene(envScene, 0.04).texture;
+    pmremGen.dispose();
+  }
 
   // ── Lighting (product photography style) ───────────────────────────────
   // Soft ambient fill
@@ -432,9 +451,10 @@ export async function createLDrawViewer(
     const metallic = isMetallicColor(colorId);
 
     const material = transparent
-      ? new THREE.MeshStandardMaterial({
-          color, roughness: 0.1, metalness: 0.0,
-          transparent: true, opacity: 0.4,
+      ? new THREE.MeshPhysicalMaterial({
+          color, roughness: 0.05, metalness: 0.0,
+          transmission: 0.85, ior: 1.45, thickness: 0.5,
+          transparent: true, opacity: 0.9,
           side: THREE.DoubleSide, depthWrite: false,
         })
       : new THREE.MeshPhysicalMaterial({
@@ -486,7 +506,7 @@ export async function createLDrawViewer(
   const maxDim = Math.max(size.x, size.y, size.z) || 10;
 
   // ── Configure shadow camera to cover the model ─────────────────────────
-  const shadowRange = maxDim * 0.8;
+  const shadowRange = maxDim * 1.2;
   keyLight.shadow.camera.left = -shadowRange;
   keyLight.shadow.camera.right = shadowRange;
   keyLight.shadow.camera.top = shadowRange;
@@ -513,9 +533,9 @@ export async function createLDrawViewer(
   // ── Camera positioning ─────────────────────────────────────────────────
   const camDist = maxDim * 1.5;
   camera.position.set(
-    center.x + camDist * 0.7,
-    center.y + camDist * 0.5,
-    center.z + camDist * 0.7,
+    center.x + camDist * 0.3,
+    center.y + camDist * 0.4,
+    center.z + camDist * 0.85,
   );
   camera.lookAt(center);
   camera.near = maxDim * 0.01;
