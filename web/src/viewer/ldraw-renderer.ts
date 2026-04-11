@@ -386,14 +386,19 @@ export async function createLDrawViewer(
   scene.add(keyLight);
 
   // Fill light (cooler, opposite side — softer)
-  const fillLight = new THREE.DirectionalLight(0xc0d8ff, 0.6);
+  const fillLight = new THREE.DirectionalLight(0xd0e0ff, 1.0);
   fillLight.position.set(-40, 30, -30);
   scene.add(fillLight);
 
   // Rim/back light for edge definition
-  const rimLight = new THREE.DirectionalLight(0xffffff, 0.3);
+  const rimLight = new THREE.DirectionalLight(0xffffff, 0.5);
   rimLight.position.set(0, 20, -60);
   scene.add(rimLight);
+
+  // Bottom fill to reduce harsh shadows under overhangs
+  const bottomFill = new THREE.DirectionalLight(0xe0e0ff, 0.3);
+  bottomFill.position.set(0, -20, 0);
+  scene.add(bottomFill);
 
   // ── Create meshes per color group ──────────────────────────────────────
   const meshes: THREE.Mesh[] = [];
