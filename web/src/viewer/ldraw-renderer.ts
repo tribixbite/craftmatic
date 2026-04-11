@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
@@ -45,22 +46,20 @@ export interface LDrawViewerOptions {
 
 // ─── LDraw primitive / Technic filtering ────────────────────────────────────
 
+/**
+ * For the 3D renderer, we keep almost ALL geometry — including fraction primitives
+ * (4-4cyli, 1-8edge, etc.) which define cylinders, arcs, curves, and rings.
+ * Only skip non-visual helper geometry that would clutter the render.
+ */
 function isLDrawPrimitive(part: string): boolean {
   const bare = part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
-  if (/^\d+-\d+/.test(bare))         return true;  // fraction primitives (4-4cyli, etc.)
-  if (bare.startsWith('stug-'))      return true;  // anti-stud geometry
-  if (bare === 'axl2hole' || bare.startsWith('axlhol')) return true;
-  if (bare.startsWith('connect'))    return true;
-  if (bare.startsWith('npeghol'))    return true;
-  if (bare.startsWith('npeghole'))   return true;
-  if (bare.startsWith('logo'))       return true;  // LEGO text stamps
-  // KEEP studs (stud.dat, stud2.dat, etc.) — they're essential for the LEGO look!
-  // Only skip stug- (under-stud geometry) and stud internal variants
-  if (bare === 'box' || /^box[\da-z]/.test(bare)) return true;
-  if (bare === 'disc')               return true;
-  if (bare === 'knob' || bare === 'tooth') return true;
-  if (/^\d+s\d+$/.test(bare))       return true;
-  if (/^ls\d+/.test(bare))          return true;
+  // KEEP fraction primitives (4-4cyli, 1-8edge, 2-4ndis, etc.) — these define
+  // the actual curved geometry for cylinders, arcs, rings, slopes. Essential!
+  // KEEP studs, knobs, discs — they're visible geometry.
+  // KEEP box primitives — used for internal geometry shapes.
+  if (bare.startsWith('stug-'))      return true;  // anti-stud (under-brick void) — not visible
+  if (bare.startsWith('logo'))       return true;  // LEGO text stamps — too small to see
+  if (/^ls\d+/.test(bare))          return true;  // LSynth virtual hose segments
   return false;
 }
 
@@ -139,7 +138,7 @@ async function fetchDatText(id: string): Promise<string | null> {
 
 async function resolvePartGeometry(id: string, depth = 0): Promise<PartGeom> {
   const EMPTY: PartGeom = { tris: [], edges: [] };
-  if (depth > 12) return EMPTY;
+  if (depth > 20) return EMPTY;
   const key = normId(id);
 
   if (partGeomCache.has(key)) return partGeomCache.get(key)!;
@@ -177,7 +176,7 @@ async function resolvePartGeometry(id: string, depth = 0): Promise<PartGeom> {
         const v2: Vec3 = [+tok[8]!, +tok[9]!, +tok[10]!];
         const v3: Vec3 = [+tok[11]!, +tok[12]!, +tok[13]!];
         geom.tris.push([v0, v1, v2], [v0, v2, v3]);
-      } else if (tok[0] === '1' && tok.length >= 15 && depth < 11) {
+      } else if (tok[0] === '1' && tok.length >= 15 && depth < 19) {
         const tx = +tok[2]!, ty = +tok[3]!, tz = +tok[4]!;
         const R = [+tok[5]!,+tok[6]!,+tok[7]!, +tok[8]!,+tok[9]!,+tok[10]!, +tok[11]!,+tok[12]!,+tok[13]!];
         const T: Vec3 = [tx, ty, tz];
@@ -260,7 +259,8 @@ export async function createLDrawViewer(
   const filteredBricks = bricks.filter(b => {
     if (isLDrawPrimitive(b.part)) return false;
     const bareId = b.part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
-    if (TECHNIC_INTERNAL_PARTS.has(bareId)) return false;
+    // Keep Technic parts (pins, axles) — they're visible in the real model.
+    // (Technic filter only needed for voxelizer where they add noise.)
     return true;
   });
 
@@ -279,7 +279,6 @@ export async function createLDrawViewer(
   // ── Build world-space triangles grouped by color + collect edge lines ──
   interface ColorGroup {
     positions: number[];  // flat xyz array
-    normals: number[];    // flat xyz array
   }
   const colorGroups = new Map<number, ColorGroup>();
   const edgePositions: number[] = []; // all edge lines (dark outlines)
@@ -289,7 +288,7 @@ export async function createLDrawViewer(
   function getGroup(colorId: number): ColorGroup {
     let g = colorGroups.get(colorId);
     if (!g) {
-      g = { positions: [], normals: [] };
+      g = { positions: [] };
       colorGroups.set(colorId, g);
     }
     return g;
@@ -314,16 +313,7 @@ export async function createLDrawViewer(
       const x1 = wv1[0] * scale, y1 = -wv1[1] * scale, z1 = wv1[2] * scale;
       const x2 = wv2[0] * scale, y2 = -wv2[1] * scale, z2 = wv2[2] * scale;
 
-      const e1x = x1 - x0, e1y = y1 - y0, e1z = z1 - z0;
-      const e2x = x2 - x0, e2y = y2 - y0, e2z = z2 - z0;
-      let nx = e1y * e2z - e1z * e2y;
-      let ny = e1z * e2x - e1x * e2z;
-      let nz = e1x * e2y - e1y * e2x;
-      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-      if (len > 1e-10) { nx /= len; ny /= len; nz /= len; }
-
       group.positions.push(x0, y0, z0, x1, y1, z1, x2, y2, z2);
-      group.normals.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
     }
 
     // Collect edge lines for dark outlines (cap at 500K segments to prevent GPU overload)
@@ -422,14 +412,18 @@ export async function createLDrawViewer(
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(group.positions, 3));
-    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(group.normals, 3));
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
+    // Compute smooth normals: merge coincident vertices then average face normals.
+    // This gives smooth shading on cylinders/curves while still looking correct on flat surfaces.
+    // The tolerance (1e-4) ensures only truly coincident vertices merge.
+    const merged = mergeVertices(geometry, 1e-4);
+    merged.computeVertexNormals();
+    merged.computeBoundingBox();
+    merged.computeBoundingSphere();
 
     // Expand scene bounding box
-    if (geometry.boundingBox) {
-      bboxMin.min(geometry.boundingBox.min);
-      bboxMax.max(geometry.boundingBox.max);
+    if (merged.boundingBox) {
+      bboxMin.min(merged.boundingBox.min);
+      bboxMax.max(merged.boundingBox.max);
     }
 
     const color = getThreeColor(colorId);
@@ -440,7 +434,7 @@ export async function createLDrawViewer(
       ? new THREE.MeshStandardMaterial({
           color, roughness: 0.1, metalness: 0.0,
           transparent: true, opacity: 0.4,
-          side: THREE.DoubleSide, depthWrite: false, flatShading: true,
+          side: THREE.DoubleSide, depthWrite: false,
         })
       : new THREE.MeshPhysicalMaterial({
           color,
@@ -448,7 +442,7 @@ export async function createLDrawViewer(
           metalness: metallic ? 0.85 : 0.0,
           clearcoat: metallic ? 0.0 : 0.4,
           clearcoatRoughness: 0.3,
-          side: THREE.FrontSide, flatShading: true,
+          side: THREE.FrontSide,
         });
 
     // Slight emissive tint for richer plastic look
@@ -461,7 +455,7 @@ export async function createLDrawViewer(
     material.polygonOffsetFactor = 1;
     material.polygonOffsetUnits = 1;
 
-    const mesh = new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(merged, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     if (transparent) mesh.renderOrder = 1; // render after opaque
