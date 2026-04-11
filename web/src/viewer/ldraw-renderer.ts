@@ -12,7 +12,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+// mergeVertices available from 'three/examples/jsm/utils/BufferGeometryUtils.js' if needed
 import { BlockGrid } from '@craft/schem/types.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
@@ -417,18 +417,14 @@ export async function createLDrawViewer(
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(group.positions, 3));
-    // Compute smooth normals: merge coincident vertices then average face normals.
-    // This gives smooth shading on cylinders/curves while still looking correct on flat surfaces.
-    // The tolerance (1e-4) ensures only truly coincident vertices merge.
-    const merged = mergeVertices(geometry, 1e-4);
-    merged.computeVertexNormals();
-    merged.computeBoundingBox();
-    merged.computeBoundingSphere();
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
 
     // Expand scene bounding box
-    if (merged.boundingBox) {
-      bboxMin.min(merged.boundingBox.min);
-      bboxMax.max(merged.boundingBox.max);
+    if (geometry.boundingBox) {
+      bboxMin.min(geometry.boundingBox.min);
+      bboxMax.max(geometry.boundingBox.max);
     }
 
     const color = getThreeColor(colorId);
@@ -445,9 +441,10 @@ export async function createLDrawViewer(
           color,
           roughness: metallic ? 0.15 : 0.3,
           metalness: metallic ? 0.85 : 0.0,
-          clearcoat: metallic ? 0.0 : 0.4,
-          clearcoatRoughness: 0.3,
+          clearcoat: metallic ? 0.0 : 0.3,
+          clearcoatRoughness: 0.4,
           side: THREE.FrontSide,
+          flatShading: true,
         });
 
     // Slight emissive tint for richer plastic look
@@ -460,7 +457,7 @@ export async function createLDrawViewer(
     material.polygonOffsetFactor = 1;
     material.polygonOffsetUnits = 1;
 
-    const mesh = new THREE.Mesh(merged, material);
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     if (transparent) mesh.renderOrder = 1; // render after opaque
