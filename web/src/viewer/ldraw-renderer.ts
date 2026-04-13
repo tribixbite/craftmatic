@@ -505,7 +505,7 @@ export async function createLDrawViewer(
           metalness: metallic ? 0.85 : 0.0,
           clearcoat: metallic ? 0.0 : 0.3,
           clearcoatRoughness: 0.4,
-          side: THREE.FrontSide,
+          side: THREE.DoubleSide,
           flatShading: true,
         });
 
