@@ -56,7 +56,7 @@ export function parseArgs(): CLIArgs {
     console.log(`Usage: bun scripts/voxelize-glb.ts <input.glb> [options]
 
 Options:
-  --resolution, -r   Blocks per meter (default: 1)
+  --resolution, -r   Blocks per meter (default: 1, max: 10 = 0.1m/block)
   --mode, -m         solid | surface (default: surface)
   --min-height       Min mesh height above ground to keep (default: 2)
   --trim             Bottom-layer trim fill threshold (default: 0.05)
