@@ -1195,7 +1195,23 @@ export function boostPhotogrammetrySaturation(grid: BlockGrid, chromaFloor = 8):
         }
 
         if (bestCluster) {
-          grid.set(x, y, z, bestCluster.cluster.options[0]);
+          // Pick the option closest in Lab to the original block — but skip the original block itself
+          let bestOpt = bestCluster.cluster.options[0];
+          if (bestCluster.cluster.options.length > 1) {
+            let bestOptDist = Infinity;
+            for (const opt of bestCluster.cluster.options) {
+              if (opt === block) continue; // don't "replace" with the same block
+              const optLab = getBlockLab(opt);
+              if (optLab) {
+                const dL = lab[0] - optLab[0], da = lab[1] - optLab[1], db = lab[2] - optLab[2];
+                const d = dL * dL + da * da + db * db;
+                if (d < bestOptDist) { bestOptDist = d; bestOpt = opt; }
+              }
+            }
+          }
+          // If only option was the original block, skip
+          if (bestOpt === block) continue;
+          grid.set(x, y, z, bestOpt);
           replaced++;
         }
       }

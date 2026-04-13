@@ -237,6 +237,7 @@ export function removeGroundPlaneAdaptive(
     const nextRatio = fillRatios[y + 1];
     if (nextRatio < fillRatios[y] * 0.5) {
       groundY = y;
+      break; // Take the FIRST sharp transition — avoids destroying interior floors
     }
   }
 

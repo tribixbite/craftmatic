@@ -61,7 +61,19 @@ export function restoreGridBlocks(grid: BlockGrid, snapshot: GridSnapshot): void
       `${grid.width}x${grid.height}x${grid.length}`
     );
   }
-  const { width, length } = grid;
+  const { width, height, length } = grid;
+  // First: clear any blocks added AFTER the snapshot was taken
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * length + z) * width + x;
+        if (!snapshot.blocks.has(idx) && grid.get(x, y, z) !== 'minecraft:air') {
+          grid.set(x, y, z, 'minecraft:air');
+        }
+      }
+    }
+  }
+  // Then: restore all blocks from the snapshot
   for (const [idx, block] of snapshot.blocks) {
     const x = idx % width;
     const z = Math.floor(idx / width) % length;
