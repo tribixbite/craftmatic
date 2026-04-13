@@ -123,7 +123,7 @@ function buildUI(): void {
       <div class="tiles-params">
         <label class="tiles-param">
           <span>Resolution</span>
-          <input type="range" id="tiles-resolution" min="1" max="4" step="1" value="3">
+          <input type="range" id="tiles-resolution" min="1" max="10" step="1" value="3">
           <span id="tiles-res-label" class="tiles-param-value">3 block/m (1 ft/block)</span>
         </label>
         <label class="tiles-param">
@@ -187,7 +187,14 @@ function buildUI(): void {
 
   resSlider.addEventListener('input', () => {
     const v = parseInt(resSlider.value, 10);
-    resLabel.textContent = v === 3 ? '3 block/m (1 ft/block)' : `${v} block/m`;
+    const labels: Record<number, string> = {
+      1: '1 block/m (1 m/block)',
+      2: '2 block/m (0.5 m/block)',
+      3: '3 block/m (1 ft/block)',
+      10: '10 block/m (0.1 m/block)',
+    };
+    resLabel.textContent = labels[v] ?? `${v} block/m`;
+    if (v >= 8) resLabel.textContent += ' — high detail';
   });
   radiusSlider.addEventListener('input', () => {
     radiusLabel.textContent = `${radiusSlider.value} m`;
@@ -607,6 +614,10 @@ async function runVoxelizePipeline(
     // Create Canvas-backed texture sampler for photorealistic tile textures.
     // Without this, colors fall back to material.color (usually white).
     const sampler = createCanvasTextureSampler();
+    // Cap grid dimension to prevent OOM on mobile. At resolution 10, a 50m building
+    // would be 500 blocks per side. Browser cap: 512 blocks (enough for most buildings,
+    // avoids 75M+ voxel grids that crash mobile GPUs). CLI has no cap by default.
+    const browserMaxDim = resolution >= 5 ? 512 : 256;
     const grid = await threeToGridAsync(capturedGroup, resolution, {
       onProgress: (p) => {
         const msg = p.message
@@ -618,11 +629,14 @@ async function runVoxelizePipeline(
       // Surface mode: 3D tiles are photogrammetry surfaces (not watertight solids).
       // Uses closest-point-to-geometry instead of odd-even inside/outside test.
       mode: 'surface',
-      // Yield to main thread every 4 layers to keep UI responsive on mobile
-      yieldInterval: 4,
+      // Yield to main thread every N layers to keep UI responsive on mobile.
+      // At high resolution, yield more often (more layers, each smaller).
+      yieldInterval: resolution >= 5 ? 2 : 4,
       // Don't filter vegetation during voxelization — trees act as solid walls during
       // fillInteriorGaps, preventing holes behind canopy. Strip in post-processing.
       filterVegetation: false,
+      // Grid dimension cap prevents OOM at high resolutions
+      maxDimension: browserMaxDim,
     });
 
     // Post-voxel Y trim: remove sparse bottom layers (residual terrain that

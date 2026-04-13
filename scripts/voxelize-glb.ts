@@ -413,7 +413,10 @@ async function main(): Promise<void> {
     const resScale = 1 / args.resolution;         // 2x→0.5, 1x→1.0, 3x→0.33
     const towerScale = aspectRatio > 1.5 ? 0.5 : 1.0;
     const sizeScale = buildingWidth > 80 ? 1.3 : buildingWidth < 25 ? 0.7 : 1.0;
-    args.kernel = Math.max(4, Math.min(16, Math.round(12 * resScale * towerScale * sizeScale)));
+    // At resolution >=5, kernel bottoms out at 1 (point sampling — each voxel is 0.1-0.2m,
+    // texture detail is already at voxel scale). Min kernel 1 prevents 0-kernel crash.
+    const minKernel = args.resolution >= 5 ? 1 : 4;
+    args.kernel = Math.max(minKernel, Math.min(16, Math.round(12 * resScale * towerScale * sizeScale)));
     console.log(`Auto kernel=${args.kernel}: res=${args.resolution} (×${resScale.toFixed(2)}), aspect=${aspectRatio.toFixed(2)} (×${towerScale}), width=${buildingWidth.toFixed(0)}m (×${sizeScale})`);
   }
 
@@ -430,7 +433,20 @@ async function main(): Promise<void> {
   }
 
   // Voxelize
+  // At high resolutions (>=5), estimate grid dimensions and warn about memory/time
+  const estBox = new THREE.Box3().setFromObject(filteredGroup);
+  const estSize = new THREE.Vector3();
+  estBox.getSize(estSize);
+  const estW = Math.ceil(estSize.x * args.resolution);
+  const estH = Math.ceil(estSize.y * args.resolution);
+  const estL = Math.ceil(estSize.z * args.resolution);
+  const estVoxels = estW * estH * estL;
+  const estMemMB = (estVoxels * 2) / (1024 * 1024); // Uint16Array = 2 bytes/voxel
   console.log(`\nVoxelizing: ${args.mode} mode, ${args.resolution} block/m, gamma ${args.gamma}, kernel ${args.kernel}, desat ${args.desaturate}`);
+  console.log(`  Estimated grid: ${estW}x${estH}x${estL} = ${estVoxels.toLocaleString()} voxels (${estMemMB.toFixed(0)} MB)`);
+  if (estVoxels > 50_000_000) {
+    console.log(`  ⚠ Large grid — narrow-band voxelization will skip empty space`);
+  }
   const sampler = createDataTextureSampler(args.gamma, args.kernel, args.desaturate);
   const tVox = performance.now();
   const grid = threeToGrid(filteredGroup, args.resolution, {
