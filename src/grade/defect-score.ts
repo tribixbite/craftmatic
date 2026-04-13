@@ -20,26 +20,24 @@ export interface DefectChecklist {
   false_positives_merged: boolean;
   /** True if facade has visible material variation, not uniform gray */
   surface_detail_visible: boolean;
-  // Removed zero-weight fields (v313): footprint_wrong_shape, building_recognizable,
-  // proportions_correct — VLM hallucinated these on 33-60% of verified-good builds.
-  // Removing saves ~30% VLM output tokens per grading call.
+  /** True if building footprint outline clearly differs from satellite reference */
+  footprint_wrong_shape: boolean;
+  /** True if width/depth/height proportions reasonably match the reference */
+  proportions_correct: boolean;
 }
 
 /**
  * Compute a deterministic 0-10 score from a binary defect checklist.
  *
- * Penalty weights (total max = 7):
- *   neighbor_buildings_merged -2  (critical: footprint contamination)
- *   false_positives_merged    -2  (critical: footprint contamination)
- *   height_truncated          -1  (minor: Google Tiles LOD limitation)
- *   facade_holes_visible      -1  (minor: often false positive from DDA shadow stripes)
- *   floating_artifacts        -1  (minor: noise — common false positive from texture variation)
- *   !surface_detail_visible   -1  (minor: material quality)
- *
- * Removed zero-weight fields (v313):
- *   footprint_wrong_shape: VLM flagged 6/10 verified-good builds — systematic voxel artifact.
- *   building_recognizable: subjective meta-judgment, ~33% false-positive.
- *   proportions_correct: redundant with building_recognizable (95% co-occurrence).
+ * Penalty/bonus weights (total max penalty = 8, max bonus = 0.5):
+ *   neighbor_buildings_merged -2    (critical: footprint contamination)
+ *   false_positives_merged    -2    (critical: footprint contamination)
+ *   height_truncated          -1    (minor: Google Tiles LOD limitation)
+ *   facade_holes_visible      -1    (minor: often false positive from DDA shadow stripes)
+ *   floating_artifacts        -1    (minor: noise — common false positive from texture variation)
+ *   !surface_detail_visible   -1    (minor: material quality)
+ *   footprint_wrong_shape     -0.5  (reduced weight: VLM over-flags on blocky voxels)
+ *   !proportions_correct      -0.5  (reduced weight: bonus for correct proportions)
  */
 export function scoreFromDefects(defects: DefectChecklist): number {
   let score = 10;
@@ -49,5 +47,7 @@ export function scoreFromDefects(defects: DefectChecklist): number {
   if (defects.neighbor_buildings_merged) score -= 2;
   if (defects.false_positives_merged)    score -= 2;
   if (!defects.surface_detail_visible)   score -= 1;
-  return Math.max(0, score);
+  if (defects.footprint_wrong_shape)     score -= 0.5;
+  if (!defects.proportions_correct)      score -= 0.5;
+  return Math.max(0, Math.round(score * 10) / 10);
 }

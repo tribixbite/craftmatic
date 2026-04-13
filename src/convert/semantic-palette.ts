@@ -203,9 +203,15 @@ export function resolveSemanticPalette(
     }
   }
 
-  // Priority 3: Tall commercial → glass curtain wall
-  const commercialTypes = new Set(['commercial', 'office', 'retail', 'hotel', 'industrial']);
-  if (heightM > 50 && commercialTypes.has(buildingType)) {
+  // Priority 3: Tall buildings → glass curtain wall
+  // Height > 60m with ANY type (including untagged 'yes') → glass curtain wall
+  // Height > 40m with known commercial types → glass curtain wall
+  const glassCurtainTypes = new Set(['commercial', 'office', 'hotel']);
+  const isGlassCurtain =
+    (heightM > 60) ||
+    (heightM > 40 && glassCurtainTypes.has(buildingType));
+
+  if (isGlassCurtain) {
     return {
       wallBlocks: ['minecraft:white_stained_glass', 'minecraft:light_gray_stained_glass', 'minecraft:light_gray_concrete'],
       glassBlock: 'minecraft:white_stained_glass',
@@ -213,12 +219,12 @@ export function resolveSemanticPalette(
     };
   }
 
-  // Priority 4: Height > 30m without material → likely modern concrete/glass
-  if (heightM > 30) {
+  // Priority 4: Height > 30m with commercial type → modern commercial default
+  if (heightM > 30 && (glassCurtainTypes.has(buildingType) || buildingType === 'retail' || buildingType === 'industrial')) {
     return {
       wallBlocks: ['minecraft:light_gray_concrete', 'minecraft:white_concrete', 'minecraft:smooth_quartz'],
       glassBlock: 'minecraft:light_gray_stained_glass',
-      source: `height=${heightM.toFixed(0)}m → modern commercial default`,
+      source: `height=${heightM.toFixed(0)}m + type=${buildingType} → modern commercial default`,
     };
   }
 
@@ -248,7 +254,7 @@ export function applySemanticPalette(
   let replaced = 0;
 
   // Determine wall height cutoff for roof vs wall assignment
-  // Roof = top 15% of building, wall = everything else
+  // Roof = top N blocks (8% of height, capped at 10 blocks max ~10m = ~3 floors)
   let maxY = 0;
   for (let y = height - 1; y >= 0; y--) {
     let hasBlock = false;
@@ -259,7 +265,9 @@ export function applySemanticPalette(
     }
     if (hasBlock) { maxY = y; break; }
   }
-  const roofCutoffY = Math.round(maxY * 0.85);
+  const heightBlocks = maxY + 1;
+  const roofDepth = Math.min(Math.ceil(heightBlocks * 0.08), 10);
+  const roofCutoffY = maxY - roofDepth + 1;
 
   for (let y = 0; y < height; y++) {
     const isRoof = y >= roofCutoffY;
@@ -282,7 +290,7 @@ export function applySemanticPalette(
             grid.set(x, y, z, rb);
           } else {
             // Spatial hash for variety
-            const hash = ((x * 73856093) ^ (y * 19349663) ^ (z * 83492791)) >>> 0;
+            const hash = ((x * 73856093 + y * 19349663 + z * 83492791) ^ (x * 19349663 + z * 73856093)) >>> 0;
             const rb = palette.roofBlocks[hash % palette.roofBlocks.length];
             grid.set(x, y, z, rb);
           }
@@ -297,13 +305,94 @@ export function applySemanticPalette(
           grid.set(x, y, z, wb);
         } else if (palette.wallBlocks.length > 0) {
           // Spatial hash across palette options
-          const hash = ((x * 73856093) ^ (y * 19349663) ^ (z * 83492791)) >>> 0;
+          const hash = ((x * 73856093 + y * 19349663 + z * 83492791) ^ (x * 19349663 + z * 73856093)) >>> 0;
           const wb = palette.wallBlocks[hash % palette.wallBlocks.length];
           grid.set(x, y, z, wb);
         }
         replaced++;
       }
     }
+  }
+
+  // ── Checkerboard smoothing pass ──────────────────────────────────────────
+  // When only GRAY_FAMILY blocks were replaced, surviving non-gray photogrammetry
+  // blocks create harsh checkerboard boundaries next to new palette blocks.
+  // For each block that was just recolored, check its 4 horizontal neighbors.
+  // If 2+ neighbors are non-gray photogrammetry blocks (not in the palette and
+  // not glass/air), replace those neighbors with the palette too.
+  const paletteBlocks = new Set<string>(palette.wallBlocks);
+  if (palette.roofBlocks) {
+    for (const rb of palette.roofBlocks) paletteBlocks.add(rb);
+  }
+  if (palette.glassBlock) paletteBlocks.add(palette.glassBlock);
+
+  // Collect positions that were recolored on the first pass
+  // (they now contain palette blocks that weren't there before)
+  // We need to check neighbors of recolored blocks, so we iterate the grid again
+  // and look for palette blocks that border non-palette, non-gray, non-glass blocks
+  const spreadTargets: Array<{ x: number; y: number; z: number; isRoof: boolean }> = [];
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block === AIR) continue;
+        // Only look at blocks that are now palette blocks (recolored in pass 1)
+        if (!paletteBlocks.has(block)) continue;
+
+        // Check 4 horizontal neighbors for non-gray photogrammetry blocks
+        const dx = [1, -1, 0, 0];
+        const dz = [0, 0, 1, -1];
+        let nonGrayNeighbors = 0;
+        for (let d = 0; d < 4; d++) {
+          const nx = x + dx[d];
+          const nz = z + dz[d];
+          if (nx < 0 || nx >= width || nz < 0 || nz >= length) continue;
+          const nb = grid.get(nx, y, nz);
+          if (nb === AIR) continue;
+          if (GLASS_BLOCKS.has(nb)) continue;
+          if (GRAY_FAMILY.has(nb)) continue;
+          if (paletteBlocks.has(nb)) continue;
+          // This neighbor is a non-gray, non-palette photogrammetry block
+          nonGrayNeighbors++;
+        }
+
+        // If 2+ non-gray photogrammetry neighbors, mark them for spreading
+        if (nonGrayNeighbors >= 2) {
+          const isRoof = y >= roofCutoffY;
+          for (let d = 0; d < 4; d++) {
+            const nx = x + dx[d];
+            const nz = z + dz[d];
+            if (nx < 0 || nx >= width || nz < 0 || nz >= length) continue;
+            const nb = grid.get(nx, y, nz);
+            if (nb === AIR || GLASS_BLOCKS.has(nb) || GRAY_FAMILY.has(nb) || paletteBlocks.has(nb)) continue;
+            spreadTargets.push({ x: nx, y, z: nz, isRoof });
+          }
+        }
+      }
+    }
+  }
+
+  // Apply spread — replace checkerboard neighbors with palette blocks
+  for (const { x, y, z, isRoof } of spreadTargets) {
+    // Skip if already replaced by another spread
+    const current = grid.get(x, y, z);
+    if (current === AIR || GLASS_BLOCKS.has(current) || paletteBlocks.has(current)) continue;
+
+    if (isRoof && palette.roofBlocks && palette.roofBlocks.length > 0) {
+      if (palette.roofColor) {
+        grid.set(x, y, z, rgbToWallBlock(palette.roofColor.r, palette.roofColor.g, palette.roofColor.b, x, y, z));
+      } else {
+        const h = ((x * 73856093 + y * 19349663 + z * 83492791) ^ (x * 19349663 + z * 73856093)) >>> 0;
+        grid.set(x, y, z, palette.roofBlocks[h % palette.roofBlocks.length]);
+      }
+    } else if (palette.wallColor) {
+      grid.set(x, y, z, rgbToWallBlock(palette.wallColor.r, palette.wallColor.g, palette.wallColor.b, x, y, z));
+    } else if (palette.wallBlocks.length > 0) {
+      const h = ((x * 73856093 + y * 19349663 + z * 83492791) ^ (x * 19349663 + z * 73856093)) >>> 0;
+      grid.set(x, y, z, palette.wallBlocks[h % palette.wallBlocks.length]);
+    }
+    replaced++;
   }
 
   return replaced;
