@@ -6,7 +6,7 @@
  */
 
 import { BlockGrid } from '../../schem/types.js';
-import { AIR, H_DIRS } from './_internal.js';
+import { AIR, H_DIRS, snapshotGrid, readSnap } from './_internal.js';
 
 // ─── Facade operations ──────────────────────────────────────────────────────
 
@@ -1110,4 +1110,285 @@ export function fillFacadePlaneHoles(grid: BlockGrid, maxGapArea = 25, resolutio
   }
 
   return totalFilled;
+}
+
+/**
+ * Iteratively fill voids on facade planes by expanding from existing facade blocks.
+ *
+ * Standard `fillFacadeHoles()` requires 4+ solid face-neighbors, which misses large
+ * voids (5+ wide) where interior air has 0-2 neighbors. This function works per-facade
+ * direction, projects the facade surface into a 2D plane, and iteratively fills air
+ * voxels with >= 2 coplanar solid neighbors.
+ *
+ * Each iteration grows the filled region inward by one cell, like a wavefront advancing
+ * from the existing facade edges. Capped at `maxIter` to prevent courtyard closure --
+ * courtyards are large open regions that would require many more iterations.
+ *
+ * @param grid     BlockGrid (modified in place)
+ * @param maxIter  Maximum fill iterations (default: 5). Higher fills larger voids but
+ *                 risks closing intended openings.
+ * @returns Total number of air voxels filled across all iterations and directions
+ */
+export function fillFacadeVoidsIterative(grid: BlockGrid, maxIter = 5): number {
+  const { width, height, length } = grid;
+  let totalFilled = 0;
+
+  // Process 4 cardinal facade directions: for each direction, we identify facade
+  // voxels (solid with air on the outward side) and work in the 2D plane they span.
+  // Directions are defined by the facade normal axis and sign.
+  const directions: Array<{
+    /** Size along the perpendicular horizontal axis */
+    perpSize: number;
+    /** Size along the facade normal axis */
+    axisSize: number;
+    /** Convert (axis, perp, y) to grid (x, y, z) */
+    toXYZ: (a: number, p: number, y: number) => [number, number, number];
+    /** +1 = outward normal is positive axis, -1 = outward normal is negative axis */
+    normalSign: number;
+  }> = [
+    // +X facade: solid block has air at x+1
+    { perpSize: length, axisSize: width,
+      toXYZ: (a, p, y) => [a, y, p], normalSign: 1 },
+    // -X facade: solid block has air at x-1
+    { perpSize: length, axisSize: width,
+      toXYZ: (a, p, y) => [a, y, p], normalSign: -1 },
+    // +Z facade: solid block has air at z+1
+    { perpSize: width, axisSize: length,
+      toXYZ: (a, p, y) => [p, y, a], normalSign: 1 },
+    // -Z facade: solid block has air at z-1
+    { perpSize: width, axisSize: length,
+      toXYZ: (a, p, y) => [p, y, a], normalSign: -1 },
+  ];
+
+  for (const dir of directions) {
+    const { perpSize, axisSize, toXYZ, normalSign } = dir;
+    const mapSize = perpSize * height;
+
+    // For each (perp, y) cell, find the facade surface coordinate along the axis.
+    // The facade is the outermost solid block that has air on the normal side.
+    const surfaceAxis = new Int16Array(mapSize).fill(-1);
+    const surfaceBlock: string[] = new Array(mapSize).fill(AIR);
+
+    for (let p = 0; p < perpSize; p++) {
+      for (let y = 0; y < height; y++) {
+        // Scan from the exterior inward to find the outermost facade block
+        const start = normalSign > 0 ? axisSize - 1 : 0;
+        const end = normalSign > 0 ? -1 : axisSize;
+        const step = normalSign > 0 ? -1 : 1;
+
+        for (let a = start; a !== end; a += step) {
+          const [x, gy, z] = toXYZ(a, p, y);
+          const block = grid.get(x, gy, z);
+          if (block !== AIR) {
+            const outA = a + normalSign;
+            const isFacade = outA < 0 || outA >= axisSize ||
+              grid.get(...toXYZ(outA, p, y)) === AIR;
+            if (isFacade) {
+              const idx = p * height + y;
+              surfaceAxis[idx] = a;
+              surfaceBlock[idx] = block;
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    // Build 2D bitmap of the facade plane: 1 = has facade block, 0 = void
+    const bitmap = new Uint8Array(mapSize);
+    for (let i = 0; i < mapSize; i++) {
+      if (surfaceAxis[i] >= 0) bitmap[i] = 1;
+    }
+
+    // 2D neighbor directions in the (perp, y) plane
+    const DIRS_2D: readonly [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+    // Iteratively fill voids: air cells with >= 2 coplanar solid neighbors get filled
+    for (let iter = 0; iter < maxIter; iter++) {
+      const toFill: number[] = [];
+
+      for (let p = 0; p < perpSize; p++) {
+        for (let y = 0; y < height; y++) {
+          const idx = p * height + y;
+          if (bitmap[idx] !== 0) continue; // Already solid
+
+          // Count coplanar solid neighbors in the 2D plane
+          let solidN = 0;
+          for (const [dp, dy] of DIRS_2D) {
+            const np = p + dp, ny = y + dy;
+            if (np < 0 || np >= perpSize || ny < 0 || ny >= height) continue;
+            if (bitmap[np * height + ny] !== 0) solidN++;
+          }
+
+          if (solidN >= 2) {
+            toFill.push(idx);
+          }
+        }
+      }
+
+      if (toFill.length === 0) break; // Converged
+
+      // Determine fill block and depth for each newly filled cell from its neighbors
+      for (const idx of toFill) {
+        const p = Math.floor(idx / height);
+        const y = idx % height;
+
+        // Collect neighboring blocks and depths for material/depth selection
+        const neighborCounts = new Map<string, number>();
+        let depthSum = 0, depthN = 0;
+
+        for (const [dp, dy] of DIRS_2D) {
+          const np = p + dp, ny = y + dy;
+          if (np < 0 || np >= perpSize || ny < 0 || ny >= height) continue;
+          const ni = np * height + ny;
+          if (bitmap[ni] !== 0 && surfaceBlock[ni] !== AIR) {
+            neighborCounts.set(surfaceBlock[ni], (neighborCounts.get(surfaceBlock[ni]) ?? 0) + 1);
+            if (surfaceAxis[ni] >= 0) { depthSum += surfaceAxis[ni]; depthN++; }
+          }
+        }
+
+        // Pick mode block from neighbors
+        let fillBlock = 'minecraft:stone';
+        let bestCount = 0;
+        for (const [b, c] of neighborCounts) {
+          if (c > bestCount) { fillBlock = b; bestCount = c; }
+        }
+
+        // Fill depth = average of neighboring facade depths
+        const fillDepth = depthN > 0 ? Math.round(depthSum / depthN) : -1;
+        if (fillDepth < 0) continue;
+
+        // Write to grid
+        const [fx, fy, fz] = toXYZ(fillDepth, p, y);
+        if (fx >= 0 && fx < width && fy >= 0 && fy < height && fz >= 0 && fz < length) {
+          if (grid.get(fx, fy, fz) === AIR) {
+            grid.set(fx, fy, fz, fillBlock);
+            totalFilled++;
+          }
+        }
+
+        // Update 2D state for next iteration
+        bitmap[idx] = 1;
+        surfaceAxis[idx] = fillDepth;
+        surfaceBlock[idx] = fillBlock;
+      }
+    }
+  }
+
+  return totalFilled;
+}
+
+/**
+ * Fill single-block vertical stripes on facade surfaces.
+ *
+ * Oblique photogrammetry capture angles produce a "venetian blind" artifact where
+ * alternating horizontal rows are solid/air across a facade face. This creates
+ * visible 1-block horizontal stripes. This function scans each facade face direction
+ * and fills isolated single-air-block gaps sandwiched between solid blocks on the
+ * same horizontal row.
+ *
+ * Only fills 1-wide gaps (not 2+) to avoid closing real architectural features
+ * like window bands or recessed panels.
+ *
+ * @param grid  BlockGrid (modified in place)
+ * @returns Number of stripe gaps filled
+ */
+export function fillFacadeStripes(grid: BlockGrid): number {
+  const { width, height, length } = grid;
+  // Take a snapshot so reads are consistent during mutation
+  const snap = snapshotGrid(grid);
+  let filled = 0;
+
+  // Process X-facing facades: for each (y, z), scan along X
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 1; x < width - 1; x++) {
+        if (readSnap(snap, grid, x, y, z) !== AIR) continue;
+
+        // Check if this air block is on a facade (has air in +Z or -Z direction,
+        // indicating it's on the surface, not buried interior)
+        const hasAirNeighborZ =
+          (z > 0 && readSnap(snap, grid, x, y, z - 1) === AIR) ||
+          (z < length - 1 && readSnap(snap, grid, x, y, z + 1) === AIR);
+        if (!hasAirNeighborZ) continue;
+
+        // Look for solid blocks within 2 positions on each side along X
+        let solidLeft: string | null = null;
+        let solidRight: string | null = null;
+        for (let d = 1; d <= 2; d++) {
+          if (x - d >= 0) {
+            const b = readSnap(snap, grid, x - d, y, z);
+            if (b !== AIR) { solidLeft = b; break; }
+          }
+        }
+        for (let d = 1; d <= 2; d++) {
+          if (x + d < width) {
+            const b = readSnap(snap, grid, x + d, y, z);
+            if (b !== AIR) { solidRight = b; break; }
+          }
+        }
+
+        // Only fill single-block gaps: both sides must have solid within 2 blocks,
+        // and the gap must be exactly 1 wide (not part of a larger void)
+        if (!solidLeft || !solidRight) continue;
+
+        // Verify this is a single-block gap: BOTH immediate neighbors must be solid.
+        // If either immediate neighbor is air, this is part of a 2+ wide gap.
+        const leftImmediate = readSnap(snap, grid, x - 1, y, z);
+        const rightImmediate = readSnap(snap, grid, x + 1, y, z);
+        if (leftImmediate === AIR || rightImmediate === AIR) continue; // 2+ wide gap
+
+        // Fill with the most common of the two neighbor blocks
+        const fillBlock = solidLeft === solidRight ? solidLeft : solidLeft;
+        grid.set(x, y, z, fillBlock);
+        filled++;
+      }
+    }
+  }
+
+  // Process Z-facing facades: for each (y, x), scan along Z
+  // Retake snapshot after X-pass mutations
+  const snap2 = snapshotGrid(grid);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      for (let z = 1; z < length - 1; z++) {
+        if (readSnap(snap2, grid, x, y, z) !== AIR) continue;
+
+        // Check if on a facade surface (has air in +X or -X direction)
+        const hasAirNeighborX =
+          (x > 0 && readSnap(snap2, grid, x - 1, y, z) === AIR) ||
+          (x < width - 1 && readSnap(snap2, grid, x + 1, y, z) === AIR);
+        if (!hasAirNeighborX) continue;
+
+        // Look for solid blocks within 2 positions on each side along Z
+        let solidFront: string | null = null;
+        let solidBack: string | null = null;
+        for (let d = 1; d <= 2; d++) {
+          if (z - d >= 0) {
+            const b = readSnap(snap2, grid, x, y, z - d);
+            if (b !== AIR) { solidFront = b; break; }
+          }
+        }
+        for (let d = 1; d <= 2; d++) {
+          if (z + d < length) {
+            const b = readSnap(snap2, grid, x, y, z + d);
+            if (b !== AIR) { solidBack = b; break; }
+          }
+        }
+
+        if (!solidFront || !solidBack) continue;
+
+        // Verify single-block gap: BOTH immediate neighbors must be solid
+        const frontImmediate = readSnap(snap2, grid, x, y, z - 1);
+        const backImmediate = readSnap(snap2, grid, x, y, z + 1);
+        if (frontImmediate === AIR || backImmediate === AIR) continue;
+
+        const fillBlock = solidFront === solidBack ? solidFront : solidFront;
+        grid.set(x, y, z, fillBlock);
+        filled++;
+      }
+    }
+  }
+
+  return filled;
 }

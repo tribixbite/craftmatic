@@ -185,6 +185,79 @@ export function removeGroundPlane(
   return { removed, groundY };
 }
 
+/**
+ * Adaptively remove ground plane and thick terrain layers below a building.
+ *
+ * The standard `removeGroundPlane()` uses a fixed 10th-percentile column ground
+ * height with a +1 margin, which fails on sloped terrain or thick ground planes
+ * (2-5 block terrain slabs from photogrammetry). This function analyzes fill ratio
+ * per Y-level to detect where the ground plane transitions into building structure.
+ *
+ * Algorithm:
+ * 1. For each Y level from 0 upward, count solid blocks and compute fill ratio
+ *    (solidCount / width * length).
+ * 2. A Y level is classified as ground if its fill ratio exceeds `footprintThreshold`
+ *    AND the next Y level's fill ratio drops below half the current level's ratio.
+ *    This detects the sharp density transition from terrain to building walls.
+ * 3. All blocks at and below the detected ground Y are removed.
+ *
+ * @param grid                 Mutable BlockGrid
+ * @param footprintThreshold   Minimum fill ratio to consider a layer as ground (default: 0.4)
+ * @returns Number of blocks removed
+ */
+export function removeGroundPlaneAdaptive(
+  grid: BlockGrid,
+  footprintThreshold = 0.4,
+): number {
+  const { width, height, length } = grid;
+  const area = width * length;
+  if (area === 0) return 0;
+
+  // Compute fill ratio for each Y level
+  const fillRatios = new Float64Array(height);
+  const solidCounts = new Int32Array(height);
+  for (let y = 0; y < height; y++) {
+    let count = 0;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) count++;
+      }
+    }
+    solidCounts[y] = count;
+    fillRatios[y] = count / area;
+  }
+
+  // Find the ground Y: the highest Y where fill ratio > threshold AND
+  // the next Y level's ratio drops below 50% of current (sharp transition).
+  // Scan from bottom up to find the transition point.
+  let groundY = -1;
+  for (let y = 0; y < height - 1; y++) {
+    if (fillRatios[y] < footprintThreshold) continue;
+    // Check if next level has a significant density drop
+    const nextRatio = fillRatios[y + 1];
+    if (nextRatio < fillRatios[y] * 0.5) {
+      groundY = y;
+    }
+  }
+
+  if (groundY < 0) return 0;
+
+  // Remove all blocks at and below the detected ground Y
+  let removed = 0;
+  for (let y = 0; y <= groundY; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // OSM footprint masking
 // ═══════════════════════════════════════════════════════════════════════════
