@@ -24,6 +24,19 @@ const DARK_BLOCKS = new Set([
   'minecraft:deepslate',           // lum ~48 — dark recesses
 ]);
 
+/**
+ * Extended dark block set for photogrammetry mode. Includes lighter gray blocks that
+ * represent windows in photogrammetry (baked shadows are less extreme than assumed).
+ * The lighter threshold catches windows that appear as "slightly darker gray" rather
+ * than truly dark in the voxelized output.
+ */
+const DARK_BLOCKS_PHOTOGRAMMETRY = new Set([
+  ...DARK_BLOCKS,
+  'minecraft:tuff',                // lum ~45 — dark greenish-gray
+  'minecraft:stone_bricks',        // lum ~48 — mid-gray windows
+  'minecraft:stone',               // lum ~48 — mid-gray windows
+]);
+
 /** Glass block variants used to identify already-glazed windows. */
 const GLASS_BLOCKS = new Set([
   'minecraft:gray_stained_glass', 'minecraft:glass', 'minecraft:glass_pane',
@@ -54,13 +67,21 @@ const WINDOW_BLOCKS = new Set([
  *    1-block lateral shift per floor (tapers, diagonals, curves)
  * 3. Glazes all dark blocks in chains with ≥2 members
  *
- * @param grid  Source BlockGrid (modified in place)
+ * @param grid               Source BlockGrid (modified in place)
+ * @param resolution         Blocks per meter (default: 1)
+ * @param photogrammetryMode When true, uses a lower luminance threshold to detect
+ *                           photogrammetry windows that appear as slightly darker gray
+ *                           rather than truly dark. Also lowers minimum chain size and
+ *                           contrast requirements. (default: false)
  * @returns Number of blocks glazed
  */
-export function glazeDarkWindows(grid: BlockGrid, resolution = 1): number {
+export function glazeDarkWindows(grid: BlockGrid, resolution = 1, photogrammetryMode = false): number {
   const { width, height, length } = grid;
 
   let glazed = 0;
+
+  // In photogrammetry mode, use the extended dark block set that includes lighter grays
+  const darkSet = photogrammetryMode ? DARK_BLOCKS_PHOTOGRAMMETRY : DARK_BLOCKS;
 
   // Scale MIN_Y with resolution: skip ground-level (foundation, entry, base shadow)
   const MIN_Y = Math.max(2, Math.round(2 * resolution));
@@ -79,7 +100,7 @@ export function glazeDarkWindows(grid: BlockGrid, resolution = 1): number {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         const block = grid.get(x, y, z);
-        if (!DARK_BLOCKS.has(block)) continue;
+        if (!darkSet.has(block)) continue;
 
         // Reject overhang undersides (soffits): a true facade block rests on
         // something solid. If air directly below, it's a downward-facing surface
@@ -109,7 +130,8 @@ export function glazeDarkWindows(grid: BlockGrid, resolution = 1): number {
   // Count total non-air exterior blocks for glazing cap.
   // If dark facade blocks exceed MAX_GLAZE_PCT of total facade, the "windows"
   // are actually baked photogrammetry shadows — skip glazing entirely.
-  const MAX_GLAZE_PCT = 0.30; // max 30% of facade can be glazed (commercial buildings have >20% dark)
+  // In photogrammetry mode, raise the cap because the expanded dark set catches more blocks.
+  const MAX_GLAZE_PCT = photogrammetryMode ? 0.40 : 0.30;
   let totalFacadeBlocks = 0;
   for (let y = MIN_Y; y < height; y++) {
     for (let z = 0; z < length; z++) {
@@ -184,9 +206,13 @@ export function glazeDarkWindows(grid: BlockGrid, resolution = 1): number {
   // Phase 3: Filter components by size AND vertical extent.
   // Real windows form vertically coherent chains spanning ≥3 Y levels;
   // noise/shadow artifacts are scattered with small vertical bounding boxes.
-  const MIN_COMP_SIZE = 3;    // minimum blocks in the chain
+  // In photogrammetry mode, lower thresholds because the extended dark set produces
+  // smaller but still valid window clusters from the subtler luminance differences.
+  const MIN_COMP_SIZE = photogrammetryMode ? 2 : 3;
   // Scale vertical span threshold with resolution: 3m floor = 9 blocks at res 3
-  const MIN_COMP_HEIGHT = Math.max(2, Math.round(2 * resolution));
+  const MIN_COMP_HEIGHT = photogrammetryMode
+    ? Math.max(1, Math.round(1 * resolution))
+    : Math.max(2, Math.round(2 * resolution));
 
   const compSize = new Map<number, number>();
   const compMinY = new Map<number, number>();
