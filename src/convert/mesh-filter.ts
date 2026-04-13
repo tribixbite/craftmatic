@@ -38,15 +38,19 @@ export {
 } from './mesh-filter/color.js';
 export type { FacadeDir } from './mesh-filter/color.js';
 
-// Flood fill, connected components, spatial isolation
+// Connected-component analysis & isolation
 export {
   removeSmallComponents, removeArtifactComponents,
-  isolateTallestStructure, cropToCenter, cropToRect, cropToAABB,
-  removeGroundPlane, maskToFootprint, alignOSMToFootprint,
-  maskToFootprintAligned, severByHeightGradient, watershedIsolate,
-  enforceFootprintPolygon, isolatePrimaryBuilding,
-  severStreetFurniture, removeThinPillars,
-} from './mesh-filter/spatial.js';
+  isolateTallestStructure, severByHeightGradient, watershedIsolate,
+  isolatePrimaryBuilding, severStreetFurniture, removeThinPillars,
+} from './mesh-filter/spatial-components.js';
+
+// Crop, mask, footprint enforcement
+export {
+  cropToCenter, cropToRect, cropToAABB, removeGroundPlane,
+  maskToFootprint, alignOSMToFootprint, maskToFootprintAligned,
+  enforceFootprintPolygon,
+} from './mesh-filter/spatial-footprint.js';
 
 // Grid analysis, statistics, metrics
 export {
