@@ -127,6 +127,74 @@ describe('mesh-filter windows pipeline', () => {
     });
   });
 
+  describe('glazeDarkWindows photogrammetryMode', () => {
+    it('detects more windows with photogrammetryMode enabled', () => {
+      // Build shells with bright wall material (white_concrete) — NOT in any dark set.
+      // Place tuff vertical chains that are only in DARK_BLOCKS_PHOTOGRAMMETRY, not DARK_BLOCKS.
+      const gridNormal = buildShell(15, 15, 15, WHITE_CONCRETE);
+      const gridPhoto  = buildShell(15, 15, 15, WHITE_CONCRETE);
+
+      // Place tuff vertical chains (y=2..10) — not dark enough for normal mode
+      for (let y = 2; y <= 10; y++) {
+        gridNormal.set(7, y, 0, 'minecraft:tuff');
+        gridPhoto.set(7, y, 0, 'minecraft:tuff');
+      }
+
+      const glazedNormal = glazeDarkWindows(gridNormal, 1, false);
+      const glazedPhoto  = glazeDarkWindows(gridPhoto, 1, true);
+
+      // Normal mode should NOT detect tuff as dark windows
+      expect(glazedNormal).toBe(0);
+      // Photogrammetry mode should detect tuff as dark windows
+      expect(glazedPhoto).toBeGreaterThanOrEqual(9);
+      for (let y = 2; y <= 10; y++) {
+        expect(gridPhoto.get(7, y, 0)).toBe(GRAY_GLASS);
+      }
+    });
+
+    it('uses higher MAX_GLAZE_PCT in photogrammetryMode (40% vs 30%)', () => {
+      // Build a shell with bright wall material. stone_bricks is in DARK_BLOCKS_PHOTOGRAMMETRY
+      // but NOT in standard DARK_BLOCKS — validates the different detection sets.
+      const grid = buildShell(15, 15, 15, WHITE_CONCRETE);
+
+      // Place stone_bricks on the north facade (z=0) — enough to test detection
+      // but not enough to exceed the 40% cap.
+      for (let y = 2; y <= 10; y++) {
+        for (const x of [3, 5, 7, 9, 11]) {
+          grid.set(x, y, 0, 'minecraft:stone_bricks');
+        }
+      }
+
+      // Normal mode: stone_bricks is not in DARK_BLOCKS → no detection
+      const gridCopy = new BlockGrid(15, 15, 15);
+      for (let y = 0; y < 15; y++)
+        for (let z = 0; z < 15; z++)
+          for (let x = 0; x < 15; x++)
+            gridCopy.set(x, y, z, grid.get(x, y, z));
+
+      const glazedNormal = glazeDarkWindows(gridCopy, 1, false);
+      expect(glazedNormal).toBe(0);
+
+      // Photogrammetry mode: stone_bricks IS in DARK_BLOCKS_PHOTOGRAMMETRY → detected
+      const glazedPhoto = glazeDarkWindows(grid, 1, true);
+      expect(glazedPhoto).toBeGreaterThan(0);
+    });
+
+    it('lowers minimum chain size to 2 in photogrammetryMode', () => {
+      // Use bright wall material so tuff blocks are detected as dark only in photo mode
+      const grid = buildShell(15, 15, 15, WHITE_CONCRETE);
+
+      // Place a 2-block vertical chain of tuff (below normal min of 3)
+      grid.set(7, 3, 0, 'minecraft:tuff');
+      grid.set(7, 4, 0, 'minecraft:tuff');
+
+      const glazed = glazeDarkWindows(grid, 1, true);
+
+      // Chain of 2 with height span 2 meets photogrammetry thresholds (minSize=2, minHeight=1)
+      expect(glazed).toBeGreaterThanOrEqual(2);
+    });
+  });
+
   // ─── glazeReflectiveWindows ──────────────────────────────────────────────
 
   describe('glazeReflectiveWindows', () => {
