@@ -15,15 +15,19 @@ export {
 // Pre-voxelization mesh capture filtering
 export { filterMeshesByHeight, trimSparseBottomLayers } from './mesh-filter/mesh-capture.js';
 
-// Shape / morphology / geometry operations
+// Facade geometry operations (detection, alignment, plane ops, edge straightening)
 export {
-  morphClose3D, flattenFacades, morphCloseFacadeAligned,
-  detectCornices, flattenFacadesSetbackAware,
-  erodeSurfaceBumps, fillFacadeHoles, removeIsolatedVoxels,
-  fillFacadeVoids2D, fillInteriorGaps, scanlineInteriorFill,
-  clearOpenAirFill, smoothSurface, rectangularize,
-  straightenFootprintEdges, addPeakedRoof, fillFacadePlaneHoles,
-} from './mesh-filter/geometry.js';
+  flattenFacades, morphCloseFacadeAligned, detectCornices,
+  flattenFacadesSetbackAware, straightenFootprintEdges,
+  fillFacadeVoids2D, fillFacadePlaneHoles,
+} from './mesh-filter/geometry-facade.js';
+
+// Core geometry operations (morphology, fill, cleanup, roof)
+export {
+  morphClose3D, erodeSurfaceBumps, fillFacadeHoles,
+  removeIsolatedVoxels, fillInteriorGaps, scanlineInteriorFill,
+  clearOpenAirFill, smoothSurface, rectangularize, addPeakedRoof,
+} from './mesh-filter/geometry-core.js';
 
 // Color smoothing, palette, mode filter
 export {
