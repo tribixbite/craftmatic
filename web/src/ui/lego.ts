@@ -465,6 +465,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       const resp = await fetch(`${RECONSTRUCTED_BASE}/${filename}`);
       if (resp.ok) {
         const text = await resp.text();
+        currentMpdContent = text;
         const bricks = parseLDraw(text);
         if (bricks.length > 0) {
           if (btn) btn.disabled = false;
