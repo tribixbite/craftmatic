@@ -22,8 +22,10 @@ import { AIR, H_DIRS, FACES6, snapshotGrid } from './_internal.js';
  * @param radius  Structuring element radius (default: 1 = fills 1-voxel gaps)
  * @returns Number of voxels changed (net fills after erode)
  */
-export function morphClose3D(grid: BlockGrid, radius = 1, maxY?: number): number {
+export function morphClose3D(grid: BlockGrid, radius = 1, maxY?: number, resolution = 1): number {
   const { width, height, length } = grid;
+  // Scale radius by resolution (higher resolution = larger kernel needed)
+  const scaledRadius = Math.max(1, Math.round(radius * resolution));
   // Optional Y limit — only process layers 0..maxY (protects crown/spire/dome above)
   const yLimit = maxY !== undefined ? Math.min(maxY, height) : height;
 
@@ -49,13 +51,13 @@ export function morphClose3D(grid: BlockGrid, radius = 1, maxY?: number): number
         // Count solid neighbors within radius
         const counts = new Map<string, number>();
         let hasSolid = false;
-        for (let dy = -radius; dy <= radius; dy++) {
+        for (let dy = -scaledRadius; dy <= scaledRadius; dy++) {
           const ny = y + dy;
           if (ny < 0 || ny >= height) continue;
-          for (let dz = -radius; dz <= radius; dz++) {
+          for (let dz = -scaledRadius; dz <= scaledRadius; dz++) {
             const nz = z + dz;
             if (nz < 0 || nz >= length) continue;
-            for (let dx = -radius; dx <= radius; dx++) {
+            for (let dx = -scaledRadius; dx <= scaledRadius; dx++) {
               const nx = x + dx;
               if (nx < 0 || nx >= width) continue;
               const nb = before[(ny * length + nz) * width + nx];
@@ -108,13 +110,13 @@ export function morphClose3D(grid: BlockGrid, radius = 1, maxY?: number): number
         // Check if this voxel has any air neighbor within radius in dilated state.
         // If it does, it's on the outer surface of the dilation — erode it back.
         let hasAirNeighbor = false;
-        for (let dy = -radius; dy <= radius && !hasAirNeighbor; dy++) {
+        for (let dy = -scaledRadius; dy <= scaledRadius && !hasAirNeighbor; dy++) {
           const ny = y + dy;
           if (ny < 0 || ny >= height) continue; // OOB = solid (standard morphClose boundary)
-          for (let dz = -radius; dz <= radius && !hasAirNeighbor; dz++) {
+          for (let dz = -scaledRadius; dz <= scaledRadius && !hasAirNeighbor; dz++) {
             const nz = z + dz;
             if (nz < 0 || nz >= length) continue; // OOB = solid
-            for (let dx = -radius; dx <= radius && !hasAirNeighbor; dx++) {
+            for (let dx = -scaledRadius; dx <= scaledRadius && !hasAirNeighbor; dx++) {
               const nx = x + dx;
               if (nx < 0 || nx >= width) continue; // OOB = solid
               if (afterDilate[(ny * length + nz) * width + nx] === 'minecraft:air') {
@@ -155,8 +157,10 @@ export function morphClose3D(grid: BlockGrid, radius = 1, maxY?: number): number
  * @param snapRadius  Max distance to snap to a peak (default: 2 voxels)
  * @returns Number of voxels snapped
  */
-export function flattenFacades(grid: BlockGrid, snapRadius = 2, maxY?: number): number {
+export function flattenFacades(grid: BlockGrid, snapRadius = 2, maxY?: number, resolution = 1): number {
   const { width, height, length } = grid;
+  // Scale snapRadius by resolution (higher resolution = larger snap distance needed)
+  const scaledSnap = Math.max(1, Math.round(snapRadius * resolution));
   // v95: maxY limits flattening to wall zone only — protects roof geometry from
   // being snapped to facade planes, which was creating holes in top-down views.
   const yLimit = maxY ?? height;
@@ -194,12 +198,12 @@ export function flattenFacades(grid: BlockGrid, snapRadius = 2, maxY?: number): 
         if (block === 'minecraft:air') continue;
         if (peaks.includes(x)) continue; // Already on a peak
 
-        // Find nearest peak within snapRadius
+        // Find nearest peak within scaledSnap
         let nearestPeak = -1;
-        let nearestDist = snapRadius + 1;
+        let nearestDist = scaledSnap + 1;
         for (const peak of peaks) {
           const dist = Math.abs(x - peak);
-          if (dist <= snapRadius && dist < nearestDist) {
+          if (dist <= scaledSnap && dist < nearestDist) {
             nearestDist = dist;
             nearestPeak = peak;
           }
@@ -247,10 +251,10 @@ export function flattenFacades(grid: BlockGrid, snapRadius = 2, maxY?: number): 
         if (peaks.includes(z)) continue;
 
         let nearestPeak = -1;
-        let nearestDist = snapRadius + 1;
+        let nearestDist = scaledSnap + 1;
         for (const peak of peaks) {
           const dist = Math.abs(z - peak);
-          if (dist <= snapRadius && dist < nearestDist) {
+          if (dist <= scaledSnap && dist < nearestDist) {
             nearestDist = dist;
             nearestPeak = peak;
           }
@@ -868,8 +872,10 @@ export function removeIsolatedVoxels(grid: BlockGrid, maxNeighbors = 1): number 
  *   Wider gaps are left alone (probably courtyards or intentional openings).
  * @returns Number of air voxels filled
  */
-export function fillFacadeVoids2D(grid: BlockGrid, maxGapWidth = 15): number {
+export function fillFacadeVoids2D(grid: BlockGrid, maxGapWidth = 15, resolution = 1): number {
   const { width, height, length } = grid;
+  // Scale gap width by resolution (higher resolution = larger gaps in voxels)
+  const scaledGap = Math.max(1, Math.round(maxGapWidth * resolution));
 
   let totalFilled = 0;
 
@@ -939,7 +945,7 @@ export function fillFacadeVoids2D(grid: BlockGrid, maxGapWidth = 15): number {
         } else if (hasSolid && gapStart >= 0) {
           // End of gap — fill if narrow enough
           const gapLen = p - gapStart;
-          if (gapLen <= maxGapWidth) {
+          if (gapLen <= scaledGap) {
             // Collect neighbor depths and blocks for fill material
             const neighborDepths: number[] = [];
             const neighborCounts = new Map<string, number>();
@@ -1005,7 +1011,7 @@ export function fillFacadeVoids2D(grid: BlockGrid, maxGapWidth = 15): number {
           gapStart = y;
         } else if (hasSolid && gapStart >= 0) {
           const gapLen = y - gapStart;
-          if (gapLen <= maxGapWidth) {
+          if (gapLen <= scaledGap) {
             const neighborDepths: number[] = [];
             const neighborCounts = new Map<string, number>();
 
@@ -1079,8 +1085,10 @@ export function fillFacadeVoids2D(grid: BlockGrid, maxGapWidth = 15): number {
  * @param dilateRadius  Dilation radius for the virtual mask (default: 2)
  * @returns Number of interior air voxels filled
  */
-export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
+export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2, resolution = 1): number {
   const { width, height, length } = grid;
+  // Scale dilation radius by resolution (higher resolution = larger dilation needed)
+  const scaledRadius = Math.max(1, Math.round(dilateRadius * resolution));
 
   const totalSize = width * height * length;
   let netFilled = 0;
@@ -1099,9 +1107,9 @@ export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
 
   // ── Step 2: Multi-pass 3D dilation (6-connected) to create leak-proof mask ──
   // Each pass expands solid blocks by 1 in all 6 directions (Manhattan distance).
-  // dilateRadius=2 closes 2-voxel gaps — enough for most photogrammetry porosity.
+  // scaledRadius closes gaps proportional to voxel resolution.
   let currentMask = new Uint8Array(originalSolid);
-  for (let step = 0; step < dilateRadius; step++) {
+  for (let step = 0; step < scaledRadius; step++) {
     const nextMask = new Uint8Array(currentMask);
     for (let y = 0; y < height; y++) {
       for (let z = 0; z < length; z++) {
@@ -1578,8 +1586,11 @@ export function smoothSurface(grid: BlockGrid, maxY?: number, preserveBoundary =
  *                        building interiors.
  * @returns Number of voxels changed
  */
-export function rectangularize(grid: BlockGrid, minRegionSize = 20, maxExtend = 2, facadeDepth = 0): number {
+export function rectangularize(grid: BlockGrid, minRegionSize = 20, maxExtend = 2, facadeDepth = 0, resolution = 1): number {
   const { width, height, length } = grid;
+  // Scale minRegionSize cubically (volume = length^3) and maxExtend linearly
+  const scaledMinSize = Math.max(1, Math.round(minRegionSize * resolution * resolution * resolution));
+  const scaledExtend = Math.max(1, Math.round(maxExtend * resolution));
 
   let changed = 0;
 
@@ -1635,7 +1646,7 @@ export function rectangularize(grid: BlockGrid, minRegionSize = 20, maxExtend = 
           }
         }
 
-        if (size < minRegionSize) continue;
+        if (size < scaledMinSize) continue;
 
         let dominant = AIR;
         let maxC = 0;
@@ -1678,9 +1689,9 @@ export function rectangularize(grid: BlockGrid, minRegionSize = 20, maxExtend = 
           const inFacadeZone = facadeDepth > 0 && edgeDist < facadeDepth;
 
           if (inFacadeZone) {
-            // Facade zone: only fill within maxExtend of existing solid.
+            // Facade zone: only fill within scaledExtend of existing solid.
             // This preserves balconies, recesses, and other depth features.
-            const effectiveMax = maxExtend;
+            const effectiveMax = scaledExtend;
             let nearestDist = effectiveMax + 1;
             for (let dz2 = -effectiveMax; dz2 <= effectiveMax && nearestDist > 1; dz2++) {
               const nz = z + dz2;
@@ -2035,8 +2046,10 @@ export function addPeakedRoof(
  * @param maxGapArea  Maximum 2D air pocket area to fill (default: 25 = 5×5 block region)
  * @returns Number of voxels filled
  */
-export function fillFacadePlaneHoles(grid: BlockGrid, maxGapArea = 25): number {
+export function fillFacadePlaneHoles(grid: BlockGrid, maxGapArea = 25, resolution = 1): number {
   const { width, height, length } = grid;
+  // Scale area quadratically by resolution (area = length^2)
+  const scaledArea = Math.max(1, Math.round(maxGapArea * resolution * resolution));
 
   let totalFilled = 0;
 
@@ -2179,7 +2192,7 @@ export function fillFacadePlaneHoles(grid: BlockGrid, maxGapArea = 25): number {
           }
         }
 
-        if (pocket.length <= maxGapArea) {
+        if (pocket.length <= scaledArea) {
           components.set(label, pocket);
         }
       }
