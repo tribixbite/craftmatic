@@ -73,9 +73,8 @@ describe('restoreGridBlocks', () => {
     expect(grid.get(0, 0, 0)).toBe('minecraft:stone');
     expect(grid.get(1, 1, 1)).toBe('minecraft:oak_planks');
     expect(grid.get(2, 2, 2)).toBe('minecraft:glass');
-    // Note: blocks added AFTER snapshot are NOT cleared by restore
-    // (restoreGridBlocks only writes snapshot blocks, doesn't clear new ones)
-    expect(grid.get(3, 3, 3)).toBe('minecraft:dirt');
+    // Blocks added AFTER snapshot ARE cleared by restore (full revert)
+    expect(grid.get(3, 3, 3)).toBe('minecraft:air');
   });
 
   it('throws when grid dimensions changed', () => {
@@ -92,10 +91,9 @@ describe('restoreGridBlocks', () => {
     grid.set(1, 1, 1, 'minecraft:dirt');
     const emptySnap = snapshotGridBlocks(new BlockGrid(3, 3, 3));
 
-    // Restoring empty snapshot should not crash
+    // Restoring empty snapshot clears all blocks (empty grid = all air)
     restoreGridBlocks(grid, emptySnap);
-    // Existing blocks are untouched (empty snapshot writes nothing)
-    expect(grid.get(1, 1, 1)).toBe('minecraft:dirt');
+    expect(grid.get(1, 1, 1)).toBe('minecraft:air');
   });
 });
 

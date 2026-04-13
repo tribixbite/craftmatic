@@ -1339,7 +1339,7 @@ export function fillFacadeStripes(grid: BlockGrid): number {
         if (leftImmediate === AIR || rightImmediate === AIR) continue; // 2+ wide gap
 
         // Fill with the most common of the two neighbor blocks
-        const fillBlock = solidLeft === solidRight ? solidLeft : solidLeft;
+        const fillBlock = solidLeft === solidRight ? solidLeft : solidRight;
         grid.set(x, y, z, fillBlock);
         filled++;
       }
