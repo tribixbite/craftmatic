@@ -112,17 +112,30 @@ This "OSM-first" approach would fix issues #3, #6, and partially #5 and #8. The 
 
 ## Priority Order
 
-| Priority | Area | Impact | Effort |
-|----------|------|--------|--------|
-| 1 | #10 OSM-first pipeline | Fixes 3-4 other issues | Medium |
-| 2 | #3 Auto-detect calibration | Unlocks all post-processing | Low |
-| 3 | #1 Facade void filling | Biggest visual defect | Medium |
-| 4 | #2 Color desaturation | Universal quality issue | Medium |
-| 5 | #6 Building isolation | Critical for complex sites | High |
-| 6 | #4 Vertical striping | Common artifact | Medium |
-| 7 | #7 Fill/clear ordering | Correctness + perf | Low |
-| 8 | #5 Ground plane cleanup | Common artifact | Medium |
-| 9 | #9 Window patterns | Adds realism | High |
-| 10 | #8 Roof reconstruction | Adds realism | High |
+| Priority | Area | Impact | Effort | Status |
+|----------|------|--------|--------|--------|
+| 1 | #10 OSM-first pipeline | Fixes 3-4 other issues | Medium | **Partial** — OSM earlier, try/catch, but not before analyzeGrid |
+| 2 | #3 Auto-detect calibration | Unlocks all post-processing | Low | **DONE** — threshold lowered to 3.5 |
+| 3 | #1 Facade void filling | Biggest visual defect | Medium | **DONE** — `fillFacadeVoidsIterative` (facade-plane-constrained multi-pass) |
+| 4 | #2 Color desaturation | Universal quality issue | Medium | **DONE** — `boostPhotogrammetrySaturation` (Lab hue-matched replacement) |
+| 5 | #6 Building isolation | Critical for complex sites | High | Unchanged |
+| 6 | #4 Vertical striping | Common artifact | Medium | **DONE** — `fillFacadeStripes` (X/Z axis gap scan) |
+| 7 | #7 Fill/clear ordering | Correctness + perf | Low | **DONE** — `filledSet` tracking, clear only filled voxels |
+| 8 | #5 Ground plane cleanup | Common artifact | Medium | **DONE** — `removeGroundPlaneAdaptive` (per-Y fill ratio analysis) |
+| 9 | #9 Window patterns | Adds realism | High | **Partial** — `glazeDarkWindows(photogrammetryMode=true)` wired |
+| 10 | #8 Roof reconstruction | Adds realism | High | **DONE** — `regularizeFlatRoof` (top-Y leveling + hole fill) |
+
+## Review History
+
+| Date | Rating | Findings |
+|------|--------|----------|
+| 2026-04-13 (pre-fix) | 6.5/10 | 20 findings from Opus architecture review |
+| 2026-04-13 (post-fix round 1) | 8.5/10 | 2 CRITICAL + 4 HIGH + 6 MEDIUM + 6 LOW |
+| 2026-04-13 (post-fix round 2) | 8.0/10 | 0 CRITICAL + 3 HIGH (pre-existing) + 5 MEDIUM + 5 LOW |
+
+### Remaining HIGH findings (pre-existing, not from this session):
+- H1: `smoothRareBlocks` reads from live grid during mutation (cascading replacements)
+- H2: `maskToFootprintAligned` missing erode step (mask larger than intended)
+- H3: `maskToFootprintAligned` applies dx/dz offset before rotation (offset gets rotated)
 
 — Opus 4.6, 2026-04-13
