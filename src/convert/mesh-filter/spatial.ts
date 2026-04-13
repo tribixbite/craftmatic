@@ -8,8 +8,8 @@
 
 import { BlockGrid } from '../../schem/types.js';
 import { AIR, FACES6 } from './_internal.js';
-// labelConnectedComponents lives in the parent mesh-filter.ts (not yet extracted)
-import { labelConnectedComponents } from '../mesh-filter.js';
+// labelConnectedComponents is in analysis.ts (direct import avoids circular dep via barrel)
+import { labelConnectedComponents } from './analysis.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Connected-component isolation
