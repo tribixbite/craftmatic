@@ -13,6 +13,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { SAOPass } from 'three/examples/jsm/postprocessing/SAOPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
@@ -564,20 +568,49 @@ export async function createLDrawViewer(
   keyLight.target.position.copy(center);
   scene.add(keyLight.target);
 
-  // ── Ground plane ───────────────────────────────────────────────────────
-  const groundSize = maxDim * 2;
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(groundSize, groundSize),
-    new THREE.MeshStandardMaterial({
-      color: groundColor,
-      roughness: 0.9,
-      metalness: 0.0,
-    }),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = bboxMin.y - 0.01;
-  ground.receiveShadow = true;
-  scene.add(ground);
+  // ── Curved studio backdrop (cyc-wall) ──────────────────────────────────
+  // Seamless transition from floor to background — no visible horizon line
+  {
+    const gs = maxDim * 2.5;
+    const curveR = gs * 0.6; // radius of the curved back wall
+    const floorY = bboxMin.y - 0.01;
+    const backdropMat = new THREE.MeshStandardMaterial({
+      color: groundColor, roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide,
+    });
+    // Floor plane
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(gs * 2, gs * 2), backdropMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(center.x, floorY, center.z);
+    floor.receiveShadow = true;
+    scene.add(floor);
+    // Curved back wall (quarter-cylinder) — smoothly curves from floor upward
+    const curveSegs = 24;
+    const curveGeo = new THREE.BufferGeometry();
+    const verts: number[] = [], norms: number[] = [], uvs: number[] = [];
+    for (let i = 0; i <= curveSegs; i++) {
+      const t = i / curveSegs;
+      const angle = t * Math.PI * 0.5; // 0 → π/2 (floor → vertical wall)
+      const y = floorY + curveR * Math.sin(angle);
+      const z = center.z - gs + curveR * (1 - Math.cos(angle));
+      for (const x of [center.x - gs, center.x + gs]) {
+        verts.push(x, y, z);
+        norms.push(0, Math.cos(angle), Math.sin(angle));
+        uvs.push(x < center.x ? 0 : 1, t);
+      }
+    }
+    const indices: number[] = [];
+    for (let i = 0; i < curveSegs; i++) {
+      const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
+      indices.push(a, b, c, b, d, c);
+    }
+    curveGeo.setIndex(indices);
+    curveGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    curveGeo.setAttribute('normal', new THREE.Float32BufferAttribute(norms, 3));
+    curveGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    const backWall = new THREE.Mesh(curveGeo, backdropMat);
+    backWall.receiveShadow = true;
+    scene.add(backWall);
+  }
 
   // ── Camera positioning ─────────────────────────────────────────────────
   const camDist = maxDim * 1.5;
@@ -600,12 +633,25 @@ export async function createLDrawViewer(
   controls.minDistance = maxDim * 0.1;
   controls.update();
 
+  // ── Post-processing: SAO ambient occlusion ─────────────────────────────
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const saoPass = new SAOPass(scene, camera);
+  saoPass.params.saoBias = 0.5;
+  saoPass.params.saoIntensity = 0.015;
+  saoPass.params.saoScale = 10;
+  saoPass.params.saoKernelRadius = 30;
+  saoPass.params.saoBlurRadius = 4;
+  composer.addPass(saoPass);
+  composer.addPass(new OutputPass());
+  composer.setSize(container.clientWidth, container.clientHeight);
+
   // ── Render loop ────────────────────────────────────────────────────────
   let animId = 0;
   function animate() {
     animId = requestAnimationFrame(animate);
     controls.update();
-    renderer.render(scene, camera);
+    composer.render();
   }
 
   renderer.domElement.addEventListener('webglcontextlost', (e) => {
@@ -626,6 +672,7 @@ export async function createLDrawViewer(
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
+    composer.setSize(w, h);
   });
   resizeObs.observe(container);
 
