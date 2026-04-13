@@ -46,10 +46,12 @@ import { enrichScene, expandGrid } from '../src/convert/scene-pipeline.js';
 import { resolveSemanticPalette, applySemanticPalette } from '../src/convert/semantic-palette.js';
 import type { SemanticPalette } from '../src/convert/semantic-palette.js';
 import type { AnalysisResult } from '../src/convert/mesh-filter.js';
+import { BlockGrid } from '../src/schem/types.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { queryStreetViewMetadata } from '../src/gen/api/google-streetview.js';
 import { extractColors } from '../src/gen/api/streetview-analysis.js';
 import { basename, extname, join, dirname, resolve } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
 import sharp from 'sharp';
 
 // ─── Satellite Color Sampling ───────────────────────────────────────────────
@@ -68,7 +70,7 @@ async function sampleSatelliteRoof(
   try {
     const dotenv = await Bun.file(join(projectRoot, '.env')).text();
     apiKey = dotenv.match(/GOOGLE_MAPS_API_KEY=(.+)/)?.[1]?.trim();
-  } catch { /* no .env */ }
+  } catch (err) { console.warn('.env load failed:', (err as Error).message); }
   if (!apiKey) {
     console.log('  Satellite color: no API key, skipping');
     return null;
@@ -438,8 +440,8 @@ async function loadGLB(filepath: string): Promise<THREE.Group> {
     dracoLoader.setDecoderPath('file://' + dracoPath + '/');
     dracoLoader.setDecoderConfig({ type: 'js' });
     loader.setDRACOLoader(dracoLoader);
-  } catch {
-    // Draco not available — only plain GLBs will work
+  } catch (err) {
+    console.warn('Draco loader init failed:', (err as Error).message);
   }
 
   const scene = await new Promise<THREE.Group>((resolve, reject) => {
@@ -512,8 +514,8 @@ async function decodeTexturesWithSharp(
   let sharp: typeof import('sharp');
   try {
     sharp = (await import('sharp')).default;
-  } catch {
-    console.warn('[voxelize] sharp not available — textures will use material.color fallback');
+  } catch (err) {
+    console.warn('[voxelize] sharp not available — textures will use material.color fallback:', (err as Error).message);
     return;
   }
 
@@ -531,7 +533,8 @@ async function decodeTexturesWithSharp(
         width: meta.width ?? 0,
         height: meta.height ?? 0,
       });
-    } catch {
+    } catch (err) {
+      console.warn(`[voxelize] texture decode failed for image ${i}:`, (err as Error).message);
       decoded.push(null);
     }
   }
@@ -1022,6 +1025,50 @@ async function analyzeOne(filepath: string, resolution: number, minHeight: numbe
   }
 }
 
+/**
+ * Snapshot grid state, run a mask/filter operation, and revert if too many
+ * blocks were removed. Consolidates the repeated snapshot-revert pattern
+ * used for OSM masking, watershed isolation, and post-processing re-mask.
+ *
+ * @param grid        The BlockGrid to operate on (mutated in-place)
+ * @param maskFn      Function that mutates grid (e.g. maskToFootprint call)
+ * @param label       Human-readable label for log messages
+ * @param revertThreshold  Revert if remaining blocks < this fraction of original (default 0.10)
+ * @returns Whether the operation was reverted, and the remaining block count
+ */
+function trySafeMask(
+  grid: BlockGrid,
+  maskFn: () => void,
+  label: string,
+  revertThreshold = 0.10,
+): { reverted: boolean; remaining: number } {
+  // Snapshot all non-air blocks
+  const snapshot = new Map<string, string>();
+  const { width, height, length } = grid;
+  for (let y = 0; y < height; y++)
+    for (let z = 0; z < length; z++)
+      for (let x = 0; x < width; x++) {
+        const b = grid.get(x, y, z);
+        if (b !== 'minecraft:air') snapshot.set(`${x},${y},${z}`, b);
+      }
+
+  maskFn();
+
+  const remaining = grid.countNonAir();
+  if (remaining < snapshot.size * revertThreshold && snapshot.size > 0) {
+    // Revert — operation was too aggressive
+    for (const [key, val] of snapshot) {
+      const [sx, sy, sz] = key.split(',').map(Number);
+      grid.set(sx, sy, sz, val);
+    }
+    console.log(`${label}: reverted (${remaining} would remove ${((1 - remaining / snapshot.size) * 100).toFixed(0)}% of blocks)`);
+    return { reverted: true, remaining: snapshot.size };
+  }
+
+  console.log(`${label}: ${snapshot.size - remaining} blocks removed, ${remaining} remaining`);
+  return { reverted: false, remaining };
+}
+
 async function main(): Promise<void> {
   const args = parseArgs();
   const t0 = performance.now();
@@ -1292,7 +1339,7 @@ async function main(): Promise<void> {
           }
         }
       } catch (e) {
-        console.warn('OSM alignment query failed');
+        console.warn('OSM alignment query failed:', (e as Error).message);
       }
     }
   } else {
@@ -1309,7 +1356,7 @@ async function main(): Promise<void> {
           console.log(`Building alignment: ${buildingAlignment.rotationDeg.toFixed(1)}° MBR ${buildingAlignment.mbrWidth.toFixed(0)}×${buildingAlignment.mbrDepth.toFixed(0)}m`);
         }
       } catch (e) {
-        console.warn('Early OSM query for alignment failed, using angular sweep fallback');
+        console.warn('Early OSM query for alignment failed, using angular sweep fallback:', (e as Error).message);
       }
     }
     reorientToENU(scene, false, args.noEnuSnap, buildingAlignment);
@@ -1736,30 +1783,13 @@ async function main(): Promise<void> {
       }
 
       // Tier 3: Watershed (works for same-height fused buildings with dumbbell footprint)
-      // Snapshot before watershed — revert if it removes >50% of remaining blocks
-      const preWshedCount = trimmed.countNonAir();
-      const wshedSnapshot = new Map<string, string>();
-      for (let y = 0; y < trimmed.height; y++) {
-        for (let z = 0; z < trimmed.length; z++) {
-          for (let x = 0; x < trimmed.width; x++) {
-            const b = trimmed.get(x, y, z);
-            if (b !== 'minecraft:air') wshedSnapshot.set(`${x},${y},${z}`, b);
-          }
-        }
-      }
-      const wshed = watershedIsolate(trimmed, 4);
-      if (wshed > 0) {
-        if (wshed > preWshedCount * 0.5) {
-          // Watershed too aggressive — carved up a single building. Revert.
-          for (const [key, block] of wshedSnapshot) {
-            const [rx, ry, rz] = key.split(',').map(Number);
-            trimmed.set(rx, ry, rz, block);
-          }
-          console.log(`Isolation tier 3 (watershed): REVERTED — would remove ${wshed} of ${preWshedCount} blocks (${Math.round(wshed / preWshedCount * 100)}%)`);
-        } else {
-          console.log(`Isolation tier 3 (watershed): ${wshed} blocks removed`);
-        }
-      }
+      // Revert if watershed removes >50% of remaining blocks (carved up a single building)
+      trySafeMask(
+        trimmed,
+        () => { watershedIsolate(trimmed, 4); },
+        'Isolation tier 3 (watershed)',
+        0.50,
+      );
     }
 
     // Step 4: Interior fill — 3D masked dilation flood-fill.
@@ -1930,29 +1960,13 @@ async function main(): Promise<void> {
         }
 
         // Tier 3: Watershed (works for same-height fused buildings with dumbbell footprint)
-        // Snapshot before watershed — revert if it removes >50% of remaining blocks
-        const preWshedCount2 = trimmed.countNonAir();
-        const wshedSnap2 = new Map<string, string>();
-        for (let y = 0; y < trimmed.height; y++) {
-          for (let z = 0; z < trimmed.length; z++) {
-            for (let x = 0; x < trimmed.width; x++) {
-              const b = trimmed.get(x, y, z);
-              if (b !== 'minecraft:air') wshedSnap2.set(`${x},${y},${z}`, b);
-            }
-          }
-        }
-        const wshed = watershedIsolate(trimmed, 4);
-        if (wshed > 0) {
-          if (wshed > preWshedCount2 * 0.5) {
-            for (const [key, block] of wshedSnap2) {
-              const [rx, ry, rz] = key.split(',').map(Number);
-              trimmed.set(rx, ry, rz, block);
-            }
-            console.log(`Isolation tier 3 (watershed): REVERTED — would remove ${wshed} of ${preWshedCount2} blocks (${Math.round(wshed / preWshedCount2 * 100)}%)`);
-          } else {
-            console.log(`Isolation tier 3 (watershed): ${wshed} blocks removed`);
-          }
-        }
+        // Revert if watershed removes >50% of remaining blocks (carved up a single building)
+        trySafeMask(
+          trimmed,
+          () => { watershedIsolate(trimmed, 4); },
+          'Isolation tier 3 (watershed)',
+          0.50,
+        );
       }
 
       // Step 4: 3D masked dilation fill — building is now isolated.
@@ -2027,31 +2041,16 @@ async function main(): Promise<void> {
     console.log(`OSM footprint query at ${args.coords.lat},${args.coords.lng}...`);
     const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
     if (osmData && osmData.polygon.length >= 3) {
-      // Snapshot blocks before masking so we can revert if mask removes everything
-      const snapshot = new Map<string, string>();
-      for (let y = 0; y < trimmed.height; y++) {
-        for (let z = 0; z < trimmed.length; z++) {
-          for (let x = 0; x < trimmed.width; x++) {
-            const b = trimmed.get(x, y, z);
-            if (b !== 'minecraft:air') snapshot.set(`${x},${y},${z}`, b);
-          }
-        }
-      }
-
-      const masked = maskToFootprint(
-        trimmed, osmData.polygon,
-        args.coords.lat, args.coords.lng, Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
+      const { reverted } = trySafeMask(
+        trimmed,
+        () => maskToFootprint(
+          trimmed, osmData.polygon,
+          args.coords!.lat, args.coords!.lng, Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
+        ),
+        `OSM footprint mask (${osmData.polygon.length} vertices)`,
+        0.10,
       );
-      const remaining = trimmed.countNonAir();
-      if (remaining < snapshot.size * 0.1 && snapshot.size > 0) {
-        // Mask removed everything — revert (misaligned polygon or no building in tiles)
-        for (const [key, block] of snapshot) {
-          const [x, y, z] = key.split(',').map(Number);
-          trimmed.set(x, y, z, block);
-        }
-        console.log(`OSM footprint mask: reverted (${masked} would remove all ${snapshot.size} blocks — polygon misaligned)`);
-      } else {
-        console.log(`OSM footprint mask: ${masked} blocks removed, ${remaining} remaining (polygon ${osmData.polygon.length} vertices)`);
+      if (!reverted) {
         osmTags = osmData.tags ?? {};
       }
     } else {
@@ -2679,60 +2678,67 @@ async function main(): Promise<void> {
   // v67: reduced from 12 to 4 passes. Zone accent blocks (ground/band/trim) are
   // protected so thin architectural features survive smoothing.
   // v300: 1 pass when not zone-normalizing — avoids confetti noise on raw CIELAB surfaces.
-  {
-    // v106: Capped to 2 passes. v300: CIELAB mode hardcoded 1 pass (confetti avoidance).
-    // v303: CIELAB default raised to 2 — v301 expanded glass/dark block protection
-    // handles confetti without needing single-pass restriction. Explicit --mode-passes
-    // overrides all caps (allows 3+ for testing surface quality improvement).
-    const basePasses = args.explicitModePasses
-      ? args.modePasses
-      : Math.max(args.modePasses, 2); // floor at 2 passes regardless of zoneNormalize
-    const passes = args.explicitModePasses ? basePasses : Math.min(3, basePasses);
-    const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
-    if (modeSmoothed > 0) {
-      console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} pass)`);
+  // Skip when --recolor is active: semantic recolor overwrites gray blocks anyway,
+  // so modeFilter/facadeSmooth/clusterPalette/roofSmooth do wasted work that can
+  // fight the recolor output. smoothDarkBlocks still runs (handles shadow artifacts).
+  if (!args.recolor) {
+    {
+      // v106: Capped to 2 passes. v300: CIELAB mode hardcoded 1 pass (confetti avoidance).
+      // v303: CIELAB default raised to 2 — v301 expanded glass/dark block protection
+      // handles confetti without needing single-pass restriction. Explicit --mode-passes
+      // overrides all caps (allows 3+ for testing surface quality improvement).
+      const basePasses = args.explicitModePasses
+        ? args.modePasses
+        : Math.max(args.modePasses, 2); // floor at 2 passes regardless of zoneNormalize
+      const passes = args.explicitModePasses ? basePasses : Math.min(3, basePasses);
+      const modeSmoothed = modeFilter3D(trimmed, passes, 1, zoneProtected);
+      if (modeSmoothed > 0) {
+        console.log(`Mode filter 3x3x3: ${modeSmoothed} blocks homogenized (${passes} pass)`);
+      }
     }
-  }
 
-  // Post-filter morphClose — heal surface pockmarks created by mode filter.
-  // r=1 is gentle — only fills single-voxel holes without altering shape.
-  // v307: Skip for complex shapes — their 1-voxel gaps between geometric features
-  // (sail separations, facet transitions) are real architecture, not pockmarks.
-  // With modePasses=1, mode filter creates few pockmarks anyway.
-  if (!isComplexShape) {
-    const closed2 = morphClose3D(trimmed, 1);
-    if (closed2 > 0) {
-      console.log(`Morph close post-filter (r=1): ${closed2} surface pockmarks healed`);
+    // Post-filter morphClose — heal surface pockmarks created by mode filter.
+    // r=1 is gentle — only fills single-voxel holes without altering shape.
+    // v307: Skip for complex shapes — their 1-voxel gaps between geometric features
+    // (sail separations, facet transitions) are real architecture, not pockmarks.
+    // With modePasses=1, mode filter creates few pockmarks anyway.
+    if (!isComplexShape) {
+      const closed2 = morphClose3D(trimmed, 1);
+      if (closed2 > 0) {
+        console.log(`Morph close post-filter (r=1): ${closed2} surface pockmarks healed`);
+      }
+    } else {
+      console.log(`Morph close post-filter: SKIPPED (complex shape — gaps are real geometry)`);
+    }
+
+    // Phase 4c: Facade color coherence — 5×5×1 Lab-weighted average on facade planes.
+    // Snaps noisy outliers (delta-E > 15) to local majority color.
+    if (!args.zoneNormalize) {
+      const facadeSmoothed = smoothFacadeColors(trimmed);
+      if (facadeSmoothed > 0) {
+        console.log(`Facade color smoothing: ${facadeSmoothed} outlier blocks replaced (delta-E > 15)`);
+      }
+    }
+
+    // Phase 4d: K-means facade palette — cluster each facade to k=4 coherent materials.
+    // Reduces noisy 15-20 unique blocks to 3-5 per facade for cleaner visual appearance.
+    if (!args.zoneNormalize) {
+      const paletteReplaced = clusterFacadePalette(trimmed, 4);
+      if (paletteReplaced > 0) {
+        console.log(`Facade palette clustering: ${paletteReplaced} blocks reassigned (K-means k=4)`);
+      }
+    }
+
+    // Phase 4e: Roof plane smoothing — aggressive 5×5 horizontal majority-vote on top 20%.
+    // Roofs in photogrammetry are noisy (HVAC equipment, shadows, varied materials).
+    if (!args.zoneNormalize) {
+      const roofSmoothed = smoothRoofPlane(trimmed);
+      if (roofSmoothed > 0) {
+        console.log(`Roof plane smoothing: ${roofSmoothed} roof blocks replaced (5x5 majority vote)`);
+      }
     }
   } else {
-    console.log(`Morph close post-filter: SKIPPED (complex shape — gaps are real geometry)`);
-  }
-
-  // Phase 4c: Facade color coherence — 5×5×1 Lab-weighted average on facade planes.
-  // Snaps noisy outliers (delta-E > 15) to local majority color.
-  if (!args.zoneNormalize) {
-    const facadeSmoothed = smoothFacadeColors(trimmed);
-    if (facadeSmoothed > 0) {
-      console.log(`Facade color smoothing: ${facadeSmoothed} outlier blocks replaced (delta-E > 15)`);
-    }
-  }
-
-  // Phase 4d: K-means facade palette — cluster each facade to k=4 coherent materials.
-  // Reduces noisy 15-20 unique blocks to 3-5 per facade for cleaner visual appearance.
-  if (!args.zoneNormalize) {
-    const paletteReplaced = clusterFacadePalette(trimmed, 4);
-    if (paletteReplaced > 0) {
-      console.log(`Facade palette clustering: ${paletteReplaced} blocks reassigned (K-means k=4)`);
-    }
-  }
-
-  // Phase 4e: Roof plane smoothing — aggressive 5×5 horizontal majority-vote on top 20%.
-  // Roofs in photogrammetry are noisy (HVAC equipment, shadows, varied materials).
-  if (!args.zoneNormalize) {
-    const roofSmoothed = smoothRoofPlane(trimmed);
-    if (roofSmoothed > 0) {
-      console.log(`Roof plane smoothing: ${roofSmoothed} roof blocks replaced (5x5 majority vote)`);
-    }
+    console.log(`Color smoothing passes: SKIPPED (--recolor active — semantic recolor will handle colors)`);
   }
 
   // v311: Remove isolated single voxels — scattered 1-block artifacts (0-1 face neighbors).
@@ -2786,7 +2792,25 @@ async function main(): Promise<void> {
     // with worse gray. OSM building:colour is always more reliable when present.
     if (!palette?.wallColor) {
       try {
-        const svMeta = await queryStreetViewMetadata(args.coords.lat, args.coords.lng);
+        // File-based cache for SV metadata (avoids redundant API calls during iteration)
+        const svCacheKey = `sv-${args.coords.lat.toFixed(6)}-${args.coords.lng.toFixed(6)}`;
+        const svCacheDir = dirname(args.outputPath);
+        const svCachePath = join(svCacheDir, `.cache-${svCacheKey}.json`);
+        const SV_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+        let svMeta: Awaited<ReturnType<typeof queryStreetViewMetadata>> = null;
+        if (existsSync(svCachePath)) {
+          const cacheAge = Date.now() - statSync(svCachePath).mtimeMs;
+          if (cacheAge < SV_CACHE_TTL_MS) {
+            svMeta = JSON.parse(await Bun.file(svCachePath).text());
+            console.log(`  SV metadata: loaded from cache (${(cacheAge / 3600000).toFixed(1)}h old)`);
+          }
+        }
+        if (!svMeta) {
+          svMeta = await queryStreetViewMetadata(args.coords.lat, args.coords.lng);
+          if (svMeta) {
+            await Bun.write(svCachePath, JSON.stringify(svMeta));
+          }
+        }
         if (svMeta?.imageUrl) {
           console.log(`  SV image: heading=${svMeta.heading.toFixed(0)}° date=${svMeta.date}`);
           const resp = await fetch(svMeta.imageUrl, { signal: AbortSignal.timeout(15000) });
@@ -2828,8 +2852,25 @@ async function main(): Promise<void> {
       console.log(`  SV: skipped (OSM building:colour already provides wall color)`);
     }
 
-    // Phase D: Satellite roof color override
-    const satRoof = await sampleSatelliteRoof(args.coords.lat, args.coords.lng);
+    // Phase D: Satellite roof color override (with file-based cache)
+    const satCacheKey = `sat-${args.coords.lat.toFixed(6)}-${args.coords.lng.toFixed(6)}`;
+    const satCacheDir = dirname(args.outputPath);
+    const satCachePath = join(satCacheDir, `.cache-${satCacheKey}.json`);
+    const SAT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+    let satRoof: Awaited<ReturnType<typeof sampleSatelliteRoof>> = null;
+    if (existsSync(satCachePath)) {
+      const cacheAge = Date.now() - statSync(satCachePath).mtimeMs;
+      if (cacheAge < SAT_CACHE_TTL_MS) {
+        satRoof = JSON.parse(await Bun.file(satCachePath).text());
+        console.log(`  Satellite roof: loaded from cache (${(cacheAge / 3600000).toFixed(1)}h old)`);
+      }
+    }
+    if (!satRoof) {
+      satRoof = await sampleSatelliteRoof(args.coords.lat, args.coords.lng);
+      if (satRoof) {
+        await Bun.write(satCachePath, JSON.stringify(satRoof));
+      }
+    }
     if (satRoof && palette) {
       palette.roofBlocks = [satRoof.roofBlock];
       palette.roofColor = { r: satRoof.roofRgb[0], g: satRoof.roofRgb[1], b: satRoof.roofRgb[2] };
@@ -2945,41 +2986,17 @@ async function main(): Promise<void> {
   let postMaskApplied = false;
   if (osmPolygon && args.coords && !args.noOsm && !args.noPostMask) {
     const postMaskDilate = args.maskDilate ?? 3; // same dilation as pre-fill mask
-    const blocksBefore = trimmed.countNonAir();
-
-    // Snapshot blocks that might be cleared, so we can revert if mask is too aggressive
-    const snapshot = new Map<number, string>(); // index → blockState
-    const { width: sw, height: sh, length: sl } = trimmed;
-    for (let y = 0; y < sh; y++) {
-      for (let z = 0; z < sl; z++) {
-        for (let x = 0; x < sw; x++) {
-          const b = trimmed.get(x, y, z);
-          if (b !== 'minecraft:air') snapshot.set((y * sl + z) * sw + x, b);
-        }
-      }
-    }
-
-    const postMasked = maskToFootprint(
-      trimmed, osmPolygon,
-      args.coords.lat, args.coords.lng,
-      Math.round(postMaskDilate * args.resolution), args.resolution, enuHorizontalAngle,
+    const { reverted } = trySafeMask(
+      trimmed,
+      () => maskToFootprint(
+        trimmed, osmPolygon!,
+        args.coords!.lat, args.coords!.lng,
+        Math.round(postMaskDilate * args.resolution), args.resolution, enuHorizontalAngle,
+      ),
+      'Post-morph re-mask',
+      0.60, // revert if <60% of blocks remain (>40% removed)
     );
-    if (postMasked > 0) {
-      const pctRemoved = blocksBefore > 0 ? (postMasked / blocksBefore * 100) : 0;
-      if (pctRemoved > 40) {
-        // Too aggressive — revert all masked blocks
-        for (const [idx, bs] of snapshot) {
-          const x = idx % sw;
-          const z = Math.floor(idx / sw) % sl;
-          const y = Math.floor(idx / (sw * sl));
-          trimmed.set(x, y, z, bs);
-        }
-        console.log(`    Post-morph re-mask: REVERTED — would remove ${pctRemoved.toFixed(0)}% of blocks (polygon misaligned)`);
-      } else {
-        postMaskApplied = true;
-        console.log(`    Post-morph re-mask: ${postMasked} blocks clipped (${pctRemoved.toFixed(0)}%, dilate=${postMaskDilate})`);
-      }
-    }
+    postMaskApplied = !reverted;
   }
 
   // v71: Footprint freeze — prevent morphClose/modeFilter from expanding the

@@ -11,6 +11,45 @@ import { rgbToLab, deltaESq, WALL_CLUSTERS } from '../gen/color-blocks.js';
 import { placeTree, placeVehicle } from '../gen/structures.js';
 import type { TreeType } from '../gen/structures.js';
 
+// ─── Shared constants ───────────────────────────────────────────────────────
+
+/** Minecraft air block ID, used pervasively throughout the filter pipeline. */
+const AIR = 'minecraft:air';
+
+/** 4 cardinal horizontal directions in the XZ plane: +X, -X, +Z, -Z. */
+const H_DIRS: readonly [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+/** 6 face-neighbor offsets (±X, ±Y, ±Z) for 3D flood-fill / adjacency checks. */
+const FACES6: readonly [number, number, number][] = [
+  [1, 0, 0], [-1, 0, 0],
+  [0, 1, 0], [0, -1, 0],
+  [0, 0, 1], [0, 0, -1],
+];
+
+// ─── Grid snapshot helpers ──────────────────────────────────────────────────
+
+/**
+ * Create a flat string[] snapshot of the entire grid for consistent reads
+ * during mutation passes (prevents cascading within a single pass).
+ * Index formula: `(y * grid.length + z) * grid.width + x`
+ */
+function snapshotGrid(grid: BlockGrid): string[] {
+  const { width, height, length } = grid;
+  const snap = new Array<string>(width * height * length);
+  for (let y = 0; y < height; y++)
+    for (let z = 0; z < length; z++)
+      for (let x = 0; x < width; x++)
+        snap[(y * length + z) * width + x] = grid.get(x, y, z);
+  return snap;
+}
+
+/** Read a single voxel from a snapshot produced by `snapshotGrid`. */
+function readSnap(snap: string[], grid: BlockGrid, x: number, y: number, z: number): string {
+  return snap[(y * grid.length + z) * grid.width + x];
+}
+
+// ─── Exported filters ───────────────────────────────────────────────────────
+
 /**
  * Filter captured tile meshes by vertical extent above estimated ground level.
  *
@@ -509,7 +548,7 @@ export function flattenFacades(grid: BlockGrid, snapRadius = 2, maxY?: number): 
  * @returns Number of voxels changed
  */
 export function morphCloseFacadeAligned(grid: BlockGrid, radius = 2): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   let changed = 0;
 
@@ -524,7 +563,7 @@ export function morphCloseFacadeAligned(grid: BlockGrid, radius = 2): number {
 
   // For each air voxel on a facade surface, check if it's a gap along the facade normal
   // direction (solid blocks on both sides within radius). If so, fill it.
-  const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
 
   for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
@@ -587,7 +626,7 @@ export function detectCornices(
   minDepthDelta = 2,
   applyTrim = false,
 ): Set<number> {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   const corniceYs = new Set<number>();
 
@@ -675,7 +714,7 @@ export function detectCornices(
   // Optionally apply trim material to cornice edges
   if (applyTrim && corniceYs.size > 0) {
     const TRIM = 'minecraft:stone_brick_slab';
-    const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  
 
     for (const y of corniceYs) {
       for (let z = 0; z < length; z++) {
@@ -883,24 +922,10 @@ export function flattenFacadesSetbackAware(
  */
 export function erodeSurfaceBumps(grid: BlockGrid, minNeighbors = 3): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
 
-  // Face-adjacent offsets (6-connected)
-  const FACES = [
-    [1, 0, 0], [-1, 0, 0],
-    [0, 1, 0], [0, -1, 0],
-    [0, 0, 1], [0, 0, -1],
-  ] as const;
 
   // Snapshot before erosion
-  const snap: string[] = new Array(width * height * length);
-  for (let y = 0; y < height; y++) {
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        snap[(y * length + z) * width + x] = grid.get(x, y, z);
-      }
-    }
-  }
+  const snap = snapshotGrid(grid);
 
   // Erode: remove blocks with fewer than minNeighbors solid face-neighbors
   let eroded = 0;
@@ -910,7 +935,7 @@ export function erodeSurfaceBumps(grid: BlockGrid, minNeighbors = 3): number {
         if (snap[(y * length + z) * width + x] === AIR) continue;
 
         let solidFaces = 0;
-        for (const [dx, dy, dz] of FACES) {
+        for (const [dx, dy, dz] of FACES6) {
           const nx = x + dx, ny = y + dy, nz = z + dz;
           if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < length) {
             if (snap[(ny * length + nz) * width + nx] !== AIR) solidFaces++;
@@ -946,7 +971,7 @@ export function erodeSurfaceBumps(grid: BlockGrid, minNeighbors = 3): number {
 
         let solidFaces = 0;
         const counts = new Map<string, number>();
-        for (const [dx, dy, dz] of FACES) {
+        for (const [dx, dy, dz] of FACES6) {
           const nx = x + dx, ny = y + dy, nz = z + dz;
           if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < length) {
             const nb = erodedSnap[(ny * length + nz) * width + nx];
@@ -994,26 +1019,15 @@ export function erodeSurfaceBumps(grid: BlockGrid, minNeighbors = 3): number {
  */
 export function fillFacadeHoles(grid: BlockGrid, minSolid = 4, maxPasses = 1): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
 
-  const FACES: readonly [number, number, number][] = [
-    [1, 0, 0], [-1, 0, 0],
-    [0, 1, 0], [0, -1, 0],
-    [0, 0, 1], [0, 0, -1],
-  ];
+
+
 
   let totalFilled = 0;
 
   for (let pass = 0; pass < maxPasses; pass++) {
     // Fresh snapshot each pass so we see previous pass's fills as solid
-    const snap: string[] = new Array(width * height * length);
-    for (let y = 0; y < height; y++) {
-      for (let z = 0; z < length; z++) {
-        for (let x = 0; x < width; x++) {
-          snap[(y * length + z) * width + x] = grid.get(x, y, z);
-        }
-      }
-    }
+    const snap = snapshotGrid(grid);
 
     let passFilled = 0;
     for (let y = 0; y < height; y++) {
@@ -1024,7 +1038,7 @@ export function fillFacadeHoles(grid: BlockGrid, minSolid = 4, maxPasses = 1): n
           // Count solid face-neighbors and track block types
           let solidFaces = 0;
           const counts = new Map<string, number>();
-          for (const [dx, dy, dz] of FACES) {
+          for (const [dx, dy, dz] of FACES6) {
             const nx = x + dx, ny = y + dy, nz = z + dz;
             if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < length) {
               const nb = snap[(ny * length + nz) * width + nx];
@@ -1072,23 +1086,12 @@ export function fillFacadeHoles(grid: BlockGrid, minSolid = 4, maxPasses = 1): n
  */
 export function removeIsolatedVoxels(grid: BlockGrid, maxNeighbors = 1): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
 
-  const FACES: readonly [number, number, number][] = [
-    [1, 0, 0], [-1, 0, 0],
-    [0, 1, 0], [0, -1, 0],
-    [0, 0, 1], [0, 0, -1],
-  ];
+
+
 
   // Snapshot for consistent reads
-  const snap: string[] = new Array(width * height * length);
-  for (let y = 0; y < height; y++) {
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        snap[(y * length + z) * width + x] = grid.get(x, y, z);
-      }
-    }
-  }
+  const snap = snapshotGrid(grid);
 
   let removed = 0;
   for (let y = 0; y < height; y++) {
@@ -1097,7 +1100,7 @@ export function removeIsolatedVoxels(grid: BlockGrid, maxNeighbors = 1): number 
         if (snap[(y * length + z) * width + x] === AIR) continue;
 
         let solidFaces = 0;
-        for (const [dx, dy, dz] of FACES) {
+        for (const [dx, dy, dz] of FACES6) {
           const nx = x + dx, ny = y + dy, nz = z + dz;
           if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < length) {
             if (snap[(ny * length + nz) * width + nx] !== AIR) solidFaces++;
@@ -1137,7 +1140,7 @@ export function removeIsolatedVoxels(grid: BlockGrid, maxNeighbors = 1): number 
  */
 export function fillFacadeVoids2D(grid: BlockGrid, maxGapWidth = 15): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
   let totalFilled = 0;
 
   // Process 4 facade directions
@@ -1346,7 +1349,7 @@ export function fillFacadeVoids2D(grid: BlockGrid, maxGapWidth = 15): number {
  */
 export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
   const totalSize = width * height * length;
   let netFilled = 0;
 
@@ -1365,12 +1368,6 @@ export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
   // ── Step 2: Multi-pass 3D dilation (6-connected) to create leak-proof mask ──
   // Each pass expands solid blocks by 1 in all 6 directions (Manhattan distance).
   // dilateRadius=2 closes 2-voxel gaps — enough for most photogrammetry porosity.
-  const dirs: [number, number, number][] = [
-    [1, 0, 0], [-1, 0, 0],
-    [0, 1, 0], [0, -1, 0],
-    [0, 0, 1], [0, 0, -1],
-  ];
-
   let currentMask = new Uint8Array(originalSolid);
   for (let step = 0; step < dilateRadius; step++) {
     const nextMask = new Uint8Array(currentMask);
@@ -1379,7 +1376,7 @@ export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
         for (let x = 0; x < width; x++) {
           const idx = (y * length + z) * width + x;
           if (currentMask[idx]) {
-            for (const [dx, dy, dz] of dirs) {
+            for (const [dx, dy, dz] of FACES6) {
               const nx = x + dx, ny = y + dy, nz = z + dz;
               if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < length) {
                 nextMask[(ny * length + nz) * width + nx] = 1;
@@ -1422,7 +1419,7 @@ export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
     const z = Math.floor(idx / width) % length;
     const y = Math.floor(idx / (width * length));
 
-    for (const [dx, dy, dz] of dirs) {
+    for (const [dx, dy, dz] of FACES6) {
       const nx = x + dx, ny = y + dy, nz = z + dz;
       if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length) continue;
       const nIdx = (ny * length + nz) * width + nx;
@@ -1470,7 +1467,7 @@ export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2): number {
  * @returns Number of interior air voxels filled
  */
 export function scanlineInteriorFill(grid: BlockGrid): number {
-  const AIR = 'minecraft:air';
+
   const FILL_BLOCK = 'minecraft:smooth_stone';
   const { width, height, length } = grid;
   let filled = 0;
@@ -1574,7 +1571,7 @@ export function clearOpenAirFill(
   minClearance = 5,
 ): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
 
   // 2D connected-component approach:
   // 1. Build XZ mask of "open-air columns" — has fill, no solid roof above, sufficient clearance
@@ -1701,7 +1698,7 @@ export function clearOpenAirFill(
  */
 export function glazeDarkWindows(grid: BlockGrid, resolution = 1): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
   let glazed = 0;
 
   // Dark blocks that typically represent baked window/shadow regions.
@@ -1719,7 +1716,7 @@ export function glazeDarkWindows(grid: BlockGrid, resolution = 1): number {
   const MIN_Y = Math.max(2, Math.round(2 * resolution));
 
   // Horizontal directions for facade detection (adjacent to air on X or Z axis)
-  const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
 
   // Phase 1: Collect all facade dark block positions
   type Pos = { x: number; y: number; z: number };
@@ -1886,7 +1883,7 @@ export function glazeDarkWindows(grid: BlockGrid, resolution = 1): number {
  */
 export function glazeReflectiveWindows(grid: BlockGrid, resolution = 1): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
   const GLASS_BLOCKS = new Set([
     'minecraft:gray_stained_glass', 'minecraft:glass', 'minecraft:glass_pane',
     'minecraft:light_gray_stained_glass', 'minecraft:black_stained_glass',
@@ -2122,7 +2119,7 @@ export function glazeReflectiveWindows(grid: BlockGrid, resolution = 1): number 
  */
 export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number, resolution = 1): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
   const GLASS = 'minecraft:gray_stained_glass';
 
   // Only inject if existing glazing was minimal (< 0.5% of non-air blocks)
@@ -2132,7 +2129,7 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number, 
   if (height < Math.max(8, Math.round(8 * resolution))) return 0;
 
   // Horizontal directions for facade detection
-  const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
 
   // Step 1: Find dominant facade material by counting exterior surface blocks
   const facadeCounts = new Map<string, number>();
@@ -2273,7 +2270,7 @@ export function detectAndRegularizeWindows(
   groundY = 0,
 ): { windowsRegularized: number; doorsPlaced: number } {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
   const GLASS = 'minecraft:gray_stained_glass';
   const DOOR_BOTTOM = 'minecraft:oak_door[half=lower,facing=south]';
   const DOOR_TOP = 'minecraft:oak_door[half=upper,facing=south]';
@@ -2447,14 +2444,14 @@ export function detectAndRegularizeWindows(
  */
 export function smoothSurface(grid: BlockGrid, maxY?: number, preserveBoundary = false): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
   let totalChanged = 0;
   // maxY: optional upper Y bound (exclusive) — skip smoothing above this layer
   // to preserve roof features (gables, peaks, dormers) that read as noise.
   const yLimit = maxY !== undefined ? Math.min(maxY, height) : height;
 
   // Face-adjacent offsets in XZ plane (4-connected)
-  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
 
   // v73: Compute footprint boundary mask — protects silhouette edges (tips, corners)
   // from erosion. Union of all Y layers' boundaries: any XZ position that has a solid
@@ -2467,7 +2464,7 @@ export function smoothSurface(grid: BlockGrid, maxY?: number, preserveBoundary =
         for (let x = 0; x < width; x++) {
           if (grid.get(x, y, z) === AIR) continue;
           // Check if this solid voxel touches air in XZ
-          for (const [dx, dz] of DIRS) {
+          for (const [dx, dz] of H_DIRS) {
             const nx = x + dx, nz = z + dz;
             if (nx < 0 || nx >= width || nz < 0 || nz >= length ||
                 grid.get(nx, y, nz) === AIR) {
@@ -2505,7 +2502,7 @@ export function smoothSurface(grid: BlockGrid, maxY?: number, preserveBoundary =
         if (boundaryMask?.has(idx)) continue;
 
         let solidNeighbors = 0;
-        for (const [dx, dz] of DIRS) {
+        for (const [dx, dz] of H_DIRS) {
           const nx = x + dx, nz = z + dz;
           if (nx >= 0 && nx < width && nz >= 0 && nz < length) {
             if (layer[nz * width + nx]) solidNeighbors++;
@@ -2527,7 +2524,7 @@ export function smoothSurface(grid: BlockGrid, maxY?: number, preserveBoundary =
         if (eroded[idx]) continue; // Already solid
 
         let solidNeighbors = 0;
-        for (const [dx, dz] of DIRS) {
+        for (const [dx, dz] of H_DIRS) {
           const nx = x + dx, nz = z + dz;
           if (nx >= 0 && nx < width && nz >= 0 && nz < length) {
             if (eroded[nz * width + nx]) solidNeighbors++;
@@ -2551,7 +2548,7 @@ export function smoothSurface(grid: BlockGrid, maxY?: number, preserveBoundary =
           // Dilated back — find nearest block color
           let bestBlock = AIR;
           let bestDist = Infinity;
-          for (const [dx, dz] of DIRS) {
+          for (const [dx, dz] of H_DIRS) {
             const nx = x + dx, nz = z + dz;
             if (nx >= 0 && nx < width && nz >= 0 && nz < length) {
               const nIdx = nz * width + nx;
@@ -2599,7 +2596,7 @@ export function smoothSurface(grid: BlockGrid, maxY?: number, preserveBoundary =
  */
 export function rectangularize(grid: BlockGrid, minRegionSize = 20, maxExtend = 2, facadeDepth = 0): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
   let changed = 0;
 
   for (let y = 0; y < height; y++) {
@@ -2794,14 +2791,7 @@ export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1, extraProte
 
   for (let pass = 0; pass < passes; pass++) {
     // Snapshot current state so replacements in this pass don't cascade
-    const snapshot: string[] = new Array(width * height * length);
-    for (let y = 0; y < height; y++) {
-      for (let z = 0; z < length; z++) {
-        for (let x = 0; x < width; x++) {
-          snapshot[(y * length + z) * width + x] = grid.get(x, y, z);
-        }
-      }
-    }
+    const snapshot = snapshotGrid(grid);
 
     let passReplaced = 0;
     for (let y = 0; y < height; y++) {
@@ -2890,7 +2880,7 @@ export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1, extraProte
  * @param radius - Neighborhood radius for context (default 2 → 5×5×5)
  */
 export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius = 2): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   let totalReplaced = 0;
 
@@ -3035,19 +3025,14 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
  * @returns Number of blocks replaced
  */
 export function smoothFacadeColors(grid: BlockGrid): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
-  const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
   let replaced = 0;
 
   // Snapshot for reading while modifying
-  const snapshot: string[] = new Array(width * height * length);
-  for (let y = 0; y < height; y++)
-    for (let z = 0; z < length; z++)
-      for (let x = 0; x < width; x++)
-        snapshot[(y * length + z) * width + x] = grid.get(x, y, z);
-
-  const getSnap = (x: number, y: number, z: number) => snapshot[(y * length + z) * width + x];
+  const snapshot = snapshotGrid(grid);
+  const getSnap = (x: number, y: number, z: number) => readSnap(snapshot, grid, x, y, z);
 
   // Process each voxel that's on a facade
   for (let y = 0; y < height; y++) {
@@ -3130,9 +3115,9 @@ export function smoothFacadeColors(grid: BlockGrid): number {
  * @returns Number of blocks replaced
  */
 export function clusterFacadePalette(grid: BlockGrid, k = 4): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
-  const H_DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
   let replaced = 0;
 
   // Group facade voxels by face direction (4 cardinal faces)
@@ -3309,7 +3294,7 @@ export function clusterFacadePalette(grid: BlockGrid, k = 4): number {
  * @returns Number of roof blocks replaced
  */
 export function smoothRoofPlane(grid: BlockGrid): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   let replaced = 0;
 
@@ -3381,7 +3366,7 @@ function findBrightNeighborMode(
   grid: BlockGrid, cx: number, cy: number, cz: number,
   radius: number, lumFloor: number,
 ): string | null {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   const neighborCounts = new Map<string, number>();
 
@@ -3412,7 +3397,7 @@ function findBrightNeighborMode(
 
 /**
  * Approximate luminance for Minecraft blocks (0 = black, 1 = white).
- * Used by carveFacadeShadows to identify shadow/depth regions.
+ * Used by smoothDarkBlocks and other color filters to identify brightness zones.
  * Values are empirical approximations of the block's average visual brightness.
  */
 /** Overrides for blocks whose in-game brightness differs from texture RGB
@@ -3461,670 +3446,8 @@ function getBlockLab(block: string): [number, number, number] | null {
   return _blockLabCache.get(block) ?? null;
 }
 
-/**
- * Carve facade shadows into depth features using block luminance.
- *
- * Photogrammetry meshes close up balconies and recesses because the depth
- * scanner can't measure inside them. But the texture captures the shadows
- * correctly — dark pixels where there should be voids. This function
- * converts that color information back into geometry:
- *
- * For each block in the facade zone (≤facadeDepth from any AABB edge):
- * - If block luminance < threshold → replace with AIR (carve shadow into void)
- * - If block luminance ≥ threshold → keep solid (stucco wall / railing)
- *
- * This must run BEFORE palette constraint so the original dark colors
- * (which carry depth information) haven't been remapped yet.
- *
- * @param grid            Source BlockGrid (modified in place)
- * @param facadeDepth     Depth from AABB edges defining the facade zone (default: 4)
- * @param lumThreshold    Luminance below which blocks are shadow candidates (default: 0.45)
- * @param minDarkNeighbors Minimum dark XZ-plane neighbors (of 4) required to carve (default: 2).
- *                         Acts as despeckle filter — only carves connected dark clusters,
- *                         not isolated single-block noise. Creates clean rectangular voids.
- * @returns Number of blocks carved to air
- */
-export function carveFacadeShadows(
-  grid: BlockGrid,
-  facadeDepth = 4,
-  lumThreshold = 0.45,
-  minDarkNeighbors = 2,
-): number {
-  const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
-  let carved = 0;
-
-  // XZ-plane 4-connected neighbors
-  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
-
-  for (let y = 0; y < height; y++) {
-    // Find AABB of all solid voxels in this layer
-    let minX = width, maxX = -1, minZ = length, maxZ = -1;
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        if (grid.get(x, y, z) !== AIR) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (z < minZ) minZ = z;
-          if (z > maxZ) maxZ = z;
-        }
-      }
-    }
-    if (maxX < 0) continue; // Empty layer
-
-    // Pass 1: build dark mask for this layer's facade zone
-    const layerW = maxX - minX + 1;
-    const layerL = maxZ - minZ + 1;
-    const isDark = new Uint8Array(layerW * layerL);
-    const inFacade = new Uint8Array(layerW * layerL);
-
-    for (let z = minZ; z <= maxZ; z++) {
-      for (let x = minX; x <= maxX; x++) {
-        const block = grid.get(x, y, z);
-        if (block === AIR) continue;
-
-        const edgeDist = Math.min(x - minX, maxX - x, z - minZ, maxZ - z);
-        if (edgeDist >= facadeDepth) continue;
-
-        const lx = x - minX;
-        const lz = z - minZ;
-        const idx = lz * layerW + lx;
-        inFacade[idx] = 1;
-
-        if (blockLuminance(block) < lumThreshold) {
-          isDark[idx] = 1;
-        }
-      }
-    }
-
-    // Pass 2: carve dark blocks that have enough dark neighbors (despeckle).
-    // This ensures only connected dark clusters get carved — isolated dark
-    // specks on stucco walls are left solid, preventing "termite damage."
-    for (let z = minZ; z <= maxZ; z++) {
-      for (let x = minX; x <= maxX; x++) {
-        const lx = x - minX;
-        const lz = z - minZ;
-        const idx = lz * layerW + lx;
-        if (!inFacade[idx] || !isDark[idx]) continue;
-
-        // Count dark 4-connected neighbors in the XZ plane
-        let darkNeighbors = 0;
-        for (const [dx, dz] of DIRS) {
-          const nx = lx + dx;
-          const nz = lz + dz;
-          if (nx < 0 || nx >= layerW || nz < 0 || nz >= layerL) continue;
-          if (isDark[nz * layerW + nx]) darkNeighbors++;
-        }
-
-        if (darkNeighbors >= minDarkNeighbors) {
-          grid.set(x, y, z, AIR);
-          carved++;
-        }
-      }
-    }
-  }
-
-  return carved;
-}
-
-/**
- * Vertical median filter ("gravity filter") for facade columns.
- *
- * After carving, facade voids have ragged/organic edges. Architecture needs
- * straight vertical lines. This filter enforces vertical consistency:
- *
- * For each facade column (fixed X, Z position, varying Y):
- * - Examine a window of `windowSize` vertical blocks
- * - If majority are air → force center to air
- * - If majority are solid → force center to solid (nearest neighbor block)
- *
- * This straightens wobbly window/balcony edges into clean vertical lines
- * and removes floating single-block artifacts.
- *
- * @param grid          Source BlockGrid (modified in place)
- * @param facadeDepth   Depth from AABB edges defining facade zone (default: 4)
- * @param windowSize    Vertical window for median vote (default: 5 = 2 above + 2 below)
- * @returns Number of blocks changed
- */
-export function verticalRectify(
-  grid: BlockGrid,
-  facadeDepth = 4,
-  windowSize = 5,
-): number {
-  const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
-  const halfW = Math.floor(windowSize / 2);
-  let changed = 0;
-
-  // First compute the global AABB per Y-layer for facade zone detection,
-  // then process vertical columns.
-  // We need per-layer AABB to know which cells are in the facade zone.
-  const layerAABB: Array<{ minX: number; maxX: number; minZ: number; maxZ: number } | null> =
-    new Array(height).fill(null);
-
-  for (let y = 0; y < height; y++) {
-    let minX = width, maxX = -1, minZ = length, maxZ = -1;
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        if (grid.get(x, y, z) !== AIR) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (z < minZ) minZ = z;
-          if (z > maxZ) maxZ = z;
-        }
-      }
-    }
-    if (maxX >= 0) {
-      layerAABB[y] = { minX, maxX, minZ, maxZ };
-    }
-  }
-
-  // Snapshot the grid before filtering (so changes don't cascade)
-  const snap: string[] = new Array(width * height * length);
-  for (let y = 0; y < height; y++) {
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        snap[(y * length + z) * width + x] = grid.get(x, y, z);
-      }
-    }
-  }
-
-  // Process each vertical column (x, z)
-  for (let z = 0; z < length; z++) {
-    for (let x = 0; x < width; x++) {
-      // Check if this column is in the facade zone for ANY layer
-      let inFacade = false;
-      for (let y = 0; y < height; y++) {
-        const aabb = layerAABB[y];
-        if (!aabb) continue;
-        const edgeDist = Math.min(
-          x - aabb.minX, aabb.maxX - x,
-          z - aabb.minZ, aabb.maxZ - z,
-        );
-        if (edgeDist >= 0 && edgeDist < facadeDepth) {
-          inFacade = true;
-          break;
-        }
-      }
-      if (!inFacade) continue;
-
-      // Apply vertical median filter to this column
-      for (let y = 0; y < height; y++) {
-        const aabb = layerAABB[y];
-        if (!aabb) continue;
-
-        // Check if this specific cell is in the facade zone
-        const edgeDist = Math.min(
-          x - aabb.minX, aabb.maxX - x,
-          z - aabb.minZ, aabb.maxZ - z,
-        );
-        if (edgeDist < 0 || edgeDist >= facadeDepth) continue;
-
-        // Count air vs solid in vertical window
-        let airCount = 0;
-        let solidCount = 0;
-        let bestBlock = AIR;
-        let bestBlockCount = 0;
-        const blockCounts = new Map<string, number>();
-
-        for (let dy = -halfW; dy <= halfW; dy++) {
-          const ny = y + dy;
-          if (ny < 0 || ny >= height) continue;
-          const block = snap[(ny * length + z) * width + x];
-          if (block === AIR) {
-            airCount++;
-          } else {
-            solidCount++;
-            const c = (blockCounts.get(block) ?? 0) + 1;
-            blockCounts.set(block, c);
-            if (c > bestBlockCount) {
-              bestBlockCount = c;
-              bestBlock = block;
-            }
-          }
-        }
-
-        const currentBlock = snap[(y * length + z) * width + x];
-        const majority = Math.ceil(windowSize / 2);
-
-        if (currentBlock === AIR && solidCount >= majority) {
-          // Majority solid → fill this air cell
-          grid.set(x, y, z, bestBlock);
-          changed++;
-        } else if (currentBlock !== AIR && airCount >= majority) {
-          // Majority air → carve this solid cell
-          grid.set(x, y, z, AIR);
-          changed++;
-        }
-      }
-    }
-  }
-
-  return changed;
-}
-
-/**
- * Glaze facade air voids — place window blocks where carved air meets the
- * solid core behind it.
- *
- * After carving, facade voids are empty air. The real building has glass windows
- * at the back of these recesses. This pass finds air blocks in the facade zone
- * that border a solid core block (deeper than facadeDepth) and places window
- * material at that boundary — the "glass backplane" of each recess.
- *
- * Additionally, converts any remaining air voids in the facade zone that are
- * fully surrounded by solid blocks into window glass (enclosed void = window).
- *
- * @param grid           Source BlockGrid (modified in place)
- * @param facadeDepth    Depth from AABB edges (facade zone limit, default: 4)
- * @param windowBlock    Block to use for glazing (default: minecraft:gray_stained_glass)
- * @returns Number of blocks glazed
- */
-export function glazeBackplane(
-  grid: BlockGrid,
-  maxDepth = 8,
-  windowBlock = 'minecraft:gray_concrete',
-): number {
-  const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
-  let glazed = 0;
-
-  // Per-face deep raycast: cast rays inward from each AABB face.
-  // When a ray crosses solid → air → solid (void in the wall), place a window
-  // block at the last air position before the back wall. This restores
-  // "window" appearance at the back of carved balcony/recess voids.
-  //
-  // Ray phases per cast:
-  // 1. Skip leading air (outside building)
-  // 2. Skip leading solid (outer wall)
-  // 3. Traverse air (carved void / balcony)
-  // 4. Hit solid (back wall) → place window at last air position
-  // Only processes the first void per ray to avoid filling deep interiors.
-
-  for (let y = 0; y < height; y++) {
-    // Find AABB for this layer
-    let minX = width, maxX = -1, minZ = length, maxZ = -1;
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        if (grid.get(x, y, z) !== AIR) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (z < minZ) minZ = z;
-          if (z > maxZ) maxZ = z;
-        }
-      }
-    }
-    if (maxX < 0) continue;
-
-    // Define 4 face directions: [start, step, perpAxis, perpRange]
-    // For each face, cast rays from the face inward
-    const faces: Array<{
-      perpIter: () => Generator<[number, number]>;
-      rayStart: (p: number, q: number) => [number, number];
-      rayStep: [number, number]; // [dx, dz]
-    }> = [
-      { // Left face (X=minX, cast +X)
-        perpIter: function*() { for (let z = minZ; z <= maxZ; z++) yield [0, z]; },
-        rayStart: (_p, z) => [minX, z],
-        rayStep: [1, 0],
-      },
-      { // Right face (X=maxX, cast -X)
-        perpIter: function*() { for (let z = minZ; z <= maxZ; z++) yield [0, z]; },
-        rayStart: (_p, z) => [maxX, z],
-        rayStep: [-1, 0],
-      },
-      { // Front face (Z=minZ, cast +Z)
-        perpIter: function*() { for (let x = minX; x <= maxX; x++) yield [x, 0]; },
-        rayStart: (x, _q) => [x, minZ],
-        rayStep: [0, 1],
-      },
-      { // Back face (Z=maxZ, cast -Z)
-        perpIter: function*() { for (let x = minX; x <= maxX; x++) yield [x, 0]; },
-        rayStart: (x, _q) => [x, maxZ],
-        rayStep: [0, -1],
-      },
-    ];
-
-    for (const face of faces) {
-      for (const [p, q] of face.perpIter()) {
-        const [sx, sz] = face.rayStart(p, q);
-        const [dx, dz] = face.rayStep;
-
-        let phase = 0; // 0=outside, 1=wall, 2=void
-        let lastAirX = -1, lastAirZ = -1;
-
-        for (let d = 0; d < maxDepth; d++) {
-          const rx = sx + dx * d;
-          const rz = sz + dz * d;
-          if (rx < 0 || rx >= width || rz < 0 || rz >= length) break;
-
-          const block = grid.get(rx, y, rz);
-          const isAir = block === AIR;
-
-          if (phase === 0) {
-            // Phase 0: outside building — skip air, advance to wall on first solid
-            if (!isAir) phase = 1;
-          } else if (phase === 1) {
-            // Phase 1: traversing outer wall — skip solid, enter void on first air
-            if (isAir) {
-              phase = 2;
-              lastAirX = rx;
-              lastAirZ = rz;
-            }
-          } else if (phase === 2) {
-            // Phase 2: traversing void — track last air position
-            if (isAir) {
-              lastAirX = rx;
-              lastAirZ = rz;
-            } else {
-              // Hit back wall — place window at last air position
-              if (lastAirX >= 0 && grid.get(lastAirX, y, lastAirZ) === AIR) {
-                grid.set(lastAirX, y, lastAirZ, windowBlock);
-                glazed++;
-              }
-              break; // Done with this ray
-            }
-          }
-        }
-      }
-    }
-  }
-
-  return glazed;
-}
-
-/**
- * Horizontal median filter ("lintel filter") for facade rows.
- *
- * Complement to verticalRectify — cleans horizontal edges (floors/ceilings of
- * balconies). Applies 1D median vote along the X-axis for each facade row
- * (fixed Y, Z). Uses a smaller window (3) than the vertical filter (5) to
- * avoid closing narrow features like fire escape slots.
- *
- * @param grid          Source BlockGrid (modified in place)
- * @param facadeDepth   Depth from AABB edges defining facade zone (default: 4)
- * @param windowSize    Horizontal window for median vote (default: 3 = 1 left + 1 right)
- * @returns Number of blocks changed
- */
-export function horizontalRectify(
-  grid: BlockGrid,
-  facadeDepth = 4,
-  windowSize = 3,
-): number {
-  const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
-  const halfW = Math.floor(windowSize / 2);
-  let changed = 0;
-
-  // Per-layer AABB for facade zone detection
-  const layerAABB: Array<{ minX: number; maxX: number; minZ: number; maxZ: number } | null> =
-    new Array(height).fill(null);
-
-  for (let y = 0; y < height; y++) {
-    let minX = width, maxX = -1, minZ = length, maxZ = -1;
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        if (grid.get(x, y, z) !== AIR) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (z < minZ) minZ = z;
-          if (z > maxZ) maxZ = z;
-        }
-      }
-    }
-    if (maxX >= 0) layerAABB[y] = { minX, maxX, minZ, maxZ };
-  }
-
-  // Snapshot before filtering
-  const snap: string[] = new Array(width * height * length);
-  for (let y = 0; y < height; y++) {
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        snap[(y * length + z) * width + x] = grid.get(x, y, z);
-      }
-    }
-  }
-
-  // Process each horizontal row (y, z) along X-axis
-  for (let y = 0; y < height; y++) {
-    const aabb = layerAABB[y];
-    if (!aabb) continue;
-
-    for (let z = aabb.minZ; z <= aabb.maxZ; z++) {
-      for (let x = aabb.minX; x <= aabb.maxX; x++) {
-        const edgeDist = Math.min(
-          x - aabb.minX, aabb.maxX - x,
-          z - aabb.minZ, aabb.maxZ - z,
-        );
-        if (edgeDist >= facadeDepth) continue;
-
-        // Count air vs solid in horizontal X window
-        let airCount = 0;
-        let solidCount = 0;
-        let bestBlock = AIR;
-        let bestBlockCount = 0;
-        const blockCounts = new Map<string, number>();
-
-        for (let dx = -halfW; dx <= halfW; dx++) {
-          const nx = x + dx;
-          if (nx < 0 || nx >= width) continue;
-          const block = snap[(y * length + z) * width + nx];
-          if (block === AIR) {
-            airCount++;
-          } else {
-            solidCount++;
-            const c = (blockCounts.get(block) ?? 0) + 1;
-            blockCounts.set(block, c);
-            if (c > bestBlockCount) {
-              bestBlockCount = c;
-              bestBlock = block;
-            }
-          }
-        }
-
-        const currentBlock = snap[(y * length + z) * width + x];
-        const majority = Math.ceil(windowSize / 2);
-
-        if (currentBlock === AIR && solidCount >= majority) {
-          grid.set(x, y, z, bestBlock);
-          changed++;
-        } else if (currentBlock !== AIR && airCount >= majority) {
-          grid.set(x, y, z, AIR);
-          changed++;
-        }
-      }
-    }
-  }
-
-  return changed;
-}
-
-/**
- * "Cookie Cutter" solidification: one global AABB per Y-layer, solid core +
- * raw scan mask on facades.
- *
- * Unlike rectangularize (which splits into connected components and can fracture
- * a single building), this treats the entire layer as ONE volume:
- *
- * 1. Compute the AABB of all non-air voxels in the layer
- * 2. Core zone (>facadeDepth from all AABB edges): fill with dominant block
- * 3. Facade zone (≤facadeDepth from any edge): leave original scan data untouched.
- *    If the scan says air → keep air (preserving balconies, recesses, windows).
- *    If the scan says solid → keep the block.
- *
- * This produces buildings with solid interiors and architecturally accurate
- * facade depth, without the connected-component splitting that fractures
- * buildings through fire escapes or thin features.
- *
- * @param grid         Source BlockGrid (modified in place)
- * @param facadeDepth  Depth from AABB edges to preserve raw scan data (default: 4 blocks)
- * @param minFill      Min fraction of layer filled to process (skip sparse layers, default: 0.01)
- * @returns Number of core voxels filled
- */
-export function solidifyCore(grid: BlockGrid, facadeDepth = 4, minFill = 0.01): number {
-  const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
-  let totalFilled = 0;
-
-  for (let y = 0; y < height; y++) {
-    // Find AABB of all solid voxels in this layer
-    let minX = width, maxX = -1, minZ = length, maxZ = -1;
-    const counts = new Map<string, number>();
-    let solidCount = 0;
-
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        const block = grid.get(x, y, z);
-        if (block === AIR) continue;
-        solidCount++;
-        counts.set(block, (counts.get(block) ?? 0) + 1);
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (z < minZ) minZ = z;
-        if (z > maxZ) maxZ = z;
-      }
-    }
-
-    // Skip sparse layers (terrain remnants)
-    if (solidCount < width * length * minFill) continue;
-    if (maxX < 0) continue; // No solid voxels
-
-    // Find the dominant (most common) block for this layer
-    let dominant = AIR;
-    let maxC = 0;
-    for (const [b, c] of counts) {
-      if (c > maxC) { dominant = b; maxC = c; }
-    }
-
-    // Fill core zone: cells inside the AABB that are more than facadeDepth
-    // from all four edges. Facade zone cells are left completely untouched.
-    for (let z = minZ; z <= maxZ; z++) {
-      for (let x = minX; x <= maxX; x++) {
-        if (grid.get(x, y, z) !== AIR) continue; // Already solid
-
-        // Distance from this cell to nearest AABB edge
-        const edgeDist = Math.min(
-          x - minX,
-          maxX - x,
-          z - minZ,
-          maxZ - z,
-        );
-
-        // Only fill core zone — facade zone keeps raw scan data
-        if (edgeDist >= facadeDepth) {
-          grid.set(x, y, z, dominant);
-          totalFilled++;
-        }
-      }
-    }
-  }
-
-  return totalFilled;
-}
-
-/**
- * Replace solid facade blocks in a central vertical strip with thin bars
- * to simulate a fire escape or other metalwork feature.
- *
- * Identifies the center X range (configurable %) and replaces solid blocks
- * in the facade zone with iron_bars if the block has air on the outward side
- * (i.e., it's a protruding element, not the back wall). Converts "chunky noise"
- * from photogrammetry into thin, architectural metalwork.
- *
- * @param grid          Source BlockGrid (modified in place)
- * @param facadeDepth   Facade zone depth from edges
- * @param centerStart   Start of center zone as fraction of width (0-1, default: 0.38)
- * @param centerEnd     End of center zone as fraction of width (0-1, default: 0.62)
- * @param barBlock      Block to use for the bars (default: iron_bars)
- * @returns Number of blocks converted to bars
- */
-export function fireEscapeFilter(
-  grid: BlockGrid,
-  facadeDepth = 4,
-  centerStart = 0.38,
-  centerEnd = 0.62,
-  barBlock = 'minecraft:iron_bars',
-): number {
-  const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
-  let converted = 0;
-
-  // Absolute X range for the center zone
-  const xMin = Math.floor(width * centerStart);
-  const xMax = Math.ceil(width * centerEnd);
-
-  for (let y = 0; y < height; y++) {
-    // Per-layer AABB
-    let lMinX = width, lMaxX = -1, lMinZ = length, lMaxZ = -1;
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        if (grid.get(x, y, z) !== AIR) {
-          if (x < lMinX) lMinX = x;
-          if (x > lMaxX) lMaxX = x;
-          if (z < lMinZ) lMinZ = z;
-          if (z > lMaxZ) lMaxZ = z;
-        }
-      }
-    }
-    if (lMaxX < 0) continue;
-
-    for (let z = lMinZ; z <= lMaxZ; z++) {
-      for (let x = xMin; x <= xMax; x++) {
-        if (x < lMinX || x > lMaxX) continue;
-        const block = grid.get(x, y, z);
-        if (block === AIR || block === barBlock) continue;
-
-        const edgeDist = Math.min(
-          x - lMinX, lMaxX - x,
-          z - lMinZ, lMaxZ - z,
-        );
-        if (edgeDist >= facadeDepth) continue; // Skip core
-
-        // Check if the outward direction (toward nearest edge) has air.
-        // If so, this block is a protruding element → convert to bars.
-        const dLeft = x - lMinX;
-        const dRight = lMaxX - x;
-        const dFront = z - lMinZ;
-        const dBack = lMaxZ - z;
-
-        let outX = x, outZ = z;
-        if (dLeft <= dRight && dLeft <= dFront && dLeft <= dBack) outX = x - 1;
-        else if (dRight <= dLeft && dRight <= dFront && dRight <= dBack) outX = x + 1;
-        else if (dFront <= dBack) outZ = z - 1;
-        else outZ = z + 1;
-
-        if (outX < 0 || outX >= width || outZ < 0 || outZ >= length) continue;
-        if (grid.get(outX, y, outZ) === AIR) {
-          // Create horizontal platform bands (every 3 Y-levels) to simulate
-          // fire escape landings. Between platforms, leave the wall material
-          // so the fire escape reads as horizontal stripes, not a solid column.
-          if (y % 3 === 0) {
-            grid.set(x, y, z, barBlock);
-            converted++;
-          }
-        }
-      }
-    }
-  }
-
-  return converted;
-}
-
-/**
- * Add a Spanish/Mediterranean roof cornice to the top of the building.
- *
- * Scans the height map to find the roofline, then adds:
- * 1. A clay tile cap (bricks/terracotta) replacing the topmost wall blocks
- * 2. A 1-block overhang (eave) protruding outward from perimeter edges
- *
- * This breaks the flat-top box silhouette that is common in voxelized
- * photogrammetry and adds the architectural "hat" that defines the style.
- *
- * @param grid       Source BlockGrid (modified in place)
- * @param tileBlock  Block for clay roof tiles (default: bricks)
- * @param eaveBlock  Block for wooden eave overhang (default: spruce_planks)
- * @returns          Number of blocks placed/changed
- */
+// ─── Dead exports removed: carveFacadeShadows, verticalRectify, glazeBackplane,
+// horizontalRectify, solidifyCore, fireEscapeFilter, addRoofCornice ───
 
 // ─── Facade Homogeneity (v74) ──────────────────────────────────────────────
 
@@ -4147,7 +3470,7 @@ export function homogenizeFacadesByFace(
   searchRadius = 6,
   protectedBlocks?: Set<string>,
 ): number {
-  const AIR = 'minecraft:air';
+
   const MIN_SAMPLES = 100;
 
   // Blocks that should never be replaced (glass, trim accents)
@@ -4260,7 +3583,7 @@ export function straightenFootprintEdges(
   windowRadius = 2,
   wallBlock?: string,
 ): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   let changed = 0;
 
@@ -4433,7 +3756,7 @@ export function addPeakedRoof(
   maxLayers = 15,
 ): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
   let placed = 0;
 
   // Find the highest non-air Y for each (x, z) — the "roof surface"
@@ -4482,7 +3805,7 @@ export function addPeakedRoof(
     }
   }
 
-  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
 
   for (let layer = 0; layer < maxLayers; layer++) {
     // Erode: remove boundary voxels (those touching air/outside)
@@ -4491,7 +3814,7 @@ export function addPeakedRoof(
       const x = idx % width;
       const z = Math.floor(idx / width);
       let isBoundary = false;
-      for (const [dx, dz] of DIRS) {
+      for (const [dx, dz] of H_DIRS) {
         const nx = x + dx, nz = z + dz;
         if (nx < 0 || nx >= width || nz < 0 || nz >= length) {
           isBoundary = true;
@@ -4531,85 +3854,6 @@ export function addPeakedRoof(
   return placed;
 }
 
-export function addRoofCornice(
-  grid: BlockGrid,
-  tileBlock = 'minecraft:bricks',
-  eaveBlock = 'minecraft:spruce_planks',
-): number {
-  const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
-  let placed = 0;
-
-  // Build height map: for each (x, z) find highest non-air Y
-  const heightMap = new Int32Array(width * length).fill(-1);
-  for (let z = 0; z < length; z++) {
-    for (let x = 0; x < width; x++) {
-      for (let y = height - 1; y >= 0; y--) {
-        if (grid.get(x, y, z) !== AIR) {
-          heightMap[z * width + x] = y;
-          break;
-        }
-      }
-    }
-  }
-
-  // Find global roof level: the mode (most frequent) of the height map,
-  // excluding ground-level and air columns. This is the building's roofline.
-  const hCounts = new Map<number, number>();
-  for (let i = 0; i < heightMap.length; i++) {
-    const h = heightMap[i];
-    if (h > 2) hCounts.set(h, (hCounts.get(h) ?? 0) + 1);
-  }
-  let roofY = -1;
-  let roofCount = 0;
-  for (const [h, c] of hCounts) {
-    if (c > roofCount) { roofY = h; roofCount = c; }
-  }
-  if (roofY < 3) return 0; // No clear roofline
-
-  // Phase 1: Replace top blocks at roof level with clay tile
-  // Only replace blocks that ARE at the roof level (not recessed lower areas)
-  for (let z = 0; z < length; z++) {
-    for (let x = 0; x < width; x++) {
-      const h = heightMap[z * width + x];
-      if (h === roofY && grid.get(x, h, z) !== AIR) {
-        grid.set(x, h, z, tileBlock);
-        placed++;
-      }
-    }
-  }
-
-  // Phase 2: Add eave overhang — place blocks 1 position outward from the
-  // roof perimeter at roof level. An edge block is one at roofY where at
-  // least one horizontal neighbor is air or out of bounds.
-  const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-  for (let z = 0; z < length; z++) {
-    for (let x = 0; x < width; x++) {
-      const h = heightMap[z * width + x];
-      if (h !== roofY) continue;
-
-      // Check if this is a perimeter block (has air neighbor at roof level)
-      for (const [dx, dz] of directions) {
-        const nx = x + dx;
-        const nz = z + dz;
-        const neighborIsAir =
-          nx < 0 || nx >= width || nz < 0 || nz >= length ||
-          grid.get(nx, roofY, nz) === AIR;
-
-        if (neighborIsAir && nx >= 0 && nx < width && nz >= 0 && nz < length) {
-          // Place eave at the air neighbor position if it's empty
-          if (grid.get(nx, roofY, nz) === AIR) {
-            grid.set(nx, roofY, nz, eaveBlock);
-            placed++;
-          }
-        }
-      }
-    }
-  }
-
-  return placed;
-}
-
 /**
  * Remove small disconnected voxel clusters via 3D flood-fill connected-component analysis.
  *
@@ -4625,7 +3869,7 @@ export function addRoofCornice(
  * @returns Number of blocks removed
  */
 export function removeSmallComponents(grid: BlockGrid, minSize = 50): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   const total = width * height * length;
 
@@ -4638,13 +3882,6 @@ export function removeSmallComponents(grid: BlockGrid, minSize = 50): number {
     for (let z = 0; z < length; z++)
       for (let x = 0; x < width; x++)
         if (grid.get(x, y, z) === AIR) labels[idx(x, y, z)] = -1;
-
-  // 6-connected neighbor offsets
-  const offsets: [number, number, number][] = [
-    [1, 0, 0], [-1, 0, 0],
-    [0, 1, 0], [0, -1, 0],
-    [0, 0, 1], [0, 0, -1],
-  ];
 
   // Flood-fill to find connected components
   let nextLabel = 1;
@@ -4666,7 +3903,7 @@ export function removeSmallComponents(grid: BlockGrid, minSize = 50): number {
           const [cx, cy, cz] = queue.pop()!;
           size++;
 
-          for (const [dx, dy, dz] of offsets) {
+          for (const [dx, dy, dz] of FACES6) {
             const nx = cx + dx;
             const ny = cy + dy;
             const nz = cz + dz;
@@ -4736,17 +3973,13 @@ export function removeArtifactComponents(
   minDensity = 0.1,
   maxDistanceRatio = 1.5,
 ): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   const total = width * height * length;
 
   // Label connected components (6-connected)
   const labels = new Int32Array(total);
   const idx = (x: number, y: number, z: number) => (y * length + z) * width + x;
-  const offsets: [number, number, number][] = [
-    [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
-  ];
-
   // Mark air
   for (let y = 0; y < height; y++)
     for (let z = 0; z < length; z++)
@@ -4790,7 +4023,7 @@ export function removeArtifactComponents(
           if (cy > data.maxY) data.maxY = cy;
           if (cz > data.maxZ) data.maxZ = cz;
 
-          for (const [dx, dy, dz] of offsets) {
+          for (const [dx, dy, dz] of FACES6) {
             const nx = cx + dx, ny = cy + dy, nz = cz + dz;
             if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length) continue;
             const ni = idx(nx, ny, nz);
@@ -4888,7 +4121,7 @@ export function removeArtifactComponents(
  * @returns Number of blocks removed
  */
 export function isolateTallestStructure(grid: BlockGrid, heightFraction = 0.5, expansion = 10): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
 
   // Find max occupied Y
@@ -5053,7 +4286,7 @@ export function isolateTallestStructure(grid: BlockGrid, heightFraction = 0.5, e
  * @returns Number of blocks removed
  */
 export function cropToCenter(grid: BlockGrid, radius: number): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   const cx = width / 2;
   const cz = length / 2;
@@ -5087,7 +4320,7 @@ export function cropToCenter(grid: BlockGrid, radius: number): number {
  * @returns Number of blocks removed
  */
 export function cropToRect(grid: BlockGrid, radius: number): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   const cx = Math.floor(width / 2);
   const cz = Math.floor(length / 2);
@@ -5124,7 +4357,7 @@ export function cropToRect(grid: BlockGrid, radius: number): number {
 export function cropToAABB(
   grid: BlockGrid, minX: number, maxX: number, minZ: number, maxZ: number, margin = 2,
 ): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   const lo_x = Math.max(0, minX - margin);
   const hi_x = Math.min(width - 1, maxX + margin);
@@ -5163,7 +4396,7 @@ export function cropToAABB(
 export function removeGroundPlane(
   grid: BlockGrid, margin = 1,
 ): { removed: number; groundY: number } {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
 
   // Find lowest non-air Y for each XZ column
@@ -5242,7 +4475,7 @@ export function maskToFootprint(
 ): number {
   if (polygon.length < 3) return 0;
 
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
 
   // Project polygon to block coords centered on capture point.
@@ -5405,7 +4638,7 @@ export function alignOSMToFootprint(
   // v300: When alignment provides precise rotation, only need tight translation search
   const effectiveRadius = hasAlignment ? Math.min(searchRadius, 10) : searchRadius;
 
-  const AIR = 'minecraft:air';
+
   const { width, length } = grid;
 
   // Build voxel footprint bitmask (XZ occupied columns)
@@ -5526,7 +4759,7 @@ export function maskToFootprintAligned(
 ): number {
   if (polygon.length < 3) return 0;
 
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   const latScale = 111320 * resolution;
   const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
@@ -5631,7 +4864,7 @@ export function severByHeightGradient(
   gradientThreshold = 3,
   minComponentVolume = 200,
 ): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
 
   // Step 1: Build 2D heightmap (max Y per XZ column)
@@ -5677,7 +4910,6 @@ export function severByHeightGradient(
   let nextLabel = 1;
   const compSizes: number[] = [0];
   const stack: number[] = [];
-  const offsets = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const;
 
   for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
@@ -5697,7 +4929,7 @@ export function severByHeightGradient(
           const cz = Math.floor(ci / width) % length;
           const cy = Math.floor(ci / (width * length));
 
-          for (const [ddx, ddy, ddz] of offsets) {
+          for (const [ddx, ddy, ddz] of FACES6) {
             const nx = cx + ddx, ny = cy + ddy, nz = cz + ddz;
             if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length) continue;
             const ni = (ny * length + nz) * width + nx;
@@ -5794,7 +5026,7 @@ export function watershedIsolate(
   grid: BlockGrid,
   minCenterDist = 4,
 ): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
 
   // Step 1: Build 2D occupancy footprint
@@ -5940,7 +5172,7 @@ export function enforceFootprintPolygon(
 ): { clipped: number; filled: number } {
   if (polygon.length < 3) return { clipped: 0, filled: 0 };
 
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
 
   // Compute building centroid — center of mass of occupied columns
@@ -6283,7 +5515,7 @@ export function labelConnectedComponents(grid: BlockGrid): {
   sizes: number[];
   count: number;
 } {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   const total = width * height * length;
   const labels = new Int32Array(total); // 0 = unlabeled/air
@@ -6292,10 +5524,6 @@ export function labelConnectedComponents(grid: BlockGrid): {
 
   // 6-connected flood fill via stack-based BFS
   const stack: number[] = [];
-  const offsets = [
-    [1, 0, 0], [-1, 0, 0], [0, 1, 0],
-    [0, -1, 0], [0, 0, 1], [0, 0, -1],
-  ] as const;
 
   for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
@@ -6315,7 +5543,7 @@ export function labelConnectedComponents(grid: BlockGrid): {
           const cz2 = Math.floor(ci / width) % length;
           const cy2 = Math.floor(ci / (width * length));
 
-          for (const [dx, dy, dz] of offsets) {
+          for (const [dx, dy, dz] of FACES6) {
             const nx = cx2 + dx, ny = cy2 + dy, nz = cz2 + dz;
             if (nx < 0 || nx >= width || ny < 0 || ny >= height || nz < 0 || nz >= length) continue;
             const ni = (ny * length + nz) * width + nx;
@@ -6344,7 +5572,7 @@ export function labelConnectedComponents(grid: BlockGrid): {
  * 7. Noise estimation, 8. Street frontage, 9. Confidence scoring
  */
 export function analyzeGrid(grid: BlockGrid): AnalysisResult {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
 
   // ── 1. Ground plane / slope estimation ──
@@ -6541,8 +5769,8 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
   // footprint taper, and XZ projection fill, but surface-mode voxels produce
   // shells too sparse for reliable shape classification (all large buildings
   // cluster at 0.5-0.6 fill regardless of actual footprint shape).
-  // Wedge buildings still get correct processing as 'block' (solidifyCore
-  // fills any enclosed shell). Use --generic for manual non-rectangular override.
+  // Wedge buildings still get correct processing as 'block' (interior fill
+  // handles any enclosed shell). Use --generic for manual non-rectangular override.
   const isRectangular = isEnclosed;
 
   let typology: BuildingTypology;
@@ -6993,7 +6221,7 @@ export function analyzeGrid(grid: BlockGrid): AnalysisResult {
   const needsCrop = componentCount > 1;
   const t = typology as BuildingTypology; // widen for future flatiron support
   const useAABBCrop = needsCrop && (t === 'flatiron' || t === 'complex');
-  // solidifyCore works for rectangular buildings (block, tower, house).
+  // Interior fill works for rectangular buildings (block, tower, house).
   // Non-rectangular (flatiron, complex, or OBB <0.85) need generic mode to preserve shape.
   const useGeneric = t === 'flatiron' || t === 'complex' || rectangularity < 0.85 || hasSetbacks;
   // Use full palette only for white/gray rectangular buildings where it was tuned.
@@ -7054,7 +6282,7 @@ export function placeEntryPath(
   analysis: AnalysisResult,
   pathBlock = 'minecraft:smooth_stone_slab',
 ): number {
-  const AIR = 'minecraft:air';
+
   if (!analysis.entryPosition || analysis.entryPath.length === 0) return 0;
 
   const y = analysis.groundContactY;
@@ -7102,7 +6330,7 @@ const VEGETATION_BLOCKS_POST = new Set([
  * @returns Number of vegetation blocks removed
  */
 export function stripVegetation(grid: BlockGrid): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   let removed = 0;
 
@@ -7203,7 +6431,7 @@ export function extractEnvironmentPositions(
   groundY: number,
 ): ExtractedEnvironment {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
 
   // ─── Trees: connected components of vegetation blocks ─────────
   // BFS flood-fill on VEGETATION_BLOCKS_POST, skip small clusters (< 3 blocks)
@@ -7634,7 +6862,7 @@ export function isolatePrimaryBuilding(
   annexRadius = 2,      // v95: tightened 3→2 — adjacent buildings must be directly touching
   minVolumePct = 0.15,  // v95: tightened 0.05→0.15 — annexes must be ≥15% of primary volume
 ): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
 
   // Step 1: Label connected components
@@ -7825,7 +7053,7 @@ export function severStreetFurniture(
   translationDx = 0,
   translationDz = 0,
 ): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
   const gridCx = Math.floor(width / 2);
   const gridCz = Math.floor(length / 2);
@@ -8063,7 +7291,7 @@ export function removeThinPillars(
   grid: BlockGrid,
   minComponentSize = 20,
 ): number {
-  const AIR = 'minecraft:air';
+
   const { width, height, length } = grid;
 
   // Step 1: Compute per-column max Y and find the 75th percentile height
@@ -8174,89 +7402,6 @@ export function removeThinPillars(
 }
 
 /**
- * Enforce luminance contrast between roof, wall, and ground zone materials.
- *
- * Pure function — no grid mutation. Computes luminance via WALL_CLUSTERS RGB
- * lookup and ensures all zone pairs have at least `minDeltaL` luminance separation.
- *
- * @param roofBlock   Current roof dominant block (e.g. 'minecraft:gray_concrete')
- * @param wallBlock   Current wall dominant block
- * @param groundBlock Current ground zone block
- * @param minDeltaL   Minimum luminance difference between any pair (default 25)
- * @returns Adjusted triplet with guaranteed contrast
- */
-export function enforceZoneContrast(
-  roofBlock: string,
-  wallBlock: string,
-  groundBlock: string,
-  minDeltaL = 25,
-): { roof: string; wall: string; ground: string } {
-  // Luminance from WALL_CLUSTERS RGB mean
-  const blockLum = (block: string): number => {
-    const c = WALL_CLUSTERS.find(cl => cl.options.includes(block));
-    if (!c) return 128;
-    return (c.rgb[0] + c.rgb[1] + c.rgb[2]) / 3;
-  };
-
-  let roof = roofBlock;
-  let wall = wallBlock;
-  let ground = groundBlock;
-
-  const roofLum = blockLum(roof);
-  let wallLum = blockLum(wall);
-
-  // Step 1: Darken mid-gray satellite roofs (baked sunlight artifact, lum 100-155)
-  if (roofLum >= 100 && roofLum <= 155) {
-    roof = 'minecraft:gray_concrete'; // lum ~58
-  }
-
-  // Step 2: Ensure wall contrasts with roof
-  const newRoofLum = blockLum(roof);
-  const roofWallGap = Math.abs(newRoofLum - wallLum);
-  if (roofWallGap < minDeltaL + 15) { // 40 = 25 + 15 for generous gap
-    wall = newRoofLum < 100
-      ? 'minecraft:stone_bricks'      // dark roof → medium textured wall (lum 124)
-      : 'minecraft:polished_andesite'; // light roof → slate-toned wall (lum 134)
-    wallLum = blockLum(wall);
-  }
-
-  // Step 3: Cap overly-bright walls — white/cream walls lose texture in renders
-  if (wallLum > 190 && newRoofLum < 100) {
-    wall = 'minecraft:stone_bricks'; // lum 124
-    wallLum = blockLum(wall);
-  }
-
-  // Step 4: Ensure ground contrasts with wall
-  const wallGroundGap = Math.abs(wallLum - blockLum(ground));
-  if (wallGroundGap < minDeltaL) {
-    // Pick ground that contrasts: if wall is light, go dark; if dark, go warm
-    ground = wallLum > 140
-      ? 'minecraft:polished_andesite' // lum 134 — medium contrast
-      : 'minecraft:sandstone';        // lum 202 — warm contrast
-    // If still too close, force guaranteed separation
-    if (Math.abs(wallLum - blockLum(ground)) < minDeltaL) {
-      ground = wallLum > 128 ? 'minecraft:gray_concrete' : 'minecraft:smooth_quartz';
-    }
-  }
-
-  // Step 5: All three too similar — force guaranteed triplet
-  const finalRoofLum = blockLum(roof);
-  const finalWallLum = blockLum(wall);
-  const finalGroundLum = blockLum(ground);
-  const rwGap = Math.abs(finalRoofLum - finalWallLum);
-  const wgGap = Math.abs(finalWallLum - finalGroundLum);
-  const rgGap = Math.abs(finalRoofLum - finalGroundLum);
-  if (rwGap < minDeltaL && wgGap < minDeltaL && rgGap < minDeltaL) {
-    // Force dark/medium/warm triplet
-    roof = 'minecraft:gray_concrete';     // lum 58
-    wall = 'minecraft:stone_bricks';      // lum 124
-    ground = 'minecraft:sandstone';       // lum 202
-  }
-
-  return { roof, wall, ground };
-}
-
-/**
  * Targeted facade-plane hole filler — fills medium-sized gaps (2-5 blocks)
  * that survive the single-pass `fillFacadeHoles()` by operating in 2D on
  * detected facade planes.
@@ -8278,7 +7423,7 @@ export function enforceZoneContrast(
  */
 export function fillFacadePlaneHoles(grid: BlockGrid, maxGapArea = 25): number {
   const { width, height, length } = grid;
-  const AIR = 'minecraft:air';
+
   let totalFilled = 0;
 
   // 4 cardinal facade directions: axis=X or Z, sign=+1 or -1

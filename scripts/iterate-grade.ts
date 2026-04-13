@@ -401,7 +401,7 @@ You will see 5 images:
 4. Isometric front-right view of the voxel model
 5. Isometric back-left view of the voxel model
 
-Answer each question with true or false. Be VERY conservative — only flag defects you are CERTAIN about. This is a Minecraft voxel model, so expect blocky approximations, not pixel-perfect reproduction. When in doubt, answer false for defect questions and true for quality questions.
+Examine each defect criterion carefully. Compare the voxel model against the satellite reference. Report true for defects you observe, false for those you do not. This is a Minecraft voxel model, so expect blocky approximations, not pixel-perfect reproduction.
 
 {
   "height_truncated": [true ONLY if ≥30% of the building height is clearly missing — the top is sliced off at an unnatural flat line. False for buildings that are simply short or have flat roofs.],
@@ -409,7 +409,9 @@ Answer each question with true or false. Be VERY conservative — only flag defe
   "floating_artifacts": [true ONLY if clearly separate structures are floating in mid-air, disconnected from the building by visible air gaps. NOT minor surface bumps or ground-level debris.],
   "neighbor_buildings_merged": [true ONLY if a second clearly distinct building is attached to or fused with the target building — not interior courtyards or wings of the same building],
   "false_positives_merged": [true ONLY if large non-building structures (bridges, walls, roads) are visibly merged into the building],
-  "surface_detail_visible": [true if the facade shows multiple distinct Minecraft block types with visible color or texture variation]
+  "surface_detail_visible": [true if the facade shows multiple distinct Minecraft block types with visible color or texture variation],
+  "footprint_wrong_shape": [true if the building footprint outline in the top-down view clearly differs from the satellite reference — wrong angles, missing wings, or fundamentally different outline],
+  "proportions_correct": [true if the building's width-to-depth-to-height proportions reasonably match the satellite reference and elevation views]
 }
 
 Respond with ONLY the JSON object, no explanation.`;
@@ -811,36 +813,40 @@ async function gradeOne(
         neighbor_buildings_merged: toBool(defects.neighbor_buildings_merged),
         false_positives_merged:    toBool(defects.false_positives_merged),
         surface_detail_visible:    toBool(defects.surface_detail_visible),
+        footprint_wrong_shape:     toBool(defects.footprint_wrong_shape),
+        proportions_correct:       toBool(defects.proportions_correct),
       };
 
       const total = scoreFromDefects(checklist);
 
       // Debug: log which defects were flagged for diagnostic visibility
+      // Positive-sense fields (true = good): surface_detail_visible, proportions_correct
+      const positiveSenseFields = new Set(['surface_detail_visible', 'proportions_correct']);
       const flagged = Object.entries(checklist).filter(([k, v]) => {
-        // surface_detail_visible is positive-sense (true = good), flag when false
-        if (k === 'surface_detail_visible') return !v;
+        if (positiveSenseFields.has(k)) return !v;
         return v === true;
-      }).map(([k, v]) => k === 'surface_detail_visible' ? `!${k}` : k);
+      }).map(([k]) => positiveSenseFields.has(k) ? `!${k}` : k);
       if (flagged.length > 0) {
         console.error(`      Defects: ${flagged.join(', ')} → ${total}/10`);
       }
 
       // Map defect fields to legacy A/B/C/D sub-scores for diagnose() and markdown table.
       // NOTE: These are diagnostic-only approximations. `total` from scoreFromDefects() is the authoritative score.
-      // A (footprint, 0-2): penalise false_positives_merged + neighbor_buildings_merged
+      // A (footprint, 0-3): penalise false_positives_merged + neighbor_buildings_merged + footprint_wrong_shape
       // B (massing, 0-1):   penalise height_truncated only (reduced weight — LOD limitation)
       // C (surface, 0-3):   penalise !surface_detail_visible + facade_holes_visible + floating_artifacts
-      // D (identity, 0-2):  always 2 (removed zero-weight building_recognizable field)
-      const scoreA = 2
+      // D (identity, 0-2):  proportions_correct maps here (quality signal)
+      const scoreA = 3
         - (checklist.false_positives_merged    ? 1 : 0)
-        - (checklist.neighbor_buildings_merged ? 1 : 0);
+        - (checklist.neighbor_buildings_merged ? 1 : 0)
+        - (checklist.footprint_wrong_shape     ? 1 : 0);
       const scoreB = 1
         - (checklist.height_truncated ? 1 : 0);
       const scoreC = 3
         - (!checklist.surface_detail_visible ? 1 : 0)
         - (checklist.facade_holes_visible    ? 1 : 0)
         - (checklist.floating_artifacts      ? 1 : 0);
-      const scoreD = 2; // was: building_recognizable — removed zero-weight VLM field
+      const scoreD = checklist.proportions_correct ? 2 : 1; // +0.5 score bonus via scoreFromDefects
 
       return {
         A: Math.max(0, scoreA),
@@ -859,14 +865,16 @@ async function gradeOne(
   return null;
 }
 
-/** Run N VLM grades, compute trimmed mean (drop min+max, avg rest) */
+/** Run N VLM grades, compute trimmed mean (drop min+max, avg rest).
+ *  Returns trimmedMean=NaN when all runs fail (API errors/parse failures). */
 async function gradeBuilding(
   images: { satRef: string; topdown: string; front: string; iso: string; isoBackLeft: string },
   key: string,
   runs: number,
-): Promise<{ scores: number[]; subscores: SubScore[]; trimmedMean: number }> {
+): Promise<{ scores: number[]; subscores: SubScore[]; trimmedMean: number; failedRuns: number }> {
   const scores: number[] = [];
   const subscores: SubScore[] = [];
+  let failedRuns = 0;
 
   for (let i = 0; i < runs; i++) {
     const result = await gradeOne(images, key);
@@ -875,14 +883,16 @@ async function gradeBuilding(
       subscores.push(result);
       process.stdout.write(`    Run ${i + 1}/${runs}: ${result.total} (A=${result.A} B=${result.B} C=${result.C} D=${result.D})\n`);
     } else {
-      process.stdout.write(`    Run ${i + 1}/${runs}: FAILED\n`);
+      failedRuns++;
+      process.stdout.write(`    Run ${i + 1}/${runs}: FAILED (not counted in mean)\n`);
     }
     // Delay between API calls to avoid rate limiting (Pro model needs more time)
     if (i < runs - 1) await Bun.sleep(5000);
   }
 
-  // Trimmed mean: drop min + max if >= 3 scores, average the rest
-  let trimmedMean = 0;
+  // Trimmed mean: only computed from valid (non-null) scores.
+  // When all runs fail, trimmedMean=NaN to distinguish from a real score of 0.
+  let trimmedMean = NaN;
   if (scores.length >= 3) {
     const sorted = [...scores].sort((a, b) => a - b);
     const trimmed = sorted.slice(1, -1); // drop min and max
@@ -891,7 +901,11 @@ async function gradeBuilding(
     trimmedMean = scores.reduce((a, b) => a + b, 0) / scores.length;
   }
 
-  return { scores, subscores, trimmedMean: Math.round(trimmedMean * 10) / 10 };
+  if (failedRuns > 0) {
+    console.error(`    ${failedRuns}/${runs} VLM runs failed — trimmed mean computed from ${scores.length} valid runs`);
+  }
+
+  return { scores, subscores, trimmedMean: isNaN(trimmedMean) ? NaN : Math.round(trimmedMean * 10) / 10, failedRuns };
 }
 
 /** Diagnose failure mode from sub-scores */
@@ -904,10 +918,10 @@ function diagnose(subscores: SubScore[]): string {
   const avgD = subscores.reduce((s, x) => s + x.D, 0) / subscores.length;
 
   const issues: string[] = [];
-  if (avgA < 2) issues.push(`footprint(${avgA.toFixed(1)}/2)`);
+  if (avgA < 2) issues.push(`footprint(${avgA.toFixed(1)}/3)`);
   if (avgB < 1) issues.push(`massing(${avgB.toFixed(1)}/1)`);
   if (avgC < 2) issues.push(`surface(${avgC.toFixed(1)}/3)`);
-  if (avgD > 0) issues.push(`identity(${avgD.toFixed(1)}/2)`); // Show when identity bonus awarded
+  if (avgD < 2) issues.push(`proportions(${avgD.toFixed(1)}/2)`);
 
   // Check variance
   const totals = subscores.map(s => s.total);
@@ -976,8 +990,8 @@ async function deepReviewBuilding(imagePath: string, key: string, runs: number):
     if (i < runs - 1) await Bun.sleep(1500);
   }
 
-  // Trimmed mean
-  let mean = 0;
+  // Trimmed mean — NaN when all runs fail (not counted as 0)
+  let mean = NaN;
   if (scores.length >= 3) {
     const sorted = [...scores].sort((a, b) => a - b);
     const trimmed = sorted.slice(1, -1);
@@ -986,7 +1000,7 @@ async function deepReviewBuilding(imagePath: string, key: string, runs: number):
     mean = scores.reduce((a, b) => a + b, 0) / scores.length;
   }
 
-  return { scores, mean: Math.round(mean * 10) / 10 };
+  return { scores, mean: isNaN(mean) ? NaN : Math.round(mean * 10) / 10 };
 }
 
 // ── Main ──
@@ -1078,7 +1092,13 @@ async function main(): Promise<void> {
       console.log(`  Grading with ${vlmModel} (${vlmRuns} runs, temp=0.0)...`);
       // Primary grading uses 5 separate images (defect checklist pipeline)
       const gradeImages = { satRef: gradeSatPath, topdown, front, iso, isoBackLeft };
-      const { scores, subscores, trimmedMean } = await gradeBuilding(gradeImages, b.key, vlmRuns);
+      const { scores, subscores, trimmedMean, failedRuns } = await gradeBuilding(gradeImages, b.key, vlmRuns);
+
+      // If ALL runs failed, skip this building rather than recording a misleading score
+      if (scores.length === 0) {
+        console.error(`  SKIP: all ${vlmRuns} VLM runs failed for ${b.key} — not updating state`);
+        continue;
+      }
 
       // Merge with existing scores if --merge-scores and building already graded
       let allScores = scores;
@@ -1090,8 +1110,9 @@ async function main(): Promise<void> {
         console.log(`  Merged: ${existing.scores.length} old + ${scores.length} new = ${allScores.length} total`);
       }
 
-      // Recompute trimmed mean with 20% trim from each end (more robust to outliers)
-      let mergedTrimmedMean = 0;
+      // Recompute trimmed mean with 20% trim from each end (more robust to outliers).
+      // allScores only contains valid (non-null) scores — failed API calls are excluded.
+      let mergedTrimmedMean = NaN;
       if (allScores.length >= 5) {
         const sorted = [...allScores].sort((a, b) => a - b);
         const trimCount = Math.max(1, Math.floor(allScores.length * 0.2));
@@ -1120,18 +1141,25 @@ async function main(): Promise<void> {
 
       state.buildings[b.key] = result;
 
+      const failNote = failedRuns > 0 ? ` (${failedRuns} failed runs excluded)` : '';
       const status = mergedTrimmedMean >= targetScore ? 'PASS' : 'FAIL';
       const scoreStr = mergeScores && existing?.scores.length ? `[...${existing.scores.length} prev, ${scores.join(', ')}]` : `[${scores.join(', ')}]`;
-      console.log(`  → ${b.key}: trimmedMean=${mergedTrimmedMean} (${allScores.length} runs) ${scoreStr} ${status}`);
+      console.log(`  → ${b.key}: trimmedMean=${mergedTrimmedMean} (${allScores.length} valid runs) ${scoreStr} ${status}${failNote}`);
       if (status === 'FAIL') console.log(`    Diagnosis: ${result.diagnosis}`);
 
     } catch (err) {
       console.error(`  ERROR: ${b.key}: ${err}`);
-      state.buildings[b.key] = {
-        key: b.key, version, difficulty: b.difficulty,
-        scores: [], subscores: [], trimmedMean: 0,
-        diagnosis: `error: ${err}`, timestamp: new Date().toISOString(),
-      };
+      // Don't overwrite existing valid scores with an error result.
+      // Only store error state if no previous result exists.
+      if (!state.buildings[b.key]) {
+        state.buildings[b.key] = {
+          key: b.key, version, difficulty: b.difficulty,
+          scores: [], subscores: [], trimmedMean: NaN,
+          diagnosis: `error: ${err}`, timestamp: new Date().toISOString(),
+        };
+      } else {
+        console.error(`    Preserving previous scores for ${b.key} (error did not overwrite)`);
+      }
     }
   }
 
@@ -1163,12 +1191,16 @@ async function main(): Promise<void> {
       const entry = state.buildings[b.key];
       if (entry) {
         entry.deepReviewScores = drScores;
-        entry.deepReviewMean = drMean;
+        entry.deepReviewMean = isNaN(drMean) ? undefined : drMean;
 
-        // Compare VLM vs deep review
-        const gap = Math.abs(entry.trimmedMean - drMean);
-        const gapStr = gap > 2 ? ` *** GAP: ${gap.toFixed(1)} ***` : '';
-        console.log(`  → ${b.key}: VLM=${entry.trimmedMean} Deep=${drMean}${gapStr}`);
+        // Compare VLM vs deep review — skip gap analysis if either mean is invalid
+        if (!isNaN(entry.trimmedMean) && !isNaN(drMean)) {
+          const gap = Math.abs(entry.trimmedMean - drMean);
+          const gapStr = gap > 2 ? ` *** GAP: ${gap.toFixed(1)} ***` : '';
+          console.log(`  → ${b.key}: VLM=${entry.trimmedMean} Deep=${drMean}${gapStr}`);
+        } else {
+          console.log(`  → ${b.key}: VLM=${isNaN(entry.trimmedMean) ? 'N/A' : entry.trimmedMean} Deep=${isNaN(drMean) ? 'N/A (all runs failed)' : drMean}`);
+        }
       }
     }
 
@@ -1181,9 +1213,11 @@ async function main(): Promise<void> {
     await runSweep(state);
   }
 
-  // Compute passing count
+  // Compute passing count — NaN trimmedMean (all runs failed) is excluded from passing
   const allResults = Object.values(state.buildings);
-  state.passing = allResults.filter(r => r.trimmedMean >= targetScore).length;
+  const validResults = allResults.filter(r => !isNaN(r.trimmedMean));
+  const errorResults = allResults.filter(r => isNaN(r.trimmedMean));
+  state.passing = validResults.filter(r => r.trimmedMean >= targetScore).length;
   state.total = BUILDINGS.length; // Always count full set
 
   // Write JSON state
@@ -1197,7 +1231,10 @@ async function main(): Promise<void> {
   console.log(`\n${'='.repeat(50)}`);
   console.log(`RESULT: ${state.passing}/${state.total} buildings at ${targetScore}+`);
   console.log(`Target: ${targetScore}/10 on 9/${state.total} buildings`);
-  const failing = allResults
+  if (errorResults.length > 0) {
+    console.log(`WARNING: ${errorResults.length} building(s) have no valid scores: ${errorResults.map(r => r.key).join(', ')}`);
+  }
+  const failing = validResults
     .filter(r => r.trimmedMean < targetScore)
     .sort((a, b) => a.trimmedMean - b.trimmedMean);
   if (failing.length > 0) {
@@ -1207,9 +1244,9 @@ async function main(): Promise<void> {
     }
   }
 
-  // Deep review summary
+  // Deep review summary — exclude NaN deep review means (all runs failed)
   if (deepReview) {
-    const reviewed = allResults.filter(r => r.deepReviewMean != null);
+    const reviewed = allResults.filter(r => r.deepReviewMean != null && !isNaN(r.deepReviewMean) && !isNaN(r.trimmedMean));
     if (reviewed.length > 0) {
       const avgVlm = reviewed.reduce((s, r) => s + r.trimmedMean, 0) / reviewed.length;
       const avgDeep = reviewed.reduce((s, r) => s + (r.deepReviewMean ?? 0), 0) / reviewed.length;
@@ -1263,10 +1300,11 @@ function writeMarkdownState(state: IterateState): void {
       ? (r.subscores.reduce((s, x) => s + x.C, 0) / r.subscores.length).toFixed(1) : '—';
     const avgD = r.subscores.length > 0
       ? (r.subscores.reduce((s, x) => s + x.D, 0) / r.subscores.length).toFixed(1) : '—';
-    const status = r.trimmedMean >= state.target ? 'PASS' : 'FAIL';
+    const meanDisplay = isNaN(r.trimmedMean) ? '—' : r.trimmedMean;
+    const status = isNaN(r.trimmedMean) ? 'ERROR' : (r.trimmedMean >= state.target ? 'PASS' : 'FAIL');
     const satQ = r.satRefQuality != null ? `${r.satRefQuality}/5` : '—';
     const deepCol = hasDeep ? ` ${r.deepReviewMean ?? '—'} |` : '';
-    lines.push(`| ${r.key} | ${r.difficulty} | ${r.trimmedMean} |${deepCol} ${satQ} | ${r.scores.length} | ${avgA} | ${avgB} | ${avgC} | ${avgD} | ${status} | ${r.diagnosis} |`);
+    lines.push(`| ${r.key} | ${r.difficulty} | ${meanDisplay} |${deepCol} ${satQ} | ${r.scores.length} | ${avgA} | ${avgB} | ${avgC} | ${avgD} | ${status} | ${r.diagnosis} |`);
   }
 
   // VLM vs deep review gap warning
@@ -1425,9 +1463,9 @@ async function sweepBuilding(
       // Quick grade with 5 separate images (defect checklist pipeline)
       const sweepGradeImages = { satRef: modConfig.satRef, topdown, front: frontElev, iso, isoBackLeft: isoBlSweep };
       const { trimmedMean } = await gradeBuilding(sweepGradeImages, b.key, sweepRuns);
-      console.log(`    → ${variant.label}: ${trimmedMean} (${sweepRuns} quick runs)`);
+      console.log(`    → ${variant.label}: ${isNaN(trimmedMean) ? 'FAILED (all runs failed)' : trimmedMean} (${sweepRuns} quick runs)`);
 
-      if (trimmedMean > bestScore) {
+      if (!isNaN(trimmedMean) && trimmedMean > bestScore) {
         bestScore = trimmedMean;
         bestVariant = variant;
       }
@@ -1454,9 +1492,10 @@ async function runSweep(state: IterateState): Promise<void> {
   console.log(`\n${'─'.repeat(50)}`);
   console.log(`SWEEP MODE: auto-trying parameter variants for failing buildings\n`);
 
+  // Filter to buildings that failed or have no valid score (NaN)
   const failing = selectedBuildings.filter(b => {
     const r = state.buildings[b.key];
-    return r && r.trimmedMean < targetScore;
+    return r && (isNaN(r.trimmedMean) || r.trimmedMean < targetScore);
   });
 
   if (failing.length === 0) {
