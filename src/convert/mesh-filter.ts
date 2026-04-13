@@ -20,6 +20,7 @@ export {
   flattenFacades, morphCloseFacadeAligned, detectCornices,
   flattenFacadesSetbackAware, straightenFootprintEdges,
   fillFacadeVoids2D, fillFacadePlaneHoles,
+  fillFacadeVoidsIterative, fillFacadeStripes,
 } from './mesh-filter/geometry-facade.js';
 
 // Core geometry operations (morphology, fill, cleanup, roof)
@@ -27,6 +28,7 @@ export {
   morphClose3D, erodeSurfaceBumps, fillFacadeHoles,
   removeIsolatedVoxels, fillInteriorGaps, scanlineInteriorFill,
   clearOpenAirFill, smoothSurface, rectangularize, addPeakedRoof,
+  regularizeFlatRoof,
 } from './mesh-filter/geometry-core.js';
 
 // Color smoothing, palette, mode filter
@@ -48,6 +50,7 @@ export {
 // Crop, mask, footprint enforcement
 export {
   cropToCenter, cropToRect, cropToAABB, removeGroundPlane,
+  removeGroundPlaneAdaptive,
   maskToFootprint, alignOSMToFootprint, maskToFootprintAligned,
   enforceFootprintPolygon,
 } from './mesh-filter/spatial-footprint.js';

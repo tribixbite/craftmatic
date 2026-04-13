@@ -381,9 +381,13 @@ export function removeIsolatedVoxels(grid: BlockGrid, maxNeighbors = 1): number 
  *
  * @param grid          Source BlockGrid (modified in place)
  * @param dilateRadius  Dilation radius for the virtual mask (default: 2)
+ * @param resolution    Blocks per meter scaling factor (default: 1)
+ * @param filledSet     Optional set to track flat indices of filled voxels.
+ *   Formula: `(y * grid.length + z) * grid.width + x`. When provided, each filled
+ *   voxel's index is added so callers can distinguish fills from original geometry.
  * @returns Number of interior air voxels filled
  */
-export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2, resolution = 1): number {
+export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2, resolution = 1, filledSet?: Set<number>): number {
   const { width, height, length } = grid;
   // Scale dilation radius by resolution (higher resolution = larger dilation needed)
   const scaledRadius = Math.max(1, Math.round(dilateRadius * resolution));
@@ -480,6 +484,8 @@ export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2, resolution =
         if (originalSolid[idx] || exterior[idx]) continue; // Solid or exterior
         grid.set(x, y, z, FILL_BLOCK);
         netFilled++;
+        // Track filled voxel index if caller wants to distinguish fills from originals
+        if (filledSet) filledSet.add(idx);
       }
     }
   }
@@ -501,10 +507,12 @@ export function fillInteriorGaps(grid: BlockGrid, dilateRadius = 2, resolution =
  * - Better courtyard handling: sky-check is inherent, not post-hoc
  * - May miss some interior pockets in 3D — use as complement, not replacement
  *
- * @param grid  Source BlockGrid (modified in place)
+ * @param grid       Source BlockGrid (modified in place)
+ * @param filledSet  Optional set to track flat indices `(y * L + z) * W + x` of
+ *   filled voxels. When provided, callers can later distinguish fills from originals.
  * @returns Number of interior air voxels filled
  */
-export function scanlineInteriorFill(grid: BlockGrid): number {
+export function scanlineInteriorFill(grid: BlockGrid, filledSet?: Set<number>): number {
 
   const FILL_BLOCK = 'minecraft:smooth_stone';
   const { width, height, length } = grid;
@@ -566,14 +574,16 @@ export function scanlineInteriorFill(grid: BlockGrid): number {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         if (grid.get(x, y, z) !== AIR) continue;
-        const idx = z * width + x;
-        if (insideX[idx] && insideZ[idx]) {
+        const xzIdx = z * width + x;
+        if (insideX[xzIdx] && insideZ[xzIdx]) {
           // Sky-visibility check: if there's a solid block above this position,
           // it's under a roof → safe to fill. If sky is visible → courtyard → skip.
-          const top = topSolid[idx];
+          const top = topSolid[xzIdx];
           if (top > y) {
             grid.set(x, y, z, FILL_BLOCK);
             filled++;
+            // Track filled voxel flat index if caller wants to distinguish fills from originals
+            if (filledSet) filledSet.add((y * length + z) * width + x);
           }
         }
       }
@@ -601,12 +611,16 @@ export function scanlineInteriorFill(grid: BlockGrid): number {
  * @param grid          Source BlockGrid (modified in place)
  * @param fillBlock     The block ID used by fillInteriorGaps (default: smooth_stone)
  * @param minClearance  Minimum air layers above fill before classifying as open-air (default: 5)
+ * @param filledSet     Optional set of flat indices `(y * L + z) * W + x` produced by
+ *   fillInteriorGaps/scanlineInteriorFill. When provided, only voxels in this set
+ *   are cleared — original geometry blocks that happen to match `fillBlock` are preserved.
  * @returns             Number of fill blocks removed
  */
 export function clearOpenAirFill(
   grid: BlockGrid,
   fillBlock = 'minecraft:smooth_stone',
   minClearance = 5,
+  filledSet?: Set<number>,
 ): number {
   const { width, height, length } = grid;
 
@@ -699,7 +713,10 @@ export function clearOpenAirFill(
     }
   }
 
-  // Step 3: Clear fill only in columns belonging to large components
+  // Step 3: Clear fill only in columns belonging to large components.
+  // When filledSet is provided, only clear voxels that were added by fill operations
+  // (not original geometry). This prevents the destructive fill-then-clear cycle
+  // from damaging real building geometry that happens to match the fill block.
   let removed = 0;
   for (let z = 0; z < length; z++) {
     for (let x = 0; x < width; x++) {
@@ -708,9 +725,12 @@ export function clearOpenAirFill(
       const size = componentSizes.get(id)!;
       if (size < MIN_OPEN_AIR_COLUMNS) continue;
 
-      // Clear all fill blocks in this open-air column (no roof above them)
+      // Clear fill blocks in this open-air column (no roof above them)
       for (let y = height - 1; y >= 0; y--) {
         if (grid.get(x, y, z) === fillBlock) {
+          const flatIdx = (y * length + z) * width + x;
+          // If filledSet provided, only clear voxels that were filled (not original)
+          if (filledSet && !filledSet.has(flatIdx)) continue;
           grid.set(x, y, z, AIR);
           removed++;
         }
@@ -1028,6 +1048,113 @@ export function rectangularize(grid: BlockGrid, minRegionSize = 20, maxExtend = 
           grid.set(x, y, z, AIR);
           changed++;
         }
+      }
+    }
+  }
+
+  return changed;
+}
+
+/**
+ * Regularize a flat roof plane by filling holes and removing stray bumps.
+ *
+ * Photogrammetry roofs have scattered noise: random 1-2 block bumps above the
+ * dominant roof plane, and small holes (missing blocks) in the otherwise flat
+ * surface. This function identifies the primary roof Y level, fills holes where
+ * air is surrounded by 3+ horizontal solid neighbors, and removes stray blocks
+ * on Y levels above the roof that have very low fill.
+ *
+ * @param grid  BlockGrid (modified in place)
+ * @returns Number of blocks changed (holes filled + bumps removed)
+ */
+export function regularizeFlatRoof(grid: BlockGrid): number {
+  const { width, height, length } = grid;
+  const area = width * length;
+  if (area === 0 || height === 0) return 0;
+
+  let changed = 0;
+
+  // Find the roof plane: highest Y with >= 10% footprint fill
+  const MIN_ROOF_FILL = 0.10;
+  let roofY = -1;
+  let roofFillCount = 0;
+  for (let y = height - 1; y >= 0; y--) {
+    let count = 0;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) count++;
+      }
+    }
+    if (count / area >= MIN_ROOF_FILL) {
+      roofY = y;
+      roofFillCount = count;
+      break;
+    }
+  }
+
+  if (roofY < 0) return 0; // No roof found
+
+  // Remove stray bumps: Y levels above roofY with < 5% of roof fill are noise
+  const BUMP_THRESHOLD = 0.05;
+  for (let y = roofY + 1; y < height; y++) {
+    let count = 0;
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) !== AIR) count++;
+      }
+    }
+    if (count > 0 && count < roofFillCount * BUMP_THRESHOLD) {
+      // Remove all blocks at this Y level (stray bumps)
+      for (let z = 0; z < length; z++) {
+        for (let x = 0; x < width; x++) {
+          if (grid.get(x, y, z) !== AIR) {
+            grid.set(x, y, z, AIR);
+            changed++;
+          }
+        }
+      }
+    }
+  }
+
+  // Fill holes on the roof Y plane: air surrounded by 3+ solid horizontal neighbors
+  // Determine mode block on the roof level for uniform fill material
+  const roofCounts = new Map<string, number>();
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      const b = grid.get(x, roofY, z);
+      if (b !== AIR) roofCounts.set(b, (roofCounts.get(b) ?? 0) + 1);
+    }
+  }
+  let roofMode = 'minecraft:stone';
+  let roofModeCount = 0;
+  for (const [b, c] of roofCounts) {
+    if (c > roofModeCount) { roofMode = b; roofModeCount = c; }
+  }
+
+  // Snapshot the roof layer for consistent reads during fill
+  const roofSnap = new Array<string>(area);
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      roofSnap[z * width + x] = grid.get(x, roofY, z);
+    }
+  }
+
+  for (let z = 0; z < length; z++) {
+    for (let x = 0; x < width; x++) {
+      if (roofSnap[z * width + x] !== AIR) continue;
+
+      // Count solid horizontal neighbors (4-connected in XZ plane)
+      let solidN = 0;
+      for (const [dx, dz] of H_DIRS) {
+        const nx = x + dx, nz = z + dz;
+        if (nx >= 0 && nx < width && nz >= 0 && nz < length) {
+          if (roofSnap[nz * width + nx] !== AIR) solidN++;
+        }
+      }
+
+      if (solidN >= 3) {
+        grid.set(x, roofY, z, roofMode);
+        changed++;
       }
     }
   }
