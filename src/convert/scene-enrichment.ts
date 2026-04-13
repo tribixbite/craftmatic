@@ -10,6 +10,7 @@
 
 import { fromUrl } from 'geotiff';
 import type { TreeType } from '../gen/structures.js';
+import { pickOverpassUrl } from '../shared/overpass-query.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -99,21 +100,6 @@ export interface SceneEnrichment {
 }
 
 // ─── Overpass API ───────────────────────────────────────────────────────────
-
-/** Round-robin Overpass servers (same set as osm.ts for reliability) */
-const OVERPASS_SERVERS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
-  'https://z.overpass-api.de/api/interpreter',
-];
-let nextServerIdx = 0;
-
-/** Pick next Overpass server in round-robin order */
-function pickOverpassUrl(): string {
-  const url = OVERPASS_SERVERS[nextServerIdx % OVERPASS_SERVERS.length];
-  nextServerIdx++;
-  return url;
-}
 
 /** Raw Overpass element from JSON response */
 interface OverpassWayElement {

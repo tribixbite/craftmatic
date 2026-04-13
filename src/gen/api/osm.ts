@@ -9,6 +9,7 @@
  */
 
 import type { BlockState, FloorPlanShape } from '../../types/index.js';
+import { pickOverpassUrl } from '../../shared/overpass-query.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -44,20 +45,6 @@ export interface OSMBuildingData {
 }
 
 // ─── Overpass API Client ────────────────────────────────────────────────────
-
-// Arnis pattern: round-robin across multiple Overpass servers for reliability
-const OVERPASS_SERVERS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
-  'https://z.overpass-api.de/api/interpreter',
-];
-let nextServerIdx = 0;
-/** Pick next Overpass server in round-robin order */
-function pickOverpassUrl(): string {
-  const url = OVERPASS_SERVERS[nextServerIdx % OVERPASS_SERVERS.length];
-  nextServerIdx++;
-  return url;
-}
 
 /**
  * Search OSM Overpass for the nearest building polygon to a lat/lng point.

@@ -11,6 +11,7 @@
  */
 
 import type { GeoProjection } from './geo-projection.js';
+import { pickOverpassUrl } from '../shared/overpass-query.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -41,21 +42,6 @@ export interface PlotInfrastructure {
 }
 
 // ─── Overpass API Client ────────────────────────────────────────────────────
-
-// Round-robin across multiple Overpass servers for reliability (matches osm.ts)
-const OVERPASS_SERVERS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
-  'https://z.overpass-api.de/api/interpreter',
-];
-let nextServerIdx = 0;
-
-/** Pick next Overpass server in round-robin order */
-function pickOverpassUrl(): string {
-  const url = OVERPASS_SERVERS[nextServerIdx % OVERPASS_SERVERS.length];
-  nextServerIdx++;
-  return url;
-}
 
 /** Overpass JSON element shape (way with resolved geometry) */
 interface OverpassWayElement {
