@@ -34,8 +34,8 @@ if (typeof globalThis.ProgressEvent === 'undefined') {
 
 import * as THREE from 'three';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, clusterFacadePalette, glazeReflectiveWindows, morphCloseFacadeAligned, detectCornices, flattenFacadesSetbackAware, fillFacadeHoles, removeIsolatedVoxels, fillFacadeVoids2D, fillFacadePlaneHoles } from '../src/convert/mesh-filter.js';
-import type { ExtractedEnvironment, AnalysisResult } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, removeGroundPlaneAdaptive, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, clusterFacadePalette, glazeReflectiveWindows, morphCloseFacadeAligned, detectCornices, flattenFacadesSetbackAware, fillFacadeHoles, removeIsolatedVoxels, fillFacadeVoids2D, fillFacadePlaneHoles, fillFacadeVoidsIterative, fillFacadeStripes, regularizeFlatRoof, boostPhotogrammetrySaturation, snapshotGridBlocks, restoreGridBlocks } from '../src/convert/mesh-filter.js';
+import type { ExtractedEnvironment, AnalysisResult, GridSnapshot } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
 import { rgbToWallBlock, WALL_CLUSTERS } from '../src/gen/color-blocks.js';
@@ -685,26 +685,17 @@ async function main(): Promise<void> {
       const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
       if (osmData && osmData.polygon.length >= 3) {
         osmQueryPolygon = osmData.polygon;
-        const snapshot = new Map<string, string>();
-        for (let y = 0; y < trimmed.height; y++) {
-          for (let z = 0; z < trimmed.length; z++) {
-            for (let x = 0; x < trimmed.width; x++) {
-              const b = trimmed.get(x, y, z);
-              if (b !== 'minecraft:air') snapshot.set(`${x},${y},${z}`, b);
-            }
-          }
-        }
+        // Non-generic pre-fill OSM mask
+        const snapshot = snapshotGridBlocks(trimmed);
+        try {
         const masked = maskToFootprint(
           trimmed, osmData.polygon,
           args.coords.lat, args.coords.lng, Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
         );
         const remaining = trimmed.countNonAir();
-        if (remaining < snapshot.size * 0.1 && snapshot.size > 0) {
+        if (remaining < snapshot.count * 0.1 && snapshot.count > 0) {
           // Direct mask failed — try OSM auto-alignment (sliding-window IoU)
-          for (const [key, block] of snapshot) {
-            const [x, y, z] = key.split(',').map(Number);
-            trimmed.set(x, y, z, block);
-          }
+          restoreGridBlocks(trimmed, snapshot);
           const alignment = alignOSMToFootprint(
             trimmed, osmData.polygon,
             args.coords.lat, args.coords.lng,
@@ -727,10 +718,7 @@ async function main(): Promise<void> {
               osmTags = osmData.tags ?? {};
             } else {
               // Auto-alignment also failed — restore and fall through to geometry isolation
-              for (const [key, block] of snapshot) {
-                const [x2, y2, z2] = key.split(',').map(Number);
-                trimmed.set(x2, y2, z2, block);
-              }
+              restoreGridBlocks(trimmed, snapshot);
               console.log(`OSM mask: direct + auto-align both failed (IoU=${alignment.iou.toFixed(2)}), using geometry isolation`);
             }
           } else {
@@ -741,6 +729,10 @@ async function main(): Promise<void> {
           osmMaskDone = true;
           osmPolygon = osmData.polygon;
           osmTags = osmData.tags ?? {};
+        }
+        } catch (err) {
+          console.warn(`OSM mask (non-generic pre-fill) failed: ${(err as Error).message}`);
+          restoreGridBlocks(trimmed, snapshot);
         }
       }
     }
@@ -866,28 +858,17 @@ async function main(): Promise<void> {
         console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
         const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
         if (osmData && osmData.polygon.length >= 3) {
-          // Snapshot blocks before masking for revert if polygon is misaligned
-          const snapshot = new Map<string, string>();
-          for (let y = 0; y < trimmed.height; y++) {
-            for (let z = 0; z < trimmed.length; z++) {
-              for (let x = 0; x < trimmed.width; x++) {
-                const b = trimmed.get(x, y, z);
-                if (b !== 'minecraft:air') snapshot.set(`${x},${y},${z}`, b);
-              }
-            }
-          }
-
+          // Generic pre-fill OSM mask — snapshot for revert if polygon is misaligned
+          const snapshot = snapshotGridBlocks(trimmed);
+          try {
           const masked = maskToFootprint(
             trimmed, osmData.polygon,
             args.coords.lat, args.coords.lng, Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
           );
           const remaining = trimmed.countNonAir();
-          if (remaining < snapshot.size * 0.1 && snapshot.size > 0) {
+          if (remaining < snapshot.count * 0.1 && snapshot.count > 0) {
             // Direct mask failed — try OSM auto-alignment (sliding-window IoU)
-            for (const [key, block] of snapshot) {
-              const [x, y, z] = key.split(',').map(Number);
-              trimmed.set(x, y, z, block);
-            }
+            restoreGridBlocks(trimmed, snapshot);
             const alignment = alignOSMToFootprint(
               trimmed, osmData.polygon,
               args.coords.lat, args.coords.lng,
@@ -910,10 +891,7 @@ async function main(): Promise<void> {
                 osmTags = osmData.tags ?? {};
               } else {
                 // Auto-alignment also failed — restore and fall through to geometry isolation
-                for (const [key2, block2] of snapshot) {
-                  const [x2, y2, z2] = key2.split(',').map(Number);
-                  trimmed.set(x2, y2, z2, block2);
-                }
+                restoreGridBlocks(trimmed, snapshot);
                 console.log(`OSM mask: direct + auto-align both failed (IoU=${alignment.iou.toFixed(2)}), using geometry isolation`);
               }
             } else {
@@ -924,6 +902,10 @@ async function main(): Promise<void> {
             osmMaskDone = true;
             osmPolygon = osmData.polygon;
             osmTags = osmData.tags ?? {};
+          }
+          } catch (err) {
+            console.warn(`OSM mask (generic pre-fill) failed: ${(err as Error).message}`);
+            restoreGridBlocks(trimmed, snapshot);
           }
         } else {
           console.log('OSM footprint (pre-fill): no building found at coordinates');

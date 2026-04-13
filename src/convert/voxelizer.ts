@@ -25,10 +25,15 @@ import type { RGB } from '../types/index.js';
 /** Optional texture sampler — browser provides Canvas-backed, CLI passes undefined */
 export type TextureSampler = (texture: THREE.Texture, uv: THREE.Vector2) => RGB;
 
-/** Minecraft blocks that represent vegetation — rejected when filterVegetation is enabled.
+/**
+ * Minecraft blocks that represent vegetation — rejected when filterVegetation is enabled.
  * Photogrammetry tree canopy maps to greens, dark browns, and olive tones across many
- * block types. This expanded set catches the full range of vegetation colors. */
-const VEGETATION_BLOCKS = new Set([
+ * block types. This expanded set catches the full range of vegetation colors.
+ *
+ * Exported as the single source of truth — also used by mesh-filter.ts for
+ * post-processing vegetation strip (stripVegetation, extractEnvironmentPositions).
+ */
+export const VEGETATION_BLOCKS = new Set([
   // Greens
   'minecraft:green_concrete', 'minecraft:lime_concrete',
   'minecraft:green_terracotta', 'minecraft:lime_terracotta',
