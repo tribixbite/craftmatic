@@ -1,17 +1,28 @@
 /**
  * BlockGrid — 3D grid of Minecraft block states with block entity tracking.
  * Core data structure for building and manipulating schematics.
+ *
+ * Storage: palette-indexed Uint16Array for memory efficiency at high resolutions.
+ * At resolution=10, a 50m building is 500³ = 125M voxels.
+ * With string[]: 125M × ~40 bytes/ref = 5GB. With Uint16Array: 125M × 2 bytes = 250MB.
  */
 
 import type { BlockState, BlockEntity, ItemSlot, Vec3 } from '../types/index.js';
+
+/** Default air block — palette index 0 is always air. */
+const AIR: BlockState = 'minecraft:air';
 
 export class BlockGrid {
   width: number;
   height: number;
   readonly length: number;
 
-  private blocks: BlockState[];
+  /** Palette-indexed voxel data. Index 0 = air. Max 65535 unique block types. */
+  private data: Uint16Array;
+  /** Block state string → palette index. */
   private _palette: Map<BlockState, number>;
+  /** Palette index → block state string (reverse lookup for get()). */
+  private _reversePalette: BlockState[];
   private _nextId: number;
   private _blockEntities: BlockEntity[];
 
@@ -19,8 +30,10 @@ export class BlockGrid {
     this.width = width;
     this.height = height;
     this.length = length;
-    this.blocks = new Array<BlockState>(width * height * length).fill('minecraft:air');
-    this._palette = new Map([['minecraft:air', 0]]);
+    const size = width * height * length;
+    this.data = new Uint16Array(size); // All zeros = air (index 0)
+    this._palette = new Map([[AIR, 0]]);
+    this._reversePalette = [AIR]; // Index 0 = air
     this._nextId = 1;
     this._blockEntities = [];
   }
@@ -45,19 +58,56 @@ export class BlockGrid {
     return x >= 0 && x < this.width && y >= 0 && y < this.height && z >= 0 && z < this.length;
   }
 
+  /** Add a block state to the palette, returning its new index. */
+  private _addToPalette(blockState: BlockState): number {
+    if (this._nextId > 65535) {
+      throw new Error(`BlockGrid palette overflow: more than 65535 unique block types`);
+    }
+    const id = this._nextId++;
+    this._palette.set(blockState, id);
+    this._reversePalette[id] = blockState;
+    return id;
+  }
+
   /** Get block state at position, returns "minecraft:air" for out-of-bounds */
   get(x: number, y: number, z: number): BlockState {
-    if (!this.inBounds(x, y, z)) return 'minecraft:air';
-    return this.blocks[this.index(x, y, z)];
+    if (!this.inBounds(x, y, z)) return AIR;
+    return this._reversePalette[this.data[this.index(x, y, z)]];
   }
 
   /** Set block state at position. Silently ignores out-of-bounds. */
   set(x: number, y: number, z: number, blockState: BlockState): void {
     if (!this.inBounds(x, y, z)) return;
-    if (!this._palette.has(blockState)) {
-      this._palette.set(blockState, this._nextId++);
-    }
-    this.blocks[this.index(x, y, z)] = blockState;
+    const paletteId = this._palette.get(blockState) ?? this._addToPalette(blockState);
+    this.data[this.index(x, y, z)] = paletteId;
+  }
+
+  /**
+   * Get raw palette index at position (0 = air). Returns 0 for out-of-bounds.
+   * Use for hot-path post-processing that can compare indices instead of strings.
+   */
+  getIndex(x: number, y: number, z: number): number {
+    if (!this.inBounds(x, y, z)) return 0;
+    return this.data[this.index(x, y, z)];
+  }
+
+  /**
+   * Set by raw palette index. No bounds or palette validation — caller must ensure
+   * the index is valid (obtained from getIndex or palette.get). Fastest mutation path.
+   */
+  setIndex(x: number, y: number, z: number, paletteIndex: number): void {
+    if (!this.inBounds(x, y, z)) return;
+    this.data[this.index(x, y, z)] = paletteIndex;
+  }
+
+  /** Resolve a palette index to its block state string. */
+  blockStateFromIndex(paletteIndex: number): BlockState {
+    return this._reversePalette[paletteIndex] ?? AIR;
+  }
+
+  /** Get the palette index for a block state, adding it if needed. */
+  paletteIndexOf(blockState: BlockState): number {
+    return this._palette.get(blockState) ?? this._addToPalette(blockState);
   }
 
   /** Fill a rectangular region (inclusive on all axes) */
@@ -65,10 +115,13 @@ export class BlockGrid {
     const xMin = Math.min(x1, x2), xMax = Math.max(x1, x2);
     const yMin = Math.min(y1, y2), yMax = Math.max(y1, y2);
     const zMin = Math.min(z1, z2), zMax = Math.max(z1, z2);
+    const pid = this._palette.get(blockState) ?? this._addToPalette(blockState);
     for (let y = yMin; y <= yMax; y++) {
       for (let z = zMin; z <= zMax; z++) {
         for (let x = xMin; x <= xMax; x++) {
-          this.set(x, y, z, blockState);
+          if (this.inBounds(x, y, z)) {
+            this.data[this.index(x, y, z)] = pid;
+          }
         }
       }
     }
@@ -92,7 +145,7 @@ export class BlockGrid {
 
   /** Clear a region to air */
   clear(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number): void {
-    this.fill(x1, y1, z1, x2, y2, z2, 'minecraft:air');
+    this.fill(x1, y1, z1, x2, y2, z2, AIR);
   }
 
   /** Place a chest block and register its inventory as a block entity */
@@ -138,10 +191,10 @@ export class BlockGrid {
   /** Encode block data as varint byte array for .schem format */
   encodeBlockData(): Uint8Array {
     const result: number[] = [];
-    for (const bs of this.blocks) {
-      const pid = this._palette.get(bs) ?? 0;
-      // Varint encoding
-      let value = pid;
+    const len = this.data.length;
+    for (let i = 0; i < len; i++) {
+      // Varint encoding of palette index
+      let value = this.data[i];
       while (true) {
         let byte = value & 0x7f;
         value >>>= 7;
@@ -157,26 +210,27 @@ export class BlockGrid {
   expandHeight(newHeight: number): void {
     if (newHeight <= this.height) return;
     const newSize = this.width * newHeight * this.length;
-    const newBlocks = new Array<BlockState>(newSize).fill('minecraft:air');
+    const newData = new Uint16Array(newSize); // All zeros = air (index 0)
     // Copy existing data — same index layout (y * length + z) * width + x
     for (let y = 0; y < this.height; y++) {
       for (let z = 0; z < this.length; z++) {
         const srcBase = (y * this.length + z) * this.width;
         const dstBase = (y * this.length + z) * this.width;
         for (let x = 0; x < this.width; x++) {
-          newBlocks[dstBase + x] = this.blocks[srcBase + x];
+          newData[dstBase + x] = this.data[srcBase + x];
         }
       }
     }
-    this.blocks = newBlocks;
+    this.data = newData;
     this.height = newHeight;
   }
 
   /** Count non-air blocks */
   countNonAir(): number {
     let count = 0;
-    for (const bs of this.blocks) {
-      if (bs !== 'minecraft:air') count++;
+    const len = this.data.length;
+    for (let i = 0; i < len; i++) {
+      if (this.data[i] !== 0) count++; // Index 0 = air
     }
     return count;
   }
@@ -196,21 +250,24 @@ export class BlockGrid {
    * Used when reconstructing a grid from parsed schematic data.
    */
   loadFromArray(blockStates: BlockState[]): void {
-    if (blockStates.length !== this.blocks.length) {
+    const expectedLen = this.width * this.height * this.length;
+    if (blockStates.length !== expectedLen) {
       throw new Error(
-        `Block array length mismatch: expected ${this.blocks.length}, got ${blockStates.length}`
+        `Block array length mismatch: expected ${expectedLen}, got ${blockStates.length}`
       );
     }
     this._palette.clear();
-    this._palette.set('minecraft:air', 0);
+    this._palette.set(AIR, 0);
+    this._reversePalette = [AIR];
     this._nextId = 1;
 
     for (let i = 0; i < blockStates.length; i++) {
       const bs = blockStates[i];
-      if (!this._palette.has(bs)) {
-        this._palette.set(bs, this._nextId++);
+      let pid = this._palette.get(bs);
+      if (pid === undefined) {
+        pid = this._addToPalette(bs);
       }
-      this.blocks[i] = bs;
+      this.data[i] = pid;
     }
   }
 
