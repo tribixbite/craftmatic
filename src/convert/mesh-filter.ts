@@ -5,6 +5,71 @@
  * This file re-exports everything so existing import sites are unaffected.
  */
 
+import { BlockGrid } from '../schem/types.js';
+
+// Re-export vegetation blocks from voxelizer (single source of truth)
+export { VEGETATION_BLOCKS } from './voxelizer.js';
+
+// ─── Grid Snapshot Utilities ──────────────────────────────────────────────────
+
+/**
+ * Snapshot of all non-air blocks in a grid, stored as flat index → block name.
+ * Used by the pipeline to revert destructive operations (OSM masking, watershed)
+ * when the result is worse than the input.
+ */
+export interface GridSnapshot {
+  /** Flat index → block state for all non-air voxels at snapshot time */
+  readonly blocks: Map<number, string>;
+  /** Grid dimensions at snapshot time (for validation) */
+  readonly width: number;
+  readonly height: number;
+  readonly length: number;
+  /** Number of non-air blocks at snapshot time */
+  readonly count: number;
+}
+
+/**
+ * Capture a snapshot of all non-air blocks in the grid.
+ * Uses numeric flat indices (y*L+z)*W+x for O(1) restore lookups,
+ * unlike the previous string-key "x,y,z" pattern that required parsing.
+ */
+export function snapshotGridBlocks(grid: BlockGrid): GridSnapshot {
+  const { width, height, length } = grid;
+  const blocks = new Map<number, string>();
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const b = grid.get(x, y, z);
+        if (b !== 'minecraft:air') {
+          blocks.set((y * length + z) * width + x, b);
+        }
+      }
+    }
+  }
+  return { blocks, width, height, length, count: blocks.size };
+}
+
+/**
+ * Restore all blocks from a snapshot, overwriting current grid state.
+ * Validates that grid dimensions match the snapshot to prevent silent corruption.
+ */
+export function restoreGridBlocks(grid: BlockGrid, snapshot: GridSnapshot): void {
+  if (grid.width !== snapshot.width || grid.height !== snapshot.height || grid.length !== snapshot.length) {
+    throw new Error(
+      `Grid dimensions changed since snapshot: ` +
+      `${snapshot.width}x${snapshot.height}x${snapshot.length} → ` +
+      `${grid.width}x${grid.height}x${grid.length}`
+    );
+  }
+  const { width, length } = grid;
+  for (const [idx, block] of snapshot.blocks) {
+    const x = idx % width;
+    const z = Math.floor(idx / width) % length;
+    const y = Math.floor(idx / (width * length));
+    grid.set(x, y, z, block);
+  }
+}
+
 // Internal helpers (constants, grid snapshots, block color utilities)
 export {
   AIR, H_DIRS, FACES6,

@@ -8,6 +8,7 @@
 import type { BlockGrid } from '../../schem/types.js';
 import { placeTree, placeVehicle } from '../../gen/structures.js';
 import type { TreeType } from '../../gen/structures.js';
+import { VEGETATION_BLOCKS } from '../voxelizer.js';
 import { AIR } from './_internal.js';
 
 // ─── Minimal type for AnalysisResult fields used by placeEntryPath ──────────
@@ -58,21 +59,10 @@ export function placeEntryPath(
 
 /**
  * Vegetation blocks to strip during post-processing.
- * Photogrammetry trees map to greens, dark browns, and olive tones.
- * Matches the set in voxelizer.ts (duplicated to avoid circular dependency).
+ * Single source of truth is VEGETATION_BLOCKS in voxelizer.ts — this alias
+ * maintains backward compatibility for existing import sites.
  */
-export const VEGETATION_BLOCKS_POST = new Set([
-  'minecraft:green_concrete', 'minecraft:lime_concrete',
-  'minecraft:green_terracotta', 'minecraft:lime_terracotta',
-  'minecraft:moss_block', 'minecraft:green_wool', 'minecraft:lime_wool',
-  'minecraft:green_concrete_powder', 'minecraft:lime_concrete_powder',
-  'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:birch_leaves',
-  'minecraft:jungle_leaves', 'minecraft:acacia_leaves', 'minecraft:dark_oak_leaves',
-  'minecraft:azalea_leaves', 'minecraft:flowering_azalea_leaves',
-  'minecraft:grass_block', 'minecraft:moss_carpet',
-  'minecraft:soul_soil', 'minecraft:podzol',
-  'minecraft:mud', 'minecraft:packed_mud',
-]);
+export const VEGETATION_BLOCKS_POST = VEGETATION_BLOCKS;
 
 /**
  * Strip vegetation blocks from a grid, replacing them with air.
