@@ -847,7 +847,7 @@ async function gradeOne(
         - (!checklist.surface_detail_visible ? 1 : 0)
         - (checklist.facade_holes_visible    ? 1 : 0)
         - (checklist.floating_artifacts      ? 1 : 0);
-      const scoreD = checklist.proportions_correct ? 2 : 1; // diagnostic only (zero-weighted in score)
+      const scoreD = checklist.proportions_correct ? 2 : 1; // +0.5 score bonus via scoreFromDefects
 
       return {
         A: Math.max(0, scoreA),
