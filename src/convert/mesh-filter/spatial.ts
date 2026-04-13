@@ -25,9 +25,12 @@ import { labelConnectedComponents } from '../mesh-filter.js';
  * @param minSize  Minimum voxel count for a component to survive (default: 50)
  * @returns Number of blocks removed
  */
-export function removeSmallComponents(grid: BlockGrid, minSize = 50): number {
+export function removeSmallComponents(grid: BlockGrid, minSize = 50, resolution = 1): number {
 
   const { width, height, length } = grid;
+
+  // Scale volume threshold cubically — higher-res grids have proportionally more voxels per component
+  const scaledMinSize = Math.max(1, Math.round(minSize * resolution * resolution * resolution));
   const total = width * height * length;
 
   // Component label for each voxel (0 = unlabeled, -1 = air)
@@ -96,8 +99,8 @@ export function removeSmallComponents(grid: BlockGrid, minSize = 50): number {
         const label = labels[i];
         if (label <= 0) continue; // air or unlabeled
         const size = componentSizes.get(label) ?? 0;
-        // Remove if not the largest AND below minSize threshold
-        if (label !== largestLabel && size < minSize) {
+        // Remove if not the largest AND below scaledMinSize threshold
+        if (label !== largestLabel && size < scaledMinSize) {
           grid.set(x, y, z, AIR);
           removed++;
         }

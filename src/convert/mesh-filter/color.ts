@@ -162,8 +162,11 @@ export function constrainPalette(
 
 // ─── modeFilter3D ──────────────────────────────────────────────────────────
 
-export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1, extraProtected?: Set<string>): number {
+export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1, extraProtected?: Set<string>, resolution = 1): number {
   const { width, height, length } = grid;
+
+  // Scale radius by resolution so higher-res grids use proportionally wider neighborhoods
+  const scaledRadius = Math.max(1, Math.round(radius * resolution));
 
   // Build effective protected set from module-level constant + caller additions
   const PROTECTED = new Set(MODEFILTER_PROTECTED);
@@ -185,13 +188,13 @@ export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1, extraProte
           // Count non-air neighbors in (2r+1)^3 cube from snapshot
           const neighborCounts = new Map<string, number>();
           let totalNeighbors = 0;
-          for (let dy = -radius; dy <= radius; dy++) {
+          for (let dy = -scaledRadius; dy <= scaledRadius; dy++) {
             const ny = y + dy;
             if (ny < 0 || ny >= height) continue;
-            for (let dz = -radius; dz <= radius; dz++) {
+            for (let dz = -scaledRadius; dz <= scaledRadius; dz++) {
               const nz = z + dz;
               if (nz < 0 || nz >= length) continue;
-              for (let dx = -radius; dx <= radius; dx++) {
+              for (let dx = -scaledRadius; dx <= scaledRadius; dx++) {
                 if (dx === 0 && dy === 0 && dz === 0) continue;
                 const nx = x + dx;
                 if (nx < 0 || nx >= width) continue;
@@ -263,9 +266,12 @@ export function modeFilter3D(grid: BlockGrid, passes = 2, radius = 1, extraProte
  * @param contrastDelta - Min luminance gap below neighborhood median to trigger replacement (default 0.20)
  * @param radius - Neighborhood radius for context (default 2 -> 5x5x5)
  */
-export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius = 2): number {
+export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius = 2, resolution = 1): number {
 
   const { width, height, length } = grid;
+
+  // Scale radius by resolution so higher-res grids scan proportionally wider neighborhoods
+  const scaledRadius = Math.max(1, Math.round(radius * resolution));
   let totalReplaced = 0;
 
   // Adaptive thresholds: compute grid luminance stats to avoid destroying
@@ -317,7 +323,7 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
           const lab1 = getBlockLab(block);
           if (lab1 && (Math.abs(lab1[1]) > 5 || Math.abs(lab1[2]) > 5)) continue;
 
-          const best = findBrightNeighborMode(grid, x, y, z, radius, DARK_FLOOR);
+          const best = findBrightNeighborMode(grid, x, y, z, scaledRadius, DARK_FLOOR);
           if (best) allReplacements.set(idx1d(x, y, z), { x, y, z, replacement: best });
         }
       }
@@ -340,13 +346,13 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
           // Collect neighbor luminances to compute median
           const neighborLums: number[] = [];
           const neighborCounts = new Map<string, number>();
-          for (let dy = -radius; dy <= radius; dy++) {
+          for (let dy = -scaledRadius; dy <= scaledRadius; dy++) {
             const ny = y + dy;
             if (ny < 0 || ny >= height) continue;
-            for (let dz = -radius; dz <= radius; dz++) {
+            for (let dz = -scaledRadius; dz <= scaledRadius; dz++) {
               const nz = z + dz;
               if (nz < 0 || nz >= length) continue;
-              for (let dx = -radius; dx <= radius; dx++) {
+              for (let dx = -scaledRadius; dx <= scaledRadius; dx++) {
                 if (dx === 0 && dy === 0 && dz === 0) continue;
                 const nx = x + dx;
                 if (nx < 0 || nx >= width) continue;
