@@ -476,16 +476,11 @@ export async function createLDrawViewer(
   for (const [colorId, group] of sortedEntries) {
     if (group.positions.length === 0) continue;
 
-    const rawGeo = new THREE.BufferGeometry();
-    rawGeo.setAttribute('position', new THREE.Float32BufferAttribute(group.positions, 3));
-    // Merge coincident vertices (tolerance 1e-4 = ~0.002 LDU) then compute smooth normals.
-    // This smooths within individual primitives (cylinder faces share edges) while keeping
-    // separate bricks sharp (different bricks don't share vertex positions exactly).
-    const geometry = mergeVertices(rawGeo, 1e-4);
-    geometry.computeVertexNormals();
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(group.positions, 3));
+    geometry.computeVertexNormals(); // per-face normals for flat shading
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
-    rawGeo.dispose();
 
     // Expand scene bounding box
     if (geometry.boundingBox) {
@@ -511,6 +506,7 @@ export async function createLDrawViewer(
           clearcoat: metallic ? 0.0 : 0.3,
           clearcoatRoughness: 0.4,
           side: THREE.FrontSide,
+          flatShading: true,
         });
 
     // Slight emissive tint for richer plastic look
