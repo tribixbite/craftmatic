@@ -12,7 +12,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-// mergeVertices available from 'three/examples/jsm/utils/BufferGeometryUtils.js' if needed
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
@@ -313,8 +313,12 @@ export async function createLDrawViewer(
   interface ColorGroup {
     positions: number[];  // flat xyz array
   }
+  interface EdgeGroup {
+    positions: number[];
+  }
   const colorGroups = new Map<number, ColorGroup>();
-  const edgePositions: number[] = []; // all edge lines (dark outlines)
+  const edgeGroups = new Map<number, EdgeGroup>(); // edges grouped by brick color
+  let totalEdgeFloats = 0;
   let renderedCount = 0;
   let missingCount = 0;
 
@@ -349,14 +353,19 @@ export async function createLDrawViewer(
       group.positions.push(x0, y0, z0, x1, y1, z1, x2, y2, z2);
     }
 
-    // Collect edge lines for dark outlines (cap at 500K segments to prevent GPU overload)
-    if (edgePositions.length < 12_000_000) for (const [ev0, ev1] of geom.edges) {
-      const we0 = applyMat(ev0, R, T);
-      const we1 = applyMat(ev1, R, T);
-      edgePositions.push(
-        we0[0] * scale, -we0[1] * scale, we0[2] * scale,
-        we1[0] * scale, -we1[1] * scale, we1[2] * scale,
-      );
+    // Collect edge lines grouped by brick color (cap total at 2M segments)
+    if (totalEdgeFloats < 12_000_000) {
+      let eg = edgeGroups.get(brick.color);
+      if (!eg) { eg = { positions: [] }; edgeGroups.set(brick.color, eg); }
+      for (const [ev0, ev1] of geom.edges) {
+        const we0 = applyMat(ev0, R, T);
+        const we1 = applyMat(ev1, R, T);
+        eg.positions.push(
+          we0[0] * scale, -we0[1] * scale, we0[2] * scale,
+          we1[0] * scale, -we1[1] * scale, we1[2] * scale,
+        );
+        totalEdgeFloats += 6;
+      }
     }
   }
 
@@ -396,8 +405,10 @@ export async function createLDrawViewer(
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.4;
+  // Reinhard preserves color ratios better than ACES for gray/pastel tones,
+  // maintaining the subtle bluish-gray distinctions critical for LEGO models.
+  renderer.toneMapping = THREE.ReinhardToneMapping;
+  renderer.toneMappingExposure = 1.6;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
 
@@ -461,11 +472,16 @@ export async function createLDrawViewer(
   for (const [colorId, group] of sortedEntries) {
     if (group.positions.length === 0) continue;
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(group.positions, 3));
+    const rawGeo = new THREE.BufferGeometry();
+    rawGeo.setAttribute('position', new THREE.Float32BufferAttribute(group.positions, 3));
+    // Merge coincident vertices (tolerance 1e-4 = ~0.002 LDU) then compute smooth normals.
+    // This smooths within individual primitives (cylinder faces share edges) while keeping
+    // separate bricks sharp (different bricks don't share vertex positions exactly).
+    const geometry = mergeVertices(rawGeo, 1e-4);
     geometry.computeVertexNormals();
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
+    rawGeo.dispose();
 
     // Expand scene bounding box
     if (geometry.boundingBox) {
@@ -491,7 +507,6 @@ export async function createLDrawViewer(
           clearcoat: metallic ? 0.0 : 0.3,
           clearcoatRoughness: 0.4,
           side: THREE.FrontSide,
-          flatShading: true,
         });
 
     // Slight emissive tint for richer plastic look
@@ -512,14 +527,21 @@ export async function createLDrawViewer(
     meshes.push(mesh);
   }
 
-  // ── Edge lines (dark outlines between bricks) ─────────────────────────
-  if (edgePositions.length > 0) {
+  // ── Edge lines (per-brick-color outlines) ──────────────────────────────
+  for (const [colorId, eg] of edgeGroups) {
+    if (eg.positions.length === 0) continue;
     const edgeGeo = new THREE.BufferGeometry();
-    edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
+    edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(eg.positions, 3));
+    // Contextual edge color: darken light bricks, lighten dark bricks
+    const baseColor = getThreeColor(colorId);
+    const lum = baseColor.r * 0.299 + baseColor.g * 0.587 + baseColor.b * 0.114;
+    const edgeColor = lum > 0.4
+      ? baseColor.clone().multiplyScalar(0.35) // dark edges for light bricks
+      : new THREE.Color(0.25, 0.25, 0.3);     // subtle light edges for dark bricks
     const edgeMat = new THREE.LineBasicMaterial({
-      color: 0x222222,
+      color: edgeColor,
       transparent: true,
-      opacity: 0.35,
+      opacity: lum > 0.4 ? 0.4 : 0.2,
       depthWrite: false,
     });
     const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
