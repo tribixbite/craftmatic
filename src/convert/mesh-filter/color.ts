@@ -7,6 +7,7 @@
 
 import { BlockGrid } from '../../schem/types.js';
 import { rgbToLab, deltaESq, WALL_CLUSTERS } from '../../gen/color-blocks.js';
+import type { ColorCluster } from '../../gen/color-blocks.js';
 import {
   AIR, H_DIRS,
   snapshotGrid, readSnap,
@@ -308,6 +309,42 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
   const allReplacements = new Map<number, { x: number; y: number; z: number; replacement: string }>();
   const idx1d = (x: number, y: number, z: number) => (y * length + z) * width + x;
 
+  // Helper: check if a block is among the top-N most frequent in its neighborhood
+  // AND appears at least MIN_FREQ times (3). This guards against homogenizing
+  // deliberate dark facade materials (dark brick, dark wood) that appear consistently.
+  // Noise/shadow artifacts are isolated (count=1-2) and fail the frequency minimum.
+  const DIVERSITY_TOP_N = 5;
+  const DIVERSITY_MIN_FREQ = 3;
+  const isFrequentInNeighborhood = (
+    block: string, cx: number, cy: number, cz: number,
+  ): boolean => {
+    const nbCounts = new Map<string, number>();
+    for (let dy = -1; dy <= 1; dy++) {
+      const ny = cy + dy;
+      if (ny < 0 || ny >= height) continue;
+      for (let dz = -1; dz <= 1; dz++) {
+        const nz = cz + dz;
+        if (nz < 0 || nz >= length) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = cx + dx;
+          if (nx < 0 || nx >= width) continue;
+          const nb = grid.get(nx, ny, nz);
+          if (nb === AIR) continue;
+          nbCounts.set(nb, (nbCounts.get(nb) ?? 0) + 1);
+        }
+      }
+    }
+    const blockCount = nbCounts.get(block) ?? 0;
+    // Must appear at least MIN_FREQ times to be considered an intentional material
+    if (blockCount < DIVERSITY_MIN_FREQ) return false;
+    // Sort by frequency descending, check if block is in top-N
+    const sorted = [...nbCounts.entries()].sort((a, b) => b[1] - a[1]);
+    for (let i = 0; i < Math.min(DIVERSITY_TOP_N, sorted.length); i++) {
+      if (sorted[i][0] === block) return true;
+    }
+    return false;
+  };
+
   // Pass 1: Replace very dark blocks (adaptive luminance floor)
   {
     for (let y = 0; y < height; y++) {
@@ -322,6 +359,11 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
           // v308: Lowered threshold 8->5 — brown_terracotta has b*~8, was on the edge.
           const lab1 = getBlockLab(block);
           if (lab1 && (Math.abs(lab1[1]) > 5 || Math.abs(lab1[2]) > 5)) continue;
+
+          // Material diversity guard: if this dark block is one of the top-5 most frequent
+          // blocks in its 3×3×3 neighborhood, it's an intentional material (dark brick,
+          // dark wood), not shadow noise. Preserve it.
+          if (isFrequentInNeighborhood(block, x, y, z)) continue;
 
           const best = findBrightNeighborMode(grid, x, y, z, scaledRadius, DARK_FLOOR);
           if (best) allReplacements.set(idx1d(x, y, z), { x, y, z, replacement: best });
@@ -374,6 +416,21 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
           // v306/v308: Chroma guard — skip saturated dark materials in contrast pass too
           const lab2 = getBlockLab(block);
           if (lab2 && (Math.abs(lab2[1]) > 5 || Math.abs(lab2[2]) > 5)) continue;
+
+          // Material diversity guard: check if block is a top-5 frequent block in
+          // the neighborhood with at least DIVERSITY_MIN_FREQ occurrences.
+          // Uses the already-computed neighborCounts + self count.
+          const selfAndNeighborCounts = new Map(neighborCounts);
+          selfAndNeighborCounts.set(block, (selfAndNeighborCounts.get(block) ?? 0) + 1);
+          const blockFreq = selfAndNeighborCounts.get(block) ?? 0;
+          if (blockFreq >= DIVERSITY_MIN_FREQ) {
+            const sortedNb = [...selfAndNeighborCounts.entries()].sort((a, b) => b[1] - a[1]);
+            let blockIsFrequent = false;
+            for (let i = 0; i < Math.min(DIVERSITY_TOP_N, sortedNb.length); i++) {
+              if (sortedNb[i][0] === block) { blockIsFrequent = true; break; }
+            }
+            if (blockIsFrequent) continue;
+          }
 
           // Replace if this block is much darker than its neighborhood median
           if (median - lum >= adaptiveContrastDelta) {
@@ -716,6 +773,10 @@ export function smoothRoofPlane(grid: BlockGrid): number {
 
   const getSnap = (x: number, y: number, z: number) => snapshot[(y * length + z) * width + x];
 
+  // Pass 1: 5x5 horizontal majority vote per roof voxel
+  // Collect all roof voxel positions for the uniformity pass
+  const roofPositions: { x: number; y: number; z: number }[] = [];
+
   for (let y = roofThreshold; y <= maxY; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
@@ -725,6 +786,11 @@ export function smoothRoofPlane(grid: BlockGrid): number {
         // Check if this is a roof voxel: no solid block directly above
         const hasRoof = y < height - 1 && getSnap(x, y + 1, z) !== AIR;
         if (hasRoof) continue; // Not a top surface
+
+        roofPositions.push({ x, y, z });
+
+        // Skip protected blocks in majority vote (glass, slabs, etc.)
+        if (PALETTE_PROTECTED.has(block)) continue;
 
         // 5x5 horizontal majority vote
         const counts = new Map<string, number>();
@@ -750,6 +816,36 @@ export function smoothRoofPlane(grid: BlockGrid): number {
           grid.set(x, y, z, bestBlock);
           replaced++;
         }
+      }
+    }
+  }
+
+  // Pass 2: Aggressive uniformity — find the globally dominant roof block after
+  // majority-vote smoothing and force all remaining non-dominant roof blocks to match.
+  // This ensures the roof reads as a single coherent material instead of a patchwork.
+  // Respects PALETTE_PROTECTED blocks (glass, slabs, etc.)
+  if (roofPositions.length > 0) {
+    const roofCounts = new Map<string, number>();
+    for (const { x, y, z } of roofPositions) {
+      const b = grid.get(x, y, z);
+      if (b === AIR || PALETTE_PROTECTED.has(b)) continue;
+      roofCounts.set(b, (roofCounts.get(b) ?? 0) + 1);
+    }
+
+    // Find the single most frequent roof block
+    let dominantRoof = '';
+    let dominantCount = 0;
+    for (const [b, c] of roofCounts) {
+      if (c > dominantCount) { dominantRoof = b; dominantCount = c; }
+    }
+
+    // Apply: replace all non-dominant, non-protected roof blocks
+    if (dominantRoof) {
+      for (const { x, y, z } of roofPositions) {
+        const b = grid.get(x, y, z);
+        if (b === AIR || b === dominantRoof || PALETTE_PROTECTED.has(b)) continue;
+        grid.set(x, y, z, dominantRoof);
+        replaced++;
       }
     }
   }
@@ -912,27 +1008,25 @@ export function consolidateBlockPalette(grid: BlockGrid, k = 5): number {
   // Sort by frequency descending — most common blocks become initial centroids
   entries.sort((a, b) => b.count - a.count);
 
-  // K-Means++ initialization: pick k centroids weighted by distance to nearest existing centroid
+  // Deterministic K-Means++ initialization: pick k centroids using farthest-first
+  // weighted by frequency. Avoids Math.random() so identical input produces identical output.
   const centroids: [number, number, number][] = [entries[0].lab];
   for (let c = 1; c < k; c++) {
-    // Compute distance from each entry to nearest existing centroid
-    let totalDist = 0;
-    const dists: number[] = [];
-    for (const entry of entries) {
+    // For each entry, find the minimum weighted distance to existing centroids
+    let maxWeightedDist = 0;
+    let picked = 0;
+    for (let i = 0; i < entries.length; i++) {
       let minDist = Infinity;
       for (const centroid of centroids) {
-        const d = deltaESq(entry.lab[0], entry.lab[1], entry.lab[2], centroid[0], centroid[1], centroid[2]);
+        const d = deltaESq(entries[i].lab[0], entries[i].lab[1], entries[i].lab[2], centroid[0], centroid[1], centroid[2]);
         if (d < minDist) minDist = d;
       }
-      dists.push(minDist * entry.count); // Weight by frequency
-      totalDist += minDist * entry.count;
-    }
-    // Pick proportional to distance^2
-    let target = Math.random() * totalDist;
-    let picked = 0;
-    for (let i = 0; i < dists.length; i++) {
-      target -= dists[i];
-      if (target <= 0) { picked = i; break; }
+      // Weight by frequency — frequent blocks are more important to represent
+      const weightedDist = minDist * entries[i].count;
+      if (weightedDist > maxWeightedDist) {
+        maxWeightedDist = weightedDist;
+        picked = i;
+      }
     }
     centroids.push([...entries[picked].lab] as [number, number, number]);
   }
@@ -1015,4 +1109,98 @@ export function consolidateBlockPalette(grid: BlockGrid, k = 5): number {
   }
 
   return reassigned;
+}
+
+// ─── boostPhotogrammetrySaturation ────────────────────────────────────────
+
+/**
+ * Boost desaturated photogrammetry blocks toward more colorful Minecraft equivalents.
+ *
+ * Photogrammetry textures bake atmospheric haze and overcast lighting into pixel data,
+ * producing low-chroma blocks (e.g., desaturated sandstone reads as gray instead of tan).
+ * This function identifies blocks with modest chroma (between chromaFloor and 20) and
+ * replaces them with WALL_CLUSTERS alternatives that have higher chroma at a similar hue
+ * angle (±30°) and acceptable perceptual distance (delta-E < 25).
+ *
+ * Blocks with chroma < chromaFloor are truly achromatic (stone, concrete) and are left alone.
+ * PALETTE_PROTECTED blocks are never modified.
+ *
+ * @param grid        BlockGrid (modified in place)
+ * @param chromaFloor Minimum chroma to consider a block "desaturated but colored" (default: 8)
+ * @returns Number of blocks replaced with more saturated alternatives
+ */
+export function boostPhotogrammetrySaturation(grid: BlockGrid, chromaFloor = 8): number {
+  const { width, height, length } = grid;
+
+  // Pre-compute Lab + chroma for every WALL_CLUSTERS entry
+  type ClusterLab = {
+    cluster: ColorCluster;
+    lab: [number, number, number];
+    chroma: number;
+    hueAngle: number;  // radians
+  };
+  const clusterLabs: ClusterLab[] = [];
+  for (const cluster of WALL_CLUSTERS) {
+    const lab = rgbToLab(cluster.rgb[0], cluster.rgb[1], cluster.rgb[2]);
+    const chroma = Math.sqrt(lab[1] * lab[1] + lab[2] * lab[2]);
+    const hueAngle = Math.atan2(lab[2], lab[1]);
+    clusterLabs.push({ cluster, lab, chroma, hueAngle });
+  }
+
+  let replaced = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const block = grid.get(x, y, z);
+        if (block === AIR) continue;
+        if (PALETTE_PROTECTED.has(block)) continue;
+
+        const lab = getBlockLab(block);
+        if (!lab) continue;
+
+        const chroma = Math.sqrt(lab[1] * lab[1] + lab[2] * lab[2]);
+
+        // Skip truly achromatic blocks (stone, concrete, gray tones)
+        if (chroma < chromaFloor) continue;
+        // Skip blocks that already have decent saturation
+        if (chroma >= 20) continue;
+
+        // This block is desaturated-but-colored — find a more saturated alternative
+        const hueAngle = Math.atan2(lab[2], lab[1]);
+        const HUE_TOLERANCE = Math.PI / 6; // ±30°
+        const MAX_DELTA_E_SQ = 625; // 25^2
+
+        let bestCluster: ClusterLab | null = null;
+        let bestChroma = chroma; // must be strictly higher chroma
+
+        for (const cl of clusterLabs) {
+          // Must have higher chroma than the current block
+          if (cl.chroma <= chroma) continue;
+
+          // Check hue angle proximity (handle wrap-around at ±π)
+          let hueDiff = Math.abs(cl.hueAngle - hueAngle);
+          if (hueDiff > Math.PI) hueDiff = 2 * Math.PI - hueDiff;
+          if (hueDiff > HUE_TOLERANCE) continue;
+
+          // Check perceptual distance (delta-E) to avoid jumping to a completely different look
+          const dE = deltaESq(lab[0], lab[1], lab[2], cl.lab[0], cl.lab[1], cl.lab[2]);
+          if (dE > MAX_DELTA_E_SQ) continue;
+
+          // Prefer the candidate with the highest chroma (most vivid replacement)
+          if (cl.chroma > bestChroma) {
+            bestChroma = cl.chroma;
+            bestCluster = cl;
+          }
+        }
+
+        if (bestCluster) {
+          grid.set(x, y, z, bestCluster.cluster.options[0]);
+          replaced++;
+        }
+      }
+    }
+  }
+
+  return replaced;
 }

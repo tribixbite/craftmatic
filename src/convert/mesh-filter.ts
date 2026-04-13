@@ -34,6 +34,7 @@ export {
   smoothRareBlocks, constrainPalette, modeFilter3D,
   smoothDarkBlocks, smoothFacadeColors, clusterFacadePalette,
   smoothRoofPlane, homogenizeFacadesByFace, consolidateBlockPalette,
+  boostPhotogrammetrySaturation,
   MODEFILTER_PROTECTED, PALETTE_PROTECTED,
 } from './mesh-filter/color.js';
 export type { FacadeDir } from './mesh-filter/color.js';
