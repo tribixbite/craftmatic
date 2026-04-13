@@ -597,6 +597,12 @@ async function main(): Promise<void> {
 
     // Override args with auto recommendations.
     // Respect explicit CLI flags: --generic overrides auto-detect's generic=false.
+    // If confidence is >= 3.5, force building mode — photogrammetry grids have inherent noise
+    // that tanks confidence, but the building data is still usable
+    if (analysis.confidence >= 3.5 && rec.generic) {
+      console.log(`  Override: confidence ${analysis.confidence.toFixed(1)} >= 3.5, forcing building mode (was generic)`);
+      rec.generic = false;
+    }
     if (!args.explicitGeneric) args.generic = rec.generic;
     if (!args.explicitFill) args.fill = rec.fill;
     args.noPalette = rec.noPalette;
@@ -674,6 +680,13 @@ async function main(): Promise<void> {
       if (groundRemoved > 0) {
         console.log(`Ground plane (pre-fill): ${groundRemoved} terrain blocks removed (groundY=${groundY})`);
       }
+    }
+
+    // Adaptive ground removal — handles thick/sloped terrain that basic removeGroundPlane misses.
+    // Per-column detection adapts to local terrain height variation.
+    const adaptiveGround = removeGroundPlaneAdaptive(trimmed);
+    if (adaptiveGround > 0) {
+      console.log(`Ground plane (adaptive): ${adaptiveGround} blocks removed`);
     }
 
     // Step 2: OSM footprint mask — carve away everything outside building polygon.
@@ -807,15 +820,17 @@ async function main(): Promise<void> {
         // v301: resolution-aware — at 2x, dilation=4 closes only 2m; at 1x, 4m.
         const targetMeters = fill3D < 0.30 ? 4 : fill3D < 0.50 ? 3 : 2;
         const dilation = Math.max(1, Math.round(targetMeters * args.resolution));
-        const interiorFilled = fillInteriorGaps(trimmed, dilation);
+        // Track filled voxels so clearOpenAirFill only clears fill, not original geometry
+        const filledSet = new Set<number>();
+        const interiorFilled = fillInteriorGaps(trimmed, dilation, args.resolution, filledSet);
         console.log(`Interior fill (dilation=${dilation}): ${interiorFilled} voxels filled (3D density ${(fill3D * 100).toFixed(0)}%)`);
         // Step 4b: Sky exposure — remove fill in open-air spaces (courtyards, setbacks)
         // Scale minClearance by resolution so ~5m vertical clearance is always required
-        const openAirCleared = clearOpenAirFill(trimmed, 'minecraft:smooth_stone', Math.round(5 * args.resolution));
+        const openAirCleared = clearOpenAirFill(trimmed, 'minecraft:smooth_stone', Math.round(5 * args.resolution), filledSet);
         if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} fill blocks removed (no solid roof above)`);
         // Scanline interior fill — catches thin gaps that dilation+flood missed.
         // Sky-visibility check inherently prevents courtyard filling.
-        const scanFilled = scanlineInteriorFill(trimmed);
+        const scanFilled = scanlineInteriorFill(trimmed, filledSet);
         if (scanFilled > 0) console.log(`Scanline interior fill: ${scanFilled} voxels`);
       }
     }
@@ -960,10 +975,12 @@ async function main(): Promise<void> {
       // Step 4: 3D masked dilation fill — building is now isolated.
       // dilation=1 fills 1-voxel gaps in the facade shell before flood-filling interior.
       // Tested dilation=2: citigroup merged with adjacent structures, scores regressed.
-      const interiorFilled = fillInteriorGaps(trimmed, 1);
+      // Track filled voxels so clearOpenAirFill only clears fill, not original geometry
+      const filledSet2 = new Set<number>();
+      const interiorFilled = fillInteriorGaps(trimmed, 1, 1, filledSet2);
       console.log(`Interior fill (3D masked, dilation=1): ${interiorFilled} interior voxels filled`);
       // Step 4b: Sky exposure — remove fill in open-air spaces
-      const openAirCleared = clearOpenAirFill(trimmed);
+      const openAirCleared = clearOpenAirFill(trimmed, 'minecraft:smooth_stone', 5, filledSet2);
       if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} blocks (no solid roof above)`);
 
       // Step 4c: Extract environment positions BEFORE vegetation strip (--scene, generic mode)
@@ -1134,6 +1151,14 @@ async function main(): Promise<void> {
     }
   }
 
+  // Facade stripe repair — fill venetian-blind artifacts from oblique capture
+  const stripesFilled = fillFacadeStripes(trimmed);
+  if (stripesFilled > 0) console.log(`Facade stripes: ${stripesFilled} filled`);
+
+  // Iterative facade void fill — close large holes on facade planes
+  const voidsFilled = fillFacadeVoidsIterative(trimmed, 5);
+  if (voidsFilled > 0) console.log(`Facade voids (iterative): ${voidsFilled} filled`);
+
   // v74: Edge straightening — median filter on XZ silhouette traces to remove
   // stair-step jaggies. Run after morphClose (shape healed) but before zone assignment
   // and facade smoothing. maxShift=2 limits correction to avoid distorting real setbacks.
@@ -1232,9 +1257,9 @@ async function main(): Promise<void> {
   // v73: --no-glaze disables this — scattered glass reads as "noisy/porous" surface to VLMs
   let glazed = 0;
   if (args.mode === 'surface' && !args.noGlaze) {
-    glazed = glazeDarkWindows(trimmed, args.resolution);
+    glazed = glazeDarkWindows(trimmed, args.resolution, true); // photogrammetryMode for tiles captures
     if (glazed > 0) {
-      console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass`);
+      console.log(`Window glazing: ${glazed} dark exterior blocks → gray_stained_glass (photogrammetry mode)`);
     }
     // Phase 5a: Sky-reflecting window detection — catches blue/grey specular blocks
     const reflective = glazeReflectiveWindows(trimmed, args.resolution);
@@ -1660,6 +1685,11 @@ async function main(): Promise<void> {
     if (darkSmoothed > 0) {
       console.log(`Dark block smoothing: ${darkSmoothed} shadow-artifact blocks replaced (floor + contrast)`);
     }
+
+    // Boost photogrammetry desaturation — push gray blocks toward colorful alternatives.
+    // Photogrammetry bakes ambient lighting into textures, desaturating real facade colors.
+    const satBoosted = boostPhotogrammetrySaturation(trimmed);
+    if (satBoosted > 0) console.log(`Saturation boost: ${satBoosted} blocks recolored`);
   }
 
   // 3D mode filter — smooth spatial noise while preserving multi-zone materials.
@@ -2081,6 +2111,12 @@ async function main(): Promise<void> {
       console.log(`Pillar removal: ${pillarsRemoved} blocks removed (thin vertical columns)`);
     }
   }
+
+  // Flat roof regularization — level bumps, fill holes, uniform material.
+  // Runs after all geometry and color processing to catch roof irregularities
+  // introduced by mode filter, morph close, and facade smoothing.
+  const roofFixed = regularizeFlatRoof(trimmed);
+  if (roofFixed > 0) console.log(`Roof regularization: ${roofFixed} blocks fixed`);
 
   // Custom block remaps — final override, applied after all other processing
   if (args.remaps.size > 0) {
