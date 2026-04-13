@@ -36,8 +36,8 @@ export interface DefectChecklist {
  *   facade_holes_visible      -1    (minor: often false positive from DDA shadow stripes)
  *   floating_artifacts        -1    (minor: noise — common false positive from texture variation)
  *   !surface_detail_visible   -1    (minor: material quality)
- *   footprint_wrong_shape     -0.5  (reduced weight: VLM over-flags on blocky voxels)
- *   !proportions_correct      -0.5  (reduced weight: bonus for correct proportions)
+ *   footprint_wrong_shape     -0.3  (low weight: VLM over-flags on blocky 1 block/m voxels)
+ *   !proportions_correct      -0.3  (low weight: most voxel builds at 1 block/m fail this)
  */
 export function scoreFromDefects(defects: DefectChecklist): number {
   let score = 10;
@@ -47,7 +47,7 @@ export function scoreFromDefects(defects: DefectChecklist): number {
   if (defects.neighbor_buildings_merged) score -= 2;
   if (defects.false_positives_merged)    score -= 2;
   if (!defects.surface_detail_visible)   score -= 1;
-  if (defects.footprint_wrong_shape)     score -= 0.5;
-  if (!defects.proportions_correct)      score -= 0.5;
+  if (defects.footprint_wrong_shape)     score -= 0.3;
+  if (!defects.proportions_correct)      score -= 0.3;
   return Math.max(0, Math.round(score * 10) / 10);
 }

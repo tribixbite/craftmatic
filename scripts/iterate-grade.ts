@@ -514,8 +514,8 @@ async function computeAlignment(b: BuildingConfig): Promise<BuildingAlignment | 
       const polygon = osmData.polygon.map((p: { lat: number; lng: number }) => ({ lat: p.lat, lon: p.lng }));
       return computeBuildingAlignment(polygon, lat, lng);
     }
-  } catch {
-    // OSM query may fail for some buildings — non-fatal
+  } catch (err) {
+    console.warn(`    OSM alignment query failed (non-fatal): ${(err as Error).message}`);
   }
   return undefined;
 }
@@ -567,7 +567,8 @@ async function validateSatRef(b: BuildingConfig): Promise<number> {
     const num = parseInt(text.trim(), 10);
     if (num >= 1 && num <= 5) return num;
     return 3;
-  } catch {
+  } catch (err) {
+    console.warn(`    Satellite validation failed (non-fatal): ${(err as Error).message}`);
     return 3;
   }
 }
@@ -931,19 +932,19 @@ function diagnose(subscores: SubScore[]): string {
   return issues.length > 0 ? issues.join(', ') : 'passing';
 }
 
-const DEEP_REVIEW_PROMPT = `You are a HARSH CRITIC reviewing Minecraft voxel reconstructions.
+const DEEP_REVIEW_PROMPT = `You are reviewing a Minecraft voxel reconstruction against its real-world reference.
 Look at the 4 panels: satellite (TL), isometric (TR), front elevation (BL), top-down (BR).
 
-Be SKEPTICAL. Score ONLY what you can verify.
-- Does the footprint ACTUALLY match the satellite, or is it just "a rectangle like the satellite"?
-- Can you identify distinguishing features in BOTH images?
+Evaluate these criteria:
+- Does the footprint shape match the satellite reference?
+- Can you identify distinguishing features of the building in the voxel model?
 - Are there artifacts, extra geometry, or blobby edges?
-- Is the massing (height/width ratio) actually correct, or just plausible?
+- Is the massing (height/width ratio) correct relative to the reference?
 
-Score 1-10. Most voxel builds at 1 block/m deserve 5-7. Only exceptional builds get 9-10.
+Score 1-10 based on what you observe. Report accurately.
 
 Respond with EXACTLY: Score=X
-Then a 1-2 sentence harsh critique.`;
+Then a 1-2 sentence critique.`;
 
 /** Run deep review grading with gemini-2.5-pro (or configured model), return scores */
 async function deepReviewBuilding(imagePath: string, key: string, runs: number): Promise<{ scores: number[]; mean: number }> {
@@ -977,7 +978,11 @@ async function deepReviewBuilding(imagePath: string, key: string, runs: number):
       const match = text.match(/Score\s*=\s*([\d.]+)/i);
       if (match) {
         const score = parseFloat(match[1]);
-        scores.push(score);
+        if (isNaN(score) || score < 0 || score > 10) {
+          console.warn(`    Deep review: invalid score "${match[1]}", skipping`);
+        } else {
+          scores.push(score);
+        }
         // Extract critique text (everything after "Score=X")
         const critique = text.replace(/Score\s*=\s*[\d.]+/i, '').trim().split('\n')[0];
         process.stdout.write(`    Deep ${i + 1}/${runs}: ${score}/10 — ${critique}\n`);

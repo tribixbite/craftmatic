@@ -9,9 +9,9 @@
  *   facade_holes_visible      -1    (minor)
  *   floating_artifacts        -1    (minor)
  *   !surface_detail_visible   -1    (minor)
- *   footprint_wrong_shape     -0.5  (reduced: VLM over-flags on blocky voxels)
- *   !proportions_correct      -0.5  (reduced: bonus for correct proportions)
- *   Max total penalty = 9, min possible score = 1
+ *   footprint_wrong_shape     -0.3  (low weight: VLM over-flags on blocky voxels)
+ *   !proportions_correct      -0.3  (low weight: most voxel builds at 1 block/m fail this)
+ *   Max total penalty = 8.6, min possible score = 1.4
  */
 
 import { describe, it, expect } from 'vitest';
@@ -39,7 +39,7 @@ describe('scoreFromDefects', () => {
     expect(scoreFromDefects(makeChecklist())).toBe(10);
   });
 
-  it('worst-case scores 1 (all defects active, total penalty = 9)', () => {
+  it('worst-case scores 1.4 (all defects active, total penalty = 8.6)', () => {
     const worst: DefectChecklist = {
       height_truncated:          true,  // -1
       facade_holes_visible:      true,  // -1
@@ -47,11 +47,11 @@ describe('scoreFromDefects', () => {
       neighbor_buildings_merged: true,  // -2
       false_positives_merged:    true,  // -2
       surface_detail_visible:    false, // -1
-      footprint_wrong_shape:     true,  // -0.5
-      proportions_correct:       false, // -0.5
+      footprint_wrong_shape:     true,  // -0.3
+      proportions_correct:       false, // -0.3
     };
-    // Total penalties = 1+1+1+2+2+1+0.5+0.5 = 9, 10-9 = 1
-    expect(scoreFromDefects(worst)).toBe(1);
+    // Total penalties = 1+1+1+2+2+1+0.3+0.3 = 8.6, 10-8.6 = 1.4
+    expect(scoreFromDefects(worst)).toBe(1.4);
   });
 
   it('never goes below 0', () => {
@@ -97,21 +97,21 @@ describe('scoreFromDefects', () => {
     expect(scoreFromDefects(makeChecklist({ false_positives_merged: true }))).toBe(8);
   });
 
-  // ── Reduced-weight fields (-0.5 each) ──────────────────────────────────────
+  // ── Low-weight fields (-0.3 each) ──────────────────────────────────────────
 
-  it('deducts 0.5 for footprint_wrong_shape', () => {
-    expect(scoreFromDefects(makeChecklist({ footprint_wrong_shape: true }))).toBe(9.5);
+  it('deducts 0.3 for footprint_wrong_shape', () => {
+    expect(scoreFromDefects(makeChecklist({ footprint_wrong_shape: true }))).toBe(9.7);
   });
 
-  it('deducts 0.5 when proportions_correct is false', () => {
-    expect(scoreFromDefects(makeChecklist({ proportions_correct: false }))).toBe(9.5);
+  it('deducts 0.3 when proportions_correct is false', () => {
+    expect(scoreFromDefects(makeChecklist({ proportions_correct: false }))).toBe(9.7);
   });
 
-  it('both reduced-weight defects together deduct 1', () => {
+  it('both low-weight defects together deduct 0.6', () => {
     expect(scoreFromDefects(makeChecklist({
       footprint_wrong_shape: true,
       proportions_correct:   false,
-    }))).toBe(9);
+    }))).toBe(9.4);
   });
 
   // ── Accumulated penalties ──────────────────────────────────────────────────
@@ -166,11 +166,11 @@ describe('scoreFromDefects', () => {
     }))).toBe(8);
   });
 
-  it('minor + reduced-weight: height(-1) + wrong footprint(-0.5) = 1.5 off → 8.5', () => {
+  it('minor + low-weight: height(-1) + wrong footprint(-0.3) = 1.3 off → 8.7', () => {
     expect(scoreFromDefects(makeChecklist({
       height_truncated:      true, // -1
-      footprint_wrong_shape: true, // -0.5
-    }))).toBe(8.5);
+      footprint_wrong_shape: true, // -0.3
+    }))).toBe(8.7);
   });
 
   // ── Edge cases ─────────────────────────────────────────────────────────────
@@ -220,15 +220,15 @@ describe('scoreFromDefects', () => {
     }))).toBe(4);
   });
 
-  it('1 critical + all minors + both reduced = 7.0 off → 3', () => {
+  it('1 critical + all minors + both low-weight = 6.6 off → 3.4', () => {
     expect(scoreFromDefects(makeChecklist({
       false_positives_merged:    true,  // -2
       height_truncated:          true,  // -1
       facade_holes_visible:      true,  // -1
       floating_artifacts:        true,  // -1
       surface_detail_visible:    false, // -1
-      footprint_wrong_shape:     true,  // -0.5
-      proportions_correct:       false, // -0.5
-    }))).toBe(3);
+      footprint_wrong_shape:     true,  // -0.3
+      proportions_correct:       false, // -0.3
+    }))).toBe(3.4);
   });
 });
