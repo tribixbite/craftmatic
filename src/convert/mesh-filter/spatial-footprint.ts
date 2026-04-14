@@ -314,6 +314,202 @@ class CoordinateBitmapImpl {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared helpers (extracted from 4 duplicate implementations)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Project lat/lon polygon to block coordinates with optional rotation.
+ * Shared by maskToFootprint, maskToFootprintAligned, enforceFootprintPolygon,
+ * and alignOSMToFootprint.
+ *
+ * @param polygon     Array of {lat, lon} vertices
+ * @param centerLat   Center latitude (capture/address coords)
+ * @param centerLng   Center longitude (capture/address coords)
+ * @param resolution  Blocks per meter (scales projection)
+ * @param rotationAngle  Radians to rotate polygon (PCA alignment, default 0)
+ * @param round       Whether to Math.round the output coordinates (default true)
+ * @returns Array of {x, z} block coordinates
+ */
+export function projectPolygonToBlocks(
+  polygon: { lat: number; lon: number }[],
+  centerLat: number,
+  centerLng: number,
+  resolution: number,
+  rotationAngle: number,
+  round = true,
+): { x: number; z: number }[] {
+  const latScale = 111320 * resolution; // meters per degree × blocks per meter
+  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
+  let pts = polygon.map(p => ({
+    x: (p.lon - centerLng) * lonScale,
+    z: (centerLat - p.lat) * latScale, // flip: grid Z = south
+  }));
+  if (Math.abs(rotationAngle) > 0.01) {
+    const cos = Math.cos(-rotationAngle);
+    const sin = Math.sin(-rotationAngle);
+    pts = pts.map(p => ({
+      x: p.x * cos - p.z * sin,
+      z: p.x * sin + p.z * cos,
+    }));
+  }
+  if (round) {
+    pts = pts.map(p => ({ x: Math.round(p.x), z: Math.round(p.z) }));
+  }
+  return pts;
+}
+
+/**
+ * Rasterize a closed polygon into a CoordinateBitmapImpl using winding-number scanline fill.
+ * The polygon must be auto-closed (first vertex === last vertex).
+ *
+ * @param blockPts  Closed polygon vertices (first === last)
+ * @param minX      Bitmap min X bound (inclusive)
+ * @param maxX      Bitmap max X bound (inclusive)
+ * @param minZ      Bitmap min Z bound (inclusive)
+ * @param maxZ      Bitmap max Z bound (inclusive)
+ * @returns Populated bitmap with interior cells set
+ */
+export function rasterizePolygonToBitmap(
+  blockPts: { x: number; z: number }[],
+  minX: number, maxX: number, minZ: number, maxZ: number,
+): CoordinateBitmapImpl {
+  const bitmap = new CoordinateBitmapImpl(minX, maxX, minZ, maxZ);
+  for (let z = minZ; z <= maxZ; z++) {
+    const scanZ = z + 0.5;
+    const intercepts: { x: number; dir: 1 | -1 }[] = [];
+    for (let i = 0; i < blockPts.length - 1; i++) {
+      const a = blockPts[i], b = blockPts[i + 1];
+      if (a.z === b.z) continue;
+      const eMinZ = Math.min(a.z, b.z), eMaxZ = Math.max(a.z, b.z);
+      if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
+      const t = (scanZ - a.z) / (b.z - a.z);
+      intercepts.push({ x: a.x + t * (b.x - a.x), dir: a.z < b.z ? 1 : -1 });
+    }
+    intercepts.sort((a, b) => a.x - b.x);
+    let winding = 0, idx = 0;
+    for (let x = minX; x <= maxX; x++) {
+      const cx = x + 0.5;
+      while (idx < intercepts.length && intercepts[idx].x <= cx) {
+        winding += intercepts[idx].dir;
+        idx++;
+      }
+      if (winding !== 0) bitmap.set(x, z);
+    }
+  }
+  return bitmap;
+}
+
+/**
+ * Rasterize polygon to a Set of "x,z" strings (for IoU comparison).
+ * Unlike rasterizePolygonToBitmap, this takes floating-point points with an offset,
+ * rounds them internally, and returns a Set<string> for set intersection/union.
+ *
+ * @param pts  Polygon vertices (NOT necessarily closed; wraps using modular indexing)
+ * @param ox   X offset to apply after rounding
+ * @param oz   Z offset to apply after rounding
+ * @returns Set of "x,z" cell keys
+ */
+export function rasterizePolygonToSet(
+  pts: { x: number; z: number }[],
+  ox: number, oz: number,
+): Set<string> {
+  // Compute rounded bounds with offset
+  let minZ = Infinity, maxZ = -Infinity, minX = Infinity, maxX = -Infinity;
+  for (const p of pts) {
+    const rz = Math.round(p.z) + oz;
+    const rx = Math.round(p.x) + ox;
+    if (rz < minZ) minZ = rz;
+    if (rz > maxZ) maxZ = rz;
+    if (rx < minX) minX = rx;
+    if (rx > maxX) maxX = rx;
+  }
+  const cells = new Set<string>();
+  for (let z = minZ; z <= maxZ; z++) {
+    const scanZ = z + 0.5;
+    const intercepts: { x: number; dir: 1 | -1 }[] = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const az = Math.round(a.z) + oz, bz = Math.round(b.z) + oz;
+      if (az === bz) continue;
+      const eMinZ = Math.min(az, bz), eMaxZ = Math.max(az, bz);
+      if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
+      const t = (scanZ - (a.z + oz)) / ((b.z + oz) - (a.z + oz));
+      intercepts.push({ x: (a.x + ox) + t * ((b.x + ox) - (a.x + ox)), dir: az < bz ? 1 : -1 });
+    }
+    intercepts.sort((a, b) => a.x - b.x);
+    let winding = 0, idx = 0;
+    for (let x = minX; x <= maxX; x++) {
+      const cx = x + 0.5;
+      while (idx < intercepts.length && intercepts[idx].x <= cx) {
+        winding += intercepts[idx].dir;
+        idx++;
+      }
+      if (winding !== 0) cells.add(`${x},${z}`);
+    }
+  }
+  return cells;
+}
+
+/**
+ * Morphological close on a bitmap: dilate then erode by `radius`.
+ * Fills internal gaps without expanding the footprint boundary.
+ *
+ * @param bitmap  Mutable bitmap to close
+ * @param minX    Bitmap min X bound
+ * @param maxX    Bitmap max X bound
+ * @param minZ    Bitmap min Z bound
+ * @param maxZ    Bitmap max Z bound
+ * @param radius  Dilation/erosion radius in blocks
+ */
+export function morphCloseBitmap(
+  bitmap: CoordinateBitmapImpl,
+  minX: number, maxX: number, minZ: number, maxZ: number,
+  radius: number,
+): void {
+  if (radius <= 0 || bitmap.count === 0) return;
+
+  // Step 1: Dilate (expand by radius blocks)
+  const original: [number, number][] = [];
+  for (let lz = 0; lz <= maxZ - minZ; lz++) {
+    for (let lx = 0; lx <= maxX - minX; lx++) {
+      const x = lx + minX, z = lz + minZ;
+      if (bitmap.contains(x, z)) original.push([x, z]);
+    }
+  }
+  for (const [ox, oz] of original) {
+    for (let dz = -radius; dz <= radius; dz++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        bitmap.set(ox + dx, oz + dz);
+      }
+    }
+  }
+
+  // Step 2: Erode (shrink by radius blocks) — completes morphological close.
+  // A cell survives erosion only if ALL cells within radius are set.
+  const toRemove: [number, number][] = [];
+  for (let lz = 0; lz <= maxZ - minZ; lz++) {
+    for (let lx = 0; lx <= maxX - minX; lx++) {
+      const x = lx + minX, z = lz + minZ;
+      if (!bitmap.contains(x, z)) continue;
+      let allSet = true;
+      for (let ez = -radius; ez <= radius && allSet; ez++) {
+        for (let ex = -radius; ex <= radius && allSet; ex++) {
+          if (!bitmap.contains(x + ex, z + ez)) allSet = false;
+        }
+      }
+      if (!allSet) toRemove.push([x, z]);
+    }
+  }
+  for (const [rx, rz] of toRemove) {
+    bitmap.clear(rx, rz);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OSM footprint masking
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
  * Mask a BlockGrid to an OSM building footprint polygon.
  *
@@ -346,30 +542,10 @@ export function maskToFootprint(
 ): number {
   if (polygon.length < 3) return 0;
 
-
   const { width, height, length } = grid;
 
-  // Project polygon to block coords centered on capture point.
-  // Grid X = East (lon offset), Grid Z = South (negated lat offset).
-  // Scale by resolution (blocks/meter) so polygon maps correctly at higher resolutions.
-  const latScale = 111320 * resolution; // meters per degree × blocks per meter
-  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
-
-  let blockPts = polygon.map(p => ({
-    x: Math.round((p.lon - centerLng) * lonScale),
-    z: Math.round((centerLat - p.lat) * latScale), // flip: grid Z = south
-  }));
-
-  // Rotate polygon to match PCA horizontal alignment applied to the mesh.
-  // The mesh was rotated by -rotationAngle around Y, so polygon must rotate the same.
-  if (Math.abs(rotationAngle) > 0.01) {
-    const cos = Math.cos(-rotationAngle);
-    const sin = Math.sin(-rotationAngle);
-    blockPts = blockPts.map(p => ({
-      x: Math.round(p.x * cos - p.z * sin),
-      z: Math.round(p.x * sin + p.z * cos),
-    }));
-  }
+  // Project polygon to block coords centered on capture point (M4 dedup: shared helper)
+  let blockPts = projectPolygonToBlocks(polygon, centerLat, centerLng, resolution, rotationAngle);
 
   // Auto-close polygon if needed
   const first = blockPts[0];
@@ -389,70 +565,11 @@ export function maskToFootprint(
   minX -= dilate; maxX += dilate;
   minZ -= dilate; maxZ += dilate;
 
-  // Scanline fill the polygon into a bitmap
-  const bitmap = new CoordinateBitmapImpl(minX, maxX, minZ, maxZ);
-  for (let z = minZ; z <= maxZ; z++) {
-    const scanZ = z + 0.5;
-    const intercepts: { x: number; dir: 1 | -1 }[] = [];
-    for (let i = 0; i < blockPts.length - 1; i++) {
-      const a = blockPts[i], b = blockPts[i + 1];
-      if (a.z === b.z) continue;
-      const eMinZ = Math.min(a.z, b.z), eMaxZ = Math.max(a.z, b.z);
-      if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
-      const t = (scanZ - a.z) / (b.z - a.z);
-      intercepts.push({ x: a.x + t * (b.x - a.x), dir: a.z < b.z ? 1 : -1 });
-    }
-    intercepts.sort((a, b) => a.x - b.x);
-    let winding = 0, idx = 0;
-    for (let x = minX; x <= maxX; x++) {
-      const cx = x + 0.5;
-      while (idx < intercepts.length && intercepts[idx].x <= cx) {
-        winding += intercepts[idx].dir;
-        idx++;
-      }
-      if (winding !== 0) bitmap.set(x, z);
-    }
-  }
+  // Scanline fill the polygon into a bitmap (M4 dedup: shared helper)
+  const bitmap = rasterizePolygonToBitmap(blockPts, minX, maxX, minZ, maxZ);
 
-  // Morphological close: dilate then erode by same amount.
-  // Fills internal gaps without expanding the footprint boundary.
-  if (dilate > 0 && bitmap.count > 0) {
-    // Step 1: Dilate (expand by dilate blocks)
-    const original: [number, number][] = [];
-    for (let lz = 0; lz <= maxZ - minZ; lz++) {
-      for (let lx = 0; lx <= maxX - minX; lx++) {
-        const x = lx + minX, z = lz + minZ;
-        if (bitmap.contains(x, z)) original.push([x, z]);
-      }
-    }
-    for (const [ox, oz] of original) {
-      for (let dz = -dilate; dz <= dilate; dz++) {
-        for (let dx = -dilate; dx <= dilate; dx++) {
-          bitmap.set(ox + dx, oz + dz);
-        }
-      }
-    }
-
-    // Step 2: Erode (shrink by dilate blocks) — completes morphological close.
-    // A cell survives erosion only if ALL cells within dilate radius are set.
-    const toRemove: [number, number][] = [];
-    for (let lz = 0; lz <= maxZ - minZ; lz++) {
-      for (let lx = 0; lx <= maxX - minX; lx++) {
-        const x = lx + minX, z = lz + minZ;
-        if (!bitmap.contains(x, z)) continue;
-        let allSet = true;
-        for (let ez = -dilate; ez <= dilate && allSet; ez++) {
-          for (let ex = -dilate; ex <= dilate && allSet; ex++) {
-            if (!bitmap.contains(x + ex, z + ez)) allSet = false;
-          }
-        }
-        if (!allSet) toRemove.push([x, z]);
-      }
-    }
-    for (const [rx, rz] of toRemove) {
-      bitmap.clear(rx, rz);
-    }
-  }
+  // Morphological close: dilate then erode by same amount (M4 dedup: shared helper)
+  morphCloseBitmap(bitmap, minX, maxX, minZ, maxZ, dilate);
 
   // Map grid XZ to bitmap coords and mask. Grid center = bitmap (0,0).
   const gridCx = Math.floor(width / 2);
@@ -528,62 +645,8 @@ export function alignOSMToFootprint(
   }
   if (voxelFoot.size === 0) return null;
 
-  // Project polygon to block coords (same math as maskToFootprint)
-  const latScale = 111320 * resolution;
-  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
-  let blockPts = polygon.map(p => ({
-    x: (p.lon - centerLng) * lonScale,
-    z: (centerLat - p.lat) * latScale,
-  }));
-  if (Math.abs(rotationAngle) > 0.01) {
-    const cos = Math.cos(-rotationAngle);
-    const sin = Math.sin(-rotationAngle);
-    blockPts = blockPts.map(p => ({
-      x: p.x * cos - p.z * sin,
-      z: p.x * sin + p.z * cos,
-    }));
-  }
-
-  // Rasterize polygon to set of (x,z) cells using scanline fill
-  const rasterizePoly = (pts: { x: number; z: number }[], ox: number, oz: number): Set<string> => {
-    let minZ = Infinity, maxZ = -Infinity;
-    for (const p of pts) {
-      const rz = Math.round(p.z) + oz;
-      if (rz < minZ) minZ = rz;
-      if (rz > maxZ) maxZ = rz;
-    }
-    const cells = new Set<string>();
-    for (let z = minZ; z <= maxZ; z++) {
-      const scanZ = z + 0.5;
-      const intercepts: { x: number; dir: 1 | -1 }[] = [];
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i], b = pts[(i + 1) % pts.length];
-        const az = Math.round(a.z) + oz, bz = Math.round(b.z) + oz;
-        if (az === bz) continue;
-        const eMinZ = Math.min(az, bz), eMaxZ = Math.max(az, bz);
-        if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
-        const t = (scanZ - (a.z + oz)) / ((b.z + oz) - (a.z + oz));
-        intercepts.push({ x: (a.x + ox) + t * ((b.x + ox) - (a.x + ox)), dir: az < bz ? 1 : -1 });
-      }
-      intercepts.sort((a, b) => a.x - b.x);
-      let winding = 0, idx = 0;
-      let minX = Infinity, maxX = -Infinity;
-      for (const p of pts) {
-        const rx = Math.round(p.x) + ox;
-        if (rx < minX) minX = rx;
-        if (rx > maxX) maxX = rx;
-      }
-      for (let x = minX; x <= maxX; x++) {
-        const cx = x + 0.5;
-        while (idx < intercepts.length && intercepts[idx].x <= cx) {
-          winding += intercepts[idx].dir;
-          idx++;
-        }
-        if (winding !== 0) cells.add(`${x},${z}`);
-      }
-    }
-    return cells;
-  };
+  // Project polygon to block coords (M4 dedup: shared helper, unrounded for IoU sliding)
+  const blockPts = projectPolygonToBlocks(polygon, centerLat, centerLng, resolution, rotationAngle, false);
 
   // Slide and find best IoU
   let bestIoU = 0;
@@ -591,7 +654,8 @@ export function alignOSMToFootprint(
 
   for (let dz = -effectiveRadius; dz <= effectiveRadius; dz++) {
     for (let dx = -effectiveRadius; dx <= effectiveRadius; dx++) {
-      const osmCells = rasterizePoly(blockPts, dx, dz);
+      // M4 dedup: replaced inline rasterizePoly closure with shared helper
+      const osmCells = rasterizePolygonToSet(blockPts, dx, dz);
       if (osmCells.size === 0) continue;
 
       let intersection = 0;
@@ -630,24 +694,15 @@ export function maskToFootprintAligned(
 ): number {
   if (polygon.length < 3) return 0;
 
-
   const { width, height, length } = grid;
-  const latScale = 111320 * resolution;
-  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
 
-  let blockPts = polygon.map(p => ({
-    x: Math.round((p.lon - centerLng) * lonScale) + dx,
-    z: Math.round((centerLat - p.lat) * latScale) + dz,
-  }));
+  // H3 fix: project polygon to block coords WITHOUT offset first (M4 dedup: shared helper)
+  let blockPts = projectPolygonToBlocks(polygon, centerLat, centerLng, resolution, rotationAngle);
 
-  if (Math.abs(rotationAngle) > 0.01) {
-    const cos = Math.cos(-rotationAngle);
-    const sin = Math.sin(-rotationAngle);
-    blockPts = blockPts.map(p => ({
-      x: Math.round(p.x * cos - p.z * sin),
-      z: Math.round(p.x * sin + p.z * cos),
-    }));
-  }
+  // H3 fix: apply alignment offset AFTER rotation so it's in grid-space, not geo-space.
+  // Previously dx/dz was added before rotation, causing the offset vector itself to be
+  // rotated, shifting the polygon away from the IoU-found position.
+  blockPts = blockPts.map(p => ({ x: p.x + dx, z: p.z + dz }));
 
   // Auto-close
   const first = blockPts[0], last = blockPts[blockPts.length - 1];
@@ -664,48 +719,13 @@ export function maskToFootprintAligned(
   minX -= dilate; maxX += dilate;
   minZ -= dilate; maxZ += dilate;
 
-  // Scanline fill
-  const bitmap = new CoordinateBitmapImpl(minX, maxX, minZ, maxZ);
-  for (let z = minZ; z <= maxZ; z++) {
-    const scanZ = z + 0.5;
-    const intercepts: { x: number; dir: 1 | -1 }[] = [];
-    for (let i = 0; i < blockPts.length - 1; i++) {
-      const a = blockPts[i], b = blockPts[i + 1];
-      if (a.z === b.z) continue;
-      const eMinZ = Math.min(a.z, b.z), eMaxZ = Math.max(a.z, b.z);
-      if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
-      const t = (scanZ - a.z) / (b.z - a.z);
-      intercepts.push({ x: a.x + t * (b.x - a.x), dir: a.z < b.z ? 1 : -1 });
-    }
-    intercepts.sort((a, b) => a.x - b.x);
-    let winding = 0, idx = 0;
-    for (let x = minX; x <= maxX; x++) {
-      const cx = x + 0.5;
-      while (idx < intercepts.length && intercepts[idx].x <= cx) {
-        winding += intercepts[idx].dir;
-        idx++;
-      }
-      if (winding !== 0) bitmap.set(x, z);
-    }
-  }
+  // Scanline fill (M4 dedup: shared helper)
+  const bitmap = rasterizePolygonToBitmap(blockPts, minX, maxX, minZ, maxZ);
 
-  // Dilate
-  if (dilate > 0 && bitmap.count > 0) {
-    const original: [number, number][] = [];
-    for (let lz = 0; lz <= maxZ - minZ; lz++) {
-      for (let lx = 0; lx <= maxX - minX; lx++) {
-        const x = lx + minX, z = lz + minZ;
-        if (bitmap.contains(x, z)) original.push([x, z]);
-      }
-    }
-    for (const [ox, oz] of original) {
-      for (let ddz = -dilate; ddz <= dilate; ddz++) {
-        for (let ddx = -dilate; ddx <= dilate; ddx++) {
-          bitmap.set(ox + ddx, oz + ddz);
-        }
-      }
-    }
-  }
+  // H2 fix: full morphological close (dilate + erode), not dilate-only.
+  // Previously only the dilate step was present, making the aligned mask
+  // systematically larger than intended.
+  morphCloseBitmap(bitmap, minX, maxX, minZ, maxZ, dilate);
 
   // Apply mask
   const gridCx = Math.floor(width / 2);
@@ -787,24 +807,15 @@ export function enforceFootprintPolygon(
   colHeights.sort((a, b) => a - b);
   const medianH = colHeights[Math.floor(colHeights.length * 0.75)] ?? 10;
 
-  // Project polygon to block coords centered on building centroid
-  const latScale = 111320 * resolution;
-  const lonScale = 111320 * Math.cos(centerLat * Math.PI / 180) * resolution;
+  // Project polygon to block coords centered on building centroid (M4 dedup: shared helper)
+  let blockPts = projectPolygonToBlocks(polygon, centerLat, centerLng, resolution, rotationAngle);
 
-  let blockPts = polygon.map(p => ({
-    x: Math.round((p.lon - centerLng) * lonScale),
-    z: Math.round((centerLat - p.lat) * latScale),
-  }));
-
-  // Apply ENU rotation
-  if (Math.abs(rotationAngle) > 0.01) {
-    const cos = Math.cos(-rotationAngle);
-    const sin = Math.sin(-rotationAngle);
-    blockPts = blockPts.map(p => ({
-      x: Math.round(p.x * cos - p.z * sin),
-      z: Math.round(p.x * sin + p.z * cos),
-    }));
-  }
+  // M1 fix: compute polygon centroid BEFORE auto-close, so the duplicated closing vertex
+  // doesn't bias the centroid toward the first vertex.
+  let polyCx = 0, polyCz = 0;
+  for (const p of blockPts) { polyCx += p.x; polyCz += p.z; }
+  polyCx = Math.round(polyCx / blockPts.length);
+  polyCz = Math.round(polyCz / blockPts.length);
 
   // Auto-close polygon
   const first = blockPts[0];
@@ -812,12 +823,6 @@ export function enforceFootprintPolygon(
   if (first.x !== last.x || first.z !== last.z) {
     blockPts.push({ x: first.x, z: first.z });
   }
-
-  // Compute polygon centroid in block coords
-  let polyCx = 0, polyCz = 0;
-  for (const p of blockPts) { polyCx += p.x; polyCz += p.z; }
-  polyCx = Math.round(polyCx / blockPts.length);
-  polyCz = Math.round(polyCz / blockPts.length);
 
   // Shift polygon so its centroid aligns with building centroid in grid
   const shiftX = centX - polyCx;
@@ -830,32 +835,9 @@ export function enforceFootprintPolygon(
     z: Math.max(-1, Math.min(length, p.z)),
   }));
 
-  // Scanline fill polygon into bitmap (no dilation — exact edges)
+  // Scanline fill polygon into bitmap (no dilation — exact edges) (M4 dedup: shared helper)
   const minX = 0, maxX = width - 1, minZ = 0, maxZ = length - 1;
-  // Use grid bounds as bitmap extent — we only care about grid cells
-  const bitmap = new CoordinateBitmapImpl(minX, maxX, minZ, maxZ);
-  for (let z = minZ; z <= maxZ; z++) {
-    const scanZ = z + 0.5;
-    const intercepts: { x: number; dir: 1 | -1 }[] = [];
-    for (let i = 0; i < blockPts.length - 1; i++) {
-      const a = blockPts[i], b = blockPts[i + 1];
-      if (a.z === b.z) continue;
-      const eMinZ = Math.min(a.z, b.z), eMaxZ = Math.max(a.z, b.z);
-      if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
-      const t = (scanZ - a.z) / (b.z - a.z);
-      intercepts.push({ x: a.x + t * (b.x - a.x), dir: a.z < b.z ? 1 : -1 });
-    }
-    intercepts.sort((a, b) => a.x - b.x);
-    let winding = 0, idx = 0;
-    for (let x = minX; x <= maxX; x++) {
-      const cx = x + 0.5;
-      while (idx < intercepts.length && intercepts[idx].x <= cx) {
-        winding += intercepts[idx].dir;
-        idx++;
-      }
-      if (winding !== 0) bitmap.set(x, z);
-    }
-  }
+  const bitmap = rasterizePolygonToBitmap(blockPts, minX, maxX, minZ, maxZ);
 
   // Create dilated bitmap for clip tolerance (photogrammetry edges bleed 1-3 blocks
   // outside the exact OSM polygon). Core (un-dilated) bitmap used for fill decisions.

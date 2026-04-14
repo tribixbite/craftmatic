@@ -131,6 +131,9 @@ export {
   removeGroundPlaneAdaptive,
   maskToFootprint, alignOSMToFootprint, maskToFootprintAligned,
   enforceFootprintPolygon,
+  // Shared helpers (exported for testing and reuse)
+  projectPolygonToBlocks, rasterizePolygonToBitmap, rasterizePolygonToSet,
+  morphCloseBitmap,
 } from './mesh-filter/spatial-footprint.js';
 
 // Grid analysis, statistics, metrics
