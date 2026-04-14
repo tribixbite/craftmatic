@@ -146,7 +146,7 @@ async function fetchDatText(id: string): Promise<string | null> {
   return result;
 }
 
-async function resolvePartGeometry(id: string, depth = 0): Promise<PartGeom> {
+async function resolvePartGeometry(id: string, depth = 0, invertWinding = false): Promise<PartGeom> {
   const EMPTY: PartGeom = { tris: [], edges: [] };
   if (depth > 20) return EMPTY;
   const key = normId(id);
@@ -163,45 +163,67 @@ async function resolvePartGeometry(id: string, depth = 0): Promise<PartGeom> {
 
     const subPromises: Promise<void>[] = [];
 
+    // Parse BFC meta-commands to determine winding convention
+    let bfcCertified = false;
+    let bfcCCW = true; // default CCW if certified
+    let invertNext = false;
+
     for (const rawLine of text.split('\n')) {
       const line = rawLine.trim();
       if (!line) continue;
       const tok = line.split(/\s+/);
 
+      // BFC meta-commands
+      if (tok[0] === '0' && tok[1] === 'BFC') {
+        const cmd = tok.slice(2).join(' ').toUpperCase();
+        if (cmd.includes('CERTIFY')) {
+          bfcCertified = true;
+          bfcCCW = !cmd.includes('CW') || cmd.includes('CCW');
+        }
+        if (cmd === 'INVERTNEXT') invertNext = true;
+        if (cmd === 'CW') bfcCCW = false;
+        if (cmd === 'CCW') bfcCCW = true;
+        continue;
+      }
+
       if (tok[0] === '2' && tok.length >= 8) {
-        // Type 2: edge line
         geom.edges.push([
           [+tok[2]!, +tok[3]!, +tok[4]!],
           [+tok[5]!, +tok[6]!, +tok[7]!],
         ]);
       } else if (tok[0] === '3' && tok.length >= 11) {
-        geom.tris.push([
-          [+tok[2]!, +tok[3]!, +tok[4]!],
-          [+tok[5]!, +tok[6]!, +tok[7]!],
-          [+tok[8]!, +tok[9]!, +tok[10]!],
-        ]);
+        const v0: Vec3 = [+tok[2]!, +tok[3]!, +tok[4]!];
+        const v1: Vec3 = [+tok[5]!, +tok[6]!, +tok[7]!];
+        const v2: Vec3 = [+tok[8]!, +tok[9]!, +tok[10]!];
+        // Apply winding inversion if needed
+        const shouldInvert = invertWinding !== (!bfcCCW);
+        geom.tris.push(shouldInvert ? [v0, v2, v1] : [v0, v1, v2]);
       } else if (tok[0] === '4' && tok.length >= 14) {
         const v0: Vec3 = [+tok[2]!, +tok[3]!, +tok[4]!];
         const v1: Vec3 = [+tok[5]!, +tok[6]!, +tok[7]!];
         const v2: Vec3 = [+tok[8]!, +tok[9]!, +tok[10]!];
         const v3: Vec3 = [+tok[11]!, +tok[12]!, +tok[13]!];
-        geom.tris.push([v0, v1, v2], [v0, v2, v3]);
+        const shouldInvert = invertWinding !== (!bfcCCW);
+        if (shouldInvert) {
+          geom.tris.push([v0, v2, v1], [v0, v3, v2]);
+        } else {
+          geom.tris.push([v0, v1, v2], [v0, v2, v3]);
+        }
       } else if (tok[0] === '1' && tok.length >= 15 && depth < 19) {
         const tx = +tok[2]!, ty = +tok[3]!, tz = +tok[4]!;
         const R = [+tok[5]!,+tok[6]!,+tok[7]!, +tok[8]!,+tok[9]!,+tok[10]!, +tok[11]!,+tok[12]!,+tok[13]!];
         const T: Vec3 = [tx, ty, tz];
         const subId = tok.slice(14).join(' ').trim();
 
-        // Detect mirrored transforms: negative determinant means triangle winding is flipped
+        // BFC: determine if child should have inverted winding
         const det = R[0]*(R[4]*R[8]-R[5]*R[7]) - R[1]*(R[3]*R[8]-R[5]*R[6]) + R[2]*(R[3]*R[7]-R[4]*R[6]);
-        const mirrored = det < 0;
+        const childInvert = invertWinding !== (det < 0) !== invertNext;
+        invertNext = false; // INVERTNEXT applies to one reference only
 
         subPromises.push(
-          resolvePartGeometry(subId, depth + 1).then(sub => {
+          resolvePartGeometry(subId, depth + 1, childInvert).then(sub => {
             for (const [sv0, sv1, sv2] of sub.tris) {
-              const wv0 = applyMat(sv0, R, T), wv1 = applyMat(sv1, R, T), wv2 = applyMat(sv2, R, T);
-              // Swap v1/v2 for mirrored transforms to maintain correct face winding
-              geom.tris.push(mirrored ? [wv0, wv2, wv1] : [wv0, wv1, wv2]);
+              geom.tris.push([applyMat(sv0, R, T), applyMat(sv1, R, T), applyMat(sv2, R, T)]);
             }
             for (const [ev0, ev1] of sub.edges) {
               geom.edges.push([applyMat(ev0, R, T), applyMat(ev1, R, T)]);
