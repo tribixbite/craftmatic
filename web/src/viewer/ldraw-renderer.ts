@@ -12,8 +12,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-// mergeVertices causes see-through surfaces when merging across bricks — not used
-// import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SAOPass } from 'three/examples/jsm/postprocessing/SAOPass.js';
@@ -337,8 +336,11 @@ export async function createLDrawViewer(
   }));
 
   // ── Build world-space triangles grouped by color + collect edge lines ──
+  // Per-brick smooth normals: merge vertices WITHIN each brick (so cylinders
+  // get smooth normals) then add the smoothed positions+normals to the color group.
   interface ColorGroup {
     positions: number[];  // flat xyz array
+    normals: number[];    // flat xyz array (smooth per-brick)
   }
   interface EdgeGroup {
     positions: number[];
@@ -352,7 +354,7 @@ export async function createLDrawViewer(
   function getGroup(colorId: number): ColorGroup {
     let g = colorGroups.get(colorId);
     if (!g) {
-      g = { positions: [] };
+      g = { positions: [], normals: [] };
       colorGroups.set(colorId, g);
     }
     return g;
@@ -368,16 +370,49 @@ export async function createLDrawViewer(
 
     const group = getGroup(brick.color);
 
+    // Collect this brick's positions, compute smooth normals PER-BRICK,
+    // then append both positions and normals to the color group.
+    const brickPos: number[] = [];
     for (const [lv0, lv1, lv2] of geom.tris) {
       const wv0 = applyMat(lv0, R, T);
       const wv1 = applyMat(lv1, R, T);
       const wv2 = applyMat(lv2, R, T);
+      brickPos.push(
+        wv0[0] * scale, -wv0[1] * scale, wv0[2] * scale,
+        wv1[0] * scale, -wv1[1] * scale, wv1[2] * scale,
+        wv2[0] * scale, -wv2[1] * scale, wv2[2] * scale,
+      );
+    }
 
-      const x0 = wv0[0] * scale, y0 = -wv0[1] * scale, z0 = wv0[2] * scale;
-      const x1 = wv1[0] * scale, y1 = -wv1[1] * scale, z1 = wv1[2] * scale;
-      const x2 = wv2[0] * scale, y2 = -wv2[1] * scale, z2 = wv2[2] * scale;
-
-      group.positions.push(x0, y0, z0, x1, y1, z1, x2, y2, z2);
+    // Per-brick smooth normals: merge coincident vertices WITHIN this brick,
+    // compute vertex normals, then extract the smoothed data.
+    if (brickPos.length >= 9) {
+      const brickGeo = new THREE.BufferGeometry();
+      brickGeo.setAttribute('position', new THREE.Float32BufferAttribute(brickPos, 3));
+      const merged = mergeVertices(brickGeo, 1e-4);
+      merged.computeVertexNormals();
+      // Extract back to non-indexed flat arrays for the color group
+      const idx = merged.index;
+      const pos = merged.getAttribute('position');
+      const norm = merged.getAttribute('normal');
+      if (idx && pos && norm) {
+        for (let i = 0; i < idx.count; i++) {
+          const vi = idx.getX(i);
+          group.positions.push(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
+          group.normals.push(norm.getX(vi), norm.getY(vi), norm.getZ(vi));
+        }
+      } else {
+        // Fallback: use raw positions with face normals
+        group.positions.push(...brickPos);
+        const rawGeo = new THREE.BufferGeometry();
+        rawGeo.setAttribute('position', new THREE.Float32BufferAttribute(brickPos, 3));
+        rawGeo.computeVertexNormals();
+        const n = rawGeo.getAttribute('normal')!;
+        for (let i = 0; i < n.count; i++) group.normals.push(n.getX(i), n.getY(i), n.getZ(i));
+        rawGeo.dispose();
+      }
+      merged.dispose();
+      brickGeo.dispose();
     }
 
     // Collect edge lines grouped by brick color (cap total at 2M segments)
@@ -501,7 +536,11 @@ export async function createLDrawViewer(
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(group.positions, 3));
-    geometry.computeVertexNormals(); // per-face normals for flat shading
+    if (group.normals.length === group.positions.length) {
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(group.normals, 3));
+    } else {
+      geometry.computeVertexNormals();
+    }
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
 
@@ -529,7 +568,7 @@ export async function createLDrawViewer(
           clearcoat: metallic ? 0.0 : 0.3,
           clearcoatRoughness: 0.4,
           side: THREE.DoubleSide,
-          flatShading: true,
+          // Smooth normals computed per-brick: cylinders smooth, brick faces sharp
         });
 
     // Slight emissive tint for richer plastic look
