@@ -14,6 +14,7 @@
 import { querySolarBuildingInsights, type SolarBuildingData } from '@craft/gen/api/google-solar.js';
 import { searchOSMBuilding, type OSMBuildingData } from '@ui/import-osm.js';
 import type { LatLng } from '@ui/shared-geocode.js';
+import { computeSatelliteZoom } from '@craft/shared/satellite-zoom.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -51,14 +52,7 @@ function latLngToMeters(
   return { widthM, lengthM };
 }
 
-/** Calculate optimal satellite zoom for a given coverage extent */
-function computeSatelliteZoom(maxExtentM: number, latDeg: number): number {
-  // Target: building fills ~60% of 640px image → image covers ~1.67x extent
-  const targetCoverageM = maxExtentM * 2.0;
-  const latRad = latDeg * DEG2RAD;
-  const zoomExact = Math.log2(640 * 156543.03392 * Math.cos(latRad) / targetCoverageM);
-  return Math.min(21, Math.max(17, Math.round(zoomExact)));
-}
+// computeSatelliteZoom imported from @craft/shared/satellite-zoom.js
 
 /** Calculate optimal capture radius for 3D tiles */
 function computeCaptureRadius(widthM: number, lengthM: number): number {
