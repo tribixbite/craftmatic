@@ -870,10 +870,31 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
     // indicates a feature pixel (window, trim) whose darkness should be preserved.
     let isCenterPixelFeature = false;
 
-    if (kernelSize <= 0) {
-      // Point sampling (no bucketing)
-      const idx = (cy * w + cx) * 4;
-      r = data[idx]; g = data[idx + 1]; b = data[idx + 2];
+    if (kernelSize <= 1) {
+      // Point sampling with 5-point median filter for noise reduction.
+      // At high resolutions (>=2 block/m) each voxel covers 0.25-0.5m, so a single
+      // texel sample can hit JPEG compression artifacts or seam noise. Sampling 5
+      // points in a half-texel neighborhood and taking the luminance median filters
+      // salt-and-pepper noise without blurring material boundaries.
+      const delta = 0.5; // half a texel offset in pixel space
+      const offsets: Array<[number, number]> = [
+        [0, 0],
+        [-delta, -delta], [delta, -delta],
+        [-delta, delta],  [delta, delta],
+      ];
+      const samples: Array<[number, number, number, number]> = []; // [r, g, b, luminance]
+      for (const [dx, dy] of offsets) {
+        const sx = Math.min(w - 1, Math.max(0, Math.round(cx + dx)));
+        const sy = Math.min(h - 1, Math.max(0, Math.round(cy + dy)));
+        const idx = (sy * w + sx) * 4;
+        const sr = data[idx], sg = data[idx + 1], sb = data[idx + 2];
+        const lum = (sr * 77 + sg * 150 + sb * 29) >> 8;
+        samples.push([sr, sg, sb, lum]);
+      }
+      // Sort by luminance, take the median (index 2 of 5)
+      samples.sort((a, b) => a[3] - b[3]);
+      const median = samples[2];
+      r = median[0]; g = median[1]; b = median[2];
     } else {
       // Dominant color (mode) sampling: bucket pixels by luminance,
       // then return the average color of the most populated bucket.
