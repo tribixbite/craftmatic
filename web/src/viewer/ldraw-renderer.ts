@@ -102,6 +102,7 @@ function applyMat(v: Vec3, R: readonly number[], T: Vec3): Vec3 {
 
 const datTextCache  = new Map<string, string | null>();
 const partGeomCache = new Map<string, PartGeom>();
+const MAX_CACHE_ENTRIES = 10000; // prevent unbounded memory growth
 /** Color IDs discovered to be transparent via inline !COLOUR ALPHA definitions */
 const inlineTransparentColors = new Set<number>();
 const datInFlight   = new Map<string, Promise<string | null>>();
@@ -167,6 +168,11 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
   const promise = (async (): Promise<PartGeom> => {
     const text = await fetchDatText(key);
     if (!text) return EMPTY;
+    // Evict oldest cache entries if approaching limit
+    if (partGeomCache.size > MAX_CACHE_ENTRIES) {
+      const it = partGeomCache.keys();
+      for (let i = 0; i < 1000; i++) { const k = it.next(); if (k.done) break; partGeomCache.delete(k.value); }
+    }
 
     const geom: PartGeom = { tris: [], edges: [], colorTris: new Map(), colorEdges: new Map() };
     partGeomCache.set(key, geom); // cache early (cycle guard)
