@@ -41,9 +41,10 @@ export async function meshFileToGrid(
   const info = analyzeMesh(object);
 
   // Compute resolution that keeps the largest dimension under maxDimension.
-  // Default 128 for browser (keeps voxelization under ~10s on mobile).
+  // Default 96 for browser — balances quality vs mobile voxelization speed.
+  // At 96, a 140m building → 96×8×78 ≈ 60k voxels (vs 177k at 128).
   // CLI uses 256 via explicit option.
-  const maxDim = options?.maxDimension ?? 128;
+  const maxDim = options?.maxDimension ?? 96;
   const largestExtent = Math.max(info.boundingBox.width, info.boundingBox.height, info.boundingBox.depth);
   let resolution = options?.resolution ?? 1;
   if (largestExtent * resolution > maxDim) {
