@@ -44,8 +44,8 @@ import { resolveSemanticPalette, applySemanticPalette } from '../src/convert/sem
 import type { SemanticPalette } from '../src/convert/semantic-palette.js';
 import { BlockGrid } from '../src/schem/types.js';
 import { writeSchematic } from '../src/schem/write.js';
-import { queryStreetViewMetadata } from '../src/gen/api/google-streetview.js';
-import { extractColors } from '../src/gen/api/streetview-analysis.js';
+import { queryMultiHeadingSV } from '../src/gen/api/google-streetview.js';
+import { extractMultiAngleColors } from '../src/gen/api/streetview-analysis.js';
 import { existsSync, statSync } from 'node:fs';
 import { basename, extname, join, dirname, resolve } from 'node:path';
 import sharp from 'sharp';
@@ -1788,61 +1788,81 @@ async function main(): Promise<void> {
       console.log('  Semantic palette: no OSM material/colour data available');
     }
 
-    // Phase C: SV facade color — only when OSM didn't provide building:colour.
-    // SV images are often desaturated (gray street context bleeds in), so we skip
-    // low-saturation SV colors entirely to avoid replacing photogrammetric color
-    // with worse gray. OSM building:colour is always more reliable when present.
+    // Phase C: SV multi-heading facade color — only when OSM didn't provide building:colour.
+    // Captures 4 facade-aligned images from a single pano (free: 1 metadata call + 4 image URLs
+    // sharing one pano lookup). Weighted merge of wall colors across all visible facades gives
+    // much better material detection than a single heading.
     if (!palette?.wallColor) {
       try {
-        // File-based cache for SV metadata (avoids redundant API calls during iteration)
+        // File-based cache for multi-heading SV (avoids redundant API calls during iteration)
         const svCacheKey = `sv-${args.coords.lat.toFixed(6)}-${args.coords.lng.toFixed(6)}`;
         const svCacheDir = dirname(args.outputPath);
         const svCachePath = join(svCacheDir, `.cache-${svCacheKey}.json`);
         const SV_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-        let svMeta: Awaited<ReturnType<typeof queryStreetViewMetadata>> = null;
+
+        // Determine building extent for FOV adjustment
+        const svExtentM = buildingAlignment
+          ? Math.max(buildingAlignment.mbrWidth, buildingAlignment.mbrDepth)
+          : undefined;
+
+        // Try to load cached multi-angle result
+        type CachedSvMulti = { svImages: Awaited<ReturnType<typeof queryMultiHeadingSV>>; ts: number };
+        let svImages: Awaited<ReturnType<typeof queryMultiHeadingSV>> = [];
+        let cacheHit = false;
         if (existsSync(svCachePath)) {
           const cacheAge = Date.now() - statSync(svCachePath).mtimeMs;
           if (cacheAge < SV_CACHE_TTL_MS) {
-            svMeta = JSON.parse(await Bun.file(svCachePath).text());
-            console.log(`  SV metadata: loaded from cache (${(cacheAge / 3600000).toFixed(1)}h old)`);
+            try {
+              const cached: CachedSvMulti = JSON.parse(await Bun.file(svCachePath).text());
+              if (cached.svImages?.length > 0) {
+                svImages = cached.svImages;
+                cacheHit = true;
+                console.log(`  SV multi-heading: loaded from cache (${(cacheAge / 3600000).toFixed(1)}h old, ${svImages.length} facades)`);
+              }
+            } catch { /* cache parse error — re-fetch */ }
           }
         }
-        if (!svMeta) {
-          svMeta = await queryStreetViewMetadata(args.coords.lat, args.coords.lng);
-          if (svMeta) {
-            await Bun.write(svCachePath, JSON.stringify(svMeta));
+
+        if (!cacheHit) {
+          svImages = await queryMultiHeadingSV(
+            args.coords.lat, args.coords.lng,
+            buildingAlignment?.rotationDeg,
+            svExtentM,
+          );
+          if (svImages.length > 0) {
+            const cacheData: CachedSvMulti = { svImages, ts: Date.now() };
+            await Bun.write(svCachePath, JSON.stringify(cacheData));
           }
         }
-        if (svMeta?.imageUrl) {
-          console.log(`  SV image: heading=${svMeta.heading.toFixed(0)}° date=${svMeta.date}`);
-          const resp = await fetch(svMeta.imageUrl, { signal: AbortSignal.timeout(15000) });
-          if (resp.ok) {
-            const buf = Buffer.from(await resp.arrayBuffer());
-            const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-            const pixels = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-            const svColors = extractColors(pixels, info.width, info.height);
-            if (svColors) {
-              const { r, g, b } = svColors.wallColor;
-              // Skip desaturated SV colors — they're photogrammetry gray, not real facade color
-              const svMax = Math.max(r, g, b);
-              const svMin = Math.min(r, g, b);
-              const svSat = svMax > 0 ? (svMax - svMin) / svMax : 0;
-              if (svSat < 0.10) {
-                console.log(`  SV wall color: rgb(${r},${g},${b}) sat=${(svSat * 100).toFixed(0)}% — SKIPPED (too gray)`);
+
+        if (svImages.length > 0) {
+          // Extract and merge colors from all facade images
+          const multiResult = await extractMultiAngleColors(
+            svImages.map(img => ({ faceName: img.faceName, heading: img.heading, imageUrl: img.imageUrl })),
+          );
+          if (multiResult) {
+            const { r, g, b } = multiResult.wallColor;
+            const svMax = Math.max(r, g, b);
+            const svMin = Math.min(r, g, b);
+            const svSat = svMax > 0 ? (svMax - svMin) / svMax : 0;
+            if (svSat < 0.10) {
+              console.log(`  SV multi-angle wall: rgb(${r},${g},${b}) sat=${(svSat * 100).toFixed(0)}% conf=${multiResult.confidence.toFixed(2)} — SKIPPED (too gray)`);
+            } else {
+              console.log(`  SV multi-angle wall: rgb(${r},${g},${b}) sat=${(svSat * 100).toFixed(0)}% conf=${multiResult.confidence.toFixed(2)} → ${multiResult.wallBlock.replace('minecraft:', '')}`);
+              if (palette) {
+                palette.wallColor = { r, g, b };
+                palette.wallBlocks = [multiResult.wallBlock];
+                palette.source += ' + SV multi-angle';
               } else {
-                console.log(`  SV wall color: rgb(${r},${g},${b}) sat=${(svSat * 100).toFixed(0)}% → ${svColors.wallBlock.replace('minecraft:', '')}`);
-                if (palette) {
-                  palette.wallColor = { r, g, b };
-                  palette.source += ' + SV wall color';
-                } else {
-                  palette = {
-                    wallBlocks: [svColors.wallBlock],
-                    wallColor: { r, g, b },
-                    source: 'SV wall color',
-                  };
-                }
+                palette = {
+                  wallBlocks: [multiResult.wallBlock],
+                  wallColor: { r, g, b },
+                  source: 'SV multi-angle',
+                };
               }
             }
+          } else {
+            console.log('  SV multi-angle: color extraction failed');
           }
         } else {
           console.log('  SV: no street view imagery available');
@@ -1868,7 +1888,12 @@ async function main(): Promise<void> {
       }
     }
     if (!satRoof) {
-      satRoof = await sampleSatelliteRoof(args.coords.lat, args.coords.lng);
+      // Compute building extent for dynamic zoom — uses MBR dimensions when available,
+      // falls back to voxel grid dimensions converted from blocks to meters
+      const satExtentM = buildingAlignment
+        ? Math.max(buildingAlignment.mbrWidth, buildingAlignment.mbrDepth)
+        : Math.max(trimmed.width, trimmed.length) / args.resolution;
+      satRoof = await sampleSatelliteRoof(args.coords.lat, args.coords.lng, satExtentM);
       if (satRoof) {
         await Bun.write(satCachePath, JSON.stringify(satRoof));
       }

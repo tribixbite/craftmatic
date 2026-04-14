@@ -1028,3 +1028,141 @@ export async function analyzeStreetView(
 
   return { colors, structure, vision, imageUrl, isIndoor: false };
 }
+
+// ─── Multi-Angle Color Extraction ─────────────────────────────────────────────
+
+/** Per-facade color result from multi-angle analysis */
+export interface FacadeColorResult {
+  faceName: string;
+  heading: number;
+  wallColor: { r: number; g: number; b: number } | null;
+  /** Number of valid wall-zone pixels that contributed to the color */
+  pixelCount: number;
+}
+
+/** Merged result from multiple Street View facade images */
+export interface MultiSvColorResult {
+  /** Weighted-average wall color across all valid facades */
+  wallColor: { r: number; g: number; b: number };
+  /** Nearest Minecraft block for the merged wall color */
+  wallBlock: BlockState;
+  /** Per-facade breakdown for debugging/logging */
+  facades: FacadeColorResult[];
+  /** Agreement confidence 0-1: 1.0 = all facades agree, 0 = conflicting */
+  confidence: number;
+}
+
+/**
+ * Fetch and analyze multiple Street View facade images in parallel.
+ *
+ * For each image, runs zone-based color extraction (Tier 1) to get the
+ * dominant wall color. Then merges results using pixel-count weighting
+ * and inter-facade agreement scoring.
+ *
+ * @param images  Array of facade image descriptors (from queryMultiHeadingSV)
+ * @returns Merged color result, or null if no valid wall colors found
+ */
+export async function extractMultiAngleColors(
+  images: Array<{ faceName: string; heading: number; imageUrl: string }>,
+): Promise<MultiSvColorResult | null> {
+  const sharp = (await import('sharp')).default;
+
+  // Fetch all images in parallel
+  const fetchResults = await Promise.allSettled(
+    images.map(async (img) => {
+      const resp = await fetch(img.imageUrl, { signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) return null;
+      const buf = Buffer.from(await resp.arrayBuffer());
+      const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      return {
+        faceName: img.faceName,
+        heading: img.heading,
+        pixels: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+        width: info.width,
+        height: info.height,
+      };
+    }),
+  );
+
+  // Extract wall color from each image
+  const facades: FacadeColorResult[] = [];
+
+  for (const result of fetchResults) {
+    if (result.status !== 'fulfilled' || !result.value) {
+      continue;
+    }
+    const { faceName, heading, pixels, width, height } = result.value;
+    const colors = extractColors(pixels, width, height);
+
+    if (colors) {
+      const { wallColor } = colors;
+      // Check saturation — skip if too gray (likely sky/pavement, not facade)
+      const wMax = Math.max(wallColor.r, wallColor.g, wallColor.b);
+      const wMin = Math.min(wallColor.r, wallColor.g, wallColor.b);
+      const sat = wMax > 0 ? (wMax - wMin) / wMax : 0;
+
+      // Estimate valid wall pixels: center 70% × middle 40% of image
+      const wallPixels = Math.floor(width * 0.7) * Math.floor(height * 0.4);
+
+      facades.push({
+        faceName,
+        heading,
+        wallColor: sat >= 0.05 ? wallColor : null, // reject near-zero saturation
+        pixelCount: sat >= 0.05 ? wallPixels : 0,
+      });
+
+      const label = sat >= 0.05
+        ? `rgb(${wallColor.r},${wallColor.g},${wallColor.b}) sat=${(sat * 100).toFixed(0)}%`
+        : `SKIPPED (sat=${(sat * 100).toFixed(0)}%)`;
+      console.log(`    ${faceName} (${heading.toFixed(0)}°): ${label}`);
+    } else {
+      facades.push({ faceName, heading: result.value.heading, wallColor: null, pixelCount: 0 });
+      console.log(`    ${faceName} (${heading.toFixed(0)}°): no wall color detected`);
+    }
+  }
+
+  // Filter to facades with valid wall colors
+  const valid = facades.filter(f => f.wallColor !== null);
+  if (valid.length === 0) return null;
+
+  // Weighted merge: weight by pixel count (facades with more wall area contribute more)
+  let totalWeight = 0;
+  let wR = 0, wG = 0, wB = 0;
+  for (const f of valid) {
+    const w = f.pixelCount || 1;
+    wR += f.wallColor!.r * w;
+    wG += f.wallColor!.g * w;
+    wB += f.wallColor!.b * w;
+    totalWeight += w;
+  }
+  const mergedR = Math.round(wR / totalWeight);
+  const mergedG = Math.round(wG / totalWeight);
+  const mergedB = Math.round(wB / totalWeight);
+
+  // Compute inter-facade agreement via Lab delta-E
+  // High agreement = all facades see similar color = high confidence
+  const { rgbToLab } = await import('../color-blocks.js');
+  const mergedLab = rgbToLab(mergedR, mergedG, mergedB);
+  let maxDeltaE = 0;
+  for (const f of valid) {
+    const fLab = rgbToLab(f.wallColor!.r, f.wallColor!.g, f.wallColor!.b);
+    const dL = mergedLab[0] - fLab[0];
+    const da = mergedLab[1] - fLab[1];
+    const db = mergedLab[2] - fLab[2];
+    const dE = Math.sqrt(dL * dL + da * da + db * db);
+    if (dE > maxDeltaE) maxDeltaE = dE;
+  }
+  // confidence: deltaE=0 → 1.0, deltaE=30 → 0.5, deltaE=60+ → ~0
+  const confidence = Math.max(0, 1.0 - maxDeltaE / 60);
+
+  const wallBlock = rgbToWallBlock(mergedR, mergedG, mergedB);
+
+  console.log(`  SV merged: rgb(${mergedR},${mergedG},${mergedB}) → ${wallBlock.replace('minecraft:', '')} (${valid.length} facades, conf=${confidence.toFixed(2)})`);
+
+  return {
+    wallColor: { r: mergedR, g: mergedG, b: mergedB },
+    wallBlock,
+    facades,
+    confidence,
+  };
+}
