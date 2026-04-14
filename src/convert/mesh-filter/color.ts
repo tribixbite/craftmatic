@@ -91,15 +91,22 @@ export function smoothRareBlocks(grid: BlockGrid, minFrequency = 0.02): number {
     }
   }
 
-  // Pass 2: replace rare blocks with most common neighbor
+  // Pass 2: replace rare blocks with most common neighbor.
+  // Snapshot the grid so neighbor reads see the pre-mutation state —
+  // prevents cascading where an early replacement changes a later
+  // voxel's neighborhood (same pattern as modeFilter3D).
+  const snap = snapshotGrid(grid);
+  const snapRead = (sx: number, sy: number, sz: number) => readSnap(snap, grid, sx, sy, sz);
+
   let replaced = 0;
   for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
-        const block = grid.get(x, y, z);
+        // Read from snapshot so already-replaced voxels don't get re-processed
+        const block = snapRead(x, y, z);
         if (block === 'minecraft:air' || !rareBlocks.has(block)) continue;
 
-        // Count non-air neighbors in 3x3x3 cube
+        // Count non-air neighbors in 3x3x3 cube (reading from snapshot)
         const neighborCounts = new Map<string, number>();
         for (let dy = -1; dy <= 1; dy++) {
           const ny = y + dy;
@@ -111,7 +118,7 @@ export function smoothRareBlocks(grid: BlockGrid, minFrequency = 0.02): number {
               if (dx === 0 && dy === 0 && dz === 0) continue;
               const nx = x + dx;
               if (nx < 0 || nx >= width) continue;
-              const nb = grid.get(nx, ny, nz);
+              const nb = snapRead(nx, ny, nz);
               if (nb !== 'minecraft:air' && !rareBlocks.has(nb)) {
                 neighborCounts.set(nb, (neighborCounts.get(nb) ?? 0) + 1);
               }
