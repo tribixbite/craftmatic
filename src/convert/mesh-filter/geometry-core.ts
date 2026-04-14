@@ -857,15 +857,11 @@ export function smoothSurface(grid: BlockGrid, maxY?: number, preserveBoundary =
         } else if (!layer[idx] && opened[idx]) {
           // Dilated back — find nearest block color
           let bestBlock = AIR;
-          let bestDist = Infinity;
           for (const [dx, dz] of H_DIRS) {
             const nx = x + dx, nz = z + dz;
             if (nx >= 0 && nx < width && nz >= 0 && nz < length) {
               const nIdx = nz * width + nx;
-              if (blocks[nIdx] !== AIR) {
-                const dist = 1;
-                if (dist < bestDist) { bestDist = dist; bestBlock = blocks[nIdx]; }
-              }
+              if (blocks[nIdx] !== AIR) { bestBlock = blocks[nIdx]; break; }
             }
           }
           if (bestBlock !== AIR) {

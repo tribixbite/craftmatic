@@ -74,6 +74,7 @@ export function restoreGridBlocks(grid: BlockGrid, snapshot: GridSnapshot): void
     }
   }
   // Then: restore all blocks from the snapshot
+  // Index formula: idx = (y * length + z) * width + x
   for (const [idx, block] of snapshot.blocks) {
     const x = idx % width;
     const z = Math.floor(idx / width) % length;

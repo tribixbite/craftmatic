@@ -9,6 +9,7 @@ const OVERPASS_SERVERS = [
   'https://lz4.overpass-api.de/api/interpreter',
   'https://z.overpass-api.de/api/interpreter',
 ];
+// Single-threaded round-robin counter — safe for async but not for worker threads
 let nextServerIdx = 0;
 
 /** Pick next Overpass server in round-robin order */

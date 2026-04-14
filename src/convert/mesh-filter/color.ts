@@ -380,7 +380,10 @@ export function smoothDarkBlocks(grid: BlockGrid, contrastDelta = 0.20, radius =
   }
 
   // Pass 2: Replace contrast outliers (dark blocks in bright neighborhoods)
-  // Reads original grid state (Pass 1 writes deferred), preventing cascading brightness inflation.
+  // SAFETY NOTE: Pass 2 reads from the live grid, which is still unmutated because
+  // all Pass 1 writes are deferred in `allReplacements`. This is equivalent to reading
+  // a snapshot. If a Pass 3 is ever added, snapshot the grid before Pass 2 to prevent
+  // cascading (same pattern as smoothRareBlocks).
   {
     for (let y = 0; y < height; y++) {
       for (let z = 0; z < length; z++) {
@@ -541,8 +544,9 @@ export function smoothFacadeColors(grid: BlockGrid): number {
             const dE = Math.sqrt(
               (cLab[0] - mLab[0]) ** 2 + (cLab[1] - mLab[1]) ** 2 + (cLab[2] - mLab[2]) ** 2,
             );
-            // Only replace noisy outliers (delta-E > 15) — preserves real trim/accent transitions
-            if (dE > 15) {
+            // Only replace noisy outliers (delta-E > 20) — preserves real trim/accent transitions
+            // Consistent with modeFilter3D delta-E guard threshold
+            if (dE > 20) {
               grid.set(x, y, z, majorBlock);
               replaced++;
             }
@@ -599,7 +603,7 @@ export function clusterFacadePalette(grid: BlockGrid, k = 4): number {
             let group = faceGroups.get(key);
             if (!group) { group = []; faceGroups.set(key, group); }
             group.push({ x, y, z, block, lab });
-            break; // only assign to first exposed face
+            break; // only assign to first exposed face (corner blocks get one face, prevents double-counting)
           }
         }
       }

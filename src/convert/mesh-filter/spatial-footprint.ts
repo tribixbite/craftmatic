@@ -26,8 +26,8 @@ import { AIR } from './_internal.js';
 export function cropToCenter(grid: BlockGrid, radius: number): number {
 
   const { width, height, length } = grid;
-  const cx = width / 2;
-  const cz = length / 2;
+  const cx = Math.floor(width / 2);
+  const cz = Math.floor(length / 2);
   const r2 = radius * radius;
   let removed = 0;
 
@@ -455,7 +455,9 @@ export function rasterizePolygonToSet(
 
 /**
  * Morphological close on a bitmap: dilate then erode by `radius`.
+ * Uses circular structuring element (Euclidean distance ≤ radius).
  * Fills internal gaps without expanding the footprint boundary.
+ * Complexity: O(N × r²) where N = bitmap area — fine for typical radii (1-5).
  *
  * @param bitmap  Mutable bitmap to close
  * @param minX    Bitmap min X bound
