@@ -919,13 +919,26 @@ export async function createLDrawViewer(
   // ── Return ViewerState ─────────────────────────────────────────────────
   const dummyGrid = new BlockGrid(1, 1, 1);
 
+  /** Capture a PNG screenshot of the current view */
+  const captureScreenshot = (): string => {
+    composer.render();
+    return renderer.domElement.toDataURL('image/png');
+  };
+
+  /** Toggle auto-rotation for presentation mode */
+  const setAutoRotate = (enabled: boolean) => {
+    controls.autoRotate = enabled;
+  };
+
   return {
     scene,
     camera,
     renderer,
     controls,
-    meshes: meshes as unknown as THREE.InstancedMesh[], // ViewerState expects InstancedMesh[]
+    meshes: meshes as unknown as THREE.InstancedMesh[],
     grid: dummyGrid,
+    captureScreenshot,
+    setAutoRotate,
     dispose: () => {
       cancelAnimationFrame(animId);
       resizeObs.disconnect();
