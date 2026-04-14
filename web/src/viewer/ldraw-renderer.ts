@@ -608,6 +608,8 @@ export async function createLDrawViewer(
         transmission: 0.85, ior: 1.45, thickness: 0.5,
         transparent: true, opacity: 0.9,
         side: THREE.DoubleSide, depthWrite: false,
+        // Subtle glow for colored transparent parts (headlights, signal lights)
+        emissive: color.clone().multiplyScalar(0.15),
       });
     } else if (metallic) {
       material = new THREE.MeshPhysicalMaterial({
