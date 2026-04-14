@@ -708,8 +708,8 @@ export async function createLDrawViewer(
     scene.environment = pmremGen.fromScene(envScene, 0.04).texture;
     scene.environmentIntensity = 0.6;
     pmremGen.dispose();
-  } catch {
-    // Environment map failed (GPU limitation) — scene still renders with direct lighting
+  } catch (e) {
+    console.warn('[ldraw-renderer] Environment map failed (GPU limitation):', e);
   }
 
   // ── Lighting (product photography style) ───────────────────────────────
