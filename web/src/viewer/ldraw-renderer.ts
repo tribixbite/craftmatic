@@ -181,6 +181,10 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
       const line = rawLine.trim();
       if (!line) continue;
 
+      // Skip embedded data blocks (base64 texture data)
+      if (/^0\s+!DATA\s/i.test(line)) { texmapDepth++; continue; }
+      if (/^0\s+!:/i.test(line) && texmapDepth > 0) continue; // data continuation line
+
       // Track TEXMAP blocks — skip their geometry (we can't render textures)
       if (/^0\s+!TEXMAP\s+START/i.test(line) || /^0\s+!TEXMAP\s+NEXT/i.test(line)) {
         texmapDepth++;
