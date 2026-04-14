@@ -179,25 +179,25 @@ export interface SvFacadeImage {
 }
 
 /**
- * Query Street View for up to 4 facade-aligned images from a single panorama.
+ * Query Street View for 3 bearing-aligned images from a single panorama.
  *
- * Uses one metadata API call (free), then constructs 4 image URLs at headings
- * aligned to the building's MBR axes. All 4 images share the same pano ID,
- * so only one quota lookup is consumed.
+ * Uses one metadata API call (free), then constructs 3 image URLs using the
+ * bearing from pano to building center ± 30° offsets. All images share the
+ * same pano ID, so only one quota lookup is consumed.
+ *
+ * The bearing-centric approach ensures all images actually show the building.
+ * MBR-aligned headings can point 60°+ away when the pano isn't on a facade
+ * normal, producing images of road/sky instead of the building.
  *
  * Image params: 640×640, pitch=5° (less sky), fov adjustable for large buildings.
  *
  * @param lat  Building center latitude
  * @param lng  Building center longitude
- * @param mbrRotationDeg  Building long-axis rotation from BuildingAlignment (optional).
- *                        If omitted, uses the default bearing toward building center
- *                        as the "front" heading.
  * @param buildingExtentM  Max footprint dimension for FOV adjustment (optional)
  * @param apiKey  Google Maps API key (falls back to env)
  */
 export async function queryMultiHeadingSV(
   lat: number, lng: number,
-  mbrRotationDeg?: number,
   buildingExtentM?: number,
   apiKey?: string,
 ): Promise<SvFacadeImage[]> {
@@ -219,45 +219,38 @@ export async function queryMultiHeadingSV(
   const panoLat = data.location!.lat;
   const panoLng = data.location!.lng;
 
-  // Determine base heading: MBR-aligned facade normal, or geo bearing to building
-  let baseHeading: number;
-  if (mbrRotationDeg != null) {
-    // MBR rotation is the long-axis angle from north. The facade normal
-    // perpendicular to the long axis faces at rotationDeg + 90° (or -90°).
-    // Pick the side facing the SV camera.
-    const bearingToBuilding = computeHeading(panoLat, panoLng, lat, lng);
-    const candidate1 = (mbrRotationDeg + 90) % 360;
-    const candidate2 = (mbrRotationDeg + 270) % 360;
-    // Choose whichever facade normal is closer to the bearing from pano to building
-    const diff1 = Math.abs(((bearingToBuilding - candidate1) + 540) % 360 - 180);
-    const diff2 = Math.abs(((bearingToBuilding - candidate2) + 540) % 360 - 180);
-    baseHeading = diff1 <= diff2 ? candidate1 : candidate2;
-  } else {
-    baseHeading = computeHeading(panoLat, panoLng, lat, lng);
-  }
-
   // Wider FOV for large buildings (> 30m extent)
   const fov = (buildingExtentM && buildingExtentM > 30) ? 110 : 90;
 
-  // 4 headings at 90° intervals, aligned to building facades
-  const faceNames: Array<'front' | 'right' | 'rear' | 'left'> = ['front', 'right', 'rear', 'left'];
+  // Bearing-centric approach: the bearing from pano to building center always points
+  // the camera AT the building. MBR-aligned headings can point 60°+ away from the
+  // building when the pano isn't on a facade normal, causing images that show road/sky
+  // instead of the building. Use bearing as primary, ±30° for oblique side views.
+  const bearingToBuilding = computeHeading(panoLat, panoLng, lat, lng);
+
+  const offsets: Array<{ offset: number; faceName: 'front' | 'right' | 'left' }> = [
+    { offset: 0, faceName: 'front' },    // head-on at building center
+    { offset: -30, faceName: 'left' },    // 30° left — shows right side of building
+    { offset: +30, faceName: 'right' },   // 30° right — shows left side of building
+  ];
+
   const results: SvFacadeImage[] = [];
 
-  for (let i = 0; i < 4; i++) {
-    const heading = (baseHeading + i * 90) % 360;
+  for (const { offset, faceName } of offsets) {
+    const heading = ((bearingToBuilding + offset) % 360 + 360) % 360;
     const imageUrl = `${SV_IMAGE_BASE}`
       + `?size=640x640&pano=${panoId}`
       + `&heading=${heading.toFixed(1)}&pitch=5&fov=${fov}`
       + `&key=${key}`;
     results.push({
       heading,
-      faceName: faceNames[i],
+      faceName,
       imageUrl,
       panoId,
     });
   }
 
-  console.log(`  SV multi-heading: pano=${panoId.slice(0, 12)}… base=${baseHeading.toFixed(0)}° fov=${fov}° (4 facades)`);
+  console.log(`  SV multi-heading: pano=${panoId.slice(0, 12)}… bearing=${bearingToBuilding.toFixed(0)}° fov=${fov}° (${results.length} views: center, ±30°)`);
   return results;
 }
 
