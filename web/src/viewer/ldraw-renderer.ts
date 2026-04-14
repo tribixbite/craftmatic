@@ -785,17 +785,21 @@ export async function createLDrawViewer(
       material = new THREE.MeshPhysicalMaterial({
         color, roughness: 0.05, metalness: 0.0,
         transmission: 0.85, ior: 1.45, thickness: 0.5,
+        specularIntensity: 1.0,
+        specularColor: new THREE.Color(0xffffff),
         transparent: true, opacity: 0.9,
         side: THREE.DoubleSide, depthWrite: false,
-        // Subtle glow for colored transparent parts (headlights, signal lights)
-        emissive: color.clone().multiplyScalar(0.15),
+        emissive: color.clone().multiplyScalar(0.12),
       });
     } else if (metallic) {
+      // Pearl/chrome: warm specular highlight for realistic metallic look
       material = new THREE.MeshPhysicalMaterial({
-        color, roughness: 0.12, metalness: 0.9,
-        clearcoat: 0.5, clearcoatRoughness: 0.1,
+        color, roughness: 0.1, metalness: 0.92,
+        clearcoat: 0.6, clearcoatRoughness: 0.08,
+        specularIntensity: 1.5,
+        specularColor: color.clone().lerp(new THREE.Color(0xffffff), 0.3),
         side: THREE.DoubleSide,
-        emissive: color.clone().multiplyScalar(0.05),
+        emissive: color.clone().multiplyScalar(0.04),
       });
     } else if (rubber) {
       // Rubber: matte finish, no clearcoat, slightly higher roughness
