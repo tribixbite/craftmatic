@@ -11,6 +11,23 @@
 import { BlockGrid } from '../../schem/types.js';
 import { AIR, H_DIRS, getBlockLab } from './_internal.js';
 
+// ─── SV-informed fenestration hints ────────────────────────────────────────
+
+/**
+ * Optional hints from Street View analysis to guide window placement.
+ * When provided, overrides auto-detected spacing/sizing with SV-derived
+ * values for more accurate fenestration. Falls back gracefully to existing
+ * behavior when any field is absent.
+ */
+export interface FenestrationHint {
+  /** Windows per floor (from SV analysis) */
+  windowsPerFloor?: number;
+  /** Window-to-wall ratio 0-1 */
+  glazingRatio?: number;
+  /** Building has regular grid pattern */
+  regularGrid?: boolean;
+}
+
 // ─── Module-level block sets ────────────────────────────────────────────────
 
 /** Dark blocks that typically represent baked window/shadow regions.
@@ -73,9 +90,13 @@ const WINDOW_BLOCKS = new Set([
  *                           photogrammetry windows that appear as slightly darker gray
  *                           rather than truly dark. Also lowers minimum chain size and
  *                           contrast requirements. (default: false)
+ * @param hint               Optional SV-derived fenestration hint. When `glazingRatio`
+ *                           is provided, overrides the default glazing cap:
+ *                           - glazingRatio > 0.3 → allow up to 40% dark blocks as windows
+ *                           - glazingRatio < 0.1 → skip glazing entirely (few windows expected)
  * @returns Number of blocks glazed
  */
-export function glazeDarkWindows(grid: BlockGrid, resolution = 1, photogrammetryMode = false): number {
+export function glazeDarkWindows(grid: BlockGrid, resolution = 1, photogrammetryMode = false, hint?: FenestrationHint): number {
   const { width, height, length } = grid;
 
   let glazed = 0;
@@ -124,11 +145,20 @@ export function glazeDarkWindows(grid: BlockGrid, resolution = 1, photogrammetry
 
   if (facadeBlocks.length === 0) return 0;
 
+  // SV hint: skip glazing entirely when glazingRatio is very low (few/no windows expected)
+  if (hint?.glazingRatio !== undefined && hint.glazingRatio < 0.1) {
+    console.log(`    glazeDarkWindows: SKIPPED — SV glazingRatio ${hint.glazingRatio.toFixed(2)} < 0.1 (few windows expected)`);
+    return 0;
+  }
+
   // Count total non-air exterior blocks for glazing cap.
   // If dark facade blocks exceed MAX_GLAZE_PCT of total facade, the "windows"
   // are actually baked photogrammetry shadows — skip glazing entirely.
   // In photogrammetry mode, raise the cap because the expanded dark set catches more blocks.
-  const MAX_GLAZE_PCT = photogrammetryMode ? 0.40 : 0.30;
+  // SV hint: high glazingRatio (>0.3) raises cap to 40% to allow more window conversion.
+  const MAX_GLAZE_PCT = (hint?.glazingRatio !== undefined && hint.glazingRatio > 0.3)
+    ? 0.40
+    : photogrammetryMode ? 0.40 : 0.30;
   let totalFacadeBlocks = 0;
   for (let y = MIN_Y; y < height; y++) {
     for (let z = 0; z < length; z++) {
@@ -482,11 +512,17 @@ export function glazeReflectiveWindows(grid: BlockGrid, resolution = 1): number 
  * floor height. Only modifies exterior facade blocks that are the dominant
  * facade material (to avoid overwriting trim, corners, or accent blocks).
  *
- * @param grid  Source BlockGrid (modified in place)
+ * @param grid            Source BlockGrid (modified in place)
  * @param existingGlazed  Number of blocks already glazed by glazeDarkWindows
+ * @param resolution      Blocks per meter (default: 1)
+ * @param hint            Optional SV-derived fenestration hint. When provided:
+ *                        - `windowsPerFloor` overrides auto-detected horizontal spacing
+ *                          (spacing = facadeWidth / (windowsPerFloor + 1))
+ *                        - `glazingRatio` adjusts window placement density
+ *                        - `regularGrid=false` adds +-1 block jitter to positions
  * @returns Number of blocks converted to windows
  */
-export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number, resolution = 1): number {
+export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number, resolution = 1, hint?: FenestrationHint): number {
   const { width, height, length } = grid;
 
   const GLASS = 'minecraft:gray_stained_glass';
@@ -573,10 +609,27 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number, 
   // Scale foundation skip with resolution: 3m at res 3 = 9 blocks
   const MIN_Y = Math.max(3, Math.round(3 * resolution));
 
+  // SV hint: compute horizontal spacing from windowsPerFloor if available.
+  // Approximate facade width from the grid's XZ extent. The true per-face width
+  // varies, but the grid max dimension is a reasonable proxy for spacing math.
+  const facadeWidthEstimate = Math.max(width, length);
+  const hintSpacing = (hint?.windowsPerFloor && hint.windowsPerFloor >= 1)
+    ? Math.max(2, Math.round(facadeWidthEstimate / (hint.windowsPerFloor + 1)))
+    : 0;
+
+  // SV hint: if glazingRatio is provided and high (>0.4), allow windows closer
+  // to ceiling (skip only floor slab, not ceiling slab). More window area.
+  const skipCeiling = !(hint?.glazingRatio !== undefined && hint.glazingRatio > 0.4);
+
+  // Deterministic jitter for irregular patterns.
+  // When regularGrid is explicitly false, add +-1 block offset to break mechanical grid.
+  const addJitter = hint?.regularGrid === false;
+
   for (let y = MIN_Y; y < height - 2; y++) {
     // Window rows: not at the very top or bottom of each floor
     const floorPos = y % bestPeriod;
-    if (floorPos === 0 || floorPos === bestPeriod - 1) continue; // skip floor/ceiling layers
+    if (floorPos === 0) continue; // always skip floor slab layer
+    if (skipCeiling && floorPos === bestPeriod - 1) continue;
 
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
@@ -594,10 +647,19 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number, 
         }
         if (!isFacade) continue;
 
-        // Horizontal spacing: window every 3*resolution blocks (scale with resolution)
-        // Use (x + z) to create a consistent pattern across facades
-        const hSpacing = Math.max(3, Math.round(3 * resolution));
-        if ((x + z) % hSpacing !== 0) continue;
+        // Horizontal spacing: use SV hint if available, else default 3*resolution
+        const hSpacing = hintSpacing > 0
+          ? hintSpacing
+          : Math.max(3, Math.round(3 * resolution));
+
+        // Apply jitter for non-regular grids: deterministic +-1 offset based on position.
+        // Uses a simple hash to produce consistent jitter per (x,z) pair.
+        let adjustedPos = x + z;
+        if (addJitter) {
+          const hash = ((x * 31 + z * 17 + y * 7) & 0xFFFF) % 3 - 1; // -1, 0, or 1
+          adjustedPos += hash;
+        }
+        if (adjustedPos % hSpacing !== 0) continue;
 
         // Don't place windows on corner blocks (where two facades meet)
         let facadeCount = 0;
