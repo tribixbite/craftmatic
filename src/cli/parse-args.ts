@@ -48,6 +48,8 @@ export interface CLIArgs {
   plotRadius: number;      // plot context expansion radius in meters (0 = auto)
   zoneNormalize: boolean;  // apply 5-zone facade normalization (default: off, preserves raw photogrammetric colors)
   recolor: boolean;        // v314: SV/satellite-driven facade+roof recoloring (requires --coords)
+  checkpoint: boolean;     // save grid checkpoints at key pipeline stages
+  restore: string;         // restore from named checkpoint and skip earlier stages
 }
 
 export function parseArgs(): CLIArgs {
@@ -92,7 +94,9 @@ Options:
   --scene            Unified scene pipeline: env extraction → strip → feature replacement →
                      plot expansion → enrichment — requires --coords
   --plot-radius N    Plot context radius in meters (default: auto = building + 15m per side)
-  --recolor          SV/satellite-driven facade+roof recoloring — requires --coords`);
+  --recolor          SV/satellite-driven facade+roof recoloring — requires --coords
+  --checkpoint       Save grid checkpoints at key pipeline stages for iterative refinement
+  --restore NAME     Restore from a named checkpoint, skip earlier stages (e.g. --restore post-fill)`);
     process.exit(0);
   }
 
@@ -142,6 +146,8 @@ Options:
   let plotRadius = 0; // 0 = auto-compute when --scene
   let zoneNormalize = false; // v300: off by default — preserve raw photogrammetric CIELAB colors
   let recolor = false; // v314: SV/satellite facade+roof recoloring
+  let checkpoint = false; // save grid checkpoints at key pipeline stages
+  let restore = ''; // restore from named checkpoint
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -230,6 +236,11 @@ Options:
       zoneNormalize = true;
     } else if (arg === '--recolor') {
       recolor = true;
+    } else if (arg === '--checkpoint') {
+      checkpoint = true;
+    } else if (arg === '--restore') {
+      restore = args[++i];
+      checkpoint = true; // --restore implies checkpoint mode for save points after restore
     } else if (arg === '--mask-dilate') {
       maskDilate = parseInt(args[++i], 10);
     } else if (arg === '--clean') {
@@ -290,5 +301,5 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize, recolor };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize, recolor, checkpoint, restore };
 }

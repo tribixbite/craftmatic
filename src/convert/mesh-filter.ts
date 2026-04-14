@@ -148,6 +148,7 @@ export {
   glazeDarkWindows, glazeReflectiveWindows,
   injectSyntheticWindows, detectAndRegularizeWindows,
 } from './mesh-filter/windows.js';
+export type { FenestrationHint } from './mesh-filter/windows.js';
 
 // Environment: vegetation, roads, vehicles, entry paths
 export {

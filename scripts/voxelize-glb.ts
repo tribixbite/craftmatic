@@ -46,6 +46,7 @@ import { BlockGrid } from '../src/schem/types.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { queryMultiHeadingSV } from '../src/gen/api/google-streetview.js';
 import { extractMultiAngleColors } from '../src/gen/api/streetview-analysis.js';
+import { initCheckpoints, saveCheckpoint, loadCheckpoint, clearCheckpoints } from '../src/convert/grid-checkpoint.js';
 import { existsSync, statSync } from 'node:fs';
 import { basename, extname, join, dirname, resolve } from 'node:path';
 import sharp from 'sharp';
@@ -136,6 +137,11 @@ async function main(): Promise<void> {
   const args = parseArgs();
   const t0 = performance.now();
   let enuHorizontalAngle = 0; // Rotation applied by reorientToENU, used for OSM polygon alignment
+
+  // Initialize checkpoint system when --checkpoint or --restore is active
+  if (args.checkpoint) {
+    initCheckpoints(dirname(args.outputPath));
+  }
 
   // Helper: query OSM building — uses explicit ID when provided, else proximity search.
   // Caches the Promise to avoid redundant Overpass API hits (same building queried
@@ -516,29 +522,36 @@ async function main(): Promise<void> {
   const estL = Math.ceil(estSize.z * args.resolution);
   const estVoxels = estW * estH * estL;
   const estMemMB = (estVoxels * 2) / (1024 * 1024); // Uint16Array = 2 bytes/voxel
-  console.log(`\nVoxelizing: ${args.mode} mode, ${args.resolution} block/m, gamma ${args.gamma}, kernel ${args.kernel}, desat ${args.desaturate}`);
-  console.log(`  Estimated grid: ${estW}x${estH}x${estL} = ${estVoxels.toLocaleString()} voxels (${estMemMB.toFixed(0)} MB)`);
-  if (estVoxels > 50_000_000) {
-    console.log(`  ⚠ Large grid — narrow-band voxelization will skip empty space`);
+  // --restore: skip voxelization entirely — grid will be loaded from checkpoint below
+  let grid: BlockGrid;
+  if (args.restore) {
+    console.log(`\nSkipping voxelization (restoring from checkpoint '${args.restore}')`);
+    grid = new BlockGrid(1, 1, 1); // Placeholder — replaced by restoredGrid in trim step
+  } else {
+    console.log(`\nVoxelizing: ${args.mode} mode, ${args.resolution} block/m, gamma ${args.gamma}, kernel ${args.kernel}, desat ${args.desaturate}`);
+    console.log(`  Estimated grid: ${estW}x${estH}x${estL} = ${estVoxels.toLocaleString()} voxels (${estMemMB.toFixed(0)} MB)`);
+    if (estVoxels > 50_000_000) {
+      console.log(`  ⚠ Large grid — narrow-band voxelization will skip empty space`);
+    }
+    const sampler = createDataTextureSampler(args.gamma, args.kernel, args.desaturate);
+    const tVox = performance.now();
+    grid = threeToGrid(filteredGroup, args.resolution, {
+      textureSampler: sampler,
+      mode: args.mode,
+      // Don't filter vegetation during voxelization — trees act as solid walls during
+      // fillInteriorGaps, preventing holes behind canopy. Strip vegetation in post-processing.
+      filterVegetation: false,
+      onProgress: (p) => {
+        if (p.message) {
+          process.stdout.write(`\r  ${p.message}`);
+        } else {
+          process.stdout.write(`\r  Layer ${p.currentY}/${p.totalY} (${Math.round(p.progress * 100)}%)`);
+        }
+      },
+    });
+    process.stdout.write('\n');
+    console.log(`Voxelized in ${((performance.now() - tVox) / 1000).toFixed(1)}s`);
   }
-  const sampler = createDataTextureSampler(args.gamma, args.kernel, args.desaturate);
-  const tVox = performance.now();
-  const grid = threeToGrid(filteredGroup, args.resolution, {
-    textureSampler: sampler,
-    mode: args.mode,
-    // Don't filter vegetation during voxelization — trees act as solid walls during
-    // fillInteriorGaps, preventing holes behind canopy. Strip vegetation in post-processing.
-    filterVegetation: false,
-    onProgress: (p) => {
-      if (p.message) {
-        process.stdout.write(`\r  ${p.message}`);
-      } else {
-        process.stdout.write(`\r  Layer ${p.currentY}/${p.totalY} (${Math.round(p.progress * 100)}%)`);
-      }
-    },
-  });
-  process.stdout.write('\n');
-  console.log(`Voxelized in ${((performance.now() - tVox) / 1000).toFixed(1)}s`);
 
   // Preview mode — output raw voxelization with only trim, no post-processing.
   // Use this to visually assess GLB quality before committing to full pipeline.
@@ -604,11 +617,46 @@ async function main(): Promise<void> {
     return;
   }
 
+  // ─── Checkpoint Restore ──────────────────────────────────────────────────
+  // --restore NAME: load grid from checkpoint and skip stages before it.
+  // Valid checkpoint names: post-voxelize, post-trim, post-mask, post-fill, post-filter, post-recolor
+  const CHECKPOINT_ORDER = ['post-voxelize', 'post-trim', 'post-mask', 'post-fill', 'post-filter', 'post-recolor'] as const;
+  type CheckpointName = typeof CHECKPOINT_ORDER[number];
+  /** Set of checkpoint stages to skip (all stages before the restore point) */
+  const skipBefore = new Set<CheckpointName>();
+  let restoredGrid: BlockGrid | null = null;
+
+  if (args.restore) {
+    const restoreIdx = CHECKPOINT_ORDER.indexOf(args.restore as CheckpointName);
+    if (restoreIdx < 0) {
+      console.error(`Invalid checkpoint name: '${args.restore}'. Valid names: ${CHECKPOINT_ORDER.join(', ')}`);
+      process.exit(1);
+    }
+    console.log(`\nRestoring from checkpoint: '${args.restore}'`);
+    restoredGrid = await loadCheckpoint(args.restore);
+    // Mark all stages up to and including the restore point as skippable
+    for (let i = 0; i <= restoreIdx; i++) {
+      skipBefore.add(CHECKPOINT_ORDER[i]);
+    }
+  }
+
+  /** Helper: save checkpoint if --checkpoint is active */
+  async function maybeCheckpoint(trimmed: BlockGrid, name: CheckpointName): Promise<void> {
+    if (args.checkpoint) {
+      await saveCheckpoint(trimmed, name);
+    }
+  }
+
   // Trim sparse bottom layers
-  let trimmed = trimSparseBottomLayers(grid, args.trimThreshold);
-  if (trimmed !== grid) {
+  let trimmed = restoredGrid ?? trimSparseBottomLayers(grid, args.trimThreshold);
+  if (!restoredGrid && trimmed !== grid) {
     const removed = grid.height - trimmed.height;
     console.log(`Trimmed ${removed} sparse bottom layers (${grid.height} → ${trimmed.height})`);
+  }
+
+  // Checkpoint: post-voxelize (after initial voxelization + trim, before any processing)
+  if (!skipBefore.has('post-voxelize')) {
+    await maybeCheckpoint(trimmed, 'post-voxelize');
   }
 
   // ── Auto-detection: analyze grid and override pipeline params ──
@@ -982,6 +1030,11 @@ async function main(): Promise<void> {
     }
   }
 
+  // Checkpoint: post-fill (after isolation, fill, vegetation strip — before crop/filter)
+  if (!skipBefore.has('post-fill')) {
+    await maybeCheckpoint(trimmed, 'post-fill');
+  }
+
   // Center crop — remove blocks beyond XZ radius to isolate central building.
   // Runs after fill/solidify so each building is solid before we crop peripheral ones.
   // Skip for partial captures where the building extends beyond the capture boundary —
@@ -1024,6 +1077,11 @@ async function main(): Promise<void> {
     }
   }
 
+  // Checkpoint: post-trim (after crop, ground plane removal — before OSM mask)
+  if (!skipBefore.has('post-trim')) {
+    await maybeCheckpoint(trimmed, 'post-trim');
+  }
+
   // OSM footprint masking — remove all blocks outside the building polygon.
   // Skip if already done in the generic pre-fill path above.
   if (args.coords && !osmMaskDone && !args.noOsm) {
@@ -1045,6 +1103,11 @@ async function main(): Promise<void> {
     } else {
       console.log('OSM footprint: no building found at coordinates');
     }
+  }
+
+  // Checkpoint: post-mask (after OSM masking, crop, ground plane — before smoothing/filter)
+  if (!skipBefore.has('post-mask')) {
+    await maybeCheckpoint(trimmed, 'post-mask');
   }
 
   // Smooth rare/noisy blocks — replace blocks below threshold frequency with neighbors.
@@ -1753,6 +1816,11 @@ async function main(): Promise<void> {
     }
   }
 
+  // Checkpoint: post-filter (after all geometry + color filter passes, before recolor)
+  if (!skipBefore.has('post-filter')) {
+    await maybeCheckpoint(trimmed, 'post-filter');
+  }
+
   // ─── v314: Semantic Palette + SV/Satellite Recoloring ──────────────────────
   // When --recolor is active (requires --coords), resolve a semantic material palette
   // from OSM tags, then optionally override with Street View wall color and satellite
@@ -1917,6 +1985,11 @@ async function main(): Promise<void> {
     }
   } else if (args.recolor && !args.coords) {
     console.log('\nWARNING: --recolor requires --coords LAT,LNG — skipping recoloring');
+  }
+
+  // Checkpoint: post-recolor (after semantic recoloring, before facade homogenization + cleanup)
+  if (!skipBefore.has('post-recolor')) {
+    await maybeCheckpoint(trimmed, 'post-recolor');
   }
 
   // v74/v92/v93: Facade homogenization — per-face minority block collapse.
