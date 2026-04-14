@@ -728,6 +728,7 @@ export async function createLDrawViewer(
   keyLight.shadow.mapSize.set(4096, 4096);
   keyLight.shadow.bias = -0.0005;
   keyLight.shadow.normalBias = 0.02;
+  keyLight.shadow.radius = 3; // soft shadow edges
   scene.add(keyLight);
 
   // Fill light (cooler, opposite side — softer)
@@ -890,6 +891,7 @@ export async function createLDrawViewer(
   keyLight.shadow.camera.right = shadowRange;
   keyLight.shadow.camera.top = shadowRange;
   keyLight.shadow.camera.bottom = -shadowRange;
+  keyLight.shadow.camera.near = maxDim * 0.1;
   keyLight.shadow.camera.far = maxDim * 4;
   keyLight.target.position.copy(center);
   scene.add(keyLight.target);
