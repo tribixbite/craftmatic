@@ -46,7 +46,8 @@ import { BlockGrid } from '../src/schem/types.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { queryMultiHeadingSV } from '../src/gen/api/google-streetview.js';
 import { extractMultiAngleColors, classifyTexture } from '../src/gen/api/streetview-analysis.js';
-import { initCheckpoints, saveCheckpoint, loadCheckpoint, clearCheckpoints } from '../src/convert/grid-checkpoint.js';
+import { initCheckpoints, saveCheckpoint, loadCheckpoint } from '../src/convert/grid-checkpoint.js';
+import { getCacheInfo, getCachedTile, cacheTile } from '../src/cli/tile-cache.js';
 import { existsSync, statSync } from 'node:fs';
 import { basename, extname, join, dirname, resolve } from 'node:path';
 import sharp from 'sharp';
@@ -2363,6 +2364,36 @@ async function main(): Promise<void> {
   // Google 3D Tiles LOD truncates tall buildings at 20-40% of actual height.
   // When --height-correct is active, detect truncation by comparing voxel height
   // to known real height (from OSM tags or --height override) and extrude upward.
+  //
+  // extrudeBuilding: duplicate the topmost occupied cross-section upward by N layers.
+  // Expands the grid height via BlockGrid.expandHeight(), then copies the top layer.
+  function extrudeBuilding(grid: BlockGrid, layers: number): void {
+    if (layers <= 0) return;
+    // Find highest occupied Y
+    let topY = 0;
+    for (let y = grid.height - 1; y >= 0; y--) {
+      let found = false;
+      for (let z = 0; z < grid.length && !found; z++)
+        for (let x = 0; x < grid.width && !found; x++)
+          if (grid.get(x, y, z) !== 'minecraft:air') { topY = y; found = true; }
+      if (found) break;
+    }
+    // Expand grid to accommodate new layers
+    const newHeight = topY + 1 + layers;
+    grid.expandHeight(newHeight);
+    // Copy the top cross-section (topY layer) upward for each new layer
+    for (let dy = 1; dy <= layers; dy++) {
+      const destY = topY + dy;
+      for (let z = 0; z < grid.length; z++) {
+        for (let x = 0; x < grid.width; x++) {
+          const block = grid.get(x, topY, z);
+          if (block !== 'minecraft:air') grid.set(x, destY, z, block);
+        }
+      }
+    }
+    console.log(`  Extruded ${layers} layers above Y=${topY} → new height: ${newHeight}`);
+  }
+
   // WARNING: Flat cross-section extrusion works well for rectangular skyscrapers
   // but produces poor results for tapered/stepped/domed buildings.
   if (args.heightCorrect) {
