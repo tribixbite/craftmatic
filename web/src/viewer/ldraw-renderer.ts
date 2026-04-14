@@ -239,15 +239,17 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
       }
 
       if (tok[0] === '2' && tok.length >= 8) {
-        geom.edges.push([
-          [+tok[2]!, +tok[3]!, +tok[4]!],
-          [+tok[5]!, +tok[6]!, +tok[7]!],
-        ]);
+        const edgeColor = parseInt(tok[1]!, 10);
+        const edge: Edge = [[+tok[2]!, +tok[3]!, +tok[4]!], [+tok[5]!, +tok[6]!, +tok[7]!]];
+        if (edgeColor !== 24 && edgeColor !== 16 && !isNaN(edgeColor)) {
+          const ce = geom.colorEdges.get(edgeColor) ?? (() => { const a: Edge[] = []; geom.colorEdges.set(edgeColor, a); return a; })();
+          ce.push(edge);
+        } else {
+          geom.edges.push(edge);
+        }
       } else if (tok[0] === '5' && tok.length >= 14) {
-        // Type 5: conditional/optional edge line — treat as regular edge
-        geom.edges.push([
-          [+tok[2]!, +tok[3]!, +tok[4]!],
-          [+tok[5]!, +tok[6]!, +tok[7]!],
+        const edge: Edge = [[+tok[2]!, +tok[3]!, +tok[4]!], [+tok[5]!, +tok[6]!, +tok[7]!]];
+        geom.edges.push(edge); // conditional edges always inherit
         ]);
       } else if (tok[0] === '3' && tok.length >= 11) {
         const triColor = parseInt(tok[1]!, 10);
