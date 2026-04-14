@@ -613,6 +613,20 @@ export async function createLDrawViewer(
         );
         totalEdgeFloats += 6;
       }
+      // Also collect explicit-color edges
+      for (const [cid, cedges] of geom.colorEdges) {
+        let ceg = edgeGroups.get(cid);
+        if (!ceg) { ceg = { positions: [] }; edgeGroups.set(cid, ceg); }
+        for (const [ev0, ev1] of cedges) {
+          const we0 = applyMat(ev0, R, T);
+          const we1 = applyMat(ev1, R, T);
+          ceg.positions.push(
+            we0[0] * scale, -we0[1] * scale, we0[2] * scale,
+            we1[0] * scale, -we1[1] * scale, we1[2] * scale,
+          );
+          totalEdgeFloats += 6;
+        }
+      }
     }
   }
 
