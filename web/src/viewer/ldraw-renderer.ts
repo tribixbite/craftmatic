@@ -491,11 +491,13 @@ export async function createLDrawViewer(
       const wv0 = applyMat(lv0, R, T);
       const wv1 = applyMat(lv1, R, T);
       const wv2 = applyMat(lv2, R, T);
-      brickPos.push(
-        wv0[0] * scale, -wv0[1] * scale, wv0[2] * scale,
-        wv1[0] * scale, -wv1[1] * scale, wv1[2] * scale,
-        wv2[0] * scale, -wv2[1] * scale, wv2[2] * scale,
-      );
+      const x0 = wv0[0] * scale, y0 = -wv0[1] * scale, z0 = wv0[2] * scale;
+      const x1 = wv1[0] * scale, y1 = -wv1[1] * scale, z1 = wv1[2] * scale;
+      const x2 = wv2[0] * scale, y2 = -wv2[1] * scale, z2 = wv2[2] * scale;
+      // Skip degenerate triangles (zero area — all vertices coincident)
+      if (x0 === x1 && y0 === y1 && z0 === z1 &&
+          x0 === x2 && y0 === y2 && z0 === z2) continue;
+      brickPos.push(x0, y0, z0, x1, y1, z1, x2, y2, z2);
     }
 
     // Per-brick smooth normals: merge coincident vertices WITHIN this brick,
