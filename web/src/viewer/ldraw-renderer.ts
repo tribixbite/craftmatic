@@ -190,6 +190,12 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
           [+tok[2]!, +tok[3]!, +tok[4]!],
           [+tok[5]!, +tok[6]!, +tok[7]!],
         ]);
+      } else if (tok[0] === '5' && tok.length >= 14) {
+        // Type 5: conditional/optional edge line — treat as regular edge
+        geom.edges.push([
+          [+tok[2]!, +tok[3]!, +tok[4]!],
+          [+tok[5]!, +tok[6]!, +tok[7]!],
+        ]);
       } else if (tok[0] === '3' && tok.length >= 11) {
         const v0: Vec3 = [+tok[2]!, +tok[3]!, +tok[4]!];
         const v1: Vec3 = [+tok[5]!, +tok[6]!, +tok[7]!];
