@@ -50,29 +50,31 @@ export function flattenFacades(grid: BlockGrid, snapRadius = 2, maxY?: number, r
     // Find peaks: X positions with more voxels than both neighbors
     // A peak must have at least 15% of height to be a real wall plane
     const minPeak = yLimit * 0.1;
-    const peaks: number[] = [];
+    const peakSet = new Set<number>();     // O(1) .has() for skip checks
+    const peaksArr: number[] = [];         // ordered list for nearest-peak search
     for (let x = 0; x < width; x++) {
       if (xHist[x] < minPeak) continue;
       const left = x > 0 ? xHist[x - 1] : 0;
       const right = x < width - 1 ? xHist[x + 1] : 0;
       if (xHist[x] >= left && xHist[x] >= right) {
-        peaks.push(x);
+        peakSet.add(x);
+        peaksArr.push(x);
       }
     }
 
-    if (peaks.length === 0) continue;
+    if (peakSet.size === 0) continue;
 
     // Snap non-peak voxels to nearest peak within snapRadius (wall zone only)
     for (let y = 0; y < yLimit; y++) {
       for (let x = 0; x < width; x++) {
         const block = grid.get(x, y, z);
         if (block === 'minecraft:air') continue;
-        if (peaks.includes(x)) continue; // Already on a peak
+        if (peakSet.has(x)) continue; // Already on a peak
 
         // Find nearest peak within scaledSnap
         let nearestPeak = -1;
         let nearestDist = scaledSnap + 1;
-        for (const peak of peaks) {
+        for (const peak of peaksArr) {
           const dist = Math.abs(x - peak);
           if (dist <= scaledSnap && dist < nearestDist) {
             nearestDist = dist;
@@ -103,27 +105,29 @@ export function flattenFacades(grid: BlockGrid, snapRadius = 2, maxY?: number, r
     }
 
     const minPeak = yLimit * 0.1;
-    const peaks: number[] = [];
+    const peakSet = new Set<number>();
+    const peaksArr: number[] = [];
     for (let z = 0; z < length; z++) {
       if (zHist[z] < minPeak) continue;
       const prev = z > 0 ? zHist[z - 1] : 0;
       const next = z < length - 1 ? zHist[z + 1] : 0;
       if (zHist[z] >= prev && zHist[z] >= next) {
-        peaks.push(z);
+        peakSet.add(z);
+        peaksArr.push(z);
       }
     }
 
-    if (peaks.length === 0) continue;
+    if (peakSet.size === 0) continue;
 
     for (let y = 0; y < yLimit; y++) {
       for (let z = 0; z < length; z++) {
         const block = grid.get(x, y, z);
         if (block === 'minecraft:air') continue;
-        if (peaks.includes(z)) continue;
+        if (peakSet.has(z)) continue;
 
         let nearestPeak = -1;
         let nearestDist = scaledSnap + 1;
-        for (const peak of peaks) {
+        for (const peak of peaksArr) {
           const dist = Math.abs(z - peak);
           if (dist <= scaledSnap && dist < nearestDist) {
             nearestDist = dist;
@@ -416,27 +420,29 @@ export function flattenFacadesSetbackAware(
       }
 
       const minPeak = sectionHeight * 0.1;
-      const peaks: number[] = [];
+      const peakSet = new Set<number>();
+      const peaksArr: number[] = [];
       for (let x = 0; x < width; x++) {
         if (xHist[x] < minPeak) continue;
         const left = x > 0 ? xHist[x - 1] : 0;
         const right = x < width - 1 ? xHist[x + 1] : 0;
         if (xHist[x] >= left && xHist[x] >= right) {
-          peaks.push(x);
+          peakSet.add(x);
+          peaksArr.push(x);
         }
       }
-      if (peaks.length === 0) continue;
+      if (peakSet.size === 0) continue;
 
       for (let y = yMin; y < yMax; y++) {
         if (corniceYs.has(y)) continue; // Don't flatten cornices
         for (let x = 0; x < width; x++) {
           const block = grid.get(x, y, z);
           if (block === 'minecraft:air') continue;
-          if (peaks.includes(x)) continue;
+          if (peakSet.has(x)) continue;
 
           let nearestPeak = -1;
           let nearestDist = snapRadius + 1;
-          for (const peak of peaks) {
+          for (const peak of peaksArr) {
             const dist = Math.abs(x - peak);
             if (dist <= snapRadius && dist < nearestDist) {
               nearestDist = dist; nearestPeak = peak;
@@ -465,27 +471,29 @@ export function flattenFacadesSetbackAware(
       }
 
       const minPeak = sectionHeight * 0.1;
-      const peaks: number[] = [];
+      const peakSet = new Set<number>();
+      const peaksArr: number[] = [];
       for (let z = 0; z < length; z++) {
         if (zHist[z] < minPeak) continue;
         const prev = z > 0 ? zHist[z - 1] : 0;
         const next = z < length - 1 ? zHist[z + 1] : 0;
         if (zHist[z] >= prev && zHist[z] >= next) {
-          peaks.push(z);
+          peakSet.add(z);
+          peaksArr.push(z);
         }
       }
-      if (peaks.length === 0) continue;
+      if (peakSet.size === 0) continue;
 
       for (let y = yMin; y < yMax; y++) {
         if (corniceYs.has(y)) continue;
         for (let z = 0; z < length; z++) {
           const block = grid.get(x, y, z);
           if (block === 'minecraft:air') continue;
-          if (peaks.includes(z)) continue;
+          if (peakSet.has(z)) continue;
 
           let nearestPeak = -1;
           let nearestDist = snapRadius + 1;
-          for (const peak of peaks) {
+          for (const peak of peaksArr) {
             const dist = Math.abs(z - peak);
             if (dist <= snapRadius && dist < nearestDist) {
               nearestDist = dist; nearestPeak = peak;
