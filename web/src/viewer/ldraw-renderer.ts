@@ -250,22 +250,33 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
           [+tok[5]!, +tok[6]!, +tok[7]!],
         ]);
       } else if (tok[0] === '3' && tok.length >= 11) {
+        const triColor = parseInt(tok[1]!, 10);
         const v0: Vec3 = [+tok[2]!, +tok[3]!, +tok[4]!];
         const v1: Vec3 = [+tok[5]!, +tok[6]!, +tok[7]!];
         const v2: Vec3 = [+tok[8]!, +tok[9]!, +tok[10]!];
-        // Apply winding inversion if needed
         const shouldInvert = invertWinding !== (!bfcCCW);
-        geom.tris.push(shouldInvert ? [v0, v2, v1] : [v0, v1, v2]);
+        const tri: Triangle = shouldInvert ? [v0, v2, v1] : [v0, v1, v2];
+        // Route non-16 colored triangles to their own color group
+        if (triColor !== 16 && triColor !== 24 && !isNaN(triColor)) {
+          const ct = geom.colorTris.get(triColor) ?? (() => { const a: Triangle[] = []; geom.colorTris.set(triColor, a); return a; })();
+          ct.push(tri);
+        } else {
+          geom.tris.push(tri);
+        }
       } else if (tok[0] === '4' && tok.length >= 14) {
+        const quadColor = parseInt(tok[1]!, 10);
         const v0: Vec3 = [+tok[2]!, +tok[3]!, +tok[4]!];
         const v1: Vec3 = [+tok[5]!, +tok[6]!, +tok[7]!];
         const v2: Vec3 = [+tok[8]!, +tok[9]!, +tok[10]!];
         const v3: Vec3 = [+tok[11]!, +tok[12]!, +tok[13]!];
         const shouldInvert = invertWinding !== (!bfcCCW);
-        if (shouldInvert) {
-          geom.tris.push([v0, v2, v1], [v0, v3, v2]);
+        const t1: Triangle = shouldInvert ? [v0, v2, v1] : [v0, v1, v2];
+        const t2: Triangle = shouldInvert ? [v0, v3, v2] : [v0, v2, v3];
+        if (quadColor !== 16 && quadColor !== 24 && !isNaN(quadColor)) {
+          const ct = geom.colorTris.get(quadColor) ?? (() => { const a: Triangle[] = []; geom.colorTris.set(quadColor, a); return a; })();
+          ct.push(t1, t2);
         } else {
-          geom.tris.push([v0, v1, v2], [v0, v2, v3]);
+          geom.tris.push(t1, t2);
         }
       } else if (tok[0] === '1' && tok.length >= 15 && depth < 19) {
         const subColor = parseInt(tok[1]!, 10);
