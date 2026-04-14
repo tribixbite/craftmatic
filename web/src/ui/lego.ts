@@ -81,6 +81,8 @@ let currentBricksLabel = '';
 let currentBricksColorFn: ((id: number) => string) | undefined;
 /** Raw MPD/LDR content for inline sub-model resolution in 3D renderer */
 let currentMpdContent: string | undefined;
+/** Current 3D viewer instance for proper cleanup */
+let currentLDrawViewer: { dispose: () => void } | null = null;
 /** Total number of steps in the current model (1 = no step markers) */
 let totalSteps = 1;
 /** Current step being shown (undefined = all steps) */
@@ -616,18 +618,20 @@ async function voxelizeAndDisplay(
       const viewerEl = rootEl.closest('.tab-content')?.querySelector('.viewer-area, .inline-viewer') as HTMLElement
         ?? document.getElementById('lego-viewer');
       if (viewerEl) {
+        // Dispose previous 3D viewer to free GPU resources
+        if (currentLDrawViewer) { currentLDrawViewer.dispose(); currentLDrawViewer = null; }
         viewerEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;gap:12px">
           <div style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.2);border-top-color:#7c3aed;border-radius:50%;animation:spin 0.8s linear infinite"></div>
           <span style="color:#999;font-size:13px">Loading geometry…</span>
           <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
         </div>`;
         let lastProgressUpdate = 0;
-        const viewer = await createLDrawViewer(viewerEl, bricks, {
+        currentLDrawViewer = await createLDrawViewer(viewerEl, bricks, {
           mpdContent: currentMpdContent,
           maxStep: currentStep,
           onProgress: (done, total) => {
             const now = Date.now();
-            if (now - lastProgressUpdate > 200 || done === total) { // throttle to 5fps
+            if (now - lastProgressUpdate > 200 || done === total) {
               setStatus(`Loading geometry: ${done}/${total} parts (${Math.round(done/total*100)}%)…`, 'info');
               lastProgressUpdate = now;
             }
