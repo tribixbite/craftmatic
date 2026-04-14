@@ -304,6 +304,9 @@ export const LDRAW_COLOR_RGB: Record<number, string> = {
   462: '#FFA70B', 484: '#A95500', 490: '#D7F000', 493: '#656761',
   494: '#D0D0D0', 495: '#AE7A59', 496: '#A3A2A4', 503: '#E6E3DA',
   504: '#898788', 511: '#FAFAFA',
+  // Previously unmapped standard colors (unofficial/obsolete IDs still used in some files)
+  143: '#0020A0', 186: '#248046', 228: '#C7D23C',
+  296: '#CC9C2B', 302: '#AEE9EF', 329: '#C0FF00', 508: '#AC8247',
   601: '#BDC6AD', 605: '#FF9F2C',
   // BrickLink Studio 10xxx rubber/specialty color IDs (from StudioColorDefinition.txt)
   10002: '#58AB41', 10010: '#58AB41', 10026: '#901F76',
