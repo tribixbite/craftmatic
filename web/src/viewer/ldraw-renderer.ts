@@ -1053,6 +1053,8 @@ export async function createLDrawViewer(
   // ── Render loop ────────────────────────────────────────────────────────
   let animId = 0;
   function animate() {
+    // Stop rendering if container was removed from DOM (tab switch, cleanup)
+    if (!container.isConnected) { cancelAnimationFrame(animId); return; }
     animId = requestAnimationFrame(animate);
     controls.update();
     composer.render();
