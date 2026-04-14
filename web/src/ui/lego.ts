@@ -237,11 +237,16 @@ function wireEvents(): void {
     if (label) label.textContent = `${step}/${totalSteps}`;
     currentStep = step < totalSteps ? step : undefined; // undefined = show all
     if (currentBricks) {
-      const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
-      const result = geometryMode
-        ? await voxelizeLDrawGeometry(currentBricks, currentBricksColorFn, opts)
-        : voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
-      if (onResult) onResult(result.grid, currentBricksLabel.replace(/\.[^.]+$/, ''), cubicScale);
+      if (directRenderMode) {
+        // Re-render with step filtering in 3D mode
+        void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
+      } else {
+        const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
+        const result = geometryMode
+          ? await voxelizeLDrawGeometry(currentBricks, currentBricksColorFn, opts)
+          : voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
+        if (onResult) onResult(result.grid, currentBricksLabel.replace(/\.[^.]+$/, ''), cubicScale);
+      }
     }
   });
 
@@ -619,6 +624,7 @@ async function voxelizeAndDisplay(
         let lastProgressUpdate = 0;
         const viewer = await createLDrawViewer(viewerEl, bricks, {
           mpdContent: currentMpdContent,
+          maxStep: currentStep,
           onProgress: (done, total) => {
             const now = Date.now();
             if (now - lastProgressUpdate > 200 || done === total) { // throttle to 5fps
