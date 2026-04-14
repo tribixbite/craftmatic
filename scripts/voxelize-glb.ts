@@ -1826,7 +1826,6 @@ async function main(): Promise<void> {
         if (!cacheHit) {
           svImages = await queryMultiHeadingSV(
             args.coords.lat, args.coords.lng,
-            buildingAlignment?.rotationDeg,
             svExtentM,
           );
           if (svImages.length > 0) {

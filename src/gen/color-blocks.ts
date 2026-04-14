@@ -124,6 +124,10 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   // ── Reds / Brick ─────────────────────────────────────────────────────────────
   // Orange-red brick — classic facades
   { rgb: [233, 107, 57], options: ['minecraft:bricks', 'minecraft:terracotta'] },
+  // Warm brown brick — SV-sampled brick facades often land at (155-165, 105-115, 80-90)
+  // due to sky/sidewalk context bleeding into the average. Without this entry, they
+  // snap to jungle_planks (wood grain) which looks wrong on masonry buildings.
+  { rgb: [160, 110, 82], options: ['minecraft:bricks', 'minecraft:terracotta'] },
   { rgb: [150, 97, 83], options: ['minecraft:bricks', 'minecraft:terracotta'] },
   { rgb: [159, 82, 36], options: ['minecraft:brown_terracotta', 'minecraft:bricks', 'minecraft:polished_granite'] },
   // Dark red / aged brick
