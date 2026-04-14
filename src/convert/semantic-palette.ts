@@ -128,16 +128,19 @@ function parseOSMColour(colour: string | undefined): { r: number; g: number; b: 
  * Priority chain:
  * 1. OSM building:colour → tinted wall blocks via rgbToWallBlock
  * 2. OSM building:material → material-specific palette
- * 3. Height > 50m + commercial → glass curtain wall
+ * 2.5. SV texture classification → material-inferred palette (when no OSM data)
+ * 3. Height > 60m → glass curtain wall
  * 4. Building type heuristic → category defaults
  * 5. null (no semantic override available)
  *
- * @param osmTags     Raw OSM tags object (may be empty)
- * @param heightM     Building height in meters (0 if unknown)
+ * @param osmTags         Raw OSM tags object (may be empty)
+ * @param heightM         Building height in meters (0 if unknown)
+ * @param svTextureClass  Optional texture class from SV Tier 2 analysis
  */
 export function resolveSemanticPalette(
   osmTags: Record<string, string>,
   heightM: number,
+  svTextureClass?: 'brick' | 'stone' | 'wood_siding' | 'smooth' | 'shingle',
 ): SemanticPalette | null {
   const material = osmTags['building:material'];
   const colour = osmTags['building:colour'];
@@ -200,6 +203,36 @@ export function resolveSemanticPalette(
         palette.roofBlocks = [rgbToWallBlock(roofColor.r, roofColor.g, roofColor.b)];
       }
       return palette;
+    }
+  }
+
+  // Priority 2.5: SV texture classification — used when OSM has no colour/material
+  // tags (~70-90% of buildings). classifyTexture() in streetview-analysis.ts detects
+  // facade material from edge entropy and hue analysis of Street View images.
+  if (svTextureClass && !colour && !material) {
+    const SV_TEXTURE_PALETTES: Record<string, { wallBlocks: BlockState[]; roofBlocks?: BlockState[] }> = {
+      brick:       { wallBlocks: ['minecraft:bricks', 'minecraft:terracotta'] },
+      stone:       { wallBlocks: ['minecraft:stone_bricks', 'minecraft:polished_andesite'] },
+      wood_siding: { wallBlocks: ['minecraft:oak_planks', 'minecraft:stripped_oak_log'] },
+      smooth:      { wallBlocks: ['minecraft:smooth_quartz', 'minecraft:white_concrete'] },
+      shingle:     { wallBlocks: [], roofBlocks: ['minecraft:deepslate_tile_slab'] },
+    };
+    const svPalette = SV_TEXTURE_PALETTES[svTextureClass];
+    if (svPalette) {
+      const result: SemanticPalette = {
+        wallBlocks: svPalette.wallBlocks ?? [],
+        source: `SV texture classification: ${svTextureClass}`,
+      };
+      if (svPalette.roofBlocks) {
+        result.roofBlocks = svPalette.roofBlocks;
+      }
+      // Attach roof colour if OSM has it (rare but possible without material/colour)
+      const roofColor = parseOSMColour(roofColour);
+      if (roofColor) {
+        result.roofColor = roofColor;
+        result.roofBlocks = [rgbToWallBlock(roofColor.r, roofColor.g, roofColor.b)];
+      }
+      return result;
     }
   }
 
