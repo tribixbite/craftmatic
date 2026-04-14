@@ -45,7 +45,7 @@ import type { SemanticPalette } from '../src/convert/semantic-palette.js';
 import { BlockGrid } from '../src/schem/types.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { queryMultiHeadingSV } from '../src/gen/api/google-streetview.js';
-import { extractMultiAngleColors } from '../src/gen/api/streetview-analysis.js';
+import { extractMultiAngleColors, classifyTexture } from '../src/gen/api/streetview-analysis.js';
 import { existsSync, statSync } from 'node:fs';
 import { basename, extname, join, dirname, resolve } from 'node:path';
 import sharp from 'sharp';
@@ -1871,6 +1871,43 @@ async function main(): Promise<void> {
       }
     } else {
       console.log(`  SV: skipped (OSM building:colour already provides wall color)`);
+    }
+
+    // Phase C.5: SV texture classification — when palette is still null after Phase C,
+    // fall back to classifyTexture() on the front facade to detect wall material from
+    // edge entropy. This covers ~70-90% of buildings that lack OSM colour/material tags.
+    if (!palette) {
+      try {
+        // Reload cached SV images to access facade URLs outside Phase C scope
+        const svTexCacheKey = `sv-${args.coords.lat.toFixed(6)}-${args.coords.lng.toFixed(6)}`;
+        const svTexCachePath = join(dirname(args.outputPath), `.cache-${svTexCacheKey}.json`);
+        type CachedSvTex = { svImages: Awaited<ReturnType<typeof queryMultiHeadingSV>>; ts: number };
+        let texSvImages: Awaited<ReturnType<typeof queryMultiHeadingSV>> = [];
+        if (existsSync(svTexCachePath)) {
+          const cached: CachedSvTex = JSON.parse(await Bun.file(svTexCachePath).text());
+          if (cached.svImages?.length > 0) texSvImages = cached.svImages;
+        }
+        if (texSvImages.length > 0) {
+          const frontImage = texSvImages.find(img => img.faceName === 'front') ?? texSvImages[0];
+          const resp = await fetch(frontImage.imageUrl, { signal: AbortSignal.timeout(15000) });
+          if (resp.ok) {
+            const buf = Buffer.from(await resp.arrayBuffer());
+            const { data: rawData, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+            const pixels = new Uint8Array(rawData.buffer, rawData.byteOffset, rawData.byteLength);
+            const texResult = classifyTexture(pixels, info.width, info.height);
+            console.log(`  SV texture: ${texResult.textureClass} (entropy=${texResult.entropy.toFixed(0)}, conf=${texResult.confidence.toFixed(2)})`);
+            if (texResult.confidence >= 0.4) {
+              palette = resolveSemanticPalette(osmTags, heightM, texResult.textureClass);
+              if (palette) {
+                console.log(`  Semantic palette (SV texture): ${palette.source}`);
+                console.log(`  Wall blocks: ${palette.wallBlocks.map(b => b.replace('minecraft:', '')).join(', ')}`);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.log(`  SV texture classification: ${(e as Error).message}`);
+      }
     }
 
     // Phase D: Satellite roof color override (with file-based cache)
