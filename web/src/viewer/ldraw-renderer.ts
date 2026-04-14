@@ -175,10 +175,28 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
     let bfcCertified = false;
     let bfcCCW = true; // default CCW if certified
     let invertNext = false;
+    let texmapDepth = 0; // skip geometry inside TEXMAP BEGIN...END blocks
 
     for (const rawLine of text.split('\n')) {
       const line = rawLine.trim();
       if (!line) continue;
+
+      // Track TEXMAP blocks — skip their geometry (we can't render textures)
+      if (/^0\s+!TEXMAP\s+START/i.test(line) || /^0\s+!TEXMAP\s+NEXT/i.test(line)) {
+        texmapDepth++;
+        continue;
+      }
+      if (/^0\s+!TEXMAP\s+FALLBACK/i.test(line)) {
+        // Use fallback geometry — it renders without textures
+        texmapDepth = Math.max(0, texmapDepth - 1);
+        continue;
+      }
+      if (/^0\s+!TEXMAP\s+END/i.test(line)) {
+        texmapDepth = Math.max(0, texmapDepth - 1);
+        continue;
+      }
+      if (texmapDepth > 0) continue; // skip textured geometry
+
       const tok = line.split(/\s+/);
 
       // BFC meta-commands
