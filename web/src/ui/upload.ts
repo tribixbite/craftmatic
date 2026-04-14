@@ -96,7 +96,12 @@ export function initUpload(
         const { meshFileToGrid } = await import('@engine/mesh-to-grid.js');
         const result = await meshFileToGrid(buffer, file.name, {
           onProgress: (p) => {
-            uploadText.textContent = `Voxelizing... ${Math.round(p.progress * 100)}%`;
+            const pct = Math.round(p.progress * 100);
+            if (p.phase === 'bvh') {
+              uploadText.textContent = `Building spatial index... ${pct}%`;
+            } else {
+              uploadText.textContent = `Voxelizing layer ${p.currentY}/${p.totalY}... ${pct}%`;
+            }
           },
         });
         grid = result.grid;

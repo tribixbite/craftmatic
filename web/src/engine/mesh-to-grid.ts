@@ -40,8 +40,10 @@ export async function meshFileToGrid(
   const object = await loadMeshFromBytes(bytes, filename);
   const info = analyzeMesh(object);
 
-  // Compute resolution that keeps the largest dimension under maxDimension
-  const maxDim = options?.maxDimension ?? 256;
+  // Compute resolution that keeps the largest dimension under maxDimension.
+  // Default 128 for browser (keeps voxelization under ~10s on mobile).
+  // CLI uses 256 via explicit option.
+  const maxDim = options?.maxDimension ?? 128;
   const largestExtent = Math.max(info.boundingBox.width, info.boundingBox.height, info.boundingBox.depth);
   let resolution = options?.resolution ?? 1;
   if (largestExtent * resolution > maxDim) {
@@ -62,7 +64,7 @@ export async function meshFileToGrid(
     textureSampler: sampler,
     mode,
     maxDimension: maxDim,
-    yieldInterval: 2, // yield every 2 layers for responsive UI
+    yieldInterval: 1, // yield every layer for responsive UI on mobile
   });
 
   return { grid, info };
