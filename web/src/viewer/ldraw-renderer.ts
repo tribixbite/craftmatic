@@ -572,7 +572,7 @@ export async function createLDrawViewer(
   // ── Scene setup ────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(bgColor);
-  scene.fog = new THREE.FogExp2(bgColor, 0.008); // subtle depth fade
+  // Fog added after model bounds are known (density scaled to model size)
 
   const camera = new THREE.PerspectiveCamera(
     45,
@@ -777,6 +777,9 @@ export async function createLDrawViewer(
   const center = new THREE.Vector3().lerpVectors(bboxMin, bboxMax, 0.5);
   const size = new THREE.Vector3().subVectors(bboxMax, bboxMin);
   const maxDim = Math.max(size.x, size.y, size.z) || 10;
+
+  // ── Model-scaled fog for subtle depth fade ─────────────────────────────
+  scene.fog = new THREE.FogExp2(bgColor, 0.15 / maxDim);
 
   // ── Reposition lights relative to model bounds ─────────────────────────
   const d = maxDim; // shorthand for model-relative offsets
