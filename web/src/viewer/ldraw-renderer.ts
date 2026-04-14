@@ -76,14 +76,6 @@ function isLDrawPrimitive(part: string): boolean {
   return false;
 }
 
-const TECHNIC_INTERNAL_PARTS = new Set([
-  '3673','4274','6558','4459','32054','32556','65304','6562','32002',
-  '43093','6628','11214',
-  '32062','4519','3705','32073','3706','3707','3737','3708','50451',
-  '4265c','3713b','32123',
-  '6536','6538b',
-]);
-
 // ─── Geometry helpers (mirrored from ldraw-geometry.ts) ─────────────────────
 
 function normId(id: string): string {
