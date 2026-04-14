@@ -701,7 +701,19 @@ export async function createLDrawViewer(
     };
   }
 
-  renderer.setSize(container.clientWidth, container.clientHeight);
+  // Ensure container has dimensions — wait if needed
+  let cw = container.clientWidth, ch = container.clientHeight;
+  if (cw === 0 || ch === 0) {
+    await new Promise<void>(resolve => {
+      const obs = new ResizeObserver(() => {
+        cw = container.clientWidth; ch = container.clientHeight;
+        if (cw > 0 && ch > 0) { obs.disconnect(); resolve(); }
+      });
+      obs.observe(container);
+      setTimeout(() => { obs.disconnect(); cw = cw || 800; ch = ch || 600; resolve(); }, 2000);
+    });
+  }
+  renderer.setSize(cw, ch);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
