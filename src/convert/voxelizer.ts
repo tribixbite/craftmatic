@@ -248,8 +248,8 @@ export async function threeToGridAsync(
         message: `Building BVH ${mi + 1}/${meshChildren.length}`,
       });
       (geo as BVHGeometry).boundsTree = new MeshBVH(geo as never);
-      // Yield after each BVH construction so the browser can update UI
-      await new Promise<void>(r => setTimeout(r, 0));
+      // Yield after each BVH construction — 16ms gives browser a full frame to update UI
+      await new Promise<void>(r => setTimeout(r, 16));
     }
     const inverseMatrix = new THREE.Matrix4();
     child.updateWorldMatrix(true, false);
