@@ -833,26 +833,37 @@ export async function createLDrawViewer(
     meshes.push(mesh);
   }
 
-  // ── Edge lines (per-brick-color outlines) ──────────────────────────────
-  for (const [colorId, eg] of edgeGroups) {
-    if (eg.positions.length === 0) continue;
-    const edgeGeo = new THREE.BufferGeometry();
-    edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(eg.positions, 3));
-    // Contextual edge color: darken light bricks, lighten dark bricks
-    const baseColor = getThreeColor(colorId);
-    const lum = baseColor.r * 0.299 + baseColor.g * 0.587 + baseColor.b * 0.114;
-    const edgeColor = lum > 0.4
-      ? baseColor.clone().multiplyScalar(0.35) // dark edges for light bricks
-      : new THREE.Color(0.25, 0.25, 0.3);     // subtle light edges for dark bricks
-    const edgeMat = new THREE.LineBasicMaterial({
-      color: edgeColor,
-      transparent: true,
-      opacity: lum > 0.4 ? 0.4 : 0.2,
-      depthWrite: false,
-    });
-    const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
-    edgeLines.renderOrder = 2;
-    scene.add(edgeLines);
+  // ── Edge lines (batched with per-vertex colors) ────────────────────────
+  // Single draw call for ALL edge lines instead of one per color group.
+  {
+    const allEdgePos: number[] = [];
+    const allEdgeCol: number[] = [];
+    for (const [colorId, eg] of edgeGroups) {
+      if (eg.positions.length === 0) continue;
+      const baseColor = getThreeColor(colorId);
+      const lum = baseColor.r * 0.299 + baseColor.g * 0.587 + baseColor.b * 0.114;
+      const ec = lum > 0.4
+        ? baseColor.clone().multiplyScalar(0.35)
+        : new THREE.Color(0.25, 0.25, 0.3);
+      const opacity = lum > 0.4 ? 0.4 : 0.2;
+      for (let i = 0; i < eg.positions.length; i += 3) {
+        allEdgePos.push(eg.positions[i]!, eg.positions[i+1]!, eg.positions[i+2]!);
+        allEdgeCol.push(ec.r * opacity, ec.g * opacity, ec.b * opacity);
+      }
+    }
+    if (allEdgePos.length > 0) {
+      const edgeGeo = new THREE.BufferGeometry();
+      edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(allEdgePos, 3));
+      edgeGeo.setAttribute('color', new THREE.Float32BufferAttribute(allEdgeCol, 3));
+      const edgeMat = new THREE.LineBasicMaterial({
+        vertexColors: true,
+        transparent: true, opacity: 1.0,
+        depthWrite: false,
+      });
+      const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
+      edgeLines.renderOrder = 2;
+      scene.add(edgeLines);
+    }
   }
 
   // ── Compute model center and size ──────────────────────────────────────
