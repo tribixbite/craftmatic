@@ -5,12 +5,18 @@
  */
 
 import { BlockGrid } from '@craft/schem/types.js';
-import { threeToGrid, type VoxelizeProgress } from '@craft/convert/voxelizer.js';
+import { threeToGridAsync, type VoxelizeProgress, type VoxelizeMode, type TextureSampler } from '@craft/convert/voxelizer.js';
 import { loadMeshFromBytes, analyzeMesh, type MeshInfo } from './mesh-import.js';
 import { createCanvasTextureSampler } from './texture-sampler.js';
 
 /**
  * Load a mesh file and voxelize it into a BlockGrid.
+ *
+ * Uses async voxelizer (threeToGridAsync) which yields between BVH builds
+ * and Y-layer slices — prevents freezing the main thread on large meshes.
+ *
+ * GLB files default to 'surface' mode (open photogrammetry meshes) while
+ * OBJ defaults to 'solid' (watertight models).
  *
  * @param bytes       Raw file bytes
  * @param filename    Original filename (for type detection)
@@ -25,6 +31,8 @@ export async function meshFileToGrid(
     resolution?: number;
     /** Clamp largest dimension to this many blocks (default: 256) */
     maxDimension?: number;
+    /** Voxelization mode: 'surface' for photogrammetry, 'solid' for watertight (auto-detected) */
+    mode?: VoxelizeMode;
     /** Progress callback */
     onProgress?: (p: VoxelizeProgress) => void;
   },
@@ -45,9 +53,16 @@ export async function meshFileToGrid(
     ? createCanvasTextureSampler()
     : undefined;
 
-  const grid = threeToGrid(object, resolution, {
+  // Auto-detect mode: GLB/GLTF (photogrammetry) → surface, OBJ → solid
+  const ext = filename.split('.').pop()?.toLowerCase();
+  const mode = options?.mode ?? (ext === 'obj' ? 'solid' : 'surface');
+
+  const grid = await threeToGridAsync(object, resolution, {
     onProgress: options?.onProgress,
     textureSampler: sampler,
+    mode,
+    maxDimension: maxDim,
+    yieldInterval: 2, // yield every 2 layers for responsive UI
   });
 
   return { grid, info };
