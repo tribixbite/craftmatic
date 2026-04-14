@@ -126,11 +126,23 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
   375: 'minecraft:light_gray_concrete',   // Rubber Light Gray
   // BrickLink Studio 10xxx rubber color IDs (used in tree foliage, tires, etc.)
   10002: 'minecraft:lime_concrete',       // Rubber Green (#58AB41)
+  10010: 'minecraft:lime_concrete',       // Rubber Bright Green (#58AB41)
+  10026: 'minecraft:magenta_concrete',    // Rubber Magenta (#901F76)
+  10030: 'minecraft:purple_concrete',     // Rubber Medium Lavender (#A06EB9)
+  10031: 'minecraft:pink_concrete',       // Rubber Lavender (#CDA4DE)
+  10047: 'minecraft:white_concrete',      // Trans-Sticker (#FFFFFF)
   10070: 'minecraft:brown_concrete',      // Rubber Reddish Brown (#5F3109)
+  10073: 'minecraft:light_blue_concrete', // Rubber Medium Blue (#7396C8)
+  10078: 'minecraft:orange_concrete',     // Rubber Light Nougat (#FFC995)
+  10179: 'minecraft:light_gray_concrete', // Bionicle Silver (#737271)
+  10226: 'minecraft:yellow_concrete',     // Rubber Bright Light Yellow (#FFEC6C)
+  10308: 'minecraft:brown_concrete',      // Rubber Dark Brown (#352100)
   10320: 'minecraft:red_concrete',        // Rubber Dark Red (#720012)
+  10321: 'minecraft:cyan_concrete',       // Rubber Dark Azure (#469BC3)
+  10322: 'minecraft:light_blue_concrete', // Rubber Medium Azure (#68C3E2)
+  10323: 'minecraft:light_blue_concrete', // Rubber Light Aqua (#D3F2EA)
+  10378: 'minecraft:green_concrete',      // Rubber Sand Green (#708E7C)
   10484: 'minecraft:orange_concrete',     // Rubber Dark Orange (#91501C)
-  10047: 'minecraft:white_concrete',      // Rubber White
-  10026: 'minecraft:red_concrete',        // Rubber Red
 
   // ── Extended colors referenced by LDD/LXF pipeline ─────────────────────
   21:  'minecraft:lime_concrete',         // Glow In Dark Opaque (yellowish-green)
@@ -285,7 +297,11 @@ export const LDRAW_COLOR_RGB: Record<number, string> = {
   494: '#D0D0D0', 495: '#AE7A59', 496: '#A3A2A4', 503: '#E6E3DA',
   504: '#898788', 511: '#FAFAFA',
   601: '#BDC6AD', 605: '#FF9F2C',
-  // BrickLink Studio 10xxx rubber color IDs (from StudioColorDefinition.txt)
-  10002: '#58AB41', 10026: '#B40000', 10047: '#FFFFFF',
-  10070: '#5F3109', 10320: '#720012', 10484: '#91501C',
+  // BrickLink Studio 10xxx rubber/specialty color IDs (from StudioColorDefinition.txt)
+  10002: '#58AB41', 10010: '#58AB41', 10026: '#901F76',
+  10030: '#A06EB9', 10031: '#CDA4DE', 10047: '#FFFFFF',
+  10070: '#5F3109', 10073: '#7396C8', 10078: '#FFC995',
+  10179: '#737271', 10226: '#FFEC6C', 10308: '#352100',
+  10320: '#720012', 10321: '#469BC3', 10322: '#68C3E2',
+  10323: '#D3F2EA', 10378: '#708E7C', 10484: '#91501C',
 };
