@@ -796,6 +796,7 @@ export async function createLDrawViewer(
       // Pearl/chrome: warm specular highlight for realistic metallic look
       material = new THREE.MeshPhysicalMaterial({
         color, roughness: 0.1, metalness: 0.92,
+        envMapIntensity: 1.5, // metallic parts strongly reflect environment
         clearcoat: 0.6, clearcoatRoughness: 0.08,
         specularIntensity: 1.5,
         specularColor: color.clone().lerp(new THREE.Color(0xffffff), 0.3),
@@ -803,9 +804,10 @@ export async function createLDrawViewer(
         emissive: color.clone().multiplyScalar(0.04),
       });
     } else if (rubber) {
-      // Rubber: matte finish, no clearcoat, slightly higher roughness
+      // Rubber: matte finish, no clearcoat, minimal reflections
       material = new THREE.MeshPhysicalMaterial({
         color, roughness: 0.55, metalness: 0.0,
+        envMapIntensity: 0.1, // rubber barely reflects
         side: THREE.DoubleSide,
         emissive: color.clone().multiplyScalar(0.005),
       });
@@ -816,6 +818,7 @@ export async function createLDrawViewer(
       const clearcoatAmt = 0.2 + (1 - lum) * 0.25; // 0.2 (white) → 0.45 (black)
       material = new THREE.MeshPhysicalMaterial({
         color, roughness: 0.28, metalness: 0.0,
+        envMapIntensity: 0.5 + (1 - lum) * 0.3, // dark bricks reflect more (0.5→0.8)
         clearcoat: clearcoatAmt, clearcoatRoughness: 0.35,
         side: THREE.DoubleSide,
       });
