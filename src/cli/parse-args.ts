@@ -48,6 +48,10 @@ export interface CLIArgs {
   plotRadius: number;      // plot context expansion radius in meters (0 = auto)
   zoneNormalize: boolean;  // apply 5-zone facade normalization (default: off, preserves raw photogrammetric colors)
   recolor: boolean;        // v314: SV/satellite-driven facade+roof recoloring (requires --coords)
+  heightCorrect: boolean;  // extrude truncated tall buildings to match known height
+  heightOverride: number;  // manual building height in meters (0 = auto from OSM/Mapbox)
+  noCache: boolean;        // bypass GLB tile cache
+  cacheInfo: boolean;      // show tile cache status and exit
 }
 
 export function parseArgs(): CLIArgs {
@@ -92,7 +96,11 @@ Options:
   --scene            Unified scene pipeline: env extraction → strip → feature replacement →
                      plot expansion → enrichment — requires --coords
   --plot-radius N    Plot context radius in meters (default: auto = building + 15m per side)
-  --recolor          SV/satellite-driven facade+roof recoloring — requires --coords`);
+  --recolor          SV/satellite-driven facade+roof recoloring — requires --coords
+  --height-correct   Extrude truncated tall buildings to match known height (OSM/Mapbox)
+  --height N         Manual building height override in meters (used with --height-correct)
+  --no-cache         Bypass GLB tile cache (always re-process from source)
+  --cache-info       Show tile cache status and exit`);
     process.exit(0);
   }
 
@@ -142,6 +150,10 @@ Options:
   let plotRadius = 0; // 0 = auto-compute when --scene
   let zoneNormalize = false; // v300: off by default — preserve raw photogrammetric CIELAB colors
   let recolor = false; // v314: SV/satellite facade+roof recoloring
+  let heightCorrect = false; // extrude truncated buildings to known height
+  let heightOverride = 0; // manual height override in meters (0 = auto)
+  let noCache = false; // bypass GLB tile cache
+  let cacheInfo = false; // show tile cache info and exit
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -230,6 +242,14 @@ Options:
       zoneNormalize = true;
     } else if (arg === '--recolor') {
       recolor = true;
+    } else if (arg === '--height-correct') {
+      heightCorrect = true;
+    } else if (arg === '--height') {
+      heightOverride = parseFloat(args[++i]);
+    } else if (arg === '--no-cache') {
+      noCache = true;
+    } else if (arg === '--cache-info') {
+      cacheInfo = true;
     } else if (arg === '--mask-dilate') {
       maskDilate = parseInt(args[++i], 10);
     } else if (arg === '--clean') {
@@ -290,5 +310,5 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize, recolor };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize, recolor, heightCorrect, heightOverride, noCache, cacheInfo };
 }
