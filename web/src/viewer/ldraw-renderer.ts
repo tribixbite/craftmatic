@@ -287,8 +287,8 @@ export async function createLDrawViewer(
   bricks: ParsedBrick[],
   options?: LDrawViewerOptions,
 ): Promise<ViewerState> {
-  const bgColor = options?.background ?? 0x2d2d3d;
-  const groundColor = options?.groundColor ?? 0x4a4a5a;
+  const bgColor = options?.background ?? 0x3a3a4a;
+  const groundColor = options?.groundColor ?? 0x3a3a4a; // match background for seamless backdrop
   const scale = options?.scale ?? LDU_TO_UNITS;
   const onProgress = options?.onProgress;
 
@@ -500,7 +500,7 @@ export async function createLDrawViewer(
   const keyLight = new THREE.DirectionalLight(0xfff5e6, 2.0);
   keyLight.position.set(50, 80, 40);
   keyLight.castShadow = true;
-  keyLight.shadow.mapSize.set(2048, 2048);
+  keyLight.shadow.mapSize.set(4096, 4096);
   keyLight.shadow.bias = -0.001;
   scene.add(keyLight);
 
