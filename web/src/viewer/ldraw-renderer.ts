@@ -274,10 +274,11 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
         }
       } else if (tok[0] === '4' && tok.length >= 14) {
         const quadColor = parseInt(tok[1]!, 10);
-        const v0: Vec3 = [+tok[2]!, +tok[3]!, +tok[4]!];
-        const v1: Vec3 = [+tok[5]!, +tok[6]!, +tok[7]!];
-        const v2: Vec3 = [+tok[8]!, +tok[9]!, +tok[10]!];
-        const v3: Vec3 = [+tok[11]!, +tok[12]!, +tok[13]!];
+        const qx0=+tok[2]!,qy0=+tok[3]!,qz0=+tok[4]!,qx1=+tok[5]!,qy1=+tok[6]!,qz1=+tok[7]!;
+        const qx2=+tok[8]!,qy2=+tok[9]!,qz2=+tok[10]!,qx3=+tok[11]!,qy3=+tok[12]!,qz3=+tok[13]!;
+        if (isNaN(qx0+qy0+qz0+qx1+qy1+qz1+qx2+qy2+qz2+qx3+qy3+qz3)) continue;
+        const v0: Vec3 = [qx0,qy0,qz0], v1: Vec3 = [qx1,qy1,qz1];
+        const v2: Vec3 = [qx2,qy2,qz2], v3: Vec3 = [qx3,qy3,qz3];
         const shouldInvert = invertWinding !== (!bfcCCW);
         const t1: Triangle = shouldInvert ? [v0, v2, v1] : [v0, v1, v2];
         const t2: Triangle = shouldInvert ? [v0, v3, v2] : [v0, v2, v3];
