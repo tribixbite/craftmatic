@@ -45,6 +45,8 @@ export interface LDrawViewerOptions {
    * pre-loaded into the .dat cache so they resolve without HTTP fetches.
    */
   mpdContent?: string;
+  /** Maximum step to render (undefined = all steps) */
+  maxStep?: number;
   /**
    * Progress callback, called as parts are resolved.
    * @param done Number of parts resolved so far
@@ -360,11 +362,10 @@ export async function createLDrawViewer(
   }
 
   // ── Filter bricks ──────────────────────────────────────────────────────
+  const maxStep = options?.maxStep;
   const filteredBricks = bricks.filter(b => {
     if (isLDrawPrimitive(b.part)) return false;
-    const bareId = b.part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
-    // Keep Technic parts (pins, axles) — they're visible in the real model.
-    // (Technic filter only needed for voxelizer where they add noise.)
+    if (maxStep != null && (b.step ?? 1) > maxStep) return false;
     return true;
   });
 
