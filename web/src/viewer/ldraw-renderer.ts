@@ -679,8 +679,9 @@ export async function createLDrawViewer(
     renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: false,
-      logarithmicDepthBuffer: true, // prevents z-fighting on large models
+      logarithmicDepthBuffer: true,
       powerPreference: 'high-performance',
+      preserveDrawingBuffer: true, // needed for captureScreenshot()
     });
   } catch {
     const fallback = document.createElement('div');
