@@ -96,6 +96,16 @@ export function initLego(
   rootEl = controls;
   onResult = callback;
   buildUI();
+  // Auto-detect LDraw parts library and enable 3D Render by default
+  fetch('/ldraw-parts/parts/3001.dat', { method: 'HEAD' })
+    .then(r => {
+      if (r.ok) {
+        directRenderMode = true;
+        const cb = document.getElementById('lego-direct-render') as HTMLInputElement | null;
+        if (cb) cb.checked = true;
+      }
+    })
+    .catch(() => { /* no parts library — keep voxel mode */ });
   // Pre-load catalog in background so search is instant when user types
   ensureCatalog(msg => setStatus(msg, 'info')).catch(err => {
     setStatus(`Catalog load failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
