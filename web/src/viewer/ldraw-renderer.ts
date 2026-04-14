@@ -381,6 +381,7 @@ function isRubberColor(colorId: number): boolean {
 }
 
 function getThreeColor(colorId: number): THREE.Color {
+  if (isNaN(colorId)) return new THREE.Color(0x808080);
   // LDraw direct colors: 0x2RRGGBB encodes RGB in the color ID itself
   if (colorId >= 0x2000000) {
     const r = ((colorId >> 16) & 0xFF) / 255;
@@ -515,7 +516,7 @@ export async function createLDrawViewer(
     const R = brick.rot ?? IDENTITY;
     const T: Vec3 = [brick.x, brick.y, brick.z];
 
-    const group = getGroup(brick.color);
+    const group = getGroup(isNaN(brick.color) ? 71 : brick.color); // fallback to light gray
 
     // Collect this brick's positions, compute smooth normals PER-BRICK,
     // then append both positions and normals to the color group.
