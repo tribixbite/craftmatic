@@ -630,7 +630,9 @@ async function voxelizeAndDisplay(
         setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry`, 'success');
       }
     } catch (e) {
-      setStatus(`3D render failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      const msg = e instanceof Error ? e.message : String(e);
+      setStatus(`3D render failed: ${msg}`, 'error');
+      console.error('[ldraw-renderer]', e);
     }
     return;
   }
