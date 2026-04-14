@@ -291,9 +291,12 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
       } else if (tok[0] === '1' && tok.length >= 15 && depth < 19) {
         const subColor = parseInt(tok[1]!, 10);
         const tx = +tok[2]!, ty = +tok[3]!, tz = +tok[4]!;
+        if (isNaN(tx + ty + tz)) continue; // corrupt position
         const R = [+tok[5]!,+tok[6]!,+tok[7]!, +tok[8]!,+tok[9]!,+tok[10]!, +tok[11]!,+tok[12]!,+tok[13]!];
+        if (R.some(isNaN)) continue; // corrupt rotation matrix
         const T: Vec3 = [tx, ty, tz];
         const subId = tok.slice(14).join(' ').trim();
+        if (!subId) continue; // no sub-file reference
 
         const det = R[0]*(R[4]*R[8]-R[5]*R[7]) - R[1]*(R[3]*R[8]-R[5]*R[6]) + R[2]*(R[3]*R[7]-R[4]*R[6]);
         const childInvert = invertWinding !== (det < 0) !== invertNext;
