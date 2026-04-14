@@ -143,6 +143,9 @@ export {
 } from './mesh-filter/analysis.js';
 export type { BuildingTypology, FaceDirection, AnalysisResult } from './mesh-filter/analysis.js';
 
+// Courtyard/atrium void detection
+export { detectCourtyardVoids } from './mesh-filter/courtyard-detect.js';
+
 // Window detection, glass operations
 export {
   glazeDarkWindows, glazeReflectiveWindows,
