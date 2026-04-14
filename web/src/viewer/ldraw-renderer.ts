@@ -29,8 +29,10 @@ type Triangle = readonly [Vec3, Vec3, Vec3];
 type Edge = readonly [Vec3, Vec3];
 
 interface PartGeom {
-  tris: Triangle[];
-  edges: Edge[];
+  tris: Triangle[];       // color-16 (inherit) triangles
+  edges: Edge[];          // color-16 (inherit) edges
+  colorTris: Map<number, Triangle[]>;  // explicit-color triangles (non-16)
+  colorEdges: Map<number, Edge[]>;     // explicit-color edges (non-16)
 }
 
 export interface LDrawViewerOptions {
@@ -150,7 +152,7 @@ async function fetchDatText(id: string): Promise<string | null> {
 }
 
 async function resolvePartGeometry(id: string, depth = 0, invertWinding = false): Promise<PartGeom> {
-  const EMPTY: PartGeom = { tris: [], edges: [] };
+  const EMPTY: PartGeom = { tris: [], edges: [], colorTris: new Map(), colorEdges: new Map() };
   if (depth > 20) return EMPTY;
   const key = normId(id);
 
@@ -161,7 +163,7 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
     const text = await fetchDatText(key);
     if (!text) return EMPTY;
 
-    const geom: PartGeom = { tris: [], edges: [] };
+    const geom: PartGeom = { tris: [], edges: [], colorTris: new Map(), colorEdges: new Map() };
     partGeomCache.set(key, geom); // cache early (cycle guard)
 
     const subPromises: Promise<void>[] = [];
@@ -236,23 +238,45 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
           geom.tris.push([v0, v1, v2], [v0, v2, v3]);
         }
       } else if (tok[0] === '1' && tok.length >= 15 && depth < 19) {
+        const subColor = parseInt(tok[1]!, 10);
         const tx = +tok[2]!, ty = +tok[3]!, tz = +tok[4]!;
         const R = [+tok[5]!,+tok[6]!,+tok[7]!, +tok[8]!,+tok[9]!,+tok[10]!, +tok[11]!,+tok[12]!,+tok[13]!];
         const T: Vec3 = [tx, ty, tz];
         const subId = tok.slice(14).join(' ').trim();
 
-        // BFC: determine if child should have inverted winding
         const det = R[0]*(R[4]*R[8]-R[5]*R[7]) - R[1]*(R[3]*R[8]-R[5]*R[6]) + R[2]*(R[3]*R[7]-R[4]*R[6]);
         const childInvert = invertWinding !== (det < 0) !== invertNext;
-        invertNext = false; // INVERTNEXT applies to one reference only
+        invertNext = false;
 
         subPromises.push(
           resolvePartGeometry(subId, depth + 1, childInvert).then(sub => {
+            // Color 16 = inherit from parent. Non-16 = explicit color for this sub-part.
+            // Sub's own color-16 tris get assigned to subColor (or stay as 16 if subColor is also 16).
+            const targetTris = (subColor !== 16 && subColor !== 24)
+              ? (geom.colorTris.get(subColor) ?? (() => { const a: Triangle[] = []; geom.colorTris.set(subColor, a); return a; })())
+              : geom.tris;
+            const targetEdges = (subColor !== 16 && subColor !== 24)
+              ? (geom.colorEdges.get(subColor) ?? (() => { const a: Edge[] = []; geom.colorEdges.set(subColor, a); return a; })())
+              : geom.edges;
+
             for (const [sv0, sv1, sv2] of sub.tris) {
-              geom.tris.push([applyMat(sv0, R, T), applyMat(sv1, R, T), applyMat(sv2, R, T)]);
+              targetTris.push([applyMat(sv0, R, T), applyMat(sv1, R, T), applyMat(sv2, R, T)]);
             }
             for (const [ev0, ev1] of sub.edges) {
-              geom.edges.push([applyMat(ev0, R, T), applyMat(ev1, R, T)]);
+              targetEdges.push([applyMat(ev0, R, T), applyMat(ev1, R, T)]);
+            }
+            // Also propagate sub's explicit-color tris up
+            for (const [cid, ctris] of sub.colorTris) {
+              const target = geom.colorTris.get(cid) ?? (() => { const a: Triangle[] = []; geom.colorTris.set(cid, a); return a; })();
+              for (const [sv0, sv1, sv2] of ctris) {
+                target.push([applyMat(sv0, R, T), applyMat(sv1, R, T), applyMat(sv2, R, T)]);
+              }
+            }
+            for (const [cid, cedges] of sub.colorEdges) {
+              const target = geom.colorEdges.get(cid) ?? (() => { const a: Edge[] = []; geom.colorEdges.set(cid, a); return a; })();
+              for (const [ev0, ev1] of cedges) {
+                target.push([applyMat(ev0, R, T), applyMat(ev1, R, T)]);
+              }
             }
           }),
         );
@@ -408,7 +432,7 @@ export async function createLDrawViewer(
 
   for (const brick of filteredBricks) {
     const geom = partGeomCache.get(normId(brick.part));
-    if (!geom || geom.tris.length === 0) { missingCount++; continue; }
+    if (!geom || (geom.tris.length === 0 && geom.colorTris.size === 0)) { missingCount++; continue; }
     renderedCount++;
 
     const R = brick.rot ?? IDENTITY;
@@ -470,6 +494,31 @@ export async function createLDrawViewer(
       const n = rawGeo.getAttribute('normal')!;
       for (let i = 0; i < n.count; i++) group.normals.push(n.getX(i), n.getY(i), n.getZ(i));
       rawGeo.dispose();
+    }
+
+    // Handle explicit-color triangles from multi-colored sub-parts (printed tiles, etc.)
+    for (const [cid, ctris] of geom.colorTris) {
+      const cGroup = getGroup(cid);
+      const cPos: number[] = [];
+      for (const [lv0, lv1, lv2] of ctris) {
+        const wv0 = applyMat(lv0, R, T);
+        const wv1 = applyMat(lv1, R, T);
+        const wv2 = applyMat(lv2, R, T);
+        cPos.push(
+          wv0[0] * scale, -wv0[1] * scale, wv0[2] * scale,
+          wv1[0] * scale, -wv1[1] * scale, wv1[2] * scale,
+          wv2[0] * scale, -wv2[1] * scale, wv2[2] * scale,
+        );
+      }
+      if (cPos.length > 0) {
+        cGroup.positions.push(...cPos);
+        const rawGeo = new THREE.BufferGeometry();
+        rawGeo.setAttribute('position', new THREE.Float32BufferAttribute(cPos, 3));
+        rawGeo.computeVertexNormals();
+        const n = rawGeo.getAttribute('normal')!;
+        for (let i = 0; i < n.count; i++) cGroup.normals.push(n.getX(i), n.getY(i), n.getZ(i));
+        rawGeo.dispose();
+      }
     }
 
     // Collect edge lines grouped by brick color (cap total at 2M segments)
