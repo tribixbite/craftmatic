@@ -826,6 +826,7 @@ export async function createLDrawViewer(
       cancelAnimationFrame(animId);
       resizeObs.disconnect();
       controls.dispose();
+      composer.dispose();
       renderer.dispose();
       renderer.domElement.remove();
       for (const mesh of meshes) {
@@ -833,6 +834,7 @@ export async function createLDrawViewer(
         mat.dispose();
         mesh.geometry.dispose();
       }
+      scene.environment?.dispose();
     },
   };
 }
