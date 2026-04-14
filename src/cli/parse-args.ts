@@ -52,6 +52,8 @@ export interface CLIArgs {
   heightOverride: number;  // manual building height in meters (0 = auto from OSM/Mapbox)
   noCache: boolean;        // bypass GLB tile cache
   cacheInfo: boolean;      // show tile cache status and exit
+  checkpoint: boolean;     // save grid checkpoints at key pipeline stages
+  restore: string;         // restore from named checkpoint and skip earlier stages
 }
 
 export function parseArgs(): CLIArgs {
@@ -100,7 +102,10 @@ Options:
   --height-correct   Extrude truncated tall buildings to match known height (OSM/Mapbox)
   --height N         Manual building height override in meters (used with --height-correct)
   --no-cache         Bypass GLB tile cache (always re-process from source)
-  --cache-info       Show tile cache status and exit`);
+  --cache-info       Show tile cache status and exit
+  --checkpoint       Save grid checkpoints at key pipeline stages for iterative refinement
+  --restore NAME     Restore from a named checkpoint, skip earlier stages (e.g. --restore post-fill)`);
+
     process.exit(0);
   }
 
@@ -154,6 +159,8 @@ Options:
   let heightOverride = 0; // manual height override in meters (0 = auto)
   let noCache = false; // bypass GLB tile cache
   let cacheInfo = false; // show tile cache info and exit
+  let checkpoint = false; // save grid checkpoints at key pipeline stages
+  let restore = ''; // restore from named checkpoint
   const batchPaths: string[] = [];
   const remaps = new Map<string, string>();
 
@@ -250,6 +257,11 @@ Options:
       noCache = true;
     } else if (arg === '--cache-info') {
       cacheInfo = true;
+    } else if (arg === '--checkpoint') {
+      checkpoint = true;
+    } else if (arg === '--restore') {
+      restore = args[++i];
+      checkpoint = true; // --restore implies checkpoint mode for save points after restore
     } else if (arg === '--mask-dilate') {
       maskDilate = parseInt(args[++i], 10);
     } else if (arg === '--clean') {
@@ -310,5 +322,5 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize, recolor, heightCorrect, heightOverride, noCache, cacheInfo };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize, recolor, heightCorrect, heightOverride, noCache, cacheInfo, checkpoint, restore };
 }
