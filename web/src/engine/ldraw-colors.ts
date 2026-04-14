@@ -253,6 +253,7 @@ export const LDRAW_COLOR_RGB: Record<number, string> = {
   // Special colors (inherit from context but need fallback RGB)
   16: '#7F7F7F', // Main Color (inherits from parent — fallback gray)
   24: '#7F7F7F', // Edge Color (used for edge lines — mid gray)
+  4294967295: '#808080', // 0xFFFFFFFF — BrickLink Studio sentinel for "default color"
   // ── Standard solid colors (0–31) ──
   0: '#05131D', 1: '#0055BF', 2: '#257A3E', 3: '#00838F',
   4: '#C91A09', 5: '#C870A0', 6: '#583927', 7: '#9BA19D',
