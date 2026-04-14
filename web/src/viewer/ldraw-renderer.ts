@@ -1047,6 +1047,7 @@ export async function createLDrawViewer(
         mesh.geometry.dispose();
       }
       scene.environment?.dispose();
+      if (scene.background instanceof THREE.Texture) scene.background.dispose();
     },
   };
 }
