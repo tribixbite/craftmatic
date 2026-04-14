@@ -168,8 +168,8 @@ export function removeGroundPlane(
   const cutY = groundY + margin;
 
   // Remove blocks at or below cutY for columns near the ground plane.
-  // Columns whose ground height is far above the median are building walls
-  // extending down — don't strip those.
+  // Columns whose ground height is far above the 10th-percentile ground level
+  // are building walls extending down — don't strip those.
   let removed = 0;
   const tolerance = 3; // columns with ground height > groundY + tolerance are kept
   for (const [x, z, colGround] of columnGround) {
@@ -267,7 +267,7 @@ export function removeGroundPlaneAdaptive(
  * Minimal CoordinateBitmap for internal use (avoids circular import).
  * Same bit-packed logic as src/gen/coordinate-bitmap.ts.
  */
-class CoordinateBitmapImpl {
+export class CoordinateBitmapImpl {
   private bits: Uint8Array;
   readonly minX: number;
   readonly minZ: number;
@@ -479,9 +479,11 @@ export function morphCloseBitmap(
       if (bitmap.contains(x, z)) original.push([x, z]);
     }
   }
+  const r2 = radius * radius;
   for (const [ox, oz] of original) {
     for (let dz = -radius; dz <= radius; dz++) {
       for (let dx = -radius; dx <= radius; dx++) {
+        if (dx * dx + dz * dz > r2) continue; // circular structuring element
         bitmap.set(ox + dx, oz + dz);
       }
     }
@@ -497,6 +499,7 @@ export function morphCloseBitmap(
       let allSet = true;
       for (let ez = -radius; ez <= radius && allSet; ez++) {
         for (let ex = -radius; ex <= radius && allSet; ex++) {
+          if (ex * ex + ez * ez > r2) continue; // circular structuring element
           if (!bitmap.contains(x + ex, z + ez)) allSet = false;
         }
       }
@@ -627,7 +630,6 @@ export function alignOSMToFootprint(
 
   // v300: When alignment provides precise rotation, only need tight translation search
   const effectiveRadius = hasAlignment ? Math.min(searchRadius, 10) : searchRadius;
-
 
   const { width, length } = grid;
 
@@ -774,7 +776,6 @@ export function enforceFootprintPolygon(
 ): { clipped: number; filled: number } {
   if (polygon.length < 3) return { clipped: 0, filled: 0 };
 
-
   const { width, height, length } = grid;
 
   // Compute building centroid — center of mass of occupied columns
@@ -807,7 +808,7 @@ export function enforceFootprintPolygon(
     }
   }
   colHeights.sort((a, b) => a - b);
-  const medianH = colHeights[Math.floor(colHeights.length * 0.75)] ?? 10;
+  const p75Height = colHeights[Math.floor(colHeights.length * 0.75)] ?? 10;
 
   // Project polygon to block coords centered on building centroid (M4 dedup: shared helper)
   let blockPts = projectPolygonToBlocks(polygon, centerLat, centerLng, resolution, rotationAngle);
@@ -831,7 +832,10 @@ export function enforceFootprintPolygon(
   const shiftZ = centZ - polyCz;
   blockPts = blockPts.map(p => ({ x: p.x + shiftX, z: p.z + shiftZ }));
 
-  // Clamp polygon to grid bounds — points outside the grid can't affect voxels
+  // Clamp polygon vertices to grid bounds — points far outside can't affect voxels.
+  // NOTE: per-vertex clamping can collapse edges for polygons extending well beyond
+  // the grid. A proper Sutherland-Hodgman clip would preserve edge topology, but the
+  // rasterizer handles degenerate edges (az===bz skipped), so this is safe in practice.
   blockPts = blockPts.map(p => ({
     x: Math.max(-1, Math.min(width, p.x)),
     z: Math.max(-1, Math.min(length, p.z)),
@@ -912,11 +916,11 @@ export function enforceFootprintPolygon(
       }
       if (!hasNeighbor) continue;
       // Fill to median height
-      for (let y = 0; y < medianH; y++) {
+      for (let y = 0; y < p75Height; y++) {
         grid.set(x, y, z, wallBlock);
         filled++;
       }
-      grid.set(x, medianH, z, roofBlock);
+      grid.set(x, p75Height, z, roofBlock);
       filled++;
     }
   }

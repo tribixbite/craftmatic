@@ -13,7 +13,7 @@ let nextServerIdx = 0;
 
 /** Pick next Overpass server in round-robin order */
 export function pickOverpassUrl(): string {
-  const url = OVERPASS_SERVERS[nextServerIdx % OVERPASS_SERVERS.length];
+  const url = OVERPASS_SERVERS[nextServerIdx];
   nextServerIdx = (nextServerIdx + 1) % OVERPASS_SERVERS.length;
   return url;
 }

@@ -69,7 +69,7 @@ async function tryOSMMask(
   resolution: number,
   maskDilate: number,
   enuHorizontalAngle: number,
-  buildingAlignment: any | null,
+  buildingAlignment: BuildingAlignment | null | undefined,
 ): Promise<{
   success: boolean;
   polygon: { lat: number; lon: number }[] | null;
@@ -1187,7 +1187,7 @@ async function main(): Promise<void> {
       const corniceYs = detectCornices(trimmed, 2, true);
       if (corniceYs.size > 0) {
         console.log(`Cornice detection: ${corniceYs.size} Y levels preserved as architectural features`);
-        const snapped = flattenFacadesSetbackAware(trimmed, corniceYs, 1);
+        const snapped = flattenFacadesSetbackAware(trimmed, corniceYs, 1, args.resolution);
         if (snapped > 0) {
           console.log(`Setback-aware facade flattening: ${snapped} voxels snapped (${corniceYs.size} cornice levels excluded)`);
         }
