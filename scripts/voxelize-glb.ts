@@ -109,7 +109,7 @@ async function tryOSMMask(
           alignment.dx, alignment.dz,
         );
         const alignRemaining = grid.countNonAir();
-        if (alignRemaining > 0) {
+        if (alignRemaining >= snapshot.count * 0.1) {
           console.log(`OSM mask (auto-aligned dx=${alignment.dx} dz=${alignment.dz} IoU=${alignment.iou.toFixed(2)}): ${aligned} blocks removed, ${alignRemaining} remaining`);
           return { success: true, polygon: osmData.polygon, tags: osmData.tags ?? {} };
         } else {

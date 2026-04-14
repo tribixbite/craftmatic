@@ -444,6 +444,7 @@ export function glazeReflectiveWindows(grid: BlockGrid, resolution = 1): number 
         }
 
         // Fill if >60% of row already has windows
+        // NOTE: uses candidates[0] depth — assumes flat facade (valid for post-flatten grids)
         if (expectedCount > 0 && filledCount / expectedCount > 0.6) {
           for (const gs of missingPositions) {
             const fx = isXFace ? candidates[0].x : gs;
@@ -561,6 +562,9 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number, 
     corr = count > 0 ? corr / count : 0;
     if (corr > bestCorr) { bestCorr = corr; bestPeriod = period; }
   }
+
+  // No clear floor period found — skip injection to avoid overly-dense window grids
+  if (bestCorr < 0.01) return 0;
 
   // Step 3: Place windows on exterior dominant-material blocks at regular intervals
   // Window placement: every bestPeriod Y-layers, skip 1 block from floor, place window

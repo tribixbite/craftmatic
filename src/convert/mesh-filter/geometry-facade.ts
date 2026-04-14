@@ -1393,7 +1393,7 @@ export function fillFacadeStripes(grid: BlockGrid): number {
         const backImmediate = readSnap(snap2, grid, x, y, z + 1);
         if (frontImmediate === AIR || backImmediate === AIR) continue;
 
-        const fillBlock = solidFront === solidBack ? solidFront : solidFront;
+        const fillBlock = solidFront === solidBack ? solidFront : solidBack;
         grid.set(x, y, z, fillBlock);
         filled++;
       }
