@@ -256,9 +256,13 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
         ]);
       } else if (tok[0] === '3' && tok.length >= 11) {
         const triColor = parseInt(tok[1]!, 10);
-        const v0: Vec3 = [+tok[2]!, +tok[3]!, +tok[4]!];
-        const v1: Vec3 = [+tok[5]!, +tok[6]!, +tok[7]!];
-        const v2: Vec3 = [+tok[8]!, +tok[9]!, +tok[10]!];
+        const x0 = +tok[2]!, y0 = +tok[3]!, z0 = +tok[4]!;
+        const x1 = +tok[5]!, y1 = +tok[6]!, z1 = +tok[7]!;
+        const x2 = +tok[8]!, y2 = +tok[9]!, z2 = +tok[10]!;
+        if (isNaN(x0+y0+z0+x1+y1+z1+x2+y2+z2)) continue; // skip corrupt data
+        const v0: Vec3 = [x0, y0, z0];
+        const v1: Vec3 = [x1, y1, z1];
+        const v2: Vec3 = [x2, y2, z2];
         const shouldInvert = invertWinding !== (!bfcCCW);
         const tri: Triangle = shouldInvert ? [v0, v2, v1] : [v0, v1, v2];
         // Route non-16 colored triangles to their own color group
