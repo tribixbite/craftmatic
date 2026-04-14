@@ -647,6 +647,10 @@ export async function createLDrawViewer(
   if (missingCount > 0) {
     console.warn(`[ldraw-renderer] ${missingCount} bricks had no geometry (${renderedCount} rendered)`);
   }
+  // Expose brick counts on the container for debugging/QA
+  container.dataset.brickCount = String(renderedCount);
+  container.dataset.missingCount = String(missingCount);
+  container.dataset.colorGroups = String(colorGroups.size);
 
   // ── Scene setup ────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
