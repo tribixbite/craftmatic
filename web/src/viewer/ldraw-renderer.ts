@@ -314,6 +314,7 @@ function isTransparentColor(colorId: number): boolean {
   if (colorId === 10043) return true;                   // rubber trans light blue
   if (colorId === 10351 || colorId === 10366) return true; // glitter/satin trans
   if (colorId === 10375) return true;                   // trans black
+  if (colorId >= 0x3000000 && colorId < 0x4000000) return true; // direct trans colors
   return false;
 }
 
@@ -339,6 +340,13 @@ function isRubberColor(colorId: number): boolean {
 }
 
 function getThreeColor(colorId: number): THREE.Color {
+  // LDraw direct colors: 0x2RRGGBB encodes RGB in the color ID itself
+  if (colorId >= 0x2000000) {
+    const r = ((colorId >> 16) & 0xFF) / 255;
+    const g = ((colorId >> 8) & 0xFF) / 255;
+    const b = (colorId & 0xFF) / 255;
+    return new THREE.Color(r, g, b);
+  }
   const hex = LDRAW_COLOR_RGB[colorId] ?? '#808080';
   return new THREE.Color(hex);
 }
