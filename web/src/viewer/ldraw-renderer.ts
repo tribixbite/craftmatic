@@ -865,13 +865,16 @@ export async function createLDrawViewer(
     floor.position.set(center.x, floorY, center.z);
     floor.receiveShadow = true;
     scene.add(floor);
-    // Contact shadow — subtle dark ellipse directly under the model for grounding
-    const contactGeo = new THREE.CircleGeometry(maxDim * 0.6, 32);
+    // Contact shadow — elliptical, matching model's XZ footprint
+    const csx = Math.max(size.x, 1) * 0.55;
+    const csz = Math.max(size.z, 1) * 0.55;
+    const contactGeo = new THREE.CircleGeometry(1, 48);
     const contactMat = new THREE.MeshBasicMaterial({
-      color: 0x000000, transparent: true, opacity: 0.08, depthWrite: false,
+      color: 0x000000, transparent: true, opacity: 0.1, depthWrite: false,
     });
     const contactShadow = new THREE.Mesh(contactGeo, contactMat);
     contactShadow.rotation.x = -Math.PI / 2;
+    contactShadow.scale.set(csx, csz, 1);
     contactShadow.position.set(center.x, floorY + 0.005, center.z);
     scene.add(contactShadow);
     // Curved back wall (quarter-cylinder) — smoothly curves from floor upward
