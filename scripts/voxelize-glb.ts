@@ -34,7 +34,7 @@ if (typeof globalThis.ProgressEvent === 'undefined') {
 
 import * as THREE from 'three';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, removeGroundPlaneAdaptive, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, clusterFacadePalette, glazeReflectiveWindows, morphCloseFacadeAligned, detectCornices, flattenFacadesSetbackAware, fillFacadeHoles, removeIsolatedVoxels, fillFacadeVoids2D, fillFacadePlaneHoles, fillFacadeVoidsIterative, fillFacadeStripes, regularizeFlatRoof, boostPhotogrammetrySaturation, snapshotGridBlocks, restoreGridBlocks } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, smoothRareBlocks, modeFilter3D, constrainPalette, fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill, removeSmallComponents, removeArtifactComponents, cropToCenter, cropToRect, cropToAABB, analyzeGrid, placeEntryPath, removeGroundPlane, removeGroundPlaneAdaptive, maskToFootprint, stripVegetation, glazeDarkWindows, injectSyntheticWindows, smoothSurface, flattenFacades, morphClose3D, consolidateBlockPalette, isolateTallestStructure, enforceFootprintPolygon, addPeakedRoof, homogenizeFacadesByFace, straightenFootprintEdges, isolatePrimaryBuilding, alignOSMToFootprint, maskToFootprintAligned, severByHeightGradient, watershedIsolate, extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows, removeThinPillars, smoothDarkBlocks, smoothFacadeColors, smoothRoofPlane, clusterFacadePalette, glazeReflectiveWindows, morphCloseFacadeAligned, detectCornices, flattenFacadesSetbackAware, fillFacadeHoles, removeIsolatedVoxels, fillFacadeVoids2D, fillFacadePlaneHoles, fillFacadeVoidsIterative, fillFacadeStripes, regularizeFlatRoof, boostPhotogrammetrySaturation, snapshotGridBlocks, restoreGridBlocks, detectCourtyardVoids } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment, AnalysisResult, GridSnapshot } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
@@ -45,7 +45,7 @@ import type { SemanticPalette } from '../src/convert/semantic-palette.js';
 import { BlockGrid } from '../src/schem/types.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { queryMultiHeadingSV } from '../src/gen/api/google-streetview.js';
-import { extractMultiAngleColors } from '../src/gen/api/streetview-analysis.js';
+import { extractMultiAngleColors, classifyTexture } from '../src/gen/api/streetview-analysis.js';
 import { existsSync, statSync } from 'node:fs';
 import { basename, extname, join, dirname, resolve } from 'node:path';
 import sharp from 'sharp';
@@ -151,6 +151,32 @@ async function main(): Promise<void> {
     return osmCache.get(key)!;
   }
 
+  // ── --cache-info: print tile cache status and exit ──
+  if (args.cacheInfo) {
+    console.log(getCacheInfo());
+    return;
+  }
+
+  // ── Tile cache: check for cached GLB before loading ──
+  // When coords are available, look up a previously cached GLB to ensure
+  // reproducible results across runs. --no-cache bypasses this.
+  let glbLoadPath = args.inputPath;
+  let tileCacheHit = false;
+  if (args.coords && !args.noCache) {
+    // Use a default capture radius for cache key (100m is standard capture radius)
+    const cacheRadius = 100;
+    const cached = getCachedTile(args.coords.lat, args.coords.lng, cacheRadius);
+    if (cached) {
+      const ageMs = Date.now() - new Date(cached.capturedAt).getTime();
+      const ageDays = ageMs / (1000 * 60 * 60 * 24);
+      console.log(`Tile cache: HIT (cached ${ageDays.toFixed(1)} days ago, ${(cached.sizeBytes / (1024 * 1024)).toFixed(1)} MB)`);
+      glbLoadPath = cached.glbPath;
+      tileCacheHit = true;
+    } else {
+      console.log('Tile cache: MISS (will cache after voxelization)');
+    }
+  }
+
   // ── Batch mode: analyze multiple GLBs, output summary table ──
   if (args.batch) {
     const allPaths = [args.inputPath, ...args.batchPaths];
@@ -180,8 +206,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`Loading: ${args.inputPath}`);
-  const scene = await loadGLB(args.inputPath);
+  console.log(`Loading: ${glbLoadPath}`);
+  const scene = await loadGLB(glbLoadPath);
 
   const stats = analyzeMeshes(scene);
   const size = new THREE.Vector3();
@@ -861,6 +887,30 @@ async function main(): Promise<void> {
         // Sky-visibility check inherently prevents courtyard filling.
         const scanFilled = scanlineInteriorFill(trimmed, filledSet);
         if (scanFilled > 0) console.log(`Scanline interior fill: ${scanFilled} voxels`);
+
+        // Step 4d: Courtyard void detection — undo fills in intentional architectural voids
+        // (courtyards, atriums, light wells). These are air columns with sky access,
+        // empty at ground level, and surrounded by solid walls on 2+ sides.
+        const courtyardVoids = detectCourtyardVoids(trimmed);
+        if (courtyardVoids.size > 0) {
+          let courtyardCleared = 0;
+          for (const key of courtyardVoids) {
+            const comma = key.indexOf(',');
+            const cx = parseInt(key.substring(0, comma), 10);
+            const cz = parseInt(key.substring(comma + 1), 10);
+            for (let y = 0; y < trimmed.height; y++) {
+              const idx = (y * trimmed.length + cz) * trimmed.width + cx;
+              if (filledSet.has(idx) && trimmed.get(cx, y, cz) !== 'minecraft:air') {
+                trimmed.set(cx, y, cz, 'minecraft:air');
+                filledSet.delete(idx);
+                courtyardCleared++;
+              }
+            }
+          }
+          if (courtyardCleared > 0) {
+            console.log(`Courtyard detection: ${courtyardVoids.size} void columns, ${courtyardCleared} fill blocks preserved`);
+          }
+        }
       }
     }
 
@@ -966,6 +1016,28 @@ async function main(): Promise<void> {
       // Step 4b: Sky exposure — remove fill in open-air spaces
       const openAirCleared = clearOpenAirFill(trimmed, 'minecraft:smooth_stone', 5, filledSet2);
       if (openAirCleared > 0) console.log(`Open-air fill cleared: ${openAirCleared} blocks (no solid roof above)`);
+
+      // Step 4d: Courtyard void detection — undo fills in intentional architectural voids
+      const courtyardVoids2 = detectCourtyardVoids(trimmed);
+      if (courtyardVoids2.size > 0) {
+        let courtyardCleared2 = 0;
+        for (const key of courtyardVoids2) {
+          const comma = key.indexOf(',');
+          const cx = parseInt(key.substring(0, comma), 10);
+          const cz = parseInt(key.substring(comma + 1), 10);
+          for (let y = 0; y < trimmed.height; y++) {
+            const idx = (y * trimmed.length + cz) * trimmed.width + cx;
+            if (filledSet2.has(idx) && trimmed.get(cx, y, cz) !== 'minecraft:air') {
+              trimmed.set(cx, y, cz, 'minecraft:air');
+              filledSet2.delete(idx);
+              courtyardCleared2++;
+            }
+          }
+        }
+        if (courtyardCleared2 > 0) {
+          console.log(`Courtyard detection: ${courtyardVoids2.size} void columns, ${courtyardCleared2} fill blocks preserved`);
+        }
+      }
 
       // Step 4c: Extract environment positions BEFORE vegetation strip (--scene, generic mode)
       if (args.scene && args.coords && !envPositions) {
@@ -1873,6 +1945,43 @@ async function main(): Promise<void> {
       console.log(`  SV: skipped (OSM building:colour already provides wall color)`);
     }
 
+    // Phase C.5: SV texture classification — when palette is still null after Phase C,
+    // fall back to classifyTexture() on the front facade to detect wall material from
+    // edge entropy. This covers ~70-90% of buildings that lack OSM colour/material tags.
+    if (!palette) {
+      try {
+        // Reload cached SV images to access facade URLs outside Phase C scope
+        const svTexCacheKey = `sv-${args.coords.lat.toFixed(6)}-${args.coords.lng.toFixed(6)}`;
+        const svTexCachePath = join(dirname(args.outputPath), `.cache-${svTexCacheKey}.json`);
+        type CachedSvTex = { svImages: Awaited<ReturnType<typeof queryMultiHeadingSV>>; ts: number };
+        let texSvImages: Awaited<ReturnType<typeof queryMultiHeadingSV>> = [];
+        if (existsSync(svTexCachePath)) {
+          const cached: CachedSvTex = JSON.parse(await Bun.file(svTexCachePath).text());
+          if (cached.svImages?.length > 0) texSvImages = cached.svImages;
+        }
+        if (texSvImages.length > 0) {
+          const frontImage = texSvImages.find(img => img.faceName === 'front') ?? texSvImages[0];
+          const resp = await fetch(frontImage.imageUrl, { signal: AbortSignal.timeout(15000) });
+          if (resp.ok) {
+            const buf = Buffer.from(await resp.arrayBuffer());
+            const { data: rawData, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+            const pixels = new Uint8Array(rawData.buffer, rawData.byteOffset, rawData.byteLength);
+            const texResult = classifyTexture(pixels, info.width, info.height);
+            console.log(`  SV texture: ${texResult.textureClass} (entropy=${texResult.entropy.toFixed(0)}, conf=${texResult.confidence.toFixed(2)})`);
+            if (texResult.confidence >= 0.4) {
+              palette = resolveSemanticPalette(osmTags, heightM, texResult.textureClass);
+              if (palette) {
+                console.log(`  Semantic palette (SV texture): ${palette.source}`);
+                console.log(`  Wall blocks: ${palette.wallBlocks.map(b => b.replace('minecraft:', '')).join(', ')}`);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.log(`  SV texture classification: ${(e as Error).message}`);
+      }
+    }
+
     // Phase D: Satellite roof color override (with file-based cache)
     const satCacheKey = `sat-${args.coords.lat.toFixed(6)}-${args.coords.lng.toFixed(6)}`;
     const satCacheDir = dirname(args.outputPath);
@@ -2177,6 +2286,78 @@ async function main(): Promise<void> {
     }
   }
 
+  // ─── Height Truncation Correction ────────────────────────────────────────────
+  // Google 3D Tiles LOD truncates tall buildings at 20-40% of actual height.
+  // When --height-correct is active, detect truncation by comparing voxel height
+  // to known real height (from OSM tags or --height override) and extrude upward.
+  // WARNING: Flat cross-section extrusion works well for rectangular skyscrapers
+  // but produces poor results for tapered/stepped/domed buildings.
+  if (args.heightCorrect) {
+    // Determine known building height: --height override > OSM building:height > OSM levels × 3.5m
+    let knownHeightM = args.heightOverride;
+    if (knownHeightM <= 0 && Object.keys(osmTags).length > 0) {
+      // Try OSM height tag first (meters, most authoritative)
+      const osmHeightStr = osmTags['height'] || osmTags['building:height'];
+      if (osmHeightStr) {
+        const parsed = parseFloat(osmHeightStr);
+        if (!isNaN(parsed) && parsed > 0) knownHeightM = parsed;
+      }
+      // Fallback: OSM levels × 3.5m per floor (standard commercial floor height)
+      if (knownHeightM <= 0) {
+        const levelsStr = osmTags['building:levels'];
+        if (levelsStr) {
+          const levels = parseInt(levelsStr, 10);
+          if (!isNaN(levels) && levels > 0) knownHeightM = levels * 3.5;
+        }
+      }
+    }
+
+    if (knownHeightM > 0) {
+      // Measure actual voxel height (highest occupied layer)
+      let maxVoxelY = 0;
+      for (let y = trimmed.height - 1; y >= 0; y--) {
+        let found = false;
+        for (let z = 0; z < trimmed.length && !found; z++) {
+          for (let x = 0; x < trimmed.width && !found; x++) {
+            if (trimmed.get(x, y, z) !== 'minecraft:air') {
+              maxVoxelY = y;
+              found = true;
+            }
+          }
+        }
+        if (found) break;
+      }
+      const voxelHeightM = (maxVoxelY + 1) / args.resolution;
+      const heightRatio = voxelHeightM / knownHeightM;
+
+      if (heightRatio < 0.6) {
+        // Building is significantly shorter than expected -- likely LOD truncated
+        const targetHeightBlocks = Math.round(knownHeightM * args.resolution);
+        const heightCorrectionLayers = targetHeightBlocks - (maxVoxelY + 1);
+
+        console.log(`\n--- Height Truncation Correction ---`);
+        console.log(`  Voxel height: ${voxelHeightM.toFixed(0)}m (${maxVoxelY + 1} layers)`);
+        console.log(`  Known height: ${knownHeightM.toFixed(0)}m (${(heightRatio * 100).toFixed(0)}% captured)`);
+        console.log(`  Target: ${targetHeightBlocks} layers (+${heightCorrectionLayers})`);
+
+        // Warn for non-rectangular profiles where extrusion produces poor results
+        const profile = analysis?.heightProfile ?? 'uniform';
+        if (profile !== 'uniform') {
+          console.log(`  WARNING: building profile is "${profile}" -- flat extrusion may look incorrect`);
+        }
+        if (analysis && !analysis.isRectangular) {
+          console.log(`  WARNING: non-rectangular footprint -- extruded cross-section may not match real building`);
+        }
+
+        extrudeBuilding(trimmed, heightCorrectionLayers);
+      } else {
+        console.log(`Height correction: not needed (${voxelHeightM.toFixed(0)}m / ${knownHeightM.toFixed(0)}m = ${(heightRatio * 100).toFixed(0)}%)`);
+      }
+    } else {
+      console.log('Height correction: no height data available (use --height N to provide manually)');
+    }
+  }
+
   // ─── Scene Enrichment ──────────────────────────────────────────────────────
   // --enrich / --scene: classify voxels, query OSM infrastructure, populate environment
   if (args.enrich && args.coords) {
@@ -2203,6 +2384,21 @@ async function main(): Promise<void> {
   writeSchematic(trimmed, args.outputPath);
   const fileSize = Bun.file(args.outputPath).size;
   console.log(`\nWrote: ${args.outputPath} (${fileSize.toLocaleString()} bytes)`);
+
+  // ── Tile cache: store GLB for future runs ──
+  // Cache the source GLB (not the .schem) so subsequent runs with same coords
+  // get identical input geometry. Only cache on miss (avoid redundant copies).
+  if (args.coords && !args.noCache && !tileCacheHit) {
+    try {
+      const cacheRadius = 100;
+      const cachedPath = await cacheTile(args.coords.lat, args.coords.lng, cacheRadius, args.inputPath);
+      const cachedSize = Bun.file(cachedPath).size;
+      console.log(`Tile cache: stored ${(cachedSize / (1024 * 1024)).toFixed(1)} MB → ${cachedPath}`);
+    } catch (e) {
+      console.warn(`Tile cache: store failed — ${(e as Error).message}`);
+    }
+  }
+
   console.log(`Total: ${((performance.now() - t0) / 1000).toFixed(1)}s`);
 }
 

@@ -605,11 +605,108 @@ export function maskToFootprint(
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Auto-align an OSM polygon to the voxel footprint using sliding-window IoU.
- * Fixes geocoding drift that causes maskToFootprint to clip the entire building.
- * Slides the polygon bitmask ±searchRadius blocks and finds the offset with max IoU.
+ * Compute a combined alignment score from IoU, centroid distance, and coverage.
  *
- * @returns The best (dx, dz) offset and its IoU, or null if no good alignment found.
+ * IoU alone penalizes size mismatches even with perfect placement and fails on
+ * L-shaped/complex buildings. This three-metric composite is more robust:
+ *  - IoU:            standard intersection-over-union (penalizes false positives & negatives)
+ *  - Centroid score:  1 − (centroid_dist / building_extent), rewards spatial overlap
+ *  - Coverage score:  fraction of voxel footprint cells covered by OSM mask (recall)
+ *
+ * @param osmCells     Rasterized OSM polygon cell keys ("x,z")
+ * @param voxelFoot    Voxel footprint cell keys ("x,z")
+ * @param voxelExtent  Diagonal extent of voxel footprint in blocks (for normalizing centroid dist)
+ * @returns Object with iou, centroidScore, coverageScore, and combined score
+ */
+function computeAlignmentScore(
+  osmCells: Set<string>,
+  voxelFoot: Set<string>,
+  voxelExtent: number,
+): { iou: number; centroidScore: number; coverageScore: number; combined: number } {
+  if (osmCells.size === 0 || voxelFoot.size === 0) {
+    return { iou: 0, centroidScore: 0, coverageScore: 0, combined: 0 };
+  }
+
+  // IoU
+  let intersection = 0;
+  for (const key of osmCells) {
+    if (voxelFoot.has(key)) intersection++;
+  }
+  const union = voxelFoot.size + osmCells.size - intersection;
+  const iou = union > 0 ? intersection / union : 0;
+
+  // Centroid distance score: compute centroids of both sets, normalize distance by extent
+  let osmSumX = 0, osmSumZ = 0;
+  for (const key of osmCells) {
+    const comma = key.indexOf(',');
+    osmSumX += parseInt(key.substring(0, comma), 10);
+    osmSumZ += parseInt(key.substring(comma + 1), 10);
+  }
+  let voxSumX = 0, voxSumZ = 0;
+  for (const key of voxelFoot) {
+    const comma = key.indexOf(',');
+    voxSumX += parseInt(key.substring(0, comma), 10);
+    voxSumZ += parseInt(key.substring(comma + 1), 10);
+  }
+  const osmCx = osmSumX / osmCells.size;
+  const osmCz = osmSumZ / osmCells.size;
+  const voxCx = voxSumX / voxelFoot.size;
+  const voxCz = voxSumZ / voxelFoot.size;
+  const centroidDist = Math.hypot(osmCx - voxCx, osmCz - voxCz);
+  const normExtent = Math.max(voxelExtent, 1); // prevent division by zero
+  const centroidScore = Math.max(0, 1 - centroidDist / normExtent);
+
+  // Coverage score: fraction of voxel footprint cells that overlap with OSM mask (recall)
+  const coverageScore = voxelFoot.size > 0 ? intersection / voxelFoot.size : 0;
+
+  // Combined score: weighted average of all three metrics
+  const combined = 0.4 * iou + 0.3 * centroidScore + 0.3 * coverageScore;
+
+  return { iou, centroidScore, coverageScore, combined };
+}
+
+/**
+ * Rotate polygon points around their centroid by a given angle (radians).
+ *
+ * @param pts   Polygon vertices (floating-point block coords)
+ * @param angle Rotation angle in radians (positive = counter-clockwise)
+ * @returns New array of rotated points
+ */
+function rotatePolygonPoints(
+  pts: { x: number; z: number }[],
+  angle: number,
+): { x: number; z: number }[] {
+  if (Math.abs(angle) < 1e-9) return pts;
+
+  // Compute centroid
+  let cx = 0, cz = 0;
+  for (const p of pts) { cx += p.x; cz += p.z; }
+  cx /= pts.length;
+  cz /= pts.length;
+
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return pts.map(p => {
+    const dx = p.x - cx;
+    const dz = p.z - cz;
+    return {
+      x: cx + dx * cos - dz * sin,
+      z: cz + dx * sin + dz * cos,
+    };
+  });
+}
+
+/**
+ * Auto-align an OSM polygon to the voxel footprint using combined scoring.
+ * Fixes geocoding drift that causes maskToFootprint to clip the entire building.
+ *
+ * Scoring uses a three-metric composite (IoU + centroid distance + coverage) which
+ * is more robust than IoU alone for L-shaped buildings and size-mismatched polygons.
+ *
+ * Includes a small rotation search (+-5 deg in 1 deg steps) around the base rotation.
+ * This catches buildings where OSM polygon orientation differs from Google 3D Tiles.
+ *
+ * @returns The best (dx, dz) offset and its combined score, or null if no good alignment found.
  */
 export function alignOSMToFootprint(
   grid: BlockGrid,
@@ -619,12 +716,11 @@ export function alignOSMToFootprint(
   resolution = 1,
   rotationAngle = 0,
   searchRadius = 40,
-  // v116: Lowered from 0.25 to 0.15. When the voxel grid captures attached row houses
-  // or dense neighborhoods (e.g. SF Victorians), the building polygon is small relative
-  // to the grid. Even with perfect alignment, IoU ≈ polygonArea/totalArea = ~0.20.
-  // 0.25 rejected correct alignments; 0.15 accepts them while still rejecting truly
-  // misaligned polygons (IoU ≈ 0).
-  minIoU = 0.15,
+  // Combined score threshold (replaces IoU-only threshold of 0.15).
+  // The composite metric is more lenient than raw IoU since centroid/coverage
+  // contribute even for poor overlap. 0.20 rejects truly misaligned polygons
+  // while accepting correct placements that IoU alone would miss.
+  minScore = 0.20,
   // v300: When BuildingAlignment provides precise rotation, tighter translation search suffices
   hasAlignment = false,
 ): { dx: number; dz: number; iou: number } | null {
@@ -639,11 +735,18 @@ export function alignOSMToFootprint(
   const gridCx = Math.floor(width / 2);
   const gridCz = Math.floor(length / 2);
   const voxelFoot = new Set<string>();
+  let vMinX = Infinity, vMaxX = -Infinity, vMinZ = Infinity, vMaxZ = -Infinity;
   for (let z = 0; z < length; z++) {
     for (let x = 0; x < width; x++) {
       for (let y = 0; y < grid.height; y++) {
         if (grid.get(x, y, z) !== AIR) {
-          voxelFoot.add(`${x - gridCx},${z - gridCz}`);
+          const bx = x - gridCx;
+          const bz = z - gridCz;
+          voxelFoot.add(`${bx},${bz}`);
+          if (bx < vMinX) vMinX = bx;
+          if (bx > vMaxX) vMaxX = bx;
+          if (bz < vMinZ) vMinZ = bz;
+          if (bz > vMaxZ) vMaxZ = bz;
           break;
         }
       }
@@ -651,35 +754,47 @@ export function alignOSMToFootprint(
   }
   if (voxelFoot.size === 0) return null;
 
-  // Project polygon to block coords (M4 dedup: shared helper, unrounded for IoU sliding)
+  // Diagonal extent of voxel footprint (for normalizing centroid distance)
+  const voxelExtent = Math.hypot(vMaxX - vMinX, vMaxZ - vMinZ);
+
+  // Project polygon to block coords (unrounded for sub-block sliding)
   const blockPts = projectPolygonToBlocks(polygon, centerLat, centerLng, resolution, rotationAngle, false);
 
-  // Slide and find best IoU
-  let bestIoU = 0;
+  // Best result tracking across all rotation + translation candidates
+  let bestCombined = 0;
   let bestDx = 0, bestDz = 0;
+  let bestIoU = 0;
 
-  for (let dz = -effectiveRadius; dz <= effectiveRadius; dz++) {
-    for (let dx = -effectiveRadius; dx <= effectiveRadius; dx++) {
-      // M4 dedup: replaced inline rasterizePoly closure with shared helper
-      const osmCells = rasterizePolygonToSet(blockPts, dx, dz);
-      if (osmCells.size === 0) continue;
+  // Rotation search: +-5 degrees in 1-degree steps around the base rotation.
+  // This catches buildings where OSM polygon is slightly rotated vs Google 3D Tiles.
+  const DEG_TO_RAD = Math.PI / 180;
+  const rotationSteps = [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
 
-      let intersection = 0;
-      for (const key of osmCells) {
-        if (voxelFoot.has(key)) intersection++;
-      }
-      const union = voxelFoot.size + osmCells.size - intersection;
-      const iou = union > 0 ? intersection / union : 0;
+  for (const rotDeg of rotationSteps) {
+    const rotRad = rotDeg * DEG_TO_RAD;
+    // Rotate polygon around its centroid by the candidate offset
+    const rotatedPts = rotatePolygonPoints(blockPts, rotRad);
 
-      if (iou > bestIoU) {
-        bestIoU = iou;
-        bestDx = dx;
-        bestDz = dz;
+    // Translation search within +-effectiveRadius
+    for (let dz = -effectiveRadius; dz <= effectiveRadius; dz++) {
+      for (let dx = -effectiveRadius; dx <= effectiveRadius; dx++) {
+        const osmCells = rasterizePolygonToSet(rotatedPts, dx, dz);
+        if (osmCells.size === 0) continue;
+
+        const scores = computeAlignmentScore(osmCells, voxelFoot, voxelExtent);
+
+        if (scores.combined > bestCombined) {
+          bestCombined = scores.combined;
+          bestIoU = scores.iou;
+          bestDx = dx;
+          bestDz = dz;
+        }
       }
     }
   }
 
-  if (bestIoU < minIoU) return null;
+  if (bestCombined < minScore) return null;
+  // Return iou field for backward compatibility (callers log it)
   return { dx: bestDx, dz: bestDz, iou: bestIoU };
 }
 
