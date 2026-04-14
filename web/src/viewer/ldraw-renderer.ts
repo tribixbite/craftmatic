@@ -381,13 +381,21 @@ export async function createLDrawViewer(
     let currentName: string | null = null;
     let currentLines: string[] = [];
     for (const line of lines) {
-      const fileMatch = /^0\s+FILE\s+(.+)$/i.exec(line.trim());
+      const trimmed = line.trim();
+      const fileMatch = /^0\s+FILE\s+(.+)$/i.exec(trimmed);
+      const nofileMatch = /^0\s+NOFILE\s*$/i.test(trimmed);
       if (fileMatch) {
         if (currentName) {
           datTextCache.set(normId(currentName), currentLines.join('\n'));
         }
         currentName = fileMatch[1].trim();
         currentLines = [];
+      } else if (nofileMatch) {
+        if (currentName) {
+          datTextCache.set(normId(currentName), currentLines.join('\n'));
+          currentName = null;
+          currentLines = [];
+        }
       } else if (currentName) {
         currentLines.push(line);
       }
@@ -761,6 +769,13 @@ export async function createLDrawViewer(
   const center = new THREE.Vector3().lerpVectors(bboxMin, bboxMax, 0.5);
   const size = new THREE.Vector3().subVectors(bboxMax, bboxMin);
   const maxDim = Math.max(size.x, size.y, size.z) || 10;
+
+  // ── Reposition lights relative to model bounds ─────────────────────────
+  const d = maxDim; // shorthand for model-relative offsets
+  keyLight.position.set(center.x + d * 0.6, center.y + d * 1.0, center.z + d * 0.5);
+  fillLight.position.set(center.x - d * 0.5, center.y + d * 0.4, center.z - d * 0.4);
+  rimLight.position.set(center.x, center.y + d * 0.3, center.z - d * 0.8);
+  bottomFill.position.set(center.x, center.y - d * 0.3, center.z);
 
   // ── Configure shadow camera to cover the model ─────────────────────────
   const shadowRange = maxDim * 1.2;
