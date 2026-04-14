@@ -269,11 +269,18 @@ function isTransparentColor(colorId: number): boolean {
   return false;
 }
 
-/** LDraw metallic/chrome color IDs */
+/** LDraw metallic/chrome/pearl color IDs */
 function isMetallicColor(colorId: number): boolean {
-  return colorId === 80 || colorId === 81 || colorId === 82 || colorId === 83
-    || colorId === 87 || colorId === 297 || colorId === 494 || colorId === 495
-    || colorId === 179 || colorId === 383 || colorId === 65;
+  // Chrome/silver/gold
+  if (colorId === 80 || colorId === 81 || colorId === 82 || colorId === 83) return true;
+  if (colorId === 87 || colorId === 179 || colorId === 383 || colorId === 65) return true;
+  // Pearl gold, silver, dark gray
+  if (colorId === 297 || colorId === 494 || colorId === 495) return true;
+  // Bionicle metallic
+  if (colorId === 10179 || colorId === 134 || colorId === 135) return true;
+  // Speckle/pearl variants
+  if (colorId === 132 || colorId === 133 || colorId === 148) return true;
+  return false;
 }
 
 function getThreeColor(colorId: number): THREE.Color {
