@@ -602,7 +602,12 @@ async function voxelizeAndDisplay(
         ?? document.getElementById('lego-viewer');
       if (viewerEl) {
         viewerEl.innerHTML = '';
-        const viewer = await createLDrawViewer(viewerEl, bricks, { mpdContent: currentMpdContent });
+        const viewer = await createLDrawViewer(viewerEl, bricks, {
+          mpdContent: currentMpdContent,
+          onProgress: (done, total) => {
+            setStatus(`Loading geometry: ${done}/${total} parts…`, 'info');
+          },
+        });
         setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry`, 'success');
       }
     } catch (e) {
