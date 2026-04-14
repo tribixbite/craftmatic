@@ -244,16 +244,22 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
 
 // ─── Color helpers ──────────────────────────────────────────────────────────
 
-/** LDraw transparent color IDs (33-47 range plus known extras) */
+/** LDraw transparent color IDs (33-47 range plus known extras + rubber trans) */
 function isTransparentColor(colorId: number): boolean {
-  if (colorId >= 33 && colorId <= 49) return true;
+  if (colorId >= 33 && colorId <= 49) return true;  // standard trans range
+  if (colorId >= 52 && colorId <= 54) return true;  // trans opal
+  if (colorId === 57) return true;                   // trans orange
   if (colorId === 111 || colorId === 113 || colorId === 114 || colorId === 117) return true;
   if (colorId === 234 || colorId === 284 || colorId === 285 || colorId === 293) return true;
   if (colorId === 295 || colorId === 296 || colorId === 300 || colorId === 302) return true;
   if (colorId === 306 || colorId === 329 || colorId === 605) return true;
   if (colorId === 142 || colorId === 143 || colorId === 150) return true;
   if (colorId === 62 || colorId === 57 || colorId === 39) return true;
-  if (colorId === 66 || colorId === 67) return true; // rubber trans
+  if (colorId === 66 || colorId === 67) return true;    // rubber trans
+  if (colorId === 10035 || colorId === 10036) return true; // rubber trans green/red
+  if (colorId === 10043) return true;                   // rubber trans light blue
+  if (colorId === 10351 || colorId === 10366) return true; // glitter/satin trans
+  if (colorId === 10375) return true;                   // trans black
   return false;
 }
 
@@ -438,6 +444,7 @@ export async function createLDrawViewer(
   // ── Scene setup ────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(bgColor);
+  scene.fog = new THREE.FogExp2(bgColor, 0.008); // subtle depth fade
 
   const camera = new THREE.PerspectiveCamera(
     45,
