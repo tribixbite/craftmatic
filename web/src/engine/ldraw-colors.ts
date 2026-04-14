@@ -143,6 +143,10 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
   10323: 'minecraft:light_blue_concrete', // Rubber Light Aqua (#D3F2EA)
   10378: 'minecraft:green_concrete',      // Rubber Sand Green (#708E7C)
   10484: 'minecraft:orange_concrete',     // Rubber Dark Orange (#91501C)
+  10036: 'minecraft:red_stained_glass',   // Rubber Trans-Red (#C91A09)
+  10043: 'minecraft:light_blue_stained_glass', // Rubber Trans-Light Blue (#AEE9EF)
+  10351: 'minecraft:lime_stained_glass',  // Glitter Trans-Bright Green (#56E646)
+  10375: 'minecraft:gray_stained_glass',  // Trans-Black (#5E5E5C)
 
   // ── Extended colors referenced by LDD/LXF pipeline ─────────────────────
   21:  'minecraft:lime_concrete',         // Glow In Dark Opaque (yellowish-green)
@@ -307,5 +311,7 @@ export const LDRAW_COLOR_RGB: Record<number, string> = {
   10070: '#5F3109', 10073: '#7396C8', 10078: '#FFC995',
   10179: '#737271', 10226: '#FFEC6C', 10308: '#352100',
   10320: '#720012', 10321: '#469BC3', 10322: '#68C3E2',
-  10323: '#D3F2EA', 10378: '#708E7C', 10484: '#91501C',
+  10323: '#D3F2EA', 10351: '#56E646', 10375: '#5E5E5C',
+  10378: '#708E7C', 10484: '#91501C',
+  10036: '#C91A09', 10043: '#AEE9EF',
 };
