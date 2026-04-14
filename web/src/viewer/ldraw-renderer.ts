@@ -460,7 +460,11 @@ export async function createLDrawViewer(
 
   for (const brick of filteredBricks) {
     const geom = partGeomCache.get(normId(brick.part));
-    if (!geom || (geom.tris.length === 0 && geom.colorTris.size === 0)) { missingCount++; continue; }
+    if (!geom || (geom.tris.length === 0 && geom.colorTris.size === 0)) {
+      missingCount++;
+      if (missingCount <= 5) console.warn(`[ldraw-renderer] Missing geometry for: ${brick.part}`);
+      continue;
+    }
     renderedCount++;
 
     const R = brick.rot ?? IDENTITY;
@@ -721,8 +725,9 @@ export async function createLDrawViewer(
     } else if (rubber) {
       // Rubber: matte finish, no clearcoat, slightly higher roughness
       material = new THREE.MeshPhysicalMaterial({
-        color, roughness: 0.6, metalness: 0.0,
+        color, roughness: 0.55, metalness: 0.0,
         side: THREE.DoubleSide,
+        emissive: color.clone().multiplyScalar(0.005),
       });
     } else {
       // Standard ABS plastic: semi-glossy with clearcoat
