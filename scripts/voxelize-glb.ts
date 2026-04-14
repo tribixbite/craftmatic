@@ -58,6 +58,80 @@ import { sampleSatelliteRoof } from '../src/cli/satellite-color.js';
 import { analyzeMeshes, analyzeOne } from '../src/cli/mesh-analysis.js';
 import { trySafeMask } from '../src/cli/safe-mask.js';
 
+/**
+ * Try to apply OSM footprint mask with auto-alignment fallback.
+ * Shared between non-generic and generic pipeline branches (M5 dedup).
+ */
+async function tryOSMMask(
+  grid: BlockGrid,
+  coords: { lat: number; lng: number },
+  queryOSM: (lat: number, lng: number, radius?: number) => Promise<any>,
+  resolution: number,
+  maskDilate: number,
+  enuHorizontalAngle: number,
+  buildingAlignment: any | null,
+): Promise<{
+  success: boolean;
+  polygon: { lat: number; lon: number }[] | null;
+  tags: Record<string, string>;
+}> {
+  console.log(`OSM footprint query (pre-fill) at ${coords.lat},${coords.lng}...`);
+  const osmData = await queryOSM(coords.lat, coords.lng, 150);
+  if (!osmData || osmData.polygon.length < 3) {
+    console.log('OSM footprint (pre-fill): no building found at coordinates');
+    return { success: false, polygon: null, tags: {} };
+  }
+
+  const dilateBlocks = Math.round(maskDilate * resolution);
+  const snapshot = snapshotGridBlocks(grid);
+  try {
+    const masked = maskToFootprint(
+      grid, osmData.polygon,
+      coords.lat, coords.lng, dilateBlocks, resolution, enuHorizontalAngle,
+    );
+    const remaining = grid.countNonAir();
+
+    if (remaining < snapshot.count * 0.1 && snapshot.count > 0) {
+      // Direct mask removed too much — try auto-alignment
+      restoreGridBlocks(grid, snapshot);
+      const alignment = alignOSMToFootprint(
+        grid, osmData.polygon,
+        coords.lat, coords.lng,
+        resolution, enuHorizontalAngle,
+        40, 0.15, // v116: lowered from 0.25
+        !!buildingAlignment, // v300: tighter search when MBR alignment available
+      );
+      if (alignment) {
+        const aligned = maskToFootprintAligned(
+          grid, osmData.polygon,
+          coords.lat, coords.lng,
+          dilateBlocks, resolution, enuHorizontalAngle,
+          alignment.dx, alignment.dz,
+        );
+        const alignRemaining = grid.countNonAir();
+        if (alignRemaining > 0) {
+          console.log(`OSM mask (auto-aligned dx=${alignment.dx} dz=${alignment.dz} IoU=${alignment.iou.toFixed(2)}): ${aligned} blocks removed, ${alignRemaining} remaining`);
+          return { success: true, polygon: osmData.polygon, tags: osmData.tags ?? {} };
+        } else {
+          restoreGridBlocks(grid, snapshot);
+          console.log(`OSM mask: direct + auto-align both failed (IoU=${alignment.iou.toFixed(2)}), using geometry isolation`);
+          return { success: false, polygon: null, tags: {} };
+        }
+      } else {
+        console.log(`OSM mask: polygon misaligned, no alignment found (IoU<0.15), using geometry isolation`);
+        return { success: false, polygon: null, tags: {} };
+      }
+    } else {
+      console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
+      return { success: true, polygon: osmData.polygon, tags: osmData.tags ?? {} };
+    }
+  } catch (err) {
+    console.warn(`OSM mask failed: ${(err as Error).message}`);
+    restoreGridBlocks(grid, snapshot);
+    return { success: false, polygon: null, tags: {} };
+  }
+}
+
 async function main(): Promise<void> {
   const args = parseArgs();
   const t0 = performance.now();
@@ -540,7 +614,7 @@ async function main(): Promise<void> {
   // ── Auto-detection: analyze grid and override pipeline params ──
   let analysis: AnalysisResult | null = null;
   let osmMaskDone = false; // Track if OSM mask ran in pre-fill path
-  let osmPolygon: Array<{ lat: number; lng: number }> | null = null; // Save for post-processing re-mask
+  let osmPolygon: Array<{ lat: number; lon: number }> | null = null; // Save for post-processing re-mask
   let osmTags: Record<string, string> = {}; // v314: OSM tags for semantic palette
   if (args.auto) {
     console.log(`\n--- Auto-Detection Analysis ---`);
@@ -692,61 +766,16 @@ async function main(): Promise<void> {
     // Step 2: OSM footprint mask — carve away everything outside building polygon.
     // For buildings smaller than capture radius, this removes sidewalk/road/neighbors.
     // For buildings larger than capture, mask removes 0 (all blocks inside polygon).
-    let osmQueryPolygon: { lat: number; lon: number }[] | null = null;
     if (args.coords && !osmMaskDone && !args.noOsm) {
-      console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
-      const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
-      if (osmData && osmData.polygon.length >= 3) {
-        osmQueryPolygon = osmData.polygon;
-        // Non-generic pre-fill OSM mask
-        const snapshot = snapshotGridBlocks(trimmed);
-        try {
-        const masked = maskToFootprint(
-          trimmed, osmData.polygon,
-          args.coords.lat, args.coords.lng, Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
-        );
-        const remaining = trimmed.countNonAir();
-        if (remaining < snapshot.count * 0.1 && snapshot.count > 0) {
-          // Direct mask failed — try OSM auto-alignment (sliding-window IoU)
-          restoreGridBlocks(trimmed, snapshot);
-          const alignment = alignOSMToFootprint(
-            trimmed, osmData.polygon,
-            args.coords.lat, args.coords.lng,
-            args.resolution, enuHorizontalAngle,
-            40, 0.15,  // v116: lowered from 0.25 — dense grids have naturally low IoU
-            !!buildingAlignment, // v300: tighter search when MBR alignment available
-          );
-          if (alignment) {
-            const aligned = maskToFootprintAligned(
-              trimmed, osmData.polygon,
-              args.coords.lat, args.coords.lng,
-              Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
-              alignment.dx, alignment.dz,
-            );
-            const alignRemaining = trimmed.countNonAir();
-            if (alignRemaining > 0) {
-              console.log(`OSM mask (auto-aligned dx=${alignment.dx} dz=${alignment.dz} IoU=${alignment.iou.toFixed(2)}): ${aligned} blocks removed, ${alignRemaining} remaining`);
-              osmMaskDone = true;
-              osmPolygon = osmData.polygon;
-              osmTags = osmData.tags ?? {};
-            } else {
-              // Auto-alignment also failed — restore and fall through to geometry isolation
-              restoreGridBlocks(trimmed, snapshot);
-              console.log(`OSM mask: direct + auto-align both failed (IoU=${alignment.iou.toFixed(2)}), using geometry isolation`);
-            }
-          } else {
-            console.log(`OSM mask: polygon misaligned, no alignment found (IoU<0.15), using geometry isolation`);
-          }
-        } else {
-          console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
-          osmMaskDone = true;
-          osmPolygon = osmData.polygon;
-          osmTags = osmData.tags ?? {};
-        }
-        } catch (err) {
-          console.warn(`OSM mask (non-generic pre-fill) failed: ${(err as Error).message}`);
-          restoreGridBlocks(trimmed, snapshot);
-        }
+      const osmResult = await tryOSMMask(
+        trimmed, args.coords, queryOSM,
+        args.resolution, args.maskDilate ?? 3,
+        enuHorizontalAngle, buildingAlignment,
+      );
+      if (osmResult.success) {
+        osmMaskDone = true;
+        osmPolygon = osmResult.polygon;
+        osmTags = osmResult.tags;
       }
     }
 
@@ -870,60 +899,15 @@ async function main(): Promise<void> {
       // Step 2: OSM footprint mask BEFORE fill — isolate building polygon so fill
       // only fills the building interior, not surrounding terrain/roads/neighbors.
       if (args.coords && !args.noOsm) {
-        console.log(`OSM footprint query (pre-fill) at ${args.coords.lat},${args.coords.lng}...`);
-        const osmData = await queryOSM(args.coords.lat, args.coords.lng, 150);
-        if (osmData && osmData.polygon.length >= 3) {
-          // Generic pre-fill OSM mask — snapshot for revert if polygon is misaligned
-          const snapshot = snapshotGridBlocks(trimmed);
-          try {
-          const masked = maskToFootprint(
-            trimmed, osmData.polygon,
-            args.coords.lat, args.coords.lng, Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
-          );
-          const remaining = trimmed.countNonAir();
-          if (remaining < snapshot.count * 0.1 && snapshot.count > 0) {
-            // Direct mask failed — try OSM auto-alignment (sliding-window IoU)
-            restoreGridBlocks(trimmed, snapshot);
-            const alignment = alignOSMToFootprint(
-              trimmed, osmData.polygon,
-              args.coords.lat, args.coords.lng,
-              args.resolution, enuHorizontalAngle,
-              40, 0.15,  // v116: lowered from 0.25 — dense grids have naturally low IoU
-              !!buildingAlignment, // v300: tighter search when MBR alignment available
-            );
-            if (alignment) {
-              const aligned = maskToFootprintAligned(
-                trimmed, osmData.polygon,
-                args.coords.lat, args.coords.lng,
-                Math.round((args.maskDilate ?? 3) * args.resolution), args.resolution, enuHorizontalAngle,
-                alignment.dx, alignment.dz,
-              );
-              const alignRemaining = trimmed.countNonAir();
-              if (alignRemaining > 0) {
-                console.log(`OSM mask (auto-aligned dx=${alignment.dx} dz=${alignment.dz} IoU=${alignment.iou.toFixed(2)}): ${aligned} blocks removed, ${alignRemaining} remaining`);
-                osmMaskDone = true;
-                osmPolygon = osmData.polygon;
-                osmTags = osmData.tags ?? {};
-              } else {
-                // Auto-alignment also failed — restore and fall through to geometry isolation
-                restoreGridBlocks(trimmed, snapshot);
-                console.log(`OSM mask: direct + auto-align both failed (IoU=${alignment.iou.toFixed(2)}), using geometry isolation`);
-              }
-            } else {
-              console.log(`OSM mask: polygon misaligned, no alignment found (IoU<0.15), using geometry isolation`);
-            }
-          } else {
-            console.log(`OSM mask (pre-fill): ${masked} blocks removed, ${remaining} remaining`);
-            osmMaskDone = true;
-            osmPolygon = osmData.polygon;
-            osmTags = osmData.tags ?? {};
-          }
-          } catch (err) {
-            console.warn(`OSM mask (generic pre-fill) failed: ${(err as Error).message}`);
-            restoreGridBlocks(trimmed, snapshot);
-          }
-        } else {
-          console.log('OSM footprint (pre-fill): no building found at coordinates');
+        const osmResult = await tryOSMMask(
+          trimmed, args.coords, queryOSM,
+          args.resolution, args.maskDilate ?? 3,
+          enuHorizontalAngle, buildingAlignment,
+        );
+        if (osmResult.success) {
+          osmMaskDone = true;
+          osmPolygon = osmResult.polygon;
+          osmTags = osmResult.tags;
         }
       }
 
