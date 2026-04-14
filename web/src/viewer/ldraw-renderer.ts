@@ -127,7 +127,10 @@ async function fetchDatText(id: string): Promise<string | null> {
     `${LDRAW_BASE}/p/${stem}.dat`,
     `${LDRAW_BASE}/parts/s/${stem}.dat`,
     `${LDRAW_BASE}/UnOfficial/parts/${stem}.dat`,
+    `${LDRAW_BASE}/UnOfficial/parts/s/${stem}.dat`,
     `${LDRAW_BASE}/UnOfficial/p/${stem}.dat`,
+    `${LDRAW_BASE}/UnOfficial/p/48/${stem}.dat`,
+    `${LDRAW_BASE}/models/${stem}.dat`,
   );
 
   const promise = (async (): Promise<string | null> => {
@@ -555,7 +558,12 @@ export async function createLDrawViewer(
 
   let renderer: THREE.WebGLRenderer;
   try {
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: false,
+      logarithmicDepthBuffer: true, // prevents z-fighting on large models
+      powerPreference: 'high-performance',
+    });
   } catch {
     const fallback = document.createElement('div');
     fallback.style.cssText = 'display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#999;font:14px/1.4 system-ui;text-align:center;padding:1em;';
@@ -608,7 +616,8 @@ export async function createLDrawViewer(
   keyLight.position.set(50, 80, 40);
   keyLight.castShadow = true;
   keyLight.shadow.mapSize.set(4096, 4096);
-  keyLight.shadow.bias = -0.001;
+  keyLight.shadow.bias = -0.0005;
+  keyLight.shadow.normalBias = 0.02;
   scene.add(keyLight);
 
   // Fill light (cooler, opposite side — softer)
