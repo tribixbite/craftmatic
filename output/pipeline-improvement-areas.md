@@ -134,8 +134,18 @@ This "OSM-first" approach would fix issues #3, #6, and partially #5 and #8. The 
 | 2026-04-13 (post-fix round 2) | 8.0/10 | 0 CRITICAL + 3 HIGH (pre-existing) + 5 MEDIUM + 5 LOW |
 
 ### Remaining HIGH findings (pre-existing, not from this session):
-- H1: `smoothRareBlocks` reads from live grid during mutation (cascading replacements)
-- H2: `maskToFootprintAligned` missing erode step (mask larger than intended)
-- H3: `maskToFootprintAligned` applies dx/dz offset before rotation (offset gets rotated)
+- ~~H1: `smoothRareBlocks` reads from live grid during mutation~~ **FIXED** — snapshot reads
+- ~~H2: `maskToFootprintAligned` missing erode step~~ **FIXED** — shared `morphCloseBitmap` helper
+- ~~H3: `maskToFootprintAligned` offset before rotation~~ **FIXED** — offset applied after rotation
 
-— Opus 4.6, 2026-04-13
+### Round 3 fixes (2026-04-14):
+- H1: `smoothRareBlocks` snapshot reads (color.ts)
+- H2: `maskToFootprintAligned` erode step via `morphCloseBitmap` (spatial-footprint.ts)
+- H3: dx/dz offset applied after rotation (spatial-footprint.ts)
+- M1: Centroid computed before auto-close (spatial-footprint.ts)
+- M2: `peaks` → `Set<number>` O(1) lookup (geometry-facade.ts)
+- M3: `osmPolygon` type `lng` → `lon` (voxelize-glb.ts)
+- M4: 4x scanline dedup → `rasterizePolygonToBitmap`, `projectPolygonToBlocks`, `morphCloseBitmap` (spatial-footprint.ts)
+- M5: OSM mask dedup → `tryOSMMask` helper (voxelize-glb.ts)
+
+— Opus 4.6, 2026-04-14
