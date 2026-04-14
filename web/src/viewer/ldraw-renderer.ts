@@ -184,6 +184,23 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
         if (cmd === 'CCW') bfcCCW = true;
         continue;
       }
+      // Inline color definition: 0 !COLOUR name CODE n VALUE #RRGGBB ...
+      if (tok[0] === '0' && tok[1] === '!COLOUR') {
+        const codeIdx = tok.indexOf('CODE');
+        const valIdx = tok.indexOf('VALUE');
+        if (codeIdx > 0 && valIdx > 0 && tok[codeIdx + 1] && tok[valIdx + 1]) {
+          const cid = parseInt(tok[codeIdx + 1], 10);
+          const rgb = tok[valIdx + 1];
+          if (!isNaN(cid) && rgb.startsWith('#')) {
+            // Dynamically import the RGB table and add the color
+            const { LDRAW_COLOR_RGB } = await import('@engine/ldraw-colors.js');
+            if (!(cid in LDRAW_COLOR_RGB)) {
+              (LDRAW_COLOR_RGB as Record<number, string>)[cid] = rgb;
+            }
+          }
+        }
+        continue;
+      }
 
       if (tok[0] === '2' && tok.length >= 8) {
         geom.edges.push([
