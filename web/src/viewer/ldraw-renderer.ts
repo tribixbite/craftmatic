@@ -337,7 +337,7 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
       }
     }
 
-    await Promise.all(subPromises);
+    await Promise.allSettled(subPromises); // don't fail entire part on one bad sub-ref
     return geom;
   })();
 
