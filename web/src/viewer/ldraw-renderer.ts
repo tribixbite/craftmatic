@@ -678,11 +678,16 @@ export async function createLDrawViewer(
   }
 
   // ── Camera positioning ─────────────────────────────────────────────────
+  // Adapt camera angle to model shape:
+  //   Wide/flat models (buildings) → lower elevation, more frontal
+  //   Tall models (towers, figures) → higher elevation, more offset
   const camDist = maxDim * 1.5;
+  const aspectRatio = size.y / Math.max(size.x, size.z, 1); // height / footprint
+  const elevationFactor = Math.min(0.5, 0.25 + aspectRatio * 0.15); // 0.25 → 0.5
   camera.position.set(
-    center.x + camDist * 0.3,
-    center.y + camDist * 0.4,
-    center.z + camDist * 0.85,
+    center.x + camDist * 0.35,
+    center.y + camDist * elevationFactor,
+    center.z + camDist * 0.8,
   );
   camera.lookAt(center);
   camera.near = maxDim * 0.01;
@@ -696,6 +701,8 @@ export async function createLDrawViewer(
   controls.dampingFactor = 0.08;
   controls.maxDistance = maxDim * 5;
   controls.minDistance = maxDim * 0.1;
+  controls.autoRotate = false;
+  controls.autoRotateSpeed = 1.5;
   controls.update();
 
   // ── Post-processing: SAO ambient occlusion ─────────────────────────────
