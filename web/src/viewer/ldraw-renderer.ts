@@ -17,6 +17,8 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SAOPass } from 'three/examples/jsm/postprocessing/SAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
@@ -995,6 +997,11 @@ export async function createLDrawViewer(
     saoPass.params.saoBlurRadius = 6;
     composer.addPass(saoPass);
   }
+  // Subtle vignette for cinematic/studio look
+  const vignettePass = new ShaderPass(VignetteShader);
+  vignettePass.uniforms['offset'].value = 1.2;
+  vignettePass.uniforms['darkness'].value = 0.8;
+  composer.addPass(vignettePass);
   composer.addPass(new OutputPass());
   composer.setSize(container.clientWidth, container.clientHeight);
 
