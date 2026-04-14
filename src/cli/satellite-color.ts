@@ -19,7 +19,7 @@ export async function sampleSatelliteRoof(
   lat: number, lng: number,
 ): Promise<{ roofBlock: string; roofRgb: [number, number, number] } | null> {
   // Read API key from .env
-  const projectRoot = resolve(import.meta.dir, '..');
+  const projectRoot = resolve(import.meta.dir, '../..');
   let apiKey: string | undefined;
   try {
     const dotenv = await Bun.file(join(projectRoot, '.env')).text();
