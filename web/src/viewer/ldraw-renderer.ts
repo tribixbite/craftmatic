@@ -607,21 +607,21 @@ export async function createLDrawViewer(
   container.appendChild(renderer.domElement);
 
   // ── Environment map for realistic plastic reflections ──────────────────
-  {
+  try {
     const pmremGen = new THREE.PMREMGenerator(renderer);
     pmremGen.compileEquirectangularShader();
-    // Studio environment: warm ceiling, cool floor, neutral walls
     const envScene = new THREE.Scene();
     envScene.background = new THREE.Color(0xd0d0d8);
     envScene.add(new THREE.HemisphereLight(0xfff8f0, 0x8090a0, 1.2));
-    // Add a bright area light on the ceiling for specular highlights
     const ceilingLight = new THREE.RectAreaLight(0xffffff, 3.0, 50, 50);
     ceilingLight.position.set(0, 30, 0);
     ceilingLight.lookAt(0, 0, 0);
     envScene.add(ceilingLight);
     scene.environment = pmremGen.fromScene(envScene, 0.04).texture;
-    scene.environmentIntensity = 0.6; // subtle, not overpowering
+    scene.environmentIntensity = 0.6;
     pmremGen.dispose();
+  } catch {
+    // Environment map failed (GPU limitation) — scene still renders with direct lighting
   }
 
   // ── Lighting (product photography style) ───────────────────────────────
@@ -862,14 +862,16 @@ export async function createLDrawViewer(
   // ── Post-processing: SAO ambient occlusion ─────────────────────────────
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const saoPass = new SAOPass(scene, camera);
-  // Scale SAO params relative to model size for consistent AO across scales
-  saoPass.params.saoBias = 0.5;
-  saoPass.params.saoIntensity = 0.012;
-  saoPass.params.saoScale = Math.max(5, maxDim * 0.5);
-  saoPass.params.saoKernelRadius = Math.max(15, maxDim * 1.5);
-  saoPass.params.saoBlurRadius = 6;
-  composer.addPass(saoPass);
+  // Skip SAO for very large models (>3000 rendered bricks) to maintain framerate
+  if (renderedCount <= 3000) {
+    const saoPass = new SAOPass(scene, camera);
+    saoPass.params.saoBias = 0.5;
+    saoPass.params.saoIntensity = 0.012;
+    saoPass.params.saoScale = Math.max(5, maxDim * 0.5);
+    saoPass.params.saoKernelRadius = Math.max(15, maxDim * 1.5);
+    saoPass.params.saoBlurRadius = 6;
+    composer.addPass(saoPass);
+  }
   composer.addPass(new OutputPass());
   composer.setSize(container.clientWidth, container.clientHeight);
 
