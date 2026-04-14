@@ -793,8 +793,10 @@ export async function createLDrawViewer(
     const gs = maxDim * 2.5;
     const curveR = gs * 0.6; // radius of the curved back wall
     const floorY = bboxMin.y - 0.01;
-    const backdropMat = new THREE.MeshStandardMaterial({
-      color: groundColor, roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide,
+    const backdropMat = new THREE.MeshPhysicalMaterial({
+      color: groundColor, roughness: 0.7, metalness: 0.0,
+      clearcoat: 0.1, clearcoatRoughness: 0.5,
+      side: THREE.DoubleSide,
     });
     // Floor plane
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(gs * 2, gs * 2), backdropMat);
@@ -802,6 +804,15 @@ export async function createLDrawViewer(
     floor.position.set(center.x, floorY, center.z);
     floor.receiveShadow = true;
     scene.add(floor);
+    // Contact shadow — subtle dark ellipse directly under the model for grounding
+    const contactGeo = new THREE.CircleGeometry(maxDim * 0.6, 32);
+    const contactMat = new THREE.MeshBasicMaterial({
+      color: 0x000000, transparent: true, opacity: 0.08, depthWrite: false,
+    });
+    const contactShadow = new THREE.Mesh(contactGeo, contactMat);
+    contactShadow.rotation.x = -Math.PI / 2;
+    contactShadow.position.set(center.x, floorY + 0.005, center.z);
+    scene.add(contactShadow);
     // Curved back wall (quarter-cylinder) — smoothly curves from floor upward
     const curveSegs = 24;
     const curveGeo = new THREE.BufferGeometry();
