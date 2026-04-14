@@ -384,6 +384,11 @@ function isMetallicColor(colorId: number): boolean {
   return false;
 }
 
+/** Glow-in-dark color IDs — strong emissive */
+function isGlowColor(colorId: number): boolean {
+  return colorId === 21 || colorId === 294 || colorId === 601;
+}
+
 /** Rubber color IDs — higher roughness, no clearcoat */
 function isRubberColor(colorId: number): boolean {
   if (colorId === 256 || colorId === 273 || colorId === 324 || colorId === 375) return true;
@@ -792,9 +797,18 @@ export async function createLDrawViewer(
     const transparent = isTransparentColor(colorId);
     const metallic = isMetallicColor(colorId);
     const rubber = isRubberColor(colorId);
+    const glow = isGlowColor(colorId);
 
     let material: THREE.MeshPhysicalMaterial | THREE.MeshStandardMaterial;
-    if (transparent) {
+    if (glow) {
+      // Glow-in-dark: strong yellowish-green emissive
+      material = new THREE.MeshPhysicalMaterial({
+        color, roughness: 0.35, metalness: 0.0,
+        emissive: color.clone().multiplyScalar(0.3),
+        clearcoat: 0.2, clearcoatRoughness: 0.5,
+        side: THREE.DoubleSide,
+      });
+    } else if (transparent) {
       material = new THREE.MeshPhysicalMaterial({
         color, roughness: 0.05, metalness: 0.0,
         transmission: 0.85, ior: 1.45, thickness: 0.5,
