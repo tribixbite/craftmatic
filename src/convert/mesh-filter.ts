@@ -133,7 +133,7 @@ export {
   enforceFootprintPolygon,
   // Shared helpers (exported for testing and reuse)
   projectPolygonToBlocks, rasterizePolygonToBitmap, rasterizePolygonToSet,
-  morphCloseBitmap,
+  morphCloseBitmap, CoordinateBitmapImpl,
 } from './mesh-filter/spatial-footprint.js';
 
 // Grid analysis, statistics, metrics

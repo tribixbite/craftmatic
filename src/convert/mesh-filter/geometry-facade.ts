@@ -378,8 +378,10 @@ export function flattenFacadesSetbackAware(
   grid: BlockGrid,
   corniceYs: Set<number>,
   snapRadius = 2,
+  resolution = 1,
 ): number {
   const { width, height, length } = grid;
+  const scaledSnap = Math.max(1, Math.round(snapRadius * resolution));
   let totalSnapped = 0;
 
   // Sort cornice Y levels to define sections
@@ -441,10 +443,10 @@ export function flattenFacadesSetbackAware(
           if (peakSet.has(x)) continue;
 
           let nearestPeak = -1;
-          let nearestDist = snapRadius + 1;
+          let nearestDist = scaledSnap + 1;
           for (const peak of peaksArr) {
             const dist = Math.abs(x - peak);
-            if (dist <= snapRadius && dist < nearestDist) {
+            if (dist <= scaledSnap && dist < nearestDist) {
               nearestDist = dist; nearestPeak = peak;
             }
           }
@@ -492,10 +494,10 @@ export function flattenFacadesSetbackAware(
           if (peakSet.has(z)) continue;
 
           let nearestPeak = -1;
-          let nearestDist = snapRadius + 1;
+          let nearestDist = scaledSnap + 1;
           for (const peak of peaksArr) {
             const dist = Math.abs(z - peak);
-            if (dist <= snapRadius && dist < nearestDist) {
+            if (dist <= scaledSnap && dist < nearestDist) {
               nearestDist = dist; nearestPeak = peak;
             }
           }

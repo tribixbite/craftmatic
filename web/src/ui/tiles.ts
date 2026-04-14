@@ -899,7 +899,7 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
       const corniceYs = detectCornices(grid, 2, true);
       if (corniceYs.size > 0) {
         console.log(`[tiles:pp] cornices detected: ${corniceYs.size} Y levels preserved`);
-        const snapped = flattenFacadesSetbackAware(grid, corniceYs, 1);
+        const snapped = flattenFacadesSetbackAware(grid, corniceYs, 1, resolution);
         if (snapped > 0) console.log(`[tiles:pp] setback-aware flatten: ${snapped} voxels snapped`);
       } else {
         const snapped = flattenFacades(grid, 1);

@@ -86,9 +86,6 @@ export function glazeDarkWindows(grid: BlockGrid, resolution = 1, photogrammetry
   // Scale MIN_Y with resolution: skip ground-level (foundation, entry, base shadow)
   const MIN_Y = Math.max(2, Math.round(2 * resolution));
 
-  // Horizontal directions for facade detection (adjacent to air on X or Z axis)
-
-
   // Phase 1: Collect all facade dark block positions
   type Pos = { x: number; y: number; z: number };
   const facadeBlocks: Pos[] = [];
@@ -498,9 +495,6 @@ export function injectSyntheticWindows(grid: BlockGrid, existingGlazed: number, 
   if (existingGlazed > nonAir * 0.005) return 0;
   // Scale minimum height with resolution: 8m = 24 blocks at res 3
   if (height < Math.max(8, Math.round(8 * resolution))) return 0;
-
-  // Horizontal directions for facade detection
-
 
   // Step 1: Find dominant facade material by counting exterior surface blocks
   const facadeCounts = new Map<string, number>();
