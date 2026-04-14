@@ -283,6 +283,13 @@ function isMetallicColor(colorId: number): boolean {
   return false;
 }
 
+/** Rubber color IDs — higher roughness, no clearcoat */
+function isRubberColor(colorId: number): boolean {
+  if (colorId === 256 || colorId === 273 || colorId === 324 || colorId === 375) return true;
+  if (colorId >= 10000 && colorId < 11000) return true; // 10xxx = BrickLink rubber
+  return false;
+}
+
 function getThreeColor(colorId: number): THREE.Color {
   const hex = LDRAW_COLOR_RGB[colorId] ?? '#808080';
   return new THREE.Color(hex);
@@ -573,23 +580,35 @@ export async function createLDrawViewer(
     const color = getThreeColor(colorId);
     const transparent = isTransparentColor(colorId);
     const metallic = isMetallicColor(colorId);
+    const rubber = isRubberColor(colorId);
 
-    const material = transparent
-      ? new THREE.MeshPhysicalMaterial({
-          color, roughness: 0.05, metalness: 0.0,
-          transmission: 0.85, ior: 1.45, thickness: 0.5,
-          transparent: true, opacity: 0.9,
-          side: THREE.DoubleSide, depthWrite: false,
-        })
-      : new THREE.MeshPhysicalMaterial({
-          color,
-          roughness: metallic ? 0.15 : 0.3,
-          metalness: metallic ? 0.85 : 0.0,
-          clearcoat: metallic ? 0.0 : 0.3,
-          clearcoatRoughness: 0.4,
-          side: THREE.DoubleSide,
-          // Smooth normals computed per-brick: cylinders smooth, brick faces sharp
-        });
+    let material: THREE.MeshPhysicalMaterial | THREE.MeshStandardMaterial;
+    if (transparent) {
+      material = new THREE.MeshPhysicalMaterial({
+        color, roughness: 0.05, metalness: 0.0,
+        transmission: 0.85, ior: 1.45, thickness: 0.5,
+        transparent: true, opacity: 0.9,
+        side: THREE.DoubleSide, depthWrite: false,
+      });
+    } else if (metallic) {
+      material = new THREE.MeshPhysicalMaterial({
+        color, roughness: 0.15, metalness: 0.85,
+        side: THREE.DoubleSide,
+      });
+    } else if (rubber) {
+      // Rubber: matte finish, no clearcoat, slightly higher roughness
+      material = new THREE.MeshPhysicalMaterial({
+        color, roughness: 0.6, metalness: 0.0,
+        side: THREE.DoubleSide,
+      });
+    } else {
+      // Standard ABS plastic: semi-glossy with clearcoat
+      material = new THREE.MeshPhysicalMaterial({
+        color, roughness: 0.3, metalness: 0.0,
+        clearcoat: 0.3, clearcoatRoughness: 0.4,
+        side: THREE.DoubleSide,
+      });
+    }
 
     // Slight emissive tint for richer plastic look
     if (!transparent && !metallic) {
