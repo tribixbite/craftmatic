@@ -19,6 +19,7 @@ import { SAOPass } from 'three/examples/jsm/postprocessing/SAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
@@ -997,6 +998,14 @@ export async function createLDrawViewer(
     saoPass.params.saoBlurRadius = 6;
     composer.addPass(saoPass);
   }
+  // FXAA anti-aliasing for smoother geometry edges
+  const fxaaPass = new ShaderPass(FXAAShader);
+  const pixelRatio = renderer.getPixelRatio();
+  fxaaPass.material.uniforms['resolution'].value.set(
+    1 / (container.clientWidth * pixelRatio),
+    1 / (container.clientHeight * pixelRatio),
+  );
+  composer.addPass(fxaaPass);
   // Subtle vignette for cinematic/studio look
   const vignettePass = new ShaderPass(VignetteShader);
   vignettePass.uniforms['offset'].value = 1.2;
@@ -1032,6 +1041,8 @@ export async function createLDrawViewer(
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     composer.setSize(w, h);
+    const pr = renderer.getPixelRatio();
+    fxaaPass.material.uniforms['resolution'].value.set(1 / (w * pr), 1 / (h * pr));
   });
   resizeObs.observe(container);
 
