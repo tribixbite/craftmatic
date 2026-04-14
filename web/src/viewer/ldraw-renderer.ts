@@ -609,7 +609,21 @@ export async function createLDrawViewer(
 
   // ── Scene setup ────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(bgColor);
+  // Vertical gradient background: lighter at top, darker at bottom (studio look)
+  {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2; canvas.height = 256;
+    const ctx = canvas.getContext('2d')!;
+    const top = new THREE.Color(bgColor).multiplyScalar(1.4); // 40% brighter at top
+    const bot = new THREE.Color(bgColor).multiplyScalar(0.8); // 20% darker at bottom
+    const grad = ctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, `rgb(${top.r*255|0},${top.g*255|0},${top.b*255|0})`);
+    grad.addColorStop(1, `rgb(${bot.r*255|0},${bot.g*255|0},${bot.b*255|0})`);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, 2, 256);
+    const bgTex = new THREE.CanvasTexture(canvas);
+    bgTex.mapping = THREE.EquirectangularReflectionMapping;
+    scene.background = bgTex;
+  }
   // Fog added after model bounds are known (density scaled to model size)
 
   const camera = new THREE.PerspectiveCamera(
