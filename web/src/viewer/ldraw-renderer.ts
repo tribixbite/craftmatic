@@ -593,12 +593,17 @@ export async function createLDrawViewer(
   {
     const pmremGen = new THREE.PMREMGenerator(renderer);
     pmremGen.compileEquirectangularShader();
-    // Create a simple studio environment: white top hemisphere, gray bottom
+    // Studio environment: warm ceiling, cool floor, neutral walls
     const envScene = new THREE.Scene();
-    envScene.background = new THREE.Color(0xcccccc);
-    const envLight = new THREE.HemisphereLight(0xffffff, 0x888888, 1.0);
-    envScene.add(envLight);
+    envScene.background = new THREE.Color(0xd0d0d8);
+    envScene.add(new THREE.HemisphereLight(0xfff8f0, 0x8090a0, 1.2));
+    // Add a bright area light on the ceiling for specular highlights
+    const ceilingLight = new THREE.RectAreaLight(0xffffff, 3.0, 50, 50);
+    ceilingLight.position.set(0, 30, 0);
+    ceilingLight.lookAt(0, 0, 0);
+    envScene.add(ceilingLight);
     scene.environment = pmremGen.fromScene(envScene, 0.04).texture;
+    scene.environmentIntensity = 0.6; // subtle, not overpowering
     pmremGen.dispose();
   }
 
