@@ -863,11 +863,12 @@ export async function createLDrawViewer(
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
   const saoPass = new SAOPass(scene, camera);
+  // Scale SAO params relative to model size for consistent AO across scales
   saoPass.params.saoBias = 0.5;
-  saoPass.params.saoIntensity = 0.015;
-  saoPass.params.saoScale = 10;
-  saoPass.params.saoKernelRadius = 30;
-  saoPass.params.saoBlurRadius = 4;
+  saoPass.params.saoIntensity = 0.012;
+  saoPass.params.saoScale = Math.max(5, maxDim * 0.5);
+  saoPass.params.saoKernelRadius = Math.max(15, maxDim * 1.5);
+  saoPass.params.saoBlurRadius = 6;
   composer.addPass(saoPass);
   composer.addPass(new OutputPass());
   composer.setSize(container.clientWidth, container.clientHeight);
