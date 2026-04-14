@@ -432,11 +432,8 @@ export async function createLDrawViewer(
   const scale = options?.scale ?? LDU_TO_UNITS;
   const onProgress = options?.onProgress;
 
-  // ── Clear stale MPD inline entries from previous loads ──────────────────
-  // Part library .dat entries persist (correct), but inline sub-model
-  // entries from a previous MPD file could conflict with the new one.
-  // Clear the geometry cache for inline entries (they reference inline .ldr names
-  // that might be reused across different MPD files with different content).
+  // ── Clear stale state from previous loads ───────────────────────────────
+  inlineTransparentColors.clear();
   for (const key of [...partGeomCache.keys()]) {
     if (key.endsWith('.ldr')) { partGeomCache.delete(key); datTextCache.delete(key); }
   }
