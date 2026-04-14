@@ -53,13 +53,15 @@ export const VEGETATION_BLOCKS = new Set([
 
 /** Progress info emitted during voxelization */
 export interface VoxelizeProgress {
-  /** 0-1 completion ratio */
+  /** 0-1 completion ratio (BVH: 0-0.2, voxelize: 0.2-1.0) */
   progress: number;
   /** Current Y layer being processed */
   currentY: number;
   /** Total Y layers */
   totalY: number;
-  /** Optional status message (e.g. BVH build phase) */
+  /** Current phase */
+  phase?: 'bvh' | 'voxelize';
+  /** Optional status message */
   message?: string;
 }
 
@@ -238,9 +240,12 @@ export async function threeToGridAsync(
     const geo = child.geometry as THREE.BufferGeometry;
     if (!geo) continue;
     if (!(geo as BVHGeometry).boundsTree) {
+      // BVH phase: report progress in 0-0.2 range
+      const bvhProgress = (mi / meshChildren.length) * 0.2;
       options?.onProgress?.({
-        progress: 0, currentY: 0, totalY: 1,
-        message: `Building BVH ${mi + 1}/${meshChildren.length}...`,
+        progress: bvhProgress, currentY: 0, totalY: height,
+        phase: 'bvh',
+        message: `Building BVH ${mi + 1}/${meshChildren.length}`,
       });
       (geo as BVHGeometry).boundsTree = new MeshBVH(geo as never);
       // Yield after each BVH construction so the browser can update UI
@@ -283,7 +288,7 @@ function voxelizeSolid(
   const uvCoord = new THREE.Vector2();
 
   for (let y = 0; y < height; y++) {
-    onProgress?.({ progress: y / height, currentY: y, totalY: height });
+    onProgress?.({ progress: y / height, currentY: y, totalY: height, phase: 'voxelize' });
 
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
@@ -429,7 +434,7 @@ function voxelizeSurface(
   const worldPos = new THREE.Vector3();
 
   for (let y = 0; y < height; y++) {
-    onProgress?.({ progress: y / height, currentY: y, totalY: height });
+    onProgress?.({ progress: y / height, currentY: y, totalY: height, phase: 'voxelize' });
 
     // Narrow-band: skip Y layers with no mesh overlap
     if (slabs.zMin[y] > slabs.zMax[y]) continue;
@@ -495,7 +500,7 @@ async function voxelizeSurfaceAsync(
   resolution: number,
   meshes: MeshEntry[],
   sampler: TextureSampler | undefined,
-  yieldInterval: number,
+  _yieldInterval: number,
   onProgress?: (p: VoxelizeProgress) => void,
   filterVegetation = false,
 ): Promise<void> {
@@ -512,18 +517,40 @@ async function voxelizeSurfaceAsync(
     new THREE.Box3().setFromObject(mesh).expandByScalar(broadThreshold),
   );
 
+  // Pre-compute per-Y-layer active mesh indices for fast inner loop
+  // Avoids iterating all meshes when only a few overlap at each height
+  const activeMeshesPerY: number[][] = [];
+  for (let y = 0; y < height; y++) {
+    const worldYMin = box.min.y + y / resolution;
+    const worldYMax = box.min.y + (y + 1) / resolution;
+    const active: number[] = [];
+    for (let m = 0; m < meshes.length; m++) {
+      if (meshBounds[m].min.y <= worldYMax + broadThreshold &&
+          meshBounds[m].max.y >= worldYMin - broadThreshold) {
+        active.push(m);
+      }
+    }
+    activeMeshesPerY.push(active);
+  }
+
   // Reusable objects — allocated once, reused per voxel
   const localPoint = new THREE.Vector3();
   const closestTarget = { point: new THREE.Vector3(), distance: Infinity, faceIndex: 0 };
   const uvCoord = new THREE.Vector2();
   const worldPos = new THREE.Vector3();
 
+  // Yield every N voxels to keep mobile browsers responsive.
+  // Each BVH query is ~0.1ms so 500 voxels ≈ 50ms — well under 100ms jank threshold.
+  let voxelsSinceYield = 0;
+  const YIELD_EVERY = 500;
   for (let y = 0; y < height; y++) {
-    onProgress?.({ progress: y / height, currentY: y, totalY: height });
+    // Voxelize phase occupies 0.2-1.0 progress range (BVH was 0-0.2)
+    onProgress?.({ progress: 0.2 + (y / height) * 0.8, currentY: y, totalY: height, phase: 'voxelize' });
 
-    // Yield to main thread periodically so UI stays responsive
-    if (yieldInterval > 0 && y > 0 && y % yieldInterval === 0) {
+    // Yield between layers
+    if (y > 0) {
       await new Promise<void>(r => setTimeout(r, 0));
+      voxelsSinceYield = 0;
     }
 
     // Narrow-band: skip Y layers with no mesh overlap
@@ -534,7 +561,14 @@ async function voxelizeSurfaceAsync(
     const activeXMin = slabs.xMin[y];
     const activeXMax = slabs.xMax[y];
 
+    // Only test meshes overlapping this Y-layer (pre-filtered above)
+    const layerMeshes = activeMeshesPerY[y];
     for (let z = activeZMin; z <= activeZMax; z++) {
+      // Count-based yield within large layers — prevents "page unresponsive" on mobile
+      if (++voxelsSinceYield >= YIELD_EVERY) {
+        await new Promise<void>(r => setTimeout(r, 0));
+        voxelsSinceYield = 0;
+      }
       for (let x = activeXMin; x <= activeXMax; x++) {
         const worldX = box.min.x + (x + 0.5) / resolution;
         const worldY = box.min.y + (y + 0.5) / resolution;
@@ -544,7 +578,8 @@ async function voxelizeSurfaceAsync(
         let bestDist = Infinity;
         let bestColor: RGB | null = null;
 
-        for (let m = 0; m < meshes.length; m++) {
+        for (let mi = 0; mi < layerMeshes.length; mi++) {
+          const m = layerMeshes[mi];
           // Fast AABB rejection — skip meshes whose bounding box is too far
           if (!meshBounds[m].containsPoint(worldPos)) continue;
 
