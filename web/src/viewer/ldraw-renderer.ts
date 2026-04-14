@@ -136,7 +136,7 @@ async function fetchDatText(id: string): Promise<string | null> {
   const promise = (async (): Promise<string | null> => {
     for (const path of paths) {
       try {
-        const r = await fetch(path);
+        const r = await fetch(path, { signal: AbortSignal.timeout(5000) });
         if (r.ok) {
           const text = await r.text();
           datTextCache.set(key, text);
@@ -425,13 +425,17 @@ export async function createLDrawViewer(
   // Group by unique part ID to avoid duplicate fetches
   const uniqueParts = [...new Set(filteredBricks.map(b => normId(b.part)))];
 
-  // Prefetch all unique parts in parallel
+  // Prefetch unique parts with concurrency limit to avoid overwhelming browser connections
   let done = 0;
-  await Promise.all(uniqueParts.map(async (partId) => {
-    await resolvePartGeometry(partId);
-    done++;
-    onProgress?.(done, uniqueParts.length);
-  }));
+  const CONCURRENCY = 20;
+  for (let i = 0; i < uniqueParts.length; i += CONCURRENCY) {
+    const batch = uniqueParts.slice(i, i + CONCURRENCY);
+    await Promise.all(batch.map(async (partId) => {
+      await resolvePartGeometry(partId);
+      done++;
+      onProgress?.(done, uniqueParts.length);
+    }));
+  }
 
   // ── Build world-space triangles grouped by color + collect edge lines ──
   // Per-brick smooth normals: merge vertices WITHIN each brick (so cylinders
