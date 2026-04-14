@@ -431,11 +431,13 @@ export function rasterizePolygonToSet(
     for (let i = 0; i < pts.length; i++) {
       const a = pts[i], b = pts[(i + 1) % pts.length];
       const az = Math.round(a.z) + oz, bz = Math.round(b.z) + oz;
+      const ax = Math.round(a.x) + ox, bx = Math.round(b.x) + ox;
       if (az === bz) continue;
       const eMinZ = Math.min(az, bz), eMaxZ = Math.max(az, bz);
       if (scanZ <= eMinZ || scanZ > eMaxZ) continue;
-      const t = (scanZ - (a.z + oz)) / ((b.z + oz) - (a.z + oz));
-      intercepts.push({ x: (a.x + ox) + t * ((b.x + ox) - (a.x + ox)), dir: az < bz ? 1 : -1 });
+      // Use rounded coords consistently for both boundary test and interpolation
+      const t = (scanZ - az) / (bz - az);
+      intercepts.push({ x: ax + t * (bx - ax), dir: az < bz ? 1 : -1 });
     }
     intercepts.sort((a, b) => a.x - b.x);
     let winding = 0, idx = 0;
