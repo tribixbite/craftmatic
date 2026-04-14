@@ -431,7 +431,9 @@ export async function createLDrawViewer(
 
     // Per-brick smooth normals: merge coincident vertices WITHIN this brick,
     // compute vertex normals, then extract the smoothed data.
-    if (brickPos.length >= 9) {
+    // Skip merging for tiny bricks (< 60 floats = 20 tris) — no cylinders to smooth.
+    const triCount = brickPos.length / 9;
+    if (brickPos.length >= 9 && triCount >= 20) {
       const brickGeo = new THREE.BufferGeometry();
       brickGeo.setAttribute('position', new THREE.Float32BufferAttribute(brickPos, 3));
       const merged = mergeVertices(brickGeo, 1e-4);
@@ -458,6 +460,15 @@ export async function createLDrawViewer(
       }
       merged.dispose();
       brickGeo.dispose();
+    } else if (brickPos.length >= 9) {
+      // Small bricks: use flat face normals (no merging needed)
+      group.positions.push(...brickPos);
+      const rawGeo = new THREE.BufferGeometry();
+      rawGeo.setAttribute('position', new THREE.Float32BufferAttribute(brickPos, 3));
+      rawGeo.computeVertexNormals();
+      const n = rawGeo.getAttribute('normal')!;
+      for (let i = 0; i < n.count; i++) group.normals.push(n.getX(i), n.getY(i), n.getZ(i));
+      rawGeo.dispose();
     }
 
     // Collect edge lines grouped by brick color (cap total at 2M segments)
