@@ -757,10 +757,7 @@ export async function createLDrawViewer(
       material.emissive = color.clone().multiplyScalar(0.008);
     }
 
-    // Reduce z-fighting between overlapping coplanar surfaces
-    material.polygonOffset = true;
-    material.polygonOffsetFactor = 1;
-    material.polygonOffsetUnits = 1;
+    // z-fighting handled by logarithmic depth buffer (no polygon offset needed)
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
