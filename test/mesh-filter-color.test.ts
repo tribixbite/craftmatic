@@ -148,6 +148,62 @@ describe('mesh-filter color pipeline', () => {
       expect(replaced5).toBe(4);
       expect(countBlock(grid, 'minecraft:bricks')).toBe(0);
     });
+
+    it('does not cascade replacements (reads from snapshot)', () => {
+      // Build a 20x1x1 line: mostly stone with two adjacent rare blocks.
+      // Without snapshot: replacing the first rare block with stone makes
+      // the second rare block see a different neighborhood (cascaded stone),
+      // so both end up as stone regardless of their original surroundings.
+      // With snapshot: both rare blocks see the same pre-mutation grid,
+      // so their replacements are based on the original neighborhood only.
+      const grid = new BlockGrid(20, 1, 1);
+      // Fill with stone — the dominant block
+      for (let x = 0; x < 20; x++) grid.set(x, 0, 0, 'minecraft:stone');
+
+      // Place two different rare blocks adjacent to each other,
+      // each surrounded by their own "local" common neighbor on the outer side.
+      // x=8: bricks zone (x=6,7 = bricks → common neighbor for x=9)
+      grid.set(6, 0, 0, 'minecraft:bricks');
+      grid.set(7, 0, 0, 'minecraft:bricks');
+      grid.set(8, 0, 0, 'minecraft:bricks');
+      // x=9: cyan_terracotta — rare (only 1 instance)
+      grid.set(9, 0, 0, 'minecraft:cyan_terracotta');
+      // x=10: lime_terracotta — rare (only 1 instance)
+      grid.set(10, 0, 0, 'minecraft:lime_terracotta');
+      // x=11,12,13: granite zone
+      grid.set(11, 0, 0, 'minecraft:granite');
+      grid.set(12, 0, 0, 'minecraft:granite');
+      grid.set(13, 0, 0, 'minecraft:granite');
+
+      // Record pre-mutation snapshot of the two rare positions' neighborhoods
+      const preNeighbors9 = [grid.get(8, 0, 0), grid.get(10, 0, 0)];
+      const preNeighbors10 = [grid.get(9, 0, 0), grid.get(11, 0, 0)];
+
+      // Threshold: cyan_terracotta=1/20=5%, lime_terracotta=1/20=5%
+      // At 10% threshold, both are rare. Bricks (3/20=15%) and granite (3/20=15%) are not.
+      smoothRareBlocks(grid, 0.10);
+
+      // Key invariant: the replacement at x=9 should NOT have been influenced
+      // by whatever x=10 was replaced with (and vice versa). Both should have
+      // been computed from the original (snapshot) grid state.
+      const result9 = grid.get(9, 0, 0);
+      const result10 = grid.get(10, 0, 0);
+
+      // Both should be replaced (no longer their original rare block)
+      expect(result9).not.toBe('minecraft:cyan_terracotta');
+      expect(result10).not.toBe('minecraft:lime_terracotta');
+
+      // With snapshot: x=9 sees original neighbors (bricks@8, lime_terracotta@10)
+      // and x=10 sees original neighbors (cyan_terracotta@9, granite@11).
+      // The rare neighbors are excluded from voting, so:
+      //   x=9 neighbors: bricks@8 is non-rare → bricks wins
+      //   x=10 neighbors: granite@11 is non-rare → granite wins
+      // Without snapshot (cascading): x=10 would see whatever x=9 was replaced
+      // with instead of cyan_terracotta, potentially changing the vote.
+      // Verify each voxel got its own correct local replacement:
+      expect(result9).toBe('minecraft:bricks');
+      expect(result10).toBe('minecraft:granite');
+    });
   });
 
   // ─── constrainPalette ──────────────────────────────────────────────────────
