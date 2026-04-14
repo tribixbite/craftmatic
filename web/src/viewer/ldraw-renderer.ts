@@ -697,8 +697,10 @@ export async function createLDrawViewer(
       });
     } else if (metallic) {
       material = new THREE.MeshPhysicalMaterial({
-        color, roughness: 0.15, metalness: 0.85,
+        color, roughness: 0.12, metalness: 0.9,
+        clearcoat: 0.5, clearcoatRoughness: 0.1,
         side: THREE.DoubleSide,
+        emissive: color.clone().multiplyScalar(0.05),
       });
     } else if (rubber) {
       // Rubber: matte finish, no clearcoat, slightly higher roughness
@@ -708,16 +710,16 @@ export async function createLDrawViewer(
       });
     } else {
       // Standard ABS plastic: semi-glossy with clearcoat
+      // Dark colors appear glossier in real LEGO (more visible reflections)
+      const lum = color.r * 0.299 + color.g * 0.587 + color.b * 0.114;
+      const clearcoatAmt = 0.2 + (1 - lum) * 0.25; // 0.2 (white) → 0.45 (black)
       material = new THREE.MeshPhysicalMaterial({
-        color, roughness: 0.3, metalness: 0.0,
-        clearcoat: 0.3, clearcoatRoughness: 0.4,
+        color, roughness: 0.28, metalness: 0.0,
+        clearcoat: clearcoatAmt, clearcoatRoughness: 0.35,
         side: THREE.DoubleSide,
       });
-    }
-
-    // Slight emissive tint for richer plastic look
-    if (!transparent && !metallic) {
-      (material as THREE.MeshPhysicalMaterial).emissive = color.clone().multiplyScalar(0.01);
+      // Subtle warm emissive tint for richness
+      material.emissive = color.clone().multiplyScalar(0.008);
     }
 
     // Reduce z-fighting between overlapping coplanar surfaces
