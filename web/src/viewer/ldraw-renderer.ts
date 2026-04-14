@@ -102,6 +102,8 @@ function applyMat(v: Vec3, R: readonly number[], T: Vec3): Vec3 {
 
 const datTextCache  = new Map<string, string | null>();
 const partGeomCache = new Map<string, PartGeom>();
+/** Color IDs discovered to be transparent via inline !COLOUR ALPHA definitions */
+const inlineTransparentColors = new Set<number>();
 const datInFlight   = new Map<string, Promise<string | null>>();
 const geomInFlight  = new Map<string, Promise<PartGeom>>();
 
@@ -197,14 +199,19 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
       if (tok[0] === '0' && tok[1] === '!COLOUR') {
         const codeIdx = tok.indexOf('CODE');
         const valIdx = tok.indexOf('VALUE');
+        const alphaIdx = tok.indexOf('ALPHA');
         if (codeIdx > 0 && valIdx > 0 && tok[codeIdx + 1] && tok[valIdx + 1]) {
           const cid = parseInt(tok[codeIdx + 1], 10);
           const rgb = tok[valIdx + 1];
           if (!isNaN(cid) && rgb.startsWith('#')) {
-            // Dynamically import the RGB table and add the color
             const { LDRAW_COLOR_RGB } = await import('@engine/ldraw-colors.js');
             if (!(cid in LDRAW_COLOR_RGB)) {
               (LDRAW_COLOR_RGB as Record<number, string>)[cid] = rgb;
+            }
+            // If ALPHA < 255, register as transparent
+            if (alphaIdx > 0 && tok[alphaIdx + 1]) {
+              const alpha = parseInt(tok[alphaIdx + 1], 10);
+              if (alpha < 200) inlineTransparentColors.add(cid);
             }
           }
         }
@@ -315,6 +322,7 @@ function isTransparentColor(colorId: number): boolean {
   if (colorId === 10351 || colorId === 10366) return true; // glitter/satin trans
   if (colorId === 10375) return true;                   // trans black
   if (colorId >= 0x3000000 && colorId < 0x4000000) return true; // direct trans colors
+  if (inlineTransparentColors.has(colorId)) return true;       // inline !COLOUR ALPHA
   return false;
 }
 
