@@ -112,7 +112,9 @@ async function fetchDatText(id: string): Promise<string | null> {
   const paths: string[] = [];
   if (key.includes('/')) {
     if (key.startsWith('s/'))
-      paths.push(`${LDRAW_BASE}/parts/${key}.dat`);
+      paths.push(`${LDRAW_BASE}/parts/${key}.dat`, `${LDRAW_BASE}/parts/s/${stem}.dat`);
+    else if (key.startsWith('48/'))
+      paths.push(`${LDRAW_BASE}/p/${key}.dat`, `${LDRAW_BASE}/p/48/${stem}.dat`);
     else
       paths.push(`${LDRAW_BASE}/p/${key}.dat`, `${LDRAW_BASE}/UnOfficial/p/${key}.dat`);
   }
