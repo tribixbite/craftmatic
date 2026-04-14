@@ -35,10 +35,27 @@ export function createCanvasTextureSampler(): TextureSampler {
     // UV wrapping (repeat)
     const u = ((uv.x % 1) + 1) % 1;
     const v = ((uv.y % 1) + 1) % 1;
-    const px = Math.floor(u * (entry.w - 1));
-    const py = Math.floor((1 - v) * (entry.h - 1)); // UV y is flipped vs canvas
+    const cx = Math.floor(u * (entry.w - 1));
+    const cy = Math.floor((1 - v) * (entry.h - 1)); // UV y is flipped vs canvas
 
-    const pixel = entry.ctx.getImageData(px, py, 1, 1).data;
-    return [pixel[0], pixel[1], pixel[2]];
+    // 5-point median filter: sample center + 4 half-texel neighbors, sort by
+    // luminance, take the middle sample. Filters JPEG compression artifacts
+    // and seam noise from photogrammetry textures without blurring boundaries.
+    const offsets: Array<[number, number]> = [
+      [0, 0],
+      [-1, -1], [1, -1],
+      [-1, 1],  [1, 1],
+    ];
+    const samples: Array<[number, number, number, number]> = []; // [r, g, b, luminance]
+    for (const [dx, dy] of offsets) {
+      const sx = Math.min(entry.w - 1, Math.max(0, cx + dx));
+      const sy = Math.min(entry.h - 1, Math.max(0, cy + dy));
+      const pixel = entry.ctx.getImageData(sx, sy, 1, 1).data;
+      const lum = (pixel[0] * 77 + pixel[1] * 150 + pixel[2] * 29) >> 8;
+      samples.push([pixel[0], pixel[1], pixel[2], lum]);
+    }
+    samples.sort((a, b) => a[3] - b[3]);
+    const median = samples[2];
+    return [median[0], median[1], median[2]];
   };
 }
