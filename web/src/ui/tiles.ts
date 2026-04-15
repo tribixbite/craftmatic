@@ -27,20 +27,9 @@ import {
 } from '@ui/import-streetview.js';
 import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
 import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
-import {
-  trimSparseBottomLayers, analyzeGrid, cropToAABB,
-  constrainPalette, modeFilter3D,
-  fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill,
-  removeSmallComponents, removeArtifactComponents,
-  removeGroundPlane, stripVegetation,
-  morphClose3D, morphCloseFacadeAligned, smoothSurface,
-  flattenFacades, detectCornices, flattenFacadesSetbackAware,
-  glazeDarkWindows, glazeReflectiveWindows, injectSyntheticWindows,
-  extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
-  smoothFacadeColors, smoothRoofPlane, clusterFacadePalette,
-  fillFacadeHoles, removeIsolatedVoxels, fillFacadeVoids2D,
-} from '@craft/convert/mesh-filter.js';
-import type { AnalysisResult, ExtractedEnvironment } from '@craft/convert/mesh-filter.js';
+import { trimSparseBottomLayers, analyzeGrid } from '@craft/convert/mesh-filter.js';
+import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
+import { runPipeline, PipelinePhase } from '@craft/convert/pipeline.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -674,25 +663,11 @@ async function runVoxelizePipeline(
     // ── Window/door regularization — always run when quality is decent ──
     // v106: Moved out of scene-only block. Window patterns improve VLM scores universally.
     let finalGrid = trimmedGrid;
-    if ((analysis?.confidence ?? 0) > 0.5 || isSceneMode) {
-      setStatus('Enhancing windows & doors...', 'info');
-      await new Promise(r => setTimeout(r, 0));
-      const winResult = detectAndRegularizeWindows(finalGrid, analysis?.groundPlaneY ?? 0);
-      console.log(`[tiles] windows regularized: ${winResult.windowsRegularized}, doors placed: ${winResult.doorsPlaced}`);
-    }
 
-    // ── Scene-specific steps (feature replacement, plot expansion, enrichment) ──
+    // ── Scene-specific steps (plot expansion, enrichment) ──
+    // Window regularization + feature replacement handled by pipeline's SCENE_FEATURES phase
     if (isSceneMode && geo) {
       try {
-        // Clean feature replacement (trees, roads, vehicles at detected positions)
-        if (envPositions) {
-          setStatus('Replacing detected features...', 'info');
-          await new Promise(r => setTimeout(r, 0));
-          const treePalette: import('@craft/gen/structures.js').TreeType[] = ['oak', 'birch', 'dark_oak'];
-          const replaced = replaceWithCleanFeatures(finalGrid, envPositions, treePalette, 'grass', analysis?.groundPlaneY ?? 0);
-          console.log(`[tiles:scene] replaced: ${replaced.trees} trees, ${replaced.roads} road cells, ${replaced.vehicles} vehicles`);
-        }
-
         // Plot expansion — add 8m padding per side
         const { expandGrid } = await import('../../../src/convert/scene-pipeline.js');
         const maxDim = Math.max(finalGrid.width, finalGrid.length);
@@ -802,200 +777,34 @@ async function runVoxelizePipeline(
  * 10. Mode filter — 3D majority-vote surface smoother
  * 11. Sky palette + analysis remaps
  */
-async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null, sceneMode = false, resolution = 1): Promise<ExtractedEnvironment | undefined> {
-  const t0 = performance.now();
-  const rec = analysis?.recommended;
-
-  // Yield helper — lets the browser render status updates between heavy operations
-  const yieldUI = () => new Promise<void>(r => setTimeout(r, 0));
-
-  // 1. Ground plane subtraction — MUST run before fill.
-  // If terrain is present, fillInteriorGaps treats the entire capture volume as
-  // "interior" (terrain creates sealed perimeter), producing massive solid cubes.
-  const { removed: groundRemoved, groundY } = removeGroundPlane(grid, 1);
-  if (groundRemoved > 0) console.log(`[tiles:pp] ground plane: ${groundRemoved} blocks removed (y=${groundY})`);
-  await yieldUI();
-
-  // 2. Component cleanup — remove noise/debris, preserve legitimate building wings.
-  // Threshold 500 preserves multi-wing buildings (Pentagon, Capitol) while
-  // removing photogrammetry artifacts. Infinity would sever disconnected wings.
-  const cleaned = removeSmallComponents(grid, 500);
-  if (cleaned > 0) console.log(`[tiles:pp] component cleanup: ${cleaned} blocks removed (< 500 voxels)`);
-  // 2b. Density + distance artifact cleanup — removes sparse needle artifacts
-  // (density < 0.1) and distant debris (centroid > 1.5× building radius).
-  const artifactCleaned = removeArtifactComponents(grid, 0.1, 1.5);
-  if (artifactCleaned > 0) console.log(`[tiles:pp] artifact cleanup: ${artifactCleaned} blocks removed (sparse/distant)`);
-  await yieldUI();
-
-  // 3. AABB crop — isolate the central building if analysis detected multiple components
-  if (rec?.useAABBCrop && analysis) {
-    const aabb = analysis.centralAABB;
-    const cropped = cropToAABB(grid, aabb.minX, aabb.maxX, aabb.minZ, aabb.maxZ, 2);
-    if (cropped > 0) console.log(`[tiles:pp] AABB crop: ${cropped} blocks removed`);
-  }
-  await yieldUI();
-
-  // 4. Fill interior gaps — 3D masked dilation flood-fill.
-  // Mask dilation=2 virtually closes porosity for leak-proof exterior detection,
-  // but only original air voxels get filled (crisp geometry preserved).
-  const interiorFilled = fillInteriorGaps(grid, 2);
-  console.log(`[tiles:pp] interior fill (3D masked): ${interiorFilled} voxels`);
-  // 4b. Sky exposure — remove fill in open-air spaces (stadiums, courtyards).
-  const openAirCleared = clearOpenAirFill(grid);
-  if (openAirCleared > 0) console.log(`[tiles:pp] open-air fill cleared: ${openAirCleared} blocks (no roof above)`);
-  await yieldUI();
-
-  // 4c. Scanline interior fill — per-Y-layer boundary-crossing algorithm with
-  // sky-visibility check. Catches thin interior gaps that dilation+flood may miss.
-  // Sky check inherently prevents courtyard filling (unlike dilation which needs clearOpenAirFill).
-  const scanlineFilled = scanlineInteriorFill(grid);
-  if (scanlineFilled > 0) console.log(`[tiles:pp] scanline interior fill: ${scanlineFilled} voxels`);
-  await yieldUI();
-
-  // 5. Second fill pass — fill may close more gaps after vegetation strip.
-  const interiorFilled2 = fillInteriorGaps(grid, 2);
-  if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2 (3D masked): ${interiorFilled2} voxels`);
-  await yieldUI();
-
-  // 6a. Extract environment positions BEFORE stripping vegetation (scene mode only)
-  let envPositions: ExtractedEnvironment | undefined;
-  if (sceneMode) {
-    envPositions = extractEnvironmentPositions(grid, groundY);
-    console.log(`[tiles:pp] env extraction: ${envPositions.trees.length} trees, ${envPositions.roads.cells.size} road cells, ${envPositions.vehicles.length} vehicles`);
-  }
-
-  // 6b. Strip vegetation — trees acted as solid walls during fill,
-  // preventing holes behind canopy. Now building interior is solid.
-  const vegStripped = stripVegetation(grid);
-  if (vegStripped > 0) console.log(`[tiles:pp] vegetation strip: ${vegStripped} tree/bush blocks removed`);
-  await yieldUI();
-
-  // 7. Morph close — spackle 1-voxel pockmarks/holes in photogrammetry surfaces.
-  // Dilation+erosion fills small cracks without changing overall shape.
-  // Runs BEFORE smoothSurface so the surface smoother sees healed faces.
-  {
-    const closed = morphClose3D(grid, 1);
-    if (closed > 0) console.log(`[tiles:pp] morph close: ${closed} 1-voxel holes filled`);
-  }
-  // 7b. Facade-aligned morph close — radius-2 gap filling along facade normals only.
-  // Closes 2-voxel pockmarks in facade surfaces without affecting depth profile.
-  {
-    const facadeClosed = morphCloseFacadeAligned(grid, 2);
-    if (facadeClosed > 0) console.log(`[tiles:pp] facade morph close: ${facadeClosed} facade gaps filled (r=2)`);
-  }
-  // 7c. Fill single-block facade holes — air voxels with 4+ solid neighbors.
-  {
-    const holeFilled = fillFacadeHoles(grid, 4);
-    if (holeFilled > 0) console.log(`[tiles:pp] facade hole fill: ${holeFilled} voids patched`);
-  }
-  await yieldUI();
-
-  // 8. Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
-  {
-    const surfaceSmoothed = smoothSurface(grid);
-    if (surfaceSmoothed > 0) console.log(`[tiles:pp] surface smooth: ${surfaceSmoothed} protrusions removed`);
-    // For rectangular buildings, detect cornices then apply setback-aware flattening
-    if (analysis?.isRectangular) {
-      const corniceYs = detectCornices(grid, 2, true);
-      if (corniceYs.size > 0) {
-        console.log(`[tiles:pp] cornices detected: ${corniceYs.size} Y levels preserved`);
-        const snapped = flattenFacadesSetbackAware(grid, corniceYs, 1, resolution);
-        if (snapped > 0) console.log(`[tiles:pp] setback-aware flatten: ${snapped} voxels snapped`);
-      } else {
-        const snapped = flattenFacades(grid, 1);
-        if (snapped > 0) console.log(`[tiles:pp] facade flatten: ${snapped} voxels snapped`);
-      }
-    }
-  }
-  // 8b. Seal multi-block facade holes using 2D flood-fill projection.
-  {
-    const sealed = fillFacadeVoids2D(grid);
-    if (sealed > 0) console.log(`[tiles:pp] facade void sealing (2D): ${sealed} enclosed voids filled`);
-  }
-
-  await yieldUI();
-
-  // 9. Glaze dark exterior blocks as windows BEFORE mode filter.
-  // modeFilter3D would erase small dark clusters (windows) as noise.
-  // gray_stained_glass is in modeFilter3D's PROTECTED set, so glazing
-  // first preserves windows while mode filter smooths walls around them.
-  {
-    const glazed = glazeDarkWindows(grid, resolution);
-    if (glazed > 0) console.log(`[tiles:pp] window glazing: ${glazed} dark blocks → gray_stained_glass`);
-    // Phase 5a: Sky-reflecting window detection — catches blue/grey specular blocks
-    // that photogrammetry maps from sky reflections in real windows.
-    const reflective = glazeReflectiveWindows(grid, resolution);
-    if (reflective > 0) console.log(`[tiles:pp] reflective windows: ${reflective} blue/grey blocks → glass`);
-    // Synthetic windows for bright facades that lack dark blocks to glaze
-    const injected = injectSyntheticWindows(grid, glazed + reflective, resolution);
-    if (injected > 0) console.log(`[tiles:pp] synthetic windows: ${injected} blocks (bright facade, glazed=${glazed + reflective})`);
-  }
-  await yieldUI();
-
-  // 10. Mode filter — 3x3x3 majority-vote smoother (radius=1).
-  // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap
-  // so cyan won't get voted back by majority neighbors.
-  const modePasses = rec?.modePasses ?? 1;
-  if (modePasses > 0) {
-    const modeSmoothed = modeFilter3D(grid, modePasses, 1);
-    console.log(`[tiles:pp] mode filter 3x3x3: ${modeSmoothed} blocks (${modePasses} passes)`);
-  }
-  await yieldUI();
-
-  // 10b. Facade color coherence — 5×5×1 Lab-weighted average on facade planes.
-  // Snaps noisy outliers (delta-E > 15) to local majority. Runs after mode filter
-  // to refine remaining per-facade noise.
-  {
-    const facadeSmoothed = smoothFacadeColors(grid);
-    if (facadeSmoothed > 0) console.log(`[tiles:pp] facade smooth: ${facadeSmoothed} color outliers replaced`);
-  }
-  await yieldUI();
-
-  // 10c. K-means facade palette — cluster each facade to k=4 coherent materials.
-  {
-    const paletteReplaced = clusterFacadePalette(grid, 4);
-    if (paletteReplaced > 0) console.log(`[tiles:pp] palette cluster: ${paletteReplaced} blocks reassigned (k=4)`);
-  }
-  await yieldUI();
-
-  // 10d. Roof plane smoothing — aggressive 5×5 horizontal majority-vote on top 20%.
-  // Roofs in photogrammetry are noisy (HVAC, shadows, varied materials).
-  {
-    const roofSmoothed = smoothRoofPlane(grid);
-    if (roofSmoothed > 0) console.log(`[tiles:pp] roof smooth: ${roofSmoothed} roof blocks replaced`);
-  }
-  // 10e. Remove isolated single voxels — noise dots with 0-1 face neighbors.
-  {
-    const isolated = removeIsolatedVoxels(grid, 1);
-    if (isolated > 0) console.log(`[tiles:pp] isolated voxels: ${isolated} artifacts removed`);
-  }
-  await yieldUI();
-
-  // 11. Sky contamination remap — blue/cyan skylight baked into tiles surfaces.
-  // Runs AFTER mode filter so residual cyan clusters get cleaned up.
-  // Only remap cyan — light_blue_terracotta is often legitimate facade color
-  // (beige/tan buildings bake slightly blue in photogrammetry)
-  const skyRemaps = new Map<string, string>([
-    ['minecraft:cyan_terracotta', 'minecraft:stone'],
-    ['minecraft:cyan_concrete', 'minecraft:stone'],
+async function postProcessTilesGrid(
+  grid: BlockGrid, analysis: AnalysisResult | null, sceneMode = false, resolution = 1,
+): Promise<import('@craft/convert/mesh-filter.js').ExtractedEnvironment | undefined> {
+  // Browser-side post-processing uses shared pipeline — identical quality to CLI.
+  // Phases requiring external API data (OSM, semantic recolor, etc.) are skipped.
+  const skipPhases = new Set([
+    PipelinePhase.OSM_MASK,
+    PipelinePhase.SEMANTIC_RECOLOR,
+    PipelinePhase.POST_MASK,
+    PipelinePhase.FOOTPRINT_FREEZE,
+    PipelinePhase.FOOTPRINT_FILL,
+    PipelinePhase.HEIGHT_CORRECT,
   ]);
-  const constrained = constrainPalette(grid, skyRemaps);
-  if (constrained > 0) console.log(`[tiles:pp] sky palette: ${constrained} blocks remapped`);
 
-  // Also apply analysis-recommended remaps (building-specific material corrections)
-  if (rec?.remaps && rec.remaps.size > 0) {
-    const remapped = constrainPalette(grid, rec.remaps);
-    console.log(`[tiles:pp] auto remap: ${remapped} blocks (${rec.remaps.size} rules)`);
-  }
-  await yieldUI();
+  const result = await runPipeline(grid, {
+    resolution,
+    mode: 'surface',
+    fill: true,
+    scene: sceneMode,
+    precomputedAnalysis: analysis ?? undefined,
+    skipPhases,
+  }, {
+    onLog: (msg) => console.log(`[tiles:pp] ${msg}`),
+    onYield: () => new Promise<void>(r => setTimeout(r, 0)),
+    onPhaseStart: (phase) => setStatus(`Processing: ${phase}...`, 'info'),
+  });
 
-  // 10. glazeBackplane removed: legacy band-aid from carveFacadeShadows era.
-  // CIE-Lab color pipeline maps dark pixels to dark blocks natively.
-  // AABB raycasting placed black_concrete on exterior courtyard walls.
-
-  const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-  console.log(`[tiles:pp] post-processing complete in ${elapsed}s`);
-  return envPositions;
+  return result.envPositions;
 }
 
 // ─── Viewer Lifecycle ───────────────────────────────────────────────────────

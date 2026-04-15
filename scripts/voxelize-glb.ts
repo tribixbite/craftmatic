@@ -34,7 +34,7 @@ if (typeof globalThis.ProgressEvent === 'undefined') {
 
 import * as THREE from 'three';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, cropToAABB, analyzeGrid } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers, analyzeGrid } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment, AnalysisResult } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
@@ -781,7 +781,6 @@ async function main(): Promise<void> {
 
   // ── Auto-detection: analyze grid and override pipeline params ──
   let analysis: AnalysisResult | null = null;
-  let osmMaskDone = false; // Track if OSM mask ran in pre-fill path
   if (args.auto) {
     console.log(`\n--- Auto-Detection Analysis ---`);
     const tAuto = performance.now();
@@ -861,14 +860,7 @@ async function main(): Promise<void> {
       if (!args.remaps.has(from)) args.remaps.set(from, to);
     }
 
-    // Apply AABB crop if recommended (shape-preserving alternative to circular crop)
-    if (rec.useAABBCrop) {
-      const aabb = analysis.centralAABB;
-      const cropped = cropToAABB(trimmed, aabb.minX, aabb.maxX, aabb.minZ, aabb.maxZ, 2);
-      if (cropped > 0) {
-        console.log(`AABB crop: ${cropped} blocks removed (keeping [${aabb.minX}-${aabb.maxX}] x [${aabb.minZ}-${aabb.maxZ}] + 2 margin)`);
-      }
-    }
+    // AABB crop deferred to pipeline's resolveConfig() (avoids double-crop)
   }
 
   // Environment data extracted from photogrammetry before vegetation strip (--scene)
