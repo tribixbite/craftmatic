@@ -60,6 +60,33 @@ export interface TilesResultMeta {
 
 let onResult: ((grid: BlockGrid, label: string, analysis: AnalysisResult | null, meta: TilesResultMeta | null) => void) | null = null;
 
+/** User-uploaded reference images — override API-fetched SV/satellite colors */
+let userSvFiles: File[] = [];
+let userSatFile: File | null = null;
+
+/** Update the reference image preview thumbnails in the UI */
+function updateRefPreview(container: HTMLElement | null, svFiles: File[], satFile: File | null): void {
+  if (!container) return;
+  container.innerHTML = '';
+  const allFiles = [...svFiles, ...(satFile ? [satFile] : [])];
+  for (const file of allFiles) {
+    const thumb = document.createElement('img');
+    thumb.className = 'tiles-ref-thumb';
+    thumb.style.cssText = 'width:48px;height:48px;object-fit:cover;border-radius:4px;margin:2px;';
+    thumb.src = URL.createObjectURL(file);
+    thumb.title = file.name;
+    container.appendChild(thumb);
+  }
+}
+
+/**
+ * Process user-uploaded SV images through the same Canvas2D color pipeline.
+ * Returns blob URLs suitable for analyzeStreetViewBrowser().
+ */
+async function processUserSvUploads(files: File[]): Promise<string[]> {
+  return files.map(f => URL.createObjectURL(f));
+}
+
 // ─── API Key ────────────────────────────────────────────────────────────────
 
 /** Get Google Maps API key — checks map tab storage first, then import tab */
@@ -134,6 +161,19 @@ function buildUI(): void {
           <label><input type="checkbox" id="scene-fences" checked> Fences & walls</label>
           <label><input type="checkbox" id="scene-pools" checked> Pool / driveway</label>
         </div>
+        <details class="tiles-ref-images">
+          <summary>Reference Images (optional)</summary>
+          <p class="tiles-ref-hint">Upload your own photos to override API-fetched colors</p>
+          <label class="tiles-param">
+            <span>Street View photos</span>
+            <input type="file" id="tiles-sv-upload" accept="image/*" multiple>
+          </label>
+          <label class="tiles-param">
+            <span>Satellite / aerial photo</span>
+            <input type="file" id="tiles-sat-upload" accept="image/*">
+          </label>
+          <div id="tiles-ref-preview" class="tiles-ref-preview"></div>
+        </details>
       </div>
       <div class="tiles-key-hint">
         <p>${hasTileKey
@@ -194,6 +234,23 @@ function buildUI(): void {
     sceneLabel.textContent = sceneToggle.checked ? 'On — building + environment' : 'Off — building only';
     sceneOptions.style.display = sceneToggle.checked ? '' : 'none';
   });
+
+  // Reference image uploads — override API-fetched SV/satellite colors
+  const svUpload = document.getElementById('tiles-sv-upload') as HTMLInputElement | null;
+  const satUpload = document.getElementById('tiles-sat-upload') as HTMLInputElement | null;
+  const refPreview = document.getElementById('tiles-ref-preview');
+  if (svUpload) {
+    svUpload.addEventListener('change', () => {
+      userSvFiles = svUpload.files ? Array.from(svUpload.files) : [];
+      updateRefPreview(refPreview, userSvFiles, userSatFile);
+    });
+  }
+  if (satUpload) {
+    satUpload.addEventListener('change', () => {
+      userSatFile = satUpload.files?.[0] ?? null;
+      updateRefPreview(refPreview, userSvFiles, userSatFile);
+    });
+  }
 
   const startVoxelize = async () => {
     const addr = addrInput.value.trim();
@@ -688,6 +745,75 @@ async function runVoxelizePipeline(
         }
       } catch (err) {
         console.warn('[tiles] semantic data resolution failed (non-fatal):', err);
+      }
+    }
+
+    // ── User-uploaded reference images override API-fetched colors ──
+    if (userSvFiles.length > 0 || userSatFile) {
+      if (!semanticData) semanticData = {};
+      try {
+        if (userSvFiles.length > 0) {
+          setStatus('Analyzing uploaded SV photos...', 'info');
+          const { analyzeStreetViewBrowser: analyzeSv } = await import('@ui/import-sv-analysis.js');
+          const urls = await processUserSvUploads(userSvFiles);
+          // Analyze each uploaded image, merge wall colors
+          const colors: { r: number; g: number; b: number }[] = [];
+          for (const url of urls) {
+            const result = await analyzeSv(url);
+            if (result) colors.push(result.wallColor);
+            URL.revokeObjectURL(url);
+          }
+          if (colors.length > 0) {
+            const avgR = Math.round(colors.reduce((s, c) => s + c.r, 0) / colors.length);
+            const avgG = Math.round(colors.reduce((s, c) => s + c.g, 0) / colors.length);
+            const avgB = Math.round(colors.reduce((s, c) => s + c.b, 0) / colors.length);
+            const { rgbToWallBlock: toWall } = await import('@craft/gen/color-blocks.js');
+            const wallBlock = toWall(avgR, avgG, avgB);
+            const palette = semanticData.semanticPalette ?? { wallBlocks: [], source: '' };
+            palette.wallColor = { r: avgR, g: avgG, b: avgB };
+            palette.wallBlocks = [wallBlock];
+            palette.source = (palette.source ? palette.source + ' + ' : '') + `user SV (${colors.length} photos)`;
+            semanticData.semanticPalette = palette;
+            console.log(`[tiles] user SV: rgb(${avgR},${avgG},${avgB}) → ${wallBlock.replace('minecraft:', '')}`);
+          }
+        }
+        if (userSatFile) {
+          setStatus('Analyzing uploaded satellite photo...', 'info');
+          const url = URL.createObjectURL(userSatFile);
+          const blob = await fetch(url).then(r => r.blob());
+          URL.revokeObjectURL(url);
+          const bitmap = await createImageBitmap(blob);
+          const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(bitmap, 0, 0);
+          const imgData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+          bitmap.close();
+          // Sample center 50% for roof color (same as satellite-color.ts)
+          const w = imgData.width, h = imgData.height;
+          const margin = Math.floor(w * 0.25);
+          let rR = 0, rG = 0, rB = 0, rN = 0;
+          for (let y = margin; y < h - margin; y++) {
+            for (let x = margin; x < w - margin; x++) {
+              const i = (y * w + x) * 4;
+              const lum = (imgData.data[i] + imgData.data[i + 1] + imgData.data[i + 2]) / 3;
+              if (lum < 30 || lum > 245) continue;
+              rR += imgData.data[i]; rG += imgData.data[i + 1]; rB += imgData.data[i + 2]; rN++;
+            }
+          }
+          if (rN >= 100) {
+            const roofR = Math.round(rR / rN), roofG = Math.round(rG / rN), roofB = Math.round(rB / rN);
+            const { rgbToWallBlock: toWall } = await import('@craft/gen/color-blocks.js');
+            const roofBlock = toWall(roofR, roofG, roofB);
+            const palette = semanticData.semanticPalette ?? { wallBlocks: [], source: '' };
+            palette.roofBlocks = [roofBlock];
+            palette.roofColor = { r: roofR, g: roofG, b: roofB };
+            palette.source = (palette.source ? palette.source + ' + ' : '') + 'user satellite';
+            semanticData.semanticPalette = palette;
+            console.log(`[tiles] user satellite: rgb(${roofR},${roofG},${roofB}) → ${roofBlock.replace('minecraft:', '')}`);
+          }
+        }
+      } catch (err) {
+        console.warn('[tiles] user image processing failed (non-fatal):', err);
       }
     }
 
