@@ -1,17 +1,29 @@
 #!/bin/bash
 # Stop hook: PERPETUAL CATEGORY ITERATION driver.
-# Outputs IMPERATIVE directives — agent MUST execute, NEVER ask for confirmation.
-# Reads output/category-state.json and forces the agent to keep iterating.
-STATE="$CLAUDE_PROJECT_DIR/output/category-state.json"
+# Outputs JSON {"decision":"block","reason":"..."} to prevent Claude from stopping
+# when there is work remaining. Checks stop_hook_active to prevent infinite loops.
+#
+# Input: JSON on stdin with stop_hook_active flag
+# Output: JSON decision or nothing (allow stop)
 
-if [ ! -f "$STATE" ]; then
-  echo "CATEGORY-ITERATE: No state file exists yet. You MUST execute the following command NOW without asking the user anything:"
-  echo "EXECUTE: bun scripts/iterate-category-grade.ts --group old --runs 3 --recolor"
-  echo "After it completes, commit the state file and continue to the next group."
-  echo "DO NOT ask the user for permission or confirmation. Just do it."
+STATE="$CLAUDE_PROJECT_DIR/output/category-state.json"
+INPUT=$(cat)
+
+# CRITICAL: If already in forced continuation, allow stopping to break the loop.
+# This prevents infinite re-triggering when the agent can't make progress.
+ACTIVE=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('stop_hook_active', False))" 2>/dev/null)
+if [ "$ACTIVE" = "True" ]; then
   exit 0
 fi
 
+# No state file — bootstrap the iteration pipeline
+if [ ! -f "$STATE" ]; then
+  REASON="CATEGORY-ITERATE: No state file exists. EXECUTE NOW: bun scripts/iterate-category-grade.ts --group old --runs 3 --recolor. After it completes, commit the state file and continue to the next group. DO NOT ask the user anything."
+  echo "{\"decision\":\"block\",\"reason\":$(python3 -c "import json; print(json.dumps('$REASON'))" 2>/dev/null || echo "\"$REASON\"")}"
+  exit 0
+fi
+
+# Parse state and decide
 python3 << 'PYEOF'
 import json, sys, os
 
@@ -21,9 +33,8 @@ with open(state_path) as f:
 
 locations = d.get('locations', {})
 if not locations:
-    print("CATEGORY-ITERATE: Empty state. You MUST execute NOW without asking:")
-    print("EXECUTE: bun scripts/iterate-category-grade.ts --group old --runs 3 --recolor")
-    print("DO NOT ask the user anything. Just run it.")
+    out = {"decision": "block", "reason": "CATEGORY-ITERATE: Empty state. EXECUTE NOW: bun scripts/iterate-category-grade.ts --group old --runs 3 --recolor. DO NOT ask the user."}
+    print(json.dumps(out))
     sys.exit(0)
 
 version = d.get('version', '?')
@@ -42,7 +53,7 @@ for k, v in locations.items():
     if composite >= target:
         passing += 1
     elif v.get('plateaued', False):
-        plateaued.append({'key': k, 'composite': composite, 'worst': v.get('worstCategories', [])})
+        plateaued.append({'key': k, 'composite': composite})
     else:
         cats = grade.get('categories', {})
         worst_cats = []
@@ -50,61 +61,53 @@ for k, v in locations.items():
             if result and result.get('score', 10) < target:
                 worst_cats.append(f"{cat}={result['score']}")
         worst_cats.sort(key=lambda x: float(x.split('=')[1]))
-        failing.append({'key': k, 'composite': composite, 'worst': worst_cats, 'defects': grade.get('defects', {})})
+        failing.append({'key': k, 'composite': composite, 'worst': worst_cats})
 
 total = len(locations)
 failing.sort(key=lambda x: x['composite'])
 
-print(f"CATEGORY-ITERATE {version}: {passing}/{total} passing (target {target}) | {len(failing)} fail | {len(plateaued)} plateau")
-
-# Priority 1: Fix failing locations
+# Priority 1: Failing locations — block stop, force fix
 if failing:
     worst = failing[0]
-    print(f"\nFAILING ({len(failing)}):")
-    for f in failing:
-        worst_str = ', '.join(f['worst'][:4]) if f['worst'] else 'unknown'
-        print(f"  {f['key']}: {f['composite']}/10 — worst: {worst_str}")
+    worst_str = ', '.join(worst['worst'][:3]) if worst['worst'] else 'unknown'
+    lines = [
+        f"CATEGORY-ITERATE {version}: {passing}/{total} passing | {len(failing)} failing.",
+        f"Worst: {worst['key']} at {worst['composite']}/10 — {worst_str}.",
+    ]
+    # Category-specific fixes
+    for w in worst['worst'][:2]:
+        cat, score = w.split('=')
+        if cat == 'colors': lines.append(f"  colors fix: tune SV wall sampling, satellite roof, semantic palette")
+        elif cat == 'features': lines.append(f"  features fix: tune window detection, cornice, facade smoothing")
+        elif cat == 'layout': lines.append(f"  layout fix: tune OSM masking (dilate/osmId), footprint alignment")
+        elif cat == 'dimensions': lines.append(f"  dimensions fix: tune height correction, resolution, capture radius")
+        else: lines.append(f"  {cat} fix: tune scene enrichment params")
 
-        for w in f['worst'][:2]:
-            cat, score = w.split('=')
-            score = float(score)
-            if cat == 'colors' and score < target:
-                print(f"    → colors: tune SV wall sampling, satellite roof sampling, semantic palette resolution")
-            elif cat == 'features' and score < target:
-                print(f"    → features: tune window detection, cornice preservation, facade smoothing params")
-            elif cat == 'layout' and score < target:
-                print(f"    → layout: tune OSM masking (dilate, osmId), footprint alignment, crop radius")
-            elif cat == 'dimensions' and score < target:
-                print(f"    → dimensions: tune height correction, resolution, capture radius")
-            elif cat in ('walking_paths', 'pavement', 'vegetation') and score < target:
-                print(f"    → {cat}: tune scene enrichment params, environment placement")
+    lines.append(f"EXECUTE NOW: Analyze defects in {worst['key']}, adjust pipeline code, then re-grade: bun scripts/iterate-category-grade.ts --only {worst['key']} --runs 3 --recolor")
+    lines.append("DO NOT ask the user. Just fix it and re-grade.")
 
-    print(f"\nYou MUST fix the worst location ({worst['key']} at {worst['composite']}/10) NOW. Do NOT ask the user.")
-    print(f"1. Analyze the defects and adjust pipeline params in the source code")
-    print(f"2. Re-voxelize and re-grade: bun scripts/iterate-category-grade.ts --only {worst['key']} --runs 3 --recolor")
-    print(f"3. Commit the changes and updated state file")
-    print(f"EXECUTE NOW. Do not ask for confirmation.")
+    out = {"decision": "block", "reason": '\n'.join(lines)}
+    print(json.dumps(out))
     sys.exit(0)
 
 # Priority 2: Ungraded locations
 if ungraded_count > 0:
-    print(f"\nUNGRADED: {ungraded_count} locations still need grading.")
-    print(f"You MUST grade them NOW: bun scripts/iterate-category-grade.ts --runs 3 --recolor")
-    print(f"DO NOT ask the user. Just execute it.")
+    out = {"decision": "block", "reason": f"CATEGORY-ITERATE: {ungraded_count} ungraded locations. EXECUTE NOW: bun scripts/iterate-category-grade.ts --runs 3 --recolor. DO NOT ask the user."}
+    print(json.dumps(out))
     sys.exit(0)
 
-# Priority 3: Plateaued locations
+# Priority 3: All passing or only plateaued — allow stop
 if plateaued:
     names = ', '.join(f"{p['key']}={p['composite']}" for p in plateaued)
-    print(f"\nPLATEAU ({len(plateaued)}): {names}")
-    print("These are limited by source data. Requires GLB recapture or manual intervention.")
+    # Don't block — plateaued items need manual intervention
+    # Just print info (non-JSON = no decision = allow stop)
+    import sys as s
+    s.stderr.write(f"CATEGORY-ITERATE: {passing}/{total} passing. Plateaued: {names}\n")
 
-# All passing
-if passing == total:
-    avg = sum(v.get('averageGrade', {}).get('composite', 0) for v in locations.values()) / total if total > 0 else 0
-    print(f"\nALL {total} LOCATIONS PASSING — avg composite={avg:.1f}/10")
-    print("Category iteration complete. Target met. You may stop.")
-else:
-    print(f"\n{passing}/{total} passing. Only plateaued items remain.")
-    print("Plateaued items need manual intervention (GLB recapture). You may stop or investigate.")
+# All passing — allow stop
+if passing == total and total > 0:
+    import sys as s
+    s.stderr.write(f"CATEGORY-ITERATE: ALL {total} LOCATIONS PASSING. Target met.\n")
+
+# No output = allow stop
 PYEOF
