@@ -145,12 +145,15 @@ async function fetchLocationData(loc: CategoryLocation): Promise<FetchResult> {
   // ── Fetch SV facade images ──
   console.log(`\n${loc.name} (${loc.key}):`);
   try {
-    const meta = await fetchSvMetadata(lat, lng);
+    // svCoords: alternate query point for finding the nearest panorama (doesn't affect OSM masking)
+    const svQueryCoords = loc.svCoords ? parseCoords(loc.svCoords) : { lat, lng };
+    const meta = await fetchSvMetadata(svQueryCoords.lat, svQueryCoords.lng);
     if (!meta) {
       console.log('  SV: no street view coverage');
     } else {
+      // Bearing always computed toward building center (main coords), not svCoords
       const bearing = computeBearing(meta.panoLat, meta.panoLng, lat, lng);
-      const fov = (loc.extentM && loc.extentM > 30) ? 110 : 90;
+      const fov = loc.svFov ?? ((loc.extentM && loc.extentM > 30) ? 110 : 90);
 
       // 4 cardinal headings relative to building bearing
       const faces = [

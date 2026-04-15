@@ -37,6 +37,10 @@ export interface CategoryLocation {
   sceneMode: boolean;
   /** Architectural category for diversity tracking */
   archType: string;
+  /** Street View FOV override (default: 110 for extentM>30, else 90) */
+  svFov?: number;
+  /** Alternate coords for SV lookup only (doesn't affect OSM masking) */
+  svCoords?: string;
 }
 
 // ─── Existing 21 locations (from iterate-grade.ts) ──────────────────────────
@@ -62,8 +66,11 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     key: 'nga-east', name: 'National Gallery of Art East Building', city: 'Washington, DC',
     coords: '38.8913,-77.0199', extentM: 80,
     glb: `${DIR}/national-gallery-east.glb`,
-    resolution: 1, maskDilate: 0, osmId: 'way/66418590',
-    extraFlags: ['--no-enu'], sceneMode: false, archType: 'trapezoidal',
+    // osmId way/66418590 causes 100% removal (wrong polygon) — use auto-detect with dilate=2
+    // building-colour sandstone: Tennessee Pink Marble is beige/sandy, not glass curtain wall
+    resolution: 1, maskDilate: 2,
+    extraFlags: ['--no-enu', '--recolor', '--building-colour', 'sandstone'],
+    sceneMode: false, archType: 'trapezoidal',
   },
   {
     key: 'dallas-cityhall', name: 'Dallas City Hall', city: 'Dallas, TX',
@@ -83,8 +90,11 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     key: 'boston-cityhall', name: 'Boston City Hall', city: 'Boston, MA',
     coords: '42.3605,-71.0580', extentM: 60,
     glb: `${DIR}/boston-cityhall.glb`,
+    // svCoords: west side approach avoids Faneuil Hall red brick in SV frame
+    // svFov: narrowed from 110 to 60 to focus on building face, not surroundings
     resolution: 1, maskDilate: 2, extraFlags: ['--no-enu'],
     sceneMode: false, archType: 'brutalist',
+    svCoords: '42.3605,-71.0595', svFov: 60,
   },
   {
     key: 'citigroup', name: 'Citigroup Center', city: 'New York, NY',
@@ -111,7 +121,7 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
   },
   {
     key: 'la-cityhall', name: 'Los Angeles City Hall', city: 'Los Angeles, CA',
-    coords: '34.0537,-118.2430', extentM: 60,
+    coords: '34.0522,-118.2437', extentM: 60,
     glb: `${DIR}/la-cityhall.glb`,
     resolution: 1, maskDilate: 1, extraFlags: ['--no-enu'],
     sceneMode: false, archType: 'art-deco-tower',
