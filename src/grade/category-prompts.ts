@@ -83,8 +83,9 @@ For each category below, list specific defects, then assign a score 0-10:
 2. FEATURES: At 1-2 block/m resolution, evaluate LARGE-SCALE massing features only: major setbacks, step-backs, towers, spires, domes, wings, deep recesses, and large projections. Do NOT penalize: missing individual windows, doors, thin cornices, railings, or ornamental details — these are below the model's resolution. Do NOT penalize: surface noise, holes, or erosion artifacts — score those under LAYOUT instead. A building with correct overall stepped massing and major projections scores 8-9 even without window detail.
    Defects: missing major setback/step-back that changes the building's silhouette, missing tower/dome/spire, completely flat box when reference shows stepped form, missing large wing or projection.
 
-3. LAYOUT: Compare the top-down silhouette of the voxel model to the satellite overhead. Does the footprint shape match? Are the overall proportions (length vs width) correct? Are distinctive shape features preserved (triangular, L-shaped, curved, etc.)? IMPORTANT: Voxel models inherently have stairstepped/jagged edges on diagonal and curved surfaces — this is a normal voxel artifact, NOT holes or damage. Only count as defects: genuinely missing large sections (>10% of building area), wrong overall shape, or missing wings/courtyards.
-   Defects: wrong overall outline shape, genuinely missing building wings or sections, filled-in courtyards, footprint rotated or mirrored.
+3. LAYOUT: Look ONLY at the top-down view and compare the building's OUTLINE SHAPE to the satellite overhead. Focus on: Is the overall shape correct (rectangular, triangular, L-shaped, etc.)? Are proportions (length vs width) approximately right? Are major wings or courtyards present?
+   IGNORE all surface texture, holes in facades, or interior details — those are NOT layout issues. Voxel surfaces always look rough and textured; this is normal. A building with the correct overall footprint outline shape and proportions scores 9-10 regardless of surface quality.
+   Defects: wrong overall shape category (rectangular instead of triangular), wrong length-to-width ratio by more than 30%, missing entire wing or courtyard.
 `;
 
   if (sceneMode) {

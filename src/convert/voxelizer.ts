@@ -922,14 +922,22 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         const sx = Math.min(w - 1, Math.max(0, Math.round(cx + dx)));
         const sy = Math.min(h - 1, Math.max(0, Math.round(cy + dy)));
         const idx = (sy * w + sx) * 4;
+        // Skip transparent pixels (alpha < 32) — atlas seams encode as (0,0,0,0)
+        const alpha = data[idx + 3];
+        if (alpha !== undefined && alpha < 32) continue;
         const sr = data[idx], sg = data[idx + 1], sb = data[idx + 2];
         const lum = (sr * 77 + sg * 150 + sb * 29) >> 8;
         samples.push([sr, sg, sb, lum]);
       }
-      // Sort by luminance, take the median (index 2 of 5)
-      samples.sort((a, b) => a[3] - b[3]);
-      const median = samples[2];
-      r = median[0]; g = median[1]; b = median[2];
+      if (samples.length === 0) {
+        // All samples transparent — use light gray fallback
+        r = 176; g = 176; b = 176;
+      } else {
+        // Sort by luminance, take the median
+        samples.sort((a, b) => a[3] - b[3]);
+        const median = samples[Math.floor(samples.length / 2)];
+        r = median[0]; g = median[1]; b = median[2];
+      }
     } else {
       // Dominant color (mode) sampling: bucket pixels by luminance,
       // then return the average color of the most populated bucket.
@@ -950,6 +958,9 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
         for (let dx = -k; dx <= k; dx++) {
           const px = Math.min(w - 1, Math.max(0, cx + dx));
           const idx = (py * w + px) * 4;
+          // Skip transparent pixels — atlas seam/padding encoded as (0,0,0,0)
+          const alpha = data[idx + 3];
+          if (alpha !== undefined && alpha < 32) continue;
           const pr = data[idx], pg = data[idx + 1], pb = data[idx + 2];
           // Luminance bucket (BT.601 approximation)
           const lum = (pr * 77 + pg * 150 + pb * 29) >> 8;
@@ -976,11 +987,16 @@ export function createDataTextureSampler(gamma = 1.0, kernelSize = 24, desaturat
       // preserves minority features (windows, trim) as distinct darker blocks
       // instead of always returning the dominant wall color.
       const centerIdx = (cy * w + cx) * 4;
-      const cLum = (data[centerIdx] * 77 + data[centerIdx + 1] * 150 + data[centerIdx + 2] * 29) >> 8;
+      const centerAlpha = data[centerIdx + 3];
+      // If center pixel is transparent, fall back to dominant bucket
+      const centerOpaque = centerAlpha === undefined || centerAlpha >= 32;
+      const cLum = centerOpaque
+        ? (data[centerIdx] * 77 + data[centerIdx + 1] * 150 + data[centerIdx + 2] * 29) >> 8
+        : 0;
       const centerBucket = Math.min(BUCKET_COUNT - 1, Math.floor(cLum / BUCKET_SIZE));
       const totalKernelPixels = (k * 2 + 1) * (k * 2 + 1);
       const minFeaturePixels = totalKernelPixels * 0.05; // 5% threshold
-      const selectedBucket = bucketCount[centerBucket] >= minFeaturePixels ? centerBucket : bestBucket;
+      const selectedBucket = (centerOpaque && bucketCount[centerBucket] >= minFeaturePixels) ? centerBucket : bestBucket;
       // Track when center-pixel sampling chose a darker bucket than the mode —
       // this pixel is a feature (window, trim, recess) whose darkness should be
       // preserved through the pipeline (skip black-point lift + gamma). ≥1 bucket
