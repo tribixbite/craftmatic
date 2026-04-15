@@ -551,7 +551,8 @@ export function createMeshViewer(container: HTMLElement, object: THREE.Object3D)
   scene.background = new THREE.Color(0x1a1a2e);
   scene.fog = new THREE.FogExp2(0x1a1a2e, 0.003);
 
-  const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, maxDim * 10);
+  const aspect = container.clientHeight > 0 ? container.clientWidth / container.clientHeight : 16 / 9;
+  const camera = new THREE.PerspectiveCamera(55, aspect, 0.1, maxDim * 10);
 
   let renderer: THREE.WebGLRenderer;
   try {

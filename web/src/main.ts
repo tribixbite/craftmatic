@@ -439,17 +439,15 @@ initUpload(uploadZone, fileInput, uploadInfo, (result) => {
   } else {
     // Mesh files → render Object3D immediately, optional voxelization
     uploadedMesh = result.result;
-    requestAnimationFrame(() => setTimeout(() => {
-      try {
-        showMeshInlineViewer(uploadViewer, result.result);
-      } catch (err) {
-        console.warn('Mesh viewer failed:', err);
-        const fallback = document.createElement('div');
-        fallback.className = 'viewer-fallback';
-        fallback.textContent = '3D preview unavailable. Upload succeeded.';
-        uploadViewer.appendChild(fallback);
-      }
-    }, 0));
+    try {
+      showMeshInlineViewer(uploadViewer, result.result);
+    } catch (err) {
+      console.warn('Mesh viewer failed:', err);
+      const fallback = document.createElement('div');
+      fallback.className = 'viewer-fallback';
+      fallback.textContent = '3D preview unavailable. Upload succeeded.';
+      uploadViewer.appendChild(fallback);
+    }
   }
 });
 
