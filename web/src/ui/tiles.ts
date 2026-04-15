@@ -31,6 +31,7 @@ import { trimSparseBottomLayers, analyzeGrid } from '@craft/convert/mesh-filter.
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { runPipeline, PipelinePhase } from '@craft/convert/pipeline.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
+import { resolveBrowserSemanticData, type BrowserSemanticData } from '@ui/browser-semantic-palette.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -652,13 +653,51 @@ async function runVoxelizePipeline(
       console.warn('[tiles] analysis failed (non-fatal):', err);
     }
 
+    // ── Semantic data: fetch SV + satellite + OSM for pipeline phases ──
+    // This enables SEMANTIC_RECOLOR, OSM_MASK, etc. that were previously skipped.
+    let semanticData: BrowserSemanticData | undefined;
+    if (geo && apiKey) {
+      try {
+        setStatus('Fetching semantic data (SV + satellite + OSM)...', 'info');
+        await new Promise(r => setTimeout(r, 0));
+        // Estimate building height from grid for palette resolution
+        let maxSolidY = 0;
+        for (let y = trimmedGrid.height - 1; y >= 0; y--) {
+          let hasBlock = false;
+          for (let z = 0; z < trimmedGrid.length && !hasBlock; z++) {
+            for (let x = 0; x < trimmedGrid.width && !hasBlock; x++) {
+              if (trimmedGrid.get(x, y, z) !== 'minecraft:air') hasBlock = true;
+            }
+          }
+          if (hasBlock) { maxSolidY = y; break; }
+        }
+        const gridHeightM = maxSolidY / resolution;
+        semanticData = await resolveBrowserSemanticData(
+          geo.lat, geo.lng, apiKey,
+          bounds?.osm ?? null,
+          bounds?.solar ?? null,
+          bounds,
+          gridHeightM,
+          (msg) => console.log(`[tiles:semantic] ${msg}`),
+        );
+        if (semanticData.osmPolygon) {
+          console.log(`[tiles] OSM polygon: ${semanticData.osmPolygon.length} vertices`);
+        }
+        if (semanticData.semanticPalette) {
+          console.log(`[tiles] semantic palette: ${semanticData.semanticPalette.source}`);
+        }
+      } catch (err) {
+        console.warn('[tiles] semantic data resolution failed (non-fatal):', err);
+      }
+    }
+
     // ── Post-processing: same essential pipeline as CLI voxelizer ──
     // Without these steps the raw voxelization is noisy photogrammetry chaos.
     const sceneEl = document.getElementById('tiles-scene-mode') as HTMLInputElement | null;
     const isSceneMode = !!(sceneEl?.checked && geo);
     setStatus('Post-processing...', 'info');
     await new Promise(r => setTimeout(r, 50));
-    const envPositions = await postProcessTilesGrid(trimmedGrid, analysis, isSceneMode, resolution);
+    const envPositions = await postProcessTilesGrid(trimmedGrid, analysis, isSceneMode, resolution, semanticData);
 
     // ── Window/door regularization — always run when quality is decent ──
     // v106: Moved out of scene-only block. Window patterns improve VLM scores universally.
@@ -779,17 +818,25 @@ async function runVoxelizePipeline(
  */
 async function postProcessTilesGrid(
   grid: BlockGrid, analysis: AnalysisResult | null, sceneMode = false, resolution = 1,
+  semanticData?: BrowserSemanticData,
 ): Promise<import('@craft/convert/mesh-filter.js').ExtractedEnvironment | undefined> {
   // Browser-side post-processing uses shared pipeline — identical quality to CLI.
-  // Phases requiring external API data (OSM, semantic recolor, etc.) are skipped.
-  const skipPhases = new Set([
-    PipelinePhase.OSM_MASK,
-    PipelinePhase.SEMANTIC_RECOLOR,
-    PipelinePhase.POST_MASK,
-    PipelinePhase.FOOTPRINT_FREEZE,
-    PipelinePhase.FOOTPRINT_FILL,
-    PipelinePhase.HEIGHT_CORRECT,
-  ]);
+  // Phases are conditionally skipped based on available data instead of always skipping.
+  const skipPhases = new Set<PipelinePhase>();
+
+  // OSM-dependent phases: skip only when no OSM polygon available
+  if (!semanticData?.osmPolygon) {
+    skipPhases.add(PipelinePhase.OSM_MASK);
+    skipPhases.add(PipelinePhase.POST_MASK);
+    skipPhases.add(PipelinePhase.FOOTPRINT_FREEZE);
+    skipPhases.add(PipelinePhase.FOOTPRINT_FILL);
+  }
+  // Semantic recolor: skip only when no palette resolved
+  if (!semanticData?.semanticPalette) {
+    skipPhases.add(PipelinePhase.SEMANTIC_RECOLOR);
+  }
+  // HEIGHT_CORRECT still skipped in browser — no reliable height override source
+  skipPhases.add(PipelinePhase.HEIGHT_CORRECT);
 
   const result = await runPipeline(grid, {
     resolution,
@@ -797,6 +844,11 @@ async function postProcessTilesGrid(
     fill: true,
     scene: sceneMode,
     precomputedAnalysis: analysis ?? undefined,
+    osmPolygon: semanticData?.osmPolygon,
+    osmTags: semanticData?.osmTags,
+    semanticPalette: semanticData?.semanticPalette,
+    knownHeightM: semanticData?.knownHeightM,
+    buildingAlignment: semanticData?.buildingAlignment,
     skipPhases,
   }, {
     onLog: (msg) => console.log(`[tiles:pp] ${msg}`),
