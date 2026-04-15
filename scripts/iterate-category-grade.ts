@@ -178,7 +178,8 @@ async function voxelize(loc: CategoryLocation): Promise<{
     throw new Error(`No GLB model: ${loc.glb ?? 'undefined'}`);
   }
 
-  const schem = `${DIR}/${loc.key}-${version}.schem`;
+  // MUST use absolute path for -o — voxelizer resolves relative to its own cwd
+  const schem = resolve(`${DIR}/${loc.key}-${version}.schem`);
   const flagParts = [
     'bun scripts/voxelize-glb.ts', `"${loc.glb}"`, '--auto',
     '--coords', `"${loc.coords}"`,
@@ -362,7 +363,7 @@ async function main(): Promise<void> {
 
     // Step 2: Voxelize (or use existing renders)
     let renders: { iso: string; topdown: string; front: string };
-    const schem = `${DIR}/${loc.key}-${version}.schem`;
+    const schem = resolve(`${DIR}/${loc.key}-${version}.schem`);
     const defaultRenders = {
       iso: schem.replace('.schem', '-iso.jpg'),
       topdown: schem.replace('.schem', '-topdown.jpg'),

@@ -32,12 +32,15 @@ const onlyKey = getFlag('--only', '');
 
 // ─── API Key ────────────────────────────────────────────────────────────────
 
-const apiKey = process.env.GOOGLE_API_KEY
-  || process.env.GOOGLE_MAPS_API_KEY
-  || (existsSync('.env') ? readFileSync('.env', 'utf8').match(/GOOGLE_(?:MAPS_)?API_KEY=(.+)/)?.[1]?.trim() : undefined);
+// Prefer GOOGLE_MAPS_API_KEY — it has SV/Static Maps APIs enabled.
+// GOOGLE_API_KEY is typically the Gemini key without Maps APIs.
+const apiKey = process.env.GOOGLE_MAPS_API_KEY
+  || process.env.GOOGLE_API_KEY
+  || (existsSync('.env') ? readFileSync('.env', 'utf8').match(/GOOGLE_MAPS_API_KEY=(.+)/)?.[1]?.trim() : undefined)
+  || (existsSync('.env') ? readFileSync('.env', 'utf8').match(/GOOGLE_API_KEY=(.+)/)?.[1]?.trim() : undefined);
 
 if (!apiKey) {
-  console.error('Error: GOOGLE_API_KEY or GOOGLE_MAPS_API_KEY required');
+  console.error('Error: GOOGLE_MAPS_API_KEY or GOOGLE_API_KEY required');
   process.exit(1);
 }
 
