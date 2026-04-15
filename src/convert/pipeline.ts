@@ -114,6 +114,11 @@ export interface PipelineConfig {
   fill?: boolean;
   /** Enable semantic recoloring (requires semanticPalette) */
   recolor?: boolean;
+  /**
+   * Aggressive recolor: override ALL non-glass blocks with palette colors (not just GRAY_FAMILY).
+   * Use for buildings where photogrammetry bakes in dark textures obscuring the true color.
+   */
+  forceRecolor?: boolean;
   /** Enable scene mode (feature replacement + enrichment data extraction) */
   scene?: boolean;
   /** Skip window glazing */
@@ -265,7 +270,7 @@ const PHASE_ORDER: PipelinePhase[] = [
 
 /** Config with defaults resolved — used internally by phase executors */
 interface ResolvedConfig extends Required<Pick<PipelineConfig,
-  'resolution' | 'mode' | 'fill' | 'recolor' | 'scene' | 'noGlaze' |
+  'resolution' | 'mode' | 'fill' | 'recolor' | 'forceRecolor' | 'scene' | 'noGlaze' |
   'noOsm' | 'noPostMask' | 'noIsolate' | 'peakedRoof' | 'heightCorrect' |
   'smoothPct' | 'modePasses' | 'cropRadius' | 'useAABBCrop' | 'cleanMinSize' |
   'maskDilate' | 'enuHorizontalAngle'
@@ -372,6 +377,7 @@ function resolveConfig(config: PipelineConfig): ResolvedConfig {
     generic: config.generic ?? false,
     fill: config.fill ?? true,
     recolor: config.recolor ?? false,
+    forceRecolor: config.forceRecolor ?? false,
     scene: config.scene ?? false,
     noGlaze: config.noGlaze ?? false,
     noOsm: config.noOsm ?? false,
@@ -893,9 +899,12 @@ function phaseSemanticRecolor(grid: BlockGrid, config: ResolvedConfig, _state: P
   if (!config.recolor || !config.semanticPalette) return;
 
   const palette = config.semanticPalette;
+  // Apply aggressive mode when forceRecolor is set — overrides all non-glass blocks.
+  if (config.forceRecolor) palette.aggressive = true;
   if (palette.wallBlocks.length > 0 || palette.wallColor || palette.roofBlocks) {
     const recolored = applySemanticPalette(grid, palette);
-    log(`Semantic recolor: ${recolored} gray blocks recolored (${palette.source})`);
+    const mode = palette.aggressive ? 'all blocks' : 'gray blocks';
+    log(`Semantic recolor: ${recolored} ${mode} recolored (${palette.source})`);
   }
 }
 

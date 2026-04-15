@@ -53,7 +53,7 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
   },
   {
     key: 'pennzoil', name: 'Pennzoil Place', city: 'Houston, TX',
-    coords: '29.7601,-95.3698', extentM: 90,
+    coords: '29.7538,-95.3675', extentM: 90,
     glb: `${DIR}/pennzoil-v200.glb`,
     resolution: 1, maskDilate: 2, extraFlags: ['--no-enu'],
     sceneMode: false, archType: 'twin-towers',
@@ -104,7 +104,9 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     key: 'transamerica', name: 'Transamerica Pyramid', city: 'San Francisco, CA',
     coords: '37.7952,-122.4028', extentM: 40,
     glb: `${DIR}/transamerica-v200b.glb`,
-    resolution: 1, maskDilate: 0, extraFlags: ['--no-enu'],
+    // --force-recolor + --building-colour: photogrammetry bakes dark AO+glass reflections;
+    // actual building is white quartz — bypass height heuristic that defaults to "glass curtain wall"
+    resolution: 1, maskDilate: 0, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'ivory'],
     sceneMode: false, archType: 'pyramidal',
   },
   {

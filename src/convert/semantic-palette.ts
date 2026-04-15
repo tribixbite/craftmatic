@@ -26,6 +26,13 @@ export interface SemanticPalette {
   glassBlock?: BlockState;
   /** Source that determined the palette (for logging) */
   source: string;
+  /**
+   * Aggressive mode: override ALL non-glass, non-air blocks (not just GRAY_FAMILY).
+   * Use for buildings where photogrammetry bakes in dark textures (baked AO, glass
+   * reflections) that prevent the correct dominant wall color from appearing.
+   * Example: Transamerica Pyramid (white quartz but dark baked photogrammetry).
+   */
+  aggressive?: boolean;
 }
 
 // ─── Material Mappings ───────────────────────────────────────────────────────
@@ -313,8 +320,9 @@ export function applySemanticPalette(
         // Never override glass blocks
         if (GLASS_BLOCKS.has(block)) continue;
 
-        // Only override gray-family blocks (blend, don't replace)
-        if (!GRAY_FAMILY.has(block)) continue;
+        // In aggressive mode, override all non-glass blocks (not just gray).
+        // In normal mode, only override GRAY_FAMILY blocks (blend, don't replace).
+        if (!palette.aggressive && !GRAY_FAMILY.has(block)) continue;
 
         // Roof blocks
         if (isRoof && palette.roofBlocks && palette.roofBlocks.length > 0) {

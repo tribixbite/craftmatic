@@ -136,7 +136,10 @@ async function resolveSemanticPaletteFromAPIs(
           const svMax = Math.max(r, g, b);
           const svMin = Math.min(r, g, b);
           const svSat = svMax > 0 ? (svMax - svMin) / svMax : 0;
-          if (svSat < 0.10) {
+          // In force-recolor mode, accept near-neutral SV colors (white buildings like Transamerica).
+          // Normal mode skips <10% sat (avoids gray-washing colorful buildings).
+          const svSatThreshold = args.forceRecolor ? 0.02 : 0.10;
+          if (svSat < svSatThreshold) {
             console.log(`  SV multi-angle wall: rgb(${r},${g},${b}) sat=${(svSat * 100).toFixed(0)}% — SKIPPED (too gray)`);
           } else {
             console.log(`  SV multi-angle wall: rgb(${r},${g},${b}) sat=${(svSat * 100).toFixed(0)}% → ${multiResult.wallBlock.replace('minecraft:', '')}`);
@@ -922,6 +925,13 @@ async function main(): Promise<void> {
     }
   }
 
+  // Inject --building-colour override into OSM tags BEFORE palette resolution.
+  // This bypasses height heuristics for buildings with known wall colors (e.g. Transamerica).
+  if (args.buildingColour) {
+    preOsmTags = { ...preOsmTags, 'building:colour': args.buildingColour };
+    console.log(`  Injecting building:colour=${args.buildingColour} (CLI override)`);
+  }
+
   // Resolve semantic palette from APIs (SV multi-heading, satellite roof, OSM)
   let preSemanticPalette: SemanticPalette | undefined;
   if (args.recolor && args.coords) {
@@ -949,6 +959,7 @@ async function main(): Promise<void> {
     generic: args.generic,
     fill: args.fill,
     recolor: !!args.recolor,
+    forceRecolor: !!args.forceRecolor,
     scene: args.scene,
     noGlaze: args.noGlaze,
     noOsm: args.noOsm,
