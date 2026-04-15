@@ -57,7 +57,8 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
   },
   {
     key: 'pennzoil', name: 'Pennzoil Place', city: 'Houston, TX',
-    coords: '29.7538,-95.3675', extentM: 90,
+    // Previous coords 29.7538,-95.3675 were ~700m off — captured wrong block
+    coords: '29.7601,-95.3698', extentM: 90,
     glb: `${DIR}/pennzoil-v200.glb`,
     resolution: 1, maskDilate: 2, extraFlags: ['--no-enu'],
     sceneMode: false, archType: 'twin-towers',
@@ -107,7 +108,12 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     key: 'geisel', name: 'Geisel Library', city: 'San Diego, CA',
     coords: '32.8811,-117.2376', extentM: 30,
     glb: `${DIR}/geisel-v200.glb`,
-    resolution: 2, maskDilate: 2, extraFlags: ['--no-enu'],
+    // way/159385495 = exact Geisel Library footprint (octagonal brutalist-mushroom)
+    // GLB captures 161x152m of UCSD campus; explicit osmId clips to just the 30m building
+    // --force-recolor ivory: photogrammetry bakes dark AO; actual building is pale concrete
+    // --no-satellite-roof: satellite captures dark inner roof, not the pale outer steps
+    resolution: 2, maskDilate: 0, osmId: 'way/159385495',
+    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'ivory', '--no-satellite-roof'],
     sceneMode: false, archType: 'brutalist-mushroom',
   },
   {

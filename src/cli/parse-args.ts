@@ -50,6 +50,8 @@ export interface CLIArgs {
   recolor: boolean;        // v314: SV/satellite-driven facade+roof recoloring (requires --coords)
   forceRecolor: boolean;   // v402: override ALL non-glass blocks (not just gray) for dark photogrammetry models
   buildingColour: string;  // v402: inject building:colour into OSM tags (bypasses height heuristics)
+  roofColour: string;      // override satellite roof color (CSS name or hex) — useful when sat analysis is wrong
+  noSatelliteRoof: boolean; // skip satellite roof color sampling entirely
   heightCorrect: boolean;  // extrude truncated tall buildings to match known height
   heightOverride: number;  // manual building height in meters (0 = auto from OSM/Mapbox)
   noCache: boolean;        // bypass GLB tile cache
@@ -159,6 +161,8 @@ Options:
   let recolor = false; // v314: SV/satellite facade+roof recoloring
   let forceRecolor = false; // v402: override ALL blocks (not just gray) for dark photogrammetry
   let buildingColour = ''; // v402: inject building:colour into OSM tags (bypass height heuristic)
+  let roofColour = '';    // override satellite roof color
+  let noSatelliteRoof = false; // skip satellite roof sampling
   let heightCorrect = false; // extrude truncated buildings to known height
   let heightOverride = 0; // manual height override in meters (0 = auto)
   let noCache = false; // bypass GLB tile cache
@@ -258,6 +262,10 @@ Options:
       forceRecolor = true;
     } else if (arg === '--building-colour' || arg === '--building-color') {
       buildingColour = args[++i] ?? '';
+    } else if (arg === '--roof-colour' || arg === '--roof-color') {
+      roofColour = args[++i] ?? '';
+    } else if (arg === '--no-satellite-roof') {
+      noSatelliteRoof = true;
     } else if (arg === '--height-correct') {
       heightCorrect = true;
     } else if (arg === '--height') {
@@ -331,5 +339,5 @@ Options:
     desaturate = 0; // explicitly disable desaturation
   }
 
-  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize, recolor, forceRecolor, buildingColour, heightCorrect, heightOverride, noCache, cacheInfo, checkpoint, restore };
+  return { inputPath, resolution, mode, minHeight, trimThreshold, gamma, kernel, explicitKernel, desaturate, outputPath, infoOnly, generic, explicitGeneric, explicitFill, explicitModePasses, explicitResolution, preview, smoothPct, modePasses, fill, noPalette, noCornice, noFireEscape, noGlaze, peakedRoof, cleanMinSize, cropRadius, remaps, auto, autoInfo, batch, batchPaths, coords, keepVegetation, noEnu, noEnuSnap, noOsm, noPostMask, noIsolate, maskDilate, osmId, enrich, scene, plotRadius, zoneNormalize, recolor, forceRecolor, buildingColour, roofColour, noSatelliteRoof, heightCorrect, heightOverride, noCache, cacheInfo, checkpoint, restore };
 }

@@ -70,6 +70,8 @@ async function resolveSemanticPaletteFromAPIs(
   outputDir: string,
   resolution: number,
   grid: BlockGrid,
+  noSatelliteRoof = false,
+  roofColourOverride = '',
 ): Promise<SemanticPalette | undefined> {
   // Estimate building height from grid
   let maxSolidY = 0;
@@ -193,38 +195,46 @@ async function resolveSemanticPaletteFromAPIs(
     }
   }
 
-  // Phase C: Satellite roof color
-  const satCacheKey = `sat-${coords.lat.toFixed(6)}-${coords.lng.toFixed(6)}`;
-  const satCachePath = join(outputDir, `.cache-${satCacheKey}.json`);
-  const SAT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  let satRoof: Awaited<ReturnType<typeof sampleSatelliteRoof>> = null;
-  if (existsSync(satCachePath)) {
-    const cacheAge = Date.now() - statSync(satCachePath).mtimeMs;
-    if (cacheAge < SAT_CACHE_TTL_MS) {
-      satRoof = JSON.parse(await Bun.file(satCachePath).text());
-      console.log(`  Satellite roof: loaded from cache (${(cacheAge / 3600000).toFixed(1)}h old)`);
+  // Phase C: Satellite roof color (skip if --no-satellite-roof or --roof-colour override)
+  if (noSatelliteRoof) {
+    console.log('  Satellite roof: SKIPPED (--no-satellite-roof)');
+  } else if (roofColourOverride) {
+    // Inject into osmTags — resolveSemanticPalette already reads roof:colour from there
+    osmTags['roof:colour'] = roofColourOverride;
+    console.log(`  Satellite roof: OVERRIDDEN by --roof-colour ${roofColourOverride}`);
+  } else {
+    const satCacheKey = `sat-${coords.lat.toFixed(6)}-${coords.lng.toFixed(6)}`;
+    const satCachePath = join(outputDir, `.cache-${satCacheKey}.json`);
+    const SAT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+    let satRoof: Awaited<ReturnType<typeof sampleSatelliteRoof>> = null;
+    if (existsSync(satCachePath)) {
+      const cacheAge = Date.now() - statSync(satCachePath).mtimeMs;
+      if (cacheAge < SAT_CACHE_TTL_MS) {
+        satRoof = JSON.parse(await Bun.file(satCachePath).text());
+        console.log(`  Satellite roof: loaded from cache (${(cacheAge / 3600000).toFixed(1)}h old)`);
+      }
     }
-  }
-  if (!satRoof) {
-    const satExtentM = buildingAlignment
-      ? Math.max(buildingAlignment.mbrWidth, buildingAlignment.mbrDepth)
-      : Math.max(grid.width, grid.length) / resolution;
-    satRoof = await sampleSatelliteRoof(coords.lat, coords.lng, satExtentM);
-    if (satRoof) {
-      await Bun.write(satCachePath, JSON.stringify(satRoof));
+    if (!satRoof) {
+      const satExtentM = buildingAlignment
+        ? Math.max(buildingAlignment.mbrWidth, buildingAlignment.mbrDepth)
+        : Math.max(grid.width, grid.length) / resolution;
+      satRoof = await sampleSatelliteRoof(coords.lat, coords.lng, satExtentM);
+      if (satRoof) {
+        await Bun.write(satCachePath, JSON.stringify(satRoof));
+      }
     }
-  }
-  if (satRoof && palette) {
-    palette.roofBlocks = [satRoof.roofBlock];
-    palette.roofColor = { r: satRoof.roofRgb[0], g: satRoof.roofRgb[1], b: satRoof.roofRgb[2] };
-    palette.source += ' + satellite roof';
-  } else if (satRoof && !palette) {
-    palette = {
-      wallBlocks: [],
-      roofBlocks: [satRoof.roofBlock],
-      roofColor: { r: satRoof.roofRgb[0], g: satRoof.roofRgb[1], b: satRoof.roofRgb[2] },
-      source: 'satellite roof only',
-    };
+    if (satRoof && palette) {
+      palette.roofBlocks = [satRoof.roofBlock];
+      palette.roofColor = { r: satRoof.roofRgb[0], g: satRoof.roofRgb[1], b: satRoof.roofRgb[2] };
+      palette.source += ' + satellite roof';
+    } else if (satRoof && !palette) {
+      palette = {
+        wallBlocks: [],
+        roofBlocks: [satRoof.roofBlock],
+        roofColor: { r: satRoof.roofRgb[0], g: satRoof.roofRgb[1], b: satRoof.roofRgb[2] },
+        source: 'satellite roof only',
+      };
+    }
   }
 
   return palette ?? undefined;
@@ -939,6 +949,7 @@ async function main(): Promise<void> {
     preSemanticPalette = await resolveSemanticPaletteFromAPIs(
       args.coords, preOsmTags, buildingAlignment,
       dirname(args.outputPath), args.resolution, trimmed,
+      args.noSatelliteRoof, args.roofColour,
     );
   }
 
