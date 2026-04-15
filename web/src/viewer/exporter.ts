@@ -28,10 +28,24 @@ function downloadBlob(blob: Blob, filename: string): void {
  * don't properly handle InstancedMesh, so we expand each instance into its
  * own Mesh with the correct world transform applied.
  *
+ * For mesh viewer (object3d mode), returns the Object3D directly in a wrapper group.
+ *
  * IMPORTANT: Calls updateMatrixWorld() so exporters that read matrixWorld
  * (STL, GLTF) see correct positions instead of identity matrices.
  */
 function createExportGroup(viewer: ViewerState): { group: THREE.Group; cleanup: () => void } {
+  // Mesh viewer mode — wrap the Object3D in a group
+  if (viewer.object3d) {
+    const group = new THREE.Group();
+    group.add(viewer.object3d.clone());
+    group.updateMatrixWorld(true);
+    return {
+      group,
+      cleanup: () => { group.clear(); },
+    };
+  }
+
+  // Block viewer mode — expand InstancedMesh
   const group = new THREE.Group();
   const tempMeshes: THREE.Mesh[] = [];
 
@@ -47,7 +61,6 @@ function createExportGroup(viewer: ViewerState): { group: THREE.Group; cleanup: 
     }
   }
 
-  // Compute matrixWorld for all children — exporters rely on this
   group.updateMatrixWorld(true);
 
   return {
@@ -402,9 +415,10 @@ export function exportThreeJSON(viewer: ViewerState, filename = 'craftmatic-scen
   downloadBlob(blob, filename);
 }
 
-/** Export as standalone HTML with embedded viewer */
+/** Export as standalone HTML with embedded viewer (block viewer only) */
 export function exportHTML(viewer: ViewerState, filename = 'craftmatic.html'): void {
   const { grid } = viewer;
+  if (!grid) throw new Error('HTML export requires a block grid (not available for mesh view)');
   const { width, height, length } = grid;
 
   // Build compact block list from the viewer's existing meshes
