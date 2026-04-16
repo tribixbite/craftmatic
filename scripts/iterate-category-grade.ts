@@ -136,9 +136,25 @@ async function run(cmd: string, timeoutMs = 300_000): Promise<string> {
 }
 
 /** Ensure reference data exists for a location (SV + satellite images) */
+/** Read actual building dimensions from sv-meta.json (written by fetch-reference-data) */
+function readBuildingExtent(refDir: string): { widthM: number; depthM: number } | undefined {
+  const metaPath = join(refDir, 'sv-meta.json');
+  if (!existsSync(metaPath)) return undefined;
+  try {
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+    const ext = meta.buildingExtent;
+    if (ext?.widthM && ext?.depthM) {
+      return { widthM: ext.widthM, depthM: ext.depthM };
+    }
+  } catch { /* ignore parse errors */ }
+  return undefined;
+}
+
 async function ensureReferenceData(loc: CategoryLocation): Promise<{
   svImages: string[];
   satelliteImage: string;
+  /** Actual building dimensions from Solar API (via sv-meta.json) */
+  buildingExtent?: { widthM: number; depthM: number };
 }> {
   const refDir = join(REF_DIR, loc.key);
   const svPaths = ['front', 'right', 'rear', 'left']
@@ -164,10 +180,15 @@ async function ensureReferenceData(loc: CategoryLocation): Promise<{
     return {
       svImages: newSvPaths,
       satelliteImage: existsSync(satPath) ? satPath : '',
+      buildingExtent: readBuildingExtent(refDir),
     };
   }
 
-  return { svImages: svPaths, satelliteImage: existsSync(satPath) ? satPath : '' };
+  return {
+    svImages: svPaths,
+    satelliteImage: existsSync(satPath) ? satPath : '',
+    buildingExtent: readBuildingExtent(refDir),
+  };
 }
 
 /** Voxelize a building, return schem path + grid dimensions */
@@ -396,10 +417,12 @@ async function main(): Promise<void> {
       continue;
     }
 
-    // Step 3: Build known dimensions from extent
-    const knownDimensions = loc.extentM
-      ? { widthM: loc.extentM, depthM: loc.extentM * 0.7 }
-      : undefined;
+    // Step 3: Build known dimensions — prefer actual Solar API data from sv-meta.json
+    const knownDimensions = refData.buildingExtent
+      ? { widthM: refData.buildingExtent.widthM, depthM: refData.buildingExtent.depthM }
+      : loc.extentM
+        ? { widthM: loc.extentM, depthM: loc.extentM * 0.7 }
+        : undefined;
 
     // Step 4: Grade N times with VLM
     console.log(`  Grading (${vlmRuns} runs, ${vlmModel}, temp=0.0)...`);

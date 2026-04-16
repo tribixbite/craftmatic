@@ -133,6 +133,9 @@ export function parseOSMColour(colour: string | undefined): { r: number; g: numb
     silver: [192, 192, 192], copper: [184, 115, 51], bronze: [205, 127, 50],
     steel:  [176, 196, 222], chrome: [220, 220, 220], gold:   [255, 215, 0],
     rust:   [183, 65,  14],  slate:  [112, 128, 144], charcoal: [54,  69,  79],
+    lime:   [0,   255, 0],  olive:  [128, 128, 0],  teal:   [0,   128, 128],
+    cyan:   [0,   255, 255], magenta: [255, 0, 255], maroon: [128, 0,   0],
+    navy:   [0,   0,   128], pink:   [255, 192, 203],
   };
   const lower = colour.toLowerCase().trim();
   const named = NAMED[lower];

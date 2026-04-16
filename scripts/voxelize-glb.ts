@@ -196,10 +196,9 @@ async function resolveSemanticPaletteFromAPIs(
     }
   }
 
-  // Phase C: Satellite roof color (skip if --no-satellite-roof or --roof-colour override)
-  if (noSatelliteRoof) {
-    console.log('  Satellite roof: SKIPPED (--no-satellite-roof)');
-  } else if (roofColourOverride) {
+  // Phase C: Satellite roof color
+  // --roof-colour takes priority (explicit override), then --no-satellite-roof skips auto-detection
+  if (roofColourOverride) {
     // Inject into osmTags (for pipeline metadata) and directly update palette.
     // osmTags mutation is AFTER Phase A ran, so we also set roofBlocks/roofColor directly.
     osmTags['roof:colour'] = roofColourOverride;
@@ -224,6 +223,8 @@ async function resolveSemanticPaletteFromAPIs(
       }
     }
     console.log(`  Satellite roof: OVERRIDDEN by --roof-colour ${roofColourOverride} → ${roofRgb ? 'rgb(' + roofRgb.r + ',' + roofRgb.g + ',' + roofRgb.b + ')' : 'unrecognised colour name'}`);
+  } else if (noSatelliteRoof) {
+    console.log('  Satellite roof: SKIPPED (--no-satellite-roof)');
   } else {
     const satCacheKey = `sat-${coords.lat.toFixed(6)}-${coords.lng.toFixed(6)}`;
     const satCachePath = join(outputDir, `.cache-${satCacheKey}.json`);

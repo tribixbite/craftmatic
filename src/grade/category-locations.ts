@@ -188,12 +188,13 @@ export const LOCATIONS_NEW: CategoryLocation[] = [
     coords: '40.7830,-73.9590', extentM: 25,
     glb: `${DIR}/guggenheim.glb`,
     resolution: 2, maskDilate: 2,
-    // --recolor (not force): VLM defect "monochrome gray — missing distinct green roof on rotunda"
-    // Guggenheim exterior is white concrete walls + green patinated copper/metal roof
-    // --force-recolor ivory made everything one color (no green roof); --recolor preserves both
-    // --roof-colour lime: adds green-tinted roof to match copper patina (distinct from white walls)
-    // --no-satellite-roof: satellite darkens the rotunda glass skylight, not the copper
-    extraFlags: ['--no-enu', '--recolor', '--roof-colour', 'lime', '--no-satellite-roof'],
+    // --force-recolor white: walls must be force-colored (photogrammetry AO is dark → colors=0 without force)
+    // --roof-colour lime: VLM defect "monochrome — missing distinct green copper roof"
+    //   force-recolor sets walls ivory/white; roof-colour overrides top-face voxels to lime green
+    //   combining both: white walls + green roof matches the actual Guggenheim appearance
+    // --no-satellite-roof: satellite overrides roof-colour if not suppressed
+    // #6B8E6B: muted sage/verdigris matching Guggenheim copper patina (lime was too neon)
+    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'white', '--roof-colour', '#6B8E6B', '--no-satellite-roof'],
     sceneMode: false, archType: 'spiral-rotunda',
   },
   {
