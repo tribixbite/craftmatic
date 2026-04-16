@@ -1,10 +1,10 @@
 {
   "version": "v400",
-  "timestamp": "2026-04-16T20:33:18.709Z",
+  "timestamp": "2026-04-16T20:44:27.438Z",
   "target": 9,
   "model": "gemini-2.5-pro",
-  "passing": 0,
-  "total": 1,
+  "passing": 5,
+  "total": 22,
   "locations": {
     "flatiron": {
       "key": "flatiron",
@@ -2214,6 +2214,360 @@
         "dimensions(6)"
       ],
       "plateauReason": "Google 3D Tiles photogrammetry cannot capture iconic curved stainless steel panels. Model is amorphous blob regardless of color fix. Features=1 ceiling due to source data."
+    },
+    "coit-grandrapids": {
+      "key": "coit-grandrapids",
+      "name": "Coit Creative Arts Academy",
+      "compositeHistory": [
+        4.9
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 4,
+            "defects": [
+              "No street view was provided to judge wall color, but the model is monochrome gray.",
+              "The roof in the satellite image is a uniform dark gray/black, while the model's roof is a noisy mix of light and dark gray blocks.",
+              "No street view photos were provided to evaluate wall color.",
+              "The model is monochrome gray, which is a neutral but unconfirmed choice for the walls."
+            ]
+          },
+          "features": {
+            "score": 4.3,
+            "defects": [
+              "The model is extremely noisy and appears heavily eroded, obscuring the distinct shapes of the building's different sections.",
+              "While the building is generally low and flat, the model fails to represent the clean, blocky masses visible in the satellite photo, instead presenting a lumpy, indistinct form.",
+              "No street view photos were provided to evaluate facade features.",
+              "The model is very low-profile and noisy, making it difficult to discern any specific architectural forms, though the real building also appears to lack major distinct features like towers or domes."
+            ]
+          },
+          "layout": {
+            "score": 5,
+            "defects": [
+              "The building's outline is severely fragmented and eroded.",
+              "Large sections of the building's footprint are missing, especially in the central connecting area, resulting in large holes.",
+              "The overall shape is only vaguely recognizable due to the extreme noise and data loss."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 6,
+            "defects": [
+              "The width-to-depth proportions are correct.",
+              "The building's height appears to be significantly truncated, resulting in a model that is too flat relative to its footprint.",
+              "The building's height is severely truncated, appearing almost flat.",
+              "The model represents little more than the ground floor or foundation level of the building."
+            ]
+          }
+        },
+        "composite": 4.9,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [
+            "No street view was provided to judge wall color, but the model is monochrome gray.",
+            "The roof in the satellite image is a uniform dark gray/black, while the model's roof is a noisy mix of light and dark gray blocks.",
+            "No street view photos were provided to evaluate wall color.",
+            "The model is monochrome gray, which is a neutral but unconfirmed choice for the walls."
+          ],
+          "features": [
+            "The model is extremely noisy and appears heavily eroded, obscuring the distinct shapes of the building's different sections.",
+            "While the building is generally low and flat, the model fails to represent the clean, blocky masses visible in the satellite photo, instead presenting a lumpy, indistinct form.",
+            "No street view photos were provided to evaluate facade features.",
+            "The model is very low-profile and noisy, making it difficult to discern any specific architectural forms, though the real building also appears to lack major distinct features like towers or domes."
+          ],
+          "layout": [
+            "The building's outline is severely fragmented and eroded.",
+            "Large sections of the building's footprint are missing, especially in the central connecting area, resulting in large holes.",
+            "The overall shape is only vaguely recognizable due to the extreme noise and data loss."
+          ],
+          "dimensions": [
+            "The width-to-depth proportions are correct.",
+            "The building's height appears to be significantly truncated, resulting in a model that is too flat relative to its footprint.",
+            "The building's height is severely truncated, appearing almost flat.",
+            "The model represents little more than the ground floor or foundation level of the building."
+          ]
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 4,
+            "defects": [
+              "No street view was provided to judge wall color, but the model is monochrome gray.",
+              "The roof in the satellite image is a uniform dark gray/black, while the model's roof is a noisy mix of light and dark gray blocks.",
+              "No street view photos were provided to evaluate wall color.",
+              "The model is monochrome gray, which is a neutral but unconfirmed choice for the walls."
+            ]
+          },
+          "features": {
+            "score": 4.3,
+            "defects": [
+              "The model is extremely noisy and appears heavily eroded, obscuring the distinct shapes of the building's different sections.",
+              "While the building is generally low and flat, the model fails to represent the clean, blocky masses visible in the satellite photo, instead presenting a lumpy, indistinct form.",
+              "No street view photos were provided to evaluate facade features.",
+              "The model is very low-profile and noisy, making it difficult to discern any specific architectural forms, though the real building also appears to lack major distinct features like towers or domes."
+            ]
+          },
+          "layout": {
+            "score": 5,
+            "defects": [
+              "The building's outline is severely fragmented and eroded.",
+              "Large sections of the building's footprint are missing, especially in the central connecting area, resulting in large holes.",
+              "The overall shape is only vaguely recognizable due to the extreme noise and data loss."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 6,
+            "defects": [
+              "The width-to-depth proportions are correct.",
+              "The building's height appears to be significantly truncated, resulting in a model that is too flat relative to its footprint.",
+              "The building's height is severely truncated, appearing almost flat.",
+              "The model represents little more than the ground floor or foundation level of the building."
+            ]
+          }
+        },
+        "composite": 4.9,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [
+            "No street view was provided to judge wall color, but the model is monochrome gray.",
+            "The roof in the satellite image is a uniform dark gray/black, while the model's roof is a noisy mix of light and dark gray blocks.",
+            "No street view photos were provided to evaluate wall color.",
+            "The model is monochrome gray, which is a neutral but unconfirmed choice for the walls."
+          ],
+          "features": [
+            "The model is extremely noisy and appears heavily eroded, obscuring the distinct shapes of the building's different sections.",
+            "While the building is generally low and flat, the model fails to represent the clean, blocky masses visible in the satellite photo, instead presenting a lumpy, indistinct form.",
+            "No street view photos were provided to evaluate facade features.",
+            "The model is very low-profile and noisy, making it difficult to discern any specific architectural forms, though the real building also appears to lack major distinct features like towers or domes."
+          ],
+          "layout": [
+            "The building's outline is severely fragmented and eroded.",
+            "Large sections of the building's footprint are missing, especially in the central connecting area, resulting in large holes.",
+            "The overall shape is only vaguely recognizable due to the extreme noise and data loss."
+          ],
+          "dimensions": [
+            "The width-to-depth proportions are correct.",
+            "The building's height appears to be significantly truncated, resulting in a model that is too flat relative to its footprint.",
+            "The building's height is severely truncated, appearing almost flat.",
+            "The model represents little more than the ground floor or foundation level of the building."
+          ]
+        }
+      },
+      "runCount": 3,
+      "lastVersion": "v400",
+      "lastGraded": "2026-04-16T20:37:56.090Z",
+      "plateaued": true,
+      "worstCategories": [
+        "colors(4)",
+        "features(4.3)",
+        "layout(5)",
+        "dimensions(6)"
+      ]
+    },
+    "chrysler": {
+      "key": "chrysler",
+      "name": "Chrysler Building",
+      "compositeHistory": [
+        1.9
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 2,
+            "defects": [
+              "The prominent red roof color is almost entirely missing, replaced with gray.",
+              "The model is largely monochrome gray, failing to differentiate between the light-colored walls and the red roof.",
+              "The prominent red roof color is completely missing.",
+              "The model is almost entirely monochrome gray, failing to differentiate between the light-colored walls and the red roof.",
+              "The distinct red roof color is almost entirely missing, represented only by scattered red blocks.",
+              "The model fails to differentiate between the light-colored walls and the red roof, appearing mostly as a noisy monochrome gray."
+            ]
+          },
+          "features": {
+            "score": 0,
+            "defects": [
+              "The model is a single, noisy block and completely misses the building's complex, multi-level massing.",
+              "All major setbacks and terraced levels on the lower wings are absent.",
+              "The distinction between the taller rear tower and the lower front sections is not represented.",
+              "The model is a single blocky mass and completely misses the building's complex, terraced form.",
+              "All major setbacks and step-backs are missing.",
+              "The distinction between the taller rear tower and the lower front wings is not represented.",
+              "The model is a single, solid block and completely misses the complex, multi-level massing of the real building.",
+              "All major setbacks and terraced levels on the front and sides are absent.",
+              "The taller rear tower section is not differentiated from the lower sections."
+            ]
+          },
+          "layout": {
+            "score": 1,
+            "defects": [
+              "The voxel model's footprint is a simple, noisy parallelogram, which does not match the complex, multi-winged shape of the real building.",
+              "Major indentations and the overall E-shaped structure are completely missing.",
+              "The model's footprint is a simple filled-in shape, whereas the real building has a complex outline with major indentations and courtyards.",
+              "The overall shape is wrong; it's a rough parallelogram instead of a complex form with multiple wings.",
+              "The model's footprint is a simple, solid parallelogram, completely missing the complex U-shaped or E-shaped form of the real building.",
+              "Major indentations and light wells/courtyards visible in the satellite view are absent."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 5,
+            "defects": [
+              "The height is severely truncated, with the entire upper structure and tower missing.",
+              "The relative height differences between the building's sections are not present.",
+              "The height of the model is severely truncated, representing only the lower portion of a much taller building.",
+              "The building's height appears to be severely truncated, representing only the lower portion of the structure.",
+              "The model lacks the significant height variation between the front and rear sections."
+            ]
+          }
+        },
+        "composite": 1.9,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [
+            "The prominent red roof color is almost entirely missing, replaced with gray.",
+            "The model is largely monochrome gray, failing to differentiate between the light-colored walls and the red roof.",
+            "The prominent red roof color is completely missing.",
+            "The model is almost entirely monochrome gray, failing to differentiate between the light-colored walls and the red roof.",
+            "The distinct red roof color is almost entirely missing, represented only by scattered red blocks.",
+            "The model fails to differentiate between the light-colored walls and the red roof, appearing mostly as a noisy monochrome gray."
+          ],
+          "features": [
+            "The model is a single, noisy block and completely misses the building's complex, multi-level massing.",
+            "All major setbacks and terraced levels on the lower wings are absent.",
+            "The distinction between the taller rear tower and the lower front sections is not represented.",
+            "The model is a single blocky mass and completely misses the building's complex, terraced form.",
+            "All major setbacks and step-backs are missing.",
+            "The distinction between the taller rear tower and the lower front wings is not represented.",
+            "The model is a single, solid block and completely misses the complex, multi-level massing of the real building.",
+            "All major setbacks and terraced levels on the front and sides are absent.",
+            "The taller rear tower section is not differentiated from the lower sections."
+          ],
+          "layout": [
+            "The voxel model's footprint is a simple, noisy parallelogram, which does not match the complex, multi-winged shape of the real building.",
+            "Major indentations and the overall E-shaped structure are completely missing.",
+            "The model's footprint is a simple filled-in shape, whereas the real building has a complex outline with major indentations and courtyards.",
+            "The overall shape is wrong; it's a rough parallelogram instead of a complex form with multiple wings.",
+            "The model's footprint is a simple, solid parallelogram, completely missing the complex U-shaped or E-shaped form of the real building.",
+            "Major indentations and light wells/courtyards visible in the satellite view are absent."
+          ],
+          "dimensions": [
+            "The height is severely truncated, with the entire upper structure and tower missing.",
+            "The relative height differences between the building's sections are not present.",
+            "The height of the model is severely truncated, representing only the lower portion of a much taller building.",
+            "The building's height appears to be severely truncated, representing only the lower portion of the structure.",
+            "The model lacks the significant height variation between the front and rear sections."
+          ]
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 2,
+            "defects": [
+              "The prominent red roof color is almost entirely missing, replaced with gray.",
+              "The model is largely monochrome gray, failing to differentiate between the light-colored walls and the red roof.",
+              "The prominent red roof color is completely missing.",
+              "The model is almost entirely monochrome gray, failing to differentiate between the light-colored walls and the red roof.",
+              "The distinct red roof color is almost entirely missing, represented only by scattered red blocks.",
+              "The model fails to differentiate between the light-colored walls and the red roof, appearing mostly as a noisy monochrome gray."
+            ]
+          },
+          "features": {
+            "score": 0,
+            "defects": [
+              "The model is a single, noisy block and completely misses the building's complex, multi-level massing.",
+              "All major setbacks and terraced levels on the lower wings are absent.",
+              "The distinction between the taller rear tower and the lower front sections is not represented.",
+              "The model is a single blocky mass and completely misses the building's complex, terraced form.",
+              "All major setbacks and step-backs are missing.",
+              "The distinction between the taller rear tower and the lower front wings is not represented.",
+              "The model is a single, solid block and completely misses the complex, multi-level massing of the real building.",
+              "All major setbacks and terraced levels on the front and sides are absent.",
+              "The taller rear tower section is not differentiated from the lower sections."
+            ]
+          },
+          "layout": {
+            "score": 1,
+            "defects": [
+              "The voxel model's footprint is a simple, noisy parallelogram, which does not match the complex, multi-winged shape of the real building.",
+              "Major indentations and the overall E-shaped structure are completely missing.",
+              "The model's footprint is a simple filled-in shape, whereas the real building has a complex outline with major indentations and courtyards.",
+              "The overall shape is wrong; it's a rough parallelogram instead of a complex form with multiple wings.",
+              "The model's footprint is a simple, solid parallelogram, completely missing the complex U-shaped or E-shaped form of the real building.",
+              "Major indentations and light wells/courtyards visible in the satellite view are absent."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 5,
+            "defects": [
+              "The height is severely truncated, with the entire upper structure and tower missing.",
+              "The relative height differences between the building's sections are not present.",
+              "The height of the model is severely truncated, representing only the lower portion of a much taller building.",
+              "The building's height appears to be severely truncated, representing only the lower portion of the structure.",
+              "The model lacks the significant height variation between the front and rear sections."
+            ]
+          }
+        },
+        "composite": 1.9,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [
+            "The prominent red roof color is almost entirely missing, replaced with gray.",
+            "The model is largely monochrome gray, failing to differentiate between the light-colored walls and the red roof.",
+            "The prominent red roof color is completely missing.",
+            "The model is almost entirely monochrome gray, failing to differentiate between the light-colored walls and the red roof.",
+            "The distinct red roof color is almost entirely missing, represented only by scattered red blocks.",
+            "The model fails to differentiate between the light-colored walls and the red roof, appearing mostly as a noisy monochrome gray."
+          ],
+          "features": [
+            "The model is a single, noisy block and completely misses the building's complex, multi-level massing.",
+            "All major setbacks and terraced levels on the lower wings are absent.",
+            "The distinction between the taller rear tower and the lower front sections is not represented.",
+            "The model is a single blocky mass and completely misses the building's complex, terraced form.",
+            "All major setbacks and step-backs are missing.",
+            "The distinction between the taller rear tower and the lower front wings is not represented.",
+            "The model is a single, solid block and completely misses the complex, multi-level massing of the real building.",
+            "All major setbacks and terraced levels on the front and sides are absent.",
+            "The taller rear tower section is not differentiated from the lower sections."
+          ],
+          "layout": [
+            "The voxel model's footprint is a simple, noisy parallelogram, which does not match the complex, multi-winged shape of the real building.",
+            "Major indentations and the overall E-shaped structure are completely missing.",
+            "The model's footprint is a simple filled-in shape, whereas the real building has a complex outline with major indentations and courtyards.",
+            "The overall shape is wrong; it's a rough parallelogram instead of a complex form with multiple wings.",
+            "The model's footprint is a simple, solid parallelogram, completely missing the complex U-shaped or E-shaped form of the real building.",
+            "Major indentations and light wells/courtyards visible in the satellite view are absent."
+          ],
+          "dimensions": [
+            "The height is severely truncated, with the entire upper structure and tower missing.",
+            "The relative height differences between the building's sections are not present.",
+            "The height of the model is severely truncated, representing only the lower portion of a much taller building.",
+            "The building's height appears to be severely truncated, representing only the lower portion of the structure.",
+            "The model lacks the significant height variation between the front and rear sections."
+          ]
+        }
+      },
+      "runCount": 3,
+      "lastVersion": "v400",
+      "lastGraded": "2026-04-16T20:44:27.438Z",
+      "plateaued": true,
+      "worstCategories": [
+        "features(0)",
+        "layout(1)",
+        "colors(2)",
+        "dimensions(5)"
+      ]
     }
   },
   "mopop": {

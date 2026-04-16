@@ -300,7 +300,8 @@ export const LOCATIONS_EXTRA: CategoryLocation[] = [
     // Art deco spire + eagles — William Van Alen, 1930
     key: 'chrysler', name: 'Chrysler Building', city: 'New York, NY',
     coords: '40.7516,-73.9755', extentM: 40,
-    resolution: 1, maskDilate: 1, extraFlags: [],
+    glb: `${DIR}/chrysler-v200.glb`,
+    resolution: 1, maskDilate: 1, extraFlags: ['--no-enu'],
     sceneMode: false, archType: 'art-deco-spire',
   },
   {
