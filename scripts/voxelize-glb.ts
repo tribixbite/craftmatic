@@ -39,8 +39,9 @@ import type { ExtractedEnvironment, AnalysisResult } from '../src/convert/mesh-f
 import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
 import { enrichScene, expandGrid } from '../src/convert/scene-pipeline.js';
-import { resolveSemanticPalette } from '../src/convert/semantic-palette.js';
+import { resolveSemanticPalette, parseOSMColour } from '../src/convert/semantic-palette.js';
 import type { SemanticPalette } from '../src/convert/semantic-palette.js';
+import { rgbToWallBlock } from '../src/gen/color-blocks.js';
 import { runPipeline } from '../src/convert/pipeline.js';
 import { BlockGrid } from '../src/schem/types.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -199,9 +200,26 @@ async function resolveSemanticPaletteFromAPIs(
   if (noSatelliteRoof) {
     console.log('  Satellite roof: SKIPPED (--no-satellite-roof)');
   } else if (roofColourOverride) {
-    // Inject into osmTags — resolveSemanticPalette already reads roof:colour from there
+    // Inject into osmTags (for pipeline metadata) and directly update palette.
+    // osmTags mutation is AFTER Phase A ran, so we also set roofBlocks/roofColor directly.
     osmTags['roof:colour'] = roofColourOverride;
-    console.log(`  Satellite roof: OVERRIDDEN by --roof-colour ${roofColourOverride}`);
+    const roofRgb = parseOSMColour(roofColourOverride);
+    if (roofRgb) {
+      const roofBlock = rgbToWallBlock(roofRgb.r, roofRgb.g, roofRgb.b);
+      if (palette) {
+        palette.roofBlocks = [roofBlock];
+        palette.roofColor = roofRgb;
+        palette.source += ` + roof-colour:${roofColourOverride}`;
+      } else {
+        palette = {
+          wallBlocks: [],
+          roofBlocks: [roofBlock],
+          roofColor: roofRgb,
+          source: `roof-colour:${roofColourOverride}`,
+        };
+      }
+    }
+    console.log(`  Satellite roof: OVERRIDDEN by --roof-colour ${roofColourOverride} → ${roofRgb ? 'rgb(' + roofRgb.r + ',' + roofRgb.g + ',' + roofRgb.b + ')' : 'unrecognised colour name'}`);
   } else {
     const satCacheKey = `sat-${coords.lat.toFixed(6)}-${coords.lng.toFixed(6)}`;
     const satCachePath = join(outputDir, `.cache-${satCacheKey}.json`);

@@ -140,11 +140,13 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
   {
     key: 'la-cityhall', name: 'Los Angeles City Hall', city: 'Los Angeles, CA',
     // 34.0522,-118.2437 was ~165m south; OSM relation/6333145 centroid is 34.0537,-118.2428
-    // --building-colour white biases SV recolor toward bright cream; satellite roof enabled for terracotta
+    // --recolor (not force): replaces GRAY_FAMILY only → preserves facade texture for features score
+    // OSM native building:colour=#e0d6ca (warm off-white) used — do NOT override with white (too stark)
+    // --roof-colour terracotta: direct palette inject for 4 wing roofs (bypasses satellite dark-courtyard gray guard)
     coords: '34.0537,-118.2428', extentM: 60,
     glb: `${DIR}/la-cityhall.glb`,
     resolution: 1, maskDilate: 1, osmId: 'relation/6333145',
-    extraFlags: ['--no-enu', '--recolor', '--building-colour', 'white'],
+    extraFlags: ['--no-enu', '--recolor', '--roof-colour', 'terracotta'],
     sceneMode: false, archType: 'art-deco-tower',
   },
 ];

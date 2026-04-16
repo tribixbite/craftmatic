@@ -1,6 +1,6 @@
 {
-  "version": "v400",
-  "timestamp": "2026-04-16T03:18:10.730Z",
+  "version": "v413",
+  "timestamp": "2026-04-16T05:16:56.159Z",
   "target": 9,
   "model": "gemini-2.5-pro",
   "passing": 0,
@@ -902,115 +902,123 @@
       "key": "la-cityhall",
       "name": "Los Angeles City Hall",
       "compositeHistory": [
-        7.7
+        7.7,
+        6.2,
+        5.5,
+        8,
+        6.8,
+        5.9,
+        7.1,
+        8.4,
+        8.8,
+        7.6,
+        8.3
       ],
       "latestGrade": {
         "categories": {
           "colors": {
-            "score": 5.7,
+            "score": 6.3,
             "defects": [
-              "The prominent red/terracotta roof sections are missing; the model uses a uniform gray palette for the roof and walls.",
-              "The prominent red/terracotta roof sections seen in the satellite view are not represented; the model's roof is mostly gray."
+              "Flat roof areas are colored reddish-brown like the pitched roofs, but the reference photos show they should be gray/white.",
+              "The flat roof surfaces are incorrectly colored reddish-brown; they should be gray like the walls.",
+              "The top of the central tower should be a different color (light green/gray) from the main walls, but it is rendered as the same gray.",
+              "The central tower's pyramidal roof is colored reddish-brown like the lower roofs, but appears to be a lighter gray/white in the satellite reference."
             ]
           },
           "features": {
-            "score": 8.7,
-            "defects": [
-              "The top of the central tower, including its distinctive pyramidal cap, is eroded and not well-defined."
-            ]
+            "score": 9.3,
+            "defects": []
           },
           "layout": {
-            "score": 8.3,
+            "score": 8,
             "defects": [
-              "The internal courtyards/light wells are not clearly defined and are partially filled with noise."
+              "Internal courtyards are not well-defined or are filled in.",
+              "The overall footprint is heavily eroded, particularly on the left wing, which makes the outline shape difficult to discern clearly.",
+              "The smaller courtyards and indentations visible in the satellite view are lost due to data noise and erosion."
             ]
           },
           "walking_paths": null,
           "pavement": null,
           "vegetation": null,
           "dimensions": {
-            "score": 8,
-            "defects": [
-              "The height of the building appears to be truncated, with the central tower being shorter than it should be relative to the base."
-            ]
+            "score": 9.7,
+            "defects": []
           }
         },
-        "composite": 7.7,
+        "composite": 8.3,
         "scoredCount": 4,
         "defects": {
           "colors": [
-            "The prominent red/terracotta roof sections are missing; the model uses a uniform gray palette for the roof and walls.",
-            "The prominent red/terracotta roof sections seen in the satellite view are not represented; the model's roof is mostly gray."
+            "Flat roof areas are colored reddish-brown like the pitched roofs, but the reference photos show they should be gray/white.",
+            "The flat roof surfaces are incorrectly colored reddish-brown; they should be gray like the walls.",
+            "The top of the central tower should be a different color (light green/gray) from the main walls, but it is rendered as the same gray.",
+            "The central tower's pyramidal roof is colored reddish-brown like the lower roofs, but appears to be a lighter gray/white in the satellite reference."
           ],
-          "features": [
-            "The top of the central tower, including its distinctive pyramidal cap, is eroded and not well-defined."
-          ],
+          "features": [],
           "layout": [
-            "The internal courtyards/light wells are not clearly defined and are partially filled with noise."
+            "Internal courtyards are not well-defined or are filled in.",
+            "The overall footprint is heavily eroded, particularly on the left wing, which makes the outline shape difficult to discern clearly.",
+            "The smaller courtyards and indentations visible in the satellite view are lost due to data noise and erosion."
           ],
-          "dimensions": [
-            "The height of the building appears to be truncated, with the central tower being shorter than it should be relative to the base."
-          ]
+          "dimensions": []
         }
       },
       "averageGrade": {
         "categories": {
           "colors": {
-            "score": 5.7,
+            "score": 6.3,
             "defects": [
-              "The prominent red/terracotta roof sections are missing; the model uses a uniform gray palette for the roof and walls.",
-              "The prominent red/terracotta roof sections seen in the satellite view are not represented; the model's roof is mostly gray."
+              "Flat roof areas are colored reddish-brown like the pitched roofs, but the reference photos show they should be gray/white.",
+              "The flat roof surfaces are incorrectly colored reddish-brown; they should be gray like the walls.",
+              "The top of the central tower should be a different color (light green/gray) from the main walls, but it is rendered as the same gray.",
+              "The central tower's pyramidal roof is colored reddish-brown like the lower roofs, but appears to be a lighter gray/white in the satellite reference."
             ]
           },
           "features": {
-            "score": 8.7,
-            "defects": [
-              "The top of the central tower, including its distinctive pyramidal cap, is eroded and not well-defined."
-            ]
+            "score": 9.3,
+            "defects": []
           },
           "layout": {
-            "score": 8.3,
+            "score": 8,
             "defects": [
-              "The internal courtyards/light wells are not clearly defined and are partially filled with noise."
+              "Internal courtyards are not well-defined or are filled in.",
+              "The overall footprint is heavily eroded, particularly on the left wing, which makes the outline shape difficult to discern clearly.",
+              "The smaller courtyards and indentations visible in the satellite view are lost due to data noise and erosion."
             ]
           },
           "walking_paths": null,
           "pavement": null,
           "vegetation": null,
           "dimensions": {
-            "score": 8,
-            "defects": [
-              "The height of the building appears to be truncated, with the central tower being shorter than it should be relative to the base."
-            ]
+            "score": 9.7,
+            "defects": []
           }
         },
-        "composite": 7.7,
+        "composite": 8.3,
         "scoredCount": 4,
         "defects": {
           "colors": [
-            "The prominent red/terracotta roof sections are missing; the model uses a uniform gray palette for the roof and walls.",
-            "The prominent red/terracotta roof sections seen in the satellite view are not represented; the model's roof is mostly gray."
+            "Flat roof areas are colored reddish-brown like the pitched roofs, but the reference photos show they should be gray/white.",
+            "The flat roof surfaces are incorrectly colored reddish-brown; they should be gray like the walls.",
+            "The top of the central tower should be a different color (light green/gray) from the main walls, but it is rendered as the same gray.",
+            "The central tower's pyramidal roof is colored reddish-brown like the lower roofs, but appears to be a lighter gray/white in the satellite reference."
           ],
-          "features": [
-            "The top of the central tower, including its distinctive pyramidal cap, is eroded and not well-defined."
-          ],
+          "features": [],
           "layout": [
-            "The internal courtyards/light wells are not clearly defined and are partially filled with noise."
+            "Internal courtyards are not well-defined or are filled in.",
+            "The overall footprint is heavily eroded, particularly on the left wing, which makes the outline shape difficult to discern clearly.",
+            "The smaller courtyards and indentations visible in the satellite view are lost due to data noise and erosion."
           ],
-          "dimensions": [
-            "The height of the building appears to be truncated, with the central tower being shorter than it should be relative to the base."
-          ]
+          "dimensions": []
         }
       },
       "runCount": 3,
-      "lastVersion": "v400",
-      "lastGraded": "2026-04-16T03:12:43.563Z",
+      "lastVersion": "v413",
+      "lastGraded": "2026-04-16T05:16:56.159Z",
       "plateaued": false,
       "worstCategories": [
-        "colors(5.7)",
-        "dimensions(8)",
-        "layout(8.3)",
-        "features(8.7)"
+        "colors(6.3)",
+        "layout(8)"
       ]
     },
     "dallas-cityhall": {

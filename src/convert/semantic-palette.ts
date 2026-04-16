@@ -97,7 +97,7 @@ const GLASS_BLOCKS = new Set<string>([
  * Parse OSM colour tag (hex #rrggbb or CSS color name) to RGB.
  * Returns null if unparseable.
  */
-function parseOSMColour(colour: string | undefined): { r: number; g: number; b: number } | null {
+export function parseOSMColour(colour: string | undefined): { r: number; g: number; b: number } | null {
   if (!colour) return null;
   // Hex formats: #rgb, #rrggbb
   const hex6 = colour.match(/^#?([0-9a-f]{6})$/i);
@@ -293,29 +293,31 @@ export function applySemanticPalette(
   const AIR = 'minecraft:air';
   let replaced = 0;
 
-  // Determine wall height cutoff for roof vs wall assignment
-  // Roof = top N blocks (8% of height, capped at 10 blocks max ~10m = ~3 floors)
-  let maxY = 0;
-  for (let y = height - 1; y >= 0; y--) {
-    let hasBlock = false;
-    for (let z = 0; z < length && !hasBlock; z++) {
-      for (let x = 0; x < width && !hasBlock; x++) {
-        if (grid.get(x, y, z) !== AIR) hasBlock = true;
+  // Pre-compute topmost solid Y for each (x,z) column.
+  // Roof = top 3 blocks per column (handles wing roofs at intermediate heights).
+  // NOTE: wing roofs below a taller tower may not be detected at overlapping XZ positions
+  // (tower's topY overrides wing topY). But for LA City Hall, wings extend *outside* the
+  // tower footprint, so outer wing columns correctly get topY = wing_height.
+  const ROOF_DEPTH = 2; // isRoof when y >= topY[col] - ROOF_DEPTH (top 3 blocks)
+  const topY = new Int16Array(width * length).fill(-1);
+  for (let x = 0; x < width; x++) {
+    for (let z = 0; z < length; z++) {
+      for (let y = height - 1; y >= 0; y--) {
+        if (grid.get(x, y, z) !== AIR) {
+          topY[x * length + z] = y;
+          break;
+        }
       }
     }
-    if (hasBlock) { maxY = y; break; }
   }
-  const heightBlocks = maxY + 1;
-  const roofDepth = Math.min(Math.ceil(heightBlocks * 0.08), 10);
-  const roofCutoffY = maxY - roofDepth + 1;
 
   for (let y = 0; y < height; y++) {
-    const isRoof = y >= roofCutoffY;
-
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         const block = grid.get(x, y, z);
         if (block === AIR) continue;
+        const colTopY = topY[x * length + z];
+        const isRoof = colTopY >= 0 && y >= colTopY - ROOF_DEPTH;
 
         // Never override glass blocks
         if (GLASS_BLOCKS.has(block)) continue;
@@ -400,7 +402,7 @@ export function applySemanticPalette(
 
         // If 2+ non-gray photogrammetry neighbors, mark them for spreading
         if (nonGrayNeighbors >= 2) {
-          const isRoof = y >= roofCutoffY;
+          const isRoof = (topY[x * length + z] >= 0) && (y >= topY[x * length + z] - ROOF_DEPTH);
           for (let d = 0; d < 4; d++) {
             const nx = x + dx[d];
             const nz = z + dz[d];
