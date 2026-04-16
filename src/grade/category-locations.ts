@@ -123,8 +123,8 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     // maskDilate=2: small buffer captures terrace edges immediately adjacent to pillar footprint
     // --force-recolor ivory: correctly maps to pale concrete; natural photogrammetry AO is too dark
     //   (--recolor alone can't fix dark ground-level AO; force-recolor keeps clean pale appearance)
-    // layout=2 is a known plateau: OSM ground footprint clips most terraces → small topdown blob
-    // TODO: find full-extent OSM way (~60m octagon at terrace level) to fix layout
+    // layout=2 is a known plateau: OSM way/159385495 is ground-level pillars (~30m octagon)
+    // maskDilate=2 is the sweet spot — higher values (10) capture dark ground → colors=2 features=0
     // --no-satellite-roof: satellite captures dark inner roof, not the pale outer steps
     resolution: 2, maskDilate: 2, osmId: 'way/159385495',
     extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'ivory', '--no-satellite-roof'],
