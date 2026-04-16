@@ -57,10 +57,14 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
   },
   {
     key: 'pennzoil', name: 'Pennzoil Place', city: 'Houston, TX',
-    // Previous coords 29.7538,-95.3675 were ~700m off — captured wrong block
-    coords: '29.7601,-95.3698', extentM: 90,
+    // 29.7538,-95.3675 was ~700m off; 29.7601,-95.3698 showed Houston City Hall (too far west)
+    // Nominatim confirms Pennzoil Place at 29.7601,-95.3656 (Rusk St, Downtown Houston)
+    // osmId way/580965929 = exact Pennzoil Place footprint (clips neighboring buildings)
+    // --recolor: photogrammetry captures gray AO; actual building is dark bronze glass curtain wall
+    coords: '29.7601,-95.3656', extentM: 90,
     glb: `${DIR}/pennzoil-v200.glb`,
-    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu'],
+    resolution: 1, maskDilate: 1, osmId: 'way/580965929',
+    extraFlags: ['--no-enu', '--recolor'],
     sceneMode: false, archType: 'twin-towers',
   },
   {
@@ -93,7 +97,8 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     glb: `${DIR}/boston-cityhall.glb`,
     // svCoords: west side approach avoids Faneuil Hall red brick in SV frame
     // svFov: narrowed from 110 to 60 to focus on building face, not surroundings
-    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu'],
+    // --recolor: photogrammetry captures gray AO; real building is tan/beige raw concrete (Brutalist)
+    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu', '--recolor'],
     sceneMode: false, archType: 'brutalist',
     svCoords: '42.3605,-71.0595', svFov: 60,
   },
@@ -122,14 +127,20 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     glb: `${DIR}/transamerica-v200b.glb`,
     // --force-recolor + --building-colour: photogrammetry bakes dark AO+glass reflections;
     // actual building is white quartz — bypass height heuristic that defaults to "glass curtain wall"
-    resolution: 1, maskDilate: 0, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'ivory'],
+    // maskDilate 0→2: wings/projections on N+S faces extend outside tight footprint, clipped at dilate=0
+    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'ivory'],
     sceneMode: false, archType: 'pyramidal',
   },
   {
     key: 'la-cityhall', name: 'Los Angeles City Hall', city: 'Los Angeles, CA',
-    coords: '34.0522,-118.2437', extentM: 60,
+    // 34.0522 was ~165m south; OSM relation/6333145 centroid is 34.0537,-118.2428
+    // 34.0522 was ~165m south; OSM relation/6333145 centroid is 34.0537,-118.2428
+    // 34.0522 was ~165m south; OSM relation/6333145 centroid is 34.0537,-118.2428
+    // --building-colour white biases SV recolor toward bright cream; satellite roof enabled for terracotta
+    coords: '34.0537,-118.2428', extentM: 60,
     glb: `${DIR}/la-cityhall.glb`,
-    resolution: 1, maskDilate: 1, extraFlags: ['--no-enu'],
+    resolution: 1, maskDilate: 1, osmId: 'relation/6333145',
+    extraFlags: ['--no-enu', '--recolor', '--building-colour', 'white'],
     sceneMode: false, archType: 'art-deco-tower',
   },
 ];
