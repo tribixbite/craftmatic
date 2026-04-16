@@ -162,71 +162,90 @@ export const LOCATIONS_NEW: CategoryLocation[] = [
     key: 'marina-city', name: 'Marina City', city: 'Chicago, IL',
     coords: '41.8887,-87.6355', extentM: 40,
     glb: `${DIR}/marina-city.glb`,
-    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu'],
+    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu', '--recolor'],
     sceneMode: false, archType: 'cylindrical',
   },
   {
     key: 'hearst-tower', name: 'Hearst Tower', city: 'New York, NY',
     coords: '40.7666,-73.9810', extentM: 50,
     glb: `${DIR}/hearst-tower.glb`,
-    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu'],
+    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu', '--recolor'],
     sceneMode: false, archType: 'diagrid',
   },
   {
     key: 'guggenheim', name: 'Guggenheim Museum', city: 'New York, NY',
-    coords: '40.7830,-73.9590', extentM: 30,
+    // Building faces east onto 5th Ave; svCoords on 5th Ave gets exterior facade
+    // coords (40.7830,-73.9590) is slightly inside the building → SV captures interior!
+    // osmId=way/170149134 CLIPS ALL geometry — do NOT use
+    coords: '40.7830,-73.9590', extentM: 40,
     glb: `${DIR}/guggenheim.glb`,
-    resolution: 2, maskDilate: 2, extraFlags: ['--no-enu'],
+    resolution: 2, maskDilate: 2,
+    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'white'],
     sceneMode: false, archType: 'spiral-rotunda',
+    // svCoords on 5th Ave (40.7826,-73.9625) forces outdoor SV pano facing the building
+    // Interior coords (40.7830,-73.9590) trigger indoor photospheres
+    svCoords: '40.7826,-73.9625', svFov: 90,
   },
   {
     key: 'fbi-hq', name: 'J. Edgar Hoover Building', city: 'Washington, DC',
     coords: '38.8948,-77.0247', extentM: 100,
     glb: `${DIR}/fbi-hq.glb`,
-    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu'],
+    // --force-recolor --building-colour tan: FBI HQ is poured concrete (warm beige/tan)
+    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'tan'],
     sceneMode: false, archType: 'brutalist-slab',
   },
   {
     key: 'mopop', name: 'Museum of Pop Culture', city: 'Seattle, WA',
     coords: '47.6215,-122.3481', extentM: 40,
     glb: `${DIR}/mopop.glb`,
-    resolution: 2, maskDilate: 2, extraFlags: ['--no-enu'],
+    // r=2: needed for complex blob shapes; MoPOP is multi-colored metallic (blue/silver/purple sections)
+    // --force-recolor blue: most dominant facade color (cobalt blue metallic panels)
+    // --recolor alone hits gray guard (OSM has no colour tag)
+    resolution: 2, maskDilate: 2, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'blue'],
     sceneMode: false, archType: 'organic-blob',
   },
   {
     key: 'natl-cathedral', name: 'Washington National Cathedral', city: 'Washington, DC',
     coords: '38.9306,-77.0707', extentM: 100,
     glb: `${DIR}/natl-cathedral.glb`,
-    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu'],
+    // osmId=relation/2682714: clips to cathedral only, removes surrounding tree noise
+    // --force-recolor --building-colour buff: Indiana limestone (warm cream-gray stone exterior)
+    // NOTE: 'gray' hits gray-family guard and is skipped — must use buff/beige instead
+    resolution: 1, maskDilate: 2, osmId: 'relation/2682714',
+    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'buff'],
     sceneMode: false, archType: 'gothic-cathedral',
   },
   {
     key: 'boa-tower', name: 'Bank of America Tower', city: 'New York, NY',
     coords: '40.7555,-73.9848', extentM: 50,
     glb: `${DIR}/boa-tower.glb`,
-    resolution: 1, maskDilate: 1, extraFlags: ['--no-enu'],
+    resolution: 1, maskDilate: 1, extraFlags: ['--no-enu', '--recolor'],
     sceneMode: false, archType: 'crystalline-crown',
   },
   {
     key: 'tribune-tower', name: 'Tribune Tower', city: 'Chicago, IL',
     coords: '41.8903,-87.6233', extentM: 40,
     glb: `${DIR}/tribune-tower.glb`,
-    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu'],
+    // --force-recolor --building-colour tan: Tribune Tower is Indiana limestone (warm tan/cream)
+    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'tan'],
     sceneMode: false, archType: 'neo-gothic',
   },
   {
     key: 'vessel-nyc', name: 'The Vessel', city: 'New York, NY',
     coords: '40.7536,-74.0022', extentM: 20,
     glb: `${DIR}/vessel-nyc.glb`,
-    resolution: 2, maskDilate: 1, extraFlags: ['--no-enu'],
+    // r=2: needed for honeycomb stair detail; 'copper' now in named map → warm brown-orange
+    resolution: 2, maskDilate: 1, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'copper'],
     sceneMode: false, archType: 'honeycomb',
   },
   {
     key: 'disney-hall', name: 'Walt Disney Concert Hall', city: 'Los Angeles, CA',
     coords: '34.0553,-118.2498', extentM: 60,
     glb: `${DIR}/disney-hall.glb`,
+    // r=2: stainless steel curved panels; --force-recolor --building-colour chrome: brushed steel
+    // NOTE: 'silver' maps to light_gray_concrete (in GRAY_FAMILY) → guard blocks it; 'chrome' maps to smooth_quartz
     resolution: 2, maskDilate: 0, osmId: 'relation/6333150',
-    extraFlags: ['--no-enu'], sceneMode: false, archType: 'deconstructivist',
+    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'chrome'], sceneMode: false, archType: 'deconstructivist',
   },
   {
     key: 'coit-grandrapids', name: 'Coit Creative Arts Academy', city: 'Grand Rapids, MI',

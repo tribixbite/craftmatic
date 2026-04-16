@@ -122,6 +122,10 @@ export function parseOSMColour(colour: string | undefined): { r: number; g: numb
     yellow: [255, 255, 0],   orange: [255, 165, 0],   green:  [0,   128, 0],
     blue:   [0,   0,   255], ivory:  [255, 255, 240], buff:   [218, 199, 155],
     salmon: [250, 128, 114], terracotta: [204, 78, 42], sandstone: [210, 180, 140],
+    // Metallic colours — not in CSS, but used in building:colour tags and CLI overrides
+    silver: [192, 192, 192], copper: [184, 115, 51], bronze: [205, 127, 50],
+    steel:  [176, 196, 222], chrome: [220, 220, 220], gold:   [255, 215, 0],
+    rust:   [183, 65,  14],  slate:  [112, 128, 144], charcoal: [54,  69,  79],
   };
   const lower = colour.toLowerCase().trim();
   const named = NAMED[lower];
@@ -328,14 +332,20 @@ export function applySemanticPalette(
 
         // Roof blocks
         if (isRoof && palette.roofBlocks && palette.roofBlocks.length > 0) {
-          if (palette.roofColor) {
+          if (palette.roofColor && !palette.aggressive) {
+            // Normal recolor: use satellite-derived roof color.
+            // Skip in aggressive mode — reflective facades (stainless steel, glass curtain wall)
+            // produce cyan/teal satellite samples that contaminate the user's explicit --force-recolor
+            // colour choice. In aggressive mode, apply the wall palette to the roof instead.
             const rb = rgbToWallBlock(palette.roofColor.r, palette.roofColor.g, palette.roofColor.b, x, y, z);
             grid.set(x, y, z, rb);
           } else {
-            // Spatial hash for variety
+            // Aggressive mode OR no roof color: use wall blocks for the roof too.
             const hash = ((x * 73856093 + y * 19349663 + z * 83492791) ^ (x * 19349663 + z * 73856093)) >>> 0;
-            const rb = palette.roofBlocks[hash % palette.roofBlocks.length];
-            grid.set(x, y, z, rb);
+            const wb = palette.wallBlocks.length > 0
+              ? palette.wallBlocks[hash % palette.wallBlocks.length]
+              : palette.roofBlocks[hash % palette.roofBlocks.length];
+            grid.set(x, y, z, wb);
           }
           replaced++;
           continue;

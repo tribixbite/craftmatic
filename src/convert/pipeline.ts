@@ -958,13 +958,28 @@ function phaseFootprintFreeze(grid: BlockGrid, _config: ResolvedConfig, state: P
   if (clipped > 0) log(`Footprint freeze: ${clipped} blocks clipped (expansion from morph/filter)`);
 }
 
-function phaseSkyRemap(grid: BlockGrid, _config: ResolvedConfig, _state: PipelineState, log: LogFn): void {
+function phaseSkyRemap(grid: BlockGrid, config: ResolvedConfig, _state: PipelineState, log: LogFn): void {
   const skyReplacements = new Map<string, string>([
     ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
     ['minecraft:cyan_terracotta', 'minecraft:stone'],
     ['minecraft:light_blue_concrete', 'minecraft:light_gray_concrete'],
     ['minecraft:cyan_concrete', 'minecraft:stone'],
   ]);
+
+  // When a semantic palette is active, protect its wall blocks from being remapped.
+  // e.g. --force-recolor --building-colour blue intentionally uses light_blue_terracotta as
+  // wall blocks — don't remap it. But still remap non-palette cyan blocks (e.g. cyan_terracotta
+  // from satellite roof analysis on a chrome-coloured building).
+  for (const block of config.semanticPalette?.wallBlocks ?? []) {
+    // wallBlocks may or may not include 'minecraft:' prefix — normalise before delete
+    const key = block.startsWith('minecraft:') ? block : `minecraft:${block}`;
+    skyReplacements.delete(key);
+  }
+
+  if (skyReplacements.size === 0) {
+    log('Sky palette: SKIPPED (all candidates are intentional palette blocks)');
+    return;
+  }
   const constrained = constrainPalette(grid, skyReplacements);
   if (constrained > 0) log(`Sky palette: ${constrained} blue/cyan blocks remapped`);
 }
