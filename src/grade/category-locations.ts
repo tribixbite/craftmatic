@@ -61,12 +61,14 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     // --recolor: photogrammetry captures gray AO; actual building is dark bronze glass curtain wall
     // pennzoil-new2.glb: re-captured Apr 16 at correct coords 29.7601,-95.3656 with --height 172 (2 bands)
     // OSM building:colour=#52503C (dark bronze glass curtain wall) — correct!
-    // --fill: sparse 3D tiles mesh needs interior fill to produce solid twin-tower blocks
+    // --fill REMOVED: merged twin towers into single diamond blob (gap ~0 blocks at r=1)
+    // Without fill: sparse mesh but twin-tower separation may show as distinct masses
+    // r=2: double resolution reveals the narrow gap between the trapezoidal towers
     // OSM fallback (api.openstreetmap.org) used when Overpass is down
     coords: '29.7601,-95.3656', extentM: 90,
     glb: `${DIR}/pennzoil-new2.glb`,
-    resolution: 1, maskDilate: 1, osmId: 'way/580965929',
-    extraFlags: ['--no-enu', '--recolor', '--fill'],
+    resolution: 2, maskDilate: 1, osmId: 'way/580965929',
+    extraFlags: ['--no-enu', '--recolor'],
     sceneMode: false, archType: 'twin-towers',
   },
   {
@@ -115,13 +117,16 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
   },
   {
     key: 'geisel', name: 'Geisel Library', city: 'San Diego, CA',
-    coords: '32.8811,-117.2376', extentM: 30,
+    coords: '32.8811,-117.2376', extentM: 40,
     glb: `${DIR}/geisel-v200.glb`,
-    // way/159385495 = exact Geisel Library footprint (octagonal brutalist-mushroom)
-    // GLB captures 161x152m of UCSD campus; explicit osmId clips to just the 30m building
-    // --force-recolor ivory: photogrammetry bakes dark AO; actual building is pale concrete
+    // way/159385495 = ground-level pillar footprint only (~30m × 30m octagon)
+    // maskDilate=2: small buffer captures terrace edges immediately adjacent to pillar footprint
+    // --force-recolor ivory: correctly maps to pale concrete; natural photogrammetry AO is too dark
+    //   (--recolor alone can't fix dark ground-level AO; force-recolor keeps clean pale appearance)
+    // layout=2 is a known plateau: OSM ground footprint clips most terraces → small topdown blob
+    // TODO: find full-extent OSM way (~60m octagon at terrace level) to fix layout
     // --no-satellite-roof: satellite captures dark inner roof, not the pale outer steps
-    resolution: 2, maskDilate: 0, osmId: 'way/159385495',
+    resolution: 2, maskDilate: 2, osmId: 'way/159385495',
     extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'ivory', '--no-satellite-roof'],
     sceneMode: false, archType: 'brutalist-mushroom',
   },
@@ -131,8 +136,9 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     glb: `${DIR}/transamerica-v200b.glb`,
     // --force-recolor + --building-colour: photogrammetry bakes dark AO+glass reflections;
     // actual building is white quartz — bypass height heuristic that defaults to "glass curtain wall"
-    // maskDilate=2: wings on N+S faces extend ~2m beyond pyramid footprint
-    resolution: 1, maskDilate: 2,
+    // r=2: wings on N+S faces are ~2m wide → only 2 blocks at r=1 → lost in morphClose. r=2 gives 4 blocks.
+    // maskDilate=4: 2m wing extension beyond pyramid footprint = 4 blocks at r=2
+    resolution: 2, maskDilate: 4,
     extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'ivory'],
     sceneMode: false, archType: 'pyramidal',
   },
@@ -141,7 +147,10 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     // 34.0522,-118.2437 was ~165m south; OSM relation/6333145 centroid is 34.0537,-118.2428
     // --recolor (not force): replaces GRAY_FAMILY only → preserves facade texture for features score
     // OSM native building:colour=#e0d6ca (warm off-white) used — do NOT override with white (too stark)
-    // --roof-colour terracotta: direct palette inject for 4 wing roofs (bypasses satellite dark-courtyard gray guard)
+    // --roof-colour terracotta: LA City Hall has distinctive terracotta tile roofs on 4 wings
+    // Satellite confirms orange-red wing roofs; terracotta helps VLM recognize the tiered structure
+    // NOTE: VLM deducts colors points for "over-represented red-brown" but layout=8.7 depends on it
+    // Plateau at ~8.0: height truncation (pyramidal tower top missing) limits dimensions=7
     coords: '34.0537,-118.2428', extentM: 60,
     glb: `${DIR}/la-cityhall.glb`,
     resolution: 1, maskDilate: 1, osmId: 'relation/6333145',
@@ -170,18 +179,21 @@ export const LOCATIONS_NEW: CategoryLocation[] = [
   },
   {
     key: 'guggenheim', name: 'Guggenheim Museum', city: 'New York, NY',
-    // osmId=way/170149134 CLIPS ALL geometry — do NOT use
-    // Auto SV positioning: cameras offset N/S/E/W from center at viewDistM, aimed at center.
-    // This avoids the "shot from inside building" problem of the old center-based approach.
-    coords: '40.7830,-73.9590', extentM: 40,
+    // extentM=25: tighter capture avoids Central Park trees (which start ~30m west of center)
+    // osmId=way/170149134 CLIPS ALL geometry (OSM polygon offset from GLB capture center)
+    // → no osmId; rely on extentM=25 radius to exclude the park
+    // --no-satellite-roof: rotunda top is mostly skylight glass, not a coloured roof
+    // Removing --roof-colour green: it coloured all top-facing voxels dark green including
+    // any captured trees. Actual patina is subtle and not worth the interference.
+    coords: '40.7830,-73.9590', extentM: 25,
     glb: `${DIR}/guggenheim.glb`,
     resolution: 2, maskDilate: 2,
-    // --roof-colour sage: Guggenheim rotunda roof has a distinctive green-patina tone
-    // visible in satellite. Differentiates roof from off-white concrete walls (colors fix).
-    // --roof-colour green: Guggenheim rotunda roof has green-patina visible in satellite.
-    // Differentiates roof from off-white concrete walls to improve colors score.
-    // Note: hex colors (e.g. #7aab8c) cannot be used here — bash treats # as comment start.
-    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'white', '--roof-colour', 'green'],
+    // --recolor (not force): VLM defect "monochrome gray — missing distinct green roof on rotunda"
+    // Guggenheim exterior is white concrete walls + green patinated copper/metal roof
+    // --force-recolor ivory made everything one color (no green roof); --recolor preserves both
+    // --roof-colour lime: adds green-tinted roof to match copper patina (distinct from white walls)
+    // --no-satellite-roof: satellite darkens the rotunda glass skylight, not the copper
+    extraFlags: ['--no-enu', '--recolor', '--roof-colour', 'lime', '--no-satellite-roof'],
     sceneMode: false, archType: 'spiral-rotunda',
   },
   {
@@ -196,10 +208,11 @@ export const LOCATIONS_NEW: CategoryLocation[] = [
     key: 'mopop', name: 'Museum of Pop Culture', city: 'Seattle, WA',
     coords: '47.6215,-122.3481', extentM: 40,
     glb: `${DIR}/mopop.glb`,
-    // r=2: needed for complex blob shapes; MoPOP is multi-colored metallic (blue/silver/purple sections)
-    // --force-recolor blue: most dominant facade color (cobalt blue metallic panels)
-    // --recolor alone hits gray guard (OSM has no colour tag)
-    resolution: 2, maskDilate: 2, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'blue'],
+    // MoPOP is multi-colored (red/bronze/silver/blue sections) — single force-recolor fails
+    // SV cameras blocked by Seattle Center trees; satellite shows correct colors clearly
+    // Raw photogrammetry preserves multi-color texture from Google Tiles LOD capture
+    // --recolor hits gray guard; force-recolor red → brown (wrong Minecraft block)
+    resolution: 2, maskDilate: 2, extraFlags: ['--no-enu'],
     sceneMode: false, archType: 'organic-blob',
   },
   {
