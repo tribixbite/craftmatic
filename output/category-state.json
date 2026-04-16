@@ -1044,7 +1044,7 @@
       "runCount": 3,
       "lastVersion": "v400",
       "lastGraded": "2026-04-16T20:33:18.709Z",
-      "plateaued": false,
+      "plateaued": true,
       "worstCategories": [
         "features(8)",
         "colors(8.3)"
@@ -1435,7 +1435,7 @@
       "runCount": 1,
       "lastVersion": "v400",
       "lastGraded": "2026-04-16T20:13:11.414Z",
-      "plateaued": false,
+      "plateaued": true,
       "worstCategories": [
         "dimensions(6)",
         "colors(8)"
