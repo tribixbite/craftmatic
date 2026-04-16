@@ -1,0 +1,1081 @@
+{
+  "version": "v400",
+  "timestamp": "2026-04-16T03:18:10.730Z",
+  "target": 9,
+  "model": "gemini-2.5-pro",
+  "passing": 0,
+  "total": 1,
+  "locations": {
+    "flatiron": {
+      "key": "flatiron",
+      "name": "Flatiron Building",
+      "compositeHistory": [
+        5.1,
+        4.9,
+        5.7,
+        8,
+        8.9,
+        9.6
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 8,
+            "defects": [
+              "Roof color is dark gray instead of the reddish-brown seen in satellite imagery."
+            ]
+          },
+          "features": {
+            "score": 10,
+            "defects": []
+          },
+          "layout": {
+            "score": 10,
+            "defects": []
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 10,
+            "defects": []
+          }
+        },
+        "composite": 9.6,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [
+            "Roof color is dark gray instead of the reddish-brown seen in satellite imagery."
+          ],
+          "features": [],
+          "layout": [],
+          "dimensions": []
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 8,
+            "defects": [
+              "Roof color is dark gray instead of the reddish-brown seen in satellite imagery."
+            ]
+          },
+          "features": {
+            "score": 10,
+            "defects": []
+          },
+          "layout": {
+            "score": 10,
+            "defects": []
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 10,
+            "defects": []
+          }
+        },
+        "composite": 9.6,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [
+            "Roof color is dark gray instead of the reddish-brown seen in satellite imagery."
+          ],
+          "features": [],
+          "layout": [],
+          "dimensions": []
+        }
+      },
+      "runCount": 3,
+      "lastVersion": "v401",
+      "lastGraded": "2026-04-15T21:12:13.909Z",
+      "plateaued": false,
+      "worstCategories": [
+        "colors(8)"
+      ]
+    },
+    "pennzoil": {
+      "key": "pennzoil",
+      "name": "Pennzoil Place",
+      "compositeHistory": [
+        3.8
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 0,
+            "defects": [
+              "The model is a low, eroded mass and is completely missing the two iconic trapezoidal towers that define the building.",
+              "The distinctive sloped roofs of the towers are absent.",
+              "The large glass atrium at the base is not represented.",
+              "Missing the two primary towers that define the building.",
+              "Missing the characteristic sloped roofs of the towers.",
+              "Missing the large, triangular glass atrium at the base."
+            ]
+          },
+          "layout": {
+            "score": 4.5,
+            "defects": [
+              "The overall parallelogram-like footprint is generally correct, but the outline is very noisy and poorly defined.",
+              "The clear separation between the two towers is not visible in the layout.",
+              "The outline does not clearly represent two distinct trapezoidal tower footprints.",
+              "The characteristic V-shaped gap between the two towers is not present."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 1.5,
+            "defects": [
+              "Height is truncated by more than 90%; the model represents only the first few floors of a very tall skyscraper.",
+              "The height-to-width/depth proportions are completely wrong, showing a low slab instead of a tall, slender building.",
+              "Height is truncated by more than 90%, representing a skyscraper as a low-rise structure.",
+              "The width-to-height and depth-to-height proportions are completely wrong due to the extreme truncation."
+            ]
+          }
+        },
+        "composite": 3.8,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [
+            "The model is a low, eroded mass and is completely missing the two iconic trapezoidal towers that define the building.",
+            "The distinctive sloped roofs of the towers are absent.",
+            "The large glass atrium at the base is not represented.",
+            "Missing the two primary towers that define the building.",
+            "Missing the characteristic sloped roofs of the towers.",
+            "Missing the large, triangular glass atrium at the base."
+          ],
+          "layout": [
+            "The overall parallelogram-like footprint is generally correct, but the outline is very noisy and poorly defined.",
+            "The clear separation between the two towers is not visible in the layout.",
+            "The outline does not clearly represent two distinct trapezoidal tower footprints.",
+            "The characteristic V-shaped gap between the two towers is not present."
+          ],
+          "dimensions": [
+            "Height is truncated by more than 90%; the model represents only the first few floors of a very tall skyscraper.",
+            "The height-to-width/depth proportions are completely wrong, showing a low slab instead of a tall, slender building.",
+            "Height is truncated by more than 90%, representing a skyscraper as a low-rise structure.",
+            "The width-to-height and depth-to-height proportions are completely wrong due to the extreme truncation."
+          ]
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 0,
+            "defects": [
+              "The model is a low, eroded mass and is completely missing the two iconic trapezoidal towers that define the building.",
+              "The distinctive sloped roofs of the towers are absent.",
+              "The large glass atrium at the base is not represented.",
+              "Missing the two primary towers that define the building.",
+              "Missing the characteristic sloped roofs of the towers.",
+              "Missing the large, triangular glass atrium at the base."
+            ]
+          },
+          "layout": {
+            "score": 4.5,
+            "defects": [
+              "The overall parallelogram-like footprint is generally correct, but the outline is very noisy and poorly defined.",
+              "The clear separation between the two towers is not visible in the layout.",
+              "The outline does not clearly represent two distinct trapezoidal tower footprints.",
+              "The characteristic V-shaped gap between the two towers is not present."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 1.5,
+            "defects": [
+              "Height is truncated by more than 90%; the model represents only the first few floors of a very tall skyscraper.",
+              "The height-to-width/depth proportions are completely wrong, showing a low slab instead of a tall, slender building.",
+              "Height is truncated by more than 90%, representing a skyscraper as a low-rise structure.",
+              "The width-to-height and depth-to-height proportions are completely wrong due to the extreme truncation."
+            ]
+          }
+        },
+        "composite": 3.8,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [
+            "The model is a low, eroded mass and is completely missing the two iconic trapezoidal towers that define the building.",
+            "The distinctive sloped roofs of the towers are absent.",
+            "The large glass atrium at the base is not represented.",
+            "Missing the two primary towers that define the building.",
+            "Missing the characteristic sloped roofs of the towers.",
+            "Missing the large, triangular glass atrium at the base."
+          ],
+          "layout": [
+            "The overall parallelogram-like footprint is generally correct, but the outline is very noisy and poorly defined.",
+            "The clear separation between the two towers is not visible in the layout.",
+            "The outline does not clearly represent two distinct trapezoidal tower footprints.",
+            "The characteristic V-shaped gap between the two towers is not present."
+          ],
+          "dimensions": [
+            "Height is truncated by more than 90%; the model represents only the first few floors of a very tall skyscraper.",
+            "The height-to-width/depth proportions are completely wrong, showing a low slab instead of a tall, slender building.",
+            "Height is truncated by more than 90%, representing a skyscraper as a low-rise structure.",
+            "The width-to-height and depth-to-height proportions are completely wrong due to the extreme truncation."
+          ]
+        }
+      },
+      "runCount": 2,
+      "lastVersion": "v402",
+      "lastGraded": "2026-04-15T23:59:24.217Z",
+      "plateaued": true,
+      "worstCategories": [
+        "features(0)",
+        "dimensions(1.5)",
+        "layout(4.5)"
+      ]
+    },
+    "nga-east": {
+      "key": "nga-east",
+      "name": "National Gallery of Art East Building",
+      "compositeHistory": [
+        0.9,
+        2.8,
+        3.2,
+        2.8,
+        6.3,
+        8.3,
+        6,
+        9
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 9.5,
+            "defects": []
+          },
+          "features": {
+            "score": 9.5,
+            "defects": []
+          },
+          "layout": {
+            "score": 10,
+            "defects": []
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 6.5,
+            "defects": [
+              "Height appears truncated, especially the top of the central dome.",
+              "Building height appears to be truncated, particularly the top of the central dome."
+            ]
+          }
+        },
+        "composite": 9,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [],
+          "layout": [],
+          "dimensions": [
+            "Height appears truncated, especially the top of the central dome.",
+            "Building height appears to be truncated, particularly the top of the central dome."
+          ]
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 9.5,
+            "defects": []
+          },
+          "features": {
+            "score": 9.5,
+            "defects": []
+          },
+          "layout": {
+            "score": 10,
+            "defects": []
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 6.5,
+            "defects": [
+              "Height appears truncated, especially the top of the central dome.",
+              "Building height appears to be truncated, particularly the top of the central dome."
+            ]
+          }
+        },
+        "composite": 9,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [],
+          "layout": [],
+          "dimensions": [
+            "Height appears truncated, especially the top of the central dome.",
+            "Building height appears to be truncated, particularly the top of the central dome."
+          ]
+        }
+      },
+      "runCount": 2,
+      "lastVersion": "v402",
+      "lastGraded": "2026-04-15T22:18:00.009Z",
+      "plateaued": false,
+      "worstCategories": [
+        "dimensions(6.5)"
+      ]
+    },
+    "seattle-library": {
+      "key": "seattle-library",
+      "name": "Seattle Central Library",
+      "compositeHistory": [
+        3,
+        1.6,
+        3.2,
+        3,
+        5.1,
+        4.6
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 8,
+            "defects": [
+              "The model uses a flat medium gray, which misses the lighter, reflective, glassy quality of the real building's facade."
+            ]
+          },
+          "features": {
+            "score": 0,
+            "defects": [
+              "The model is an eroded, lumpy mass that completely fails to capture the iconic, complex, angular geometry of the real building.",
+              "All major features, such as the large overhanging roof section, the recessed 'waist', and the distinct angled planes, are missing.",
+              "The model's silhouette bears no resemblance to the reference building.",
+              "Missing all of the building's iconic large-scale angular and overhanging sections.",
+              "The model is a simple, eroded blocky mass instead of the complex deconstructed form of the real building.",
+              "Fails to represent the distinct stacked and shifted volumes that define the building's character."
+            ]
+          },
+          "layout": {
+            "score": 5.5,
+            "defects": [
+              "While the overall squarish footprint is generally correct, the outline is extremely noisy and eroded, making the shape difficult to discern clearly.",
+              "The overall outline is extremely noisy and eroded, particularly on one side, obscuring the true footprint."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 4.5,
+            "defects": [
+              "The height of the model appears to be severely truncated, representing only the lower portion of the building. This is a known data source limitation.",
+              "Height is truncated by more than 50%, resulting in a squat, low-slung model that does not reflect the tall proportions of the real building."
+            ]
+          }
+        },
+        "composite": 4.6,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [
+            "The model uses a flat medium gray, which misses the lighter, reflective, glassy quality of the real building's facade."
+          ],
+          "features": [
+            "The model is an eroded, lumpy mass that completely fails to capture the iconic, complex, angular geometry of the real building.",
+            "All major features, such as the large overhanging roof section, the recessed 'waist', and the distinct angled planes, are missing.",
+            "The model's silhouette bears no resemblance to the reference building.",
+            "Missing all of the building's iconic large-scale angular and overhanging sections.",
+            "The model is a simple, eroded blocky mass instead of the complex deconstructed form of the real building.",
+            "Fails to represent the distinct stacked and shifted volumes that define the building's character."
+          ],
+          "layout": [
+            "While the overall squarish footprint is generally correct, the outline is extremely noisy and eroded, making the shape difficult to discern clearly.",
+            "The overall outline is extremely noisy and eroded, particularly on one side, obscuring the true footprint."
+          ],
+          "dimensions": [
+            "The height of the model appears to be severely truncated, representing only the lower portion of the building. This is a known data source limitation.",
+            "Height is truncated by more than 50%, resulting in a squat, low-slung model that does not reflect the tall proportions of the real building."
+          ]
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 8,
+            "defects": [
+              "The model uses a flat medium gray, which misses the lighter, reflective, glassy quality of the real building's facade."
+            ]
+          },
+          "features": {
+            "score": 0,
+            "defects": [
+              "The model is an eroded, lumpy mass that completely fails to capture the iconic, complex, angular geometry of the real building.",
+              "All major features, such as the large overhanging roof section, the recessed 'waist', and the distinct angled planes, are missing.",
+              "The model's silhouette bears no resemblance to the reference building.",
+              "Missing all of the building's iconic large-scale angular and overhanging sections.",
+              "The model is a simple, eroded blocky mass instead of the complex deconstructed form of the real building.",
+              "Fails to represent the distinct stacked and shifted volumes that define the building's character."
+            ]
+          },
+          "layout": {
+            "score": 5.5,
+            "defects": [
+              "While the overall squarish footprint is generally correct, the outline is extremely noisy and eroded, making the shape difficult to discern clearly.",
+              "The overall outline is extremely noisy and eroded, particularly on one side, obscuring the true footprint."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 4.5,
+            "defects": [
+              "The height of the model appears to be severely truncated, representing only the lower portion of the building. This is a known data source limitation.",
+              "Height is truncated by more than 50%, resulting in a squat, low-slung model that does not reflect the tall proportions of the real building."
+            ]
+          }
+        },
+        "composite": 4.6,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [
+            "The model uses a flat medium gray, which misses the lighter, reflective, glassy quality of the real building's facade."
+          ],
+          "features": [
+            "The model is an eroded, lumpy mass that completely fails to capture the iconic, complex, angular geometry of the real building.",
+            "All major features, such as the large overhanging roof section, the recessed 'waist', and the distinct angled planes, are missing.",
+            "The model's silhouette bears no resemblance to the reference building.",
+            "Missing all of the building's iconic large-scale angular and overhanging sections.",
+            "The model is a simple, eroded blocky mass instead of the complex deconstructed form of the real building.",
+            "Fails to represent the distinct stacked and shifted volumes that define the building's character."
+          ],
+          "layout": [
+            "While the overall squarish footprint is generally correct, the outline is extremely noisy and eroded, making the shape difficult to discern clearly.",
+            "The overall outline is extremely noisy and eroded, particularly on one side, obscuring the true footprint."
+          ],
+          "dimensions": [
+            "The height of the model appears to be severely truncated, representing only the lower portion of the building. This is a known data source limitation.",
+            "Height is truncated by more than 50%, resulting in a squat, low-slung model that does not reflect the tall proportions of the real building."
+          ]
+        }
+      },
+      "runCount": 2,
+      "lastVersion": "v402b",
+      "lastGraded": "2026-04-15T22:27:47.173Z",
+      "plateaued": true,
+      "worstCategories": [
+        "features(0)",
+        "dimensions(4.5)",
+        "layout(5.5)",
+        "colors(8)"
+      ]
+    },
+    "boston-cityhall": {
+      "key": "boston-cityhall",
+      "name": "Boston City Hall",
+      "compositeHistory": [
+        6.5
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 2.5,
+            "defects": [
+              "Missing the defining feature of the building: the large, cantilevered upper floors that overhang the base.",
+              "The model is a simple blocky mass, failing to capture the complex, inverted ziggurat form of the real structure.",
+              "Lacks the deep recesses and major projections that characterize the Brutalist facade.",
+              "The iconic cantilevered upper floors that overhang the base are completely missing, resulting in a simple block shape instead of the building's actual complex, inverted-ziggurat form."
+            ]
+          },
+          "layout": {
+            "score": 8.5,
+            "defects": [
+              "The overall outline is somewhat irregular and noisy compared to the clean rectangular footprint of the real building."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 5,
+            "defects": [
+              "The building's height appears significantly truncated, losing the upper floors.",
+              "The width-to-depth ratio is incorrect; the model's footprint is nearly square, while the real building is distinctly rectangular.",
+              "The model's height-to-width proportion is visibly wrong; the building appears vertically compressed or 'squat' compared to the reference photos."
+            ]
+          }
+        },
+        "composite": 6.5,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [
+            "Missing the defining feature of the building: the large, cantilevered upper floors that overhang the base.",
+            "The model is a simple blocky mass, failing to capture the complex, inverted ziggurat form of the real structure.",
+            "Lacks the deep recesses and major projections that characterize the Brutalist facade.",
+            "The iconic cantilevered upper floors that overhang the base are completely missing, resulting in a simple block shape instead of the building's actual complex, inverted-ziggurat form."
+          ],
+          "layout": [
+            "The overall outline is somewhat irregular and noisy compared to the clean rectangular footprint of the real building."
+          ],
+          "dimensions": [
+            "The building's height appears significantly truncated, losing the upper floors.",
+            "The width-to-depth ratio is incorrect; the model's footprint is nearly square, while the real building is distinctly rectangular.",
+            "The model's height-to-width proportion is visibly wrong; the building appears vertically compressed or 'squat' compared to the reference photos."
+          ]
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 2.5,
+            "defects": [
+              "Missing the defining feature of the building: the large, cantilevered upper floors that overhang the base.",
+              "The model is a simple blocky mass, failing to capture the complex, inverted ziggurat form of the real structure.",
+              "Lacks the deep recesses and major projections that characterize the Brutalist facade.",
+              "The iconic cantilevered upper floors that overhang the base are completely missing, resulting in a simple block shape instead of the building's actual complex, inverted-ziggurat form."
+            ]
+          },
+          "layout": {
+            "score": 8.5,
+            "defects": [
+              "The overall outline is somewhat irregular and noisy compared to the clean rectangular footprint of the real building."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 5,
+            "defects": [
+              "The building's height appears significantly truncated, losing the upper floors.",
+              "The width-to-depth ratio is incorrect; the model's footprint is nearly square, while the real building is distinctly rectangular.",
+              "The model's height-to-width proportion is visibly wrong; the building appears vertically compressed or 'squat' compared to the reference photos."
+            ]
+          }
+        },
+        "composite": 6.5,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [
+            "Missing the defining feature of the building: the large, cantilevered upper floors that overhang the base.",
+            "The model is a simple blocky mass, failing to capture the complex, inverted ziggurat form of the real structure.",
+            "Lacks the deep recesses and major projections that characterize the Brutalist facade.",
+            "The iconic cantilevered upper floors that overhang the base are completely missing, resulting in a simple block shape instead of the building's actual complex, inverted-ziggurat form."
+          ],
+          "layout": [
+            "The overall outline is somewhat irregular and noisy compared to the clean rectangular footprint of the real building."
+          ],
+          "dimensions": [
+            "The building's height appears significantly truncated, losing the upper floors.",
+            "The width-to-depth ratio is incorrect; the model's footprint is nearly square, while the real building is distinctly rectangular.",
+            "The model's height-to-width proportion is visibly wrong; the building appears vertically compressed or 'squat' compared to the reference photos."
+          ]
+        }
+      },
+      "runCount": 2,
+      "lastVersion": "v403",
+      "lastGraded": "2026-04-16T03:05:03.685Z",
+      "plateaued": true,
+      "worstCategories": [
+        "features(2.5)",
+        "dimensions(5)",
+        "layout(8.5)"
+      ]
+    },
+    "citigroup": {
+      "key": "citigroup",
+      "name": "Citigroup Center",
+      "compositeHistory": [
+        6.1,
+        5.9,
+        6.3,
+        9.6,
+        9.2
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 9,
+            "defects": [
+              "The recessed base of the building is present but not clearly defined."
+            ]
+          },
+          "layout": {
+            "score": 9,
+            "defects": []
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 10,
+            "defects": []
+          }
+        },
+        "composite": 9.2,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [
+            "The recessed base of the building is present but not clearly defined."
+          ],
+          "layout": [],
+          "dimensions": []
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 9,
+            "defects": [
+              "The recessed base of the building is present but not clearly defined."
+            ]
+          },
+          "layout": {
+            "score": 9,
+            "defects": []
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 10,
+            "defects": []
+          }
+        },
+        "composite": 9.2,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [
+            "The recessed base of the building is present but not clearly defined."
+          ],
+          "layout": [],
+          "dimensions": []
+        }
+      },
+      "runCount": 1,
+      "lastVersion": "v401",
+      "lastGraded": "2026-04-15T20:26:40.453Z",
+      "plateaued": false,
+      "worstCategories": []
+    },
+    "geisel": {
+      "key": "geisel",
+      "name": "Geisel Library",
+      "compositeHistory": [
+        6.8
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 10,
+            "defects": []
+          },
+          "layout": {
+            "score": 2,
+            "defects": [
+              "The top-down footprint is a rounded, blob-like shape, failing to capture the distinct angular and stepped-square geometry visible in the satellite image.",
+              "Wrong overall shape category (rounded blob instead of stepped square)",
+              "The distinctive stepped outline of the building's footprint is completely missing."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 8.5,
+            "defects": []
+          }
+        },
+        "composite": 6.8,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [],
+          "layout": [
+            "The top-down footprint is a rounded, blob-like shape, failing to capture the distinct angular and stepped-square geometry visible in the satellite image.",
+            "Wrong overall shape category (rounded blob instead of stepped square)",
+            "The distinctive stepped outline of the building's footprint is completely missing."
+          ],
+          "dimensions": []
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 10,
+            "defects": []
+          },
+          "layout": {
+            "score": 2,
+            "defects": [
+              "The top-down footprint is a rounded, blob-like shape, failing to capture the distinct angular and stepped-square geometry visible in the satellite image.",
+              "Wrong overall shape category (rounded blob instead of stepped square)",
+              "The distinctive stepped outline of the building's footprint is completely missing."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 8.5,
+            "defects": []
+          }
+        },
+        "composite": 6.8,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [],
+          "layout": [
+            "The top-down footprint is a rounded, blob-like shape, failing to capture the distinct angular and stepped-square geometry visible in the satellite image.",
+            "Wrong overall shape category (rounded blob instead of stepped square)",
+            "The distinctive stepped outline of the building's footprint is completely missing."
+          ],
+          "dimensions": []
+        }
+      },
+      "runCount": 2,
+      "lastVersion": "v408",
+      "lastGraded": "2026-04-15T23:40:31.090Z",
+      "plateaued": true,
+      "worstCategories": [
+        "layout(2)",
+        "dimensions(8.5)"
+      ]
+    },
+    "transamerica": {
+      "key": "transamerica",
+      "name": "Transamerica Pyramid",
+      "compositeHistory": [
+        6.6
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 5,
+            "defects": [
+              "The two vertical 'wing' projections on the sides of the pyramid are not clearly defined and are mostly absorbed into the main pyramid shape.",
+              "Missing the two large vertical wings/projections on the sides of the pyramid.",
+              "Missing the two large vertical wings/projections that run up the sides of the pyramid.",
+              "Missing the two large, vertical wings that run up the sides of the pyramid."
+            ]
+          },
+          "layout": {
+            "score": 4.4,
+            "defects": [
+              "The top-down footprint is a simple square, completely missing the two large rectangular projections (the wings) that are prominent features of the real building's outline.",
+              "Wrong overall shape category (square instead of cross-shaped)",
+              "Missing entire wing",
+              "The footprint is a simple square, completely missing the two large rectangular projections (wings) that are clearly visible in the satellite view."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 9,
+            "defects": []
+          }
+        },
+        "composite": 6.6,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [
+            "The two vertical 'wing' projections on the sides of the pyramid are not clearly defined and are mostly absorbed into the main pyramid shape.",
+            "Missing the two large vertical wings/projections on the sides of the pyramid.",
+            "Missing the two large vertical wings/projections that run up the sides of the pyramid.",
+            "Missing the two large, vertical wings that run up the sides of the pyramid."
+          ],
+          "layout": [
+            "The top-down footprint is a simple square, completely missing the two large rectangular projections (the wings) that are prominent features of the real building's outline.",
+            "Wrong overall shape category (square instead of cross-shaped)",
+            "Missing entire wing",
+            "The footprint is a simple square, completely missing the two large rectangular projections (wings) that are clearly visible in the satellite view."
+          ],
+          "dimensions": []
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 5,
+            "defects": [
+              "The two vertical 'wing' projections on the sides of the pyramid are not clearly defined and are mostly absorbed into the main pyramid shape.",
+              "Missing the two large vertical wings/projections on the sides of the pyramid.",
+              "Missing the two large vertical wings/projections that run up the sides of the pyramid.",
+              "Missing the two large, vertical wings that run up the sides of the pyramid."
+            ]
+          },
+          "layout": {
+            "score": 4.4,
+            "defects": [
+              "The top-down footprint is a simple square, completely missing the two large rectangular projections (the wings) that are prominent features of the real building's outline.",
+              "Wrong overall shape category (square instead of cross-shaped)",
+              "Missing entire wing",
+              "The footprint is a simple square, completely missing the two large rectangular projections (wings) that are clearly visible in the satellite view."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 9,
+            "defects": []
+          }
+        },
+        "composite": 6.6,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [
+            "The two vertical 'wing' projections on the sides of the pyramid are not clearly defined and are mostly absorbed into the main pyramid shape.",
+            "Missing the two large vertical wings/projections on the sides of the pyramid.",
+            "Missing the two large vertical wings/projections that run up the sides of the pyramid.",
+            "Missing the two large, vertical wings that run up the sides of the pyramid."
+          ],
+          "layout": [
+            "The top-down footprint is a simple square, completely missing the two large rectangular projections (the wings) that are prominent features of the real building's outline.",
+            "Wrong overall shape category (square instead of cross-shaped)",
+            "Missing entire wing",
+            "The footprint is a simple square, completely missing the two large rectangular projections (wings) that are clearly visible in the satellite view."
+          ],
+          "dimensions": []
+        }
+      },
+      "runCount": 5,
+      "lastVersion": "v405",
+      "lastGraded": "2026-04-16T03:00:15.974Z",
+      "plateaued": true,
+      "worstCategories": [
+        "layout(4.4)",
+        "features(5)"
+      ]
+    },
+    "la-cityhall": {
+      "key": "la-cityhall",
+      "name": "Los Angeles City Hall",
+      "compositeHistory": [
+        7.7
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 5.7,
+            "defects": [
+              "The prominent red/terracotta roof sections are missing; the model uses a uniform gray palette for the roof and walls.",
+              "The prominent red/terracotta roof sections seen in the satellite view are not represented; the model's roof is mostly gray."
+            ]
+          },
+          "features": {
+            "score": 8.7,
+            "defects": [
+              "The top of the central tower, including its distinctive pyramidal cap, is eroded and not well-defined."
+            ]
+          },
+          "layout": {
+            "score": 8.3,
+            "defects": [
+              "The internal courtyards/light wells are not clearly defined and are partially filled with noise."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 8,
+            "defects": [
+              "The height of the building appears to be truncated, with the central tower being shorter than it should be relative to the base."
+            ]
+          }
+        },
+        "composite": 7.7,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [
+            "The prominent red/terracotta roof sections are missing; the model uses a uniform gray palette for the roof and walls.",
+            "The prominent red/terracotta roof sections seen in the satellite view are not represented; the model's roof is mostly gray."
+          ],
+          "features": [
+            "The top of the central tower, including its distinctive pyramidal cap, is eroded and not well-defined."
+          ],
+          "layout": [
+            "The internal courtyards/light wells are not clearly defined and are partially filled with noise."
+          ],
+          "dimensions": [
+            "The height of the building appears to be truncated, with the central tower being shorter than it should be relative to the base."
+          ]
+        }
+      },
+      "averageGrade": {
+        "categories": {
+          "colors": {
+            "score": 5.7,
+            "defects": [
+              "The prominent red/terracotta roof sections are missing; the model uses a uniform gray palette for the roof and walls.",
+              "The prominent red/terracotta roof sections seen in the satellite view are not represented; the model's roof is mostly gray."
+            ]
+          },
+          "features": {
+            "score": 8.7,
+            "defects": [
+              "The top of the central tower, including its distinctive pyramidal cap, is eroded and not well-defined."
+            ]
+          },
+          "layout": {
+            "score": 8.3,
+            "defects": [
+              "The internal courtyards/light wells are not clearly defined and are partially filled with noise."
+            ]
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 8,
+            "defects": [
+              "The height of the building appears to be truncated, with the central tower being shorter than it should be relative to the base."
+            ]
+          }
+        },
+        "composite": 7.7,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [
+            "The prominent red/terracotta roof sections are missing; the model uses a uniform gray palette for the roof and walls.",
+            "The prominent red/terracotta roof sections seen in the satellite view are not represented; the model's roof is mostly gray."
+          ],
+          "features": [
+            "The top of the central tower, including its distinctive pyramidal cap, is eroded and not well-defined."
+          ],
+          "layout": [
+            "The internal courtyards/light wells are not clearly defined and are partially filled with noise."
+          ],
+          "dimensions": [
+            "The height of the building appears to be truncated, with the central tower being shorter than it should be relative to the base."
+          ]
+        }
+      },
+      "runCount": 3,
+      "lastVersion": "v400",
+      "lastGraded": "2026-04-16T03:12:43.563Z",
+      "plateaued": false,
+      "worstCategories": [
+        "colors(5.7)",
+        "dimensions(8)",
+        "layout(8.3)",
+        "features(8.7)"
+      ]
+    },
+    "dallas-cityhall": {
+      "key": "dallas-cityhall",
+      "name": "Dallas City Hall",
+      "compositeHistory": [
+        5,
+        5.3,
+        5.4,
+        6.9,
+        4.4,
+        6.9,
+        5.9,
+        5.3,
+        6.8
+      ],
+      "latestGrade": {
+        "categories": {
+          "colors": {
+            "score": 9,
+            "defects": []
+          },
+          "features": {
+            "score": 2,
+            "defects": [
+              "The model completely fails to capture the prominent, overhanging horizontal ledges and recessed window bands.",
+              "The facade is rendered as a noisy, eroded plane."
+            ]
+          },
+          "layout": {
+            "score": 9,
+            "defects": []
+          },
+          "walking_paths": null,
+          "pavement": null,
+          "vegetation": null,
+          "dimensions": {
+            "score": 6,
+            "defects": [
+              "Height appears significantly truncated, resulting in incorrect height-to-width proportions."
+            ]
+          }
+        },
+        "composite": 6.8,
+        "scoredCount": 4,
+        "defects": {
+          "colors": [],
+          "features": [
+            "Overhanging horizontal ledges and recessed window bands missing."
+          ],
+          "layout": [],
+          "dimensions": [
+            "Height truncated."
+          ]
+        }
+      },
+      "averageGrade": null,
+      "runCount": 2,
+      "lastVersion": "v400",
+      "lastGraded": "2026-04-15T22:35:57.668Z",
+      "plateaued": true,
+      "worstCategories": [
+        "features(2)",
+        "dimensions(6)"
+      ]
+    }
+  }
+}

@@ -81,7 +81,10 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     key: 'dallas-cityhall', name: 'Dallas City Hall', city: 'Dallas, TX',
     coords: '32.7763,-96.7968', extentM: 60,
     glb: `${DIR}/dallas-cityhall.glb`,
-    resolution: 1, maskDilate: 1, extraFlags: ['--no-enu'],
+    // osmId avoided: way/27129838 clips exterior walls (inner courtyard only)
+    // PLATEAU: tilted-face overhang bands not captured in 3D tiles mesh at facade resolution
+    resolution: 1, maskDilate: 1,
+    extraFlags: ['--no-enu'],
     sceneMode: false, archType: 'inverted-pyramid',
   },
   {
@@ -96,9 +99,11 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     coords: '42.3605,-71.0580', extentM: 60,
     glb: `${DIR}/boston-cityhall.glb`,
     // svCoords: west side approach avoids Faneuil Hall red brick in SV frame
-    // svFov: narrowed from 110 to 60 to focus on building face, not surroundings
-    // --recolor: photogrammetry captures gray AO; real building is tan/beige raw concrete (Brutalist)
-    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu', '--recolor'],
+    // svFov: narrowed to 60 to focus on building face
+    // OSM building:colour=#888A99 (gray-blue); SV shows warm tan/beige in sunlight → force tan
+    // maskDilate=8: cantilevered upper floors overhang ~5-8m beyond ground footprint
+    resolution: 1, maskDilate: 8, osmId: 'way/788015166',
+    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'tan'],
     sceneMode: false, archType: 'brutalist',
     svCoords: '42.3605,-71.0595', svFov: 60,
   },
@@ -127,15 +132,14 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     glb: `${DIR}/transamerica-v200b.glb`,
     // --force-recolor + --building-colour: photogrammetry bakes dark AO+glass reflections;
     // actual building is white quartz — bypass height heuristic that defaults to "glass curtain wall"
-    // maskDilate 0→2: wings/projections on N+S faces extend outside tight footprint, clipped at dilate=0
-    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'ivory'],
+    // maskDilate=2: wings on N+S faces extend ~2m beyond pyramid footprint
+    resolution: 1, maskDilate: 2,
+    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'ivory'],
     sceneMode: false, archType: 'pyramidal',
   },
   {
     key: 'la-cityhall', name: 'Los Angeles City Hall', city: 'Los Angeles, CA',
-    // 34.0522 was ~165m south; OSM relation/6333145 centroid is 34.0537,-118.2428
-    // 34.0522 was ~165m south; OSM relation/6333145 centroid is 34.0537,-118.2428
-    // 34.0522 was ~165m south; OSM relation/6333145 centroid is 34.0537,-118.2428
+    // 34.0522,-118.2437 was ~165m south; OSM relation/6333145 centroid is 34.0537,-118.2428
     // --building-colour white biases SV recolor toward bright cream; satellite roof enabled for terracotta
     coords: '34.0537,-118.2428', extentM: 60,
     glb: `${DIR}/la-cityhall.glb`,
