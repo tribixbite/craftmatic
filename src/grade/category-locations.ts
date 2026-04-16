@@ -37,10 +37,6 @@ export interface CategoryLocation {
   sceneMode: boolean;
   /** Architectural category for diversity tracking */
   archType: string;
-  /** Street View FOV override (default: 110 for extentM>30, else 90) */
-  svFov?: number;
-  /** Alternate coords for SV lookup only (doesn't affect OSM masking) */
-  svCoords?: string;
 }
 
 // ─── Existing 21 locations (from iterate-grade.ts) ──────────────────────────
@@ -104,14 +100,11 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     key: 'boston-cityhall', name: 'Boston City Hall', city: 'Boston, MA',
     coords: '42.3605,-71.0580', extentM: 60,
     glb: `${DIR}/boston-cityhall.glb`,
-    // svCoords: west side approach avoids Faneuil Hall red brick in SV frame
-    // svFov: narrowed to 60 to focus on building face
     // OSM building:colour=#888A99 (gray-blue); SV shows warm tan/beige in sunlight → force tan
     // maskDilate=8: cantilevered upper floors overhang ~5-8m beyond ground footprint
     resolution: 1, maskDilate: 8, osmId: 'way/788015166',
     extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'tan'],
     sceneMode: false, archType: 'brutalist',
-    svCoords: '42.3605,-71.0595', svFov: 60,
   },
   {
     key: 'citigroup', name: 'Citigroup Center', city: 'New York, NY',
@@ -169,26 +162,22 @@ export const LOCATIONS_NEW: CategoryLocation[] = [
     key: 'hearst-tower', name: 'Hearst Tower', city: 'New York, NY',
     coords: '40.7666,-73.9810', extentM: 50,
     glb: `${DIR}/hearst-tower.glb`,
-    // Removed --no-enu: without ENU reorientation the 382-block "height" is actually a neighbor
-    // building captured sideways. ENU reorientation aligns Y-axis to true vertical.
-    // osmId=way/23617584: clips to just Hearst Tower, excludes Carnegie Hall + adjacent towers
-    resolution: 1, maskDilate: 2, osmId: 'way/23617584',
-    extraFlags: ['--recolor'],
+    // --no-enu required: without it the GLB captures adjacent buildings sideways (382-block span)
+    // No osmId: way/23617584 clips too aggressively and removes tower geometry
+    resolution: 1, maskDilate: 2,
+    extraFlags: ['--no-enu', '--recolor'],
     sceneMode: false, archType: 'diagrid',
   },
   {
     key: 'guggenheim', name: 'Guggenheim Museum', city: 'New York, NY',
-    // Building faces east onto 5th Ave; svCoords on 5th Ave gets exterior facade
-    // coords (40.7830,-73.9590) is slightly inside the building → SV captures interior!
     // osmId=way/170149134 CLIPS ALL geometry — do NOT use
+    // Auto SV positioning: cameras offset N/S/E/W from center at viewDistM, aimed at center.
+    // This avoids the "shot from inside building" problem of the old center-based approach.
     coords: '40.7830,-73.9590', extentM: 40,
     glb: `${DIR}/guggenheim.glb`,
     resolution: 2, maskDilate: 2,
     extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'white'],
     sceneMode: false, archType: 'spiral-rotunda',
-    // svCoords on 5th Ave (40.7826,-73.9625) forces outdoor SV pano facing the building
-    // Interior coords (40.7830,-73.9590) trigger indoor photospheres
-    svCoords: '40.7826,-73.9625', svFov: 90,
   },
   {
     key: 'fbi-hq', name: 'J. Edgar Hoover Building', city: 'Washington, DC',
@@ -223,9 +212,9 @@ export const LOCATIONS_NEW: CategoryLocation[] = [
     key: 'boa-tower', name: 'Bank of America Tower', city: 'New York, NY',
     coords: '40.7555,-73.9848', extentM: 50,
     glb: `${DIR}/boa-tower.glb`,
-    // --force-recolor --building-colour blue: One Bryant Park clad in low-iron blue glass
-    // --recolor alone fails (OSM has no colour tag, no SV sky-blue override)
-    resolution: 1, maskDilate: 1, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'blue'],
+    // --recolor: use SV-derived palette (low-iron blue glass curtain wall)
+    // --force-recolor blue produced dark navy checkerboard (light_blue_terracotta gamma=0.4)
+    resolution: 1, maskDilate: 1, extraFlags: ['--no-enu', '--recolor'],
     sceneMode: false, archType: 'crystalline-crown',
   },
   {

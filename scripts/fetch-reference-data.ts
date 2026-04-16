@@ -6,6 +6,12 @@
  * Downloads multi-heading Street View images and satellite imagery for each
  * location. Skips existing files (cache-friendly). Respects API rate limits.
  *
+ * SV camera strategy (auto-computed, no manual overrides needed):
+ *   For each of 4 cardinal directions, a camera is placed viewDistM outside
+ *   the building and aimed at the building center with heading and FOV computed
+ *   from the actual panorama position. This avoids the "shot from inside the
+ *   building" problem of the old center-based approach.
+ *
  * Usage:
  *   bun scripts/fetch-reference-data.ts [--group old|new|extra|all] [--refresh] [--only <key>]
  *
@@ -52,7 +58,7 @@ const SAT_SIZE = 640;
 /** Rate limit delay between API calls (ms) */
 const API_DELAY = 500;
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Geo helpers ────────────────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -64,19 +70,28 @@ function parseCoords(coords: string): { lat: number; lng: number } {
   return { lat, lng };
 }
 
-/** Fetch SV metadata to get pano ID and camera position */
-async function fetchSvMetadata(
-  lat: number, lng: number,
-): Promise<{ panoId: string; panoLat: number; panoLng: number } | null> {
-  const metaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&source=outdoor&key=${apiKey}`;
-  const resp = await fetch(metaUrl, { signal: AbortSignal.timeout(10000) });
-  if (!resp.ok) return null;
-  const data = await resp.json() as { status: string; pano_id?: string; location?: { lat: number; lng: number } };
-  if (data.status !== 'OK' || !data.pano_id || !data.location) return null;
-  return { panoId: data.pano_id, panoLat: data.location.lat, panoLng: data.location.lng };
+/** Meters → degrees latitude (constant everywhere) */
+function metersToDegLat(m: number): number {
+  return m / 111111;
 }
 
-/** Compute bearing from camera to building center */
+/** Meters → degrees longitude (varies with latitude) */
+function metersToDegLon(m: number, lat: number): number {
+  return m / (111111 * Math.cos(lat * Math.PI / 180));
+}
+
+/** Great-circle distance in metres (Haversine) */
+function haversineDistanceM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Bearing (degrees, clockwise from north) from one point to another */
 function computeBearing(fromLat: number, fromLng: number, toLat: number, toLng: number): number {
   const dLng = (toLng - fromLng) * Math.PI / 180;
   const lat1 = fromLat * Math.PI / 180;
@@ -86,11 +101,102 @@ function computeBearing(fromLat: number, fromLng: number, toLat: number, toLng: 
   return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
 }
 
-/** Build SV image URL for a specific heading */
-function buildSvUrl(panoId: string, heading: number, fov: number): string {
+// ─── Building size resolution ────────────────────────────────────────────────
+
+interface BuildingExtent {
+  /** East-West ground extent in metres */
+  widthM: number;
+  /** North-South ground extent in metres */
+  depthM: number;
+  /** Bounding-box diagonal in metres */
+  diagonalM: number;
+  /** Data source used */
+  source: 'solar' | 'config';
+}
+
+/**
+ * Resolve the actual building ground footprint using the Solar API bounding box.
+ * Falls back to the config extentM hint if the API is unavailable or returns no data.
+ *
+ * The Solar API returns the solar-panel bounding box, which closely matches the
+ * roof footprint. For most buildings this is the best freely-available size estimate.
+ */
+async function resolveBuildingExtent(
+  lat: number, lng: number, fallbackExtentM: number,
+): Promise<BuildingExtent> {
+  try {
+    const url = `https://solar.googleapis.com/v1/buildingInsights:findClosest`
+      + `?location.latitude=${lat}&location.longitude=${lng}`
+      + `&requiredQuality=LOW&key=${apiKey}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (resp.ok) {
+      const data = await resp.json() as {
+        boundingBox?: {
+          sw: { latitude: number; longitude: number };
+          ne: { latitude: number; longitude: number };
+        };
+      };
+      const box = data?.boundingBox;
+      if (box?.sw && box?.ne) {
+        const widthM = haversineDistanceM(
+          box.sw.latitude, box.sw.longitude,
+          box.sw.latitude, box.ne.longitude,
+        );
+        const depthM = haversineDistanceM(
+          box.sw.latitude, box.sw.longitude,
+          box.ne.latitude, box.sw.longitude,
+        );
+        const diagonalM = Math.sqrt(widthM ** 2 + depthM ** 2);
+        console.log(`  BuildingExtent: solar bbox ${widthM.toFixed(0)}m × ${depthM.toFixed(0)}m (diag ${diagonalM.toFixed(0)}m)`);
+        return { widthM, depthM, diagonalM, source: 'solar' };
+      }
+    }
+  } catch (_e) { /* fall through to config fallback */ }
+
+  // Fallback: treat extentM as both width and depth (worst-case square)
+  const diagonalM = fallbackExtentM * Math.SQRT2;
+  console.log(`  BuildingExtent: config hint ${fallbackExtentM}m (diag ${diagonalM.toFixed(0)}m)`);
+  return { widthM: fallbackExtentM, depthM: fallbackExtentM, diagonalM, source: 'config' };
+}
+
+/**
+ * Compute camera standoff distance from actual building extent.
+ *
+ * Rule: camera is placed at half-diagonal + 20m margin, minimum 50m.
+ * This guarantees cameras are clearly outside even irregular/large footprints.
+ *
+ * Example:
+ *   Guggenheim  40m config → solar bbox ~50×35m, diag ~61m → viewDist = max(30.5+20, 50) = 50m  ✓
+ *   FBI HQ      100m config → solar bbox ~200×100m, diag 224m → viewDist = max(112+20, 50) = 132m ✓
+ *   Chrysler    40m config → solar bbox ~40×40m, diag ~57m → viewDist = max(28.5+20, 50) = 50m  ✓
+ */
+function computeViewDistM(extent: BuildingExtent): number {
+  return Math.max(extent.diagonalM / 2 + 20, 50);
+}
+
+// ─── SV API helpers ─────────────────────────────────────────────────────────
+
+/** Fetch SV metadata to get pano ID and actual camera position */
+async function fetchSvMetadata(
+  lat: number, lng: number,
+): Promise<{ panoId: string; panoLat: number; panoLng: number } | null> {
+  const metaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata`
+    + `?location=${lat},${lng}&source=outdoor&key=${apiKey}`;
+  const resp = await fetch(metaUrl, { signal: AbortSignal.timeout(10000) });
+  if (!resp.ok) return null;
+  const data = await resp.json() as {
+    status: string; pano_id?: string; location?: { lat: number; lng: number };
+  };
+  if (data.status !== 'OK' || !data.pano_id || !data.location) return null;
+  return { panoId: data.pano_id, panoLat: data.location.lat, panoLng: data.location.lng };
+}
+
+/** Build SV image URL from panorama ID, exact heading, and FOV */
+function buildSvUrl(panoId: string, heading: number, fov: number, pitch = 10): string {
   return `https://maps.googleapis.com/maps/api/streetview`
-    + `?size=${SV_SIZE}x${SV_SIZE}&pano=${panoId}&heading=${heading.toFixed(1)}`
-    + `&pitch=15&fov=${fov}&key=${apiKey}`;
+    + `?size=${SV_SIZE}x${SV_SIZE}&pano=${panoId}`
+    + `&heading=${heading.toFixed(1)}&pitch=${pitch}&fov=${fov}`
+    + `&key=${apiKey}`;
 }
 
 /** Download an image to disk, skip if exists and not refreshing */
@@ -114,6 +220,37 @@ async function downloadImage(url: string, destPath: string, label: string): Prom
   }
 }
 
+// ─── SV camera auto-positioning ─────────────────────────────────────────────
+
+/**
+ * Compute 4 camera query positions (N/S/E/W) offset from building centre by viewDistM.
+ * viewDistM is derived from the actual building extent (Solar API bbox or config hint).
+ */
+function getSvQueryPositions(
+  lat: number, lng: number, viewDistM: number,
+): Array<{ name: string; qLat: number; qLng: number }> {
+  const dLat = metersToDegLat(viewDistM);
+  const dLon = metersToDegLon(viewDistM, lat);
+  return [
+    { name: 'north', qLat: lat + dLat, qLng: lng },
+    { name: 'south', qLat: lat - dLat, qLng: lng },
+    { name: 'east',  qLat: lat,         qLng: lng + dLon },
+    { name: 'west',  qLat: lat,         qLng: lng - dLon },
+  ];
+}
+
+/**
+ * Compute vertical pitch for the SV shot: tilt up slightly for tall buildings.
+ * pitch = 0 (horizontal) for short buildings, up to +20° for skyscrapers.
+ */
+function computePitch(extentM: number): number {
+  // Assumes camera is viewDistM away; half the building height is extentM/4 (rough estimate)
+  if (extentM <= 20) return 5;
+  if (extentM <= 50) return 10;
+  if (extentM <= 100) return 15;
+  return 20;
+}
+
 // ─── Per-Location Fetcher ───────────────────────────────────────────────────
 
 interface FetchResult {
@@ -122,6 +259,16 @@ interface FetchResult {
   hasSatellite: boolean;
   hasSatelliteHires: boolean;
   error?: string;
+}
+
+interface SvShotMeta {
+  side: string;
+  qLat: number; qLng: number;     // query position (where we asked for a pano)
+  panoLat: number; panoLng: number; // actual pano position returned by API
+  panoDistM: number;               // distance from pano to building centre
+  heading: number;                 // camera heading (toward building centre)
+  fov: number;                     // computed field of view
+  pitch: number;
 }
 
 async function fetchLocationData(loc: CategoryLocation): Promise<FetchResult> {
@@ -142,41 +289,64 @@ async function fetchLocationData(loc: CategoryLocation): Promise<FetchResult> {
     }, null, 2));
   }
 
-  // ── Fetch SV facade images ──
+  const extentM = loc.extentM ?? 40;
+
+  // ── Fetch SV facade images (4 cardinal sides, auto-positioned) ──
   console.log(`\n${loc.name} (${loc.key}):`);
   try {
-    // svCoords: alternate query point for finding the nearest panorama (doesn't affect OSM masking)
-    const svQueryCoords = loc.svCoords ? parseCoords(loc.svCoords) : { lat, lng };
-    const meta = await fetchSvMetadata(svQueryCoords.lat, svQueryCoords.lng);
-    if (!meta) {
-      console.log('  SV: no street view coverage');
-    } else {
-      // Bearing always computed toward building center (main coords), not svCoords
-      const bearing = computeBearing(meta.panoLat, meta.panoLng, lat, lng);
-      const fov = loc.svFov ?? ((loc.extentM && loc.extentM > 30) ? 110 : 90);
+    // Resolve actual building ground extent from Solar API (or fall back to config hint).
+    // This drives the camera standoff distance so cameras are always outside the building.
+    const buildingExtent = await resolveBuildingExtent(lat, lng, extentM);
+    await sleep(API_DELAY);
+    const viewDistM = computeViewDistM(buildingExtent);
+    console.log(`  ViewDist: ${viewDistM.toFixed(0)}m (from ${buildingExtent.source})`);
 
-      // 4 cardinal headings relative to building bearing
-      const faces = [
-        { name: 'front', offset: 0 },
-        { name: 'right', offset: 90 },
-        { name: 'rear', offset: 180 },
-        { name: 'left', offset: 270 },
-      ];
+    const sides = getSvQueryPositions(lat, lng, viewDistM);
+    const pitch = computePitch(extentM);
+    const svMeta: SvShotMeta[] = [];
 
-      for (const face of faces) {
-        const heading = (bearing + face.offset) % 360;
-        const url = buildSvUrl(meta.panoId, heading, fov);
-        const path = join(dir, `sv-${face.name}.jpg`);
-        const ok = await downloadImage(url, path, `SV ${face.name} (${heading.toFixed(0)}°)`);
-        if (ok) result.svCount++;
-        await sleep(API_DELAY);
+    for (const side of sides) {
+      const meta = await fetchSvMetadata(side.qLat, side.qLng);
+      await sleep(API_DELAY);
+      if (!meta) {
+        console.log(`  SV ${side.name}: no coverage`);
+        continue;
       }
 
-      // Save metadata for debugging
-      const svMetaPath = join(dir, 'sv-meta.json');
-      writeFileSync(svMetaPath, JSON.stringify({
-        panoId: meta.panoId, panoLat: meta.panoLat, panoLng: meta.panoLng,
-        bearing: bearing.toFixed(1), fov,
+      // Heading: from panorama position → building centre
+      const heading = computeBearing(meta.panoLat, meta.panoLng, lat, lng);
+
+      // FOV: computed from the building's actual largest dimension and pano-to-centre distance.
+      // Use 65% of the largest facade dimension as the target visible half-width.
+      const panoDist = haversineDistanceM(meta.panoLat, meta.panoLng, lat, lng);
+      const largestDim = Math.max(buildingExtent.widthM, buildingExtent.depthM);
+      const halfWidth = largestDim * 0.65;
+      const rawFov = 2 * Math.atan2(halfWidth, Math.max(20, panoDist)) * 180 / Math.PI;
+      const fov = Math.min(110, Math.max(60, Math.round(rawFov)));
+
+      const url = buildSvUrl(meta.panoId, heading, fov, pitch);
+      const path = join(dir, `sv-${side.name}.jpg`);
+      const ok = await downloadImage(url, path, `SV ${side.name} (h=${heading.toFixed(0)}° fov=${fov}° d=${panoDist.toFixed(0)}m)`);
+      if (ok) {
+        result.svCount++;
+        svMeta.push({
+          side: side.name,
+          qLat: side.qLat, qLng: side.qLng,
+          panoLat: meta.panoLat, panoLng: meta.panoLng,
+          panoDistM: panoDist,
+          heading, fov, pitch,
+        });
+      }
+    }
+
+    // Save per-side SV metadata for debugging / VLM prompt generation
+    if (svMeta.length > 0) {
+      writeFileSync(join(dir, 'sv-meta.json'), JSON.stringify({
+        buildingCoords: { lat, lng },
+        extentM,
+        buildingExtent,
+        viewDistM,
+        shots: svMeta,
       }, null, 2));
     }
   } catch (e) {
@@ -207,8 +377,7 @@ async function fetchLocationData(loc: CategoryLocation): Promise<FetchResult> {
     await sleep(API_DELAY);
 
     // Save satellite config
-    const satMetaPath = join(dir, 'satellite-meta.json');
-    writeFileSync(satMetaPath, JSON.stringify({ zoom, lat, lng }, null, 2));
+    writeFileSync(join(dir, 'satellite-meta.json'), JSON.stringify({ zoom, lat, lng }, null, 2));
   } catch (e) {
     console.error(`  Satellite: ${(e as Error).message}`);
     result.error = (e as Error).message;
@@ -234,6 +403,7 @@ async function main(): Promise<void> {
 
   console.log(`Fetching reference data for ${locations.length} locations (group=${group})${refresh ? ' [REFRESH]' : ''}`);
   console.log(`Output: ${BASE_DIR}/\n`);
+  console.log('SV strategy: 4 offset cameras (N/S/E/W) at max(40m, extentM*0.9), auto-computed heading+FOV');
 
   const results: FetchResult[] = [];
 
