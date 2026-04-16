@@ -50,9 +50,11 @@ const DIR = 'output/tiles';
 export const LOCATIONS_OLD: CategoryLocation[] = [
   {
     key: 'flatiron', name: 'Flatiron Building', city: 'New York, NY',
+    // r=2 needed for triangular layout recognition (features=9, layout=10)
+    // --recolor: r=2 photogrammetry texture noise collapses colors to 3 without it
     coords: '40.7411,-73.9897', extentM: 25,
     glb: `${DIR}/tiles-flatiron-building-new-york-ny.glb`,
-    resolution: 2, maskDilate: 1, extraFlags: ['--no-enu'],
+    resolution: 2, maskDilate: 1, extraFlags: ['--no-enu', '--recolor'],
     sceneMode: false, archType: 'triangular',
   },
   {

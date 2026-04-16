@@ -1,9 +1,9 @@
 {
-  "version": "v417",
-  "timestamp": "2026-04-16T06:02:06.700Z",
+  "version": "v400",
+  "timestamp": "2026-04-16T06:21:53.427Z",
   "target": 9,
   "model": "gemini-2.5-pro",
-  "passing": 0,
+  "passing": 1,
   "total": 1,
   "locations": {
     "flatiron": {
@@ -15,18 +15,22 @@
         5.7,
         8,
         8.9,
-        9.6
+        9.6,
+        7.3,
+        9.1
       ],
       "latestGrade": {
         "categories": {
           "colors": {
-            "score": 8,
+            "score": 7.5,
             "defects": [
-              "Roof color is dark gray instead of the reddish-brown seen in satellite imagery."
+              "The wall color is a tan/khaki, which is a reasonable approximation for the real building's brownish-gray stone.",
+              "The roof color is dark gray, which matches the roof border but not the main reddish-brown surface seen in the satellite view.",
+              "The main roof surface is gray in the model but appears to be a reddish-brown or terracotta color in the satellite view."
             ]
           },
           "features": {
-            "score": 10,
+            "score": 9.5,
             "defects": []
           },
           "layout": {
@@ -37,15 +41,17 @@
           "pavement": null,
           "vegetation": null,
           "dimensions": {
-            "score": 10,
+            "score": 9,
             "defects": []
           }
         },
-        "composite": 9.6,
+        "composite": 9.1,
         "scoredCount": 4,
         "defects": {
           "colors": [
-            "Roof color is dark gray instead of the reddish-brown seen in satellite imagery."
+            "The wall color is a tan/khaki, which is a reasonable approximation for the real building's brownish-gray stone.",
+            "The roof color is dark gray, which matches the roof border but not the main reddish-brown surface seen in the satellite view.",
+            "The main roof surface is gray in the model but appears to be a reddish-brown or terracotta color in the satellite view."
           ],
           "features": [],
           "layout": [],
@@ -55,13 +61,15 @@
       "averageGrade": {
         "categories": {
           "colors": {
-            "score": 8,
+            "score": 7.5,
             "defects": [
-              "Roof color is dark gray instead of the reddish-brown seen in satellite imagery."
+              "The wall color is a tan/khaki, which is a reasonable approximation for the real building's brownish-gray stone.",
+              "The roof color is dark gray, which matches the roof border but not the main reddish-brown surface seen in the satellite view.",
+              "The main roof surface is gray in the model but appears to be a reddish-brown or terracotta color in the satellite view."
             ]
           },
           "features": {
-            "score": 10,
+            "score": 9.5,
             "defects": []
           },
           "layout": {
@@ -72,27 +80,29 @@
           "pavement": null,
           "vegetation": null,
           "dimensions": {
-            "score": 10,
+            "score": 9,
             "defects": []
           }
         },
-        "composite": 9.6,
+        "composite": 9.1,
         "scoredCount": 4,
         "defects": {
           "colors": [
-            "Roof color is dark gray instead of the reddish-brown seen in satellite imagery."
+            "The wall color is a tan/khaki, which is a reasonable approximation for the real building's brownish-gray stone.",
+            "The roof color is dark gray, which matches the roof border but not the main reddish-brown surface seen in the satellite view.",
+            "The main roof surface is gray in the model but appears to be a reddish-brown or terracotta color in the satellite view."
           ],
           "features": [],
           "layout": [],
           "dimensions": []
         }
       },
-      "runCount": 3,
-      "lastVersion": "v401",
-      "lastGraded": "2026-04-15T21:12:13.909Z",
+      "runCount": 2,
+      "lastVersion": "v400",
+      "lastGraded": "2026-04-16T06:21:53.427Z",
       "plateaued": false,
       "worstCategories": [
-        "colors(8)"
+        "colors(7.5)"
       ]
     },
     "pennzoil": {
@@ -244,12 +254,13 @@
         6.3,
         8.3,
         6,
-        9
+        9,
+        9.2
       ],
       "latestGrade": {
         "categories": {
           "colors": {
-            "score": 9.5,
+            "score": 9,
             "defects": []
           },
           "features": {
@@ -264,29 +275,27 @@
           "pavement": null,
           "vegetation": null,
           "dimensions": {
-            "score": 6.5,
+            "score": 8,
             "defects": [
-              "Height appears truncated, especially the top of the central dome.",
-              "Building height appears to be truncated, particularly the top of the central dome."
+              "The height of the central dome and other roof structures appears to be slightly truncated."
             ]
           }
         },
-        "composite": 9,
+        "composite": 9.2,
         "scoredCount": 4,
         "defects": {
           "colors": [],
           "features": [],
           "layout": [],
           "dimensions": [
-            "Height appears truncated, especially the top of the central dome.",
-            "Building height appears to be truncated, particularly the top of the central dome."
+            "The height of the central dome and other roof structures appears to be slightly truncated."
           ]
         }
       },
       "averageGrade": {
         "categories": {
           "colors": {
-            "score": 9.5,
+            "score": 9,
             "defects": []
           },
           "features": {
@@ -301,31 +310,29 @@
           "pavement": null,
           "vegetation": null,
           "dimensions": {
-            "score": 6.5,
+            "score": 8,
             "defects": [
-              "Height appears truncated, especially the top of the central dome.",
-              "Building height appears to be truncated, particularly the top of the central dome."
+              "The height of the central dome and other roof structures appears to be slightly truncated."
             ]
           }
         },
-        "composite": 9,
+        "composite": 9.2,
         "scoredCount": 4,
         "defects": {
           "colors": [],
           "features": [],
           "layout": [],
           "dimensions": [
-            "Height appears truncated, especially the top of the central dome.",
-            "Building height appears to be truncated, particularly the top of the central dome."
+            "The height of the central dome and other roof structures appears to be slightly truncated."
           ]
         }
       },
       "runCount": 2,
-      "lastVersion": "v402",
-      "lastGraded": "2026-04-15T22:18:00.009Z",
+      "lastVersion": "v400",
+      "lastGraded": "2026-04-16T06:09:25.478Z",
       "plateaued": false,
       "worstCategories": [
-        "dimensions(6.5)"
+        "dimensions(8)"
       ]
     },
     "seattle-library": {
@@ -602,6 +609,7 @@
         5.9,
         6.3,
         9.6,
+        9.2,
         9.2
       ],
       "latestGrade": {
@@ -612,13 +620,13 @@
           },
           "features": {
             "score": 9,
-            "defects": [
-              "The recessed base of the building is present but not clearly defined."
-            ]
+            "defects": []
           },
           "layout": {
             "score": 9,
-            "defects": []
+            "defects": [
+              "The model correctly captures the main tower and the adjacent low-rise building as two separate masses."
+            ]
           },
           "walking_paths": null,
           "pavement": null,
@@ -632,10 +640,10 @@
         "scoredCount": 4,
         "defects": {
           "colors": [],
-          "features": [
-            "The recessed base of the building is present but not clearly defined."
+          "features": [],
+          "layout": [
+            "The model correctly captures the main tower and the adjacent low-rise building as two separate masses."
           ],
-          "layout": [],
           "dimensions": []
         }
       },
@@ -647,13 +655,13 @@
           },
           "features": {
             "score": 9,
-            "defects": [
-              "The recessed base of the building is present but not clearly defined."
-            ]
+            "defects": []
           },
           "layout": {
             "score": 9,
-            "defects": []
+            "defects": [
+              "The model correctly captures the main tower and the adjacent low-rise building as two separate masses."
+            ]
           },
           "walking_paths": null,
           "pavement": null,
@@ -667,16 +675,16 @@
         "scoredCount": 4,
         "defects": {
           "colors": [],
-          "features": [
-            "The recessed base of the building is present but not clearly defined."
+          "features": [],
+          "layout": [
+            "The model correctly captures the main tower and the adjacent low-rise building as two separate masses."
           ],
-          "layout": [],
           "dimensions": []
         }
       },
-      "runCount": 1,
-      "lastVersion": "v401",
-      "lastGraded": "2026-04-15T20:26:40.453Z",
+      "runCount": 2,
+      "lastVersion": "v400",
+      "lastGraded": "2026-04-16T06:12:43.145Z",
       "plateaued": false,
       "worstCategories": []
     },
@@ -1020,7 +1028,7 @@
       "runCount": 3,
       "lastVersion": "v411",
       "lastGraded": "2026-04-16T05:19:31.398Z",
-      "plateaued": false,
+      "plateaued": true,
       "worstCategories": [
         "dimensions(7)",
         "colors(7.7)",
