@@ -169,7 +169,11 @@ export const LOCATIONS_NEW: CategoryLocation[] = [
     key: 'hearst-tower', name: 'Hearst Tower', city: 'New York, NY',
     coords: '40.7666,-73.9810', extentM: 50,
     glb: `${DIR}/hearst-tower.glb`,
-    resolution: 1, maskDilate: 2, extraFlags: ['--no-enu', '--recolor'],
+    // Removed --no-enu: without ENU reorientation the 382-block "height" is actually a neighbor
+    // building captured sideways. ENU reorientation aligns Y-axis to true vertical.
+    // osmId=way/23617584: clips to just Hearst Tower, excludes Carnegie Hall + adjacent towers
+    resolution: 1, maskDilate: 2, osmId: 'way/23617584',
+    extraFlags: ['--recolor'],
     sceneMode: false, archType: 'diagrid',
   },
   {
@@ -219,7 +223,9 @@ export const LOCATIONS_NEW: CategoryLocation[] = [
     key: 'boa-tower', name: 'Bank of America Tower', city: 'New York, NY',
     coords: '40.7555,-73.9848', extentM: 50,
     glb: `${DIR}/boa-tower.glb`,
-    resolution: 1, maskDilate: 1, extraFlags: ['--no-enu', '--recolor'],
+    // --force-recolor --building-colour blue: One Bryant Park clad in low-iron blue glass
+    // --recolor alone fails (OSM has no colour tag, no SV sky-blue override)
+    resolution: 1, maskDilate: 1, extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'blue'],
     sceneMode: false, archType: 'crystalline-crown',
   },
   {
