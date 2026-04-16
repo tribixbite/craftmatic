@@ -190,7 +190,11 @@ async function voxelize(loc: CategoryLocation): Promise<{
   if (recolorMode) flagParts.push('--recolor');
   if (loc.resolution > 0) flagParts.push('-r', String(loc.resolution));
   if (loc.osmId) flagParts.push('--osm-id', loc.osmId);
-  flagParts.push('-o', `"${schem}"`, ...loc.extraFlags);
+  // Shell-quote each extraFlag value so '#' hex colors aren't treated as bash comments
+  const quotedExtraFlags = loc.extraFlags.map(f =>
+    f.startsWith('#') || f.includes(' ') ? `"${f}"` : f,
+  );
+  flagParts.push('-o', `"${schem}"`, ...quotedExtraFlags);
 
   console.log(`  Voxelizing: ${loc.key} (r=${loc.resolution}, dilate=${loc.maskDilate})`);
   const out = await run(flagParts.join(' '), 2_400_000);

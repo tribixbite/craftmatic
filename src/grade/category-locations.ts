@@ -178,9 +178,10 @@ export const LOCATIONS_NEW: CategoryLocation[] = [
     resolution: 2, maskDilate: 2,
     // --roof-colour sage: Guggenheim rotunda roof has a distinctive green-patina tone
     // visible in satellite. Differentiates roof from off-white concrete walls (colors fix).
-    // --roof-colour #7aab8c: Guggenheim rotunda roof has a distinctive green-patina tone
-    // visible in satellite. Differentiates roof from off-white concrete walls (colors fix).
-    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'white', '--roof-colour', '#7aab8c'],
+    // --roof-colour green: Guggenheim rotunda roof has green-patina visible in satellite.
+    // Differentiates roof from off-white concrete walls to improve colors score.
+    // Note: hex colors (e.g. #7aab8c) cannot be used here — bash treats # as comment start.
+    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'white', '--roof-colour', 'green'],
     sceneMode: false, archType: 'spiral-rotunda',
   },
   {
