@@ -20,8 +20,15 @@ export interface SemanticPalette {
   wallColor?: { r: number; g: number; b: number };
   /** Roof material options */
   roofBlocks?: BlockState[];
-  /** Roof tint color from satellite */
+  /** Roof tint color from satellite or explicit CLI override */
   roofColor?: { r: number; g: number; b: number };
+  /**
+   * True when roofColor was set by explicit CLI --roof-colour flag (not satellite analysis).
+   * Explicit overrides are always applied, even in aggressive mode.
+   * Satellite-derived roofColor is suppressed in aggressive mode to prevent cyan/teal
+   * contamination from reflective facades.
+   */
+  roofColorExplicit?: boolean;
   /** Window/glass material */
   glassBlock?: BlockState;
   /** Source that determined the palette (for logging) */
@@ -332,15 +339,18 @@ export function applySemanticPalette(
 
         // Roof blocks
         if (isRoof && palette.roofBlocks && palette.roofBlocks.length > 0) {
-          if (palette.roofColor && !palette.aggressive) {
-            // Normal recolor: use satellite-derived roof color.
-            // Skip in aggressive mode — reflective facades (stainless steel, glass curtain wall)
-            // produce cyan/teal satellite samples that contaminate the user's explicit --force-recolor
-            // colour choice. In aggressive mode, apply the wall palette to the roof instead.
-            const rb = rgbToWallBlock(palette.roofColor.r, palette.roofColor.g, palette.roofColor.b, x, y, z);
+          // Apply roof color when:
+          //   a) Normal mode (not aggressive), OR
+          //   b) Aggressive mode WITH explicit --roof-colour CLI override (roofColorExplicit=true)
+          // Skip satellite-derived roofColor in aggressive mode to prevent cyan/teal contamination
+          // from reflective facade materials (stainless steel, glass curtain walls).
+          const applyRoofColor = palette.roofColor &&
+            (!palette.aggressive || palette.roofColorExplicit);
+          if (applyRoofColor) {
+            const rb = rgbToWallBlock(palette.roofColor!.r, palette.roofColor!.g, palette.roofColor!.b, x, y, z);
             grid.set(x, y, z, rb);
           } else {
-            // Aggressive mode OR no roof color: use wall blocks for the roof too.
+            // Aggressive mode without explicit roof color: use wall blocks for roof too.
             const hash = ((x * 73856093 + y * 19349663 + z * 83492791) ^ (x * 19349663 + z * 73856093)) >>> 0;
             const wb = palette.wallBlocks.length > 0
               ? palette.wallBlocks[hash % palette.wallBlocks.length]

@@ -209,12 +209,16 @@ async function resolveSemanticPaletteFromAPIs(
       if (palette) {
         palette.roofBlocks = [roofBlock];
         palette.roofColor = roofRgb;
+        // Mark as explicit: this overrides satellite-derived color even in aggressive mode.
+        // Without this, --force-recolor would suppress the roof color (cyan-contamination guard).
+        palette.roofColorExplicit = true;
         palette.source += ` + roof-colour:${roofColourOverride}`;
       } else {
         palette = {
           wallBlocks: [],
           roofBlocks: [roofBlock],
           roofColor: roofRgb,
+          roofColorExplicit: true,
           source: `roof-colour:${roofColourOverride}`,
         };
       }

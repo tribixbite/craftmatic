@@ -176,7 +176,11 @@ export const LOCATIONS_NEW: CategoryLocation[] = [
     coords: '40.7830,-73.9590', extentM: 40,
     glb: `${DIR}/guggenheim.glb`,
     resolution: 2, maskDilate: 2,
-    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'white'],
+    // --roof-colour sage: Guggenheim rotunda roof has a distinctive green-patina tone
+    // visible in satellite. Differentiates roof from off-white concrete walls (colors fix).
+    // --roof-colour #7aab8c: Guggenheim rotunda roof has a distinctive green-patina tone
+    // visible in satellite. Differentiates roof from off-white concrete walls (colors fix).
+    extraFlags: ['--no-enu', '--force-recolor', '--building-colour', 'white', '--roof-colour', '#7aab8c'],
     sceneMode: false, archType: 'spiral-rotunda',
   },
   {
