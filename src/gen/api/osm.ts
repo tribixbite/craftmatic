@@ -235,7 +235,116 @@ export async function fetchOSMById(
       return null;
     }
   }
-  return null;
+  // All Overpass retries exhausted — fall back to main OSM API.
+  // Supports way and relation (relation requires /full to get outer member nodes).
+  console.warn(`OSM Overpass: all retries failed — falling back to api.openstreetmap.org`);
+  return fetchOSMByIdFallback(osmType, osmId);
+}
+
+/**
+ * Fallback fetcher using the main OpenStreetMap API when Overpass is unavailable.
+ * Supports way and relation. Geometry is built from referenced node coordinates.
+ */
+async function fetchOSMByIdFallback(
+  osmType: 'way' | 'relation',
+  osmId: number,
+): Promise<OSMBuildingData | null> {
+  try {
+    // /full returns the element plus all referenced nodes (and relations for relations).
+    const url = `https://api.openstreetmap.org/api/0.6/${osmType}/${osmId}/full.json`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    if (!resp.ok) {
+      console.warn(`OSM fallback: HTTP ${resp.status} from api.openstreetmap.org`);
+      return null;
+    }
+    const data = await resp.json() as { elements?: Array<{ id: number; type: string; lat?: number; lon?: number; nodes?: number[]; members?: Array<{ type: string; ref: number; role: string }>; geometry?: Array<{ lat: number; lon: number }>; tags?: Record<string, string> }> };
+    const elements = data.elements ?? [];
+
+    // Build node coordinate lookup
+    const nodeCoords = new Map<number, { lat: number; lon: number }>();
+    for (const el of elements) {
+      if (el.type === 'node' && el.id != null && el.lat != null && el.lon != null) {
+        nodeCoords.set(el.id, { lat: el.lat, lon: el.lon });
+      }
+    }
+
+    let polygon: { lat: number; lon: number }[] | null = null;
+    let tags: Record<string, string> = {};
+
+    if (osmType === 'way') {
+      const way = elements.find(e => e.type === 'way' && e.id === osmId);
+      if (!way?.nodes) {
+        console.warn(`OSM fallback: way/${osmId} not found`);
+        return null;
+      }
+      tags = way.tags ?? {};
+      polygon = way.nodes
+        .map(nid => nodeCoords.get(nid))
+        .filter((pt): pt is { lat: number; lon: number } => pt != null);
+    } else {
+      // relation: find outer ring members → collect their way nodes
+      const relation = elements.find(e => e.type === 'relation' && e.id === osmId);
+      if (!relation?.members) {
+        console.warn(`OSM fallback: relation/${osmId} not found`);
+        return null;
+      }
+      tags = relation.tags ?? {};
+      // Find a way that is the outer member and reconstruct its node coords
+      const outerRef = relation.members.find(m => m.role === 'outer' && m.type === 'way');
+      if (!outerRef) {
+        console.warn(`OSM fallback: relation/${osmId} has no outer way member`);
+        return null;
+      }
+      const outerWay = elements.find(e => e.type === 'way' && e.id === outerRef.ref);
+      if (!outerWay?.nodes) {
+        console.warn(`OSM fallback: outer way ${outerRef.ref} not found in response`);
+        return null;
+      }
+      polygon = outerWay.nodes
+        .map(nid => nodeCoords.get(nid))
+        .filter((pt): pt is { lat: number; lon: number } => pt != null);
+    }
+
+    if (!polygon || polygon.length < 3) {
+      console.warn(`OSM fallback: ${osmType}/${osmId} — insufficient polygon points`);
+      return null;
+    }
+
+    const { widthMeters, lengthMeters } = polygonBoundingDimensions(polygon);
+    const footprintAreaSqm = polygonArea(polygon);
+    const bboxArea = widthMeters * lengthMeters;
+    const fillRatio = bboxArea > 0 ? footprintAreaSqm / bboxArea : 1;
+    const aspectRatio = lengthMeters > 0 ? widthMeters / lengthMeters : 1;
+    let effectiveWidth = widthMeters;
+    let effectiveLength = lengthMeters;
+    if (fillRatio < 0.88 && footprintAreaSqm > 0) {
+      effectiveWidth = Math.sqrt(footprintAreaSqm * aspectRatio);
+      effectiveLength = Math.sqrt(footprintAreaSqm / aspectRatio);
+    }
+    const levelsRaw = tags['building:levels'];
+    const levels = levelsRaw ? parseInt(levelsRaw, 10) : undefined;
+
+    console.log(`OSM fallback: fetched ${osmType}/${osmId} via api.openstreetmap.org — ${tags['name'] || 'unnamed'} (${Math.round(effectiveWidth)}×${Math.round(effectiveLength)}m)`);
+
+    return {
+      polygon,
+      widthMeters: Math.round(effectiveWidth * 10) / 10,
+      lengthMeters: Math.round(effectiveLength * 10) / 10,
+      widthBlocks: Math.max(6, Math.min(60, Math.round(effectiveWidth))),
+      lengthBlocks: Math.max(6, Math.min(60, Math.round(effectiveLength))),
+      footprintAreaSqm: Math.round(footprintAreaSqm * 10) / 10,
+      levels: levels && !isNaN(levels) ? levels : undefined,
+      material: tags['building:material'] || undefined,
+      roofShape: tags['roof:shape'] || undefined,
+      roofMaterial: tags['roof:material'] || undefined,
+      buildingColour: normalizeOSMColour(tags['building:colour']),
+      roofColour: normalizeOSMColour(tags['roof:colour']),
+      tags,
+    };
+  } catch (err) {
+    console.warn('OSM fallback request failed:', err);
+    return null;
+  }
 }
 
 /** Ray-casting point-in-polygon test for lat/lng coordinates */

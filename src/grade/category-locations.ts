@@ -61,10 +61,14 @@ export const LOCATIONS_OLD: CategoryLocation[] = [
     // Nominatim confirms Pennzoil Place at 29.7601,-95.3656 (Rusk St, Downtown Houston)
     // osmId way/580965929 = exact Pennzoil Place footprint (clips neighboring buildings)
     // --recolor: photogrammetry captures gray AO; actual building is dark bronze glass curtain wall
+    // pennzoil-new2.glb: re-captured Apr 16 at correct coords 29.7601,-95.3656 with --height 172 (2 bands)
+    // OSM building:colour=#52503C (dark bronze glass curtain wall) — correct!
+    // --fill: sparse 3D tiles mesh needs interior fill to produce solid twin-tower blocks
+    // OSM fallback (api.openstreetmap.org) used when Overpass is down
     coords: '29.7601,-95.3656', extentM: 90,
-    glb: `${DIR}/pennzoil-v200.glb`,
+    glb: `${DIR}/pennzoil-new2.glb`,
     resolution: 1, maskDilate: 1, osmId: 'way/580965929',
-    extraFlags: ['--no-enu', '--recolor'],
+    extraFlags: ['--no-enu', '--recolor', '--fill'],
     sceneMode: false, archType: 'twin-towers',
   },
   {
