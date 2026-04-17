@@ -9,7 +9,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['test/**/*.test.ts'],
+    include: ['test/**/*.test.ts', 'src/pipeline/**/*.test.ts'],
     testTimeout: 60000,
     coverage: {
       provider: 'v8',

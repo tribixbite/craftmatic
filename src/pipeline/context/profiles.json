@@ -1,0 +1,57 @@
+{
+  "base": {
+    "tiny": {
+      "tiles":      { "radiusM": 25,  "errorTarget": 4.0, "verticalBands": 1, "cameraMode": "street",      "expectedHeightM": 8   },
+      "streetview": { "dirCount": 2,  "offsetM": 15,  "maxPanoDistM": 40,  "angleVariants": [-15, 0, 15], "minBuildingPixelRatio": 0.20, "pitchDeg": 5 },
+      "satellite":  { "scale": 1, "maskTrees": false }
+    },
+    "small": {
+      "tiles":      { "radiusM": 40,  "errorTarget": 2.0, "verticalBands": 1, "cameraMode": "perspective", "expectedHeightM": 15  },
+      "streetview": { "dirCount": 4,  "offsetM": 30,  "maxPanoDistM": 80,  "angleVariants": [-15, 0, 15], "minBuildingPixelRatio": 0.20, "pitchDeg": 10 },
+      "satellite":  { "scale": 1, "maskTrees": false }
+    },
+    "medium": {
+      "tiles":      { "radiusM": 80,  "errorTarget": 1.5, "verticalBands": 2, "cameraMode": "perspective", "expectedHeightM": 60  },
+      "streetview": { "dirCount": 6,  "offsetM": 60,  "maxPanoDistM": 150, "angleVariants": [-30, -15, 0, 15, 30], "minBuildingPixelRatio": 0.20, "pitchDeg": 15 },
+      "satellite":  { "scale": 1, "maskTrees": false }
+    },
+    "large": {
+      "tiles":      { "radiusM": 130, "errorTarget": 1.0, "verticalBands": 3, "cameraMode": "perspective", "expectedHeightM": 180 },
+      "streetview": { "dirCount": 8,  "offsetM": 90,  "maxPanoDistM": 200, "angleVariants": [-30, -15, 0, 15, 30], "minBuildingPixelRatio": 0.20, "pitchDeg": 20 },
+      "satellite":  { "scale": 2, "maskTrees": false }
+    },
+    "skyscraper": {
+      "tiles":      { "radiusM": 150, "errorTarget": 1.0, "verticalBands": 4, "cameraMode": "perspective", "expectedHeightM": 350 },
+      "streetview": { "dirCount": 8,  "offsetM": 120, "maxPanoDistM": 300, "angleVariants": [-30, -15, 0, 15, 30], "minBuildingPixelRatio": 0.20, "pitchDeg": 20 },
+      "satellite":  { "scale": 2, "maskTrees": false }
+    },
+    "campus": {
+      "tiles":      { "radiusM": 150, "errorTarget": 1.5, "verticalBands": 2, "cameraMode": "ortho",       "expectedHeightM": 40  },
+      "streetview": { "dirCount": 8,  "offsetM": 100, "maxPanoDistM": 200, "angleVariants": [-30, -15, 0, 15, 30], "minBuildingPixelRatio": 0.20, "pitchDeg": 15 },
+      "satellite":  { "scale": 2, "maskTrees": false }
+    }
+  },
+  "modifiers": {
+    "dense-urban": {
+      "streetview": {
+        "offsetM": { "op": "scale", "by": 0.5 },
+        "angleVariants": { "op": "concat", "values": [-45, 45] }
+      }
+    },
+    "suburban": {},
+    "rural-occluded": {
+      "streetview": {
+        "angleVariants": { "op": "concat", "values": [-60, 60] },
+        "minBuildingPixelRatio": { "op": "set", "value": 0.15 }
+      },
+      "satellite": {
+        "maskTrees": { "op": "set", "value": true }
+      }
+    },
+    "no-coverage": {
+      "streetview": {
+        "dirCount": { "op": "set", "value": 0 }
+      }
+    }
+  }
+}
