@@ -6,17 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-scene-completion.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-iterate-state.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-category-state.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-pipeline-state.sh",
             "timeout": 10
           }
         ]
