@@ -25,7 +25,7 @@ The current pipeline treats dirty photogrammetry voxels as ground truth and runs
 | Q4 | Success metric | Objective gates (deterministic) + multi-VLM consensus (subjective polish) (B) |
 | Q5 | Platform | Shared pure core; CLI + browser as thin adapters (C) |
 | Architecture | Rewrite strategy | Hybrid (C): rewrite top half (~12k lines deleted, ~2.5k new), keep bottom half (voxelizer, API clients, color-blocks, schem writers) |
-| Constraint | Capture strategy | Sequential, adaptive, size-variance aware, occlusion-aware. **Do not parallelize sources**; each informs the next |
+| Constraint | Capture strategy | **Captures** (Stages 3→4→5 — tiles, SV, satellite) are sequential, adaptive, size-variance aware, occlusion-aware. Each capture informs the next. **Metadata fetches** in Stage 1 (Solar / OSM / Smarty) are allowed to be parallel because none of them informs any other — they are pre-classification read-only API calls with no data dependency. The "do not parallelize sources" rule applies to the capture loop, not to cheap metadata fan-out |
 | Constraint | Verification | Must pass objective gates **and** multi-VLM consensus before release; unanimous across Gemini + Claude + GPT-5 |
 
 ## Non-goals
@@ -171,7 +171,10 @@ interface BuildingContext {
   roofShape: 'flat' | 'gabled' | 'hipped' | 'pyramidal' | 'dome' | 'mansard' | 'shed' | 'complex';
   roofPitchDeg: number | null;
 
-  // Classification
+  // Classification (size, primary shape, SV difficulty, archType set by Stage 2 from pre-capture data.
+  // `shape` may be *refined* to `tower-podium` after Stage 3 if tile heightmap reveals that massing —
+  // see `refineContextWithTiles()` in `src/pipeline/context/classify.ts`. No other field is mutated
+  // post-Stage 2. This is the single exception to invariant #1 and is explicitly scoped.)
   size: 'tiny' | 'small' | 'medium' | 'large' | 'skyscraper' | 'campus';
   shape: 'rect' | 'wedge' | 'U' | 'courtyard' | 'multi-wing' | 'tower-podium' | 'curved' | 'irregular';
   svDifficulty: 'dense-urban' | 'suburban' | 'rural-occluded' | 'no-coverage';
@@ -198,6 +201,22 @@ interface BuildingContext {
   rawSmarty: SmartyData | null;
 }
 ```
+
+**Nullability rules for `BuildingContext`:**
+
+- `polygon` is `null` when neither OSM nor Solar provides one (synthesis routes to 7b).
+- `mbr` is **always non-null**. When no polygon exists, it is built from the fallback chain: geocode viewport bbox (if `locationType === 'ROOFTOP'` or `RANGE_INTERPOLATED`) → 25m×25m square centered on `center` (last resort). `mbr.corners` in the last-resort case are axis-aligned.
+- `heightM` is `null` when all four sources fail (Solar + OSM `building:levels` + Smarty + tile heightmap). Synthesis routes to 7b and the printable path fails at the objective gate, which is the intended behavior.
+- `levels` is `null` when unresolvable; parametric path then falls back to `round(heightM / 3.5)` with 3.5m as civic default, 3.0m residential, 4.0m commercial.
+- `groundElevationM`, `size`, `shape`, `svDifficulty`, `archType` are always non-null — last-resort defaults exist in the classifier (`small`, `rect`, `suburban`, `residential`).
+
+**Primitive types** (referenced but not defined in this spec; imported from existing codebase):
+- `LatLon = { lat: number; lon: number }` — from `src/gen/api/osm.ts`
+- `Vec3 = THREE.Vector3` — from `three`
+- `Lab = { L: number; a: number; b: number }` — from `src/gen/color-blocks.ts`
+- `LocalPoint2D = { x: number; z: number }` — local flat-plane coords, x+ east, z+ south, origin at building center
+- `MaterialRef = { blockName: string; glbMaterial: GltfMaterial; lab: Lab }` — new type in `src/pipeline/synthesis/brep.ts`
+- `SolarBuildingData`, `OSMBuildingData`, `SmartyData` — from their respective API client modules
 
 ### `CaptureProfile`
 
@@ -238,11 +257,20 @@ Profiles live in `src/pipeline/context/profiles.json`. One base row per size cla
 | skyscraper (300m+) | 150 | 1.0 | 4 | 8 | 120 | 300 | 2 |
 | campus | 150 | 1.5 | 2 | 8 | 100 | 200 | 2 |
 
-Modifiers (add to base):
-- `dense-urban` → `offsetM /= 2`, `angleVariants += [-45, 45]`
-- `suburban` → default
-- `rural-occluded` → `angleVariants += [-60, 60]`, `minBuildingPixelRatio = 0.15`, `maskTrees = true`
-- `no-coverage` → skip Stage 4 entirely; palette from satellite + OSM only
+**Modifier semantics** — modifiers are applied after base-row lookup. Each operation type is explicit:
+
+- `/=`, `*=` — scale numeric field (e.g., `offsetM /= 2`)
+- `+=` on arrays — concat + dedup (e.g., `angleVariants += [-45, 45]`)
+- `=` — override (e.g., `minBuildingPixelRatio = 0.15`, `maskTrees = true`)
+
+Modifier rows:
+
+- `dense-urban`: `streetview.offsetM /= 2`, `streetview.angleVariants += [-45, 45]`
+- `suburban`: identity (default)
+- `rural-occluded`: `streetview.angleVariants += [-60, 60]`, `streetview.minBuildingPixelRatio = 0.15`, `satellite.maskTrees = true`
+- `no-coverage`: `streetview.dirCount = 0` (skip Stage 4 entirely); palette from satellite + OSM only. Fusion confidence on wallPalette drops to 0.5 since no SV data.
+
+**Classifier rule for `size: 'campus'`:** triggered when `siblingPolygons.length >= 2` AND sibling polygons are within 30m of primary polygon AND OSM shows `building:part=*` tags on any sibling. Otherwise use max-dimension buckets. Campus always uses the `campus` row regardless of max-dimension.
 
 ### `TileEvidence`
 
@@ -274,9 +302,23 @@ interface SvFacadeEvidence {
   windowGrid: { rows: number; cols: number; confidence: number } | null;
   cornice: boolean;
   occlusion: 'none' | 'trees' | 'adjacent-building' | 'poles';
+  // Per-facade confidence (0-1). Fused later.
+  confidence: number;
 }
 
 type SvEvidence = SvFacadeEvidence[];  // one per captured facade
+
+/**
+ * Occlusion classification rule (deterministic, computed from `sniff` + heading variance):
+ *   - building% ≥ minBuildingPixelRatio AND veg% < 0.15        → 'none'
+ *   - veg% ≥ 0.30                                               → 'trees'
+ *   - best-variant differs from primary heading by ≥ 20° AND
+ *     both sniffs show building% > 0.25                         → 'adjacent-building'
+ *     (the adjacent building was blocking the primary view, a
+ *     heading shift cleared it)
+ *   - Otherwise                                                  → 'poles'
+ *     (thin vertical obstructions, street furniture, low veg)
+ */
 ```
 
 ### `SatEvidence`
@@ -289,6 +331,10 @@ interface SatEvidence {
   treeMask: Uint8Array;               // 1 where canopy detected
   treeMaskDim: { w: number; h: number };
   roofPalette: { primary: Lab; secondary: Lab | null };
+  // Shadow azimuth — consumed by environment/scene.ts to orient sun direction
+  // in the exported scene GLB (more realistic rendering). Not consumed by the
+  // building mesh itself. Dropping to `| null` allowed; downstream treats null
+  // as "no sun hint, use default azimuth 135°".
   shadowAzimuthDeg: number | null;
 }
 ```
@@ -309,7 +355,10 @@ interface JointEvidence {
   wallPalette: Evidence<Lab[]>;        // up to 3 dominant colors
   roofPalette: Evidence<Lab[]>;
   roofShape: Evidence<BuildingContext['roofShape']>;
-  windowGrid: Evidence<{ rows: number; cols: number }[]> | null;  // per facade
+  // Per-facade window grid evidence — each facade has its own confidence.
+  // Array index matches MBR facade edge index (0-3). Entry is null if that
+  // facade was not captured or window detection failed.
+  windowGrid: (Evidence<{ rows: number; cols: number }> | null)[];
   cornice: Evidence<boolean>;
   entry: Evidence<{ edge: number; offsetAlongEdge: number }>;
   trees: { position: LatLon; radiusM: number; source: 'osm' | 'sv' | 'sat' }[];
@@ -328,6 +377,8 @@ interface BuildingBRep {
   walls: Wall[];                       // extrusions per facade per floor
   roof: RoofVolume;                    // separate CSG volume
   details: Feature[];                  // windows, doors, cornices, setbacks
+  // NB: 'balcony' is reserved in the Feature kind union but no generator in
+  // this spec emits one. Add generator + OSM/SV source in a follow-up spec.
 
   // CSG operations future-ready
   voids?: Volume[];                    // interior (future floorplan subtract)
@@ -443,7 +494,7 @@ scripts/
   iterate.ts                     ← NEW: objective + consensus driver
   _legacy/                       ← OLD tiles-headless.ts, voxelize-glb.ts, iterate-*.ts, fetch-reference-data.ts
 
-web/src/ui/tiles.ts              ← REWRITTEN: thin adapter over src/pipeline/
+web/src/ui/tiles.ts              ← REWRITTEN (see notes below)
 
 .claude/hooks/
   check-pipeline-state.sh        ← NEW (replaces the 3 old hooks)
@@ -452,7 +503,7 @@ DELETE:
   src/convert/pipeline.ts        ~1150 lines
   src/convert/mesh-filter.ts     ~165 lines
   src/convert/mesh-filter/*.ts   ~8830 lines
-  src/convert/voxel-classifier.ts ~524 lines
+  src/convert/voxel-classifier.ts ~524 lines  (the ~30 useful lines — `writeWithPriority`, `VoxelClass` enum for building/environment priority — are re-implemented in `src/pipeline/export/voxel.ts` as ~40 lines. Net reduction: ~484 lines, not 524.)
   src/convert/scene-pipeline.ts  ~517 lines
   src/convert/semantic-palette.ts ~465 lines (concept re-implemented in fusion/palette.ts)
   src/convert/scene-enrichment.ts ~791 lines (rewritten in environment/)
@@ -463,6 +514,14 @@ DELETE:
 ```
 
 **Net**: delete ~12,000 lines of bandaid; keep ~7,600 lines of quality code; add ~2,500 lines of clean core.
+
+**`web/src/ui/tiles.ts` rewrite scope.** The existing file is not thin — it handles tile loading (rAF throttling workarounds for Android Edge), Web Worker voxelization (`voxelize-worker.ts`), Canvas2D texture rasterization, manual XZ selection via raycaster, and an upload UI. The rewrite moves:
+
+- **Pure core** (absorbed into `src/pipeline/capture/tiles.ts`): tile-loading stats + stable-frame detection, mesh extraction, heightmap rasterization
+- **Pure core** (absorbed into `src/pipeline/export/voxel.ts`): voxelization dispatch; the Web Worker is kept in `web/src/workers/voxelize-worker.ts` and wraps `src/pipeline/export/voxel.ts` via a shared interface
+- **Browser-only concerns** (stays in `web/src/ui/tiles.ts`): DOM/Canvas, rAF workarounds, upload UI, manual selection raycaster, pure-core driver (lifecycle only)
+
+Migration step 14 is where this absorption happens. The file is expected to shrink from ~1,800 lines to ~300 lines (pure UI + driver), with the substantial logic living in the pure core.
 
 ---
 
@@ -485,14 +544,16 @@ DELETE:
 ### Stage 2 — Classify + Profile
 
 - **Size**: `max(widthM, depthM)` → bucket (table)
-- **Shape**: polygon analysis:
+- **Shape (initial, from polygon only)**:
   - `vertexCount` ≤ 4 and aspect ratio 0.8-1.2 → `rect`
   - `vertexCount` ≤ 4 and aspect < 0.4 or > 2.5 → `rect` (elongated)
   - Triangle-like (3 effective vertices after simplification) → `wedge`
   - Concavity analysis: inner rings → `courtyard`; one major concavity → `U`; three+ wings → `multi-wing`
-  - Heightmap analysis of tile evidence (deferred): podium + tall tower → `tower-podium`
   - Vertex count ≥ 12 and smooth curvature → `curved`
   - Otherwise → `irregular`
+- **Shape refinement (post-Stage 3, via `refineContextWithTiles()`):**
+  - If heightmap max-height column exists only near polygon centroid AND surrounding cells are ≤ 50% of centroid max-height → `tower-podium` (overrides initial classification)
+  - This is the **only** field mutated after Stage 2. Called as `const ctx2 = refineContextWithTiles(ctx, tiles);` in the orchestrator. The router reads `ctx2.shape`, never `ctx.shape`.
 - **SV difficulty**: OSM `landuse` around point, OSM `natural=tree` density, OSM road class nearest
   - Residential w/ trees → `rural-occluded` or `suburban`
   - CBD / downtown → `dense-urban`
@@ -590,6 +651,8 @@ Each field stores chosen `value`, `source`, `confidence` (computed from rule's c
 
 Palette reconciliation: when SV and OSM tag agree within delta-E 10, confidence = 1.0. When they disagree > delta-E 20, log warning, use SV value, downgrade confidence to 0.6.
 
+**Note on Stage 4 zone-sampling framing:** The "bottom 60% for wall, top 20% for trim" rule (Stage 4 step 6) is applied **after** masking out sky and vegetation pixels via the cheap HSV threshold reused from sniff. Tower shots where sky fills the top and podium fills the bottom still yield meaningful wall/trim samples because the zones refer to the masked building region, not the raw image.
+
 ### Stage 7 — Synthesis Router
 
 ```ts
@@ -633,10 +696,14 @@ Output is a `BuildingBRep`. CSG operations produce the watertight mesh at export
 
 ### Stage 7b — Cleaned Tiles (fallback)
 
-1. Clip `TileEvidence.glb` to OSM polygon boundary if polygon available (hard clip)
-2. Repair: fill holes by projecting silhouette onto 2D and closing boundary; close bottom by extending vertical walls to ground
-3. If `truncated` and `heightM` is known: extrapolate top — sample top-layer textures, extrude upward with interpolated coloring
-4. Output is a mesh (non-B-rep), but watertight
+1. Clip `TileEvidence.glb` to OSM polygon boundary (hard clip) if polygon available; otherwise clip to `ctx.mbr.corners` rectangle.
+2. Repair walls: for each XZ column in the captured extent, fill holes vertically — from min Y of that column up to its max Y, any missing voxel/triangle gap is closed by extending the nearest horizontal face to its vertical neighbor. Implementation uses a marching-squares pass per vertical slab.
+3. Close bottom: extend vertical walls down to ground elevation (`ctx.groundElevationM`) with a flat base cap.
+4. Close top if truncated: if `truncated` and `ctx.heightM` known:
+   - Take the **topmost complete horizontal cross-section** (highest Y where ≥ 80% of columns have geometry). This is the `template cross-section`.
+   - Extrude the template cross-section upward from `template.y` to `ctx.heightM`, with a linear Y taper of 0-2% applied to XZ so the extrusion matches tapered skyscraper silhouettes.
+   - Texturing: sample a 1m-tall horizontal band from the `template.y - 2m` region of the captured mesh, tile it vertically on the extruded surface. No color interpolation — the band texture is repeated. This is cheap and realistic; VLM review will flag if it looks fake.
+5. Output is a triangle mesh (non-B-rep). Watertightness is enforced by the repair+close passes; objective gate confirms.
 
 This path produces a printable mesh but lacks the clean feature detail of parametric. Objective gates still apply.
 
@@ -653,11 +720,13 @@ Not an MVP priority; spec'd for future step.
 **8a Print GLB:**
 - CSG evaluate `BuildingBRep` into triangle mesh
 - Union all volumes (floors, walls, roof, features)
-- Subtract window-inset volumes (creates recessed windows; optional windowpane as separate mesh with transparent material)
-- Watertightness check — abort if fail
-- Manifold check — abort if fail
-- Optional plinth: extrude footprint by 5mm thickness, 2cm wider
-- Export as glTF 2.0 binary
+- Subtract window-inset volumes (creates recessed windows). The inset volume is bounded — it does not cut through the entire wall. Inset depth is 0.08m; wall thickness is 0.3m, leaving 0.22m of sealed wall behind the inset (2.2mm at 1:100 print scale, above the 0.8mm gate).
+- Produce **two mesh groups** in the glTF output:
+  - `group_structural` — the building volume, required to be watertight + manifold. The objective gates at Stage 9 check this group ONLY.
+  - `group_fixtures` — optional non-structural meshes (transparent windowpane planes, decorative items). Not subject to watertight/manifold gates; can have thin features.
+- Watertightness + manifold + self-intersect checks run on `group_structural`. Abort on failure.
+- Optional plinth (separate `group_plinth`): extrude footprint by 5mm thickness, 2cm wider. Also gated for watertightness independently.
+- Export as glTF 2.0 binary with the groups as named scene nodes so slicers (Prusa, Cura) can accept/reject the fixtures group.
 
 **8b Scene GLB:**
 - 8a output (but without plinth)
@@ -675,17 +744,25 @@ Not an MVP priority; spec'd for future step.
 
 ### Stage 9 — Verify
 
-**Objective gates** (deterministic, must pass):
+**Objective gates** (deterministic, must pass, evaluated on `group_structural` unless noted):
 
-| Gate | Check | Pass threshold |
-|---|---|---|
-| Footprint IoU | shapely-style polygon IoU vs OSM | ≥ 0.85 |
-| Height error | `|synth.height - ev.heightM| / ev.heightM` | ≤ 0.10 |
-| Watertight | Boundary-edge count (edges with != 2 faces) | 0 |
-| Manifold | Every edge has ≤ 2 incident faces | true |
-| Self-intersect | Triangle-triangle intersection test (sampled) | 0 |
-| Min wall thickness | At 1:100 scale | ≥ 0.8mm |
-| Voxel occupancy | Non-empty, < 500K blocks | within bounds |
+| # | Gate | Check | Threshold |
+|---|------|-------|-----------|
+| 1 | Footprint IoU | Shapely-style polygon IoU of top-down silhouette vs OSM polygon | ≥ 0.85 |
+| 2 | Height error | `\|synth.height - ev.heightM\| / ev.heightM` | ≤ 0.10 |
+| 3 | Watertight | Count of boundary edges (edges with ≠ 2 incident faces) | = 0 |
+| 4 | Manifold | Every edge has ≤ 2 incident faces AND every vertex has one connected edge-loop (fan property) | true |
+| 5 | Self-intersect | AABB-tree accelerated triangle-triangle intersection test. **Exhaustive** (no sampling). Uses three-mesh-bvh. | = 0 |
+| 6 | Min wall thickness | Ray-marching from each surface triangle centroid along `-normal`, first inside-hit distance is wall thickness. Minimum across sampled triangles (1 per 5cm² surface area). At 1:100 print scale (real mm = mesh m × 10) | ≥ 0.8mm (= 0.08m real) |
+| 7 | Voxel occupancy (building only) | Non-empty voxel count | ≥ 1 AND ≤ 500,000 |
+
+**Rationale for thresholds:**
+- **IoU ≥ 0.85**: prior pipeline averaged 0.89 on passing buildings and 0.72 on failing; 0.85 is the meaningful boundary.
+- **Height error ≤ 10%**: matches typical Solar API uncertainty; tighter threshold would fail truncated skyscrapers where Solar is the authoritative height.
+- **Self-intersect exhaustive, not sampled**: sampling can miss thin intersections that would print as tangled strings. BVH makes it O(n log n) instead of O(n²), tractable for meshes up to ~500K triangles.
+- **Voxel ≤ 500K**: mobile Minecraft clients choke above ~500K blocks in a single schematic; also matches Litematica plugin's practical ceiling.
+
+**Note on watertight/windows interaction**: See Stage 8a — the inset windows are bounded cavities, not through-holes, so they do not open the building volume. Windowpane planes (if exported) live in `group_fixtures` and are explicitly outside the watertight gate.
 
 **Subjective consensus** (after objective pass):
 
@@ -699,7 +776,12 @@ Not an MVP priority; spec'd for future step.
 - `consensus = min(model × dimension)` = the minimum score across all 12 (3 models × 4 dimensions)
 - `spread = max(model × dimension) - min(model × dimension)` over each dimension
 - **Release gate**: `consensus ≥ 8` AND `max spread per dimension ≤ 2`
-- If spread > 2: re-render with rotated view angles, re-vote; up to 3 rounds; then surface disagreement with per-model scores
+- **Rationale for thresholds**: `consensus ≥ 8` targets the plateau ceiling the prior Gemini-only pipeline reached; requiring **three** models to clear it independently is a real uplift. `spread ≤ 2` filters cases where one model is biased (e.g., Gemini rates photogrammetry highly, Claude penalizes it) — the pipeline shouldn't release on a single model's outlier optimism.
+- **Loop termination (prevents infinite re-voting):**
+  - Round 1: vote once.
+  - If spread > 2 on any dimension: Round 2 re-renders with rotated view angles (45° rotation of the 3/4 view + alternate isometric quadrant), re-votes.
+  - If spread > 2 persists: Round 3 re-renders at higher resolution (4K) to rule out rasterization artifacts, re-votes.
+  - After Round 3: **terminal state**. The verification result is `status: 'needs-human-review'` with `consensus`, `spread`, and all per-model scores recorded. This is neither pass nor fail — it's a third state. The stop hook (Stage 10) treats `needs-human-review` as non-blocking (exits 0) and the address is listed in a daily summary for manual look. This prevents the hook from re-triggering the consensus loop forever.
 
 ### Stage 10 — Stop hook
 
@@ -721,10 +803,33 @@ Not an MVP priority; spec'd for future step.
 
 Hook logic:
 1. If any address has objective failures → block with `"EXECUTE NOW: rebuild {slug} — {failing_gate} (threshold={t}, got={v})"`
-2. If objective pass but consensus `min < 8` → block with `"EXECUTE NOW: improve {slug} on {worst_dim} (score={s})"`
-3. If consensus min ≥ 8 but spread > 2 → block with `"EXECUTE NOW: re-render {slug} — model disagreement on {dim}"`
-4. If all addresses pass → exit 0 silently
-5. `stop_hook_active` → exit 0 (prevent loops)
+2. If objective pass but consensus `min < 8` AND `status !== 'needs-human-review'` → block with `"EXECUTE NOW: improve {slug} on {worst_dim} (score={s})"`
+3. If `status === 'needs-human-review'` → **exit 0 non-silently** (log the dissent summary to stderr but do not block). This is the terminal state from Stage 9 loop exhaustion.
+4. If all addresses pass → exit 0 silently.
+5. `stop_hook_active` → exit 0 (prevent re-entry loops).
+
+State record shape:
+
+```json
+{
+  "addresses": {
+    "flatiron": {
+      "objective": { "footprintIoU": 0.91, "heightErr": 0.04, "watertight": true, "manifold": true, "selfIntersect": 0, "minWallThicknessMm": 2.2, "voxelCount": 48000, "pass": true },
+      "consensus": {
+        "rounds": 1,
+        "gemini": { "color": 9, "features": 8, "massing": 9, "overall": 9 },
+        "claude": { "color": 8, "features": 8, "massing": 9, "overall": 8 },
+        "gpt5":   { "color": 9, "features": 9, "massing": 9, "overall": 9 },
+        "min": 8, "spread": 1, "pass": true
+      },
+      "status": "pass",
+      "lastRun": "2026-04-17T12:00:00Z"
+    }
+  }
+}
+```
+
+`status` is one of `pass | fail-objective | fail-consensus | needs-human-review`. Hook reads `status` directly.
 
 ---
 
@@ -750,7 +855,7 @@ Each step is one commit/PR, feature-gated. Old entry points (`scripts/voxelize-g
 
 1. **Scaffold** — `src/pipeline/` directory skeleton with types files and empty stubs. `bunx tsc --noEmit` clean.
 2. **Resolver** — Stages 0-2. Pure functions + profile table JSON + classifier. Tests against 5 goldens: correct `BuildingContext` + `CaptureProfile` output.
-3. **Tile capture** — Stage 3, extracted from `tiles-headless.ts` into pure core. Preserves existing behavior. Legacy script becomes a thin wrapper.
+3. **Tile capture** — Stage 3, extracted from `tiles-headless.ts` into pure core. Preserves existing behavior. Legacy script becomes a thin wrapper. **Plumbing cost**: the extraction must keep the legacy script functional until step 14, so the pure-core module is initially required to expose exactly the behaviors the legacy script relies on (DRACO setup, polyfill hooks, GLB writer). Extra wrapper surface is temporary and deleted in step 15.
 4. **SV capture** — Stage 4 iterative loop. Can unit-test the sniff function independently. Mock API responses in tests.
 5. **Satellite** — Stage 5. Tree-mask unit tests with synthetic inputs.
 6. **Fusion** — Stage 6. Deterministic; unit tests per conflict rule.
@@ -788,7 +893,7 @@ MVP (end of step 12):
 - 5 goldens all pass all objective gates
 - 4 of 5 goldens pass consensus ≥ 8 with spread ≤ 2
 - Building print GLB opens in Prusa / Cura without warnings
-- Building voxel schem matches or exceeds existing scores on the 7-category rubric (for reference)
+- Building voxel schem for 5 goldens is visually on par or better than existing output. **The 7-category rubric (old pipeline) is NOT used for MVP grading** — the new 4-dimension VLM consensus (color / features / massing / overall) is the canonical subjective metric from step 12 onward. Side-by-side comparison against old schems is advisory only, for sanity checks during migration
 
 Full (end of step 15):
 - All 20 existing buildings pass objective gates
