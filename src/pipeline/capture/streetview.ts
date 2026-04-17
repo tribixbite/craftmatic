@@ -14,14 +14,24 @@
 
 import type { BuildingContext, CaptureProfile } from '../context/types.js';
 import type { OcclusionKind, SvEvidence, SvFacadeEvidence, CaptureProgressFn } from './types.js';
-import { sniffPixels, decodeImageToRgba, type SniffRatios } from './sv-sniff.js';
+import { sniffPixels, decodeImageToRgba, type SniffResult } from './sv-sniff.js';
+import { extractPalette, type Lab } from '../fusion/palette.js';
 
-async function imageToSniff(img: SvImageFetch): Promise<SniffRatios> {
+/**
+ * Decode + sniff, returning full SniffResult (ratios + mask) for downstream
+ * palette extraction. Test stubs pass `rgba` so we skip the sharp decode.
+ */
+async function imageToSniffFull(img: SvImageFetch): Promise<{
+  result: SniffResult;
+  pixels: Uint8Array;
+}> {
   if (img.rgba) {
-    return sniffPixels(img.rgba, img.width, img.height, 4).ratios;
+    const result = sniffPixels(img.rgba, img.width, img.height, 4, { mask: true });
+    return { result, pixels: img.rgba };
   }
   const dec = await decodeImageToRgba(img.bytes);
-  return sniffPixels(dec.pixels, dec.width, dec.height).ratios;
+  const result = sniffPixels(dec.pixels, dec.width, dec.height, 4, { mask: true });
+  return { result, pixels: dec.pixels };
 }
 
 // ─── Fetcher interface ─────────────────────────────────────────────────────
@@ -199,14 +209,14 @@ export async function fetchFacadeSv(params: {
 
   // Primary image
   const primaryImg = await fetchers.image(probe.meta.panoId, heading, fov, profile.pitchDeg);
-  const primarySniff = await imageToSniff(primaryImg);
+  const primaryFull = await imageToSniffFull(primaryImg);
 
   // Decide if retry needed
   let bestHeading = heading;
-  let bestSniff = primarySniff;
+  let bestFull = primaryFull;
   let bestImg = primaryImg;
 
-  if (primarySniff.building < profile.minBuildingPixelRatio) {
+  if (primaryFull.result.ratios.building < profile.minBuildingPixelRatio) {
     for (const variant of profile.angleVariants) {
       if (variant === 0) continue; // already took the primary at this heading
       const testHeading = (heading + variant + 360) % 360;
@@ -216,22 +226,33 @@ export async function fetchFacadeSv(params: {
       } catch {
         continue;
       }
-      const varSniff = await imageToSniff(variantImg);
-      if (varSniff.building > bestSniff.building) {
+      const varFull = await imageToSniffFull(variantImg);
+      if (varFull.result.ratios.building > bestFull.result.ratios.building) {
         bestHeading = testHeading;
-        bestSniff = varSniff;
+        bestFull = varFull;
         bestImg = variantImg;
       }
     }
   }
 
   const occlusion = classifyOcclusion(
-    primarySniff, bestSniff, heading, bestHeading, profile.minBuildingPixelRatio,
+    primaryFull.result.ratios, bestFull.result.ratios,
+    heading, bestHeading, profile.minBuildingPixelRatio,
   );
 
-  // Confidence: building ratio × (0.5 + 0.5×(probe.offsetScale === 1 ? 1 : 0.6))
+  // Palette — K-means in Lab, building-masked, zoned
+  const { wall, trim, accent } = extractFacadePalette(
+    bestFull.pixels, bestFull.result,
+  );
+
+  // Window grid + cornice are stubs until dedicated detectors land.
+  // The parametric synthesis path accepts null and falls back to procedural
+  // grid generation from archType + levels.
+  const windowGrid = null;
+  const cornice = false;
+
   const scaleBonus = probe.offsetScale === 1 ? 1 : 0.6;
-  const confidence = Math.min(1, bestSniff.building * scaleBonus);
+  const confidence = Math.min(1, bestFull.result.ratios.building * scaleBonus);
 
   return {
     facadeEdge,
@@ -242,14 +263,38 @@ export async function fetchFacadeSv(params: {
     headingDeg: bestHeading,
     fovDeg: fov,
     pitchDeg: profile.pitchDeg,
-    sniff: bestSniff,
-    // Palette + window grid + cornice wired in Task 3.3
-    palette: { wall: [50, 0, 0], trim: [60, 0, 0], accent: null },
-    windowGrid: null,
-    cornice: false,
+    sniff: bestFull.result.ratios,
+    palette: { wall, trim, accent },
+    windowGrid,
+    cornice,
     occlusion,
     confidence,
   };
+}
+
+/**
+ * Extract wall/trim/accent Lab colours from a sniffed facade image.
+ * Wall: bottom 60% zone, sampled from building-only pixels.
+ * Trim: top 20% zone, same filter.
+ * Accent: second-largest cluster in wall zone (optional, may be null).
+ */
+function extractFacadePalette(
+  pixels: Uint8Array,
+  sniff: SniffResult,
+): { wall: Lab; trim: Lab; accent: Lab | null } {
+  const mask = sniff.mask ?? null;
+
+  const wallResult = extractPalette(pixels, sniff.width, sniff.height, 4, {
+    k: 3, mask, zone: { x0: 0, y0: 0.4, x1: 1, y1: 1 }, stride: 2, seed: 1,
+  });
+  const trimResult = extractPalette(pixels, sniff.width, sniff.height, 4, {
+    k: 1, mask, zone: { x0: 0, y0: 0, x1: 1, y1: 0.2 }, stride: 2, seed: 1,
+  });
+
+  const wall: Lab = wallResult.clusters[0]?.lab ?? [50, 0, 0];
+  const trim: Lab = trimResult.clusters[0]?.lab ?? wall;
+  const accent: Lab | null = wallResult.clusters[1]?.lab ?? null;
+  return { wall, trim, accent };
 }
 
 /** Copy a typed array's view into a fresh ArrayBuffer (handles SAB sources). */
