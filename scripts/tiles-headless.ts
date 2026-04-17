@@ -1,117 +1,35 @@
 #!/usr/bin/env bun
 /**
- * Headless Google 3D Tiles downloader + GLB exporter.
- * Downloads tiles around a geocoded address WITHOUT WebGL/browser,
- * then saves the extracted meshes as a GLB file for the voxelizer pipeline.
+ * Headless Google 3D Tiles downloader + GLB exporter — thin CLI over the
+ * pure `captureTiles()` function in `src/pipeline/capture/tiles.ts`.
+ *
+ * This script stays around as a debug tool during the rearchitecture.
+ * Production workflows use `scripts/build.ts` (added in Chunk 9).
  *
  * Usage:
  *   bun scripts/tiles-headless.ts "240 Highland St, Newton, MA" -r 50 -o output/tiles/test.glb
  *   bun scripts/tiles-headless.ts --lat=42.3435 --lng=-71.2092 -r 50 -o output/tiles/test.glb
  */
-// Polyfill browser globals that 3d-tiles-renderer expects in Node.js/Bun
-if (typeof globalThis.window === 'undefined') {
-  (globalThis as any).window = {
-    location: { href: 'https://localhost/' },
-  };
-}
-if (typeof globalThis.document === 'undefined') {
-  (globalThis as any).document = {
-    createElementNS: () => ({}),
-    createElement: () => ({ style: {} }),
-  };
-}
-if (typeof globalThis.DOMParser === 'undefined') {
-  (globalThis as any).DOMParser = class {
-    parseFromString() { return { documentElement: {} }; }
-  };
-}
-// rAF/cAF polyfills — 3d-tiles-renderer uses these for scheduling
-if (typeof globalThis.requestAnimationFrame === 'undefined') {
-  let rafId = 0;
-  const rafCallbacks = new Map<number, ReturnType<typeof setTimeout>>();
-  (globalThis as any).requestAnimationFrame = (cb: () => void) => {
-    const id = ++rafId;
-    rafCallbacks.set(id, setTimeout(() => { rafCallbacks.delete(id); cb(); }, 0));
-    return id;
-  };
-  (globalThis as any).cancelAnimationFrame = (id: number) => {
-    const handle = rafCallbacks.get(id);
-    if (handle) { clearTimeout(handle); rafCallbacks.delete(id); }
-  };
-}
-// ImageBitmap polyfill (Three.js texture loader checks for it, dispose() uses instanceof)
-if (typeof globalThis.ImageBitmap === 'undefined') {
-  (globalThis as any).ImageBitmap = class ImageBitmap {
-    width = 1; height = 1;
-    close() {}
-  };
-}
-if (typeof globalThis.createImageBitmap === 'undefined') {
-  // Decode images using sharp so textures have real pixel data for the GLB export
-  (globalThis as any).createImageBitmap = async (source: Blob | ArrayBuffer) => {
-    try {
-      const sharpMod = (await import('sharp')).default;
-      let buf: Buffer;
-      if (source instanceof Blob) {
-        buf = Buffer.from(await source.arrayBuffer());
-      } else if (source instanceof ArrayBuffer || ArrayBuffer.isView(source)) {
-        buf = Buffer.from(source as ArrayBuffer);
-      } else {
-        return new (globalThis as any).ImageBitmap();
-      }
-      const img = sharpMod(buf);
-      const meta = await img.metadata();
-      const pixels = await img.raw().ensureAlpha().toBuffer();
-      return {
-        width: meta.width ?? 1,
-        height: meta.height ?? 1,
-        data: new Uint8Array(pixels), // RGBA pixel data
-        close() {},
-      };
-    } catch {
-      return new (globalThis as any).ImageBitmap();
-    }
-  };
-}
-// ProgressEvent polyfill — Three.js FileLoader's fetch streaming creates these
-if (typeof globalThis.ProgressEvent === 'undefined') {
-  (globalThis as any).ProgressEvent = class ProgressEvent extends Event {
-    lengthComputable: boolean;
-    loaded: number;
-    total: number;
-    constructor(type: string, init: Record<string, unknown> = {}) {
-      super(type);
-      this.lengthComputable = (init.lengthComputable as boolean) ?? false;
-      this.loaded = (init.loaded as number) ?? 0;
-      this.total = (init.total as number) ?? 0;
-    }
-  };
-}
 
-import * as THREE from 'three';
-import { TilesRenderer } from '3d-tiles-renderer';
-import { GoogleCloudAuthPlugin, ReorientationPlugin, GLTFExtensionsPlugin } from '3d-tiles-renderer/plugins';
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import { FIVE_ANGLE_PRESET, positionCameraForAngle, computeCameraDistance, waitForStable, getAlignedAngles } from '../src/convert/multi-angle-capture.js';
-import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
+import { resolve } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+
+import { computeBuildingAlignment } from '../src/convert/building-alignment.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
-import { writeFile as fsWriteFile } from 'fs/promises';
-import { resolve } from 'path';
+import { captureTiles } from '../src/pipeline/capture/tiles.js';
 
-// Parse CLI args — collect non-flag words as address parts
+// ─── CLI parsing ───────────────────────────────────────────────────────────
+
 const args = process.argv.slice(2);
 const addressParts: string[] = [];
 let lat: number | null = null;
 let lng: number | null = null;
 let radius = 50;
 let outputPath = '';
-let timeout = 120000; // 2 min default
-// Camera mode: 'ortho' (top-down, best for complex footprints),
-// 'perspective' (45° angle, best for facade detail on skyscrapers),
-// 'street' (ground level, original mode)
+let timeout = 120_000;
 let cameraMode: 'ortho' | 'perspective' | 'street' = 'ortho';
 let multiAngle = false;
-let buildingHeight = 0; // expected building height in meters (0 = unknown)
+let buildingHeight = 0;
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -127,9 +45,10 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--camera' && i + 1 < args.length) {
     const mode = args[++i];
     if (mode === 'ortho' || mode === 'perspective' || mode === 'street') cameraMode = mode;
-    else { console.error(`Unknown camera mode: ${mode}. Use ortho, perspective, or street.`); process.exit(1); }
+    else { console.error(`Unknown camera mode: ${mode}`); process.exit(1); }
+  } else if (!a.startsWith('-')) {
+    addressParts.push(a);
   }
-  else if (!a.startsWith('-')) addressParts.push(a);
 }
 const address = addressParts.join(' ');
 
@@ -139,15 +58,20 @@ if (!address && (lat === null || lng === null)) {
   process.exit(1);
 }
 
-// Load API key
-const dotenv = await Bun.file(resolve(import.meta.dir, '../.env')).text();
-const apiKey = dotenv.match(/GOOGLE_MAPS_API_KEY=(.+)/)?.[1]?.trim();
+// ─── API key ───────────────────────────────────────────────────────────────
+
+const projectRoot = resolve(import.meta.dir, '..');
+const envPath = resolve(projectRoot, '.env');
+const envText = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
+const apiKey = process.env['GOOGLE_MAPS_API_KEY']
+  ?? envText.match(/GOOGLE_MAPS_API_KEY=(.+)/)?.[1]?.trim();
 if (!apiKey) {
-  console.error('Error: GOOGLE_MAPS_API_KEY not found in .env');
+  console.error('Error: GOOGLE_MAPS_API_KEY not set (env or .env file)');
   process.exit(1);
 }
 
-// Geocode if needed
+// ─── Geocode if needed ────────────────────────────────────────────────────
+
 if (!lat || !lng) {
   console.log(`Geocoding: ${address}`);
   const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
@@ -164,677 +88,75 @@ if (!lat || !lng) {
 
 if (!outputPath) {
   const slug = address ? address.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 40) : `${lat!.toFixed(4)}-${lng!.toFixed(4)}`;
-  outputPath = resolve(import.meta.dir, `../output/tiles/tiles-${slug}.glb`);
+  outputPath = resolve(projectRoot, `output/tiles/tiles-${slug}.glb`);
+} else {
+  outputPath = resolve(projectRoot, outputPath);
 }
-// Resolve relative paths against project root (not CWD, which Bun may set to .bun/tmp/)
-const projectRoot = resolve(import.meta.dir, '..');
-outputPath = resolve(projectRoot, outputPath);
+
+// ─── Optional OSM alignment lookup ────────────────────────────────────────
+
+let rotationDeg: number | null = null;
+try {
+  const osmResult = await searchOSMBuilding(lat!, lng!, 150);
+  if (osmResult?.polygon && osmResult.polygon.length >= 3) {
+    const align = computeBuildingAlignment(osmResult.polygon, lat!, lng!);
+    rotationDeg = align.rotationDeg;
+    console.log(`Building alignment: ${align.rotationDeg.toFixed(1)}° MBR ${align.mbrWidth.toFixed(0)}×${align.mbrDepth.toFixed(0)}m`);
+  }
+} catch {
+  console.warn('OSM alignment lookup failed — using default camera angles');
+}
+
+// ─── Delegate to pipeline ──────────────────────────────────────────────────
 
 console.log(`\nTarget: lat=${lat}, lng=${lng}, radius=${radius}m`);
 console.log(`Output: ${outputPath}`);
-console.log(`Timeout: ${timeout / 1000}s`);
 console.log(`Camera: ${cameraMode}${buildingHeight ? ` height=${buildingHeight}m` : ''}`);
 
-// v300: Query OSM for building polygon and compute alignment
-let alignment: BuildingAlignment | undefined;
-try {
-  const osmResult = await searchOSMBuilding(lat!, lng!, 150);
-  if (osmResult?.polygon?.length >= 3) {
-    // OSMBuildingData.polygon uses {lat, lon} — matches LatLon interface directly
-    alignment = computeBuildingAlignment(osmResult.polygon, lat!, lng!);
-    console.log(`Building alignment: ${alignment.rotationDeg.toFixed(1)}° MBR ${alignment.mbrWidth.toFixed(0)}×${alignment.mbrDepth.toFixed(0)}m`);
-  }
-} catch (e) {
-  console.warn('OSM query for alignment failed, using default camera angles');
-}
+const effectiveHeight = buildingHeight || 60;
+const bandHeight = 100;
+const numBands = Math.max(1, Math.ceil(effectiveHeight / bandHeight));
 
-// Set up camera based on mode
-// - ortho: OrthographicCamera from Y=500+ looking down. Best for complex footprints
-//   (Capitol, Pentagon, sprawling buildings). Captures full XZ extent but low facade detail.
-// - perspective: PerspectiveCamera at 45° angle from height proportional to building.
-//   Best for skyscrapers (ESB, Chrysler, Willis). Captures vertical detail + facade.
-// - street: PerspectiveCamera at ground level (0,8,8). Highest facade detail
-//   for nearby surfaces but frustum clips everything above ~50m.
-let camera: THREE.Camera;
-if (cameraMode === 'ortho') {
-  const halfExtent = radius * 1.5;
-  // Position above the tallest expected point so the full building is in frustum
-  const camY = Math.max(500, buildingHeight * 1.2 + 50);
-  camera = new THREE.OrthographicCamera(
-    -halfExtent, halfExtent, halfExtent, -halfExtent, 1, camY + 500,
-  );
-  camera.position.set(0, camY, 0);
-  camera.lookAt(0, 0, 0);
-} else if (cameraMode === 'perspective') {
-  // Initial perspective view captures base detail; multi-angle bands handle height.
-  // Camera stays close (2x radius) for high-LOD tiles on the lower floors.
-  camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
-  const dist = radius * 2;
-  camera.position.set(dist * 0.7, dist, dist * 0.7);
-  camera.lookAt(0, radius * 0.3, 0);
-} else {
-  // Street-level view — best for nearby facade detail
-  camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
-  camera.position.set(0, 8, 8);
-  camera.lookAt(0, 0, 0);
-}
-camera.updateMatrixWorld(true);
-
-// Create TilesRenderer
-const tiles = new TilesRenderer();
-
-// Google Cloud auth
-tiles.registerPlugin(new GoogleCloudAuthPlugin({
-  apiToken: apiKey,
-  useRecommendedSettings: false, // we set our own errorTarget
-}));
-
-// Reorientation: positions tiles so the target lat/lng is at scene origin
-tiles.registerPlugin(new ReorientationPlugin({
-  lat: lat! * THREE.MathUtils.DEG2RAD,
-  lon: lng! * THREE.MathUtils.DEG2RAD,
-  height: 0,
-  recenter: true,
-}));
-
-// DRACO decoder — Bun Workers can't run emscripten-compiled draco_decoder.js,
-// so we monkey-patch DRACOLoader to decode in the main thread via WASM.
-const dracoDir = resolve(import.meta.dir, '..', 'node_modules', 'three', 'examples', 'jsm', 'libs', 'draco', 'gltf');
-const dracoLoader = new DRACOLoader();
-dracoLoader.setDecoderPath('file://' + dracoDir + '/');
-dracoLoader.setDecoderConfig({ type: 'js' }); // must set to avoid wasm path in _initDecoder
-
-// Load the JS decoder in the main thread and create a synchronous decode function
-// Emscripten's Node.js detection uses require('fs') + require('path') + __dirname — polyfill for Bun ESM
-if (typeof globalThis.require === 'undefined') {
-  const nodeFs = await import('fs');
-  const nodePath = await import('path');
-  (globalThis as any).require = (id: string) => {
-    if (id === 'fs') return nodeFs;
-    if (id === 'path') return nodePath;
-    throw new Error(`require('${id}') not polyfilled`);
-  };
-}
-// __dirname needed by emscripten for locating .wasm file (even though JS decoder doesn't use it)
-if (typeof (globalThis as any).__dirname === 'undefined') {
-  (globalThis as any).__dirname = dracoDir;
-}
-const decoderJS = await Bun.file(resolve(dracoDir, 'draco_decoder.js')).text();
-// The decoder script defines DracoDecoderModule as a global factory function
-const decoderFactory = new Function(decoderJS + '\nreturn DracoDecoderModule;')();
-const dracoModule = await new Promise<any>((res) => {
-  decoderFactory({ onModuleLoaded: (draco: any) => res(draco) });
-});
-console.log('DRACO decoder loaded in main thread');
-
-// Helper functions replicated from DRACOWorker (three/examples/jsm/loaders/DRACOLoader.js)
-function getDracoDataType(draco: any, attributeType: any) {
-  switch (attributeType) {
-    case Float32Array: return draco.DT_FLOAT32;
-    case Int8Array: return draco.DT_INT8;
-    case Int16Array: return draco.DT_INT16;
-    case Int32Array: return draco.DT_INT32;
-    case Uint8Array: return draco.DT_UINT8;
-    case Uint16Array: return draco.DT_UINT16;
-    case Uint32Array: return draco.DT_UINT32;
-  }
-}
-
-function decodeDracoGeometry(draco: any, buffer: ArrayBuffer, taskConfig: any) {
-  const decoder = new draco.Decoder();
-  try {
-    const array = new Int8Array(buffer);
-    let dracoGeometry: any;
-    let decodingStatus: any;
-    const geometryType = decoder.GetEncodedGeometryType(array);
-    if (geometryType === draco.TRIANGULAR_MESH) {
-      dracoGeometry = new draco.Mesh();
-      decodingStatus = decoder.DecodeArrayToMesh(array, array.byteLength, dracoGeometry);
-    } else if (geometryType === draco.POINT_CLOUD) {
-      dracoGeometry = new draco.PointCloud();
-      decodingStatus = decoder.DecodeArrayToPointCloud(array, array.byteLength, dracoGeometry);
-    } else {
-      throw new Error('Unexpected DRACO geometry type');
-    }
-    if (!decodingStatus.ok() || dracoGeometry.ptr === 0) {
-      throw new Error('DRACO decode failed: ' + decodingStatus.error_msg());
-    }
-    const geometry: any = { index: null, attributes: [] };
-    for (const name in taskConfig.attributeIDs) {
-      const attrType = globalThis[taskConfig.attributeTypes[name] as keyof typeof globalThis] as any;
-      let attribute: any, attrID: number;
-      if (taskConfig.useUniqueIDs) {
-        attrID = taskConfig.attributeIDs[name];
-        attribute = decoder.GetAttributeByUniqueId(dracoGeometry, attrID);
-      } else {
-        attrID = decoder.GetAttributeId(dracoGeometry, draco[taskConfig.attributeIDs[name]]);
-        if (attrID === -1) continue;
-        attribute = decoder.GetAttribute(dracoGeometry, attrID);
-      }
-      const numComp = attribute.num_components();
-      const numPts = dracoGeometry.num_points();
-      const numVals = numPts * numComp;
-      const byteLen = numVals * attrType.BYTES_PER_ELEMENT;
-      const dataType = getDracoDataType(draco, attrType);
-      const ptr = draco._malloc(byteLen);
-      decoder.GetAttributeDataArrayForAllPoints(dracoGeometry, attribute, dataType, byteLen, ptr);
-      const arr = new attrType(draco.HEAPF32.buffer, ptr, numVals).slice();
-      draco._free(ptr);
-      const result: any = { name, array: arr, itemSize: numComp };
-      if (name === 'color') result.vertexColorSpace = taskConfig.vertexColorSpace;
-      geometry.attributes.push(result);
-    }
-    if (geometryType === draco.TRIANGULAR_MESH) {
-      const numFaces = dracoGeometry.num_faces();
-      const numIdx = numFaces * 3;
-      const idxBytes = numIdx * 4;
-      const ptr = draco._malloc(idxBytes);
-      decoder.GetTrianglesUInt32Array(dracoGeometry, idxBytes, ptr);
-      geometry.index = { array: new Uint32Array(draco.HEAPF32.buffer, ptr, numIdx).slice(), itemSize: 1 };
-      draco._free(ptr);
-    }
-    draco.destroy(dracoGeometry);
-    return geometry;
-  } finally {
-    draco.destroy(decoder);
-  }
-}
-
-// Override decodeGeometry to decode in main thread instead of Worker
-(dracoLoader as any).decodeGeometry = function(buffer: ArrayBuffer, taskConfig: any) {
-  return Promise.resolve().then(() => {
-    const geometry = decodeDracoGeometry(dracoModule, buffer, taskConfig);
-    return (this as any)._createGeometry(geometry);
-  });
-};
-
-tiles.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader }));
-
-// Configure LOD — lower errorTarget = higher detail but more tiles
-// Multi-angle capture uses lower errorTarget for higher-detail facade tiles
-tiles.errorTarget = multiAngle ? 2.0 : 4.0;
-
-// v300: Higher LOD when orthographic camera + alignment for detail
-if (alignment) {
-  tiles.errorTarget = Math.min(tiles.errorTarget, 1.0);
-  console.log(`  errorTarget reduced to ${tiles.errorTarget} (alignment available)`);
-}
-
-// Register camera (no renderer needed — we fake resolution)
-tiles.setCamera(camera);
-tiles.setResolution(camera, 512, 512);
-
-console.log('\nLoading tiles...');
 const startTime = Date.now();
-let stableFrames = 0;
-const STABLE_THRESHOLD = 100; // need many stable frames for deep LOD traversal
-const MIN_LOADED = 3;
-let lastLog = 0;
-
-// Tile loading loop — call update() repeatedly to traverse LOD hierarchy
-await new Promise<void>((resolve) => {
-  const check = () => {
-    const elapsed = Date.now() - startTime;
-
-    // Update camera matrices (required for frustum culling)
-    camera.updateMatrixWorld(true);
-
-    // Drive the tile loading
-    tiles.update();
-
-    if (elapsed > timeout) {
-      const loaded = (tiles.stats as Record<string, number>).loaded ?? 0;
-      console.log(`  Timeout reached (${loaded} tiles loaded)`);
-      resolve();
-      return;
-    }
-
-    const stats = tiles.stats as Record<string, number>;
-    const downloading = stats.downloading ?? 0;
-    const parsing = stats.parsing ?? 0;
-    const loaded = stats.loaded ?? 0;
-    const failed = stats.failed ?? 0;
-
-    if (downloading === 0 && parsing === 0 && loaded >= MIN_LOADED) {
-      stableFrames++;
-      if (stableFrames >= STABLE_THRESHOLD) {
-        console.log(`  Tiles loaded: ${loaded} (${failed} failed)`);
-        resolve();
-        return;
-      }
-    } else {
-      stableFrames = 0;
-    }
-
-    // Log progress every 2s
-    if (elapsed - lastLog > 2000) {
-      lastLog = elapsed;
-      console.log(`  [${Math.round(elapsed / 1000)}s] d:${downloading} p:${parsing} ok:${loaded} fail:${failed} stable:${stableFrames}`);
-    }
-
-    setTimeout(check, 50);
-  };
-  setTimeout(check, 100);
+const evidence = await captureTiles({
+  center: { lat: lat!, lng: lng! },
+  radiusM: radius,
+  errorTarget: multiAngle ? 2.0 : 4.0,
+  verticalBands: multiAngle ? numBands : 0,
+  cameraMode,
+  expectedHeightM: effectiveHeight,
+  rotationDeg,
+  apiKey,
+  projectRoot,
+  outputPath,
+  timeoutMs: timeout,
+  onProgress: ({ message }) => console.log(`  ${message}`),
 });
+const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
-const loadTime = ((Date.now() - startTime) / 1000).toFixed(1);
-console.log(`\nTile loading complete in ${loadTime}s`);
+// ─── Report ────────────────────────────────────────────────────────────────
 
-// Helper: extract meshes within capture radius (XZ cylindrical filter)
-// Clones them into the output group before LOD GC can evict them
-const centerXZ = new THREE.Vector2(0, 0); // scene origin = target coordinate
-const group = new THREE.Group();
-let tested = 0;
-let captured = 0;
-let rejected = 0;
-// Track already-captured mesh UUIDs to avoid duplicates across multi-angle passes
-const capturedUUIDs = new Set<string>();
+const { measuredBbox } = evidence;
+const size = {
+  x: measuredBbox.max.x - measuredBbox.min.x,
+  y: measuredBbox.max.y - measuredBbox.min.y,
+  z: measuredBbox.max.z - measuredBbox.min.z,
+};
+console.log(`\nDone in ${elapsed}s`);
+console.log(`  meshes:      ${evidence.meshCount}`);
+console.log(`  bbox:        ${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)} m`);
+console.log(`  truncated:   ${evidence.truncated}`);
+console.log(`  no coverage: ${evidence.noCoverage}`);
+console.log(`  GLB path:    ${evidence.glbPath}`);
+console.log(`  heightmap:   ${evidence.heightmapWidth} × ${evidence.heightmapLength}`);
 
-function extractMeshes(source: THREE.Object3D, label: string): number {
-  let count = 0;
-  source.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return;
-    if (!child.geometry) return;
-    if (capturedUUIDs.has(child.uuid)) return; // already captured in a previous pass
-    tested++;
-
-    const geo = child.geometry as THREE.BufferGeometry;
-    if (!geo.boundingSphere) geo.computeBoundingSphere();
-    const worldSphere = geo.boundingSphere!.clone();
-    worldSphere.applyMatrix4(child.matrixWorld);
-
-    // XZ-only distance check (cylindrical filter preserves tall buildings)
-    const meshXZ = new THREE.Vector2(worldSphere.center.x, worldSphere.center.z);
-    const xzDist = centerXZ.distanceTo(meshXZ) - worldSphere.radius;
-    if (xzDist > radius) {
-      rejected++;
-      return;
-    }
-
-    // Clone with world transform baked into GEOMETRY vertices.
-    // child.matrixWorld maps tile-local (GLTF Y-up) → scene world (OBJECT_FRAME).
-    // Object3D.applyMatrix4 only changes the object matrix, NOT vertex positions.
-    // Must deep-clone geometry and apply matrixWorld to vertex data directly.
-    const cloned = child.clone();
-    cloned.geometry = child.geometry.clone();
-    cloned.geometry.applyMatrix4(child.matrixWorld);
-    cloned.position.set(0, 0, 0);
-    cloned.rotation.set(0, 0, 0);
-    cloned.scale.set(1, 1, 1);
-    cloned.updateMatrix();
-
-    // Vertex-level bounding box check: reject meshes whose actual geometry
-    // extends way beyond the capture radius (large low-LOD tiles pass the
-    // sphere check but span hundreds of meters).
-    // Height-adaptive: tiles at higher elevations are inherently larger (lower LOD),
-    // so we scale the threshold up with mesh center height.
-    if (!cloned.geometry.boundingBox) cloned.geometry.computeBoundingBox();
-    const bb = cloned.geometry.boundingBox!;
-    const meshSpanX = bb.max.x - bb.min.x;
-    const meshSpanZ = bb.max.z - bb.min.z;
-    const meshCenterY = (bb.max.y + bb.min.y) / 2;
-    // Base threshold: 2x radius. Increases by 0.5x per 100m of height.
-    const heightFactor = Math.max(0, meshCenterY) / 100;
-    const spanThreshold = radius * (2 + heightFactor * 0.5);
-    if (meshSpanX > spanThreshold || meshSpanZ > spanThreshold) {
-      rejected++;
-      return;
-    }
-
-    group.add(cloned);
-    capturedUUIDs.add(child.uuid);
-    captured++;
-    count++;
-  });
-  if (count > 0) console.log(`  ${label}: +${count} meshes (total: ${captured})`);
-  return count;
-}
-
-// Extract meshes from initial camera pass
-extractMeshes(tiles.group, 'initial');
-
-// Multi-angle capture: orbit camera through cardinal directions to force
-// high-LOD tile loading on all facades, extracting meshes after each pass
-// before the LOD system garbage-collects tiles from previous angles.
-if (multiAngle) {
-  console.log('\n--- Multi-angle LOD forcing ---');
-
-  // For tall buildings (>100m), capture in vertical bands so the camera stays
-  // close enough for high-LOD tiles at each height zone. Each band covers ~100m.
-  // Note: tighter bands (Phase 1c) tested but caused regressions — loading different
-  // tile sets that are often worse quality. 100m remains the stable default.
-  const effectiveHeight = buildingHeight || 60;
-  const bandHeight = 100; // meters per vertical band
-  const numBands = Math.max(1, Math.ceil(effectiveHeight / bandHeight));
-  const bandCamDist = Math.max(radius * 2, 80); // close enough for detail
-
-  // Use building-aligned angles when OSM polygon available, else cardinal preset
-  const allAngles = alignment ? getAlignedAngles(alignment.rotationDeg) : FIVE_ANGLE_PRESET;
-  const facadeAngles = allAngles.filter((a) => a.name !== 'top-down');
-
-  for (let band = 0; band < numBands; band++) {
-    const bandCenterY = band * bandHeight + bandHeight * 0.4;
-    const bandLabel = numBands > 1 ? ` band ${band + 1}/${numBands} (Y=${Math.round(bandCenterY)}m)` : '';
-    console.log(`  Height${bandLabel}`);
-
-    for (const angle of facadeAngles) {
-      console.log(`    ${angle.name}...`);
-      const center = new THREE.Vector3(0, bandCenterY, 0);
-      positionCameraForAngle(camera, center, angle, bandCamDist);
-      tiles.setCamera(camera);
-      tiles.setResolution(camera, 512, 512);
-
-      await waitForStable(
-        tiles as unknown as { stats: Record<string, number>; update: () => void },
-        30000,
-        30,
-        (msg) => console.log(`      ${msg}`),
-      );
-
-      // Extract meshes from this angle BEFORE next angle evicts them
-      extractMeshes(tiles.group, `${angle.name}${bandLabel}`);
-    }
-  }
-  console.log('  Multi-angle capture complete');
-}
-
-console.log(`\nMeshes: tested=${tested} captured=${captured} rejected=${rejected}`);
-
-if (captured === 0) {
-  console.error('No meshes captured. Possible issues:');
+if (evidence.noCoverage) {
+  console.error('\nNo meshes captured. Possible issues:');
   console.error('  - API key may not have 3D Tiles enabled');
   console.error('  - Location may not have 3D coverage');
   console.error('  - Radius too small or errorTarget too high');
   process.exit(1);
 }
 
-// Compute bounding box
-const bbox = new THREE.Box3().setFromObject(group);
-const size = new THREE.Vector3();
-bbox.getSize(size);
-console.log(`Bounding box: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} meters`);
-
-// Extract terrain heightmap — rasterize ground-level mesh Y values into Float32Array
-// for terrain-aware enrichment. Saved as .heightmap.bin sidecar alongside the GLB.
-{
-  const hmRes = 1; // 1 sample per meter
-  const hmWidth = Math.ceil(size.x * hmRes);
-  const hmLength = Math.ceil(size.z * hmRes);
-  if (hmWidth > 0 && hmLength > 0 && hmWidth <= 1024 && hmLength <= 1024) {
-    const heightmap = new Float32Array(hmWidth * hmLength);
-    const counts = new Uint8Array(hmWidth * hmLength);
-
-    group.traverse((child) => {
-      if (!(child instanceof THREE.Mesh) || !child.geometry) return;
-      const geo = child.geometry as THREE.BufferGeometry;
-      const pos = geo.getAttribute('position') as THREE.BufferAttribute;
-      if (!pos) return;
-
-      for (let i = 0; i < pos.count; i++) {
-        const wx = pos.getX(i);
-        const wy = pos.getY(i);
-        const wz = pos.getZ(i);
-        // Map world coords to heightmap pixel
-        const px = Math.floor((wx - bbox.min.x) * hmRes);
-        const pz = Math.floor((wz - bbox.min.z) * hmRes);
-        if (px < 0 || px >= hmWidth || pz < 0 || pz >= hmLength) continue;
-        const idx = pz * hmWidth + px;
-        // Keep minimum Y at each XZ cell (ground level)
-        if (counts[idx] === 0 || wy < heightmap[idx]) {
-          heightmap[idx] = wy;
-          counts[idx] = 1;
-        }
-      }
-    });
-
-    // Normalize relative to minimum height
-    let minH = Infinity;
-    for (let i = 0; i < heightmap.length; i++) {
-      if (counts[i] > 0 && heightmap[i] < minH) minH = heightmap[i];
-    }
-    if (isFinite(minH)) {
-      for (let i = 0; i < heightmap.length; i++) {
-        heightmap[i] = counts[i] > 0 ? heightmap[i] - minH : 0;
-      }
-    }
-
-    const hmPath = outputPath.replace(/\.glb$/, '.heightmap.bin');
-    // Write as: [uint16 width] [uint16 length] [float32[] data]
-    const header = new Uint16Array([hmWidth, hmLength]);
-    const hmBuf = Buffer.concat([
-      Buffer.from(header.buffer),
-      Buffer.from(heightmap.buffer),
-    ]);
-    await fsWriteFile(hmPath, hmBuf);
-    console.log(`Heightmap: ${hmWidth}x${hmLength} → ${hmPath} (${hmBuf.length.toLocaleString()} bytes)`);
-  }
-}
-
-// Export as GLB — Three.js GLTFExporter needs Canvas 2D + FileReader (unavailable in headless Bun).
-// Write GLB manually: collect geometry buffers + encode textures with sharp.
-console.log('\nExporting GLB...');
-const sharp = (await import('sharp')).default;
-
-// Collect mesh data: positions, normals, UVs, indices, and texture images
-interface MeshData {
-  position: Float32Array;
-  normal: Float32Array | null;
-  uv: Float32Array | null;
-  index: Uint32Array | null;
-  textureJpeg: Buffer | null; // JPEG-encoded texture for embedding
-  texWidth: number;
-  texHeight: number;
-}
-const meshes: MeshData[] = [];
-let texEncoded = 0;
-
-for (const child of group.children) {
-  if (!(child instanceof THREE.Mesh)) continue;
-  const geo = child.geometry as THREE.BufferGeometry;
-  const posAttr = geo.getAttribute('position') as THREE.BufferAttribute;
-  if (!posAttr) continue;
-
-  const position = new Float32Array(posAttr.array);
-  const normalAttr = geo.getAttribute('normal') as THREE.BufferAttribute | null;
-  const normal = normalAttr ? new Float32Array(normalAttr.array) : null;
-  const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute | null;
-  const uv = uvAttr ? new Float32Array(uvAttr.array) : null;
-  const indexAttr = geo.getIndex();
-  const index = indexAttr ? new Uint32Array(indexAttr.array) : null;
-
-  // Try to encode texture from material's map image data
-  let textureJpeg: Buffer | null = null;
-  let texWidth = 0, texHeight = 0;
-  const mat = child.material as THREE.MeshStandardMaterial;
-  const tex = mat?.map;
-  if (tex?.image?.data && tex.image.width > 1 && tex.image.height > 1) {
-    try {
-      const w = tex.image.width;
-      const h = tex.image.height;
-      const imgData = new Uint8Array(tex.image.data.buffer ?? tex.image.data);
-      // Determine channels from data length
-      const channels = imgData.length / (w * h);
-      textureJpeg = await sharp(Buffer.from(imgData), {
-        raw: { width: w, height: h, channels: channels as 3 | 4 },
-      }).jpeg({ quality: 85 }).toBuffer();
-      texWidth = w;
-      texHeight = h;
-      texEncoded++;
-    } catch { /* skip texture if encoding fails */ }
-  }
-
-  meshes.push({ position, normal, uv, index, textureJpeg, texWidth, texHeight });
-}
-
-console.log(`  Meshes: ${meshes.length}, textures encoded: ${texEncoded}`);
-
-// Build GLB (glTF 2.0 binary) manually
-// Spec: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#glb-file-format-specification
-function buildGLB(meshData: MeshData[]): ArrayBuffer {
-  const bufferViews: any[] = [];
-  const accessors: any[] = [];
-  const gltfMeshes: any[] = [];
-  const nodes: any[] = [];
-  const materials: any[] = [];
-  const textures: any[] = [];
-  const images: any[] = [];
-  const samplers: any[] = [{ magFilter: 9729, minFilter: 9987, wrapS: 33071, wrapT: 33071 }]; // LINEAR, LINEAR_MIPMAP_LINEAR, CLAMP
-  const binaryChunks: ArrayBuffer[] = [];
-  let byteOffset = 0;
-
-  function addBufferView(data: ArrayBuffer, target?: number): number {
-    const idx = bufferViews.length;
-    const view: any = { buffer: 0, byteOffset, byteLength: data.byteLength };
-    if (target) view.target = target;
-    bufferViews.push(view);
-    binaryChunks.push(data);
-    byteOffset += data.byteLength;
-    // Pad to 4-byte alignment
-    const pad = (4 - (data.byteLength % 4)) % 4;
-    if (pad > 0) {
-      binaryChunks.push(new ArrayBuffer(pad));
-      byteOffset += pad;
-    }
-    return idx;
-  }
-
-  function addAccessor(bufferView: number, componentType: number, count: number, type: string, min?: number[], max?: number[]): number {
-    const idx = accessors.length;
-    const acc: any = { bufferView, componentType, count, type };
-    if (min) acc.min = min;
-    if (max) acc.max = max;
-    accessors.push(acc);
-    return idx;
-  }
-
-  for (let i = 0; i < meshData.length; i++) {
-    const m = meshData[i];
-    const primitive: any = { attributes: {}, mode: 4 }; // TRIANGLES
-
-    // Position (required)
-    const posView = addBufferView(m.position.buffer, 34962); // ARRAY_BUFFER
-    const posMin = [Infinity, Infinity, Infinity];
-    const posMax = [-Infinity, -Infinity, -Infinity];
-    for (let j = 0; j < m.position.length; j += 3) {
-      posMin[0] = Math.min(posMin[0], m.position[j]);
-      posMin[1] = Math.min(posMin[1], m.position[j + 1]);
-      posMin[2] = Math.min(posMin[2], m.position[j + 2]);
-      posMax[0] = Math.max(posMax[0], m.position[j]);
-      posMax[1] = Math.max(posMax[1], m.position[j + 1]);
-      posMax[2] = Math.max(posMax[2], m.position[j + 2]);
-    }
-    primitive.attributes.POSITION = addAccessor(posView, 5126, m.position.length / 3, 'VEC3', posMin, posMax);
-
-    // Normal
-    if (m.normal) {
-      const nView = addBufferView(m.normal.buffer, 34962);
-      primitive.attributes.NORMAL = addAccessor(nView, 5126, m.normal.length / 3, 'VEC3');
-    }
-
-    // UV
-    if (m.uv) {
-      const uvView = addBufferView(m.uv.buffer, 34962);
-      primitive.attributes.TEXCOORD_0 = addAccessor(uvView, 5126, m.uv.length / 2, 'VEC2');
-    }
-
-    // Index
-    if (m.index) {
-      const idxView = addBufferView(m.index.buffer, 34963); // ELEMENT_ARRAY_BUFFER
-      primitive.indices = addAccessor(idxView, 5125, m.index.length, 'SCALAR');
-    }
-
-    // Material with texture
-    const matIdx = materials.length;
-    if (m.textureJpeg && m.uv) {
-      const imgView = addBufferView(m.textureJpeg.buffer); // no target for images
-      const imgIdx = images.length;
-      images.push({ bufferView: imgView, mimeType: 'image/jpeg' });
-      const texIdx = textures.length;
-      textures.push({ sampler: 0, source: imgIdx });
-      materials.push({
-        pbrMetallicRoughness: {
-          baseColorTexture: { index: texIdx },
-          metallicFactor: 0,
-          roughnessFactor: 1,
-        },
-      });
-    } else {
-      materials.push({
-        pbrMetallicRoughness: {
-          baseColorFactor: [0.5, 0.5, 0.5, 1.0],
-          metallicFactor: 0,
-          roughnessFactor: 1,
-        },
-      });
-    }
-    primitive.material = matIdx;
-
-    gltfMeshes.push({ primitives: [primitive] });
-    nodes.push({ mesh: i });
-  }
-
-  // Build JSON
-  const gltf: any = {
-    asset: { version: '2.0', generator: 'craftmatic-tiles-headless' },
-    scene: 0,
-    scenes: [{ nodes: nodes.map((_, i) => i) }],
-    nodes,
-    meshes: gltfMeshes,
-    accessors,
-    bufferViews,
-    materials,
-    buffers: [{ byteLength: byteOffset }],
-  };
-  if (textures.length > 0) {
-    gltf.textures = textures;
-    gltf.images = images;
-    gltf.samplers = samplers;
-  }
-
-  const jsonStr = JSON.stringify(gltf);
-  const jsonBytes = new TextEncoder().encode(jsonStr);
-  // Pad JSON to 4-byte alignment with spaces
-  const jsonPad = (4 - (jsonBytes.length % 4)) % 4;
-  const jsonChunk = new Uint8Array(jsonBytes.length + jsonPad);
-  jsonChunk.set(jsonBytes);
-  jsonChunk.fill(0x20, jsonBytes.length); // space padding
-
-  // Binary chunk = concatenated binaryChunks
-  const binSize = byteOffset;
-  const binChunk = new Uint8Array(binSize);
-  let off = 0;
-  for (const chunk of binaryChunks) {
-    binChunk.set(new Uint8Array(chunk), off);
-    off += chunk.byteLength;
-  }
-
-  // GLB header (12 bytes) + JSON chunk header (8) + JSON + BIN chunk header (8) + BIN
-  const totalLen = 12 + 8 + jsonChunk.length + 8 + binChunk.length;
-  const glb = new ArrayBuffer(totalLen);
-  const view = new DataView(glb);
-  // Header
-  view.setUint32(0, 0x46546C67, true); // magic "glTF"
-  view.setUint32(4, 2, true);          // version
-  view.setUint32(8, totalLen, true);    // total length
-  // JSON chunk
-  view.setUint32(12, jsonChunk.length, true);
-  view.setUint32(16, 0x4E4F534A, true); // "JSON"
-  new Uint8Array(glb, 20).set(jsonChunk);
-  // BIN chunk
-  const binOff = 20 + jsonChunk.length;
-  view.setUint32(binOff, binChunk.length, true);
-  view.setUint32(binOff + 4, 0x004E4942, true); // "BIN\0"
-  new Uint8Array(glb, binOff + 8).set(binChunk);
-
-  return glb;
-}
-
-const glbData = buildGLB(meshes);
-await fsWriteFile(outputPath, Buffer.from(glbData));
-const sizeKB = (glbData.byteLength / 1024).toFixed(0);
-console.log(`  → ${outputPath} (${sizeKB}KB)`);
-console.log(`\nDone! Feed this GLB to the voxelizer:`);
-console.log(`  bun scripts/voxelize-glb.ts ${outputPath} -r 4 -m surface --generic --fill --mode-passes 3 --smooth-pct 0.03 -o output/tiles/result-v26.schem`);
-
-// Cleanup
-try { tiles.dispose(); } catch { /* cleanup errors are non-fatal in headless mode */ }
+console.log(`\nFeed to the voxelizer:`);
+console.log(`  bun scripts/voxelize-glb.ts ${outputPath} -r 4 -m surface --generic --fill -o output/tiles/result.schem`);
