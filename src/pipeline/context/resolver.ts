@@ -1,0 +1,301 @@
+/**
+ * Stages 0-1 resolver + MBR fallback chain.
+ *
+ * Responsibilities:
+ *   • Stage 0 — geocode address → lat/lng + viewport
+ *   • Stage 1 — parallel fetch Solar + OSM + Smarty (cheap, no inter-dep)
+ *   • Stage 2 — classify + compute MBR → `BuildingContext`
+ *
+ * The `mbr` field is always non-null. Fallback chain:
+ *   OSM polygon → Solar bbox rectangle → geocode viewport → throw 'context-insufficient'
+ */
+
+import {
+  computeBuildingAlignment,
+  type BuildingAlignment,
+} from '../../convert/building-alignment.js';
+import type { SolarBuildingData } from '../../gen/api/google-solar.js';
+import type { OSMBuildingData } from '../../gen/api/osm.js';
+import type {
+  BuildingContext,
+  GeocodeResult,
+  LatLon,
+  MBR,
+  SiblingBuilding,
+} from './types.js';
+import {
+  classifyArchType,
+  classifyShape,
+  classifySize,
+  classifySvDifficulty,
+  isCampusCluster,
+} from './classify.js';
+
+// ─── Geo helpers ────────────────────────────────────────────────────────────
+
+const DEG2RAD = Math.PI / 180;
+const METERS_PER_DEG_LAT = 111_111;
+
+/** Haversine distance between two lat/lon points, metres. */
+export function haversineM(a: LatLon, b: LatLon): number {
+  const φ1 = a.lat * DEG2RAD;
+  const φ2 = b.lat * DEG2RAD;
+  const dφ = (b.lat - a.lat) * DEG2RAD;
+  const dλ = (b.lon - a.lon) * DEG2RAD;
+  const h = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+/** Compute MBR from an OSM polygon (uses existing convex-hull MBR algorithm). */
+export function computeMbrFromPolygon(
+  polygon: readonly LatLon[],
+  center: LatLon,
+): MBR {
+  const align: BuildingAlignment = computeBuildingAlignment(
+    polygon as LatLon[],
+    center.lat,
+    center.lon,
+  );
+  return mbrFromAlignment(align, center);
+}
+
+/** Derive four corner LatLons from a rotated MBR centred at `center`. */
+function mbrFromAlignment(align: BuildingAlignment, center: LatLon): MBR {
+  const cosLat = Math.cos(center.lat * DEG2RAD);
+  const rot = align.rotationDeg * DEG2RAD;
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+  const halfW = align.mbrWidth / 2;
+  const halfD = align.mbrDepth / 2;
+  // Four corners in local metres (X=east, Z=south); rotate + translate
+  const corners: LatLon[] = [
+    [-halfW, -halfD], [halfW, -halfD], [halfW, halfD], [-halfW, halfD],
+  ].map(([x, z]) => {
+    const rx = x * cos - z * sin;
+    const rz = x * sin + z * cos;
+    return {
+      lat: center.lat - rz / METERS_PER_DEG_LAT,
+      lon: center.lon + rx / (METERS_PER_DEG_LAT * cosLat),
+    };
+  });
+  return {
+    rotationDeg: align.rotationDeg,
+    widthM: align.mbrWidth,
+    depthM: align.mbrDepth,
+    corners: corners as unknown as MBR['corners'],
+  };
+}
+
+/** Axis-aligned MBR from an arbitrary lat/lng bounding box. */
+export function computeMbrFromBbox(
+  sw: LatLon,
+  ne: LatLon,
+): MBR {
+  const center = { lat: (sw.lat + ne.lat) / 2, lon: (sw.lon + ne.lon) / 2 };
+  const widthM = haversineM({ lat: center.lat, lon: sw.lon }, { lat: center.lat, lon: ne.lon });
+  const depthM = haversineM({ lat: sw.lat, lon: center.lon }, { lat: ne.lat, lon: center.lon });
+  const corners: LatLon[] = [
+    { lat: sw.lat, lon: sw.lon },
+    { lat: sw.lat, lon: ne.lon },
+    { lat: ne.lat, lon: ne.lon },
+    { lat: ne.lat, lon: sw.lon },
+  ];
+  return {
+    rotationDeg: 0,
+    widthM: Math.max(widthM, depthM),
+    depthM: Math.min(widthM, depthM),
+    corners: corners as unknown as MBR['corners'],
+  };
+}
+
+export class ContextInsufficientError extends Error {
+  constructor(public readonly reason: string) {
+    super(`context-insufficient: ${reason}`);
+    this.name = 'ContextInsufficientError';
+  }
+}
+
+/**
+ * Fallback chain: OSM polygon → Solar bbox → geocode viewport →
+ * throws ContextInsufficientError.
+ *
+ * The viewport fallback only applies when the geocode located a specific
+ * address (`ROOFTOP` or `RANGE_INTERPOLATED`) and the viewport is small
+ * enough (<500m on a side) to plausibly represent one building. City-scale
+ * viewports (>500m) trigger context-insufficient rather than a silent
+ * 25m generic box.
+ */
+export interface MbrFallbackInput {
+  readonly polygon: readonly LatLon[] | null;
+  readonly solarBounds: { readonly sw: LatLon; readonly ne: LatLon } | null;
+  readonly geocode: GeocodeResult;
+  readonly center: LatLon;
+}
+
+export function resolveMbr(input: MbrFallbackInput): { mbr: MBR; source: 'osm' | 'solar-bbox' | 'inferred' } {
+  if (input.polygon && input.polygon.length >= 3) {
+    return { mbr: computeMbrFromPolygon(input.polygon, input.center), source: 'osm' };
+  }
+  if (input.solarBounds) {
+    return { mbr: computeMbrFromBbox(input.solarBounds.sw, input.solarBounds.ne), source: 'solar-bbox' };
+  }
+  const vp = input.geocode.viewport;
+  const isAddressLevel = input.geocode.locationType === 'ROOFTOP'
+                      || input.geocode.locationType === 'RANGE_INTERPOLATED';
+  if (vp && isAddressLevel) {
+    const mbr = computeMbrFromBbox(vp.sw, vp.ne);
+    if (mbr.widthM < 500 && mbr.depthM < 500) {
+      return { mbr, source: 'inferred' };
+    }
+  }
+  throw new ContextInsufficientError(
+    input.geocode.locationType === 'APPROXIMATE'
+      ? 'geocode too imprecise (APPROXIMATE) and no polygon/solar bbox available'
+      : 'no OSM polygon, no Solar bbox, viewport too large (>500m)',
+  );
+}
+
+// ─── Sibling detection ──────────────────────────────────────────────────────
+
+export function deriveSiblings(
+  primaryPolygon: readonly LatLon[] | null,
+  candidates: ReadonlyArray<{ polygon: readonly LatLon[]; tags: Record<string, string> }>,
+): readonly SiblingBuilding[] {
+  if (!primaryPolygon || primaryPolygon.length === 0) return [];
+  return candidates.map(c => {
+    let minDist = Infinity;
+    for (const p of primaryPolygon) {
+      for (const q of c.polygon) {
+        const d = haversineM(p, q);
+        if (d < minDist) minDist = d;
+      }
+    }
+    return { polygon: c.polygon, tags: c.tags, distanceM: minDist };
+  });
+}
+
+// ─── Height + levels resolution ─────────────────────────────────────────────
+
+export interface HeightResolution {
+  readonly heightM: number | null;
+  readonly heightSource: BuildingContext['heightSource'];
+  readonly levels: number | null;
+}
+
+export function resolveHeight(
+  solar: SolarBuildingData | null,
+  osm: OSMBuildingData | null,
+): HeightResolution {
+  // Priority: solar > osm-levels > null. Smarty can override in later pass.
+  const solarHeight = (solar as unknown as { estimatedHeightM?: number | null })?.estimatedHeightM ?? null;
+  const osmLevels = (osm as unknown as { levels?: number | null })?.levels ?? null;
+  const osmHeightM = (osm as unknown as { height?: number | null })?.height ?? null;
+
+  if (osmHeightM && osmHeightM > 0) {
+    return { heightM: osmHeightM, heightSource: 'osm-levels', levels: osmLevels };
+  }
+  if (solarHeight && solarHeight > 0) {
+    return { heightM: solarHeight, heightSource: 'solar', levels: osmLevels };
+  }
+  if (osmLevels && osmLevels > 0) {
+    return { heightM: osmLevels * 3.5, heightSource: 'osm-levels', levels: osmLevels };
+  }
+  return { heightM: null, heightSource: null, levels: null };
+}
+
+// ─── Top-level context builder (pure — no I/O) ──────────────────────────────
+
+export interface BuildContextInput {
+  readonly geocode: GeocodeResult;
+  readonly solar: SolarBuildingData | null;
+  readonly osm: OSMBuildingData | null;
+  readonly smarty: NonNullable<BuildingContext['rawSmarty']> | null;
+  readonly siblings: readonly SiblingBuilding[];
+  /** Optional — when true-SV-coverage absence is known a priori. */
+  readonly knownNoSvCoverage?: boolean;
+}
+
+/**
+ * Pure constructor — takes already-fetched data, produces the `BuildingContext`.
+ * Throws `ContextInsufficientError` when MBR cannot be resolved.
+ */
+export function buildBuildingContext(input: BuildContextInput): BuildingContext {
+  const center: LatLon = { lat: input.geocode.lat, lon: input.geocode.lng };
+  const polygon = input.osm?.polygon && input.osm.polygon.length >= 3
+    ? (input.osm.polygon as readonly LatLon[])
+    : null;
+
+  const solarBounds = input.solar?.buildingBounds
+    ? {
+        sw: { lat: input.solar.buildingBounds.sw.lat, lon: input.solar.buildingBounds.sw.lng },
+        ne: { lat: input.solar.buildingBounds.ne.lat, lon: input.solar.buildingBounds.ne.lng },
+      }
+    : null;
+
+  const { mbr, source: polygonSource } = resolveMbr({
+    polygon,
+    solarBounds,
+    geocode: input.geocode,
+    center,
+  });
+
+  const isCampus = isCampusCluster(input.siblings);
+  const size = classifySize(mbr.widthM, mbr.depthM, isCampus);
+  const shape = polygon
+    ? classifyShape({ polygon })
+    : 'rect'; // no polygon → default assumption
+
+  const svDifficulty = classifySvDifficulty({
+    center: { lat: center.lat, lng: center.lon },
+    osm: input.osm,
+    knownNoCoverage: input.knownNoSvCoverage,
+  });
+  const archType = classifyArchType(input.osm);
+
+  const { heightM, heightSource, levels } = resolveHeight(input.solar, input.osm);
+
+  const tags = input.osm?.tags ?? {};
+
+  return {
+    center: { lat: center.lat, lng: center.lon },
+    polygon,
+    polygonSource,
+    mbr,
+    heightM,
+    heightSource,
+    levels,
+    roofShape: roofShapeFromTags(tags),
+    roofPitchDeg: null,
+    size,
+    shape,
+    svDifficulty,
+    archType,
+    wallColourHint: tags['building:colour'] ?? tags['building:color'] ?? null,
+    roofColourHint: tags['roof:colour'] ?? tags['roof:color'] ?? null,
+    wallMaterialHint: tags['building:material'] ?? null,
+    roofMaterialHint: tags['roof:material'] ?? null,
+    groundElevationM: 0,
+    isSloped: false,
+    slopeVector: null,
+    isCampus,
+    siblingBuildings: input.siblings,
+    rawSolar: input.solar,
+    rawOsm: input.osm,
+    rawSmarty: input.smarty,
+  };
+}
+
+function roofShapeFromTags(tags: Record<string, string>): BuildingContext['roofShape'] {
+  const raw = tags['roof:shape'];
+  switch (raw) {
+    case 'flat': return 'flat';
+    case 'gabled': return 'gabled';
+    case 'hipped': return 'hipped';
+    case 'pyramidal': return 'pyramidal';
+    case 'dome': return 'dome';
+    case 'mansard': return 'mansard';
+    case 'shed':
+    case 'skillion': return 'shed';
+    default: return 'flat'; // safer default for mixed-use; can refine per archType
+  }
+}
