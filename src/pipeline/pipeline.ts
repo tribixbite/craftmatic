@@ -1,35 +1,224 @@
 /**
- * Top-level pipeline orchestrator.
+ * Top-level pipeline orchestrator — wires Stages 0 through 9.
  *
- * Implementation wired in Chunk 9 of the rearchitecture plan.
- * See: docs/superpowers/plans/2026-04-17-pipeline-rearchitecture.md
+ * The function is pure-ish: it takes injected API clients + fetchers + model
+ * scorers, runs the full flow, and returns a result object with bytes for each
+ * artifact. Disk writes are the caller's job (scripts/build.ts).
  */
 
-import type { VerificationReport } from './verify/types.js';
+import type {
+  BuildingContext,
+  CaptureProfile,
+  RefinedBuildingContext,
+} from './context/types.js';
+import type { ContextFetchers } from './context/resolver.js';
+import {
+  resolveContext,
+  ContextInsufficientError,
+} from './context/resolver.js';
+import { refineContextWithTiles } from './context/classify.js';
+import { lookupProfile } from './context/profile.js';
+import type { CaptureProgressFn, SatEvidence, SvEvidence, TileEvidence } from './capture/types.js';
+import { captureTiles } from './capture/tiles.js';
+import { captureStreetView, type StreetViewFetchers } from './capture/streetview.js';
+import { captureSatellite, type SatelliteFetcher } from './capture/satellite.js';
+import { fuseEvidence } from './fusion/reconcile.js';
+import type { JointEvidence } from './fusion/types.js';
+import { synthesize, type SynthesisPath } from './synthesis/router.js';
+import type { BuildingBRep } from './synthesis/brep.js';
+import { exportPrintGlb } from './export/glb-print.js';
+import { exportSceneGlb } from './export/glb-scene.js';
+import { exportVoxel } from './export/voxel.js';
+import { runObjectiveGates } from './verify/objective.js';
+import { composeReport, contextInsufficientReport } from './verify/report.js';
+import type { FullVerificationReport } from './verify/report.js';
+import type { ModelFetchers, RenderRoundFn } from './verify/consensus.js';
+import { scoreConsensus } from './verify/consensus.js';
+import { BlockGrid } from '../schem/types.js';
+
+// ─── Input types ───────────────────────────────────────────────────────────
+
+export interface PipelineFetchers {
+  readonly context: ContextFetchers;
+  readonly streetview: StreetViewFetchers;
+  readonly satellite: SatelliteFetcher;
+}
 
 export interface RunPipelineOptions {
-  /** Geocoded address or coordinates (one is required). */
-  readonly address?: string;
-  readonly coords?: { lat: number; lng: number };
-  /** Output directory for artifacts (.print.glb, .scene.glb, .schem, .litematic, .verification.json). */
-  readonly outDir: string;
-  /** Google Maps / Solar / SV API key. */
+  readonly address: string;
   readonly apiKey: string;
-  /** Optional progress callback. */
-  readonly onProgress?: (stage: string, message: string) => void;
+  readonly projectRoot: string;
+  readonly fetchers: PipelineFetchers;
+  /** Optional: run VLM consensus scoring after objective gates. */
+  readonly consensus?: {
+    readonly models: ModelFetchers;
+    readonly renderRound: RenderRoundFn;
+    readonly references: readonly Uint8Array[];
+    readonly maxRounds?: number;
+  };
+  /** Optional tile-capture timeout in ms (default 120000). */
+  readonly tileTimeoutMs?: number;
+  /** Optional progress callback forwarded across stages. */
+  readonly onProgress?: CaptureProgressFn;
+}
+
+export interface RunPipelineArtifacts {
+  readonly printGlbBytes: ArrayBuffer;
+  readonly sceneGlbBytes: ArrayBuffer;
+  readonly voxelGrid: BlockGrid;
+  readonly voxelBlockCount: number;
+  readonly brep: BuildingBRep;
+  readonly synthesisPath: SynthesisPath;
+  readonly context: RefinedBuildingContext;
+  readonly evidence: JointEvidence;
+  readonly captures: {
+    readonly tiles: TileEvidence | null;
+    readonly sv: SvEvidence;
+    readonly satellite: SatEvidence | null;
+  };
 }
 
 export interface RunPipelineResult {
+  readonly artifacts: RunPipelineArtifacts | null;
+  readonly report: FullVerificationReport;
   readonly slug: string;
-  readonly artifacts: {
-    readonly printGlb: string;
-    readonly sceneGlb: string;
-    readonly schem: string;
-    readonly litematic: string;
-  };
-  readonly report: VerificationReport;
 }
 
-export async function runPipeline(_opts: RunPipelineOptions): Promise<RunPipelineResult> {
-  throw new Error('runPipeline not yet implemented — see Chunk 9 of plan');
+// ─── Main orchestrator ─────────────────────────────────────────────────────
+
+export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipelineResult> {
+  const slug = slugify(opts.address);
+  const progress = opts.onProgress ?? (() => { /* noop */ });
+
+  // ── Stage 0-2: context ─────────────────────────────────────────────────
+  let ctx: BuildingContext;
+  try {
+    ctx = await resolveContext(opts.address, opts.fetchers.context);
+  } catch (e) {
+    if (e instanceof ContextInsufficientError) {
+      return { artifacts: null, slug, report: contextInsufficientReport(e.reason) };
+    }
+    throw e;
+  }
+  const profile: CaptureProfile = lookupProfile(ctx);
+
+  // ── Stage 3: tile capture ──────────────────────────────────────────────
+  progress({ stage: 'tiles', message: 'capturing tiles…', ratio: 0 });
+  let tiles: TileEvidence | null = null;
+  try {
+    tiles = await captureTiles({
+      center: ctx.center,
+      radiusM: profile.tiles.radiusM,
+      errorTarget: profile.tiles.errorTarget,
+      verticalBands: profile.tiles.verticalBands,
+      cameraMode: profile.tiles.cameraMode,
+      expectedHeightM: profile.tiles.expectedHeightM,
+      rotationDeg: ctx.mbr.rotationDeg,
+      apiKey: opts.apiKey,
+      projectRoot: opts.projectRoot,
+      timeoutMs: opts.tileTimeoutMs,
+      onProgress: progress,
+    });
+  } catch (e) {
+    // Tile capture failure is non-fatal — fallback path takes over.
+    progress({ stage: 'tiles', message: `capture failed: ${(e as Error).message}`, ratio: 1 });
+  }
+
+  // ── Post-3 shape refinement ────────────────────────────────────────────
+  const refined: RefinedBuildingContext = tiles && tiles.heightmapWidth > 0
+    ? refineContextWithTiles(ctx, {
+        heightmap: tiles.heightmap,
+        heightmapWidth: tiles.heightmapWidth,
+        heightmapLength: tiles.heightmapLength,
+      })
+    : ({ ...ctx, __refined: true } as unknown as RefinedBuildingContext);
+
+  // ── Stage 4: SV capture ────────────────────────────────────────────────
+  progress({ stage: 'sv', message: 'capturing street view…', ratio: 0 });
+  const sv: SvEvidence = await captureStreetView({
+    ctx: refined,
+    profile,
+    fetchers: opts.fetchers.streetview,
+    onProgress: progress,
+  });
+
+  // ── Stage 5: satellite ─────────────────────────────────────────────────
+  progress({ stage: 'satellite', message: 'capturing satellite…', ratio: 0 });
+  let sat: SatEvidence | null = null;
+  try {
+    sat = await captureSatellite({
+      lat: refined.center.lat,
+      lng: refined.center.lng,
+      widthM: refined.mbr.widthM,
+      depthM: refined.mbr.depthM,
+      tiles,
+      profile,
+      fetcher: opts.fetchers.satellite,
+      onProgress: progress,
+    });
+  } catch (e) {
+    progress({ stage: 'satellite', message: `failed: ${(e as Error).message}`, ratio: 1 });
+  }
+
+  // ── Stage 6: fusion ────────────────────────────────────────────────────
+  const evidence = fuseEvidence({ ctx: refined, tiles, sv, sat });
+
+  // ── Stage 7: synthesis ─────────────────────────────────────────────────
+  const { brep, path } = synthesize(refined, evidence, tiles);
+
+  // ── Stage 8: exports ───────────────────────────────────────────────────
+  const printResult = await exportPrintGlb(brep);
+  const sceneResult = await exportSceneGlb(brep, evidence);
+  const voxelResult = await exportVoxel(brep);
+
+  // ── Stage 9a: objective gates ──────────────────────────────────────────
+  const objective = runObjectiveGates({
+    positions: printResult.structuralPositions,
+    indices: printResult.structuralIndices,
+    targetPolygon: evidence.footprint.value,
+    meshOrigin: refined.center,
+    meshRotationDeg: refined.mbr.rotationDeg,
+    expectedHeightM: evidence.heightM.value,
+    grid: voxelResult.grid,
+  });
+
+  // ── Stage 9b: consensus (only if objective passes + wired) ─────────────
+  let consensus = undefined;
+  if (objective.pass && opts.consensus) {
+    const result = await scoreConsensus({
+      renderRound: opts.consensus.renderRound,
+      references: opts.consensus.references,
+      fetchers: opts.consensus.models,
+      maxRounds: opts.consensus.maxRounds,
+    });
+    consensus = result;
+  }
+
+  const report = composeReport({ objective, consensus });
+
+  return {
+    slug,
+    artifacts: {
+      printGlbBytes: printResult.glbBytes,
+      sceneGlbBytes: sceneResult.glbBytes,
+      voxelGrid: voxelResult.grid,
+      voxelBlockCount: voxelResult.blockCount,
+      brep,
+      synthesisPath: path,
+      context: refined,
+      evidence,
+      captures: { tiles, sv, satellite: sat },
+    },
+    report,
+  };
+}
+
+// ─── Slugify helper ────────────────────────────────────────────────────────
+
+export function slugify(address: string): string {
+  return address
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'address';
 }
