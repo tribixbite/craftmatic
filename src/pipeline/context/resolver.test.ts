@@ -6,8 +6,10 @@ import {
   resolveHeight,
   deriveSiblings,
   buildBuildingContext,
+  resolveContext,
   ContextInsufficientError,
   haversineM,
+  type ContextFetchers,
 } from './resolver.js';
 import type { GeocodeResult, LatLon } from './types.js';
 
@@ -200,6 +202,78 @@ describe('buildBuildingContext', () => {
       geocode: mkGeocode({ locationType: 'APPROXIMATE' }),
       solar: null, osm: null, smarty: null, siblings: [],
     })).toThrow(ContextInsufficientError);
+  });
+
+  it('resolveContext orchestrator: flatiron-like synthetic fixtures', async () => {
+    const fetchers: ContextFetchers = {
+      geocode: async () => mkGeocode({
+        lat: 40.7411, lng: -73.9897,
+        locationType: 'ROOFTOP',
+        formattedAddress: '175 5th Ave, New York, NY',
+      }),
+      solar: async () => ({
+        buildingBounds: {
+          sw: { lat: 40.7409, lng: -73.9899 } as unknown as LatLon,
+          ne: { lat: 40.7413, lng: -73.9895 } as unknown as LatLon,
+        },
+        estimatedHeightM: 87,
+        buildingFootprintAreaSqm: 2000,
+      } as unknown as NonNullable<Parameters<typeof buildBuildingContext>[0]['solar']>),
+      osm: async () => ({
+        type: 'way', id: 1, polygon: [
+          { lat: 40.7409, lon: -73.9896 },
+          { lat: 40.7413, lon: -73.9895 },
+          { lat: 40.7410, lon: -73.9899 },
+          { lat: 40.7409, lon: -73.9896 },
+        ],
+        tags: {
+          building: 'commercial',
+          'building:levels': '22',
+          'building:colour': 'tan',
+          historic: 'building',
+          'roof:shape': 'flat',
+        },
+        widthMeters: 90, lengthMeters: 50, height: null, levels: 22, area: 2000,
+      } as unknown as NonNullable<Parameters<typeof buildBuildingContext>[0]['osm']>),
+      osmSiblings: async () => [],
+      smarty: async () => null,
+    };
+
+    const ctx = await resolveContext('175 5th Ave, New York, NY', fetchers);
+    expect(ctx.polygonSource).toBe('osm');
+    expect(ctx.shape).toBe('wedge');
+    expect(ctx.heightM).toBe(87);
+    expect(ctx.heightSource).toBe('solar');
+    expect(ctx.archType).toBe('historic'); // historic tag wins over commercial
+    expect(ctx.size).toMatch(/small|medium/); // depends on polygon geometry
+    expect(ctx.wallColourHint).toBe('tan');
+    expect(ctx.roofShape).toBe('flat');
+  });
+
+  it('resolveContext gracefully handles all-null side fetches', async () => {
+    const fetchers: ContextFetchers = {
+      geocode: async () => mkGeocode(),
+      solar: async () => null,
+      osm: async () => null,
+      osmSiblings: async () => [],
+      smarty: async () => null,
+    };
+    const ctx = await resolveContext('fallback test', fetchers);
+    expect(ctx.polygon).toBeNull();
+    expect(ctx.polygonSource).toBe('inferred');
+  });
+
+  it('resolveContext swallows fetcher exceptions', async () => {
+    const fetchers: ContextFetchers = {
+      geocode: async () => mkGeocode(),
+      solar: async () => { throw new Error('solar down'); },
+      osm: async () => { throw new Error('overpass down'); },
+      osmSiblings: async () => { throw new Error('overpass down'); },
+      smarty: async () => { throw new Error('smarty down'); },
+    };
+    const ctx = await resolveContext('robust test', fetchers);
+    expect(ctx.rawSolar).toBeNull();
+    expect(ctx.rawOsm).toBeNull();
   });
 
   it('uses OSM polygon when provided', () => {

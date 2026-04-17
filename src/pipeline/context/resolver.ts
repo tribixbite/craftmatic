@@ -285,6 +285,72 @@ export function buildBuildingContext(input: BuildContextInput): BuildingContext 
   };
 }
 
+// ─── Full resolveContext orchestrator (Stages 0-2) ────────────────────────
+// Takes injectable fetchers so tests can stub without touching fetch().
+
+export interface ContextFetchers {
+  readonly geocode: (address: string) => Promise<GeocodeResult>;
+  readonly solar: (lat: number, lng: number) => Promise<SolarBuildingData | null>;
+  readonly osm: (lat: number, lng: number) => Promise<OSMBuildingData | null>;
+  /**
+   * OSM sibling query — all building polygons within `radiusM` of `center`,
+   * excluding the primary. Returns raw polygon + tags for campus detection.
+   */
+  readonly osmSiblings: (lat: number, lng: number, radiusM: number) => Promise<ReadonlyArray<{
+    polygon: readonly LatLon[];
+    tags: Record<string, string>;
+  }>>;
+  readonly smarty: (address: string) => Promise<BuildingContext['rawSmarty']>;
+}
+
+export interface ResolveContextOptions {
+  readonly knownNoSvCoverage?: boolean;
+  /** Sibling search radius in metres for campus detection. */
+  readonly siblingRadiusM?: number;
+}
+
+/**
+ * Stage 0-2 orchestrator. Stage 1 parallel-fetches the metadata (Solar/OSM/
+ * Smarty) because none of them informs another; that is a pre-classification
+ * fan-out, not the sequential capture loop (see spec §Decisions).
+ */
+export async function resolveContext(
+  address: string,
+  fetchers: ContextFetchers,
+  opts: ResolveContextOptions = {},
+): Promise<BuildingContext> {
+  // Stage 0
+  const geocode = await fetchers.geocode(address);
+
+  // Stage 1 — parallel, independent
+  const [solar, osm, smarty] = await Promise.all([
+    fetchers.solar(geocode.lat, geocode.lng).catch(() => null),
+    fetchers.osm(geocode.lat, geocode.lng).catch(() => null),
+    fetchers.smarty(address).catch(() => null),
+  ]);
+
+  // Sibling fetch (only when we have a polygon to compare against)
+  let siblings: readonly SiblingBuilding[] = [];
+  if (osm?.polygon && osm.polygon.length >= 3) {
+    const raw = await fetchers.osmSiblings(
+      geocode.lat,
+      geocode.lng,
+      opts.siblingRadiusM ?? 60,
+    ).catch(() => [] as ReturnType<ContextFetchers['osmSiblings']> extends Promise<infer U> ? U : never);
+    siblings = deriveSiblings(osm.polygon as readonly LatLon[], raw);
+  }
+
+  // Stage 2
+  return buildBuildingContext({
+    geocode,
+    solar,
+    osm,
+    smarty,
+    siblings,
+    knownNoSvCoverage: opts.knownNoSvCoverage,
+  });
+}
+
 function roofShapeFromTags(tags: Record<string, string>): BuildingContext['roofShape'] {
   const raw = tags['roof:shape'];
   switch (raw) {
