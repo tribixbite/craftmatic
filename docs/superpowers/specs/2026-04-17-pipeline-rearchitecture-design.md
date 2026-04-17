@@ -1,0 +1,808 @@
+# Pipeline Rearchitecture — Address → 3D Model + Voxel Output
+
+**Date:** 2026-04-17
+**Status:** Design (awaiting approval)
+**Author:** generated via brainstorming session
+**Supersedes:** `docs/superpowers/specs/2026-03-19-v300-pipeline-rework-design.md`
+
+## Goal
+
+From any US address, produce the highest-quality possible 3D representation of the building and its immediate scene. The primary artifact is a parametric, watertight, 3D-printable GLB. Secondary artifacts are a decorated scene GLB (building + terrain + trees + roads) and a Minecraft voxel schem/litematic. The building B-rep must support future interior floorplan subtraction without rework.
+
+Source data: Google 3D Tiles (photogrammetry mesh), Google Street View (facade imagery), Google Static Maps (satellite), Google Solar API (footprint bbox + roof pitch), OpenStreetMap (polygon + tags), Smarty (US assessor), elevation APIs.
+
+## Why this rework
+
+The current pipeline treats dirty photogrammetry voxels as ground truth and runs 21 post-processing phases to patch artifacts. This plateaued at 5/20 buildings passing 9/10 on a 7-category VLM rubric; 15/20 are declared "source data limited." The ceiling is architectural, not tuning: clean source geometry must be *synthesized*, not patched. See `memory/category-grading.md` for the plateau detail.
+
+## Decisions recorded
+
+| # | Question | Answer |
+|---|---|---|
+| Q1 | Primary output | Model-first; voxel is a downstream conversion |
+| Q2 | Building mesh strategy | Hybrid parametric synthesis (B). Cleaned-tiles fallback (A). Printable + interior-ready |
+| Q3 | Scope | Printable building artifact + separate decorated scene artifact (D) |
+| Q4 | Success metric | Objective gates (deterministic) + multi-VLM consensus (subjective polish) (B) |
+| Q5 | Platform | Shared pure core; CLI + browser as thin adapters (C) |
+| Architecture | Rewrite strategy | Hybrid (C): rewrite top half (~12k lines deleted, ~2.5k new), keep bottom half (voxelizer, API clients, color-blocks, schem writers) |
+| Constraint | Capture strategy | Sequential, adaptive, size-variance aware, occlusion-aware. **Do not parallelize sources**; each informs the next |
+| Constraint | Verification | Must pass objective gates **and** multi-VLM consensus before release; unanimous across Gemini + Claude + GPT-5 |
+
+## Non-goals
+
+- Global address support (US-only; Smarty is US-restricted, addresses outside US get partial data)
+- Interior floorplan *implementation* (design must accommodate it, build comes later)
+- Real-time interactive generation (batch-oriented; minutes per address acceptable)
+- Global parametric library (architectural styles covered: residential / commercial / civic / industrial / historic / religious — enough for the 20 goldens; new styles added via profile entries)
+
+---
+
+## Architecture
+
+### Data flow (sequential, adaptive)
+
+```
+address
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ STAGE 0: GEOCODE                                     │
+│   address → lat/lng, viewport hint                   │
+└──────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ STAGE 1: COARSE CONTEXT (parallel OK — all cheap)    │
+│   Solar bbox + OSM polygon+tags + Smarty assessor    │
+│   → ContextDraft                                     │
+└──────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ STAGE 2: CLASSIFY + PROFILE                          │
+│   size / shape / SV-difficulty / archType            │
+│   Profile table lookup                               │
+│   → BuildingContext + CaptureProfile                 │
+└──────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ STAGE 3: TILE CAPTURE                                │
+│   Profile-driven radius/errorTarget/bands            │
+│   Detect height-truncation and no-coverage           │
+│   → TileEvidence                                     │
+└──────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ STAGE 4: SV CAPTURE (iterative per direction)        │
+│   Metadata → validate pano distance → retry offsets  │
+│   Heading from actual pano position                  │
+│   FOV from actual distance + facade width            │
+│   Sniff vegetation% / sky% / building%               │
+│   Retry ±15°/±30° on occlusion                       │
+│   Assign captures to MBR facade edges                │
+│   → SvEvidence[]                                     │
+└──────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ STAGE 5: SATELLITE                                   │
+│   Zoom from TileEvidence measured bbox               │
+│   Tree-mask from SV canopy + OSM natural=tree        │
+│   Sample roof palette with tree mask applied         │
+│   → SatEvidence                                      │
+└──────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ STAGE 6: FUSION                                      │
+│   Each field has provenance + confidence             │
+│   Conflict rules: tiles=mass, OSM=footprint,         │
+│   SV=facade detail, satellite=roof                   │
+│   → JointEvidence                                    │
+└──────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ STAGE 7: SYNTHESIS ROUTER                            │
+│   7a parametric (default) / 7b cleaned-tiles         │
+│   (fallback) / 7c hybrid (iconic landmarks)          │
+│   → BuildingBRep                                     │
+└──────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ STAGE 8: EXPORT                                      │
+│   8a print GLB (building only, watertight)           │
+│   8b scene GLB (building + environment)              │
+│   8c voxel schem/litematic (existing voxelizer.ts)   │
+└──────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ STAGE 9: VERIFY                                      │
+│   Objective gates (deterministic, must pass)         │
+│   Multi-VLM consensus (Gemini+Claude+GPT-5, min ≥8)  │
+│   → VerificationReport                               │
+└──────────────────────────────────────────────────────┘
+  │
+  ▼
+STAGE 10: Hook decides — block if fails, release if pass
+```
+
+### Key invariants
+
+1. **Resolver runs once.** `BuildingContext` is the single source of truth for dimensions, orientation, classification. No downstream module re-derives them.
+2. **Captures are adaptive, not hardcoded.** SV uses actual pano position to compute heading/FOV; satellite uses measured tile bbox for zoom; tiles use profile-driven radius.
+3. **Each source's capture is informed by previous results.** SV strategy adjusts if tiles showed truncation. Satellite zoom uses actual captured extent. No blind parallel fetch.
+4. **Fusion is one pass.** Each evidence field gets { value, source, confidence } and downstream reads the reconciled value. No multi-step priority chain.
+5. **Synthesis is parametric-first.** Tile mesh is evidence about mass, not the model.
+6. **Voxelization is terminal.** One call over the B-rep. No post-processing phases.
+7. **B-rep is the canonical form.** Print, scene, voxel all derive from the same B-rep. Interior floorplans (future) subtract room volumes from floor slabs.
+8. **3D-print constraints enforced at export, not patched after.** Watertightness, manifoldness, wall thickness are gates, not warnings.
+
+---
+
+## Core datatypes
+
+### `BuildingContext` (resolver output)
+
+```ts
+interface BuildingContext {
+  center: { lat: number; lng: number };
+
+  // Oriented footprint
+  polygon: LatLon[] | null;
+  polygonSource: 'osm' | 'solar-bbox' | 'inferred';
+  mbr: {
+    rotationDeg: number;    // primary axis rotation from north
+    widthM: number;
+    depthM: number;
+    corners: LatLon[];      // 4 corners of the oriented rectangle
+  };
+
+  // Dimensions
+  heightM: number | null;
+  heightSource: 'tiles' | 'solar' | 'osm-levels' | 'smarty';
+  levels: number | null;
+
+  // Roof
+  roofShape: 'flat' | 'gabled' | 'hipped' | 'pyramidal' | 'dome' | 'mansard' | 'shed' | 'complex';
+  roofPitchDeg: number | null;
+
+  // Classification
+  size: 'tiny' | 'small' | 'medium' | 'large' | 'skyscraper' | 'campus';
+  shape: 'rect' | 'wedge' | 'U' | 'courtyard' | 'multi-wing' | 'tower-podium' | 'curved' | 'irregular';
+  svDifficulty: 'dense-urban' | 'suburban' | 'rural-occluded' | 'no-coverage';
+  archType: 'residential' | 'commercial' | 'civic' | 'industrial' | 'historic' | 'religious';
+
+  // Palette hints (from OSM tags / Smarty)
+  wallColourHint: string | null;
+  roofColourHint: string | null;
+  wallMaterialHint: string | null;
+  roofMaterialHint: string | null;
+
+  // Terrain
+  groundElevationM: number;
+  isSloped: boolean;        // > 3° slope across footprint
+  slopeVector: { dx: number; dy: number } | null;
+
+  // Campus detection
+  isCampus: boolean;
+  siblingPolygons: LatLon[][];
+
+  // Raw data (downstream reference)
+  rawSolar: SolarBuildingData | null;
+  rawOsm: OSMBuildingData | null;
+  rawSmarty: SmartyData | null;
+}
+```
+
+### `CaptureProfile`
+
+```ts
+interface CaptureProfile {
+  tiles: {
+    radiusM: number;
+    errorTarget: number;
+    verticalBands: number;
+    cameraMode: 'ortho' | 'perspective' | 'street';
+    expectedHeightM: number;
+  };
+  streetview: {
+    dirCount: number;                 // 2, 4, 6, 8
+    offsetM: number;
+    maxPanoDistM: number;
+    angleVariants: number[];          // e.g., [-30, -15, 0, 15, 30]
+    minBuildingPixelRatio: number;    // 0.2 typical
+    pitchDeg: number;
+  };
+  satellite: {
+    scale: 1 | 2;
+    maskTrees: boolean;
+  };
+}
+```
+
+Profiles live in `src/pipeline/context/profiles.json`. One base row per size class, modifier rows for SV difficulty and archType. Lookup is pure-function.
+
+### Profile table (base rows)
+
+| size | tile radius | errorTarget | bands | SV dirs | SV offset | maxPanoDist | sat scale |
+|---|---|---|---|---|---|---|---|
+| tiny (<15m) | 25 | 4.0 | 1 | 2 | 15 | 40 | 1 |
+| small (15–50m) | 40 | 2.0 | 1 | 4 | 30 | 80 | 1 |
+| medium (50–150m) | 80 | 1.5 | 2 | 6 | 60 | 150 | 1 |
+| large (150–300m) | 130 | 1.0 | 3 | 8 | 90 | 200 | 2 |
+| skyscraper (300m+) | 150 | 1.0 | 4 | 8 | 120 | 300 | 2 |
+| campus | 150 | 1.5 | 2 | 8 | 100 | 200 | 2 |
+
+Modifiers (add to base):
+- `dense-urban` → `offsetM /= 2`, `angleVariants += [-45, 45]`
+- `suburban` → default
+- `rural-occluded` → `angleVariants += [-60, 60]`, `minBuildingPixelRatio = 0.15`, `maskTrees = true`
+- `no-coverage` → skip Stage 4 entirely; palette from satellite + OSM only
+
+### `TileEvidence`
+
+```ts
+interface TileEvidence {
+  glbPath: string;
+  heightmap: Float32Array;
+  heightmapDim: { w: number; l: number };
+  measuredBbox: { min: Vec3; max: Vec3 };    // actual captured extent
+  truncated: boolean;                         // captured height < 0.6 × expected
+  meshCount: number;
+  noCoverage: boolean;                        // < 3 meshes
+}
+```
+
+### `SvEvidence`
+
+```ts
+interface SvFacadeEvidence {
+  facadeEdge: number;                 // which MBR edge (0-3)
+  imagePath: string;
+  panoId: string;
+  panoDistM: number;                  // actual distance to center
+  headingDeg: number;                 // bearing pano → center
+  fovDeg: number;
+  pitchDeg: number;
+  sniff: { sky: number; veg: number; building: number }; // 0-1 ratios
+  palette: { wall: Lab; trim: Lab; accent: Lab | null };
+  windowGrid: { rows: number; cols: number; confidence: number } | null;
+  cornice: boolean;
+  occlusion: 'none' | 'trees' | 'adjacent-building' | 'poles';
+}
+
+type SvEvidence = SvFacadeEvidence[];  // one per captured facade
+```
+
+### `SatEvidence`
+
+```ts
+interface SatEvidence {
+  imagePath: string;
+  hiresImagePath: string | null;
+  zoom: number;
+  treeMask: Uint8Array;               // 1 where canopy detected
+  treeMaskDim: { w: number; h: number };
+  roofPalette: { primary: Lab; secondary: Lab | null };
+  shadowAzimuthDeg: number | null;
+}
+```
+
+### `JointEvidence` (fusion output)
+
+```ts
+interface Evidence<T> {
+  value: T;
+  source: 'tiles' | 'osm' | 'solar' | 'sv' | 'sat' | 'smarty' | 'inferred';
+  confidence: number;                  // 0-1
+}
+
+interface JointEvidence {
+  footprint: Evidence<LatLon[]>;
+  heightM: Evidence<number>;
+  levels: Evidence<number>;
+  wallPalette: Evidence<Lab[]>;        // up to 3 dominant colors
+  roofPalette: Evidence<Lab[]>;
+  roofShape: Evidence<BuildingContext['roofShape']>;
+  windowGrid: Evidence<{ rows: number; cols: number }[]> | null;  // per facade
+  cornice: Evidence<boolean>;
+  entry: Evidence<{ edge: number; offsetAlongEdge: number }>;
+  trees: { position: LatLon; radiusM: number; source: 'osm' | 'sv' | 'sat' }[];
+  roads: { polyline: LatLon[]; width: number; type: string }[];
+}
+```
+
+### `BuildingBRep` (synthesis output)
+
+```ts
+interface BuildingBRep {
+  origin: { lat: number; lng: number };
+  rotationDeg: number;
+
+  floors: FloorSlab[];                 // one per level
+  walls: Wall[];                       // extrusions per facade per floor
+  roof: RoofVolume;                    // separate CSG volume
+  details: Feature[];                  // windows, doors, cornices, setbacks
+
+  // CSG operations future-ready
+  voids?: Volume[];                    // interior (future floorplan subtract)
+
+  // Materials (resolved to Minecraft blocks + GLB PBR)
+  materials: {
+    wall: MaterialRef;
+    trim: MaterialRef;
+    roof: MaterialRef;
+    window: MaterialRef;
+  };
+}
+
+interface FloorSlab {
+  level: number;
+  elevationM: number;
+  thicknessM: number;
+  polygon: LocalPoint2D[];             // in local (origin-relative, rotation-aligned) coords
+}
+
+interface Wall {
+  level: number;
+  facadeEdge: number;
+  start: LocalPoint2D;
+  end: LocalPoint2D;
+  heightM: number;
+  thicknessM: number;
+  material: 'wall' | 'trim';
+}
+
+interface RoofVolume {
+  type: 'flat' | 'gabled' | 'hipped' | 'pyramidal' | 'dome' | 'mansard' | 'shed';
+  baseZ: number;
+  peakZ: number;
+  pitchDeg: number;
+  params: Record<string, number>;      // shape-specific
+}
+
+interface Feature {
+  kind: 'window' | 'door' | 'cornice' | 'setback' | 'balcony';
+  facadeEdge: number;
+  level: number;
+  offsetAlongEdge: number;
+  widthM: number;
+  heightM: number;
+  depthM: number;                      // inset for windows (always ≥ min-wall-thickness)
+}
+```
+
+---
+
+## Module layout
+
+```
+src/pipeline/                    ← NEW, pure core
+  context/
+    resolver.ts                  ← Stages 0-1
+    classify.ts                  ← Stage 2 size/shape/SV/arch classifiers
+    profile.ts                   ← Stage 2 profile lookup
+    profiles.json                ← Profile table data
+    types.ts
+  capture/
+    tiles.ts                     ← Stage 3 (pure capture; BVH + DRACO setup extracted from tiles-headless)
+    streetview.ts                ← Stage 4 iterative capture
+    sv-sniff.ts                  ← Per-image vegetation/sky/building detector
+    satellite.ts                 ← Stage 5
+    terrain.ts                   ← Elevation + heightmap extraction
+    types.ts
+  fusion/
+    reconcile.ts                 ← Stage 6 main
+    occlusion.ts                 ← SV occlusion classifier
+    shadow.ts                    ← Satellite shadow analysis
+    palette.ts                   ← Wall/roof palette fusion (Lab + K-means)
+    windows.ts                   ← Window grid extraction from SV
+    types.ts
+  synthesis/
+    router.ts                    ← Stage 7 routing decision
+    parametric.ts                ← Stage 7a
+    cleaned-tiles.ts             ← Stage 7b (watertight repair)
+    hybrid.ts                    ← Stage 7c
+    brep.ts                      ← BuildingBRep datatype + CSG helpers
+    features.ts                  ← Window grid, cornice, door, setback generators
+    roofs.ts                     ← Roof volume generators by shape
+    types.ts
+  environment/
+    trees.ts                     ← Tree placement from JointEvidence
+    roads.ts                     ← OSM roads → 3D strips
+    terrain-mesh.ts              ← Heightmap → scene ground
+    scene.ts                     ← Assembly
+  export/
+    glb-print.ts                 ← Stage 8a
+    glb-scene.ts                 ← Stage 8b
+    voxel.ts                     ← Stage 8c (thin wrapper over existing voxelizer.ts)
+    glb-writer.ts                ← Shared glTF 2.0 writer (extracted from tiles-headless.ts inline code)
+  verify/
+    objective.ts                 ← Deterministic gates
+    consensus.ts                 ← Multi-VLM polish scoring
+    report.ts
+  pipeline.ts                    ← Top-level orchestrator
+
+src/gen/api/                     ← KEPT (pure API clients)
+src/gen/color-blocks.ts          ← KEPT (CIE-Lab + WALL_CLUSTERS)
+src/convert/voxelizer.ts         ← KEPT (BVH + CIE-Lab)
+src/convert/building-alignment.ts ← KEPT (MBR)
+src/convert/geo-projection.ts    ← KEPT
+src/convert/class-block-map.ts   ← KEPT
+src/schem/                       ← KEPT (NBT + litematic + schem writers)
+src/grade/vlm-consensus.ts       ← NEW (multi-model wrapper)
+src/grade/prompts.ts             ← KEPT (trimmed)
+
+scripts/
+  build.ts                       ← NEW: entry point  `bun scripts/build.ts <address> --out out/`
+  iterate.ts                     ← NEW: objective + consensus driver
+  _legacy/                       ← OLD tiles-headless.ts, voxelize-glb.ts, iterate-*.ts, fetch-reference-data.ts
+
+web/src/ui/tiles.ts              ← REWRITTEN: thin adapter over src/pipeline/
+
+.claude/hooks/
+  check-pipeline-state.sh        ← NEW (replaces the 3 old hooks)
+
+DELETE:
+  src/convert/pipeline.ts        ~1150 lines
+  src/convert/mesh-filter.ts     ~165 lines
+  src/convert/mesh-filter/*.ts   ~8830 lines
+  src/convert/voxel-classifier.ts ~524 lines
+  src/convert/scene-pipeline.ts  ~517 lines
+  src/convert/semantic-palette.ts ~465 lines (concept re-implemented in fusion/palette.ts)
+  src/convert/scene-enrichment.ts ~791 lines (rewritten in environment/)
+  src/convert/osm-infrastructure.ts ~315 lines (rewritten in environment/roads.ts)
+  src/grade/defect-score.ts, category-score.ts etc.  (replaced by verify/)
+  scripts/iterate-category-grade.ts, iterate-grade.ts, fetch-reference-data.ts (archived to _legacy/)
+  .claude/hooks/check-category-state.sh, check-iterate-state.sh, check-scene-completion.sh
+```
+
+**Net**: delete ~12,000 lines of bandaid; keep ~7,600 lines of quality code; add ~2,500 lines of clean core.
+
+---
+
+## Stage specifications
+
+### Stage 0 — Geocode
+
+- Use existing `src/gen/api/geocoder.ts`
+- Require `locationType === 'ROOFTOP'` or `RANGE_INTERPOLATED`; warn on lower-precision results
+- Output: `{ lat, lng, placeId, viewport, bounds, locationType }`
+
+### Stage 1 — Coarse Context
+
+- Parallel OK (all three queries are independent and tiny):
+  - Solar Building Insights (`querySolarBuildingInsights`)
+  - OSM Overpass + spatial footprint query + tag extract + `building:part` sibling scan for campus detection
+  - Smarty (US-only via API client)
+- Output: `ContextDraft` — union of all fields above without classification yet
+
+### Stage 2 — Classify + Profile
+
+- **Size**: `max(widthM, depthM)` → bucket (table)
+- **Shape**: polygon analysis:
+  - `vertexCount` ≤ 4 and aspect ratio 0.8-1.2 → `rect`
+  - `vertexCount` ≤ 4 and aspect < 0.4 or > 2.5 → `rect` (elongated)
+  - Triangle-like (3 effective vertices after simplification) → `wedge`
+  - Concavity analysis: inner rings → `courtyard`; one major concavity → `U`; three+ wings → `multi-wing`
+  - Heightmap analysis of tile evidence (deferred): podium + tall tower → `tower-podium`
+  - Vertex count ≥ 12 and smooth curvature → `curved`
+  - Otherwise → `irregular`
+- **SV difficulty**: OSM `landuse` around point, OSM `natural=tree` density, OSM road class nearest
+  - Residential w/ trees → `rural-occluded` or `suburban`
+  - CBD / downtown → `dense-urban`
+  - No SV metadata within 100m of center → `no-coverage`
+- **archType**: primary OSM tag cascade (`building=` value, `historic=*`, `tourism=*`, `amenity=*`) + Smarty `use` + heuristics
+- Lookup profile in table; apply modifiers; return frozen `{ context, profile }`
+
+### Stage 3 — Tile Capture
+
+- Extracted from existing `scripts/tiles-headless.ts` capture loop
+- DRACO setup, polyfills moved to `src/pipeline/capture/tiles-deps.ts`
+- Camera strategy from profile:
+  - `ortho` for complex footprints (U, multi-wing, courtyard)
+  - `perspective` for skyscrapers (vertical bands)
+  - `street` for tiny/residential
+- Multi-angle capture with MBR-aligned bearings (not cardinals) when polygon available
+- Vertical bands from profile `verticalBands`
+- After capture:
+  - Extract heightmap (existing logic from tiles-headless.ts)
+  - Measure actual bounding box
+  - `truncated` if `measuredBbox.y < 0.6 × context.heightM`
+  - `noCoverage` if `meshCount < 3`
+- Output GLB via extracted glTF 2.0 writer (`src/pipeline/export/glb-writer.ts`)
+
+### Stage 4 — SV Capture (iterative)
+
+Per direction in `profile.streetview.dirCount` (directions distributed along MBR edges, not arbitrary cardinals):
+
+1. **Metadata probe**
+   - Query SV Metadata API at offset point (profile.offsetM meters along direction from center)
+   - If `status != OK`, retry at `0.5×` offset, then `1.5×` offset
+   - If all 3 fail: mark direction `no-pano`, continue
+
+2. **Pano validation**
+   - If `panoDistM > profile.maxPanoDistM`: pano is too far; mark direction `too-distant`, continue
+
+3. **Compute framing**
+   - `heading = bearing(pano → center)`
+   - `facadeWidth = relevant MBR edge length` (pick the edge whose normal is closest to `heading`)
+   - `fov = clamp(60, 2 × atan2(facadeWidth × 0.65, panoDistM) × 180/π, 110)`
+   - `pitch = profile.pitchDeg`, scaled by (context.heightM / panoDistM) heuristic
+
+4. **Fetch and sniff primary image**
+   - Fetch SV image at computed heading/fov/pitch
+   - Sniff (`src/pipeline/capture/sv-sniff.ts`):
+     - `sky%`: blue-white ratio in top 30%
+     - `veg%`: green-brown ratio (HSV-based) in middle 70%
+     - `building%`: 1 - sky% - veg% (approximation; refined by edge density)
+   - If `building% ≥ profile.minBuildingPixelRatio`: accept
+
+5. **Retry on occlusion**
+   - If occluded: try each heading in `profile.angleVariants` (±15°, ±30°, maybe ±45° for dense-urban)
+   - Pick the variant with highest `building%`
+   - If no variant clears threshold: keep best effort, mark `occlusion` field accordingly
+
+6. **Post-processing per facade**
+   - Extract palette (wall, trim, accent) via K-means in Lab space, zone-sampled (bottom 60% for wall, top 20% for trim)
+   - Detect window grid: Hough lines + regular horizontal banding → (rows, cols, confidence)
+   - Detect cornice: horizontal dark band at top 10-15% of facade
+   - Assign to MBR edge (nearest facade normal to heading)
+
+Output: `SvFacadeEvidence[]`, one entry per successfully captured facade; missing facades are fine (fusion handles gaps).
+
+### Stage 5 — Satellite
+
+- Zoom from `TileEvidence.measuredBbox` (satellite-zoom.ts util, passes in measured extent)
+- Scale from profile (`2` for large/skyscraper/when canopy expected)
+- Tree mask construction:
+  - Input: satellite image + `sv.occlusion` signal + OSM `natural=tree` nearby
+  - Green-cluster detection (HSV thresholds) excluding roof-similar greens
+  - Dilate mask by 2px for margin
+- Roof palette: K-means in Lab on unmasked pixels within inner 70% of image
+- Shadow detection: if ground-level dark blob consistently on one side, estimate azimuth
+
+Output: `SatEvidence`.
+
+### Stage 6 — Fusion
+
+For each evidence field, apply conflict rules:
+
+| Field | Primary | Secondary | Tertiary |
+|---|---|---|---|
+| Footprint | OSM polygon | Tile boundary-silhouette | Solar bbox rectangle |
+| Height | Tiles (non-truncated) | Solar | OSM `building:levels × 3.5m` |
+| Levels | OSM `building:levels` | Smarty | SV window-grid row count |
+| Wall palette | SV (K-means) | Tile texture median | OSM `building:colour` |
+| Roof palette | Satellite (tree-masked) | Tile texture top-slice | OSM `roof:colour` |
+| Roof shape | OSM `roof:shape` | Solar pitch heuristic | archType default |
+| Window grid | SV extraction | Procedural from levels | None |
+| Entry edge | OSM `entrance` node nearest facade | SV door detection | Street-facing edge |
+| Trees | OSM + SV occlusion + sat mask (union & dedup by position) | — | — |
+| Roads | OSM (primary highway, residential, footway) | — | — |
+
+Each field stores chosen `value`, `source`, `confidence` (computed from rule's confidence table).
+
+Palette reconciliation: when SV and OSM tag agree within delta-E 10, confidence = 1.0. When they disagree > delta-E 20, log warning, use SV value, downgrade confidence to 0.6.
+
+### Stage 7 — Synthesis Router
+
+```ts
+function routeSynthesis(ctx: BuildingContext, ev: JointEvidence, tiles: TileEvidence): SynthesisPath {
+  const iconic = ctx.rawOsm?.tags?.tourism === 'attraction'
+              || ctx.rawOsm?.tags?.historic === 'monument'
+              || ctx.rawOsm?.tags?.heritage != null;
+  if (iconic && !tiles.noCoverage) return '7c-hybrid';
+  if (ctx.shape === 'curved' || ctx.shape === 'irregular') return '7b-cleaned-tiles';
+  if (tiles.truncated && ctx.size === 'skyscraper' && ctx.polygon) return '7a-parametric';  // synth from polygon, ignore truncated mesh
+  if (!ctx.polygon) return '7b-cleaned-tiles';
+  return '7a-parametric';
+}
+```
+
+### Stage 7a — Parametric Synthesis
+
+Deterministic generator from `JointEvidence`:
+
+1. **Footprint polygon** — from `ev.footprint.value`, simplified (Douglas-Peucker 0.5m tolerance), rotated into local frame aligned with MBR
+2. **Floor slabs** — `N = ev.levels.value` slabs, each at `elevationM = N × floorHeight`, `thicknessM = 0.3`. `floorHeight = ev.heightM.value / N` clamped [2.5, 5.0]
+3. **Walls** — extrude each polygon edge from floor to ceiling per level. `thicknessM = 0.3`
+4. **Roof** — from `ev.roofShape.value`:
+   - `flat` — horizontal lid, slight parapet (0.5m)
+   - `gabled` — ridge along long axis, pitch from Solar or default 30°
+   - `hipped` — ridge shortened, all four sides sloped
+   - `pyramidal` — apex at centroid
+   - `dome` — half-sphere fitted to footprint's inscribed circle
+   - `mansard` — two-tier slope, steep bottom + shallow top
+   - `shed` — single slope
+5. **Details**:
+   - Window grid from `ev.windowGrid.value[facade]`: regular rectangular grid on each facade, insets by `windowDepthM = 0.08m`
+   - Cornice from `ev.cornice.value`: horizontal band at top of each facade, depth 0.15m, height 0.5m
+   - Entry door from `ev.entry.value`: at ground level, offset along specified edge
+6. **Materials**:
+   - Wall material from `ev.wallPalette`
+   - Trim + roof from respective evidence
+   - Window material = glass (transparent in GLB; glass block in voxel)
+
+Output is a `BuildingBRep`. CSG operations produce the watertight mesh at export time.
+
+### Stage 7b — Cleaned Tiles (fallback)
+
+1. Clip `TileEvidence.glb` to OSM polygon boundary if polygon available (hard clip)
+2. Repair: fill holes by projecting silhouette onto 2D and closing boundary; close bottom by extending vertical walls to ground
+3. If `truncated` and `heightM` is known: extrapolate top — sample top-layer textures, extrude upward with interpolated coloring
+4. Output is a mesh (non-B-rep), but watertight
+
+This path produces a printable mesh but lacks the clean feature detail of parametric. Objective gates still apply.
+
+### Stage 7c — Hybrid (iconic landmarks)
+
+- Use parametric mass (floors, walls extruded from polygon)
+- Use photogrammetry textures from tiles for facade detail (baked into texture atlases)
+- Roof and details from tiles directly (since these are usually why the building is iconic)
+
+Not an MVP priority; spec'd for future step.
+
+### Stage 8 — Export
+
+**8a Print GLB:**
+- CSG evaluate `BuildingBRep` into triangle mesh
+- Union all volumes (floors, walls, roof, features)
+- Subtract window-inset volumes (creates recessed windows; optional windowpane as separate mesh with transparent material)
+- Watertightness check — abort if fail
+- Manifold check — abort if fail
+- Optional plinth: extrude footprint by 5mm thickness, 2cm wider
+- Export as glTF 2.0 binary
+
+**8b Scene GLB:**
+- 8a output (but without plinth)
+- Terrain mesh from `TileEvidence.heightmap` with satellite texture
+- Tree instances from `JointEvidence.trees`
+- Roads as flat polygon strips from OSM
+- Not required to be watertight
+- Export as glTF 2.0 binary
+
+**8c Voxel:**
+- Run `voxelizer.ts` on the B-rep's evaluated mesh (from 8a pipeline)
+- Existing CIE-Lab matching via `color-blocks.ts`
+- Scene voxelization (optional): environment at priority 0, building at priority 1 (existing `writeWithPriority` pattern, kept from voxel-classifier but in a simpler form)
+- Export as .schem + .litematic
+
+### Stage 9 — Verify
+
+**Objective gates** (deterministic, must pass):
+
+| Gate | Check | Pass threshold |
+|---|---|---|
+| Footprint IoU | shapely-style polygon IoU vs OSM | ≥ 0.85 |
+| Height error | `|synth.height - ev.heightM| / ev.heightM` | ≤ 0.10 |
+| Watertight | Boundary-edge count (edges with != 2 faces) | 0 |
+| Manifold | Every edge has ≤ 2 incident faces | true |
+| Self-intersect | Triangle-triangle intersection test (sampled) | 0 |
+| Min wall thickness | At 1:100 scale | ≥ 0.8mm |
+| Voxel occupancy | Non-empty, < 500K blocks | within bounds |
+
+**Subjective consensus** (after objective pass):
+
+- Render 4 views via Three.js headless: front-MBR, 3/4 aerial, top-down, isometric
+- Views + reference SV/sat images submitted to:
+  - **Gemini 2.5 Pro** (via `src/gen/api/gemini.ts`)
+  - **Claude** (via `mcp__pal__consensus` or `mcp__pal__chat` — single-call)
+  - **GPT-5** (via `mcp__pal__chat` — single-call)
+- Prompt: "Score this synthesized model against the reference images on {color, features, massing, overall}, 0-10."
+- Each returns four scores.
+- `consensus = min(model × dimension)` = the minimum score across all 12 (3 models × 4 dimensions)
+- `spread = max(model × dimension) - min(model × dimension)` over each dimension
+- **Release gate**: `consensus ≥ 8` AND `max spread per dimension ≤ 2`
+- If spread > 2: re-render with rotated view angles, re-vote; up to 3 rounds; then surface disagreement with per-model scores
+
+### Stage 10 — Stop hook
+
+`.claude/hooks/check-pipeline-state.sh` reads `output/pipeline-state.json`:
+
+```json
+{
+  "version": "v400",
+  "addresses": {
+    "flatiron": {
+      "objective": { "footprintIoU": 0.91, "heightErr": 0.04, "watertight": true, "manifold": true, "printable": true, "pass": true },
+      "consensus": { "gemini": 8.5, "claude": 8.0, "gpt5": 9.0, "min": 8.0, "spread": 1.0, "pass": true },
+      "pass": true,
+      "lastRun": "2026-04-17T12:00:00Z"
+    }
+  }
+}
+```
+
+Hook logic:
+1. If any address has objective failures → block with `"EXECUTE NOW: rebuild {slug} — {failing_gate} (threshold={t}, got={v})"`
+2. If objective pass but consensus `min < 8` → block with `"EXECUTE NOW: improve {slug} on {worst_dim} (score={s})"`
+3. If consensus min ≥ 8 but spread > 2 → block with `"EXECUTE NOW: re-render {slug} — model disagreement on {dim}"`
+4. If all addresses pass → exit 0 silently
+5. `stop_hook_active` → exit 0 (prevent loops)
+
+---
+
+## Golden test set
+
+Initial 5 (cover size/shape space):
+
+| # | key | location | size | shape | path | notes |
+|---|---|---|---|---|---|---|
+| 1 | flatiron | NYC | medium | wedge | 7a parametric | canonical parametric happy path |
+| 2 | guggenheim | NYC | medium | curved | 7c hybrid | iconic, curved, tests cleaned-tiles as fallback |
+| 3 | pennzoil | Houston | large | tower-podium | 7a parametric (despite truncation) | tests height extrapolation |
+| 4 | geisel | UCSD | medium | multi-wing | 7b cleaned-tiles | tests complex shape fallback |
+| 5 | 240-highland | Newton MA | small | rect | 7a parametric | suburban residential, gabled roof |
+
+After MVP (step 12): expand to all 20 existing + the 10 planned new locations.
+
+---
+
+## Migration plan
+
+Each step is one commit/PR, feature-gated. Old entry points (`scripts/voxelize-glb.ts`, `scripts/tiles-headless.ts`) stay functional until step 14.
+
+1. **Scaffold** — `src/pipeline/` directory skeleton with types files and empty stubs. `bunx tsc --noEmit` clean.
+2. **Resolver** — Stages 0-2. Pure functions + profile table JSON + classifier. Tests against 5 goldens: correct `BuildingContext` + `CaptureProfile` output.
+3. **Tile capture** — Stage 3, extracted from `tiles-headless.ts` into pure core. Preserves existing behavior. Legacy script becomes a thin wrapper.
+4. **SV capture** — Stage 4 iterative loop. Can unit-test the sniff function independently. Mock API responses in tests.
+5. **Satellite** — Stage 5. Tree-mask unit tests with synthetic inputs.
+6. **Fusion** — Stage 6. Deterministic; unit tests per conflict rule.
+7. **Parametric synthesis** — Stage 7a. Hardest step. Unit-test each roof shape generator, each feature generator independently. Integration test: 5 goldens → B-rep whose polygon matches OSM.
+8. **Cleaned-tiles fallback** — Stage 7b. Watertight repair + top extrapolation.
+9. **Export GLBs** — Stages 8a/b. Watertight/manifold checks built in.
+10. **Voxel export** — Stage 8c, wrapping existing voxelizer.ts.
+11. **Objective verification** — Stage 9 objective gates.
+12. **VLM consensus** — Stage 9 subjective + multi-model wiring.
+13. **New hook + iterate.ts + state file** — Stage 10. Old hooks archived, not deleted (recoverable).
+14. **Browser adapter** — `web/src/ui/tiles.ts` rewritten as thin adapter over `src/pipeline/`.
+15. **Cleanup** — delete old `pipeline.ts`, `mesh-filter/`, `voxel-classifier.ts`, `scene-pipeline.ts`, `scene-enrichment.ts`, `osm-infrastructure.ts`, `semantic-palette.ts`, old grade modules, old scripts to `_legacy/`, old hooks to archive.
+
+Rollback: each step is self-contained. Steps 1-12 leave old pipeline functional. Steps 13-15 are the "flip switch" steps.
+
+---
+
+## Risks and mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Parametric fails on buildings with weird shapes not in the shape taxonomy | Router falls back to cleaned-tiles (7b). Adding a new shape class is one classifier update + optional parametric generator |
+| VLM consensus never converges (models always disagree) | Spread >2 for 3 rounds → surface dissent to human; don't block forever |
+| Tile capture on large skyscrapers stays truncated | Design accepts this: parametric path uses polygon + Solar height, ignores truncated mesh for 7a. 7b extrapolates |
+| Termux/ARM GPU issues reoccur with new browser adapter | Adapter is optional; CLI works fully independently. Browser is feature-gated and can lag |
+| API costs balloon | Multi-VLM consensus only runs after objective pass. Each address graded 1× unless explicitly re-run. Consensus budget per month is monitorable |
+| Interior floorplan support breaks the B-rep design | `voids?: Volume[]` field on BuildingBRep reserves the slot. Floors as separate slabs means floor-level subtract is natural. Validated by example in spec |
+| Scope explosion during implementation | Each of the 15 migration steps is independently shippable. Stop at any step if urgency shifts |
+
+---
+
+## Success criteria
+
+MVP (end of step 12):
+- 5 goldens all pass all objective gates
+- 4 of 5 goldens pass consensus ≥ 8 with spread ≤ 2
+- Building print GLB opens in Prusa / Cura without warnings
+- Building voxel schem matches or exceeds existing scores on the 7-category rubric (for reference)
+
+Full (end of step 15):
+- All 20 existing buildings pass objective gates
+- Median consensus score ≥ 8.5, minimum ≥ 8.0
+- Pipeline handles the 10 new planned locations (e.g., Fallingwater, Chrysler, Space Needle) end-to-end
+- Old pipeline files deleted; repo is ~10K lines lighter
+- Single entry: `bun scripts/build.ts <address>` produces all artifacts
+
+---
+
+## Open questions (for implementation, not design)
+
+None blocking. Items below are implementation-time decisions that should not stop the design.
+
+- CSG library choice — roll our own vs. depend on `manifold-3d` or `three-bvh-csg`. Both work; will pick during step 7a based on bundle size.
+- Tree instance LOD — per-tree mesh vs. instanced billboard. Scene GLB quality impact; decide during step 8b.
+- Smarty fallback for non-US — parcel-area inference from OSM + Solar. Implement only if non-US support requested.
