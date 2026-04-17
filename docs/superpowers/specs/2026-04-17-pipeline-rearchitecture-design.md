@@ -191,9 +191,14 @@ interface BuildingContext {
   isSloped: boolean;        // > 3° slope across footprint
   slopeVector: { dx: number; dy: number } | null;
 
-  // Campus detection
+  // Campus detection — siblingBuildings keeps per-sibling metadata (geometry + tags)
+  // so the campus classifier can evaluate the `building:part` tag condition.
   isCampus: boolean;
-  siblingPolygons: LatLon[][];
+  siblingBuildings: Array<{
+    polygon: LatLon[];
+    tags: Record<string, string>;
+    distanceM: number;              // edge-to-edge distance from primary
+  }>;
 
   // Raw data (downstream reference)
   rawSolar: SolarBuildingData | null;
@@ -207,7 +212,8 @@ interface BuildingContext {
 - `polygon` is `null` when neither OSM nor Solar provides one (synthesis routes to 7b).
 - `mbr` is **always non-null**. When no polygon exists, it is built from the fallback chain: geocode viewport bbox (if `locationType === 'ROOFTOP'` or `RANGE_INTERPOLATED`) → 25m×25m square centered on `center` (last resort). `mbr.corners` in the last-resort case are axis-aligned.
 - `heightM` is `null` when all four sources fail (Solar + OSM `building:levels` + Smarty + tile heightmap). Synthesis routes to 7b and the printable path fails at the objective gate, which is the intended behavior.
-- `levels` is `null` when unresolvable; parametric path then falls back to `round(heightM / 3.5)` with 3.5m as civic default, 3.0m residential, 4.0m commercial.
+- **Context-insufficient terminal state**: if resolver cannot produce any usable footprint (`polygon === null` AND `rawSolar?.buildingBounds === null`) AND geocode viewport is city-scale (>500m), the resolver sets `status = 'context-insufficient'` directly and the pipeline aborts before capture. This prevents the silent "25m×25m generic box" output for addresses with no data at all. The case is distinct from `needs-human-review` (which arises after full processing) and is surfaced by the stop hook separately.
+- `levels` is `null` when unresolvable by fusion (OSM/Smarty/SV all fail). When `ev.levels.value` is unavailable at Stage 7a, synthesis computes `levels = round(heightM / floorHeight)` with archType-specific `floorHeight`: 3.5m civic (default), 3.0m residential, 4.0m commercial. This is a **synthesis-time** fallback, not a fusion-time one — the fusion table records `ev.levels.source === 'inferred'` and `confidence = 0.4` so downstream telemetry sees that levels were inferred rather than sourced.
 - `groundElevationM`, `size`, `shape`, `svDifficulty`, `archType` are always non-null — last-resort defaults exist in the classifier (`small`, `rect`, `suburban`, `residential`).
 
 **Primitive types** (referenced but not defined in this spec; imported from existing codebase):
@@ -270,7 +276,7 @@ Modifier rows:
 - `rural-occluded`: `streetview.angleVariants += [-60, 60]`, `streetview.minBuildingPixelRatio = 0.15`, `satellite.maskTrees = true`
 - `no-coverage`: `streetview.dirCount = 0` (skip Stage 4 entirely); palette from satellite + OSM only. Fusion confidence on wallPalette drops to 0.5 since no SV data.
 
-**Classifier rule for `size: 'campus'`:** triggered when `siblingPolygons.length >= 2` AND sibling polygons are within 30m of primary polygon AND OSM shows `building:part=*` tags on any sibling. Otherwise use max-dimension buckets. Campus always uses the `campus` row regardless of max-dimension.
+**Classifier rule for `size: 'campus'`:** triggered when `siblingBuildings.length >= 2` AND at least two siblings have `distanceM ≤ 30` AND at least one sibling has `tags['building:part']` set. Otherwise use max-dimension buckets. Campus always uses the `campus` row regardless of max-dimension.
 
 ### `TileEvidence`
 
@@ -436,10 +442,12 @@ interface Feature {
 src/pipeline/                    ← NEW, pure core
   context/
     resolver.ts                  ← Stages 0-1
-    classify.ts                  ← Stage 2 size/shape/SV/arch classifiers
+    classify.ts                  ← Stage 2 initial classifiers (size/shape/SV/arch)
+                                   + `refineContextWithTiles()` post-Stage-3 refinement
+                                   (brands RefinedBuildingContext)
     profile.ts                   ← Stage 2 profile lookup
     profiles.json                ← Profile table data
-    types.ts
+    types.ts                     ← BuildingContext, RefinedBuildingContext (branded), CaptureProfile
   capture/
     tiles.ts                     ← Stage 3 (pure capture; BVH + DRACO setup extracted from tiles-headless)
     streetview.ts                ← Stage 4 iterative capture
@@ -656,7 +664,16 @@ Palette reconciliation: when SV and OSM tag agree within delta-E 10, confidence 
 ### Stage 7 — Synthesis Router
 
 ```ts
-function routeSynthesis(ctx: BuildingContext, ev: JointEvidence, tiles: TileEvidence): SynthesisPath {
+// Branded refined type — compiler catches consumers reading raw `ctx` where
+// `ctx2` is required. The refinement function produces this type; the router
+// only accepts this type. No accidental "forgot to refine" bugs.
+type RefinedBuildingContext = BuildingContext & { readonly __refined: true };
+
+function routeSynthesis(
+  ctx: RefinedBuildingContext,   // must be post-refineContextWithTiles()
+  ev: JointEvidence,
+  tiles: TileEvidence,
+): SynthesisPath {
   const iconic = ctx.rawOsm?.tags?.tourism === 'attraction'
               || ctx.rawOsm?.tags?.historic === 'monument'
               || ctx.rawOsm?.tags?.heritage != null;
@@ -666,6 +683,22 @@ function routeSynthesis(ctx: BuildingContext, ev: JointEvidence, tiles: TileEvid
   if (!ctx.polygon) return '7b-cleaned-tiles';
   return '7a-parametric';
 }
+```
+
+**Orchestrator call shape:**
+
+```ts
+// src/pipeline/pipeline.ts
+const ctx1 = await resolveContext(address, apiKey);    // Stage 0-2 initial
+const profile = lookupProfile(ctx1);                    // Stage 2 profile
+const tiles = await captureTiles(ctx1, profile);        // Stage 3
+const ctx2 = refineContextWithTiles(ctx1, tiles);       // post-3 refinement → RefinedBuildingContext
+const sv = await captureStreetView(ctx2, profile);      // Stage 4
+const sat = await captureSatellite(ctx2, tiles, sv, profile);  // Stage 5
+const joint = fuseEvidence(ctx2, tiles, sv, sat);       // Stage 6
+const path = routeSynthesis(ctx2, joint, tiles);        // Stage 7 router
+const brep = await synthesize(path, ctx2, joint, tiles);
+// ... export + verify
 ```
 
 ### Stage 7a — Parametric Synthesis
@@ -755,6 +788,7 @@ Not an MVP priority; spec'd for future step.
 | 5 | Self-intersect | AABB-tree accelerated triangle-triangle intersection test. **Exhaustive** (no sampling). Uses three-mesh-bvh. | = 0 |
 | 6 | Min wall thickness | Ray-marching from each surface triangle centroid along `-normal`, first inside-hit distance is wall thickness. Minimum across sampled triangles (1 per 5cm² surface area). At 1:100 print scale (real mm = mesh m × 10) | ≥ 0.8mm (= 0.08m real) |
 | 7 | Voxel occupancy (building only) | Non-empty voxel count | ≥ 1 AND ≤ 500,000 |
+| 8 | Plinth watertight (if exported) | Same check as Gate 3 on `group_plinth` | = 0 (skipped if no plinth) |
 
 **Rationale for thresholds:**
 - **IoU ≥ 0.85**: prior pipeline averaged 0.89 on passing buildings and 0.72 on failing; 0.85 is the meaningful boundary.
@@ -773,10 +807,15 @@ Not an MVP priority; spec'd for future step.
   - **GPT-5** (via `mcp__pal__chat` — single-call)
 - Prompt: "Score this synthesized model against the reference images on {color, features, massing, overall}, 0-10."
 - Each returns four scores.
-- `consensus = min(model × dimension)` = the minimum score across all 12 (3 models × 4 dimensions)
-- `spread = max(model × dimension) - min(model × dimension)` over each dimension
-- **Release gate**: `consensus ≥ 8` AND `max spread per dimension ≤ 2`
-- **Rationale for thresholds**: `consensus ≥ 8` targets the plateau ceiling the prior Gemini-only pipeline reached; requiring **three** models to clear it independently is a real uplift. `spread ≤ 2` filters cases where one model is biased (e.g., Gemini rates photogrammetry highly, Claude penalizes it) — the pipeline shouldn't release on a single model's outlier optimism.
+- `min = min(model × dimension)` = the minimum score across all 12 (3 models × 4 dimensions)
+- `median = median(model × dimension)`
+- `spread = max(model × dimension) - min(model × dimension)` computed per dimension (report max spread across dimensions)
+- **Release gate**: `median ≥ 8.5` AND `min ≥ 7` AND `max spread per dimension ≤ 2`
+- **Rationale for thresholds**:
+  - `median ≥ 8.5`: A median of 8.5 across 12 scores means typical rating is high; matches the user's "looks great" bar.
+  - `min ≥ 7`: no single dimension×model is catastrophically bad. A 6 from any model on any dimension indicates a real defect worth fixing, not model bias.
+  - `spread ≤ 2`: filters cases where one model outlies (e.g., Gemini rates photogrammetry highly, Claude penalizes it). The gate shouldn't release on a single model's outlier optimism; conversely, a single model's outlier pessimism shouldn't block release if the other two agree.
+  - Prior pipeline's single-Gemini plateau was `~8/10 avg across 7 categories`. New gate is measurably stricter (median ≥ 8.5) but not catastrophically so (min ≥ 7 allows one weak dimension per model).
 - **Loop termination (prevents infinite re-voting):**
   - Round 1: vote once.
   - If spread > 2 on any dimension: Round 2 re-renders with rotated view angles (45° rotation of the 3/4 view + alternate isometric quadrant), re-votes.
@@ -785,42 +824,33 @@ Not an MVP priority; spec'd for future step.
 
 ### Stage 10 — Stop hook
 
-`.claude/hooks/check-pipeline-state.sh` reads `output/pipeline-state.json`:
+`.claude/hooks/check-pipeline-state.sh` reads `output/pipeline-state.json`. Canonical state record shape:
 
 ```json
 {
   "version": "v400",
   "addresses": {
     "flatiron": {
-      "objective": { "footprintIoU": 0.91, "heightErr": 0.04, "watertight": true, "manifold": true, "printable": true, "pass": true },
-      "consensus": { "gemini": 8.5, "claude": 8.0, "gpt5": 9.0, "min": 8.0, "spread": 1.0, "pass": true },
-      "pass": true,
-      "lastRun": "2026-04-17T12:00:00Z"
-    }
-  }
-}
-```
-
-Hook logic:
-1. If any address has objective failures → block with `"EXECUTE NOW: rebuild {slug} — {failing_gate} (threshold={t}, got={v})"`
-2. If objective pass but consensus `min < 8` AND `status !== 'needs-human-review'` → block with `"EXECUTE NOW: improve {slug} on {worst_dim} (score={s})"`
-3. If `status === 'needs-human-review'` → **exit 0 non-silently** (log the dissent summary to stderr but do not block). This is the terminal state from Stage 9 loop exhaustion.
-4. If all addresses pass → exit 0 silently.
-5. `stop_hook_active` → exit 0 (prevent re-entry loops).
-
-State record shape:
-
-```json
-{
-  "addresses": {
-    "flatiron": {
-      "objective": { "footprintIoU": 0.91, "heightErr": 0.04, "watertight": true, "manifold": true, "selfIntersect": 0, "minWallThicknessMm": 2.2, "voxelCount": 48000, "pass": true },
+      "objective": {
+        "footprintIoU": 0.91,
+        "heightErr": 0.04,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 0,
+        "minWallThicknessMm": 2.2,
+        "voxelCount": 48000,
+        "plinthWatertight": true,
+        "pass": true
+      },
       "consensus": {
         "rounds": 1,
         "gemini": { "color": 9, "features": 8, "massing": 9, "overall": 9 },
         "claude": { "color": 8, "features": 8, "massing": 9, "overall": 8 },
         "gpt5":   { "color": 9, "features": 9, "massing": 9, "overall": 9 },
-        "min": 8, "spread": 1, "pass": true
+        "min": 8,
+        "median": 8.75,
+        "spread": 1,
+        "pass": true
       },
       "status": "pass",
       "lastRun": "2026-04-17T12:00:00Z"
@@ -829,7 +859,28 @@ State record shape:
 }
 ```
 
-`status` is one of `pass | fail-objective | fail-consensus | needs-human-review`. Hook reads `status` directly.
+`status` is the canonical field the hook reads. Values: `pass | fail-objective | fail-consensus | needs-human-review | context-insufficient`.
+
+- `pass` — objective and consensus both pass
+- `fail-objective` — at least one objective gate failed
+- `fail-consensus` — objective passed, consensus `min < 8` or `spread > 2` (still re-runnable)
+- `needs-human-review` — consensus loop exhausted (3 rounds), disagreement unresolved
+- `context-insufficient` — resolver could not produce a usable `mbr` (no polygon, no Solar bbox, no usable geocode viewport). Terminal; no amount of re-capture fixes it
+- `objective.pass` and `consensus.pass` are derived booleans (convenience for log inspection); the hook MUST branch on `status`, not on the derived booleans, to avoid divergence
+
+**Hook logic (ordered, terminal states first):**
+
+```
+for each address:
+  1. stop_hook_active flag → exit 0 (prevent re-entry loop)
+  2. status === 'needs-human-review' → exit 0 non-silently, log dissent summary to stderr
+  3. status === 'context-insufficient' → exit 0 non-silently, log to stderr, recommend manual OSM trace
+  4. status === 'fail-objective' → BLOCK with "EXECUTE NOW: rebuild {slug} — {failing_gate} (threshold={t}, got={v})"
+  5. status === 'fail-consensus' → BLOCK with "EXECUTE NOW: improve {slug} on {worst_dim} (score={s})"
+  6. status === 'pass' → continue to next address (exit 0 silently when all addresses processed)
+```
+
+The terminal-states-first ordering means no interdependent rule guards. Each rule is independent and the ordering captures "skip" semantics naturally.
 
 ---
 
@@ -891,9 +942,10 @@ Rollback: each step is self-contained. Steps 1-12 leave old pipeline functional.
 
 MVP (end of step 12):
 - 5 goldens all pass all objective gates
-- 4 of 5 goldens pass consensus ≥ 8 with spread ≤ 2
+- 4 of 5 goldens pass consensus gate (`median ≥ 8.5 AND min ≥ 7 AND spread ≤ 2`)
 - Building print GLB opens in Prusa / Cura without warnings
 - Building voxel schem for 5 goldens is visually on par or better than existing output. **The 7-category rubric (old pipeline) is NOT used for MVP grading** — the new 4-dimension VLM consensus (color / features / massing / overall) is the canonical subjective metric from step 12 onward. Side-by-side comparison against old schems is advisory only, for sanity checks during migration
+- **Verification is driven manually at MVP** — `scripts/build.ts <address>` runs the pipeline, writes `output/pipeline-state.json`, and prints status per address. Automated hook-driven iteration is step 13 work. MVP success is evaluated by running `bun scripts/build.ts` against the 5 goldens and reading the resulting state file
 
 Full (end of step 15):
 - All 20 existing buildings pass objective gates
