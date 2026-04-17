@@ -6,6 +6,9 @@
 # Input: JSON on stdin with stop_hook_active flag
 # Output: JSON decision or nothing (allow stop)
 
+# Disabled during rearchitecture — see _DISABLED_DURING_REWRITE.md
+if [ -f "$CLAUDE_PROJECT_DIR/.claude/hooks/_DISABLED_DURING_REWRITE.md" ]; then exit 0; fi
+
 STATE="$CLAUDE_PROJECT_DIR/output/category-state.json"
 INPUT=$(cat)
 

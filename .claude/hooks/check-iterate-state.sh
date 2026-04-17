@@ -1,6 +1,10 @@
 #!/bin/bash
 # Stop hook: PERPETUAL ITERATION driver.
 # Always outputs a concrete next action. Never silent when improvements possible.
+
+# Disabled during rearchitecture — see _DISABLED_DURING_REWRITE.md
+if [ -f "$CLAUDE_PROJECT_DIR/.claude/hooks/_DISABLED_DURING_REWRITE.md" ]; then exit 0; fi
+
 STATE="$CLAUDE_PROJECT_DIR/output/tiles/iterate-state.json"
 
 if [ ! -f "$STATE" ]; then

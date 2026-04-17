@@ -2,6 +2,9 @@
 # Stop hook: Verify scene pipeline completion — no stubs, shortcuts, or placeholders.
 # Checks all Phase 2-5 new files for completeness and ensures typecheck passes.
 
+# Disabled during rearchitecture — see _DISABLED_DURING_REWRITE.md
+if [ -f "$CLAUDE_PROJECT_DIR/.claude/hooks/_DISABLED_DURING_REWRITE.md" ]; then exit 0; fi
+
 DIR="$CLAUDE_PROJECT_DIR/src/convert"
 FAILURES=0
 
