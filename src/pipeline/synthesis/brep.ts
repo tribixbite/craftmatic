@@ -141,8 +141,24 @@ export interface EvaluatedMesh {
   readonly watertight: boolean;
 }
 
+function signedArea(poly: readonly LocalPoint2D[]): number {
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length];
+    a += p.x * q.z - q.x * p.z;
+  }
+  return a / 2;
+}
+
+/**
+ * Convert a LocalPoint2D polygon to the `[x, z][]` ring manifold-3d expects.
+ * Manifold requires CCW winding for solid extrusion; we flip polygons that
+ * come in CW.
+ */
 function polygonToRing(poly: readonly LocalPoint2D[]): ReadonlyArray<readonly [number, number]> {
-  return poly.map(p => [p.x, p.z] as const);
+  const area = signedArea(poly);
+  const ordered = area < 0 ? [...poly].reverse() : poly;
+  return ordered.map(p => [p.x, p.z] as const);
 }
 
 /**
