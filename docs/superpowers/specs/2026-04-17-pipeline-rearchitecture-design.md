@@ -194,7 +194,7 @@ interface BuildingContext {
   // Campus detection — siblingBuildings keeps per-sibling metadata (geometry + tags)
   // so the campus classifier can evaluate the `building:part` tag condition.
   isCampus: boolean;
-  siblingBuildings: Array<{
+  siblingBuildings: Array<{         // defaults to [] (empty) when no siblings detected
     polygon: LatLon[];
     tags: Record<string, string>;
     distanceM: number;              // edge-to-edge distance from primary
@@ -859,6 +859,39 @@ Not an MVP priority; spec'd for future step.
 }
 ```
 
+Additional example records for the non-pass statuses:
+
+```json
+{
+  "empire-state": {
+    "objective": { "footprintIoU": 0.88, "heightErr": 0.22, "watertight": true, "manifold": true, "selfIntersect": 0, "minWallThicknessMm": 2.2, "voxelCount": 52000, "plinthWatertight": null, "pass": false },
+    "consensus": null,
+    "status": "fail-objective",
+    "lastRun": "..."
+  },
+  "disney-hall": {
+    "objective": { "...": "all true", "pass": true },
+    "consensus": {
+      "rounds": 3,
+      "gemini": { "color": 9, "features": 6, "massing": 9, "overall": 8 },
+      "claude": { "color": 5, "features": 8, "massing": 8, "overall": 6 },
+      "gpt5":   { "color": 8, "features": 7, "massing": 9, "overall": 7 },
+      "min": 5, "median": 8.0, "spread": 4,
+      "pass": false
+    },
+    "status": "needs-human-review",
+    "lastRun": "..."
+  },
+  "no-data-address": {
+    "objective": null,
+    "consensus": null,
+    "status": "context-insufficient",
+    "reason": "no OSM polygon, no Solar bbox, geocode viewport 850m",
+    "lastRun": "..."
+  }
+}
+```
+
 `status` is the canonical field the hook reads. Values: `pass | fail-objective | fail-consensus | needs-human-review | context-insufficient`.
 
 - `pass` — objective and consensus both pass
@@ -949,7 +982,7 @@ MVP (end of step 12):
 
 Full (end of step 15):
 - All 20 existing buildings pass objective gates
-- Median consensus score ≥ 8.5, minimum ≥ 8.0
+- Consensus: `median ≥ 8.5`, `min ≥ 8.0` (escalated from MVP `min ≥ 7`), `spread ≤ 2` (unchanged). The escalation reflects maturity: at Full we expect all dimensions to be above the plateau ceiling, not just "no catastrophic outliers"
 - Pipeline handles the 10 new planned locations (e.g., Fallingwater, Chrysler, Space Needle) end-to-end
 - Old pipeline files deleted; repo is ~10K lines lighter
 - Single entry: `bun scripts/build.ts <address>` produces all artifacts
