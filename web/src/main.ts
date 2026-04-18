@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { BlockGrid } from '@craft/schem/types.js';
 import { createViewer, createMeshViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
 import { enableSelection } from '@viewer/selection.js';
-import { cropToAABB } from '@craft/convert/mesh-filter.js';
+import { cropToAABB } from '@craft/pipeline/capture/mesh-utils.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { trimGrid } from '@craft/gen/gen-utils.js';
 import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportHTML, exportThreeJSON } from '@viewer/exporter.js';

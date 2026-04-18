@@ -107,3 +107,39 @@ export function trimSparseBottomLayers(
   }
   return trimmed;
 }
+
+const AIR = 'minecraft:air';
+
+/**
+ * Crop grid blocks to an XZ AABB with a margin. Sets any non-air block
+ * outside `[minX-margin, maxX+margin] × [minZ-margin, maxZ+margin]` to air.
+ *
+ * Used by the browser to clip voxelized tiles to a user-selected rectangle
+ * (overlay selection raycast in `web/src/ui/tiles.ts`). Returns the number
+ * of blocks removed.
+ */
+export function cropToAABB(
+  grid: BlockGrid,
+  minX: number, maxX: number,
+  minZ: number, maxZ: number,
+  margin = 2,
+): number {
+  const { width, height, length } = grid;
+  const lo_x = Math.max(0, minX - margin);
+  const hi_x = Math.min(width - 1, maxX + margin);
+  const lo_z = Math.max(0, minZ - margin);
+  const hi_z = Math.min(length - 1, maxZ + margin);
+  let removed = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        if (grid.get(x, y, z) === AIR) continue;
+        if (x < lo_x || x > hi_x || z < lo_z || z > hi_z) {
+          grid.set(x, y, z, AIR);
+          removed++;
+        }
+      }
+    }
+  }
+  return removed;
+}

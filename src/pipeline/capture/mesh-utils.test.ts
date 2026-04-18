@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { filterMeshesByHeight, trimSparseBottomLayers, type MeshCandidate } from './mesh-utils.js';
+import { cropToAABB, filterMeshesByHeight, trimSparseBottomLayers, type MeshCandidate } from './mesh-utils.js';
 import { BlockGrid } from '../../schem/types.js';
 
 function mk(minY: number, maxY: number): MeshCandidate {
@@ -66,5 +66,46 @@ describe('trimSparseBottomLayers', () => {
     for (let y = 0; y < 5; y++) g.set(0, y, 0, 'minecraft:stone');
     const out = trimSparseBottomLayers(g, 0.05);
     expect(out.height).toBe(5);
+  });
+});
+
+describe('cropToAABB', () => {
+  it('removes blocks outside [minX, maxX] × [minZ, maxZ] plus margin', () => {
+    const g = new BlockGrid(10, 2, 10);
+    // Fill everything solid
+    for (let y = 0; y < 2; y++)
+      for (let z = 0; z < 10; z++)
+        for (let x = 0; x < 10; x++)
+          g.set(x, y, z, 'minecraft:stone');
+    // Crop to centre 4×4 with margin 0
+    const removed = cropToAABB(g, 3, 6, 3, 6, 0);
+    // Kept: 4×4×2 = 32 blocks; total = 200; removed = 168
+    expect(removed).toBe(168);
+    // Centre stays
+    expect(g.get(4, 0, 4)).toBe('minecraft:stone');
+    // Corner cleared
+    expect(g.get(0, 0, 0)).toBe('minecraft:air');
+  });
+
+  it('respects margin — keeps a ring of padding around the AABB', () => {
+    const g = new BlockGrid(10, 1, 10);
+    for (let z = 0; z < 10; z++)
+      for (let x = 0; x < 10; x++)
+        g.set(x, 0, z, 'minecraft:stone');
+    cropToAABB(g, 4, 5, 4, 5, 2);
+    // AABB 4-5, margin 2 → keep x ∈ [2, 7], z ∈ [2, 7]
+    expect(g.get(2, 0, 2)).toBe('minecraft:stone');
+    expect(g.get(1, 0, 1)).toBe('minecraft:air');
+    expect(g.get(7, 0, 7)).toBe('minecraft:stone');
+    expect(g.get(8, 0, 8)).toBe('minecraft:air');
+  });
+
+  it('skips air blocks (no-op on already-cleared cells)', () => {
+    const g = new BlockGrid(5, 1, 5);
+    // Only (0,0,0) is solid
+    g.set(0, 0, 0, 'minecraft:stone');
+    const removed = cropToAABB(g, 2, 4, 2, 4, 0);
+    expect(removed).toBe(1);
+    expect(g.get(0, 0, 0)).toBe('minecraft:air');
   });
 });
