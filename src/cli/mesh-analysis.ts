@@ -8,7 +8,8 @@
 import * as THREE from 'three';
 import { loadGLB } from './glb-loader.js';
 import { reorientToENU } from './enu-orient.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, analyzeGrid } from '../convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers } from '../pipeline/capture/mesh-utils.js';
+import { analyzeGrid } from '../convert/mesh-filter.js';
 import { threeToGrid, createDataTextureSampler } from '../convert/voxelizer.js';
 import { basename, extname } from 'node:path';
 

@@ -1,46 +1,51 @@
 /**
- * Three.js mesh capture filtering — pre-voxelization mesh operations.
- * These operate on THREE.js meshes (not BlockGrid) and filter geometry
- * before voxelization.
+ * Pre-voxelization mesh utilities — pure Three.js filters.
+ *
+ * `filterMeshesByHeight` removes flat terrain/roads/sidewalks from a set of
+ * radius-filtered tile meshes before voxelization. `trimSparseBottomLayers`
+ * trims empty-ish layers off the bottom of a voxel grid (same concern,
+ * post-voxelization safety net).
+ *
+ * Moved from src/convert/mesh-filter/mesh-capture.ts to sever the browser's
+ * dependency on the old mesh-filter barrel so Chunk 12 can delete it.
  */
 
-import * as THREE from 'three';
+import type * as THREE from 'three';
 import { BlockGrid } from '../../schem/types.js';
+
+export interface MeshCandidate {
+  readonly child: THREE.Mesh;
+  readonly worldBox: THREE.Box3;
+}
 
 /**
  * Filter captured tile meshes by vertical extent above estimated ground level.
  *
  * Two-pass algorithm:
- * 1. Compute world AABB for each mesh candidate
- * 2. Estimate ground as the median of AABB min-Y values
- * 3. Remove meshes whose max-Y doesn't rise above `minHeight` meters from ground
+ *   1. Compute world AABB for each mesh candidate
+ *   2. Estimate ground as the median of AABB min-Y values
+ *   3. Remove meshes whose max-Y doesn't rise above `minHeight` meters from ground
  *
  * Terrain, roads, and sidewalks are typically flat and sit near ground level,
  * so they get filtered out while building geometry (which rises above ground)
  * is preserved.
- *
- * @param candidates  Array of { mesh, worldBox } pairs (meshes already radius-filtered)
- * @param minHeight   Minimum vertical extent above ground to keep a mesh (meters)
- * @returns Object with kept meshes, ground level, and count of filtered meshes
  */
 export function filterMeshesByHeight(
-  candidates: Array<{ child: THREE.Mesh; worldBox: THREE.Box3 }>,
+  candidates: readonly MeshCandidate[],
   minHeight: number,
 ): {
-  kept: Array<{ child: THREE.Mesh; worldBox: THREE.Box3 }>;
+  kept: MeshCandidate[];
   groundY: number;
   heightFiltered: number;
 } {
   if (candidates.length === 0) {
     return { kept: [], groundY: 0, heightFiltered: 0 };
   }
-
-  // Estimate ground as median of mesh AABB min-Y values.
-  // The median is robust against outlier meshes (e.g. underground fragments).
+  // Median min-Y as ground estimate — robust against outlier meshes.
   const yMins = candidates.map(c => c.worldBox.min.y).sort((a, b) => a - b);
   const groundY = yMins[Math.floor(yMins.length / 2)];
 
-  const kept: Array<{ child: THREE.Mesh; worldBox: THREE.Box3 }> = [];
+  const kept: MeshCandidate[] = [];
   let heightFiltered = 0;
 
   for (const candidate of candidates) {
@@ -51,7 +56,6 @@ export function filterMeshesByHeight(
       kept.push(candidate);
     }
   }
-
   return { kept, groundY, heightFiltered };
 }
 
@@ -64,9 +68,6 @@ export function filterMeshesByHeight(
  * during mesh capture.
  *
  * Returns the original grid if no trimming is needed.
- *
- * @param grid           Source BlockGrid
- * @param fillThreshold  Minimum fill ratio to count as building content (default: 0.05 = 5%)
  */
 export function trimSparseBottomLayers(
   grid: BlockGrid,
@@ -75,7 +76,6 @@ export function trimSparseBottomLayers(
   const { width, height, length } = grid;
   const totalXZ = width * length;
 
-  // Find first Y layer from bottom with sufficient fill
   let trimY = 0;
   for (let y = 0; y < height; y++) {
     let filled = 0;
@@ -88,13 +88,11 @@ export function trimSparseBottomLayers(
       trimY = y;
       break;
     }
-    // If we reach the top without finding a dense layer, keep everything
     if (y === height - 1) return grid;
   }
 
-  if (trimY === 0) return grid; // Nothing to trim
+  if (trimY === 0) return grid;
 
-  // Copy layers [trimY..height-1] into a new smaller grid
   const newHeight = height - trimY;
   const trimmed = new BlockGrid(width, newHeight, length);
   for (let y = 0; y < newHeight; y++) {

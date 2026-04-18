@@ -34,7 +34,8 @@ if (typeof globalThis.ProgressEvent === 'undefined') {
 
 import * as THREE from 'three';
 import { threeToGrid, createDataTextureSampler } from '../src/convert/voxelizer.js';
-import { filterMeshesByHeight, trimSparseBottomLayers, analyzeGrid } from '../src/convert/mesh-filter.js';
+import { filterMeshesByHeight, trimSparseBottomLayers } from '../src/pipeline/capture/mesh-utils.js';
+import { analyzeGrid } from '../src/convert/mesh-filter.js';
 import type { ExtractedEnvironment, AnalysisResult } from '../src/convert/mesh-filter.js';
 import { searchOSMBuilding, fetchOSMById } from '../src/gen/api/osm.js';
 import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';

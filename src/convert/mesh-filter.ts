@@ -90,8 +90,7 @@ export {
   getBlockLab, blockLuminance, findBrightNeighborMode,
 } from './mesh-filter/_internal.js';
 
-// Pre-voxelization mesh capture filtering
-export { filterMeshesByHeight, trimSparseBottomLayers } from './mesh-filter/mesh-capture.js';
+// Pre-voxelization mesh capture filtering (moved to src/pipeline/capture/mesh-utils.ts)
 
 // Facade geometry operations (detection, alignment, plane ops, edge straightening)
 export {

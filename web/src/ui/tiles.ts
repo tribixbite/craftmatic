@@ -27,7 +27,8 @@ import {
 } from '@ui/import-streetview.js';
 import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
 import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
-import { trimSparseBottomLayers, analyzeGrid } from '@craft/convert/mesh-filter.js';
+import { trimSparseBottomLayers } from '@craft/pipeline/capture/mesh-utils.js';
+import { analyzeGrid } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { runPipeline, PipelinePhase } from '@craft/convert/pipeline.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
