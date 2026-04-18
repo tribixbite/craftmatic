@@ -58,6 +58,12 @@ export interface RunPipelineOptions {
   };
   /** Optional tile-capture timeout in ms (default 120000). */
   readonly tileTimeoutMs?: number;
+  /**
+   * Skip Stage 3 entirely — useful for tests and for addresses where we know
+   * Google 3D Tiles will fail (e.g. coverage gaps in rural areas). Synthesis
+   * routes to the cleaned-tiles fallback which builds from MBR dimensions.
+   */
+  readonly skipTiles?: boolean;
   /** Optional progress callback forwarded across stages. */
   readonly onProgress?: CaptureProgressFn;
 }
@@ -103,8 +109,11 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
   const profile: CaptureProfile = lookupProfile(ctx);
 
   // ── Stage 3: tile capture ──────────────────────────────────────────────
-  progress({ stage: 'tiles', message: 'capturing tiles…', ratio: 0 });
   let tiles: TileEvidence | null = null;
+  if (opts.skipTiles) {
+    progress({ stage: 'tiles', message: 'skipped', ratio: 1 });
+  } else {
+    progress({ stage: 'tiles', message: 'capturing tiles…', ratio: 0 });
   try {
     tiles = await captureTiles({
       center: ctx.center,
@@ -119,9 +128,10 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
       timeoutMs: opts.tileTimeoutMs,
       onProgress: progress,
     });
-  } catch (e) {
-    // Tile capture failure is non-fatal — fallback path takes over.
-    progress({ stage: 'tiles', message: `capture failed: ${(e as Error).message}`, ratio: 1 });
+    } catch (e) {
+      // Tile capture failure is non-fatal — fallback path takes over.
+      progress({ stage: 'tiles', message: `capture failed: ${(e as Error).message}`, ratio: 1 });
+    }
   }
 
   // ── Post-3 shape refinement ────────────────────────────────────────────
