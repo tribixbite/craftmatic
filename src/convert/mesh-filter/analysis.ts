@@ -11,99 +11,17 @@ import { BlockGrid } from '../../schem/types.js';
 import { AIR, FACES6 } from './_internal.js';
 
 // ─── Exported types ─────────────────────────────────────────────────────────
+// Type definitions are canonical in src/pipeline/capture/analysis-types.ts —
+// re-exported here so existing consumers don't break while the 21-phase
+// pipeline still lives. Import + re-export means the names are also in the
+// local module scope.
 
-/** Building shape classification from volumetric analysis */
-export type BuildingTypology = 'tower' | 'flatiron' | 'block' | 'house' | 'complex';
-
-/** Detected front face direction for street frontage */
-export type FaceDirection = '+x' | '-x' | '+z' | '-z';
-
-/** Complete analysis result with recommended pipeline parameters */
-export interface AnalysisResult {
-  // 1. Terrain / ground plane
-  groundPlaneY: number;        // estimated ground Y layer
-  slopeAngle: number;          // degrees — 0 = flat, >5 = sloped terrain
-  isFlat: boolean;             // slopeAngle < 3°
-
-  // 2. Central component isolation
-  componentCount: number;      // number of distinct 3D connected components
-  centralAABB: { minX: number; maxX: number; minZ: number; maxZ: number; minY: number; maxY: number };
-  suggestedCropRadius: number; // auto-computed XZ radius for --crop
-
-  // 3. Capture boundary intersection — partial capture detection
-  edgeTouchPct: number;        // % of non-air voxels touching grid XZ edges
-  isPartialCapture: boolean;   // edgeTouchPct > 5% → building extends beyond capture
-
-  // 4. Volumetric typology
-  typology: BuildingTypology;
-  aspectRatio: number;         // height / max(width, length) of central component
-  footprintFill: number;       // fraction of XZ bounding rect filled at ground level
-  isRectangular: boolean;      // footprintFill > 0.7
-
-  // 4b. Shape classification for filter gating
-  rectangularity: number;      // footprint area / OBB area (0-1, <0.85 = non-rectangular)
-  hasSetbacks: boolean;        // footprint shrinks >20% between Y quartiles
-  heightProfile: 'uniform' | 'tapered' | 'stepped' | 'domed';
-
-  // 5. Roof analysis
-  isFlatRoof: boolean;         // low heightmap variance in top 10%
-  roofVariance: number;        // normalized variance of top-layer height distribution
-
-  // 6. Facade color clustering (k=2 dominant + secondary)
-  dominantBlock: string;       // most common non-air block on exterior surface
-  secondaryBlock: string;      // second most common exterior block
-  dominantPct: number;         // % of exterior surface covered by dominant block
-  suggestedRemaps: Map<string, string>; // auto-generated --remap args
-
-  // 7. Noise estimation
-  protrusion1vCount: number;   // single-voxel protrusions (noise indicator)
-  noisePct: number;            // protrusions / total non-air
-  suggestedClean: number;      // recommended --clean value
-
-  // 8. Street frontage
-  frontFace: FaceDirection;    // side with most ground-level density
-
-  // 9. Confidence score
-  confidence: number;          // 1-10 predicted voxelization quality
-
-  // 10. Entry/door detection
-  entryPosition: { x: number; z: number } | null; // ground-level doorway position (grid coords)
-  entryFace: FaceDirection;    // face where entry was detected (usually matches frontFace)
-  entryWidth: number;          // width of the detected opening in blocks
-
-  // 11. Ground boundary / footprint
-  footprintArea: number;       // number of XZ columns with building blocks at ground level
-  perimeterLength: number;     // number of ground-level blocks on the building perimeter
-  groundContactY: number;      // Y layer where building first contacts ground
-
-  // 12. Entry path — straight-line path from grid edge to detected entry
-  entryPath: Array<{ x: number; z: number }>;  // path blocks from edge to door (empty if no entry)
-
-  // 13. Data quality assessment
-  compactness: number;           // footprintArea / AABB area (1.0 = perfect rectangle, <0.3 = scattered)
-  dataQuality: 'good' | 'fair' | 'poor'; // overall capture quality verdict
-
-  // 14. Building extent (at 1 block/m, blocks ≈ meters)
-  estimatedWidthM: number;       // central component X extent
-  estimatedHeightM: number;      // central component Y extent
-  estimatedDepthM: number;       // central component Z extent
-  estimatedFloors: number;       // estimated floor count (height / 3.5m per floor)
-
-  // Recommended CLI args
-  recommended: {
-    generic: boolean;
-    fill: boolean;
-    noPalette: boolean;
-    noCornice: boolean;
-    noFireEscape: boolean;
-    smoothPct: number;
-    modePasses: number;
-    cropRadius: number;       // circular crop (0 = skip)
-    useAABBCrop: boolean;     // use AABB crop instead of circular (shape-preserving)
-    cleanMinSize: number;
-    remaps: Map<string, string>;
-  };
-}
+import type {
+  AnalysisResult,
+  BuildingTypology,
+  FaceDirection,
+} from '../../pipeline/capture/analysis-types.js';
+export type { AnalysisResult, BuildingTypology, FaceDirection };
 
 // ─── Module-level block-type Sets (hoisted from analyzeGrid) ────────────────
 
