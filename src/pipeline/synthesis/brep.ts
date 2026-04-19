@@ -244,18 +244,28 @@ export async function evaluateBRep(brep: BuildingBRep): Promise<EvaluatedMesh> {
   const mesh = building.getMesh();
   const { numVert, numTri, vertProperties, triVerts } = mesh;
 
-  // manifold-3d uses Z-up; remap to Y-up for glTF: (x, y, z) → (x, z, -y)
+  // manifold-3d uses Z-up; remap to Y-up for glTF: (x, y, z) → (x, z, y).
+  // We preserve y-sign (no negation) so the mesh's XZ silhouette matches the
+  // input polygon's {x, z} coordinates. Without this, footprintIoU sees the
+  // mesh mirrored along Z vs the target polygon and reports garbage IoU
+  // for any asymmetric footprint (wedges, L-shapes, etc.).
   const positions = new Float32Array(numVert * 3);
   for (let i = 0; i < numVert; i++) {
     const bx = vertProperties[i * 3];
     const by = vertProperties[i * 3 + 1];
     const bz = vertProperties[i * 3 + 2];
     positions[i * 3] = bx;
-    positions[i * 3 + 1] = bz;       // Z → Y
-    positions[i * 3 + 2] = -by;      // Y → -Z
+    positions[i * 3 + 1] = bz;       // Z → Y (up)
+    positions[i * 3 + 2] = by;       // Y → Z (preserves polygon.z sign)
   }
+  // Winding order: the axis swap (y ↔ z) inverts handedness — flip triangles
+  // so face normals still point outward.
   const indices = new Uint32Array(numTri * 3);
-  indices.set(triVerts);
+  for (let i = 0; i < numTri; i++) {
+    indices[i * 3] = triVerts[i * 3];
+    indices[i * 3 + 1] = triVerts[i * 3 + 2];
+    indices[i * 3 + 2] = triVerts[i * 3 + 1];
+  }
 
   const vol = building.volume();
   const surf = building.surfaceArea();
