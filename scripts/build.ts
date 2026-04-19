@@ -43,6 +43,9 @@ function popFlag(name: string): string | null {
 
 const outDir = popFlag('--out') ?? popFlag('-o') ?? 'output/pipeline';
 const slugOverride = popFlag('--slug');
+const tileTimeoutSec = parseInt(popFlag('--tile-timeout') ?? '0', 10);
+const skipTiles = argv.includes('--skip-tiles');
+if (skipTiles) argv.splice(argv.indexOf('--skip-tiles'), 1);
 const address = argv.join(' ').trim();
 if (!address) {
   console.error('Usage: bun scripts/build.ts "address" [--out dir]');
@@ -138,6 +141,8 @@ const result = await runPipeline({
     const r = typeof ratio === 'number' ? ` ${(ratio * 100).toFixed(0)}%` : '';
     console.error(`[${stage}${r}] ${message}`);
   },
+  tileTimeoutMs: tileTimeoutSec > 0 ? tileTimeoutSec * 1000 : undefined,
+  skipTiles,
 });
 const elapsed = ((Date.now() - started) / 1000).toFixed(1);
 

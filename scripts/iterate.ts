@@ -85,13 +85,17 @@ function statusRank(status: Status): number {
   }
 }
 
-function runBuild(golden: Golden): number {
+function runBuild(golden: Golden, extraFlags: string[] = []): number {
   console.error(`\n━━━ ${golden.slug} — ${golden.address} ━━━`);
   const result = spawnSync('bun', [
     resolve(projectRoot, 'scripts/build.ts'),
     golden.address,
     '--out', outDir,
     '--slug', golden.slug,
+    // Cap tile capture at 60s — skyscrapers can hang indefinitely otherwise.
+    // Partial captures fall through to cleaned-tiles / parametric paths.
+    '--tile-timeout', '60',
+    ...extraFlags,
   ], {
     cwd: projectRoot,
     stdio: 'inherit',
@@ -176,6 +180,11 @@ if (hasFlag('--status') || argv.length === 0) {
   process.exit(0);
 }
 
+// --fast: skip tile capture entirely → parametric synthesis directly from
+// evidence. Useful for initial validation before paying the tile-API cost.
+const fast = hasFlag('--fast');
+const extraBuildFlags = fast ? ['--skip-tiles'] : [];
+
 if (hasFlag('--bootstrap')) {
   const targets = goldens.filter(g => !state.addresses[g.slug]);
   if (targets.length === 0) {
@@ -183,10 +192,10 @@ if (hasFlag('--bootstrap')) {
     summarise(state, goldens);
     process.exit(0);
   }
-  console.log(`bootstrap: building ${targets.length} ungraded goldens…`);
+  console.log(`bootstrap: building ${targets.length} ungraded goldens${fast ? ' (fast, skip-tiles)' : ''}…`);
   let failed = 0;
   for (const g of targets) {
-    const code = runBuild(g);
+    const code = runBuild(g, extraBuildFlags);
     if (code !== 0) failed++;
   }
   summarise(loadState(), goldens);
@@ -194,10 +203,10 @@ if (hasFlag('--bootstrap')) {
 }
 
 if (hasFlag('--all')) {
-  console.log(`rebuilding all ${goldens.length} goldens…`);
+  console.log(`rebuilding all ${goldens.length} goldens${fast ? ' (fast)' : ''}…`);
   let failed = 0;
   for (const g of goldens) {
-    const code = runBuild(g);
+    const code = runBuild(g, extraBuildFlags);
     if (code !== 0) failed++;
   }
   summarise(loadState(), goldens);
@@ -212,7 +221,7 @@ if (only) {
     console.error(`Known: ${goldens.map(x => x.slug).join(', ')}`);
     process.exit(1);
   }
-  const code = runBuild(g);
+  const code = runBuild(g, extraBuildFlags);
   summarise(loadState(), goldens);
   process.exit(code);
 }
@@ -226,7 +235,7 @@ if (hasFlag('--worst')) {
   }
   const rec = state.addresses[g.slug];
   console.error(`worst: ${g.slug} (${rec.status}, ${rec.attempts} attempts)`);
-  const code = runBuild(g);
+  const code = runBuild(g, extraBuildFlags);
   summarise(loadState(), goldens);
   process.exit(code);
 }
