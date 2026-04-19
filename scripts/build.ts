@@ -17,6 +17,7 @@
 
 import { resolve, join } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import type { FullVerificationReport } from '../src/pipeline/verify/report.js';
 import { runPipeline } from '../src/pipeline/pipeline.js';
 import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { querySolarBuildingInsights } from '../src/gen/api/google-solar.js';
@@ -148,6 +149,10 @@ const paths: Record<string, string> = {
 
 writeFileSync(paths.verification, JSON.stringify(result.report, null, 2));
 
+// Merge into canonical pipeline-state.json (the file the stop hook reads)
+const statePath = join(projectRoot, 'output/pipeline-state.json');
+mergeStateRecord(statePath, slug, result.report, elapsed);
+
 if (result.artifacts) {
   paths.printGlb = join(absOutDir, `${slug}.print.glb`);
   paths.sceneGlb = join(absOutDir, `${slug}.scene.glb`);
@@ -172,3 +177,84 @@ if (result.artifacts) {
 console.log(paths.verification);
 
 process.exit(result.report.status === 'fail-objective' ? 1 : 0);
+
+// ─── State merge + attempt tracking ────────────────────────────────────────
+
+interface PipelineStateFile {
+  version?: string;
+  addresses: Record<string, PipelineStateRecord>;
+}
+
+interface PipelineStateRecord {
+  address: string;
+  status: FullVerificationReport['status'];
+  lastRun: string;
+  elapsedSec: number;
+  attempts: number;
+  recentFailureSignatures: string[];
+  objective: FullVerificationReport['objective'];
+  consensus: FullVerificationReport['consensus'];
+  reason?: string;
+}
+
+/**
+ * Compute a short signature for a failure — used by the hook's loop detector.
+ *
+ * Objective failures: canonicalise the first two `failures[]` entries so repeat
+ * runs that fail the same gates cluster.
+ * Consensus failures: include median + min (truncated) + worst dimension.
+ * Others: the status enum.
+ */
+function failureSignature(report: FullVerificationReport): string {
+  if (report.status === 'pass') return 'pass';
+  if (report.status === 'fail-objective' && report.objective) {
+    const tags = report.objective.failures.slice(0, 2).map(f => {
+      // Strip numeric values so "IoU 0.71 < 0.85" and "IoU 0.73 < 0.85" collide.
+      return f.replace(/[0-9.]+/g, '#').trim();
+    });
+    return `fail-objective:${tags.join('|')}`;
+  }
+  if (report.status === 'fail-consensus' && report.consensus) {
+    const median = Math.round(report.consensus.median);
+    const min = Math.round(report.consensus.min);
+    return `fail-consensus:median=${median},min=${min}`;
+  }
+  return report.status;
+}
+
+function mergeStateRecord(
+  path: string,
+  slug: string,
+  report: FullVerificationReport,
+  elapsedSec: string,
+): void {
+  let state: PipelineStateFile = { version: 'v400', addresses: {} };
+  if (existsSync(path)) {
+    try {
+      state = JSON.parse(readFileSync(path, 'utf8')) as PipelineStateFile;
+      if (!state.addresses) state.addresses = {};
+    } catch {
+      // Corrupt state file — start fresh.
+    }
+  }
+
+  const prev = state.addresses[slug];
+  const sig = failureSignature(report);
+  const attempts = (prev?.attempts ?? 0) + 1;
+  const recent = [...(prev?.recentFailureSignatures ?? []), sig].slice(-5);
+
+  const record: PipelineStateRecord = {
+    address,
+    status: report.status,
+    lastRun: report.lastRun,
+    elapsedSec: parseFloat(elapsedSec),
+    attempts: report.status === 'pass' ? 0 : attempts, // reset on pass
+    recentFailureSignatures: report.status === 'pass' ? [] : recent,
+    objective: report.objective,
+    consensus: report.consensus,
+    ...(report.reason ? { reason: report.reason } : {}),
+  };
+
+  state.addresses[slug] = record;
+  writeFileSync(path, JSON.stringify(state, null, 2));
+}

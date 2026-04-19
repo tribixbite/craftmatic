@@ -1,101 +1,260 @@
 #!/bin/bash
-# Stop hook: reads output/pipeline-state.json, branches on the `status` field.
+# Stop hook: drives the pipeline-iteration loop.
 #
-# Terminal states first — so reordering the rules can't break the loop:
-#   1. stop_hook_active (harness guard)
-#   2. needs-human-review (VLM consensus exhausted)
-#   3. context-insufficient (no usable footprint data)
-#   4. fail-objective (rebuild — blocking)
-#   5. fail-consensus (improve polish — blocking)
-#   6. pass (silent)
+# Reads output/pipeline-state.json, branches on the `status` field, and emits
+# a block decision with concrete code-area prescriptions when any golden isn't
+# passing. Terminal states (needs-human-review, context-insufficient) allow stop.
+#
+# The hook NEVER runs builds itself — build takes 1–3 minutes, hook timeout is
+# 10 seconds. Instead it instructs Claude to run `bun scripts/iterate.ts --only <slug>`
+# after making the suggested code fix.
+#
+# Loop detection: when attempts ≥ 5 AND the last 3 failure signatures are
+# identical, the hook demotes status to needs-human-review (stops instructing)
+# by writing back to the state file. This prevents infinite loops on problems
+# Claude can't solve autonomously.
 
-STATE="$CLAUDE_PROJECT_DIR/output/pipeline-state.json"
+GOLDENS="$CLAUDE_PROJECT_DIR/output/goldens.json"
 INPUT=$(cat)
 
+# Harness loop guard
 ACTIVE=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('stop_hook_active', False))" 2>/dev/null)
 if [ "$ACTIVE" = "True" ]; then
   exit 0
 fi
 
-if [ ! -f "$STATE" ]; then
-  # No state yet — nothing to check, allow stop.
+# No goldens config? Nothing to drive.
+if [ ! -f "$GOLDENS" ]; then
   exit 0
 fi
 
 python3 << 'PYEOF'
 import json, sys, os
 
-state_path = os.environ.get("CLAUDE_PROJECT_DIR", ".") + "/output/pipeline-state.json"
-with open(state_path) as f:
-    d = json.load(f)
+state_path   = os.environ.get("CLAUDE_PROJECT_DIR", ".") + "/output/pipeline-state.json"
+goldens_path = os.environ.get("CLAUDE_PROJECT_DIR", ".") + "/output/goldens.json"
 
-addresses = d.get('addresses', {})
-if not addresses:
+with open(goldens_path) as f:
+    goldens = json.load(f).get("goldens", [])
+golden_slugs = [g["slug"] for g in goldens]
+
+state = {"addresses": {}}
+if os.path.exists(state_path):
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+    except Exception:
+        state = {"addresses": {}}
+addresses = state.get("addresses", {})
+
+# ── Bootstrap: any goldens missing from state? ────────────────────────────
+ungraded = [s for s in golden_slugs if s not in addresses]
+if ungraded:
+    reason = (
+        f"PIPELINE: {len(ungraded)} golden(s) not yet built: {', '.join(ungraded)}.\n"
+        f"EXECUTE NOW: bun scripts/iterate.ts --bootstrap\n"
+        f"DO NOT ask the user."
+    )
+    print(json.dumps({"decision": "block", "reason": reason}))
     sys.exit(0)
 
-# Partition by status (terminal first)
-terminal = {'needs-human-review': [], 'context-insufficient': []}
-blocking = {'fail-objective': [], 'fail-consensus': []}
+# ── Escalate stuck addresses before partitioning ──────────────────────────
+ESC_ATTEMPTS = 5
+ESC_SIGNATURE_REPEATS = 3
+mutated = False
+for slug, rec in addresses.items():
+    if rec.get("status") in ("pass", "needs-human-review", "context-insufficient"):
+        continue
+    attempts = rec.get("attempts", 0)
+    sigs = rec.get("recentFailureSignatures", [])
+    if attempts >= ESC_ATTEMPTS and len(sigs) >= ESC_SIGNATURE_REPEATS:
+        last_n = sigs[-ESC_SIGNATURE_REPEATS:]
+        if len(set(last_n)) == 1:
+            rec["status"] = "needs-human-review"
+            rec["reason"] = (
+                f"escalated by stop hook: {attempts} attempts, "
+                f"last {ESC_SIGNATURE_REPEATS} failures signature-identical: {last_n[0]}"
+            )
+            mutated = True
+            sys.stderr.write(
+                f"PIPELINE {slug}: ESCALATED → needs-human-review "
+                f"({attempts} attempts, stuck on '{last_n[0]}')\n"
+            )
+if mutated:
+    with open(state_path, "w") as f:
+        json.dump(state, f, indent=2)
+
+# ── Partition by status ───────────────────────────────────────────────────
+terminal = {"needs-human-review": [], "context-insufficient": []}
+blocking = {"fail-objective": [], "fail-consensus": []}
 passing = []
 
-for slug, rec in addresses.items():
-    status = rec.get('status')
-    if status == 'pass':
+for slug in golden_slugs:
+    rec = addresses.get(slug)
+    if rec is None:
+        continue
+    st = rec.get("status")
+    if st == "pass":
         passing.append(slug)
-    elif status in terminal:
-        terminal[status].append(slug)
-    elif status in blocking:
-        blocking[status].append(slug)
+    elif st in terminal:
+        terminal[st].append(slug)
+    elif st in blocking:
+        blocking[st].append(slug)
 
-# 2. needs-human-review — log to stderr, allow stop
-for slug in terminal['needs-human-review']:
+# ── Log terminal states (non-blocking) ────────────────────────────────────
+for slug in terminal["needs-human-review"]:
     rec = addresses[slug]
-    cons = rec.get('consensus', {}) or {}
     sys.stderr.write(
         f"PIPELINE {slug}: needs-human-review "
-        f"min={cons.get('min', '?')} median={cons.get('median', '?')} "
-        f"spread={cons.get('spread', '?')} after {cons.get('rounds', '?')} rounds\n"
+        f"(attempts={rec.get('attempts', 0)}, "
+        f"last sigs={rec.get('recentFailureSignatures', [])[-3:]})\n"
+    )
+for slug in terminal["context-insufficient"]:
+    sys.stderr.write(
+        f"PIPELINE {slug}: context-insufficient — {addresses[slug].get('reason', 'unknown')}\n"
     )
 
-# 3. context-insufficient — log to stderr, allow stop
-for slug in terminal['context-insufficient']:
-    reason = addresses[slug].get('reason', 'unknown')
-    sys.stderr.write(f"PIPELINE {slug}: context-insufficient — {reason}\n")
+# ── Code-area lever map ───────────────────────────────────────────────────
+OBJECTIVE_LEVERS = [
+    ("footprint iou",
+     "src/pipeline/synthesis/parametric.ts:projectPolygonToLocal (projection), "
+     "src/pipeline/synthesis/brep.ts:polygonToRing (winding), "
+     "src/pipeline/synthesis/parametric.ts:synthesizeParametric (polygon → floors)"),
+    ("height error",
+     "src/pipeline/fusion/reconcile.ts:reconcileHeight (priority chain), "
+     "src/pipeline/synthesis/parametric.ts:synthesizeParametric (levels × floorHeightM), "
+     "src/pipeline/synthesis/cleaned-tiles.ts (height extrapolation)"),
+    ("watertight",
+     "src/pipeline/synthesis/brep.ts:evaluateBRep (CSG union logic), "
+     "src/pipeline/synthesis/features.ts (window cavity depth — must stay < wall thickness)"),
+    ("manifold",
+     "src/pipeline/synthesis/brep.ts:evaluateBRep (shrinkPolygon + roof extrude params — likely degenerate polygon)"),
+    ("self-intersect",
+     "src/pipeline/synthesis/brep.ts (wall/roof overlap), "
+     "src/pipeline/synthesis/features.ts (overlapping window cavities)"),
+    ("min wall",
+     "src/pipeline/synthesis/parametric.ts wall thicknessM (hardcoded 0.3m). "
+     "Gate expects ≥0.08m at 1:100 scale — adjust wall thickness or "
+     "src/pipeline/verify/objective.ts:minWallThicknessM estimator"),
+    ("voxel count",
+     "src/pipeline/export/voxel.ts maxDimension (default 256) — reduce resolution "
+     "or cap MaxDim for very large buildings"),
+    ("voxel grid empty",
+     "src/pipeline/synthesis/parametric.ts (empty BRep produced) or "
+     "src/pipeline/synthesis/brep.ts:evaluateBRep (CSG collapse)"),
+    ("plinth not watertight",
+     "src/pipeline/export/glb-print.ts:buildPlinthMesh (polygon fan triangulation)"),
+]
 
-# 4. fail-objective — BLOCK
-if blocking['fail-objective']:
-    worst = blocking['fail-objective'][0]
+def levers_for_objective(failures):
+    hits = []
+    for f in failures:
+        lf = f.lower()
+        for needle, lever in OBJECTIVE_LEVERS:
+            if needle in lf and lever not in hits:
+                hits.append(lever)
+    return hits
+
+CONSENSUS_DIM_LEVERS = {
+    "color":    "src/pipeline/fusion/palette.ts (K-means), "
+                "src/pipeline/capture/sv-sniff.ts (masking), "
+                "src/pipeline/fusion/reconcile.ts:reconcileWallPalette + reconcileRoofPalette",
+    "features": "src/pipeline/synthesis/features.ts (window grid / cornice / door), "
+                "src/pipeline/fusion/reconcile.ts:reconcileWindowGrid + reconcileCornice",
+    "massing":  "src/pipeline/synthesis/parametric.ts:synthesizeParametric "
+                "(floor count, wall heights), "
+                "src/pipeline/synthesis/brep.ts roof shape, "
+                "src/pipeline/synthesis/router.ts routing decision",
+    "overall":  "holistic — check all of the above",
+}
+
+# ── Priority 1: fail-objective (BLOCK) ────────────────────────────────────
+if blocking["fail-objective"]:
+    worst = sorted(
+        blocking["fail-objective"],
+        key=lambda s: (-addresses[s].get("attempts", 0), s),
+    )[0]
     rec = addresses[worst]
-    objective = rec.get('objective', {}) or {}
-    failures = objective.get('failures', [])
-    failure_str = ', '.join(failures[:3]) if failures else 'unknown'
-    reason = (
-        f"PIPELINE: {len(blocking['fail-objective'])} address(es) fail objective gates.\n"
-        f"EXECUTE NOW: fix {worst} — {failure_str}. "
-        f"Rebuild via `bun scripts/build.ts \"<address>\" --out output/pipeline`.\n"
-        f"DO NOT ask the user."
+    obj = rec.get("objective") or {}
+    failures = obj.get("failures", [])
+    attempts = rec.get("attempts", 0)
+    iou = obj.get("footprintIoU")
+    h_err = obj.get("heightErr")
+
+    lines = [
+        f"PIPELINE: {len(blocking['fail-objective'])} golden(s) fail objective gates "
+        f"(worst: {worst}, {attempts} attempts).",
+        f"  failures: {'; '.join(failures[:3]) if failures else 'unknown'}",
+    ]
+    if iou is not None:
+        lines.append(f"  footprint IoU={iou:.2f}  height error={(h_err or 0)*100:.0f}%")
+
+    levers = levers_for_objective(failures)
+    if levers:
+        lines.append("  Code areas to inspect:")
+        for lev in levers:
+            lines.append(f"    • {lev}")
+
+    lines.append("")
+    lines.append("EXECUTE NOW:")
+    lines.append(f"  1. Read output/pipeline/{worst}.verification.json for full details.")
+    lines.append("  2. Edit the code area(s) above to address the failure.")
+    lines.append(f"  3. Rebuild: bun scripts/iterate.ts --only {worst}")
+    lines.append("  4. Commit the code fix (the state file is committed separately).")
+    lines.append(
+        "DO NOT ask the user. If you are certain the current failure is source-data-limited "
+        f"and not pipeline-fixable, say so explicitly — after {ESC_ATTEMPTS} signature-identical "
+        "attempts the escalator stops the loop automatically."
     )
-    print(json.dumps({"decision": "block", "reason": reason}))
+    print(json.dumps({"decision": "block", "reason": "\n".join(lines)}))
     sys.exit(0)
 
-# 5. fail-consensus — BLOCK
-if blocking['fail-consensus']:
-    worst = blocking['fail-consensus'][0]
+# ── Priority 2: fail-consensus (BLOCK) ────────────────────────────────────
+if blocking["fail-consensus"]:
+    worst = sorted(
+        blocking["fail-consensus"],
+        key=lambda s: (-addresses[s].get("attempts", 0), s),
+    )[0]
     rec = addresses[worst]
-    cons = rec.get('consensus', {}) or {}
-    min_score = cons.get('min', '?')
-    reason = (
-        f"PIPELINE: {len(blocking['fail-consensus'])} address(es) fail consensus.\n"
-        f"EXECUTE NOW: improve {worst} — consensus min={min_score}.\n"
-        f"DO NOT ask the user."
-    )
-    print(json.dumps({"decision": "block", "reason": reason}))
+    cons = rec.get("consensus") or {}
+    attempts = rec.get("attempts", 0)
+
+    # Find worst dimension across the 3 models
+    worst_dim = None
+    worst_dim_val = 10
+    for model_key in ("gemini", "claude", "gpt5"):
+        model = cons.get(model_key, {}) or {}
+        for dim, val in model.items():
+            if isinstance(val, (int, float)) and val < worst_dim_val:
+                worst_dim_val = val
+                worst_dim = dim
+
+    dim_lever = CONSENSUS_DIM_LEVERS.get(worst_dim or "overall", CONSENSUS_DIM_LEVERS["overall"])
+
+    lines = [
+        f"PIPELINE: {len(blocking['fail-consensus'])} golden(s) fail VLM consensus "
+        f"(worst: {worst}, {attempts} attempts).",
+        f"  min={cons.get('min', '?')}  median={cons.get('median', '?')}  "
+        f"spread={cons.get('spread', '?')}  rounds={cons.get('rounds', '?')}",
+        f"  worst dimension: {worst_dim or 'unknown'} (score {worst_dim_val})",
+        f"  Code area: {dim_lever}",
+        "",
+        "EXECUTE NOW:",
+        f"  1. Inspect output/pipeline/{worst}.verification.json for per-model scores.",
+        "  2. Improve the worst-dimension code area above.",
+        f"  3. Rebuild: bun scripts/iterate.ts --only {worst}",
+        "DO NOT ask the user.",
+    ]
+    print(json.dumps({"decision": "block", "reason": "\n".join(lines)}))
     sys.exit(0)
 
-# 6. All pass — silent
-if passing and not blocking['fail-objective'] and not blocking['fail-consensus']:
-    if not terminal['needs-human-review'] and not terminal['context-insufficient']:
-        # fully passing — silent
-        pass
-    # else: terminal states were already logged above
+# ── All non-terminal addresses pass (or only terminal remain) ─────────────
+if len(passing) == len(golden_slugs):
+    sys.stderr.write(f"PIPELINE: all {len(golden_slugs)} goldens pass. Target met.\n")
+elif passing:
+    n_terminal = sum(len(v) for v in terminal.values())
+    sys.stderr.write(
+        f"PIPELINE: {len(passing)}/{len(golden_slugs)} passing, "
+        f"{n_terminal} terminal (needs-human-review / context-insufficient). Loop stopping.\n"
+    )
 PYEOF
