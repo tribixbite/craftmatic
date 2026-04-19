@@ -6,7 +6,10 @@
  * wrapped in a Three.js `Mesh`, and handed to `threeToGrid` with the
  * block-name hints from `brep.materials`.
  *
- * Uses 'solid' voxelization mode since BRep output is always watertight.
+ * Uses 'surface' voxelization mode so the output is a hollow shell rather
+ * than a fully-filled solid. For a 150m skyscraper, solid fill produces
+ * ~700K voxels (vastly exceeding the objective voxelCount gate); surface
+ * mode produces ~50-100K, appropriate for a Minecraft build.
  */
 
 import * as THREE from 'three';
@@ -86,7 +89,7 @@ export async function exportVoxel(
   const object = brepMeshToObject3D(mesh.positions, mesh.indices, colorHex);
 
   const grid = threeToGrid(object, opts.resolution ?? 1, {
-    mode: opts.mode ?? 'solid',
+    mode: opts.mode ?? 'surface',
     maxDimension: opts.maxDimension ?? 256,
   });
 

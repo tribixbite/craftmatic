@@ -1,4 +1,127 @@
 {
   "version": "v400",
-  "addresses": {}
+  "addresses": {
+    "flatiron": {
+      "address": "175 5th Ave, New York, NY",
+      "status": "fail-consensus",
+      "lastRun": "2026-04-19T09:32:56.944Z",
+      "elapsedSec": 6.4,
+      "attempts": 2,
+      "recentFailureSignatures": [
+        "fail-consensus",
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9825899214479306,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 118,
+        "minWallThicknessMm": 7.193524360656738,
+        "voxelCount": 21310,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null
+    },
+    "240-highland": {
+      "address": "240 Highland St, Newton, MA",
+      "status": "fail-consensus",
+      "lastRun": "2026-04-19T09:33:14.826Z",
+      "elapsedSec": 17.7,
+      "attempts": 2,
+      "recentFailureSignatures": [
+        "fail-consensus",
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.990454016298021,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 939,
+        "minWallThicknessMm": 4.9512269496917725,
+        "voxelCount": 1892,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null
+    },
+    "guggenheim": {
+      "address": "1071 5th Ave, New York, NY",
+      "status": "fail-consensus",
+      "lastRun": "2026-04-19T09:33:45.632Z",
+      "elapsedSec": 3.4,
+      "attempts": 3,
+      "recentFailureSignatures": [
+        "fail-consensus",
+        "fail-consensus",
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9914354230900994,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 41,
+        "minWallThicknessMm": 9.736324071884155,
+        "voxelCount": 10609,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null
+    },
+    "geisel": {
+      "address": "9500 Gilman Dr, La Jolla, CA",
+      "status": "fail-consensus",
+      "lastRun": "2026-04-19T09:33:55.153Z",
+      "elapsedSec": 9.3,
+      "attempts": 2,
+      "recentFailureSignatures": [
+        "fail-consensus",
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9997066731850404,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 5347,
+        "minWallThicknessMm": 16.511404037475586,
+        "voxelCount": 15446,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null
+    },
+    "pennzoil": {
+      "address": "700 Milam St, Houston, TX",
+      "status": "fail-consensus",
+      "lastRun": "2026-04-19T09:33:41.777Z",
+      "elapsedSec": 26.7,
+      "attempts": 3,
+      "recentFailureSignatures": [
+        "fail-objective:voxel count # > #",
+        "fail-consensus",
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9976452119309263,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 86697,
+        "minWallThicknessMm": 19.046882390975952,
+        "voxelCount": 78859,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null
+    }
+  }
 }

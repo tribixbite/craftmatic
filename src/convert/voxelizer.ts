@@ -17,8 +17,23 @@
  */
 
 import * as THREE from 'three';
-import { MeshBVH } from 'three-mesh-bvh';
+import { MeshBVH, acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 import { BlockGrid } from '../schem/types.js';
+
+// Install three-mesh-bvh accelerators on Three.js core classes once per module
+// load. Without this, `raycaster.intersectObject()` walks every triangle
+// linearly — pennzoil's 50-story tower hangs for ~2 hours. With the BVH
+// accelerator wired, each raycast is O(log n) and the full voxel solid pass
+// completes in seconds.
+(THREE.BufferGeometry.prototype as unknown as {
+  computeBoundsTree: typeof computeBoundsTree;
+  disposeBoundsTree: typeof disposeBoundsTree;
+}).computeBoundsTree = computeBoundsTree;
+(THREE.BufferGeometry.prototype as unknown as {
+  computeBoundsTree: typeof computeBoundsTree;
+  disposeBoundsTree: typeof disposeBoundsTree;
+}).disposeBoundsTree = disposeBoundsTree;
+(THREE.Mesh.prototype as unknown as { raycast: typeof acceleratedRaycast }).raycast = acceleratedRaycast;
 import { rgbToWallBlock } from '../gen/color-blocks.js';
 import type { RGB } from '../types/index.js';
 

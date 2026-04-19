@@ -171,17 +171,26 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
   }
 
   // ── Stage 6: fusion ────────────────────────────────────────────────────
+  progress({ stage: 'fusion', message: 'fusing evidence', ratio: 0 });
   const evidence = fuseEvidence({ ctx: refined, tiles, sv, sat });
+  progress({ stage: 'fusion', message: 'done', ratio: 1 });
 
   // ── Stage 7: synthesis ─────────────────────────────────────────────────
+  progress({ stage: 'synthesis', message: 'synthesizing B-rep', ratio: 0 });
   const { brep, path } = synthesize(refined, evidence, tiles);
+  progress({ stage: 'synthesis', message: `done (${path})`, ratio: 1 });
 
   // ── Stage 8: exports ───────────────────────────────────────────────────
+  progress({ stage: 'export', message: 'print GLB (CSG)', ratio: 0 });
   const printResult = await exportPrintGlb(brep);
+  progress({ stage: 'export', message: 'scene GLB', ratio: 0.4 });
   const sceneResult = await exportSceneGlb(brep, evidence);
+  progress({ stage: 'export', message: 'voxelizing', ratio: 0.7 });
   const voxelResult = await exportVoxel(brep);
+  progress({ stage: 'export', message: 'done', ratio: 1 });
 
   // ── Stage 9a: objective gates ──────────────────────────────────────────
+  progress({ stage: 'verify', message: 'objective gates', ratio: 0 });
   const objective = runObjectiveGates({
     positions: printResult.structuralPositions,
     indices: printResult.structuralIndices,
@@ -191,6 +200,7 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
     expectedHeightM: evidence.heightM.value,
     grid: voxelResult.grid,
   });
+  progress({ stage: 'verify', message: 'done', ratio: 1 });
 
   // ── Stage 9b: consensus (only if objective passes + wired) ─────────────
   let consensus = undefined;

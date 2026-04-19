@@ -91,7 +91,7 @@ export interface SatEvidence {
 // ─── Capture callbacks / options ───────────────────────────────────────────
 
 export interface CaptureProgress {
-  readonly stage: 'tiles' | 'sv' | 'satellite';
+  readonly stage: 'tiles' | 'sv' | 'satellite' | 'fusion' | 'synthesis' | 'export' | 'verify';
   readonly message: string;
   /** 0-1 approximate progress through this stage. */
   readonly ratio?: number;
