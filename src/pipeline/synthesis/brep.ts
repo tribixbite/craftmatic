@@ -176,49 +176,59 @@ export async function evaluateBRep(brep: BuildingBRep): Promise<EvaluatedMesh> {
 
   const parts: ManifoldShape[] = [];
 
-  // Floor slabs
-  for (const floor of brep.floors) {
-    const ring = polygonToRing(floor.polygon);
-    const slab = Manifold.extrude([ring], floor.thicknessM)
-      .translate([0, 0, floor.elevationM]);
-    parts.push(slab);
-  }
-
-  // Walls per edge/level: we extrude the footprint as a thin shell per level.
-  // For simplicity, one level = one polygon extruded to level height, hollowed
-  // by inner polygon shifted inward by thicknessM. Cleaner than per-edge boxes
-  // and matches how 3D-printed buildings are typically modelled.
-  const levelsByLevel = new Map<number, { polygon: readonly LocalPoint2D[]; heightM: number; elevationM: number }>();
-  for (const floor of brep.floors) {
-    const existing = levelsByLevel.get(floor.level);
-    if (!existing) {
-      // Default wall height = 2.7m if not overridden per-floor; callers usually
-      // pass matching floor + wall heights.
-      const wallHeight = brep.walls
-        .filter(w => w.level === floor.level)
-        .reduce((h, w) => Math.max(h, w.heightM), 2.7);
-      levelsByLevel.set(floor.level, {
-        polygon: floor.polygon,
-        heightM: wallHeight,
-        elevationM: floor.elevationM + floor.thicknessM,
-      });
-    }
-  }
-
-  // Walls = solid extrusion of footprint polygon per level.
+  // Fast path: when every floor shares the same polygon (common case —
+  // simple prismatic buildings, no setbacks), collapse all floors + walls
+  // into a single tall extrusion. Manifold.union() on 50+ near-coplanar
+  // stacked prisms hangs indefinitely on pennzoil; a single extrude is
+  // O(polygon) not O(polygon × levels).
   //
-  // We used to shell the walls (outer polygon − centroid-shrunk inner) to
-  // create interior space, but the naive shrinkPolygon produced degenerate
-  // inner polygons for complex footprints (e.g. Flatiron has 34 vertices
-  // with rounded tips — IoU dropped to 0.24 because the wall shell was
-  // visibly wrong). Solid extrusion is simpler, always valid, and
-  // interior floorplan subtraction (future `voids: Volume[]` on BRep)
-  // carves rooms from the solid — same effective result without the
-  // offset-polygon bugs.
-  for (const [, lvl] of levelsByLevel) {
-    const solid = Manifold.extrude([polygonToRing(lvl.polygon)], lvl.heightM)
-      .translate([0, 0, lvl.elevationM]);
-    parts.push(solid);
+  // Detection: check that all floor polygons are reference-equal (fast
+  // common-case check — the parametric synthesizer reuses a single
+  // `openPoly` reference across every floor).
+  const firstFloor = brep.floors[0];
+  const allSamePolygon = firstFloor !== undefined
+    && brep.floors.every(f => f.polygon === firstFloor.polygon);
+
+  if (allSamePolygon && firstFloor !== undefined) {
+    // Single extrude from ground to top of highest wall. Floor slabs and
+    // wall solids are both implicit within this solid — future interior
+    // floorplan subtraction (BuildingBRep.voids) will carve rooms from it.
+    const topElevM = brep.floors.reduce((top, f) => {
+      const wallHeight = brep.walls
+        .filter(w => w.level === f.level)
+        .reduce((h, w) => Math.max(h, w.heightM), 0);
+      return Math.max(top, f.elevationM + f.thicknessM + wallHeight);
+    }, 0);
+    const tower = Manifold.extrude([polygonToRing(firstFloor.polygon)], topElevM);
+    parts.push(tower);
+  } else {
+    // Slow path: per-floor + per-level extrudes, for buildings with varying
+    // footprint per level (setbacks, tower-on-podium). Correctness matters
+    // more than speed here.
+    for (const floor of brep.floors) {
+      const ring = polygonToRing(floor.polygon);
+      const slab = Manifold.extrude([ring], floor.thicknessM)
+        .translate([0, 0, floor.elevationM]);
+      parts.push(slab);
+    }
+    const levelsByLevel = new Map<number, { polygon: readonly LocalPoint2D[]; heightM: number; elevationM: number }>();
+    for (const floor of brep.floors) {
+      if (!levelsByLevel.has(floor.level)) {
+        const wallHeight = brep.walls
+          .filter(w => w.level === floor.level)
+          .reduce((h, w) => Math.max(h, w.heightM), 2.7);
+        levelsByLevel.set(floor.level, {
+          polygon: floor.polygon,
+          heightM: wallHeight,
+          elevationM: floor.elevationM + floor.thicknessM,
+        });
+      }
+    }
+    for (const [, lvl] of levelsByLevel) {
+      const solid = Manifold.extrude([polygonToRing(lvl.polygon)], lvl.heightM)
+        .translate([0, 0, lvl.elevationM]);
+      parts.push(solid);
+    }
   }
 
   // Roof volume
