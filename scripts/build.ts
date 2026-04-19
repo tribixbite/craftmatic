@@ -42,6 +42,7 @@ function popFlag(name: string): string | null {
 }
 
 const outDir = popFlag('--out') ?? popFlag('-o') ?? 'output/pipeline';
+const slugOverride = popFlag('--slug');
 const address = argv.join(' ').trim();
 if (!address) {
   console.error('Usage: bun scripts/build.ts "address" [--out dir]');
@@ -142,7 +143,7 @@ const elapsed = ((Date.now() - started) / 1000).toFixed(1);
 
 // ─── Write artifacts ───────────────────────────────────────────────────────
 
-const slug = result.slug;
+const slug = slugOverride ?? result.slug;
 const paths: Record<string, string> = {
   verification: join(absOutDir, `${slug}.verification.json`),
 };

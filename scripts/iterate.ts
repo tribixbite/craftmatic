@@ -91,6 +91,7 @@ function runBuild(golden: Golden): number {
     resolve(projectRoot, 'scripts/build.ts'),
     golden.address,
     '--out', outDir,
+    '--slug', golden.slug,
   ], {
     cwd: projectRoot,
     stdio: 'inherit',
