@@ -22,6 +22,7 @@ import type { JointEvidence } from '../fusion/types.js';
 import type { TileEvidence } from '../capture/types.js';
 import type { BuildingBRep, FloorSlab, RoofVolume, Wall } from './brep.js';
 import { projectPolygonToLocal } from './features.js';
+import { douglasPeucker } from '../context/classify.js';
 
 const DEFAULT_BLOCK_GREY = 'minecraft:smooth_stone';
 
@@ -47,8 +48,11 @@ export function synthesizeCleanedTiles(
   let openPoly: LocalPoint2D[];
   const osmPoly = ev.footprint.value;
   if (osmPoly.length >= 3 && ev.footprint.source === 'osm') {
+    // Douglas-Peucker simplify before synthesis; see parametric.ts for rationale.
+    const simplified = douglasPeucker(osmPoly, 0.00001);
+    const usedPoly = simplified.length >= 3 ? simplified : osmPoly;
     const localPoly = projectPolygonToLocal(
-      osmPoly.map(p => ({ lat: p.lat, lon: p.lon })),
+      usedPoly.map(p => ({ lat: p.lat, lon: p.lon })),
       ctx.center,
       ctx.mbr.rotationDeg,
     );

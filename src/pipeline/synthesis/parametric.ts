@@ -19,6 +19,7 @@ import {
   buildWindowGrid,
   projectPolygonToLocal,
 } from './features.js';
+import { douglasPeucker } from '../context/classify.js';
 import type {
   BuildingBRep,
   Feature,
@@ -91,8 +92,16 @@ export function synthesizeParametric(
   ctx: RefinedBuildingContext,
   ev: JointEvidence,
 ): BuildingBRep {
-  // Footprint in local MBR-aligned coords
-  const rawPoly = ev.footprint.value;
+  // Footprint in local MBR-aligned coords.
+  //
+  // Douglas-Peucker simplification before synthesis — complex OSM polygons
+  // with 50+ vertices hang manifold-3d's CSG (Geisel Library had 58
+  // cantilever-cross vertices and never finished after 2 minutes). 1m
+  // tolerance in lat/lon degrees ≈ 0.00001°. Simplification typically cuts
+  // Geisel-class polygons to 10-20 vertices with minimal IoU loss.
+  const simplifyTol = 0.00001; // ~1.1m
+  const simplifiedRaw = douglasPeucker(ev.footprint.value, simplifyTol);
+  const rawPoly = simplifiedRaw.length >= 3 ? simplifiedRaw : ev.footprint.value;
   const localPoly = projectPolygonToLocal(
     rawPoly.map(p => ({ lat: p.lat, lon: p.lon })),
     ctx.center,
