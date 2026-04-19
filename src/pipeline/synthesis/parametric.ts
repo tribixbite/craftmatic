@@ -105,12 +105,33 @@ export function synthesizeParametric(
   const openPoly = closed ? localPoly.slice(0, -1) : localPoly;
 
   // Levels + heights
+  //
+  // heightM is the FULL building height (wall-top + roof peak) — the
+  // objective gate compares against it directly. We split heightM into:
+  //   roofExtrude: top 0.5m (flat) or ~15% (pitched, ≥2m)
+  //   wallsTotal:  heightM − roofExtrude (floors stack up to this)
+  //
+  // Previously this was wrong in two ways: (1) levels × archFloorHeight
+  // ignored heightM entirely, giving 71% error on Flatiron; (2) roofExtrude
+  // was added on top of levels×floorHeight, overshooting heightM by 2m on
+  // small pitched roofs (25% error on an 8m house).
   const heightM = Math.max(3, ev.heightM.value);
-  const levels = Math.max(1, ev.levels.value);
-  const floorHeightM = archTypeFloorHeight(ctx.archType);
-  // Allocate floor thickness within each storey so the derived building
-  // height matches the evidence (total = levels × floorHeightM + roof band)
-  const slabThicknessM = 0.3;
+  const roofType = ev.roofShape.value;
+  const isPitched = roofType !== 'flat';
+  const roofExtrude = Math.min(
+    heightM * 0.4, // never more than 40% of total (prevents collapse on tiny buildings)
+    isPitched ? Math.max(2, heightM * 0.15) : 0.5,
+  );
+  const wallsTotal = Math.max(2.5, heightM - roofExtrude);
+
+  // Use OSM levels when they imply a plausible floor height; else infer.
+  const archFloorH = archTypeFloorHeight(ctx.archType);
+  const inferredLevels = Math.max(1, Math.round(wallsTotal / archFloorH));
+  const evLevels = Math.max(1, ev.levels.value);
+  const osmLevelsPlausible = wallsTotal / evLevels >= 2.5 && wallsTotal / evLevels <= 5.0;
+  const levels = osmLevelsPlausible ? evLevels : inferredLevels;
+  const floorHeightM = wallsTotal / levels;
+  const slabThicknessM = Math.min(0.3, floorHeightM * 0.1);
   const wallHeightPerLevel = floorHeightM - slabThicknessM;
 
   // Build floor slabs + walls per level
@@ -136,11 +157,8 @@ export function synthesizeParametric(
     }
   }
 
-  // Roof volume
+  // Roof volume — sits on top of walls; peak reaches heightM exactly.
   const topElevM = levels * floorHeightM;
-  const roofType = ev.roofShape.value;
-  const isPitched = roofType !== 'flat';
-  const roofExtrude = isPitched ? Math.max(2, heightM * 0.15) : 0.5;
   const roof: RoofVolume = {
     type: roofType,
     baseZ: topElevM,
