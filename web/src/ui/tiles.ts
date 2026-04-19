@@ -33,6 +33,10 @@ import type { AnalysisResult } from '@craft/pipeline/capture/analysis-types.js';
 import { runPipeline, PipelinePhase } from '@craft/convert/pipeline.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
 import { resolveBrowserSemanticData, type BrowserSemanticData } from '@ui/browser-semantic-palette.js';
+import { runBrowserPipelineFromTiles, buildTileEvidenceFromGroup } from '@craft/pipeline/browser-entry.js';
+import { resolveContext, ContextInsufficientError } from '@craft/pipeline/context/resolver.js';
+import { lookupProfile } from '@craft/pipeline/context/profile.js';
+import { createBrowserFetchers } from '@ui/browser-fetchers.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -659,6 +663,21 @@ async function runVoxelizePipeline(
       gridWxHxL: `${Math.ceil(preSize.x * resolution)}x${Math.ceil(preSize.y * resolution)}x${Math.ceil(preSize.z * resolution)}`,
     }));
 
+    // NEW PIPELINE FEATURE FLAG
+    // ─────────────────────────
+    // When localStorage['craftmatic_new_pipeline'] === '1', route through the
+    // parametric synthesis pipeline (spec 2026-04-17) instead of the 21-phase
+    // voxel-patch post-processor. This is an opt-in beta — default stays on
+    // the proven old path until feature-parity testing completes.
+    if (localStorage.getItem('craftmatic_new_pipeline') === '1' && geo) {
+      setStatus('Running new pipeline (beta)…', 'info');
+      const newGrid = await runNewPipelineFromCapture(
+        address, capturedGroup, preSize.y, apiKey, (m: string) => setStatus(m, 'info'),
+      );
+      if (newGrid) return newGrid;
+      setStatus('New pipeline failed — falling back to legacy path', 'info');
+    }
+
     // Create Canvas-backed texture sampler for photorealistic tile textures.
     // Without this, colors fall back to material.color (usually white).
     const sampler = createCanvasTextureSampler();
@@ -998,6 +1017,74 @@ function disposeViewer(): void {
   }
   scene = null;
   camera = null;
+}
+
+/**
+ * New-pipeline (beta) path — replaces Stage 3+ voxelization + 21-phase
+ * post-processing with parametric synthesis from evidence.
+ *
+ * Enabled via `localStorage['craftmatic_new_pipeline'] = '1'`. Returns the
+ * parametric-synthesized BlockGrid, or null on failure (caller falls back
+ * to the legacy path).
+ *
+ * Flow:
+ *   1. Resolve BuildingContext via browser fetchers (geocode + OSM + Solar)
+ *   2. Look up CaptureProfile
+ *   3. Build TileEvidence from the already-captured Three.js group
+ *   4. Run the browser-side pipeline (Stages 4-9) — SV, satellite, fusion,
+ *      synthesis, exports, verification
+ *   5. Return the voxel grid
+ */
+async function runNewPipelineFromCapture(
+  address: string,
+  capturedGroup: THREE.Group,
+  expectedHeightM: number,
+  apiKey: string,
+  onStatus: (msg: string) => void,
+): Promise<BlockGrid | null> {
+  try {
+    const fetchers = createBrowserFetchers(apiKey);
+
+    onStatus('New pipeline: resolving context…');
+    const ctx = await resolveContext(address, fetchers.context);
+    const profile = lookupProfile(ctx);
+
+    onStatus('New pipeline: building tile evidence…');
+    const { evidence: tileEvidence } = await buildTileEvidenceFromGroup({
+      group: capturedGroup,
+      expectedHeightM,
+    });
+
+    onStatus('New pipeline: synthesizing…');
+    const result = await runBrowserPipelineFromTiles({
+      ctx,
+      profile,
+      tiles: tileEvidence,
+      svFetchers: fetchers.streetview,
+      satFetcher: fetchers.satellite,
+      onProgress: ({ stage, message }) => onStatus(`New pipeline: ${stage} — ${message}`),
+    });
+
+    console.log('[tiles] new pipeline result:', {
+      status: result.report.status,
+      synthesisPath: result.artifacts.synthesisPath,
+      voxelBlockCount: result.artifacts.voxelBlockCount,
+      footprintIoU: result.report.objective?.footprintIoU,
+    });
+
+    if (!result.artifacts || !result.artifacts.voxelGrid) {
+      console.warn('[tiles] new pipeline produced no voxel grid');
+      return null;
+    }
+    return result.artifacts.voxelGrid;
+  } catch (err) {
+    if (err instanceof ContextInsufficientError) {
+      console.warn('[tiles] new pipeline: context-insufficient —', err.reason);
+    } else {
+      console.error('[tiles] new pipeline error:', err);
+    }
+    return null;
+  }
 }
 
 function pauseRenderLoop(): void {
