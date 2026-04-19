@@ -19,20 +19,14 @@ import {
 } from '3d-tiles-renderer/plugins';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { BlockGrid } from '@craft/schem/types.js';
-import { threeToGridAsync } from '@craft/convert/voxelizer.js';
 import { geocodeAddress } from '@ui/shared-geocode.js';
 import { captureTileMeshes } from '@engine/tile-capture.js';
 import {
   getStreetViewApiKey, hasStreetViewApiKey,
 } from '@ui/import-streetview.js';
 import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
-import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
-import { trimSparseBottomLayers } from '@craft/pipeline/capture/mesh-utils.js';
-import { analyzeGrid } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/pipeline/capture/analysis-types.js';
-import { runPipeline, PipelinePhase } from '@craft/convert/pipeline.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
-import { resolveBrowserSemanticData, type BrowserSemanticData } from '@ui/browser-semantic-palette.js';
 import { runBrowserPipelineFromTiles, buildTileEvidenceFromGroup } from '@craft/pipeline/browser-entry.js';
 import { resolveContext, ContextInsufficientError } from '@craft/pipeline/context/resolver.js';
 import { lookupProfile } from '@craft/pipeline/context/profile.js';
@@ -663,263 +657,91 @@ async function runVoxelizePipeline(
       gridWxHxL: `${Math.ceil(preSize.x * resolution)}x${Math.ceil(preSize.y * resolution)}x${Math.ceil(preSize.z * resolution)}`,
     }));
 
-    // NEW PIPELINE FEATURE FLAG
-    // ─────────────────────────
-    // When localStorage['craftmatic_new_pipeline'] === '1', route through the
-    // parametric synthesis pipeline (spec 2026-04-17) instead of the 21-phase
-    // voxel-patch post-processor. This is an opt-in beta — default stays on
-    // the proven old path until feature-parity testing completes.
-    if (localStorage.getItem('craftmatic_new_pipeline') === '1' && geo) {
-      setStatus('Running new pipeline (beta)…', 'info');
-      const newGrid = await runNewPipelineFromCapture(
-        address, capturedGroup, preSize.y, apiKey, (m: string) => setStatus(m, 'info'),
-      );
-      if (newGrid) return newGrid;
-      setStatus('New pipeline failed — falling back to legacy path', 'info');
+    // ── New pipeline (parametric synthesis, spec 2026-04-17) ─────────────
+    // Replaces legacy voxelize-tiles → 21-phase patch post-processor with:
+    //   buildTileEvidenceFromGroup → resolveContext → runBrowserPipelineFromTiles
+    // Output is a parametric BlockGrid built from evidence, not patched voxels.
+    if (!geo) {
+      setStatus('Geocoded coordinates missing — cannot run pipeline', 'error');
+      return null;
+    }
+    if (userSvFiles.length > 0 || userSatFile) {
+      // User-uploaded reference images are currently NOT wired into the new
+      // pipeline — auto-captured SV + satellite dominate the palette. Noted
+      // as follow-up (user overrides → inject into fetchers).
+      console.warn('[tiles] user-uploaded SV/satellite photos are ignored by the new pipeline — auto-capture used instead');
     }
 
-    // Create Canvas-backed texture sampler for photorealistic tile textures.
-    // Without this, colors fall back to material.color (usually white).
-    const sampler = createCanvasTextureSampler();
-    // Cap grid dimension to prevent OOM on mobile. At resolution 10, a 50m building
-    // would be 500 blocks per side. Browser cap: 512 blocks (enough for most buildings,
-    // avoids 75M+ voxel grids that crash mobile GPUs). CLI has no cap by default.
-    const browserMaxDim = resolution >= 5 ? 512 : 256;
-    const grid = await threeToGridAsync(capturedGroup, resolution, {
-      onProgress: (p) => {
-        const msg = p.message
-          ? p.message
-          : `Voxelizing... ${Math.round(p.progress * 100)}% (layer ${p.currentY}/${p.totalY})`;
-        setStatus(msg, 'info');
-      },
-      textureSampler: sampler,
-      // Surface mode: 3D tiles are photogrammetry surfaces (not watertight solids).
-      // Uses closest-point-to-geometry instead of odd-even inside/outside test.
-      mode: 'surface',
-      // Yield to main thread every N layers to keep UI responsive on mobile.
-      // At high resolution, yield more often (more layers, each smaller).
-      yieldInterval: resolution >= 5 ? 2 : 4,
-      // Don't filter vegetation during voxelization — trees act as solid walls during
-      // fillInteriorGaps, preventing holes behind canopy. Strip in post-processing.
-      filterVegetation: false,
-      // Grid dimension cap prevents OOM at high resolutions
-      maxDimension: browserMaxDim,
+    setStatus('Pipeline: resolving context…', 'info');
+    const fetchers = createBrowserFetchers(apiKey);
+    let ctx;
+    try {
+      ctx = await resolveContext(address, fetchers.context);
+    } catch (err) {
+      if (err instanceof ContextInsufficientError) {
+        setStatus(`Context insufficient: ${err.reason}`, 'error');
+        return null;
+      }
+      throw err;
+    }
+    const profile = lookupProfile(ctx);
+
+    setStatus('Pipeline: building tile evidence…', 'info');
+    const { evidence: tileEvidence } = await buildTileEvidenceFromGroup({
+      group: capturedGroup,
+      expectedHeightM: preSize.y,
     });
 
-    // Post-voxel Y trim: remove sparse bottom layers (residual terrain that
-    // passed the height filter). Scan bottom-up for the first layer with >5%
-    // fill rate — everything below is likely ground/road fragments.
-    const trimmedGrid = trimSparseBottomLayers(grid);
-    if (trimmedGrid !== grid) {
-      const trimmed = grid.height - trimmedGrid.height;
-      console.log(`[tiles] trimmed ${trimmed} sparse bottom layers (${grid.height}→${trimmedGrid.height})`);
-    }
+    setStatus('Pipeline: synthesizing…', 'info');
+    const result = await runBrowserPipelineFromTiles({
+      ctx,
+      profile,
+      tiles: tileEvidence,
+      svFetchers: fetchers.streetview,
+      satFetcher: fetchers.satellite,
+      onProgress: ({ stage, message }) => setStatus(`${stage}: ${message}`, 'info'),
+    });
 
-    // Enforce dimension cap
-    if (trimmedGrid.width > MAX_DIMENSION || trimmedGrid.height > MAX_DIMENSION || trimmedGrid.length > MAX_DIMENSION) {
-      setStatus(`Grid too large: ${trimmedGrid.width}x${trimmedGrid.height}x${trimmedGrid.length} (max ${MAX_DIMENSION})`, 'error');
+    if (!result.artifacts) {
+      setStatus(`Pipeline failed: ${result.report.status}`, 'error');
       return null;
     }
 
-    // Run auto-analysis to drive post-processing decisions
-    let analysis: AnalysisResult | null = null;
-    try {
-      analysis = analyzeGrid(trimmedGrid);
-      console.log(`[tiles] analysis: confidence=${analysis.confidence.toFixed(1)}, quality=${analysis.dataQuality}, typology=${analysis.typology}`);
-    } catch (err) {
-      console.warn('[tiles] analysis failed (non-fatal):', err);
+    const finalGrid = result.artifacts.voxelGrid;
+
+    if (finalGrid.width > MAX_DIMENSION || finalGrid.height > MAX_DIMENSION || finalGrid.length > MAX_DIMENSION) {
+      setStatus(`Grid too large: ${finalGrid.width}x${finalGrid.height}x${finalGrid.length} (max ${MAX_DIMENSION})`, 'error');
+      return null;
     }
 
-    // ── Semantic data: fetch SV + satellite + OSM for pipeline phases ──
-    // This enables SEMANTIC_RECOLOR, OSM_MASK, etc. that were previously skipped.
-    let semanticData: BrowserSemanticData | undefined;
-    if (geo && apiKey) {
-      try {
-        setStatus('Fetching semantic data (SV + satellite + OSM)...', 'info');
-        await new Promise(r => setTimeout(r, 0));
-        // Estimate building height from grid for palette resolution
-        let maxSolidY = 0;
-        for (let y = trimmedGrid.height - 1; y >= 0; y--) {
-          let hasBlock = false;
-          for (let z = 0; z < trimmedGrid.length && !hasBlock; z++) {
-            for (let x = 0; x < trimmedGrid.width && !hasBlock; x++) {
-              if (trimmedGrid.get(x, y, z) !== 'minecraft:air') hasBlock = true;
-            }
-          }
-          if (hasBlock) { maxSolidY = y; break; }
-        }
-        const gridHeightM = maxSolidY / resolution;
-        semanticData = await resolveBrowserSemanticData(
-          geo.lat, geo.lng, apiKey,
-          bounds?.osm ?? null,
-          bounds?.solar ?? null,
-          bounds,
-          gridHeightM,
-          (msg) => console.log(`[tiles:semantic] ${msg}`),
-        );
-        if (semanticData.osmPolygon) {
-          console.log(`[tiles] OSM polygon: ${semanticData.osmPolygon.length} vertices`);
-        }
-        if (semanticData.semanticPalette) {
-          console.log(`[tiles] semantic palette: ${semanticData.semanticPalette.source}`);
-        }
-      } catch (err) {
-        console.warn('[tiles] semantic data resolution failed (non-fatal):', err);
-      }
-    }
-
-    // ── User-uploaded reference images override API-fetched colors ──
-    if (userSvFiles.length > 0 || userSatFile) {
-      if (!semanticData) semanticData = {};
-      try {
-        if (userSvFiles.length > 0) {
-          setStatus('Analyzing uploaded SV photos...', 'info');
-          const { analyzeStreetViewBrowser: analyzeSv } = await import('@ui/import-sv-analysis.js');
-          const urls = await processUserSvUploads(userSvFiles);
-          // Analyze each uploaded image, merge wall colors
-          const colors: { r: number; g: number; b: number }[] = [];
-          for (const url of urls) {
-            const result = await analyzeSv(url);
-            if (result) colors.push(result.wallColor);
-            URL.revokeObjectURL(url);
-          }
-          if (colors.length > 0) {
-            const avgR = Math.round(colors.reduce((s, c) => s + c.r, 0) / colors.length);
-            const avgG = Math.round(colors.reduce((s, c) => s + c.g, 0) / colors.length);
-            const avgB = Math.round(colors.reduce((s, c) => s + c.b, 0) / colors.length);
-            const { rgbToWallBlock: toWall } = await import('@craft/gen/color-blocks.js');
-            const wallBlock = toWall(avgR, avgG, avgB);
-            const palette = semanticData.semanticPalette ?? { wallBlocks: [], source: '' };
-            palette.wallColor = { r: avgR, g: avgG, b: avgB };
-            palette.wallBlocks = [wallBlock];
-            palette.source = (palette.source ? palette.source + ' + ' : '') + `user SV (${colors.length} photos)`;
-            semanticData.semanticPalette = palette;
-            console.log(`[tiles] user SV: rgb(${avgR},${avgG},${avgB}) → ${wallBlock.replace('minecraft:', '')}`);
-          }
-        }
-        if (userSatFile) {
-          setStatus('Analyzing uploaded satellite photo...', 'info');
-          const url = URL.createObjectURL(userSatFile);
-          const blob = await fetch(url).then(r => r.blob());
-          URL.revokeObjectURL(url);
-          const bitmap = await createImageBitmap(blob);
-          const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-          const ctx = canvas.getContext('2d')!;
-          ctx.drawImage(bitmap, 0, 0);
-          const imgData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-          bitmap.close();
-          // Sample center 50% for roof color (same as satellite-color.ts)
-          const w = imgData.width, h = imgData.height;
-          const margin = Math.floor(w * 0.25);
-          let rR = 0, rG = 0, rB = 0, rN = 0;
-          for (let y = margin; y < h - margin; y++) {
-            for (let x = margin; x < w - margin; x++) {
-              const i = (y * w + x) * 4;
-              const lum = (imgData.data[i] + imgData.data[i + 1] + imgData.data[i + 2]) / 3;
-              if (lum < 30 || lum > 245) continue;
-              rR += imgData.data[i]; rG += imgData.data[i + 1]; rB += imgData.data[i + 2]; rN++;
-            }
-          }
-          if (rN >= 100) {
-            const roofR = Math.round(rR / rN), roofG = Math.round(rG / rN), roofB = Math.round(rB / rN);
-            const { rgbToWallBlock: toWall } = await import('@craft/gen/color-blocks.js');
-            const roofBlock = toWall(roofR, roofG, roofB);
-            const palette = semanticData.semanticPalette ?? { wallBlocks: [], source: '' };
-            palette.roofBlocks = [roofBlock];
-            palette.roofColor = { r: roofR, g: roofG, b: roofB };
-            palette.source = (palette.source ? palette.source + ' + ' : '') + 'user satellite';
-            semanticData.semanticPalette = palette;
-            console.log(`[tiles] user satellite: rgb(${roofR},${roofG},${roofB}) → ${roofBlock.replace('minecraft:', '')}`);
-          }
-        }
-      } catch (err) {
-        console.warn('[tiles] user image processing failed (non-fatal):', err);
-      }
-    }
-
-    // ── Post-processing: same essential pipeline as CLI voxelizer ──
-    // Without these steps the raw voxelization is noisy photogrammetry chaos.
-    const sceneEl = document.getElementById('tiles-scene-mode') as HTMLInputElement | null;
-    const isSceneMode = !!(sceneEl?.checked && geo);
-    setStatus('Post-processing...', 'info');
-    await new Promise(r => setTimeout(r, 50));
-    const envPositions = await postProcessTilesGrid(trimmedGrid, analysis, isSceneMode, resolution, semanticData);
-
-    // ── Window/door regularization — always run when quality is decent ──
-    // v106: Moved out of scene-only block. Window patterns improve VLM scores universally.
-    let finalGrid = trimmedGrid;
-
-    // ── Scene-specific steps (plot expansion, enrichment) ──
-    // Window regularization + feature replacement handled by pipeline's SCENE_FEATURES phase
-    if (isSceneMode && geo) {
-      try {
-        // Plot expansion — add 8m padding per side
-        const { expandGrid } = await import('../../../src/convert/scene-pipeline.js');
-        const maxDim = Math.max(finalGrid.width, finalGrid.length);
-        const padding = 8 * resolution;
-        const newDim = maxDim + padding * 2;
-        if (newDim > finalGrid.width || newDim > finalGrid.length) {
-          setStatus(`Expanding plot ${finalGrid.width}x${finalGrid.length} → ${newDim}x${newDim}...`, 'info');
-          await new Promise(r => setTimeout(r, 0));
-          finalGrid = expandGrid(finalGrid, newDim, newDim);
-          console.log(`[tiles:scene] plot expansion: ${newDim}x${newDim}`);
-        }
-
-        // Scene enrichment — populate roads, trees, fences, ground from OSM + climate data
-        setStatus('Scene enrichment — fetching environment data...', 'info');
-        await new Promise(r => setTimeout(r, 50));
-        const { enrichScene } = await import('../../../src/convert/scene-pipeline.js');
-        const plotRadius = Math.max(finalGrid.width, finalGrid.length) / (2 * resolution);
-
-        // Read granular scene feature toggles from UI checkboxes
-        const readCheck = (id: string) => (document.getElementById(id) as HTMLInputElement)?.checked ?? true;
-        const sceneFeatures: import('../../../src/convert/scene-pipeline.js').SceneFeatureFlags = {
-          ground: readCheck('scene-ground'),
-          trees: readCheck('scene-trees'),
-          roads: readCheck('scene-roads'),
-          paths: readCheck('scene-paths'),
-          fences: readCheck('scene-fences'),
-          pools: readCheck('scene-pools'),
-        };
-
-        await enrichScene({
-          grid: finalGrid,
-          coords: { lat: geo.lat, lng: geo.lng },
-          resolution,
-          plotRadius,
-          capturedEnvironment: envPositions,
-          terrainHeightmap: captureResult.terrainHeightmap,
-          heightmapWidth: captureResult.heightmapWidth,
-          heightmapLength: captureResult.heightmapLength,
-          features: sceneFeatures,
-          onProgress: (msg) => setStatus(`Enrichment: ${msg}`, 'info'),
-        });
-      } catch (err) {
-        console.warn('[tiles] scene pipeline failed (non-fatal):', err);
-        setStatus('Scene enrichment failed — continuing with building only', 'warning');
-      }
-    }
+    console.log('[tiles] pipeline result:', {
+      status: result.report.status,
+      synthesisPath: result.artifacts.synthesisPath,
+      voxelBlockCount: result.artifacts.voxelBlockCount,
+      footprintIoU: result.report.objective?.footprintIoU,
+      heightErr: result.report.objective?.heightErr,
+    });
 
     const nonAir = finalGrid.countNonAir();
-    // Debug: expose grid for inspection
     (window as Record<string, unknown>).__lastTilesGrid = finalGrid;
+    (window as Record<string, unknown>).__lastPipelineReport = result.report;
     console.log('[tiles] palette:', [...finalGrid.palette].join(', '));
 
-    const qualityLabel = analysis
-      ? ` (${analysis.dataQuality} quality, confidence ${analysis.confidence.toFixed(1)}/10)`
+    const objective = result.report.objective;
+    const iouLabel = objective
+      ? ` (IoU ${objective.footprintIoU.toFixed(2)}, height err ${(objective.heightErr * 100).toFixed(0)}%)`
       : '';
     setStatus(
-      `Done — ${finalGrid.width}x${finalGrid.height}x${finalGrid.length}, ${nonAir.toLocaleString()} blocks, ${finalGrid.palette.size} materials${qualityLabel}`,
+      `Done — ${finalGrid.width}x${finalGrid.height}x${finalGrid.length}, ${nonAir.toLocaleString()} blocks, ${finalGrid.palette.size} materials${iouLabel}`,
       'success',
     );
 
     // Dispose the tile viewer — we don't need it anymore
     disposeViewer();
 
-    // Step 5: Pass grid + analysis + geocode metadata to callback
-    // If analysis shows poor/fair quality, the callback can trigger manual selection
+    // Pass grid + (null analysis — new pipeline reports via VerificationReport) + metadata to callback
     if (onResult && !skipCallback) {
-      onResult(finalGrid, `tiles-${geo.formattedAddress}`, analysis, {
+      onResult(finalGrid, `tiles-${geo.formattedAddress}`, null, {
         lat: geo.lat,
         lng: geo.lng,
         resolution,
@@ -941,70 +763,6 @@ async function runVoxelizePipeline(
   }
 }
 
-// ─── Post-Processing ─────────────────────────────────────────────────────────
-
-/**
- * Apply essential post-processing to transform raw photogrammetry voxels into
- * clean building geometry. Mirrors the CLI voxelizer's --auto pipeline.
- *
- * Without these steps the browser output is a chaotic mass of noisy colored
- * blocks from baked lighting and surface noise in the Google 3D Tiles data.
- *
- * Steps applied (in order, matching CLI v44 pipeline):
- * 1. Ground plane removal
- * 2. Component cleanup (≥500 voxels)
- * 3. AABB crop (if analysis recommends it)
- * 4-5. Interior fill (dilation=2, two passes)
- * 6. Vegetation strip
- * 7. Morph close — spackle 1-voxel pockmarks
- * 8. Surface smooth + facade flatten
- * 9. Glaze dark windows (before mode filter — glass is PROTECTED)
- * 10. Mode filter — 3D majority-vote surface smoother
- * 11. Sky palette + analysis remaps
- */
-async function postProcessTilesGrid(
-  grid: BlockGrid, analysis: AnalysisResult | null, sceneMode = false, resolution = 1,
-  semanticData?: BrowserSemanticData,
-): Promise<import('@craft/convert/mesh-filter.js').ExtractedEnvironment | undefined> {
-  // Browser-side post-processing uses shared pipeline — identical quality to CLI.
-  // Phases are conditionally skipped based on available data instead of always skipping.
-  const skipPhases = new Set<PipelinePhase>();
-
-  // OSM-dependent phases: skip only when no OSM polygon available
-  if (!semanticData?.osmPolygon) {
-    skipPhases.add(PipelinePhase.OSM_MASK);
-    skipPhases.add(PipelinePhase.POST_MASK);
-    skipPhases.add(PipelinePhase.FOOTPRINT_FREEZE);
-    skipPhases.add(PipelinePhase.FOOTPRINT_FILL);
-  }
-  // Semantic recolor: skip only when no palette resolved
-  if (!semanticData?.semanticPalette) {
-    skipPhases.add(PipelinePhase.SEMANTIC_RECOLOR);
-  }
-  // HEIGHT_CORRECT still skipped in browser — no reliable height override source
-  skipPhases.add(PipelinePhase.HEIGHT_CORRECT);
-
-  const result = await runPipeline(grid, {
-    resolution,
-    mode: 'surface',
-    fill: true,
-    scene: sceneMode,
-    precomputedAnalysis: analysis ?? undefined,
-    osmPolygon: semanticData?.osmPolygon,
-    osmTags: semanticData?.osmTags,
-    semanticPalette: semanticData?.semanticPalette,
-    knownHeightM: semanticData?.knownHeightM,
-    buildingAlignment: semanticData?.buildingAlignment,
-    skipPhases,
-  }, {
-    onLog: (msg) => console.log(`[tiles:pp] ${msg}`),
-    onYield: () => new Promise<void>(r => setTimeout(r, 0)),
-    onPhaseStart: (phase) => setStatus(`Processing: ${phase}...`, 'info'),
-  });
-
-  return result.envPositions;
-}
-
 // ─── Viewer Lifecycle ───────────────────────────────────────────────────────
 
 function disposeViewer(): void {
@@ -1017,74 +775,6 @@ function disposeViewer(): void {
   }
   scene = null;
   camera = null;
-}
-
-/**
- * New-pipeline (beta) path — replaces Stage 3+ voxelization + 21-phase
- * post-processing with parametric synthesis from evidence.
- *
- * Enabled via `localStorage['craftmatic_new_pipeline'] = '1'`. Returns the
- * parametric-synthesized BlockGrid, or null on failure (caller falls back
- * to the legacy path).
- *
- * Flow:
- *   1. Resolve BuildingContext via browser fetchers (geocode + OSM + Solar)
- *   2. Look up CaptureProfile
- *   3. Build TileEvidence from the already-captured Three.js group
- *   4. Run the browser-side pipeline (Stages 4-9) — SV, satellite, fusion,
- *      synthesis, exports, verification
- *   5. Return the voxel grid
- */
-async function runNewPipelineFromCapture(
-  address: string,
-  capturedGroup: THREE.Group,
-  expectedHeightM: number,
-  apiKey: string,
-  onStatus: (msg: string) => void,
-): Promise<BlockGrid | null> {
-  try {
-    const fetchers = createBrowserFetchers(apiKey);
-
-    onStatus('New pipeline: resolving context…');
-    const ctx = await resolveContext(address, fetchers.context);
-    const profile = lookupProfile(ctx);
-
-    onStatus('New pipeline: building tile evidence…');
-    const { evidence: tileEvidence } = await buildTileEvidenceFromGroup({
-      group: capturedGroup,
-      expectedHeightM,
-    });
-
-    onStatus('New pipeline: synthesizing…');
-    const result = await runBrowserPipelineFromTiles({
-      ctx,
-      profile,
-      tiles: tileEvidence,
-      svFetchers: fetchers.streetview,
-      satFetcher: fetchers.satellite,
-      onProgress: ({ stage, message }) => onStatus(`New pipeline: ${stage} — ${message}`),
-    });
-
-    console.log('[tiles] new pipeline result:', {
-      status: result.report.status,
-      synthesisPath: result.artifacts.synthesisPath,
-      voxelBlockCount: result.artifacts.voxelBlockCount,
-      footprintIoU: result.report.objective?.footprintIoU,
-    });
-
-    if (!result.artifacts || !result.artifacts.voxelGrid) {
-      console.warn('[tiles] new pipeline produced no voxel grid');
-      return null;
-    }
-    return result.artifacts.voxelGrid;
-  } catch (err) {
-    if (err instanceof ContextInsufficientError) {
-      console.warn('[tiles] new pipeline: context-insufficient —', err.reason);
-    } else {
-      console.error('[tiles] new pipeline error:', err);
-    }
-    return null;
-  }
 }
 
 function pauseRenderLoop(): void {
