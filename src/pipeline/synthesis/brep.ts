@@ -312,24 +312,6 @@ async function buildRoofShape(m: ManifoldNamespace, roof: RoofVolume): Promise<M
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function shrinkPolygon(poly: readonly LocalPoint2D[], delta: number): readonly LocalPoint2D[] {
-  // Naive inward offset — moves each vertex toward the polygon centroid by `delta`.
-  // Not a full offset-polygon algorithm, but adequate for approximately-convex
-  // building footprints (which is most of them). Falls apart on tight concavities;
-  // the evaluator falls back to solid extrusion when the inner polygon is empty.
-  const cx = poly.reduce((s, p) => s + p.x, 0) / poly.length;
-  const cz = poly.reduce((s, p) => s + p.z, 0) / poly.length;
-  const out: LocalPoint2D[] = [];
-  for (const p of poly) {
-    const dx = cx - p.x, dz = cz - p.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist <= delta + 0.1) return []; // polygon too small to shrink
-    const scale = delta / dist;
-    out.push({ x: p.x + dx * scale, z: p.z + dz * scale });
-  }
-  return out;
-}
-
 /**
  * Build a cavity box for a facade feature (window inset).
  *

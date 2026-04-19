@@ -17,10 +17,11 @@
  * cantilevers). Gemini plateau analysis already declares these source-data-limited.
  */
 
-import type { RefinedBuildingContext, Lab, MaterialRef } from '../context/types.js';
+import type { RefinedBuildingContext, Lab, LocalPoint2D, MaterialRef } from '../context/types.js';
 import type { JointEvidence } from '../fusion/types.js';
 import type { TileEvidence } from '../capture/types.js';
 import type { BuildingBRep, FloorSlab, RoofVolume, Wall } from './brep.js';
+import { projectPolygonToLocal } from './features.js';
 
 const DEFAULT_BLOCK_GREY = 'minecraft:smooth_stone';
 
@@ -41,12 +42,36 @@ export function synthesizeCleanedTiles(
   ev: JointEvidence,
   tiles: TileEvidence | null,
 ): BuildingBRep {
-  const widthM = tiles
-    ? Math.max(3, tiles.measuredBbox.max.x - tiles.measuredBbox.min.x)
-    : ctx.mbr.widthM;
-  const depthM = tiles
-    ? Math.max(3, tiles.measuredBbox.max.z - tiles.measuredBbox.min.z)
-    : ctx.mbr.depthM;
+  // Footprint: prefer the actual OSM polygon when available. Only fall back
+  // to the MBR rectangle when no polygon or fewer than 3 vertices.
+  let openPoly: LocalPoint2D[];
+  const osmPoly = ev.footprint.value;
+  if (osmPoly.length >= 3 && ev.footprint.source === 'osm') {
+    const localPoly = projectPolygonToLocal(
+      osmPoly.map(p => ({ lat: p.lat, lon: p.lon })),
+      ctx.center,
+      ctx.mbr.rotationDeg,
+    );
+    const isClosed = localPoly.length >= 2
+      && Math.abs(localPoly[0].x - localPoly[localPoly.length - 1].x) < 1e-6
+      && Math.abs(localPoly[0].z - localPoly[localPoly.length - 1].z) < 1e-6;
+    openPoly = isClosed ? localPoly.slice(0, -1) : [...localPoly];
+  } else {
+    const widthM = tiles
+      ? Math.max(3, tiles.measuredBbox.max.x - tiles.measuredBbox.min.x)
+      : ctx.mbr.widthM;
+    const depthM = tiles
+      ? Math.max(3, tiles.measuredBbox.max.z - tiles.measuredBbox.min.z)
+      : ctx.mbr.depthM;
+    const halfW = widthM / 2;
+    const halfD = depthM / 2;
+    openPoly = [
+      { x: -halfW, z: -halfD },
+      { x:  halfW, z: -halfD },
+      { x:  halfW, z:  halfD },
+      { x: -halfW, z:  halfD },
+    ];
+  }
 
   // Height: prefer tile measurement unless truncated
   const measuredH = tiles ? tiles.measuredBbox.max.y - tiles.measuredBbox.min.y : 0;
@@ -54,31 +79,30 @@ export function synthesizeCleanedTiles(
     ? Math.max(3, ev.heightM.value)
     : measuredH;
 
-  // Levels for slab spacing — roughly 3.5m per storey
-  const levels = Math.max(1, Math.round(heightM / 3.5));
-  const floorHeightM = heightM / levels;
-  const slabThickness = 0.3;
+  // Roof: use the reconciled shape; flat is the safe default for unknown footprints
+  const roofType = ev.roofShape.value;
+  const roofExtrude = Math.min(
+    heightM * 0.4,
+    roofType === 'flat' ? 0.5 : Math.max(2, heightM * 0.15),
+  );
+  const wallsTotal = Math.max(2.5, heightM - roofExtrude);
 
-  const halfW = widthM / 2;
-  const halfD = depthM / 2;
-  const rectPoly = [
-    { x: -halfW, z: -halfD },
-    { x:  halfW, z: -halfD },
-    { x:  halfW, z:  halfD },
-    { x: -halfW, z:  halfD },
-  ];
+  // Levels for slab spacing — roughly 3.5m per storey
+  const levels = Math.max(1, Math.round(wallsTotal / 3.5));
+  const floorHeightM = wallsTotal / levels;
+  const slabThickness = Math.min(0.3, floorHeightM * 0.1);
 
   const floors: FloorSlab[] = [];
   const walls: Wall[] = [];
   for (let level = 0; level < levels; level++) {
     const elevationM = level * floorHeightM;
-    floors.push({ level, elevationM, thicknessM: slabThickness, polygon: rectPoly });
-    for (let e = 0; e < 4; e++) {
+    floors.push({ level, elevationM, thicknessM: slabThickness, polygon: openPoly });
+    for (let e = 0; e < openPoly.length; e++) {
       walls.push({
         level,
-        facadeEdge: e,
-        start: rectPoly[e],
-        end: rectPoly[(e + 1) % 4],
+        facadeEdge: e % 4,
+        start: openPoly[e],
+        end: openPoly[(e + 1) % openPoly.length],
         heightM: floorHeightM - slabThickness,
         thicknessM: 0.3,
         material: 'wall',
@@ -86,15 +110,12 @@ export function synthesizeCleanedTiles(
     }
   }
 
-  // Roof: use the reconciled shape; flat is the safe default for unknown footprints
-  const roofType = ev.roofShape.value;
-  const roofExtrude = roofType === 'flat' ? 0.5 : Math.max(2, heightM * 0.1);
   const roof: RoofVolume = {
     type: roofType,
-    baseZ: heightM,
-    peakZ: heightM + roofExtrude,
+    baseZ: wallsTotal,
+    peakZ: wallsTotal + roofExtrude,
     pitchDeg: roofType === 'flat' ? 0 : 25,
-    polygon: rectPoly,
+    polygon: openPoly,
     params: {},
   };
 
