@@ -205,18 +205,20 @@ export async function evaluateBRep(brep: BuildingBRep): Promise<EvaluatedMesh> {
     }
   }
 
+  // Walls = solid extrusion of footprint polygon per level.
+  //
+  // We used to shell the walls (outer polygon − centroid-shrunk inner) to
+  // create interior space, but the naive shrinkPolygon produced degenerate
+  // inner polygons for complex footprints (e.g. Flatiron has 34 vertices
+  // with rounded tips — IoU dropped to 0.24 because the wall shell was
+  // visibly wrong). Solid extrusion is simpler, always valid, and
+  // interior floorplan subtraction (future `voids: Volume[]` on BRep)
+  // carves rooms from the solid — same effective result without the
+  // offset-polygon bugs.
   for (const [, lvl] of levelsByLevel) {
-    const outer = Manifold.extrude([polygonToRing(lvl.polygon)], lvl.heightM)
+    const solid = Manifold.extrude([polygonToRing(lvl.polygon)], lvl.heightM)
       .translate([0, 0, lvl.elevationM]);
-    const innerPoly = shrinkPolygon(lvl.polygon, 0.3);
-    if (innerPoly.length >= 3) {
-      const inner = Manifold.extrude([polygonToRing(innerPoly)], lvl.heightM)
-        .translate([0, 0, lvl.elevationM]);
-      parts.push(Manifold.difference(outer, inner));
-      inner.delete();
-    } else {
-      parts.push(outer);
-    }
+    parts.push(solid);
   }
 
   // Roof volume
