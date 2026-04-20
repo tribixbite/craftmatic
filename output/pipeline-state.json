@@ -4,26 +4,53 @@
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-04-19T09:32:56.944Z",
-      "elapsedSec": 6.4,
-      "attempts": 2,
+      "lastRun": "2026-04-20T02:20:09.668Z",
+      "elapsedSec": 149.9,
+      "attempts": 4,
       "recentFailureSignatures": [
         "fail-consensus",
-        "fail-consensus"
+        "fail-consensus",
+        "needs-human-review",
+        "fail-consensus:median=1,min=0"
       ],
       "objective": {
         "footprintIoU": 0.9825899214479306,
-        "heightErr": 0,
+        "heightErr": 1.4318492793065864e-8,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 118,
+        "selfIntersect": 16982,
         "minWallThicknessMm": 7.193524360656738,
-        "voxelCount": 21310,
+        "voxelCount": 50447,
         "plinthWatertight": null,
         "pass": true,
         "failures": []
       },
-      "consensus": null
+      "consensus": {
+        "status": "fail",
+        "rounds": 1,
+        "gemini": {
+          "color": 0,
+          "features": 0,
+          "massing": 6,
+          "overall": 2
+        },
+        "claude": {
+          "color": 0,
+          "features": 0,
+          "massing": 6,
+          "overall": 2
+        },
+        "gpt5": {
+          "color": 0,
+          "features": 0,
+          "massing": 6,
+          "overall": 2
+        },
+        "min": 0,
+        "median": 1,
+        "spread": 0,
+        "pass": false
+      }
     },
     "240-highland": {
       "address": "240 Highland St, Newton, MA",

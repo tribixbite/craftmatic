@@ -27,6 +27,8 @@ import { writeLitematic } from '../src/schem/write-litematic.js';
 import { summariseReport } from '../src/pipeline/verify/report.js';
 import type { ContextFetchers } from '../src/pipeline/context/resolver.js';
 import type { StreetViewFetchers } from '../src/pipeline/capture/streetview.js';
+import { createGeminiScorer, singleModelFetchers } from '../src/pipeline/verify/gemini-scorer.js';
+import type { RunPipelineOptions } from '../src/pipeline/pipeline.js';
 
 // ─── Arg parsing ───────────────────────────────────────────────────────────
 
@@ -44,6 +46,7 @@ function popFlag(name: string): string | null {
 const outDir = popFlag('--out') ?? popFlag('-o') ?? 'output/pipeline';
 const slugOverride = popFlag('--slug');
 const tileTimeoutSec = parseInt(popFlag('--tile-timeout') ?? '0', 10);
+const consensusMode = popFlag('--consensus'); // 'gemini' | null — future: 'all'
 const skipTiles = argv.includes('--skip-tiles');
 if (skipTiles) argv.splice(argv.indexOf('--skip-tiles'), 1);
 const address = argv.join(' ').trim();
@@ -63,6 +66,10 @@ if (!apiKey) {
   console.error('Error: GOOGLE_MAPS_API_KEY not set');
   process.exit(1);
 }
+
+const geminiKey = process.env['GOOGLE_GEMINI_API_KEY']
+  ?? process.env['GEMINI_API_KEY']
+  ?? envText.match(/(?:GOOGLE_)?GEMINI_API_KEY=(.+)/)?.[1]?.trim();
 
 const absOutDir = resolve(projectRoot, outDir);
 mkdirSync(absOutDir, { recursive: true });
@@ -125,6 +132,43 @@ const streetViewFetchers: StreetViewFetchers = {
   },
 };
 
+// ─── Consensus wiring (optional) ──────────────────────────────────────────
+//
+// Only wired when --consensus=gemini is passed AND a Gemini key is available.
+// References come from output/reference-data/<slug>/ when that dir exists —
+// the same images fetch-reference-data.ts populates for category-grading.
+
+function loadReferencesForSlug(slugGuess: string): Uint8Array[] {
+  const refDir = resolve(projectRoot, 'output/reference-data', slugGuess);
+  if (!existsSync(refDir)) return [];
+  const refs: Uint8Array[] = [];
+  // Up to 4 SV angles + 1 satellite
+  for (const name of ['sv-front.jpg', 'sv-right.jpg', 'sv-rear.jpg', 'sv-left.jpg', 'satellite.jpg']) {
+    const p = join(refDir, name);
+    if (existsSync(p)) refs.push(new Uint8Array(readFileSync(p)));
+  }
+  return refs;
+}
+
+const consensusOpt: RunPipelineOptions['consensus'] = (() => {
+  if (consensusMode !== 'gemini') return undefined;
+  if (!geminiKey) {
+    console.error('warn: --consensus=gemini requires GEMINI_API_KEY or GOOGLE_GEMINI_API_KEY');
+    return undefined;
+  }
+  const slugGuess = slugOverride ?? address.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80);
+  const references = loadReferencesForSlug(slugGuess);
+  if (references.length === 0) {
+    console.error(`warn: no reference images at output/reference-data/${slugGuess}/ — consensus will run without references`);
+  }
+  const scorer = createGeminiScorer({ apiKey: geminiKey });
+  return {
+    models: singleModelFetchers(scorer),
+    references,
+    maxRounds: 1, // deterministic synthesis → re-scoring is no-op; save API calls
+  };
+})();
+
 // ─── Run pipeline ──────────────────────────────────────────────────────────
 
 const started = Date.now();
@@ -143,6 +187,7 @@ const result = await runPipeline({
   },
   tileTimeoutMs: tileTimeoutSec > 0 ? tileTimeoutSec * 1000 : undefined,
   skipTiles,
+  consensus: consensusOpt,
 });
 const elapsed = ((Date.now() - started) / 1000).toFixed(1);
 

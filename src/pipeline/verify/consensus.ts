@@ -124,8 +124,14 @@ export async function scoreConsensus(input: ScoreConsensusInput): Promise<Consen
       input.fetchers.gpt5({ renders, references: input.references, round }),
     ]);
     const gate = evaluateGate(gemini, claude, gpt5);
+    // `needs-human-review` only applies when the models actually disagree too
+    // much (spread > 2). A coherent "fail" — all models scored the same low —
+    // stays at `fail-consensus` so the iterate loop treats it as a fixable
+    // gate failure rather than a terminal escalation. This is critical for
+    // single-model wiring where spread is always 0.
+    const terminal = round === maxRounds && gate.spread > 2;
     const resp: ConsensusResult = {
-      status: gate.pass ? 'pass' : (round === maxRounds ? 'needs-human-review' : 'fail'),
+      status: gate.pass ? 'pass' : (terminal ? 'needs-human-review' : 'fail'),
       rounds: round,
       gemini, claude, gpt5,
       min: gate.min, median: gate.median, spread: gate.spread,

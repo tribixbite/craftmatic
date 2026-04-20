@@ -34,6 +34,7 @@ import { composeReport, contextInsufficientReport } from './verify/report.js';
 import type { FullVerificationReport } from './verify/report.js';
 import type { ModelFetchers, RenderRoundFn } from './verify/consensus.js';
 import { scoreConsensus } from './verify/consensus.js';
+import { createGridRenderRound } from './verify/default-render-round.js';
 import { BlockGrid } from '../schem/types.js';
 
 // ─── Input types ───────────────────────────────────────────────────────────
@@ -49,10 +50,12 @@ export interface RunPipelineOptions {
   readonly apiKey: string;
   readonly projectRoot: string;
   readonly fetchers: PipelineFetchers;
-  /** Optional: run VLM consensus scoring after objective gates. */
+  /** Optional: run VLM consensus scoring after objective gates.
+   *  `renderRound` is optional — if omitted, the pipeline renders 4 default
+   *  views (iso, front, top-down, cutaway) from the output voxel grid. */
   readonly consensus?: {
     readonly models: ModelFetchers;
-    readonly renderRound: RenderRoundFn;
+    readonly renderRound?: RenderRoundFn;
     readonly references: readonly Uint8Array[];
     readonly maxRounds?: number;
   };
@@ -205,11 +208,18 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
   // ── Stage 9b: consensus (only if objective passes + wired) ─────────────
   let consensus = undefined;
   if (objective.pass && opts.consensus) {
+    progress({ stage: 'verify', message: 'consensus (VLM)', ratio: 0 });
+    const renderRound = opts.consensus.renderRound ?? createGridRenderRound(voxelResult.grid);
     const result = await scoreConsensus({
-      renderRound: opts.consensus.renderRound,
+      renderRound,
       references: opts.consensus.references,
       fetchers: opts.consensus.models,
       maxRounds: opts.consensus.maxRounds,
+    });
+    progress({
+      stage: 'verify',
+      message: `consensus ${result.status} (min=${result.min.toFixed(1)} med=${result.median.toFixed(1)})`,
+      ratio: 1,
     });
     consensus = result;
   }

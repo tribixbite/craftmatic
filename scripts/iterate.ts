@@ -87,6 +87,13 @@ function statusRank(status: Status): number {
 
 function runBuild(golden: Golden, extraFlags: string[] = []): number {
   console.error(`\n━━━ ${golden.slug} — ${golden.address} ━━━`);
+  // Enable Gemini VLM consensus unless the caller explicitly disabled it
+  // with --no-consensus. Without it, goldens stall at status:fail-consensus
+  // with consensus=null and the hook blocks the loop.
+  const hasGeminiKey = Boolean(process.env['GOOGLE_GEMINI_API_KEY'] ?? process.env['GEMINI_API_KEY']);
+  const consensusFlag = !extraFlags.includes('--no-consensus') && hasGeminiKey
+    ? ['--consensus', 'gemini']
+    : [];
   const result = spawnSync('bun', [
     resolve(projectRoot, 'scripts/build.ts'),
     golden.address,
@@ -95,7 +102,8 @@ function runBuild(golden: Golden, extraFlags: string[] = []): number {
     // Cap tile capture at 60s — skyscrapers can hang indefinitely otherwise.
     // Partial captures fall through to cleaned-tiles / parametric paths.
     '--tile-timeout', '60',
-    ...extraFlags,
+    ...consensusFlag,
+    ...extraFlags.filter((f) => f !== '--no-consensus'),
   ], {
     cwd: projectRoot,
     stdio: 'inherit',
