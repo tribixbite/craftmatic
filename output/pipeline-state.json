@@ -3,25 +3,25 @@
   "addresses": {
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
-      "status": "fail-consensus",
-      "lastRun": "2026-04-20T08:49:33.763Z",
-      "elapsedSec": 142.7,
-      "attempts": 33,
+      "status": "needs-human-review",
+      "lastRun": "2026-04-20T09:12:46.912Z",
+      "elapsedSec": 19.9,
+      "attempts": 36,
       "recentFailureSignatures": [
-        "fail-consensus:median=6,min=1",
         "fail-consensus:median=6,min=2",
-        "fail-consensus:median=6,min=2",
-        "fail-consensus:median=6,min=2",
-        "fail-consensus:median=4,min=2"
+        "fail-consensus:median=4,min=2",
+        "fail-consensus:median=4,min=1",
+        "fail-consensus:median=5,min=1",
+        "fail-consensus:median=4,min=1"
       ],
       "objective": {
         "footprintIoU": 0.9825899214479306,
-        "heightErr": 1.4318492793065864e-8,
+        "heightErr": 0,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 16982,
+        "selfIntersect": 118,
         "minWallThicknessMm": 7.193524360656738,
-        "voxelCount": 50447,
+        "voxelCount": 21310,
         "plinthWatertight": null,
         "pass": true,
         "failures": []
@@ -31,27 +31,28 @@
         "rounds": 1,
         "gemini": {
           "color": 5,
-          "features": 2,
-          "massing": 5,
+          "features": 1,
+          "massing": 6,
           "overall": 3
         },
         "claude": {
           "color": 5,
-          "features": 2,
-          "massing": 5,
+          "features": 1,
+          "massing": 6,
           "overall": 3
         },
         "gpt5": {
           "color": 5,
-          "features": 2,
-          "massing": 5,
+          "features": 1,
+          "massing": 6,
           "overall": 3
         },
-        "min": 2,
+        "min": 1,
         "median": 4,
         "spread": 0,
         "pass": false
-      }
+      },
+      "reason": "escalated by stop hook: 36 attempts exceeded hard ceiling 20 \u2014 likely at MVP plateau (recent sigs: ['fail-consensus:median=4,min=1', 'fail-consensus:median=5,min=1', 'fail-consensus:median=4,min=1'])"
     },
     "240-highland": {
       "address": "240 Highland St, Newton, MA",
@@ -108,7 +109,7 @@
     },
     "guggenheim": {
       "address": "1071 5th Ave, New York, NY",
-      "status": "fail-consensus",
+      "status": "needs-human-review",
       "lastRun": "2026-04-20T08:54:10.255Z",
       "elapsedSec": 125.6,
       "attempts": 10,
@@ -121,7 +122,7 @@
       ],
       "objective": {
         "footprintIoU": 0.9914354230900994,
-        "heightErr": 4.0426775769371064e-8,
+        "heightErr": 4.0426775769371064e-08,
         "watertight": true,
         "manifold": true,
         "selfIntersect": 7194,
@@ -156,11 +157,12 @@
         "median": 1.5,
         "spread": 0,
         "pass": false
-      }
+      },
+      "reason": "escalated by stop hook: 10 attempts exceeded hard ceiling 10 \u2014 likely at MVP plateau (recent sigs: ['fail-consensus:median=0,min=0', 'fail-consensus:median=0,min=0', 'fail-consensus:median=2,min=1'])"
     },
     "geisel": {
       "address": "9500 Gilman Dr, La Jolla, CA",
-      "status": "fail-consensus",
+      "status": "needs-human-review",
       "lastRun": "2026-04-20T08:56:14.511Z",
       "elapsedSec": 122.4,
       "attempts": 8,
@@ -208,7 +210,8 @@
         "median": 0.5,
         "spread": 0,
         "pass": false
-      }
+      },
+      "reason": "escalated by stop hook: 8 attempts, last 3 failures signature-identical: fail-consensus:median=1,min=0"
     },
     "pennzoil": {
       "address": "700 Milam St, Houston, TX",
@@ -225,7 +228,7 @@
       ],
       "objective": {
         "footprintIoU": 0.9976452119309263,
-        "heightErr": 3.275550189524972e-8,
+        "heightErr": 3.275550189524972e-08,
         "watertight": true,
         "manifold": true,
         "selfIntersect": 110555,

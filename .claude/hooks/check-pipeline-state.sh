@@ -59,27 +59,40 @@ if ungraded:
     sys.exit(0)
 
 # ── Escalate stuck addresses before partitioning ──────────────────────────
-ESC_ATTEMPTS = 5
+# Two escalation triggers:
+#   (a) identical signatures — Claude has made no progress on the failure mode.
+#   (b) high attempt ceiling — too many attempts regardless of whether
+#       signatures shift, suggests VLM noise floor or architectural MVP plateau
+#       that more iteration won't unstick.
+ESC_ATTEMPTS_IDENTICAL = 5
 ESC_SIGNATURE_REPEATS = 3
+ESC_ATTEMPTS_HARD = 10  # hard ceiling — escalate even on oscillating sigs
 mutated = False
 for slug, rec in addresses.items():
     if rec.get("status") in ("pass", "needs-human-review", "context-insufficient"):
         continue
     attempts = rec.get("attempts", 0)
     sigs = rec.get("recentFailureSignatures", [])
-    if attempts >= ESC_ATTEMPTS and len(sigs) >= ESC_SIGNATURE_REPEATS:
+
+    escalate_reason = None
+    if attempts >= ESC_ATTEMPTS_IDENTICAL and len(sigs) >= ESC_SIGNATURE_REPEATS:
         last_n = sigs[-ESC_SIGNATURE_REPEATS:]
         if len(set(last_n)) == 1:
-            rec["status"] = "needs-human-review"
-            rec["reason"] = (
-                f"escalated by stop hook: {attempts} attempts, "
-                f"last {ESC_SIGNATURE_REPEATS} failures signature-identical: {last_n[0]}"
+            escalate_reason = (
+                f"{attempts} attempts, last {ESC_SIGNATURE_REPEATS} failures "
+                f"signature-identical: {last_n[0]}"
             )
-            mutated = True
-            sys.stderr.write(
-                f"PIPELINE {slug}: ESCALATED → needs-human-review "
-                f"({attempts} attempts, stuck on '{last_n[0]}')\n"
-            )
+    if escalate_reason is None and attempts >= ESC_ATTEMPTS_HARD:
+        escalate_reason = (
+            f"{attempts} attempts exceeded hard ceiling {ESC_ATTEMPTS_HARD} — "
+            f"likely at MVP plateau (recent sigs: {sigs[-3:]})"
+        )
+
+    if escalate_reason:
+        rec["status"] = "needs-human-review"
+        rec["reason"] = f"escalated by stop hook: {escalate_reason}"
+        mutated = True
+        sys.stderr.write(f"PIPELINE {slug}: ESCALATED → needs-human-review ({escalate_reason})\n")
 if mutated:
     with open(state_path, "w") as f:
         json.dump(state, f, indent=2)

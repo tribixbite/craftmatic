@@ -162,7 +162,10 @@ function applyMaterialOverlay(
 ): void {
   const { width: W, height: H, length: L } = grid;
   const roofDepth = Math.max(1, Math.round(H * 0.05));
-  const corniceBandH = H > 20 ? 2 : 0; // skip on small buildings
+  // Tall buildings get a thicker cornice: 3 layers on >50m towers, 2 layers on
+  // mid-rise, 0 on small residential. Historic/BeauArts towers have pronounced
+  // cornice+parapet stacks that a single-voxel band fails to convey.
+  const corniceBandH = H > 50 ? 3 : H > 20 ? 2 : 0;
   const baseBandH = H > 15 ? 2 : 0;
   const trimBlock = pickTrimBlock(wallBlock);
   const plinthBlock = pickPlinthBlock(wallBlock);
@@ -242,6 +245,7 @@ function applyMaterialOverlay(
       }
     }
   }
+
 }
 
 /** Does voxel (x,y,z) border air on at least one X or Z face? */
