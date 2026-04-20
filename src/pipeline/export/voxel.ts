@@ -205,8 +205,8 @@ function applyMaterialOverlay(
   }
 
   // Pass 3 — windows. 2-wide × 2-tall rectangles, spaced every ~5 blocks
-  // horizontally, every ~4 blocks vertically. Skip top (roof+cornice) and
-  // bottom (base) bands.
+  // horizontally, every ~4 blocks vertically. Skip top (roof+cornice),
+  // bottom (base), and any floor-trim rows from 3a.
   const spacingX = Math.max(3, Math.round(W * 0.15));
   const spacingZ = Math.max(3, Math.round(L * 0.15));
   const winVStep = 4;

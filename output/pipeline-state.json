@@ -4,15 +4,15 @@
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-04-20T08:06:29.641Z",
-      "elapsedSec": 94.3,
-      "attempts": 20,
+      "lastRun": "2026-04-20T08:21:31.526Z",
+      "elapsedSec": 129.9,
+      "attempts": 26,
       "recentFailureSignatures": [
-        "fail-consensus:median=2,min=2",
-        "fail-consensus:median=6,min=3",
-        "fail-consensus:median=8,min=2",
-        "fail-consensus:median=7,min=3",
-        "fail-consensus:median=7,min=1"
+        "fail-consensus:median=6,min=2",
+        "fail-consensus:median=6,min=2",
+        "fail-consensus:median=6,min=1",
+        "fail-consensus:median=6,min=1",
+        "fail-consensus:median=8,min=2"
       ],
       "objective": {
         "footprintIoU": 0.9825899214479306,
@@ -30,25 +30,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 7,
-          "features": 1,
-          "massing": 9,
+          "color": 8,
+          "features": 2,
+          "massing": 10,
           "overall": 7
         },
         "claude": {
-          "color": 7,
-          "features": 1,
-          "massing": 9,
+          "color": 8,
+          "features": 2,
+          "massing": 10,
           "overall": 7
         },
         "gpt5": {
-          "color": 7,
-          "features": 1,
-          "massing": 9,
+          "color": 8,
+          "features": 2,
+          "massing": 10,
           "overall": 7
         },
-        "min": 1,
-        "median": 7,
+        "min": 2,
+        "median": 7.5,
         "spread": 0,
         "pass": false
       }
