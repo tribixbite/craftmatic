@@ -4,15 +4,15 @@
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-04-20T07:56:55.586Z",
-      "elapsedSec": 95.9,
-      "attempts": 18,
+      "lastRun": "2026-04-20T08:06:29.641Z",
+      "elapsedSec": 94.3,
+      "attempts": 20,
       "recentFailureSignatures": [
-        "fail-consensus:median=3,min=1",
-        "fail-consensus:median=4,min=2",
         "fail-consensus:median=2,min=2",
         "fail-consensus:median=6,min=3",
-        "fail-consensus:median=8,min=2"
+        "fail-consensus:median=8,min=2",
+        "fail-consensus:median=7,min=3",
+        "fail-consensus:median=7,min=1"
       ],
       "objective": {
         "footprintIoU": 0.9825899214479306,
@@ -30,32 +30,32 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 8,
-          "features": 2,
-          "massing": 10,
+          "color": 7,
+          "features": 1,
+          "massing": 9,
           "overall": 7
         },
         "claude": {
-          "color": 8,
-          "features": 2,
-          "massing": 10,
+          "color": 7,
+          "features": 1,
+          "massing": 9,
           "overall": 7
         },
         "gpt5": {
-          "color": 8,
-          "features": 2,
-          "massing": 10,
+          "color": 7,
+          "features": 1,
+          "massing": 9,
           "overall": 7
         },
-        "min": 2,
-        "median": 7.5,
+        "min": 1,
+        "median": 7,
         "spread": 0,
         "pass": false
       }
     },
     "240-highland": {
       "address": "240 Highland St, Newton, MA",
-      "status": "fail-consensus",
+      "status": "needs-human-review",
       "lastRun": "2026-04-20T07:57:39.051Z",
       "elapsedSec": 30.4,
       "attempts": 9,
@@ -103,7 +103,8 @@
         "median": 0.5,
         "spread": 0,
         "pass": false
-      }
+      },
+      "reason": "escalated by stop hook: 9 attempts, last 3 failures signature-identical: fail-consensus:median=1,min=0"
     },
     "guggenheim": {
       "address": "1071 5th Ave, New York, NY",
