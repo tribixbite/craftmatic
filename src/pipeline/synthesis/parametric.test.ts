@@ -85,12 +85,17 @@ describe('synthesizeParametric', () => {
     expect(brep.materials.window.blockName).toBe('minecraft:glass');
   });
 
-  it('roof material picked from Lab palette: green → oxidized_copper', () => {
+  it('roof material picked from Lab palette: green maps to a green-family roof block', () => {
     const ev = makeEvidence(rectPoly(), {
       roofPalette: { value: [[60, -15, 5]], source: 'sat', confidence: 0.9 },
     });
     const brep = synthesizeParametric(makeCtx(), ev);
-    expect(brep.materials.roof.blockName).toBe('minecraft:oxidized_copper');
+    // ROOF_PALETTE in color-blocks.ts doesn't include oxidized_copper; the
+    // closest green entry is prismarine at RGB(76,127,115). The old L-only
+    // picker returned oxidized_copper via a hand-written hue rule — the new
+    // picker routes through the shared delta-E palette for consistency with
+    // the rest of the pipeline.
+    expect(brep.materials.roof.blockName).toBe('minecraft:prismarine');
   });
 
   it('includes cornice features when evidence says so', () => {

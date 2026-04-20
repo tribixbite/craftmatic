@@ -23,11 +23,55 @@ import type { TileEvidence } from '../capture/types.js';
 import type { BuildingBRep, FloorSlab, RoofVolume, Wall } from './brep.js';
 import { projectPolygonToLocal } from './features.js';
 import { douglasPeucker } from '../context/classify.js';
-
-const DEFAULT_BLOCK_GREY = 'minecraft:smooth_stone';
+import { rgbToWallBlock, rgbToRoofOverride } from '../../gen/color-blocks.js';
 
 function makeMaterial(lab: Lab, block: string): MaterialRef {
   return { blockName: block, lab };
+}
+
+/**
+ * Convert a Lab colour to the nearest full-block Minecraft block, via the
+ * shared 36-cluster palette in `color-blocks.ts`. Same logic as parametric.ts
+ * — inlined here to avoid a cross-directory import when both synthesizers
+ * need the same picker.
+ */
+function labToRgb(lab: Lab): readonly [number, number, number] {
+  const [L, a, b] = lab;
+  const fy = (L + 16) / 116;
+  const fx = fy + a / 500;
+  const fz = fy - b / 200;
+  const fInv = (t: number): number => t * t * t > 0.008856 ? t * t * t : (t - 16 / 116) / 7.787;
+  const x = fInv(fx) * 0.95047;
+  const y = fInv(fy) * 1.0;
+  const z = fInv(fz) * 1.08883;
+  const R = x * 3.2406 + y * -1.5372 + z * -0.4986;
+  const G = x * -0.9689 + y * 1.8758 + z * 0.0415;
+  const B = x * 0.0557 + y * -0.2040 + z * 1.0570;
+  const toS = (c: number): number => c > 0.0031308 ? 1.055 * Math.pow(c, 1 / 2.4) - 0.055 : 12.92 * c;
+  const clamp = (v: number): number => Math.max(0, Math.min(1, v));
+  return [
+    Math.round(clamp(toS(R)) * 255),
+    Math.round(clamp(toS(G)) * 255),
+    Math.round(clamp(toS(B)) * 255),
+  ];
+}
+
+function pickWallBlock(lab: Lab): string {
+  const [r, g, b] = labToRgb(lab);
+  return rgbToWallBlock(r, g, b);
+}
+
+function pickRoofBlock(lab: Lab): string {
+  const [r, g, b] = labToRgb(lab);
+  const override = rgbToRoofOverride(r, g, b);
+  const base = override.cap.replace(/^minecraft:/, '').replace(/_slab\[type=bottom\]$/, '');
+  if (['dark_oak', 'oak', 'spruce', 'birch', 'jungle', 'acacia', 'warped', 'crimson'].includes(base)) {
+    return `minecraft:${base}_planks`;
+  }
+  if (['stone_brick', 'deepslate_tile', 'nether_brick', 'mud_brick', 'polished_blackstone_brick'].includes(base)) {
+    return `minecraft:${base}s`;
+  }
+  return `minecraft:${base}`;
 }
 
 /**
@@ -134,9 +178,9 @@ export function synthesizeCleanedTiles(
     roof,
     details: [],
     materials: {
-      wall: makeMaterial(wallLab, DEFAULT_BLOCK_GREY),
-      trim: makeMaterial(wallLab, DEFAULT_BLOCK_GREY),
-      roof: makeMaterial(roofLab, 'minecraft:deepslate_tiles'),
+      wall: makeMaterial(wallLab, pickWallBlock(wallLab)),
+      trim: makeMaterial(wallLab, pickWallBlock(wallLab)),
+      roof: makeMaterial(roofLab, pickRoofBlock(roofLab)),
       window: makeMaterial([50, 0, 0], 'minecraft:glass'),
     },
   };

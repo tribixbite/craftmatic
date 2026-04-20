@@ -20,6 +20,7 @@ import {
   projectPolygonToLocal,
 } from './features.js';
 import { douglasPeucker } from '../context/classify.js';
+import { rgbToWallBlock, rgbToRoofOverride } from '../../gen/color-blocks.js';
 import type {
   BuildingBRep,
   Feature,
@@ -58,27 +59,47 @@ function labToRgbHex(lab: readonly [number, number, number]): string {
   return `#${[(r), (g), (bl)].map(v => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
-/** Cheap Minecraft block picker — fuller mapping lives in `class-block-map.ts`. */
+/**
+ * Parse a `#rrggbb` hex back to its RGB triple. Used with `labToRgbHex` so
+ * we can feed full-colour SV palette samples into the shared 36-cluster
+ * Lab-delta-E block matcher rather than the old L-only picker (which threw
+ * away 2/3 of the colour information and mapped every mid-lightness colour
+ * to `stone_bricks` regardless of hue).
+ */
+function parseHex(hex: string): readonly [number, number, number] {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}
+
 function pickWallBlock(lab: readonly [number, number, number]): string {
-  const L = lab[0];
-  if (L > 85) return 'minecraft:smooth_quartz';
-  if (L > 70) return 'minecraft:white_concrete';
-  if (L > 55) return 'minecraft:smooth_stone';
-  if (L > 40) return 'minecraft:stone_bricks';
-  if (L > 25) return 'minecraft:deepslate_bricks';
-  return 'minecraft:polished_blackstone';
+  const [r, g, b] = parseHex(labToRgbHex(lab));
+  return rgbToWallBlock(r, g, b);
 }
 
 function pickRoofBlock(lab: readonly [number, number, number]): string {
-  const [L, a, b] = lab;
-  // Green-ish → copper roof
-  if (a < -5 && b > -5) return 'minecraft:oxidized_copper';
-  // Brown/red tint → brick / terracotta
-  if (a > 10 && b > 10) return 'minecraft:brick';
-  // Dark grey → slate
-  if (L < 30) return 'minecraft:deepslate_tiles';
-  // Medium grey → slate tiles
-  return 'minecraft:stone_bricks';
+  const [r, g, b] = parseHex(labToRgbHex(lab));
+  // `rgbToRoofOverride` returns stairs + slab. For the parametric B-rep's
+  // flat extrusion the cap slab is the right choice — stairs would need
+  // orientation awareness we don't have yet at the material-ref level.
+  const override = rgbToRoofOverride(r, g, b);
+  // Prefer the base block name (strip the `_slab[type=bottom]` variant) so
+  // the voxelizer's single-material path doesn't carry redundant block-state
+  // metadata through.
+  const slabBlock = override.cap;
+  const base = slabBlock.replace(/_slab\[type=bottom\]$/, '');
+  // For roofs we want a full block, not a half-slab. ROOF_PALETTE bases are
+  // things like `dark_oak`, `stone_brick` (without the `_bricks` suffix),
+  // etc. Map to the corresponding full block.
+  const basename = base.replace(/^minecraft:/, '');
+  // Known bases that need `_bricks`/`_planks` suffix for full-block form
+  if (['dark_oak', 'oak', 'spruce', 'birch', 'jungle', 'acacia', 'warped', 'crimson'].includes(basename)) {
+    return `minecraft:${basename}_planks`;
+  }
+  if (['stone_brick', 'deepslate_tile', 'nether_brick', 'mud_brick', 'polished_blackstone_brick'].includes(basename)) {
+    return `minecraft:${basename}s`;
+  }
+  // Otherwise treat `base` as the full block name already (e.g. `stone`, `andesite`)
+  return `minecraft:${basename}`;
 }
 
 function makeMaterial(lab: readonly [number, number, number], blockName: string): MaterialRef {
