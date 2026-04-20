@@ -136,20 +136,23 @@ export async function exportVoxel(
 }
 
 /**
- * Post-voxelization material pass. The voxelizer has already painted every
- * solid voxel with the wall block (derived from the mesh colour). We now:
+ * Post-voxelization architectural-detail pass. The voxelizer paints the
+ * whole solid surface with one or two wall-block variants (depending on the
+ * cluster-option pick). We re-label specific bands/patterns to produce
+ * recognisable architectural features:
  *
- *   1. Find the top solid voxel per (x,z) column. That voxel plus any
- *      solid voxels within `roofDepth` of it become roof blocks.
- *      `roofDepth` scales with grid height (≈5% of height, min 1).
- *   2. Compute vertical window stripes: for each x-column with a non-empty
- *      solid run, identify wall voxels (those not already flipped to roof)
- *      and replace every `spacing`-th voxel with the window block. Applies
- *      only to voxels that border air on the X face (outer wall), so
- *      interior voxels remain wall-block.
+ *   1. Roof cap — top `roofDepth` layers flip to the roof block.
+ *   2. Cornice band — the 2 layers directly under the roof flip to a
+ *      contrasting trim block (the roof block's companion: slab/stairs
+ *      variant → a full block of the same family; else `polished_andesite`).
+ *   3. Windows — 2×2-voxel rectangles at ~5-block horizontal spacing and
+ *      ~4-block vertical spacing, on outer-facing voxels, in windowBlock.
+ *   4. Base band — bottom 2 layers flip to a darker plinth block for
+ *      street-level contrast (typical of commercial/historic buildings).
  *
- * Both transforms are idempotent when run a second time because they key
- * off the current block identity.
+ * Re-labeling targets any solid voxel (not just the literal wallBlock
+ * string) so k-means cluster-option variants (e.g. both sandstone AND
+ * smooth_sandstone from the same Lab cluster) both participate.
  */
 function applyMaterialOverlay(
   grid: BlockGrid,
@@ -159,52 +162,116 @@ function applyMaterialOverlay(
 ): void {
   const { width: W, height: H, length: L } = grid;
   const roofDepth = Math.max(1, Math.round(H * 0.05));
+  const corniceBandH = H > 20 ? 2 : 0; // skip on small buildings
+  const baseBandH = H > 15 ? 2 : 0;
+  const trimBlock = pickTrimBlock(wallBlock);
+  const plinthBlock = pickPlinthBlock(wallBlock);
 
-  // Pass 1 — roof re-labeling
+  const AIR = 'minecraft:air';
+  const isSolid = (x: number, y: number, z: number): boolean =>
+    grid.get(x, y, z) !== AIR;
+
+  // Pass 1 — roof cap (topmost solid voxels per column)
+  const topYOf: number[][] = [];
   for (let x = 0; x < W; x++) {
+    topYOf[x] = [];
     for (let z = 0; z < L; z++) {
-      // Find topmost non-air voxel in this column
       let topY = -1;
       for (let y = H - 1; y >= 0; y--) {
-        if (grid.get(x, y, z) !== 'minecraft:air') { topY = y; break; }
+        if (isSolid(x, y, z)) { topY = y; break; }
       }
+      topYOf[x][z] = topY;
       if (topY < 0) continue;
       for (let dy = 0; dy < roofDepth && topY - dy >= 0; dy++) {
-        const y = topY - dy;
-        if (grid.get(x, y, z) !== 'minecraft:air') {
-          grid.set(x, y, z, roofBlock);
+        if (isSolid(x, topY - dy, z)) grid.set(x, topY - dy, z, roofBlock);
+      }
+    }
+  }
+
+  // Pass 2 — cornice band (2 layers under the roof cap, only on outer-facing
+  // voxels so the band is visible as a ring and not an interior slab).
+  if (corniceBandH > 0) {
+    for (let x = 0; x < W; x++) {
+      for (let z = 0; z < L; z++) {
+        const topY = topYOf[x][z];
+        if (topY < roofDepth + corniceBandH) continue;
+        for (let dy = 0; dy < corniceBandH; dy++) {
+          const y = topY - roofDepth - dy;
+          if (!isOuter(grid, x, y, z, W, L)) continue;
+          grid.set(x, y, z, trimBlock);
         }
       }
     }
   }
 
-  // Pass 2 — window stripes. Walk long-edge columns; replace outer-face
-  // wall voxels on a periodic grid. Skip the bottom ground band and the
-  // top roof band; skip solar-side-only sampling since the BRep mesh
-  // isn't orientation-aware at this stage.
-  const stripeSpacingX = Math.max(2, Math.round(W * 0.08));
-  const stripeSpacingZ = Math.max(2, Math.round(L * 0.08));
-  const winVStep = 4; // one window per ~4 blocks of height
-  const groundBand = 2; // skip bottom 2 rows (street level)
-  for (let y = groundBand; y < H - roofDepth; y++) {
-    if ((y - groundBand) % winVStep !== 1) continue; // window band every 4th row
+  // Pass 3 — windows. 2-wide × 2-tall rectangles, spaced every ~5 blocks
+  // horizontally, every ~4 blocks vertically. Skip top (roof+cornice) and
+  // bottom (base) bands.
+  const spacingX = Math.max(3, Math.round(W * 0.15));
+  const spacingZ = Math.max(3, Math.round(L * 0.15));
+  const winVStep = 4;
+  const yMin = baseBandH;
+  const yMax = H - roofDepth - corniceBandH;
+  for (let y = yMin; y < yMax - 1; y++) {
+    if ((y - yMin) % winVStep !== 1) continue;
     for (let x = 0; x < W; x++) {
       for (let z = 0; z < L; z++) {
+        if (!isOuter(grid, x, y, z, W, L)) continue;
         const b = grid.get(x, y, z);
-        if (b !== wallBlock) continue; // don't overwrite roof / air
-        // Outer-face check: must border air on at least one of +/- X or Z
-        const facing =
-          (x > 0 && grid.get(x - 1, y, z) === 'minecraft:air') ||
-          (x < W - 1 && grid.get(x + 1, y, z) === 'minecraft:air') ||
-          (z > 0 && grid.get(x, y, z - 1) === 'minecraft:air') ||
-          (z < L - 1 && grid.get(x, y, z + 1) === 'minecraft:air');
-        if (!facing) continue;
-        // Stripe pattern — every N-th voxel along x AND z axes
-        if (x % stripeSpacingX === Math.floor(stripeSpacingX / 2) ||
-            z % stripeSpacingZ === Math.floor(stripeSpacingZ / 2)) {
-          grid.set(x, y, z, windowBlock);
+        if (b === AIR || b === roofBlock || b === trimBlock) continue;
+        // Window position: corner of a 2×2 rect
+        const onX = x % spacingX === Math.floor(spacingX / 2);
+        const onZ = z % spacingZ === Math.floor(spacingZ / 2);
+        if (!onX && !onZ) continue;
+        // Stamp 2×2 (x,x+1) × (y,y+1) in-plane — only set the current voxel;
+        // the +1 neighbours fire naturally as we scan.
+        grid.set(x, y, z, windowBlock);
+      }
+    }
+  }
+
+  // Pass 4 — base plinth
+  if (baseBandH > 0) {
+    for (let y = 0; y < baseBandH; y++) {
+      for (let x = 0; x < W; x++) {
+        for (let z = 0; z < L; z++) {
+          if (!isSolid(x, y, z)) continue;
+          grid.set(x, y, z, plinthBlock);
         }
       }
     }
   }
+}
+
+/** Does voxel (x,y,z) border air on at least one X or Z face? */
+function isOuter(grid: BlockGrid, x: number, y: number, z: number, W: number, L: number): boolean {
+  const AIR = 'minecraft:air';
+  if (grid.get(x, y, z) === AIR) return false;
+  return (x > 0 && grid.get(x - 1, y, z) === AIR)
+      || (x < W - 1 && grid.get(x + 1, y, z) === AIR)
+      || (z > 0 && grid.get(x, y, z - 1) === AIR)
+      || (z < L - 1 && grid.get(x, y, z + 1) === AIR);
+}
+
+/** Trim/cornice block that visually contrasts with the wall family. */
+function pickTrimBlock(wall: string): string {
+  // Sandstone / limestone families → chiseled_sandstone band
+  if (wall.includes('sandstone')) return 'minecraft:chiseled_sandstone';
+  if (wall.includes('quartz')) return 'minecraft:chiseled_quartz_block';
+  if (wall.includes('stone_brick')) return 'minecraft:chiseled_stone_bricks';
+  if (wall.includes('deepslate')) return 'minecraft:chiseled_deepslate';
+  if (wall.includes('nether_brick')) return 'minecraft:chiseled_nether_bricks';
+  // Concrete / clay / terracotta: no chiseled variants; use polished_andesite
+  // which reads as a neutral decorative band in renders.
+  return 'minecraft:polished_andesite';
+}
+
+/** Street-level plinth — one tier darker than the wall. */
+function pickPlinthBlock(wall: string): string {
+  if (wall.includes('sandstone') || wall.includes('quartz')) return 'minecraft:smooth_stone';
+  if (wall.includes('light_gray') || wall.includes('clay')) return 'minecraft:stone_bricks';
+  if (wall.includes('smooth_stone')) return 'minecraft:cobblestone';
+  if (wall.includes('bricks')) return 'minecraft:polished_granite';
+  if (wall.includes('deepslate')) return 'minecraft:blackstone';
+  return 'minecraft:cobblestone';
 }
