@@ -159,8 +159,11 @@ export function createGeminiScorer(opts: GeminiScorerOptions): ModelScoreFn {
       const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
       const scores = parseDimensionScores(text);
       if (!scores) {
-        log(`  [consensus r${round}] Gemini response unparseable: ${text.slice(0, 200)}`);
+        log(`  [consensus r${round}] Gemini response unparseable (${text.length} chars): ${text.slice(0, 300)}`);
         return { color: 0, features: 0, massing: 0, overall: 0 };
+      }
+      if (process.env['CRAFTMATIC_LOG_CONSENSUS']) {
+        log(`  [consensus r${round}] raw: ${text.slice(0, 200).replace(/\s+/g, ' ')}`);
       }
       return scores;
     } catch (err) {

@@ -214,6 +214,11 @@ if (result.artifacts) {
   writeFileSync(paths.sceneGlb, Buffer.from(result.artifacts.sceneGlbBytes));
   writeSchematic(result.artifacts.voxelGrid, paths.schem);
   writeLitematic(result.artifacts.voxelGrid, paths.litematic, { name: slug });
+
+  // Bootstrap reference-data/<slug>/ from the live SV+satellite captures so
+  // the next consensus run has real images to compare against. Only fills
+  // missing files — never overwrites user-curated references.
+  saveReferenceDataIfMissing(slug, result.artifacts);
 }
 
 // ─── Report ────────────────────────────────────────────────────────────────
@@ -228,6 +233,39 @@ if (result.artifacts) {
 console.log(paths.verification);
 
 process.exit(result.report.status === 'fail-objective' ? 1 : 0);
+
+// ─── Reference-data bootstrap ──────────────────────────────────────────────
+
+/**
+ * Write the live SV + satellite captures into output/reference-data/<slug>/
+ * so future consensus rebuilds (and the category-grade loop) have reference
+ * images without a separate fetch pass. Only writes files that don't
+ * already exist — human-curated refs in output/reference-data/ remain
+ * authoritative.
+ */
+function saveReferenceDataIfMissing(
+  slug: string,
+  artifacts: NonNullable<Awaited<ReturnType<typeof runPipeline>>['artifacts']>,
+): void {
+  const refDir = resolve(projectRoot, 'output/reference-data', slug);
+  mkdirSync(refDir, { recursive: true });
+  // SV facades: map by heading to canonical names. The pipeline captures
+  // front/right/rear/left via facadeEdge; pick 4 distinct-heading facades.
+  const svNames = ['sv-front.jpg', 'sv-right.jpg', 'sv-rear.jpg', 'sv-left.jpg'];
+  const svFacades = artifacts.captures.sv;
+  for (let i = 0; i < Math.min(svFacades.length, svNames.length); i++) {
+    const dst = join(refDir, svNames[i]);
+    if (!existsSync(dst)) {
+      writeFileSync(dst, Buffer.from(svFacades[i].imageBytes));
+    }
+  }
+  // Satellite
+  const sat = artifacts.captures.satellite;
+  if (sat) {
+    const satDst = join(refDir, 'satellite.jpg');
+    if (!existsSync(satDst)) writeFileSync(satDst, Buffer.from(sat.imageBytes));
+  }
+}
 
 // ─── State merge + attempt tracking ────────────────────────────────────────
 
