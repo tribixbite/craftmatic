@@ -32,9 +32,25 @@ describe('sniffPixels', () => {
     expect(r.veg).toBe(0);
   });
 
-  it('pure white sky → sky ≈ 1.0 (bright+unsaturated)', () => {
+  it('pure white in top zone → sky; pure white in bottom zone → building', () => {
+    // New two-zone rule: bright+unsaturated only classifies as sky in the
+    // top 35% of the image — prevents white/cream stone facades from being
+    // masked out of the wall palette. Verifies both behaviours in one shot
+    // on a 10×10 all-white image (top 3-4 rows = sky, rest = building).
     const r = sniffPixels(fillRgba(10, 10, 255, 255, 255), 10, 10).ratios;
-    expect(r.sky).toBeCloseTo(1, 2);
+    expect(r.sky).toBeGreaterThan(0.3);
+    expect(r.sky).toBeLessThan(0.5);
+    expect(r.building).toBeGreaterThan(0.55);
+  });
+
+  it('cream limestone facade pixel → building not sky (regression)', () => {
+    // Cream limestone: RGB ≈ (230, 220, 205) → V≈0.9, S≈0.11. Previously
+    // matched the bright+unsaturated sky rule and got masked out of palette
+    // extraction, making every limestone facade come out brown in the voxel
+    // output. Now only fires in the top 35% of the frame.
+    const r = sniffPixels(fillRgba(10, 10, 230, 220, 205), 10, 10).ratios;
+    // Top ~35% still classifies as sky; bottom ~65% is building.
+    expect(r.building).toBeGreaterThan(0.55);
   });
 
   it('warm brown (brick) → building', () => {

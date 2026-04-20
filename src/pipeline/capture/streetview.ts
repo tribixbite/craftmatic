@@ -291,9 +291,23 @@ function extractFacadePalette(
     k: 1, mask, zone: { x0: 0, y0: 0, x1: 1, y1: 0.2 }, stride: 2, seed: 1,
   });
 
-  const wall: Lab = wallResult.clusters[0]?.lab ?? [50, 0, 0];
+  // Pick the wall cluster from the plausible-facade lightness range
+  // (L ∈ [30, 90]) — k-means on a sunlit facade splits the same material
+  // into shadow / mid / highlight clusters with similar weights, and picking
+  // by largest weight lands on shadow. Among plausible clusters, prefer the
+  // BRIGHTEST one — that's the sunlit portion, which matches how a human
+  // observer would describe the material. Falls back to plain weight-order
+  // if no cluster lands in the facade range (e.g. heavily shaded building).
+  const plausible = wallResult.clusters.filter(c => c.lab[0] >= 30 && c.lab[0] <= 90);
+  const primary = plausible.length > 0
+    ? plausible.slice().sort((a, b) => b.lab[0] - a.lab[0])[0]
+    : wallResult.clusters[0];
+  const wall: Lab = primary?.lab ?? [50, 0, 0];
+  const accentCandidate =
+    plausible.find(c => c !== primary)
+    ?? wallResult.clusters.find(c => c !== primary);
+  const accent: Lab | null = accentCandidate?.lab ?? null;
   const trim: Lab = trimResult.clusters[0]?.lab ?? wall;
-  const accent: Lab | null = wallResult.clusters[1]?.lab ?? null;
   return { wall, trim, accent };
 }
 

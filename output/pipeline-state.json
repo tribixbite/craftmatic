@@ -3,16 +3,16 @@
   "addresses": {
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
-      "status": "needs-human-review",
-      "lastRun": "2026-04-20T02:33:26.134Z",
-      "elapsedSec": 106.4,
-      "attempts": 7,
+      "status": "fail-consensus",
+      "lastRun": "2026-04-20T06:05:12.368Z",
+      "elapsedSec": 105.9,
+      "attempts": 12,
       "recentFailureSignatures": [
-        "needs-human-review",
+        "fail-consensus:median=2,min=0",
         "fail-consensus:median=1,min=0",
         "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=0"
+        "fail-consensus:median=3,min=0",
+        "fail-consensus:median=4,min=2"
       ],
       "objective": {
         "footprintIoU": 0.9825899214479306,
@@ -30,29 +30,28 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 0,
-          "features": 0,
-          "massing": 5,
-          "overall": 1
+          "color": 2,
+          "features": 3,
+          "massing": 9,
+          "overall": 5
         },
         "claude": {
-          "color": 0,
-          "features": 0,
-          "massing": 5,
-          "overall": 1
+          "color": 2,
+          "features": 3,
+          "massing": 9,
+          "overall": 5
         },
         "gpt5": {
-          "color": 0,
-          "features": 0,
-          "massing": 5,
-          "overall": 1
+          "color": 2,
+          "features": 3,
+          "massing": 9,
+          "overall": 5
         },
-        "min": 0,
-        "median": 0.5,
+        "min": 2,
+        "median": 4,
         "spread": 0,
         "pass": false
-      },
-      "reason": "escalated by stop hook: 7 attempts, last 3 failures signature-identical: fail-consensus:median=1,min=0"
+      }
     },
     "240-highland": {
       "address": "240 Highland St, Newton, MA",

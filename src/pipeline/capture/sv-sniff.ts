@@ -77,7 +77,14 @@ export function sniffPixels(
     const r = pixels[i];
     const g = pixels[i + 1];
     const b = pixels[i + 2];
-    const cls = classifyRgb(r, g, b, brightThreshold, vegSaturationMin, skyMaxSaturation);
+    const y = Math.floor(p / width);
+    // The "bright + unsaturated ⇒ sky" rule only fires in the top 35% of the
+    // image. Without this gate, cream limestone / white stucco / marble
+    // facades (V ≈ 0.85-0.95, S < 0.15) at eye level were getting classified
+    // as sky and masked out of the wall palette, so the wall K-means only
+    // saw shadows + sidewalk and the building came out brown.
+    const isTopZone = y < height * 0.35;
+    const cls = classifyRgb(r, g, b, brightThreshold, vegSaturationMin, skyMaxSaturation, isTopZone);
     if (mask) mask[p] = cls;
     if (cls === 1) sky++;
     else if (cls === 2) veg++;
@@ -107,6 +114,7 @@ function classifyRgb(
   brightThreshold: number,
   vegSaturationMin: number,
   skyMaxSaturation: number,
+  inTopZone: boolean = true,
 ): 0 | 1 | 2 {
   // Normalize
   const rf = r / 255, gf = g / 255, bf = b / 255;
@@ -125,9 +133,10 @@ function classifyRgb(
   }
   if (h < 0) h += 360;
 
-  // Sky: blue hue OR bright + low-saturation
+  // Sky: blue hue anywhere, OR bright+unsaturated only in the top zone
+  // (otherwise bright stone facades get misclassified as overcast sky).
   if (h >= H_SKY_MIN && h <= H_SKY_MAX && s > 0.1 && v > 0.4) return 1;
-  if (v * 255 > brightThreshold && s < skyMaxSaturation) return 1;
+  if (inTopZone && v * 255 > brightThreshold && s < skyMaxSaturation) return 1;
 
   // Veg: green/yellow-green hue with enough saturation
   if (h >= H_VEG_MIN && h <= H_VEG_MAX && s > vegSaturationMin) return 2;

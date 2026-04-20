@@ -52,7 +52,22 @@ function brepMeshToObject3D(
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setIndex(new THREE.BufferAttribute(indices, 1));
   geo.computeVertexNormals();
-  const mat = new THREE.MeshStandardMaterial({ color: baseColorHex });
+  const mat = new THREE.MeshStandardMaterial();
+  // Assign the sRGB-hex components DIRECTLY without Three.js's automatic
+  // sRGB→linear colour-space conversion. `new MeshStandardMaterial({ color:
+  // 0xRRGGBB })` treats the hex as sRGB and silently converts to linear for
+  // rendering — but the voxelizer reads material.color.r/g/b back as
+  // Math.round(c.r * 255), expecting sRGB 0-255. Without this override, a
+  // wall Lab of (73.6, -0.3, 3.5) ≈ sRGB(181,178,179) becomes linear(118,114,115)
+  // at voxel-time, which `rgbToWallBlock` maps to light_gray_concrete instead
+  // of the intended smooth_stone — turning every building a uniform dull
+  // grey regardless of real colour.
+  const r = ((baseColorHex >> 16) & 0xff) / 255;
+  const g = ((baseColorHex >> 8) & 0xff) / 255;
+  const b = (baseColorHex & 0xff) / 255;
+  mat.color.r = r;
+  mat.color.g = g;
+  mat.color.b = b;
   return new THREE.Mesh(geo, mat);
 }
 
