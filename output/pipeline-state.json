@@ -215,25 +215,25 @@
     },
     "pennzoil": {
       "address": "700 Milam St, Houston, TX",
-      "status": "fail-consensus",
-      "lastRun": "2026-04-20T08:52:01.529Z",
-      "elapsedSec": 146.2,
-      "attempts": 9,
+      "status": "needs-human-review",
+      "lastRun": "2026-04-20T14:33:21.850Z",
+      "elapsedSec": 47.8,
+      "attempts": 10,
       "recentFailureSignatures": [
-        "fail-consensus:median=0,min=0",
         "fail-consensus:median=1,min=1",
         "fail-consensus:median=1,min=0",
         "fail-consensus:median=0,min=0",
-        "fail-consensus:median=1,min=0"
+        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=0,min=0"
       ],
       "objective": {
         "footprintIoU": 0.9976452119309263,
-        "heightErr": 3.275550189524972e-08,
+        "heightErr": 0,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 110555,
+        "selfIntersect": 86697,
         "minWallThicknessMm": 19.046882390975952,
-        "voxelCount": 31441,
+        "voxelCount": 78859,
         "plinthWatertight": null,
         "pass": true,
         "failures": []
@@ -242,28 +242,29 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 6,
-          "features": 1,
+          "color": 7,
+          "features": 0,
           "massing": 0,
           "overall": 0
         },
         "claude": {
-          "color": 6,
-          "features": 1,
+          "color": 7,
+          "features": 0,
           "massing": 0,
           "overall": 0
         },
         "gpt5": {
-          "color": 6,
-          "features": 1,
+          "color": 7,
+          "features": 0,
           "massing": 0,
           "overall": 0
         },
         "min": 0,
-        "median": 0.5,
+        "median": 0,
         "spread": 0,
         "pass": false
-      }
+      },
+      "reason": "escalated by stop hook: 10 attempts exceeded hard ceiling 10 \u2014 likely at MVP plateau (recent sigs: ['fail-consensus:median=0,min=0', 'fail-consensus:median=1,min=0', 'fail-consensus:median=0,min=0'])"
     }
   }
 }
