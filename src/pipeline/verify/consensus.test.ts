@@ -123,7 +123,10 @@ describe('scoreConsensus', () => {
     };
     const r = await scoreConsensus(input);
     expect(r.rounds).toBe(1);
-    expect(r.status).toBe('needs-human-review');
+    // All models agree (spread=0): status stays at 'fail', not
+    // 'needs-human-review'. `needs-human-review` is reserved for the case
+    // where models genuinely disagree at the final round.
+    expect(r.status).toBe('fail');
   });
 
   it('retries with incremented round number', async () => {
