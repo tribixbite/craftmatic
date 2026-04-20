@@ -148,13 +148,35 @@ function deltaE(a: Lab, b: Lab): number {
   return Math.sqrt(dL * dL + da * da + db * db);
 }
 
+/**
+ * Named colour → RGB table for common OSM `building:colour` values. The OSM
+ * wiki lists ~140 valid names but mappers in practice stick to a much smaller
+ * core vocabulary; this covers the ones the wiki shows in examples plus
+ * anything we've seen in goldens.
+ */
+const OSM_NAMED_COLOURS: Record<string, readonly [number, number, number]> = {
+  white: [240, 240, 240], cream: [238, 223, 204], ivory: [255, 255, 240],
+  beige: [220, 200, 170], tan: [210, 180, 140], sand: [200, 180, 130],
+  yellow: [240, 220, 130], gold: [200, 170, 90],
+  orange: [220, 130, 60], red: [180, 60, 50],
+  brown: [140, 90, 60], maroon: [130, 50, 60],
+  gray: [140, 140, 140], grey: [140, 140, 140], silver: [180, 180, 180],
+  black: [40, 40, 40], darkgray: [80, 80, 80], darkgrey: [80, 80, 80],
+  green: [100, 140, 80], olive: [140, 140, 70],
+  blue: [80, 110, 160], navy: [40, 60, 110],
+  pink: [220, 180, 190],
+};
+
 function parseColourTag(hex: string): Lab | null {
-  // Only handle #RRGGBB for now (named colours handled by a separate util).
-  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const n = parseInt(m[1], 16);
-  const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
-  return rgbToLab(r, g, b);
+  const trimmed = hex.trim().toLowerCase();
+  const m = /^#([0-9a-f]{6})$/i.exec(trimmed);
+  if (m) {
+    const n = parseInt(m[1], 16);
+    return rgbToLab((n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff);
+  }
+  const named = OSM_NAMED_COLOURS[trimmed.replace(/[^a-z]/g, '')];
+  if (named) return rgbToLab(named[0], named[1], named[2]);
+  return null;
 }
 
 /** Duplicated tiny rgbToLab to avoid circular import from gen/color-blocks. */
@@ -180,28 +202,41 @@ export function reconcileWallPalette(
   const svWalls = sv
     .filter(f => f.confidence > 0.4 && f.occlusion !== 'trees')
     .map(f => f.palette.wall);
+  const osmLab = ctx.wallColourHint ? parseColourTag(ctx.wallColourHint) : null;
+
+  // Priority flip (2026-04-20): when OSM has an explicit `building:colour`
+  // tag it's a manually-curated mapper assertion about the actual facade
+  // material. That's far more reliable than K-means on 4-6 SV images
+  // where the top-clustered pixel can easily be a shadow, an awning, a
+  // reflection of the sky, or a signal-bleed from a neighbouring building.
+  // We now treat OSM colour as authoritative for the PRIMARY value and
+  // keep any distinct SV samples as secondary/accent entries so trim
+  // picking still has variety.
+  //
+  // Flatiron is the canonical case: OSM `building:colour=#CBC7AC` is
+  // cream limestone, but SV K-means on a cloudy-day capture lands on
+  // grey (L≈73, chroma≈3) because the actual cream pixels are sparse
+  // and get outvoted by sidewalk + sky-leak greys.
+  if (osmLab) {
+    const svUniq = dedupLab(svWalls, 8);
+    const svAgreement = svUniq.length > 0
+      ? Math.min(...svUniq.map(l => deltaE(l, osmLab)))
+      : Infinity;
+    const confidence = svAgreement < DELTA_E_AGREE ? 1.0
+      : svAgreement < DELTA_E_DISAGREE ? 0.85
+      : 0.75; // SV disagrees; still trust the mapper but flag it
+    // Primary = OSM, then distinct SV samples as secondary for trim/accent.
+    const value: Lab[] = [osmLab];
+    for (const l of svUniq) {
+      if (deltaE(l, osmLab) > 8) value.push(l);
+    }
+    return { value, source: 'osm', confidence };
+  }
 
   if (svWalls.length > 0) {
-    // Take the first couple of distinct SV walls as the palette
+    // No OSM hint — same logic as before, SV-first.
     const uniq = dedupLab(svWalls, 8);
-    // Check agreement with OSM colour tag
-    let source: EvidenceSource = 'sv';
-    let confidence = 0.9;
-    const osmLab = ctx.wallColourHint ? parseColourTag(ctx.wallColourHint) : null;
-    if (osmLab) {
-      const minDE = Math.min(...uniq.map(l => deltaE(l, osmLab)));
-      if (minDE < DELTA_E_AGREE) {
-        confidence = 1.0; // corroborates
-      } else if (minDE > DELTA_E_DISAGREE) {
-        confidence = 0.6; // SV wins but flag disagreement
-      }
-    }
-    return { value: uniq, source, confidence };
-  }
-  // Fallback: OSM colour hint alone
-  if (ctx.wallColourHint) {
-    const lab = parseColourTag(ctx.wallColourHint);
-    if (lab) return { value: [lab], source: 'osm', confidence: 0.6 };
+    return { value: uniq, source: 'sv', confidence: 0.9 };
   }
   // Final default: medium grey
   return { value: [[60, 0, 0]], source: 'inferred', confidence: 0.2 };
