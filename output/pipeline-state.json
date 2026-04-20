@@ -4,15 +4,15 @@
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-04-20T08:21:31.526Z",
-      "elapsedSec": 129.9,
-      "attempts": 26,
+      "lastRun": "2026-04-20T08:49:33.763Z",
+      "elapsedSec": 142.7,
+      "attempts": 33,
       "recentFailureSignatures": [
+        "fail-consensus:median=6,min=1",
         "fail-consensus:median=6,min=2",
         "fail-consensus:median=6,min=2",
-        "fail-consensus:median=6,min=1",
-        "fail-consensus:median=6,min=1",
-        "fail-consensus:median=8,min=2"
+        "fail-consensus:median=6,min=2",
+        "fail-consensus:median=4,min=2"
       ],
       "objective": {
         "footprintIoU": 0.9825899214479306,
@@ -30,25 +30,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 8,
+          "color": 5,
           "features": 2,
-          "massing": 10,
-          "overall": 7
+          "massing": 5,
+          "overall": 3
         },
         "claude": {
-          "color": 8,
+          "color": 5,
           "features": 2,
-          "massing": 10,
-          "overall": 7
+          "massing": 5,
+          "overall": 3
         },
         "gpt5": {
-          "color": 8,
+          "color": 5,
           "features": 2,
-          "massing": 10,
-          "overall": 7
+          "massing": 5,
+          "overall": 3
         },
         "min": 2,
-        "median": 7.5,
+        "median": 4,
         "spread": 0,
         "pass": false
       }
@@ -109,15 +109,15 @@
     "guggenheim": {
       "address": "1071 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-04-20T08:00:45.934Z",
-      "elapsedSec": 90,
-      "attempts": 8,
+      "lastRun": "2026-04-20T08:54:10.255Z",
+      "elapsedSec": 125.6,
+      "attempts": 10,
       "recentFailureSignatures": [
-        "fail-consensus:median=2,min=0",
-        "fail-consensus:median=2,min=0",
         "fail-consensus:median=1,min=0",
         "fail-consensus:median=1,min=0",
-        "fail-consensus:median=0,min=0"
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=2,min=1"
       ],
       "objective": {
         "footprintIoU": 0.9914354230900994,
@@ -135,25 +135,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 0,
-          "features": 0,
-          "massing": 1,
-          "overall": 0
+          "color": 2,
+          "features": 1,
+          "massing": 3,
+          "overall": 1
         },
         "claude": {
-          "color": 0,
-          "features": 0,
-          "massing": 1,
-          "overall": 0
+          "color": 2,
+          "features": 1,
+          "massing": 3,
+          "overall": 1
         },
         "gpt5": {
-          "color": 0,
-          "features": 0,
-          "massing": 1,
-          "overall": 0
+          "color": 2,
+          "features": 1,
+          "massing": 3,
+          "overall": 1
         },
-        "min": 0,
-        "median": 0,
+        "min": 1,
+        "median": 1.5,
         "spread": 0,
         "pass": false
       }
@@ -161,14 +161,14 @@
     "geisel": {
       "address": "9500 Gilman Dr, La Jolla, CA",
       "status": "fail-consensus",
-      "lastRun": "2026-04-20T08:02:12.225Z",
-      "elapsedSec": 85.8,
-      "attempts": 6,
+      "lastRun": "2026-04-20T08:56:14.511Z",
+      "elapsedSec": 122.4,
+      "attempts": 8,
       "recentFailureSignatures": [
-        "fail-consensus",
-        "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=2,min=0",
+        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=1,min=0",
         "fail-consensus:median=1,min=0"
       ],
       "objective": {
@@ -189,19 +189,19 @@
         "gemini": {
           "color": 1,
           "features": 0,
-          "massing": 1,
+          "massing": 2,
           "overall": 0
         },
         "claude": {
           "color": 1,
           "features": 0,
-          "massing": 1,
+          "massing": 2,
           "overall": 0
         },
         "gpt5": {
           "color": 1,
           "features": 0,
-          "massing": 1,
+          "massing": 2,
           "overall": 0
         },
         "min": 0,
@@ -213,24 +213,24 @@
     "pennzoil": {
       "address": "700 Milam St, Houston, TX",
       "status": "fail-consensus",
-      "lastRun": "2026-04-20T07:59:15.098Z",
-      "elapsedSec": 95.7,
-      "attempts": 7,
+      "lastRun": "2026-04-20T08:52:01.529Z",
+      "elapsedSec": 146.2,
+      "attempts": 9,
       "recentFailureSignatures": [
-        "fail-consensus",
-        "fail-consensus:median=1,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=1,min=1",
+        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=0,min=0",
         "fail-consensus:median=1,min=0"
       ],
       "objective": {
         "footprintIoU": 0.9976452119309263,
-        "heightErr": 3.293095113906349e-8,
+        "heightErr": 3.275550189524972e-8,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 107691,
+        "selfIntersect": 110555,
         "minWallThicknessMm": 19.046882390975952,
-        "voxelCount": 32064,
+        "voxelCount": 31441,
         "plinthWatertight": null,
         "pass": true,
         "failures": []
@@ -239,25 +239,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 8,
+          "color": 6,
           "features": 1,
           "massing": 0,
-          "overall": 1
+          "overall": 0
         },
         "claude": {
-          "color": 8,
+          "color": 6,
           "features": 1,
           "massing": 0,
-          "overall": 1
+          "overall": 0
         },
         "gpt5": {
-          "color": 8,
+          "color": 6,
           "features": 1,
           "massing": 0,
-          "overall": 1
+          "overall": 0
         },
         "min": 0,
-        "median": 1,
+        "median": 0.5,
         "spread": 0,
         "pass": false
       }

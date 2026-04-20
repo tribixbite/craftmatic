@@ -212,19 +212,20 @@ function applyMaterialOverlay(
   const winVStep = 4;
   const yMin = baseBandH;
   const yMax = H - roofDepth - corniceBandH;
-  for (let y = yMin; y < yMax - 1; y++) {
+  // Single-voxel window stripes on the windowBand rows. 2-tall stamps
+  // regressed color scores (+glass voxels eat wall-material texture) —
+  // single-voxel windows read as regular fenestration to the VLM while
+  // preserving the dominant wall material.
+  for (let y = yMin; y < yMax; y++) {
     if ((y - yMin) % winVStep !== 1) continue;
     for (let x = 0; x < W; x++) {
       for (let z = 0; z < L; z++) {
         if (!isOuter(grid, x, y, z, W, L)) continue;
         const b = grid.get(x, y, z);
-        if (b === AIR || b === roofBlock || b === trimBlock) continue;
-        // Window position: corner of a 2×2 rect
+        if (b === AIR || b === roofBlock || b === trimBlock || b === plinthBlock) continue;
         const onX = x % spacingX === Math.floor(spacingX / 2);
         const onZ = z % spacingZ === Math.floor(spacingZ / 2);
         if (!onX && !onZ) continue;
-        // Stamp 2×2 (x,x+1) × (y,y+1) in-plane — only set the current voxel;
-        // the +1 neighbours fire naturally as we scan.
         grid.set(x, y, z, windowBlock);
       }
     }
