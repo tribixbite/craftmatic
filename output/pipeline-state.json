@@ -56,15 +56,15 @@
     "240-highland": {
       "address": "240 Highland St, Newton, MA",
       "status": "fail-consensus",
-      "lastRun": "2026-04-20T02:49:11.899Z",
-      "elapsedSec": 25.1,
-      "attempts": 6,
+      "lastRun": "2026-04-20T06:06:47.525Z",
+      "elapsedSec": 24.8,
+      "attempts": 7,
       "recentFailureSignatures": [
-        "fail-consensus",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0",
-        "fail-consensus:median=0,min=0"
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=1,min=0"
       ],
       "objective": {
         "footprintIoU": 0.990454016298021,
@@ -82,25 +82,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 0,
+          "color": 2,
           "features": 0,
           "massing": 1,
           "overall": 0
         },
         "claude": {
-          "color": 0,
+          "color": 2,
           "features": 0,
           "massing": 1,
           "overall": 0
         },
         "gpt5": {
-          "color": 0,
+          "color": 2,
           "features": 0,
           "massing": 1,
           "overall": 0
         },
         "min": 0,
-        "median": 0,
+        "median": 0.5,
         "spread": 0,
         "pass": false
       }
@@ -108,15 +108,15 @@
     "guggenheim": {
       "address": "1071 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-04-20T02:46:34.717Z",
-      "elapsedSec": 99,
-      "attempts": 5,
+      "lastRun": "2026-04-20T06:10:15.840Z",
+      "elapsedSec": 103.2,
+      "attempts": 6,
       "recentFailureSignatures": [
         "fail-consensus",
         "fail-consensus",
-        "fail-consensus",
         "fail-consensus:median=2,min=0",
-        "fail-consensus:median=2,min=0"
+        "fail-consensus:median=2,min=0",
+        "fail-consensus:median=1,min=0"
       ],
       "objective": {
         "footprintIoU": 0.9914354230900994,
@@ -134,25 +134,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 3,
+          "color": 1,
           "features": 0,
-          "massing": 2,
+          "massing": 4,
           "overall": 1
         },
         "claude": {
-          "color": 3,
+          "color": 1,
           "features": 0,
-          "massing": 2,
+          "massing": 4,
           "overall": 1
         },
         "gpt5": {
-          "color": 3,
+          "color": 1,
           "features": 0,
-          "massing": 2,
+          "massing": 4,
           "overall": 1
         },
         "min": 0,
-        "median": 1.5,
+        "median": 1,
         "spread": 0,
         "pass": false
       }
@@ -160,12 +160,13 @@
     "geisel": {
       "address": "9500 Gilman Dr, La Jolla, CA",
       "status": "fail-consensus",
-      "lastRun": "2026-04-20T02:43:15.166Z",
-      "elapsedSec": 92,
-      "attempts": 3,
+      "lastRun": "2026-04-20T06:11:50.666Z",
+      "elapsedSec": 94.2,
+      "attempts": 4,
       "recentFailureSignatures": [
         "fail-consensus",
         "fail-consensus",
+        "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0"
       ],
       "objective": {
@@ -184,6 +185,58 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
+          "color": 2,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "claude": {
+          "color": 2,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "gpt5": {
+          "color": 2,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "min": 0,
+        "median": 0,
+        "spread": 0,
+        "pass": false
+      }
+    },
+    "pennzoil": {
+      "address": "700 Milam St, Houston, TX",
+      "status": "fail-consensus",
+      "lastRun": "2026-04-20T06:08:31.589Z",
+      "elapsedSec": 103.7,
+      "attempts": 5,
+      "recentFailureSignatures": [
+        "fail-objective:voxel count # > #",
+        "fail-consensus",
+        "fail-consensus",
+        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=0,min=0"
+      ],
+      "objective": {
+        "footprintIoU": 0.9976452119309263,
+        "heightErr": 3.275550189524972e-8,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 110555,
+        "minWallThicknessMm": 19.046882390975952,
+        "voxelCount": 31441,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": {
+        "status": "fail",
+        "rounds": 1,
+        "gemini": {
           "color": 1,
           "features": 0,
           "massing": 0,
@@ -203,57 +256,6 @@
         },
         "min": 0,
         "median": 0,
-        "spread": 0,
-        "pass": false
-      }
-    },
-    "pennzoil": {
-      "address": "700 Milam St, Houston, TX",
-      "status": "fail-consensus",
-      "lastRun": "2026-04-20T02:41:36.291Z",
-      "elapsedSec": 125.5,
-      "attempts": 4,
-      "recentFailureSignatures": [
-        "fail-objective:voxel count # > #",
-        "fail-consensus",
-        "fail-consensus",
-        "fail-consensus:median=1,min=0"
-      ],
-      "objective": {
-        "footprintIoU": 0.9976452119309263,
-        "heightErr": 3.275550189524972e-8,
-        "watertight": true,
-        "manifold": true,
-        "selfIntersect": 110555,
-        "minWallThicknessMm": 19.046882390975952,
-        "voxelCount": 31441,
-        "plinthWatertight": null,
-        "pass": true,
-        "failures": []
-      },
-      "consensus": {
-        "status": "fail",
-        "rounds": 1,
-        "gemini": {
-          "color": 4,
-          "features": 0,
-          "massing": 1,
-          "overall": 0
-        },
-        "claude": {
-          "color": 4,
-          "features": 0,
-          "massing": 1,
-          "overall": 0
-        },
-        "gpt5": {
-          "color": 4,
-          "features": 0,
-          "massing": 1,
-          "overall": 0
-        },
-        "min": 0,
-        "median": 0.5,
         "spread": 0,
         "pass": false
       }

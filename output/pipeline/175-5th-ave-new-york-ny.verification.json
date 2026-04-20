@@ -1,0 +1,21 @@
+{
+  "status": "fail-objective",
+  "lastRun": "2026-04-19T08:04:04.979Z",
+  "objective": {
+    "footprintIoU": 0.42212301587301587,
+    "heightErr": 0.6828286606340088,
+    "watertight": true,
+    "manifold": true,
+    "selfIntersect": 3679,
+    "minWallThicknessMm": 7.201572299003601,
+    "voxelCount": 86041,
+    "plinthWatertight": null,
+    "pass": false,
+    "failures": [
+      "footprint IoU 0.42 < 0.85",
+      "height error 68% > 10%",
+      "self-intersections: 3679"
+    ]
+  },
+  "consensus": null
+}

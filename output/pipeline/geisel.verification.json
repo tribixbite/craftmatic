@@ -1,6 +1,6 @@
 {
   "status": "fail-consensus",
-  "lastRun": "2026-04-20T02:43:15.166Z",
+  "lastRun": "2026-04-20T06:11:50.666Z",
   "objective": {
     "footprintIoU": 0.9999022052711359,
     "heightErr": 0,
@@ -17,19 +17,19 @@
     "status": "fail",
     "rounds": 1,
     "gemini": {
-      "color": 1,
+      "color": 2,
       "features": 0,
       "massing": 0,
       "overall": 0
     },
     "claude": {
-      "color": 1,
+      "color": 2,
       "features": 0,
       "massing": 0,
       "overall": 0
     },
     "gpt5": {
-      "color": 1,
+      "color": 2,
       "features": 0,
       "massing": 0,
       "overall": 0
