@@ -93,6 +93,15 @@ export async function exportVoxel(
     maxDimension: opts.maxDimension ?? 256,
   });
 
+  // Post-process: the voxelizer outputs a single-material surface shell
+  // based on the wall color. Re-label the top N layers as roof blocks
+  // and punch vertical window stripes on the long facades so the output
+  // isn't a monochrome featureless prism.
+  const wallBlock = brep.materials.wall.blockName;
+  const roofBlock = brep.materials.roof.blockName;
+  const windowBlock = brep.materials.window.blockName;
+  applyMaterialOverlay(grid, wallBlock, roofBlock, windowBlock);
+
   // Count non-air blocks
   let blockCount = 0;
   for (let y = 0; y < grid.height; y++) {
@@ -106,7 +115,81 @@ export async function exportVoxel(
   return {
     grid,
     blockCount,
-    wallBlock: brep.materials.wall.blockName,
-    roofBlock: brep.materials.roof.blockName,
+    wallBlock,
+    roofBlock,
   };
+}
+
+/**
+ * Post-voxelization material pass. The voxelizer has already painted every
+ * solid voxel with the wall block (derived from the mesh colour). We now:
+ *
+ *   1. Find the top solid voxel per (x,z) column. That voxel plus any
+ *      solid voxels within `roofDepth` of it become roof blocks.
+ *      `roofDepth` scales with grid height (≈5% of height, min 1).
+ *   2. Compute vertical window stripes: for each x-column with a non-empty
+ *      solid run, identify wall voxels (those not already flipped to roof)
+ *      and replace every `spacing`-th voxel with the window block. Applies
+ *      only to voxels that border air on the X face (outer wall), so
+ *      interior voxels remain wall-block.
+ *
+ * Both transforms are idempotent when run a second time because they key
+ * off the current block identity.
+ */
+function applyMaterialOverlay(
+  grid: BlockGrid,
+  wallBlock: string,
+  roofBlock: string,
+  windowBlock: string,
+): void {
+  const { width: W, height: H, length: L } = grid;
+  const roofDepth = Math.max(1, Math.round(H * 0.05));
+
+  // Pass 1 — roof re-labeling
+  for (let x = 0; x < W; x++) {
+    for (let z = 0; z < L; z++) {
+      // Find topmost non-air voxel in this column
+      let topY = -1;
+      for (let y = H - 1; y >= 0; y--) {
+        if (grid.get(x, y, z) !== 'minecraft:air') { topY = y; break; }
+      }
+      if (topY < 0) continue;
+      for (let dy = 0; dy < roofDepth && topY - dy >= 0; dy++) {
+        const y = topY - dy;
+        if (grid.get(x, y, z) !== 'minecraft:air') {
+          grid.set(x, y, z, roofBlock);
+        }
+      }
+    }
+  }
+
+  // Pass 2 — window stripes. Walk long-edge columns; replace outer-face
+  // wall voxels on a periodic grid. Skip the bottom ground band and the
+  // top roof band; skip solar-side-only sampling since the BRep mesh
+  // isn't orientation-aware at this stage.
+  const stripeSpacingX = Math.max(2, Math.round(W * 0.08));
+  const stripeSpacingZ = Math.max(2, Math.round(L * 0.08));
+  const winVStep = 4; // one window per ~4 blocks of height
+  const groundBand = 2; // skip bottom 2 rows (street level)
+  for (let y = groundBand; y < H - roofDepth; y++) {
+    if ((y - groundBand) % winVStep !== 1) continue; // window band every 4th row
+    for (let x = 0; x < W; x++) {
+      for (let z = 0; z < L; z++) {
+        const b = grid.get(x, y, z);
+        if (b !== wallBlock) continue; // don't overwrite roof / air
+        // Outer-face check: must border air on at least one of +/- X or Z
+        const facing =
+          (x > 0 && grid.get(x - 1, y, z) === 'minecraft:air') ||
+          (x < W - 1 && grid.get(x + 1, y, z) === 'minecraft:air') ||
+          (z > 0 && grid.get(x, y, z - 1) === 'minecraft:air') ||
+          (z < L - 1 && grid.get(x, y, z + 1) === 'minecraft:air');
+        if (!facing) continue;
+        // Stripe pattern — every N-th voxel along x AND z axes
+        if (x % stripeSpacingX === Math.floor(stripeSpacingX / 2) ||
+            z % stripeSpacingZ === Math.floor(stripeSpacingZ / 2)) {
+          grid.set(x, y, z, windowBlock);
+        }
+      }
+    }
+  }
 }
