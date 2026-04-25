@@ -19,6 +19,15 @@ const MAX_CACHE_ENTRIES = 10_000;
 /** Color IDs discovered to be transparent via inline !COLOUR ALPHA definitions */
 export const inlineTransparentColors = new Set<number>();
 
+/**
+ * Synchronous cache reader. Returns undefined if the part hasn't been
+ * resolved yet (caller should await resolvePartGeometry first). The
+ * viewer relies on this to read prefetched geometry without re-promising.
+ */
+export function getCachedPartGeom(id: string): PartGeom | undefined {
+  return partGeomCache.get(normId(id));
+}
+
 let LDRAW_BASE = '/ldraw-parts';
 
 export function setLDrawBase(base: string): void {
