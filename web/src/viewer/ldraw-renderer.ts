@@ -1029,8 +1029,15 @@ export async function createLDrawViewer(
   // the canvas mostly empty. Tall models (towers, figures) read better from
   // a near-horizontal angle — we want to see the full vertical face.
   const aspectRatio = size.y / Math.max(size.x, size.z, 1); // height / footprint
-  // Inverse: flat (aspect→0) → 0.55 elevation; tall (aspect→2+) → 0.20
-  const elevationFactor = Math.max(0.20, Math.min(0.55, 0.55 - aspectRatio * 0.20));
+  // Steeper falloff than 0.20: most models have aspectRatio 0.2–0.5 and look
+  // best with moderate elevation (~0.30). Only very flat ships (aspect < 0.1)
+  // benefit from high top-down (~0.55). With slope 0.7 we get:
+  //   aspect 0.05 (ISD)         → 0.515  (top-down)
+  //   aspect 0.20 (plane)       → 0.410
+  //   aspect 0.33 (castle)      → 0.319  (towers visible, not squashed)
+  //   aspect 0.40 (Ferrari)     → 0.270
+  //   aspect 0.60+ (tall figs)  → 0.220  (clamped, near-horizontal)
+  const elevationFactor = Math.max(0.22, Math.min(0.55, 0.55 - aspectRatio * 0.7));
   const dirX = 0.42, dirY = elevationFactor, dirZ = 0.85;
   const dirLen = Math.hypot(dirX, dirY, dirZ) || 1;
   const ndir = new THREE.Vector3(dirX / dirLen, dirY / dirLen, dirZ / dirLen);
