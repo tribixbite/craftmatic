@@ -151,7 +151,6 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
   // ── Extended colors referenced by LDD/LXF pipeline ─────────────────────
   21:  'minecraft:lime_concrete',         // Glow In Dark Opaque (yellowish-green)
   39:  'minecraft:cyan_stained_glass',    // Trans-Dark Turquoise
-  45:  'minecraft:pink_stained_glass',    // Trans-Dark Pink (medium)
   52:  'minecraft:pink_stained_glass',    // Glitter Trans-Dark Pink
   54:  'minecraft:gray_concrete',         // Copper/Speckle
   57:  'minecraft:orange_stained_glass',  // Trans-Orange
