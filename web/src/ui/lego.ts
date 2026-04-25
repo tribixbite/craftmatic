@@ -105,6 +105,7 @@ export function initLego(
         directRenderMode = true;
         const cb = document.getElementById('lego-direct-render') as HTMLInputElement | null;
         if (cb) cb.checked = true;
+        updateScaleControlsVisibility();
       }
     })
     .catch(() => { /* no parts library — keep voxel mode */ });
@@ -228,8 +229,10 @@ function wireEvents(): void {
   // ── Direct 3D render toggle ───────────────────────────────────────────────
   document.getElementById('lego-direct-render')?.addEventListener('change', e => {
     directRenderMode = (e.target as HTMLInputElement).checked;
+    updateScaleControlsVisibility();
     if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
   });
+  updateScaleControlsVisibility();
 
   // ── Step slider ────────────────────────────────────────────────────────────
   document.getElementById('lego-step-slider')?.addEventListener('input', async e => {
@@ -578,6 +581,20 @@ async function parseMpdFile(file: File): Promise<void> {
   }
 }
 
+function updateScaleControlsVisibility(): void {
+  // Scale buttons (Accurate/Cubic/Detail) and the Geometry checkbox only affect
+  // the voxelizer pipeline. In direct 3D render mode they have no effect, so
+  // hide them to avoid the appearance of broken controls.
+  const btns = document.getElementById('lego-scale-btns');
+  const geomLabel = document.getElementById('lego-geometry-mode')?.parentElement as HTMLElement | null;
+  const scaleLabel = btns?.previousElementSibling as HTMLElement | null;
+  if (btns) btns.style.display = directRenderMode ? 'none' : '';
+  if (geomLabel) geomLabel.style.display = directRenderMode ? 'none' : '';
+  if (scaleLabel && scaleLabel.classList.contains('lego-section-label')) {
+    scaleLabel.style.display = directRenderMode ? 'none' : '';
+  }
+}
+
 function updateStepSlider(): void {
   const row = document.getElementById('lego-step-row');
   const slider = document.getElementById('lego-step-slider') as HTMLInputElement | null;
@@ -599,13 +616,18 @@ async function voxelizeAndDisplay(
 ): Promise<void> {
   if (!onResult) return;
 
-  // Store for step-slider re-voxelization
+  // Only reset the slider when a *new* model is loaded — not when the user
+  // drags the slider, since the slider handler re-enters this function and
+  // would otherwise snap the value back to totalSteps every input event.
+  const isNewModel = bricks !== currentBricks;
   currentBricks = bricks;
   currentBricksLabel = filename;
   currentBricksColorFn = colorFn;
-  totalSteps = countSteps(bricks);
-  currentStep = undefined;
-  updateStepSlider();
+  if (isNewModel) {
+    totalSteps = countSteps(bricks);
+    currentStep = undefined;
+    updateStepSlider();
+  }
 
   // ── Direct 3D Render mode: render LDraw triangles as meshes, skip voxelization ──
   if (directRenderMode) {
