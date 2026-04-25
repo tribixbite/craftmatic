@@ -942,8 +942,12 @@ export async function createLDrawViewer(
   // ── Curved studio backdrop (cyc-wall) ──────────────────────────────────
   // Seamless transition from floor to background — no visible horizon line
   {
-    const gs = maxDim * 2.5;
-    const curveR = gs * 0.6; // radius of the curved back wall
+    // Backdrop must extend well beyond the camera's frustum at the back-wall
+    // distance, otherwise low-elevation 3/4 views see the wall edge as a
+    // diagonal line cutting across the upper canvas. 5× maxDim is safe at
+    // 1.05× fit margin and keeps the curve generous.
+    const gs = maxDim * 5;
+    const curveR = gs * 0.55; // radius of the curved back wall
     const floorY = bboxMin.y - 0.01;
     const backdropMat = new THREE.MeshPhysicalMaterial({
       color: groundColor, roughness: 0.7, metalness: 0.0,
