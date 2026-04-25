@@ -956,17 +956,35 @@ export async function createLDrawViewer(
     floor.position.set(center.x, floorY, center.z);
     floor.receiveShadow = true;
     scene.add(floor);
-    // Contact shadow — elliptical, matching model's XZ footprint
-    const csx = Math.max(size.x, 1) * 0.55;
-    const csz = Math.max(size.z, 1) * 0.55;
-    const contactGeo = new THREE.CircleGeometry(1, 48);
+    // Contact shadow — soft radial-falloff disc (no visible edge).
+    // The directional key light already casts a model-shaped shadow; this
+    // adds a subtle ambient occlusion-style darkening directly under the
+    // model. The radial gradient fades cleanly to transparent at the edge,
+    // so it works for irregular shapes (wings, antennas) where a hard
+    // elliptical disc would clip the silhouette.
+    const csx = Math.max(size.x, 1) * 0.7;
+    const csz = Math.max(size.z, 1) * 0.7;
+    const shadowCanv = document.createElement('canvas');
+    shadowCanv.width = 256; shadowCanv.height = 256;
+    const sctx = shadowCanv.getContext('2d')!;
+    const grad = sctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+    grad.addColorStop(0.0, 'rgba(0,0,0,0.55)');
+    grad.addColorStop(0.45, 'rgba(0,0,0,0.32)');
+    grad.addColorStop(0.85, 'rgba(0,0,0,0.05)');
+    grad.addColorStop(1.0, 'rgba(0,0,0,0)');
+    sctx.fillStyle = grad;
+    sctx.fillRect(0, 0, 256, 256);
+    const shadowTex = new THREE.CanvasTexture(shadowCanv);
+    shadowTex.colorSpace = THREE.SRGBColorSpace;
     const contactMat = new THREE.MeshBasicMaterial({
-      color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false,
+      map: shadowTex, transparent: true, depthWrite: false,
     });
+    const contactGeo = new THREE.PlaneGeometry(1, 1);
     const contactShadow = new THREE.Mesh(contactGeo, contactMat);
     contactShadow.rotation.x = -Math.PI / 2;
-    contactShadow.scale.set(csx, csz, 1);
+    contactShadow.scale.set(csx * 2, csz * 2, 1);
     contactShadow.position.set(center.x, floorY + 0.005, center.z);
+    contactShadow.renderOrder = -1; // draw before opaque so shadow blends with floor
     scene.add(contactShadow);
     // Curved back wall (quarter-cylinder) — smoothly curves from floor upward
     const curveSegs = 24;
