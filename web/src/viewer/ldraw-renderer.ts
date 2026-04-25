@@ -716,10 +716,10 @@ export async function createLDrawViewer(
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  // Reinhard preserves color ratios better than ACES for gray/pastel tones,
-  // maintaining the subtle bluish-gray distinctions critical for LEGO models.
-  renderer.toneMapping = THREE.ReinhardToneMapping;
-  renderer.toneMappingExposure = 1.6;
+  // ACES filmic preserves saturation under bright lights better than Reinhard,
+  // which tends to wash colors out — Mecabricks-style renders rely on saturation.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // Clear any pre-existing content (e.g. caller-provided "Loading..." spinner)
   // before mounting the canvas so overlay text doesn't sit on top of the render.
@@ -746,15 +746,15 @@ export async function createLDrawViewer(
 
   // ── Lighting (product photography style) ───────────────────────────────
   // Soft ambient fill
-  const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.25);
   scene.add(ambient);
 
   // Hemisphere light for sky/ground gradient
-  const hemi = new THREE.HemisphereLight(0xc8e0ff, 0x443322, 0.6);
+  const hemi = new THREE.HemisphereLight(0xc8e0ff, 0x443322, 0.3);
   scene.add(hemi);
 
   // Key light (main directional — warm, upper-right)
-  const keyLight = new THREE.DirectionalLight(0xfff5e6, 2.0);
+  const keyLight = new THREE.DirectionalLight(0xfff5e6, 3.5);
   keyLight.position.set(50, 80, 40);
   keyLight.castShadow = true;
   keyLight.shadow.mapSize.set(4096, 4096);
@@ -764,7 +764,7 @@ export async function createLDrawViewer(
   scene.add(keyLight);
 
   // Fill light (cooler, opposite side — softer)
-  const fillLight = new THREE.DirectionalLight(0xd0e0ff, 1.0);
+  const fillLight = new THREE.DirectionalLight(0xd0e0ff, 0.8);
   fillLight.position.set(-40, 30, -30);
   scene.add(fillLight);
 
@@ -774,7 +774,7 @@ export async function createLDrawViewer(
   scene.add(rimLight);
 
   // Bottom fill to reduce harsh shadows under overhangs
-  const bottomFill = new THREE.DirectionalLight(0xe0e0ff, 0.3);
+  const bottomFill = new THREE.DirectionalLight(0xe0e0ff, 0.15);
   bottomFill.position.set(0, -20, 0);
   scene.add(bottomFill);
 
@@ -996,20 +996,34 @@ export async function createLDrawViewer(
   }
 
   // ── Camera positioning ─────────────────────────────────────────────────
+  // Compute fit distance from FoV + aspect so the bounding sphere just fits
+  // the viewport with a small margin. This actually centers the model in the
+  // canvas instead of leaving large empty regions.
+  const aspect = camera.aspect;
+  const fovV = (camera.fov * Math.PI) / 180;
+  const fovH = 2 * Math.atan(Math.tan(fovV / 2) * aspect);
+  const radius = size.length() * 0.5; // bounding sphere radius
+  const fitV = radius / Math.sin(fovV / 2);
+  const fitH = radius / Math.sin(fovH / 2);
+  const fitDist = Math.max(fitV, fitH) * 1.05; // 5% margin
+
   // Adapt camera angle to model shape:
   //   Wide/flat models (buildings) → lower elevation, more frontal
   //   Tall models (towers, figures) → higher elevation, more offset
-  const camDist = maxDim * 1.5;
   const aspectRatio = size.y / Math.max(size.x, size.z, 1); // height / footprint
-  const elevationFactor = Math.min(0.5, 0.25 + aspectRatio * 0.15); // 0.25 → 0.5
+  const elevationFactor = Math.min(0.45, 0.22 + aspectRatio * 0.15); // 0.22 → 0.45
+
+  // 3/4 view: offset along normalized direction × fitDist
+  const dirX = 0.42, dirY = elevationFactor, dirZ = 0.85;
+  const dirLen = Math.hypot(dirX, dirY, dirZ);
   camera.position.set(
-    center.x + camDist * 0.35,
-    center.y + camDist * elevationFactor,
-    center.z + camDist * 0.8,
+    center.x + (dirX / dirLen) * fitDist,
+    center.y + (dirY / dirLen) * fitDist,
+    center.z + (dirZ / dirLen) * fitDist,
   );
   camera.lookAt(center);
-  camera.near = maxDim * 0.01;
-  camera.far = maxDim * 10;
+  camera.near = Math.max(0.01, fitDist * 0.001);
+  camera.far = fitDist * 10;
   camera.updateProjectionMatrix();
 
   // ── OrbitControls ──────────────────────────────────────────────────────
