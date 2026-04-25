@@ -253,7 +253,6 @@ async function resolvePartGeometry(id: string, depth = 0, invertWinding = false)
       } else if (tok[0] === '5' && tok.length >= 14) {
         const edge: Edge = [[+tok[2]!, +tok[3]!, +tok[4]!], [+tok[5]!, +tok[6]!, +tok[7]!]];
         geom.edges.push(edge); // conditional edges always inherit
-        ]);
       } else if (tok[0] === '3' && tok.length >= 11) {
         const triColor = parseInt(tok[1]!, 10);
         const x0 = +tok[2]!, y0 = +tok[3]!, z0 = +tok[4]!;
@@ -722,6 +721,9 @@ export async function createLDrawViewer(
   renderer.toneMapping = THREE.ReinhardToneMapping;
   renderer.toneMappingExposure = 1.6;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // Clear any pre-existing content (e.g. caller-provided "Loading..." spinner)
+  // before mounting the canvas so overlay text doesn't sit on top of the render.
+  while (container.firstChild) container.removeChild(container.firstChild);
   container.appendChild(renderer.domElement);
 
   // ── Environment map for realistic plastic reflections ──────────────────
