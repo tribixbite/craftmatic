@@ -887,10 +887,12 @@ export async function createLDrawViewer(
       if (eg.positions.length === 0) continue;
       const baseColor = getThreeColor(colorId);
       const lum = baseColor.r * 0.299 + baseColor.g * 0.587 + baseColor.b * 0.114;
+      // Edge color: dark variant of brick color for light bricks, near-black for dark bricks
       const ec = lum > 0.4
-        ? baseColor.clone().multiplyScalar(0.35)
-        : new THREE.Color(0.25, 0.25, 0.3);
-      const opacity = lum > 0.4 ? 0.4 : 0.2;
+        ? baseColor.clone().multiplyScalar(0.25)
+        : new THREE.Color(0.10, 0.10, 0.12);
+      // Higher opacity gives crisper brick separation, closer to Mecabricks look
+      const opacity = lum > 0.4 ? 0.7 : 0.5;
       for (let i = 0; i < eg.positions.length; i += 3) {
         allEdgePos.push(eg.positions[i]!, eg.positions[i+1]!, eg.positions[i+2]!);
         allEdgeCol.push(ec.r * opacity, ec.g * opacity, ec.b * opacity);
@@ -959,7 +961,7 @@ export async function createLDrawViewer(
     const csz = Math.max(size.z, 1) * 0.55;
     const contactGeo = new THREE.CircleGeometry(1, 48);
     const contactMat = new THREE.MeshBasicMaterial({
-      color: 0x000000, transparent: true, opacity: 0.1, depthWrite: false,
+      color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false,
     });
     const contactShadow = new THREE.Mesh(contactGeo, contactMat);
     contactShadow.rotation.x = -Math.PI / 2;
