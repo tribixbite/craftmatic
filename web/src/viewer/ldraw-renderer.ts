@@ -1024,8 +1024,13 @@ export async function createLDrawViewer(
   // of the bbox project inside the viewport. This is tighter than fitting the
   // bounding sphere — buildings and other elongated models no longer leave a
   // large empty region on the minor axis.
+  // Flat models (Star Destroyer, baseplates) read better from a high downward
+  // angle — there's almost no Y silhouette so a near-horizontal camera leaves
+  // the canvas mostly empty. Tall models (towers, figures) read better from
+  // a near-horizontal angle — we want to see the full vertical face.
   const aspectRatio = size.y / Math.max(size.x, size.z, 1); // height / footprint
-  const elevationFactor = Math.min(0.45, 0.22 + aspectRatio * 0.15); // 0.22 → 0.45
+  // Inverse: flat (aspect→0) → 0.55 elevation; tall (aspect→2+) → 0.20
+  const elevationFactor = Math.max(0.20, Math.min(0.55, 0.55 - aspectRatio * 0.20));
   const dirX = 0.42, dirY = elevationFactor, dirZ = 0.85;
   const dirLen = Math.hypot(dirX, dirY, dirZ) || 1;
   const ndir = new THREE.Vector3(dirX / dirLen, dirY / dirLen, dirZ / dirLen);
