@@ -20,6 +20,9 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
@@ -899,17 +902,28 @@ export async function createLDrawViewer(
       }
     }
     if (allEdgePos.length > 0) {
-      const edgeGeo = new THREE.BufferGeometry();
-      edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(allEdgePos, 3));
-      edgeGeo.setAttribute('color', new THREE.Float32BufferAttribute(allEdgeCol, 3));
-      const edgeMat = new THREE.LineBasicMaterial({
+      // LineSegments2 + LineMaterial: screen-space-width edges. Plain
+      // LineBasicMaterial draws at 1 device pixel which is invisible on
+      // HiDPI displays — the brick separation we worked hard to compute
+      // basically vanishes. Fat lines stay visible at any DPR.
+      const edgeGeo = new LineSegmentsGeometry();
+      edgeGeo.setPositions(new Float32Array(allEdgePos));
+      edgeGeo.setColors(new Float32Array(allEdgeCol));
+      const edgeMat = new LineMaterial({
         vertexColors: true,
-        transparent: true, opacity: 1.0,
+        worldUnits: false,            // CSS-pixel widths
+        linewidth: 1.5,               // CSS px — thin but visible
+        transparent: true,
         depthWrite: false,
+        alphaToCoverage: false,
       });
-      const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
+      edgeMat.resolution.set(cw, ch);
+      const edgeLines = new LineSegments2(edgeGeo, edgeMat);
+      edgeLines.computeLineDistances();
       edgeLines.renderOrder = 2;
       scene.add(edgeLines);
+      // Track for resize updates
+      (scene as THREE.Scene & { _edgeLineMaterial?: LineMaterial })._edgeLineMaterial = edgeMat;
     }
   }
 
@@ -1161,6 +1175,9 @@ export async function createLDrawViewer(
     composer.setSize(w, h);
     const pr = renderer.getPixelRatio();
     fxaaPass.material.uniforms['resolution'].value.set(1 / (w * pr), 1 / (h * pr));
+    // Fat-line edge material needs viewport size for screen-space width
+    const edgeMat = (scene as THREE.Scene & { _edgeLineMaterial?: LineMaterial })._edgeLineMaterial;
+    if (edgeMat) edgeMat.resolution.set(w, h);
   });
   resizeObs.observe(container);
 
