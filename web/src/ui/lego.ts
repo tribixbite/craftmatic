@@ -81,8 +81,14 @@ let currentBricksLabel = '';
 let currentBricksColorFn: ((id: number) => string) | undefined;
 /** Raw MPD/LDR content for inline sub-model resolution in 3D renderer */
 let currentMpdContent: string | undefined;
-/** Current 3D viewer instance for proper cleanup */
-let currentLDrawViewer: { dispose: () => void } | null = null;
+/**
+ * Persistent 3D viewer instance — kept alive across step-slider drags so
+ * setMaxStep() is an O(1) visibility toggle instead of a full rebuild.
+ * Imported lazily; type widened to interoperate with both the old shim
+ * return type and the new LDrawViewer class.
+ */
+import type { LDrawViewer as LDrawViewerType } from '@viewer/ldraw/index.js';
+let currentLDrawViewer: LDrawViewerType | null = null;
 /** Total number of steps in the current model (1 = no step markers) */
 let totalSteps = 1;
 /** Current step being shown (undefined = all steps) */
@@ -241,18 +247,21 @@ function wireEvents(): void {
     const label = document.getElementById('lego-step-label');
     if (label) label.textContent = `${step}/${totalSteps}`;
     currentStep = step < totalSteps ? step : undefined; // undefined = show all
-    if (currentBricks) {
-      if (directRenderMode) {
-        // Re-render with step filtering in 3D mode
-        void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
-      } else {
-        const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
-        const result = geometryMode
-          ? await voxelizeLDrawGeometry(currentBricks, currentBricksColorFn, opts)
-          : voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
-        if (onResult) onResult(result.grid, currentBricksLabel.replace(/\.[^.]+$/, ''), cubicScale);
-      }
+    if (!currentBricks) return;
+
+    // 3D direct mode: instant visibility toggle on the persistent viewer.
+    // No part refetch, no mesh rebuild — the architectural turn-around.
+    if (directRenderMode && currentLDrawViewer) {
+      currentLDrawViewer.setMaxStep(currentStep ?? Number.POSITIVE_INFINITY);
+      return;
     }
+
+    // Voxelizer mode still rebuilds (cheap relative to part fetching anyway)
+    const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
+    const result = geometryMode
+      ? await voxelizeLDrawGeometry(currentBricks, currentBricksColorFn, opts)
+      : voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
+    if (onResult) onResult(result.grid, currentBricksLabel.replace(/\.[^.]+$/, ''), cubicScale);
   });
 
   // ── MPD file upload ────────────────────────────────────────────────────────
@@ -636,19 +645,28 @@ async function voxelizeAndDisplay(
       : filename.replace(/\.[^.]+$/, '');
     setStatus(`Rendering ${label} — ${bricks.length} bricks (loading geometry…)`, 'info');
     try {
-      const { createLDrawViewer } = await import('@viewer/ldraw-renderer.js');
+      const { LDrawViewer } = await import('@viewer/ldraw/index.js');
       const viewerEl = rootEl.closest('.tab-content')?.querySelector('.viewer-area, .inline-viewer') as HTMLElement
         ?? document.getElementById('lego-viewer');
       if (viewerEl) {
-        // Dispose previous 3D viewer to free GPU resources
-        if (currentLDrawViewer) { currentLDrawViewer.dispose(); currentLDrawViewer = null; }
-        viewerEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;gap:12px">
-          <div style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.2);border-top-color:#7c3aed;border-radius:50%;animation:spin 0.8s linear infinite"></div>
-          <span style="color:#999;font-size:13px">Loading geometry…</span>
-          <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-        </div>`;
+        // Persistent viewer: create once, call load() per model. If the
+        // viewer is mounted on the same element, keep it alive across
+        // model changes — load() clears prior meshes but reuses the
+        // renderer/scene/composer/part-cache.
+        if (currentLDrawViewer && currentLDrawViewer.container !== viewerEl) {
+          currentLDrawViewer.dispose();
+          currentLDrawViewer = null;
+        }
+        if (!currentLDrawViewer) {
+          viewerEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;gap:12px">
+            <div style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.2);border-top-color:#7c3aed;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+            <span style="color:#999;font-size:13px">Loading geometry…</span>
+            <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+          </div>`;
+          currentLDrawViewer = await LDrawViewer.create(viewerEl);
+        }
         let lastProgressUpdate = 0;
-        currentLDrawViewer = await createLDrawViewer(viewerEl, bricks, {
+        await currentLDrawViewer.load(bricks, {
           mpdContent: currentMpdContent,
           maxStep: currentStep,
           onProgress: (done, total) => {
