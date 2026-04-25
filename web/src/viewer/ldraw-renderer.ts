@@ -996,30 +996,58 @@ export async function createLDrawViewer(
   }
 
   // ── Camera positioning ─────────────────────────────────────────────────
-  // Compute fit distance from FoV + aspect so the bounding sphere just fits
-  // the viewport with a small margin. This actually centers the model in the
-  // canvas instead of leaving large empty regions.
-  const aspect = camera.aspect;
-  const fovV = (camera.fov * Math.PI) / 180;
-  const fovH = 2 * Math.atan(Math.tan(fovV / 2) * aspect);
-  const radius = size.length() * 0.5; // bounding sphere radius
-  const fitV = radius / Math.sin(fovV / 2);
-  const fitH = radius / Math.sin(fovH / 2);
-  const fitDist = Math.max(fitV, fitH) * 1.05; // 5% margin
-
-  // Adapt camera angle to model shape:
-  //   Wide/flat models (buildings) → lower elevation, more frontal
-  //   Tall models (towers, figures) → higher elevation, more offset
+  // Pick a 3/4 view direction, then iteratively fit the camera so all 8 corners
+  // of the bbox project inside the viewport. This is tighter than fitting the
+  // bounding sphere — buildings and other elongated models no longer leave a
+  // large empty region on the minor axis.
   const aspectRatio = size.y / Math.max(size.x, size.z, 1); // height / footprint
   const elevationFactor = Math.min(0.45, 0.22 + aspectRatio * 0.15); // 0.22 → 0.45
-
-  // 3/4 view: offset along normalized direction × fitDist
   const dirX = 0.42, dirY = elevationFactor, dirZ = 0.85;
-  const dirLen = Math.hypot(dirX, dirY, dirZ);
+  const dirLen = Math.hypot(dirX, dirY, dirZ) || 1;
+  const ndir = new THREE.Vector3(dirX / dirLen, dirY / dirLen, dirZ / dirLen);
+
+  const aspect = camera.aspect;
+  const fovV = (camera.fov * Math.PI) / 180;
+  const tanV = Math.tan(fovV / 2);
+  const tanH = tanV * aspect;
+
+  // Bbox corners in world space
+  const corners = [
+    new THREE.Vector3(bboxMin.x, bboxMin.y, bboxMin.z),
+    new THREE.Vector3(bboxMax.x, bboxMin.y, bboxMin.z),
+    new THREE.Vector3(bboxMin.x, bboxMax.y, bboxMin.z),
+    new THREE.Vector3(bboxMax.x, bboxMax.y, bboxMin.z),
+    new THREE.Vector3(bboxMin.x, bboxMin.y, bboxMax.z),
+    new THREE.Vector3(bboxMax.x, bboxMin.y, bboxMax.z),
+    new THREE.Vector3(bboxMin.x, bboxMax.y, bboxMax.z),
+    new THREE.Vector3(bboxMax.x, bboxMax.y, bboxMax.z),
+  ];
+  // Camera basis (looking from ndir toward center): forward = -ndir
+  const forward = ndir.clone().negate();
+  const worldUp = new THREE.Vector3(0, 1, 0);
+  const right = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
+  const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+  // For each corner, the required distance along ndir from center such that
+  // the corner just fits is: dist >= |corner_x|/tanH + corner_z (and same for y).
+  // corner_x = corner·right, corner_y = corner·up, corner_z = (corner-camPos)·forward
+  // We solve for camPos = center + ndir * D such that all corners fit.
+  let maxDist = 0;
+  for (const c of corners) {
+    const local = c.clone().sub(center);
+    const lx = Math.abs(local.dot(right));
+    const ly = Math.abs(local.dot(up));
+    const lz = local.dot(ndir); // signed: positive = closer to camera
+    // Required distance D so that lx <= tanH * (D - lz) and ly <= tanV * (D - lz)
+    const reqH = lx / tanH + lz;
+    const reqV = ly / tanV + lz;
+    maxDist = Math.max(maxDist, reqH, reqV);
+  }
+  const fitDist = Math.max(maxDist, size.length() * 0.5) * 1.08;
+
   camera.position.set(
-    center.x + (dirX / dirLen) * fitDist,
-    center.y + (dirY / dirLen) * fitDist,
-    center.z + (dirZ / dirLen) * fitDist,
+    center.x + ndir.x * fitDist,
+    center.y + ndir.y * fitDist,
+    center.z + ndir.z * fitDist,
   );
   camera.lookAt(center);
   camera.near = Math.max(0.01, fitDist * 0.001);
