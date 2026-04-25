@@ -906,13 +906,27 @@ export async function createLDrawViewer(
       // LineBasicMaterial draws at 1 device pixel which is invisible on
       // HiDPI displays — the brick separation we worked hard to compute
       // basically vanishes. Fat lines stay visible at any DPR.
+      //
+      // Scale linewidth with model size: dense models (castles, ISDs)
+      // have many small bricks where adjacent edges merge into a dark
+      // mass at fixed 1.5px. Smaller models (Ferrari, boat) need wider
+      // lines for visible brick separation. Compute from bboxMin/Max
+      // which are populated by this point.
+      const modelMaxDim = Math.max(
+        bboxMax.x - bboxMin.x,
+        bboxMax.y - bboxMin.y,
+        bboxMax.z - bboxMin.z,
+      );
+      // 400 / maxDim gives ~2.0 for small (Ferrari), ~0.7 for castle,
+      // ~0.27 for ISD. Clamp to [0.5, 1.5].
+      const lineWidth = Math.max(0.5, Math.min(1.5, 400 / Math.max(modelMaxDim, 1)));
       const edgeGeo = new LineSegmentsGeometry();
       edgeGeo.setPositions(new Float32Array(allEdgePos));
       edgeGeo.setColors(new Float32Array(allEdgeCol));
       const edgeMat = new LineMaterial({
         vertexColors: true,
         worldUnits: false,            // CSS-pixel widths
-        linewidth: 1.5,               // CSS px — thin but visible
+        linewidth: lineWidth,
         transparent: true,
         depthWrite: false,
         alphaToCoverage: false,
