@@ -580,17 +580,26 @@ export class LDrawViewer {
       group.add(mesh);
     }
 
-    // One LineSegments2 per step containing all that step's brick edges
+    // One LineSegments2 per step containing all that step's brick edges.
+    // Edge color: HSL-darken the brick's base color so saturated dark bricks
+    // (dark teal, dark red, navy) keep their hue identity in the separation
+    // lines. Pure-luminance darkening flattened all dark bricks to the same
+    // near-black, losing color signal at the brick boundaries.
     const allEdgePos: number[] = [];
     const allEdgeCol: number[] = [];
+    const hsl: { h: number; s: number; l: number } = { h: 0, s: 0, l: 0 };
     for (const [colorId, eg] of edgeGroups) {
       if (eg.positions.length === 0) continue;
       const baseColor = getThreeColor(colorId);
-      const lum = baseColor.r * 0.299 + baseColor.g * 0.587 + baseColor.b * 0.114;
-      const ec = lum > 0.4
-        ? baseColor.clone().multiplyScalar(0.25)
+      baseColor.getHSL(hsl);
+      // Darken toward 25% lightness floor; preserve hue + most of saturation.
+      // For very desaturated grays, fall through to a slightly cool near-black
+      // (matches what the prior luminance branch produced).
+      const targetL = Math.min(hsl.l, 0.18);
+      const ec = hsl.s > 0.08
+        ? new THREE.Color().setHSL(hsl.h, hsl.s * 0.85, targetL)
         : new THREE.Color(0.10, 0.10, 0.12);
-      const opacity = lum > 0.4 ? 0.7 : 0.5;
+      const opacity = hsl.l > 0.4 ? 0.7 : 0.5;
       for (let i = 0; i < eg.positions.length; i += 3) {
         allEdgePos.push(eg.positions[i]!, eg.positions[i + 1]!, eg.positions[i + 2]!);
         allEdgeCol.push(ec.r * opacity, ec.g * opacity, ec.b * opacity);
