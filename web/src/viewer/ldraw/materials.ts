@@ -54,14 +54,21 @@ export function isRubberColor(colorId: number): boolean {
 /**
  * Convert an LDraw color ID to a THREE.Color. Handles direct colors
  * (0x2RRGGBB / 0x3RRGGBB) and the named-color table.
+ *
+ * Both code paths return sRGB-encoded colors. THREE's Color(hex) constructor
+ * with `THREE.ColorManagement` enabled (default in r152+) treats hex strings
+ * as sRGB and stores them in linear-sRGB working space when assigned to a
+ * material. The direct-color path now goes through the same hex-string path
+ * (instead of `new Color(r, g, b)` which treats the values as linear) so
+ * direct colors don't render too bright.
  */
 export function getThreeColor(colorId: number): THREE.Color {
   if (isNaN(colorId)) return new THREE.Color(0x808080);
   if (colorId >= 0x2000000) {
-    const r = ((colorId >> 16) & 0xFF) / 255;
-    const g = ((colorId >> 8) & 0xFF) / 255;
-    const b = (colorId & 0xFF) / 255;
-    return new THREE.Color(r, g, b);
+    // Bottom 24 bits are sRGB-encoded R/G/B. setHex with sRGB hint applies
+    // the working-space conversion that the material pipeline expects.
+    const rgb = colorId & 0x00FFFFFF;
+    return new THREE.Color().setHex(rgb, THREE.SRGBColorSpace);
   }
   const hex = LDRAW_COLOR_RGB[colorId] ?? '#808080';
   return new THREE.Color(hex);
