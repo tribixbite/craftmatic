@@ -5,7 +5,7 @@
  */
 
 import { BlockGrid } from '@craft/schem/types.js';
-import { threeToGrid, type VoxelizeProgress } from '@craft/convert/voxelizer.js';
+import { threeToGrid, type TextureSampler, type VoxelizeProgress } from '@craft/convert/voxelizer.js';
 import { loadMeshFromBytes, analyzeMesh, type MeshInfo } from './mesh-import.js';
 import { createCanvasTextureSampler } from './texture-sampler.js';
 
