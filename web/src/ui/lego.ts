@@ -732,7 +732,9 @@ async function voxelizeAndDisplay(
 
   const statusMsg = `Built ${label}: ${w}×${h}×${l} — ${blockCount.toLocaleString()} blocks` +
     (cubicScale ? ' (cubic)' : '');
-  setStatus(statusMsg + (warnings.length ? ` ⚠ ${warnings.join('; ')}` : ''), warnings.length ? 'info' : 'success');
+  // Render warnings as separate lines under the main status so the panel
+  // doesn't wrap a single long ⚠-prefixed paragraph mid-word.
+  setStatusWithWarnings(statusMsg, warnings, warnings.length ? 'info' : 'success');
 
   onResult(result.grid, label, cubicScale);
 }
@@ -755,6 +757,31 @@ function setStatus(msg: string, type: 'info' | 'error' | 'success'): void {
   el.textContent = msg;
   el.className = `lego-status lego-status-${type}`;
   el.hidden = !msg;
+}
+
+/**
+ * Like setStatus but renders warnings on their own lines under the main
+ * message so they don't wrap mid-word in the narrow side panel.
+ */
+function setStatusWithWarnings(
+  msg: string,
+  warnings: readonly string[],
+  type: 'info' | 'error' | 'success',
+): void {
+  const el = document.getElementById('lego-status');
+  if (!el) return;
+  el.replaceChildren();
+  const main = document.createElement('div');
+  main.textContent = msg;
+  el.appendChild(main);
+  for (const w of warnings) {
+    const line = document.createElement('div');
+    line.textContent = `⚠ ${w}`;
+    line.style.cssText = 'margin-top:4px;font-size:0.92em;opacity:0.85';
+    el.appendChild(line);
+  }
+  el.className = `lego-status lego-status-${type}`;
+  el.hidden = false;
 }
 
 function escAttr(s: string): string {
