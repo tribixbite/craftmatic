@@ -687,6 +687,15 @@ async function voxelizeAndDisplay(
     return;
   }
 
+  // Voxelizer path is about to mount its own canvas in the same viewer
+  // container. Dispose the 3D LDraw viewer first so the renderer.domElement
+  // doesn't get orphaned (its render loop's container.isConnected check
+  // would silently stop, leaving a dead canvas behind on next 3D toggle).
+  if (currentLDrawViewer) {
+    currentLDrawViewer.dispose();
+    currentLDrawViewer = null;
+  }
+
   const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
   if (geometryMode) setStatus('Loading triangle geometry…', 'info');
   const result = geometryMode
