@@ -298,9 +298,13 @@ export class LDrawViewer {
     this.currentMaxStep = opts?.maxStep ?? Number.POSITIVE_INFINITY;
     this.applyStepVisibility();
 
-    // Compute final bbox and set up camera + backdrop + SAO + edge widths
+    // Compute final bbox and set up camera + backdrop + SAO + edge widths.
+    // Use a triangle-weighted centroid as the camera target so the visual
+    // mass (large bodies) drives framing, not stray scattered figures /
+    // accessories that drag the bbox center off the main subject. The
+    // bbox itself is still used for fit-distance corner projection.
     if (Number.isFinite(bboxMin.x)) {
-      const center = new THREE.Vector3().lerpVectors(bboxMin, bboxMax, 0.5);
+      const visualCenter = this.computeWeightedCentroid(bboxMin, bboxMax);
       const size = new THREE.Vector3().subVectors(bboxMax, bboxMin);
       const maxDim = Math.max(size.x, size.y, size.z) || 10;
 
@@ -308,9 +312,12 @@ export class LDrawViewer {
         (this.scene.background as THREE.Color).getHex(),
         0.15 / maxDim,
       );
-      this.positionLights(center, maxDim);
-      this.buildBackdrop(center, size, maxDim, bboxMin);
-      this.frameCamera(center, size, bboxMin, bboxMax, maxDim);
+      // Lights + backdrop still anchor on bbox geometric center so they
+      // illuminate / receive shadows symmetrically across the model bounds.
+      const bboxCenter = new THREE.Vector3().lerpVectors(bboxMin, bboxMax, 0.5);
+      this.positionLights(bboxCenter, maxDim);
+      this.buildBackdrop(bboxCenter, size, maxDim, bboxMin);
+      this.frameCamera(visualCenter, size, bboxMin, bboxMax, maxDim);
       this.installSAO(maxDim);
       this.updateEdgeLineWidth(maxDim);
       this.adaptExposure();
@@ -644,6 +651,56 @@ export class LDrawViewer {
         mat.linewidth = lineWidth;
       }
     }
+  }
+
+  /**
+   * Triangle-weighted centroid of all loaded meshes — used as the camera
+   * target so the visual mass (a Ferrari body, a castle, a train
+   * locomotive) anchors the frame rather than the geometric bbox center
+   * which can drift toward stray accessories (a dolphin floating beside
+   * a boat, minifigs sitting on a baseplate next to the train).
+   *
+   * Falls back to the geometric bbox center if no meshes have geometry.
+   * If the weighted centroid is too close to the bbox center (< 5% of
+   * maxDim away), we use the bbox center directly to avoid micro-jitter
+   * for symmetric models.
+   */
+  private computeWeightedCentroid(
+    bboxMin: THREE.Vector3,
+    bboxMax: THREE.Vector3,
+  ): THREE.Vector3 {
+    const bboxCenter = new THREE.Vector3().lerpVectors(bboxMin, bboxMax, 0.5);
+    let totalWeight = 0;
+    const weighted = new THREE.Vector3();
+
+    for (const stepState of this.stepGroups.values()) {
+      stepState.group.traverse(obj => {
+        if (!(obj instanceof THREE.Mesh)) return;
+        if (obj.geometry.boundingSphere == null) {
+          obj.geometry.computeBoundingSphere();
+        }
+        const sphere = obj.geometry.boundingSphere;
+        if (!sphere) return;
+        const pos = obj.geometry.getAttribute('position');
+        if (!pos) return;
+        const tris = pos.count / 3;
+        // Weight = triangle count (proxy for "visual mass") capped so a
+        // single huge mesh doesn't completely dominate.
+        const weight = Math.min(tris, 50_000);
+        weighted.addScaledVector(sphere.center, weight);
+        totalWeight += weight;
+      });
+    }
+
+    if (totalWeight === 0) return bboxCenter;
+    weighted.divideScalar(totalWeight);
+
+    // If the weighted center is within 5% of the bbox center, just use bbox.
+    const size = new THREE.Vector3().subVectors(bboxMax, bboxMin);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const drift = weighted.distanceTo(bboxCenter);
+    if (drift < maxDim * 0.05) return bboxCenter;
+    return weighted;
   }
 
   /**
