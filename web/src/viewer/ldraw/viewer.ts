@@ -313,6 +313,7 @@ export class LDrawViewer {
       this.frameCamera(center, size, bboxMin, bboxMax, maxDim);
       this.installSAO(maxDim);
       this.updateEdgeLineWidth(maxDim);
+      this.adaptExposure();
     }
 
     this.loaded = true;
@@ -643,6 +644,39 @@ export class LDrawViewer {
         mat.linewidth = lineWidth;
       }
     }
+  }
+
+  /**
+   * Adjust tone-mapping exposure based on the loaded model's average
+   * brick luminance, weighted by triangle count. Mostly-dark scenes
+   * (TIE fighters, ISD hull) get a small exposure boost so detail
+   * surfaces; mostly-light scenes (white boats, white architecture)
+   * get a small reduction so highlights don't blow out.
+   *
+   * Range is intentionally narrow (0.85–1.20) — bigger swings would
+   * fight the ACES filmic curve which already does its own dynamic-
+   * range compression. Most mixed-color models stay near 1.0.
+   */
+  private adaptExposure(): void {
+    let totalTris = 0;
+    let weightedLum = 0;
+    for (const stepState of this.stepGroups.values()) {
+      stepState.group.traverse(obj => {
+        if (!(obj instanceof THREE.Mesh)) return;
+        const pos = obj.geometry.getAttribute('position');
+        if (!pos) return;
+        const tris = pos.count / 3;
+        const mat = obj.material as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
+        const c = mat.color;
+        const lum = c.r * 0.299 + c.g * 0.587 + c.b * 0.114;
+        weightedLum += lum * tris;
+        totalTris += tris;
+      });
+    }
+    const avgLum = totalTris > 0 ? weightedLum / totalTris : 0.5;
+    // Map: avgLum 0.1 (dark) → 1.20, 0.5 (medium) → 1.00, 0.9 (bright) → 0.85
+    const exposure = THREE.MathUtils.clamp(1.0 + (0.5 - avgLum) * 0.4, 0.85, 1.20);
+    this.renderer.toneMappingExposure = exposure;
   }
 
   private positionLights(center: THREE.Vector3, maxDim: number): void {
