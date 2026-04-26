@@ -130,15 +130,15 @@ function waitForTilesLoaded(
       try {
         const elapsed = Date.now() - startTime;
         if (elapsed > timeoutMs) {
-          const loaded = (tiles.stats as Record<string, number>).loaded ?? 0;
+          const loaded = ((tiles as unknown as { stats: Record<string, number> | null }).stats as Record<string, number>).loaded ?? 0;
           onProgress?.(`Timeout reached (${loaded} tiles loaded), using partial data`);
           resolve();
           return;
         }
 
-        const stats = tiles.stats;
+        const stats = (tiles as unknown as { stats: Record<string, number> | null }).stats;
         if (!stats) {
-          onProgress?.('Error: tiles.stats is null');
+          onProgress?.('Error: (tiles as unknown as { stats: Record<string, number> | null }).stats is null');
           resolve();
           return;
         }

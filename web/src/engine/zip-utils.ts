@@ -53,7 +53,7 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
   const writer = ds.writable.getWriter();
   const reader = ds.readable.getReader();
 
-  writer.write(compressed);
+  writer.write(compressed as Uint8Array<ArrayBuffer>);
   writer.close();
 
   const chunks: Uint8Array[] = [];
@@ -111,11 +111,11 @@ export async function extractFile(
         if (!password) throw new Error(`File "${filename}" is encrypted but no password given`);
         const decrypted = decryptData(compressed, password);
         // skip 12-byte encryption header
-        compressed = decrypted.subarray(12);
+        compressed = decrypted.subarray(12) as Uint8Array<ArrayBuffer>;
       }
 
-      if (method === 0) return compressed.buffer.slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength);
-      if (method === 8) return (await inflate(compressed)).buffer;
+      if (method === 0) return (compressed.buffer as ArrayBuffer).slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength);
+      if (method === 8) return (await inflate(compressed)).buffer as ArrayBuffer;
       throw new Error(`Unsupported compression method ${method}`);
     }
 

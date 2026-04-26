@@ -230,13 +230,6 @@ export function voxelizeLDraw(
   // ── Orientation normalization ─────────────────────────────────────────────
   // LDraw convention: Y increases downward. Properly oriented models have
   // the floor at Y≈0 and extend into positive Y (downward bounding box).
-  // Models from old tools (BL Studio 1.x, some LXF exports) may be upside-
-  // down (negative Y centroid). Detect and auto-flip such models.
-  const nonPrimBricks = bricks.filter(b => !isLDrawPrimitive(b.part));
-  const ySum = nonPrimBricks.reduce((s, b) => s + b.y, 0);
-  const yCentroid = nonPrimBricks.length > 0 ? ySum / nonPrimBricks.length : 0;
-  // If the centroid is strongly negative (model extends upward in LDraw space),
-  // the model is flipped. Auto-correct by negating Y across all bricks.
   // Auto-flip disabled: LDraw convention is Y-down, grid conversion handles
   // the inversion (gy = -wy / LDU_PER_Y). Previous heuristic incorrectly
   // flipped models with all-negative Y (standard upward-pointing models).
@@ -433,8 +426,6 @@ export function voxelizeLDraw(
         roundRz = (spanZ + 1) / 2;
       }
     }
-    const isRound = roundMaskPlane !== null;
-
     // Frame masking: skip cells in the hollow center void of open-center Technic bricks.
     // The void is the inner rectangular region with frameThick cells removed from each
     // AABB edge in both X and Z. Works correctly for all 90° Y-rotations.
