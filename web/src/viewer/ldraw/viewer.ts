@@ -655,8 +655,18 @@ export class LDrawViewer {
     for (const stepState of this.stepGroups.values()) {
       this.scene.remove(stepState.group);
       stepState.group.traverse(obj => {
-        if (obj instanceof THREE.Mesh) obj.geometry.dispose();
-        else if (obj instanceof LineSegments2) obj.geometry.dispose();
+        // InstancedMesh.geometry is SHARED across loads via sharedPartGeoms
+        // cache — disposing it here would leave the cache holding a freed
+        // geometry that the next load reuses, producing broken renders.
+        // Only dispose non-instanced meshes (none in current paths but defensive).
+        if (obj instanceof THREE.InstancedMesh) {
+          // Dispose only the per-instance buffers, not the geometry
+          obj.dispose();
+        } else if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose();
+        } else if (obj instanceof LineSegments2) {
+          obj.geometry.dispose();
+        }
       });
     }
     this.stepGroups.clear();
