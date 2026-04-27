@@ -127,6 +127,9 @@ function buildUI(): void {
   rootEl.innerHTML = `
     <!-- Status (shared) -->
     <div class="lego-status" id="lego-status" hidden></div>
+    <div id="lego-progress" hidden style="margin-top:6px;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden">
+      <div id="lego-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#a78bfa);transition:width 120ms ease-out"></div>
+    </div>
 
     <!-- Scale mode toggle -->
     <div class="lego-section lego-scale-row">
@@ -686,17 +689,21 @@ async function voxelizeAndDisplay(
           currentLDrawViewer = await LDrawViewer.create(viewerEl);
         }
         let lastProgressUpdate = 0;
+        showProgress(0);
         await currentLDrawViewer.load(bricks, {
           mpdContent: currentMpdContent,
           maxStep: currentStep,
           onProgress: (done, total) => {
+            const pct = total > 0 ? done / total : 0;
+            showProgress(pct);
             const now = Date.now();
             if (now - lastProgressUpdate > 200 || done === total) {
-              setStatus(`Loading geometry: ${done}/${total} parts (${Math.round(done/total*100)}%)…`, 'info');
+              setStatus(`Loading geometry: ${done}/${total} parts (${Math.round(pct * 100)}%)…`, 'info');
               lastProgressUpdate = now;
             }
           },
         });
+        hideProgress();
         setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry`, 'success');
       }
     } catch (e) {
@@ -786,6 +793,19 @@ function setStatus(msg: string, type: 'info' | 'error' | 'success'): void {
   el.textContent = msg;
   el.className = `lego-status lego-status-${type}`;
   el.hidden = !msg;
+}
+
+function showProgress(fraction: number): void {
+  const bar = document.getElementById('lego-progress');
+  const fill = document.getElementById('lego-progress-fill');
+  if (!bar || !fill) return;
+  bar.hidden = false;
+  fill.style.width = `${Math.max(0, Math.min(1, fraction)) * 100}%`;
+}
+
+function hideProgress(): void {
+  const bar = document.getElementById('lego-progress');
+  if (bar) bar.hidden = true;
 }
 
 /**
