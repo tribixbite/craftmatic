@@ -95,6 +95,13 @@ export class LDrawViewer {
   // Persists across load() calls — same part across two models reuses the
   // smoothed BufferGeometry. Disposed only on viewer.dispose().
   private sharedPartGeoms: Map<string, THREE.BufferGeometry | null> = new Map();
+
+  // Maps each InstancedMesh + instanceId back to its source ParsedBrick for
+  // click-to-inspect. Populated during buildStepGroup, cleared in unloadCurrent.
+  private instanceBrickMap: Map<THREE.InstancedMesh, ParsedBrick[]> = new Map();
+  /** User-supplied click handler. Called with the picked brick on canvas click. */
+  onBrickClick: ((brick: ParsedBrick) => void) | null = null;
+  private clickHandler: ((e: MouseEvent) => void) | null = null;
   private maxAvailableStep: number = 1;
   private currentMaxStep: number = Number.POSITIVE_INFINITY;
   // Stored bbox + size from last load(), used by setView() camera presets
@@ -223,6 +230,32 @@ export class LDrawViewer {
     // Mount canvas — clear any caller-provided spinner first
     while (container.firstChild) container.removeChild(container.firstChild);
     container.appendChild(viewer.renderer.domElement);
+
+    // Click-to-inspect handler — uses raycaster against InstancedMeshes
+    viewer.clickHandler = (e: MouseEvent) => {
+      if (!viewer.onBrickClick || !viewer.loaded) return;
+      const rect = viewer.renderer.domElement.getBoundingClientRect();
+      const mx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const my = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(mx, my), viewer.camera);
+      const meshes: THREE.InstancedMesh[] = [];
+      for (const stepState of viewer.stepGroups.values()) {
+        if (!stepState.group.visible) continue;
+        stepState.group.traverse(o => {
+          if (o instanceof THREE.InstancedMesh && o.visible) meshes.push(o);
+        });
+      }
+      const hits = ray.intersectObjects(meshes, false);
+      if (hits.length > 0 && hits[0]!.instanceId != null) {
+        const inst = hits[0]!.object as THREE.InstancedMesh;
+        const id = hits[0]!.instanceId;
+        const bricks = viewer.instanceBrickMap.get(inst);
+        const brick = bricks?.[id];
+        if (brick) viewer.onBrickClick(brick);
+      }
+    };
+    viewer.renderer.domElement.addEventListener('click', viewer.clickHandler);
 
     // Resize observer
     viewer.resizeObs = new ResizeObserver(() => viewer.handleResize());
@@ -484,6 +517,10 @@ export class LDrawViewer {
     this.disposed = true;
     cancelAnimationFrame(this.animId);
     this.resizeObs?.disconnect();
+    if (this.clickHandler) {
+      this.renderer.domElement.removeEventListener('click', this.clickHandler);
+      this.clickHandler = null;
+    }
     this.controls.dispose();
     this.unloadCurrent();
     for (const g of this.sharedPartGeoms.values()) g?.dispose();
@@ -540,6 +577,7 @@ export class LDrawViewer {
       });
     }
     this.stepGroups.clear();
+    this.instanceBrickMap.clear();
     for (const m of this.allMeshMaterials) m.dispose();
     this.allMeshMaterials = [];
     for (const obj of this.backdropMeshes) {
@@ -578,6 +616,7 @@ export class LDrawViewer {
       partId: string;
       brickColor: number;
       matrices: THREE.Matrix4[];
+      bricks: ParsedBrick[]; // parallel to matrices — for click-to-inspect
     }
     const buckets = new Map<string, InstanceBucket>();
     const edgeGroups = new Map<number, { positions: number[] }>();
@@ -607,10 +646,11 @@ export class LDrawViewer {
       const bucketKey = `${partId}|${cid}`;
       let bucket = buckets.get(bucketKey);
       if (!bucket) {
-        bucket = { partId, brickColor: cid, matrices: [] };
+        bucket = { partId, brickColor: cid, matrices: [], bricks: [] };
         buckets.set(bucketKey, bucket);
       }
       bucket.matrices.push(m);
+      bucket.bricks.push(brick);
 
       // Edges (kept as merged-batched per-step — fat lines aren't easily
       // instanced). World-space positions; cap total to bound memory.
@@ -668,6 +708,8 @@ export class LDrawViewer {
           inst.setMatrixAt(i, bucket.matrices[i]!);
         }
         inst.instanceMatrix.needsUpdate = true;
+        // Track instance → brick for click-to-inspect
+        this.instanceBrickMap.set(inst, bucket.bricks);
         // Expand scene bbox by transforming part-local bbox via each instance
         if (mainGeom.boundingBox) {
           for (const m of bucket.matrices) {

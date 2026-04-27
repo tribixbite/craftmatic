@@ -130,6 +130,7 @@ function buildUI(): void {
     <div id="lego-progress" hidden style="margin-top:6px;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden">
       <div id="lego-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#a78bfa);transition:width 120ms ease-out"></div>
     </div>
+    <div id="lego-picked-brick" hidden style="margin-top:6px;padding:6px 8px;background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.4);border-radius:4px;font-size:0.78rem;line-height:1.5"></div>
 
     <!-- Scale mode toggle -->
     <div class="lego-section lego-scale-row">
@@ -742,6 +743,37 @@ async function voxelizeAndDisplay(
             <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
           </div>`;
           currentLDrawViewer = await LDrawViewer.create(viewerEl);
+          currentLDrawViewer.onBrickClick = async brick => {
+            const el = document.getElementById('lego-picked-brick');
+            if (!el) return;
+            const { LDRAW_COLOR_RGB } = await import('@engine/ldraw-colors.js');
+            const colorHex = LDRAW_COLOR_RGB[brick.color] ?? '#808080';
+            const partName = brick.part.replace(/\.dat$/i, '');
+            el.replaceChildren();
+            const swatch = document.createElement('span');
+            swatch.style.cssText = `display:inline-block;width:10px;height:10px;background:${colorHex};border:1px solid rgba(255,255,255,0.3);border-radius:2px;margin-right:6px;vertical-align:middle`;
+            const colorRow = document.createElement('div');
+            colorRow.appendChild(swatch);
+            colorRow.append(`Color id ${brick.color} (${colorHex})`);
+            const lines = [
+              `Part: ${partName}`,
+            ];
+            for (const line of lines) {
+              const div = document.createElement('div');
+              div.textContent = line;
+              el.appendChild(div);
+            }
+            el.appendChild(colorRow);
+            const posDiv = document.createElement('div');
+            posDiv.textContent = `Pos: ${brick.x.toFixed(1)}, ${brick.y.toFixed(1)}, ${brick.z.toFixed(1)}`;
+            el.appendChild(posDiv);
+            if (brick.step != null) {
+              const stepDiv = document.createElement('div');
+              stepDiv.textContent = `Step: ${brick.step}`;
+              el.appendChild(stepDiv);
+            }
+            el.hidden = false;
+          };
         }
         let lastProgressUpdate = 0;
         showProgress(0);
