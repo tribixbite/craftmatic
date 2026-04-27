@@ -296,6 +296,41 @@ function wireEvents(): void {
     if (name) currentLDrawViewer?.setView(name);
   });
 
+  // ── Keyboard shortcuts (active only when LEGO tab is showing) ─────────────
+  document.addEventListener('keydown', e => {
+    // Don't intercept when typing in a text/number input
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' || target.isContentEditable) return;
+    // Only act when LEGO tab is the active view (heuristic: viewer is visible)
+    const viewer = document.getElementById('lego-viewer');
+    if (!viewer || viewer.offsetParent === null) return;
+    if (!currentLDrawViewer) return;
+
+    switch (e.key.toLowerCase()) {
+      case 'i': currentLDrawViewer.setView('iso'); e.preventDefault(); break;
+      case 'f': currentLDrawViewer.setView('front'); e.preventDefault(); break;
+      case 'b': currentLDrawViewer.setView('back'); e.preventDefault(); break;
+      case 'l': currentLDrawViewer.setView('left'); e.preventDefault(); break;
+      case 'r': currentLDrawViewer.setView('right'); e.preventDefault(); break;
+      case 't': currentLDrawViewer.setView('top'); e.preventDefault(); break;
+      case ' ': {
+        const cb = document.getElementById('lego-auto-rotate') as HTMLInputElement | null;
+        if (cb) {
+          cb.checked = !cb.checked;
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        e.preventDefault();
+        break;
+      }
+      case 'escape': {
+        const picked = document.getElementById('lego-picked-brick');
+        if (picked) picked.hidden = true;
+        break;
+      }
+    }
+  });
+
   // ── PNG export ────────────────────────────────────────────────────────────
   document.getElementById('lego-export-png')?.addEventListener('change', e => {
     const sel = e.target as HTMLSelectElement;
