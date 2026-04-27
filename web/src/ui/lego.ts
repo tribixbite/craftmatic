@@ -144,6 +144,10 @@ function buildUI(): void {
         <input type="checkbox" id="lego-direct-render" style="margin:0">
         3D Render
       </label>
+      <label title="Slowly orbit the camera around the model — useful for showcase / comparison" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-auto-rotate" style="margin:0">
+        Rotate
+      </label>
     </div>
 
     <!-- Assembly step slider (hidden until model with steps is loaded) -->
@@ -239,6 +243,12 @@ function wireEvents(): void {
     if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
   });
   updateScaleControlsVisibility();
+
+  // ── Auto-rotation toggle ──────────────────────────────────────────────────
+  document.getElementById('lego-auto-rotate')?.addEventListener('change', e => {
+    const on = (e.target as HTMLInputElement).checked;
+    currentLDrawViewer?.setAutoRotate(on);
+  });
 
   // ── Step slider ────────────────────────────────────────────────────────────
   document.getElementById('lego-step-slider')?.addEventListener('input', async e => {
