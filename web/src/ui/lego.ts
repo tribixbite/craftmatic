@@ -131,6 +131,7 @@ function buildUI(): void {
       <div id="lego-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#a78bfa);transition:width 120ms ease-out"></div>
     </div>
     <div id="lego-picked-brick" hidden style="margin-top:6px;padding:6px 8px;background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.4);border-radius:4px;font-size:0.78rem;line-height:1.5"></div>
+    <div id="lego-hover-tooltip" hidden style="position:fixed;z-index:9999;pointer-events:none;padding:4px 8px;background:rgba(0,0,0,0.85);color:#fff;border-radius:4px;font-size:0.7rem;line-height:1.3;white-space:nowrap;font-family:ui-sans-serif,system-ui,sans-serif"></div>
 
     <!-- Scale mode toggle -->
     <div class="lego-section lego-scale-row">
@@ -778,6 +779,21 @@ async function voxelizeAndDisplay(
             <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
           </div>`;
           currentLDrawViewer = await LDrawViewer.create(viewerEl);
+          currentLDrawViewer.onBrickHover = (brick, x, y) => {
+            const tip = document.getElementById('lego-hover-tooltip');
+            if (!tip) return;
+            if (!brick) { tip.hidden = true; return; }
+            const partName = brick.part.replace(/\.dat$/i, '');
+            tip.textContent = `${partName} · color ${brick.color}`;
+            // Position 12px down-right of cursor, clamp to viewport
+            const tipW = tip.offsetWidth || 100;
+            const tipH = tip.offsetHeight || 20;
+            const px = Math.min(x + 12, window.innerWidth - tipW - 4);
+            const py = Math.min(y + 12, window.innerHeight - tipH - 4);
+            tip.style.left = `${px}px`;
+            tip.style.top = `${py}px`;
+            tip.hidden = false;
+          };
           currentLDrawViewer.onBrickClick = async brick => {
             const el = document.getElementById('lego-picked-brick');
             if (!el) return;

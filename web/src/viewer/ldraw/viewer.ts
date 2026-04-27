@@ -103,7 +103,13 @@ export class LDrawViewer {
   private instanceBrickMap: Map<THREE.InstancedMesh, ParsedBrick[]> = new Map();
   /** User-supplied click handler. Called with the picked brick on canvas click. */
   onBrickClick: ((brick: ParsedBrick) => void) | null = null;
+  /** User-supplied hover handler. Called on throttled mousemove with the brick under the cursor (or null when none). */
+  onBrickHover: ((brick: ParsedBrick | null, screenX: number, screenY: number) => void) | null = null;
   private clickHandler: ((e: MouseEvent) => void) | null = null;
+  private moveHandler: ((e: MouseEvent) => void) | null = null;
+  private leaveHandler: (() => void) | null = null;
+  private hoverPending = false;
+  private lastHoveredBrick: ParsedBrick | null = null;
   private maxAvailableStep: number = 1;
   private currentMaxStep: number = Number.POSITIVE_INFINITY;
   // Stored bbox + size from last load(), used by setView() camera presets
@@ -233,31 +239,46 @@ export class LDrawViewer {
     while (container.firstChild) container.removeChild(container.firstChild);
     container.appendChild(viewer.renderer.domElement);
 
-    // Click-to-inspect handler — uses raycaster against InstancedMeshes
+    // Click-to-inspect handler — uses shared pickBrickAt
     viewer.clickHandler = (e: MouseEvent) => {
       if (!viewer.onBrickClick || !viewer.loaded) return;
-      const rect = viewer.renderer.domElement.getBoundingClientRect();
-      const mx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      const my = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      const ray = new THREE.Raycaster();
-      ray.setFromCamera(new THREE.Vector2(mx, my), viewer.camera);
-      const meshes: THREE.InstancedMesh[] = [];
-      for (const stepState of viewer.stepGroups.values()) {
-        if (!stepState.group.visible) continue;
-        stepState.group.traverse(o => {
-          if (o instanceof THREE.InstancedMesh && o.visible) meshes.push(o);
-        });
-      }
-      const hits = ray.intersectObjects(meshes, false);
-      if (hits.length > 0 && hits[0]!.instanceId != null) {
-        const inst = hits[0]!.object as THREE.InstancedMesh;
-        const id = hits[0]!.instanceId;
-        const bricks = viewer.instanceBrickMap.get(inst);
-        const brick = bricks?.[id];
-        if (brick) viewer.onBrickClick(brick);
-      }
+      const brick = viewer.pickBrickAt(e.clientX, e.clientY);
+      if (brick) viewer.onBrickClick(brick);
     };
     viewer.renderer.domElement.addEventListener('click', viewer.clickHandler);
+
+    // Hover handler — throttled raycast, shared logic with click. Picks the
+    // brick under the cursor on mousemove and emits onBrickHover, but at
+    // most once per requestAnimationFrame to keep raycasts off the hot path.
+    let pendingClientX = 0;
+    let pendingClientY = 0;
+    viewer.moveHandler = (e: MouseEvent) => {
+      pendingClientX = e.clientX;
+      pendingClientY = e.clientY;
+      if (viewer.hoverPending || !viewer.onBrickHover || !viewer.loaded) return;
+      viewer.hoverPending = true;
+      requestAnimationFrame(() => {
+        viewer.hoverPending = false;
+        if (!viewer.onBrickHover || !viewer.loaded || viewer.disposed) return;
+        const brick = viewer.pickBrickAt(pendingClientX, pendingClientY);
+        if (brick !== viewer.lastHoveredBrick) {
+          viewer.lastHoveredBrick = brick;
+          viewer.onBrickHover(brick, pendingClientX, pendingClientY);
+        } else if (brick) {
+          // Same brick but moved — update position for tooltip placement
+          viewer.onBrickHover(brick, pendingClientX, pendingClientY);
+        }
+      });
+    };
+    viewer.renderer.domElement.addEventListener('mousemove', viewer.moveHandler);
+
+    viewer.leaveHandler = () => {
+      if (viewer.lastHoveredBrick !== null) {
+        viewer.lastHoveredBrick = null;
+        viewer.onBrickHover?.(null, 0, 0);
+      }
+    };
+    viewer.renderer.domElement.addEventListener('mouseleave', viewer.leaveHandler);
 
     // Resize observer
     viewer.resizeObs = new ResizeObserver(() => viewer.handleResize());
@@ -522,6 +543,14 @@ export class LDrawViewer {
     if (this.clickHandler) {
       this.renderer.domElement.removeEventListener('click', this.clickHandler);
       this.clickHandler = null;
+    }
+    if (this.moveHandler) {
+      this.renderer.domElement.removeEventListener('mousemove', this.moveHandler);
+      this.moveHandler = null;
+    }
+    if (this.leaveHandler) {
+      this.renderer.domElement.removeEventListener('mouseleave', this.leaveHandler);
+      this.leaveHandler = null;
     }
     this.controls.dispose();
     this.unloadCurrent();
@@ -805,6 +834,30 @@ export class LDrawViewer {
     }
 
     return { group, edgeMaterials };
+  }
+
+  /**
+   * Raycast the given client coordinates and return the picked brick (if any).
+   * Walks all visible InstancedMeshes across visible step groups.
+   */
+  private pickBrickAt(clientX: number, clientY: number): ParsedBrick | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const mx = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const my = -((clientY - rect.top) / rect.height) * 2 + 1;
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(mx, my), this.camera);
+    const meshes: THREE.InstancedMesh[] = [];
+    for (const stepState of this.stepGroups.values()) {
+      if (!stepState.group.visible) continue;
+      stepState.group.traverse(o => {
+        if (o instanceof THREE.InstancedMesh && o.visible) meshes.push(o);
+      });
+    }
+    const hits = ray.intersectObjects(meshes, false);
+    if (hits.length === 0 || hits[0]!.instanceId == null) return null;
+    const inst = hits[0]!.object as THREE.InstancedMesh;
+    const id = hits[0]!.instanceId;
+    return this.instanceBrickMap.get(inst)?.[id] ?? null;
   }
 
   /**
