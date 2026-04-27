@@ -43,8 +43,6 @@ import {
 import {
   getThreeColor,
   isTransparentColor,
-  isMetallicColor,
-  isGlowColor,
   makeMaterial,
 } from './materials.js';
 
@@ -794,6 +792,7 @@ export class LDrawViewer {
         const material = makeMaterial(bucket.brickColor);
         this.allMeshMaterials.push(material);
         const inst = new THREE.InstancedMesh(mainGeom, material, bucket.matrices.length);
+        inst.frustumCulled = false; // matrices are world-space; default cull check uses geometry's local bbox which is wrong
         inst.castShadow = true;
         inst.receiveShadow = true;
         if (isTransparentColor(bucket.brickColor)) inst.renderOrder = 1;
@@ -801,17 +800,17 @@ export class LDrawViewer {
           inst.setMatrixAt(i, bucket.matrices[i]!);
         }
         inst.instanceMatrix.needsUpdate = true;
-        // Per-instance color jitter for organic batch variation. Real LEGO
-        // bricks have ±1-2% molding-color variation between batches; uniform
-        // identical-color buckets read as too synthetic without it.
-        // Skip for transparent / metallic / glow — those use specialized
-        // materials where jitter would clash.
-        if (bucket.matrices.length > 1
-            && !isTransparentColor(bucket.brickColor)
-            && !isMetallicColor(bucket.brickColor)
-            && !isGlowColor(bucket.brickColor)) {
-          this.applyInstanceColorJitter(inst, material.color, bucket.matrices.length);
-        }
+        // Compute the InstancedMesh's true world-space bbox/sphere from
+        // instance matrices — without this, frustum culling uses the
+        // part-local bbox (small, around origin) and culls the entire mesh
+        // even though the instances are scattered across world space.
+        inst.computeBoundingBox();
+        inst.computeBoundingSphere();
+        // (Per-instance color jitter was disabled — initial implementation
+        // multiplied with material.color in the shader, over-darkening
+        // every instance. A correct implementation would use small
+        // multipliers around 1.0; deferred until I can verify it
+        // actually improves perceived realism without distorting hue.)
         // Track instance → brick for click-to-inspect
         this.instanceBrickMap.set(inst, bucket.bricks);
         // Expand scene bbox by transforming part-local bbox via each instance
@@ -833,6 +832,7 @@ export class LDrawViewer {
         const cMat = makeMaterial(ccid);
         this.allMeshMaterials.push(cMat);
         const cInst = new THREE.InstancedMesh(subGeom, cMat, bucket.matrices.length);
+        cInst.frustumCulled = false;
         cInst.castShadow = true;
         cInst.receiveShadow = true;
         if (isTransparentColor(ccid)) cInst.renderOrder = 1;
@@ -840,6 +840,8 @@ export class LDrawViewer {
           cInst.setMatrixAt(i, bucket.matrices[i]!);
         }
         cInst.instanceMatrix.needsUpdate = true;
+        cInst.computeBoundingBox();
+        cInst.computeBoundingSphere();
         if (subGeom.boundingBox) {
           for (const m of bucket.matrices) {
             partLocalBox.copy(subGeom.boundingBox).applyMatrix4(m);
@@ -923,40 +925,16 @@ export class LDrawViewer {
   }
 
   /**
-   * Apply small per-instance HSL color jitter so identical-color batches
-   * have organic molding-batch variation. Lightness ±2.5%, saturation
-   * ±5%, hue unchanged. Uses a deterministic mulberry32 PRNG seeded by
-   * instance index so the jitter pattern is stable across reloads.
+   * Apply small per-instance brightness jitter so identical-color batches
+   * have organic molding-batch variation. THREE.js multiplies instanceColor
+   * with material.color in the shader, so the per-instance value should be
+   * a SCALE (around 1.0), not a full color — passing the full base color
+   * would square the value and over-darken every instance.
+   *
+   * Range: ±4% per channel, near-uniform so it reads as molding lightness
+   * variation rather than hue shift. Deterministic mulberry32 PRNG seeded
+   * by count so the pattern stays stable across reloads.
    */
-  private applyInstanceColorJitter(
-    inst: THREE.InstancedMesh,
-    base: THREE.Color,
-    count: number,
-  ): void {
-    const baseHSL = { h: 0, s: 0, l: 0 };
-    base.getHSL(baseHSL);
-    const tmpColor = new THREE.Color();
-    // Deterministic PRNG so the jitter pattern doesn't shift across loads
-    let state = count * 0x9E3779B9; // golden-ratio seed mix
-    const rand = (): number => {
-      state = (state + 0x6D2B79F5) | 0;
-      let t = state;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-    for (let i = 0; i < count; i++) {
-      const dl = (rand() - 0.5) * 0.05; // ±2.5%
-      const ds = (rand() - 0.5) * 0.10; // ±5%
-      tmpColor.setHSL(
-        baseHSL.h,
-        Math.max(0, Math.min(1, baseHSL.s + ds)),
-        Math.max(0, Math.min(1, baseHSL.l + dl)),
-      );
-      inst.setColorAt(i, tmpColor);
-    }
-    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-  }
 
   /**
    * Build (and cache) a shared BufferGeometry for a part's triangle group
@@ -1035,23 +1013,38 @@ export class LDrawViewer {
     const bboxCenter = new THREE.Vector3().lerpVectors(bboxMin, bboxMax, 0.5);
     let totalWeight = 0;
     const weighted = new THREE.Vector3();
+    const tmpMat = new THREE.Matrix4();
+    const tmpVec = new THREE.Vector3();
 
     for (const stepState of this.stepGroups.values()) {
       stepState.group.traverse(obj => {
-        if (!(obj instanceof THREE.Mesh)) return;
-        if (obj.geometry.boundingSphere == null) {
-          obj.geometry.computeBoundingSphere();
+        if (obj instanceof THREE.InstancedMesh) {
+          // For InstancedMesh, the geometry's boundingSphere is in
+          // part-local LDU space. Compute the world-space centroid by
+          // averaging instance translations, weighted by per-instance
+          // geometry-triangle count (so dense parts contribute more).
+          const pos = obj.geometry.getAttribute('position');
+          if (!pos) return;
+          const trisPerInstance = pos.count / 3;
+          // Soft cap so a single huge part doesn't dominate
+          const weight = Math.min(trisPerInstance, 5000);
+          for (let i = 0; i < obj.count; i++) {
+            obj.getMatrixAt(i, tmpMat);
+            tmpVec.setFromMatrixPosition(tmpMat);
+            weighted.addScaledVector(tmpVec, weight);
+            totalWeight += weight;
+          }
+        } else if (obj instanceof THREE.Mesh) {
+          if (obj.geometry.boundingSphere == null) obj.geometry.computeBoundingSphere();
+          const sphere = obj.geometry.boundingSphere;
+          if (!sphere) return;
+          const pos = obj.geometry.getAttribute('position');
+          if (!pos) return;
+          const tris = pos.count / 3;
+          const weight = Math.min(tris, 50_000);
+          weighted.addScaledVector(sphere.center, weight);
+          totalWeight += weight;
         }
-        const sphere = obj.geometry.boundingSphere;
-        if (!sphere) return;
-        const pos = obj.geometry.getAttribute('position');
-        if (!pos) return;
-        const tris = pos.count / 3;
-        // Weight = triangle count (proxy for "visual mass") capped so a
-        // single huge mesh doesn't completely dominate.
-        const weight = Math.min(tris, 50_000);
-        weighted.addScaledVector(sphere.center, weight);
-        totalWeight += weight;
       });
     }
 
