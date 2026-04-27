@@ -352,6 +352,18 @@ export class LDrawViewer {
     this.controls.autoRotate = enabled;
   }
 
+  /**
+   * Wireframe mode: hide brick meshes, keep only edge LineSegments2.
+   * Useful for inspecting brick connectivity without surface fills.
+   */
+  setWireframe(wireframe: boolean): void {
+    for (const stepState of this.stepGroups.values()) {
+      stepState.group.traverse(obj => {
+        if (obj instanceof THREE.Mesh) obj.visible = !wireframe;
+      });
+    }
+  }
+
   /** Capture a PNG screenshot of the current view. */
   captureScreenshot(): string {
     this.composer.render();

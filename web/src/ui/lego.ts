@@ -148,6 +148,10 @@ function buildUI(): void {
         <input type="checkbox" id="lego-auto-rotate" style="margin:0">
         Rotate
       </label>
+      <label title="Hide brick fills, show only edge lines — useful for inspecting connectivity" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-wireframe" style="margin:0">
+        Wireframe
+      </label>
     </div>
 
     <!-- Assembly step slider (hidden until model with steps is loaded) -->
@@ -248,6 +252,12 @@ function wireEvents(): void {
   document.getElementById('lego-auto-rotate')?.addEventListener('change', e => {
     const on = (e.target as HTMLInputElement).checked;
     currentLDrawViewer?.setAutoRotate(on);
+  });
+
+  // ── Wireframe toggle ──────────────────────────────────────────────────────
+  document.getElementById('lego-wireframe')?.addEventListener('change', e => {
+    const on = (e.target as HTMLInputElement).checked;
+    currentLDrawViewer?.setWireframe(on);
   });
 
   // ── Step slider ────────────────────────────────────────────────────────────
