@@ -98,6 +98,12 @@ export class LDrawViewer {
   private allMeshMaterials: THREE.Material[] = [];
   private maxAvailableStep: number = 1;
   private currentMaxStep: number = Number.POSITIVE_INFINITY;
+  // Stored bbox + size from last load(), used by setView() camera presets
+  private lastBboxMin = new THREE.Vector3();
+  private lastBboxMax = new THREE.Vector3();
+  private lastVisualCenter = new THREE.Vector3();
+  private lastSize = new THREE.Vector3();
+  private lastMaxDim = 10;
 
   // Lifecycle
   private animId: number = 0;
@@ -321,6 +327,12 @@ export class LDrawViewer {
       this.installSAO(maxDim);
       this.updateEdgeLineWidth(maxDim);
       this.adaptExposure();
+      // Cache for setView() presets
+      this.lastBboxMin.copy(bboxMin);
+      this.lastBboxMax.copy(bboxMax);
+      this.lastVisualCenter.copy(visualCenter);
+      this.lastSize.copy(size);
+      this.lastMaxDim = maxDim;
     }
 
     this.loaded = true;
@@ -878,7 +890,22 @@ export class LDrawViewer {
     const dirX = 0.42, dirY = elevationFactor, dirZ = 0.85;
     const dirLen = Math.hypot(dirX, dirY, dirZ) || 1;
     const ndir = new THREE.Vector3(dirX / dirLen, dirY / dirLen, dirZ / dirLen);
+    this.fitCameraToDirection(ndir, center, size, bboxMin, bboxMax, maxDim);
+  }
 
+  /**
+   * Position camera along the unit direction `ndir` from `center`, with the
+   * fit distance computed so all 8 bbox corners project inside the FoV.
+   * Shared by frameCamera() (3/4 default) and setView() (canonical presets).
+   */
+  private fitCameraToDirection(
+    ndir: THREE.Vector3,
+    center: THREE.Vector3,
+    size: THREE.Vector3,
+    bboxMin: THREE.Vector3,
+    bboxMax: THREE.Vector3,
+    maxDim: number,
+  ): void {
     const aspect = this.camera.aspect;
     const fovV = (this.camera.fov * Math.PI) / 180;
     const tanV = Math.tan(fovV / 2);
@@ -896,7 +923,10 @@ export class LDrawViewer {
     ];
     const forward = ndir.clone().negate();
     const worldUp = new THREE.Vector3(0, 1, 0);
-    const right = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
+    // Avoid degenerate cross when looking straight up/down — use Z as up
+    const upRef = Math.abs(forward.dot(worldUp)) > 0.99
+      ? new THREE.Vector3(0, 0, 1) : worldUp;
+    const right = new THREE.Vector3().crossVectors(forward, upRef).normalize();
     const up = new THREE.Vector3().crossVectors(right, forward).normalize();
 
     let maxDist = 0;
@@ -923,6 +953,37 @@ export class LDrawViewer {
     this.controls.maxDistance = maxDim * 5;
     this.controls.minDistance = maxDim * 0.1;
     this.controls.update();
+  }
+
+  /**
+   * Snap to a canonical view direction, preserving the visual centroid.
+   * Names: 'iso' (default 3/4), 'front', 'back', 'left', 'right', 'top'.
+   */
+  setView(name: 'iso' | 'front' | 'back' | 'left' | 'right' | 'top'): void {
+    if (!this.loaded) return;
+    let ndir: THREE.Vector3;
+    switch (name) {
+      case 'front': ndir = new THREE.Vector3(0, 0, 1); break;
+      case 'back':  ndir = new THREE.Vector3(0, 0, -1); break;
+      case 'left':  ndir = new THREE.Vector3(-1, 0, 0); break;
+      case 'right': ndir = new THREE.Vector3(1, 0, 0); break;
+      case 'top':   ndir = new THREE.Vector3(0, 1, 0); break;
+      case 'iso':
+      default: {
+        const aspectRatio = this.lastSize.y / Math.max(this.lastSize.x, this.lastSize.z, 1);
+        const elevationFactor = Math.max(0.22, Math.min(0.55, 0.55 - aspectRatio * 0.7));
+        ndir = new THREE.Vector3(0.42, elevationFactor, 0.85).normalize();
+        break;
+      }
+    }
+    this.fitCameraToDirection(
+      ndir,
+      this.lastVisualCenter,
+      this.lastSize,
+      this.lastBboxMin,
+      this.lastBboxMax,
+      this.lastMaxDim,
+    );
   }
 
   private installSAO(maxDim: number): void {
