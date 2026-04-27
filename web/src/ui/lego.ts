@@ -159,6 +159,14 @@ function buildUI(): void {
         <input type="color" id="lego-bg-color" value="#2d2d3d" style="width:20px;height:20px;border:none;background:transparent;padding:0;cursor:pointer">
         BG
       </label>
+      <span id="lego-view-presets" style="display:inline-flex;gap:2px;margin-left:8px">
+        <button class="lego-view-btn" data-view="iso"   title="3/4 isometric view (default)" style="font-size:0.7rem;padding:2px 6px;border-radius:3px">iso</button>
+        <button class="lego-view-btn" data-view="front" title="Front view" style="font-size:0.7rem;padding:2px 6px;border-radius:3px">F</button>
+        <button class="lego-view-btn" data-view="left"  title="Left view"  style="font-size:0.7rem;padding:2px 6px;border-radius:3px">L</button>
+        <button class="lego-view-btn" data-view="right" title="Right view" style="font-size:0.7rem;padding:2px 6px;border-radius:3px">R</button>
+        <button class="lego-view-btn" data-view="back"  title="Back view"  style="font-size:0.7rem;padding:2px 6px;border-radius:3px">B</button>
+        <button class="lego-view-btn" data-view="top"   title="Top view"   style="font-size:0.7rem;padding:2px 6px;border-radius:3px">T</button>
+      </span>
     </div>
 
     <!-- Assembly step slider (hidden until model with steps is loaded) -->
@@ -271,6 +279,13 @@ function wireEvents(): void {
   document.getElementById('lego-bg-color')?.addEventListener('input', e => {
     const hex = parseInt((e.target as HTMLInputElement).value.replace('#', ''), 16);
     if (!isNaN(hex)) currentLDrawViewer?.setBackgroundColor(hex);
+  });
+
+  // ── View preset buttons ───────────────────────────────────────────────────
+  document.getElementById('lego-view-presets')?.addEventListener('click', e => {
+    const btn = (e.target as HTMLElement).closest('[data-view]') as HTMLElement | null;
+    const name = btn?.dataset['view'] as 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | undefined;
+    if (name) currentLDrawViewer?.setView(name);
   });
 
   // ── Step slider ────────────────────────────────────────────────────────────
