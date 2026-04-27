@@ -364,6 +364,28 @@ export class LDrawViewer {
     }
   }
 
+  /**
+   * Set scene background + studio backdrop tint. Pass a hex int (e.g.
+   * 0x2d2d3d) — backdrop and floor are tinted to a slightly lighter
+   * shade for visual separation, keeping fog/lighting consistent.
+   */
+  setBackgroundColor(hex: number): void {
+    (this.scene.background as THREE.Color).setHex(hex);
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.color.setHex(hex);
+    }
+    // Update studio backdrop materials to a slightly lighter tint of bg
+    const bgColor = new THREE.Color(hex);
+    const backdropColor = bgColor.clone().lerp(new THREE.Color(0xffffff), 0.18);
+    for (const obj of this.backdropMeshes) {
+      if (obj instanceof THREE.Mesh) {
+        const m = obj.material as THREE.MeshPhysicalMaterial;
+        // Skip the contact-shadow basic material (no .color in this sense)
+        if (m instanceof THREE.MeshPhysicalMaterial) m.color.copy(backdropColor);
+      }
+    }
+  }
+
   /** Capture a PNG screenshot of the current view. */
   captureScreenshot(): string {
     this.composer.render();

@@ -155,6 +155,10 @@ function buildUI(): void {
         <input type="checkbox" id="lego-wireframe" style="margin:0">
         Wireframe
       </label>
+      <label title="Background color (and matching studio backdrop)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="color" id="lego-bg-color" value="#2d2d3d" style="width:20px;height:20px;border:none;background:transparent;padding:0;cursor:pointer">
+        BG
+      </label>
     </div>
 
     <!-- Assembly step slider (hidden until model with steps is loaded) -->
@@ -261,6 +265,12 @@ function wireEvents(): void {
   document.getElementById('lego-wireframe')?.addEventListener('change', e => {
     const on = (e.target as HTMLInputElement).checked;
     currentLDrawViewer?.setWireframe(on);
+  });
+
+  // ── Background color picker ───────────────────────────────────────────────
+  document.getElementById('lego-bg-color')?.addEventListener('input', e => {
+    const hex = parseInt((e.target as HTMLInputElement).value.replace('#', ''), 16);
+    if (!isNaN(hex)) currentLDrawViewer?.setBackgroundColor(hex);
   });
 
   // ── Step slider ────────────────────────────────────────────────────────────
