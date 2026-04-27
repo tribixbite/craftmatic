@@ -362,13 +362,18 @@ export async function resolvePartGeometry(
 }
 
 /**
- * Skip non-visual primitives — text logos and LSynth virtual hose segments.
- * Everything else (cylinders, studs, fraction primitives) is kept since it
- * defines visible geometry.
+ * Skip non-visual primitives. Currently only the `logo` text stamps —
+ * they're 1×1mm "LEGO" embossings that don't render at typical zoom and
+ * cost ~50 tris each.
+ *
+ * LSynth virtual segment parts (lsXX.dat) used to be filtered here but
+ * many of them have real .dat geometry in the library (cylinder
+ * sections, hose segments). Letting them through allows hose-heavy
+ * Technic models to render their flexible parts as their normal
+ * triangle geometry. Unrecognized lsXX names just 404 silently.
  */
 export function isLDrawPrimitive(part: string): boolean {
   const bare = part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
   if (bare.startsWith('logo')) return true;
-  if (/^ls\d+/.test(bare)) return true;
   return false;
 }
