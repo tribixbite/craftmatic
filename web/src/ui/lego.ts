@@ -167,6 +167,13 @@ function buildUI(): void {
         <button class="lego-view-btn" data-view="back"  title="Back view"  style="font-size:0.7rem;padding:2px 6px;border-radius:3px">B</button>
         <button class="lego-view-btn" data-view="top"   title="Top view"   style="font-size:0.7rem;padding:2px 6px;border-radius:3px">T</button>
       </span>
+      <select id="lego-export-png" title="Export current view as PNG at chosen size" style="margin-left:8px;font-size:0.7rem;padding:2px 4px;border-radius:3px">
+        <option value="">PNG…</option>
+        <option value="1920x1080">1920×1080 HD</option>
+        <option value="2560x1440">2560×1440 QHD</option>
+        <option value="3840x2160">3840×2160 4K</option>
+        <option value="7680x4320">7680×4320 8K</option>
+      </select>
     </div>
 
     <!-- Assembly step slider (hidden until model with steps is loaded) -->
@@ -286,6 +293,29 @@ function wireEvents(): void {
     const btn = (e.target as HTMLElement).closest('[data-view]') as HTMLElement | null;
     const name = btn?.dataset['view'] as 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | undefined;
     if (name) currentLDrawViewer?.setView(name);
+  });
+
+  // ── PNG export ────────────────────────────────────────────────────────────
+  document.getElementById('lego-export-png')?.addEventListener('change', e => {
+    const sel = e.target as HTMLSelectElement;
+    const dim = sel.value;
+    sel.value = ''; // reset back to placeholder
+    if (!dim || !currentLDrawViewer) return;
+    const [wStr, hStr] = dim.split('x');
+    const w = parseInt(wStr!, 10);
+    const h = parseInt(hStr!, 10);
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+    setStatus(`Rendering ${w}×${h} PNG…`, 'info');
+    try {
+      const dataUrl = currentLDrawViewer.captureScreenshotAt(w, h);
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `${currentBricksLabel.replace(/\.[^.]+$/, '')}-${w}x${h}.png`;
+      a.click();
+      setStatus(`Exported ${w}×${h} PNG`, 'success');
+    } catch (err) {
+      setStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    }
   });
 
   // ── Step slider ────────────────────────────────────────────────────────────

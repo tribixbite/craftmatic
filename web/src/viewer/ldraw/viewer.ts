@@ -397,10 +397,86 @@ export class LDrawViewer {
     }
   }
 
-  /** Capture a PNG screenshot of the current view. */
+  /** Capture a PNG screenshot of the current view at the live canvas size. */
   captureScreenshot(): string {
     this.composer.render();
     return this.renderer.domElement.toDataURL('image/png');
+  }
+
+  /**
+   * Render and capture the current view at arbitrary dimensions, then restore
+   * the live viewer's size. Useful for high-res exports (4K, 8K) regardless
+   * of the on-screen canvas size. Blocks for one composer.render() — typical
+   * cost on a modern GPU is <100ms even at 4K.
+   */
+  captureScreenshotAt(width: number, height: number): string {
+    if (width <= 0 || height <= 0) throw new Error('Invalid export dimensions');
+
+    // Save current state
+    const liveW = this.container.clientWidth;
+    const liveH = this.container.clientHeight;
+    const liveAspect = this.camera.aspect;
+    const livePR = this.renderer.getPixelRatio();
+
+    try {
+      // Resize at PR=1 so width/height map 1:1 to output pixels.
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(width, height, false);
+      this.composer.setSize(width, height);
+      this.fxaaPass.material.uniforms['resolution']!.value.set(1 / width, 1 / height);
+      for (const stepState of this.stepGroups.values()) {
+        for (const edgeMat of stepState.edgeMaterials) {
+          edgeMat.resolution.set(width, height);
+        }
+      }
+      this.camera.aspect = width / height;
+      this.camera.updateProjectionMatrix();
+
+      // Re-fit camera so the model frames correctly at the new aspect
+      if (this.loaded) {
+        this.fitCameraToCurrentView();
+      }
+
+      this.composer.render();
+      return this.renderer.domElement.toDataURL('image/png');
+    } finally {
+      // Restore live state
+      this.renderer.setPixelRatio(livePR);
+      this.renderer.setSize(liveW, liveH, false);
+      this.composer.setSize(liveW, liveH);
+      this.fxaaPass.material.uniforms['resolution']!.value.set(
+        1 / (liveW * livePR),
+        1 / (liveH * livePR),
+      );
+      for (const stepState of this.stepGroups.values()) {
+        for (const edgeMat of stepState.edgeMaterials) {
+          edgeMat.resolution.set(liveW, liveH);
+        }
+      }
+      this.camera.aspect = liveAspect;
+      this.camera.updateProjectionMatrix();
+      if (this.loaded) {
+        this.fitCameraToCurrentView();
+      }
+    }
+  }
+
+  /**
+   * Re-fit the camera using the current direction (preserving user's orbit
+   * orientation) but adjusting distance for the current camera.aspect. Used
+   * by captureScreenshotAt to handle the temporary aspect change.
+   */
+  private fitCameraToCurrentView(): void {
+    if (!this.loaded) return;
+    const dir = this.camera.position.clone().sub(this.lastVisualCenter).normalize();
+    this.fitCameraToDirection(
+      dir,
+      this.lastVisualCenter,
+      this.lastSize,
+      this.lastBboxMin,
+      this.lastBboxMax,
+      this.lastMaxDim,
+    );
   }
 
   dispose(): void {
