@@ -31,7 +31,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
-import type { Vec3, LDrawViewerOptions } from './types.js';
+import type { Vec3, Triangle, LDrawViewerOptions } from './types.js';
 import {
   resolvePartGeometry,
   getCachedPartGeom,
@@ -55,11 +55,6 @@ function applyMat(v: Vec3, R: readonly number[], T: Vec3): Vec3 {
     R[3]! * v[0] + R[4]! * v[1] + R[5]! * v[2] + T[1],
     R[6]! * v[0] + R[7]! * v[1] + R[8]! * v[2] + T[2],
   ];
-}
-
-interface ColorAccumulator {
-  positions: number[];
-  normals: number[];
 }
 
 interface StepGroupState {
@@ -96,6 +91,10 @@ export class LDrawViewer {
   // Model state — populated by load(), cleared on next load()
   private stepGroups: Map<number, StepGroupState> = new Map();
   private allMeshMaterials: THREE.Material[] = [];
+  // Shared geometry cache keyed by `${partId}|main` or `${partId}|c${colorId}`.
+  // Persists across load() calls — same part across two models reuses the
+  // smoothed BufferGeometry. Disposed only on viewer.dispose().
+  private sharedPartGeoms: Map<string, THREE.BufferGeometry | null> = new Map();
   private maxAvailableStep: number = 1;
   private currentMaxStep: number = Number.POSITIVE_INFINITY;
   // Stored bbox + size from last load(), used by setView() camera presets
@@ -411,6 +410,8 @@ export class LDrawViewer {
     this.resizeObs?.disconnect();
     this.controls.dispose();
     this.unloadCurrent();
+    for (const g of this.sharedPartGeoms.values()) g?.dispose();
+    this.sharedPartGeoms.clear();
     this.composer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
@@ -492,89 +493,51 @@ export class LDrawViewer {
     const group = new THREE.Group();
     const edgeMaterials: LineMaterial[] = [];
 
-    const colorGroups = new Map<number, ColorAccumulator>();
+    // ── Bucket bricks by (partId, brickColor) for InstancedMesh ──────────
+    // Same partId reused across many bricks → ONE shared geometry + ONE
+    // draw call per (partId, color) pair, instead of merging triangles
+    // for every brick instance. Also avoids the per-brick mergeVertices/
+    // computeVertexNormals cost — we compute them once per unique partId.
+    interface InstanceBucket {
+      partId: string;
+      brickColor: number;
+      matrices: THREE.Matrix4[];
+    }
+    const buckets = new Map<string, InstanceBucket>();
     const edgeGroups = new Map<number, { positions: number[] }>();
     let totalEdgeFloats = 0;
-
-    const getCG = (cid: number): ColorAccumulator => {
-      let g = colorGroups.get(cid);
-      if (!g) { g = { positions: [], normals: [] }; colorGroups.set(cid, g); }
-      return g;
-    };
 
     const scale = LDU_TO_UNITS;
 
     for (const brick of stepBricks) {
-      const geom = getCachedPartGeom(brick.part);
+      const partId = normId(brick.part);
+      const geom = getCachedPartGeom(partId);
       if (!geom || (geom.tris.length === 0 && geom.colorTris.size === 0)) continue;
 
       const R = brick.rot ?? IDENTITY;
       const T: Vec3 = [brick.x, brick.y, brick.z];
       const cid = isNaN(brick.color) ? 71 : brick.color;
-      const acc = getCG(cid);
 
-      // Inherited (color-16) tris in part-local → world-flipped Y space
-      const brickPos: number[] = [];
-      for (const [lv0, lv1, lv2] of geom.tris) {
-        const wv0 = applyMat(lv0, R, T);
-        const wv1 = applyMat(lv1, R, T);
-        const wv2 = applyMat(lv2, R, T);
-        const x0 = wv0[0]! * scale, y0 = -wv0[1]! * scale, z0 = wv0[2]! * scale;
-        const x1 = wv1[0]! * scale, y1 = -wv1[1]! * scale, z1 = wv1[2]! * scale;
-        const x2 = wv2[0]! * scale, y2 = -wv2[1]! * scale, z2 = wv2[2]! * scale;
-        if (x0 === x1 && y0 === y1 && z0 === z1 &&
-            x0 === x2 && y0 === y2 && z0 === z2) continue;
-        brickPos.push(x0, y0, z0, x1, y1, z1, x2, y2, z2);
+      // Per-instance matrix: applies rotation+translation, then scale + Y-flip
+      // (LDraw is Y-down, scene is Y-up). Pre-baked so the InstancedMesh
+      // doesn't need its own Y-flip in shader.
+      const m = new THREE.Matrix4().set(
+        scale * R[0]!,  scale * R[1]!,  scale * R[2]!,  scale * T[0],
+        -scale * R[3]!, -scale * R[4]!, -scale * R[5]!, -scale * T[1],
+        scale * R[6]!,  scale * R[7]!,  scale * R[8]!,  scale * T[2],
+        0, 0, 0, 1,
+      );
+
+      const bucketKey = `${partId}|${cid}`;
+      let bucket = buckets.get(bucketKey);
+      if (!bucket) {
+        bucket = { partId, brickColor: cid, matrices: [] };
+        buckets.set(bucketKey, bucket);
       }
+      bucket.matrices.push(m);
 
-      // Per-brick smooth normals via mergeVertices for smooth cylinders
-      const triCount = brickPos.length / 9;
-      if (brickPos.length >= 9 && triCount >= 20) {
-        const brickGeo = new THREE.BufferGeometry();
-        brickGeo.setAttribute('position', new THREE.Float32BufferAttribute(brickPos, 3));
-        const merged = mergeVertices(brickGeo, 1e-4);
-        merged.computeVertexNormals();
-        const idx = merged.index;
-        const pos = merged.getAttribute('position');
-        const norm = merged.getAttribute('normal');
-        if (idx && pos && norm) {
-          for (let i = 0; i < idx.count; i++) {
-            const vi = idx.getX(i);
-            acc.positions.push(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
-            acc.normals.push(norm.getX(vi), norm.getY(vi), norm.getZ(vi));
-          }
-        } else {
-          acc.positions.push(...brickPos);
-          this.appendFaceNormals(brickPos, acc.normals);
-        }
-        merged.dispose();
-        brickGeo.dispose();
-      } else if (brickPos.length >= 9) {
-        acc.positions.push(...brickPos);
-        this.appendFaceNormals(brickPos, acc.normals);
-      }
-
-      // Explicit-color triangles (multi-colored sub-parts: printed tiles, etc.)
-      for (const [ccid, ctris] of geom.colorTris) {
-        const cAcc = getCG(ccid);
-        const cPos: number[] = [];
-        for (const [lv0, lv1, lv2] of ctris) {
-          const wv0 = applyMat(lv0, R, T);
-          const wv1 = applyMat(lv1, R, T);
-          const wv2 = applyMat(lv2, R, T);
-          cPos.push(
-            wv0[0]! * scale, -wv0[1]! * scale, wv0[2]! * scale,
-            wv1[0]! * scale, -wv1[1]! * scale, wv1[2]! * scale,
-            wv2[0]! * scale, -wv2[1]! * scale, wv2[2]! * scale,
-          );
-        }
-        if (cPos.length > 0) {
-          cAcc.positions.push(...cPos);
-          this.appendFaceNormals(cPos, cAcc.normals);
-        }
-      }
-
-      // Edges (cap total to bound memory on dense models)
+      // Edges (kept as merged-batched per-step — fat lines aren't easily
+      // instanced). World-space positions; cap total to bound memory.
       if (totalEdgeFloats < 12_000_000) {
         let eg = edgeGroups.get(cid);
         if (!eg) { eg = { positions: [] }; edgeGroups.set(cid, eg); }
@@ -603,35 +566,67 @@ export class LDrawViewer {
       }
     }
 
-    // Build meshes, opaque first then transparent (correct blending order)
-    const sortedEntries = [...colorGroups.entries()].sort((a, b) => {
-      const aT = isTransparentColor(a[0]) ? 1 : 0;
-      const bT = isTransparentColor(b[0]) ? 1 : 0;
+    // Build InstancedMesh per (partId, brickColor) bucket. Sort so opaque
+    // buckets render before transparent ones for correct blend order.
+    const sortedBuckets = [...buckets.values()].sort((a, b) => {
+      const aT = isTransparentColor(a.brickColor) ? 1 : 0;
+      const bT = isTransparentColor(b.brickColor) ? 1 : 0;
       return aT - bT;
     });
 
-    for (const [colorId, accum] of sortedEntries) {
-      if (accum.positions.length === 0) continue;
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(accum.positions, 3));
-      if (accum.normals.length === accum.positions.length) {
-        geometry.setAttribute('normal', new THREE.Float32BufferAttribute(accum.normals, 3));
-      } else {
-        geometry.computeVertexNormals();
+    const partLocalBox = new THREE.Box3();
+    for (const bucket of sortedBuckets) {
+      const partGeom = getCachedPartGeom(bucket.partId);
+      if (!partGeom) continue;
+
+      // ── Main inherited-color (color-16) mesh ─────────────────────────
+      const mainGeom = this.getOrBuildSharedGeometry(bucket.partId, 'main', partGeom.tris);
+      if (mainGeom && bucket.matrices.length > 0) {
+        const material = makeMaterial(bucket.brickColor);
+        this.allMeshMaterials.push(material);
+        const inst = new THREE.InstancedMesh(mainGeom, material, bucket.matrices.length);
+        inst.castShadow = true;
+        inst.receiveShadow = true;
+        if (isTransparentColor(bucket.brickColor)) inst.renderOrder = 1;
+        for (let i = 0; i < bucket.matrices.length; i++) {
+          inst.setMatrixAt(i, bucket.matrices[i]!);
+        }
+        inst.instanceMatrix.needsUpdate = true;
+        // Expand scene bbox by transforming part-local bbox via each instance
+        if (mainGeom.boundingBox) {
+          for (const m of bucket.matrices) {
+            partLocalBox.copy(mainGeom.boundingBox).applyMatrix4(m);
+            bboxMin.min(partLocalBox.min);
+            bboxMax.max(partLocalBox.max);
+          }
+        }
+        group.add(inst);
       }
-      geometry.computeBoundingBox();
-      geometry.computeBoundingSphere();
-      if (geometry.boundingBox) {
-        bboxMin.min(geometry.boundingBox.min);
-        bboxMax.max(geometry.boundingBox.max);
+
+      // ── Explicit-color sub-meshes (printed tiles, multi-colored parts) ─
+      // Same instance matrices for each explicit-color sub-geometry.
+      for (const [ccid, ctris] of partGeom.colorTris) {
+        const subGeom = this.getOrBuildSharedGeometry(bucket.partId, `c${ccid}`, ctris);
+        if (!subGeom) continue;
+        const cMat = makeMaterial(ccid);
+        this.allMeshMaterials.push(cMat);
+        const cInst = new THREE.InstancedMesh(subGeom, cMat, bucket.matrices.length);
+        cInst.castShadow = true;
+        cInst.receiveShadow = true;
+        if (isTransparentColor(ccid)) cInst.renderOrder = 1;
+        for (let i = 0; i < bucket.matrices.length; i++) {
+          cInst.setMatrixAt(i, bucket.matrices[i]!);
+        }
+        cInst.instanceMatrix.needsUpdate = true;
+        if (subGeom.boundingBox) {
+          for (const m of bucket.matrices) {
+            partLocalBox.copy(subGeom.boundingBox).applyMatrix4(m);
+            bboxMin.min(partLocalBox.min);
+            bboxMax.max(partLocalBox.max);
+          }
+        }
+        group.add(cInst);
       }
-      const material = makeMaterial(colorId);
-      this.allMeshMaterials.push(material);
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      if (isTransparentColor(colorId)) mesh.renderOrder = 1;
-      group.add(mesh);
     }
 
     // One LineSegments2 per step containing all that step's brick edges.
@@ -681,13 +676,53 @@ export class LDrawViewer {
     return { group, edgeMaterials };
   }
 
-  private appendFaceNormals(positions: number[], out: number[]): void {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geo.computeVertexNormals();
-    const n = geo.getAttribute('normal')!;
-    for (let i = 0; i < n.count; i++) out.push(n.getX(i), n.getY(i), n.getZ(i));
-    geo.dispose();
+  /**
+   * Build (and cache) a shared BufferGeometry for a part's triangle group
+   * in part-local LDU space. Smooth normals via mergeVertices for parts
+   * with enough triangles to benefit; flat face normals otherwise.
+   *
+   * Returns null for empty geometries. Cached per (partId, key) so a part
+   * used in many models / many step groups merges normals only once.
+   */
+  private getOrBuildSharedGeometry(
+    partId: string,
+    key: string,
+    tris: readonly Triangle[],
+  ): THREE.BufferGeometry | null {
+    const cacheKey = `${partId}|${key}`;
+    if (this.sharedPartGeoms.has(cacheKey)) {
+      return this.sharedPartGeoms.get(cacheKey) ?? null;
+    }
+    if (tris.length === 0) {
+      this.sharedPartGeoms.set(cacheKey, null);
+      return null;
+    }
+    const positions: number[] = [];
+    for (const [v0, v1, v2] of tris) {
+      // Skip degenerate triangles (zero area)
+      if (v0[0] === v1[0] && v0[1] === v1[1] && v0[2] === v1[2] &&
+          v0[0] === v2[0] && v0[1] === v2[1] && v0[2] === v2[2]) continue;
+      positions.push(v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2]);
+    }
+    if (positions.length === 0) {
+      this.sharedPartGeoms.set(cacheKey, null);
+      return null;
+    }
+    const triCount = positions.length / 9;
+    let geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    if (triCount >= 20) {
+      const merged = mergeVertices(geom, 1e-4);
+      merged.computeVertexNormals();
+      geom.dispose();
+      geom = merged;
+    } else {
+      geom.computeVertexNormals();
+    }
+    geom.computeBoundingBox();
+    geom.computeBoundingSphere();
+    this.sharedPartGeoms.set(cacheKey, geom);
+    return geom;
   }
 
   private updateEdgeLineWidth(maxDim: number): void {
