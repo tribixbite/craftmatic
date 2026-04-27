@@ -43,6 +43,8 @@ import {
 import {
   getThreeColor,
   isTransparentColor,
+  isMetallicColor,
+  isGlowColor,
   makeMaterial,
 } from './materials.js';
 
@@ -708,6 +710,17 @@ export class LDrawViewer {
           inst.setMatrixAt(i, bucket.matrices[i]!);
         }
         inst.instanceMatrix.needsUpdate = true;
+        // Per-instance color jitter for organic batch variation. Real LEGO
+        // bricks have ±1-2% molding-color variation between batches; uniform
+        // identical-color buckets read as too synthetic without it.
+        // Skip for transparent / metallic / glow — those use specialized
+        // materials where jitter would clash.
+        if (bucket.matrices.length > 1
+            && !isTransparentColor(bucket.brickColor)
+            && !isMetallicColor(bucket.brickColor)
+            && !isGlowColor(bucket.brickColor)) {
+          this.applyInstanceColorJitter(inst, material.color, bucket.matrices.length);
+        }
         // Track instance → brick for click-to-inspect
         this.instanceBrickMap.set(inst, bucket.bricks);
         // Expand scene bbox by transforming part-local bbox via each instance
@@ -792,6 +805,42 @@ export class LDrawViewer {
     }
 
     return { group, edgeMaterials };
+  }
+
+  /**
+   * Apply small per-instance HSL color jitter so identical-color batches
+   * have organic molding-batch variation. Lightness ±2.5%, saturation
+   * ±5%, hue unchanged. Uses a deterministic mulberry32 PRNG seeded by
+   * instance index so the jitter pattern is stable across reloads.
+   */
+  private applyInstanceColorJitter(
+    inst: THREE.InstancedMesh,
+    base: THREE.Color,
+    count: number,
+  ): void {
+    const baseHSL = { h: 0, s: 0, l: 0 };
+    base.getHSL(baseHSL);
+    const tmpColor = new THREE.Color();
+    // Deterministic PRNG so the jitter pattern doesn't shift across loads
+    let state = count * 0x9E3779B9; // golden-ratio seed mix
+    const rand = (): number => {
+      state = (state + 0x6D2B79F5) | 0;
+      let t = state;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    for (let i = 0; i < count; i++) {
+      const dl = (rand() - 0.5) * 0.05; // ±2.5%
+      const ds = (rand() - 0.5) * 0.10; // ±5%
+      tmpColor.setHSL(
+        baseHSL.h,
+        Math.max(0, Math.min(1, baseHSL.s + ds)),
+        Math.max(0, Math.min(1, baseHSL.l + dl)),
+      );
+      inst.setColorAt(i, tmpColor);
+    }
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   }
 
   /**
