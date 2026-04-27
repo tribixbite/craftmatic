@@ -110,6 +110,10 @@ export class LDrawViewer {
   private leaveHandler: (() => void) | null = null;
   private hoverPending = false;
   private lastHoveredBrick: ParsedBrick | null = null;
+  // Perf overlay state — populated each frame when the user enables it
+  private statsOverlay: HTMLDivElement | null = null;
+  private frameTimes: number[] = [];
+  private lastFrameTime = 0;
   private maxAvailableStep: number = 1;
   private currentMaxStep: number = Number.POSITIVE_INFINITY;
   // Stored bbox + size from last load(), used by setView() camera presets
@@ -420,6 +424,29 @@ export class LDrawViewer {
   }
 
   /**
+   * Toggle a small perf overlay (FPS, draw calls, triangles) in the
+   * top-right of the canvas container. Useful for evaluating the impact
+   * of perf changes (InstancedMesh, color jitter, etc.).
+   */
+  setStatsOverlay(enabled: boolean): void {
+    if (enabled && !this.statsOverlay) {
+      const div = document.createElement('div');
+      div.style.cssText = `
+        position: absolute; top: 8px; right: 8px; z-index: 10;
+        padding: 6px 10px; background: rgba(0,0,0,0.7); color: #fff;
+        font: 11px/1.4 ui-monospace,monospace; border-radius: 4px;
+        pointer-events: none; white-space: pre;`;
+      this.container.style.position ||= 'relative';
+      this.container.appendChild(div);
+      this.statsOverlay = div;
+    } else if (!enabled && this.statsOverlay) {
+      this.statsOverlay.remove();
+      this.statsOverlay = null;
+      this.frameTimes = [];
+    }
+  }
+
+  /**
    * Wireframe mode: hide brick meshes, keep only edge LineSegments2.
    * Useful for inspecting brick connectivity without surface fills.
    */
@@ -572,8 +599,33 @@ export class LDrawViewer {
       this.animId = requestAnimationFrame(loop);
       this.controls.update();
       this.composer.render();
+      if (this.statsOverlay) this.updateStatsOverlay();
     };
     loop();
+  }
+
+  private updateStatsOverlay(): void {
+    if (!this.statsOverlay) return;
+    const now = performance.now();
+    if (this.lastFrameTime > 0) {
+      this.frameTimes.push(now - this.lastFrameTime);
+      if (this.frameTimes.length > 30) this.frameTimes.shift();
+    }
+    this.lastFrameTime = now;
+    // Update text only every ~10 frames to reduce DOM thrash
+    if (this.frameTimes.length % 10 !== 0) return;
+    const avgMs = this.frameTimes.reduce((a, b) => a + b, 0) / Math.max(1, this.frameTimes.length);
+    const fps = avgMs > 0 ? Math.round(1000 / avgMs) : 0;
+    const info = this.renderer.info;
+    this.statsOverlay.textContent =
+      `FPS: ${fps}  (${avgMs.toFixed(1)}ms)\n` +
+      `Calls: ${info.render.calls}\n` +
+      `Tris:  ${info.render.triangles.toLocaleString()}\n` +
+      `Inst:  ${[...this.stepGroups.values()].reduce((sum, s) => {
+        let n = 0;
+        s.group.traverse(o => { if (o instanceof THREE.InstancedMesh) n++; });
+        return sum + n;
+      }, 0)}`;
   }
 
   private handleResize(): void {

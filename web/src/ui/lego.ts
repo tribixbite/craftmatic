@@ -157,6 +157,10 @@ function buildUI(): void {
         <input type="checkbox" id="lego-wireframe" style="margin:0">
         Wireframe
       </label>
+      <label title="Show FPS / draw calls / triangle count overlay (dev)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-stats" style="margin:0">
+        Stats
+      </label>
       <label title="Background color (and matching studio backdrop)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
         <input type="color" id="lego-bg-color" value="#2d2d3d" style="width:20px;height:20px;border:none;background:transparent;padding:0;cursor:pointer">
         BG
@@ -282,6 +286,12 @@ function wireEvents(): void {
   document.getElementById('lego-wireframe')?.addEventListener('change', e => {
     const on = (e.target as HTMLInputElement).checked;
     currentLDrawViewer?.setWireframe(on);
+  });
+
+  // ── Stats overlay toggle ──────────────────────────────────────────────────
+  document.getElementById('lego-stats')?.addEventListener('change', e => {
+    const on = (e.target as HTMLInputElement).checked;
+    currentLDrawViewer?.setStatsOverlay(on);
   });
 
   // ── Background color picker ───────────────────────────────────────────────
