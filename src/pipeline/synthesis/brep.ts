@@ -75,6 +75,17 @@ export interface BuildingBRep {
   readonly roof: RoofVolume;
   readonly details: readonly Feature[];
   readonly voids?: readonly Volume[];
+  /**
+   * When present, the evaluator unions these vertical prisms (one per
+   * band-polygon pair) and skips floors/walls extrusion. Used by the
+   * sliced-extraction synthesizer for buildings whose horizontal silhouette
+   * changes with height — twin towers, setbacks, cantilevers, spirals.
+   */
+  readonly bandedSilhouettes?: ReadonlyArray<{
+    readonly polygon: readonly LocalPoint2D[];
+    readonly baseY: number;
+    readonly topY: number;
+  }>;
   readonly materials: {
     readonly wall: MaterialRef;
     readonly trim: MaterialRef;
@@ -176,6 +187,41 @@ export async function evaluateBRep(brep: BuildingBRep): Promise<EvaluatedMesh> {
 
   const parts: ManifoldShape[] = [];
 
+  // Banded path: stacked prism extrusion per band-polygon pair. Used when
+  // the synthesizer derived its geometry from sliced photogrammetry and
+  // the building has vertical topology changes (twin towers, setbacks,
+  // cantilevers). Bypasses the floors/walls/roof breakdown entirely —
+  // each band is its own prism and the union is the whole building.
+  if (brep.bandedSilhouettes && brep.bandedSilhouettes.length > 0) {
+    for (const band of brep.bandedSilhouettes) {
+      if (band.topY <= band.baseY) continue;
+      const prism = Manifold.extrude(
+        [polygonToRing(band.polygon)],
+        band.topY - band.baseY,
+      ).translate([0, 0, band.baseY]);
+      parts.push(prism);
+    }
+    let banded = Manifold.union(parts);
+
+    // Window cavities still apply — feature generators add them based on
+    // facade walls derived from the topmost band silhouette.
+    const windowsBanded = brep.details.filter(d => d.kind === 'window');
+    if (windowsBanded.length > 0) {
+      const cavities: ManifoldShape[] = [];
+      for (const w of windowsBanded) {
+        const cube = makeFeatureCavity(m, brep, w);
+        if (cube) cavities.push(cube);
+      }
+      if (cavities.length > 0) {
+        const combined = Manifold.union(cavities);
+        banded = Manifold.difference(banded, combined);
+        combined.delete();
+      }
+    }
+
+    return finaliseManifoldMeshFn(banded, parts);
+  }
+
   // Fast path: when every floor shares the same polygon (common case —
   // simple prismatic buildings, no setbacks), collapse all floors + walls
   // into a single tall extrusion. Manifold.union() on 50+ near-coplanar
@@ -252,15 +298,16 @@ export async function evaluateBRep(brep: BuildingBRep): Promise<EvaluatedMesh> {
     }
   }
 
-  // Extract mesh
-  const mesh = building.getMesh();
-  const { numVert, numTri, vertProperties, triVerts } = mesh;
+  return finaliseManifoldMeshFn(building, parts);
+}
 
-  // manifold-3d uses Z-up; remap to Y-up for glTF: (x, y, z) → (x, z, y).
-  // We preserve y-sign (no negation) so the mesh's XZ silhouette matches the
-  // input polygon's {x, z} coordinates. Without this, footprintIoU sees the
-  // mesh mirrored along Z vs the target polygon and reports garbage IoU
-  // for any asymmetric footprint (wedges, L-shapes, etc.).
+function finaliseManifoldMeshFn(
+  shape: ManifoldShape,
+  cleanup: ReadonlyArray<ManifoldShape> = [],
+): EvaluatedMesh {
+  const mesh = shape.getMesh();
+  const { numVert, numTri, vertProperties, triVerts } = mesh;
+  // Z-up → Y-up swap to match the IoU validator + voxelizer convention.
   const positions = new Float32Array(numVert * 3);
   for (let i = 0; i < numVert; i++) {
     const bx = vertProperties[i * 3];
@@ -270,28 +317,19 @@ export async function evaluateBRep(brep: BuildingBRep): Promise<EvaluatedMesh> {
     positions[i * 3 + 1] = bz;       // Z → Y (up)
     positions[i * 3 + 2] = by;       // Y → Z (preserves polygon.z sign)
   }
-  // Winding order: the axis swap (y ↔ z) inverts handedness — flip triangles
-  // so face normals still point outward.
   const indices = new Uint32Array(numTri * 3);
   for (let i = 0; i < numTri; i++) {
     indices[i * 3] = triVerts[i * 3];
     indices[i * 3 + 1] = triVerts[i * 3 + 2];
     indices[i * 3 + 2] = triVerts[i * 3 + 1];
   }
-
-  const vol = building.volume();
-  const surf = building.surfaceArea();
-  const watertight = true; // manifold-3d guarantees this by construction
-
-  // Clean up — manifold-3d manifolds carry WASM memory. parts[] includes
-  // roofShape (pushed at the end) so no separate delete is needed. Union
-  // doesn't consume inputs in this version; we explicitly free them all.
-  try { building.delete(); } catch { /* already deleted */ }
-  for (const p of parts) {
+  const vol = shape.volume();
+  const surf = shape.surfaceArea();
+  try { shape.delete(); } catch { /* already deleted */ }
+  for (const p of cleanup) {
     try { p.delete(); } catch { /* already deleted */ }
   }
-
-  return { positions, indices, volume: vol, surfaceArea: surf, watertight };
+  return { positions, indices, volume: vol, surfaceArea: surf, watertight: true };
 }
 
 // ─── Roof shape builders ───────────────────────────────────────────────────

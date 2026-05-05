@@ -33,6 +33,16 @@ export interface TileEvidence {
   readonly meshCount: number;
   /** `meshCount < 3` — scene extraction failed, fallback needed */
   readonly noCoverage: boolean;
+  /**
+   * Per-mesh positions + indices in scene-local metres (Y is up). Optional
+   * because the browser path can omit it when the caller doesn't need slice
+   * extraction. When present, `synthesis/router` routes through the
+   * sliced-band synthesizer instead of single-prism cleaned-tiles.
+   */
+  readonly meshes?: ReadonlyArray<{
+    readonly positions: Float32Array;
+    readonly indices: Uint32Array;
+  }>;
 }
 
 // ─── SvEvidence (Stage 4) ──────────────────────────────────────────────────

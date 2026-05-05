@@ -111,6 +111,14 @@ export async function buildTileEvidenceFromGroup(
     truncated,
     meshCount: meshes.length,
     noCoverage: meshes.length < 3,
+    meshes: meshInputs.map(mi => ({
+      positions: mi.position,
+      indices: mi.index ?? (() => {
+        const idx = new Uint32Array(mi.position.length / 3);
+        for (let i = 0; i < idx.length; i++) idx[i] = i;
+        return idx;
+      })(),
+    })),
   };
 
   return { evidence, meshes };

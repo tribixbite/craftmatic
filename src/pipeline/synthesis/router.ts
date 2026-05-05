@@ -16,8 +16,9 @@ import type { TileEvidence } from '../capture/types.js';
 import type { BuildingBRep } from './brep.js';
 import { synthesizeParametric } from './parametric.js';
 import { synthesizeCleanedTiles } from './cleaned-tiles.js';
+import { synthesizeSlicedTiles } from './sliced-tiles.js';
 
-export type SynthesisPath = '7a-parametric' | '7b-cleaned-tiles' | '7c-hybrid';
+export type SynthesisPath = '7a-parametric' | '7b-cleaned-tiles' | '7c-hybrid' | '7d-sliced';
 
 export function routeSynthesis(
   ctx: RefinedBuildingContext,
@@ -28,6 +29,14 @@ export function routeSynthesis(
   const iconic = tags['tourism'] === 'attraction'
               || tags['historic'] === 'monument'
               || tags['heritage'] != null;
+  // Sliced path requires actual mesh data (positions/indices) — preferred
+  // for any building with tile coverage because the sliced silhouette
+  // captures setbacks, twin towers, cantilevers that single-prism
+  // synthesizers cannot. Truncated photogrammetry is excluded — the top
+  // is missing so per-band heights would underreport.
+  const tilesUsable = tiles && !tiles.noCoverage && !tiles.truncated
+    && tiles.meshes && tiles.meshes.length > 0;
+  if (tilesUsable) return '7d-sliced';
   if (iconic && tiles && !tiles.noCoverage) return '7c-hybrid';
   if (ctx.shape === 'curved' || ctx.shape === 'irregular') return '7b-cleaned-tiles';
   if (tiles?.truncated && ctx.size === 'skyscraper' && ctx.polygon) return '7a-parametric';
@@ -55,5 +64,9 @@ export function synthesize(
     case '7c-hybrid':
       // TODO: add photogrammetry texture baking over the parametric mass.
       return { path, brep: synthesizeParametric(ctx, ev) };
+    case '7d-sliced':
+      // Guarded by routeSynthesis (`tilesUsable` check), so tiles + meshes
+      // are guaranteed non-null here.
+      return { path, brep: synthesizeSlicedTiles(ctx, ev, tiles!) };
   }
 }

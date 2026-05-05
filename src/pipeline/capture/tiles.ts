@@ -212,7 +212,17 @@ export async function captureTiles(input: CaptureTilesInput): Promise<TileEviden
     truncated,
     meshCount,
     noCoverage,
+    meshes: meshInputs.map(mi => ({
+      positions: mi.position,
+      indices: mi.index ?? buildSequentialIndices(mi.position.length / 3),
+    })),
   };
+}
+
+function buildSequentialIndices(vertexCount: number): Uint32Array {
+  const idx = new Uint32Array(vertexCount);
+  for (let i = 0; i < vertexCount; i++) idx[i] = i;
+  return idx;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
