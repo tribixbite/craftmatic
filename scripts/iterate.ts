@@ -191,7 +191,13 @@ if (hasFlag('--status') || argv.length === 0) {
 // --fast: skip tile capture entirely → parametric synthesis directly from
 // evidence. Useful for initial validation before paying the tile-API cost.
 const fast = hasFlag('--fast');
-const extraBuildFlags = fast ? ['--skip-tiles'] : [];
+const resOverride = popArg('--resolution');
+const maxDimOverride = popArg('--max-dim');
+const extraBuildFlags = [
+  ...(fast ? ['--skip-tiles'] : []),
+  ...(resOverride !== null ? ['--resolution', resOverride] : []),
+  ...(maxDimOverride !== null ? ['--max-dim', maxDimOverride] : []),
+];
 
 if (hasFlag('--bootstrap')) {
   const targets = goldens.filter(g => !state.addresses[g.slug]);

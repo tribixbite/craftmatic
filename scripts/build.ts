@@ -47,6 +47,8 @@ const outDir = popFlag('--out') ?? popFlag('-o') ?? 'output/pipeline';
 const slugOverride = popFlag('--slug');
 const tileTimeoutSec = parseInt(popFlag('--tile-timeout') ?? '0', 10);
 const consensusMode = popFlag('--consensus'); // 'gemini' | null — future: 'all'
+const resolutionFlag = popFlag('--resolution');
+const maxDimFlag = popFlag('--max-dim');
 const skipTiles = argv.includes('--skip-tiles');
 if (skipTiles) argv.splice(argv.indexOf('--skip-tiles'), 1);
 const address = argv.join(' ').trim();
@@ -188,6 +190,10 @@ const result = await runPipeline({
   tileTimeoutMs: tileTimeoutSec > 0 ? tileTimeoutSec * 1000 : undefined,
   skipTiles,
   consensus: consensusOpt,
+  voxel: {
+    ...(resolutionFlag !== null ? { resolution: parseFloat(resolutionFlag) } : {}),
+    ...(maxDimFlag !== null ? { maxDimension: parseInt(maxDimFlag, 10) } : {}),
+  },
 });
 const elapsed = ((Date.now() - started) / 1000).toFixed(1);
 

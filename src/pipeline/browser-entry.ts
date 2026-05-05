@@ -43,6 +43,7 @@ import { buildGlb } from './export/glb-writer.js';
 import { exportPrintGlb } from './export/glb-print.js';
 import { exportSceneGlb } from './export/glb-scene.js';
 import { exportVoxel } from './export/voxel.js';
+import { DEFAULT_VOXEL_RESOLUTION, DEFAULT_VOXEL_MAX_DIMENSION } from './pipeline.js';
 import { runObjectiveGates } from './verify/objective.js';
 import type { FullVerificationReport } from './verify/report.js';
 import { composeReport } from './verify/report.js';
@@ -132,6 +133,11 @@ export interface BrowserPipelineInput {
     readonly references: readonly Uint8Array[];
     readonly maxRounds?: number;
   };
+  /** Voxel-export tuning. Defaults match `pipeline.ts` (resolution=6, maxDim=768). */
+  readonly voxel?: {
+    readonly resolution?: number;
+    readonly maxDimension?: number;
+  };
 }
 
 export interface BrowserPipelineResult {
@@ -207,7 +213,12 @@ export async function runBrowserPipelineFromTiles(
   // Stage 8: exports
   const printResult = await exportPrintGlb(brep);
   const sceneResult = await exportSceneGlb(brep, evidence);
-  const voxelResult = await exportVoxel(brep);
+  const voxelResolution = input.voxel?.resolution ?? DEFAULT_VOXEL_RESOLUTION;
+  const voxelMaxDim = input.voxel?.maxDimension ?? DEFAULT_VOXEL_MAX_DIMENSION;
+  const voxelResult = await exportVoxel(brep, {
+    resolution: voxelResolution,
+    maxDimension: voxelMaxDim,
+  });
 
   // Stage 9a: objective gates
   const objective = runObjectiveGates({
@@ -218,6 +229,7 @@ export async function runBrowserPipelineFromTiles(
     meshRotationDeg: refined.mbr.rotationDeg,
     expectedHeightM: evidence.heightM.value,
     grid: voxelResult.grid,
+    voxelResolution,
   });
 
   // Stage 9b: optional consensus

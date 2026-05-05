@@ -69,7 +69,17 @@ export interface RunPipelineOptions {
   readonly skipTiles?: boolean;
   /** Optional progress callback forwarded across stages. */
   readonly onProgress?: CaptureProgressFn;
+  /** Voxel-export tuning. Defaults to resolution=6 block/m, maxDimension=768.
+   *  At resolution 6 a typical 90m tower produces a ~540-tall grid with
+   *  ~1-3M wall voxels (surface mode). Bump for finer detail. */
+  readonly voxel?: {
+    readonly resolution?: number;
+    readonly maxDimension?: number;
+  };
 }
+
+export const DEFAULT_VOXEL_RESOLUTION = 6;
+export const DEFAULT_VOXEL_MAX_DIMENSION = 768;
 
 export interface RunPipelineArtifacts {
   readonly printGlbBytes: ArrayBuffer;
@@ -189,7 +199,12 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
   progress({ stage: 'export', message: 'scene GLB', ratio: 0.4 });
   const sceneResult = await exportSceneGlb(brep, evidence);
   progress({ stage: 'export', message: 'voxelizing', ratio: 0.7 });
-  const voxelResult = await exportVoxel(brep);
+  const voxelResolution = opts.voxel?.resolution ?? DEFAULT_VOXEL_RESOLUTION;
+  const voxelMaxDim = opts.voxel?.maxDimension ?? DEFAULT_VOXEL_MAX_DIMENSION;
+  const voxelResult = await exportVoxel(brep, {
+    resolution: voxelResolution,
+    maxDimension: voxelMaxDim,
+  });
   progress({ stage: 'export', message: 'done', ratio: 1 });
 
   // ── Stage 9a: objective gates ──────────────────────────────────────────
@@ -202,6 +217,7 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
     meshRotationDeg: refined.mbr.rotationDeg,
     expectedHeightM: evidence.heightM.value,
     grid: voxelResult.grid,
+    voxelResolution,
   });
   progress({ stage: 'verify', message: 'done', ratio: 1 });
 

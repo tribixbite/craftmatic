@@ -307,7 +307,17 @@ export function minWallThicknessM(
 
 // ─── Gate 7: Voxel occupancy ──────────────────────────────────────────────
 
-export function voxelOccupancy(grid: BlockGrid): { count: number; limit: number } {
+/**
+ * Voxel-count gate. The base 500k limit was set at resolution=1 block/m,
+ * where a 90m tower fills ~20-50k voxels (surface mode). Surface area scales
+ * as r², so the limit scales with the square of resolution. At default res=6
+ * the cap becomes 18M; at res=10 it becomes 50M. Pass resolution≤0 to use
+ * the base limit unchanged (legacy callers).
+ */
+export function voxelOccupancy(
+  grid: BlockGrid,
+  resolution: number = 1,
+): { count: number; limit: number } {
   let n = 0;
   for (let y = 0; y < grid.height; y++) {
     for (let z = 0; z < grid.length; z++) {
@@ -316,7 +326,8 @@ export function voxelOccupancy(grid: BlockGrid): { count: number; limit: number 
       }
     }
   }
-  return { count: n, limit: 500_000 };
+  const r = Math.max(1, resolution);
+  return { count: n, limit: Math.round(500_000 * r * r) };
 }
 
 // ─── Composition ───────────────────────────────────────────────────────────
@@ -331,6 +342,9 @@ export interface ObjectiveInputs {
   readonly grid: BlockGrid;
   readonly plinthPositions?: Float32Array;
   readonly plinthIndices?: Uint32Array;
+  /** Voxelizer resolution used to produce `grid` — drives the voxel-count
+   *  cap (limit scales as r² since surface area scales with r²). */
+  readonly voxelResolution?: number;
 }
 
 export interface ObjectiveResult {
@@ -365,7 +379,7 @@ export function runObjectiveGates(inputs: ObjectiveInputs): ObjectiveResult {
   const selfIntThreshold = Math.max(5, Math.floor(triCount * 0.01));
   const minThickM = minWallThicknessM(inputs.positions);
   const minThickMm = minThickM * 10; // 1:100 scale — real 1m → print 10mm
-  const occ = voxelOccupancy(inputs.grid);
+  const occ = voxelOccupancy(inputs.grid, inputs.voxelResolution ?? 1);
 
   let plinthWT: boolean | null = null;
   if (inputs.plinthPositions && inputs.plinthIndices) {
