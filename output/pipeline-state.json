@@ -3,7 +3,7 @@
   "addresses": {
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
-      "status": "fail-consensus",
+      "status": "needs-human-review",
       "lastRun": "2026-05-05T13:53:33.783Z",
       "elapsedSec": 43.2,
       "attempts": 39,
@@ -51,11 +51,12 @@
         "median": 0.5,
         "spread": 0,
         "pass": false
-      }
+      },
+      "reason": "escalated by stop hook: 39 attempts exceeded hard ceiling 10 \u2014 likely at MVP plateau (recent sigs: ['fail-objective:footprint IoU # < #', 'fail-consensus:median=0,min=0', 'fail-consensus:median=1,min=0'])"
     },
     "240-highland": {
       "address": "240 Highland St, Newton, MA",
-      "status": "fail-consensus",
+      "status": "needs-human-review",
       "lastRun": "2026-05-05T13:53:56.110Z",
       "elapsedSec": 20.8,
       "attempts": 10,
@@ -103,11 +104,12 @@
         "median": 0,
         "spread": 0,
         "pass": false
-      }
+      },
+      "reason": "escalated by stop hook: 10 attempts exceeded hard ceiling 10 \u2014 likely at MVP plateau (recent sigs: ['fail-consensus:median=1,min=0', 'fail-consensus:median=1,min=0', 'fail-consensus:median=0,min=0'])"
     },
     "guggenheim": {
       "address": "1071 5th Ave, New York, NY",
-      "status": "fail-consensus",
+      "status": "needs-human-review",
       "lastRun": "2026-05-05T13:57:06.663Z",
       "elapsedSec": 47.4,
       "attempts": 11,
@@ -155,19 +157,20 @@
         "median": 0,
         "spread": 0,
         "pass": false
-      }
+      },
+      "reason": "escalated by stop hook: 11 attempts exceeded hard ceiling 10 \u2014 likely at MVP plateau (recent sigs: ['fail-consensus:median=0,min=0', 'fail-consensus:median=2,min=1', 'fail-consensus:median=0,min=0'])"
     },
     "geisel": {
       "address": "9500 Gilman Dr, La Jolla, CA",
-      "status": "fail-consensus",
-      "lastRun": "2026-05-05T13:58:04.801Z",
-      "elapsedSec": 56.6,
-      "attempts": 9,
+      "status": "needs-human-review",
+      "lastRun": "2026-05-05T23:15:02.063Z",
+      "elapsedSec": 65.4,
+      "attempts": 11,
       "recentFailureSignatures": [
-        "fail-consensus:median=2,min=0",
         "fail-consensus:median=1,min=0",
         "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0"
       ],
       "objective": {
@@ -188,30 +191,31 @@
         "gemini": {
           "color": 0,
           "features": 0,
-          "massing": 1,
+          "massing": 0,
           "overall": 0
         },
         "claude": {
           "color": 0,
           "features": 0,
-          "massing": 1,
+          "massing": 0,
           "overall": 0
         },
         "gpt5": {
           "color": 0,
           "features": 0,
-          "massing": 1,
+          "massing": 0,
           "overall": 0
         },
         "min": 0,
         "median": 0,
         "spread": 0,
         "pass": false
-      }
+      },
+      "reason": "escalated by stop hook: 11 attempts, last 3 failures signature-identical: fail-consensus:median=0,min=0"
     },
     "pennzoil": {
       "address": "700 Milam St, Houston, TX",
-      "status": "fail-consensus",
+      "status": "needs-human-review",
       "lastRun": "2026-05-05T13:56:14.657Z",
       "elapsedSec": 138.2,
       "attempts": 11,
@@ -259,7 +263,8 @@
         "median": 0,
         "spread": 0,
         "pass": false
-      }
+      },
+      "reason": "escalated by stop hook: 11 attempts exceeded hard ceiling 10 \u2014 likely at MVP plateau (recent sigs: ['fail-consensus:median=1,min=0', 'fail-consensus:median=0,min=0', 'fail-consensus:median=0,min=0'])"
     }
   }
 }
