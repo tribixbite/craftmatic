@@ -87,13 +87,18 @@ export function synthesizeCleanedTiles(
   ev: JointEvidence,
   tiles: TileEvidence | null,
 ): BuildingBRep {
-  // Footprint: prefer the actual OSM polygon when available. Only fall back
-  // to the MBR rectangle when no polygon or fewer than 3 vertices.
+  // Footprint: project the resolved polygon (OSM or solar-bbox) through the
+  // same lat/lon → local transform the IoU validator uses. Without this, the
+  // MBR's `widthM`/`depthM` (which are normalised to max/min, dropping E-W vs
+  // N-S orientation) drove a rect synthesis that came out perpendicular to
+  // the projected target polygon, dragging IoU to ~0.34. Last-resort fallback
+  // (no polygon, no tiles) builds a centred rect from `tiles.measuredBbox`.
   let openPoly: LocalPoint2D[];
   const osmPoly = ev.footprint.value;
-  if (osmPoly.length >= 3 && ev.footprint.source === 'osm') {
-    // Douglas-Peucker simplify before synthesis; see parametric.ts for rationale.
-    const simplified = douglasPeucker(osmPoly, 0.00001);
+  if (osmPoly.length >= 3) {
+    const simplified = ev.footprint.source === 'osm'
+      ? douglasPeucker(osmPoly, 0.00001)
+      : osmPoly;
     const usedPoly = simplified.length >= 3 ? simplified : osmPoly;
     const localPoly = projectPolygonToLocal(
       usedPoly.map(p => ({ lat: p.lat, lon: p.lon })),
