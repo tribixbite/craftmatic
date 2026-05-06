@@ -70,15 +70,22 @@ export function reconcileHeight(
     const measuredH = tiles.measuredBbox.max.y - tiles.measuredBbox.min.y;
     if (measuredH > 2) {
       const surveyed = ctx.heightM ?? 0;
-      // Photogrammetry can OVER-measure (sub-grade entrances, sidewalk
-      // noise extend the bbox below the actual ground plane). When tiles'
-      // measurement is suspiciously larger than OSM/Solar surveyed
-      // height, trust the surveyed value. We don't gate the inverse
-      // direction (surveyed >> measured) because OSM's height/levels tag
-      // is often missing or wrong (Guggenheim's height=21m is half its
-      // actual ~32m); photogrammetry is more reliable when present.
-      const tilesPlausible = surveyed <= 0 || measuredH <= surveyed * 1.3;
-      if (tilesPlausible) {
+      // Plausibility check:
+      //   • Surveyed exists → reject tile measurements >30% larger
+      //     (photogrammetry over-measures via sub-grade noise)
+      //   • Surveyed absent → cap at the larger of:
+      //       archType default × 4 (small residential trees etc.)
+      //       MBR diagonal × 0.7 (big footprint plausibly tall)
+      //     This passes Geisel (88×60m base → 76m cap, photogrammetry
+      //     53m OK) while still catching residential overshoots
+      //     (240-highland 31×21m → 27m cap, 51m measurement rejected).
+      const archCap = defaultHeightForArchType(ctx.archType) * 5;
+      const diag = Math.hypot(ctx.mbr.widthM, ctx.mbr.depthM);
+      const footprintCap = diag * 0.9;
+      const cap = surveyed > 0
+        ? surveyed * 1.3
+        : Math.max(archCap, footprintCap);
+      if (measuredH <= cap) {
         return { value: measuredH, source: 'tiles', confidence: 0.95 };
       }
     }

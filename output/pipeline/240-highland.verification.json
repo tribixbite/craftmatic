@@ -1,14 +1,14 @@
 {
   "status": "fail-consensus",
-  "lastRun": "2026-05-06T01:46:51.520Z",
+  "lastRun": "2026-05-06T02:06:05.424Z",
   "objective": {
-    "footprintIoU": 0.990454016298021,
+    "footprintIoU": 0.9889190236342503,
     "heightErr": 0,
     "watertight": true,
     "manifold": true,
-    "selfIntersect": 2081,
+    "selfIntersect": 1537,
     "minWallThicknessMm": 4.9512269496917725,
-    "voxelCount": 69094,
+    "voxelCount": 9333,
     "plinthWatertight": null,
     "pass": true,
     "failures": []

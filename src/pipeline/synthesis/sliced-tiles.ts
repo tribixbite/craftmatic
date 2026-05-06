@@ -86,6 +86,13 @@ export function synthesizeSlicedTiles(
   const buildingMaxDim = Math.max(ctx.mbr.widthM, ctx.mbr.depthM);
   const cropHalf = buildingMaxDim * 0.5 + Math.max(buildingMaxDim * 0.1, 5);
 
+  // OSM polygon mask. When available we use it both as the silhouette
+  // anchor (`maskedSilhouette`) and to drive the polygon-count filter:
+  // if OSM is present, keep ALL polygons inside it (twin-tower compounds
+  // like Pennzoil get both members preserved). If OSM is absent, fall
+  // back to "keep the polygon closest to origin" — single-building case.
+  const osmLocal = projectOsmPolygonOrNull(ctx, ev);
+
   // Photogrammetry mesh edges are noisy at the ~0.5m scale — every slice
   // produces slightly different polygon vertex counts and centroids even
   // for what should be a uniform tower. Loosen tolerances so slices over
@@ -102,26 +109,15 @@ export function synthesizeSlicedTiles(
       centroidTolM: 3.0,
       areaRatioTol: 0.15,
       cropXZ: { halfX: cropHalf, halfZ: cropHalf },
-      // Keep only the polygon nearest origin per slice. Single-building
-      // case: this isolates the target from neighbouring photogrammetry.
-      // TODO: detect twin-tower compounds (Pennzoil) from OSM polygon
-      // disjoint-parts count and bump to 2 in those cases.
-      maxPolysPerSlice: 1,
+      // With OSM polygon: keep all polygons; sliced-tiles drops those
+      // outside OSM. Without OSM: keep only the closest one.
+      maxPolysPerSlice: osmLocal !== null ? Infinity : 1,
     },
   );
 
   // Translate bands into BRep `bandedSilhouettes`. The mesh's local frame
   // already shares centre + rotation with the BRep, so polygons project
   // straight through.
-  // OSM polygon mask — when available, project to local frame and use as
-  // the authoritative ground footprint. Slice polygons that fall fully
-  // inside OSM (real setbacks) are kept as-is; slice polygons that
-  // overshoot OSM (photogrammetry artifacts, neighbours) are replaced
-  // with the OSM polygon. This anchors the silhouette to OSM at ground
-  // level and lets Stage B's setback detection survive only on real
-  // step-ins.
-  const osmLocal = projectOsmPolygonOrNull(ctx, ev);
-
   // First pass: filter out bands whose polygons are entirely outside OSM.
   // We materialise the masked polygon for each surviving band and track
   // the actual (post-mask) Y range — this is the building's true Y span
