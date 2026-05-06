@@ -28,6 +28,9 @@ import { summariseReport } from '../src/pipeline/verify/report.js';
 import type { ContextFetchers } from '../src/pipeline/context/resolver.js';
 import type { StreetViewFetchers } from '../src/pipeline/capture/streetview.js';
 import { createGeminiScorer, singleModelFetchers } from '../src/pipeline/verify/gemini-scorer.js';
+import { createClaudeScorer } from '../src/pipeline/verify/claude-scorer.js';
+import { createGpt5Scorer } from '../src/pipeline/verify/gpt5-scorer.js';
+import type { ModelFetchers, ModelScoreFn } from '../src/pipeline/verify/consensus.js';
 import type { RunPipelineOptions } from '../src/pipeline/pipeline.js';
 
 // ─── Arg parsing ───────────────────────────────────────────────────────────
@@ -73,6 +76,12 @@ if (!apiKey) {
 const geminiKey = process.env['GOOGLE_GEMINI_API_KEY']
   ?? process.env['GEMINI_API_KEY']
   ?? envText.match(/(?:GOOGLE_)?GEMINI_API_KEY=(.+)/)?.[1]?.trim();
+
+const claudeKey = process.env['ANTHROPIC_API_KEY']
+  ?? envText.match(/ANTHROPIC_API_KEY=(.+)/)?.[1]?.trim();
+
+const openaiKey = process.env['OPENAI_API_KEY']
+  ?? envText.match(/OPENAI_API_KEY=(.+)/)?.[1]?.trim();
 
 const absOutDir = resolve(projectRoot, outDir);
 mkdirSync(absOutDir, { recursive: true });
@@ -153,10 +162,42 @@ function loadReferencesForSlug(slugGuess: string): Uint8Array[] {
   return refs;
 }
 
+/**
+ * Build the per-slot ModelFetchers. `--consensus` accepts:
+ *   gemini   — Gemini for all 3 slots (legacy fan-out, spread always 0)
+ *   multi    — pick whichever of Gemini/Claude/GPT-5 we have keys for, fan
+ *              the rest to Gemini (so unconfigured slots still produce a
+ *              score). Two-key setups still get a real spread between the
+ *              two configured models.
+ *   all      — alias for multi
+ */
+function buildModelFetchers(): { models: ModelFetchers; mode: string } | null {
+  if (!geminiKey) return null;
+  const gemini: ModelScoreFn = createGeminiScorer({ apiKey: geminiKey });
+  if (consensusMode === 'gemini' || (!claudeKey && !openaiKey)) {
+    return { models: singleModelFetchers(gemini), mode: 'gemini-fanout' };
+  }
+  // Multi-model: pick best available per slot. Falls back to Gemini for
+  // any slot without a dedicated key so all 3 slots have a scorer.
+  const claude: ModelScoreFn = claudeKey
+    ? createClaudeScorer({ apiKey: claudeKey })
+    : gemini;
+  const gpt5: ModelScoreFn = openaiKey
+    ? createGpt5Scorer({ apiKey: openaiKey })
+    : gemini;
+  const slots: string[] = [
+    'gemini',
+    claudeKey ? 'claude' : 'gemini',
+    openaiKey ? 'gpt5' : 'gemini',
+  ];
+  return { models: { gemini, claude, gpt5 }, mode: `multi(${slots.join(',')})` };
+}
+
 const consensusOpt: RunPipelineOptions['consensus'] = (() => {
-  if (consensusMode !== 'gemini') return undefined;
-  if (!geminiKey) {
-    console.error('warn: --consensus=gemini requires GEMINI_API_KEY or GOOGLE_GEMINI_API_KEY');
+  if (!consensusMode) return undefined;
+  const built = buildModelFetchers();
+  if (!built) {
+    console.error('warn: --consensus requires GEMINI_API_KEY or GOOGLE_GEMINI_API_KEY');
     return undefined;
   }
   const slugGuess = slugOverride ?? address.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80);
@@ -164,9 +205,9 @@ const consensusOpt: RunPipelineOptions['consensus'] = (() => {
   if (references.length === 0) {
     console.error(`warn: no reference images at output/reference-data/${slugGuess}/ — consensus will run without references`);
   }
-  const scorer = createGeminiScorer({ apiKey: geminiKey });
+  console.error(`  [consensus] mode=${built.mode}`);
   return {
-    models: singleModelFetchers(scorer),
+    models: built.models,
     references,
     maxRounds: 1, // deterministic synthesis → re-scoring is no-op; save API calls
   };

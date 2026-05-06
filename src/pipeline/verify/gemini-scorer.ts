@@ -34,7 +34,7 @@ interface GeminiResponse {
 
 // ─── Prompt ────────────────────────────────────────────────────────────────
 
-const PROMPT = `
+export const SCORER_PROMPT = `
 You are evaluating a Minecraft voxel model of a real building against reference photos.
 
 The first images are voxel-model renders (isometric, front elevation, top-down, cutaway).
@@ -110,7 +110,7 @@ export function createGeminiScorer(opts: GeminiScorerOptions): ModelScoreFn {
   const log = opts.log ?? ((m: string): void => { console.error(m); });
 
   return async ({ renders, references, round }) => {
-    const parts: GeminiPart[] = [{ text: PROMPT }];
+    const parts: GeminiPart[] = [{ text: SCORER_PROMPT }];
 
     // Voxel model renders (label each so the VLM doesn't confuse them)
     const labels = ['Voxel model — isometric:', 'Voxel model — front elevation:',
