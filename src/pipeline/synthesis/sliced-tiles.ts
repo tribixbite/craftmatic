@@ -248,16 +248,23 @@ function projectOsmPolygonOrNull(
 
 /**
  * Constrain a slice polygon to the OSM footprint. Two outcomes:
- *   • All slice vertices inside OSM → keep the slice polygon as-is. This
- *     preserves real setbacks (upper bands narrower than ground).
- *   • Any slice vertex outside OSM → replace with OSM polygon. Drops
- *     photogrammetry overshoot (the photogrammetry mesh extends beyond
- *     the real building due to facade detail / scaffolding noise).
+ *   • All slice vertices inside OSM → keep slice polygon (preserves
+ *     real setbacks; if photogrammetry produces TWO disjoint polygons
+ *     per slice, both kept separately so twin towers preserved).
+ *   • Any slice vertex outside OSM → replace with OSM (drops
+ *     photogrammetry overshoot, neighbour buildings).
  *
- * A more accurate implementation would polygon-clip with Sutherland-
- * Hodgman or Weiler-Atherton, but the all-or-nothing decision is robust
- * across non-convex OSM shapes (the Flatiron wedge isn't convex once
- * its detailed corners survive).
+ * Sutherland-Hodgman clipping (kept as a helper for future use)
+ * requires a convex clip polygon. Pennzoil's 7-vertex OSM polygon
+ * has a concave indent between its two towers — clipping there
+ * over-shrinks the survived geometry and drops IoU from 1.00 to 0.66.
+ * The all-or-nothing decision is robust across non-convex OSM shapes;
+ * Greiner-Hormann would handle concavity correctly but adds 200+ lines.
+ *
+ * Twin-tower detection is a separate problem: photogrammetry usually
+ * produces ONE peanut-shaped polygon (towers + plaza connector), not
+ * two trapezoids. Splitting requires polygon-decomposition (waist
+ * detection or medial-axis), which is not implemented yet.
  */
 function maskedSilhouette(
   slice: Polygon2D,
@@ -269,6 +276,58 @@ function maskedSilhouette(
     }
   }
   return slice.points.map(p => ({ x: p.x, z: p.z }));
+}
+
+/**
+ * Sutherland-Hodgman polygon clipping — clips `subject` against `clip`,
+ * which must be convex (or near-convex; concavities are skipped). For
+ * each edge of clip polygon, walk subject and keep / interpolate
+ * vertices on the inside half-plane.
+ *
+ * Returns the clipped polygon as a flat array (no closing vertex).
+ * Returns empty if the clip eats everything or inputs are degenerate.
+ */
+function sutherlandHodgmanClip(
+  subject: ReadonlyArray<LocalPoint2D>,
+  clip: ReadonlyArray<LocalPoint2D>,
+): LocalPoint2D[] {
+  if (subject.length < 3 || clip.length < 3) return [];
+  let output: LocalPoint2D[] = [...subject];
+  for (let i = 0; i < clip.length; i++) {
+    if (output.length === 0) break;
+    const ce = clip[i];
+    const cf = clip[(i + 1) % clip.length];
+    const input = output;
+    output = [];
+    let s = input[input.length - 1];
+    const inside = (p: LocalPoint2D): boolean =>
+      // CCW edge ce→cf — point is inside if it's to the LEFT
+      (cf.x - ce.x) * (p.z - ce.z) - (cf.z - ce.z) * (p.x - ce.x) >= 0;
+    for (const e of input) {
+      if (inside(e)) {
+        if (!inside(s)) output.push(intersectEdge(s, e, ce, cf));
+        output.push(e);
+      } else if (inside(s)) {
+        output.push(intersectEdge(s, e, ce, cf));
+      }
+      s = e;
+    }
+  }
+  return output;
+}
+
+function intersectEdge(
+  s: LocalPoint2D,
+  e: LocalPoint2D,
+  ca: LocalPoint2D,
+  cb: LocalPoint2D,
+): LocalPoint2D {
+  const dx1 = e.x - s.x, dz1 = e.z - s.z;
+  const dx2 = cb.x - ca.x, dz2 = cb.z - ca.z;
+  const denom = dx1 * dz2 - dz1 * dx2;
+  if (Math.abs(denom) < 1e-9) return { x: e.x, z: e.z };
+  const t = ((ca.x - s.x) * dz2 - (ca.z - s.z) * dx2) / denom;
+  return { x: s.x + t * dx1, z: s.z + t * dz1 };
 }
 
 function pointInPolygon(
