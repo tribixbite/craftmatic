@@ -121,6 +121,40 @@ describe('reconcileHeight', () => {
     expect(r.source).toBe('inferred');
     expect(r.value).toBe(18);
   });
+
+  it('rejects tiles >30% taller than surveyed (sub-grade noise)', () => {
+    // OSM/Solar says 30m; photogrammetry measures 50m (sub-grade entrance,
+    // sidewalks, neighbour spillover). Should reject tiles measurement.
+    const r = reconcileHeight(
+      baseCtx({ heightM: 30, heightSource: 'solar' }),
+      makeTiles(50),
+    );
+    expect(r.source).toBe('solar');
+    expect(r.value).toBe(30);
+  });
+
+  it('falls back to archType×5 / footprint×0.9 cap when surveyed absent', () => {
+    // No surveyed height. Tall tiles measurement of 51m for residential
+    // (default 8m × 5 = 40m) with 31×21m footprint (diag×0.9 = 33.7m)
+    // should be REJECTED — falls back to archType default 8m.
+    const r = reconcileHeight(
+      baseCtx({ archType: 'residential', mbr: { rotationDeg: 0, widthM: 31, depthM: 21, corners: [] as never } }),
+      makeTiles(51),
+    );
+    expect(r.source).toBe('inferred');
+    expect(r.value).toBe(8);
+  });
+
+  it('accepts tiles within archType×5 cap when surveyed absent', () => {
+    // Civic, 88×60m base → archCap 18×5=90m, footprintCap 100×0.9=90m,
+    // 73m measurement passes.
+    const r = reconcileHeight(
+      baseCtx({ archType: 'civic', mbr: { rotationDeg: 0, widthM: 88, depthM: 60, corners: [] as never } }),
+      makeTiles(73),
+    );
+    expect(r.source).toBe('tiles');
+    expect(r.value).toBe(73);
+  });
 });
 
 // ─── Levels ────────────────────────────────────────────────────────────────

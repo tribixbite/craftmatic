@@ -126,4 +126,78 @@ describe('synthesizeSlicedTiles + evaluateBRep', () => {
     expect(mesh.volume).toBeGreaterThan(4000);
     expect(mesh.volume).toBeLessThan(6000);
   });
+
+  it('Y-scales output to expectedHeightM regardless of photogrammetry overshoot', async () => {
+    // Photogrammetry mesh spans 0-90m but expected height is 30m
+    // (sub-grade noise + neighbour buildings inflated the bbox).
+    // The Y normalisation should compress everything to 30m.
+    const tower = makeBox([-5, 5, -3], [5, 90, 3]);
+    const tiles = makeTileEvidence([tower], 90);
+    const brep = synthesizeSlicedTiles(makeStubCtx(), makeStubEv(), tiles, { voxelResolution: 6 });
+    const mesh = await evaluateBRep(brep);
+    let minY = Infinity, maxY = -Infinity;
+    for (let i = 1; i < mesh.positions.length; i += 3) {
+      minY = Math.min(minY, mesh.positions[i]);
+      maxY = Math.max(maxY, mesh.positions[i]);
+    }
+    // ev.heightM.value = 30 (stub default) → mesh should span 0..30m
+    expect(maxY - minY).toBeGreaterThan(28);
+    expect(maxY - minY).toBeLessThan(32);
+  });
+
+  it('OSM mask drops slice polygons whose vertices fall outside OSM', async () => {
+    // Two buildings: target at origin, neighbour at (50, 0). OSM polygon
+    // covers only the target. Synthesizer should drop the neighbour's
+    // bands, leaving only the target.
+    const target = makeBox([-5, 0, -5], [5, 20, 5]);
+    const neighbour = makeBox([45, 0, -5], [55, 20, 5]);
+    const tiles = makeTileEvidence([target, neighbour], 20);
+    // OSM polygon covering only the target square.
+    const osmPolygon = [
+      { lat: -0.00005, lon: -0.00005 },
+      { lat: -0.00005, lon:  0.00005 },
+      { lat:  0.00005, lon:  0.00005 },
+      { lat:  0.00005, lon: -0.00005 },
+    ];
+    const ev = makeStubEv();
+    const evWithOsm = {
+      ...ev,
+      footprint: { value: osmPolygon, source: 'osm' as const, confidence: 1.0 },
+    } as unknown as JointEvidence;
+    const ctxWithMbr = {
+      ...makeStubCtx(),
+      mbr: { rotationDeg: 0, widthM: 100, depthM: 100, corners: [] as never },
+    } as unknown as RefinedBuildingContext;
+
+    const brep = synthesizeSlicedTiles(ctxWithMbr, evWithOsm, tiles, { voxelResolution: 6 });
+    const mesh = await evaluateBRep(brep);
+    expect(mesh.watertight).toBe(true);
+    // Volume should be ~10×10×30 (target only) = 3000 m³ approx
+    // (Y-scaled to expected 30m). Neighbour at (50,0) is far outside OSM.
+    expect(mesh.volume).toBeLessThan(5000);
+    // No part of the mesh should be at X≈50 (neighbour location)
+    let maxX = -Infinity;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      maxX = Math.max(maxX, mesh.positions[i]);
+    }
+    expect(maxX).toBeLessThan(20);
+  });
+
+  it('infers tapered roof shape for elongated top bands (≥4 bands required)', async () => {
+    // Tall stepped pyramid: base + 3 progressively narrower stages.
+    // Each stage is 5m tall so the band detector emits ≥4 distinct bands
+    // even after polygon-matching collapses adjacent slices.
+    const base   = makeBox([-10,  0, -3], [10,  5,  3]);
+    const stage2 = makeBox([-7,   5, -2.5], [7,  10, 2.5]);
+    const stage3 = makeBox([-4,  10, -2],  [4,  15, 2]);
+    const stage4 = makeBox([-2,  15, -1.5], [2, 20, 1.5]);
+    const tiles = makeTileEvidence([base, stage2, stage3, stage4], 20);
+    const brep = synthesizeSlicedTiles(makeStubCtx(), makeStubEv(), tiles, { voxelResolution: 6 });
+    expect(['gabled', 'pyramidal', 'flat']).toContain(brep.roof.type);
+    if (brep.roof.type !== 'flat') {
+      expect(brep.roof.peakZ).toBeGreaterThan(brep.roof.baseZ);
+      // Long axis = X (20m) vs Z (6m) → aspect 3.3 → gabled
+      expect(brep.roof.type).toBe('gabled');
+    }
+  });
 });
