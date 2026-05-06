@@ -3,268 +3,152 @@
   "addresses": {
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
-      "status": "needs-human-review",
-      "lastRun": "2026-05-05T13:53:33.783Z",
-      "elapsedSec": 43.2,
-      "attempts": 39,
+      "status": "fail-objective",
+      "lastRun": "2026-05-06T00:21:52.578Z",
+      "elapsedSec": 15.4,
+      "attempts": 43,
       "recentFailureSignatures": [
-        "fail-consensus:median=5,min=1",
-        "fail-consensus:median=4,min=1",
-        "fail-objective:footprint IoU # < #",
-        "fail-consensus:median=0,min=0",
-        "fail-consensus:median=1,min=0"
+        "fail-consensus:median=1,min=0",
+        "fail-objective:footprint IoU # < #|height error #% > #%",
+        "fail-objective:footprint IoU # < #|height error #% > #%",
+        "fail-objective:footprint IoU # < #|height error #% > #%",
+        "fail-objective:footprint IoU # < #|height error #% > #%"
       ],
       "objective": {
-        "footprintIoU": 1,
-        "heightErr": 0,
+        "footprintIoU": 0.5906231938258593,
+        "heightErr": 0.1037645281334463,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 12,
-        "minWallThicknessMm": 9.765469551086426,
-        "voxelCount": 418014,
+        "selfIntersect": 9537,
+        "minWallThicknessMm": 10.949517250061035,
+        "voxelCount": 261565,
         "plinthWatertight": null,
-        "pass": true,
-        "failures": []
+        "pass": false,
+        "failures": [
+          "footprint IoU 0.59 < 0.85",
+          "height error 10% > 10%"
+        ]
       },
-      "consensus": {
-        "status": "fail",
-        "rounds": 1,
-        "gemini": {
-          "color": 1,
-          "features": 0,
-          "massing": 1,
-          "overall": 0
-        },
-        "claude": {
-          "color": 1,
-          "features": 0,
-          "massing": 1,
-          "overall": 0
-        },
-        "gpt5": {
-          "color": 1,
-          "features": 0,
-          "massing": 1,
-          "overall": 0
-        },
-        "min": 0,
-        "median": 0.5,
-        "spread": 0,
-        "pass": false
-      },
-      "reason": "escalated by stop hook: 39 attempts exceeded hard ceiling 10 \u2014 likely at MVP plateau (recent sigs: ['fail-objective:footprint IoU # < #', 'fail-consensus:median=0,min=0', 'fail-consensus:median=1,min=0'])"
+      "consensus": null
     },
     "240-highland": {
       "address": "240 Highland St, Newton, MA",
-      "status": "needs-human-review",
-      "lastRun": "2026-05-05T13:53:56.110Z",
-      "elapsedSec": 20.8,
-      "attempts": 10,
+      "status": "fail-objective",
+      "lastRun": "2026-05-06T00:22:01.161Z",
+      "elapsedSec": 7.1,
+      "attempts": 11,
       "recentFailureSignatures": [
+        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=1,min=0",
         "fail-consensus:median=0,min=0",
-        "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=0",
-        "fail-consensus:median=0,min=0"
+        "fail-objective:footprint IoU # < #|height error #% > #%"
       ],
       "objective": {
-        "footprintIoU": 1,
-        "heightErr": 0,
+        "footprintIoU": 0.6661007357102433,
+        "heightErr": 0.14608748594868443,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 11,
-        "minWallThicknessMm": 5.377772569656372,
-        "voxelCount": 112528,
+        "selfIntersect": 7357,
+        "minWallThicknessMm": 7.8990020751953125,
+        "voxelCount": 41931,
         "plinthWatertight": null,
-        "pass": true,
-        "failures": []
+        "pass": false,
+        "failures": [
+          "footprint IoU 0.67 < 0.85",
+          "height error 15% > 10%"
+        ]
       },
-      "consensus": {
-        "status": "fail",
-        "rounds": 1,
-        "gemini": {
-          "color": 1,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "claude": {
-          "color": 1,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "gpt5": {
-          "color": 1,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "min": 0,
-        "median": 0,
-        "spread": 0,
-        "pass": false
-      },
-      "reason": "escalated by stop hook: 10 attempts exceeded hard ceiling 10 \u2014 likely at MVP plateau (recent sigs: ['fail-consensus:median=1,min=0', 'fail-consensus:median=1,min=0', 'fail-consensus:median=0,min=0'])"
+      "consensus": null
     },
     "guggenheim": {
       "address": "1071 5th Ave, New York, NY",
-      "status": "needs-human-review",
-      "lastRun": "2026-05-05T13:57:06.663Z",
-      "elapsedSec": 47.4,
-      "attempts": 11,
+      "status": "fail-objective",
+      "lastRun": "2026-05-06T00:23:00.956Z",
+      "elapsedSec": 19.5,
+      "attempts": 12,
       "recentFailureSignatures": [
-        "fail-consensus:median=1,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=2,min=1",
-        "fail-consensus:median=0,min=0"
+        "fail-consensus:median=0,min=0",
+        "fail-objective:footprint IoU # < #|height error #% > #%"
       ],
       "objective": {
-        "footprintIoU": 1,
-        "heightErr": 0,
+        "footprintIoU": 0.4016639590410082,
+        "heightErr": 0.229420036709101,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 11,
-        "minWallThicknessMm": 14.283474445343018,
-        "voxelCount": 523489,
+        "selfIntersect": 6978,
+        "minWallThicknessMm": 19.60131549835205,
+        "voxelCount": 184522,
         "plinthWatertight": null,
-        "pass": true,
-        "failures": []
+        "pass": false,
+        "failures": [
+          "footprint IoU 0.40 < 0.85",
+          "height error 23% > 10%"
+        ]
       },
-      "consensus": {
-        "status": "fail",
-        "rounds": 1,
-        "gemini": {
-          "color": 0,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "claude": {
-          "color": 0,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "gpt5": {
-          "color": 0,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "min": 0,
-        "median": 0,
-        "spread": 0,
-        "pass": false
-      },
-      "reason": "escalated by stop hook: 11 attempts exceeded hard ceiling 10 \u2014 likely at MVP plateau (recent sigs: ['fail-consensus:median=0,min=0', 'fail-consensus:median=2,min=1', 'fail-consensus:median=0,min=0'])"
+      "consensus": null
     },
     "geisel": {
       "address": "9500 Gilman Dr, La Jolla, CA",
-      "status": "needs-human-review",
-      "lastRun": "2026-05-05T23:15:02.063Z",
-      "elapsedSec": 65.4,
-      "attempts": 11,
+      "status": "fail-objective",
+      "lastRun": "2026-05-06T00:23:28.101Z",
+      "elapsedSec": 24.7,
+      "attempts": 12,
       "recentFailureSignatures": [
         "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0",
-        "fail-consensus:median=0,min=0"
+        "fail-consensus:median=0,min=0",
+        "fail-objective:footprint IoU # < #"
       ],
       "objective": {
-        "footprintIoU": 1,
-        "heightErr": 0,
+        "footprintIoU": 0.5473458026078039,
+        "heightErr": 0.011906312494110503,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 11,
-        "minWallThicknessMm": 14.95831823348999,
-        "voxelCount": 688590,
+        "selfIntersect": 9026,
+        "minWallThicknessMm": 22.81898593902588,
+        "voxelCount": 266504,
         "plinthWatertight": null,
-        "pass": true,
-        "failures": []
+        "pass": false,
+        "failures": [
+          "footprint IoU 0.55 < 0.85"
+        ]
       },
-      "consensus": {
-        "status": "fail",
-        "rounds": 1,
-        "gemini": {
-          "color": 0,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "claude": {
-          "color": 0,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "gpt5": {
-          "color": 0,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "min": 0,
-        "median": 0,
-        "spread": 0,
-        "pass": false
-      },
-      "reason": "escalated by stop hook: 11 attempts, last 3 failures signature-identical: fail-consensus:median=0,min=0"
+      "consensus": null
     },
     "pennzoil": {
       "address": "700 Milam St, Houston, TX",
-      "status": "needs-human-review",
-      "lastRun": "2026-05-05T13:56:14.657Z",
-      "elapsedSec": 138.2,
-      "attempts": 11,
+      "status": "fail-objective",
+      "lastRun": "2026-05-06T00:22:35.716Z",
+      "elapsedSec": 34.1,
+      "attempts": 12,
       "recentFailureSignatures": [
-        "fail-consensus:median=1,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=1,min=0",
         "fail-consensus:median=0,min=0",
-        "fail-consensus:median=0,min=0"
+        "fail-consensus:median=0,min=0",
+        "fail-objective:footprint IoU # < #|height error #% > #%"
       ],
       "objective": {
-        "footprintIoU": 1,
-        "heightErr": 0,
+        "footprintIoU": 0.4179537188340098,
+        "heightErr": 0.24101291147735734,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 11,
-        "minWallThicknessMm": 27.59628677368164,
-        "voxelCount": 1552703,
+        "selfIntersect": 12514,
+        "minWallThicknessMm": 38.227294921875,
+        "voxelCount": 221659,
         "plinthWatertight": null,
-        "pass": true,
-        "failures": []
+        "pass": false,
+        "failures": [
+          "footprint IoU 0.42 < 0.85",
+          "height error 24% > 10%"
+        ]
       },
-      "consensus": {
-        "status": "fail",
-        "rounds": 1,
-        "gemini": {
-          "color": 1,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "claude": {
-          "color": 1,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "gpt5": {
-          "color": 1,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "min": 0,
-        "median": 0,
-        "spread": 0,
-        "pass": false
-      },
-      "reason": "escalated by stop hook: 11 attempts exceeded hard ceiling 10 \u2014 likely at MVP plateau (recent sigs: ['fail-consensus:median=1,min=0', 'fail-consensus:median=0,min=0', 'fail-consensus:median=0,min=0'])"
+      "consensus": null
     }
   }
 }

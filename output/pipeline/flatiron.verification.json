@@ -1,42 +1,20 @@
 {
-  "status": "fail-consensus",
-  "lastRun": "2026-05-05T13:53:33.783Z",
+  "status": "fail-objective",
+  "lastRun": "2026-05-06T00:21:52.578Z",
   "objective": {
-    "footprintIoU": 1,
-    "heightErr": 0,
+    "footprintIoU": 0.5906231938258593,
+    "heightErr": 0.1037645281334463,
     "watertight": true,
     "manifold": true,
-    "selfIntersect": 12,
-    "minWallThicknessMm": 9.765469551086426,
-    "voxelCount": 418014,
+    "selfIntersect": 9537,
+    "minWallThicknessMm": 10.949517250061035,
+    "voxelCount": 261565,
     "plinthWatertight": null,
-    "pass": true,
-    "failures": []
+    "pass": false,
+    "failures": [
+      "footprint IoU 0.59 < 0.85",
+      "height error 10% > 10%"
+    ]
   },
-  "consensus": {
-    "status": "fail",
-    "rounds": 1,
-    "gemini": {
-      "color": 1,
-      "features": 0,
-      "massing": 1,
-      "overall": 0
-    },
-    "claude": {
-      "color": 1,
-      "features": 0,
-      "massing": 1,
-      "overall": 0
-    },
-    "gpt5": {
-      "color": 1,
-      "features": 0,
-      "massing": 1,
-      "overall": 0
-    },
-    "min": 0,
-    "median": 0.5,
-    "spread": 0,
-    "pass": false
-  }
+  "consensus": null
 }
