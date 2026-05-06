@@ -296,6 +296,18 @@ export interface ExtractBandsOptions {
   readonly centroidTolM?: number;
   /** Area-ratio tolerance for band-matching (0.05 = ±5%). */
   readonly areaRatioTol?: number;
+  /**
+   * Optional XZ crop centred on origin — polygons whose centroid falls
+   * outside `[-halfX, halfX] × [-halfZ, halfZ]` are discarded. Used to
+   * drop surrounding-tile noise included in photogrammetry captures.
+   */
+  readonly cropXZ?: { halfX: number; halfZ: number };
+  /**
+   * When set, keep at most this many polygons per slice — the ones with
+   * centroids closest to origin. Drops far-off neighbour buildings while
+   * preserving twin-tower pairs (set to 2 for Pennzoil-style compounds).
+   */
+  readonly maxPolysPerSlice?: number;
 }
 
 export function extractBands(
@@ -317,9 +329,30 @@ export function extractBands(
 
   const bands: SliceBand[] = [];
   let curBand: { y0: number; y1: number; polys: Polygon2D[] } | null = null;
+  const crop = options.cropXZ;
 
+  const inCrop = (p: Polygon2D): boolean => {
+    if (!crop) return true;
+    return Math.abs(p.centroid.x) <= crop.halfX
+        && Math.abs(p.centroid.z) <= crop.halfZ;
+  };
+
+  const maxPolys = options.maxPolysPerSlice ?? Infinity;
   for (let y = yLo; y < yHi; y += deltaY) {
-    const polys = sliceMeshAtY(meshes, y, { snap: options.snap, minArea: options.minArea });
+    const rawPolys = sliceMeshAtY(meshes, y, { snap: options.snap, minArea: options.minArea });
+    const cropped = rawPolys.filter(inCrop);
+    // Sort by centroid distance to origin and keep the nearest `maxPolys`.
+    // For single buildings (maxPolys=1) this isolates the target. For
+    // twin-tower compounds (maxPolys=2) it keeps both towers but drops
+    // adjacent unrelated structures.
+    const polys = cropped
+      .slice()
+      .sort((a, b) => {
+        const da = Math.hypot(a.centroid.x, a.centroid.z);
+        const db = Math.hypot(b.centroid.x, b.centroid.z);
+        return da - db;
+      })
+      .slice(0, isFinite(maxPolys) ? maxPolys : cropped.length);
     if (polys.length === 0) {
       if (curBand) { bands.push({ ...curBand, polygons: curBand.polys }); curBand = null; }
       continue;

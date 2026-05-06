@@ -49,6 +49,7 @@ const tileTimeoutSec = parseInt(popFlag('--tile-timeout') ?? '0', 10);
 const consensusMode = popFlag('--consensus'); // 'gemini' | null — future: 'all'
 const resolutionFlag = popFlag('--resolution');
 const maxDimFlag = popFlag('--max-dim');
+const tilesGlbPath = popFlag('--tiles-glb');
 const skipTiles = argv.includes('--skip-tiles');
 if (skipTiles) argv.splice(argv.indexOf('--skip-tiles'), 1);
 const address = argv.join(' ').trim();
@@ -173,6 +174,18 @@ const consensusOpt: RunPipelineOptions['consensus'] = (() => {
 
 // ─── Run pipeline ──────────────────────────────────────────────────────────
 
+const injectedTiles = tilesGlbPath !== null
+  ? (await import('../src/pipeline/capture/tiles-from-glb.js')).buildTileEvidenceFromGlbFile({
+      path: resolve(tilesGlbPath),
+      // Stage 3 normally uses profile.tiles.expectedHeightM. The injected
+      // path doesn't have that yet (profile is computed inside runPipeline)
+      // so we pass 0 — `isHeightTruncated` only flags truncation when
+      // measured << expected, so 0 disables the truncation flag. Caller
+      // should provide a known-good GLB.
+      expectedHeightM: 0,
+    })
+  : undefined;
+
 const started = Date.now();
 const result = await runPipeline({
   address,
@@ -189,6 +202,7 @@ const result = await runPipeline({
   },
   tileTimeoutMs: tileTimeoutSec > 0 ? tileTimeoutSec * 1000 : undefined,
   skipTiles,
+  injectedTiles,
   consensus: consensusOpt,
   voxel: {
     ...(resolutionFlag !== null ? { resolution: parseFloat(resolutionFlag) } : {}),

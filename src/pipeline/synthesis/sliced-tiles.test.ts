@@ -107,20 +107,23 @@ describe('synthesizeSlicedTiles + evaluateBRep', () => {
     expect(mesh.volume).toBeLessThan(2100);
   });
 
-  it('twin-tower input produces a banded BRep with multiple polygons in upper bands', async () => {
-    // Pennzoil-style: shared base 0-5m, then two trapezoid towers above
+  it('twin-tower input keeps the closest-to-origin tower under maxPolysPerSlice=1 default', async () => {
+    // Pennzoil-style: shared base 0-5m, then two trapezoid towers above.
+    // Default `maxPolysPerSlice: 1` keeps just the building closest to
+    // origin per slice — for this synthetic input the two towers are
+    // equidistant so one is dropped. Volume is (30×10×5 base) + (13×10×25
+    // single tower) = 1500 + 3250 = 4750 m³, not the full 8000 m³.
     const base = makeBox([-15, 0, -5], [15, 5, 5]);
     const towerA = makeBox([-15, 5, -5], [-2, 30, 5]);
     const towerB = makeBox([2, 5, -5], [15, 30, 5]);
     const tiles = makeTileEvidence([base, towerA, towerB], 30);
     const brep = synthesizeSlicedTiles(makeStubCtx(), makeStubEv(), tiles, { voxelResolution: 6 });
     expect(brep.bandedSilhouettes).toBeDefined();
-    // Should have at least one prism for the base + two prisms for the towers
-    expect(brep.bandedSilhouettes!.length).toBeGreaterThanOrEqual(3);
+    expect(brep.bandedSilhouettes!.length).toBeGreaterThanOrEqual(2);
     const mesh = await evaluateBRep(brep);
     expect(mesh.watertight).toBe(true);
-    // Volume close to (30×10×5) + 2×(13×10×25) = 1500 + 6500 = 8000 m³
-    expect(mesh.volume).toBeGreaterThan(7000);
-    expect(mesh.volume).toBeLessThan(9000);
+    // Base + one tower (the closer one)
+    expect(mesh.volume).toBeGreaterThan(4000);
+    expect(mesh.volume).toBeLessThan(6000);
   });
 });

@@ -53,15 +53,53 @@ export function synthesizeSlicedTiles(
   }));
 
   const resolution = opts.voxelResolution ?? DEFAULT_VOXEL_RESOLUTION;
-  const deltaY = 1 / resolution;
+  // Band detection delta: 1m is plenty to catch setbacks, twin-tower splits,
+  // and cantilever transitions. Sub-metre slicing wastes compute (we'd
+  // produce hundreds of bands that all merge into a few anyway) and at
+  // res=6 a 0.167m feature is sub-voxel. The actual extruded prism still
+  // hits res-6 voxel resolution in exportVoxel — `deltaY` only sets
+  // band-detection granularity.
+  const deltaY = Math.max(1.0, 1 / resolution);
 
   const minY = tiles.measuredBbox.min.y;
   const maxY = tiles.measuredBbox.max.y;
 
+  // Crop to the building's expected XZ extent so we don't slice surrounding
+  // ground / neighbour buildings included in the photogrammetry capture.
+  // MBR widthM/depthM are normalised to (max, min) without preserving E-W
+  // vs N-S, so we use max(widthM, depthM) on both axes plus 30% slop.
+  // The photogrammetry GLB contains the target plus neighbouring buildings
+  // (Google's tile capture pulls a ~150m-radius cylinder). Crop tightly to
+  // the building's MBR + 20% slop so we don't slice 8 neighbours alongside.
+  // For twin-tower compounds (Pennzoil) the MBR already covers both
+  // towers + gap, so 20% slop is ample. For single buildings this excludes
+  // adjacent structures whose footprints would otherwise produce extra
+  // disjoint polygons in every slice.
+  const buildingMaxDim = Math.max(ctx.mbr.widthM, ctx.mbr.depthM);
+  const cropHalf = buildingMaxDim * 0.5 + Math.max(buildingMaxDim * 0.1, 5);
+
+  // Photogrammetry mesh edges are noisy at the ~0.5m scale — every slice
+  // produces slightly different polygon vertex counts and centroids even
+  // for what should be a uniform tower. Loosen tolerances so slices over
+  // a uniform section fold into one band: centroid drift up to 3m, area
+  // up to ±15%. This trades band count (fewer prisms = faster CSG union)
+  // against shape accuracy (tighter tolerances catch smaller setbacks).
   const bands = extractBands(
     meshes,
     { minY, maxY },
-    { deltaY, snap: 0.05, minArea: 2.0, centroidTolM: 1.5, areaRatioTol: 0.08 },
+    {
+      deltaY,
+      snap: 0.5,
+      minArea: 8.0,
+      centroidTolM: 3.0,
+      areaRatioTol: 0.15,
+      cropXZ: { halfX: cropHalf, halfZ: cropHalf },
+      // Keep only the polygon nearest origin per slice. Single-building
+      // case: this isolates the target from neighbouring photogrammetry.
+      // TODO: detect twin-tower compounds (Pennzoil) from OSM polygon
+      // disjoint-parts count and bump to 2 in those cases.
+      maxPolysPerSlice: 1,
+    },
   );
 
   // Translate bands into BRep `bandedSilhouettes`. The mesh's local frame

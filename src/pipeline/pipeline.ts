@@ -67,6 +67,14 @@ export interface RunPipelineOptions {
    * routes to the cleaned-tiles fallback which builds from MBR dimensions.
    */
   readonly skipTiles?: boolean;
+  /**
+   * Pre-built `TileEvidence` to inject in place of Stage 3 capture. When
+   * provided, Stage 3 is skipped and this evidence is used directly. Used
+   * by `--tiles-glb` (load locally cached GLB) and tests. Mutually
+   * exclusive with `skipTiles=true` semantically — if both are set, the
+   * injected tiles win.
+   */
+  readonly injectedTiles?: TileEvidence;
   /** Optional progress callback forwarded across stages. */
   readonly onProgress?: CaptureProgressFn;
   /** Voxel-export tuning. Defaults to resolution=6 block/m, maxDimension=768.
@@ -123,7 +131,10 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
 
   // ── Stage 3: tile capture ──────────────────────────────────────────────
   let tiles: TileEvidence | null = null;
-  if (opts.skipTiles) {
+  if (opts.injectedTiles) {
+    tiles = opts.injectedTiles;
+    progress({ stage: 'tiles', message: 'using injected tiles', ratio: 1 });
+  } else if (opts.skipTiles) {
     progress({ stage: 'tiles', message: 'skipped', ratio: 1 });
   } else {
     progress({ stage: 'tiles', message: 'capturing tiles…', ratio: 0 });

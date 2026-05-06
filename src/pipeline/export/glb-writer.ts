@@ -289,3 +289,102 @@ export function parseGlbJson(glb: ArrayBuffer): GltfRoot {
   const jsonBytes = new Uint8Array(glb, 20, jsonLen);
   return JSON.parse(new TextDecoder().decode(jsonBytes)) as GltfRoot;
 }
+
+/**
+ * Read positions+indices for every mesh primitive in a GLB. Returns one
+ * `{ positions, indices }` entry per primitive, in scene-local metres
+ * matching the source coordinate frame (Y is up — both `buildGlb` and
+ * Google 3D Tiles use this convention).
+ *
+ * Used by `--tiles-glb` and `extract-tile-meshes-from-glb` to feed local
+ * cached photogrammetry into the slice synthesizer without round-tripping
+ * through Three.js / TilesRenderer.
+ */
+export function parseGlbMeshes(glb: ArrayBuffer): Array<{
+  positions: Float32Array;
+  indices: Uint32Array;
+}> {
+  const root = parseGlbJson(glb);
+  const view = new DataView(glb);
+  const jsonLen = view.getUint32(12, true);
+  // BIN chunk follows JSON chunk: 12 byte header + jsonLen + 8 byte chunk header
+  const binChunkOffset = 20 + jsonLen + 8;
+  const out: Array<{ positions: Float32Array; indices: Uint32Array }> = [];
+
+  const readAccessor = (accessorIdx: number): {
+    bytes: Uint8Array;
+    count: number;
+    componentType: number;
+    typeSize: number;
+  } => {
+    const acc = root.accessors[accessorIdx];
+    const bv = root.bufferViews[acc.bufferView];
+    const off = binChunkOffset + bv.byteOffset;
+    const bytes = new Uint8Array(glb, off, bv.byteLength);
+    const typeSize = TYPE_COMPONENT_COUNT[acc.type] ?? 1;
+    return { bytes, count: acc.count, componentType: acc.componentType, typeSize };
+  };
+
+  const toFloat32 = (bytes: Uint8Array, count: number, componentType: number, typeSize: number): Float32Array => {
+    if (componentType !== 5126) throw new Error(`POSITION must be FLOAT (5126), got ${componentType}`);
+    return new Float32Array(bytes.buffer, bytes.byteOffset, count * typeSize);
+  };
+
+  const toUint32 = (bytes: Uint8Array, count: number, componentType: number): Uint32Array => {
+    if (componentType === 5125) {
+      return new Uint32Array(bytes.buffer, bytes.byteOffset, count);
+    }
+    if (componentType === 5123) {
+      const u16 = new Uint16Array(bytes.buffer, bytes.byteOffset, count);
+      const out = new Uint32Array(count);
+      for (let i = 0; i < count; i++) out[i] = u16[i];
+      return out;
+    }
+    if (componentType === 5121) {
+      const u8 = new Uint8Array(bytes.buffer, bytes.byteOffset, count);
+      const out = new Uint32Array(count);
+      for (let i = 0; i < count; i++) out[i] = u8[i];
+      return out;
+    }
+    throw new Error(`Unsupported index componentType ${componentType}`);
+  };
+
+  for (const mesh of root.meshes) {
+    for (const prim of mesh.primitives) {
+      const posIdx = prim.attributes['POSITION'];
+      if (posIdx === undefined) continue;
+      const posAcc = readAccessor(posIdx);
+      // Position bytes may not be 4-aligned within the mega-buffer;
+      // copy into a fresh Float32Array if so.
+      let positions: Float32Array;
+      const aligned = (posAcc.bytes.byteOffset % 4) === 0;
+      if (aligned) {
+        positions = toFloat32(posAcc.bytes, posAcc.count, posAcc.componentType, posAcc.typeSize);
+      } else {
+        const copy = new Uint8Array(posAcc.bytes);
+        positions = new Float32Array(copy.buffer, copy.byteOffset, posAcc.count * posAcc.typeSize);
+      }
+
+      let indices: Uint32Array;
+      if (prim.indices !== undefined) {
+        const idxAcc = readAccessor(prim.indices);
+        indices = toUint32(idxAcc.bytes, idxAcc.count, idxAcc.componentType);
+      } else {
+        // Non-indexed: synthesize 0..n-1
+        indices = new Uint32Array(posAcc.count);
+        for (let i = 0; i < indices.length; i++) indices[i] = i;
+      }
+
+      // Copy to detach from the shared GLB buffer (callers may mutate or hold)
+      out.push({
+        positions: new Float32Array(positions),
+        indices: new Uint32Array(indices),
+      });
+    }
+  }
+  return out;
+}
+
+const TYPE_COMPONENT_COUNT: Record<string, number> = {
+  SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16,
+};

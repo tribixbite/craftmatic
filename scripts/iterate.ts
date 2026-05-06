@@ -85,7 +85,7 @@ function statusRank(status: Status): number {
   }
 }
 
-function runBuild(golden: Golden, extraFlags: string[] = []): number {
+function runBuild(golden: Golden, extraFlags: string[] = [], localTiles = false): number {
   console.error(`\n━━━ ${golden.slug} — ${golden.address} ━━━`);
   // Enable Gemini VLM consensus unless the caller explicitly disabled it
   // with --no-consensus. Without it, goldens stall at status:fail-consensus
@@ -94,6 +94,8 @@ function runBuild(golden: Golden, extraFlags: string[] = []): number {
   const consensusFlag = !extraFlags.includes('--no-consensus') && hasGeminiKey
     ? ['--consensus', 'gemini']
     : [];
+  const localGlb = localTiles ? LOCAL_TILES_GLBS[golden.slug] : undefined;
+  const localGlbFlag = localGlb ? ['--tiles-glb', resolve(projectRoot, localGlb)] : [];
   const result = spawnSync('bun', [
     resolve(projectRoot, 'scripts/build.ts'),
     golden.address,
@@ -103,6 +105,7 @@ function runBuild(golden: Golden, extraFlags: string[] = []): number {
     // Partial captures fall through to cleaned-tiles / parametric paths.
     '--tile-timeout', '60',
     ...consensusFlag,
+    ...localGlbFlag,
     ...extraFlags.filter((f) => f !== '--no-consensus'),
   ], {
     cwd: projectRoot,
@@ -193,11 +196,28 @@ if (hasFlag('--status') || argv.length === 0) {
 const fast = hasFlag('--fast');
 const resOverride = popArg('--resolution');
 const maxDimOverride = popArg('--max-dim');
+const tilesGlbOverride = popArg('--tiles-glb');
+const useLocalTiles = hasFlag('--local-tiles');
 const extraBuildFlags = [
   ...(fast ? ['--skip-tiles'] : []),
   ...(resOverride !== null ? ['--resolution', resOverride] : []),
   ...(maxDimOverride !== null ? ['--max-dim', maxDimOverride] : []),
+  ...(tilesGlbOverride !== null ? ['--tiles-glb', tilesGlbOverride] : []),
 ];
+
+/**
+ * Per-golden GLB lookup for `--local-tiles`. Maps slug to its locally-cached
+ * photogrammetry capture. Used when Google 3D Tiles API is rate-limiting /
+ * unstable, allowing the loop to iterate against the deterministic last-
+ * known-good capture.
+ */
+const LOCAL_TILES_GLBS: Record<string, string> = {
+  flatiron: 'output/tiles/tiles-flatiron-building-new-york-ny.glb',
+  '240-highland': 'output/tiles/tiles-240-highland-st-newton-ma-02465.glb',
+  pennzoil: 'output/tiles/pennzoil-new2.glb',
+  guggenheim: 'output/tiles/guggenheim.glb',
+  geisel: 'output/tiles/geisel-v200.glb',
+};
 
 if (hasFlag('--bootstrap')) {
   const targets = goldens.filter(g => !state.addresses[g.slug]);
@@ -209,7 +229,7 @@ if (hasFlag('--bootstrap')) {
   console.log(`bootstrap: building ${targets.length} ungraded goldens${fast ? ' (fast, skip-tiles)' : ''}…`);
   let failed = 0;
   for (const g of targets) {
-    const code = runBuild(g, extraBuildFlags);
+    const code = runBuild(g, extraBuildFlags, useLocalTiles);
     if (code !== 0) failed++;
   }
   summarise(loadState(), goldens);
@@ -220,7 +240,7 @@ if (hasFlag('--all')) {
   console.log(`rebuilding all ${goldens.length} goldens${fast ? ' (fast)' : ''}…`);
   let failed = 0;
   for (const g of goldens) {
-    const code = runBuild(g, extraBuildFlags);
+    const code = runBuild(g, extraBuildFlags, useLocalTiles);
     if (code !== 0) failed++;
   }
   summarise(loadState(), goldens);
@@ -235,7 +255,7 @@ if (only) {
     console.error(`Known: ${goldens.map(x => x.slug).join(', ')}`);
     process.exit(1);
   }
-  const code = runBuild(g, extraBuildFlags);
+  const code = runBuild(g, extraBuildFlags, useLocalTiles);
   summarise(loadState(), goldens);
   process.exit(code);
 }
@@ -249,7 +269,7 @@ if (hasFlag('--worst')) {
   }
   const rec = state.addresses[g.slug];
   console.error(`worst: ${g.slug} (${rec.status}, ${rec.attempts} attempts)`);
-  const code = runBuild(g, extraBuildFlags);
+  const code = runBuild(g, extraBuildFlags, useLocalTiles);
   summarise(loadState(), goldens);
   process.exit(code);
 }
