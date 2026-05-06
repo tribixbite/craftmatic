@@ -58,11 +58,29 @@ export function reconcileHeight(
   ctx: BuildingContext,
   tiles: TileEvidence | null,
 ): Evidence<number> {
-  // Tiles only authoritative when we're confident the capture wasn't truncated
+  // Tiles authoritative only when:
+  //   • not truncated (top of building captured)
+  //   • not covered by ≤3 meshes (noCoverage)
+  //   • measurement is within 1.3× of OSM/Solar expected — otherwise the
+  //     captured Y span includes underground/sidewalk geometry that
+  //     extends well below the actual building base, blowing height_err
+  //     past the 10% gate. When OSM/Solar disagrees with photogrammetry
+  //     by >30%, prefer the surveyed value.
   if (tiles && !tiles.truncated && !tiles.noCoverage) {
     const measuredH = tiles.measuredBbox.max.y - tiles.measuredBbox.min.y;
     if (measuredH > 2) {
-      return { value: measuredH, source: 'tiles', confidence: 0.95 };
+      const surveyed = ctx.heightM ?? 0;
+      // Photogrammetry can OVER-measure (sub-grade entrances, sidewalk
+      // noise extend the bbox below the actual ground plane). When tiles'
+      // measurement is suspiciously larger than OSM/Solar surveyed
+      // height, trust the surveyed value. We don't gate the inverse
+      // direction (surveyed >> measured) because OSM's height/levels tag
+      // is often missing or wrong (Guggenheim's height=21m is half its
+      // actual ~32m); photogrammetry is more reliable when present.
+      const tilesPlausible = surveyed <= 0 || measuredH <= surveyed * 1.3;
+      if (tilesPlausible) {
+        return { value: measuredH, source: 'tiles', confidence: 0.95 };
+      }
     }
   }
   if (ctx.heightM != null && ctx.heightSource === 'solar') {

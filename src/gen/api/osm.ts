@@ -71,7 +71,14 @@ export async function searchOSMBuilding(
     try {
       const resp = await fetch(serverUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          // Overpass API returns 406 to requests without a User-Agent
+          // (anti-bot policy as of ~2026-04). Without this, every OSM
+          // lookup silently falls back to Solar bbox, dropping real
+          // polygon shape and dragging downstream IoU.
+          'User-Agent': 'craftmatic/1.0 (https://github.com/tribixbite/craftmatic)',
+        },
         body,
         signal: AbortSignal.timeout(20000),
       });
@@ -133,7 +140,14 @@ export async function fetchOSMById(
     try {
       const resp = await fetch(serverUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          // Overpass API returns 406 to requests without a User-Agent
+          // (anti-bot policy as of ~2026-04). Without this, every OSM
+          // lookup silently falls back to Solar bbox, dropping real
+          // polygon shape and dragging downstream IoU.
+          'User-Agent': 'craftmatic/1.0 (https://github.com/tribixbite/craftmatic)',
+        },
         body,
         signal: AbortSignal.timeout(20000),
       });

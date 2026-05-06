@@ -24,6 +24,8 @@ import {
   type MeshSliceInput,
   type Polygon2D,
 } from './slice-extract.js';
+import { projectPolygonToLocal } from './features.js';
+import { douglasPeucker } from '../context/classify.js';
 import { rgbToWallBlock, rgbToRoofOverride } from '../../gen/color-blocks.js';
 import { DEFAULT_VOXEL_RESOLUTION } from '../pipeline.js';
 
@@ -61,6 +63,12 @@ export function synthesizeSlicedTiles(
   // band-detection granularity.
   const deltaY = Math.max(1.0, 1 / resolution);
 
+  // Slice across the full photogrammetry Y range. The OSM mask filter
+  // (applied per-slice via maskedSilhouette) drops polygons outside the
+  // building's footprint, so neighbouring buildings naturally don't
+  // contribute bands at their own height. We still get a tight Y range
+  // for the building from the SURVIVED bands.
+  const expectedHeightM = ev.heightM.value > 0 ? ev.heightM.value : 30;
   const minY = tiles.measuredBbox.min.y;
   const maxY = tiles.measuredBbox.max.y;
 
@@ -105,32 +113,87 @@ export function synthesizeSlicedTiles(
   // Translate bands into BRep `bandedSilhouettes`. The mesh's local frame
   // already shares centre + rotation with the BRep, so polygons project
   // straight through.
+  // OSM polygon mask — when available, project to local frame and use as
+  // the authoritative ground footprint. Slice polygons that fall fully
+  // inside OSM (real setbacks) are kept as-is; slice polygons that
+  // overshoot OSM (photogrammetry artifacts, neighbours) are replaced
+  // with the OSM polygon. This anchors the silhouette to OSM at ground
+  // level and lets Stage B's setback detection survive only on real
+  // step-ins.
+  const osmLocal = projectOsmPolygonOrNull(ctx, ev);
+
+  // First pass: filter out bands whose polygons are entirely outside OSM.
+  // We materialise the masked polygon for each surviving band and track
+  // the actual (post-mask) Y range — this is the building's true Y span
+  // even when photogrammetry includes neighbours that span a wider Y.
+  interface MaskedBand {
+    polygon: readonly LocalPoint2D[];
+    y0: number;
+    y1: number;
+  }
+  const masked: MaskedBand[] = [];
+  for (const band of bands) {
+    for (const poly of band.polygons) {
+      // Skip slices that fall entirely outside OSM — when the OSM polygon
+      // is provided and `osmLocal` is non-null, only slices that pass the
+      // origin-proximity filter AND have at least one vertex inside OSM
+      // contribute. `maskedSilhouette` returns OSM polygon as fallback
+      // when nothing inside; we treat that as "no surviving footprint" by
+      // checking if any vertex is actually inside.
+      if (osmLocal !== null) {
+        const anyInside = poly.points.some(p => pointInPolygon(p.x, p.z, osmLocal));
+        if (!anyInside) continue;
+      }
+      const ring = osmLocal !== null
+        ? maskedSilhouette(poly, osmLocal)
+        : openRingFrom(poly);
+      masked.push({ polygon: ring, y0: band.y0, y1: band.y1 });
+    }
+  }
+
+  // True building Y range from masked bands
+  const trueMinY = masked.length > 0
+    ? Math.min(...masked.map(b => b.y0))
+    : minY;
+  const trueMaxY = masked.length > 0
+    ? Math.max(...masked.map(b => b.y1))
+    : maxY;
+  const observedSpan = Math.max(0.01, trueMaxY - trueMinY);
+
+  // Y normalisation: linearly scale the masked Y range onto [0, expectedHeightM].
+  // OSM/Solar surveyed height is the authoritative input here — it's
+  // curated data, while photogrammetry's bbox is contaminated by sub-
+  // grade entrances, neighbour buildings, and antenna noise. Setbacks
+  // and cantilevers in the observed range are preserved proportionally.
+  // For buildings with no surveyed height (`expectedHeightM` falls back
+  // to 30m default), this collapses to "build to 30m" — least bad.
+  const scaleY = expectedHeightM / observedSpan;
+
   const bandedSilhouettes: Array<{
     polygon: readonly LocalPoint2D[];
     baseY: number;
     topY: number;
   }> = [];
-  // Translate so y=0 is at the ground plane
-  const yOffset = -minY;
-  for (const band of bands) {
-    for (const poly of band.polygons) {
-      bandedSilhouettes.push({
-        polygon: openRingFrom(poly),
-        baseY: band.y0 + yOffset,
-        topY: band.y1 + yOffset,
-      });
-    }
+  for (const b of masked) {
+    bandedSilhouettes.push({
+      polygon: b.polygon,
+      baseY: (b.y0 - trueMinY) * scaleY,
+      topY: (b.y1 - trueMinY) * scaleY,
+    });
   }
+  console.error(`  [sliced-tiles] survived ${masked.length} bands, Y range ${trueMinY.toFixed(1)}..${trueMaxY.toFixed(1)} (${observedSpan.toFixed(1)}m) → scaled to expected ${expectedHeightM.toFixed(1)}m (×${scaleY.toFixed(3)})`);
 
   const wallLab = ev.wallPalette.value[0];
   const roofLab = ev.roofPalette.value[0];
 
   // Top band acts as roof footprint when present; emit a flat-top "roof".
-  const topBand = bands[bands.length - 1];
-  const roofPolygon: readonly LocalPoint2D[] = topBand && topBand.polygons.length > 0
-    ? openRingFrom(topBand.polygons[0])
+  // After Y normalisation, the top is at expectedHeightM; roof polygon
+  // takes the topmost surviving silhouette.
+  const topMasked = masked[masked.length - 1];
+  const roofPolygon: readonly LocalPoint2D[] = topMasked
+    ? topMasked.polygon
     : [];
-  const topElev = topBand ? topBand.y1 + yOffset : (maxY - minY);
+  const topElev = expectedHeightM;
 
   return {
     origin: { lat: ctx.center.lat, lng: ctx.center.lng },
@@ -158,6 +221,74 @@ export function synthesizeSlicedTiles(
 
 function openRingFrom(p: Polygon2D): readonly LocalPoint2D[] {
   return p.points.map(pt => ({ x: pt.x, z: pt.z }));
+}
+
+/**
+ * Project the OSM polygon (when available) into MBR-aligned local frame.
+ * Mirrors `cleaned-tiles.ts` logic. Returns null when no usable OSM
+ * polygon exists — Solar bbox / inferred polygons are deliberately
+ * rejected because they're rectangles that defeat the mask filter.
+ */
+function projectOsmPolygonOrNull(
+  ctx: RefinedBuildingContext,
+  ev: JointEvidence,
+): readonly LocalPoint2D[] | null {
+  if (ev.footprint.source !== 'osm') return null;
+  const osmPoly = ev.footprint.value;
+  if (osmPoly.length < 3) return null;
+  const simplified = douglasPeucker(osmPoly, 0.00001);
+  const used = simplified.length >= 3 ? simplified : osmPoly;
+  const local = projectPolygonToLocal(
+    used.map(p => ({ lat: p.lat, lon: p.lon })),
+    ctx.center,
+    ctx.mbr.rotationDeg,
+  );
+  // Drop closing duplicate vertex if present
+  const isClosed = local.length >= 2
+    && Math.abs(local[0].x - local[local.length - 1].x) < 1e-6
+    && Math.abs(local[0].z - local[local.length - 1].z) < 1e-6;
+  return isClosed ? local.slice(0, -1) : [...local];
+}
+
+/**
+ * Constrain a slice polygon to the OSM footprint. Two outcomes:
+ *   • All slice vertices inside OSM → keep the slice polygon as-is. This
+ *     preserves real setbacks (upper bands narrower than ground).
+ *   • Any slice vertex outside OSM → replace with OSM polygon. Drops
+ *     photogrammetry overshoot (the photogrammetry mesh extends beyond
+ *     the real building due to facade detail / scaffolding noise).
+ *
+ * A more accurate implementation would polygon-clip with Sutherland-
+ * Hodgman or Weiler-Atherton, but the all-or-nothing decision is robust
+ * across non-convex OSM shapes (the Flatiron wedge isn't convex once
+ * its detailed corners survive).
+ */
+function maskedSilhouette(
+  slice: Polygon2D,
+  osmLocal: readonly LocalPoint2D[],
+): readonly LocalPoint2D[] {
+  for (const v of slice.points) {
+    if (!pointInPolygon(v.x, v.z, osmLocal)) {
+      return osmLocal;
+    }
+  }
+  return slice.points.map(p => ({ x: p.x, z: p.z }));
+}
+
+function pointInPolygon(
+  x: number,
+  z: number,
+  poly: readonly { x: number; z: number }[],
+): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, zi = poly[i].z;
+    const xj = poly[j].x, zj = poly[j].z;
+    const intersect = ((zi > z) !== (zj > z))
+      && (x < (xj - xi) * (z - zi) / (zj - zi + 1e-12) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
 }
 
 function makeMaterial(lab: Lab, block: string): MaterialRef {
