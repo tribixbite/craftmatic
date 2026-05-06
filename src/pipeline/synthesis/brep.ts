@@ -201,6 +201,13 @@ export async function evaluateBRep(brep: BuildingBRep): Promise<EvaluatedMesh> {
       ).translate([0, 0, band.baseY]);
       parts.push(prism);
     }
+    // Apply roof shape on top of the bands (gabled/pyramidal/dome
+    // synthesised from sliced-tiles inferRoofFromBands). Flat roofs
+    // skip this — bands already terminate at expectedHeightM.
+    if (brep.roof.type !== 'flat' && brep.roof.peakZ > brep.roof.baseZ) {
+      const roofShape = await buildRoofShape(m, brep.roof);
+      parts.push(roofShape);
+    }
     let banded = Manifold.union(parts);
 
     // Window cavities still apply — feature generators add them based on

@@ -4,15 +4,15 @@
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-05-06T17:58:48.069Z",
-      "elapsedSec": 7.7,
-      "attempts": 62,
+      "lastRun": "2026-05-06T18:13:13.564Z",
+      "elapsedSec": 26.2,
+      "attempts": 63,
       "recentFailureSignatures": [
-        "fail-consensus:median=3,min=0",
         "fail-consensus",
         "fail-consensus",
         "fail-consensus",
-        "fail-consensus"
+        "fail-consensus",
+        "fail-consensus:median=5,min=1"
       ],
       "objective": {
         "footprintIoU": 0.9825899214479306,
@@ -21,34 +21,59 @@
         "manifold": true,
         "selfIntersect": 1278,
         "minWallThicknessMm": 7.193524360656738,
-        "voxelCount": 942484,
+        "voxelCount": 96364,
         "plinthWatertight": null,
         "pass": true,
         "failures": []
       },
-      "consensus": null
+      "consensus": {
+        "status": "fail",
+        "rounds": 1,
+        "gemini": {
+          "color": 5,
+          "features": 1,
+          "massing": 8,
+          "overall": 5
+        },
+        "claude": {
+          "color": 5,
+          "features": 1,
+          "massing": 8,
+          "overall": 5
+        },
+        "gpt5": {
+          "color": 5,
+          "features": 1,
+          "massing": 8,
+          "overall": 5
+        },
+        "min": 1,
+        "median": 5,
+        "spread": 0,
+        "pass": false
+      }
     },
     "240-highland": {
       "address": "240 Highland St, Newton, MA",
       "status": "fail-consensus",
-      "lastRun": "2026-05-06T03:01:21.483Z",
-      "elapsedSec": 23.4,
-      "attempts": 23,
+      "lastRun": "2026-05-06T18:13:40.580Z",
+      "elapsedSec": 26.2,
+      "attempts": 25,
       "recentFailureSignatures": [
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0",
-        "fail-consensus:median=0,min=0",
-        "fail-consensus:median=0,min=0"
+        "fail-consensus",
+        "fail-consensus:median=1,min=0"
       ],
       "objective": {
         "footprintIoU": 0.9889190236342503,
         "heightErr": 0,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 1537,
+        "selfIntersect": 1307,
         "minWallThicknessMm": 4.9512269496917725,
-        "voxelCount": 34721,
+        "voxelCount": 9377,
         "plinthWatertight": null,
         "pass": true,
         "failures": []
@@ -59,23 +84,23 @@
         "gemini": {
           "color": 1,
           "features": 0,
-          "massing": 0,
+          "massing": 1,
           "overall": 0
         },
         "claude": {
           "color": 1,
           "features": 0,
-          "massing": 0,
+          "massing": 1,
           "overall": 0
         },
         "gpt5": {
           "color": 1,
           "features": 0,
-          "massing": 0,
+          "massing": 1,
           "overall": 0
         },
         "min": 0,
-        "median": 0,
+        "median": 0.5,
         "spread": 0,
         "pass": false
       }
@@ -83,15 +108,15 @@
     "guggenheim": {
       "address": "1071 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-05-06T03:04:21.417Z",
-      "elapsedSec": 39.4,
-      "attempts": 24,
+      "lastRun": "2026-05-06T18:14:45.085Z",
+      "elapsedSec": 26.3,
+      "attempts": 25,
       "recentFailureSignatures": [
         "fail-consensus:median=1,min=0",
         "fail-consensus:median=1,min=0",
         "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=0",
-        "fail-consensus:median=0,min=0"
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=2,min=0"
       ],
       "objective": {
         "footprintIoU": 0.9914354230900994,
@@ -100,7 +125,7 @@
         "manifold": true,
         "selfIntersect": 1117,
         "minWallThicknessMm": 9.736324071884155,
-        "voxelCount": 189178,
+        "voxelCount": 45508,
         "plinthWatertight": null,
         "pass": true,
         "failures": []
@@ -109,25 +134,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 2,
+          "color": 1,
           "features": 0,
-          "massing": 0,
-          "overall": 0
+          "massing": 3,
+          "overall": 2
         },
         "claude": {
-          "color": 2,
+          "color": 1,
           "features": 0,
-          "massing": 0,
-          "overall": 0
+          "massing": 3,
+          "overall": 2
         },
         "gpt5": {
-          "color": 2,
+          "color": 1,
           "features": 0,
-          "massing": 0,
-          "overall": 0
+          "massing": 3,
+          "overall": 2
         },
         "min": 0,
-        "median": 0,
+        "median": 1.5,
         "spread": 0,
         "pass": false
       }
@@ -187,29 +212,54 @@
     "pennzoil": {
       "address": "700 Milam St, Houston, TX",
       "status": "fail-consensus",
-      "lastRun": "2026-05-06T18:08:11.709Z",
-      "elapsedSec": 7.4,
-      "attempts": 27,
+      "lastRun": "2026-05-06T18:14:16.529Z",
+      "elapsedSec": 35.7,
+      "attempts": 28,
       "recentFailureSignatures": [
-        "fail-consensus:median=1,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus",
         "fail-objective:footprint IoU # < #",
-        "fail-consensus"
+        "fail-consensus",
+        "fail-consensus:median=0,min=0"
       ],
       "objective": {
         "footprintIoU": 0.9976452119309263,
         "heightErr": 0,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 1439,
+        "selfIntersect": 1310,
         "minWallThicknessMm": 19.046882390975952,
-        "voxelCount": 346957,
+        "voxelCount": 347038,
         "plinthWatertight": null,
         "pass": true,
         "failures": []
       },
-      "consensus": null
+      "consensus": {
+        "status": "fail",
+        "rounds": 1,
+        "gemini": {
+          "color": 7,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "claude": {
+          "color": 7,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "gpt5": {
+          "color": 7,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "min": 0,
+        "median": 0,
+        "spread": 0,
+        "pass": false
+      }
     }
   }
 }

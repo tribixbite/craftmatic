@@ -182,14 +182,20 @@ export function synthesizeSlicedTiles(
   const wallLab = ev.wallPalette.value[0];
   const roofLab = ev.roofPalette.value[0];
 
-  // Top band acts as roof footprint when present; emit a flat-top "roof".
-  // After Y normalisation, the top is at expectedHeightM; roof polygon
-  // takes the topmost surviving silhouette.
-  const topMasked = masked[masked.length - 1];
-  const roofPolygon: readonly LocalPoint2D[] = topMasked
-    ? topMasked.polygon
-    : [];
-  const topElev = expectedHeightM;
+  // Roof shape inference from top-band geometry. The bandedSilhouettes
+  // path stair-steps the photogrammetry exactly — for residential
+  // gables and pyramidal towers the top band's polygon is much smaller
+  // than the median band, producing a recognisable taper but pixelated
+  // roof. We replace the topmost N tapered bands with a single roof
+  // shape primitive (gabled / pyramidal / flat) so the BRep evaluator
+  // produces a smooth roof instead of stairs.
+  const roofInference = inferRoofFromBands(bandedSilhouettes);
+
+  // Drop the bands that the roof primitive replaces (they're now part
+  // of the roof shape, not stacked prisms).
+  if (roofInference.replacedBandCount > 0) {
+    bandedSilhouettes.length -= roofInference.replacedBandCount;
+  }
 
   return {
     origin: { lat: ctx.center.lat, lng: ctx.center.lng },
@@ -198,11 +204,11 @@ export function synthesizeSlicedTiles(
     walls: [],
     bandedSilhouettes,
     roof: {
-      type: 'flat',
-      baseZ: topElev,
-      peakZ: topElev,
-      pitchDeg: 0,
-      polygon: roofPolygon,
+      type: roofInference.type,
+      baseZ: roofInference.baseZ,
+      peakZ: roofInference.peakZ,
+      pitchDeg: roofInference.pitchDeg,
+      polygon: roofInference.polygon,
       params: {},
     },
     details: [],
@@ -217,6 +223,124 @@ export function synthesizeSlicedTiles(
 
 function openRingFrom(p: Polygon2D): readonly LocalPoint2D[] {
   return p.points.map(pt => ({ x: pt.x, z: pt.z }));
+}
+
+interface RoofInference {
+  /** Roof shape type (matches RoofShape enum). */
+  readonly type: 'flat' | 'gabled' | 'hipped' | 'pyramidal' | 'dome' | 'mansard' | 'shed';
+  readonly baseZ: number;
+  readonly peakZ: number;
+  readonly pitchDeg: number;
+  readonly polygon: readonly LocalPoint2D[];
+  /** How many trailing bands the roof primitive replaces. */
+  readonly replacedBandCount: number;
+}
+
+/**
+ * Infer roof shape from the silhouette taper at the top of the
+ * banded extrusion stack. The photogrammetry naturally captures peaked
+ * residential roofs as progressively-shrinking polygons in the topmost
+ * bands; we replace those bands with a single roof shape so the
+ * voxelizer produces a smooth peak instead of stair-stepped layers.
+ *
+ * Heuristic:
+ *   • Find the median band area as the "main mass" reference.
+ *   • Walk top-down from the highest band. While bands are <60% of
+ *     median area, mark them as part of the roof zone.
+ *   • Roof type by aspect ratio of the FIRST tapered band:
+ *       elongated (long/short > 2) → 'gabled' (ridge along long axis)
+ *       roughly square (≤2)        → 'pyramidal'
+ *       single tapered band        → 'flat' with height pad (no taper)
+ *   • Roof base = first tapered band's baseY
+ *   • Roof peak = expectedHeightM (= last band's topY before the drop)
+ *
+ * Single-tapered or flat-roof buildings get type='flat' and 0 bands
+ * dropped — the bandedSilhouettes path renders normally.
+ */
+function inferRoofFromBands(
+  bands: ReadonlyArray<{ polygon: readonly LocalPoint2D[]; baseY: number; topY: number }>,
+): RoofInference {
+  if (bands.length === 0) {
+    return { type: 'flat', baseZ: 0, peakZ: 0, pitchDeg: 0, polygon: [], replacedBandCount: 0 };
+  }
+  const peakZ = bands[bands.length - 1].topY;
+  const flatFallback: RoofInference = {
+    type: 'flat',
+    baseZ: peakZ,
+    peakZ,
+    pitchDeg: 0,
+    polygon: bands[bands.length - 1].polygon,
+    replacedBandCount: 0,
+  };
+
+  if (bands.length < 4) return flatFallback; // not enough signal
+
+  const areas = bands.map(b => signedAreaAbs(b.polygon));
+  const medianArea = median(areas);
+  if (medianArea <= 0) return flatFallback;
+
+  // Walk top-down counting bands < 60% of median
+  let taperedCount = 0;
+  for (let i = bands.length - 1; i >= 0; i--) {
+    if (areas[i] / medianArea < 0.6) {
+      taperedCount++;
+    } else {
+      break;
+    }
+  }
+  // Need at least 2 tapered bands to be worth replacing
+  if (taperedCount < 2) return flatFallback;
+
+  // First tapered band is the roof base
+  const firstTaperedIdx = bands.length - taperedCount;
+  const baseBand = bands[firstTaperedIdx];
+  const baseZ = baseBand.baseY;
+  const polygon = baseBand.polygon;
+
+  // Aspect ratio of the base polygon → gabled vs pyramidal
+  const bbox = polygonBBox(polygon);
+  const long = Math.max(bbox.w, bbox.d);
+  const short = Math.min(bbox.w, bbox.d);
+  const aspectRatio = long / Math.max(short, 0.1);
+  const type: RoofInference['type'] = aspectRatio > 2 ? 'gabled' : 'pyramidal';
+
+  const pitchHeight = peakZ - baseZ;
+  const pitchDeg = pitchHeight > 0 && short > 0
+    ? Math.atan2(pitchHeight, short / 2) * (180 / Math.PI)
+    : 30;
+
+  return {
+    type,
+    baseZ,
+    peakZ,
+    pitchDeg,
+    polygon,
+    replacedBandCount: taperedCount,
+  };
+}
+
+function signedAreaAbs(points: ReadonlyArray<LocalPoint2D>): number {
+  let a = 0;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    a += (points[j].x + points[i].x) * (points[i].z - points[j].z);
+  }
+  return Math.abs(a) * 0.5;
+}
+
+function median(vals: readonly number[]): number {
+  if (vals.length === 0) return 0;
+  const sorted = [...vals].sort((a, b) => a - b);
+  const n = sorted.length;
+  return n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[(n - 1) / 2];
+}
+
+function polygonBBox(points: ReadonlyArray<LocalPoint2D>): { w: number; d: number } {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+  }
+  return { w: maxX - minX, d: maxZ - minZ };
 }
 
 /**
@@ -287,6 +411,11 @@ function maskedSilhouette(
  * Returns the clipped polygon as a flat array (no closing vertex).
  * Returns empty if the clip eats everything or inputs are degenerate.
  */
+// Helper kept for future twin-tower polygon-decomposition work. See
+// commit 2ff24ea2 for context — Sutherland-Hodgman over-shrinks
+// non-convex OSM clip polygons (Pennzoil drops IoU 1.0 → 0.66).
+// @ts-expect-error retained for future use
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function sutherlandHodgmanClip(
   subject: ReadonlyArray<LocalPoint2D>,
   clip: ReadonlyArray<LocalPoint2D>,
