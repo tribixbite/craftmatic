@@ -4,15 +4,15 @@
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-05-07T02:39:45.572Z",
-      "elapsedSec": 42.4,
-      "attempts": 68,
+      "lastRun": "2026-05-07T03:41:52.804Z",
+      "elapsedSec": 27.1,
+      "attempts": 72,
       "recentFailureSignatures": [
-        "fail-consensus:median=4,min=0",
         "fail-consensus",
-        "fail-consensus:median=2,min=0",
-        "fail-consensus",
-        "fail-consensus"
+        "fail-objective:height error #% > #%",
+        "fail-objective:height error #% > #%",
+        "fail-consensus:median=6,min=2",
+        "fail-consensus:median=7,min=3"
       ],
       "objective": {
         "footprintIoU": 0.9825899214479306,
@@ -26,19 +26,44 @@
         "pass": true,
         "failures": []
       },
-      "consensus": null
+      "consensus": {
+        "status": "fail",
+        "rounds": 1,
+        "gemini": {
+          "color": 6,
+          "features": 3,
+          "massing": 9,
+          "overall": 7
+        },
+        "claude": {
+          "color": 6,
+          "features": 3,
+          "massing": 9,
+          "overall": 7
+        },
+        "gpt5": {
+          "color": 6,
+          "features": 3,
+          "massing": 9,
+          "overall": 7
+        },
+        "min": 3,
+        "median": 6.5,
+        "spread": 0,
+        "pass": false
+      }
     },
     "240-highland": {
       "address": "240 Highland St, Newton, MA",
       "status": "fail-consensus",
-      "lastRun": "2026-05-07T02:21:53.255Z",
-      "elapsedSec": 30.7,
-      "attempts": 28,
+      "lastRun": "2026-05-07T03:42:16.525Z",
+      "elapsedSec": 23,
+      "attempts": 32,
       "recentFailureSignatures": [
-        "fail-consensus",
+        "fail-consensus:median=0,min=0",
         "fail-consensus:median=1,min=0",
-        "fail-consensus",
-        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0"
       ],
       "objective": {
@@ -83,14 +108,14 @@
     "guggenheim": {
       "address": "1071 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-05-07T02:23:12.771Z",
-      "elapsedSec": 26.9,
-      "attempts": 27,
+      "lastRun": "2026-05-07T03:43:17.096Z",
+      "elapsedSec": 29.8,
+      "attempts": 31,
       "recentFailureSignatures": [
         "fail-consensus:median=1,min=0",
+        "fail-consensus:median=2,min=0",
         "fail-consensus:median=0,min=0",
-        "fail-consensus:median=2,min=0",
-        "fail-consensus:median=2,min=0",
+        "fail-consensus:median=0,min=0",
         "fail-consensus:median=1,min=0"
       ],
       "objective": {
@@ -109,22 +134,22 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 0,
+          "color": 2,
           "features": 0,
-          "massing": 3,
-          "overall": 1
+          "massing": 1,
+          "overall": 0
         },
         "claude": {
-          "color": 0,
+          "color": 2,
           "features": 0,
-          "massing": 3,
-          "overall": 1
+          "massing": 1,
+          "overall": 0
         },
         "gpt5": {
-          "color": 0,
+          "color": 2,
           "features": 0,
-          "massing": 3,
-          "overall": 1
+          "massing": 1,
+          "overall": 0
         },
         "min": 0,
         "median": 0.5,
@@ -135,14 +160,14 @@
     "geisel": {
       "address": "9500 Gilman Dr, La Jolla, CA",
       "status": "fail-consensus",
-      "lastRun": "2026-05-07T02:24:01.308Z",
-      "elapsedSec": 48.1,
-      "attempts": 26,
+      "lastRun": "2026-05-07T03:43:54.764Z",
+      "elapsedSec": 37.1,
+      "attempts": 30,
       "recentFailureSignatures": [
-        "fail-consensus:median=2,min=1",
-        "fail-consensus:median=2,min=1",
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0",
         "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=1",
+        "fail-consensus:median=1,min=0",
         "fail-consensus:median=0,min=0"
       ],
       "objective": {
@@ -187,15 +212,15 @@
     "pennzoil": {
       "address": "700 Milam St, Houston, TX",
       "status": "fail-consensus",
-      "lastRun": "2026-05-07T03:01:59.752Z",
-      "elapsedSec": 20.8,
-      "attempts": 35,
+      "lastRun": "2026-05-07T03:42:45.334Z",
+      "elapsedSec": 28.5,
+      "attempts": 42,
       "recentFailureSignatures": [
-        "fail-objective:height error #% > #%",
-        "fail-objective:footprint IoU # < #|height error #% > #%",
-        "fail-objective:footprint IoU # < #|height error #% > #%",
-        "fail-objective:height error #% > #%",
-        "fail-consensus"
+        "fail-consensus:median=0,min=0",
+        "fail-consensus",
+        "fail-consensus",
+        "fail-consensus",
+        "fail-consensus:median=1,min=0"
       ],
       "objective": {
         "footprintIoU": 0.9976452119309263,
@@ -209,7 +234,32 @@
         "pass": true,
         "failures": []
       },
-      "consensus": null
+      "consensus": {
+        "status": "fail",
+        "rounds": 1,
+        "gemini": {
+          "color": 3,
+          "features": 0,
+          "massing": 2,
+          "overall": 0
+        },
+        "claude": {
+          "color": 3,
+          "features": 0,
+          "massing": 2,
+          "overall": 0
+        },
+        "gpt5": {
+          "color": 3,
+          "features": 0,
+          "massing": 2,
+          "overall": 0
+        },
+        "min": 0,
+        "median": 1,
+        "spread": 0,
+        "pass": false
+      }
     }
   }
 }

@@ -259,24 +259,62 @@ export function buildBuildingContext(input: BuildContextInput): BuildingContext 
   // towers are 151m, taller than the parent's 36-level estimate).
   // Filter parts to those whose centroid sits inside the primary
   // OSM polygon so neighbour parts don't contaminate.
+  //
+  // Plausibility: only override an existing surveyed height when the
+  // parts-tallest is within 1.5× of it (Pennzoil 36-level → 126m,
+  // parts max 151m, ratio 1.20 — passes). Without this, Flatiron's
+  // 9-part query — which returns several neighbouring building parts
+  // with centroids that happen to fall inside the wedge — would push
+  // ctx.heightM up to 95m vs the actual 87m, causing h_err=21%.
   if (input.buildingParts && input.buildingParts.length > 0 && polygon) {
     let tallest = 0;
+    const ptInPoly = (px: number, py: number, poly: readonly { lat: number; lon: number }[]): boolean => {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].lon, yi = poly[i].lat;
+        const xj = poly[j].lon, yj = poly[j].lat;
+        const intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi + 1e-12) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    };
+    const polyAreaAbs = (poly: readonly { lat: number; lon: number }[]): number => {
+      let a = 0;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        a += (poly[j].lon + poly[i].lon) * (poly[i].lat - poly[j].lat);
+      }
+      return Math.abs(a) * 0.5;
+    };
+    const osmA = polyAreaAbs(polygon);
+    // Pre-filter: parts whose centroid+vertices land inside primary polygon
+    const qualified: Array<{ heightM: number; coverage: number }> = [];
     for (const part of input.buildingParts) {
       if (!part.heightM || !Number.isFinite(part.heightM)) continue;
-      // Centroid inside primary polygon?
       let cx = 0, cy = 0;
       for (const p of part.polygon) { cx += p.lon; cy += p.lat; }
       cx /= part.polygon.length; cy /= part.polygon.length;
-      let inside = false;
-      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-        const xi = polygon[i].lon, yi = polygon[i].lat;
-        const xj = polygon[j].lon, yj = polygon[j].lat;
-        const intersect = ((yi > cy) !== (yj > cy)) && (cx < (xj - xi) * (cy - yi) / (yj - yi + 1e-12) + xi);
-        if (intersect) inside = !inside;
+      if (!ptInPoly(cx, cy, polygon)) continue;
+      let insideVerts = 0;
+      for (const v of part.polygon) {
+        if (ptInPoly(v.lon, v.lat, polygon)) insideVerts++;
       }
-      if (inside && part.heightM > tallest) tallest = part.heightM;
+      // 0.5 threshold: tower polygons may extend slightly beyond the
+      // overarching `building` polygon (OSM mappers don't always align
+      // them perfectly). Stricter 0.8 threshold rejected real towers.
+      if (insideVerts / part.polygon.length < 0.5) continue;
+      const coverage = osmA > 0 ? polyAreaAbs(part.polygon) / osmA : 1;
+      qualified.push({ heightM: part.heightM, coverage });
     }
-    if (tallest > (heightM ?? 0)) {
+    // Compound discriminator: ≥2 qualified parts, each <60% coverage.
+    // Same heuristic the synthesizer applies.
+    const isCompound = qualified.length >= 2 && qualified.every(p => p.coverage < 0.6);
+    console.error(`  [resolver] buildingParts=${input.buildingParts.length} qualified=${qualified.length} isCompound=${isCompound} coverage=${qualified.map(p => p.coverage.toFixed(2)).join(',')}`);
+    if (isCompound) {
+      for (const q of qualified) if (q.heightM > tallest) tallest = q.heightM;
+    }
+    const surveyed = heightM ?? 0;
+    const plausible = surveyed === 0 || (tallest >= surveyed * 0.7 && tallest <= surveyed * 1.5);
+    if (tallest > surveyed && plausible) {
       heightM = tallest;
       heightSource = 'osm-levels';
     }

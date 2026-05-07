@@ -124,19 +124,23 @@ function synthesizeSlicedTilesImpl(
   // back to "keep the polygon closest to origin" — single-building case.
   const osmLocal = projectOsmPolygonOrNull(ctx, ev);
 
-  // OSM building:part polygons (Pennzoil-class twin towers). Each part
-  // has its own height tag, so we Y-scale per part instead of using a
-  // single expectedHeightM. When no parts: this list is empty and the
-  // single-polygon path runs unchanged.
-  //
-  // The Overpass `building:part` query returns ALL parts within the
-  // search radius — neighbour buildings included. Filter to parts whose
-  // centroid sits inside the primary OSM polygon so we only keep the
-  // target's own parts.
+  // OSM building:part polygons. Used only for genuine compound
+  // buildings (Pennzoil-style twin towers). For monolithic buildings
+  // (Flatiron) Overpass returns multiple `building:part` ways within
+  // the polygon (interior subdivisions, parking levels) that overlap
+  // the whole footprint and would corrupt the synthesizer if we treated
+  // them as separate towers. We only activate the parts path when:
+  //   • ≥ 2 qualified parts (single part = monolithic, parent polygon
+  //     captures it sufficiently)
+  //   • Each part covers < 60% of the OSM polygon area (parts in a
+  //     true compound DON'T fill the polygon — there's a gap between
+  //     them where the plaza/courtyard sits)
   const partPolygons: Array<{
     polygon: readonly LocalPoint2D[];
     expectedHeightM: number;
+    coverageFrac: number;
   }> = [];
+  const osmArea = osmLocal !== null ? polygonAreaAbs(osmLocal) : 0;
   for (const part of ctx.buildingParts ?? []) {
     if (part.polygon.length < 3) continue;
     const localPart = projectPolygonToLocal(
@@ -148,18 +152,43 @@ function synthesizeSlicedTilesImpl(
       && Math.abs(localPart[0].x - localPart[localPart.length - 1].x) < 1e-6
       && Math.abs(localPart[0].z - localPart[localPart.length - 1].z) < 1e-6;
     const ring = isClosed ? localPart.slice(0, -1) : [...localPart];
-    // Centroid-in-OSM test to filter out neighbour parts
     if (osmLocal !== null) {
       let cx = 0, cz = 0;
       for (const p of ring) { cx += p.x; cz += p.z; }
       cx /= ring.length; cz /= ring.length;
       if (!pointInPolygon(cx, cz, osmLocal)) continue;
+      let inside = 0;
+      for (const v of ring) {
+        if (pointInPolygon(v.x, v.z, osmLocal)) inside++;
+      }
+      if (inside / ring.length < 0.5) continue;
     }
     const partHeight = part.heightM && Number.isFinite(part.heightM) && part.heightM > 1
       ? part.heightM
       : expectedHeightM;
-    partPolygons.push({ polygon: ring, expectedHeightM: partHeight });
+    const partArea = polygonAreaAbs(ring);
+    const coverageFrac = osmArea > 0 ? partArea / osmArea : 1;
+    partPolygons.push({ polygon: ring, expectedHeightM: partHeight, coverageFrac });
   }
+  // Compound discriminator. Cases:
+  //   • 0-1 parts → monolithic, single-polygon path
+  //   • ≥2 parts, all <60% coverage AND distinct heights → compound
+  //   • ≥2 parts but one ≥60% coverage OR all same height → monolithic
+  //     (interior subdivisions of a single building, not separate towers)
+  let isCompound = false;
+  if (partPolygons.length >= 2) {
+    const allBelowFull = partPolygons.every(p => p.coverageFrac < 0.6);
+    const heights = partPolygons.map(p => p.expectedHeightM);
+    const hMin = Math.min(...heights), hMax = Math.max(...heights);
+    const heightSpread = hMax - hMin;
+    // Distinct heights: ≥10m spread, OR all parts <40% coverage
+    // (well-separated towers regardless of height).
+    const distinctHeights = heightSpread >= 10;
+    const wellSeparated = partPolygons.every(p => p.coverageFrac < 0.4);
+    isCompound = allBelowFull && (distinctHeights || wellSeparated);
+  }
+  console.error(`  [sliced-tiles] parts=${partPolygons.length} isCompound=${isCompound} coverage=${partPolygons.map(p => p.coverageFrac.toFixed(2)).join(',')}`);
+  if (!isCompound) partPolygons.length = 0;
 
   // Photogrammetry mesh edges are noisy at the ~0.5m scale — every slice
   // produces slightly different polygon vertex counts and centroids even
@@ -304,6 +333,14 @@ function synthesizeSlicedTilesImpl(
 
 function openRingFrom(p: Polygon2D): readonly LocalPoint2D[] {
   return p.points.map(pt => ({ x: pt.x, z: pt.z }));
+}
+
+function polygonAreaAbs(poly: ReadonlyArray<LocalPoint2D>): number {
+  let a = 0;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    a += (poly[j].x + poly[i].x) * (poly[i].z - poly[j].z);
+  }
+  return Math.abs(a) * 0.5;
 }
 
 interface RoofInference {
