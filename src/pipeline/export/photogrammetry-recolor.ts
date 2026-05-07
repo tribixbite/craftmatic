@@ -47,6 +47,16 @@ export interface RecolorOptions {
   readonly maxDistanceM?: number;
   /** Optional progress callback. */
   readonly onProgress?: (frac: number) => void;
+  /**
+   * Per-band colour clustering (Lab k-means). When > 1, the recolor
+   * pass collects samples first, runs k-means per Y band of
+   * `bandHeightM` metres, and snaps every voxel to its band's nearest
+   * cluster centroid before block assignment. Removes JPEG noise +
+   * photogrammetry artifacts that produce splotchy patches in the
+   * naive per-voxel path. Default 3 clusters / 5m bands.
+   */
+  readonly clustersPerBand?: number;
+  readonly bandHeightM?: number;
 }
 
 interface DecodedTexture {
@@ -250,12 +260,20 @@ export async function recolorFromPhotogrammetry(
 
   const { width: W, height: H, length: L } = grid;
   const AIR = 'minecraft:air';
-  let replaced = 0;
-  let skipped = 0;
+  const clustersPerBand = Math.max(1, opts.clustersPerBand ?? 3);
+  const bandHeightM = Math.max(1, opts.bandHeightM ?? 5);
+  const bandRows = Math.max(1, Math.round(bandHeightM * opts.resolution));
 
+  // Per-voxel sampled colour (RGB packed as Uint32 0xRRGGBB | 0x80000000 for
+  // "filled"). Allocated as Int32Array so we can use -1 as sentinel.
+  const sampledRGB = new Int32Array(W * H * L);
+  sampledRGB.fill(-1);
+  let skipped = 0;
+  let sampled = 0;
+
+  // ─── Pass 1: collect colour samples per voxel ────────────────────────────
   for (let y = 0; y < H; y++) {
-    if (opts.onProgress) opts.onProgress(y / H);
-    // Map grid-Y (already integer voxel index) to photogrammetry-Y
+    if (opts.onProgress) opts.onProgress((y / H) * 0.6);
     const worldGridY = opts.originY + (y + 0.5) / opts.resolution;
     const worldPgY = (worldGridY / opts.yScale) + opts.yShift;
     for (let z = 0; z < L; z++) {
@@ -270,11 +288,9 @@ export async function recolorFromPhotogrammetry(
         const worldX = opts.originX + (x + 0.5) / opts.resolution;
         tmpQueryPoint.set(worldX, worldPgY, worldZ);
 
-        // Find closest photogrammetry triangle across all meshes
         let bestDist = Infinity;
         let bestColor: readonly [number, number, number] | null = null;
         for (const m of meshes) {
-          // Quick bbox reject
           const bbox = m.geometry.boundingBox;
           if (!bbox) continue;
           if (worldX < bbox.min.x - maxDist || worldX > bbox.max.x + maxDist) continue;
@@ -282,51 +298,86 @@ export async function recolorFromPhotogrammetry(
           if (worldPgY < bbox.min.y - maxDist || worldPgY > bbox.max.y + maxDist) continue;
           closestTarget.distance = Infinity;
           const result = m.bvh.closestPointToPoint(tmpQueryPoint, closestTarget, 0, Math.min(maxDist, bestDist));
-          if (result && result.distance < bestDist) {
-            tmpClosestPoint.copy(result.point);
-            // Reject triangles whose normal points INWARD relative to the
-            // outward direction from building centre to voxel. Without this,
-            // tall-but-thin photogrammetry features (scaffolding inside the
-            // building footprint, mesh self-overlap, back-of-building tris
-            // visible through window cavities) leak through and produce
-            // splotchy patches on the facade.
-            const positions = m.geometry.getAttribute('position').array as Float32Array;
-            const indices = m.geometry.index!.array as unknown as Uint32Array;
-            const ia = indices[result.faceIndex * 3] * 3;
-            const ib = indices[result.faceIndex * 3 + 1] * 3;
-            const ic = indices[result.faceIndex * 3 + 2] * 3;
-            tmpA.set(positions[ia], positions[ia + 1], positions[ia + 2]);
-            tmpB.set(positions[ib], positions[ib + 1], positions[ib + 2]);
-            tmpC.set(positions[ic], positions[ic + 1], positions[ic + 2]);
-            tmpAB.subVectors(tmpB, tmpA);
-            tmpAC.subVectors(tmpC, tmpA);
-            tmpNormal.crossVectors(tmpAB, tmpAC).normalize();
-            // Outward direction = voxel position − building XZ centroid (Y ignored)
-            tmpToVoxel.set(worldX - cX, 0, worldZ - cZ);
-            const dotXZ = tmpNormal.x * tmpToVoxel.x + tmpNormal.z * tmpToVoxel.z;
-            // If the triangle normal projects negatively onto outward,
-            // it's an inward-facing tri — skip. Allow horizontal tris
-            // (roof/floor) where dotXZ ~ 0 since they're flat.
-            const horizonDot = Math.abs(tmpNormal.x) + Math.abs(tmpNormal.z);
-            if (horizonDot > 0.2 && dotXZ < 0) {
-              continue;
-            }
-            const colour = sampleTriangle(
-              m,
-              result.faceIndex,
-              { x: tmpClosestPoint.x, y: tmpClosestPoint.y, z: tmpClosestPoint.z },
-              positions,
-              indices,
-            );
-            if (colour) {
-              bestDist = result.distance;
-              bestColor = colour;
-            }
+          if (!result || result.distance >= bestDist) continue;
+          tmpClosestPoint.copy(result.point);
+          const positions = m.geometry.getAttribute('position').array as Float32Array;
+          const indices = m.geometry.index!.array as unknown as Uint32Array;
+          const ia = indices[result.faceIndex * 3] * 3;
+          const ib = indices[result.faceIndex * 3 + 1] * 3;
+          const ic = indices[result.faceIndex * 3 + 2] * 3;
+          tmpA.set(positions[ia], positions[ia + 1], positions[ia + 2]);
+          tmpB.set(positions[ib], positions[ib + 1], positions[ib + 2]);
+          tmpC.set(positions[ic], positions[ic + 1], positions[ic + 2]);
+          tmpAB.subVectors(tmpB, tmpA);
+          tmpAC.subVectors(tmpC, tmpA);
+          tmpNormal.crossVectors(tmpAB, tmpAC).normalize();
+          tmpToVoxel.set(worldX - cX, 0, worldZ - cZ);
+          const dotXZ = tmpNormal.x * tmpToVoxel.x + tmpNormal.z * tmpToVoxel.z;
+          const horizonDot = Math.abs(tmpNormal.x) + Math.abs(tmpNormal.z);
+          if (horizonDot > 0.2 && dotXZ < 0) continue;
+          const colour = sampleTriangle(
+            m,
+            result.faceIndex,
+            { x: tmpClosestPoint.x, y: tmpClosestPoint.y, z: tmpClosestPoint.z },
+            positions,
+            indices,
+          );
+          if (colour) {
+            bestDist = result.distance;
+            bestColor = colour;
           }
         }
 
         if (bestColor) {
-          const newBlock = rgbToWallBlock(bestColor[0], bestColor[1], bestColor[2], x, y, z);
+          const cellIdx = (y * L + z) * W + x;
+          sampledRGB[cellIdx] = (bestColor[0] << 16) | (bestColor[1] << 8) | bestColor[2];
+          sampled++;
+        }
+      }
+    }
+  }
+
+  // ─── Pass 2: per-band k-means cluster + snap ─────────────────────────────
+  // Group voxels by Y band (bandRows tall each), run k-means on each band's
+  // collected RGB samples in CIE-Lab space, then snap each voxel's colour
+  // to its band's nearest cluster centroid before block assignment. The
+  // result: each band has at most `clustersPerBand` distinct materials,
+  // collapsing JPEG noise + texture artifacts into clean facade colours.
+  let replaced = 0;
+  for (let bandStart = 0; bandStart < H; bandStart += bandRows) {
+    const bandEnd = Math.min(H, bandStart + bandRows);
+    const bandSamples: Array<[number, number, number]> = [];
+    for (let y = bandStart; y < bandEnd; y++) {
+      for (let z = 0; z < L; z++) {
+        for (let x = 0; x < W; x++) {
+          const cellIdx = (y * L + z) * W + x;
+          const packed = sampledRGB[cellIdx];
+          if (packed < 0) continue;
+          const r = (packed >> 16) & 0xff;
+          const g = (packed >> 8) & 0xff;
+          const b = packed & 0xff;
+          bandSamples.push([r, g, b]);
+        }
+      }
+    }
+    if (bandSamples.length === 0) continue;
+
+    const centroids = clustersPerBand > 1 && bandSamples.length >= clustersPerBand
+      ? kMeansLab(bandSamples, clustersPerBand)
+      : [averageRGB(bandSamples)];
+
+    for (let y = bandStart; y < bandEnd; y++) {
+      for (let z = 0; z < L; z++) {
+        for (let x = 0; x < W; x++) {
+          const cellIdx = (y * L + z) * W + x;
+          const packed = sampledRGB[cellIdx];
+          if (packed < 0) continue;
+          const r = (packed >> 16) & 0xff;
+          const g = (packed >> 8) & 0xff;
+          const b = packed & 0xff;
+          const centroid = nearestCentroid([r, g, b], centroids);
+          const newBlock = rgbToWallBlock(centroid[0], centroid[1], centroid[2], x, y, z);
+          const block = grid.get(x, y, z);
           if (newBlock !== block) {
             grid.set(x, y, z, newBlock);
             replaced++;
@@ -334,8 +385,121 @@ export async function recolorFromPhotogrammetry(
         }
       }
     }
+    if (opts.onProgress) opts.onProgress(0.6 + 0.4 * (bandEnd / H));
   }
 
   if (opts.onProgress) opts.onProgress(1);
+  void sampled;
   return { replaced, skipped };
+}
+
+// ─── k-means helpers ────────────────────────────────────────────────────────
+
+function rgbToLab(r: number, g: number, b: number): [number, number, number] {
+  // sRGB → linear
+  const sr = r / 255, sg = g / 255, sb = b / 255;
+  const lin = (c: number): number => c > 0.04045 ? Math.pow((c + 0.055) / 1.055, 2.4) : c / 12.92;
+  const lr = lin(sr), lg = lin(sg), lb = lin(sb);
+  // linear sRGB → XYZ (D65)
+  const X = lr * 0.4124564 + lg * 0.3575761 + lb * 0.1804375;
+  const Y = lr * 0.2126729 + lg * 0.7151522 + lb * 0.0721750;
+  const Z = lr * 0.0193339 + lg * 0.1191920 + lb * 0.9503041;
+  // XYZ → Lab (D65 reference white)
+  const xn = X / 0.95047, yn = Y / 1.0, zn = Z / 1.08883;
+  const f = (t: number): number => t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16 / 116);
+  const fx = f(xn), fy = f(yn), fz = f(zn);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function kMeansLab(samples: ReadonlyArray<readonly [number, number, number]>, k: number): Array<[number, number, number]> {
+  const n = samples.length;
+  if (n <= k) return samples.map(s => [s[0], s[1], s[2]]);
+  // Convert to Lab once
+  const labs = samples.map(s => rgbToLab(s[0], s[1], s[2]));
+  // Initialise with k samples spread by Lab-distance (k-means++ style)
+  const centroids: Array<[number, number, number]> = [labs[0]];
+  for (let ci = 1; ci < k; ci++) {
+    let bestIdx = 0, bestMinDistSq = -1;
+    for (let i = 0; i < n; i++) {
+      let minDistSq = Infinity;
+      for (const c of centroids) {
+        const d0 = labs[i][0] - c[0], d1 = labs[i][1] - c[1], d2 = labs[i][2] - c[2];
+        const distSq = d0 * d0 + d1 * d1 + d2 * d2;
+        if (distSq < minDistSq) minDistSq = distSq;
+      }
+      if (minDistSq > bestMinDistSq) {
+        bestMinDistSq = minDistSq;
+        bestIdx = i;
+      }
+    }
+    centroids.push(labs[bestIdx]);
+  }
+  // Lloyd iterations
+  const assignments = new Int32Array(n);
+  for (let iter = 0; iter < 8; iter++) {
+    let changed = 0;
+    for (let i = 0; i < n; i++) {
+      let bestC = 0, bestDistSq = Infinity;
+      for (let c = 0; c < centroids.length; c++) {
+        const d0 = labs[i][0] - centroids[c][0];
+        const d1 = labs[i][1] - centroids[c][1];
+        const d2 = labs[i][2] - centroids[c][2];
+        const distSq = d0 * d0 + d1 * d1 + d2 * d2;
+        if (distSq < bestDistSq) {
+          bestDistSq = distSq;
+          bestC = c;
+        }
+      }
+      if (assignments[i] !== bestC) {
+        assignments[i] = bestC;
+        changed++;
+      }
+    }
+    if (changed === 0) break;
+    for (let c = 0; c < centroids.length; c++) {
+      let sl = 0, sa = 0, sb = 0, count = 0;
+      for (let i = 0; i < n; i++) {
+        if (assignments[i] !== c) continue;
+        sl += labs[i][0]; sa += labs[i][1]; sb += labs[i][2];
+        count++;
+      }
+      if (count > 0) centroids[c] = [sl / count, sa / count, sb / count];
+    }
+  }
+  // Convert centroids back to RGB by averaging the original RGB samples
+  // assigned to each cluster (more accurate than Lab-to-RGB inverse).
+  const rgbCentroids: Array<[number, number, number]> = [];
+  for (let c = 0; c < centroids.length; c++) {
+    let sr = 0, sg = 0, sb = 0, count = 0;
+    for (let i = 0; i < n; i++) {
+      if (assignments[i] !== c) continue;
+      sr += samples[i][0]; sg += samples[i][1]; sb += samples[i][2];
+      count++;
+    }
+    if (count > 0) rgbCentroids.push([Math.round(sr / count), Math.round(sg / count), Math.round(sb / count)]);
+  }
+  return rgbCentroids.length > 0 ? rgbCentroids : samples.slice(0, 1).map(s => [s[0], s[1], s[2]]);
+}
+
+function nearestCentroid(
+  rgb: readonly [number, number, number],
+  centroids: ReadonlyArray<readonly [number, number, number]>,
+): readonly [number, number, number] {
+  if (centroids.length === 1) return centroids[0];
+  const lab = rgbToLab(rgb[0], rgb[1], rgb[2]);
+  let bestIdx = 0, bestDistSq = Infinity;
+  for (let c = 0; c < centroids.length; c++) {
+    const cLab = rgbToLab(centroids[c][0], centroids[c][1], centroids[c][2]);
+    const d0 = lab[0] - cLab[0], d1 = lab[1] - cLab[1], d2 = lab[2] - cLab[2];
+    const distSq = d0 * d0 + d1 * d1 + d2 * d2;
+    if (distSq < bestDistSq) { bestDistSq = distSq; bestIdx = c; }
+  }
+  return centroids[bestIdx];
+}
+
+function averageRGB(samples: ReadonlyArray<readonly [number, number, number]>): [number, number, number] {
+  let r = 0, g = 0, b = 0;
+  for (const s of samples) { r += s[0]; g += s[1]; b += s[2]; }
+  const n = samples.length;
+  return [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
 }
