@@ -1,6 +1,6 @@
 {
   "status": "fail-consensus",
-  "lastRun": "2026-05-06T18:26:21.381Z",
+  "lastRun": "2026-05-07T02:24:01.308Z",
   "objective": {
     "footprintIoU": 0.9999022052711359,
     "heightErr": 0,
@@ -8,7 +8,7 @@
     "manifold": true,
     "selfIntersect": 3029,
     "minWallThicknessMm": 16.511404037475586,
-    "voxelCount": 1025239,
+    "voxelCount": 222444,
     "plinthWatertight": null,
     "pass": true,
     "failures": []
@@ -18,24 +18,24 @@
     "rounds": 1,
     "gemini": {
       "color": 1,
-      "features": 1,
-      "massing": 3,
-      "overall": 1
+      "features": 0,
+      "massing": 0,
+      "overall": 0
     },
     "claude": {
       "color": 1,
-      "features": 1,
-      "massing": 3,
-      "overall": 1
+      "features": 0,
+      "massing": 0,
+      "overall": 0
     },
     "gpt5": {
       "color": 1,
-      "features": 1,
-      "massing": 3,
-      "overall": 1
+      "features": 0,
+      "massing": 0,
+      "overall": 0
     },
-    "min": 1,
-    "median": 1,
+    "min": 0,
+    "median": 0,
     "spread": 0,
     "pass": false
   }

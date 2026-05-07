@@ -388,3 +388,127 @@ export function parseGlbMeshes(glb: ArrayBuffer): Array<{
 const TYPE_COMPONENT_COUNT: Record<string, number> = {
   SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16,
 };
+
+/**
+ * Full GLB mesh extraction including UVs and texture image bytes for
+ * the photogrammetry color-transfer pipeline. Each primitive emits:
+ *   • positions, indices (same as parseGlbMeshes)
+ *   • uvs — TEXCOORD_0 attribute, or null if absent
+ *   • textureImage — JPEG/PNG bytes from the material's baseColorTexture,
+ *     or null if the material has no texture / falls back to factor
+ *   • textureMime — 'image/jpeg' or 'image/png' to drive decoding
+ */
+export interface FullMeshPrimitive {
+  positions: Float32Array;
+  indices: Uint32Array;
+  uvs: Float32Array | null;
+  textureImage: Uint8Array | null;
+  textureMime: 'image/jpeg' | 'image/png' | null;
+  /** baseColorFactor RGBA when no texture, else null. */
+  baseColorFactor: readonly [number, number, number, number] | null;
+}
+
+export function parseGlbMeshesFull(glb: ArrayBuffer): FullMeshPrimitive[] {
+  const root = parseGlbJson(glb);
+  const view = new DataView(glb);
+  const jsonLen = view.getUint32(12, true);
+  const binChunkOffset = 20 + jsonLen + 8;
+  const out: FullMeshPrimitive[] = [];
+
+  const readBufferView = (bvIdx: number): Uint8Array => {
+    const bv = root.bufferViews[bvIdx];
+    return new Uint8Array(glb, binChunkOffset + bv.byteOffset, bv.byteLength);
+  };
+
+  const readAccessor = (accessorIdx: number): {
+    bytes: Uint8Array;
+    count: number;
+    componentType: number;
+    typeSize: number;
+  } => {
+    const acc = root.accessors[accessorIdx];
+    const bv = root.bufferViews[acc.bufferView];
+    const off = binChunkOffset + bv.byteOffset;
+    const bytes = new Uint8Array(glb, off, bv.byteLength);
+    const typeSize = TYPE_COMPONENT_COUNT[acc.type] ?? 1;
+    return { bytes, count: acc.count, componentType: acc.componentType, typeSize };
+  };
+
+  const toFloat32 = (bytes: Uint8Array, count: number, typeSize: number): Float32Array => {
+    if ((bytes.byteOffset % 4) === 0) {
+      return new Float32Array(bytes.buffer, bytes.byteOffset, count * typeSize);
+    }
+    const copy = new Uint8Array(bytes);
+    return new Float32Array(copy.buffer, copy.byteOffset, count * typeSize);
+  };
+
+  const toUint32 = (bytes: Uint8Array, count: number, componentType: number): Uint32Array => {
+    if (componentType === 5125) {
+      if ((bytes.byteOffset % 4) === 0) return new Uint32Array(bytes.buffer, bytes.byteOffset, count);
+      const copy = new Uint8Array(bytes);
+      return new Uint32Array(copy.buffer, copy.byteOffset, count);
+    }
+    if (componentType === 5123) {
+      const aligned = (bytes.byteOffset % 2) === 0;
+      const u16 = aligned
+        ? new Uint16Array(bytes.buffer, bytes.byteOffset, count)
+        : new Uint16Array(new Uint8Array(bytes).buffer);
+      const out = new Uint32Array(count);
+      for (let i = 0; i < count; i++) out[i] = u16[i];
+      return out;
+    }
+    if (componentType === 5121) {
+      const out = new Uint32Array(count);
+      for (let i = 0; i < count; i++) out[i] = bytes[i];
+      return out;
+    }
+    throw new Error(`Unsupported index componentType ${componentType}`);
+  };
+
+  for (const mesh of root.meshes) {
+    for (const prim of mesh.primitives) {
+      const posIdx = prim.attributes['POSITION'];
+      if (posIdx === undefined) continue;
+      const posAcc = readAccessor(posIdx);
+      const positions = new Float32Array(toFloat32(posAcc.bytes, posAcc.count, posAcc.typeSize));
+
+      let indices: Uint32Array;
+      if (prim.indices !== undefined) {
+        const idxAcc = readAccessor(prim.indices);
+        indices = new Uint32Array(toUint32(idxAcc.bytes, idxAcc.count, idxAcc.componentType));
+      } else {
+        indices = new Uint32Array(posAcc.count);
+        for (let i = 0; i < indices.length; i++) indices[i] = i;
+      }
+
+      let uvs: Float32Array | null = null;
+      const uvIdx = prim.attributes['TEXCOORD_0'];
+      if (uvIdx !== undefined) {
+        const uvAcc = readAccessor(uvIdx);
+        uvs = new Float32Array(toFloat32(uvAcc.bytes, uvAcc.count, uvAcc.typeSize));
+      }
+
+      let textureImage: Uint8Array | null = null;
+      let textureMime: 'image/jpeg' | 'image/png' | null = null;
+      let baseColorFactor: readonly [number, number, number, number] | null = null;
+      if (prim.material !== undefined && root.materials) {
+        const mat = root.materials[prim.material];
+        const tex = mat?.pbrMetallicRoughness?.baseColorTexture;
+        if (tex !== undefined && root.textures && root.images) {
+          const texEntry = root.textures[tex.index];
+          const img = texEntry ? root.images[texEntry.source] : undefined;
+          if (img && img.bufferView !== undefined) {
+            textureImage = new Uint8Array(readBufferView(img.bufferView));
+            textureMime = img.mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
+          }
+        }
+        if (textureImage === null && mat?.pbrMetallicRoughness?.baseColorFactor) {
+          baseColorFactor = mat.pbrMetallicRoughness.baseColorFactor;
+        }
+      }
+
+      out.push({ positions, indices, uvs, textureImage, textureMime, baseColorFactor });
+    }
+  }
+  return out;
+}

@@ -201,7 +201,7 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
 
   // ── Stage 7: synthesis ─────────────────────────────────────────────────
   progress({ stage: 'synthesis', message: 'synthesizing B-rep', ratio: 0 });
-  const { brep, path } = synthesize(refined, evidence, tiles);
+  const { brep, path, meta } = synthesize(refined, evidence, tiles);
   progress({ stage: 'synthesis', message: `done (${path})`, ratio: 1 });
 
   // ── Stage 8: exports ───────────────────────────────────────────────────
@@ -212,9 +212,35 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
   progress({ stage: 'export', message: 'voxelizing', ratio: 0.7 });
   const voxelResolution = opts.voxel?.resolution ?? DEFAULT_VOXEL_RESOLUTION;
   const voxelMaxDim = opts.voxel?.maxDimension ?? DEFAULT_VOXEL_MAX_DIMENSION;
+
+  // Photogrammetry color transfer: only when we have tile GLB AND the
+  // sliced synthesizer ran (it produces yScale/yShift). Decoded textures
+  // give real per-voxel colour from the building's actual photo capture.
+  type RecolorOpts = NonNullable<Parameters<typeof exportVoxel>[1]>['photogrammetryRecolor'];
+  let photogrammetryRecolor: RecolorOpts;
+  if (path === '7d-sliced' && tiles && meta.yScale && meta.yShift !== undefined && tiles.glbBytes.byteLength > 0) {
+    try {
+      const { parseGlbMeshesFull } = await import('./export/glb-writer.js');
+      const primitives = parseGlbMeshesFull(tiles.glbBytes);
+      photogrammetryRecolor = {
+        primitives,
+        yScale: meta.yScale,
+        yShift: meta.yShift,
+        maxDistanceM: 2.0,
+      };
+    } catch (e) {
+      progress({
+        stage: 'export',
+        message: `recolor parse failed: ${(e as Error).message}`,
+        ratio: 0.7,
+      });
+    }
+  }
+
   const voxelResult = await exportVoxel(brep, {
     resolution: voxelResolution,
     maxDimension: voxelMaxDim,
+    photogrammetryRecolor,
   });
   progress({ stage: 'export', message: 'done', ratio: 1 });
 

@@ -16,7 +16,7 @@ import type { TileEvidence } from '../capture/types.js';
 import type { BuildingBRep } from './brep.js';
 import { synthesizeParametric } from './parametric.js';
 import { synthesizeCleanedTiles } from './cleaned-tiles.js';
-import { synthesizeSlicedTiles } from './sliced-tiles.js';
+import { synthesizeSlicedTilesResult } from './sliced-tiles.js';
 
 export type SynthesisPath = '7a-parametric' | '7b-cleaned-tiles' | '7c-hybrid' | '7d-sliced';
 
@@ -45,6 +45,18 @@ export function routeSynthesis(
 }
 
 /**
+ * Per-synthesizer metadata that downstream stages (voxel export,
+ * photogrammetry recolor) need. Currently only populated for the
+ * sliced path.
+ */
+export interface SynthesisMeta {
+  /** Y-scale factor: y_grid = (y_photogrammetry - yShift) × yScale. Identity when absent. */
+  readonly yScale?: number;
+  /** Y-shift = trueMinY of survived bands (photogrammetry origin). */
+  readonly yShift?: number;
+}
+
+/**
  * Top-level synthesis dispatcher. Invokes the correct synthesizer and returns
  * the B-rep. Hybrid path (7c) currently delegates to parametric since the
  * texture-baking layer isn't implemented yet; future work will add
@@ -54,19 +66,19 @@ export function synthesize(
   ctx: RefinedBuildingContext,
   ev: JointEvidence,
   tiles: TileEvidence | null,
-): { path: SynthesisPath; brep: BuildingBRep } {
+): { path: SynthesisPath; brep: BuildingBRep; meta: SynthesisMeta } {
   const path = routeSynthesis(ctx, ev, tiles);
   switch (path) {
     case '7a-parametric':
-      return { path, brep: synthesizeParametric(ctx, ev) };
+      return { path, brep: synthesizeParametric(ctx, ev), meta: {} };
     case '7b-cleaned-tiles':
-      return { path, brep: synthesizeCleanedTiles(ctx, ev, tiles) };
+      return { path, brep: synthesizeCleanedTiles(ctx, ev, tiles), meta: {} };
     case '7c-hybrid':
       // TODO: add photogrammetry texture baking over the parametric mass.
-      return { path, brep: synthesizeParametric(ctx, ev) };
-    case '7d-sliced':
-      // Guarded by routeSynthesis (`tilesUsable` check), so tiles + meshes
-      // are guaranteed non-null here.
-      return { path, brep: synthesizeSlicedTiles(ctx, ev, tiles!) };
+      return { path, brep: synthesizeParametric(ctx, ev), meta: {} };
+    case '7d-sliced': {
+      const result = synthesizeSlicedTilesResult(ctx, ev, tiles!);
+      return { path, brep: result.brep, meta: { yScale: result.yScale, yShift: result.yShift } };
+    }
   }
 }

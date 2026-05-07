@@ -24,6 +24,23 @@ export interface VoxelExportOptions {
   readonly mode?: VoxelizeMode;
   /** Hard cap on any grid dimension. Default 256 (Minecraft-friendly). */
   readonly maxDimension?: number;
+  /**
+   * Optional photogrammetry colour-transfer pass. When provided, after
+   * voxelization completes, every wall voxel is recoloured from the
+   * closest photogrammetry surface point (sampled via UV+texture). The
+   * caller passes:
+   *   • `primitives` — full mesh primitives with UVs and texture bytes
+   *   • `yScale`, `yShift` — inverse-transform from grid Y to
+   *     photogrammetry Y. The synthesizer linearly scales [trueMinY,
+   *     trueMaxY] → [0, expectedHeightM]; we invert that mapping here.
+   */
+  readonly photogrammetryRecolor?: {
+    readonly primitives: ReadonlyArray<import('./glb-writer.js').FullMeshPrimitive>;
+    readonly yScale: number;
+    readonly yShift: number;
+    readonly maxDistanceM?: number;
+    readonly onProgress?: (frac: number) => void;
+  };
 }
 
 export interface VoxelExportResult {
@@ -103,10 +120,39 @@ export async function exportVoxel(
   const colorHex = labToHexColor(brep.materials.wall.lab);
   const object = brepMeshToObject3D(mesh.positions, mesh.indices, colorHex);
 
-  const grid = threeToGrid(object, opts.resolution ?? 1, {
+  const resolution = opts.resolution ?? 1;
+  const grid = threeToGrid(object, resolution, {
     mode: opts.mode ?? 'surface',
     maxDimension: opts.maxDimension ?? 256,
   });
+
+  // Compute world-space grid origin so the recolor pass can map voxel
+  // indices back to photogrammetry coordinates.
+  const gridBox = new THREE.Box3().setFromObject(object);
+
+  // Photogrammetry color transfer (optional, before architectural
+  // overlay so the overlay's window/cornice/plinth blocks survive
+  // unchanged on top of the recolored wall).
+  if (opts.photogrammetryRecolor && opts.photogrammetryRecolor.primitives.length > 0) {
+    const { recolorFromPhotogrammetry } = await import('./photogrammetry-recolor.js');
+    await recolorFromPhotogrammetry(
+      grid,
+      opts.photogrammetryRecolor.primitives,
+      {
+        originX: gridBox.min.x,
+        originY: gridBox.min.y,
+        originZ: gridBox.min.z,
+        resolution,
+        yScale: opts.photogrammetryRecolor.yScale,
+        yShift: opts.photogrammetryRecolor.yShift,
+        maxDistanceM: opts.photogrammetryRecolor.maxDistanceM,
+        onProgress: opts.photogrammetryRecolor.onProgress,
+      },
+      // Architectural overlay hasn't run yet — every voxel is the wall
+      // block, so an empty preserve set just means "recolor everything".
+      new Set<string>(),
+    );
+  }
 
   // Post-process: the voxelizer outputs a single-material surface shell
   // based on the wall color. Re-label the top N layers as roof blocks

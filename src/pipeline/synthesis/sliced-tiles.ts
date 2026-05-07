@@ -39,12 +39,43 @@ export interface SynthesizeSlicedOptions {
  * and is already in the same XZ frame as the BRep evaluator (after the
  * Z↔Y swap performed inside `extractMeshInputs`). We can use it directly.
  */
+/**
+ * @returns the BRep plus Y-mapping metadata. The recolor pass uses
+ * yScale/yShift to translate grid-Y back to photogrammetry-Y for
+ * texture sampling.
+ */
+export interface SlicedSynthesisResult {
+  readonly brep: BuildingBRep;
+  readonly yScale: number;
+  readonly yShift: number;
+}
+
+export function synthesizeSlicedTilesResult(
+  ctx: RefinedBuildingContext,
+  ev: JointEvidence,
+  tiles: TileEvidence,
+  opts: SynthesizeSlicedOptions = {},
+): SlicedSynthesisResult {
+  const r = synthesizeSlicedTilesImpl(ctx, ev, tiles, opts);
+  return r;
+}
+
+/** Legacy 1-arg-shape wrapper for tests. */
 export function synthesizeSlicedTiles(
   ctx: RefinedBuildingContext,
   ev: JointEvidence,
   tiles: TileEvidence,
   opts: SynthesizeSlicedOptions = {},
 ): BuildingBRep {
+  return synthesizeSlicedTilesImpl(ctx, ev, tiles, opts).brep;
+}
+
+function synthesizeSlicedTilesImpl(
+  ctx: RefinedBuildingContext,
+  ev: JointEvidence,
+  tiles: TileEvidence,
+  opts: SynthesizeSlicedOptions = {},
+): SlicedSynthesisResult {
   if (!tiles.meshes || tiles.meshes.length === 0) {
     throw new Error('synthesizeSlicedTiles: tiles.meshes is missing — cannot slice');
   }
@@ -197,7 +228,7 @@ export function synthesizeSlicedTiles(
     bandedSilhouettes.length -= roofInference.replacedBandCount;
   }
 
-  return {
+  const brep: BuildingBRep = {
     origin: { lat: ctx.center.lat, lng: ctx.center.lng },
     rotationDeg: ctx.mbr.rotationDeg,
     floors: [],
@@ -219,6 +250,7 @@ export function synthesizeSlicedTiles(
       window: makeMaterial([50, 0, 0], 'minecraft:glass'),
     },
   };
+  return { brep, yScale: scaleY, yShift: trueMinY };
 }
 
 function openRingFrom(p: Polygon2D): readonly LocalPoint2D[] {
