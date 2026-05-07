@@ -226,6 +226,27 @@ export async function recolorFromPhotogrammetry(
     distance: Infinity,
     faceIndex: 0,
   };
+  const tmpA = new THREE.Vector3();
+  const tmpB = new THREE.Vector3();
+  const tmpC = new THREE.Vector3();
+  const tmpAB = new THREE.Vector3();
+  const tmpAC = new THREE.Vector3();
+  const tmpNormal = new THREE.Vector3();
+  const tmpToVoxel = new THREE.Vector3();
+
+  // Building XZ centroid — used to determine "outward" direction from
+  // each voxel. Voxels should sample the photogrammetry triangle whose
+  // surface normal points OUTWARD (away from building centre), not
+  // inward-facing back-of-building triangles or interior scaffolding.
+  let cX = 0, cZ = 0, cN = 0;
+  for (const m of meshes) {
+    const bb = m.geometry.boundingBox;
+    if (!bb) continue;
+    cX += (bb.min.x + bb.max.x) / 2;
+    cZ += (bb.min.z + bb.max.z) / 2;
+    cN++;
+  }
+  if (cN > 0) { cX /= cN; cZ /= cN; }
 
   const { width: W, height: H, length: L } = grid;
   const AIR = 'minecraft:air';
@@ -263,12 +284,39 @@ export async function recolorFromPhotogrammetry(
           const result = m.bvh.closestPointToPoint(tmpQueryPoint, closestTarget, 0, Math.min(maxDist, bestDist));
           if (result && result.distance < bestDist) {
             tmpClosestPoint.copy(result.point);
+            // Reject triangles whose normal points INWARD relative to the
+            // outward direction from building centre to voxel. Without this,
+            // tall-but-thin photogrammetry features (scaffolding inside the
+            // building footprint, mesh self-overlap, back-of-building tris
+            // visible through window cavities) leak through and produce
+            // splotchy patches on the facade.
+            const positions = m.geometry.getAttribute('position').array as Float32Array;
+            const indices = m.geometry.index!.array as unknown as Uint32Array;
+            const ia = indices[result.faceIndex * 3] * 3;
+            const ib = indices[result.faceIndex * 3 + 1] * 3;
+            const ic = indices[result.faceIndex * 3 + 2] * 3;
+            tmpA.set(positions[ia], positions[ia + 1], positions[ia + 2]);
+            tmpB.set(positions[ib], positions[ib + 1], positions[ib + 2]);
+            tmpC.set(positions[ic], positions[ic + 1], positions[ic + 2]);
+            tmpAB.subVectors(tmpB, tmpA);
+            tmpAC.subVectors(tmpC, tmpA);
+            tmpNormal.crossVectors(tmpAB, tmpAC).normalize();
+            // Outward direction = voxel position − building XZ centroid (Y ignored)
+            tmpToVoxel.set(worldX - cX, 0, worldZ - cZ);
+            const dotXZ = tmpNormal.x * tmpToVoxel.x + tmpNormal.z * tmpToVoxel.z;
+            // If the triangle normal projects negatively onto outward,
+            // it's an inward-facing tri — skip. Allow horizontal tris
+            // (roof/floor) where dotXZ ~ 0 since they're flat.
+            const horizonDot = Math.abs(tmpNormal.x) + Math.abs(tmpNormal.z);
+            if (horizonDot > 0.2 && dotXZ < 0) {
+              continue;
+            }
             const colour = sampleTriangle(
               m,
               result.faceIndex,
               { x: tmpClosestPoint.x, y: tmpClosestPoint.y, z: tmpClosestPoint.z },
-              m.geometry.getAttribute('position').array as Float32Array,
-              m.geometry.index!.array as unknown as Uint32Array,
+              positions,
+              indices,
             );
             if (colour) {
               bestDist = result.distance;
