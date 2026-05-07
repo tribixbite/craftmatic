@@ -120,6 +120,22 @@ export interface BuildingContext {
   readonly rawSolar: SolarBuildingData | null;
   readonly rawOsm: OSMBuildingData | null;
   readonly rawSmarty: SmartyPropertyData | null;
+  /**
+   * Compound building parts from OSM `building:part` tags. Empty for
+   * single-volume buildings. Pennzoil Place returns 2 entries (one per
+   * tower) with own height/colour/roof. The sliced-tiles synthesizer
+   * uses these to mask each part separately and union into a single
+   * BRep with multiple disjoint silhouettes.
+   */
+  readonly buildingParts: ReadonlyArray<{
+    readonly polygon: readonly LatLon[];
+    readonly heightM: number | null;
+    readonly levels: number | null;
+    readonly buildingColour: string | null;
+    readonly roofColour: string | null;
+    readonly roofShape: string | null;
+    readonly tags: Record<string, string>;
+  }>;
 }
 
 /**

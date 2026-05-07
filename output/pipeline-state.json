@@ -4,15 +4,15 @@
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-05-07T02:21:21.457Z",
-      "elapsedSec": 30.4,
-      "attempts": 66,
+      "lastRun": "2026-05-07T02:39:45.572Z",
+      "elapsedSec": 42.4,
+      "attempts": 68,
       "recentFailureSignatures": [
-        "fail-consensus",
-        "fail-consensus:median=5,min=1",
         "fail-consensus:median=4,min=0",
         "fail-consensus",
-        "fail-consensus:median=2,min=0"
+        "fail-consensus:median=2,min=0",
+        "fail-consensus",
+        "fail-consensus"
       ],
       "objective": {
         "footprintIoU": 0.9825899214479306,
@@ -26,32 +26,7 @@
         "pass": true,
         "failures": []
       },
-      "consensus": {
-        "status": "fail",
-        "rounds": 1,
-        "gemini": {
-          "color": 2,
-          "features": 0,
-          "massing": 7,
-          "overall": 2
-        },
-        "claude": {
-          "color": 2,
-          "features": 0,
-          "massing": 7,
-          "overall": 2
-        },
-        "gpt5": {
-          "color": 2,
-          "features": 0,
-          "massing": 7,
-          "overall": 2
-        },
-        "min": 0,
-        "median": 2,
-        "spread": 0,
-        "pass": false
-      }
+      "consensus": null
     },
     "240-highland": {
       "address": "240 Highland St, Newton, MA",
@@ -212,54 +187,29 @@
     "pennzoil": {
       "address": "700 Milam St, Houston, TX",
       "status": "fail-consensus",
-      "lastRun": "2026-05-07T02:22:42.665Z",
-      "elapsedSec": 48.8,
-      "attempts": 30,
+      "lastRun": "2026-05-07T03:01:59.752Z",
+      "elapsedSec": 20.8,
+      "attempts": 35,
       "recentFailureSignatures": [
-        "fail-objective:footprint IoU # < #",
-        "fail-consensus",
-        "fail-consensus:median=0,min=0",
-        "fail-consensus:median=1,min=0",
-        "fail-consensus:median=0,min=0"
+        "fail-objective:height error #% > #%",
+        "fail-objective:footprint IoU # < #|height error #% > #%",
+        "fail-objective:footprint IoU # < #|height error #% > #%",
+        "fail-objective:height error #% > #%",
+        "fail-consensus"
       ],
       "objective": {
         "footprintIoU": 0.9976452119309263,
         "heightErr": 0,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 1310,
-        "minWallThicknessMm": 19.046882390975952,
-        "voxelCount": 347038,
+        "selfIntersect": 42,
+        "minWallThicknessMm": 19.047046422958374,
+        "voxelCount": 133733,
         "plinthWatertight": null,
         "pass": true,
         "failures": []
       },
-      "consensus": {
-        "status": "fail",
-        "rounds": 1,
-        "gemini": {
-          "color": 2,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "claude": {
-          "color": 2,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "gpt5": {
-          "color": 2,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
-        },
-        "min": 0,
-        "median": 0,
-        "spread": 0,
-        "pass": false
-      }
+      "consensus": null
     }
   }
 }

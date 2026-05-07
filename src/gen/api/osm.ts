@@ -118,6 +118,102 @@ export async function searchOSMBuilding(
   return null;
 }
 
+// ─── building:part for compound buildings ──────────────────────────────────
+
+export interface OSMBuildingPart {
+  /** Outer polygon vertices, closed (last = first). */
+  polygon: { lat: number; lon: number }[];
+  /** building:levels or null. */
+  levels: number | null;
+  /** Explicit height tag (metres) or null. */
+  heightM: number | null;
+  /** Building colour as hex RGB or null. */
+  buildingColour: string | null;
+  /** Roof colour as hex RGB or null. */
+  roofColour: string | null;
+  /** roof:shape tag or null. */
+  roofShape: string | null;
+  /** Raw tags. */
+  tags: Record<string, string>;
+}
+
+/**
+ * Query OSM `building:part` ways within a radius of a point. Compound
+ * buildings (Pennzoil Place, Empire State, Petronas Towers etc.) often
+ * have a containing `building` polygon plus per-tower `building:part`
+ * polygons with their own height/roof/colour tags. Returning multiple
+ * parts lets the synthesizer build each tower as its own prism stack
+ * with correct individual heights.
+ *
+ * Returns empty array when no parts found, or on API failure (caller
+ * falls back to single-polygon synthesis).
+ */
+export async function searchOSMBuildingParts(
+  lat: number,
+  lng: number,
+  radiusM = 100,
+): Promise<OSMBuildingPart[]> {
+  const query = `[out:json][timeout:15];(way["building:part"](around:${radiusM},${lat},${lng}););out geom;`;
+  const body = `data=${encodeURIComponent(query)}`;
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const serverUrl = pickOverpassUrl();
+    try {
+      const resp = await fetch(serverUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'craftmatic/1.0 (https://github.com/tribixbite/craftmatic)',
+        },
+        body,
+        signal: AbortSignal.timeout(15000),
+      });
+      if (resp.status === 429 || resp.status === 504) {
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+          continue;
+        }
+        return [];
+      }
+      if (!resp.ok) return [];
+      const data = await resp.json() as { elements?: OverpassElement[] };
+      const elements = data.elements ?? [];
+      const parts: OSMBuildingPart[] = [];
+      for (const e of elements) {
+        if (e.type !== 'way' || !e.geometry || e.geometry.length < 4) continue;
+        const tags = e.tags ?? {};
+        if (tags['building:part'] === undefined || tags['building:part'] === 'no') continue;
+        const polygon = e.geometry.map(g => ({ lat: g.lat, lon: g.lon }));
+        const levelsRaw = tags['building:levels'];
+        const heightRaw = tags['height'] ?? tags['building:height'];
+        const roofHeightRaw = tags['roof:height'];
+        const baseHeight = heightRaw ? parseFloat(heightRaw) : null;
+        const roofHeight = roofHeightRaw ? parseFloat(roofHeightRaw) : 0;
+        const totalHeight = baseHeight !== null && Number.isFinite(baseHeight)
+          ? baseHeight + (Number.isFinite(roofHeight) ? roofHeight : 0)
+          : null;
+        parts.push({
+          polygon,
+          levels: levelsRaw ? parseInt(levelsRaw, 10) || null : null,
+          heightM: totalHeight,
+          buildingColour: tags['building:colour'] ?? null,
+          roofColour: tags['roof:colour'] ?? null,
+          roofShape: tags['roof:shape'] ?? null,
+          tags,
+        });
+      }
+      return parts;
+    } catch {
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+        continue;
+      }
+      return [];
+    }
+  }
+  return [];
+}
+
 /**
  * Fetch a specific OSM building by way or relation ID.
  * Bypasses proximity search — useful when the nearest polygon covers a campus/complex

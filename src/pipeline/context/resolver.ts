@@ -211,6 +211,7 @@ export interface BuildContextInput {
   readonly osm: OSMBuildingData | null;
   readonly smarty: NonNullable<BuildingContext['rawSmarty']> | null;
   readonly siblings: readonly SiblingBuilding[];
+  readonly buildingParts?: BuildingContext['buildingParts'];
   /** Optional — when true-SV-coverage absence is known a priori. */
   readonly knownNoSvCoverage?: boolean;
 }
@@ -252,7 +253,34 @@ export function buildBuildingContext(input: BuildContextInput): BuildingContext 
   });
   const archType = classifyArchType(input.osm);
 
-  const { heightM, heightSource, levels } = resolveHeight(input.solar, input.osm);
+  let { heightM, heightSource, levels } = resolveHeight(input.solar, input.osm);
+  // Compound buildings: when OSM `building:part` tags provide heights,
+  // use the tallest part as the building's height (Pennzoil's twin
+  // towers are 151m, taller than the parent's 36-level estimate).
+  // Filter parts to those whose centroid sits inside the primary
+  // OSM polygon so neighbour parts don't contaminate.
+  if (input.buildingParts && input.buildingParts.length > 0 && polygon) {
+    let tallest = 0;
+    for (const part of input.buildingParts) {
+      if (!part.heightM || !Number.isFinite(part.heightM)) continue;
+      // Centroid inside primary polygon?
+      let cx = 0, cy = 0;
+      for (const p of part.polygon) { cx += p.lon; cy += p.lat; }
+      cx /= part.polygon.length; cy /= part.polygon.length;
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].lon, yi = polygon[i].lat;
+        const xj = polygon[j].lon, yj = polygon[j].lat;
+        const intersect = ((yi > cy) !== (yj > cy)) && (cx < (xj - xi) * (cy - yi) / (yj - yi + 1e-12) + xi);
+        if (intersect) inside = !inside;
+      }
+      if (inside && part.heightM > tallest) tallest = part.heightM;
+    }
+    if (tallest > (heightM ?? 0)) {
+      heightM = tallest;
+      heightSource = 'osm-levels';
+    }
+  }
 
   const tags = input.osm?.tags ?? {};
 
@@ -282,6 +310,7 @@ export function buildBuildingContext(input: BuildContextInput): BuildingContext 
     rawSolar: input.solar,
     rawOsm: input.osm,
     rawSmarty: input.smarty,
+    buildingParts: input.buildingParts ?? [],
   };
 }
 
@@ -300,6 +329,12 @@ export interface ContextFetchers {
     polygon: readonly LatLon[];
     tags: Record<string, string>;
   }>>;
+  /**
+   * OSM building:part query — compound buildings (Pennzoil Place, ESB)
+   * tag each tower with its own height/roof/colour. Optional fetcher
+   * (defaults to empty list for callers that don't wire it).
+   */
+  readonly osmBuildingParts?: (lat: number, lng: number, radiusM: number) => Promise<BuildingContext['buildingParts']>;
   readonly smarty: (address: string) => Promise<BuildingContext['rawSmarty']>;
 }
 
@@ -340,6 +375,11 @@ export async function resolveContext(
     siblings = deriveSiblings(osm.polygon as readonly LatLon[], raw);
   }
 
+  // Compound building parts (Pennzoil-style twin towers etc.)
+  const buildingParts = fetchers.osmBuildingParts
+    ? await fetchers.osmBuildingParts(geocode.lat, geocode.lng, 100).catch(() => [])
+    : [];
+
   // Stage 2
   return buildBuildingContext({
     geocode,
@@ -347,6 +387,7 @@ export async function resolveContext(
     osm,
     smarty,
     siblings,
+    buildingParts,
     knownNoSvCoverage: opts.knownNoSvCoverage,
   });
 }

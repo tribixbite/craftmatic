@@ -19,7 +19,7 @@ import { resolve, join } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import type { FullVerificationReport } from '../src/pipeline/verify/report.js';
 import { runPipeline } from '../src/pipeline/pipeline.js';
-import { searchOSMBuilding } from '../src/gen/api/osm.js';
+import { searchOSMBuilding, searchOSMBuildingParts } from '../src/gen/api/osm.js';
 import { querySolarBuildingInsights } from '../src/gen/api/google-solar.js';
 import { createGoogleSatelliteFetcher } from '../src/pipeline/capture/satellite.js';
 import { writeSchematic } from '../src/schem/write.js';
@@ -123,7 +123,19 @@ const contextFetchers: ContextFetchers = {
   },
   solar: async (lat, lng) => querySolarBuildingInsights(lat, lng, apiKey),
   osm: async (lat, lng) => searchOSMBuilding(lat, lng, 50),
-  osmSiblings: async () => [], // follow-up: OSM building:part spatial query
+  osmSiblings: async () => [], // follow-up: OSM building neighbour query
+  osmBuildingParts: async (lat, lng, radius) => {
+    const parts = await searchOSMBuildingParts(lat, lng, radius);
+    return parts.map(p => ({
+      polygon: p.polygon,
+      heightM: p.heightM,
+      levels: p.levels,
+      buildingColour: p.buildingColour,
+      roofColour: p.roofColour,
+      roofShape: p.roofShape,
+      tags: p.tags,
+    }));
+  },
   smarty: async () => null,    // follow-up: Smarty per-address lookup
 };
 
