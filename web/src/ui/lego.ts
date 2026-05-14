@@ -132,6 +132,27 @@ function buildUI(): void {
     </div>
     <div id="lego-picked-brick" hidden style="margin-top:6px;padding:6px 8px;background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.4);border-radius:4px;font-size:0.78rem;line-height:1.5"></div>
     <div id="lego-hover-tooltip" hidden style="position:fixed;z-index:9999;pointer-events:none;padding:4px 8px;background:rgba(0,0,0,0.85);color:#fff;border-radius:4px;font-size:0.7rem;line-height:1.3;white-space:nowrap;font-family:ui-sans-serif,system-ui,sans-serif"></div>
+    <div id="lego-help-overlay" hidden style="position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(4px);font-family:ui-sans-serif,system-ui,sans-serif">
+      <div style="background:rgba(20,20,28,0.96);border:1px solid rgba(124,58,237,0.5);border-radius:10px;padding:24px 32px;color:#e6e6f0;max-width:480px;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px">
+          <h3 style="margin:0;font-size:1rem;letter-spacing:0.04em;text-transform:uppercase;color:#a78bfa">Viewer Controls</h3>
+          <span style="font-size:0.7rem;opacity:0.6">? to toggle · Esc to close</span>
+        </div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:10px 16px;font-size:0.82rem;line-height:1.5">
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">I</kbd><span>Isometric (3/4) view</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">F</kbd><span>Front view</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">B</kbd><span>Back view</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">L</kbd><span>Left side</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">R</kbd><span>Right side</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">T</kbd><span>Top-down</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">Space</kbd><span>Toggle auto-rotate</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">Esc</kbd><span>Close picked-brick info / help</span>
+        </div>
+        <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);font-size:0.78rem;line-height:1.6;opacity:0.85">
+          <strong style="color:#a78bfa">Mouse:</strong> drag to orbit · scroll to zoom · right-drag to pan · click a brick to inspect · hover for part ID
+        </div>
+      </div>
+    </div>
 
     <!-- Scale mode toggle -->
     <div class="lego-section lego-scale-row">
@@ -335,11 +356,27 @@ function wireEvents(): void {
         break;
       }
       case 'escape': {
+        const help = document.getElementById('lego-help-overlay');
+        if (help && !help.hidden) { help.hidden = true; e.preventDefault(); break; }
         const picked = document.getElementById('lego-picked-brick');
         if (picked) picked.hidden = true;
         break;
       }
+      case '?':
+      case '/': {
+        // '?' is shift-/ on US layouts; accept '/' so Shift-key state doesn't matter
+        if (e.key === '/' && !e.shiftKey) break;
+        const help = document.getElementById('lego-help-overlay');
+        if (help) help.hidden = !help.hidden;
+        e.preventDefault();
+        break;
+      }
     }
+  });
+
+  // Click overlay backdrop to close
+  document.getElementById('lego-help-overlay')?.addEventListener('click', e => {
+    if (e.target === e.currentTarget) (e.currentTarget as HTMLElement).hidden = true;
   });
 
   // ── PNG export ────────────────────────────────────────────────────────────
@@ -853,6 +890,7 @@ async function voxelizeAndDisplay(
         });
         hideProgress();
         setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry`, 'success');
+        viewerEl.closest('.panel-layout')?.setAttribute('data-has-model', '');
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
