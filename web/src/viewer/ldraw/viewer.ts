@@ -436,9 +436,9 @@ export class LDrawViewer {
    * 0 = assembled, 1.0 ≈ double the distance from center. Rewrites every
    * InstancedMesh's per-instance matrices from their cached originals.
    *
-   * Edge lines (LineSegments2) are NOT moved — they're per-step batched and
-   * baked into world-space, so they stay in place. This is fine: exploded
-   * mode is mainly for inspecting brick relationships, not pristine edges.
+   * Edge lines (LineSegments2) are world-space-baked per step and can't be
+   * displaced, so we just hide them whenever factor > 0 to avoid a confusing
+   * "ghost outline" sitting at the assembled positions.
    */
   setExplodeFactor(factor: number): void {
     if (!this.loaded) return;
@@ -447,9 +447,18 @@ export class LDrawViewer {
     const tmpRot = new THREE.Quaternion();
     const tmpScale = new THREE.Vector3();
     const tmpMat = new THREE.Matrix4();
+    const hideEdges = factor > 0.001;
 
     for (const stepState of this.stepGroups.values()) {
       stepState.group.traverse(obj => {
+        if (obj instanceof LineSegments2) {
+          // Only the wireframe toggle should keep edges visible across an
+          // explode; if wireframe is on, hideEdges should be false-overridden
+          // upstream — but in practice wireframe + explode is incoherent so
+          // we just hide edges here.
+          obj.visible = !hideEdges;
+          return;
+        }
         if (!(obj instanceof THREE.InstancedMesh)) return;
         const originals = obj.userData['originalMatrices'] as THREE.Matrix4[] | undefined;
         if (!originals) return;
