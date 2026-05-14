@@ -646,16 +646,22 @@ html, body {
 
   .panel-layout { flex-direction: column; }
 
+  /* Mobile: viewer is the primary visual — controls collapse to 40vh,
+     viewer claims at least 50vh so the model is always visible without
+     scrolling. Once a model is loaded, controls shrink further (35vh)
+     to give even more room to the render. */
   .control-panel {
     width: 100%;
     border-right: none;
     border-bottom: 1px solid var(--border);
-    max-height: 50vh;
+    max-height: 40vh;
     overflow-y: auto;
     flex-shrink: 1;
   }
 
-  .viewer-panel { flex: 1; min-height: 0; }
+  .panel-layout[data-has-model] .control-panel { max-height: 35vh; }
+
+  .viewer-panel { flex: 1; min-height: 55vh; }
 
   .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); padding: 12px; gap: 12px; }
 

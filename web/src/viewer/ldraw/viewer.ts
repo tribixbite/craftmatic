@@ -151,12 +151,16 @@ export class LDrawViewer {
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Lighting — positions set per-load relative to model bbox in positionLights()
-    this.ambient = new THREE.AmbientLight(0xffffff, 0.25);
+    // Lighting — three-point studio setup with crisper key/rim contrast for
+    // glossy LEGO ABS. Lower ambient + cooler fill keeps shadows dramatic
+    // without crushing them; rim is bumped up so dark bricks separate from
+    // the backdrop. Positions set per-load in positionLights() relative
+    // to model bbox.
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.18);
     this.scene.add(this.ambient);
-    this.hemi = new THREE.HemisphereLight(0xc8e0ff, 0x443322, 0.3);
+    this.hemi = new THREE.HemisphereLight(0xc8e0ff, 0x443322, 0.28);
     this.scene.add(this.hemi);
-    this.keyLight = new THREE.DirectionalLight(0xfff5e6, 3.5);
+    this.keyLight = new THREE.DirectionalLight(0xfff2dc, 4.0);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.set(4096, 4096);
     this.keyLight.shadow.bias = -0.0005;
@@ -164,11 +168,11 @@ export class LDrawViewer {
     this.keyLight.shadow.radius = 3;
     this.scene.add(this.keyLight);
     this.scene.add(this.keyLight.target);
-    this.fillLight = new THREE.DirectionalLight(0xd0e0ff, 0.8);
+    this.fillLight = new THREE.DirectionalLight(0xc8d8ff, 0.55);
     this.scene.add(this.fillLight);
-    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    this.rimLight = new THREE.DirectionalLight(0xffffff, 1.1);
     this.scene.add(this.rimLight);
-    this.bottomFill = new THREE.DirectionalLight(0xe0e0ff, 0.15);
+    this.bottomFill = new THREE.DirectionalLight(0xe0e0ff, 0.12);
     this.scene.add(this.bottomFill);
 
     // Composer set up; passes added once container size is known
@@ -1247,7 +1251,11 @@ export class LDrawViewer {
       const lz = local.dot(ndir);
       maxDist = Math.max(maxDist, lx / tanH + lz, ly / tanV + lz);
     }
-    const fitDist = Math.max(maxDist, size.length() * 0.5) * 1.08;
+    // Margin is intentionally tight: 0.96 lets the model claim ~70-80% of the
+    // viewport height instead of feeling lost in empty backdrop. The 0.30
+    // floor on diagonal prevents the camera from clipping into the model
+    // for short, wide objects whose corner-projection underestimates depth.
+    const fitDist = Math.max(maxDist, size.length() * 0.30) * 0.96;
 
     this.camera.position.set(
       center.x + ndir.x * fitDist,
