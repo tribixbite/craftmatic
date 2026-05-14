@@ -451,6 +451,10 @@ function wireEvents(): void {
   });
 
   // ── Step slider ────────────────────────────────────────────────────────────
+  // Stop playback when the user explicitly drags/clicks the thumb (not on the
+  // programmatic dispatchEvent('input') from playback, which uses the input
+  // event but not pointerdown).
+  document.getElementById('lego-step-slider')?.addEventListener('pointerdown', stopStepPlay);
   document.getElementById('lego-step-slider')?.addEventListener('input', async e => {
     const slider = e.target as HTMLInputElement;
     const step = parseInt(slider.value, 10);
