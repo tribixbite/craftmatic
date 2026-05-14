@@ -431,6 +431,45 @@ export class LDrawViewer {
     this.renderer.toneMappingExposure = value;
   }
 
+  /**
+   * Spread bricks outward from the visual centroid by `factor` × distance.
+   * 0 = assembled, 1.0 ≈ double the distance from center. Rewrites every
+   * InstancedMesh's per-instance matrices from their cached originals.
+   *
+   * Edge lines (LineSegments2) are NOT moved — they're per-step batched and
+   * baked into world-space, so they stay in place. This is fine: exploded
+   * mode is mainly for inspecting brick relationships, not pristine edges.
+   */
+  setExplodeFactor(factor: number): void {
+    if (!this.loaded) return;
+    const center = this.lastVisualCenter;
+    const tmpPos = new THREE.Vector3();
+    const tmpRot = new THREE.Quaternion();
+    const tmpScale = new THREE.Vector3();
+    const tmpMat = new THREE.Matrix4();
+
+    for (const stepState of this.stepGroups.values()) {
+      stepState.group.traverse(obj => {
+        if (!(obj instanceof THREE.InstancedMesh)) return;
+        const originals = obj.userData['originalMatrices'] as THREE.Matrix4[] | undefined;
+        if (!originals) return;
+        for (let i = 0; i < originals.length; i++) {
+          originals[i]!.decompose(tmpPos, tmpRot, tmpScale);
+          tmpPos.set(
+            tmpPos.x + (tmpPos.x - center.x) * factor,
+            tmpPos.y + (tmpPos.y - center.y) * factor,
+            tmpPos.z + (tmpPos.z - center.z) * factor,
+          );
+          tmpMat.compose(tmpPos, tmpRot, tmpScale);
+          obj.setMatrixAt(i, tmpMat);
+        }
+        obj.instanceMatrix.needsUpdate = true;
+        obj.computeBoundingBox();
+        obj.computeBoundingSphere();
+      });
+    }
+  }
+
   setAutoRotate(enabled: boolean): void {
     this.controls.autoRotate = enabled;
   }
@@ -817,6 +856,10 @@ export class LDrawViewer {
           inst.setMatrixAt(i, bucket.matrices[i]!);
         }
         inst.instanceMatrix.needsUpdate = true;
+        // Keep the assembled matrices alive for setExplodeFactor() to lerp
+        // against. Clone so subsequent explode updates don't mutate the
+        // bucket's working buffers.
+        inst.userData['originalMatrices'] = bucket.matrices.map(m => m.clone());
         // Compute the InstancedMesh's true world-space bbox/sphere from
         // instance matrices — without this, frustum culling uses the
         // part-local bbox (small, around origin) and culls the entire mesh
@@ -857,6 +900,7 @@ export class LDrawViewer {
           cInst.setMatrixAt(i, bucket.matrices[i]!);
         }
         cInst.instanceMatrix.needsUpdate = true;
+        cInst.userData['originalMatrices'] = bucket.matrices.map(m => m.clone());
         cInst.computeBoundingBox();
         cInst.computeBoundingSphere();
         if (subGeom.boundingBox) {
