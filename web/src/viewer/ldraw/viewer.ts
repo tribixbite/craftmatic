@@ -120,6 +120,16 @@ export class LDrawViewer {
   private lastVisualCenter = new THREE.Vector3();
   private lastSize = new THREE.Vector3();
   private lastMaxDim = 10;
+  // Cinematic camera transition state (null when not animating).
+  // Render loop interpolates position/target/near/far with ease-in-out quad
+  // over `duration` ms. Set by fitCameraToDirection(..., animate=true).
+  private cameraAnim: {
+    fromPos: THREE.Vector3; toPos: THREE.Vector3;
+    fromTarget: THREE.Vector3; toTarget: THREE.Vector3;
+    fromNear: number; toNear: number;
+    fromFar: number; toFar: number;
+    startMs: number; duration: number;
+  } | null = null;
 
   // Lifecycle
   private animId: number = 0;
@@ -599,7 +609,10 @@ export class LDrawViewer {
       if (this.disposed) return;
       if (!this.container.isConnected) return;
       this.animId = requestAnimationFrame(loop);
-      this.controls.update();
+      this.tickCameraAnimation();
+      // Skip controls.update() while our interpolation owns the camera;
+      // otherwise OrbitControls damping fights the lerp and causes jitter.
+      if (!this.cameraAnim) this.controls.update();
       this.composer.render();
       if (this.statsOverlay) this.updateStatsOverlay();
     };
@@ -1219,6 +1232,7 @@ export class LDrawViewer {
     bboxMin: THREE.Vector3,
     bboxMax: THREE.Vector3,
     maxDim: number,
+    animate = false,
   ): void {
     const aspect = this.camera.aspect;
     const fovV = (this.camera.fov * Math.PI) / 180;
@@ -1257,20 +1271,54 @@ export class LDrawViewer {
     // for short, wide objects whose corner-projection underestimates depth.
     const fitDist = Math.max(maxDist, size.length() * 0.30) * 0.96;
 
-    this.camera.position.set(
+    const toPos = new THREE.Vector3(
       center.x + ndir.x * fitDist,
       center.y + ndir.y * fitDist,
       center.z + ndir.z * fitDist,
     );
-    this.camera.lookAt(center);
-    this.camera.near = Math.max(0.01, fitDist * 0.001);
-    this.camera.far = fitDist * 10;
-    this.camera.updateProjectionMatrix();
+    const toNear = Math.max(0.01, fitDist * 0.001);
+    const toFar = fitDist * 10;
 
-    this.controls.target.copy(center);
     this.controls.maxDistance = maxDim * 5;
     this.controls.minDistance = maxDim * 0.1;
-    this.controls.update();
+
+    if (animate) {
+      this.cameraAnim = {
+        fromPos: this.camera.position.clone(),
+        toPos,
+        fromTarget: this.controls.target.clone(),
+        toTarget: center.clone(),
+        fromNear: this.camera.near, toNear,
+        fromFar: this.camera.far, toFar,
+        startMs: performance.now(), duration: 600,
+      };
+    } else {
+      this.cameraAnim = null;
+      this.camera.position.copy(toPos);
+      this.controls.target.copy(center);
+      this.camera.lookAt(center);
+      this.camera.near = toNear;
+      this.camera.far = toFar;
+      this.camera.updateProjectionMatrix();
+      this.controls.update();
+    }
+  }
+
+  /** Advance any in-flight camera animation. Called once per frame. */
+  private tickCameraAnimation(): void {
+    const a = this.cameraAnim;
+    if (!a) return;
+    const elapsed = performance.now() - a.startMs;
+    const t = Math.min(1, elapsed / a.duration);
+    // ease-in-out quad
+    const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    this.camera.position.lerpVectors(a.fromPos, a.toPos, e);
+    this.controls.target.lerpVectors(a.fromTarget, a.toTarget, e);
+    this.camera.lookAt(this.controls.target);
+    this.camera.near = a.fromNear + (a.toNear - a.fromNear) * e;
+    this.camera.far  = a.fromFar  + (a.toFar  - a.fromFar)  * e;
+    this.camera.updateProjectionMatrix();
+    if (t >= 1) this.cameraAnim = null;
   }
 
   /**
@@ -1301,6 +1349,7 @@ export class LDrawViewer {
       this.lastBboxMin,
       this.lastBboxMax,
       this.lastMaxDim,
+      true,
     );
   }
 
