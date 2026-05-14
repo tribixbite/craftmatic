@@ -213,6 +213,13 @@ function buildUI(): void {
       <span id="lego-step-label" style="font-size:0.75rem;min-width:3.5em;text-align:right">1/1</span>
     </div>
 
+    <!-- Explode slider (hidden until 3D direct-render viewer is mounted) -->
+    <div class="lego-section lego-scale-row" id="lego-explode-row" hidden>
+      <span class="lego-section-label" style="font-size:0.75rem;opacity:0.7">Explode</span>
+      <input type="range" id="lego-explode-slider" min="0" max="100" value="0" style="flex:1;min-width:60px">
+      <span id="lego-explode-label" style="font-size:0.75rem;min-width:3.5em;text-align:right">0%</span>
+    </div>
+
     <!-- Primary: Upload LDraw file -->
     <div class="lego-section">
       <div class="lego-label-row">
@@ -420,6 +427,16 @@ function wireEvents(): void {
     } catch (err) {
       setStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
+  });
+
+  // ── Explode slider ────────────────────────────────────────────────────────
+  document.getElementById('lego-explode-slider')?.addEventListener('input', e => {
+    const pct = parseInt((e.target as HTMLInputElement).value, 10);
+    const label = document.getElementById('lego-explode-label');
+    if (label) label.textContent = `${pct}%`;
+    // 0-100 → 0-1.5. 1.5× lets the bricks fly far apart for engineering-view
+    // inspection without flying out of the camera frustum on typical zoom.
+    currentLDrawViewer?.setExplodeFactor(pct / 100 * 1.5);
   });
 
   // ── Step playback (▶ button auto-advances steps) ───────────────────────────
@@ -943,6 +960,14 @@ async function voxelizeAndDisplay(
         hideProgress();
         setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry`, 'success');
         viewerEl.closest('.panel-layout')?.setAttribute('data-has-model', '');
+        const explodeRow = document.getElementById('lego-explode-row');
+        if (explodeRow) explodeRow.hidden = false;
+        // Reset explode slider to 0 on new model load so the freshly-rendered
+        // model is in its assembled state.
+        const exSlider = document.getElementById('lego-explode-slider') as HTMLInputElement | null;
+        const exLabel = document.getElementById('lego-explode-label');
+        if (exSlider) exSlider.value = '0';
+        if (exLabel) exLabel.textContent = '0%';
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
