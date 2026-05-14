@@ -145,6 +145,7 @@ function buildUI(): void {
           <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">L</kbd><span>Left side</span>
           <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">R</kbd><span>Right side</span>
           <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">T</kbd><span>Top-down</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">←&nbsp;/&nbsp;→</kbd><span>Previous / next build step</span>
           <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">Space</kbd><span>Toggle auto-rotate</span>
           <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">Esc</kbd><span>Close picked-brick info / help</span>
         </div>
@@ -206,6 +207,8 @@ function buildUI(): void {
     <!-- Assembly step slider (hidden until model with steps is loaded) -->
     <div class="lego-section lego-scale-row" id="lego-step-row" hidden>
       <span class="lego-section-label" style="font-size:0.75rem;opacity:0.7">Step</span>
+      <button id="lego-step-play" type="button" title="Auto-advance steps (click to play/pause)"
+        style="background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.45);color:#a78bfa;border-radius:4px;padding:2px 8px;font-size:0.78rem;cursor:pointer;font-family:inherit">▶</button>
       <input type="range" id="lego-step-slider" min="1" max="1" value="1" style="flex:1;min-width:60px">
       <span id="lego-step-label" style="font-size:0.75rem;min-width:3.5em;text-align:right">1/1</span>
     </div>
@@ -371,6 +374,23 @@ function wireEvents(): void {
         e.preventDefault();
         break;
       }
+      case 'arrowleft':
+      case 'arrowright': {
+        const slider = document.getElementById('lego-step-slider') as HTMLInputElement | null;
+        if (!slider) break;
+        stopStepPlay();
+        const cur = parseInt(slider.value, 10);
+        const max = parseInt(slider.max, 10);
+        const min = parseInt(slider.min, 10);
+        const delta = e.key.toLowerCase() === 'arrowleft' ? -1 : 1;
+        const next = Math.max(min, Math.min(max, cur + delta));
+        if (next !== cur) {
+          slider.value = String(next);
+          slider.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        e.preventDefault();
+        break;
+      }
     }
   });
 
@@ -400,6 +420,34 @@ function wireEvents(): void {
     } catch (err) {
       setStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
+  });
+
+  // ── Step playback (▶ button auto-advances steps) ───────────────────────────
+  let stepPlayTimer: ReturnType<typeof setInterval> | null = null;
+  const stopStepPlay = (): void => {
+    if (stepPlayTimer) clearInterval(stepPlayTimer);
+    stepPlayTimer = null;
+    const btn = document.getElementById('lego-step-play');
+    if (btn) btn.textContent = '▶';
+  };
+  document.getElementById('lego-step-play')?.addEventListener('click', () => {
+    const slider = document.getElementById('lego-step-slider') as HTMLInputElement | null;
+    const btn = document.getElementById('lego-step-play');
+    if (!slider || !btn) return;
+    if (stepPlayTimer) { stopStepPlay(); return; }
+    btn.textContent = '⏸';
+    const max = parseInt(slider.max, 10);
+    // If at max already, restart from step 1
+    if (parseInt(slider.value, 10) >= max) {
+      slider.value = '1';
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    stepPlayTimer = setInterval(() => {
+      const cur = parseInt(slider.value, 10);
+      if (cur >= max) { stopStepPlay(); return; }
+      slider.value = String(cur + 1);
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }, 350);
   });
 
   // ── Step slider ────────────────────────────────────────────────────────────
