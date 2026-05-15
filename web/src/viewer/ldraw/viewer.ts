@@ -168,16 +168,15 @@ export class LDrawViewer {
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Lighting — three-point studio setup with crisper key/rim contrast for
-    // glossy LEGO ABS. Lower ambient + cooler fill keeps shadows dramatic
-    // without crushing them; rim is bumped up so dark bricks separate from
-    // the backdrop. Positions set per-load in positionLights() relative
-    // to model bbox.
-    this.ambient = new THREE.AmbientLight(0xffffff, 0.18);
+    // Lighting — three-point studio setup. Tuned conservatively: an earlier
+    // pass bumped key + rim hard and pushed saturated reds/greens into the
+    // ACES highlight roll-off (washed-out look). These values keep most of
+    // the original feel with a small contrast bump from lower ambient.
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.22);
     this.scene.add(this.ambient);
-    this.hemi = new THREE.HemisphereLight(0xc8e0ff, 0x443322, 0.28);
+    this.hemi = new THREE.HemisphereLight(0xc8e0ff, 0x443322, 0.30);
     this.scene.add(this.hemi);
-    this.keyLight = new THREE.DirectionalLight(0xfff2dc, 4.0);
+    this.keyLight = new THREE.DirectionalLight(0xfff5e6, 3.5);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.set(4096, 4096);
     this.keyLight.shadow.bias = -0.0005;
@@ -185,11 +184,11 @@ export class LDrawViewer {
     this.keyLight.shadow.radius = 3;
     this.scene.add(this.keyLight);
     this.scene.add(this.keyLight.target);
-    this.fillLight = new THREE.DirectionalLight(0xc8d8ff, 0.55);
+    this.fillLight = new THREE.DirectionalLight(0xd0e0ff, 0.7);
     this.scene.add(this.fillLight);
-    this.rimLight = new THREE.DirectionalLight(0xffffff, 1.1);
+    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.55);
     this.scene.add(this.rimLight);
-    this.bottomFill = new THREE.DirectionalLight(0xe0e0ff, 0.12);
+    this.bottomFill = new THREE.DirectionalLight(0xe0e0ff, 0.15);
     this.scene.add(this.bottomFill);
 
     // Composer set up; passes added once container size is known

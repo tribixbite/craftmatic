@@ -301,9 +301,12 @@ export async function resolvePartGeometry(
         continue;
       }
 
-      // ── In a !TEXMAP block, !: prefix means "render this with the active
-      //    texture". Strip the prefix and let the normal parser handle it,
-      //    with an isTextured flag so we can emit UVs.
+      // ── In a !TEXMAP block, `0 !:` prefix means "render with active
+      //    texture"; non-prefixed lines render as normal geometry (no
+      //    texture) per the LDraw spec. After !TEXMAP FALLBACK, geometry
+      //    should only render when textures are unsupported — but since
+      //    we DO support textures, we drop fallback geometry to avoid
+      //    double-rendering the same sub-part twice.
       let isTextured = false;
       let lineToParse = line;
       if (texmap) {
@@ -311,13 +314,13 @@ export async function resolvePartGeometry(
         if (texGeo) {
           isTextured = true;
           lineToParse = texGeo[1]!;
-        } else if (!texmap.fallback) {
-          // Inside texmap, non-prefixed lines BEFORE the FALLBACK marker are
-          // not yet active fallback geometry — they're typically meta lines.
-          // Drop only real geometry refs (1/2/3/4/5) so meta passes through.
+        } else if (texmap.fallback) {
+          // Skip fallback geometry — we already rendered the textured version.
           const t0 = line.split(/\s+/)[0];
           if (t0 === '1' || t0 === '2' || t0 === '3' || t0 === '4' || t0 === '5') continue;
         }
+        // Otherwise (non-prefixed, no FALLBACK seen yet): fall through to
+        // the normal parser so the geometry renders as untextured fill.
       }
 
       const tok = lineToParse.split(/\s+/);
