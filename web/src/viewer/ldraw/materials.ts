@@ -118,41 +118,51 @@ export function makeMaterial(colorId: number): THREE.MeshPhysicalMaterial {
   }
 
   if (metallic) {
+    // Softer chrome: previous values produced harsh mirror-like surfaces and
+    // exaggerated the gap shadows between spokes. Slight roughness bump,
+    // less envIntensity, and lower clearcoat read as polished metal vs.
+    // wet mirror — which is how chrome-plated ABS actually looks.
     return new THREE.MeshPhysicalMaterial({
       color,
-      roughness: 0.1,
-      metalness: 0.92,
-      envMapIntensity: 1.5,
-      clearcoat: 0.6,
-      clearcoatRoughness: 0.08,
-      specularIntensity: 1.5,
-      specularColor: color.clone().lerp(new THREE.Color(0xffffff), 0.3),
+      roughness: 0.22,
+      metalness: 0.85,
+      envMapIntensity: 1.0,
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.18,
+      specularIntensity: 1.1,
+      specularColor: color.clone().lerp(new THREE.Color(0xffffff), 0.25),
       side: THREE.DoubleSide,
-      emissive: color.clone().multiplyScalar(0.04),
+      emissive: color.clone().multiplyScalar(0.02),
     });
   }
 
   if (rubber) {
+    // Proper matte rubber: high roughness, zero env reflection, no emissive
+    // pop. Reads as Lambertian black instead of "shiny black plastic".
     return new THREE.MeshPhysicalMaterial({
       color,
-      roughness: 0.55,
+      roughness: 0.92,
       metalness: 0.0,
-      envMapIntensity: 0.1,
+      envMapIntensity: 0.0,
+      clearcoat: 0.0,
       side: THREE.DoubleSide,
-      emissive: color.clone().multiplyScalar(0.005),
     });
   }
 
-  // Standard ABS plastic: clearcoat scales with darkness for richer reflection on dark bricks
+  // Standard ABS plastic. CAREFUL: this material is used for the dominant
+  // body color of every set, so any specular/envIntensity bump that looks
+  // good on light colors blows out dark colors via env-map reflection
+  // (Mini Cooper dark green washes to grey under aggressive clearcoat).
+  // Original-style values restored; only a tiny clearcoat bump for sheen.
   const lum = color.r * 0.299 + color.g * 0.587 + color.b * 0.114;
-  const clearcoatAmt = 0.2 + (1 - lum) * 0.25;
+  const clearcoatAmt = 0.22 + (1 - lum) * 0.20;
   const mat = new THREE.MeshPhysicalMaterial({
     color,
     roughness: 0.28,
     metalness: 0.0,
-    envMapIntensity: 0.5 + (1 - lum) * 0.3,
+    envMapIntensity: 0.45 + (1 - lum) * 0.25,
     clearcoat: clearcoatAmt,
-    clearcoatRoughness: 0.35,
+    clearcoatRoughness: 0.32,
     side: THREE.DoubleSide,
   });
   mat.emissive = color.clone().multiplyScalar(0.008);

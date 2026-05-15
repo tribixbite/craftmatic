@@ -997,11 +997,14 @@ export class LDrawViewer {
       // Darken toward 25% lightness floor; preserve hue + most of saturation.
       // For very desaturated grays, fall through to a slightly cool near-black
       // (matches what the prior luminance branch produced).
-      const targetL = Math.min(hsl.l, 0.18);
+      // Softened — was 0.7/0.5; produced too-harsh outlines that fought
+      // the smooth-paint look we want. New values let edges suggest brick
+      // boundaries without overwhelming the body silhouette.
+      const targetL = Math.min(hsl.l, 0.22);
       const ec = hsl.s > 0.08
-        ? new THREE.Color().setHSL(hsl.h, hsl.s * 0.85, targetL)
-        : new THREE.Color(0.10, 0.10, 0.12);
-      const opacity = hsl.l > 0.4 ? 0.7 : 0.5;
+        ? new THREE.Color().setHSL(hsl.h, hsl.s * 0.75, targetL)
+        : new THREE.Color(0.12, 0.12, 0.14);
+      const opacity = hsl.l > 0.4 ? 0.45 : 0.30;
       for (let i = 0; i < eg.positions.length; i += 3) {
         allEdgePos.push(eg.positions[i]!, eg.positions[i + 1]!, eg.positions[i + 2]!);
         allEdgeCol.push(ec.r * opacity, ec.g * opacity, ec.b * opacity);

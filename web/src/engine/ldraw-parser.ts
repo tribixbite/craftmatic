@@ -116,9 +116,14 @@ function expandSection(
   for (const line of lines) {
     if (!line) continue;
 
-    // At top level only: track assembly step markers
+    // Track assembly step markers at any depth. Many OMR sets (e.g., 31084
+    // Pirate Roller Coaster) keep all top-level brick references in one
+    // block and put the STEP markers inside each sub-assembly file —
+    // limiting step-counting to depth 0 would give those models step=1/1.
+    // Counting at every depth produces finer building-manual-style steps
+    // (sub-assemblies build themselves out, then the next sub-assembly).
     if (line.startsWith('0')) {
-      if (depth === 0 && /^0\s+STEP\s*$/i.test(line)) {
+      if (/^0\s+STEP\s*$/i.test(line)) {
         stepRef.step++;
       }
       continue;
