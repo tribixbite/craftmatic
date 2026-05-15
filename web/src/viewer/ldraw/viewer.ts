@@ -245,13 +245,18 @@ export class LDrawViewer {
       pmremGen.compileEquirectangularShader();
       const envScene = new THREE.Scene();
       envScene.background = new THREE.Color(0xd0d0d8);
-      envScene.add(new THREE.HemisphereLight(0xfff8f0, 0x8090a0, 1.2));
-      const ceilingLight = new THREE.RectAreaLight(0xffffff, 3.0, 50, 50);
+      envScene.add(new THREE.HemisphereLight(0xfff8f0, 0x8090a0, 0.9));
+      const ceilingLight = new THREE.RectAreaLight(0xffffff, 2.0, 50, 50);
       ceilingLight.position.set(0, 30, 0);
       ceilingLight.lookAt(0, 0, 0);
       envScene.add(ceilingLight);
       viewer.scene.environment = pmremGen.fromScene(envScene, 0.04).texture;
-      viewer.scene.environmentIntensity = 0.6;
+      // Lowered from 0.6 to 0.35. Was bleaching dark-color bricks (Mini Cooper
+      // BRG #184632, dark blues, dark reds) under their clearcoat reflection —
+      // the bright env-map captured by the polished top layer dominated the
+      // dark base color, washing it toward grey. 0.35 keeps a soft sheen on
+      // light bricks without crushing saturation on dark ones.
+      viewer.scene.environmentIntensity = 0.35;
       pmremGen.dispose();
     } catch (e) {
       console.warn('[LDrawViewer] Environment map failed (GPU limitation):', e);
