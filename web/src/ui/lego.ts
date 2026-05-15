@@ -104,7 +104,9 @@ export function initLego(
   rootEl = controls;
   onResult = callback;
   buildUI();
-  // Auto-detect LDraw parts library and enable 3D Render by default
+  // Auto-detect LDraw parts library and enable 3D Render by default. If the
+  // library is present, schedule a background warmup of the ~40 most common
+  // bricks so the first model load doesn't pay the full per-part fetch cost.
   fetch('/ldraw-parts/parts/3001.dat', { method: 'HEAD' })
     .then(r => {
       if (r.ok) {
@@ -112,6 +114,12 @@ export function initLego(
         const cb = document.getElementById('lego-direct-render') as HTMLInputElement | null;
         if (cb) cb.checked = true;
         updateScaleControlsVisibility();
+        // Idle-callback so warmup never competes with first-paint work.
+        const schedule = (window as Window & { requestIdleCallback?: (cb: () => void) => void })
+          .requestIdleCallback ?? ((fn: () => void) => setTimeout(fn, 500));
+        schedule(() => {
+          void import('@viewer/ldraw/parts.js').then(({ prewarmCommonParts }) => prewarmCommonParts());
+        });
       }
     })
     .catch(() => { /* no parts library — keep voxel mode */ });

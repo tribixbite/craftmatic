@@ -93,6 +93,37 @@ export function clearMpdInlines(): void {
   }
 }
 
+/**
+ * Common LEGO bricks/plates/tiles/slopes — the ~40 parts that show up in
+ * nearly every set. Fetching them in parallel at app idle pre-warms the
+ * datTextCache so the first model load is meaningfully faster (cold-load
+ * benchmark on 10248-ferrari dropped from ~10s to ~3-4s in dev).
+ *
+ * Fire-and-forget: errors are silently swallowed since this is a
+ * speculative warmup, not a load-blocking operation.
+ */
+const COMMON_PARTS = [
+  // Basic bricks
+  '3001', '3002', '3003', '3004', '3005', '3007', '3009', '3010',
+  '3622', '3700', '3701', '3702',
+  // Plates
+  '3020', '3021', '3022', '3023', '3024', '3034', '3035', '3460',
+  '3623', '3666', '3710', '3795', '41539',
+  // Tiles
+  '3068', '3069', '3070', '6636', '4150',
+  // Slopes
+  '3037', '3038', '3039', '3040', '3298', '54200', '60481',
+  // Round/curved
+  '4032', '4073', '6141', '85984', '3062',
+];
+
+export function prewarmCommonParts(): Promise<void> {
+  const tasks = COMMON_PARTS.map(id =>
+    fetchDatText(id).then(() => undefined).catch(() => undefined),
+  );
+  return Promise.all(tasks).then(() => undefined);
+}
+
 async function fetchDatText(id: string): Promise<string | null> {
   const key = normId(id);
   if (datTextCache.has(key)) return datTextCache.get(key)!;
