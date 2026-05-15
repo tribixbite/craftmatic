@@ -39,6 +39,7 @@ import {
   clearMpdInlines,
   isLDrawPrimitive,
   normId,
+  partTextureUrls,
 } from './parts.js';
 import {
   getThreeColor,
@@ -929,6 +930,56 @@ export class LDrawViewer {
           }
         }
         group.add(cInst);
+      }
+
+      // ── Textured sub-meshes (!TEXMAP PLANAR with !DATA decals) ─────────
+      if (partGeom.texTris) {
+        for (const [image, texTris] of partGeom.texTris) {
+          const url = partTextureUrls.get(image);
+          if (!url || texTris.length === 0) continue;
+          const positions = new Float32Array(texTris.length * 9);
+          const uvs       = new Float32Array(texTris.length * 6);
+          for (let i = 0; i < texTris.length; i++) {
+            const t = texTris[i]!;
+            const pi = i * 9, ui = i * 6;
+            positions[pi+0] = t.v[0][0]; positions[pi+1] = t.v[0][1]; positions[pi+2] = t.v[0][2];
+            positions[pi+3] = t.v[1][0]; positions[pi+4] = t.v[1][1]; positions[pi+5] = t.v[1][2];
+            positions[pi+6] = t.v[2][0]; positions[pi+7] = t.v[2][1]; positions[pi+8] = t.v[2][2];
+            uvs[ui+0] = t.uv[0][0]; uvs[ui+1] = 1 - t.uv[0][1];
+            uvs[ui+2] = t.uv[1][0]; uvs[ui+3] = 1 - t.uv[1][1];
+            uvs[ui+4] = t.uv[2][0]; uvs[ui+5] = 1 - t.uv[2][1];
+          }
+          const tGeo = new THREE.BufferGeometry();
+          tGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+          tGeo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+          tGeo.computeVertexNormals();
+          tGeo.computeBoundingBox();
+          tGeo.computeBoundingSphere();
+          const tex = new THREE.TextureLoader().load(url);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          // Tint white so the decal art shows through unmodified; honor the
+          // brick's clearcoat/finish so stickers don't look flat against
+          // glossy ABS around them.
+          const tMat = new THREE.MeshPhysicalMaterial({
+            map: tex, color: 0xffffff, roughness: 0.32, metalness: 0.0,
+            clearcoat: 0.25, clearcoatRoughness: 0.35, side: THREE.DoubleSide,
+            transparent: true, alphaTest: 0.04,
+          });
+          this.allMeshMaterials.push(tMat);
+          const tInst = new THREE.InstancedMesh(tGeo, tMat, bucket.matrices.length);
+          tInst.frustumCulled = false;
+          tInst.castShadow = false;       // decals on top of the brick — no self-shadow
+          tInst.receiveShadow = true;
+          tInst.renderOrder = 2;          // draw after opaque body, after edges
+          for (let i = 0; i < bucket.matrices.length; i++) {
+            tInst.setMatrixAt(i, bucket.matrices[i]!);
+          }
+          tInst.instanceMatrix.needsUpdate = true;
+          tInst.userData['originalMatrices'] = bucket.matrices.map(m => m.clone());
+          tInst.computeBoundingBox();
+          tInst.computeBoundingSphere();
+          group.add(tInst);
+        }
       }
     }
 
