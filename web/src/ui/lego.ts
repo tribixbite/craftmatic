@@ -134,9 +134,11 @@ function buildUI(): void {
     <div id="lego-hover-tooltip" hidden style="position:fixed;z-index:9999;pointer-events:none;padding:4px 8px;background:rgba(0,0,0,0.85);color:#fff;border-radius:4px;font-size:0.7rem;line-height:1.3;white-space:nowrap;font-family:ui-sans-serif,system-ui,sans-serif"></div>
     <div id="lego-help-overlay" hidden style="position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(4px);font-family:ui-sans-serif,system-ui,sans-serif">
       <div style="background:rgba(20,20,28,0.96);border:1px solid rgba(124,58,237,0.5);border-radius:10px;padding:24px 32px;color:#e6e6f0;max-width:480px;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px;gap:12px">
           <h3 style="margin:0;font-size:1rem;letter-spacing:0.04em;text-transform:uppercase;color:#a78bfa">Viewer Controls</h3>
-          <span style="font-size:0.7rem;opacity:0.6">? to toggle · Esc to close</span>
+          <span style="font-size:0.7rem;opacity:0.6;flex:1">? to toggle · Esc · click outside</span>
+          <button id="lego-help-close" type="button" aria-label="Close help"
+            style="background:transparent;border:none;color:#888;font-size:1.4rem;line-height:1;padding:0 4px;cursor:pointer">×</button>
         </div>
         <div style="display:grid;grid-template-columns:auto 1fr;gap:10px 16px;font-size:0.82rem;line-height:1.5">
           <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">I</kbd><span>Isometric (3/4) view</span>
@@ -347,6 +349,24 @@ function wireEvents(): void {
     // Only act when LEGO tab is the active view (heuristic: viewer is visible)
     const viewer = document.getElementById('lego-viewer');
     if (!viewer || viewer.offsetParent === null) return;
+
+    // Help-overlay open/close and Esc-dismiss must work even when no model is
+    // loaded yet — otherwise the viewer-gate below traps the overlay.
+    const key = e.key.toLowerCase();
+    if (key === 'escape') {
+      const help = document.getElementById('lego-help-overlay');
+      if (help && !help.hidden) { help.hidden = true; e.preventDefault(); return; }
+      const picked = document.getElementById('lego-picked-brick');
+      if (picked) picked.hidden = true;
+      return;
+    }
+    if (key === '?' || (key === '/' && e.shiftKey)) {
+      const help = document.getElementById('lego-help-overlay');
+      if (help) help.hidden = !help.hidden;
+      e.preventDefault();
+      return;
+    }
+
     if (!currentLDrawViewer) return;
 
     switch (e.key.toLowerCase()) {
@@ -362,22 +382,6 @@ function wireEvents(): void {
           cb.checked = !cb.checked;
           cb.dispatchEvent(new Event('change', { bubbles: true }));
         }
-        e.preventDefault();
-        break;
-      }
-      case 'escape': {
-        const help = document.getElementById('lego-help-overlay');
-        if (help && !help.hidden) { help.hidden = true; e.preventDefault(); break; }
-        const picked = document.getElementById('lego-picked-brick');
-        if (picked) picked.hidden = true;
-        break;
-      }
-      case '?':
-      case '/': {
-        // '?' is shift-/ on US layouts; accept '/' so Shift-key state doesn't matter
-        if (e.key === '/' && !e.shiftKey) break;
-        const help = document.getElementById('lego-help-overlay');
-        if (help) help.hidden = !help.hidden;
         e.preventDefault();
         break;
       }
@@ -401,9 +405,11 @@ function wireEvents(): void {
     }
   });
 
-  // Click overlay backdrop to close
+  // Click overlay backdrop or × button to close
   document.getElementById('lego-help-overlay')?.addEventListener('click', e => {
-    if (e.target === e.currentTarget) (e.currentTarget as HTMLElement).hidden = true;
+    const overlay = e.currentTarget as HTMLElement;
+    const closeBtn = (e.target as HTMLElement).closest('#lego-help-close');
+    if (closeBtn || e.target === overlay) overlay.hidden = true;
   });
 
   // ── PNG export ────────────────────────────────────────────────────────────
