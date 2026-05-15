@@ -7,7 +7,7 @@
  * skipped), color-16 inheritance, and recursive sub-file references.
  */
 
-import type { Vec3, Triangle, Edge, PartGeom } from './types.js';
+import type { Vec3, Triangle, Edge, PartGeom, UV, TexturedTriangle } from './types.js';
 
 const datTextCache = new Map<string, string | null>();
 const partGeomCache = new Map<string, PartGeom>();
@@ -18,6 +18,30 @@ const MAX_CACHE_ENTRIES = 10_000;
 
 /** Color IDs discovered to be transparent via inline !COLOUR ALPHA definitions */
 export const inlineTransparentColors = new Set<number>();
+
+/**
+ * Texture data from !DATA blocks. Keyed by image filename (lowercased,
+ * no path). Stored as data URLs so they can be passed straight to
+ * THREE.TextureLoader without an extra round-trip.
+ */
+export const partTextureUrls = new Map<string, string>();
+
+/**
+ * UV from a PLANAR texmap: project the point onto the (u, v) basis defined
+ * by the three texmap points and normalize by axis length squared, so the
+ * basis-endpoint vertices land at u=1 (or v=1) and the origin at (0, 0).
+ */
+function planarUV(
+  p: Vec3,
+  tm: { p1: Vec3; uAxis: Vec3; vAxis: Vec3; uLenSq: number; vLenSq: number },
+): UV {
+  const dx = p[0] - tm.p1[0];
+  const dy = p[1] - tm.p1[1];
+  const dz = p[2] - tm.p1[2];
+  const u = (dx * tm.uAxis[0] + dy * tm.uAxis[1] + dz * tm.uAxis[2]) / (tm.uLenSq || 1);
+  const v = (dx * tm.vAxis[0] + dy * tm.vAxis[1] + dz * tm.vAxis[2]) / (tm.vLenSq || 1);
+  return [u, v];
+}
 
 /**
  * Synchronous cache reader. Returns undefined if the part hasn't been
@@ -207,30 +231,96 @@ export async function resolvePartGeometry(
     const subPromises: Promise<void>[] = [];
     let bfcCCW = true;
     let invertNext = false;
-    let texmapDepth = 0;
+
+    // TEXMAP state. Either null (no active texmap), or carries plane+image.
+    // mode='block': textured until END. mode='next': textured for one !:-line.
+    // fallback=true means subsequent non-prefixed lines are textureless backups.
+    let texmap: {
+      type: 'planar'; p1: Vec3; uAxis: Vec3; vAxis: Vec3;
+      uLenSq: number; vLenSq: number; image: string;
+      mode: 'block' | 'next'; fallback: boolean;
+    } | null = null;
+
+    // !DATA accumulator. While inDataImage is set, !: lines are base64
+    // continuations of that image, not textured-geometry refs.
+    let inDataImage: string | null = null;
+    let dataBuf: string[] = [];
+    const commitData = () => {
+      if (inDataImage && dataBuf.length) {
+        partTextureUrls.set(
+          inDataImage.toLowerCase(),
+          `data:image/png;base64,${dataBuf.join('')}`,
+        );
+      }
+      inDataImage = null;
+      dataBuf = [];
+    };
 
     for (const rawLine of text.split('\n')) {
       const line = rawLine.trim();
       if (!line) continue;
 
-      if (/^0\s+!DATA\s/i.test(line)) { texmapDepth++; continue; }
-      if (/^0\s+!:/i.test(line) && texmapDepth > 0) continue;
+      // ── !DATA block: collect base64 ────────────────────────────────────
+      const dataMatch = line.match(/^0\s+!DATA\s+(.+)$/i);
+      if (dataMatch) {
+        commitData();
+        inDataImage = dataMatch[1]!.trim();
+        continue;
+      }
+      if (inDataImage) {
+        const m = line.match(/^0\s+!:\s+(.*)$/i);
+        if (m) { dataBuf.push(m[1]!); continue; }
+        // Anything else terminates the data block
+        commitData();
+      }
 
-      if (/^0\s+!TEXMAP\s+START/i.test(line) || /^0\s+!TEXMAP\s+NEXT/i.test(line)) {
-        texmapDepth++;
+      // ── !TEXMAP control lines ──────────────────────────────────────────
+      const startMatch = line.match(/^0\s+!TEXMAP\s+(START|NEXT)\s+PLANAR\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+(\S+)/i);
+      if (startMatch) {
+        const p1: Vec3 = [+startMatch[2]!, +startMatch[3]!, +startMatch[4]!];
+        const p2: Vec3 = [+startMatch[5]!, +startMatch[6]!, +startMatch[7]!];
+        const p3: Vec3 = [+startMatch[8]!, +startMatch[9]!, +startMatch[10]!];
+        const uAxis: Vec3 = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
+        const vAxis: Vec3 = [p3[0] - p1[0], p3[1] - p1[1], p3[2] - p1[2]];
+        texmap = {
+          type: 'planar', p1, uAxis, vAxis,
+          uLenSq: uAxis[0] ** 2 + uAxis[1] ** 2 + uAxis[2] ** 2,
+          vLenSq: vAxis[0] ** 2 + vAxis[1] ** 2 + vAxis[2] ** 2,
+          image: startMatch[11]!.toLowerCase().replace(/^.*[/\\]/, ''),
+          mode: startMatch[1]!.toUpperCase() === 'NEXT' ? 'next' : 'block',
+          fallback: false,
+        };
         continue;
       }
       if (/^0\s+!TEXMAP\s+FALLBACK/i.test(line)) {
-        texmapDepth = Math.max(0, texmapDepth - 1);
+        if (texmap) texmap.fallback = true;
         continue;
       }
       if (/^0\s+!TEXMAP\s+END/i.test(line)) {
-        texmapDepth = Math.max(0, texmapDepth - 1);
+        texmap = null;
         continue;
       }
-      if (texmapDepth > 0) continue;
 
-      const tok = line.split(/\s+/);
+      // ── In a !TEXMAP block, !: prefix means "render this with the active
+      //    texture". Strip the prefix and let the normal parser handle it,
+      //    with an isTextured flag so we can emit UVs.
+      let isTextured = false;
+      let lineToParse = line;
+      if (texmap) {
+        const texGeo = line.match(/^0\s+!:\s+(.*)$/i);
+        if (texGeo) {
+          isTextured = true;
+          lineToParse = texGeo[1]!;
+        } else if (!texmap.fallback) {
+          // Inside texmap, non-prefixed lines BEFORE the FALLBACK marker are
+          // not yet active fallback geometry — they're typically meta lines.
+          // Drop only real geometry refs (1/2/3/4/5) so meta passes through.
+          const t0 = line.split(/\s+/)[0];
+          if (t0 === '1' || t0 === '2' || t0 === '3' || t0 === '4' || t0 === '5') continue;
+        }
+      }
+
+      const tok = lineToParse.split(/\s+/);
 
       if (tok[0] === '0' && tok[1] === 'BFC') {
         const cmd = tok.slice(2).join(' ').toUpperCase();
@@ -295,7 +385,17 @@ export async function resolvePartGeometry(
         const v2: Vec3 = [x2, y2, z2];
         const shouldInvert = invertWinding !== !bfcCCW;
         const tri: Triangle = shouldInvert ? [v0, v2, v1] : [v0, v1, v2];
-        if (triColor !== 16 && triColor !== 24 && !isNaN(triColor)) {
+        if (isTextured && texmap) {
+          if (!geom.texTris) geom.texTris = new Map();
+          let bucket = geom.texTris.get(texmap.image);
+          if (!bucket) { bucket = []; geom.texTris.set(texmap.image, bucket); }
+          bucket.push({
+            v: tri,
+            uv: [planarUV(tri[0], texmap), planarUV(tri[1], texmap), planarUV(tri[2], texmap)],
+            color: triColor,
+          });
+          if (texmap.mode === 'next') texmap = null;
+        } else if (triColor !== 16 && triColor !== 24 && !isNaN(triColor)) {
           const ct = geom.colorTris.get(triColor) ?? (() => {
             const a: Triangle[] = []; geom.colorTris.set(triColor, a); return a;
           })();
@@ -314,7 +414,22 @@ export async function resolvePartGeometry(
         const shouldInvert = invertWinding !== !bfcCCW;
         const t1: Triangle = shouldInvert ? [v0, v2, v1] : [v0, v1, v2];
         const t2: Triangle = shouldInvert ? [v0, v3, v2] : [v0, v2, v3];
-        if (quadColor !== 16 && quadColor !== 24 && !isNaN(quadColor)) {
+        if (isTextured && texmap) {
+          if (!geom.texTris) geom.texTris = new Map();
+          let bucket = geom.texTris.get(texmap.image);
+          if (!bucket) { bucket = []; geom.texTris.set(texmap.image, bucket); }
+          bucket.push({
+            v: t1,
+            uv: [planarUV(t1[0], texmap), planarUV(t1[1], texmap), planarUV(t1[2], texmap)],
+            color: quadColor,
+          });
+          bucket.push({
+            v: t2,
+            uv: [planarUV(t2[0], texmap), planarUV(t2[1], texmap), planarUV(t2[2], texmap)],
+            color: quadColor,
+          });
+          if (texmap.mode === 'next') texmap = null;
+        } else if (quadColor !== 16 && quadColor !== 24 && !isNaN(quadColor)) {
           const ct = geom.colorTris.get(quadColor) ?? (() => {
             const a: Triangle[] = []; geom.colorTris.set(quadColor, a); return a;
           })();
@@ -377,10 +492,31 @@ export async function resolvePartGeometry(
                 target.push([applyMat(ev0, R, T), applyMat(ev1, R, T)]);
               }
             }
+            // Propagate sub-part textured triangles into parent. UVs are
+            // image-space and DON'T transform; only the vertex positions do.
+            if (sub.texTris) {
+              if (!geom.texTris) geom.texTris = new Map();
+              for (const [image, sTris] of sub.texTris) {
+                let bucket = geom.texTris.get(image);
+                if (!bucket) { bucket = []; geom.texTris.set(image, bucket); }
+                for (const t of sTris) {
+                  bucket.push({
+                    v: [applyMat(t.v[0], R, T), applyMat(t.v[1], R, T), applyMat(t.v[2], R, T)],
+                    uv: t.uv,
+                    color: t.color,
+                  });
+                }
+              }
+            }
           }),
         );
       }
+      // NEXT-mode texmap covers exactly one geometry line — release it after
+      // any geometry line was processed under the textured context.
+      if (isTextured && texmap?.mode === 'next') texmap = null;
     }
+    // Commit any trailing !DATA block that wasn't terminated by another directive.
+    commitData();
 
     await Promise.allSettled(subPromises);
     return geom;

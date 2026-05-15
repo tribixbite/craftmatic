@@ -5,6 +5,18 @@
 export type Vec3 = readonly [number, number, number];
 export type Triangle = readonly [Vec3, Vec3, Vec3];
 export type Edge = readonly [Vec3, Vec3];
+export type UV = readonly [number, number];
+
+/**
+ * A triangle with per-vertex UVs, sourced from a !TEXMAP block. The image
+ * field is the texmap's data-URL — viewer resolves it through partTextureUrls.
+ */
+export interface TexturedTriangle {
+  v: Triangle;
+  uv: readonly [UV, UV, UV];
+  /** color-16 means inherit; explicit color overrides */
+  color: number;
+}
 
 export interface PartGeom {
   /** color-16 (inherit) triangles in part-local space */
@@ -15,6 +27,8 @@ export interface PartGeom {
   colorTris: Map<number, Triangle[]>;
   /** explicit-color edges keyed by colorId */
   colorEdges: Map<number, Edge[]>;
+  /** textured triangles keyed by image filename (lowercased) */
+  texTris?: Map<string, TexturedTriangle[]>;
 }
 
 export interface LDrawViewerOptions {
