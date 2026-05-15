@@ -204,6 +204,7 @@ function buildUI(): void {
         <button class="lego-view-btn" data-view="right" title="Right view" style="font-size:0.7rem;padding:2px 6px;border-radius:3px">R</button>
         <button class="lego-view-btn" data-view="back"  title="Back view"  style="font-size:0.7rem;padding:2px 6px;border-radius:3px">B</button>
         <button class="lego-view-btn" data-view="top"   title="Top view"   style="font-size:0.7rem;padding:2px 6px;border-radius:3px">T</button>
+        <button id="lego-flip-front" type="button" title="If F shows the wrong side, click to flip the detected front/back" style="font-size:0.7rem;padding:2px 6px;border-radius:3px">↻F</button>
       </span>
       <select id="lego-export-png" title="Export current view as PNG at chosen size" style="margin-left:8px;font-size:0.7rem;padding:2px 4px;border-radius:3px">
         <option value="">PNG…</option>
@@ -346,6 +347,9 @@ function wireEvents(): void {
     const btn = (e.target as HTMLElement).closest('[data-view]') as HTMLElement | null;
     const name = btn?.dataset['view'] as 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | undefined;
     if (name) currentLDrawViewer?.setView(name);
+  });
+  document.getElementById('lego-flip-front')?.addEventListener('click', () => {
+    currentLDrawViewer?.flipFront();
   });
 
   // ── Keyboard shortcuts (active only when LEGO tab is showing) ─────────────
