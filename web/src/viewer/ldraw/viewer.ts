@@ -120,6 +120,12 @@ export class LDrawViewer {
   private lastVisualCenter = new THREE.Vector3();
   private lastSize = new THREE.Vector3();
   private lastMaxDim = 10;
+  // Model-aware orientation, recomputed per load(). frontDir is the world
+  // direction the model's "front face" points to; rightDir is the model's
+  // right side. Both are unit horizontal vectors (Y=0). Defaults match the
+  // pre-heuristic LDraw convention (front=+Z, right=+X).
+  private frontDir = new THREE.Vector3(0, 0, 1);
+  private rightDir = new THREE.Vector3(1, 0, 0);
   // Cinematic camera transition state (null when not animating).
   // Render loop interpolates position/target/near/far with ease-in-out quad
   // over `duration` ms. Set by fitCameraToDirection(..., animate=true).
@@ -394,6 +400,9 @@ export class LDrawViewer {
       const bboxCenter = new THREE.Vector3().lerpVectors(bboxMin, bboxMax, 0.5);
       this.positionLights(bboxCenter, maxDim);
       this.buildBackdrop(bboxCenter, size, maxDim, bboxMin);
+      // Detect F/B/L/R orientation BEFORE first frameCamera so the initial
+      // iso pose uses the model-aware axes too.
+      this.detectOrientation();
       this.frameCamera(visualCenter, size, bboxMin, bboxMax, maxDim);
       this.installSAO(maxDim);
       this.updateEdgeLineWidth(maxDim);
@@ -1267,9 +1276,12 @@ export class LDrawViewer {
   ): void {
     const aspectRatio = size.y / Math.max(size.x, size.z, 1);
     const elevationFactor = Math.max(0.22, Math.min(0.55, 0.55 - aspectRatio * 0.7));
-    const dirX = 0.42, dirY = elevationFactor, dirZ = 0.85;
-    const dirLen = Math.hypot(dirX, dirY, dirZ) || 1;
-    const ndir = new THREE.Vector3(dirX / dirLen, dirY / dirLen, dirZ / dirLen);
+    // 3/4 iso: 0.85 toward detected front + 0.42 toward detected right + Y up.
+    // Falls back to LDraw default if detectOrientation hasn't run yet.
+    const ndir = this.frontDir.clone().multiplyScalar(0.85)
+      .add(this.rightDir.clone().multiplyScalar(0.42))
+      .add(new THREE.Vector3(0, elevationFactor, 0))
+      .normalize();
     this.fitCameraToDirection(ndir, center, size, bboxMin, bboxMax, maxDim);
   }
 
@@ -1381,17 +1393,29 @@ export class LDrawViewer {
   setView(name: 'iso' | 'front' | 'back' | 'left' | 'right' | 'top'): void {
     if (!this.loaded) return;
     let ndir: THREE.Vector3;
+    // Model-aware orientation: the longest horizontal axis (X vs Z) is the
+    // "long" dimension; F/B align with whichever it is. A mass-distribution
+    // check picks +/-: the half of the model with FEWER bricks is treated
+    // as the "front" (most vehicles/figures are heavier toward the back).
+    // L/R are the perpendicular horizontal axis; T is always world +Y.
+    const front = this.frontDir;       // unit horiz vector, model's facing dir
+    const right = this.rightDir;       // unit horiz vector, model's right side
     switch (name) {
-      case 'front': ndir = new THREE.Vector3(0, 0, 1); break;
-      case 'back':  ndir = new THREE.Vector3(0, 0, -1); break;
-      case 'left':  ndir = new THREE.Vector3(-1, 0, 0); break;
-      case 'right': ndir = new THREE.Vector3(1, 0, 0); break;
+      case 'front': ndir = front.clone(); break;
+      case 'back':  ndir = front.clone().negate(); break;
+      case 'left':  ndir = right.clone().negate(); break;
+      case 'right': ndir = right.clone(); break;
       case 'top':   ndir = new THREE.Vector3(0, 1, 0); break;
       case 'iso':
       default: {
         const aspectRatio = this.lastSize.y / Math.max(this.lastSize.x, this.lastSize.z, 1);
         const elevationFactor = Math.max(0.22, Math.min(0.55, 0.55 - aspectRatio * 0.7));
-        ndir = new THREE.Vector3(0.42, elevationFactor, 0.85).normalize();
+        // Iso default uses detected front × right combination so the 3/4
+        // pose lines up with the model's natural long axis.
+        ndir = front.clone().multiplyScalar(0.85)
+          .add(right.clone().multiplyScalar(0.42))
+          .add(new THREE.Vector3(0, elevationFactor, 0))
+          .normalize();
         break;
       }
     }
@@ -1404,6 +1428,67 @@ export class LDrawViewer {
       this.lastMaxDim,
       true,
     );
+  }
+
+  /**
+   * Recompute frontDir / rightDir from the current model's brick positions.
+   * Uses bbox dimensions + half-mass heuristic — front = lighter half along
+   * the longest horizontal axis. Y is always vertical.
+   */
+  private detectOrientation(): void {
+    const positions: THREE.Vector3[] = [];
+    const tmpMat = new THREE.Matrix4();
+    for (const stepState of this.stepGroups.values()) {
+      stepState.group.traverse(obj => {
+        if (!(obj instanceof THREE.InstancedMesh)) return;
+        const originals = obj.userData['originalMatrices'] as THREE.Matrix4[] | undefined;
+        const matrices = originals ?? null;
+        const count = matrices ? matrices.length : obj.count;
+        for (let i = 0; i < count; i++) {
+          if (matrices) {
+            const p = new THREE.Vector3();
+            matrices[i]!.decompose(p, new THREE.Quaternion(), new THREE.Vector3());
+            positions.push(p);
+          } else {
+            obj.getMatrixAt(i, tmpMat);
+            positions.push(new THREE.Vector3().setFromMatrixPosition(tmpMat));
+          }
+        }
+      });
+    }
+    if (positions.length === 0) {
+      this.frontDir.set(0, 0, 1);
+      this.rightDir.set(1, 0, 0);
+      return;
+    }
+    const min = new THREE.Vector3(Infinity, Infinity, Infinity);
+    const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+    for (const p of positions) { min.min(p); max.max(p); }
+    const sx = max.x - min.x;
+    const sz = max.z - min.z;
+    const useX = sx > sz * 1.1;        // 10% bias toward Z (LDraw default)
+    const cx = (min.x + max.x) * 0.5;
+    const cz = (min.z + max.z) * 0.5;
+    let posCount = 0, negCount = 0;
+    for (const p of positions) {
+      if (useX) { (p.x > cx ? posCount++ : negCount++); }
+      else      { (p.z > cz ? posCount++ : negCount++); }
+    }
+    const lighterSign = posCount < negCount ? 1 : -1;
+    if (useX) {
+      this.frontDir.set(lighterSign, 0, 0);
+      this.rightDir.set(0, 0, lighterSign);
+    } else {
+      this.frontDir.set(0, 0, lighterSign);
+      this.rightDir.set(-lighterSign, 0, 0);
+    }
+  }
+
+  /** Manually flip front<->back if heuristic guessed wrong. */
+  flipFront(): void {
+    this.frontDir.negate();
+    this.rightDir.negate();
+    this.setView('front');
   }
 
   private installSAO(maxDim: number): void {
