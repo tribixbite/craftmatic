@@ -423,6 +423,18 @@ function wireEvents(): void {
     const closeBtn = (e.target as HTMLElement).closest('#lego-help-close');
     if (closeBtn || e.target === overlay) overlay.hidden = true;
   });
+  // Belt-and-suspenders: a window-level capture-phase Esc listener that
+  // ALWAYS closes the help overlay if it's visible, regardless of which
+  // element has focus or what other handlers might absorb the event.
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const help = document.getElementById('lego-help-overlay');
+    if (help && !help.hidden) {
+      help.hidden = true;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }, { capture: true });
 
   // ── PNG export ────────────────────────────────────────────────────────────
   document.getElementById('lego-export-png')?.addEventListener('change', e => {
