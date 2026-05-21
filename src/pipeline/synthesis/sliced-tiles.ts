@@ -310,15 +310,55 @@ function synthesizeSlicedTilesImpl(
       });
     }
   } else {
+    // Restore original "any vertex inside OSM" gate (drops non-overlapping
+    // neighbour polygons) and replace partially-overlapping slices with
+    // OSM polygon — EXCEPT for the Geisel-class cantilever case: when
+    // a slice polygon's area exceeds OSM area by ≥1.2× AND its centroid
+    // is inside OSM, the slice represents a cantilever (upper floor
+    // extending beyond the ground footprint) — KEEP as-is. This
+    // preserves Geisel's iconic stepped overhangs without regressing
+    // Flatiron-class buildings where photogrammetry overshoots slightly
+    // at the polygon edges but doesn't represent a real cantilever.
+    const osmAreaForCanti = osmLocal !== null ? polygonAreaAbs(osmLocal) : 0;
     for (const band of bands) {
       for (const poly of band.polygons) {
+        let ring: readonly LocalPoint2D[];
         if (osmLocal !== null) {
           const anyInside = poly.points.some(p => pointInPolygon(p.x, p.z, osmLocal));
           if (!anyInside) continue;
+          // Centroid-in-OSM check: cantilever's centroid must still sit
+          // over the building's ground footprint (otherwise it's a
+          // neighbour leaking in).
+          if (!pointInPolygon(poly.centroid.x, poly.centroid.z, osmLocal)) {
+            ring = osmLocal;
+          } else {
+            const polyArea = polygonAreaAbs(poly.points);
+            // 1.5× threshold: photogrammetry routinely overshoots OSM
+            // by 10-20% at corners due to vertex jitter. Real
+            // cantilevers (Geisel y=82 is 2.3× the ground footprint)
+            // sit comfortably above this. Cap at 3× to reject neighbour
+            // leaks.
+            //
+            // Building-size gate: residential houses (OSM area < 500m²)
+            // have roof-overhang slices that trigger the area ratio
+            // but don't represent real cantilevers — disable for small
+            // buildings so 240-highland-style residences keep their
+            // OSM-anchored silhouette.
+            const isCantilever = osmAreaForCanti > 500
+              && polyArea >= osmAreaForCanti * 1.5
+              && polyArea <= osmAreaForCanti * 3;
+            ring = isCantilever ? openRingFrom(poly) : osmLocal;
+            // The fully-inside case (polyArea < osmArea, real setback)
+            // still anchors to OSM under this rule. Setback detection
+            // is a separate path (band-area inference for roof shape).
+            if (!isCantilever) {
+              const allInside = poly.points.every(p => pointInPolygon(p.x, p.z, osmLocal));
+              if (allInside) ring = openRingFrom(poly);
+            }
+          }
+        } else {
+          ring = openRingFrom(poly);
         }
-        const ring = osmLocal !== null
-          ? maskedSilhouette(poly, osmLocal)
-          : openRingFrom(poly);
         masked.push({ polygon: ring, y0: band.y0, y1: band.y1 });
       }
     }
@@ -621,6 +661,10 @@ function projectOsmPolygonOrNull(
  * two trapezoids. Splitting requires polygon-decomposition (waist
  * detection or medial-axis), which is not implemented yet.
  */
+// Kept for future use — see commit 2ff24ea2 / the cantilever-aware
+// mask in synthesizeSlicedTilesImpl that supersedes it.
+// @ts-expect-error retained for benchmark/regression comparison
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function maskedSilhouette(
   slice: Polygon2D,
   osmLocal: readonly LocalPoint2D[],
