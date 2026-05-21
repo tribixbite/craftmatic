@@ -347,8 +347,39 @@ function synthesizeSlicedTilesImpl(
   }
   console.error(`  [sliced-tiles] survived ${masked.length} bands, Y range ${trueMinY.toFixed(1)}..${trueMaxY.toFixed(1)} (${observedSpan.toFixed(1)}m) → scaled to expected ${expectedHeightM.toFixed(1)}m (×${scaleY.toFixed(3)})`);
 
-  const wallLab = ev.wallPalette.value[0];
-  const roofLab = ev.roofPalette.value[0];
+  // Wall + roof material resolution priority:
+  //   1. OSM building:part colour (per-part compound buildings — averaged
+  //      across qualified parts when they agree to within ΔE-equivalent
+  //      threshold)
+  //   2. OSM parent polygon's building:colour tag (ctx.wallColourHint)
+  //   3. SV/satellite palette extracted from imagery (ev.wallPalette[0])
+  //
+  // OSM colours are curated data — when present they beat photogrammetry
+  // -averaged SV pixels for accuracy. The photogrammetry recolor pass
+  // STILL runs after (per-voxel sampling), but per-voxel samples now
+  // start from a more-accurate wallLab when the BRep is rendered, giving
+  // the recolor's k-means clusters a better initial reference.
+  const partColours = (ctx.buildingParts ?? [])
+    .map(p => p.buildingColour)
+    .filter((c): c is string => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c));
+  const partWallLab = partColours.length > 0 ? hexToLab(partColours[0]) : null;
+  const osmWallLab = ctx.wallColourHint && /^#[0-9a-fA-F]{6}$/.test(ctx.wallColourHint)
+    ? hexToLab(ctx.wallColourHint)
+    : null;
+  const wallLab = partWallLab ?? osmWallLab ?? ev.wallPalette.value[0];
+
+  const partRoofColours = (ctx.buildingParts ?? [])
+    .map(p => p.roofColour)
+    .filter((c): c is string => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c));
+  const partRoofLab = partRoofColours.length > 0 ? hexToLab(partRoofColours[0]) : null;
+  const osmRoofLab = ctx.roofColourHint && /^#[0-9a-fA-F]{6}$/.test(ctx.roofColourHint)
+    ? hexToLab(ctx.roofColourHint)
+    : null;
+  const roofLab = partRoofLab ?? osmRoofLab ?? ev.roofPalette.value[0];
+
+  if (partWallLab || osmWallLab) {
+    console.error(`  [sliced-tiles] wall from ${partWallLab ? 'part-colour' : 'osm-colour'} (Lab ${wallLab[0].toFixed(0)},${wallLab[1].toFixed(0)},${wallLab[2].toFixed(0)})`);
+  }
 
   // Roof shape inference from top-band geometry. The bandedSilhouettes
   // path stair-steps the photogrammetry exactly — for residential
@@ -400,6 +431,29 @@ function polygonAreaAbs(poly: ReadonlyArray<LocalPoint2D>): number {
     a += (poly[j].x + poly[i].x) * (poly[i].z - poly[j].z);
   }
   return Math.abs(a) * 0.5;
+}
+
+/**
+ * Convert a `#RRGGBB` hex colour string to CIE-Lab. Lab is the colour
+ * space the synthesizer uses internally (wallLab/roofLab fields). Same
+ * sRGB→linear→XYZ→Lab pipeline as the photogrammetry recolor pass.
+ */
+function hexToLab(hex: string): Lab {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const lin = (c: number): number => {
+    const cn = c / 255;
+    return cn > 0.04045 ? Math.pow((cn + 0.055) / 1.055, 2.4) : cn / 12.92;
+  };
+  const lr = lin(r), lg = lin(g), lb = lin(b);
+  const X = lr * 0.4124564 + lg * 0.3575761 + lb * 0.1804375;
+  const Y = lr * 0.2126729 + lg * 0.7151522 + lb * 0.0721750;
+  const Z = lr * 0.0193339 + lg * 0.1191920 + lb * 0.9503041;
+  const xn = X / 0.95047, yn = Y / 1.0, zn = Z / 1.08883;
+  const f = (t: number): number => t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16 / 116);
+  const fx = f(xn), fy = f(yn), fz = f(zn);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
 
 interface RoofInference {
