@@ -25,6 +25,7 @@ import {
   type Polygon2D,
 } from './slice-extract.js';
 import { projectPolygonToLocal } from './features.js';
+import { decomposePolygonByWaists } from './polygon-decompose.js';
 import { douglasPeucker } from '../context/classify.js';
 import { rgbToWallBlock, rgbToRoofOverride } from '../../gen/color-blocks.js';
 import { DEFAULT_VOXEL_RESOLUTION } from '../pipeline.js';
@@ -189,6 +190,41 @@ function synthesizeSlicedTilesImpl(
   }
   console.error(`  [sliced-tiles] parts=${partPolygons.length} isCompound=${isCompound} coverage=${partPolygons.map(p => p.coverageFrac.toFixed(2)).join(',')}`);
   if (!isCompound) partPolygons.length = 0;
+
+  // Polygon waist decomposition fallback. When OSM has no building:part
+  // tags but the parent polygon has a narrow waist (twin-tower compound
+  // mapped as one polygon), split it into sub-polygons and treat each
+  // as a synthesized part. Heights inherit from the parent expected.
+  // Only runs when the part-tag path produced nothing (isCompound=false
+  // AND partPolygons cleared).
+  if (partPolygons.length === 0 && ev.footprint.source === 'osm' && ev.footprint.value.length >= 6) {
+    const subs = decomposePolygonByWaists(
+      ev.footprint.value.map(p => ({ lat: p.lat, lon: p.lon })),
+      { maxChordM: 8, minChildAreaSqm: 50 },
+    );
+    if (subs.length >= 2) {
+      const osmAreaForFrac = osmArea;
+      for (const sub of subs) {
+        const localSub = projectPolygonToLocal(
+          sub.map(p => ({ lat: p.lat, lon: p.lon })),
+          ctx.center,
+          ctx.mbr.rotationDeg,
+        );
+        const isClosed = localSub.length >= 2
+          && Math.abs(localSub[0].x - localSub[localSub.length - 1].x) < 1e-6
+          && Math.abs(localSub[0].z - localSub[localSub.length - 1].z) < 1e-6;
+        const ring = isClosed ? localSub.slice(0, -1) : [...localSub];
+        const partArea = polygonAreaAbs(ring);
+        const coverageFrac = osmAreaForFrac > 0 ? partArea / osmAreaForFrac : 1;
+        partPolygons.push({
+          polygon: ring,
+          expectedHeightM,
+          coverageFrac,
+        });
+      }
+      console.error(`  [sliced-tiles] waist-decomposed OSM polygon into ${partPolygons.length} sub-parts`);
+    }
+  }
 
   // Photogrammetry mesh edges are noisy at the ~0.5m scale — every slice
   // produces slightly different polygon vertex counts and centroids even
