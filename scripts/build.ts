@@ -136,7 +136,61 @@ const contextFetchers: ContextFetchers = {
     };
   },
   solar: async (lat, lng) => querySolarBuildingInsights(lat, lng, apiKey),
-  osm: async (lat, lng) => searchOSMBuilding(lat, lng, 50),
+  osm: async (lat, lng) => {
+    // Manual polygon overrides (output/polygon-overrides.json) take
+    // precedence over OSM lookup. Useful for addresses where OSM has
+    // no building polygon (suburban residential — 240-highland) or
+    // wrong/stale data.
+    const slug = slugOverride ?? address.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80);
+    const overridePath = resolve(projectRoot, 'output/polygon-overrides.json');
+    if (existsSync(overridePath)) {
+      try {
+        const ovr = JSON.parse(readFileSync(overridePath, 'utf8')) as {
+          overrides?: Record<string, {
+            polygon: Array<{ lat: number; lon: number }>;
+            heightM?: number;
+            levels?: number;
+            buildingColour?: string;
+            roofColour?: string;
+            roofShape?: string;
+            material?: string;
+          }>;
+        };
+        const o = ovr.overrides?.[slug];
+        if (o && o.polygon && o.polygon.length >= 3) {
+          // Polygon dimensions are recomputed by the resolver from MBR
+          // when needed — overrides just supply the polygon + tags.
+          const tags: Record<string, string> = {};
+          if (o.heightM) tags['height'] = String(o.heightM);
+          if (o.levels) tags['building:levels'] = String(o.levels);
+          if (o.buildingColour) tags['building:colour'] = o.buildingColour;
+          if (o.roofColour) tags['roof:colour'] = o.roofColour;
+          if (o.roofShape) tags['roof:shape'] = o.roofShape;
+          if (o.material) tags['building:material'] = o.material;
+          tags['building'] = 'yes';
+          tags['source'] = 'craftmatic-polygon-override';
+          console.error(`  [polygon-override] using ${slug} from polygon-overrides.json (${o.polygon.length} verts)`);
+          return {
+            polygon: o.polygon,
+            widthMeters: 0,
+            lengthMeters: 0,
+            widthBlocks: 0,
+            lengthBlocks: 0,
+            levels: o.levels,
+            buildingColour: o.buildingColour,
+            roofColour: o.roofColour,
+            roofShape: o.roofShape,
+            material: o.material,
+            footprintAreaSqm: 0,
+            tags,
+          };
+        }
+      } catch (e) {
+        console.error(`warn: polygon-overrides.json parse error: ${(e as Error).message}`);
+      }
+    }
+    return searchOSMBuilding(lat, lng, 50);
+  },
   osmSiblings: async () => [], // follow-up: OSM building neighbour query
   osmBuildingParts: async (lat, lng, radius) => {
     const parts = await searchOSMBuildingParts(lat, lng, radius);
