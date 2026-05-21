@@ -24,12 +24,24 @@ export interface Gpt5ScorerOptions {
   readonly model?: string;
   readonly temperature?: number;
   readonly log?: (msg: string) => void;
+  /**
+   * Override the API endpoint. Default OpenAI direct; set to
+   * `https://openrouter.ai/api/v1` for OpenRouter or
+   * `http://localhost:8000/v1` for local vLLM. The Anthropic API is
+   * NOT compatible — use createClaudeScorer for that.
+   */
+  readonly baseUrl?: string;
+  /**
+   * Extra request headers (OpenRouter wants HTTP-Referer + X-Title).
+   */
+  readonly extraHeaders?: Record<string, string>;
 }
 
 export function createGpt5Scorer(opts: Gpt5ScorerOptions): ModelScoreFn {
   const model = opts.model ?? 'gpt-5';
   const temperature = opts.temperature ?? 0.0;
   const log = opts.log ?? ((m: string): void => { console.error(m); });
+  const baseUrl = (opts.baseUrl ?? 'https://api.openai.com/v1').replace(/\/$/, '');
   const zeros: DimensionScores = { color: 0, features: 0, massing: 0, overall: 0 };
 
   return async ({ renders, references, round }) => {
@@ -59,22 +71,29 @@ export function createGpt5Scorer(opts: Gpt5ScorerOptions): ModelScoreFn {
     }
 
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const headers: Record<string, string> = {
+        'Authorization': `Bearer ${opts.apiKey}`,
+        'Content-Type': 'application/json',
+        ...(opts.extraHeaders ?? {}),
+      };
+      const body: Record<string, unknown> = {
+        model,
+        temperature,
+        messages: [{ role: 'user', content }],
+      };
+      // OpenAI uses max_completion_tokens; OpenRouter + vLLM use max_tokens.
+      // Setting both is safe — each backend ignores the irrelevant key.
+      body.max_completion_tokens = 1024;
+      body.max_tokens = 1024;
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${opts.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          temperature,
-          max_completion_tokens: 1024,
-          messages: [{ role: 'user', content }],
-        }),
-        signal: AbortSignal.timeout(120_000),
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(180_000),
       });
       if (!res.ok) {
-        log(`  [consensus r${round}] GPT-5 HTTP ${res.status} ${res.statusText}`);
+        const text = await res.text().catch(() => '');
+        log(`  [consensus r${round}] HTTP ${res.status} ${res.statusText} @ ${baseUrl}: ${text.slice(0, 200)}`);
         return zeros;
       }
       const json = await res.json() as OpenAIResponse;

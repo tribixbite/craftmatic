@@ -30,6 +30,8 @@ import type { StreetViewFetchers } from '../src/pipeline/capture/streetview.js';
 import { createGeminiScorer, singleModelFetchers } from '../src/pipeline/verify/gemini-scorer.js';
 import { createClaudeScorer } from '../src/pipeline/verify/claude-scorer.js';
 import { createGpt5Scorer } from '../src/pipeline/verify/gpt5-scorer.js';
+import { createOpenRouterScorer } from '../src/pipeline/verify/openrouter-scorer.js';
+import { createLocalVlmScorer } from '../src/pipeline/verify/local-vlm-scorer.js';
 import type { ModelFetchers, ModelScoreFn } from '../src/pipeline/verify/consensus.js';
 import type { RunPipelineOptions } from '../src/pipeline/pipeline.js';
 
@@ -82,6 +84,18 @@ const claudeKey = process.env['ANTHROPIC_API_KEY']
 
 const openaiKey = process.env['OPENAI_API_KEY']
   ?? envText.match(/OPENAI_API_KEY=(.+)/)?.[1]?.trim();
+
+const openrouterKey = process.env['OPENROUTER_API_KEY']
+  ?? envText.match(/OPENROUTER_API_KEY=(.+)/)?.[1]?.trim();
+const openrouterModel = process.env['OPENROUTER_MODEL']
+  ?? envText.match(/OPENROUTER_MODEL=(.+)/)?.[1]?.trim()
+  ?? 'qwen/qwen-2.5-vl-72b-instruct';
+
+const localVlmUrl = process.env['LOCAL_VLM_URL']
+  ?? envText.match(/LOCAL_VLM_URL=(.+)/)?.[1]?.trim();
+const localVlmModel = process.env['LOCAL_VLM_MODEL']
+  ?? envText.match(/LOCAL_VLM_MODEL=(.+)/)?.[1]?.trim()
+  ?? 'Qwen/Qwen2.5-VL-72B-Instruct-AWQ';
 
 const absOutDir = resolve(projectRoot, outDir);
 mkdirSync(absOutDir, { recursive: true });
@@ -176,33 +190,64 @@ function loadReferencesForSlug(slugGuess: string): Uint8Array[] {
 
 /**
  * Build the per-slot ModelFetchers. `--consensus` accepts:
- *   gemini   — Gemini for all 3 slots (legacy fan-out, spread always 0)
- *   multi    — pick whichever of Gemini/Claude/GPT-5 we have keys for, fan
- *              the rest to Gemini (so unconfigured slots still produce a
- *              score). Two-key setups still get a real spread between the
- *              two configured models.
- *   all      — alias for multi
+ *   gemini      — Gemini for all 3 slots (legacy fan-out, spread always 0)
+ *   multi/all   — mix Gemini/Claude/GPT-5 from env keys; uncovered slots
+ *                 fall back to Gemini
+ *   local       — local vLLM (LOCAL_VLM_URL + LOCAL_VLM_MODEL) + Gemini +
+ *                 OpenRouter/Claude/GPT-5 where available
+ *   openrouter  — OpenRouter (OPENROUTER_API_KEY + OPENROUTER_MODEL) +
+ *                 Gemini + others
+ *
+ * For real spread on dual RTX 3090s, run a local Qwen2.5-VL-72B via vLLM
+ * and set LOCAL_VLM_URL=http://localhost:8000/v1 — see local-vlm-scorer.ts
+ * for the recommended `vllm serve` command.
  */
 function buildModelFetchers(): { models: ModelFetchers; mode: string } | null {
   if (!geminiKey) return null;
   const gemini: ModelScoreFn = createGeminiScorer({ apiKey: geminiKey });
-  if (consensusMode === 'gemini' || (!claudeKey && !openaiKey)) {
+  if (consensusMode === 'gemini') {
     return { models: singleModelFetchers(gemini), mode: 'gemini-fanout' };
   }
-  // Multi-model: pick best available per slot. Falls back to Gemini for
-  // any slot without a dedicated key so all 3 slots have a scorer.
-  const claude: ModelScoreFn = claudeKey
-    ? createClaudeScorer({ apiKey: claudeKey })
-    : gemini;
-  const gpt5: ModelScoreFn = openaiKey
-    ? createGpt5Scorer({ apiKey: openaiKey })
-    : gemini;
-  const slots: string[] = [
-    'gemini',
-    claudeKey ? 'claude' : 'gemini',
-    openaiKey ? 'gpt5' : 'gemini',
-  ];
-  return { models: { gemini, claude, gpt5 }, mode: `multi(${slots.join(',')})` };
+
+  // Pick best available per slot. Slot 2 = Claude (or local-vlm or openrouter
+  // as fallback). Slot 3 = GPT-5 (or openrouter or local-vlm as fallback).
+  // Slot 1 always Gemini. Uncovered slots fall back to Gemini.
+  const localVlm: ModelScoreFn | null = localVlmUrl
+    ? createLocalVlmScorer({ baseUrl: localVlmUrl, model: localVlmModel })
+    : null;
+  const openrouter: ModelScoreFn | null = openrouterKey
+    ? createOpenRouterScorer({
+        apiKey: openrouterKey,
+        model: openrouterModel,
+        referer: 'https://github.com/tribixbite/craftmatic',
+        title: 'craftmatic',
+      })
+    : null;
+
+  // Resolve slot 2 (defaults to Claude > local > openrouter > gemini)
+  let claude: ModelScoreFn = gemini;
+  let claudeName = 'gemini';
+  if (claudeKey) { claude = createClaudeScorer({ apiKey: claudeKey }); claudeName = 'claude'; }
+  else if (localVlm) { claude = localVlm; claudeName = `local(${localVlmModel.split('/').pop()})`; }
+  else if (openrouter) { claude = openrouter; claudeName = `openrouter(${openrouterModel})`; }
+
+  // Resolve slot 3 (defaults to GPT-5 > openrouter > local > gemini)
+  let gpt5: ModelScoreFn = gemini;
+  let gpt5Name = 'gemini';
+  if (openaiKey) { gpt5 = createGpt5Scorer({ apiKey: openaiKey }); gpt5Name = 'gpt5'; }
+  else if (openrouter && claudeName !== `openrouter(${openrouterModel})`) {
+    gpt5 = openrouter; gpt5Name = `openrouter(${openrouterModel})`;
+  }
+  else if (localVlm && claudeName !== `local(${localVlmModel.split('/').pop()})`) {
+    gpt5 = localVlm; gpt5Name = `local(${localVlmModel.split('/').pop()})`;
+  }
+
+  // If no extra scorers configured at all → fan-out
+  if (claudeName === 'gemini' && gpt5Name === 'gemini') {
+    return { models: singleModelFetchers(gemini), mode: 'gemini-fanout' };
+  }
+
+  return { models: { gemini, claude, gpt5 }, mode: `multi(gemini,${claudeName},${gpt5Name})` };
 }
 
 const consensusOpt: RunPipelineOptions['consensus'] = (() => {
