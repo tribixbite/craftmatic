@@ -26,6 +26,7 @@ import {
 } from './slice-extract.js';
 import { projectPolygonToLocal } from './features.js';
 import { decomposePolygonByWaists } from './polygon-decompose.js';
+import { detectCurvedShape } from './curved-shape.js';
 import { douglasPeucker } from '../context/classify.js';
 import { rgbToWallBlock, rgbToRoofOverride } from '../../gen/color-blocks.js';
 import { DEFAULT_VOXEL_RESOLUTION } from '../pipeline.js';
@@ -123,7 +124,29 @@ function synthesizeSlicedTilesImpl(
   // if OSM is present, keep ALL polygons inside it (twin-tower compounds
   // like Pennzoil get both members preserved). If OSM is absent, fall
   // back to "keep the polygon closest to origin" — single-building case.
-  const osmLocal = projectOsmPolygonOrNull(ctx, ev);
+  //
+  // Curved-shape exception: when the OSM polygon is approximately
+  // circular (Guggenheim, Marina City, domes), the rigid OSM-anchor
+  // mask would clamp every band to the same circle — destroying the
+  // spiral/cone Y-variation that's the building's defining feature.
+  // We detect curved via `building:shape`, `roof:shape=dome`, or
+  // geometric isoperimetric ratio, and SKIP the OSM mask for those.
+  // Photogrammetry slices then keep their natural per-band radii.
+  const curvedDetect = detectCurvedShape(
+    ev.footprint.value as readonly { lat: number; lon: number }[] | null,
+    ctx.rawOsm?.tags ?? null,
+  );
+  // Detect at 0.65 (informational), but only ACTUALLY bypass the OSM
+  // mask when circularity > 0.85 — true cylinders (Marina City, drum
+  // shaped buildings) safely bypass; partial-circular L-shapes
+  // (Guggenheim 0.69) keep the OSM mask so neighbour photogrammetry
+  // doesn't leak into the bands.
+  if (curvedDetect.isCurved) {
+    console.error(`  [sliced-tiles] curved shape detected (${curvedDetect.reason})${curvedDetect.circularity > 0.85 ? ' — bypassing OSM mask' : ''}`);
+  }
+  const osmLocal = curvedDetect.isCurved && curvedDetect.circularity > 0.85
+    ? null
+    : projectOsmPolygonOrNull(ctx, ev);
 
   // OSM building:part polygons. Used only for genuine compound
   // buildings (Pennzoil-style twin towers). For monolithic buildings
