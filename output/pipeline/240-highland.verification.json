@@ -1,6 +1,6 @@
 {
   "status": "fail-consensus",
-  "lastRun": "2026-05-22T20:16:15.355Z",
+  "lastRun": "2026-05-22T20:36:02.076Z",
   "objective": {
     "footprintIoU": 1,
     "heightErr": 0,
@@ -8,7 +8,7 @@
     "manifold": true,
     "selfIntersect": 401,
     "minWallThicknessMm": 2.9975377917289734,
-    "voxelCount": 2952,
+    "voxelCount": 12320,
     "plinthWatertight": null,
     "pass": true,
     "failures": []
