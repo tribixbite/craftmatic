@@ -1,6 +1,6 @@
 {
   "status": "fail-consensus",
-  "lastRun": "2026-05-21T21:10:53.268Z",
+  "lastRun": "2026-05-22T20:17:36.624Z",
   "objective": {
     "footprintIoU": 0.9999022052711359,
     "heightErr": 0,

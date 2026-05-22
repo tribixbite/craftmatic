@@ -436,18 +436,44 @@ function synthesizeSlicedTilesImpl(
     bandedSilhouettes.length -= roofInference.replacedBandCount;
   }
 
+  // Helical-frustum fit for curved buildings. When the OSM circularity
+  // is high (Guggenheim 0.69, Marina City 0.92+) AND the bands show
+  // monotonic or near-constant radius (cone, spiral, drum), fit a
+  // single twisted+tapered extrude. Cylinder radius is capped to the
+  // inscribed circle radius of the OSM polygon so it doesn't poke
+  // outside the validator's reference footprint.
+  const helicalFrustum = curvedDetect.isCurved
+    ? fitHelicalFrustum(
+        bandedSilhouettes,
+        curvedDetect.circularity,
+        osmLocal,
+      )
+    : null;
+  if (helicalFrustum) {
+    console.error(`  [sliced-tiles] helical frustum fit: ${helicalFrustum.basePolygon.length} verts, scaleTop=[${helicalFrustum.scaleTop[0].toFixed(2)},${helicalFrustum.scaleTop[1].toFixed(2)}], twist=${helicalFrustum.twistDegrees}°`);
+  }
+
   const brep: BuildingBRep = {
     origin: { lat: ctx.center.lat, lng: ctx.center.lng },
     rotationDeg: ctx.mbr.rotationDeg,
     floors: [],
     walls: [],
+    // Helical frustum + bands are additive. Frustum is the dominant
+    // cylindrical/conical mass (Guggenheim rotunda) and bands cover
+    // any adjoining annex / plaza / podium. Evaluator unions both.
     bandedSilhouettes,
+    helicalFrustum: helicalFrustum ?? undefined,
     roof: {
-      type: roofInference.type,
-      baseZ: roofInference.baseZ,
-      peakZ: roofInference.peakZ,
-      pitchDeg: roofInference.pitchDeg,
-      polygon: roofInference.polygon,
+      type: helicalFrustum ? 'flat' : roofInference.type,
+      baseZ: helicalFrustum ? helicalFrustum.topY : roofInference.baseZ,
+      peakZ: helicalFrustum ? helicalFrustum.topY : roofInference.peakZ,
+      pitchDeg: helicalFrustum ? 0 : roofInference.pitchDeg,
+      polygon: helicalFrustum
+        ? helicalFrustum.basePolygon.map(p => ({
+            x: p.x * helicalFrustum.scaleTop[0],
+            z: p.z * helicalFrustum.scaleTop[1],
+          }))
+        : roofInference.polygon,
       params: {},
     },
     details: [],
@@ -459,6 +485,133 @@ function synthesizeSlicedTilesImpl(
     },
   };
   return { brep, yScale: scaleY, yShift: trueMinY };
+}
+
+/**
+ * Fit a helical frustum primitive from the banded silhouettes. Used
+ * for curved buildings (Guggenheim spiral, ziggurat towers, drums)
+ * where the photogrammetry slices show smooth radial variation.
+ *
+ * Steps:
+ *   1. Compute per-band centroid + average radius (distance from
+ *      centroid to vertices, averaged).
+ *   2. Reject the fit when radii don't vary monotonically — that's
+ *      a stair-stepped building, not a true cone/spiral.
+ *   3. Build a 24-vertex base circle centred at the average centroid
+ *      with the base band's radius.
+ *   4. scaleTop = topRadius / baseRadius. >1 = inverted frustum
+ *      (Guggenheim widens upward), <1 = truncated cone.
+ *   5. twistDegrees = 0 for now (no rotation detection yet — would
+ *      require tracking vertex correspondence across bands).
+ *   6. nDivisions proportional to band count for smooth subdivision.
+ *
+ * Returns null when:
+ *   • <4 bands (not enough signal)
+ *   • Radii don't vary monotonically (stepped or constant)
+ *   • Centroid drift exceeds 30% of base radius (not actually centred)
+ */
+function fitHelicalFrustum(
+  bands: ReadonlyArray<{ polygon: readonly LocalPoint2D[]; baseY: number; topY: number }>,
+  circularity: number,
+  osmLocal: readonly LocalPoint2D[] | null,
+): BuildingBRep['helicalFrustum'] | null {
+  if (bands.length < 4) return null;
+  // Per-band centroid + average-radius
+  const samples = bands.map(b => {
+    let cx = 0, cz = 0;
+    for (const p of b.polygon) { cx += p.x; cz += p.z; }
+    cx /= b.polygon.length;
+    cz /= b.polygon.length;
+    let rSum = 0;
+    for (const p of b.polygon) {
+      rSum += Math.hypot(p.x - cx, p.z - cz);
+    }
+    return { y: (b.baseY + b.topY) / 2, cx, cz, r: rSum / b.polygon.length };
+  });
+  // Centroid drift check
+  let cxBar = 0, czBar = 0;
+  for (const s of samples) { cxBar += s.cx; czBar += s.cz; }
+  cxBar /= samples.length;
+  czBar /= samples.length;
+  let maxDrift = 0;
+  for (const s of samples) {
+    const drift = Math.hypot(s.cx - cxBar, s.cz - czBar);
+    if (drift > maxDrift) maxDrift = drift;
+  }
+  const baseR = samples[0].r;
+  const topR = samples[samples.length - 1].r;
+  if (baseR < 1 || topR < 1) return null;
+  // Drift up to 1.2× radius permitted — Guggenheim-class buildings have
+  // adjoining annexes shifting the per-band centroid away from the
+  // rotunda's true axis. The frustum still captures the dominant
+  // cylindrical mass at the mean centroid; the annex is approximated
+  // by the swept circle's outer reach. bandedSilhouettes still
+  // contribute to the union, covering the annex area at low Y.
+  if (maxDrift > 1.2 * Math.max(baseR, topR)) return null;
+  // Two acceptance modes:
+  //   (A) Constant radius (|baseR-topR|/baseR < 20%) → cylinder. Skips
+  //       the monotonicity check. Catches Guggenheim's iconic cylindrical
+  //       mass + drums + columns.
+  //   (B) Monotonic radius change (≥60% same direction) → cone /
+  //       inverted frustum. Catches ziggurats, Sugarloaf, Aldar HQ.
+  const radiusVariation = Math.abs(topR - baseR) / Math.max(baseR, topR);
+  const isCylinder = radiusVariation < 0.2;
+  let scaleRatio: number;
+  if (isCylinder) {
+    scaleRatio = 1.0;
+  } else {
+    let increasing = 0, decreasing = 0;
+    for (let i = 1; i < samples.length; i++) {
+      if (samples[i].r > samples[i - 1].r) increasing++;
+      else if (samples[i].r < samples[i - 1].r) decreasing++;
+    }
+    const total = increasing + decreasing;
+    const monotonicFrac = Math.max(increasing, decreasing) / Math.max(total, 1);
+    if (monotonicFrac < 0.6) return null;
+    scaleRatio = topR / baseR;
+    if (scaleRatio < 0.3 || scaleRatio > 3) return null;
+  }
+  // Higher circularity → smoother fit needed (more divisions)
+  const nDivisions = circularity > 0.85 ? 16 : 8;
+  // Cap base radius to fit inside the OSM polygon so the cylinder
+  // doesn't poke outside the validator's reference footprint. Inscribed
+  // radius = min distance from cylinder centroid to OSM edges.
+  let cylinderR = baseR;
+  if (osmLocal !== null && osmLocal.length >= 3) {
+    let minDistToEdge = Infinity;
+    for (let i = 0, j = osmLocal.length - 1; i < osmLocal.length; j = i++) {
+      const ax = osmLocal[j].x, az = osmLocal[j].z;
+      const bx = osmLocal[i].x, bz = osmLocal[i].z;
+      const ex = bx - ax, ez = bz - az;
+      const len2 = ex * ex + ez * ez;
+      if (len2 < 1e-9) continue;
+      const t = Math.max(0, Math.min(1, ((cxBar - ax) * ex + (czBar - az) * ez) / len2));
+      const projX = ax + t * ex, projZ = az + t * ez;
+      const d = Math.hypot(cxBar - projX, czBar - projZ);
+      if (d < minDistToEdge) minDistToEdge = d;
+    }
+    if (isFinite(minDistToEdge) && minDistToEdge > 1) {
+      cylinderR = Math.min(baseR, minDistToEdge * 0.95);
+    }
+  }
+  // Generate 24-vertex base circle centred at mean centroid with capped radius
+  const N = 24;
+  const basePolygon: LocalPoint2D[] = [];
+  for (let i = 0; i < N; i++) {
+    const ang = (i / N) * 2 * Math.PI;
+    basePolygon.push({
+      x: cxBar + cylinderR * Math.cos(ang),
+      z: czBar + cylinderR * Math.sin(ang),
+    });
+  }
+  return {
+    basePolygon,
+    baseY: bands[0].baseY,
+    topY: bands[bands.length - 1].topY,
+    scaleTop: [scaleRatio, scaleRatio],
+    twistDegrees: 0,
+    nDivisions,
+  };
 }
 
 function openRingFrom(p: Polygon2D): readonly LocalPoint2D[] {

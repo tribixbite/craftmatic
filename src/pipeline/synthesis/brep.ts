@@ -86,6 +86,26 @@ export interface BuildingBRep {
     readonly baseY: number;
     readonly topY: number;
   }>;
+  /**
+   * Helical frustum primitive — used for spiral / cone / ziggurat
+   * buildings (Guggenheim, Sugarloaf Tower, Aldar HQ). When present,
+   * the evaluator emits a single twisted+tapered extrude instead of
+   * stair-stepped bands. Mutually exclusive with bandedSilhouettes —
+   * synthesizer picks whichever path fits the building.
+   */
+  readonly helicalFrustum?: {
+    /** Base polygon (typically a 24-vertex circle approximation). */
+    readonly basePolygon: readonly LocalPoint2D[];
+    readonly baseY: number;
+    readonly topY: number;
+    /** scaleTop relative to basePolygon — [1,1] = cylinder, [0,0] = cone tip,
+     *  [1.5,1.5] = inverted-frustum (Guggenheim's widening upward). */
+    readonly scaleTop: readonly [number, number];
+    /** Twist around Y axis from base to top (degrees). 0 = no rotation. */
+    readonly twistDegrees: number;
+    /** Number of subdivisions along Y for smoother twist (1 = straight extrude). */
+    readonly nDivisions: number;
+  };
   readonly materials: {
     readonly wall: MaterialRef;
     readonly trim: MaterialRef;
@@ -186,6 +206,42 @@ export async function evaluateBRep(brep: BuildingBRep): Promise<EvaluatedMesh> {
   const { Manifold } = m;
 
   const parts: ManifoldShape[] = [];
+
+  // Helical-frustum + banded path (additive). Helical frustum is a
+  // single twisted+tapered extrude for spiral/cone/inverted-frustum
+  // buildings (Guggenheim, Sugarloaf, Aldar HQ). When the synthesizer
+  // ALSO emits bandedSilhouettes (Guggenheim's low annex over the
+  // plaza, Marina City's parking podium), both contribute parts to
+  // the union.
+  if (brep.helicalFrustum) {
+    const f = brep.helicalFrustum;
+    if (f.topY > f.baseY && f.basePolygon.length >= 3) {
+      const frustum = Manifold.extrude(
+        [polygonToRing(f.basePolygon)],
+        f.topY - f.baseY,
+        f.nDivisions,
+        f.twistDegrees,
+        [f.scaleTop[0], f.scaleTop[1]],
+      ).translate([0, 0, f.baseY]);
+      parts.push(frustum);
+    }
+    if (brep.bandedSilhouettes) {
+      for (const band of brep.bandedSilhouettes) {
+        if (band.topY <= band.baseY) continue;
+        const prism = Manifold.extrude(
+          [polygonToRing(band.polygon)],
+          band.topY - band.baseY,
+        ).translate([0, 0, band.baseY]);
+        parts.push(prism);
+      }
+    }
+    if (brep.roof.type !== 'flat' && brep.roof.peakZ > brep.roof.baseZ) {
+      const roofShape = await buildRoofShape(m, brep.roof);
+      parts.push(roofShape);
+    }
+    const helical = Manifold.union(parts);
+    return finaliseManifoldMeshFn(helical, parts);
+  }
 
   // Banded path: stacked prism extrusion per band-polygon pair. Used when
   // the synthesizer derived its geometry from sliced photogrammetry and
