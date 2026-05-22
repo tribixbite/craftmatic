@@ -112,6 +112,21 @@ export interface BuildingBRep {
     readonly roof: MaterialRef;
     readonly window: MaterialRef;
   };
+  /**
+   * Per-region wall material overrides for mixed-colour compound
+   * buildings. Each entry paints voxels within (polygon × [baseY, topY])
+   * with a distinct block before applyMaterialOverlay runs. Used when
+   * OSM building:part tags carry distinct `building:colour` values per
+   * part. Single-colour compounds and monolithic buildings leave this
+   * undefined → falls back to BRep.materials.wall as before.
+   */
+  readonly partBlockBands?: ReadonlyArray<{
+    readonly polygon: readonly LocalPoint2D[];
+    readonly baseY: number;
+    readonly topY: number;
+    readonly blockName: string;
+    readonly lab: readonly [number, number, number];
+  }>;
 }
 
 // ─── manifold-3d module caching ────────────────────────────────────────────

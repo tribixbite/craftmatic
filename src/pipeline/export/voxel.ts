@@ -154,6 +154,16 @@ export async function exportVoxel(
     );
   }
 
+  // Multi-part colour pre-paint. When the synthesizer emitted
+  // `partBlockBands` (mixed-colour compound buildings tagged with
+  // distinct OSM building:colour per part), repaint voxels within each
+  // part's polygon × height range with that part's block. Runs BEFORE
+  // applyMaterialOverlay so the architectural overlay still applies
+  // its top/cornice/window pattern over the per-part base colour.
+  if (brep.partBlockBands && brep.partBlockBands.length > 0) {
+    paintPartBlockBands(grid, brep.partBlockBands, gridBox, resolution);
+  }
+
   // Post-process: the voxelizer outputs a single-material surface shell
   // based on the wall color. Re-label the top N layers as roof blocks
   // and punch vertical window stripes on the long facades so the output
@@ -179,6 +189,64 @@ export async function exportVoxel(
     wallBlock,
     roofBlock,
   };
+}
+
+/**
+/**
+ * Per-part block painter. For each entry in `partBlockBands`, walks the
+ * voxel grid within the polygon's XZ bounding box and Y range, and
+ * relabels any non-air voxel inside the polygon with the part's block.
+ * Runs before applyMaterialOverlay so window/cornice/plinth overlays
+ * still apply over the per-part base colour.
+ */
+function paintPartBlockBands(
+  grid: BlockGrid,
+  bands: ReadonlyArray<NonNullable<BuildingBRep['partBlockBands']>[number]>,
+  gridBox: THREE.Box3,
+  resolution: number,
+): void {
+  const AIR = 'minecraft:air';
+  for (const band of bands) {
+    if (band.polygon.length < 3) continue;
+    let xMin = Infinity, xMax = -Infinity, zMin = Infinity, zMax = -Infinity;
+    for (const p of band.polygon) {
+      if (p.x < xMin) xMin = p.x; if (p.x > xMax) xMax = p.x;
+      if (p.z < zMin) zMin = p.z; if (p.z > zMax) zMax = p.z;
+    }
+    const gx0 = Math.max(0, Math.floor((xMin - gridBox.min.x) * resolution));
+    const gx1 = Math.min(grid.width - 1, Math.ceil((xMax - gridBox.min.x) * resolution));
+    const gz0 = Math.max(0, Math.floor((zMin - gridBox.min.z) * resolution));
+    const gz1 = Math.min(grid.length - 1, Math.ceil((zMax - gridBox.min.z) * resolution));
+    const gy0 = Math.max(0, Math.floor((band.baseY - gridBox.min.y) * resolution));
+    const gy1 = Math.min(grid.height - 1, Math.ceil((band.topY - gridBox.min.y) * resolution));
+    for (let y = gy0; y <= gy1; y++) {
+      for (let z = gz0; z <= gz1; z++) {
+        const worldZ = gridBox.min.z + (z + 0.5) / resolution;
+        for (let x = gx0; x <= gx1; x++) {
+          if (grid.get(x, y, z) === AIR) continue;
+          const worldX = gridBox.min.x + (x + 0.5) / resolution;
+          if (!pointInPolygonXZ(worldX, worldZ, band.polygon)) continue;
+          grid.set(x, y, z, band.blockName);
+        }
+      }
+    }
+  }
+}
+
+function pointInPolygonXZ(
+  x: number,
+  z: number,
+  poly: ReadonlyArray<{ x: number; z: number }>,
+): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, zi = poly[i].z;
+    const xj = poly[j].x, zj = poly[j].z;
+    if (((zi > z) !== (zj > z)) && (x < (xj - xi) * (z - zi) / (zj - zi + 1e-12) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 /**

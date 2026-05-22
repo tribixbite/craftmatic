@@ -163,6 +163,8 @@ function synthesizeSlicedTilesImpl(
     polygon: readonly LocalPoint2D[];
     expectedHeightM: number;
     coverageFrac: number;
+    /** OSM building:colour for this qualified part, or null. */
+    buildingColour: string | null;
   }> = [];
   const osmArea = osmLocal !== null ? polygonAreaAbs(osmLocal) : 0;
   for (const part of ctx.buildingParts ?? []) {
@@ -192,7 +194,12 @@ function synthesizeSlicedTilesImpl(
       : expectedHeightM;
     const partArea = polygonAreaAbs(ring);
     const coverageFrac = osmArea > 0 ? partArea / osmArea : 1;
-    partPolygons.push({ polygon: ring, expectedHeightM: partHeight, coverageFrac });
+    partPolygons.push({
+      polygon: ring,
+      expectedHeightM: partHeight,
+      coverageFrac,
+      buildingColour: part.buildingColour,
+    });
   }
   // Compound discriminator. Cases:
   //   • 0-1 parts → monolithic, single-polygon path
@@ -243,6 +250,7 @@ function synthesizeSlicedTilesImpl(
           polygon: ring,
           expectedHeightM,
           coverageFrac,
+          buildingColour: null,
         });
       }
       console.error(`  [sliced-tiles] waist-decomposed OSM polygon into ${partPolygons.length} sub-parts`);
@@ -399,10 +407,28 @@ function synthesizeSlicedTilesImpl(
   // STILL runs after (per-voxel sampling), but per-voxel samples now
   // start from a more-accurate wallLab when the BRep is rendered, giving
   // the recolor's k-means clusters a better initial reference.
-  const partColours = (ctx.buildingParts ?? [])
+  // Use ONLY qualified parts (those in partPolygons after isCompound
+  // filter + centroid-in-OSM gate). Neighbour parts that the resolver
+  // returns within the 100m radius are excluded — their colours are
+  // unrelated to the target building.
+  const qualifiedPartColours: string[] = partPolygons
     .map(p => p.buildingColour)
     .filter((c): c is string => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c));
-  const partWallLab = partColours.length > 0 ? hexToLab(partColours[0]) : null;
+  // Detect mixed-colour compound: distinct building:colour per qualified
+  // part. ΔE > 8 in Lab space ≈ 3 perceptual JNDs, well above
+  // measurement noise.
+  const distinctPartColours = (() => {
+    if (qualifiedPartColours.length < 2) return false;
+    const labs = qualifiedPartColours.map(hexToLab);
+    for (let i = 1; i < labs.length; i++) {
+      const dL = labs[i][0] - labs[0][0];
+      const da = labs[i][1] - labs[0][1];
+      const db = labs[i][2] - labs[0][2];
+      if (Math.sqrt(dL * dL + da * da + db * db) > 8) return true;
+    }
+    return false;
+  })();
+  const partWallLab = qualifiedPartColours.length > 0 ? hexToLab(qualifiedPartColours[0]) : null;
   const osmWallLab = ctx.wallColourHint && /^#[0-9a-fA-F]{6}$/.test(ctx.wallColourHint)
     ? hexToLab(ctx.wallColourHint)
     : null;
@@ -453,6 +479,27 @@ function synthesizeSlicedTilesImpl(
     console.error(`  [sliced-tiles] helical frustum fit: ${helicalFrustum.basePolygon.length} verts, scaleTop=[${helicalFrustum.scaleTop[0].toFixed(2)},${helicalFrustum.scaleTop[1].toFixed(2)}], twist=${helicalFrustum.twistDegrees}°`);
   }
 
+  // Build per-part block bands when distinct colours present. Each
+  // part's polygon + height range gets its own block override. The
+  // voxel post-pass paints those regions before the architectural
+  // overlay runs.
+  const partBlockBands: BuildingBRep['partBlockBands'] = distinctPartColours
+    ? partPolygons.map(part => {
+        const colour = part.buildingColour;
+        const lab = colour && /^#[0-9a-fA-F]{6}$/.test(colour) ? hexToLab(colour) : wallLab;
+        return {
+          polygon: part.polygon,
+          baseY: 0,
+          topY: part.expectedHeightM,
+          blockName: pickWallBlock(lab),
+          lab,
+        };
+      })
+    : undefined;
+  if (partBlockBands && partBlockBands.length > 0) {
+    console.error(`  [sliced-tiles] ${partBlockBands.length} part-coloured regions: ${partBlockBands.map(b => b.blockName.replace('minecraft:', '')).join(', ')}`);
+  }
+
   const brep: BuildingBRep = {
     origin: { lat: ctx.center.lat, lng: ctx.center.lng },
     rotationDeg: ctx.mbr.rotationDeg,
@@ -463,6 +510,7 @@ function synthesizeSlicedTilesImpl(
     // any adjoining annex / plaza / podium. Evaluator unions both.
     bandedSilhouettes,
     helicalFrustum: helicalFrustum ?? undefined,
+    partBlockBands,
     roof: {
       type: helicalFrustum ? 'flat' : roofInference.type,
       baseZ: helicalFrustum ? helicalFrustum.topY : roofInference.baseZ,
