@@ -18,7 +18,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeVertices, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SAOPass } from 'three/examples/jsm/postprocessing/SAOPass.js';
@@ -1133,10 +1133,17 @@ export class LDrawViewer {
     let geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     if (triCount >= 20) {
+      // Angle-thresholded creasing: smooth normals across SHALLOW edges
+      // (cylinders, studs, curved slopes → round) but keep SHARP edges
+      // faceted (90° brick corners → crisp). This is the LDraw convention
+      // (~33-40° crease). Blanket mergeVertices+computeVertexNormals — what
+      // we did before — averaged across hard corners too, melting brick
+      // edges. mergeVertices first welds the triangle soup so coincident
+      // verts are shared; toCreasedNormals then assigns per-edge normals.
       const merged = mergeVertices(geom, 1e-4);
-      merged.computeVertexNormals();
       geom.dispose();
-      geom = merged;
+      geom = toCreasedNormals(merged, (38 * Math.PI) / 180);
+      merged.dispose();
     } else {
       geom.computeVertexNormals();
     }
