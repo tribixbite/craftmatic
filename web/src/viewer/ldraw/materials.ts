@@ -118,57 +118,51 @@ export function makeMaterial(colorId: number): THREE.MeshPhysicalMaterial {
   }
 
   if (metallic) {
-    // Chrome NEEDS bright environment reflection to look like chrome —
-    // without it, polished metal reads as dull dark grey. The scene-level
-    // environmentIntensity is intentionally low (0.35) so dark ABS doesn't
-    // wash out; we compensate per-material with a high envMapIntensity
-    // multiplier (these multiply, effective env ≈ 0.35 × 3.0 = 1.05).
+    // Chrome reflects the dark-studio env: bright panels show as crisp
+    // streaks on a dark body = real chrome look. With the dark env, env
+    // intensity can stay high without washing.
     return new THREE.MeshPhysicalMaterial({
       color,
-      roughness: 0.18,
-      metalness: 0.88,
-      envMapIntensity: 3.0,
-      clearcoat: 0.45,
-      clearcoatRoughness: 0.12,
-      specularIntensity: 1.3,
+      roughness: 0.15,
+      metalness: 0.9,
+      envMapIntensity: 1.6,
+      clearcoat: 0.3,
+      clearcoatRoughness: 0.1,
+      specularIntensity: 1.2,
       specularColor: color.clone().lerp(new THREE.Color(0xffffff), 0.3),
       side: THREE.DoubleSide,
-      emissive: color.clone().multiplyScalar(0.03),
     });
   }
 
   if (rubber) {
-    // Proper matte rubber: high roughness, zero env reflection, no emissive
-    // pop. Reads as Lambertian black instead of "shiny black plastic".
+    // Matte rubber: high roughness, tiny env so it isn't dead-flat.
     return new THREE.MeshPhysicalMaterial({
       color,
-      roughness: 0.92,
+      roughness: 0.9,
       metalness: 0.0,
-      envMapIntensity: 0.0,
+      envMapIntensity: 0.25,
       clearcoat: 0.0,
       side: THREE.DoubleSide,
     });
   }
 
-  // ABS plastic — dominant body material. Even small clearcoat + env
-  // reflection bleaches dark colors to grey because the bright reflected
-  // light dominates the small base contribution. Strategy: NO clearcoat,
-  // NO env reflection, NO emissive on dark bricks; small amounts on light
-  // bricks for sheen. Tested with diagnostic zero — dark bricks show their
-  // true LDraw color when lit only by direct lights.
-  const lum = color.r * 0.299 + color.g * 0.587 + color.b * 0.114;
-  // Smooth gate: 0 below lum 0.25, ramps up above.
-  const polish = Math.max(0, Math.min(1, (lum - 0.25) / 0.6));
-  const mat = new THREE.MeshPhysicalMaterial({
+  // ABS plastic — ONE physically-consistent definition for every opaque
+  // color. Real LEGO ABS has the same satin finish regardless of color, so
+  // there is NO per-color material variation (the old luminance gate made
+  // dark bricks matte and light bricks glossy, which read as different
+  // plastics side by side). Saturation is preserved by (a) the dark studio
+  // env not flooding white onto the surface, and (b) generous neutral
+  // diffuse fill lighting the base color. The single dielectric specular
+  // layer (F0≈0.04) plus the env's bright panels give the characteristic
+  // tight plastic highlight without a broad white wash.
+  return new THREE.MeshPhysicalMaterial({
     color,
-    roughness: 0.45 - polish * 0.15,         // dark matte (0.45), light glossy (0.30)
+    roughness: 0.36,
     metalness: 0.0,
-    envMapIntensity: polish * 1.2,           // dark 0, light 1.2
-    clearcoat: polish * 0.5,                 // dark 0, light 0.5
-    clearcoatRoughness: 0.3 - polish * 0.1,
+    envMapIntensity: 1.0,
+    clearcoat: 0.0,
     side: THREE.DoubleSide,
   });
-  return mat;
 }
 
 /**

@@ -164,20 +164,26 @@ export class LDrawViewer {
     });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.3;
+    // Khronos PBR Neutral tone mapping (r162+). Purpose-built for product
+    // viz: tames highlights to white WITHOUT the saturation/hue shift that
+    // ACES imposes on strong colors (reds→orange, blues→purple). This is
+    // the single biggest lever for matching box-art color fidelity.
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Lighting — neutral three-point studio setup. The previous cool
-    // hemisphere + cool fill were tinting dark bricks blue (Mini's BRG
-    // started reading as blue-grey because the base color was so dark
-    // that the cool light dominated). Neutralizing the light temps lets
-    // saturated base colors come through more cleanly.
-    this.ambient = new THREE.AmbientLight(0xffffff, 0.25);
+    // Lighting — neutral studio. Strategy after the color re-architecture:
+    // generous NEUTRAL diffuse fill (ambient + hemi + fill) brightens every
+    // face so the saturated base color reads at full strength (white diffuse
+    // on a red surface lifts R toward target while G/B stay low — that's
+    // GOOD, it restores saturation). The white *specular* wash that used to
+    // desaturate comes from the environment + clearcoat, now controlled at
+    // the env level (dark studio) and material level (no clearcoat on ABS).
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.55);
     this.scene.add(this.ambient);
-    this.hemi = new THREE.HemisphereLight(0xffffff, 0x6a5a4a, 0.35);
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0x6a5a4a, 0.45);
     this.scene.add(this.hemi);
-    this.keyLight = new THREE.DirectionalLight(0xfffaf0, 3.6);
+    this.keyLight = new THREE.DirectionalLight(0xfff6ea, 2.6);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.set(4096, 4096);
     this.keyLight.shadow.bias = -0.0005;
@@ -185,11 +191,11 @@ export class LDrawViewer {
     this.keyLight.shadow.radius = 3;
     this.scene.add(this.keyLight);
     this.scene.add(this.keyLight.target);
-    this.fillLight = new THREE.DirectionalLight(0xffffff, 0.65);
+    this.fillLight = new THREE.DirectionalLight(0xffffff, 0.55);
     this.scene.add(this.fillLight);
-    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.45);
     this.scene.add(this.rimLight);
-    this.bottomFill = new THREE.DirectionalLight(0xffffff, 0.18);
+    this.bottomFill = new THREE.DirectionalLight(0xffffff, 0.2);
     this.scene.add(this.bottomFill);
 
     // Composer set up; passes added once container size is known
@@ -240,22 +246,41 @@ export class LDrawViewer {
     const pr = viewer.renderer.getPixelRatio();
     viewer.fxaaPass.material.uniforms['resolution']!.value.set(1 / (cw * pr), 1 / (ch * pr));
 
-    // Studio environment map (PMREM)
+    // Studio environment map (PMREM) — DARK surround with discrete bright
+    // softbox panels. Critical fix: the old near-white (0xd0d0d8) env flooded
+    // every surface with white diffuse+specular reflection, which dominated
+    // dark base colors and washed them grey. A mostly-dark environment with
+    // a few concentrated HDR panels gives crisp specular highlights (the
+    // plastic "shine") WITHOUT the broad white wash — so dark colors keep
+    // their saturation while chrome still has bright things to reflect.
     try {
       const pmremGen = new THREE.PMREMGenerator(viewer.renderer);
       pmremGen.compileEquirectangularShader();
       const envScene = new THREE.Scene();
-      envScene.background = new THREE.Color(0xd0d0d8);
-      envScene.add(new THREE.HemisphereLight(0xfff8f0, 0x8090a0, 0.9));
-      const ceilingLight = new THREE.RectAreaLight(0xffffff, 2.0, 50, 50);
-      ceilingLight.position.set(0, 30, 0);
-      ceilingLight.lookAt(0, 0, 0);
-      envScene.add(ceilingLight);
-      viewer.scene.environment = pmremGen.fromScene(envScene, 0.04).texture;
-      // Per-material envMapIntensity compensates: chrome multiplies by 3.0
-      // to look like chrome, dark ABS multiplies by ~0.4 to keep saturation.
-      // Effective env strength = this × material.envMapIntensity.
-      viewer.scene.environmentIntensity = 0.30;
+      envScene.background = new THREE.Color(0x0a0a0e); // near-black surround
+      // HDR-bright emissive panels (MeshStandardMaterial emissive renders
+      // unlit when no lights are in the env scene; emissiveIntensity>1 gives
+      // true HDR values the PMREM captures for punchy highlights).
+      const panel = (x: number, y: number, z: number, w: number, h: number, intensity: number, warm = 1.0) => {
+        const m = new THREE.Mesh(
+          new THREE.PlaneGeometry(w, h),
+          new THREE.MeshStandardMaterial({
+            emissive: new THREE.Color(warm, warm * 0.985, warm * 0.96),
+            emissiveIntensity: intensity,
+            color: 0x000000,
+            side: THREE.DoubleSide,
+          }),
+        );
+        m.position.set(x, y, z);
+        m.lookAt(0, 0, 0);
+        envScene.add(m);
+      };
+      panel(35, 45, 30, 70, 70, 5.0);   // key softbox, upper front-right
+      panel(-45, 15, 15, 55, 80, 1.6);  // fill, left side
+      panel(-10, 25, -45, 50, 50, 2.4); // rim/back
+      panel(0, -30, 10, 90, 90, 0.25);  // dim floor bounce
+      viewer.scene.environment = pmremGen.fromScene(envScene, 0.08).texture;
+      viewer.scene.environmentIntensity = 0.85;
       pmremGen.dispose();
     } catch (e) {
       console.warn('[LDrawViewer] Environment map failed (GPU limitation):', e);
