@@ -118,21 +118,22 @@ export function makeMaterial(colorId: number): THREE.MeshPhysicalMaterial {
   }
 
   if (metallic) {
-    // Softer chrome: previous values produced harsh mirror-like surfaces and
-    // exaggerated the gap shadows between spokes. Slight roughness bump,
-    // less envIntensity, and lower clearcoat read as polished metal vs.
-    // wet mirror — which is how chrome-plated ABS actually looks.
+    // Chrome NEEDS bright environment reflection to look like chrome —
+    // without it, polished metal reads as dull dark grey. The scene-level
+    // environmentIntensity is intentionally low (0.35) so dark ABS doesn't
+    // wash out; we compensate per-material with a high envMapIntensity
+    // multiplier (these multiply, effective env ≈ 0.35 × 3.0 = 1.05).
     return new THREE.MeshPhysicalMaterial({
       color,
-      roughness: 0.22,
-      metalness: 0.85,
-      envMapIntensity: 1.0,
-      clearcoat: 0.35,
-      clearcoatRoughness: 0.18,
-      specularIntensity: 1.1,
-      specularColor: color.clone().lerp(new THREE.Color(0xffffff), 0.25),
+      roughness: 0.18,
+      metalness: 0.88,
+      envMapIntensity: 3.0,
+      clearcoat: 0.45,
+      clearcoatRoughness: 0.12,
+      specularIntensity: 1.3,
+      specularColor: color.clone().lerp(new THREE.Color(0xffffff), 0.3),
       side: THREE.DoubleSide,
-      emissive: color.clone().multiplyScalar(0.02),
+      emissive: color.clone().multiplyScalar(0.03),
     });
   }
 
@@ -149,23 +150,24 @@ export function makeMaterial(colorId: number): THREE.MeshPhysicalMaterial {
     });
   }
 
-  // Standard ABS plastic. CAREFUL: this material is used for the dominant
-  // body color of every set, so any specular/envIntensity bump that looks
-  // good on light colors blows out dark colors via env-map reflection
-  // (Mini Cooper dark green washes to grey under aggressive clearcoat).
-  // Original-style values restored; only a tiny clearcoat bump for sheen.
+  // ABS plastic — dominant body material. Even small clearcoat + env
+  // reflection bleaches dark colors to grey because the bright reflected
+  // light dominates the small base contribution. Strategy: NO clearcoat,
+  // NO env reflection, NO emissive on dark bricks; small amounts on light
+  // bricks for sheen. Tested with diagnostic zero — dark bricks show their
+  // true LDraw color when lit only by direct lights.
   const lum = color.r * 0.299 + color.g * 0.587 + color.b * 0.114;
-  const clearcoatAmt = 0.22 + (1 - lum) * 0.20;
+  // Smooth gate: 0 below lum 0.25, ramps up above.
+  const polish = Math.max(0, Math.min(1, (lum - 0.25) / 0.6));
   const mat = new THREE.MeshPhysicalMaterial({
     color,
-    roughness: 0.28,
+    roughness: 0.45 - polish * 0.15,         // dark matte (0.45), light glossy (0.30)
     metalness: 0.0,
-    envMapIntensity: 0.45 + (1 - lum) * 0.25,
-    clearcoat: clearcoatAmt,
-    clearcoatRoughness: 0.32,
+    envMapIntensity: polish * 1.2,           // dark 0, light 1.2
+    clearcoat: polish * 0.5,                 // dark 0, light 0.5
+    clearcoatRoughness: 0.3 - polish * 0.1,
     side: THREE.DoubleSide,
   });
-  mat.emissive = color.clone().multiplyScalar(0.008);
   return mat;
 }
 

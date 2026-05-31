@@ -165,18 +165,19 @@ export class LDrawViewer {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.toneMappingExposure = 1.3;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Lighting — three-point studio setup. Tuned conservatively: an earlier
-    // pass bumped key + rim hard and pushed saturated reds/greens into the
-    // ACES highlight roll-off (washed-out look). These values keep most of
-    // the original feel with a small contrast bump from lower ambient.
-    this.ambient = new THREE.AmbientLight(0xffffff, 0.22);
+    // Lighting — neutral three-point studio setup. The previous cool
+    // hemisphere + cool fill were tinting dark bricks blue (Mini's BRG
+    // started reading as blue-grey because the base color was so dark
+    // that the cool light dominated). Neutralizing the light temps lets
+    // saturated base colors come through more cleanly.
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.25);
     this.scene.add(this.ambient);
-    this.hemi = new THREE.HemisphereLight(0xc8e0ff, 0x443322, 0.30);
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0x6a5a4a, 0.35);
     this.scene.add(this.hemi);
-    this.keyLight = new THREE.DirectionalLight(0xfff5e6, 3.5);
+    this.keyLight = new THREE.DirectionalLight(0xfffaf0, 3.6);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.set(4096, 4096);
     this.keyLight.shadow.bias = -0.0005;
@@ -184,11 +185,11 @@ export class LDrawViewer {
     this.keyLight.shadow.radius = 3;
     this.scene.add(this.keyLight);
     this.scene.add(this.keyLight.target);
-    this.fillLight = new THREE.DirectionalLight(0xd0e0ff, 0.7);
+    this.fillLight = new THREE.DirectionalLight(0xffffff, 0.65);
     this.scene.add(this.fillLight);
-    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.55);
+    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
     this.scene.add(this.rimLight);
-    this.bottomFill = new THREE.DirectionalLight(0xe0e0ff, 0.15);
+    this.bottomFill = new THREE.DirectionalLight(0xffffff, 0.18);
     this.scene.add(this.bottomFill);
 
     // Composer set up; passes added once container size is known
@@ -251,12 +252,10 @@ export class LDrawViewer {
       ceilingLight.lookAt(0, 0, 0);
       envScene.add(ceilingLight);
       viewer.scene.environment = pmremGen.fromScene(envScene, 0.04).texture;
-      // Lowered from 0.6 to 0.35. Was bleaching dark-color bricks (Mini Cooper
-      // BRG #184632, dark blues, dark reds) under their clearcoat reflection —
-      // the bright env-map captured by the polished top layer dominated the
-      // dark base color, washing it toward grey. 0.35 keeps a soft sheen on
-      // light bricks without crushing saturation on dark ones.
-      viewer.scene.environmentIntensity = 0.35;
+      // Per-material envMapIntensity compensates: chrome multiplies by 3.0
+      // to look like chrome, dark ABS multiplies by ~0.4 to keep saturation.
+      // Effective env strength = this × material.envMapIntensity.
+      viewer.scene.environmentIntensity = 0.30;
       pmremGen.dispose();
     } catch (e) {
       console.warn('[LDrawViewer] Environment map failed (GPU limitation):', e);
