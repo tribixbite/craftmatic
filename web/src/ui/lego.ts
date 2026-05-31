@@ -216,7 +216,7 @@ function buildUI(): void {
     </div>
 
     <!-- Assembly step slider (hidden until model with steps is loaded) -->
-    <div class="lego-section lego-scale-row" id="lego-step-row" hidden>
+    <div class="lego-section lego-scale-row" id="lego-step-row" hidden style="display:none">
       <span class="lego-section-label" style="font-size:0.75rem;opacity:0.7">Step</span>
       <button id="lego-step-play" type="button" title="Auto-advance steps (click to play/pause)"
         style="background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.45);color:#a78bfa;border-radius:4px;padding:2px 8px;font-size:0.78rem;cursor:pointer;font-family:inherit">▶</button>
@@ -225,7 +225,7 @@ function buildUI(): void {
     </div>
 
     <!-- Explode slider (hidden until 3D direct-render viewer is mounted) -->
-    <div class="lego-section lego-scale-row" id="lego-explode-row" hidden>
+    <div class="lego-section lego-scale-row" id="lego-explode-row" hidden style="display:none">
       <span class="lego-section-label" style="font-size:0.75rem;opacity:0.7">Explode</span>
       <input type="range" id="lego-explode-slider" min="0" max="100" value="0" style="flex:1;min-width:60px">
       <span id="lego-explode-label" style="font-size:0.75rem;min-width:3.5em;text-align:right">0%</span>
@@ -883,12 +883,17 @@ function updateStepSlider(): void {
   const label = document.getElementById('lego-step-label');
   if (!row || !slider || !label) return;
   const hasSteps = totalSteps > 1;
+  // NOTE: `.lego-scale-row` sets `display:flex`, which overrides the `hidden`
+  // attribute (inline/UA precedence) — so we MUST toggle style.display, not
+  // just .hidden, or the row stays visible. Also ALWAYS reset the slider
+  // values (even when hiding) so a stale count from a previous multi-step
+  // model can't persist into a no-step model.
+  const max = Math.max(1, totalSteps);
+  slider.max = String(max);
+  slider.value = String(max);
+  label.textContent = `${max}/${max}`;
   row.hidden = !hasSteps;
-  if (hasSteps) {
-    slider.max = String(totalSteps);
-    slider.value = String(totalSteps); // default: show all steps
-    label.textContent = `${totalSteps}/${totalSteps}`;
-  }
+  row.style.display = hasSteps ? '' : 'none';
 }
 
 async function voxelizeAndDisplay(
@@ -1003,7 +1008,7 @@ async function voxelizeAndDisplay(
         setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry`, 'success');
         viewerEl.closest('.panel-layout')?.setAttribute('data-has-model', '');
         const explodeRow = document.getElementById('lego-explode-row');
-        if (explodeRow) explodeRow.hidden = false;
+        if (explodeRow) { explodeRow.hidden = false; explodeRow.style.display = ''; }
         // Reset explode slider to 0 on new model load so the freshly-rendered
         // model is in its assembled state.
         const exSlider = document.getElementById('lego-explode-slider') as HTMLInputElement | null;
