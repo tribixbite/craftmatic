@@ -1558,14 +1558,17 @@ export class LDrawViewer {
     for (const stepState of this.stepGroups.values()) {
       stepState.group.traverse(o => { if (o instanceof THREE.Mesh) totalMeshes++; });
     }
-    // SAO is expensive — skip for very large models
-    if (totalMeshes <= 30) {
+    // SAO cost scales with mesh count — InstancedMesh refactor reduced mesh
+    // count drastically (often <50 even for thousands of bricks), so we can
+    // raise the cap. Intensity bumped (0.012→0.04) for visible crevice
+    // darkening; tighter kernel for crisp brick-seam shadows.
+    if (totalMeshes <= 80) {
       this.saoPass = new SAOPass(this.scene, this.camera);
-      this.saoPass.params.saoBias = 0.5;
-      this.saoPass.params.saoIntensity = 0.012;
-      this.saoPass.params.saoScale = Math.max(5, maxDim * 0.5);
-      this.saoPass.params.saoKernelRadius = Math.max(15, maxDim * 1.5);
-      this.saoPass.params.saoBlurRadius = 6;
+      this.saoPass.params.saoBias = 0.4;
+      this.saoPass.params.saoIntensity = 0.04;
+      this.saoPass.params.saoScale = Math.max(4, maxDim * 0.4);
+      this.saoPass.params.saoKernelRadius = Math.max(12, maxDim * 1.0);
+      this.saoPass.params.saoBlurRadius = 5;
       // Insert after RenderPass (index 1), before fxaa/vignette/output
       this.composer.passes.splice(1, 0, this.saoPass);
     }
