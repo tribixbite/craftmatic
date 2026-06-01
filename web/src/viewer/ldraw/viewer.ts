@@ -66,6 +66,20 @@ interface StepGroupState {
   edgeMaterials: LineMaterial[];
 }
 
+/**
+ * Count of elements <= val in a step-ascending sorted array (binary search).
+ * Used to prefix-count step-sorted instances for the step slider.
+ */
+function upperBoundCount(sorted: Int32Array, val: number): number {
+  if (!Number.isFinite(val)) return sorted.length;
+  let lo = 0, hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid]! <= val) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
 export class LDrawViewer {
   // Three.js infrastructure
   readonly scene: THREE.Scene;
@@ -420,30 +434,25 @@ export class LDrawViewer {
     }
     this.missingParts = [...missing.entries()].map(([part, count]) => ({ part, count }));
 
-    // Group bricks by step number
-    const bricksByStep = new Map<number, ParsedBrick[]>();
+    // Highest step number across the model (drives the slider range).
     let maxStep = 1;
-    for (const brick of filteredBricks) {
-      const step = brick.step ?? 1;
-      maxStep = Math.max(maxStep, step);
-      let arr = bricksByStep.get(step);
-      if (!arr) { arr = []; bricksByStep.set(step, arr); }
-      arr.push(brick);
-    }
+    for (const brick of filteredBricks) maxStep = Math.max(maxStep, brick.step ?? 1);
     this.maxAvailableStep = maxStep;
 
     // Track scene bbox across ALL steps so framing stays stable when stepping
     const bboxMin = new THREE.Vector3(Infinity, Infinity, Infinity);
     const bboxMax = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
 
-    // Build a Three.Group per step
-    const sortedSteps = [...bricksByStep.keys()].sort((a, b) => a - b);
-    for (const step of sortedSteps) {
-      const stepState = this.buildStepGroup(bricksByStep.get(step)!, bboxMin, bboxMax);
-      stepState.group.name = `step-${step}`;
-      this.stepGroups.set(step, stepState);
-      this.scene.add(stepState.group);
-    }
+    // Build ONE global group: instances are bucketed by (part,color) across
+    // the WHOLE model rather than per step, so a 1700-step set renders in a
+    // few hundred draw calls instead of thousands (each step previously got
+    // its own InstancedMeshes). Stepping is done by prefix-counting
+    // step-sorted instances (see applyStepVisibility), not by toggling
+    // per-step groups.
+    const stepState = this.buildStepGroup(filteredBricks, bboxMin, bboxMax);
+    stepState.group.name = 'model';
+    this.stepGroups.set(0, stepState);
+    this.scene.add(stepState.group);
 
     // Apply initial maxStep (default = show all)
     this.currentMaxStep = opts?.maxStep ?? Number.POSITIVE_INFINITY;
@@ -487,6 +496,12 @@ export class LDrawViewer {
     this.requestShadowUpdate(); // build the static shadow map once for this model
     this.container.dataset['brickCount'] = String(filteredBricks.length);
     this.container.dataset['stepMax'] = String(this.maxAvailableStep);
+
+    // Dev-only debugging hook: expose the live viewer so renderer.info,
+    // step-group structure, etc. can be inspected from the console / E2E.
+    if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+      (globalThis as Record<string, unknown>)['__ldrawViewer'] = this;
+    }
   }
 
   /**
@@ -795,8 +810,20 @@ export class LDrawViewer {
   }
 
   private applyStepVisibility(): void {
-    for (const [step, stepState] of this.stepGroups) {
-      stepState.group.visible = step <= this.currentMaxStep;
+    // Global instancing: instead of toggling per-step groups, prefix-count the
+    // step-sorted instances of each mesh (and segments of the edge lines) so
+    // only bricks built up to currentMaxStep render. O(meshes · log instances).
+    const maxStep = this.currentMaxStep;
+    for (const stepState of this.stepGroups.values()) {
+      stepState.group.traverse(obj => {
+        if (obj instanceof THREE.InstancedMesh) {
+          const arr = obj.userData['stepArr'] as Int32Array | undefined;
+          if (arr) obj.count = upperBoundCount(arr, maxStep);
+        } else if (obj instanceof LineSegments2) {
+          const arr = obj.userData['segStep'] as Int32Array | undefined;
+          if (arr) (obj.geometry as LineSegmentsGeometry).instanceCount = upperBoundCount(arr, maxStep);
+        }
+      });
     }
   }
 
@@ -854,15 +881,22 @@ export class LDrawViewer {
     // draw call per (partId, color) pair, instead of merging triangles
     // for every brick instance. Also avoids the per-brick mergeVertices/
     // computeVertexNormals cost — we compute them once per unique partId.
+    // Buckets are GLOBAL (all steps): each instance also carries its step so
+    // they can be sorted step-ascending and the slider can show a prefix.
     interface InstanceBucket {
       partId: string;
       brickColor: number;
       matrices: THREE.Matrix4[];
       bricks: ParsedBrick[]; // parallel to matrices — for click-to-inspect
+      steps: number[];       // parallel to matrices — for step prefixing
     }
     const buckets = new Map<string, InstanceBucket>();
-    const edgeGroups = new Map<number, { positions: number[] }>();
-    let totalEdgeFloats = 0;
+    // Edges as a flat segment list tagged with step + color, sorted by step
+    // later so the slider can prefix-count them like the instanced meshes.
+    const segPos: number[] = [];   // 6 floats per segment
+    const segColor: number[] = []; // 1 colour id per segment
+    const segStepArr: number[] = []; // 1 step per segment
+    let segCount = 0;
 
     const scale = LDU_TO_UNITS;
 
@@ -874,6 +908,7 @@ export class LDrawViewer {
       const R = brick.rot ?? IDENTITY;
       const T: Vec3 = [brick.x, brick.y, brick.z];
       const cid = isNaN(brick.color) ? 71 : brick.color;
+      const bStep = brick.step ?? 1;
 
       // Per-instance matrix: applies rotation+translation, then scale + Y-flip
       // (LDraw is Y-down, scene is Y-up). Pre-baked so the InstancedMesh
@@ -888,40 +923,46 @@ export class LDrawViewer {
       const bucketKey = `${partId}|${cid}`;
       let bucket = buckets.get(bucketKey);
       if (!bucket) {
-        bucket = { partId, brickColor: cid, matrices: [], bricks: [] };
+        bucket = { partId, brickColor: cid, matrices: [], bricks: [], steps: [] };
         buckets.set(bucketKey, bucket);
       }
       bucket.matrices.push(m);
       bucket.bricks.push(brick);
+      bucket.steps.push(bStep);
 
-      // Edges (kept as merged-batched per-step — fat lines aren't easily
-      // instanced). World-space positions; cap total to bound memory.
-      if (totalEdgeFloats < 12_000_000) {
-        let eg = edgeGroups.get(cid);
-        if (!eg) { eg = { positions: [] }; edgeGroups.set(cid, eg); }
+      // Edges (merged fat lines; not InstancedMesh). World-space positions;
+      // cap total to bound memory.
+      if (segCount < 2_000_000) {
         for (const [ev0, ev1] of geom.edges) {
           const we0 = applyMat(ev0, R, T);
           const we1 = applyMat(ev1, R, T);
-          eg.positions.push(
+          segPos.push(
             we0[0]! * scale, -we0[1]! * scale, we0[2]! * scale,
             we1[0]! * scale, -we1[1]! * scale, we1[2]! * scale,
           );
-          totalEdgeFloats += 6;
+          segColor.push(cid); segStepArr.push(bStep); segCount++;
         }
         for (const [ccid, cedges] of geom.colorEdges) {
-          let ceg = edgeGroups.get(ccid);
-          if (!ceg) { ceg = { positions: [] }; edgeGroups.set(ccid, ceg); }
           for (const [ev0, ev1] of cedges) {
             const we0 = applyMat(ev0, R, T);
             const we1 = applyMat(ev1, R, T);
-            ceg.positions.push(
+            segPos.push(
               we0[0]! * scale, -we0[1]! * scale, we0[2]! * scale,
               we1[0]! * scale, -we1[1]! * scale, we1[2]! * scale,
             );
-            totalEdgeFloats += 6;
+            segColor.push(ccid); segStepArr.push(bStep); segCount++;
           }
         }
       }
+    }
+
+    // Sort each bucket's instances step-ascending so a maxStep prefix selects
+    // exactly the built-so-far instances (applyStepVisibility sets .count).
+    for (const bucket of buckets.values()) {
+      const order = [...bucket.steps.keys()].sort((a, b) => bucket.steps[a]! - bucket.steps[b]!);
+      bucket.matrices = order.map(i => bucket.matrices[i]!);
+      bucket.bricks = order.map(i => bucket.bricks[i]!);
+      bucket.steps = order.map(i => bucket.steps[i]!);
     }
 
     // Build InstancedMesh per (partId, brickColor) bucket. Sort so opaque
@@ -955,6 +996,9 @@ export class LDrawViewer {
         // against. Clone so subsequent explode updates don't mutate the
         // bucket's working buffers.
         inst.userData['originalMatrices'] = bucket.matrices.map(m => m.clone());
+        // Step-ascending array parallel to instances; applyStepVisibility sets
+        // inst.count to the prefix where step <= maxStep.
+        inst.userData['stepArr'] = Int32Array.from(bucket.steps);
         // Compute the InstancedMesh's true world-space bbox/sphere from
         // instance matrices — without this, frustum culling uses the
         // part-local bbox (small, around origin) and culls the entire mesh
@@ -996,6 +1040,7 @@ export class LDrawViewer {
         }
         cInst.instanceMatrix.needsUpdate = true;
         cInst.userData['originalMatrices'] = bucket.matrices.map(m => m.clone());
+        cInst.userData['stepArr'] = Int32Array.from(bucket.steps);
         cInst.computeBoundingBox();
         cInst.computeBoundingSphere();
         if (subGeom.boundingBox) {
@@ -1052,6 +1097,7 @@ export class LDrawViewer {
           }
           tInst.instanceMatrix.needsUpdate = true;
           tInst.userData['originalMatrices'] = bucket.matrices.map(m => m.clone());
+          tInst.userData['stepArr'] = Int32Array.from(bucket.steps);
           tInst.computeBoundingBox();
           tInst.computeBoundingSphere();
           group.add(tInst);
@@ -1059,38 +1105,49 @@ export class LDrawViewer {
       }
     }
 
-    // One LineSegments2 per step containing all that step's brick edges.
-    // Edge color: HSL-darken the brick's base color so saturated dark bricks
-    // (dark teal, dark red, navy) keep their hue identity in the separation
-    // lines. Pure-luminance darkening flattened all dark bricks to the same
-    // near-black, losing color signal at the brick boundaries.
-    const allEdgePos: number[] = [];
-    const allEdgeCol: number[] = [];
+    // ONE global LineSegments2 holding every brick's edges, with segments
+    // sorted step-ascending so the slider prefixes them via instanceCount
+    // (LineSegmentsGeometry is an InstancedBufferGeometry — one instance per
+    // segment). Edge color: HSL-darken the brick's base color so saturated
+    // dark bricks (dark teal, dark red, navy) keep their hue identity in the
+    // separation lines; pure-luminance darkening flattened them to the same
+    // near-black. Cache the per-color premultiplied edge tint.
     const hsl: { h: number; s: number; l: number } = { h: 0, s: 0, l: 0 };
-    for (const [colorId, eg] of edgeGroups) {
-      if (eg.positions.length === 0) continue;
-      const baseColor = getThreeColor(colorId);
-      baseColor.getHSL(hsl);
-      // Darken toward 25% lightness floor; preserve hue + most of saturation.
-      // For very desaturated grays, fall through to a slightly cool near-black
-      // (matches what the prior luminance branch produced).
-      // Softened — was 0.7/0.5; produced too-harsh outlines that fought
-      // the smooth-paint look we want. New values let edges suggest brick
-      // boundaries without overwhelming the body silhouette.
+    const edgeTint = new Map<number, [number, number, number]>();
+    const tintFor = (colorId: number): [number, number, number] => {
+      const cached = edgeTint.get(colorId);
+      if (cached) return cached;
+      getThreeColor(colorId).getHSL(hsl);
+      // Darken toward a ~22% lightness floor; preserve hue + most saturation.
       const targetL = Math.min(hsl.l, 0.22);
       const ec = hsl.s > 0.08
         ? new THREE.Color().setHSL(hsl.h, hsl.s * 0.75, targetL)
         : new THREE.Color(0.12, 0.12, 0.14);
       const opacity = hsl.l > 0.4 ? 0.45 : 0.30;
-      for (let i = 0; i < eg.positions.length; i += 3) {
-        allEdgePos.push(eg.positions[i]!, eg.positions[i + 1]!, eg.positions[i + 2]!);
-        allEdgeCol.push(ec.r * opacity, ec.g * opacity, ec.b * opacity);
+      const t: [number, number, number] = [ec.r * opacity, ec.g * opacity, ec.b * opacity];
+      edgeTint.set(colorId, t);
+      return t;
+    };
+
+    if (segCount > 0) {
+      // Sort segment indices step-ascending.
+      const order = [...segStepArr.keys()].sort((a, b) => segStepArr[a]! - segStepArr[b]!);
+      const allEdgePos = new Float32Array(segCount * 6);
+      const allEdgeCol = new Float32Array(segCount * 6);
+      const sortedSegStep = new Int32Array(segCount);
+      for (let s = 0; s < order.length; s++) {
+        const idx = order[s]!;
+        const src = idx * 6;
+        const dst = s * 6;
+        for (let k = 0; k < 6; k++) allEdgePos[dst + k] = segPos[src + k]!;
+        const [r, g, b] = tintFor(segColor[idx]!);
+        allEdgeCol[dst]     = r; allEdgeCol[dst + 1] = g; allEdgeCol[dst + 2] = b;
+        allEdgeCol[dst + 3] = r; allEdgeCol[dst + 4] = g; allEdgeCol[dst + 5] = b;
+        sortedSegStep[s] = segStepArr[idx]!;
       }
-    }
-    if (allEdgePos.length > 0) {
       const edgeGeo = new LineSegmentsGeometry();
-      edgeGeo.setPositions(new Float32Array(allEdgePos));
-      edgeGeo.setColors(new Float32Array(allEdgeCol));
+      edgeGeo.setPositions(allEdgePos);
+      edgeGeo.setColors(allEdgeCol);
       const edgeMat = new LineMaterial({
         vertexColors: true,
         worldUnits: false,
@@ -1103,6 +1160,9 @@ export class LDrawViewer {
       const edgeLines = new LineSegments2(edgeGeo, edgeMat);
       edgeLines.computeLineDistances();
       edgeLines.renderOrder = 2;
+      // Step array parallel to segments; applyStepVisibility sets
+      // geometry.instanceCount to the prefix where step <= maxStep.
+      edgeLines.userData['segStep'] = sortedSegStep;
       group.add(edgeLines);
     }
 
