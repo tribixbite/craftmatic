@@ -104,6 +104,11 @@ export class LDrawViewer {
   // Backdrop (rebuilt each load to scale with model)
   private backdropMeshes: THREE.Object3D[] = [];
 
+  // On-demand rendering: only composite a frame when something changed
+  // (camera move, animation, or an explicit state mutation). Starts true so
+  // the first frame draws.
+  private needsRender = true;
+
   // Model state — populated by load(), cleared on next load()
   private stepGroups: Map<number, StepGroupState> = new Map();
   private allMeshMaterials: THREE.Material[] = [];
@@ -242,6 +247,9 @@ export class LDrawViewer {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.autoRotateSpeed = 1.5;
+    // On-demand rendering: any camera move (drag/zoom/pan, and each damping
+    // settle frame) flags a redraw. Idle scenes then cost ~0 GPU.
+    this.controls.addEventListener('change', () => { this.needsRender = true; });
   }
 
   /** Construct + mount the renderer; sizes correctly even if container is 0 initially. */
@@ -599,6 +607,7 @@ export class LDrawViewer {
       this.statsOverlay = null;
       this.frameTimes = [];
     }
+    this.invalidate(); // overlay toggled; render one frame to reflect it
   }
 
   /**
@@ -634,6 +643,7 @@ export class LDrawViewer {
         if (m instanceof THREE.MeshPhysicalMaterial) m.color.copy(backdropColor);
       }
     }
+    this.invalidate();
   }
 
   /** Capture a PNG screenshot of the current view at the live canvas size. */
@@ -751,6 +761,12 @@ export class LDrawViewer {
   /** Refresh the static shadow map on the next frame (scene changed). */
   private requestShadowUpdate(): void {
     this.renderer.shadowMap.needsUpdate = true;
+    this.needsRender = true; // the new shadows must be composited at least once
+  }
+
+  /** Flag that the scene changed and a frame must be (re)composited. */
+  private invalidate(): void {
+    this.needsRender = true;
   }
 
   private startRenderLoop(): void {
@@ -758,11 +774,20 @@ export class LDrawViewer {
       if (this.disposed) return;
       if (!this.container.isConnected) return;
       this.animId = requestAnimationFrame(loop);
+
+      // Continuous-render conditions: a camera interpolation is running, the
+      // turntable is on, or the Stats overlay wants a live FPS read.
+      const animating = this.cameraAnim != null || this.controls.autoRotate || this.statsOverlay != null;
+      if (!animating && !this.needsRender) return; // idle → skip the frame entirely
+
       this.tickCameraAnimation();
       // Skip controls.update() while our interpolation owns the camera;
       // otherwise OrbitControls damping fights the lerp and causes jitter.
+      // controls.update() emits 'change' while damping settles, which re-flags
+      // needsRender so the settle animates smoothly then goes idle.
       if (!this.cameraAnim) this.controls.update();
       this.composer.render();
+      this.needsRender = false;
       if (this.statsOverlay) this.updateStatsOverlay();
     };
     loop();
@@ -807,6 +832,7 @@ export class LDrawViewer {
         edgeMat.resolution.set(w, h);
       }
     }
+    this.invalidate(); // viewport changed → recomposite
   }
 
   /**
