@@ -23,6 +23,7 @@ import {
 } from '@engine/lego-catalog.js';
 import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic } from '@viewer/exporter.js';
 import type { ViewerState } from '@viewer/scene.js';
+import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -225,6 +226,9 @@ function buildUI(): void {
         <optgroup label="Minecraft">
           <option value="schem">Schematic (.schem)</option>
           <option value="litematic">Litematica (.litematic)</option>
+        </optgroup>
+        <optgroup label="Data">
+          <option value="csv">Parts list (.csv)</option>
         </optgroup>
       </select>
     </div>
@@ -889,6 +893,31 @@ async function exportLoadedModel(fmt: string): Promise<void> {
       else exportLitematic(grid, `${base}.litematic`);
       const blocks = grid.countNonAir();
       setStatus(`Exported ${base}.${fmt} (${blocks.toLocaleString()} blocks, ${grid.width}×${grid.height}×${grid.length})`, 'success');
+      return;
+    }
+
+    if (fmt === 'csv') {
+      // Bill of materials: count each (part, color) and emit CSV.
+      const counts = new Map<string, { part: string; color: number; count: number }>();
+      for (const b of currentBricks) {
+        const part = b.part.replace(/\.dat$/i, '');
+        const color = Number.isNaN(b.color) ? 16 : b.color;
+        const key = `${part}|${color}`;
+        const e = counts.get(key) ?? { part, color, count: 0 };
+        e.count++;
+        counts.set(key, e);
+      }
+      const rows = [...counts.values()].sort((a, b) => b.count - a.count || a.part.localeCompare(b.part));
+      const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+      const lines = ['Part,ColorID,ColorHex,Count'];
+      for (const r of rows) lines.push(`${esc(r.part)},${r.color},${LDRAW_COLOR_RGB[r.color] ?? ''},${r.count}`);
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${base}-parts.csv`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 100);
+      setStatus(`Exported parts list: ${rows.length} unique part/colors, ${currentBricks.length} bricks`, 'success');
       return;
     }
   } catch (err) {
