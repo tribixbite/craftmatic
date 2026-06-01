@@ -593,6 +593,15 @@ export class LDrawViewer {
   }
 
   /**
+   * Model bounding-box size in studs (scene units == studs, since
+   * LDU_TO_UNITS = 1/20). null until a model is loaded. 1 stud = 0.8 cm.
+   */
+  getModelSizeStuds(): { x: number; y: number; z: number } | null {
+    if (!this.loaded) return null;
+    return { x: this.lastSize.x, y: this.lastSize.y, z: this.lastSize.z };
+  }
+
+  /**
    * Toggle a small perf overlay (FPS, draw calls, triangles) in the
    * top-right of the canvas container. Useful for evaluating the impact
    * of perf changes (InstancedMesh, color jitter, etc.).
