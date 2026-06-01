@@ -3,8 +3,17 @@
  *
  * Routes:
  *   craftmatic.click/ldraw-omr/*         → library.ldraw.org/library/omr/*
+ *   craftmatic.click/ldraw-parts/*       → library.ldraw.org/library/{official,unofficial}/*
  *   craftmatic.click/seymouria-ldr/*     → seymouria.pl/Download/OfficialLegoSets_LDR/*
  *   craftmatic.click/bff/inventory/{num} → BrickLink Studio BFF API (server-side token)
+ *
+ * The /ldraw-parts route is what makes the 3D direct renderer work in
+ * PRODUCTION: the parts library is dev-only on the local box (served from a
+ * clego install via Vite middleware), so without this proxy the deployed app
+ * has no .dat geometry and the renderer falls back to voxelization. This
+ * proxies individual part/subpart/primitive files from the official LDraw
+ * library (falling back to the unofficial library), CORS-enabled and
+ * edge-cached, so every supported set renders with real brick geometry.
  */
 
 const SOURCES = {
@@ -81,6 +90,41 @@ export default {
           headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
         });
       }
+    }
+
+    // ── LDraw parts library proxy (official → unofficial fallback) ───────────
+    // The client probes several candidate paths per part (parts/, p/,
+    // parts/s/, p/48/, UnOfficial/...). We relay each to the matching upstream
+    // library dir. Edge-cached for a week; missing parts get a short-cached
+    // 404 so the client's next candidate path is tried quickly.
+    if (url.pathname.startsWith('/ldraw-parts/') && (request.method === 'GET' || request.method === 'HEAD')) {
+      let rest = url.pathname.slice('/ldraw-parts/'.length).replace(/\.\./g, '');
+      let libs = ['official', 'unofficial'];
+      const unof = rest.match(/^unofficial\/(.*)$/i);
+      if (unof) { rest = unof[1]; libs = ['unofficial']; }
+      if (rest) {
+        for (const lib of libs) {
+          const r = await fetch(`https://library.ldraw.org/library/${lib}/${rest}`, {
+            method: 'GET',
+            headers: { 'User-Agent': 'craftmatic-proxy/1.0' },
+            cf: { cacheTtl: 604800, cacheEverything: true },
+          });
+          if (r.ok) {
+            return new Response(request.method === 'HEAD' ? null : r.body, {
+              status: 200,
+              headers: {
+                ...CORS_HEADERS,
+                'Cache-Control': 'public, max-age=604800, immutable',
+                'Content-Type': 'text/plain; charset=utf-8',
+              },
+            });
+          }
+        }
+      }
+      return new Response(null, {
+        status: 404,
+        headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=600' },
+      });
     }
 
     // ── LDraw / Seymouria CORS proxy ─────────────────────────────────────────

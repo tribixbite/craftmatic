@@ -5,3 +5,11 @@ compatibility_date = "2024-11-01"
 [[routes]]
 pattern = "craftmatic.click/ldraw-omr/*"
 zone_name = "craftmatic.click"
+
+# Parts library proxy — makes the 3D direct renderer work in production by
+# serving individual LDraw .dat geometry from library.ldraw.org (the parts
+# library is otherwise dev-only). Without this route the deployed app has no
+# brick geometry and falls back to voxelization.
+[[routes]]
+pattern = "craftmatic.click/ldraw-parts/*"
+zone_name = "craftmatic.click"
