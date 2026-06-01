@@ -855,6 +855,17 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
 
 // ─── Export loaded set (3D model / Minecraft schematic) ──────────────────────
 
+/** Lazily fetch + cache the LDraw color-id → name map (for the BOM CSV). */
+let colorNamesPromise: Promise<Record<string, string>> | null = null;
+function loadColorNames(): Promise<Record<string, string>> {
+  if (!colorNamesPromise) {
+    colorNamesPromise = fetch('/ldraw-color-names.json')
+      .then(r => (r.ok ? r.json() : {}))
+      .catch(() => ({} as Record<string, string>));
+  }
+  return colorNamesPromise;
+}
+
 async function exportLoadedModel(fmt: string): Promise<void> {
   if (!currentBricks) { setStatus('Load a set first, then export.', 'error'); return; }
   const base = (currentBricksLabel || 'model').replace(/\.[^.]+$/, '') || 'model';
@@ -908,9 +919,13 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         counts.set(key, e);
       }
       const rows = [...counts.values()].sort((a, b) => b.count - a.count || a.part.localeCompare(b.part));
+      const colorNames = await loadColorNames();
       const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-      const lines = ['Part,ColorID,ColorHex,Count'];
-      for (const r of rows) lines.push(`${esc(r.part)},${r.color},${LDRAW_COLOR_RGB[r.color] ?? ''},${r.count}`);
+      const lines = ['Part,ColorID,ColorName,ColorHex,Count'];
+      for (const r of rows) {
+        const name = colorNames[String(r.color)] ?? '';
+        lines.push(`${esc(r.part)},${r.color},${esc(name)},${LDRAW_COLOR_RGB[r.color] ?? ''},${r.count}`);
+      }
       const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
