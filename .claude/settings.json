@@ -7,6 +7,14 @@
           {
             "type": "command",
             "command": "node C:/git/craftmatic/scripts/visual-loop-check.mjs"
+          },
+          {
+            "type": "command",
+            "command": "node C:/git/craftmatic/scripts/showcase-loop-check.mjs"
+          },
+          {
+            "type": "command",
+            "command": "node C:/git/craftmatic/scripts/renderer-improve-loop.mjs"
           }
         ]
       }
