@@ -45,15 +45,53 @@ export default defineConfig({
     {
       name: 'serve-ldraw-parts',
       configureServer(server) {
+        // FORCE_UPSTREAM: set true to bypass the local clego library and serve
+        // ALL parts from library.ldraw.org — mirrors exactly what the deployed
+        // CF Worker does, so production part coverage can be verified in dev.
+        const FORCE_UPSTREAM = false;
+        // In-memory cache of upstream fetches (path → Buffer|null). null = a
+        // confirmed upstream 404, so we don't re-hit it.
+        const upstreamCache = new Map<string, Buffer | null>();
+
+        const fetchUpstream = async (urlPath: string): Promise<Buffer | null> => {
+          if (upstreamCache.has(urlPath)) return upstreamCache.get(urlPath)!;
+          let rest = urlPath;
+          let libs = ['official', 'unofficial'];
+          const unof = rest.match(/^unofficial\/(.*)$/i);
+          if (unof) { rest = unof[1]; libs = ['unofficial']; }
+          for (const lib of libs) {
+            try {
+              const r = await fetch(`https://library.ldraw.org/library/${lib}/${rest}`);
+              if (r.ok) {
+                const buf = Buffer.from(await r.arrayBuffer());
+                upstreamCache.set(urlPath, buf);
+                return buf;
+              }
+            } catch { /* try next */ }
+          }
+          upstreamCache.set(urlPath, null);
+          return null;
+        };
+
         server.middlewares.use('/ldraw-parts', (req, res, next) => {
-          if (!existsSync(LDRAW_ROOT)) { next(); return; }
           const urlPath = (req.url ?? '').replace(/^\//, '').replace(/\.\./g, '');
           if (!urlPath) { next(); return; }
-          const filePath = `${LDRAW_ROOT}/${urlPath}`;
-          if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
-          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-          res.setHeader('Cache-Control', 'public, max-age=86400');
-          createReadStream(filePath).pipe(res);
+          const localPath = `${LDRAW_ROOT}/${urlPath}`;
+          const haveLocal = !FORCE_UPSTREAM && existsSync(LDRAW_ROOT) && existsSync(localPath);
+          if (haveLocal) {
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            createReadStream(localPath).pipe(res);
+            return;
+          }
+          // Local miss → fall back to the official/unofficial LDraw library
+          // (same upstream the production Worker proxies).
+          void fetchUpstream(urlPath).then(buf => {
+            if (!buf) { res.statusCode = 404; res.end(); return; }
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            res.end(req.method === 'HEAD' ? undefined : buf);
+          });
         });
       },
     },
