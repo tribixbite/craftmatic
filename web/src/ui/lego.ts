@@ -21,6 +21,8 @@ import {
   ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
+import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic } from '@viewer/exporter.js';
+import type { ViewerState } from '@viewer/scene.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -212,6 +214,18 @@ function buildUI(): void {
         <option value="2560x1440">2560×1440 QHD</option>
         <option value="3840x2160">3840×2160 4K</option>
         <option value="7680x4320">7680×4320 8K</option>
+      </select>
+      <select id="lego-export-model" title="Download the loaded set as a 3D model or Minecraft schematic" style="margin-left:6px;font-size:0.7rem;padding:2px 4px;border-radius:3px">
+        <option value="">Download…</option>
+        <optgroup label="3D model">
+          <option value="glb">GLB (.glb)</option>
+          <option value="obj">OBJ (.obj)</option>
+          <option value="stl">STL (.stl)</option>
+        </optgroup>
+        <optgroup label="Minecraft">
+          <option value="schem">Schematic (.schem)</option>
+          <option value="litematic">Litematica (.litematic)</option>
+        </optgroup>
       </select>
     </div>
 
@@ -469,6 +483,15 @@ function wireEvents(): void {
     } catch (err) {
       setStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
+  });
+
+  // ── Model / schematic export ────────────────────────────────────────────────
+  document.getElementById('lego-export-model')?.addEventListener('change', e => {
+    const sel = e.target as HTMLSelectElement;
+    const fmt = sel.value;
+    sel.value = ''; // reset to placeholder
+    if (!fmt) return;
+    void exportLoadedModel(fmt);
   });
 
   // ── Explode slider ────────────────────────────────────────────────────────
@@ -824,6 +847,53 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
     `;
   }
   if (btn) btn.disabled = false;
+}
+
+// ─── Export loaded set (3D model / Minecraft schematic) ──────────────────────
+
+async function exportLoadedModel(fmt: string): Promise<void> {
+  if (!currentBricks) { setStatus('Load a set first, then export.', 'error'); return; }
+  const base = (currentBricksLabel || 'model').replace(/\.[^.]+$/, '') || 'model';
+  try {
+    if (fmt === 'glb' || fmt === 'obj' || fmt === 'stl') {
+      if (!currentLDrawViewer) {
+        setStatus('3D export needs the 3D renderer (enable “3D Render”).', 'error');
+        return;
+      }
+      const meshes = currentLDrawViewer.exportMeshes();
+      if (meshes.length === 0) { setStatus('No geometry to export.', 'error'); return; }
+      // exporter.ts bakes one Mesh per instance; warn on very large sets where
+      // the un-instanced OBJ/STL can be hundreds of MB.
+      const instances = meshes.reduce((n, m) => n + ((m.userData['originalMatrices'] as unknown[])?.length ?? 0), 0);
+      if ((fmt === 'obj' || fmt === 'stl') && instances > 6000) {
+        setStatus(`Baking ${instances.toLocaleString()} bricks to ${fmt.toUpperCase()} — large file, please wait…`, 'info');
+      } else {
+        setStatus(`Exporting ${fmt.toUpperCase()}…`, 'info');
+      }
+      // Only viewer.meshes is read by the exporters — duck-type a ViewerState.
+      const shim = { meshes } as unknown as ViewerState;
+      if (fmt === 'glb') await exportGLB(shim, `${base}.glb`);
+      else if (fmt === 'obj') await exportOBJ(shim, `${base}.obj`);
+      else await exportSTL(shim, `${base}.stl`);
+      setStatus(`Exported ${base}.${fmt}`, 'success');
+      return;
+    }
+
+    if (fmt === 'schem' || fmt === 'litematic') {
+      setStatus('Voxelizing for Minecraft…', 'info');
+      // Yield a frame so the status paints before the (sync) voxelize.
+      await new Promise(r => setTimeout(r, 0));
+      const opts: VoxelizeOptions = { cubicScale, detailScale };
+      const { grid } = voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
+      if (fmt === 'schem') exportSchem(grid, `${base}.schem`);
+      else exportLitematic(grid, `${base}.litematic`);
+      const blocks = grid.countNonAir();
+      setStatus(`Exported ${base}.${fmt} (${blocks.toLocaleString()} blocks, ${grid.width}×${grid.height}×${grid.length})`, 'success');
+      return;
+    }
+  } catch (err) {
+    setStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+  }
 }
 
 // ─── Parse + Voxelize ────────────────────────────────────────────────────────

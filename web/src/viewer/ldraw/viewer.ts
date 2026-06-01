@@ -809,6 +809,24 @@ export class LDrawViewer {
     }
   }
 
+  /**
+   * Collect the model's InstancedMeshes (main + color sub-meshes + textured)
+   * for export. Each carries userData.originalMatrices (assembled, pre-explode)
+   * so exporter.ts (createExportGroup) can bake out one Mesh per instance for
+   * GLB / OBJ / STL.
+   */
+  exportMeshes(): THREE.InstancedMesh[] {
+    const out: THREE.InstancedMesh[] = [];
+    for (const stepState of this.stepGroups.values()) {
+      stepState.group.traverse(obj => {
+        if (obj instanceof THREE.InstancedMesh && obj.userData['originalMatrices']) {
+          out.push(obj);
+        }
+      });
+    }
+    return out;
+  }
+
   private applyStepVisibility(): void {
     // Global instancing: instead of toggling per-step groups, prefix-count the
     // step-sorted instances of each mesh (and segments of the edge lines) so
