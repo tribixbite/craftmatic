@@ -786,6 +786,11 @@ export class LDrawViewer {
       // controls.update() emits 'change' while damping settles, which re-flags
       // needsRender so the settle animates smoothly then goes idle.
       if (!this.cameraAnim) this.controls.update();
+      // Accumulate renderer.info across ALL of this frame's composer passes so
+      // the Stats overlay reports real scene draw calls/triangles instead of
+      // just the final OutputPass (which is 1 fullscreen triangle). Manual
+      // reset per frame (autoReset off) keeps the dev __ldrawViewer probe valid.
+      if (this.statsOverlay) { this.renderer.info.autoReset = false; this.renderer.info.reset(); }
       this.composer.render();
       this.needsRender = false;
       if (this.statsOverlay) this.updateStatsOverlay();
