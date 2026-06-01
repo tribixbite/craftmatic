@@ -161,7 +161,12 @@ export class LDrawViewer {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: false,
-      logarithmicDepthBuffer: true,
+      // NO logarithmicDepthBuffer: it forces per-fragment depth writes that
+      // produce z-fighting artifacts with InstancedMesh (which this renderer
+      // uses for every brick) and on near-coincident surfaces — exactly the
+      // stud-in-tube and coplanar brick faces in a LEGO model. Standard 24-bit
+      // depth with a well-tuned near/far (see fitCameraToDirection) gives far
+      // better precision for a model-scale scene and eliminates the flicker.
       powerPreference: 'high-performance',
       preserveDrawingBuffer: true, // captureScreenshot()
     });
@@ -1446,8 +1451,13 @@ export class LDrawViewer {
       center.y + ndir.y * fitDist,
       center.z + ndir.z * fitDist,
     );
-    const toNear = Math.max(0.01, fitDist * 0.001);
-    const toFar = fitDist * 10;
+    // Linear-depth precision: keep the near plane as FAR as possible without
+    // clipping during close orbits (minDistance is maxDim*0.1, so the camera
+    // target never gets closer than that). near=maxDim*0.01 keeps a healthy
+    // far:near ratio (~hundreds:1) so 24-bit depth has no z-fighting, while
+    // still allowing tight zoom-in. far covers the model + exploded spread.
+    const toNear = Math.max(0.1, maxDim * 0.01);
+    const toFar = (fitDist + maxDim) * 8;
 
     this.controls.maxDistance = maxDim * 5;
     this.controls.minDistance = maxDim * 0.1;

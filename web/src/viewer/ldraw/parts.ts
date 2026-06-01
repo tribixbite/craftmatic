@@ -175,17 +175,33 @@ async function fetchDatText(id: string): Promise<string | null> {
   );
 
   const promise = (async (): Promise<string | null> => {
+    // Distinguish a DEFINITIVE miss (every candidate path returned a real HTTP
+    // response, all non-OK → part truly absent) from a TRANSIENT failure
+    // (a fetch threw: timeout / network error / server overload). Only a
+    // definitive miss is cached as null permanently. Transient failures are
+    // retried per-path with backoff and, if still unresolved, left UNCACHED
+    // so a later reference (or reload) can try again. This prevents a load
+    // spike (e.g. many models at once) or a flaky network from permanently
+    // dropping a part — the previous code cached null on the FIRST failure,
+    // which turned transient timeouts into permanently missing pieces.
+    let sawTransient = false;
     for (const path of paths) {
-      try {
-        const r = await fetch(path, { signal: AbortSignal.timeout(5000) });
-        if (r.ok) {
-          const text = await r.text();
-          datTextCache.set(key, text);
-          return text;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const r = await fetch(path, { signal: AbortSignal.timeout(8000) });
+          if (r.ok) {
+            const text = await r.text();
+            datTextCache.set(key, text);
+            return text;
+          }
+          break; // got a definitive HTTP response (e.g. 404) — next path, no retry
+        } catch {
+          sawTransient = true; // timeout / network error — retry this path
+          if (attempt < 2) await new Promise(res => setTimeout(res, 200 * (attempt + 1)));
         }
-      } catch { /* try next */ }
+      }
     }
-    datTextCache.set(key, null);
+    if (!sawTransient) datTextCache.set(key, null); // definitive miss only
     return null;
   })();
 
