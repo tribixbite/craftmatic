@@ -114,8 +114,14 @@ export class LDrawViewer {
   private allMeshMaterials: THREE.Material[] = [];
   // Shared geometry cache keyed by `${partId}|main` or `${partId}|c${colorId}`.
   // Persists across load() calls — same part across two models reuses the
-  // smoothed BufferGeometry. Disposed only on viewer.dispose().
+  // smoothed BufferGeometry. LRU-capped (see pruneGeomCache) so a long session
+  // that loads many distinct sets doesn't grow this unbounded; entries used by
+  // the CURRENT model are never evicted (live InstancedMeshes reference them).
+  // Map insertion order = LRU order (hits re-insert to the end).
   private sharedPartGeoms: Map<string, THREE.BufferGeometry | null> = new Map();
+  private static readonly GEOM_CACHE_CAP = 4000;
+  /** Cache keys touched by the current model — protected from eviction. */
+  private currentGeomKeys: Set<string> = new Set();
 
   // Maps each InstancedMesh + instanceId back to its source ParsedBrick for
   // click-to-inspect. Populated during buildStepGroup, cleared in unloadCurrent.
@@ -930,6 +936,7 @@ export class LDrawViewer {
   ): StepGroupState {
     const group = new THREE.Group();
     const edgeMaterials: LineMaterial[] = [];
+    this.currentGeomKeys.clear(); // repopulated as this model's geoms are touched
 
     // ── Bucket bricks by (partId, brickColor) for InstancedMesh ──────────
     // Same partId reused across many bricks → ONE shared geometry + ONE
@@ -1221,6 +1228,7 @@ export class LDrawViewer {
       group.add(edgeLines);
     }
 
+    this.pruneGeomCache();
     return { group, edgeMaterials };
   }
 
@@ -1268,14 +1276,40 @@ export class LDrawViewer {
    * Returns null for empty geometries. Cached per (partId, key) so a part
    * used in many models / many step groups merges normals only once.
    */
+  /**
+   * Evict least-recently-used cached geometries once the cache exceeds the cap,
+   * never touching geometry the current model uses (those back live meshes).
+   * Map insertion order is LRU order (hits re-insert to the end).
+   */
+  private pruneGeomCache(): void {
+    const cap = LDrawViewer.GEOM_CACHE_CAP;
+    if (this.sharedPartGeoms.size <= cap) return;
+    let evicted = 0;
+    for (const key of [...this.sharedPartGeoms.keys()]) {
+      if (this.sharedPartGeoms.size <= cap) break;
+      if (this.currentGeomKeys.has(key)) continue; // in use by current model
+      this.sharedPartGeoms.get(key)?.dispose();
+      this.sharedPartGeoms.delete(key);
+      evicted++;
+    }
+    if (evicted > 0) {
+      console.debug(`[ldraw] pruned ${evicted} cached geometries (cap ${cap}, now ${this.sharedPartGeoms.size})`);
+    }
+  }
+
   private getOrBuildSharedGeometry(
     partId: string,
     key: string,
     tris: readonly Triangle[],
   ): THREE.BufferGeometry | null {
     const cacheKey = `${partId}|${key}`;
+    this.currentGeomKeys.add(cacheKey);
     if (this.sharedPartGeoms.has(cacheKey)) {
-      return this.sharedPartGeoms.get(cacheKey) ?? null;
+      const cached = this.sharedPartGeoms.get(cacheKey) ?? null;
+      // LRU touch: re-insert so this key moves to the end (most-recently-used).
+      this.sharedPartGeoms.delete(cacheKey);
+      this.sharedPartGeoms.set(cacheKey, cached);
+      return cached;
     }
     if (tris.length === 0) {
       this.sharedPartGeoms.set(cacheKey, null);
