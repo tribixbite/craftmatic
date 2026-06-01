@@ -847,7 +847,13 @@ export class LDrawViewer {
     }
     this.stepGroups.clear();
     this.instanceBrickMap.clear();
-    for (const m of this.allMeshMaterials) m.dispose();
+    for (const m of this.allMeshMaterials) {
+      // TEXMAP decal materials own a loaded texture; dispose it too or the
+      // GPU texture + its image leak on every model swap.
+      const map = (m as THREE.MeshPhysicalMaterial).map;
+      if (map) map.dispose();
+      m.dispose();
+    }
     this.allMeshMaterials = [];
     for (const obj of this.backdropMeshes) {
       this.scene.remove(obj);
