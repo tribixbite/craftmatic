@@ -1005,7 +1005,22 @@ async function voxelizeAndDisplay(
           },
         });
         hideProgress();
-        setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry`, 'success');
+        // Surface any pieces that couldn't be rendered (missing from the
+        // bundled part library, or LSynth flexible parts needing synthesis)
+        // so missing geometry is never silent.
+        const missing = currentLDrawViewer.missingParts;
+        if (missing.length > 0) {
+          const totalMissing = missing.reduce((s, m) => s + m.count, 0);
+          const names = missing.slice(0, 6).map(m => m.part.replace(/\.dat$/i, '')).join(', ');
+          const more = missing.length > 6 ? ` +${missing.length - 6} more` : '';
+          setStatus(
+            `${label} — ${bricks.length} bricks rendered. ⚠ ${totalMissing} piece(s) of ${missing.length} part type(s) not in library: ${names}${more}`,
+            'info',
+          );
+          console.warn('[lego] unrendered parts (missing from /ldraw-parts or LSynth):', missing);
+        } else {
+          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry`, 'success');
+        }
         viewerEl.closest('.panel-layout')?.setAttribute('data-has-model', '');
         const explodeRow = document.getElementById('lego-explode-row');
         if (explodeRow) { explodeRow.hidden = false; explodeRow.style.display = ''; }
