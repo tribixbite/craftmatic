@@ -23,7 +23,10 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   - `materials.ts` — LDraw color → THREE material (ABS / rubber / metallic / transparent / glow).
   - `types.ts` — Vec3/Triangle/Edge/PartGeom/TexturedTriangle.
 - `web/src/engine/ldraw-colors.ts` — LDraw color id → hex (and → Minecraft block for voxelizer).
-- Other importers: `lxf-parser.ts` (.lxf/LDD), `io-extractor.ts` (.io, ZipCrypto pw `soho0909`), `bff-loader.ts` (BrickLink inventory → flat layout), `studio-colors.ts`, `ldd-colors.ts`.
+- Other importers: `bff-loader.ts` (BrickLink inventory → flat layout), `studio-colors.ts`, `ldd-colors.ts`.
+  - `io-extractor.ts` (.io) — tries `model.ldr` → `model2.ldr` → `modelv2.ldr`, first with type-1 lines wins.
+  - `zip-utils.ts` + `aes-zip.ts` — ZIP reader. Handles plain DEFLATE, legacy **ZipCrypto** (pw `soho0909`), and **WinZip AES-256** (method 99, pw `soho0909`) used by older/early-access .io exports. AES = PBKDF2-HMAC-SHA1 + pure-JS AES in little-endian CTR (Web Crypto's big-endian AES-CTR is incompatible).
+  - `lxf-parser.ts` (.lxf/LDD) — applies per-part LDD→LDraw origin alignment from `web/public/ldd-part-map.json` (gen: `scripts/gen-ldd-part-map.py` from clego `ldraw.xml`, 4467 parts). Compose: `R_world=R_bone·R_align`, `t_world=R_bone·t_align+t_bone`, then Y-flip + ×25. Angles in `ldraw.xml` are RADIANS. Without this, .lxf parts float/mis-rotate.
 
 ## LDraw parts library — DEV vs PROD (critical)
 The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
