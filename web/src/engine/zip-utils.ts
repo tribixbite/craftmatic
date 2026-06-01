@@ -1,8 +1,10 @@
 /**
- * Minimal ZIP reader with ZipCrypto decryption.
+ * Minimal ZIP reader with ZipCrypto + WinZip-AES decryption.
  * Parses local file headers to locate and extract a named file.
  * DEFLATE inflate uses native DecompressionStream('deflate-raw').
  */
+
+import { decryptWinzipAes } from './aes-zip';
 
 // ─── CRC32 ───────────────────────────────────────────────────────────────────
 
@@ -76,6 +78,31 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
 const SIG_LOCAL = 0x04034b50;
 
 /**
+ * Find the WinZip AES extra field (header id 0x9901) within a local header's
+ * extra area and return the AES strength (1/2/3) + the real compression method.
+ */
+function parseAesExtra(
+  bytes: Uint8Array,
+  extraStart: number,
+  extraLen: number,
+): { strength: number; method: number } | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset);
+  let i = extraStart;
+  const end = extraStart + extraLen;
+  while (i + 4 <= end) {
+    const id = view.getUint16(i, true);
+    const size = view.getUint16(i + 2, true);
+    if (id === 0x9901 && size >= 7) {
+      const strength = bytes[i + 8];          // after vendorVer(2) + vendorId(2)
+      const method = view.getUint16(i + 9, true);
+      return { strength, method };
+    }
+    i += 4 + size;
+  }
+  return null;
+}
+
+/**
  * Scan ZIP buffer for a local file entry with the given name (case-insensitive).
  * Returns the decompressed file contents.
  * Pass `password` for ZipCrypto-encrypted entries.
@@ -101,22 +128,32 @@ export async function extractFile(
 
     const fnStart = pos + 30;
     const name = new TextDecoder().decode(bytes.subarray(fnStart, fnStart + fnLen));
-    const dataStart = fnStart + fnLen + extraLen;
+    const extraStart = fnStart + fnLen;
+    const dataStart = extraStart + extraLen;
 
     if (name.toLowerCase() === target) {
       const encrypted = (flags & 1) !== 0;
+      let effectiveMethod = method;
       let compressed = bytes.subarray(dataStart, dataStart + compSize);
 
-      if (encrypted) {
+      if (method === 99) {
+        // WinZip AES — actual compression method lives in the 0x9901 extra field.
+        if (!password) throw new Error(`File "${filename}" is AES-encrypted but no password given`);
+        const aes = parseAesExtra(bytes, extraStart, extraLen);
+        if (!aes) throw new Error(`File "${filename}" missing AES extra field`);
+        const decrypted = await decryptWinzipAes(compressed, password, aes.strength);
+        compressed = decrypted as Uint8Array<ArrayBuffer>;
+        effectiveMethod = aes.method;
+      } else if (encrypted) {
         if (!password) throw new Error(`File "${filename}" is encrypted but no password given`);
         const decrypted = decryptData(compressed, password);
-        // skip 12-byte encryption header
+        // skip 12-byte ZipCrypto encryption header
         compressed = decrypted.subarray(12) as Uint8Array<ArrayBuffer>;
       }
 
-      if (method === 0) return (compressed.buffer as ArrayBuffer).slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength);
-      if (method === 8) return (await inflate(compressed)).buffer as ArrayBuffer;
-      throw new Error(`Unsupported compression method ${method}`);
+      if (effectiveMethod === 0) return (compressed.buffer as ArrayBuffer).slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength);
+      if (effectiveMethod === 8) return (await inflate(compressed)).buffer as ArrayBuffer;
+      throw new Error(`Unsupported compression method ${effectiveMethod}`);
     }
 
     pos = dataStart + compSize;
