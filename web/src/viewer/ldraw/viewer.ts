@@ -173,6 +173,12 @@ export class LDrawViewer {
     });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PERF: the model + key light are static — only the camera orbits — so the
+    // shadow map never needs to change once built. Regenerating a 4096² shadow
+    // map for thousands of bricks EVERY frame was the main source of orbit
+    // stutter. Disable per-frame shadow updates and refresh once whenever the
+    // scene actually changes (load / step / explode / wireframe).
+    this.renderer.shadowMap.autoUpdate = false;
     // Khronos PBR Neutral tone mapping (r162+). Purpose-built for product
     // viz: tames highlights to white WITHOUT the saturation/hue shift that
     // ACES imposes on strong colors (reds→orange, blues→purple). This is
@@ -194,7 +200,7 @@ export class LDrawViewer {
     this.scene.add(this.hemi);
     this.keyLight = new THREE.DirectionalLight(0xfff6ea, 2.6);
     this.keyLight.castShadow = true;
-    this.keyLight.shadow.mapSize.set(4096, 4096);
+    this.keyLight.shadow.mapSize.set(2048, 2048);
     this.keyLight.shadow.bias = -0.0005;
     this.keyLight.shadow.normalBias = 0.02;
     this.keyLight.shadow.radius = 3;
@@ -478,6 +484,7 @@ export class LDrawViewer {
     }
 
     this.loaded = true;
+    this.requestShadowUpdate(); // build the static shadow map once for this model
     this.container.dataset['brickCount'] = String(filteredBricks.length);
     this.container.dataset['stepMax'] = String(this.maxAvailableStep);
   }
@@ -490,6 +497,7 @@ export class LDrawViewer {
     if (this.disposed || !this.loaded) return;
     this.currentMaxStep = step;
     this.applyStepVisibility();
+    this.requestShadowUpdate(); // visible-brick set changed → refresh shadows
   }
 
   /** Returns the highest step number found in the loaded model. */
@@ -548,6 +556,7 @@ export class LDrawViewer {
         obj.computeBoundingSphere();
       });
     }
+    this.requestShadowUpdate(); // bricks moved → refresh shadows
   }
 
   setAutoRotate(enabled: boolean): void {
@@ -587,6 +596,7 @@ export class LDrawViewer {
         if (obj instanceof THREE.Mesh) obj.visible = !wireframe;
       });
     }
+    this.requestShadowUpdate(); // mesh visibility changed → refresh shadows
   }
 
   /**
@@ -722,6 +732,11 @@ export class LDrawViewer {
   }
 
   // ─── Internal helpers ─────────────────────────────────────────────────────
+
+  /** Refresh the static shadow map on the next frame (scene changed). */
+  private requestShadowUpdate(): void {
+    this.renderer.shadowMap.needsUpdate = true;
+  }
 
   private startRenderLoop(): void {
     const loop = () => {
