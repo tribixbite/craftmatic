@@ -15,10 +15,10 @@ durable project knowledge only in private/agent memory.
 Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO**
 
 ## Architecture (LEGO/LDraw path)
-- `web/src/ui/lego.ts` — LEGO tab UI: search, auto-load chain, upload, 3D-render controls, step/explode sliders, missing-parts surfacing.
+- `web/src/ui/lego.ts` — LEGO tab UI: search, auto-load chain, upload, 3D-render controls, step/explode sliders, missing-parts surfacing, **export menu** (PNG; GLB/OBJ/STL via `exporter.ts`+`viewer.exportMeshes()`; Minecraft `.schem`/`.litematic` via `voxelizeLDraw`→`BlockGrid`). OBJ/STL bake instances (no instancing in-format) → large on big sets; GLB is the compact 3D option.
 - `web/src/engine/ldraw-parser.ts` — MPD/LDR → `ParsedBrick[]` (world transform = parentRot×local + parentPos, recursive; det<0 → winding flip). `countSteps()` counts `0 STEP` at ANY depth (sets that nest steps in sub-assemblies, e.g. 31084, depend on this).
 - `web/src/viewer/ldraw/` — the direct 3D renderer (modular):
-  - `viewer.ts` — Three.js scene/renderer/camera, InstancedMesh per (part,color), step groups, lighting, env, post FX, camera framing/transitions, explode, picking.
+  - `viewer.ts` — Three.js scene/renderer/camera, lighting, env, post FX, camera framing/transitions, explode, picking, export (`exportMeshes()`). **Global instancing**: ONE InstancedMesh per (part,color) across the WHOLE model (not per step) + ONE global edge `LineSegments2`. Instances/segments are sorted step-ascending; the step slider sets `InstancedMesh.count` / `LineSegmentsGeometry.instanceCount` to a binary-search prefix — so a 1226-step set (UCS Falcon) is ~300 meshes / ~950 draw calls, not thousands. Static shadow map (`shadowMap.autoUpdate=false`, refreshed on scene change). Dev-only `window.__ldrawViewer` hook for `renderer.info` metrics.
   - `parts.ts` — fetch/parse/resolve `.dat` geometry; module-level caches; `prewarmCommonParts()`; `partTextureUrls` (TEXMAP). `LDRAW_BASE = /ldraw-parts`.
   - `materials.ts` — LDraw color → THREE material (ABS / rubber / metallic / transparent / glow).
   - `types.ts` — Vec3/Triangle/Edge/PartGeom/TexturedTriangle.
