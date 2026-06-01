@@ -127,6 +127,9 @@ export class LDrawViewer {
   // pre-heuristic LDraw convention (front=+Z, right=+X).
   private frontDir = new THREE.Vector3(0, 0, 1);
   private rightDir = new THREE.Vector3(1, 0, 0);
+  /** Parts that resolved with no geometry (missing from library / LSynth).
+   *  Populated each load(); read by the UI to surface unrendered pieces. */
+  missingParts: { part: string; count: number }[] = [];
   // Cinematic camera transition state (null when not animating).
   // Render loop interpolates position/target/near/far with ease-in-out quad
   // over `duration` ms. Set by fitCameraToDirection(..., animate=true).
@@ -368,18 +371,31 @@ export class LDrawViewer {
     // Filter out non-visual primitives (logo stamps, lsynth)
     const filteredBricks = bricks.filter(b => !isLDrawPrimitive(b.part));
 
-    // Prefetch part geometry with concurrency (cache-warm reads thereafter)
+    // Prefetch part geometry with concurrency (cache-warm reads thereafter).
+    // Tally parts that resolve with NO geometry — these are pieces that
+    // couldn't be rendered (missing from the bundled library, or LSynth
+    // flexible parts that need curve synthesis). Surfaced so missing pieces
+    // aren't silent. Map part → count of brick instances affected.
+    const missing = new Map<string, number>();
+    const instCount = new Map<string, number>();
+    for (const b of filteredBricks) {
+      const id = normId(b.part);
+      instCount.set(id, (instCount.get(id) ?? 0) + 1);
+    }
     const uniqueParts = [...new Set(filteredBricks.map(b => normId(b.part)))];
     let done = 0;
     const CONCURRENCY = 20;
     for (let i = 0; i < uniqueParts.length; i += CONCURRENCY) {
       const batch = uniqueParts.slice(i, i + CONCURRENCY);
       await Promise.all(batch.map(async partId => {
-        await resolvePartGeometry(partId);
+        const g = await resolvePartGeometry(partId);
+        const triN = g.tris.length + [...g.colorTris.values()].reduce((s, a) => s + a.length, 0);
+        if (triN === 0) missing.set(partId, instCount.get(partId) ?? 1);
         done++;
         opts?.onProgress?.(done, uniqueParts.length);
       }));
     }
+    this.missingParts = [...missing.entries()].map(([part, count]) => ({ part, count }));
 
     // Group bricks by step number
     const bricksByStep = new Map<number, ParsedBrick[]>();
