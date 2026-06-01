@@ -40,6 +40,7 @@ import {
   isLDrawPrimitive,
   normId,
   partTextureUrls,
+  invalidatePartGeom,
 } from './parts.js';
 import {
   getThreeColor,
@@ -376,29 +377,40 @@ export class LDrawViewer {
     // Filter out non-visual primitives (logo stamps, lsynth)
     const filteredBricks = bricks.filter(b => !isLDrawPrimitive(b.part));
 
-    // Prefetch part geometry with concurrency (cache-warm reads thereafter).
-    // Tally parts that resolve with NO geometry — these are pieces that
-    // couldn't be rendered (missing from the bundled library, or LSynth
-    // flexible parts that need curve synthesis). Surfaced so missing pieces
-    // aren't silent. Map part → count of brick instances affected.
-    const missing = new Map<string, number>();
     const instCount = new Map<string, number>();
     for (const b of filteredBricks) {
       const id = normId(b.part);
       instCount.set(id, (instCount.get(id) ?? 0) + 1);
     }
     const uniqueParts = [...new Set(filteredBricks.map(b => normId(b.part)))];
+
+    // Prefetch part geometry concurrently (cache-warm reads thereafter).
     let done = 0;
     const CONCURRENCY = 20;
     for (let i = 0; i < uniqueParts.length; i += CONCURRENCY) {
       const batch = uniqueParts.slice(i, i + CONCURRENCY);
       await Promise.all(batch.map(async partId => {
-        const g = await resolvePartGeometry(partId);
-        const triN = g.tris.length + [...g.colorTris.values()].reduce((s, a) => s + a.length, 0);
-        if (triN === 0) missing.set(partId, instCount.get(partId) ?? 1);
+        await resolvePartGeometry(partId);
         done++;
         opts?.onProgress?.(done, uniqueParts.length);
       }));
+    }
+
+    // Repair pass (runs BEFORE meshes are built, so it fixes the render too):
+    // concurrent resolution can leave a wrapper/sub-referenced part (e.g. the
+    // minifig arm 3819 → 3818 → s/3818s01) with INCOMPLETE geometry if it read
+    // a dependency's not-yet-populated placeholder. Re-resolve any empty part
+    // SEQUENTIALLY (no race) so wrapper parts rebuild from now-complete deps.
+    // Whatever is still empty after this is genuinely unrenderable (missing
+    // from the library, or an LSynth flexible part needing curve synthesis).
+    const triCount = (g?: { tris: unknown[]; colorTris: Map<number, unknown[]> }): number =>
+      g ? g.tris.length + [...g.colorTris.values()].reduce((s, a) => s + a.length, 0) : 0;
+    const empties = uniqueParts.filter(p => triCount(getCachedPartGeom(p)) === 0);
+    for (const p of empties) invalidatePartGeom(p);
+    for (const p of empties) await resolvePartGeometry(p);
+    const missing = new Map<string, number>();
+    for (const p of uniqueParts) {
+      if (triCount(getCachedPartGeom(p)) === 0) missing.set(p, instCount.get(p) ?? 1);
     }
     this.missingParts = [...missing.entries()].map(([part, count]) => ({ part, count }));
 

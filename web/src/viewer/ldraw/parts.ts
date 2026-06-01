@@ -52,6 +52,17 @@ export function getCachedPartGeom(id: string): PartGeom | undefined {
   return partGeomCache.get(normId(id));
 }
 
+/**
+ * Drop a part's assembled geometry from the cache so the next
+ * resolvePartGeometry() rebuilds it from scratch. Used to repair geometry
+ * that came back incomplete from a concurrent-resolution race (a parent that
+ * read a child's not-yet-populated placeholder). The underlying .dat text
+ * stays cached (it's fine); only the assembled triangle set is rebuilt.
+ */
+export function invalidatePartGeom(id: string): void {
+  partGeomCache.delete(normId(id));
+}
+
 let LDRAW_BASE = '/ldraw-parts';
 
 export function setLDrawBase(base: string): void {
