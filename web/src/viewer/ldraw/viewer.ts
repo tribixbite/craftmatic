@@ -861,6 +861,45 @@ export class LDrawViewer {
    * so exporter.ts (createExportGroup) can bake out one Mesh per instance for
    * GLB / OBJ / STL.
    */
+  /**
+   * Diagnostic: geometry-contact connectivity audit (are all pieces connected,
+   * or do some float?). Uses real triangle-surface voxel contact, not bounding
+   * boxes, so SNOT/clip/microscale joints are detected correctly. Lazy-loaded.
+   */
+  async auditConnectivity(resLDU = 4): Promise<unknown> {
+    const seen = new Set<ParsedBrick>();
+    const bricks: ParsedBrick[] = [];
+    for (const arr of this.instanceBrickMap.values()) {
+      for (const b of arr) if (!seen.has(b)) { seen.add(b); bricks.push(b); }
+    }
+    const { auditConnectivity } = await import('./connectivity-audit.js');
+    return auditConnectivity(bricks, resLDU);
+  }
+
+  /**
+   * Diagnostic: recolor pieces the connectivity audit marks as NOT in the main
+   * component bright red (everything else grey), so detached/floating pieces
+   * are visually obvious. Pass the same resLDU you'd give auditConnectivity.
+   */
+  async highlightDetached(resLDU = 6): Promise<unknown> {
+    const seen = new Set<ParsedBrick>();
+    const bricks: ParsedBrick[] = [];
+    for (const arr of this.instanceBrickMap.values())
+      for (const b of arr) if (!seen.has(b)) { seen.add(b); bricks.push(b); }
+    const { auditConnectivity } = await import('./connectivity-audit.js');
+    const rep = auditConnectivity(bricks, resLDU);
+    const flag = new Map<ParsedBrick, boolean>();
+    bricks.forEach((b, i) => flag.set(b, rep.isDetached[i]!));
+    const red = new THREE.Color(0xff1133), grey = new THREE.Color(0x3a3a40);
+    for (const [mesh, arr] of this.instanceBrickMap) {
+      for (let i = 0; i < arr.length; i++) mesh.setColorAt(i, flag.get(arr[i]!) ? red : grey);
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
+    this.invalidate();
+    this.composer.render();
+    return JSON.stringify({ detached: rep.detached, largestPct: rep.largestPct, components: rep.components });
+  }
+
   exportMeshes(): THREE.InstancedMesh[] {
     const out: THREE.InstancedMesh[] = [];
     for (const stepState of this.stepGroups.values()) {
