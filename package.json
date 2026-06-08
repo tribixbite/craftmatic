@@ -23,6 +23,7 @@
     "dev:web": "vite --config web/vite.config.ts",
     "preview:web": "vite preview --config web/vite.config.ts",
     "typecheck": "tsc --noEmit",
+    "typecheck:lego": "tsc --noEmit -p web/tsconfig.lego.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
@@ -100,6 +101,7 @@
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.56.0",
     "vite": "^7.3.1",
-    "vitest": "^3.0.5"
+    "vitest": "^3.0.5",
+    "wrangler": "^4.95.0"
   }
 }

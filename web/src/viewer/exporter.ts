@@ -93,7 +93,9 @@ export async function exportSTL(viewer: ViewerState, filename = 'craftmatic.stl'
   const result = exporter.parse(group, { binary: true });
   cleanup();
 
-  const blob = new Blob([result], { type: 'application/octet-stream' });
+  // STLExporter returns a DataView for binary output; cast past the
+  // SharedArrayBuffer/ArrayBuffer generic-variance mismatch (runtime is a valid BlobPart).
+  const blob = new Blob([result as unknown as BlobPart], { type: 'application/octet-stream' });
   downloadBlob(blob, filename);
 }
 
@@ -286,8 +288,8 @@ export function exportLitematic(grid: BlockGrid, filename = 'craftmatic.litemati
   }
   function writeEnd() { writeByte(0); }
 
-  // NBT tag type constants
-  const TAG_BYTE = 1, TAG_INT = 3, TAG_LONG = 4, TAG_STRING = 8;
+  // NBT tag type constants (TAG_BYTE omitted — unused by this writer)
+  const TAG_INT = 3, TAG_LONG = 4, TAG_STRING = 8;
   const TAG_LIST = 9, TAG_COMPOUND = 10, TAG_LONG_ARRAY = 12;
 
   // Root compound
