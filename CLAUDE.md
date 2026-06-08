@@ -88,6 +88,30 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
 - LDraw Y is down; the viewer handles the handedness. Model-aware F/B/L/R
   orientation is derived from the longest horizontal axis + brick mass.
 
+## Connectivity / "are pieces floating?" verification
+Two tools answer "is every piece connected, or do some float?":
+- **Geometry-contact (browser, primary)**: `viewer.auditConnectivity(resLDU=4)` voxelizes each part's triangle SURFACE, transforms per instance, unions pieces whose surfaces share/neighbour a voxel → connected components. `viewer.highlightDetached(resLDU)` recolors non-main pieces red to eyeball them. `web/src/viewer/ldraw/connectivity-audit.ts`. **It detects face contact (stud-stacking, flush) but is BLIND to clip/bar/pin/SNOT grips.** Result: traditional builds → one 100% component (21063 verified); SNOT/microscale (71043) under-counts but `highlightDetached` shows the "detached" pieces are embedded base/spires → **no floaters**.
+- **LDCad snaps (offline, supplement)**: `scripts/ldcad_connectivity.py <model.io|.ldr>` uses the real LDCad shadow library to match male/female SNAP_CYL/CLP/FGR/GEN connectors. **COMPLETE but proven insufficient ALONE** — even 21063 (geometry-proven 100%) only reaches 69% via snaps, because LEGO joints are dominated by clutch/tile/flush contacts snaps don't encode. The true certifier is the HYBRID (geometry OR snap); not yet fused.
+- **Settled findings**: 21063 fully connected; **71043 has no floating pieces** (verified geometrically + visually). Don't re-litigate.
+
+## Offline reference data (for the analysis scripts; in `C:/git/clego`, dev-only)
+- **LDraw part library** (real `.dat` geometry): `extracted/studio_release/app/ldraw` (`parts/`, `p/`, `p/48/`, `parts/s/`).
+- **LDCad shadow library** (SNAP metadata, 4255 `.dat`): `ldcad/unpacked/offLib/offLibShadow.csl` (a zip). Acquired from melkert.net LDCad 1.7 `shadow.sf` (zip → `offLibShadow.csl` zip). Snap format: `0 !LDCAD SNAP_CYL [gender=M|F] [secs=R <radius> <len>] [pos=...] [ori=...] [grid=...]`. Studs y=0 (M), anti-studs y=24 (F) in part space.
+- **Mecabricks parts**: `mecabricks_parts/geometries` (810 high-fidelity meshes) + `configs` (857; `geometry.extras.knobs`=studs, `tubes`=anti-studs, 456 populated). NOT used — LDraw already covers all parts; Mecabricks is a higher-fidelity SUBSET in ~2.5×-LDU Y-up coords. Only worth it for Mecabricks-grade fidelity (big lift, partial coverage).
+- `.io` AES decrypt (for offline model loading): WinZip AES-256, pw `soho0909`, PBKDF2-HMAC-SHA1 1000 iters, little-endian CTR (see `scripts/ldcad_connectivity.py` `read_io`).
+
+## Browser-automation testing caveats (claude-in-chrome — hard-won, saves hours)
+- The automation tab runs **backgrounded → `requestAnimationFrame` is throttled/paused**. So **on-demand rendering means the canvas often has no fresh frame** and `Page.captureScreenshot` **times out — just retry it** (usually succeeds 2nd try). Continuous-render checks (live FPS) are unmeasurable here.
+- **Enable the Stats checkbox to force continuous rendering** when you need reliable screenshots (it sets `animating=true`).
+- **Editing `viewer.ts` triggers HMR which disposes the viewer → `window.__ldrawViewer` becomes null/stale.** After any viewer edit you MUST reload the page AND re-load the model before using the dev hook.
+- **Synthetic pointer/wheel events don't reliably drive OrbitControls.** To move the camera, set it via the hook: `v.cameraAnim=null; v.controls.target.copy(...); v.camera.position...; v.controls.update(); v.composer.render()`. `v.setView('iso'|'front'|...)` works (it animates).
+- **Verify the loaded model** (`window.__collect?.().length` or `viewer` brick count) — a 404'd `fetch('/inspect-X.io')` silently leaves the PRIOR model loaded (this mislabeled an audit once).
+- Test models: copy `C:/git/clego/lego_sets/IO/<set>.io` → `web/public/inspect-*.io`, dispatch `change` on `#lego-mpd-input`, delete after (keep out of git). OMR `.mpd` fetch directly via `/ldraw-omr/<set>-1.mpd`.
+- Dev-only `window.__ldrawViewer` is set in `viewer.ts` load() under `import.meta.env.DEV`.
+
+## Autonomous improvement loop
+`scripts/renderer-improve-loop.mjs` is a Stop hook (in `.claude/settings.json`) that, when `.claude/improve-loop-state.json` has `"active": true`, blocks stop + re-injects a "find/implement/validate/commit the next improvement" directive (50-pass cap). Currently `active:false`. Re-arm: set `active:true, pass:0`.
+
 ## Deploy
 Cloudflare: static build (`web/dist`) + Worker (`worker/ldraw-omr.js`).
 `wrangler.toml` routes `/ldraw-omr/*` and `/ldraw-parts/*` to the Worker
