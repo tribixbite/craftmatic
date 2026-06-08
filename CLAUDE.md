@@ -5,6 +5,13 @@ Minecraft schematic toolkit **and** an LDraw (LEGO) 3D viewer, web UI in `web/`
 truth for architecture + hard-won conventions. Keep it current; do not keep
 durable project knowledge only in private/agent memory.
 
+> **Where to go next** → see **[ROADMAP.md](ROADMAP.md)**: the near-term (~100h)
+> priorities (tests/CI first, then the user on-ramp, mobile, MC bridge,
+> reliability) and the long-term (~10k h) vision — a universal LEGO pipeline:
+> buildable *from* anything, *into* anything, with a physical-validity verifier
+> as the moat. Read it before planning large work; it also lists the anti-goals
+> (don't micro-polish the renderer; don't re-verify settled questions).
+
 ## Dev / commands
 - Dev server: `bun dev:web` (port 4000). Add `--host` to expose on LAN (phone testing at the box's LAN IP:4000).
 - Typecheck: `node_modules/.bin/tsc --noEmit -p web/tsconfig.json` (NOTE: several pre-existing errors in unrelated `web/src/ui/*` files; the LDraw viewer + engine modules are clean. The app builds via Vite/esbuild which doesn't type-gate.)
