@@ -6,7 +6,19 @@ Uses the real LDCad shadow library (snap metadata) + the local LDraw part
 library to compute true joint-level connectivity for a model, instead of the
 geometry-contact approximation.
 
-STATUS (honest): this is a working FOUNDATION, not a finished certifier.
+CONCLUSION (after completing all snap kinds): snaps alone CANNOT certify
+connectivity. Measured with the full kind set (CYL M/F, CLP, FGR, GEN+group):
+  21063 (traditional) 69%  |  42043 (Technic) 9%  |  71043 (microscale) 0.8%.
+Even 21063 — which geometry-contact proves is 100% connected — reaches only
+69% via snaps, and clip/finger/generic add mere tens of matches. The reason is
+structural: LEGO connections are dominated by tube + CLUTCH/tile/flush/friction
+contacts that designed snap points don't represent. => The certifier MUST be a
+HYBRID: geometry-surface-contact (which already gives 21063=100% and shows
+71043 has no floaters) as the primary, with snaps supplementing only thin
+clip/bar/hinge joints geometry's voxel test misses. This engine is the complete,
+validated snap half of that hybrid.
+
+EARLIER NOTES: this is a working FOUNDATION, not a standalone certifier.
   • Shadow library acquisition + SNAP parsing + the stud↔anti-stud (SNAP_CYL
     M/F) matcher are correct: the coordinate convention validates (studs y=0,
     anti-studs y=24, a brick stacked at y=-24 makes them coincide).
@@ -40,7 +52,7 @@ Pipeline:
 Validation: a traditionally-built model (21063) must come out ~1 component.
 """
 import sys, os, re, zipfile, struct, hashlib, zlib, math
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 SHADOW_CSL = r'C:\git\clego\ldcad\unpacked\offLib\offLibShadow.csl'
 LDLIB      = r'C:\git\clego\extracted\studio_release\app\ldraw'
@@ -142,12 +154,13 @@ def harvest_snaps(text, connectors, mat, pos):
         lori = [float(x) for x in kv.get('ori','1 0 0 0 1 0 0 0 1').split()] if 'ori' in kv else list(I3)
         lori = tuple(lori)
         axis_local = mvec(lori, (0,1,0))  # cylinder axis = local Y
+        group = kv.get('group') or kv.get('ID') or kv.get('id')
         offsets = expand_grid(kv['grid']) if 'grid' in kv else [(0,0)]
         for (gx,gz) in offsets:
             p_local = (lp[0]+gx, lp[1], lp[2]+gz)
             wp = vadd(mvec(mat, p_local), pos)
             wax = mvec(mat, axis_local)
-            connectors.append({'pos':wp,'axis':wax,'r':rad,'g':gender,'k':kind})
+            connectors.append({'pos':wp,'axis':wax,'r':rad,'g':gender,'k':kind,'grp':group})
 
 # ─── per-part connector resolution (walk real tree + shadow overlay) ─────────
 def base_candidates(name):
@@ -258,18 +271,16 @@ def audit(path):
     txt = read_io(path) if path.lower().endswith('.io') else open(path,encoding='utf-8',errors='replace').read()
     bricks = parse_ldr(txt)
     N=len(bricks)
-    # place connectors
-    conns=[]  # (piece_idx, pos, axis, r, gender)
+    # place connectors -> dicts in world space
+    conns=[]
     for i,(part,R,T) in enumerate(bricks):
         for c in resolve_connectors(part):
-            wp = vadd(mvec(R,c['pos']), T)
-            wax = mvec(R,c['axis'])
-            conns.append((i,wp,wax,c['r'],c['g']))
-    # spatial hash on position (cell 20 LDU); match M<->F coincident & parallel
+            conns.append({'p':i,'w':vadd(mvec(R,c['pos']),T),'a':mvec(R,c['axis']),
+                          'r':c['r'],'g':c['g'],'k':c['k'],'grp':c.get('grp')})
     CELL=20.0; TOL=8.0
     grid=defaultdict(list)
-    for idx,(pi,wp,wax,r,g) in enumerate(conns):
-        grid[(round(wp[0]/CELL),round(wp[1]/CELL),round(wp[2]/CELL))].append(idx)
+    for idx,c in enumerate(conns):
+        w=c['w']; grid[(round(w[0]/CELL),round(w[1]/CELL),round(w[2]/CELL))].append(idx)
     par=list(range(N))
     def find(a):
         while par[a]!=a: par[a]=par[par[a]]; a=par[a]
@@ -277,11 +288,28 @@ def audit(path):
     def uni(a,b):
         ra,rb=find(a),find(b)
         if ra!=rb: par[ra]=rb
-    def parallel(a,b):
+    def parallel(a,b,thr=0.95):
         d=a[0]*b[0]+a[1]*b[1]+a[2]*b[2]
         la=math.sqrt(a[0]**2+a[1]**2+a[2]**2) or 1; lb=math.sqrt(b[0]**2+b[1]**2+b[2]**2) or 1
-        return abs(d/(la*lb))>0.95
-    matches=0
+        return abs(d/(la*lb))>thr
+    def compatible(a,b):
+        ka,kb=a['k'],b['k']
+        # normalize so CLP/CYL pair order doesn't matter
+        kinds={ka,kb}
+        if ka=='SNAP_CYL' and kb=='SNAP_CYL':
+            return a['g']!=b['g'] and a['g'] in ('M','F') and b['g'] in ('M','F') \
+                   and abs(a['r']-b['r'])<=1.5 and parallel(a['a'],b['a'])
+        if kinds=={'SNAP_CLP','SNAP_CYL'}:
+            # clip grips a bar (cyl): coincident + parallel; radius lenient
+            return parallel(a['a'],b['a'])
+        if ka=='SNAP_CLP' and kb=='SNAP_CLP':
+            return parallel(a['a'],b['a'])         # two clips on same bar region
+        if ka=='SNAP_FGR' and kb=='SNAP_FGR':
+            return parallel(a['a'],b['a'])         # hinge fingers share the pin axis
+        if ka=='SNAP_GEN' and kb=='SNAP_GEN':
+            return a['g']!=b['g'] and (a['grp']==b['grp']) and parallel(a['a'],b['a'])
+        return False
+    matches=Counter()
     for (cx,cy,cz),lst in list(grid.items()):
         near=[]
         for dx in(-1,0,1):
@@ -289,24 +317,22 @@ def audit(path):
                 for dz in(-1,0,1):
                     near+=grid.get((cx+dx,cy+dy,cz+dz),[])
         for a in lst:
-            pa,wa,axa,ra,ga=conns[a]
+            ca=conns[a]
             for b in near:
                 if b<=a: continue
-                pb,wb,axb,rb,gb=conns[b]
-                if pa==pb: continue
-                if ga==gb or '?' in (ga,gb):
-                    # generic/clip/finger: allow same-kind coincidence
-                    pass
-                if abs(ra-rb)>1.5: continue
-                dist=math.dist(wa,wb)
-                if dist<=TOL and parallel(axa,axb) and find(pa)!=find(pb):
-                    uni(pa,pb); matches+=1
+                cb=conns[b]
+                if ca['p']==cb['p']: continue
+                if find(ca['p'])==find(cb['p']): continue
+                if math.dist(ca['w'],cb['w'])>TOL: continue
+                if compatible(ca,cb):
+                    uni(ca['p'],cb['p']); matches[tuple(sorted((ca['k'],cb['k'])))]+=1
     comp=defaultdict(int)
     for i in range(N): comp[find(i)]+=1
     sizes=sorted(comp.values(),reverse=True)
     return {
         'file':os.path.basename(path),'pieces':N,'connectors':len(conns),
-        'matches':matches,'components':len(sizes),
+        'matches':sum(matches.values()),'matchKinds':{'+'.join(k):v for k,v in matches.most_common()},
+        'components':len(sizes),
         'largest':sizes[0] if sizes else 0,
         'largestPct':round(100*sizes[0]/N,2) if N else 0,
         'detached':N-(sizes[0] if sizes else 0),
