@@ -7,7 +7,7 @@
  * skipped), color-16 inheritance, and recursive sub-file references.
  */
 
-import type { Vec3, Triangle, Edge, PartGeom, UV, TexturedTriangle } from './types.js';
+import type { Vec3, Triangle, Edge, PartGeom, UV } from './types.js';
 
 const datTextCache = new Map<string, string | null>();
 const partGeomCache = new Map<string, PartGeom>();
