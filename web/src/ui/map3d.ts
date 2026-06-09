@@ -169,7 +169,7 @@ function initViewer(container: HTMLElement, apiKey: string, lat: number, lng: nu
   };
   window.addEventListener('resize', onResize);
   // Store cleanup ref
-  (container as Record<string, unknown>)._map3dResize = onResize;
+  (container as unknown as Record<string, unknown>)._map3dResize = onResize;
 
   isInitialized = true;
 }

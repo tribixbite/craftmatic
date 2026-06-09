@@ -97,10 +97,14 @@ function createRng(r: number, g: number, b: number): () => number {
 }
 
 /** Load real texture PNGs from textures/blocks/ via Vite glob import */
-const textureImages: Record<string, string> = import.meta.glob(
+const textureImages: Record<string, string> = (
+  import.meta as unknown as {
+    glob(pattern: string, opts: object): Record<string, string>;
+  }
+).glob(
   '../../../textures/blocks/*.png',
   { eager: true, import: 'default', query: '?url' },
-) as Record<string, string>;
+);
 
 /** Normalize glob paths to texture names */
 const textureUrlMap = new Map<string, string>();
@@ -455,7 +459,7 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
       // Apply rotation for directional blocks (doors, panes)
       if (kind === 'door' || kind === 'pane') {
         const facing = getFacing(e.blockState);
-        const angle = facingToAngle(facing);
+        const angle = facingToAngle(facing ?? null);
         rotMatrix.makeRotationY(angle);
         matrix.identity();
         matrix.multiply(rotMatrix);

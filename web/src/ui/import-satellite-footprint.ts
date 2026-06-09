@@ -140,7 +140,7 @@ export function extractFootprint(
 
   // Check if the sampled roof color itself is grey/pavement-like
   // (asphalt shingle roofs are very common — don't filter them out)
-  const [roofH, roofS, roofL] = rgbToHsl(roofColor.r, roofColor.g, roofColor.b);
+  const [, roofS, roofL] = rgbToHsl(roofColor.r, roofColor.g, roofColor.b);
   const roofIsGrey = isPavement(roofS, roofL);
 
   // Adaptive color threshold based on sample variance

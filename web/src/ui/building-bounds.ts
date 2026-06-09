@@ -11,8 +11,8 @@
  * 5. Fallback 25m × 25m (typical US residential lot)
  */
 
-import { querySolarBuildingInsights, type SolarBuildingData } from '@craft/gen/api/google-solar.js';
-import { searchOSMBuilding, type OSMBuildingData } from '@ui/import-osm.js';
+import { querySolarBuildingInsights } from '@craft/gen/api/google-solar.js';
+import { searchOSMBuilding } from '@ui/import-osm.js';
 import type { LatLng } from '@ui/shared-geocode.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────

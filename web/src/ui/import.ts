@@ -594,7 +594,6 @@ export function initImport(
   const mlyTokenInput = controls.querySelector('#import-mly-token') as HTMLInputElement;
   const mlySaveBtn = controls.querySelector('#import-mly-save') as HTMLButtonElement;
   const mlyStatus = controls.querySelector('#import-mly-status') as HTMLElement;
-  const apiSection = controls.querySelector('#import-api-section') as HTMLDetailsElement;
   const enrichSection = controls.querySelector('#import-enrichment-section') as HTMLDetailsElement;
   const enrichBody = controls.querySelector('#import-enrichment-body') as HTMLElement;
   const enrichBadge = controls.querySelector('#import-enrich-badge') as HTMLElement;
@@ -1169,7 +1168,7 @@ export function initImport(
     if (currentNlcdCanopy) { vegParts.push(`NLCD canopy: ${currentNlcdCanopy.canopyCoverPct}%`); sourceCount++; }
     if (currentHardiness) { vegParts.push(`Hardiness zone: ${currentHardiness.zone}`); sourceCount++; }
     if (currentOSMTrees.length > 0) { vegParts.push(`Nearby trees: ${currentOSMTrees.length}`); sourceCount++; }
-    if (currentCanopyHeight) { vegParts.push(`Canopy height: ${currentCanopyHeight.heightMeters.toFixed(1)}m`); sourceCount++; }
+    if (currentCanopyHeight?.heightMeters != null) { vegParts.push(`Canopy height: ${currentCanopyHeight.heightMeters.toFixed(1)}m`); sourceCount++; }
     if (currentLandCover) { vegParts.push(`Land cover: ${currentLandCover.label ?? `class ${currentLandCover.classValue}`}`); sourceCount++; }
     if (vegParts.length) sections.push(`<div class="enrich-group"><span class="enrich-label">Vegetation</span><span class="enrich-val">${vegParts.join(' · ')}</span></div>`);
 
@@ -1616,6 +1615,10 @@ export function initImport(
         buildingFootprintAreaSqm: (prop.solarBuildingArea as number) ?? 0,
         primaryPlaneHeight: 0,
         imageryQuality: 'IMPORTED',
+        // Imported data carries no ML building perimeter/centroid; consumers
+        // already null-guard these (e.g. building-bounds.ts `solar?.buildingBounds`).
+        buildingBounds: null,
+        buildingCenter: null,
       };
     }
 
@@ -1948,8 +1951,8 @@ export function initImport(
     // VLM vision, Mapillary features, satellite footprint, terrain, etc.)
     if (importedPropertyOverrides) {
       for (const [key, val] of Object.entries(importedPropertyOverrides)) {
-        if (val !== undefined && (property as Record<string, unknown>)[key] === undefined) {
-          (property as Record<string, unknown>)[key] = val;
+        if (val !== undefined && (property as unknown as Record<string, unknown>)[key] === undefined) {
+          (property as unknown as Record<string, unknown>)[key] = val;
         }
       }
     }

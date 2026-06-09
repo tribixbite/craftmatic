@@ -8,7 +8,6 @@
  * Signup: https://www.smarty.com/account/create
  */
 
-import type { BlockState } from '@craft/types/index.js';
 
 export {
   type SmartyPropertyData,

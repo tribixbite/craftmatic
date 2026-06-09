@@ -16,6 +16,6 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run typecheck
-      - run: bun run typecheck:lego
+      - run: bun run typecheck:web
       - run: bun run test
       - run: bun run build

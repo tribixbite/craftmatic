@@ -6,7 +6,7 @@ import type { StructureType, StyleName, RoofShape, FloorPlanShape } from '@craft
 import { generateStructure } from '@craft/gen/generator.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { getBlockColor } from '@craft/blocks/colors.js';
-import { isAir, isSolidBlock, getBlockName } from '@craft/blocks/registry.js';
+import { isAir, isSolidBlock } from '@craft/blocks/registry.js';
 
 interface GalleryEntry {
   type: StructureType;

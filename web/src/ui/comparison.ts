@@ -133,9 +133,10 @@ function jsonToLocation(entry: ComparisonJsonEntry): LocationEntry {
       grid: `${t.grid.width}\u00d7${t.grid.height}\u00d7${t.grid.depth}`,
       blocks: t.grid.blocks.toLocaleString(),
       sqft: p.sqft ? Number(p.sqft).toLocaleString() : '\u2014',
-      beds: p.bedrooms ?? '\u2014',
-      baths: p.bathrooms ?? '\u2014',
-      year: p.yearUncertain ? '? (uncertain)' : (p.yearBuilt ?? '\u2014'),
+      // `property` is Record<string, unknown>; these are numeric cells at runtime.
+      beds: (p.bedrooms as number) ?? '\u2014',
+      baths: (p.bathrooms as number) ?? '\u2014',
+      year: p.yearUncertain ? '? (uncertain)' : ((p.yearBuilt as number) ?? '\u2014'),
       sources,
       notes,
     };
@@ -700,9 +701,9 @@ function buildStats(): void {
       if (field === 'baths') continue;
       const val = field === 'beds'
         ? `${data.beds} / ${data.baths}`
-        : String((data as Record<string, unknown>)[field] ?? '\u2014');
+        : String((data as unknown as Record<string, unknown>)[field] ?? '\u2014');
       const prevVal = prev
-        ? (field === 'beds' ? `${prev.beds} / ${prev.baths}` : String((prev as Record<string, unknown>)[field] ?? '\u2014'))
+        ? (field === 'beds' ? `${prev.beds} / ${prev.baths}` : String((prev as unknown as Record<string, unknown>)[field] ?? '\u2014'))
         : null;
       const changed = prevVal && val !== prevVal ? ' class="changed"' : '';
       const label = field === 'beds' ? 'Beds / Baths' : STAT_LABELS[field];

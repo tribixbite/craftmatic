@@ -14,8 +14,7 @@ durable project knowledge only in private/agent memory.
 
 ## Dev / commands
 - Dev server: `bun dev:web` (port 4000). Add `--host` to expose on LAN (phone testing at the box's LAN IP:4000).
-- Typecheck: `node_modules/.bin/tsc --noEmit -p web/tsconfig.json` (NOTE: ~34 pre-existing errors in unrelated `web/src/ui/*` mapping/import files; the LDraw viewer + engine modules are clean. The app builds via Vite/esbuild which doesn't type-gate.)
-- **LEGO type-gate**: `bun run typecheck:lego` (`web/tsconfig.lego.json`) type-checks ONLY the clean LEGO core (`engine/**` + `viewer/ldraw/**`) and runs in CI (ci.yml + deploy.yml), so a careless edit there can't silently compile-break. Widen its `include` toward the full project as the `ui/*` errors get fixed (note: `viewer/exporter.ts` is one import-hop from the un-clean `viewer/scene.ts`, so it joins the gate once scene.ts is clean).
+- Typecheck: root is `bun run typecheck` (`tsc --noEmit`, the `src/` tree); the whole `web/` tree is `bun run typecheck:web` (`tsc --noEmit -p web/tsconfig.json`). **Both run in CI** (ci.yml + deploy.yml) so a careless edit can't silently compile-break. The `web` tree is currently type-clean — keep it that way (the old ~34 `ui/*` errors were fixed; the app still *builds* via Vite/esbuild without type-gating, but CI now gates it).
 - Build: `bun run build:web`. Tests: `bun test` (vitest). Loader unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests).
 - Use **Chrome** for browser testing, not Edge.
 
