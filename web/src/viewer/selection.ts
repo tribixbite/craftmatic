@@ -66,15 +66,6 @@ export function enableSelection(
   let resolve: (value: SelectionBounds | null) => void;
   const promise = new Promise<SelectionBounds | null>((r) => { resolve = r; });
 
-  /** Convert a pointer/touch event to normalized device coords */
-  function getNDC(e: MouseEvent | Touch): THREE.Vector2 {
-    const rect = canvas.getBoundingClientRect();
-    return new THREE.Vector2(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1,
-    );
-  }
-
   /** Raycast to ground plane, return world XZ intersection or null */
   function raycastGround(ndc: THREE.Vector2): THREE.Vector3 | null {
     state.raycaster.setFromCamera(ndc, camera);

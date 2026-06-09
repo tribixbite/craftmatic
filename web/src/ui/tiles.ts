@@ -22,9 +22,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { threeToGridAsync } from '@craft/convert/voxelizer.js';
 import { geocodeAddress } from '@ui/shared-geocode.js';
 import { captureTileMeshes } from '@engine/tile-capture.js';
-import {
-  getStreetViewApiKey, hasStreetViewApiKey,
-} from '@ui/import-streetview.js';
+import { getStreetViewApiKey } from '@ui/import-streetview.js';
 import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
 import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
 import {
@@ -32,7 +30,7 @@ import {
   constrainPalette, modeFilter3D,
   fillInteriorGaps, clearOpenAirFill, removeSmallComponents,
   removeGroundPlane, stripVegetation,
-  morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows, injectSyntheticWindows,
+  morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows,
 } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -392,16 +390,13 @@ async function runVoxelizePipeline(
   // a limited batch of tiles per frame. We need many cycles for the
   // root → regional → local → building tile chain to fully resolve.
   // Show loading progress and continue until tiles start downloading.
-  let sawDownloads = false;
   for (let i = 0; i < 200; i++) {
     renderForLoading();
-    const st = tiles.stats;
-    const d = (st as Record<string, number>).downloading ?? 0;
-    const p = (st as Record<string, number>).parsing ?? 0;
-    const l = (st as Record<string, number>).loaded ?? 0;
-    const q = (st as Record<string, number>).queued ?? 0;
-    const f = (st as Record<string, number>).failed ?? 0;
-    if (d > 0 || p > 0 || l > 0) sawDownloads = true;
+    const st = (tiles as unknown as { stats: Record<string, number> }).stats;
+    const d = st.downloading ?? 0;
+    const p = st.parsing ?? 0;
+    const l = st.loaded ?? 0;
+    const f = st.failed ?? 0;
     if (i % 10 === 0) {
       setStatus(`Loading 3D tiles... (${d} downloading, ${p} parsing, ${l} loaded${f > 0 ? `, ${f} failed` : ''})`, 'info');
     }
@@ -429,7 +424,7 @@ async function runVoxelizePipeline(
         totalVertices += ((c.geometry as THREE.BufferGeometry)?.attributes?.position?.count ?? 0);
       }
     });
-    const s = tiles.stats;
+    const s = (tiles as unknown as { stats: Record<string, number> }).stats;
     console.log(`[tiles] pre-capture: ${totalMeshes} meshes, ${totalVertices} verts, loaded=${s.loaded}, failed=${(s as Record<string, number>).failed ?? 0}`);
 
     const capturedGroup = await captureTileMeshes(tiles, center, radiusMeters, {
@@ -441,7 +436,7 @@ async function runVoxelizePipeline(
 
     // Log post-capture stats
     if (tiles) {
-      const s2 = tiles.stats;
+      const s2 = (tiles as unknown as { stats: Record<string, number> }).stats;
       console.log('[tiles] post-capture stats:', JSON.stringify({
         downloading: s2.downloading, parsing: s2.parsing, failed: s2.failed,
         loaded: s2.loaded, visible: s2.visible,
@@ -533,7 +528,7 @@ async function runVoxelizePipeline(
 
     const nonAir = trimmedGrid.countNonAir();
     // Debug: expose grid for inspection
-    (window as Record<string, unknown>).__lastTilesGrid = trimmedGrid;
+    (window as unknown as Record<string, unknown>).__lastTilesGrid = trimmedGrid;
     console.log('[tiles] palette:', [...trimmedGrid.palette].join(', '));
 
     const qualityLabel = analysis
@@ -871,7 +866,7 @@ async function batchVoxelize(
         try {
           const resp = await fetch(`http://localhost:3456/save/${encodeURIComponent(filename)}`, {
             method: 'POST',
-            body: bytes,
+            body: bytes as unknown as BodyInit,
           });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           console.log(`[batch] ${key}: ${grid.width}x${grid.height}x${grid.length} → ${filename} (${bytes.byteLength} bytes)`);
@@ -903,4 +898,4 @@ async function batchVoxelize(
 }
 
 // Expose batch function on window for console access
-(window as Record<string, unknown>).batchVoxelize = batchVoxelize;
+(window as unknown as Record<string, unknown>).batchVoxelize = batchVoxelize;

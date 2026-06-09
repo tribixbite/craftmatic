@@ -9,7 +9,6 @@ import { BlockGrid } from '@craft/schem/types.js';
 const SUPPORTED_EXTENSIONS = ['schem', 'schematic', 'nbt', 'litematic', 'glb', 'gltf', 'obj'];
 
 /** Schematic format extensions (parsed by schem.ts or litematic.ts) */
-const SCHEMATIC_EXTENSIONS = ['schem', 'schematic', 'nbt'];
 
 /** Mesh format extensions (loaded by mesh-import.ts, voxelized by voxelizer.ts) */
 const MESH_EXTENSIONS = ['glb', 'gltf', 'obj'];

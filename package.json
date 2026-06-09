@@ -23,7 +23,7 @@
     "dev:web": "vite --config web/vite.config.ts",
     "preview:web": "vite preview --config web/vite.config.ts",
     "typecheck": "tsc --noEmit",
-    "typecheck:lego": "tsc --noEmit -p web/tsconfig.lego.json",
+    "typecheck:web": "tsc --noEmit -p web/tsconfig.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
