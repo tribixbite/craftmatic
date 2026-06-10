@@ -43,6 +43,12 @@ export interface LDrawViewerOptions {
    * pre-loaded into the .dat cache so they resolve without HTTP fetches.
    */
   mpdContent?: string;
+  /**
+   * Model-bundled part definitions (e.g. a Studio .io archive's CustomParts/
+   * entries), keyed by archive-relative path. Pre-loaded into the .dat cache
+   * before resolution; cleared on the next load.
+   */
+  datFiles?: Map<string, string>;
   /** Maximum step to render (undefined = all steps) */
   maxStep?: number;
   /**

@@ -13,7 +13,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { parseLDraw, countSteps, type ParsedBrick } from '@engine/ldraw-parser.js';
 import { voxelizeLDraw, solidifyColumns, fillSingleVoxelGaps, keepLargestComponent, type VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
 import { voxelizeLDrawGeometry } from '@engine/ldraw-geometry.js';
-import { extractIoLDraw } from '@engine/io-extractor.js';
+import { extractIoModel } from '@engine/io-extractor.js';
 import { parseLxf } from '@engine/lxf-parser.js';
 import { studioColorToBlock } from '@engine/studio-colors.js';
 import { fetchBffInventory, bffInventoryToLDraw } from '@engine/bff-loader.js';
@@ -84,6 +84,8 @@ let currentBricksLabel = '';
 let currentBricksColorFn: ((id: number) => string) | undefined;
 /** Raw MPD/LDR content for inline sub-model resolution in 3D renderer */
 let currentMpdContent: string | undefined;
+/** Part definitions bundled inside the loaded .io archive (CustomParts/). */
+let currentCustomParts: Map<string, string> | undefined;
 /**
  * Persistent 3D viewer instance — kept alive across step-slider drags so
  * setMaxStep() is an O(1) visibility toggle instead of a full rebuild.
@@ -94,6 +96,12 @@ import type { LDrawViewer as LDrawViewerType } from '@viewer/ldraw/index.js';
 let currentLDrawViewer: LDrawViewerType | null = null;
 /** Total number of steps in the current model (1 = no step markers) */
 let totalSteps = 1;
+/**
+ * Slider key for the 3D viewer: assembly steps or vertical (plate) layers.
+ * Layer mode is what makes the slider useful for Studio .io exports that
+ * carry no STEP meta (e.g. 71043: 5,936 bricks, one step).
+ */
+let sliderMode: 'step' | 'layer' = 'step';
 /** Current step being shown (undefined = all steps) */
 let currentStep: number | undefined;
 
@@ -233,10 +241,12 @@ function buildUI(): void {
       </select>
     </div>
 
-    <!-- Assembly step slider (hidden until model with steps is loaded) -->
+    <!-- Assembly step / vertical layer slider (hidden until a model loads) -->
     <div class="lego-section lego-scale-row" id="lego-step-row" hidden style="display:none">
-      <span class="lego-section-label" style="font-size:0.75rem;opacity:0.7">Step</span>
-      <button id="lego-step-play" type="button" title="Auto-advance steps (click to play/pause)"
+      <button id="lego-step-mode" type="button"
+        title="Toggle between assembly steps and vertical layers (one plate per layer)"
+        style="background:transparent;border:1px solid rgba(167,139,250,0.35);color:#a78bfa;border-radius:4px;padding:2px 6px;font-size:0.72rem;cursor:pointer;font-family:inherit">Step</button>
+      <button id="lego-step-play" type="button" title="Auto-advance (click to play/pause)"
         style="background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.45);color:#a78bfa;border-radius:4px;padding:2px 8px;font-size:0.78rem;cursor:pointer;font-family:inherit">▶</button>
       <input type="range" id="lego-step-slider" min="1" max="1" value="1" style="flex:1;min-width:60px">
       <span id="lego-step-label" style="font-size:0.75rem;min-width:3.5em;text-align:right">1/1</span>
@@ -540,21 +550,34 @@ function wireEvents(): void {
   // Stop playback when the user explicitly drags/clicks the thumb (not on the
   // programmatic dispatchEvent('input') from playback, which uses the input
   // event but not pointerdown).
+  // Step ⟷ Layer mode toggle (3D mode only; updateStepSlider gates it)
+  document.getElementById('lego-step-mode')?.addEventListener('click', () => {
+    if (!directRenderMode || !currentLDrawViewer) return;
+    stopStepPlay();
+    sliderMode = sliderMode === 'step' ? 'layer' : 'step';
+    updateStepSlider(); // re-applies mode to the viewer + resets slider to max
+  });
+
   document.getElementById('lego-step-slider')?.addEventListener('pointerdown', stopStepPlay);
   document.getElementById('lego-step-slider')?.addEventListener('input', async e => {
     const slider = e.target as HTMLInputElement;
     const step = parseInt(slider.value, 10);
     const label = document.getElementById('lego-step-label');
-    if (label) label.textContent = `${step}/${totalSteps}`;
-    currentStep = step < totalSteps ? step : undefined; // undefined = show all
+    const sliderMax = parseInt(slider.max, 10) || totalSteps;
+    if (label) label.textContent = `${step}/${sliderMax}`;
     if (!currentBricks) return;
 
     // 3D direct mode: instant visibility toggle on the persistent viewer.
     // No part refetch, no mesh rebuild — the architectural turn-around.
     if (directRenderMode && currentLDrawViewer) {
-      currentLDrawViewer.setMaxStep(currentStep ?? Number.POSITIVE_INFINITY);
+      // Only persist step-mode positions: currentStep feeds re-loads and the
+      // voxelizer, both of which speak assembly steps, not layers.
+      if (sliderMode === 'step') currentStep = step < totalSteps ? step : undefined;
+      currentLDrawViewer.setMaxStep(step >= sliderMax ? Number.POSITIVE_INFINITY : step);
       return;
     }
+
+    currentStep = step < totalSteps ? step : undefined; // undefined = show all
 
     // Voxelizer mode still rebuilds (cheap relative to part fetching anyway)
     const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
@@ -795,6 +818,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       if (resp.ok) {
         const text = await resp.text();
         currentMpdContent = text;
+        currentCustomParts = undefined;
         const bricks = parseLDraw(text);
         if (bricks.length > 0) {
           if (btn) btn.disabled = false;
@@ -812,6 +836,8 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
     const parts = await fetchBffInventory(set.set_num);
     if (parts.length > 0) {
       const ldrText = bffInventoryToLDraw(set.set_num, parts);
+      currentMpdContent = ldrText;
+      currentCustomParts = undefined;
       const bricks = parseLDraw(ldrText);
       if (bricks.length > 0) {
         setStatus(
@@ -959,8 +985,10 @@ async function parseMpdFile(file: File): Promise<void> {
     let text: string;
     if (ext === 'io') {
       const buf = await file.arrayBuffer();
-      text = await extractIoLDraw(buf);
+      const ioModel = await extractIoModel(buf);
+      text = ioModel.text;
       currentMpdContent = text;
+      currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
       const bricks = parseLDraw(text);
       if (bricks.length === 0) throw new Error('No brick placements found in file.');
       await voxelizeAndDisplay(bricks, file.name, studioColorToBlock);
@@ -969,6 +997,7 @@ async function parseMpdFile(file: File): Promise<void> {
 
     text = await file.text();
     currentMpdContent = text; // store for 3D renderer inline sub-model resolution
+    currentCustomParts = undefined;
     const bricks = parseLDraw(text);
     if (bricks.length === 0) throw new Error('No brick placements found in file.');
     await voxelizeAndDisplay(bricks, file.name);
@@ -995,19 +1024,43 @@ function updateStepSlider(): void {
   const row = document.getElementById('lego-step-row');
   const slider = document.getElementById('lego-step-slider') as HTMLInputElement | null;
   const label = document.getElementById('lego-step-label');
+  const modeBtn = document.getElementById('lego-step-mode') as HTMLButtonElement | null;
   if (!row || !slider || !label) return;
-  const hasSteps = totalSteps > 1;
+
+  // Layer count comes from the 3D viewer (quantized plate heights) — only
+  // known once a model is loaded there. Voxel mode sticks to steps.
+  const is3d = directRenderMode && !!currentLDrawViewer;
+  const layers = is3d ? currentLDrawViewer!.getMaxAvailableLayer() : 1;
+  const steps = totalSteps;
+
+  // Pick/repair the slider mode: layer mode needs the 3D viewer; default to
+  // layers when the model has no usable STEP markers (most .io exports).
+  if (!is3d) sliderMode = 'step';
+  else if (steps <= 1 && layers > 1) sliderMode = 'layer';
+  else if (layers <= 1) sliderMode = 'step';
+  if (is3d) currentLDrawViewer!.setSliderMode(sliderMode);
+
+  const hasAny = is3d ? steps > 1 || layers > 1 : steps > 1;
+  const max = Math.max(1, sliderMode === 'layer' ? layers : steps);
   // NOTE: `.lego-scale-row` sets `display:flex`, which overrides the `hidden`
   // attribute (inline/UA precedence) — so we MUST toggle style.display, not
   // just .hidden, or the row stays visible. Also ALWAYS reset the slider
   // values (even when hiding) so a stale count from a previous multi-step
   // model can't persist into a no-step model.
-  const max = Math.max(1, totalSteps);
   slider.max = String(max);
   slider.value = String(max);
   label.textContent = `${max}/${max}`;
-  row.hidden = !hasSteps;
-  row.style.display = hasSteps ? '' : 'none';
+  if (modeBtn) {
+    modeBtn.textContent = sliderMode === 'layer' ? 'Layer' : 'Step';
+    // The button doubles as the row label; it's a working toggle only when
+    // both keys are meaningful.
+    const toggleable = is3d && steps > 1 && layers > 1;
+    modeBtn.disabled = !toggleable;
+    modeBtn.style.cursor = toggleable ? 'pointer' : 'default';
+    modeBtn.style.opacity = toggleable ? '1' : '0.7';
+  }
+  row.hidden = !hasAny;
+  row.style.display = hasAny ? '' : 'none';
 }
 
 async function voxelizeAndDisplay(
@@ -1027,6 +1080,10 @@ async function voxelizeAndDisplay(
   if (isNewModel) {
     totalSteps = countSteps(bricks);
     currentStep = undefined;
+    // Fresh model → fresh slider key: real assembly steps beat synthetic
+    // layers when the file has them (updateStepSlider falls back to layers
+    // for step-less models once the 3D viewer reports its layer count).
+    sliderMode = 'step';
     updateStepSlider();
   }
 
@@ -1107,6 +1164,7 @@ async function voxelizeAndDisplay(
         showProgress(0);
         await currentLDrawViewer.load(bricks, {
           mpdContent: currentMpdContent,
+          datFiles: currentCustomParts,
           maxStep: currentStep,
           onProgress: (done, total) => {
             const pct = total > 0 ? done / total : 0;
@@ -1131,18 +1189,24 @@ async function voxelizeAndDisplay(
           const cm = (n: number) => (n * 0.8).toFixed(1);
           dims = ` · ≈ ${studs(sz.x)}×${studs(sz.z)} studs (${cm(sz.x)}×${cm(sz.z)}×${cm(sz.y)} cm)`;
         }
+        // The viewer now knows the model's vertical layer count — refresh the
+        // slider so layer mode becomes available (it's the default for
+        // models without STEP markers, i.e. most Studio .io exports).
+        updateStepSlider();
         const missing = currentLDrawViewer.missingParts;
+        const subGaps = currentLDrawViewer.unresolvedSubparts.length;
+        const subGapNote = subGaps > 0 ? ` (${subGaps} sub-part file(s) unresolved — minor gaps, see console)` : '';
         if (missing.length > 0) {
           const totalMissing = missing.reduce((s, m) => s + m.count, 0);
           const names = missing.slice(0, 6).map(m => m.part.replace(/\.dat$/i, '')).join(', ');
           const more = missing.length > 6 ? ` +${missing.length - 6} more` : '';
           setStatus(
-            `${label} — ${bricks.length} bricks rendered${dims}. ⚠ ${totalMissing} piece(s) of ${missing.length} part type(s) not in library: ${names}${more}`,
+            `${label} — ${bricks.length} bricks rendered${dims}. ⚠ ${totalMissing} piece(s) of ${missing.length} part type(s) not in library: ${names}${more}${subGapNote}`,
             'info',
           );
           console.warn('[lego] unrendered parts (missing from /ldraw-parts or LSynth):', missing);
         } else {
-          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}`, 'success');
+          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}${subGapNote}`, subGaps > 0 ? 'info' : 'success');
         }
         viewerEl.closest('.panel-layout')?.setAttribute('data-has-model', '');
         const explodeRow = document.getElementById('lego-explode-row');

@@ -22,15 +22,30 @@
  * older ones (model2.ldr) and keeps a last-resort fallback.
  */
 
-import { extractFile } from './zip-utils';
+import { extractFile, extractMatching } from './zip-utils';
 
 const CANDIDATES = ['model.ldr', 'model2.ldr', 'modelv2.ldr'];
+const IO_PASSWORD = 'soho0909';
+
+export interface IoModel {
+  /** The LDraw model text (MPD/LDR). */
+  text: string;
+  /**
+   * Studio's bundled part definitions from the archive's `CustomParts/` dir:
+   * user-modified parts (`m<hash>_<date>_<time>.dat`), Studio-only parts, and
+   * the exact primitives those parts need (incl. `p/48/...` hi-res variants).
+   * Keyed by archive path relative to `CustomParts/` (e.g. `p/48/1-12edge.dat`,
+   * `m3659da88_2019920_072931.dat`). Without these, sets with modified parts
+   * (most large Technic vehicles) silently render with pieces missing.
+   */
+  customParts: Map<string, string>;
+}
 
 export async function extractIoLDraw(buffer: ArrayBuffer): Promise<string> {
   let fallback = '';
   for (const name of CANDIDATES) {
     try {
-      const data = await extractFile(buffer, name, 'soho0909');
+      const data = await extractFile(buffer, name, IO_PASSWORD);
       const text = new TextDecoder('utf-8').decode(data);
       // A usable model has at least one part-reference line (type 1).
       if (/^\s*1\s/m.test(text)) return text;
@@ -41,4 +56,25 @@ export async function extractIoLDraw(buffer: ArrayBuffer): Promise<string> {
   }
   if (fallback) return fallback;
   throw new Error('No LDraw model found in .io archive');
+}
+
+/**
+ * Extract the model text AND the archive's CustomParts/*.dat definitions.
+ * Prefer this over extractIoLDraw for rendering — Studio references its
+ * bundled custom parts by name from the model, and they exist nowhere else.
+ */
+export async function extractIoModel(buffer: ArrayBuffer): Promise<IoModel> {
+  const text = await extractIoLDraw(buffer);
+  const customParts = new Map<string, string>();
+  const raw = await extractMatching(
+    buffer,
+    name => /^customparts\/.*\.dat$/i.test(name.replace(/\\/g, '/')),
+    IO_PASSWORD,
+  );
+  const dec = new TextDecoder('utf-8');
+  for (const [name, data] of raw) {
+    const rel = name.replace(/\\/g, '/').replace(/^customparts\//i, '');
+    customParts.set(rel, dec.decode(data));
+  }
+  return { text, customParts };
 }
