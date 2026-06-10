@@ -96,9 +96,66 @@ export function getThemes(): CatalogTheme[] {
 }
 
 /**
+ * Rank catalog sets against a query. Pure (exported for tests).
+ *
+ * All matching is case-insensitive; every query word must appear in the set
+ * name OR set number. Matches are RANKED, not returned in file order — the
+ * old first-N-in-file-order behaviour meant a query like "castle" (200
+ * matches) surfaced 1970s promo sets and buried the flagships (21063
+ * Neuschwanstein, 71043 Hogwarts) past the result cap.
+ *
+ * Score: exact set-number match dominates; then name-match quality (exact >
+ * prefix > word-boundary hits); then a flagship boost (part count, capped)
+ * and mild recency so big modern sets beat tiny vintage ones at equal
+ * text relevance.
+ */
+export function rankSets(
+  sets: CatalogSet[],
+  query: string,
+  themeId: number | null,
+  minYear: number | null,
+  maxYear: number | null,
+  limit = 24,
+): CatalogSet[] {
+  const q = query.trim().toLowerCase();
+  const words = q.split(/\s+/).filter(Boolean);
+
+  const scored: { s: CatalogSet; score: number }[] = [];
+  for (const s of sets) {
+    if (themeId != null && s.theme_id !== themeId) continue;
+    if (minYear != null && s.year < minYear) continue;
+    if (maxYear != null && s.year > maxYear) continue;
+
+    const name = s.name.toLowerCase();
+    const num = s.set_num.toLowerCase();
+    if (words.length > 0) {
+      const hay = `${name} ${num}`;
+      if (!words.every(w => hay.includes(w))) continue;
+    }
+
+    let score = 0;
+    if (q && (num === q || num.startsWith(`${q}-`))) score += 1000; // exact set number
+    if (q && name === q) score += 400;
+    // NOTE: keep the prefix bonus SMALL — "+120 for startsWith" let generic
+    // prefixed names ("Castle Mini Figures") outrank flagships ("Hogwarts
+    // Castle"), which is the exact bug this ranking exists to fix.
+    if (q && name.startsWith(q)) score += 30;
+    for (const w of words) {
+      // word-boundary hit in the name beats a mere substring
+      if (name === w || name.startsWith(`${w} `) || name.includes(` ${w}`)) score += 40;
+    }
+    score += Math.min(60, (s.num_parts ?? 0) / 100); // flagship boost (6000 parts = +60)
+    score += Math.max(0, Math.min(15, (s.year - 1995) * 0.5)); // mild recency
+    scored.push({ s, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score || (b.s.num_parts ?? 0) - (a.s.num_parts ?? 0));
+  return scored.slice(0, limit).map(e => e.s);
+}
+
+/**
  * Search the local catalog (must call ensureCatalog first).
- * All matching is case-insensitive. Words in `query` must all appear
- * in the set name OR the set number.
+ * Relevance-ranked — see rankSets.
  */
 export function searchCatalog(
   query: string,
@@ -108,20 +165,5 @@ export function searchCatalog(
   limit = 24,
 ): CatalogSet[] {
   if (!setsCache) return [];
-
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-
-  const matches: CatalogSet[] = [];
-  for (const s of setsCache) {
-    if (themeId != null && s.theme_id !== themeId) continue;
-    if (minYear != null && s.year < minYear) continue;
-    if (maxYear != null && s.year > maxYear) continue;
-    if (words.length > 0) {
-      const hay = `${s.name.toLowerCase()} ${s.set_num.toLowerCase()}`;
-      if (!words.every(w => hay.includes(w))) continue;
-    }
-    matches.push(s);
-    if (matches.length >= limit) break;
-  }
-  return matches;
+  return rankSets(setsCache, query, themeId, minYear, maxYear, limit);
 }
