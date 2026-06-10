@@ -817,14 +817,26 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       const resp = await fetch(`${RECONSTRUCTED_BASE}/${filename}`);
       if (resp.ok) {
         const text = await resp.text();
-        currentMpdContent = text;
-        currentCustomParts = undefined;
-        const bricks = parseLDraw(text);
-        if (bricks.length > 0) {
-          if (btn) btn.disabled = false;
-          setStatus(`Loaded reconstructed 3D model for ${set.set_num} (${bricks.length} parts)`, 'info');
-          await voxelizeAndDisplay(bricks, set.set_num);
-          return;
+        const quality = reconstructionQuality(text);
+        if (quality === 'broken') {
+          // DBIX_LXFML-sourced conversions were written without per-part
+          // LDD→LDraw origin alignment — parts render scattered/mis-rotated
+          // and colors are raw material ids (10320 et al. are a jumble).
+          // A flat BFF inventory beats a jumble; fall through.
+          console.warn(`[lego] skipping ${filename}: DBIX_LXFML conversion lacks part alignment (would render scrambled)`);
+        } else {
+          currentMpdContent = text;
+          currentCustomParts = undefined;
+          const bricks = parseLDraw(text);
+          if (bricks.length > 0) {
+            if (btn) btn.disabled = false;
+            const warn = quality === 'approximate'
+              ? ' ⚠ vision-based reconstruction — placements are approximate'
+              : '';
+            setStatus(`Loaded reconstructed 3D model for ${set.set_num} (${bricks.length} parts)${warn}`, 'info');
+            await voxelizeAndDisplay(bricks, set.set_num);
+            return;
+          }
         }
       }
     } catch { /* fall through */ }
@@ -968,6 +980,21 @@ async function exportLoadedModel(fmt: string): Promise<void> {
 
 // ─── Parse + Voxelize ────────────────────────────────────────────────────────
 
+/**
+ * Classify a clego-reconstructed LDR by its header provenance comments.
+ * - 'good': assembled from an already-LDraw source (model2.ldr) — faithful.
+ * - 'approximate': vision-reconstructed from instruction pages — placements
+ *   are heuristic (floaters/mis-orientations are in the DATA).
+ * - 'broken': converted from DBIX LXFML without per-part LDD→LDraw origin
+ *   alignment — renders scrambled; colors are raw material ids.
+ */
+function reconstructionQuality(ldrText: string): 'good' | 'approximate' | 'broken' {
+  const head = ldrText.slice(0, 600);
+  if (/Source:\s*DBIX_LXFML/i.test(head)) return 'broken';
+  if (/inverse isometric projection|blob (fallback|detection)/i.test(head)) return 'approximate';
+  return 'good';
+}
+
 async function parseMpdFile(file: File): Promise<void> {
   if (!onResult) return;
   setStatus(`Parsing ${file.name}…`, 'info');
@@ -1000,6 +1027,14 @@ async function parseMpdFile(file: File): Promise<void> {
     currentCustomParts = undefined;
     const bricks = parseLDraw(text);
     if (bricks.length === 0) throw new Error('No brick placements found in file.');
+    // User explicitly chose this file — load it, but set expectations if it's
+    // a known-imperfect reconstruction (the defects are in the data).
+    const q = reconstructionQuality(text);
+    if (q === 'broken') {
+      setStatus('⚠ This file is a DBIX/LXFML conversion without part alignment — parts will render scattered/mis-rotated and colors may be wrong. The defects are in the file, not the renderer.', 'info');
+    } else if (q === 'approximate') {
+      setStatus('⚠ Vision-based reconstruction — part placements are approximate.', 'info');
+    }
     await voxelizeAndDisplay(bricks, file.name);
   } catch (err) {
     setStatus(`Parse failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
@@ -1193,6 +1228,24 @@ async function voxelizeAndDisplay(
         // slider so layer mode becomes available (it's the default for
         // models without STEP markers, i.e. most Studio .io exports).
         updateStepSlider();
+        // Completeness check: a fan-made model file can contain fewer pieces
+        // than the official set (e.g. one 21063 .io ships 3,245 of 3,455 —
+        // its autumn trees were never modelled). Say so, or users read the
+        // gap as a rendering bug.
+        let completeness = '';
+        {
+          const setNum = selectedSet?.set_num
+            ?? (filename.match(/\b(\d{4,7})(?:-\d)?\b/)?.[1]);
+          if (setNum && isLoaded()) {
+            const cat = searchCatalog(setNum, null, null, null, 1)[0];
+            if (cat?.num_parts && cat.num_parts > 0) {
+              const diff = cat.num_parts - bricks.length;
+              if (diff > Math.max(20, cat.num_parts * 0.02)) {
+                completeness = ` · file contains ${bricks.length.toLocaleString()} of the set's ${cat.num_parts.toLocaleString()} catalog pieces (incomplete source model)`;
+              }
+            }
+          }
+        }
         const missing = currentLDrawViewer.missingParts;
         const subGaps = currentLDrawViewer.unresolvedSubparts.length;
         const subGapNote = subGaps > 0 ? ` (${subGaps} sub-part file(s) unresolved — minor gaps, see console)` : '';
@@ -1201,12 +1254,12 @@ async function voxelizeAndDisplay(
           const names = missing.slice(0, 6).map(m => m.part.replace(/\.dat$/i, '')).join(', ');
           const more = missing.length > 6 ? ` +${missing.length - 6} more` : '';
           setStatus(
-            `${label} — ${bricks.length} bricks rendered${dims}. ⚠ ${totalMissing} piece(s) of ${missing.length} part type(s) not in library: ${names}${more}${subGapNote}`,
+            `${label} — ${bricks.length} bricks rendered${dims}${completeness}. ⚠ ${totalMissing} piece(s) of ${missing.length} part type(s) not in library: ${names}${more}${subGapNote}`,
             'info',
           );
           console.warn('[lego] unrendered parts (missing from /ldraw-parts or LSynth):', missing);
         } else {
-          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}${subGapNote}`, subGaps > 0 ? 'info' : 'success');
+          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}${completeness}${subGapNote}`, subGaps > 0 || completeness ? 'info' : 'success');
         }
         viewerEl.closest('.panel-layout')?.setAttribute('data-has-model', '');
         const explodeRow = document.getElementById('lego-explode-row');

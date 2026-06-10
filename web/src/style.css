@@ -2166,8 +2166,38 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
+  /* The 3D-render control row holds ~10 inline controls (toggles, view
+     presets, export selects) — without wrapping they overflow the sidebar
+     and the export menus end up clipped/unreachable. */
+  flex-wrap: wrap;
+  row-gap: 6px;
   padding: 8px 16px;
 }
+/* Theme the export dropdowns + view-preset buttons to match .lego-scale-btn
+   (they previously rendered with OS-default chrome on the dark UI). */
+.lego-scale-row select {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary, #1d1d2b);
+  color: var(--text-secondary);
+  cursor: pointer;
+  max-width: 110px;
+}
+.lego-scale-row select:hover { background: var(--bg-hover, rgba(255,255,255,0.06)); }
+.lego-scale-row select option,
+.lego-scale-row select optgroup {
+  background: var(--bg-secondary, #1d1d2b);
+  color: var(--text-primary, #e5e5ee);
+}
+.lego-view-btn,
+#lego-flip-front {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.lego-view-btn:hover,
+#lego-flip-front:hover { background: var(--bg-hover, rgba(255,255,255,0.06)); color: var(--text-primary, #fff); }
 .lego-scale-btns {
   display: flex;
   gap: 4px;
