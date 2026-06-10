@@ -22,16 +22,16 @@ durable project knowledge only in private/agent memory.
 Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO**
 
 ## Architecture (LEGO/LDraw path)
-- `web/src/ui/lego.ts` — LEGO tab UI: search, auto-load chain, upload, 3D-render controls, step/explode sliders, missing-parts surfacing, **export menu** (PNG; GLB/OBJ/STL via `exporter.ts`+`viewer.exportMeshes()`; Minecraft `.schem`/`.litematic` via `voxelizeLDraw`→`BlockGrid`; parts-list **`.csv` BOM** — part/color/count from `currentBricks`). OBJ/STL bake instances (no instancing in-format) → large on big sets; GLB is the compact 3D option.
+- `web/src/ui/lego.ts` — LEGO tab UI: search, auto-load chain, upload, 3D-render controls, step/explode sliders, missing-parts surfacing, **export menu** (PNG; GLB/OBJ/STL via `exporter.ts`+`viewer.exportMeshes()`; Minecraft `.schem`/`.litematic` via `voxelizeLDraw`→`BlockGrid`; parts-list **`.csv` BOM** — part/color/count from `currentBricks`). OBJ/STL bake instances (no instancing in-format) → large on big sets; GLB is the compact 3D option. The slider row label is a **Step⟷Layer toggle**: layer mode slices by quantized plate height (`viewer.setSliderMode('layer')`) and is the DEFAULT for models without STEP meta (most Studio .io exports — 71043 has 5,936 bricks and ONE step); step mode is default when real steps exist.
 - `web/src/engine/ldraw-parser.ts` — MPD/LDR → `ParsedBrick[]` (world transform = parentRot×local + parentPos, recursive; det<0 → winding flip). `countSteps()` counts `0 STEP` at ANY depth (sets that nest steps in sub-assemblies, e.g. 31084, depend on this).
 - `web/src/viewer/ldraw/` — the direct 3D renderer (modular):
   - `viewer.ts` — Three.js scene/renderer/camera, lighting, env, post FX, camera framing/transitions, explode, picking, export (`exportMeshes()`). **Global instancing**: ONE InstancedMesh per (part,color) across the WHOLE model (not per step) + ONE global edge `LineSegments2`. Instances/segments are sorted step-ascending; the step slider sets `InstancedMesh.count` / `LineSegmentsGeometry.instanceCount` to a binary-search prefix — so a 1226-step set (UCS Falcon) is ~300 meshes / ~950 draw calls, not thousands. Static shadow map (`shadowMap.autoUpdate=false`, refreshed on scene change). **On-demand rendering**: the rAF loop only composites when `needsRender` is set (or a camera anim / autoRotate / Stats overlay is active) — idle scenes cost ~0 GPU. **Any new state mutation that changes the picture MUST call `this.invalidate()`** (or `requestShadowUpdate()`, which also invalidates); camera moves auto-invalidate via the OrbitControls `change` listener. Dev-only `window.__ldrawViewer` hook for `renderer.info` metrics.
-  - `parts.ts` — fetch/parse/resolve `.dat` geometry; module-level caches; `prewarmCommonParts()`; `partTextureUrls` (TEXMAP). `LDRAW_BASE = /ldraw-parts`.
+  - `parts.ts` — fetch/parse/resolve `.dat` geometry; module-level caches **plus a persistent IndexedDB .dat-text cache** (`craftmatic-ldraw` db; positive results only — repeat sessions load big sets with ~zero part fetches; bump `IDB_VERSION_KEY` to invalidate); `prewarmCommonParts()`; `partTextureUrls` (TEXMAP); `preloadDatTexts()` (archive-bundled parts, model-specific, cleared by `clearMpdInlines`); `unresolvedDatNames` → `viewer.unresolvedSubparts` (sub-file refs that resolved nowhere = silent holes, surfaced in status). Candidate-path order is name-shape-aware (`looksLikePrimitive` → `p/` first) with a **`p/48/` hi-res alias tail** for bare primitive refs that only exist as 48-variants (e.g. `1-12ring14`). `LDRAW_BASE = /ldraw-parts`.
   - `materials.ts` — LDraw color → THREE material (ABS / rubber / metallic / transparent / glow).
   - `types.ts` — Vec3/Triangle/Edge/PartGeom/TexturedTriangle.
 - `web/src/engine/ldraw-colors.ts` — LDraw color id → hex (and → Minecraft block for voxelizer).
 - Other importers: `bff-loader.ts` (BrickLink inventory → flat layout), `studio-colors.ts`, `ldd-colors.ts`.
-  - `io-extractor.ts` (.io) — tries `model.ldr` → `model2.ldr` → `modelv2.ldr`, first with type-1 lines wins.
+  - `io-extractor.ts` (.io) — `extractIoModel()` returns `{text, customParts}`: tries `model.ldr` → `model2.ldr` → `modelv2.ldr` (first with type-1 lines wins) AND pulls every **`CustomParts/**/*.dat`** from the archive (Studio's user-modified `m<hash>_<date>_<time>.dat` parts + the exact primitives they need). Without CustomParts, big Technic sets silently lose pieces (42110 was missing 24). They flow `lego.ts currentCustomParts` → `viewer.load(opts.datFiles)` → `preloadDatTexts`.
   - `zip-utils.ts` + `aes-zip.ts` — ZIP reader. Handles plain DEFLATE, legacy **ZipCrypto** (pw `soho0909`), and **WinZip AES-256** (method 99, pw `soho0909`) used by older/early-access .io exports. AES = PBKDF2-HMAC-SHA1 + pure-JS AES in little-endian CTR (Web Crypto's big-endian AES-CTR is incompatible).
   - `lxf-parser.ts` (.lxf/LDD) — applies per-part LDD→LDraw origin alignment from `web/public/ldd-part-map.json` (gen: `scripts/gen-ldd-part-map.py` from clego `ldraw.xml`, 4467 parts). Compose: `R_world=R_bone·R_align`, `t_world=R_bone·t_align+t_bone`, then Y-flip + ×25. Angles in `ldraw.xml` are RADIANS. Without this, .lxf parts float/mis-rotate.
 
@@ -41,6 +41,10 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   install (`C:/git/clego/extracted/studio_release/app/ldraw`, ~1.8 GB / 67k files),
   with an **upstream fallback** to `library.ldraw.org` on a local miss. A
   `FORCE_UPSTREAM` const (default `false`) bypasses local to mirror prod exactly.
+  The fallback only caches a null on a DEFINITIVE upstream 404 (thrown fetches —
+  throttling during a load burst — retry instead; concurrency capped at 6).
+  Caching nulls on transient failures turned existing parts (73111 …) into
+  permanently missing pieces for the whole dev session — don't reintroduce.
 - **PROD**: the Cloudflare Worker (`worker/ldraw-omr.js`) proxies `/ldraw-parts/*`
   → `library.ldraw.org/library/{official,unofficial}/*` (CORS + week edge cache,
   GET+HEAD). Routed in `wrangler.toml` (`craftmatic.click/ldraw-parts/*`).
@@ -52,6 +56,8 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
 - Parts that never resolve (LSynth `lsNN.dat` flexible parts → need curve
   synthesis; a few set-custom OMR subparts like Red Baron `s100241`) are surfaced
   in the LEGO-tab status + console via `viewer.missingParts` — not silent.
+  Sub-file refs that resolve nowhere (parent still renders, with small gaps) are
+  surfaced separately via `viewer.unresolvedSubparts`.
 
 ## Renderer conventions (hard-won — do not regress)
 - **NO `logarithmicDepthBuffer`.** It forces per-fragment depth writes that
@@ -75,6 +81,11 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   Direct lights are neutral-temp; generous diffuse fill restores saturation.
 - **Creased normals**: `toCreasedNormals(geom, 38°)` — smooth studs/cylinders,
   crisp brick edges (not blanket `computeVertexNormals`, which melts corners).
+- **`preserveDrawingBuffer` stays OFF** — it forces tiled mobile GPUs to copy the
+  framebuffer every frame. `captureScreenshot()`/`captureScreenshotAt()` render
+  explicitly before `toDataURL()`, which is the correct capture pattern.
+- **Mobile profile** (`IS_MOBILE`: touch + short edge <900px): pixel ratio ≤1.5,
+  shadow map 1024², SAO skipped (SAOPass re-renders the scene for depth+normals).
 - **Geometry is verified correct** at the fundamental level (flush controlled
   stack at exact heights; ~0 duplicate placements; ~0 isolated bricks; matches
   official box images). The historic "overlap/float/flicker" reports were the
