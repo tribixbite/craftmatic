@@ -102,6 +102,81 @@ function parseAesExtra(
   return null;
 }
 
+interface ZipLocalEntry {
+  name: string;
+  flags: number;
+  method: number;
+  compSize: number;
+  extraStart: number;
+  extraLen: number;
+  dataStart: number;
+}
+
+/** Walk all local file headers in the ZIP buffer. */
+function* scanLocalEntries(buffer: ArrayBuffer): Generator<ZipLocalEntry> {
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  let pos = 0;
+  while (pos + 30 < bytes.length) {
+    if (view.getUint32(pos, true) !== SIG_LOCAL) { pos++; continue; }
+
+    const flags    = view.getUint16(pos + 6,  true);
+    const method   = view.getUint16(pos + 8,  true);
+    const compSize = view.getUint32(pos + 18, true);
+    const fnLen    = view.getUint16(pos + 26, true);
+    const extraLen = view.getUint16(pos + 28, true);
+
+    const fnStart = pos + 30;
+    const name = new TextDecoder().decode(bytes.subarray(fnStart, fnStart + fnLen));
+    const extraStart = fnStart + fnLen;
+    const dataStart = extraStart + extraLen;
+
+    yield { name, flags, method, compSize, extraStart, extraLen, dataStart };
+
+    pos = dataStart + compSize;
+    // If data descriptor present (bit 3), skip 12 or 16 bytes
+    if (flags & 8) pos += (view.getUint32(pos, true) === 0x08074b50) ? 16 : 12;
+  }
+}
+
+/** Decrypt (if needed) + decompress one scanned entry's payload. */
+async function readEntry(
+  buffer: ArrayBuffer,
+  entry: ZipLocalEntry,
+  password?: string,
+): Promise<ArrayBuffer> {
+  const bytes = new Uint8Array(buffer);
+  const encrypted = (entry.flags & 1) !== 0;
+  let effectiveMethod = entry.method;
+  let compressed = bytes.subarray(entry.dataStart, entry.dataStart + entry.compSize);
+
+  if (entry.method === 99) {
+    // WinZip AES — actual compression method lives in the 0x9901 extra field.
+    if (!password) throw new Error(`File "${entry.name}" is AES-encrypted but no password given`);
+    const aes = parseAesExtra(bytes, entry.extraStart, entry.extraLen);
+    if (!aes) throw new Error(`File "${entry.name}" missing AES extra field`);
+    const decrypted = await decryptWinzipAes(compressed, password, aes.strength);
+    compressed = decrypted as Uint8Array<ArrayBuffer>;
+    effectiveMethod = aes.method;
+  } else if (encrypted) {
+    if (!password) throw new Error(`File "${entry.name}" is encrypted but no password given`);
+    const decrypted = decryptData(compressed, password);
+    // skip 12-byte ZipCrypto encryption header
+    compressed = decrypted.subarray(12) as Uint8Array<ArrayBuffer>;
+  }
+
+  if (effectiveMethod === 0) return (compressed.buffer as ArrayBuffer).slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength);
+  if (effectiveMethod === 8) return (await inflate(compressed)).buffer as ArrayBuffer;
+  throw new Error(`Unsupported compression method ${effectiveMethod}`);
+}
+
+/** List the names of all local file entries in the ZIP. */
+export function listZipEntries(buffer: ArrayBuffer): string[] {
+  const names: string[] = [];
+  for (const e of scanLocalEntries(buffer)) names.push(e.name);
+  return names;
+}
+
 /**
  * Scan ZIP buffer for a local file entry with the given name (case-insensitive).
  * Returns the decompressed file contents.
@@ -112,54 +187,31 @@ export async function extractFile(
   filename: string,
   password?: string,
 ): Promise<ArrayBuffer> {
-  const view = new DataView(buffer);
-  const bytes = new Uint8Array(buffer);
   const target = filename.toLowerCase();
-
-  let pos = 0;
-  while (pos + 30 < bytes.length) {
-    if (view.getUint32(pos, true) !== SIG_LOCAL) { pos++; continue; }
-
-    const flags       = view.getUint16(pos + 6,  true);
-    const method      = view.getUint16(pos + 8,  true);
-    const compSize    = view.getUint32(pos + 18, true);
-    const fnLen       = view.getUint16(pos + 26, true);
-    const extraLen    = view.getUint16(pos + 28, true);
-
-    const fnStart = pos + 30;
-    const name = new TextDecoder().decode(bytes.subarray(fnStart, fnStart + fnLen));
-    const extraStart = fnStart + fnLen;
-    const dataStart = extraStart + extraLen;
-
-    if (name.toLowerCase() === target) {
-      const encrypted = (flags & 1) !== 0;
-      let effectiveMethod = method;
-      let compressed = bytes.subarray(dataStart, dataStart + compSize);
-
-      if (method === 99) {
-        // WinZip AES — actual compression method lives in the 0x9901 extra field.
-        if (!password) throw new Error(`File "${filename}" is AES-encrypted but no password given`);
-        const aes = parseAesExtra(bytes, extraStart, extraLen);
-        if (!aes) throw new Error(`File "${filename}" missing AES extra field`);
-        const decrypted = await decryptWinzipAes(compressed, password, aes.strength);
-        compressed = decrypted as Uint8Array<ArrayBuffer>;
-        effectiveMethod = aes.method;
-      } else if (encrypted) {
-        if (!password) throw new Error(`File "${filename}" is encrypted but no password given`);
-        const decrypted = decryptData(compressed, password);
-        // skip 12-byte ZipCrypto encryption header
-        compressed = decrypted.subarray(12) as Uint8Array<ArrayBuffer>;
-      }
-
-      if (effectiveMethod === 0) return (compressed.buffer as ArrayBuffer).slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength);
-      if (effectiveMethod === 8) return (await inflate(compressed)).buffer as ArrayBuffer;
-      throw new Error(`Unsupported compression method ${effectiveMethod}`);
-    }
-
-    pos = dataStart + compSize;
-    // If data descriptor present (bit 3), skip 12 or 16 bytes
-    if (flags & 8) pos += (view.getUint32(pos, true) === 0x08074b50) ? 16 : 12;
+  for (const entry of scanLocalEntries(buffer)) {
+    if (entry.name.toLowerCase() === target) return readEntry(buffer, entry, password);
   }
-
   throw new Error(`File "${filename}" not found in ZIP`);
+}
+
+/**
+ * Extract every entry whose name matches `predicate`. Entries that fail to
+ * decrypt/decompress are skipped (a malformed member shouldn't sink the rest).
+ * Returns archive name → contents.
+ */
+export async function extractMatching(
+  buffer: ArrayBuffer,
+  predicate: (name: string) => boolean,
+  password?: string,
+): Promise<Map<string, ArrayBuffer>> {
+  const out = new Map<string, ArrayBuffer>();
+  for (const entry of scanLocalEntries(buffer)) {
+    if (!predicate(entry.name)) continue;
+    try {
+      out.set(entry.name, await readEntry(buffer, entry, password));
+    } catch {
+      // skip unreadable member
+    }
+  }
+  return out;
 }

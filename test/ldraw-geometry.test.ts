@@ -21,7 +21,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { resolvePartGeometry } from '../web/src/viewer/ldraw/parts.js';
+import { resolvePartGeometry, preloadDatTexts, clearMpdInlines } from '../web/src/viewer/ldraw/parts.js';
 import { parseLDraw } from '../web/src/engine/ldraw-parser.js';
 import type { Triangle } from '../web/src/viewer/ldraw/types.js';
 
@@ -166,6 +166,38 @@ describe('resolvePartGeometry — colour routing & sub-parts', () => {
     const g = await resolvePartGeometry('gdoesnotexist');
     expect(g.tris).toHaveLength(0);
     expect(g.edges).toHaveLength(0);
+  });
+});
+
+// ─── preloaded archive part definitions (.io CustomParts) ───────────────────────
+
+describe('preloadDatTexts — archive-bundled part definitions', () => {
+  it('resolves a custom part from a preloaded definition without fetching', async () => {
+    preloadDatTexts(new Map([
+      ['mcustom_123_456.dat', '0 BFC CERTIFY CCW\n3 16 0 0 0  4 0 0  0 0 4'],
+    ]));
+    const g = await resolvePartGeometry('mcustom_123_456');
+    expect(g.tris).toHaveLength(1);
+    clearMpdInlines(); // model-specific — clean up
+  });
+
+  it('registers every path suffix so prefixed primitive refs resolve', async () => {
+    preloadDatTexts(new Map([
+      ['p/48/zz-testprim.dat', '3 16 0 0 0  2 0 0  0 0 2'],
+    ]));
+    // A part may reference it as `48\zz-testprim.dat` OR bare `zz-testprim.dat`.
+    const viaSubdir = await resolvePartGeometry('48/zz-testprim');
+    const viaBare = await resolvePartGeometry('zz-testprim');
+    expect(viaSubdir.tris).toHaveLength(1);
+    expect(viaBare.tris).toHaveLength(1);
+    clearMpdInlines();
+  });
+
+  it('clearMpdInlines evicts preloaded definitions (model-specific lifecycle)', async () => {
+    preloadDatTexts(new Map([['mgone_1_2.dat', '3 16 0 0 0 1 0 0 0 0 1']]));
+    clearMpdInlines();
+    const g = await resolvePartGeometry('mgone_1_2'); // now falls through to fetch → 404 → empty
+    expect(g.tris).toHaveLength(0);
   });
 });
 

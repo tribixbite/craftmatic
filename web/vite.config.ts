@@ -51,7 +51,24 @@ export default defineConfig({
         const FORCE_UPSTREAM = false;
         // In-memory cache of upstream fetches (path → Buffer|null). null = a
         // confirmed upstream 404, so we don't re-hit it.
+        //
+        // CRITICAL: only cache null on a DEFINITIVE miss (every upstream lib
+        // returned a real HTTP response, none ok). A thrown fetch (timeout /
+        // throttling during a big model's load burst) must NOT be cached —
+        // that turned transient failures into permanently missing parts
+        // (73111 etc. exist upstream but rendered as silent holes in dev).
+        // Mirrors the browser-side fetchDatText transient/definitive split.
         const upstreamCache = new Map<string, Buffer | null>();
+        // Cap concurrent upstream fetches so a 200-part burst doesn't get
+        // throttled/refused by library.ldraw.org.
+        const MAX_UPSTREAM = 6;
+        let upstreamActive = 0;
+        const upstreamQueue: (() => void)[] = [];
+        const acquire = () => new Promise<void>(res => {
+          if (upstreamActive < MAX_UPSTREAM) { upstreamActive++; res(); }
+          else upstreamQueue.push(() => { upstreamActive++; res(); });
+        });
+        const release = () => { upstreamActive--; upstreamQueue.shift()?.(); };
 
         const fetchUpstream = async (urlPath: string): Promise<Buffer | null> => {
           if (upstreamCache.has(urlPath)) return upstreamCache.get(urlPath)!;
@@ -59,18 +76,32 @@ export default defineConfig({
           let libs = ['official', 'unofficial'];
           const unof = rest.match(/^unofficial\/(.*)$/i);
           if (unof) { rest = unof[1]; libs = ['unofficial']; }
-          for (const lib of libs) {
-            try {
-              const r = await fetch(`https://library.ldraw.org/library/${lib}/${rest}`);
-              if (r.ok) {
-                const buf = Buffer.from(await r.arrayBuffer());
-                upstreamCache.set(urlPath, buf);
-                return buf;
+          await acquire();
+          try {
+            let sawTransient = false;
+            for (const lib of libs) {
+              for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                  const r = await fetch(`https://library.ldraw.org/library/${lib}/${rest}`, {
+                    signal: AbortSignal.timeout(10000),
+                  });
+                  if (r.ok) {
+                    const buf = Buffer.from(await r.arrayBuffer());
+                    upstreamCache.set(urlPath, buf);
+                    return buf;
+                  }
+                  break; // real HTTP response (404 etc.) — next lib, no retry
+                } catch {
+                  sawTransient = true;
+                  if (attempt < 2) await new Promise(res => setTimeout(res, 250 * (attempt + 1)));
+                }
               }
-            } catch { /* try next */ }
+            }
+            if (!sawTransient) upstreamCache.set(urlPath, null); // definitive miss only
+            return null;
+          } finally {
+            release();
           }
-          upstreamCache.set(urlPath, null);
-          return null;
         };
 
         server.middlewares.use('/ldraw-parts', (req, res, next) => {

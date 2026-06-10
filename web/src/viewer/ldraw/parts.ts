@@ -20,6 +20,14 @@ const MAX_CACHE_ENTRIES = 10_000;
 export const inlineTransparentColors = new Set<number>();
 
 /**
+ * Sub-file names that exhausted every candidate path with a definitive miss.
+ * Parents referencing them still render their OTHER geometry, so these are
+ * SILENT holes unless surfaced — the viewer reports them after each load.
+ * Cleared per-model by clearMpdInlines().
+ */
+export const unresolvedDatNames = new Set<string>();
+
+/**
  * Texture data from !DATA blocks. Keyed by image filename (lowercased,
  * no path). Stored as data URLs so they can be passed straight to
  * THREE.TextureLoader without an extra round-trip.
@@ -69,6 +77,67 @@ export function setLDrawBase(base: string): void {
   LDRAW_BASE = base;
 }
 
+// ─── Persistent .dat text cache (IndexedDB) ──────────────────────────────────
+// Library part files are immutable in practice, so caching their text across
+// sessions makes repeat loads near-instant (a cold large-set load is ~97%
+// network time). Only POSITIVE results are persisted — misses stay
+// session-local so library additions are picked up. Every operation degrades
+// silently to "no persistent cache" (node/vitest, private browsing, quota).
+// Bump IDB_VERSION_KEY to invalidate after a known library-wide change.
+
+const IDB_NAME = 'craftmatic-ldraw';
+const IDB_STORE = 'dat-text';
+const IDB_VERSION_KEY = 'v1';
+let idbHandle: Promise<IDBDatabase | null> | null = null;
+
+function openIdb(): Promise<IDBDatabase | null> {
+  if (idbHandle) return idbHandle;
+  idbHandle = new Promise(resolve => {
+    try {
+      if (typeof indexedDB === 'undefined') { resolve(null); return; }
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+          req.result.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+  return idbHandle;
+}
+
+/** Read a cached .dat text. undefined = not cached (or no IDB available). */
+async function idbGetDat(key: string): Promise<string | undefined> {
+  const db = await openIdb();
+  if (!db) return undefined;
+  return new Promise(resolve => {
+    try {
+      const rq = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(`${IDB_VERSION_KEY}:${key}`);
+      rq.onsuccess = () => resolve(typeof rq.result === 'string' ? rq.result : undefined);
+      rq.onerror = () => resolve(undefined);
+    } catch {
+      resolve(undefined);
+    }
+  });
+}
+
+/** Persist a fetched .dat text (fire-and-forget). */
+function idbPutDat(key: string, text: string): void {
+  void openIdb().then(db => {
+    if (!db) return;
+    try {
+      db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(text, `${IDB_VERSION_KEY}:${key}`);
+    } catch {
+      // quota / private mode — persistent cache is best-effort
+    }
+  });
+}
+
 export function normId(id: string): string {
   return id.replace(/\\/g, '/').toLowerCase().replace(/\.dat$/i, '').trim();
 }
@@ -114,18 +183,50 @@ export function preloadMpdInlines(mpdContent: string): void {
   }
 }
 
+/** Keys registered by preloadDatTexts for the CURRENT model — cleared between loads. */
+const preloadedDatKeys = new Set<string>();
+
+/**
+ * Register model-bundled .dat definitions (e.g. a Studio .io archive's
+ * `CustomParts/` entries) so sub-file references resolve from memory instead
+ * of the network. Entries are keyed by their archive-relative path; each is
+ * registered under every path suffix (`p/48/x.dat` → `p/48/x`, `48/x`, `x`)
+ * because LDraw references may use any of those forms. Model-specific:
+ * cleared by clearMpdInlines() on the next load.
+ */
+export function preloadDatTexts(files: Map<string, string>): void {
+  for (const [rawPath, text] of files) {
+    const path = rawPath.replace(/\\/g, '/').toLowerCase();
+    const segs = path.split('/').filter(Boolean);
+    for (let i = 0; i < segs.length; i++) {
+      const key = normId(segs.slice(i).join('/'));
+      if (!key) continue;
+      datTextCache.set(key, text);
+      partGeomCache.delete(key); // text changed → stale assembled geometry
+      preloadedDatKeys.add(key);
+    }
+  }
+}
+
 /**
  * Clear inline .ldr entries between model loads. Keeps the .dat library
- * cache (which is shared) but evicts model-specific MPD inlines.
+ * cache (which is shared) but evicts model-specific MPD inlines and
+ * preloaded archive part definitions.
  */
 export function clearMpdInlines(): void {
   inlineTransparentColors.clear();
+  unresolvedDatNames.clear();
   for (const key of [...partGeomCache.keys()]) {
     if (key.endsWith('.ldr')) {
       partGeomCache.delete(key);
       datTextCache.delete(key);
     }
   }
+  for (const key of preloadedDatKeys) {
+    partGeomCache.delete(key);
+    datTextCache.delete(key);
+  }
+  preloadedDatKeys.clear();
 }
 
 /**
@@ -159,6 +260,18 @@ export function prewarmCommonParts(): Promise<void> {
   return Promise.all(tasks).then(() => undefined);
 }
 
+/**
+ * Heuristic: does this bare name look like a `p/` geometry primitive rather
+ * than a numbered part? Drives candidate-path ORDER (primitives live in `p/`,
+ * numbered parts in `parts/`), which matters a lot for load time: probing
+ * `parts/` first for the hundreds of primitives in a big model wastes 1–7
+ * 404 round-trips per primitive (and floods the console with 404 noise).
+ */
+function looksLikePrimitive(stem: string): boolean {
+  if (/^\d+-\d+/.test(stem)) return true; // fraction prims: 4-4cyli, 1-12ring14…
+  return /^(stud|stug|box|rect|ring|ndis|disc|edge|cyl|con[ec]?\d|axl|bump|chrd|tri|tooth|peghole|knob|duck|clip|filstud|logo|ldu|empty|arm\d|handle|hinge|t[0-9]{2}[io]|typestn?[0-9])/.test(stem);
+}
+
 async function fetchDatText(id: string): Promise<string | null> {
   const key = normId(id);
   if (datTextCache.has(key)) return datTextCache.get(key)!;
@@ -168,11 +281,26 @@ async function fetchDatText(id: string): Promise<string | null> {
   const paths: string[] = [];
   if (key.includes('/')) {
     if (key.startsWith('s/'))
-      paths.push(`${LDRAW_BASE}/parts/${key}.dat`, `${LDRAW_BASE}/parts/s/${stem}.dat`);
+      paths.push(`${LDRAW_BASE}/parts/${key}.dat`, `${LDRAW_BASE}/parts/s/${stem}.dat`, `${LDRAW_BASE}/UnOfficial/parts/${key}.dat`);
     else if (key.startsWith('48/'))
-      paths.push(`${LDRAW_BASE}/p/${key}.dat`, `${LDRAW_BASE}/p/48/${stem}.dat`);
+      paths.push(`${LDRAW_BASE}/p/${key}.dat`, `${LDRAW_BASE}/p/48/${stem}.dat`, `${LDRAW_BASE}/UnOfficial/p/${key}.dat`);
     else
       paths.push(`${LDRAW_BASE}/p/${key}.dat`, `${LDRAW_BASE}/UnOfficial/p/${key}.dat`);
+  } else if (looksLikePrimitive(stem)) {
+    // Primitive-shaped name → p/ first; the parts/ fallbacks below still run
+    // for the rare part whose number begins like a primitive.
+    paths.push(
+      `${LDRAW_BASE}/p/${stem}.dat`,
+      `${LDRAW_BASE}/UnOfficial/p/${stem}.dat`,
+      `${LDRAW_BASE}/parts/${stem}.dat`,
+      `${LDRAW_BASE}/UnOfficial/parts/${stem}.dat`,
+      // Some Studio-era subparts reference primitives that only exist as
+      // hi-res `48/` variants (e.g. bare `1-12ring14` → p/48/1-12ring14.dat).
+      // The 48/ version is the same shape at finer tessellation — a safe
+      // drop-in that closes those silent geometry holes.
+      `${LDRAW_BASE}/p/48/${stem}.dat`,
+      `${LDRAW_BASE}/UnOfficial/p/48/${stem}.dat`,
+    );
   }
   paths.push(
     `${LDRAW_BASE}/parts/${stem}.dat`,
@@ -184,8 +312,19 @@ async function fetchDatText(id: string): Promise<string | null> {
     `${LDRAW_BASE}/UnOfficial/p/48/${stem}.dat`,
     `${LDRAW_BASE}/models/${stem}.dat`,
   );
+  // De-duplicate while preserving first-occurrence order.
+  const seen = new Set<string>();
+  const orderedPaths = paths.filter(p => !seen.has(p) && (seen.add(p), true));
 
   const promise = (async (): Promise<string | null> => {
+    // Persistent cache first: library .dat files are immutable in practice,
+    // so a previous session's fetch satisfies this one with zero network.
+    const persisted = await idbGetDat(key);
+    if (persisted !== undefined) {
+      datTextCache.set(key, persisted);
+      return persisted;
+    }
+
     // Distinguish a DEFINITIVE miss (every candidate path returned a real HTTP
     // response, all non-OK → part truly absent) from a TRANSIENT failure
     // (a fetch threw: timeout / network error / server overload). Only a
@@ -196,13 +335,14 @@ async function fetchDatText(id: string): Promise<string | null> {
     // dropping a part — the previous code cached null on the FIRST failure,
     // which turned transient timeouts into permanently missing pieces.
     let sawTransient = false;
-    for (const path of paths) {
+    for (const path of orderedPaths) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const r = await fetch(path, { signal: AbortSignal.timeout(8000) });
           if (r.ok) {
             const text = await r.text();
             datTextCache.set(key, text);
+            idbPutDat(key, text);
             return text;
           }
           break; // got a definitive HTTP response (e.g. 404) — next path, no retry
@@ -212,7 +352,10 @@ async function fetchDatText(id: string): Promise<string | null> {
         }
       }
     }
-    if (!sawTransient) datTextCache.set(key, null); // definitive miss only
+    if (!sawTransient) {
+      datTextCache.set(key, null); // definitive miss only
+      unresolvedDatNames.add(key);
+    }
     return null;
   })();
 

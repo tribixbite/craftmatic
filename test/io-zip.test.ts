@@ -12,8 +12,8 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
-import { extractFile } from '../web/src/engine/zip-utils.js';
-import { extractIoLDraw } from '../web/src/engine/io-extractor.js';
+import { extractFile, extractMatching, listZipEntries } from '../web/src/engine/zip-utils.js';
+import { extractIoLDraw, extractIoModel } from '../web/src/engine/io-extractor.js';
 
 const PW = 'soho0909';
 
@@ -249,5 +249,56 @@ describe('extractIoLDraw — model candidate selection', () => {
   it('throws when no LDraw model is present', async () => {
     const zip = plainZip([{ name: 'notes.txt', content: Buffer.from('nothing here') }]);
     await expect(extractIoLDraw(zip)).rejects.toThrow(/No LDraw model/i);
+  });
+});
+
+// ─── listZipEntries / extractMatching / extractIoModel (CustomParts) ─────────
+
+describe('zip entry enumeration + .io CustomParts extraction', () => {
+  const BRICK_LINE = '1 4 0 0 0 1 0 0 0 1 0 0 0 1 3001.dat\n';
+
+  it('listZipEntries returns every local entry name', () => {
+    const zip = plainZip([
+      { name: 'model.ldr', content: Buffer.from(BRICK_LINE) },
+      { name: 'CustomParts/m123_456.dat', content: Buffer.from('3 16 0 0 0 1 0 0 0 0 1\n') },
+      { name: 'thumbnail.png', content: Buffer.from([1, 2, 3]) },
+    ]);
+    expect(listZipEntries(zip)).toEqual(['model.ldr', 'CustomParts/m123_456.dat', 'thumbnail.png']);
+  });
+
+  it('extractMatching pulls only predicate-matching entries', async () => {
+    const zip = plainZip([
+      { name: 'model.ldr', content: Buffer.from(BRICK_LINE) },
+      { name: 'CustomParts/a.dat', content: Buffer.from('AAA'), deflate: true },
+      { name: 'CustomParts/collider/a.col', content: Buffer.from('COL') },
+    ]);
+    const got = await extractMatching(zip, n => /^CustomParts\/.*\.dat$/.test(n));
+    expect([...got.keys()]).toEqual(['CustomParts/a.dat']);
+    expect(dec(got.get('CustomParts/a.dat'))).toBe('AAA');
+  });
+
+  it('extractIoModel returns the model text plus CustomParts keyed by relative path', async () => {
+    // Mirrors the real Studio layout: custom m-parts at the root of
+    // CustomParts/ and bundled primitives under CustomParts/p/(48/).
+    const zip = plainZip([
+      { name: 'model.ldr', content: Buffer.from(BRICK_LINE) },
+      { name: 'CustomParts/m3659da88_2019920_072931.dat', content: Buffer.from('0 custom part\n3 16 0 0 0 1 0 0 0 0 1\n'), deflate: true },
+      { name: 'CustomParts/p/48/1-12edge.dat', content: Buffer.from('2 24 0 0 0 1 0 0\n') },
+      { name: 'CustomParts/collider/m3659da88_2019920_072931.col', content: Buffer.from('ignored') },
+      { name: 'thumbnail.png', content: Buffer.from([0x89, 0x50]) },
+    ]);
+    const m = await extractIoModel(zip);
+    expect(m.text).toContain('3001.dat');
+    expect([...m.customParts.keys()].sort()).toEqual([
+      'm3659da88_2019920_072931.dat',
+      'p/48/1-12edge.dat',
+    ]);
+    expect(m.customParts.get('p/48/1-12edge.dat')).toBe('2 24 0 0 0 1 0 0\n');
+  });
+
+  it('extractIoModel returns an empty map when the archive has no CustomParts', async () => {
+    const zip = plainZip([{ name: 'model.ldr', content: Buffer.from(BRICK_LINE) }]);
+    const m = await extractIoModel(zip);
+    expect(m.customParts.size).toBe(0);
   });
 });

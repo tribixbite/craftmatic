@@ -36,11 +36,13 @@ import {
   resolvePartGeometry,
   getCachedPartGeom,
   preloadMpdInlines,
+  preloadDatTexts,
   clearMpdInlines,
   isLDrawPrimitive,
   normId,
   partTextureUrls,
   invalidatePartGeom,
+  unresolvedDatNames,
 } from './parts.js';
 import {
   getThreeColor,
@@ -50,6 +52,18 @@ import {
 
 const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const LDU_TO_UNITS = 1 / 20; // 1 stud (20 LDU) = 1 scene unit
+
+/**
+ * Mobile quality profile: phones/tablets get a capped pixel ratio (fill-rate
+ * is the binding constraint on big sets), a smaller shadow map, and no SAO.
+ * Heuristic = touch device with a phone/tablet-sized short edge.
+ */
+const IS_MOBILE = typeof navigator !== 'undefined'
+  && (navigator.maxTouchPoints ?? 0) > 0
+  && typeof screen !== 'undefined'
+  && Math.min(screen.width, screen.height) < 900;
+const MAX_PIXEL_RATIO = IS_MOBILE ? 1.5 : 2;
+const SHADOW_MAP_SIZE = IS_MOBILE ? 1024 : 2048;
 
 function applyMat(v: Vec3, R: readonly number[], T: Vec3): Vec3 {
   return [
@@ -141,6 +155,12 @@ export class LDrawViewer {
   private lastFrameTime = 0;
   private maxAvailableStep: number = 1;
   private currentMaxStep: number = Number.POSITIVE_INFINITY;
+  // Slider key: 'step' prefixes instances by assembly STEP markers; 'layer'
+  // prefixes by quantized vertical position (one plate = one layer). Layer
+  // mode gives a bottom-up build reveal even for models with no STEP meta
+  // (most Studio .io exports — e.g. 71043 has 5,936 bricks and ONE step).
+  private sliderMode: 'step' | 'layer' = 'step';
+  private maxAvailableLayer: number = 1;
   // Stored bbox + size from last load(), used by setView() camera presets
   private lastBboxMin = new THREE.Vector3();
   private lastBboxMax = new THREE.Vector3();
@@ -156,6 +176,8 @@ export class LDrawViewer {
   /** Parts that resolved with no geometry (missing from library / LSynth).
    *  Populated each load(); read by the UI to surface unrendered pieces. */
   missingParts: { part: string; count: number }[] = [];
+  /** Sub-file refs that resolved nowhere (parents render with small gaps). */
+  unresolvedSubparts: string[] = [];
   // Cinematic camera transition state (null when not animating).
   // Render loop interpolates position/target/near/far with ease-in-out quad
   // over `duration` ms. Set by fitCameraToDirection(..., animate=true).
@@ -194,7 +216,11 @@ export class LDrawViewer {
       // depth with a well-tuned near/far (see fitCameraToDirection) gives far
       // better precision for a model-scale scene and eliminates the flicker.
       powerPreference: 'high-performance',
-      preserveDrawingBuffer: true, // captureScreenshot()
+      // preserveDrawingBuffer is intentionally OFF: it forces tiled mobile
+      // GPUs to copy the framebuffer every frame. captureScreenshot() and
+      // captureScreenshotAt() render explicitly before toDataURL(), which
+      // makes the capture correct without the per-frame cost.
+      preserveDrawingBuffer: false,
     });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -225,7 +251,7 @@ export class LDrawViewer {
     this.scene.add(this.hemi);
     this.keyLight = new THREE.DirectionalLight(0xfff6ea, 2.6);
     this.keyLight.castShadow = true;
-    this.keyLight.shadow.mapSize.set(2048, 2048);
+    this.keyLight.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
     this.keyLight.shadow.bias = -0.0005;
     this.keyLight.shadow.normalBias = 0.02;
     this.keyLight.shadow.radius = 3;
@@ -282,7 +308,7 @@ export class LDrawViewer {
     }
 
     viewer.renderer.setSize(cw, ch);
-    viewer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    viewer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     viewer.composer.setSize(cw, ch);
     viewer.camera.aspect = cw / ch;
     viewer.camera.updateProjectionMatrix();
@@ -404,9 +430,11 @@ export class LDrawViewer {
     // Tear down previous model state
     this.unloadCurrent();
 
-    // Inject MPD inlines into part cache (these are model-specific)
+    // Inject MPD inlines + archive-bundled part definitions into the part
+    // cache (both model-specific; cleared again on the next load).
     clearMpdInlines();
     if (opts?.mpdContent) preloadMpdInlines(opts.mpdContent);
+    if (opts?.datFiles?.size) preloadDatTexts(opts.datFiles);
 
     // Filter out non-visual primitives (logo stamps, lsynth)
     const filteredBricks = bricks.filter(b => !isLDrawPrimitive(b.part));
@@ -447,6 +475,17 @@ export class LDrawViewer {
       if (triCount(getCachedPartGeom(p)) === 0) missing.set(p, instCount.get(p) ?? 1);
     }
     this.missingParts = [...missing.entries()].map(([part, count]) => ({ part, count }));
+    // Sub-file references that resolved nowhere leave SILENT holes in their
+    // parent parts (the parent still renders its other geometry). Surface
+    // them so geometry gaps are never invisible.
+    const topLevelMissing = new Set(missing.keys());
+    this.unresolvedSubparts = [...unresolvedDatNames].filter(n => !topLevelMissing.has(n));
+    if (this.unresolvedSubparts.length > 0) {
+      console.warn(
+        `[LDrawViewer] ${this.unresolvedSubparts.length} sub-part file(s) unresolved — minor geometry gaps:`,
+        this.unresolvedSubparts.join(', '),
+      );
+    }
 
     // Highest step number across the model (drives the slider range).
     let maxStep = 1;
@@ -519,8 +558,8 @@ export class LDrawViewer {
   }
 
   /**
-   * Toggle visibility of step groups. O(steps), no rebuild.
-   * The architectural win over the previous renderer.
+   * Set the slider position: instances with (step|layer) <= value render.
+   * O(meshes · log instances) prefix-count, no rebuild.
    */
   setMaxStep(step: number): void {
     if (this.disposed || !this.loaded) return;
@@ -534,7 +573,31 @@ export class LDrawViewer {
     return this.maxAvailableStep;
   }
 
-  /** Tone-mapping exposure (1.0 default, ACES filmic). */
+  /** Highest vertical layer index (1 layer = 1 plate height) in the model. */
+  getMaxAvailableLayer(): number {
+    return this.maxAvailableLayer;
+  }
+
+  getSliderMode(): 'step' | 'layer' {
+    return this.sliderMode;
+  }
+
+  /**
+   * Switch the slider key between assembly steps and vertical layers.
+   * Re-sorts every InstancedMesh's instance buffers (and the global edge
+   * geometry) by the new key so prefix-counting stays valid. One-time cost on
+   * toggle (~tens of ms on the largest sets); resets the prefix to "show all".
+   */
+  setSliderMode(mode: 'step' | 'layer'): void {
+    if (this.disposed || !this.loaded || mode === this.sliderMode) return;
+    this.sliderMode = mode;
+    this.resortForMode(mode);
+    this.currentMaxStep = Number.POSITIVE_INFINITY;
+    this.applyStepVisibility();
+    this.requestShadowUpdate();
+  }
+
+  /** Tone-mapping exposure (1.0 default, Khronos PBR Neutral). */
   setExposure(value: number): void {
     this.renderer.toneMappingExposure = value;
   }
@@ -914,17 +977,86 @@ export class LDrawViewer {
 
   private applyStepVisibility(): void {
     // Global instancing: instead of toggling per-step groups, prefix-count the
-    // step-sorted instances of each mesh (and segments of the edge lines) so
+    // key-sorted instances of each mesh (and segments of the edge lines) so
     // only bricks built up to currentMaxStep render. O(meshes · log instances).
+    // The active key (assembly step vs vertical layer) is this.sliderMode;
+    // resortForMode keeps the buffers sorted by the active key.
     const maxStep = this.currentMaxStep;
+    const meshKey = this.sliderMode === 'layer' ? 'layerArr' : 'stepArr';
+    const segKey = this.sliderMode === 'layer' ? 'segLayer' : 'segStep';
     for (const stepState of this.stepGroups.values()) {
       stepState.group.traverse(obj => {
         if (obj instanceof THREE.InstancedMesh) {
-          const arr = obj.userData['stepArr'] as Int32Array | undefined;
+          const arr = obj.userData[meshKey] as Int32Array | undefined;
           if (arr) obj.count = upperBoundCount(arr, maxStep);
         } else if (obj instanceof LineSegments2) {
-          const arr = obj.userData['segStep'] as Int32Array | undefined;
+          const arr = obj.userData[segKey] as Int32Array | undefined;
           if (arr) (obj.geometry as LineSegmentsGeometry).instanceCount = upperBoundCount(arr, maxStep);
+        }
+      });
+    }
+  }
+
+  /**
+   * Re-sort instance buffers (and the edge geometry) by the given slider key
+   * so prefix-counting works for that mode. All parallel per-instance
+   * structures are permuted together: matrices, originalMatrices (explode
+   * reads these by index), stepArr, layerArr, and the pick map.
+   */
+  private resortForMode(mode: 'step' | 'layer'): void {
+    for (const stepState of this.stepGroups.values()) {
+      stepState.group.traverse(obj => {
+        if (obj instanceof THREE.InstancedMesh) {
+          const stepArr = obj.userData['stepArr'] as Int32Array | undefined;
+          const layerArr = obj.userData['layerArr'] as Int32Array | undefined;
+          if (!stepArr || !layerArr) return;
+          const key = mode === 'layer' ? layerArr : stepArr;
+          const n = key.length;
+          const order = Array.from({ length: n }, (_, i) => i)
+            .sort((a, b) => key[a]! - key[b]! || a - b);
+          const originals = obj.userData['originalMatrices'] as THREE.Matrix4[] | undefined;
+          const bricks = this.instanceBrickMap.get(obj);
+          const newOriginals = originals ? order.map(i => originals[i]!) : undefined;
+          if (newOriginals) {
+            for (let i = 0; i < n; i++) obj.setMatrixAt(i, newOriginals[i]!);
+            obj.instanceMatrix.needsUpdate = true;
+            obj.userData['originalMatrices'] = newOriginals;
+          }
+          obj.userData['stepArr'] = Int32Array.from(order, i => stepArr[i]!);
+          obj.userData['layerArr'] = Int32Array.from(order, i => layerArr[i]!);
+          if (bricks) this.instanceBrickMap.set(obj, order.map(i => bricks[i]!));
+        } else if (obj instanceof LineSegments2) {
+          const segStep = obj.userData['segStep'] as Int32Array | undefined;
+          const segLayer = obj.userData['segLayer'] as Int32Array | undefined;
+          if (!segStep || !segLayer) return;
+          const key = mode === 'layer' ? segLayer : segStep;
+          const n = key.length;
+          const order = Array.from({ length: n }, (_, i) => i)
+            .sort((a, b) => key[a]! - key[b]! || a - b);
+          // Recover the packed per-segment position/color arrays from the
+          // geometry's interleaved buffers (they hold exactly the Float32Array
+          // layout setPositions/setColors received — no persistent copy needed).
+          const geo = obj.geometry as LineSegmentsGeometry;
+          const startAttr = geo.getAttribute('instanceStart') as THREE.InterleavedBufferAttribute | undefined;
+          const colorAttr = geo.getAttribute('instanceColorStart') as THREE.InterleavedBufferAttribute | undefined;
+          if (!startAttr || !colorAttr) return;
+          const oldPos = startAttr.data.array as Float32Array;
+          const oldCol = colorAttr.data.array as Float32Array;
+          const newPos = new Float32Array(n * 6);
+          const newCol = new Float32Array(n * 6);
+          for (let s = 0; s < n; s++) {
+            const src = order[s]! * 6;
+            const dst = s * 6;
+            for (let k = 0; k < 6; k++) {
+              newPos[dst + k] = oldPos[src + k]!;
+              newCol[dst + k] = oldCol[src + k]!;
+            }
+          }
+          geo.setPositions(newPos);
+          geo.setColors(newCol);
+          obj.computeLineDistances();
+          obj.userData['segStep'] = Int32Array.from(order, i => segStep[i]!);
+          obj.userData['segLayer'] = Int32Array.from(order, i => segLayer[i]!);
         }
       });
     }
@@ -969,6 +1101,8 @@ export class LDrawViewer {
     this.backdropMeshes = [];
     this.loaded = false;
     this.maxAvailableStep = 1;
+    this.maxAvailableLayer = 1;
+    this.sliderMode = 'step';
     this.currentMaxStep = Number.POSITIVE_INFINITY;
   }
 
@@ -999,6 +1133,7 @@ export class LDrawViewer {
       matrices: THREE.Matrix4[];
       bricks: ParsedBrick[]; // parallel to matrices — for click-to-inspect
       steps: number[];       // parallel to matrices — for step prefixing
+      layers: number[];      // parallel to matrices — RAW layer (offset later)
     }
     const buckets = new Map<string, InstanceBucket>();
     // Edges as a flat segment list tagged with step + color, sorted by step
@@ -1006,9 +1141,17 @@ export class LDrawViewer {
     const segPos: number[] = [];   // 6 floats per segment
     const segColor: number[] = []; // 1 colour id per segment
     const segStepArr: number[] = []; // 1 step per segment
+    const segLayerArr: number[] = []; // 1 RAW layer per segment
     let segCount = 0;
 
     const scale = LDU_TO_UNITS;
+
+    // Vertical layer key for the layer-slider mode: quantize each brick's
+    // origin height to plate units (8 LDU). LDraw Y is DOWN, so -y/8 grows
+    // upward; the raw values are offset to 1-based after the scan.
+    const rawLayerOf = (b: ParsedBrick): number => Math.round(-b.y / 8);
+    let minRawLayer = Infinity;
+    let maxRawLayer = -Infinity;
 
     for (const brick of stepBricks) {
       const partId = normId(brick.part);
@@ -1019,6 +1162,9 @@ export class LDrawViewer {
       const T: Vec3 = [brick.x, brick.y, brick.z];
       const cid = isNaN(brick.color) ? 71 : brick.color;
       const bStep = brick.step ?? 1;
+      const bLayer = rawLayerOf(brick);
+      if (bLayer < minRawLayer) minRawLayer = bLayer;
+      if (bLayer > maxRawLayer) maxRawLayer = bLayer;
 
       // Per-instance matrix: applies rotation+translation, then scale + Y-flip
       // (LDraw is Y-down, scene is Y-up). Pre-baked so the InstancedMesh
@@ -1033,12 +1179,13 @@ export class LDrawViewer {
       const bucketKey = `${partId}|${cid}`;
       let bucket = buckets.get(bucketKey);
       if (!bucket) {
-        bucket = { partId, brickColor: cid, matrices: [], bricks: [], steps: [] };
+        bucket = { partId, brickColor: cid, matrices: [], bricks: [], steps: [], layers: [] };
         buckets.set(bucketKey, bucket);
       }
       bucket.matrices.push(m);
       bucket.bricks.push(brick);
       bucket.steps.push(bStep);
+      bucket.layers.push(bLayer);
 
       // Edges (merged fat lines; not InstancedMesh). World-space positions;
       // cap total to bound memory.
@@ -1050,7 +1197,7 @@ export class LDrawViewer {
             we0[0]! * scale, -we0[1]! * scale, we0[2]! * scale,
             we1[0]! * scale, -we1[1]! * scale, we1[2]! * scale,
           );
-          segColor.push(cid); segStepArr.push(bStep); segCount++;
+          segColor.push(cid); segStepArr.push(bStep); segLayerArr.push(bLayer); segCount++;
         }
         for (const [ccid, cedges] of geom.colorEdges) {
           for (const [ev0, ev1] of cedges) {
@@ -1060,11 +1207,18 @@ export class LDrawViewer {
               we0[0]! * scale, -we0[1]! * scale, we0[2]! * scale,
               we1[0]! * scale, -we1[1]! * scale, we1[2]! * scale,
             );
-            segColor.push(ccid); segStepArr.push(bStep); segCount++;
+            segColor.push(ccid); segStepArr.push(bStep); segLayerArr.push(bLayer); segCount++;
           }
         }
       }
     }
+
+    // Offset raw layers to a 1-based index now that the scan found the floor.
+    // (1 layer = 1 plate height; the layer-slider mode prefixes on these.)
+    const layerOffset = Number.isFinite(minRawLayer) ? 1 - minRawLayer : 0;
+    this.maxAvailableLayer = Number.isFinite(maxRawLayer)
+      ? maxRawLayer + layerOffset
+      : 1;
 
     // Sort each bucket's instances step-ascending so a maxStep prefix selects
     // exactly the built-so-far instances (applyStepVisibility sets .count).
@@ -1073,6 +1227,7 @@ export class LDrawViewer {
       bucket.matrices = order.map(i => bucket.matrices[i]!);
       bucket.bricks = order.map(i => bucket.bricks[i]!);
       bucket.steps = order.map(i => bucket.steps[i]!);
+      bucket.layers = order.map(i => bucket.layers[i]! + layerOffset);
     }
 
     // Build InstancedMesh per (partId, brickColor) bucket. Sort so opaque
@@ -1109,6 +1264,7 @@ export class LDrawViewer {
         // Step-ascending array parallel to instances; applyStepVisibility sets
         // inst.count to the prefix where step <= maxStep.
         inst.userData['stepArr'] = Int32Array.from(bucket.steps);
+        inst.userData['layerArr'] = Int32Array.from(bucket.layers);
         // Compute the InstancedMesh's true world-space bbox/sphere from
         // instance matrices — without this, frustum culling uses the
         // part-local bbox (small, around origin) and culls the entire mesh
@@ -1151,6 +1307,7 @@ export class LDrawViewer {
         cInst.instanceMatrix.needsUpdate = true;
         cInst.userData['originalMatrices'] = bucket.matrices.map(m => m.clone());
         cInst.userData['stepArr'] = Int32Array.from(bucket.steps);
+        cInst.userData['layerArr'] = Int32Array.from(bucket.layers);
         cInst.computeBoundingBox();
         cInst.computeBoundingSphere();
         if (subGeom.boundingBox) {
@@ -1208,6 +1365,7 @@ export class LDrawViewer {
           tInst.instanceMatrix.needsUpdate = true;
           tInst.userData['originalMatrices'] = bucket.matrices.map(m => m.clone());
           tInst.userData['stepArr'] = Int32Array.from(bucket.steps);
+        tInst.userData['layerArr'] = Int32Array.from(bucket.layers);
           tInst.computeBoundingBox();
           tInst.computeBoundingSphere();
           group.add(tInst);
@@ -1245,6 +1403,7 @@ export class LDrawViewer {
       const allEdgePos = new Float32Array(segCount * 6);
       const allEdgeCol = new Float32Array(segCount * 6);
       const sortedSegStep = new Int32Array(segCount);
+      const sortedSegLayer = new Int32Array(segCount);
       for (let s = 0; s < order.length; s++) {
         const idx = order[s]!;
         const src = idx * 6;
@@ -1254,6 +1413,7 @@ export class LDrawViewer {
         allEdgeCol[dst]     = r; allEdgeCol[dst + 1] = g; allEdgeCol[dst + 2] = b;
         allEdgeCol[dst + 3] = r; allEdgeCol[dst + 4] = g; allEdgeCol[dst + 5] = b;
         sortedSegStep[s] = segStepArr[idx]!;
+        sortedSegLayer[s] = segLayerArr[idx]! + layerOffset;
       }
       const edgeGeo = new LineSegmentsGeometry();
       edgeGeo.setPositions(allEdgePos);
@@ -1270,9 +1430,10 @@ export class LDrawViewer {
       const edgeLines = new LineSegments2(edgeGeo, edgeMat);
       edgeLines.computeLineDistances();
       edgeLines.renderOrder = 2;
-      // Step array parallel to segments; applyStepVisibility sets
-      // geometry.instanceCount to the prefix where step <= maxStep.
+      // Step/layer arrays parallel to segments; applyStepVisibility sets
+      // geometry.instanceCount to the prefix where the active key <= maxStep.
       edgeLines.userData['segStep'] = sortedSegStep;
+      edgeLines.userData['segLayer'] = sortedSegLayer;
       group.add(edgeLines);
     }
 
@@ -1844,7 +2005,9 @@ export class LDrawViewer {
     // count drastically (often <50 even for thousands of bricks), so we can
     // raise the cap. Intensity bumped (0.012→0.04) for visible crevice
     // darkening; tighter kernel for crisp brick-seam shadows.
-    if (totalMeshes <= 80) {
+    // Skipped on mobile: SAOPass re-renders the scene for depth + normals,
+    // and phone GPUs need that budget for the base render.
+    if (!IS_MOBILE && totalMeshes <= 80) {
       this.saoPass = new SAOPass(this.scene, this.camera);
       this.saoPass.params.saoBias = 0.4;
       this.saoPass.params.saoIntensity = 0.04;
