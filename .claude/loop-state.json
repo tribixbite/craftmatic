@@ -1,5 +1,6 @@
 {
-  "active": true,
-  "pass": 0,
-  "max_passes": 25
+  "active": false,
+  "pass": 4,
+  "max_passes": 25,
+  "reason": "All 20 GAPs in spec/lego-gaps-roadmap.md are DONE — no remaining work"
 }

@@ -221,28 +221,166 @@ export function isIndoorPanorama(pixels: Uint8Array, w: number, h: number): bool
   return true;
 }
 
+// ─── Adaptive Building Zone Detection ─────────────────────────────────────────
+
+/** Classification of each grid cell in the pre-scan */
+type CellClass = 'sky' | 'ground' | 'vegetation' | 'building';
+
+/** Adaptive bounding box of the building region within the image */
+export interface BuildingZone {
+  startX: number;
+  endX: number;
+  startY: number;
+  endY: number;
+}
+
+/**
+ * Pre-scan the image in a 16x16 grid to detect where the building actually is.
+ *
+ * Each cell is classified as sky, ground, vegetation, or building (everything
+ * else). Returns the bounding box of "building" cells if it covers > 20% of
+ * the image. Returns null if the building is too small or not visible.
+ *
+ * @internal Exported for unit testing
+ */
+export function detectBuildingZone(
+  pixels: Uint8Array, w: number, h: number,
+): BuildingZone | null {
+  const GRID = 16;
+  const cellW = Math.floor(w / GRID);
+  const cellH = Math.floor(h / GRID);
+  if (cellW < 4 || cellH < 4) return null; // image too small for grid analysis
+
+  const grid: CellClass[][] = [];
+
+  for (let gy = 0; gy < GRID; gy++) {
+    const row: CellClass[] = [];
+    for (let gx = 0; gx < GRID; gx++) {
+      const x0 = gx * cellW;
+      const y0 = gy * cellH;
+
+      // Compute average RGB for this cell
+      let rSum = 0, gSum = 0, bSum = 0;
+      let count = 0;
+      for (let y = y0; y < y0 + cellH && y < h; y++) {
+        for (let x = x0; x < x0 + cellW && x < w; x++) {
+          const idx = (y * w + x) * 4;
+          rSum += pixels[idx];
+          gSum += pixels[idx + 1];
+          bSum += pixels[idx + 2];
+          count++;
+        }
+      }
+
+      if (count === 0) { row.push('building'); continue; }
+      const avgR = rSum / count;
+      const avgG = gSum / count;
+      const avgB = bSum / count;
+
+      // Classify the cell by its average color
+      const luminance = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
+      const maxC = Math.max(avgR, avgG, avgB);
+      const minC = Math.min(avgR, avgG, avgB);
+      const saturation = maxC > 0 ? (maxC - minC) / maxC : 0;
+
+      // Sky: high blue, low saturation, bright (overcast or clear)
+      if (avgB > avgR && avgB > avgG && luminance > 150 && saturation < 0.45) {
+        row.push('sky');
+      } else if (luminance > 200 && saturation < 0.12) {
+        // Very bright, desaturated — overcast sky or white wall
+        // Only classify as sky if in the top half of the image
+        row.push(gy < GRID / 2 ? 'sky' : 'building');
+      }
+      // Ground/pavement: desaturated, moderate luminance
+      else if (saturation < 0.15 && luminance >= 60 && luminance <= 140) {
+        row.push('ground');
+      }
+      // Vegetation: green-dominant with meaningful saturation
+      else if (avgG > avgR && avgG > avgB && saturation > 0.20) {
+        row.push('vegetation');
+      }
+      // Everything else → building facade
+      else {
+        row.push('building');
+      }
+    }
+    grid.push(row);
+  }
+
+  // Find bounding box of "building" cells
+  let minGX = GRID, maxGX = -1, minGY = GRID, maxGY = -1;
+  let buildingCells = 0;
+  for (let gy = 0; gy < GRID; gy++) {
+    for (let gx = 0; gx < GRID; gx++) {
+      if (grid[gy][gx] === 'building') {
+        buildingCells++;
+        if (gx < minGX) minGX = gx;
+        if (gx > maxGX) maxGX = gx;
+        if (gy < minGY) minGY = gy;
+        if (gy > maxGY) maxGY = gy;
+      }
+    }
+  }
+
+  // Require > 20% of grid cells to be building
+  const totalCells = GRID * GRID;
+  if (buildingCells < totalCells * 0.20 || maxGX < 0) {
+    return null; // building too small or not visible — fall back to fixed zones
+  }
+
+  // Convert grid coordinates back to pixel coordinates
+  return {
+    startX: minGX * cellW,
+    endX: Math.min((maxGX + 1) * cellW, w),
+    startY: minGY * cellH,
+    endY: Math.min((maxGY + 1) * cellH, h),
+  };
+}
+
 // ─── Tier 1: Zone-based Color Extraction ─────────────────────────────────────
 
 /** @internal Exported for unit testing */
 export function extractColors(
   pixels: Uint8Array, w: number, h: number,
 ): SvColorAnalysis | null {
-  // Zone definitions for 640×480 (or proportional)
-  const roofStartY = 0;
-  const roofEndY = Math.floor(h * 0.25);                // top 25%
-  const wallStartY = Math.floor(h * 0.25);
-  const wallEndY = Math.floor(h * 0.65);                // middle 40%
-  const wallStartX = Math.floor(w * 0.15);              // center 70%
-  const wallEndX = Math.floor(w * 0.85);
+  // Attempt adaptive building zone detection before falling back to fixed zones
+  const buildingZone = detectBuildingZone(pixels, w, h);
+
+  // Zone definitions — use adaptive zone if available, otherwise fixed percentages
+  let roofStartY: number, roofEndY: number;
+  let wallStartY: number, wallEndY: number;
+  let wallStartX: number, wallEndX: number;
+
+  if (buildingZone) {
+    // Adaptive: split the detected building bbox into roof (top 30%) and wall (rest)
+    const bh = buildingZone.endY - buildingZone.startY;
+    roofStartY = buildingZone.startY;
+    roofEndY = buildingZone.startY + Math.floor(bh * 0.30);
+    wallStartY = roofEndY;
+    wallEndY = buildingZone.endY;
+    wallStartX = buildingZone.startX;
+    wallEndX = buildingZone.endX;
+    console.log(`  SV adaptive zone: building bbox [${buildingZone.startX},${buildingZone.startY}]-[${buildingZone.endX},${buildingZone.endY}] (${((buildingZone.endX - buildingZone.startX) * (buildingZone.endY - buildingZone.startY) / (w * h) * 100).toFixed(0)}% of image)`);
+  } else {
+    // Fixed fallback zones for 640×480 (or proportional)
+    roofStartY = 0;
+    roofEndY = Math.floor(h * 0.25);                // top 25%
+    wallStartY = Math.floor(h * 0.25);
+    wallEndY = Math.floor(h * 0.65);                // middle 40%
+    wallStartX = Math.floor(w * 0.15);              // center 70%
+    wallEndX = Math.floor(w * 0.85);
+  }
+
   const trimStartX = Math.floor(w * 0.03);              // edge strips
   const trimEndXLeft = Math.floor(w * 0.15);
   const trimStartXRight = Math.floor(w * 0.85);
   const trimEndXRight = Math.floor(w * 0.97);
 
-  // Roof zone — full width, top 25%
-  const roofColor = dominantColor(pixels, roofStartY, roofEndY, w);
+  // Roof zone — adaptive or full width top 25%
+  const roofColor = dominantColor(pixels, roofStartY, roofEndY, w,
+    buildingZone ? wallStartX : undefined, buildingZone ? wallEndX : undefined);
 
-  // Wall zone — center portion, middle 40%
+  // Wall zone — adaptive building bbox or center portion middle 40%
   let wallColor = dominantColor(pixels, wallStartY, wallEndY, w, wallStartX, wallEndX);
 
   // Trim zone — left + right edge strips of the wall region
@@ -1027,4 +1165,142 @@ export async function analyzeStreetView(
   }
 
   return { colors, structure, vision, imageUrl, isIndoor: false };
+}
+
+// ─── Multi-Angle Color Extraction ─────────────────────────────────────────────
+
+/** Per-facade color result from multi-angle analysis */
+export interface FacadeColorResult {
+  faceName: string;
+  heading: number;
+  wallColor: { r: number; g: number; b: number } | null;
+  /** Number of valid wall-zone pixels that contributed to the color */
+  pixelCount: number;
+}
+
+/** Merged result from multiple Street View facade images */
+export interface MultiSvColorResult {
+  /** Weighted-average wall color across all valid facades */
+  wallColor: { r: number; g: number; b: number };
+  /** Nearest Minecraft block for the merged wall color */
+  wallBlock: BlockState;
+  /** Per-facade breakdown for debugging/logging */
+  facades: FacadeColorResult[];
+  /** Agreement confidence 0-1: 1.0 = all facades agree, 0 = conflicting */
+  confidence: number;
+}
+
+/**
+ * Fetch and analyze multiple Street View facade images in parallel.
+ *
+ * For each image, runs zone-based color extraction (Tier 1) to get the
+ * dominant wall color. Then merges results using pixel-count weighting
+ * and inter-facade agreement scoring.
+ *
+ * @param images  Array of facade image descriptors (from queryMultiHeadingSV)
+ * @returns Merged color result, or null if no valid wall colors found
+ */
+export async function extractMultiAngleColors(
+  images: Array<{ faceName: string; heading: number; imageUrl: string }>,
+): Promise<MultiSvColorResult | null> {
+  const sharp = (await import('sharp')).default;
+
+  // Fetch all images in parallel
+  const fetchResults = await Promise.allSettled(
+    images.map(async (img) => {
+      const resp = await fetch(img.imageUrl, { signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) return null;
+      const buf = Buffer.from(await resp.arrayBuffer());
+      const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      return {
+        faceName: img.faceName,
+        heading: img.heading,
+        pixels: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+        width: info.width,
+        height: info.height,
+      };
+    }),
+  );
+
+  // Extract wall color from each image
+  const facades: FacadeColorResult[] = [];
+
+  for (const result of fetchResults) {
+    if (result.status !== 'fulfilled' || !result.value) {
+      continue;
+    }
+    const { faceName, heading, pixels, width, height } = result.value;
+    const colors = extractColors(pixels, width, height);
+
+    if (colors) {
+      const { wallColor } = colors;
+      // Check saturation — skip if too gray (likely sky/pavement, not facade)
+      const wMax = Math.max(wallColor.r, wallColor.g, wallColor.b);
+      const wMin = Math.min(wallColor.r, wallColor.g, wallColor.b);
+      const sat = wMax > 0 ? (wMax - wMin) / wMax : 0;
+
+      // Estimate valid wall pixels: center 70% × middle 40% of image
+      const wallPixels = Math.floor(width * 0.7) * Math.floor(height * 0.4);
+
+      facades.push({
+        faceName,
+        heading,
+        wallColor: sat >= 0.05 ? wallColor : null, // reject near-zero saturation
+        pixelCount: sat >= 0.05 ? wallPixels : 0,
+      });
+
+      const label = sat >= 0.05
+        ? `rgb(${wallColor.r},${wallColor.g},${wallColor.b}) sat=${(sat * 100).toFixed(0)}%`
+        : `SKIPPED (sat=${(sat * 100).toFixed(0)}%)`;
+      console.log(`    ${faceName} (${heading.toFixed(0)}°): ${label}`);
+    } else {
+      facades.push({ faceName, heading: result.value.heading, wallColor: null, pixelCount: 0 });
+      console.log(`    ${faceName} (${heading.toFixed(0)}°): no wall color detected`);
+    }
+  }
+
+  // Filter to facades with valid wall colors
+  const valid = facades.filter(f => f.wallColor !== null);
+  if (valid.length === 0) return null;
+
+  // Weighted merge: weight by pixel count (facades with more wall area contribute more)
+  let totalWeight = 0;
+  let wR = 0, wG = 0, wB = 0;
+  for (const f of valid) {
+    const w = f.pixelCount || 1;
+    wR += f.wallColor!.r * w;
+    wG += f.wallColor!.g * w;
+    wB += f.wallColor!.b * w;
+    totalWeight += w;
+  }
+  const mergedR = Math.round(wR / totalWeight);
+  const mergedG = Math.round(wG / totalWeight);
+  const mergedB = Math.round(wB / totalWeight);
+
+  // Compute inter-facade agreement via Lab delta-E
+  // High agreement = all facades see similar color = high confidence
+  const { rgbToLab } = await import('../color-blocks.js');
+  const mergedLab = rgbToLab(mergedR, mergedG, mergedB);
+  let maxDeltaE = 0;
+  for (const f of valid) {
+    const fLab = rgbToLab(f.wallColor!.r, f.wallColor!.g, f.wallColor!.b);
+    const dL = mergedLab[0] - fLab[0];
+    const da = mergedLab[1] - fLab[1];
+    const db = mergedLab[2] - fLab[2];
+    const dE = Math.sqrt(dL * dL + da * da + db * db);
+    if (dE > maxDeltaE) maxDeltaE = dE;
+  }
+  // confidence: deltaE=0 → 1.0, deltaE=30 → 0.5, deltaE=60+ → ~0
+  const confidence = Math.max(0, 1.0 - maxDeltaE / 60);
+
+  const wallBlock = rgbToWallBlock(mergedR, mergedG, mergedB);
+
+  console.log(`  SV merged: rgb(${mergedR},${mergedG},${mergedB}) → ${wallBlock.replace('minecraft:', '')} (${valid.length} facades, conf=${confidence.toFixed(2)})`);
+
+  return {
+    wallColor: { r: mergedR, g: mergedG, b: mergedB },
+    wallBlock,
+    facades,
+    confidence,
+  };
 }

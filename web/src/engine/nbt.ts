@@ -37,7 +37,7 @@ export interface NBTCompound {
 }
 
 /** Safety limits for untrusted NBT data */
-const MAX_ARRAY_LENGTH = 16 * 1024 * 1024; // 16M elements
+const MAX_ARRAY_LENGTH = 64 * 1024 * 1024; // 64M elements (2x-res schematics can have 35M+ BlockData)
 const MAX_COMPOUND_DEPTH = 64;
 
 /** Read cursor for tracking position in the byte stream */

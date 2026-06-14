@@ -21,6 +21,7 @@
     "build:web": "vite build --config web/vite.config.ts",
     "dev": "tsc --watch",
     "dev:web": "vite --config web/vite.config.ts",
+    "serve": "vite --config web/vite.config.ts --host 0.0.0.0 --port 4000",
     "preview:web": "vite preview --config web/vite.config.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:web": "tsc --noEmit -p web/tsconfig.json",

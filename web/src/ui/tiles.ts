@@ -28,11 +28,17 @@ import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
 import {
   trimSparseBottomLayers, analyzeGrid, cropToAABB,
   constrainPalette, modeFilter3D,
-  fillInteriorGaps, clearOpenAirFill, removeSmallComponents,
+  fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill,
+  removeSmallComponents, removeArtifactComponents,
   removeGroundPlane, stripVegetation,
-  morphClose3D, smoothSurface, flattenFacades, glazeDarkWindows,
+  morphClose3D, morphCloseFacadeAligned, smoothSurface,
+  flattenFacades, detectCornices, flattenFacadesSetbackAware,
+  glazeDarkWindows, glazeReflectiveWindows, injectSyntheticWindows,
+  extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
+  smoothFacadeColors, smoothRoofPlane, clusterFacadePalette,
+  fillFacadeHoles, removeIsolatedVoxels, fillFacadeVoids2D,
 } from '@craft/convert/mesh-filter.js';
-import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
+import type { AnalysisResult, ExtractedEnvironment } from '@craft/convert/mesh-filter.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -115,14 +121,27 @@ function buildUI(): void {
       <div class="tiles-params">
         <label class="tiles-param">
           <span>Resolution</span>
-          <input type="range" id="tiles-resolution" min="1" max="4" step="1" value="1">
-          <span id="tiles-res-label" class="tiles-param-value">1 block/m</span>
+          <input type="range" id="tiles-resolution" min="1" max="10" step="1" value="3">
+          <span id="tiles-res-label" class="tiles-param-value">3 block/m (1 ft/block)</span>
         </label>
         <label class="tiles-param">
           <span>Capture radius</span>
           <input type="range" id="tiles-radius" min="20" max="150" step="10" value="30">
           <span id="tiles-radius-label" class="tiles-param-value">30 m</span>
         </label>
+        <label class="tiles-param tiles-scene-toggle">
+          <span>Scene Mode</span>
+          <input type="checkbox" id="tiles-scene-mode">
+          <span class="tiles-param-value" id="tiles-scene-label">Off — building only</span>
+        </label>
+        <div class="tiles-scene-options" id="tiles-scene-options" style="display:none">
+          <label><input type="checkbox" id="scene-ground" checked> Ground (grass/terrain)</label>
+          <label><input type="checkbox" id="scene-trees" checked> Trees & vegetation</label>
+          <label><input type="checkbox" id="scene-roads" checked> Roads & sidewalks</label>
+          <label><input type="checkbox" id="scene-paths" checked> Paths (footways)</label>
+          <label><input type="checkbox" id="scene-fences" checked> Fences & walls</label>
+          <label><input type="checkbox" id="scene-pools" checked> Pool / driveway</label>
+        </div>
       </div>
       <div class="tiles-key-hint">
         <p>${hasTileKey
@@ -161,11 +180,27 @@ function buildUI(): void {
   const radiusSlider = document.getElementById('tiles-radius') as HTMLInputElement;
   const radiusLabel = document.getElementById('tiles-radius-label')!;
 
+  const sceneToggle = document.getElementById('tiles-scene-mode') as HTMLInputElement;
+  const sceneLabel = document.getElementById('tiles-scene-label')!;
+
   resSlider.addEventListener('input', () => {
-    resLabel.textContent = `${resSlider.value} block/m`;
+    const v = parseInt(resSlider.value, 10);
+    const labels: Record<number, string> = {
+      1: '1 block/m (1 m/block)',
+      2: '2 block/m (0.5 m/block)',
+      3: '3 block/m (1 ft/block)',
+      10: '10 block/m (0.1 m/block)',
+    };
+    resLabel.textContent = labels[v] ?? `${v} block/m`;
+    if (v >= 8) resLabel.textContent += ' — high detail';
   });
   radiusSlider.addEventListener('input', () => {
     radiusLabel.textContent = `${radiusSlider.value} m`;
+  });
+  const sceneOptions = document.getElementById('tiles-scene-options')!;
+  sceneToggle.addEventListener('change', () => {
+    sceneLabel.textContent = sceneToggle.checked ? 'On — building + environment' : 'Off — building only';
+    sceneOptions.style.display = sceneToggle.checked ? '' : 'none';
   });
 
   const startVoxelize = async () => {
@@ -332,12 +367,15 @@ async function runVoxelizePipeline(
   // uses a fixed camera, so we need every update() call to actually process tiles.
   tiles.registerPlugin(new UnloadTilesPlugin());
 
-  // Force building-level LOD, but scale with radius to prevent mobile GPU OOM.
-  // Small radius (30m) → errorTarget 4.0 (high detail, residential buildings)
-  // Large radius (150m) → errorTarget 20.0 (lower detail, prevents crash)
-  // Default 16px stops at coarse terrain tiles; lower values demand leaf tiles
-  // with actual building geometry and textures.
-  tiles.errorTarget = Math.max(4.0, (radiusMeters / 30) * 4.0);
+  // Progressive LOD: start coarse (20) for fast hierarchy traversal, then
+  // refine to target before capture. Lower errorTarget = higher detail tiles.
+  // Capped at 6.0 for buildings < 200m to force facade-level LOD without
+  // crashing mobile GPUs. For very large captures (>200m), allow scaling up.
+  let targetErrorTarget = radiusMeters > 200
+    ? Math.max(6.0, (radiusMeters / 30) * 4.0)
+    : Math.min(6.0, Math.max(4.0, (radiusMeters / 30) * 4.0));
+  // Start coarse for fast initial hierarchy traversal (root→regional→local)
+  tiles.errorTarget = 20;
 
   tiles.setCamera(camera);
   tiles.setResolutionFromRenderer(camera, renderer);
@@ -353,7 +391,11 @@ async function runVoxelizePipeline(
   if (bounds && bounds.confidence > 0.5) {
     // Auto-set capture radius from building dimensions
     radiusMeters = bounds.captureRadiusM;
-    console.log(`[tiles] auto-radius: ${radiusMeters}m (building ~${bounds.widthM}×${bounds.lengthM}m, sources: ${bounds.sources.join(',')})`);
+    // Recalculate LOD target for updated radius
+    targetErrorTarget = radiusMeters > 200
+      ? Math.max(6.0, (radiusMeters / 30) * 4.0)
+      : Math.min(6.0, Math.max(4.0, (radiusMeters / 30) * 4.0));
+    console.log(`[tiles] auto-radius: ${radiusMeters}m (building ~${bounds.widthM}×${bounds.lengthM}m, sources: ${bounds.sources.join(',')}), LOD target: ${targetErrorTarget.toFixed(1)}`);
     setStatus(
       `${geo.formattedAddress} — building ~${bounds.widthM}×${bounds.lengthM}m, capture radius ${radiusMeters}m`,
       'info',
@@ -390,7 +432,15 @@ async function runVoxelizePipeline(
   // a limited batch of tiles per frame. We need many cycles for the
   // root → regional → local → building tile chain to fully resolve.
   // Show loading progress and continue until tiles start downloading.
+  // Progressive LOD refinement: ramp errorTarget from 20 → target over 200 frames.
+  // First 50 frames at coarse LOD loads the hierarchy quickly. Remaining 150
+  // frames progressively demand higher-detail tiles as the hierarchy settles.
   for (let i = 0; i < 200; i++) {
+    // Progressive refinement: hold coarse for first 50 frames, then linear ramp
+    if (tiles && i >= 50) {
+      const t = (i - 50) / 150; // 0→1 over frames 50-200
+      tiles.errorTarget = 20 - t * (20 - targetErrorTarget);
+    }
     renderForLoading();
     const st = (tiles as unknown as { stats: Record<string, number> }).stats;
     const d = st.downloading ?? 0;
@@ -398,10 +448,85 @@ async function runVoxelizePipeline(
     const l = st.loaded ?? 0;
     const f = st.failed ?? 0;
     if (i % 10 === 0) {
-      setStatus(`Loading 3D tiles... (${d} downloading, ${p} parsing, ${l} loaded${f > 0 ? `, ${f} failed` : ''})`, 'info');
+      setStatus(`Loading 3D tiles... (${d} downloading, ${p} parsing, ${l} loaded${f > 0 ? `, ${f} failed` : ''}, LOD ${tiles.errorTarget.toFixed(1)})`, 'info');
     }
     await new Promise(r => setTimeout(r, 100));
   }
+  // Ensure target LOD is set before capture
+  if (tiles) tiles.errorTarget = targetErrorTarget;
+
+  // ── Phase 1b+1c: Multi-camera LOD forcing with vertical slices ──
+  // The top-down orthographic camera only loads top-of-building LOD.
+  // Cycle through side cameras to force facade tile loading.
+  // Phase 1c: For tall buildings (height > radius), add multiple height levels
+  // to force LOD loading of upper-floor facades that a single mid-height camera misses.
+  const estimatedHeight = bounds?.lengthM
+    ? Math.max(bounds.widthM, bounds.lengthM) * 1.5
+    : radiusMeters;
+  const camDist = radiusMeters * 2;
+  const sideHalfExtent = radiusMeters * 1.5;
+
+  // Phase 1c: Compute vertical slice heights. For buildings taller than the capture
+  // radius, a single mid-height camera can't force LOD for the full facade. Split
+  // into slices every ~radiusMeters in height, with a minimum of 1 (original behavior).
+  const sliceInterval = Math.max(radiusMeters, 30); // At least 30m between slices
+  const numSlices = Math.max(1, Math.ceil(estimatedHeight / sliceInterval));
+  const sliceHeights: number[] = [];
+  for (let s = 0; s < numSlices; s++) {
+    // Distribute slices evenly from 25% to 75% of estimated height
+    const t = numSlices === 1 ? 0.5 : 0.25 + (s / (numSlices - 1)) * 0.5;
+    sliceHeights.push(estimatedHeight * t);
+  }
+
+  // 4 cardinal directions: +X (E), -X (W), +Z (S), -Z (N)
+  const dirOffsets: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+  setStatus(`Loading facade detail (${dirOffsets.length}×${sliceHeights.length} cameras)...`, 'info');
+  await new Promise(r => setTimeout(r, 50));
+
+  // Fewer frames per camera when doing multiple slices to keep total time manageable
+  const framesPerCam = numSlices > 2 ? 15 : 30;
+
+  for (let si = 0; si < sliceHeights.length; si++) {
+    const sliceY = sliceHeights[si];
+    for (let di = 0; di < dirOffsets.length; di++) {
+      const [dx, dz] = dirOffsets[di];
+      const cx = dx * camDist, cz = dz * camDist;
+
+      // Ortho camera sized to see a vertical slice of the building
+      const sliceHalfH = sliceInterval * 0.6; // Vertical extent of this slice
+      const sideCam = new THREE.OrthographicCamera(
+        -sideHalfExtent, sideHalfExtent,
+        sliceHalfH, -sliceHalfH,
+        1, camDist * 3,
+      );
+      sideCam.position.set(cx, sliceY, cz);
+      sideCam.lookAt(0, sliceY, 0);
+      sideCam.updateMatrixWorld();
+
+      tiles.setCamera(sideCam);
+      tiles.setResolutionFromRenderer(sideCam, renderer);
+      for (let f = 0; f < framesPerCam; f++) {
+        try {
+          sideCam.updateMatrixWorld();
+          tiles.setResolutionFromRenderer(sideCam, renderer);
+          tiles.update();
+          renderer.render(scene, sideCam);
+        } catch { /* ignore render errors during LOD forcing */ }
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
+
+    const st2 = (tiles as unknown as { stats: Record<string, number> }).stats;
+    setStatus(
+      `Facade LOD: slice ${si + 1}/${sliceHeights.length} at ${sliceY.toFixed(0)}m (${st2.loaded ?? 0} tiles)`,
+      'info',
+    );
+  }
+
+  // Restore the top-down camera for capture (captureTileMeshes uses it for waitForTilesLoaded)
+  tiles.setCamera(camera);
+  tiles.setResolutionFromRenderer(camera, renderer);
 
   // Keep rendering while waiting for tiles — use setInterval to avoid
   // requestAnimationFrame throttling on mobile browsers
@@ -427,10 +552,13 @@ async function runVoxelizePipeline(
     const s = (tiles as unknown as { stats: Record<string, number> }).stats;
     console.log(`[tiles] pre-capture: ${totalMeshes} meshes, ${totalVertices} verts, loaded=${s.loaded}, failed=${(s as Record<string, number>).failed ?? 0}`);
 
-    const capturedGroup = await captureTileMeshes(tiles, center, radiusMeters, {
+    const captureResult = await captureTileMeshes(tiles, center, radiusMeters, {
       onProgress: (msg) => setStatus(msg, 'info'),
       timeout: 60000,  // 60s — Google tile hierarchy has ~10+ LOD levels
+      extractHeightmap: true,  // Extract terrain for procedural environment draping
+      heightmapResolution: resolution,
     });
+    const capturedGroup = captureResult.buildingGroup;
     loading = false;
     clearInterval(renderInterval);
 
@@ -442,10 +570,12 @@ async function runVoxelizePipeline(
         loaded: s2.loaded, visible: s2.visible,
       }));
     }
+    if (captureResult.terrainHeightmap) {
+      console.log(`[tiles] terrain heightmap: ${captureResult.heightmapWidth}x${captureResult.heightmapLength}`);
+    }
 
     // Check if we got any meshes
-    let meshCount = 0;
-    capturedGroup.traverse(c => { if (c instanceof THREE.Mesh) meshCount++; });
+    const { captured: meshCount } = captureResult.stats;
     console.log('[tiles] captured meshCount:', meshCount);
     if (meshCount === 0) {
       setStatus('No mesh data captured — try a different address or larger radius', 'error');
@@ -478,6 +608,10 @@ async function runVoxelizePipeline(
     // Create Canvas-backed texture sampler for photorealistic tile textures.
     // Without this, colors fall back to material.color (usually white).
     const sampler = createCanvasTextureSampler();
+    // Cap grid dimension to prevent OOM on mobile. At resolution 10, a 50m building
+    // would be 500 blocks per side. Browser cap: 512 blocks (enough for most buildings,
+    // avoids 75M+ voxel grids that crash mobile GPUs). CLI has no cap by default.
+    const browserMaxDim = resolution >= 5 ? 512 : 256;
     const grid = await threeToGridAsync(capturedGroup, resolution, {
       onProgress: (p) => {
         const msg = p.message
@@ -489,11 +623,14 @@ async function runVoxelizePipeline(
       // Surface mode: 3D tiles are photogrammetry surfaces (not watertight solids).
       // Uses closest-point-to-geometry instead of odd-even inside/outside test.
       mode: 'surface',
-      // Yield to main thread every 4 layers to keep UI responsive on mobile
-      yieldInterval: 4,
+      // Yield to main thread every N layers to keep UI responsive on mobile.
+      // At high resolution, yield more often (more layers, each smaller).
+      yieldInterval: resolution >= 5 ? 2 : 4,
       // Don't filter vegetation during voxelization — trees act as solid walls during
       // fillInteriorGaps, preventing holes behind canopy. Strip in post-processing.
       filterVegetation: false,
+      // Grid dimension cap prevents OOM at high resolutions
+      maxDimension: browserMaxDim,
     });
 
     // Post-voxel Y trim: remove sparse bottom layers (residual terrain that
@@ -522,20 +659,91 @@ async function runVoxelizePipeline(
 
     // ── Post-processing: same essential pipeline as CLI voxelizer ──
     // Without these steps the raw voxelization is noisy photogrammetry chaos.
+    const sceneEl = document.getElementById('tiles-scene-mode') as HTMLInputElement | null;
+    const isSceneMode = !!(sceneEl?.checked && geo);
     setStatus('Post-processing...', 'info');
     await new Promise(r => setTimeout(r, 50));
-    await postProcessTilesGrid(trimmedGrid, analysis);
+    const envPositions = await postProcessTilesGrid(trimmedGrid, analysis, isSceneMode, resolution);
 
-    const nonAir = trimmedGrid.countNonAir();
+    // ── Window/door regularization — always run when quality is decent ──
+    // v106: Moved out of scene-only block. Window patterns improve VLM scores universally.
+    let finalGrid = trimmedGrid;
+    if ((analysis?.confidence ?? 0) > 0.5 || isSceneMode) {
+      setStatus('Enhancing windows & doors...', 'info');
+      await new Promise(r => setTimeout(r, 0));
+      const winResult = detectAndRegularizeWindows(finalGrid, analysis?.groundPlaneY ?? 0);
+      console.log(`[tiles] windows regularized: ${winResult.windowsRegularized}, doors placed: ${winResult.doorsPlaced}`);
+    }
+
+    // ── Scene-specific steps (feature replacement, plot expansion, enrichment) ──
+    if (isSceneMode && geo) {
+      try {
+        // Clean feature replacement (trees, roads, vehicles at detected positions)
+        if (envPositions) {
+          setStatus('Replacing detected features...', 'info');
+          await new Promise(r => setTimeout(r, 0));
+          const treePalette: import('@craft/gen/structures.js').TreeType[] = ['oak', 'birch', 'dark_oak'];
+          const replaced = replaceWithCleanFeatures(finalGrid, envPositions, treePalette, 'grass', analysis?.groundPlaneY ?? 0);
+          console.log(`[tiles:scene] replaced: ${replaced.trees} trees, ${replaced.roads} road cells, ${replaced.vehicles} vehicles`);
+        }
+
+        // Plot expansion — add 8m padding per side
+        const { expandGrid } = await import('../../../src/convert/scene-pipeline.js');
+        const maxDim = Math.max(finalGrid.width, finalGrid.length);
+        const padding = 8 * resolution;
+        const newDim = maxDim + padding * 2;
+        if (newDim > finalGrid.width || newDim > finalGrid.length) {
+          setStatus(`Expanding plot ${finalGrid.width}x${finalGrid.length} → ${newDim}x${newDim}...`, 'info');
+          await new Promise(r => setTimeout(r, 0));
+          finalGrid = expandGrid(finalGrid, newDim, newDim);
+          console.log(`[tiles:scene] plot expansion: ${newDim}x${newDim}`);
+        }
+
+        // Scene enrichment — populate roads, trees, fences, ground from OSM + climate data
+        setStatus('Scene enrichment — fetching environment data...', 'info');
+        await new Promise(r => setTimeout(r, 50));
+        const { enrichScene } = await import('../../../src/convert/scene-pipeline.js');
+        const plotRadius = Math.max(finalGrid.width, finalGrid.length) / (2 * resolution);
+
+        // Read granular scene feature toggles from UI checkboxes
+        const readCheck = (id: string) => (document.getElementById(id) as HTMLInputElement)?.checked ?? true;
+        const sceneFeatures: import('../../../src/convert/scene-pipeline.js').SceneFeatureFlags = {
+          ground: readCheck('scene-ground'),
+          trees: readCheck('scene-trees'),
+          roads: readCheck('scene-roads'),
+          paths: readCheck('scene-paths'),
+          fences: readCheck('scene-fences'),
+          pools: readCheck('scene-pools'),
+        };
+
+        await enrichScene({
+          grid: finalGrid,
+          coords: { lat: geo.lat, lng: geo.lng },
+          resolution,
+          plotRadius,
+          capturedEnvironment: envPositions,
+          terrainHeightmap: captureResult.terrainHeightmap,
+          heightmapWidth: captureResult.heightmapWidth,
+          heightmapLength: captureResult.heightmapLength,
+          features: sceneFeatures,
+          onProgress: (msg) => setStatus(`Enrichment: ${msg}`, 'info'),
+        });
+      } catch (err) {
+        console.warn('[tiles] scene pipeline failed (non-fatal):', err);
+        setStatus('Scene enrichment failed — continuing with building only', 'info');
+      }
+    }
+
+    const nonAir = finalGrid.countNonAir();
     // Debug: expose grid for inspection
-    (window as unknown as Record<string, unknown>).__lastTilesGrid = trimmedGrid;
-    console.log('[tiles] palette:', [...trimmedGrid.palette].join(', '));
+    (window as unknown as Record<string, unknown>).__lastTilesGrid = finalGrid;
+    console.log('[tiles] palette:', [...finalGrid.palette].join(', '));
 
     const qualityLabel = analysis
       ? ` (${analysis.dataQuality} quality, confidence ${analysis.confidence.toFixed(1)}/10)`
       : '';
     setStatus(
-      `Done — ${trimmedGrid.width}x${trimmedGrid.height}x${trimmedGrid.length}, ${nonAir.toLocaleString()} blocks, ${trimmedGrid.palette.size} materials${qualityLabel}`,
+      `Done — ${finalGrid.width}x${finalGrid.height}x${finalGrid.length}, ${nonAir.toLocaleString()} blocks, ${finalGrid.palette.size} materials${qualityLabel}`,
       'success',
     );
 
@@ -545,7 +753,7 @@ async function runVoxelizePipeline(
     // Step 5: Pass grid + analysis + geocode metadata to callback
     // If analysis shows poor/fair quality, the callback can trigger manual selection
     if (onResult && !skipCallback) {
-      onResult(trimmedGrid, `tiles-${geo.formattedAddress}`, analysis, {
+      onResult(finalGrid, `tiles-${geo.formattedAddress}`, analysis, {
         lat: geo.lat,
         lng: geo.lng,
         resolution,
@@ -554,7 +762,7 @@ async function runVoxelizePipeline(
       });
     }
 
-    return trimmedGrid;
+    return finalGrid;
 
   } catch (err) {
     loading = false;
@@ -588,7 +796,7 @@ async function runVoxelizePipeline(
  * 10. Mode filter — 3D majority-vote surface smoother
  * 11. Sky palette + analysis remaps
  */
-async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null): Promise<void> {
+async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null, sceneMode = false, resolution = 1): Promise<ExtractedEnvironment | undefined> {
   const t0 = performance.now();
   const rec = analysis?.recommended;
 
@@ -607,6 +815,10 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   // removing photogrammetry artifacts. Infinity would sever disconnected wings.
   const cleaned = removeSmallComponents(grid, 500);
   if (cleaned > 0) console.log(`[tiles:pp] component cleanup: ${cleaned} blocks removed (< 500 voxels)`);
+  // 2b. Density + distance artifact cleanup — removes sparse needle artifacts
+  // (density < 0.1) and distant debris (centroid > 1.5× building radius).
+  const artifactCleaned = removeArtifactComponents(grid, 0.1, 1.5);
+  if (artifactCleaned > 0) console.log(`[tiles:pp] artifact cleanup: ${artifactCleaned} blocks removed (sparse/distant)`);
   await yieldUI();
 
   // 3. AABB crop — isolate the central building if analysis detected multiple components
@@ -627,10 +839,24 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   if (openAirCleared > 0) console.log(`[tiles:pp] open-air fill cleared: ${openAirCleared} blocks (no roof above)`);
   await yieldUI();
 
+  // 4c. Scanline interior fill — per-Y-layer boundary-crossing algorithm with
+  // sky-visibility check. Catches thin interior gaps that dilation+flood may miss.
+  // Sky check inherently prevents courtyard filling (unlike dilation which needs clearOpenAirFill).
+  const scanlineFilled = scanlineInteriorFill(grid);
+  if (scanlineFilled > 0) console.log(`[tiles:pp] scanline interior fill: ${scanlineFilled} voxels`);
+  await yieldUI();
+
   // 5. Second fill pass — fill may close more gaps after vegetation strip.
   const interiorFilled2 = fillInteriorGaps(grid, 2);
   if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2 (3D masked): ${interiorFilled2} voxels`);
   await yieldUI();
+
+  // 6a. Extract environment positions BEFORE stripping vegetation (scene mode only)
+  let envPositions: ExtractedEnvironment | undefined;
+  if (sceneMode) {
+    envPositions = extractEnvironmentPositions(grid, groundY);
+    console.log(`[tiles:pp] env extraction: ${envPositions.trees.length} trees, ${envPositions.roads.cells.size} road cells, ${envPositions.vehicles.length} vehicles`);
+  }
 
   // 6b. Strip vegetation — trees acted as solid walls during fill,
   // preventing holes behind canopy. Now building interior is solid.
@@ -645,18 +871,42 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
     const closed = morphClose3D(grid, 1);
     if (closed > 0) console.log(`[tiles:pp] morph close: ${closed} 1-voxel holes filled`);
   }
+  // 7b. Facade-aligned morph close — radius-2 gap filling along facade normals only.
+  // Closes 2-voxel pockmarks in facade surfaces without affecting depth profile.
+  {
+    const facadeClosed = morphCloseFacadeAligned(grid, 2);
+    if (facadeClosed > 0) console.log(`[tiles:pp] facade morph close: ${facadeClosed} facade gaps filled (r=2)`);
+  }
+  // 7c. Fill single-block facade holes — air voxels with 4+ solid neighbors.
+  {
+    const holeFilled = fillFacadeHoles(grid, 4);
+    if (holeFilled > 0) console.log(`[tiles:pp] facade hole fill: ${holeFilled} voids patched`);
+  }
   await yieldUI();
 
   // 8. Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
   {
     const surfaceSmoothed = smoothSurface(grid);
     if (surfaceSmoothed > 0) console.log(`[tiles:pp] surface smooth: ${surfaceSmoothed} protrusions removed`);
-    // For rectangular buildings, snap noisy walls to dominant flat planes
+    // For rectangular buildings, detect cornices then apply setback-aware flattening
     if (analysis?.isRectangular) {
-      const snapped = flattenFacades(grid, 2);
-      if (snapped > 0) console.log(`[tiles:pp] facade flatten: ${snapped} voxels snapped`);
+      const corniceYs = detectCornices(grid, 2, true);
+      if (corniceYs.size > 0) {
+        console.log(`[tiles:pp] cornices detected: ${corniceYs.size} Y levels preserved`);
+        const snapped = flattenFacadesSetbackAware(grid, corniceYs, 1, resolution);
+        if (snapped > 0) console.log(`[tiles:pp] setback-aware flatten: ${snapped} voxels snapped`);
+      } else {
+        const snapped = flattenFacades(grid, 1);
+        if (snapped > 0) console.log(`[tiles:pp] facade flatten: ${snapped} voxels snapped`);
+      }
     }
   }
+  // 8b. Seal multi-block facade holes using 2D flood-fill projection.
+  {
+    const sealed = fillFacadeVoids2D(grid);
+    if (sealed > 0) console.log(`[tiles:pp] facade void sealing (2D): ${sealed} enclosed voids filled`);
+  }
+
   await yieldUI();
 
   // 9. Glaze dark exterior blocks as windows BEFORE mode filter.
@@ -664,9 +914,15 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   // gray_stained_glass is in modeFilter3D's PROTECTED set, so glazing
   // first preserves windows while mode filter smooths walls around them.
   {
-    const glazed = glazeDarkWindows(grid);
+    const glazed = glazeDarkWindows(grid, resolution);
     if (glazed > 0) console.log(`[tiles:pp] window glazing: ${glazed} dark blocks → gray_stained_glass`);
-    // NOTE: injectSyntheticWindows reverted — rigid grid pattern degrades non-commercial buildings
+    // Phase 5a: Sky-reflecting window detection — catches blue/grey specular blocks
+    // that photogrammetry maps from sky reflections in real windows.
+    const reflective = glazeReflectiveWindows(grid, resolution);
+    if (reflective > 0) console.log(`[tiles:pp] reflective windows: ${reflective} blue/grey blocks → glass`);
+    // Synthetic windows for bright facades that lack dark blocks to glaze
+    const injected = injectSyntheticWindows(grid, glazed + reflective, resolution);
+    if (injected > 0) console.log(`[tiles:pp] synthetic windows: ${injected} blocks (bright facade, glazed=${glazed + reflective})`);
   }
   await yieldUI();
 
@@ -680,12 +936,41 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
   }
   await yieldUI();
 
+  // 10b. Facade color coherence — 5×5×1 Lab-weighted average on facade planes.
+  // Snaps noisy outliers (delta-E > 15) to local majority. Runs after mode filter
+  // to refine remaining per-facade noise.
+  {
+    const facadeSmoothed = smoothFacadeColors(grid);
+    if (facadeSmoothed > 0) console.log(`[tiles:pp] facade smooth: ${facadeSmoothed} color outliers replaced`);
+  }
+  await yieldUI();
+
+  // 10c. K-means facade palette — cluster each facade to k=4 coherent materials.
+  {
+    const paletteReplaced = clusterFacadePalette(grid, 4);
+    if (paletteReplaced > 0) console.log(`[tiles:pp] palette cluster: ${paletteReplaced} blocks reassigned (k=4)`);
+  }
+  await yieldUI();
+
+  // 10d. Roof plane smoothing — aggressive 5×5 horizontal majority-vote on top 20%.
+  // Roofs in photogrammetry are noisy (HVAC, shadows, varied materials).
+  {
+    const roofSmoothed = smoothRoofPlane(grid);
+    if (roofSmoothed > 0) console.log(`[tiles:pp] roof smooth: ${roofSmoothed} roof blocks replaced`);
+  }
+  // 10e. Remove isolated single voxels — noise dots with 0-1 face neighbors.
+  {
+    const isolated = removeIsolatedVoxels(grid, 1);
+    if (isolated > 0) console.log(`[tiles:pp] isolated voxels: ${isolated} artifacts removed`);
+  }
+  await yieldUI();
+
   // 11. Sky contamination remap — blue/cyan skylight baked into tiles surfaces.
   // Runs AFTER mode filter so residual cyan clusters get cleaned up.
+  // Only remap cyan — light_blue_terracotta is often legitimate facade color
+  // (beige/tan buildings bake slightly blue in photogrammetry)
   const skyRemaps = new Map<string, string>([
-    ['minecraft:light_blue_terracotta', 'minecraft:light_gray_concrete'],
     ['minecraft:cyan_terracotta', 'minecraft:stone'],
-    ['minecraft:light_blue_concrete', 'minecraft:light_gray_concrete'],
     ['minecraft:cyan_concrete', 'minecraft:stone'],
   ]);
   const constrained = constrainPalette(grid, skyRemaps);
@@ -704,6 +989,7 @@ async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | 
 
   const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
   console.log(`[tiles:pp] post-processing complete in ${elapsed}s`);
+  return envPositions;
 }
 
 // ─── Viewer Lifecycle ───────────────────────────────────────────────────────

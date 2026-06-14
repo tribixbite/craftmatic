@@ -1,5 +1,5 @@
 {
-  "active": true,
-  "pass": 0,
+  "active": false,
+  "pass": 5,
   "max_passes": 50
 }

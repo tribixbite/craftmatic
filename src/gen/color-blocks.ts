@@ -95,6 +95,8 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   { rgb: [237, 230, 223], options: ['minecraft:smooth_quartz', 'minecraft:quartz_block'] },
   // Cool white: white_concrete actual texture is bright (207,213,214)
   { rgb: [207, 213, 214], options: ['minecraft:white_concrete'] },
+  // Chalky white: calcite fills gap between pure white and sandstone (bright limestone facades)
+  { rgb: [226, 226, 221], options: ['minecraft:calcite', 'minecraft:diorite'] },
   // Warm off-white: white_terracotta actual (210,178,162 lum 186)
   { rgb: [210, 178, 162], options: ['minecraft:white_terracotta'] },
 
@@ -116,10 +118,16 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   { rgb: [110, 70, 50], options: ['minecraft:brown_terracotta', 'minecraft:polished_granite'] },
   // Very dark earth
   { rgb: [57, 41, 35], options: ['minecraft:brown_terracotta', 'minecraft:brown_concrete'] },
+  // Warm gray-brown adobe/stucco — mud_bricks + dripstone share cluster (delta-E < 5)
+  { rgb: [137, 105, 81], options: ['minecraft:mud_bricks', 'minecraft:dripstone_block'] },
 
   // ── Reds / Brick ─────────────────────────────────────────────────────────────
   // Orange-red brick — classic facades
   { rgb: [233, 107, 57], options: ['minecraft:bricks', 'minecraft:terracotta'] },
+  // Warm brown brick — SV-sampled brick facades often land at (155-165, 105-115, 80-90)
+  // due to sky/sidewalk context bleeding into the average. Without this entry, they
+  // snap to jungle_planks (wood grain) which looks wrong on masonry buildings.
+  { rgb: [160, 110, 82], options: ['minecraft:bricks', 'minecraft:terracotta'] },
   { rgb: [150, 97, 83], options: ['minecraft:bricks', 'minecraft:terracotta'] },
   { rgb: [159, 82, 36], options: ['minecraft:brown_terracotta', 'minecraft:bricks', 'minecraft:polished_granite'] },
   // Dark red / aged brick
@@ -131,12 +139,17 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   // so CIE-Lab matching picks blocks that render at the expected brightness.
   // smooth_stone (lum 162) — separate from light_gray_concrete (lum 124) because
   // their actual textures differ by 38 luminance despite similar catalog colors.
-  { rgb: [162, 162, 162], options: ['minecraft:smooth_stone'] },
+  // v306: Added multi-option alternatives to gray clusters so seed-based variety
+  // creates subtle weathering patches instead of uniform monochrome.
+  { rgb: [162, 162, 162], options: ['minecraft:smooth_stone', 'minecraft:smooth_stone_slab[type=double]'] },
   // Light gray concrete — actual texture is darker than name suggests (lum 124)
-  { rgb: [125, 125, 115], options: ['minecraft:light_gray_concrete'] },
-  // Medium stone — andesite is the brightest (136), stone_bricks darkest (123)
+  { rgb: [125, 125, 115], options: ['minecraft:light_gray_concrete', 'minecraft:clay'] },
+  // Medium stone — andesite at its actual texture average (136)
   { rgb: [136, 136, 136], options: ['minecraft:andesite'] },
-  { rgb: [124, 123, 124], options: ['minecraft:stone_bricks'] },
+  // Stone / stone_bricks at actual average (~120) — separated from andesite (was at 136)
+  { rgb: [120, 120, 120], options: ['minecraft:stone_bricks', 'minecraft:stone'] },
+  // Tuff: dark greenish-gray, fills gap between stone and gray_concrete
+  { rgb: [108, 109, 102], options: ['minecraft:tuff'] },
   // Blue-gray / slate — polished_andesite (132,135,134)
   { rgb: [132, 135, 134], options: ['minecraft:polished_andesite', 'minecraft:gray_terracotta'] },
   // Dark concrete — actual texture is very dark (55,58,62)
@@ -306,7 +319,7 @@ export function colorDistSq(r: number, g: number, b: number, ref: RGB): number {
  * When seed is provided, picks randomly from the matched cluster's options
  * (arnis DEFINED_COLORS pattern) for visual variety between similar buildings.
  */
-export function rgbToWallBlock(r: number, g: number, b: number, seed?: number): BlockState {
+export function rgbToWallBlock(r: number, g: number, b: number, seedOrX?: number, y?: number, z?: number): BlockState {
   const [l, a, b_] = rgbToLab(r, g, b);
   const labs = getWallLab();
   let bestIdx = 0;
@@ -319,14 +332,20 @@ export function rgbToWallBlock(r: number, g: number, b: number, seed?: number): 
     }
   }
   const cluster = WALL_CLUSTERS[bestIdx];
-  if (seed != null && cluster.options.length > 1) {
-    // Low-frequency spatial hash — variations happen in ~4-block patches (like
-    // weathered stucco) instead of per-voxel static noise. The old per-voxel hash
-    // generated high-frequency noise that modeFilter3D then had to erase.
-    const coarseSeed = Math.floor((seed / 1000000) / 4) * 1000000 +
-                       Math.floor(((seed % 1000000) / 1000) / 4) * 1000 +
-                       Math.floor((seed % 1000) / 4);
-    const idx = ((coarseSeed * 2654435761) >>> 0) % cluster.options.length;
+  if (seedOrX != null && cluster.options.length > 1) {
+    let hash: number;
+    if (y != null && z != null) {
+      // Proper 3D spatial hash — coarsen to 4-block patches, use prime XOR mixing.
+      // Math.imul prevents float64 precision loss during large multiplications.
+      const cx = seedOrX >> 2;
+      const cy = y >> 2;
+      const cz = z >> 2;
+      hash = (Math.imul(cx, 73856093) ^ Math.imul(cy, 19349663) ^ Math.imul(cz, 83492791)) >>> 0;
+    } else {
+      // Scalar seed path (building-level hash from material-resolver)
+      hash = (Math.imul(seedOrX, 2654435761)) >>> 0;
+    }
+    const idx = hash % cluster.options.length;
     return cluster.options[idx];
   }
   return cluster.options[0];

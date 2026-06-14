@@ -164,6 +164,199 @@ function computeHeading(
   return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
 }
 
+// ─── Multi-Heading Facade Capture ────────────────────────────────────────────
+
+/** A Street View image from one facade direction */
+export interface SvFacadeImage {
+  /** Compass heading used for this image (0-360°) */
+  heading: number;
+  /** Face name relative to building orientation */
+  faceName: 'front' | 'right' | 'rear' | 'left';
+  /** Constructed image URL */
+  imageUrl: string;
+  /** Panorama ID (same pano, different headings) */
+  panoId: string;
+  /** Panorama camera latitude (for debugging multi-pano sources) */
+  panoLat?: number;
+  /** Panorama camera longitude (for debugging multi-pano sources) */
+  panoLng?: number;
+}
+
+/**
+ * Query Street View metadata at 4 offset positions around a building to find
+ * up to 4 unique panoramas showing different facades.
+ *
+ * Each metadata call is FREE (no quota). For each unique pano found, computes
+ * the bearing to building center and constructs one image URL. This gives
+ * 4 distinct camera positions showing up to 4 different sides of the building.
+ *
+ * @param lat  Building center latitude
+ * @param lng  Building center longitude
+ * @param buildingExtentM  Max footprint dimension for FOV/offset adjustment
+ * @param apiKey  Google Maps API key (falls back to env)
+ * @returns Array of SvFacadeImage with up to 4 unique pano viewpoints
+ */
+export async function queryMultiPanoSV(
+  lat: number, lng: number,
+  buildingExtentM?: number,
+  apiKey?: string,
+): Promise<SvFacadeImage[]> {
+  const key = apiKey ?? getGoogleStreetViewKey();
+  if (!key) return [];
+
+  // Offset in degrees — ~33m at mid-latitudes (0.0003° ≈ 33m)
+  // Scale up slightly for larger buildings so panos aren't on top of the structure
+  const offset = buildingExtentM && buildingExtentM > 50
+    ? 0.0005 // ~55m for large commercial
+    : 0.0003; // ~33m for residential
+
+  const faceNames: Array<'front' | 'right' | 'rear' | 'left'> = ['front', 'rear', 'left', 'right'];
+
+  // 4 cardinal offset positions around the building (metadata calls are free)
+  const probes: Array<{ probeLat: number; probeLng: number; faceName: typeof faceNames[number] }> = [
+    { probeLat: lat + offset, probeLng: lng,          faceName: 'front' }, // north
+    { probeLat: lat - offset, probeLng: lng,          faceName: 'rear'  }, // south
+    { probeLat: lat,          probeLng: lng + offset,  faceName: 'right' }, // east
+    { probeLat: lat,          probeLng: lng - offset,  faceName: 'left'  }, // west
+  ];
+
+  // Query all 4 positions in parallel (all free metadata calls)
+  const metaResults = await Promise.allSettled(
+    probes.map(async (probe) => {
+      // Try outdoor-only first, fall back to any source
+      let data = await fetchWithRetry<SvMetadataResponse>(
+        `${SV_META_BASE}?location=${probe.probeLat},${probe.probeLng}&source=outdoor&key=${key}`,
+      );
+      if (!data || data.status !== 'OK' || !data.pano_id || !data.location) {
+        data = await fetchWithRetry<SvMetadataResponse>(
+          `${SV_META_BASE}?location=${probe.probeLat},${probe.probeLng}&key=${key}`,
+        );
+      }
+      return { probe, data };
+    }),
+  );
+
+  // Deduplicate by pano_id — keep only unique panoramas
+  const seenPanoIds = new Set<string>();
+  const fov = (buildingExtentM && buildingExtentM > 30) ? 110 : 90;
+  const results: SvFacadeImage[] = [];
+
+  for (const result of metaResults) {
+    if (result.status !== 'fulfilled') continue;
+    const { probe, data } = result.value;
+    if (!data || data.status !== 'OK' || !data.pano_id || !data.location) continue;
+
+    // Skip duplicate panos — same pano seen from different probe directions
+    if (seenPanoIds.has(data.pano_id)) continue;
+    seenPanoIds.add(data.pano_id);
+
+    const panoLat = data.location.lat;
+    const panoLng = data.location.lng;
+    const heading = computeHeading(panoLat, panoLng, lat, lng);
+
+    const imageUrl = `${SV_IMAGE_BASE}`
+      + `?size=640x640&pano=${data.pano_id}`
+      + `&heading=${heading.toFixed(1)}&pitch=5&fov=${fov}`
+      + `&key=${key}`;
+
+    results.push({
+      heading,
+      faceName: probe.faceName,
+      imageUrl,
+      panoId: data.pano_id,
+      panoLat,
+      panoLng,
+    });
+  }
+
+  if (results.length > 0) {
+    console.log(`  SV multi-pano: ${results.length} unique panos from 4 probes (fov=${fov}°)`);
+    for (const r of results) {
+      console.log(`    ${r.faceName}: pano=${r.panoId.slice(0, 12)}… heading=${r.heading.toFixed(0)}° pos=(${r.panoLat!.toFixed(5)},${r.panoLng!.toFixed(5)})`);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Query Street View for facade images with multi-pano diversity.
+ *
+ * First tries queryMultiPanoSV() to get images from 4 distinct camera
+ * positions around the building. If fewer than 2 unique panos are found,
+ * falls back to the single-pano bearing ± 30° approach.
+ *
+ * All metadata calls are FREE. Image requests cost 1 quota each.
+ *
+ * @param lat  Building center latitude
+ * @param lng  Building center longitude
+ * @param buildingExtentM  Max footprint dimension for FOV adjustment (optional)
+ * @param apiKey  Google Maps API key (falls back to env)
+ */
+export async function queryMultiHeadingSV(
+  lat: number, lng: number,
+  buildingExtentM?: number,
+  apiKey?: string,
+): Promise<SvFacadeImage[]> {
+  const key = apiKey ?? getGoogleStreetViewKey();
+  if (!key) return [];
+
+  // Try multi-pano first for diverse viewpoints (4 free metadata calls)
+  const multiPano = await queryMultiPanoSV(lat, lng, buildingExtentM, key);
+  if (multiPano.length >= 2) {
+    return multiPano;
+  }
+
+  // Fallback: single pano with bearing ± 30° offsets
+  let data = await fetchWithRetry<SvMetadataResponse>(
+    `${SV_META_BASE}?location=${lat},${lng}&source=outdoor&key=${key}`,
+  );
+  if (!data || data.status !== 'OK' || !data.pano_id || !data.location) {
+    data = await fetchWithRetry<SvMetadataResponse>(
+      `${SV_META_BASE}?location=${lat},${lng}&key=${key}`,
+    );
+    if (!data || data.status !== 'OK' || !data.pano_id || !data.location) return [];
+  }
+
+  const panoId = data.pano_id!;
+  const panoLat = data.location!.lat;
+  const panoLng = data.location!.lng;
+
+  // Wider FOV for large buildings (> 30m extent)
+  const fov = (buildingExtentM && buildingExtentM > 30) ? 110 : 90;
+
+  // Bearing-centric approach: the bearing from pano to building center always points
+  // the camera AT the building. ±30° for oblique side views.
+  const bearingToBuilding = computeHeading(panoLat, panoLng, lat, lng);
+
+  const offsets: Array<{ offset: number; faceName: 'front' | 'right' | 'left' }> = [
+    { offset: 0, faceName: 'front' },    // head-on at building center
+    { offset: -30, faceName: 'left' },    // 30° left — shows right side of building
+    { offset: +30, faceName: 'right' },   // 30° right — shows left side of building
+  ];
+
+  const results: SvFacadeImage[] = [];
+
+  for (const { offset, faceName } of offsets) {
+    const heading = ((bearingToBuilding + offset) % 360 + 360) % 360;
+    const imageUrl = `${SV_IMAGE_BASE}`
+      + `?size=640x640&pano=${panoId}`
+      + `&heading=${heading.toFixed(1)}&pitch=5&fov=${fov}`
+      + `&key=${key}`;
+    results.push({
+      heading,
+      faceName,
+      imageUrl,
+      panoId,
+      panoLat,
+      panoLng,
+    });
+  }
+
+  console.log(`  SV multi-heading fallback: pano=${panoId.slice(0, 12)}… bearing=${bearingToBuilding.toFixed(0)}° fov=${fov}° (${results.length} views: center, ±30°)`);
+  return results;
+}
+
 // ─── Internal: Fetch with retry ──────────────────────────────────────────────
 
 async function fetchWithRetry<T>(url: string): Promise<T | null> {

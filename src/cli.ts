@@ -18,7 +18,7 @@ import { renderFloorDetail, renderCutawayIso, renderExterior } from './render/pn
 import { exportHTML } from './render/export-html.js';
 import { startViewerServer, startWebAppServer } from './render/server.js';
 import { BlockGrid } from './schem/types.js';
-import type { SchematicInfo, GenerationOptions, RoomType, StyleName, StructureType } from './types/index.js';
+import type { SchematicInfo, GenerationOptions, RoomType, StyleName, StructureType, BlockState, RoofShape } from './types/index.js';
 import {
   convertToGenerationOptions, estimateStoriesFromFootprint,
   isMultiUnit, inferDensityFromZip,
@@ -317,6 +317,8 @@ program
   .option('--baths <n>', 'Override bathroom count')
   .option('--sqft <n>', 'Override square footage')
   .option('--year <n>', 'Override year built')
+  .option('--wall <block>', 'Override wall block (e.g. bricks, red_terracotta, sandstone)')
+  .option('--roof-shape <shape>', 'Override roof shape (flat, gable, hip, gambrel, mansard)')
   .option('--basic-apis', 'Use only Parcl + OSM + Geocoder (skip Smarty, Mapillary, Mapbox, Google)')
   .action(async (type: string | undefined, opts: Record<string, string | undefined>) => {
     // Address-based generation: full pipeline
@@ -374,10 +376,7 @@ async function genFromAddress(
   address: string, opts: Record<string, string | undefined>,
 ): Promise<void> {
   if (!hasParclApiKey()) {
-    console.error(chalk.red('PARCL_API_KEY environment variable is required.'));
-    console.error(chalk.dim('Get a free key at https://app.parcllabs.com'));
-    console.error(chalk.dim('Then: export PARCL_API_KEY=your_key_here'));
-    process.exit(1);
+    console.error(chalk.yellow('PARCL_API_KEY not set — property data will be limited to CLI overrides + other APIs'));
   }
 
   const spinner = ora('Geocoding address...').start();
@@ -394,7 +393,7 @@ async function genFromAddress(
     // Elevation bbox: ~200m around geocoded point (free AWS Terrarium tiles, no key needed)
     const elevPad = 0.002; // ~220m at mid-latitudes
     const [parcl, osm, smarty, mlyImages, mlyFeatures, mapboxBuilding, solarData, streetView, elevGrid] = await Promise.all([
-      searchParclProperty(address),
+      hasParclApiKey() ? searchParclProperty(address) : Promise.resolve(null),
       searchOSMBuilding(geo.lat, geo.lng),
       !basicOnly && hasSmartyAuth() ? searchSmartyProperty(address) : Promise.resolve(null),
       !basicOnly && mapillaryKey ? searchMapillaryImages(geo.lat, geo.lng, mapillaryKey) : Promise.resolve(null),
@@ -406,37 +405,36 @@ async function genFromAddress(
     ]);
 
     if (!parcl) {
-      spinner.fail('No property data found in Parcl Labs');
-      process.exit(1);
+      spinner.warn('No property data in Parcl Labs — using CLI overrides only');
     }
 
-    // Step 3: Assemble PropertyData (CLI overrides take priority)
-    const yearBuilt = opts['year'] ? parseInt(opts['year'], 10) : (parcl.yearBuilt || 2000);
-    const yearUncertain = !opts['year'] && (!parcl.yearBuilt || parcl.yearBuilt === 0);
-    const sqft = opts['sqft'] ? parseInt(opts['sqft'], 10) : (parcl.squareFootage || 2000);
+    // Step 3: Assemble PropertyData (CLI overrides take priority, Parcl optional)
+    const yearBuilt = opts['year'] ? parseInt(opts['year'], 10) : (parcl?.yearBuilt || 2000);
+    const yearUncertain = !opts['year'] && (!parcl?.yearBuilt || parcl.yearBuilt === 0);
+    const sqft = opts['sqft'] ? parseInt(opts['sqft'], 10) : (parcl?.squareFootage || 2000);
 
     // Bedroom disambiguation (CLI override bypasses entirely)
-    let bedrooms = opts['beds'] ? parseInt(opts['beds'], 10) : parcl.bedrooms;
+    let bedrooms = opts['beds'] ? parseInt(opts['beds'], 10) : (parcl?.bedrooms ?? 0);
     let bedroomsUncertain = false;
-    if (!opts['beds'] && parcl.bedrooms === 0) {
-      const pType = (parcl.propertyType || '').toUpperCase();
+    if (!opts['beds'] && bedrooms === 0) {
+      const pType = (parcl?.propertyType || '').toUpperCase();
       const isStudio = sqft < 800 || pType.includes('CONDO') || pType.includes('STUDIO');
       if (!isStudio) {
         bedrooms = 3;
         bedroomsUncertain = true;
       }
     }
-    const bathrooms = opts['baths'] ? parseInt(opts['baths'], 10) : (parcl.bathrooms || 2);
+    const bathrooms = opts['baths'] ? parseInt(opts['baths'], 10) : (parcl?.bathrooms || 2);
 
     // Stories: priority chain — multi-unit buildings need special handling because
     // Parcl sqft = total all units combined, making sqft/footprint ratio unreliable
     let stories = 2;
-    let mappedPropType = opts['propertyType'] ?? mapParclPropertyType(parcl.propertyType);
+    let mappedPropType = opts['propertyType'] ?? mapParclPropertyType(parcl?.propertyType ?? '');
 
     // Heuristic: Parcl sometimes labels multi-family as 'OTHER' — detect from bedroom count.
     // Only apply when Parcl returned 'OTHER' (mapped to 'house'). If Parcl explicitly says
     // SINGLE_FAMILY, trust it — large single-family estates genuinely have 8+ bedrooms.
-    const rawParcl = (parcl.propertyType || '').toUpperCase();
+    const rawParcl = (parcl?.propertyType || '').toUpperCase();
     if (mappedPropType === 'house' && bedrooms >= 8 && !rawParcl.includes('SINGLE')) {
       mappedPropType = 'multi_family';
     }
@@ -463,7 +461,7 @@ async function genFromAddress(
       }
     } else if (isMultiUnit(mappedPropType)) {
       // Multi-unit: do NOT use sqft/footprint — Parcl sqft is sum of all units, not building gross
-      const density = inferDensityFromZip(opts['zip'] ?? parcl.zipCode);
+      const density = inferDensityFromZip(opts['zip'] ?? parcl?.zipCode);
       stories = density === 'urban' ? 4 : 3;
     } else if (osm && osm.widthMeters > 0 && osm.lengthMeters > 0 && sqft > 0) {
       stories = estimateStoriesFromFootprint(sqft, osm.widthMeters, osm.lengthMeters);
@@ -473,8 +471,8 @@ async function genFromAddress(
       stories = Math.max(1, Math.min(5, Math.round(totalSqm / solarData.buildingFootprintAreaSqm)));
     } else {
       // Heuristic fallback
-      const pType = (parcl.propertyType || '').toUpperCase();
-      if (pType.includes('TOWN') || (sqft > 2500 && parcl.bedrooms > 3)) {
+      const pType = (parcl?.propertyType || '').toUpperCase();
+      if (pType.includes('TOWN') || (sqft > 2500 && (parcl?.bedrooms ?? 0) > 3)) {
         stories = sqft > 4000 ? 3 : 2;
       }
     }
@@ -506,22 +504,23 @@ async function genFromAddress(
     const seedOverride = opts['seed'] ? parseInt(opts['seed'], 10) : undefined;
 
     const property: PropertyData = {
-      address: parcl.address || address,
+      address: parcl?.address || address,
       stories: floorsOverride ?? stories,
+      storiesExplicit: floorsOverride !== undefined,
       sqft,
       bedrooms,
       bathrooms,
       yearBuilt: yearUncertain ? (osm?.tags?.['start_date'] ? parseInt(osm.tags['start_date'], 10) || 2000 : 2000) : yearBuilt,
       propertyType: mappedPropType,
       style: styleOverride ?? 'auto',
-      newConstruction: parcl.newConstruction || yearBuilt >= 2020,
-      city: parcl.city,
-      stateAbbreviation: parcl.stateAbbreviation,
-      zipCode: opts['zip'] ?? parcl.zipCode,
-      county: opts['county'] ?? parcl.county,
-      ownerOccupied: parcl.ownerOccupied,
-      onMarket: parcl.onMarket,
-      parclPropertyId: parcl.parclPropertyId,
+      newConstruction: parcl?.newConstruction || yearBuilt >= 2020,
+      city: parcl?.city,
+      stateAbbreviation: parcl?.stateAbbreviation,
+      zipCode: opts['zip'] ?? parcl?.zipCode,
+      county: opts['county'] ?? parcl?.county,
+      ownerOccupied: parcl?.ownerOccupied,
+      onMarket: parcl?.onMarket,
+      parclPropertyId: parcl?.parclPropertyId,
       geocoding: { lat: geo.lat, lng: geo.lng, matchedAddress: geo.matchedAddress, source: geo.source },
       osmWidth: widthOverride ?? osm?.widthBlocks,
       osmLength: lengthOverride ?? osm?.lengthBlocks,
@@ -532,9 +531,10 @@ async function genFromAddress(
       osmRoofColour: osm?.roofColour,
       osmBuildingColour: osm?.buildingColour,
       osmArchitecture: osm?.tags?.['building:architecture'],
-      floorPlanShape: osm?.polygon ? analyzePolygonShape(osm.polygon) : undefined,
-      osmPolygon: osm?.polygon,
-      osmInnerPolygons: osm?.innerPolygons,
+      floorPlanShape: (osm?.polygon && !(widthOverride && lengthOverride)) ? analyzePolygonShape(osm.polygon) : undefined,
+      // When user provides explicit width+length, skip OSM polygon to avoid bitmap overriding dimensions
+      osmPolygon: (widthOverride && lengthOverride) ? undefined : osm?.polygon,
+      osmInnerPolygons: (widthOverride && lengthOverride) ? undefined : osm?.innerPolygons,
       // Smarty assessor enrichment
       lotSize: smarty?.lotSqft || undefined,
       exteriorType: smarty?.exteriorWalls || undefined,
@@ -659,6 +659,18 @@ async function genFromAddress(
       }
     }
 
+    // CLI material overrides — highest priority, override all API sources
+    if (opts['wall']) {
+      const wallBlock = opts['wall'].includes(':') ? opts['wall'] : `minecraft:${opts['wall']}`;
+      property.wallOverride = wallBlock as BlockState;
+      property.svWallOverride = wallBlock as BlockState;
+    }
+    if (opts['roofShape']) {
+      const shape = opts['roofShape'] as RoofShape;
+      property.osmRoofShape = shape;
+      property.svVlmRoofShape = shape;
+    }
+
     // Step 4: Convert and generate
     spinner.text = 'Generating structure...';
     const genOpts = convertToGenerationOptions(property);
@@ -679,9 +691,9 @@ async function genFromAddress(
     // Print summary
     console.log('');
     console.log(chalk.bold('  Property'));
-    console.log(`  Address:    ${chalk.white(parcl.address || address)}`);
-    console.log(`  Location:   ${parcl.city}, ${parcl.stateAbbreviation} ${parcl.zipCode}`);
-    console.log(`  Type:       ${parcl.propertyType}`);
+    console.log(`  Address:    ${chalk.white(parcl?.address || address)}`);
+    console.log(`  Location:   ${parcl?.city ?? geo.matchedAddress}, ${parcl?.stateAbbreviation ?? ''} ${parcl?.zipCode ?? ''}`);
+    console.log(`  Type:       ${parcl?.propertyType ?? mappedPropType}`);
     console.log(`  SqFt:       ${sqft.toLocaleString()}  Beds: ${bedrooms}  Baths: ${bathrooms}`);
     console.log(`  Year Built: ${yearBuilt}${yearUncertain ? chalk.dim(' (uncertain)') : ''}`);
     if (osm) {

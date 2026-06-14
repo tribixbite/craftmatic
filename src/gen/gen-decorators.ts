@@ -869,6 +869,279 @@ function steampunkWorkshop(ctx: DecoratorContext): void {
   }
 }
 
+/** Historic urban building: arched entrance + iron balconies + stone cornice + front stairs + iron fence.
+ *  Matches pre-1920 brick commercial/institutional buildings (Romanesque, Richardson, Beaux-Arts). */
+function historicUrban(ctx: DecoratorContext): void {
+  const { grid, floors, bx1, bx2, bz1, bz2, xMid, roofBase, landscape } = ctx;
+  const fenceBlk = landscape?.fenceBlock ?? 'minecraft:iron_bars';
+  const trimBlk = 'minecraft:stone_bricks';
+  const archBlk = 'minecraft:sandstone';             // High contrast against red brick
+  const archDetail = 'minecraft:chiseled_sandstone';  // Decorative arch accents
+  const wallBlk = 'minecraft:bricks';                   // Red brick — defining material for historic urban
+  const roofSurface = 'minecraft:white_concrete';     // Light roof matching satellite imagery
+  const roofSlab = 'minecraft:smooth_quartz_slab[type=bottom]'; // Near-white slab for top layer
+
+  // ── Total brick replacement — scan ENTIRE grid ──
+  // Historic urban buildings are uniformly red brick. Replace ALL non-protected
+  // solid blocks with brick to eliminate sandstone/end_stone from the gothic base generator.
+  // This is more aggressive than exterior-only cleanup but matches the real building.
+  // Only protect blocks the decorator itself will place later. Remove base generator's
+  // glass_pane/torch/lantern to get a clean brick canvas — decorator adds its own.
+  // Keep iron_bars (used for balcony railings) and doors.
+  const isProtected = (b: string) => !b || b === 'minecraft:air'
+    || b === 'minecraft:iron_bars' || b.includes('door')
+    || b.includes('glass')  // Preserve base generator windows on all sides
+    || b === wallBlk
+    || b.includes('grass') || b.includes('dirt');
+  for (let y = 0; y < grid.height; y++) {
+    for (let x = 0; x < grid.width; x++) {
+      for (let z = 0; z < grid.length; z++) {
+        const cur = grid.get(x, y, z);
+        if (!cur || cur === 'minecraft:air' || isProtected(cur)) continue;
+        grid.set(x, y, z, wallBlk);
+      }
+    }
+  }
+
+  // ── Light gray flat roof surface — scan full grid to cover wings too ──
+  // Find roof levels by scanning downward for non-air blocks at each XZ column
+  for (let x = 0; x < grid.width; x++) {
+    for (let z = 0; z < grid.length; z++) {
+      // Find the topmost solid block in this column
+      let topY = -1;
+      for (let y = grid.height - 1; y >= 0; y--) {
+        const b = grid.get(x, y, z);
+        if (b && b !== 'minecraft:air') { topY = y; break; }
+      }
+      if (topY < 1) continue; // Skip ground-level or empty columns
+      // Replace the top 2 layers with flat roof
+      if (grid.inBounds(x, topY, z)) grid.set(x, topY, z, roofSlab);
+      if (topY > 0 && grid.inBounds(x, topY - 1, z)) grid.set(x, topY - 1, z, roofSurface);
+    }
+  }
+  // Stone parapet wall around main body
+  const py = roofBase + 3;
+  for (let x = bx1; x <= bx2; x++) {
+    if (grid.inBounds(x, py, bz1)) grid.set(x, py, bz1, trimBlk);
+    if (grid.inBounds(x, py, bz2)) grid.set(x, py, bz2, trimBlk);
+  }
+  for (let z = bz1; z <= bz2; z++) {
+    if (grid.inBounds(bx1, py, z)) grid.set(bx1, py, z, trimBlk);
+    if (grid.inBounds(bx2, py, z)) grid.set(bx2, py, z, trimBlk);
+  }
+
+  // ── Grand Romanesque arched entrance — THE defining feature ──
+  // Uses a wide, visually obvious stepped arch with high contrast materials.
+  // Full sandstone blocks (no stairs) for clear shape at all render scales.
+  const archW = 15;
+  const archH = Math.min(STORY_H * 3, roofBase - 2); // 3 stories
+  const ax1 = xMid - Math.floor(archW / 2);
+  const ax2 = xMid + Math.floor(archW / 2);
+  const recessDepth = 3;
+  const pillarW = 2; // Thick pillars each side
+
+  // Carve deep recess with semi-circular top — dark shadow visible in renders
+  const openW = archW - pillarW * 2;
+  const archStartY = archH - Math.floor(openW / 2);
+  for (let x = ax1 + pillarW; x <= ax2 - pillarW; x++) {
+    for (let y = 1; y <= archH; y++) {
+      // Below archStartY: full-width opening. Above: curved opening.
+      const dx = x - xMid;
+      if (y >= archStartY) {
+        const rowFromSpring = y - archStartY;
+        const halfOpen = Math.max(0, Math.floor(openW / 2) - rowFromSpring);
+        if (Math.abs(dx) > halfOpen) continue; // Outside the arch curve — don't carve
+      }
+      for (let dz = 0; dz < recessDepth; dz++) {
+        if (grid.inBounds(x, y, bz2 - dz))
+          grid.set(x, y, bz2 - dz, 'minecraft:air');
+      }
+    }
+  }
+
+  // Thick sandstone frame — pillars + protruding surround
+  for (const z of [bz2, bz2 + 1]) {
+    for (let y = 0; y <= archH + 1; y++) {
+      for (let dx = 0; dx < pillarW; dx++) {
+        if (grid.inBounds(ax1 + dx, y, z)) grid.set(ax1 + dx, y, z, archBlk);
+        if (grid.inBounds(ax2 - dx, y, z)) grid.set(ax2 - dx, y, z, archBlk);
+      }
+    }
+  }
+
+  // Rounded arch curve — stairs at inner edges for smooth semi-circular appearance
+  // Pattern: each row narrows by 1, innermost blocks use stairs for curvature
+  const archStairE = 'minecraft:sandstone_stairs[facing=east,half=bottom]';
+  const archStairW = 'minecraft:sandstone_stairs[facing=west,half=bottom]';
+  for (let y = archStartY; y <= archH; y++) {
+    const rowFromSpring = y - archStartY;
+    const halfOpen = Math.max(0, Math.floor(openW / 2) - rowFromSpring);
+    for (const z of [bz2, bz2 + 1]) {
+      for (let dx = -Math.floor(openW / 2); dx <= Math.floor(openW / 2); dx++) {
+        if (Math.abs(dx) > halfOpen) {
+          if (!grid.inBounds(xMid + dx, y, z)) continue;
+          // Innermost block on each side uses a stair for rounded curve
+          if (Math.abs(dx) === halfOpen + 1) {
+            grid.set(xMid + dx, y, z, dx < 0 ? archStairE : archStairW);
+          } else {
+            grid.set(xMid + dx, y, z, archBlk);
+          }
+        }
+      }
+    }
+  }
+  // Crown row — full sandstone with chiseled keystone
+  for (const z of [bz2, bz2 + 1]) {
+    for (let x = ax1; x <= ax2; x++) {
+      if (grid.inBounds(x, archH, z)) grid.set(x, archH, z, archBlk);
+    }
+    // Chiseled keystone — 3 blocks wide at the crown
+    for (let dx = -1; dx <= 1; dx++) {
+      if (grid.inBounds(xMid + dx, archH, z))
+        grid.set(xMid + dx, archH, z, archDetail);
+      if (grid.inBounds(xMid + dx, archH + 1, z))
+        grid.set(xMid + dx, archH + 1, z, archDetail);
+    }
+  }
+
+  // Back wall of recess — dark with glass doors and transom window
+  for (let x = ax1 + pillarW; x <= ax2 - pillarW; x++) {
+    for (let y = 0; y <= archStartY - 1; y++) {
+      if (!grid.inBounds(x, y, bz2 - recessDepth)) continue;
+      // Transom windows above door height (y >= 4)
+      if (y >= 4 && y <= archStartY - 1) {
+        grid.set(x, y, bz2 - recessDepth, 'minecraft:black_stained_glass_pane');
+      } else if (y >= 1 && y <= 3) {
+        // Dark glass doors
+        grid.set(x, y, bz2 - recessDepth, 'minecraft:gray_stained_glass_pane');
+      } else {
+        grid.set(x, y, bz2 - recessDepth, 'minecraft:black_concrete');
+      }
+    }
+  }
+
+  // ── Front staircase — wide stone stairs leading up to the recessed entrance ──
+  const stairW = 13;
+  const stairDepth = 5;
+  const sx1 = xMid - Math.floor(stairW / 2);
+  const sx2 = xMid + Math.floor(stairW / 2);
+  for (let step = 0; step < stairDepth; step++) {
+    const sz = bz2 + 1 + step;
+    const sy = stairDepth - step - 1;
+    for (let x = sx1; x <= sx2; x++) {
+      if (!grid.inBounds(x, sy, sz)) continue;
+      for (let y = 0; y <= sy; y++) {
+        grid.set(x, y, sz, y === sy ? 'minecraft:stone_brick_stairs[facing=south]' : trimBlk);
+      }
+    }
+  }
+
+  // ── Dark metal balconies on floors 2+ — defining facade feature ──
+  // Real building has prominent black balconies below upper-floor windows.
+  // Use dark slab + dark fence for high contrast against red brick.
+  const balcPlatform = 'minecraft:smooth_stone_slab[type=bottom]'; // Thin gray platform
+  const balcRail = 'minecraft:iron_bars'; // Open railing, not solid fence
+  for (let story = 1; story < floors; story++) {
+    const by = story * STORY_H;
+    for (let x = bx1 + 3; x <= bx2 - 3; x += 7) {
+      if (x >= ax1 - 2 && x <= ax2 + 2) continue; // Skip arch zone
+      // 3-wide platform projecting 1 block out from facade
+      const balcZ = bz2 + 1;
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!grid.inBounds(x + dx, by, balcZ)) continue;
+        grid.set(x + dx, by, balcZ, balcPlatform);
+        // Dark fence railing on top — visible at all render scales
+        if (grid.inBounds(x + dx, by + 1, balcZ))
+          grid.set(x + dx, by + 1, balcZ, balcRail);
+      }
+    }
+  }
+
+  // ── Multi-pane grouped windows — 3-wide × 3-tall on main body front ──
+  // Base generator windows survive via isProtected (glass), giving natural
+  // window placement on sides/back/wing. Decorator adds larger grouped
+  // windows only on the main front facade.
+  const winGlass = 'minecraft:black_stained_glass_pane';
+  for (let story = 0; story < floors; story++) {
+    const by = story * STORY_H;
+    for (let x = bx1 + 3; x <= bx2 - 4; x += 7) {
+      // Skip arch zone on ground floor
+      if (story === 0 && x >= ax1 - 2 && x <= ax2 + 2) continue;
+      // Front wall — 3-wide × 3-tall grouped dark windows
+      for (let dy = 2; dy <= 4; dy++) {
+        for (let dx = 0; dx <= 2; dx++) {
+          if (grid.inBounds(x + dx, by + dy, bz2))
+            grid.set(x + dx, by + dy, bz2, winGlass);
+        }
+      }
+      // Projecting stone sill below window — 1 block outward for depth
+      for (let dx = 0; dx <= 2; dx++) {
+        if (grid.inBounds(x + dx, by + 1, bz2 + 1))
+          grid.set(x + dx, by + 1, bz2 + 1, 'minecraft:stone_brick_slab[type=top]');
+      }
+    }
+  }
+
+  // ── Subtle cornice at roofline — single row of stone trim, not a heavy band ──
+  for (let x = bx1; x <= bx2; x++) {
+    for (const z of [bz1, bz2]) {
+      if (grid.inBounds(x, roofBase, z)) grid.set(x, roofBase, z, trimBlk);
+    }
+  }
+  for (let z = bz1; z <= bz2; z++) {
+    for (const x of [bx1, bx2]) {
+      if (grid.inBounds(x, roofBase, z)) grid.set(x, roofBase, z, trimBlk);
+    }
+  }
+
+  // NOTE: Accent bands removed — Gemini flagged them as "striped pattern not on real building".
+
+  // ── Rooftop equipment — HVAC unit + skylights (visible from satellite) ──
+  const roofY = roofBase + 2; // Surface of flat roof
+  // Large HVAC unit — iron_block box with iron_bars "fan" on top
+  const hvacX = xMid + 4;
+  const hvacZ = Math.floor((bz1 + bz2) / 2) - 3;
+  for (let dx = 0; dx < 4; dx++) {
+    for (let dz = 0; dz < 4; dz++) {
+      for (let dy = 0; dy < 3; dy++) {
+        const hx = hvacX + dx, hz = hvacZ + dz, hy = roofY + dy;
+        if (!grid.inBounds(hx, hy, hz)) continue;
+        if (dy === 2) grid.set(hx, hy, hz, 'minecraft:iron_bars'); // Fan grille
+        else grid.set(hx, hy, hz, 'minecraft:iron_block');
+      }
+    }
+  }
+  // Rectangular skylights — 3 groups of glass on the roof
+  for (let i = 0; i < 3; i++) {
+    const slx = bx1 + 5 + i * 8;
+    const slz = Math.floor((bz1 + bz2) / 2) + 2;
+    for (let dx = 0; dx < 3; dx++) {
+      for (let dz = 0; dz < 2; dz++) {
+        if (grid.inBounds(slx + dx, roofY, slz + dz))
+          grid.set(slx + dx, roofY, slz + dz, 'minecraft:glass');
+      }
+    }
+  }
+
+  // ── Green awning/canopy at cornice (distinctive roofline feature visible in SV) ──
+  for (let x = bx1; x <= bx2; x++) {
+    if (grid.inBounds(x, roofBase + 1, bz2 + 1))
+      grid.set(x, roofBase + 1, bz2 + 1, 'minecraft:dark_oak_trapdoor[facing=south,half=top,open=true]');
+  }
+
+  // ── Iron fence around front perimeter ──
+  const fenceZ = bz2 + stairDepth + 5;
+  for (let x = Math.max(0, bx1 - 2); x <= Math.min(grid.width - 1, bx2 + 2); x++) {
+    if (x >= sx1 - 1 && x <= sx2 + 1) continue; // Gate gap
+    if (grid.inBounds(x, 1, fenceZ))
+      grid.set(x, 1, fenceZ, fenceBlk);
+  }
+  for (let z = bz2 + 2; z <= fenceZ; z++) {
+    if (grid.inBounds(bx1 - 2, 1, z)) grid.set(bx1 - 2, 1, z, fenceBlk);
+    if (grid.inBounds(bx2 + 2, 1, z)) grid.set(bx2 + 2, 1, z, fenceBlk);
+  }
+}
+
 // ─── Decorator Registry ─────────────────────────────────────────────────────
 
 /** All available decorators by name */
@@ -884,6 +1157,7 @@ export const DECORATORS: Record<string, DecoratorFn> = {
   'gothic-victorian':     gothicVictorian,
   'roof-dormers':         roofDormers,
   'steampunk-workshop':   steampunkWorkshop,
+  'historic-urban':       historicUrban,
 };
 
 /** Default decorator names for each style — applied when no explicit list is provided */

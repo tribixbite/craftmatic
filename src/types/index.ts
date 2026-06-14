@@ -217,6 +217,15 @@ export interface GenerationOptions {
   /** Environmental landscape data — tree species, count, height, water, ground cover.
    *  Built from Phase 5 APIs (hardiness zone, canopy cover, land cover, water features). */
   landscape?: LandscapeData;
+  /** Skip compound site expansion (companion buildings). Used for address-based generation
+   *  where the real building stands alone — not in a fantasy compound. */
+  skipCompound?: boolean;
+  /** Override wing section floor count (default 1). Used for multi-story historic buildings
+   *  where satellite imagery shows wings at similar height to main body. */
+  wingFloors?: number;
+  /** Explicit decorator names to apply. Pass `[]` to skip all decorators.
+   *  When undefined, style defaults are used. */
+  decorators?: string[];
 }
 
 /** 2D render mode */

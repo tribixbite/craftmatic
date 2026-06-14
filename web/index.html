@@ -45,6 +45,7 @@
         <button class="nav-tab" data-tab="map">Map</button>
         <button class="nav-tab" data-tab="tiles">Tiles</button>
         <button class="nav-tab" data-tab="lego">LEGO</button>
+        <button class="nav-tab" data-tab="review">Review</button>
       </div>
       <div class="nav-actions">
         <span id="app-version" class="nav-version"></span>
@@ -160,6 +161,40 @@
                 </svg>
               </div>
               <p>Search for a LEGO set, then upload its LDraw file</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Review Tab -->
+      <section id="tab-review" class="tab-content">
+        <div class="review-layout">
+          <div class="review-toolbar">
+            <div class="review-file-actions">
+              <button class="btn btn-primary btn-sm" id="review-add-schem">Add Schematics</button>
+              <button class="btn btn-secondary btn-sm" id="review-add-images">Add Images</button>
+              <input type="file" id="review-schem-input" accept=".schem,.schematic,.nbt,.litematic" multiple hidden>
+              <input type="file" id="review-image-input" accept="image/*" multiple hidden>
+            </div>
+            <div class="review-versions" id="review-versions"></div>
+          </div>
+          <div class="review-content">
+            <div class="review-viewer" id="review-viewer">
+              <div class="viewer-placeholder">
+                <div class="placeholder-icon">
+                  <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                    <line x1="12" y1="22.08" x2="12" y2="12"/>
+                  </svg>
+                </div>
+                <p>Drop .schem / .litematic files here to review</p>
+              </div>
+            </div>
+            <div class="review-images" id="review-images">
+              <div class="review-images-placeholder">
+                <p>Drop reference images (satellite, street view, renders)</p>
+              </div>
             </div>
           </div>
         </div>

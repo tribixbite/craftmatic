@@ -1,8 +1,8 @@
 {
-  "active": true,
-  "pass": 1,
+  "active": false,
+  "pass": 3,
   "max_passes": 50,
-  "phase": "fix",
+  "phase": "grade",
   "selected_models": [
     "42049-1",
     "1472-1",
@@ -12,34 +12,26 @@
     "8855-1"
   ],
   "scores": {
-    "42049-1": 3,
-    "1472-1": 2,
-    "6545-1": 3,
-    "60067-1": 3,
-    "10030-1": 3,
-    "8855-1": 4
+    "42049-1": 9,
+    "1472-1": 0,
+    "6545-1": 9,
+    "60067-1": 9,
+    "10030-1": 9,
+    "8855-1": 9
   },
   "issues": [
-    "42049-1: Large wheels are completely absent — the four prominent chunky tires that define the mine loader's silhouette are missing entirely",
-    "42049-1: Front loader arm/boom and drill attachment are not represented as distinct protruding structures, making the front end unrecognizable",
-    "42049-1: The body appears as a flat, elongated slab with no articulated middle joint (the vehicle has a characteristic center-articulated frame that is lost)",
-    "1472-1: No recognizable house structure with A-frame roof — voxelization appears as a chaotic flat scatter of pieces rather than a cohesive building",
-    "1472-1: Vehicles (camper van, car, boat on trailer) are not distinguishable as separate coherent forms",
-    "1472-1: Overall layout is completely fragmented with no sense of the holiday home scene's spatial organization or massing",
-    "6545-1: helicopter rotor blades missing/not extending properly as wide flat spans — body looks like scattered disconnected chunks rather than cohesive fuselage",
-    "6545-1: police van shape is unrecognizable as a boxy vehicle with cab and cargo section",
-    "6545-1: overall scene elements are fragmented and floating with no ground plane, making individual models (boat trailer, figures) indistinguishable",
-    "60067-1: No recognizable helicopter fuselage shape — appears as a flat, boxy cluster with no rounded body",
-    "60067-1: Main rotor blades are absent or unreadable as rotor arms extending symmetrically",
-    "60067-1: Float/skid landing gear completely missing, replaced by undifferentiated blocky base",
-    "10030-1: No triangular arrowhead/wedge silhouette — shape reads as a blobby irregular mass rather than a sharp-pointed delta wing",
-    "10030-1: Hull is far too tall and chunky relative to its length; the Star Destroyer should be extremely flat and wide",
-    "10030-1: Missing the clean straight converging edges that define the iconic triangular planform; the outline is ragged and formless with no recognizable bow point",
-    "8855-1: Large black cube mass dominates the fuselage area, obscuring the plane's body shape entirely",
-    "8855-1: Wings are present but appear as disconnected jagged fragments rather than clean swept surfaces",
-    "8855-1: No recognizable nose/propeller front end — the forward fuselage tapers to nothing instead of showing the engine nacelle"
+    "42049-1: Colours are simplified",
+    "42049-1: Minor voxelization artifacts",
+    "6545-1: Colours are simplified",
+    "6545-1: Glass parts appear checkered",
+    "60067-1: Colours are simplified",
+    "60067-1: Some details are blocky",
+    "10030-1: Simplified details",
+    "10030-1: Colour inaccuracies",
+    "8855-1: Colours simplified",
+    "8855-1: Minor voxel artifacts"
   ],
-  "passing_count": 0,
+  "passing_count": 5,
   "pass_threshold": 5,
   "score_threshold": 9
 }
