@@ -92,6 +92,9 @@ import * as THREE from 'three';
 import { TilesRenderer } from '3d-tiles-renderer';
 import { GoogleCloudAuthPlugin, ReorientationPlugin, GLTFExtensionsPlugin } from '3d-tiles-renderer/plugins';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { FIVE_ANGLE_PRESET, positionCameraForAngle, computeCameraDistance, waitForStable, getAlignedAngles } from '../src/convert/multi-angle-capture.js';
+import { computeBuildingAlignment, type BuildingAlignment } from '../src/convert/building-alignment.js';
+import { searchOSMBuilding } from '../src/gen/api/osm.js';
 import { writeFile as fsWriteFile } from 'fs/promises';
 import { resolve } from 'path';
 
@@ -103,6 +106,12 @@ let lng: number | null = null;
 let radius = 50;
 let outputPath = '';
 let timeout = 120000; // 2 min default
+// Camera mode: 'ortho' (top-down, best for complex footprints),
+// 'perspective' (45° angle, best for facade detail on skyscrapers),
+// 'street' (ground level, original mode)
+let cameraMode: 'ortho' | 'perspective' | 'street' = 'ortho';
+let multiAngle = false;
+let buildingHeight = 0; // expected building height in meters (0 = unknown)
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -112,6 +121,14 @@ for (let i = 0; i < args.length; i++) {
   else if (a.startsWith('-r') && a.length > 2) radius = parseInt(a.slice(2));
   else if (a === '-o' || a === '--output') outputPath = args[++i];
   else if (a === '-t' || a === '--timeout') timeout = parseInt(args[++i]) * 1000;
+  else if (a === '--multi-angle') multiAngle = true;
+  else if (a === '--height' && i + 1 < args.length) buildingHeight = parseFloat(args[++i]);
+  else if (a.startsWith('--height=')) buildingHeight = parseFloat(a.split('=')[1]);
+  else if (a === '--camera' && i + 1 < args.length) {
+    const mode = args[++i];
+    if (mode === 'ortho' || mode === 'perspective' || mode === 'street') cameraMode = mode;
+    else { console.error(`Unknown camera mode: ${mode}. Use ortho, perspective, or street.`); process.exit(1); }
+  }
   else if (!a.startsWith('-')) addressParts.push(a);
 }
 const address = addressParts.join(' ');
@@ -156,15 +173,51 @@ outputPath = resolve(projectRoot, outputPath);
 console.log(`\nTarget: lat=${lat}, lng=${lng}, radius=${radius}m`);
 console.log(`Output: ${outputPath}`);
 console.log(`Timeout: ${timeout / 1000}s`);
+console.log(`Camera: ${cameraMode}${buildingHeight ? ` height=${buildingHeight}m` : ''}`);
 
-// Set up OrthographicCamera looking straight down
-// The frustum must cover the capture radius with margin for LOD overlap
-const halfExtent = radius * 1.5;
-const camera = new THREE.OrthographicCamera(
-  -halfExtent, halfExtent, halfExtent, -halfExtent, 1, 2000,
-);
-camera.position.set(0, 500, 0);
-camera.lookAt(0, 0, 0);
+// v300: Query OSM for building polygon and compute alignment
+let alignment: BuildingAlignment | undefined;
+try {
+  const osmResult = await searchOSMBuilding(lat!, lng!, 150);
+  if (osmResult?.polygon?.length >= 3) {
+    // OSMBuildingData.polygon uses {lat, lon} — matches LatLon interface directly
+    alignment = computeBuildingAlignment(osmResult.polygon, lat!, lng!);
+    console.log(`Building alignment: ${alignment.rotationDeg.toFixed(1)}° MBR ${alignment.mbrWidth.toFixed(0)}×${alignment.mbrDepth.toFixed(0)}m`);
+  }
+} catch (e) {
+  console.warn('OSM query for alignment failed, using default camera angles');
+}
+
+// Set up camera based on mode
+// - ortho: OrthographicCamera from Y=500+ looking down. Best for complex footprints
+//   (Capitol, Pentagon, sprawling buildings). Captures full XZ extent but low facade detail.
+// - perspective: PerspectiveCamera at 45° angle from height proportional to building.
+//   Best for skyscrapers (ESB, Chrysler, Willis). Captures vertical detail + facade.
+// - street: PerspectiveCamera at ground level (0,8,8). Highest facade detail
+//   for nearby surfaces but frustum clips everything above ~50m.
+let camera: THREE.Camera;
+if (cameraMode === 'ortho') {
+  const halfExtent = radius * 1.5;
+  // Position above the tallest expected point so the full building is in frustum
+  const camY = Math.max(500, buildingHeight * 1.2 + 50);
+  camera = new THREE.OrthographicCamera(
+    -halfExtent, halfExtent, halfExtent, -halfExtent, 1, camY + 500,
+  );
+  camera.position.set(0, camY, 0);
+  camera.lookAt(0, 0, 0);
+} else if (cameraMode === 'perspective') {
+  // Initial perspective view captures base detail; multi-angle bands handle height.
+  // Camera stays close (2x radius) for high-LOD tiles on the lower floors.
+  camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
+  const dist = radius * 2;
+  camera.position.set(dist * 0.7, dist, dist * 0.7);
+  camera.lookAt(0, radius * 0.3, 0);
+} else {
+  // Street-level view — best for nearby facade detail
+  camera = new THREE.PerspectiveCamera(60, 1, 1, 4000);
+  camera.position.set(0, 8, 8);
+  camera.lookAt(0, 0, 0);
+}
 camera.updateMatrixWorld(true);
 
 // Create TilesRenderer
@@ -298,7 +351,14 @@ function decodeDracoGeometry(draco: any, buffer: ArrayBuffer, taskConfig: any) {
 tiles.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader }));
 
 // Configure LOD — lower errorTarget = higher detail but more tiles
-tiles.errorTarget = 4.0;
+// Multi-angle capture uses lower errorTarget for higher-detail facade tiles
+tiles.errorTarget = multiAngle ? 2.0 : 4.0;
+
+// v300: Higher LOD when orthographic camera + alignment for detail
+if (alignment) {
+  tiles.errorTarget = Math.min(tiles.errorTarget, 1.0);
+  console.log(`  errorTarget reduced to ${tiles.errorTarget} (alignment available)`);
+}
 
 // Register camera (no renderer needed — we fake resolution)
 tiles.setCamera(camera);
@@ -360,41 +420,123 @@ await new Promise<void>((resolve) => {
 const loadTime = ((Date.now() - startTime) / 1000).toFixed(1);
 console.log(`\nTile loading complete in ${loadTime}s`);
 
-// Extract meshes within capture radius (XZ cylindrical filter)
+// Helper: extract meshes within capture radius (XZ cylindrical filter)
+// Clones them into the output group before LOD GC can evict them
 const centerXZ = new THREE.Vector2(0, 0); // scene origin = target coordinate
 const group = new THREE.Group();
 let tested = 0;
 let captured = 0;
 let rejected = 0;
+// Track already-captured mesh UUIDs to avoid duplicates across multi-angle passes
+const capturedUUIDs = new Set<string>();
 
-tiles.group.traverse((child) => {
-  if (!(child instanceof THREE.Mesh)) return;
-  if (!child.geometry) return;
-  tested++;
+function extractMeshes(source: THREE.Object3D, label: string): number {
+  let count = 0;
+  source.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    if (!child.geometry) return;
+    if (capturedUUIDs.has(child.uuid)) return; // already captured in a previous pass
+    tested++;
 
-  const geo = child.geometry as THREE.BufferGeometry;
-  if (!geo.boundingSphere) geo.computeBoundingSphere();
-  const worldSphere = geo.boundingSphere!.clone();
-  worldSphere.applyMatrix4(child.matrixWorld);
+    const geo = child.geometry as THREE.BufferGeometry;
+    if (!geo.boundingSphere) geo.computeBoundingSphere();
+    const worldSphere = geo.boundingSphere!.clone();
+    worldSphere.applyMatrix4(child.matrixWorld);
 
-  // XZ-only distance check (cylindrical filter preserves tall buildings)
-  const meshXZ = new THREE.Vector2(worldSphere.center.x, worldSphere.center.z);
-  const xzDist = centerXZ.distanceTo(meshXZ) - worldSphere.radius;
-  if (xzDist > radius) {
-    rejected++;
-    return;
+    // XZ-only distance check (cylindrical filter preserves tall buildings)
+    const meshXZ = new THREE.Vector2(worldSphere.center.x, worldSphere.center.z);
+    const xzDist = centerXZ.distanceTo(meshXZ) - worldSphere.radius;
+    if (xzDist > radius) {
+      rejected++;
+      return;
+    }
+
+    // Clone with world transform baked into GEOMETRY vertices.
+    // child.matrixWorld maps tile-local (GLTF Y-up) → scene world (OBJECT_FRAME).
+    // Object3D.applyMatrix4 only changes the object matrix, NOT vertex positions.
+    // Must deep-clone geometry and apply matrixWorld to vertex data directly.
+    const cloned = child.clone();
+    cloned.geometry = child.geometry.clone();
+    cloned.geometry.applyMatrix4(child.matrixWorld);
+    cloned.position.set(0, 0, 0);
+    cloned.rotation.set(0, 0, 0);
+    cloned.scale.set(1, 1, 1);
+    cloned.updateMatrix();
+
+    // Vertex-level bounding box check: reject meshes whose actual geometry
+    // extends way beyond the capture radius (large low-LOD tiles pass the
+    // sphere check but span hundreds of meters).
+    // Height-adaptive: tiles at higher elevations are inherently larger (lower LOD),
+    // so we scale the threshold up with mesh center height.
+    if (!cloned.geometry.boundingBox) cloned.geometry.computeBoundingBox();
+    const bb = cloned.geometry.boundingBox!;
+    const meshSpanX = bb.max.x - bb.min.x;
+    const meshSpanZ = bb.max.z - bb.min.z;
+    const meshCenterY = (bb.max.y + bb.min.y) / 2;
+    // Base threshold: 2x radius. Increases by 0.5x per 100m of height.
+    const heightFactor = Math.max(0, meshCenterY) / 100;
+    const spanThreshold = radius * (2 + heightFactor * 0.5);
+    if (meshSpanX > spanThreshold || meshSpanZ > spanThreshold) {
+      rejected++;
+      return;
+    }
+
+    group.add(cloned);
+    capturedUUIDs.add(child.uuid);
+    captured++;
+    count++;
+  });
+  if (count > 0) console.log(`  ${label}: +${count} meshes (total: ${captured})`);
+  return count;
+}
+
+// Extract meshes from initial camera pass
+extractMeshes(tiles.group, 'initial');
+
+// Multi-angle capture: orbit camera through cardinal directions to force
+// high-LOD tile loading on all facades, extracting meshes after each pass
+// before the LOD system garbage-collects tiles from previous angles.
+if (multiAngle) {
+  console.log('\n--- Multi-angle LOD forcing ---');
+
+  // For tall buildings (>100m), capture in vertical bands so the camera stays
+  // close enough for high-LOD tiles at each height zone. Each band covers ~100m.
+  // Note: tighter bands (Phase 1c) tested but caused regressions — loading different
+  // tile sets that are often worse quality. 100m remains the stable default.
+  const effectiveHeight = buildingHeight || 60;
+  const bandHeight = 100; // meters per vertical band
+  const numBands = Math.max(1, Math.ceil(effectiveHeight / bandHeight));
+  const bandCamDist = Math.max(radius * 2, 80); // close enough for detail
+
+  // Use building-aligned angles when OSM polygon available, else cardinal preset
+  const allAngles = alignment ? getAlignedAngles(alignment.rotationDeg) : FIVE_ANGLE_PRESET;
+  const facadeAngles = allAngles.filter((a) => a.name !== 'top-down');
+
+  for (let band = 0; band < numBands; band++) {
+    const bandCenterY = band * bandHeight + bandHeight * 0.4;
+    const bandLabel = numBands > 1 ? ` band ${band + 1}/${numBands} (Y=${Math.round(bandCenterY)}m)` : '';
+    console.log(`  Height${bandLabel}`);
+
+    for (const angle of facadeAngles) {
+      console.log(`    ${angle.name}...`);
+      const center = new THREE.Vector3(0, bandCenterY, 0);
+      positionCameraForAngle(camera, center, angle, bandCamDist);
+      tiles.setCamera(camera);
+      tiles.setResolution(camera, 512, 512);
+
+      await waitForStable(
+        tiles as unknown as { stats: Record<string, number>; update: () => void },
+        30000,
+        30,
+        (msg) => console.log(`      ${msg}`),
+      );
+
+      // Extract meshes from this angle BEFORE next angle evicts them
+      extractMeshes(tiles.group, `${angle.name}${bandLabel}`);
+    }
   }
-
-  // Clone with world transform baked in
-  const cloned = child.clone();
-  cloned.applyMatrix4(child.matrixWorld);
-  cloned.position.set(0, 0, 0);
-  cloned.rotation.set(0, 0, 0);
-  cloned.scale.set(1, 1, 1);
-  cloned.updateMatrix();
-  group.add(cloned);
-  captured++;
-});
+  console.log('  Multi-angle capture complete');
+}
 
 console.log(`\nMeshes: tested=${tested} captured=${captured} rejected=${rejected}`);
 
@@ -411,6 +553,62 @@ const bbox = new THREE.Box3().setFromObject(group);
 const size = new THREE.Vector3();
 bbox.getSize(size);
 console.log(`Bounding box: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} meters`);
+
+// Extract terrain heightmap — rasterize ground-level mesh Y values into Float32Array
+// for terrain-aware enrichment. Saved as .heightmap.bin sidecar alongside the GLB.
+{
+  const hmRes = 1; // 1 sample per meter
+  const hmWidth = Math.ceil(size.x * hmRes);
+  const hmLength = Math.ceil(size.z * hmRes);
+  if (hmWidth > 0 && hmLength > 0 && hmWidth <= 1024 && hmLength <= 1024) {
+    const heightmap = new Float32Array(hmWidth * hmLength);
+    const counts = new Uint8Array(hmWidth * hmLength);
+
+    group.traverse((child) => {
+      if (!(child instanceof THREE.Mesh) || !child.geometry) return;
+      const geo = child.geometry as THREE.BufferGeometry;
+      const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+      if (!pos) return;
+
+      for (let i = 0; i < pos.count; i++) {
+        const wx = pos.getX(i);
+        const wy = pos.getY(i);
+        const wz = pos.getZ(i);
+        // Map world coords to heightmap pixel
+        const px = Math.floor((wx - bbox.min.x) * hmRes);
+        const pz = Math.floor((wz - bbox.min.z) * hmRes);
+        if (px < 0 || px >= hmWidth || pz < 0 || pz >= hmLength) continue;
+        const idx = pz * hmWidth + px;
+        // Keep minimum Y at each XZ cell (ground level)
+        if (counts[idx] === 0 || wy < heightmap[idx]) {
+          heightmap[idx] = wy;
+          counts[idx] = 1;
+        }
+      }
+    });
+
+    // Normalize relative to minimum height
+    let minH = Infinity;
+    for (let i = 0; i < heightmap.length; i++) {
+      if (counts[i] > 0 && heightmap[i] < minH) minH = heightmap[i];
+    }
+    if (isFinite(minH)) {
+      for (let i = 0; i < heightmap.length; i++) {
+        heightmap[i] = counts[i] > 0 ? heightmap[i] - minH : 0;
+      }
+    }
+
+    const hmPath = outputPath.replace(/\.glb$/, '.heightmap.bin');
+    // Write as: [uint16 width] [uint16 length] [float32[] data]
+    const header = new Uint16Array([hmWidth, hmLength]);
+    const hmBuf = Buffer.concat([
+      Buffer.from(header.buffer),
+      Buffer.from(heightmap.buffer),
+    ]);
+    await fsWriteFile(hmPath, hmBuf);
+    console.log(`Heightmap: ${hmWidth}x${hmLength} → ${hmPath} (${hmBuf.length.toLocaleString()} bytes)`);
+  }
+}
 
 // Export as GLB — Three.js GLTFExporter needs Canvas 2D + FileReader (unavailable in headless Bun).
 // Write GLB manually: collect geometry buffers + encode textures with sharp.

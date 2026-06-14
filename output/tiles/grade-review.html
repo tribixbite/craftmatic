@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Craftmatic Grade Review</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --card: #0f3460;
+    --accent: #e94560;
+    --text: #eee;
+    --muted: #8899aa;
+    --pass: #4ade80;
+    --fail: #f87171;
+    --near: #fbbf24;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 12px;
+  }
+  h1 {
+    font-size: 1.3rem;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--card);
+    margin-bottom: 12px;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+    align-items: center;
+  }
+  .controls label { font-size: 0.85rem; color: var(--muted); }
+  select, button {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--card);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  select:focus, button:focus { outline: 2px solid var(--accent); }
+  button:hover { background: var(--card); }
+  button.active { background: var(--accent); border-color: var(--accent); }
+  .filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+  .chip {
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 12px;
+    border: 1px solid var(--card);
+    cursor: pointer;
+    background: var(--surface);
+    transition: all 0.15s;
+  }
+  .chip.active { background: var(--accent); border-color: var(--accent); }
+  .chip:hover { border-color: var(--accent); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 500px), 1fr));
+    gap: 12px;
+  }
+  .card {
+    background: var(--surface);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--card);
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--card);
+    gap: 8px;
+  }
+  .card-header h2 { font-size: 1rem; text-transform: capitalize; }
+  .score-badge {
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .score-pass { background: var(--pass); color: #000; }
+  .score-fail { background: var(--fail); color: #000; }
+  .score-near { background: var(--near); color: #000; }
+  .score-na { background: var(--card); color: var(--muted); }
+  .card-body { position: relative; }
+  .card-body img {
+    width: 100%;
+    display: block;
+    cursor: zoom-in;
+  }
+  .card-body .no-img {
+    padding: 40px;
+    text-align: center;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .version-nav {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .version-nav button {
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .compare-row {
+    display: flex;
+    gap: 2px;
+    background: var(--bg);
+  }
+  .compare-col {
+    flex: 1;
+    min-width: 0;
+  }
+  .compare-col img { width: 100%; display: block; }
+  .compare-label {
+    text-align: center;
+    font-size: 0.7rem;
+    padding: 2px;
+    background: var(--card);
+    color: var(--muted);
+  }
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    z-index: 1000;
+    cursor: zoom-out;
+    overflow: auto;
+  }
+  .modal-overlay.open { display: flex; align-items: center; justify-content: center; }
+  .modal-overlay img {
+    max-width: 95vw;
+    max-height: 95vh;
+    object-fit: contain;
+  }
+  .summary-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding: 8px;
+    background: var(--surface);
+    border-radius: 8px;
+    font-size: 0.85rem;
+  }
+  .summary-bar span { color: var(--muted); }
+  .mode-toggle { margin-left: auto; }
+</style>
+</head>
+<body>
+
+<h1>Grade Review</h1>
+
+<div class="controls">
+  <label>Version:</label>
+  <select id="ver-select"></select>
+  <label>Compare with:</label>
+  <select id="compare-select"><option value="">— none —</option></select>
+  <div class="mode-toggle">
+    <button id="btn-grid" class="active" title="Grid view">Grid</button>
+    <button id="btn-compare" title="Side-by-side compare">Compare</button>
+  </div>
+</div>
+
+<div class="filter-chips" id="building-chips"></div>
+<div class="summary-bar" id="summary"></div>
+<div class="grid" id="grid"></div>
+
+<div class="modal-overlay" id="modal">
+  <img id="modal-img" src="" alt="zoomed">
+</div>
+
+<script>
+let INDEX = null;
+let STATE = null;
+let mode = 'grid'; // 'grid' | 'compare'
+let selectedBuildings = new Set();
+
+async function loadData() {
+  const [indexRes, stateRes] = await Promise.all([
+    fetch('grade-index.json').then(r => r.json()),
+    fetch('iterate-state.json').then(r => r.json()).catch(() => null)
+  ]);
+  INDEX = indexRes;
+  STATE = stateRes;
+  init();
+}
+
+function init() {
+  const verSelect = document.getElementById('ver-select');
+  const cmpSelect = document.getElementById('compare-select');
+  const versions = INDEX.versions;
+
+  // Populate version dropdowns
+  versions.forEach(v => {
+    verSelect.add(new Option(v, v));
+    cmpSelect.add(new Option(v, v));
+  });
+
+  // Default: latest version, compare with previous
+  verSelect.value = versions[0];
+  if (versions.length > 1) cmpSelect.value = versions[1];
+
+  // Building filter chips
+  const chipContainer = document.getElementById('building-chips');
+  const allBuildings = Object.keys(INDEX.buildings).sort();
+  // Default: show the 10 iterate-grade buildings
+  const iterBuildings = new Set(['flatiron','sentinel','portland','raleigh','dakota','tampa','atlanta','nashville','arlington','sandiego']);
+  allBuildings.forEach(b => {
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (iterBuildings.has(b) ? ' active' : '');
+    chip.textContent = b;
+    chip.onclick = () => {
+      chip.classList.toggle('active');
+      updateSelectedBuildings();
+      render();
+    };
+    chipContainer.appendChild(chip);
+  });
+
+  // "All" / "10 core" quick toggles
+  const allChip = document.createElement('span');
+  allChip.className = 'chip';
+  allChip.textContent = 'ALL';
+  allChip.style.fontWeight = '700';
+  allChip.onclick = () => {
+    chipContainer.querySelectorAll('.chip:not([style])').forEach(c => c.classList.add('active'));
+    updateSelectedBuildings();
+    render();
+  };
+  chipContainer.insertBefore(allChip, chipContainer.firstChild);
+
+  const coreChip = document.createElement('span');
+  coreChip.className = 'chip';
+  coreChip.textContent = 'CORE 10';
+  coreChip.style.fontWeight = '700';
+  coreChip.onclick = () => {
+    chipContainer.querySelectorAll('.chip:not([style])').forEach(c => {
+      c.classList.toggle('active', iterBuildings.has(c.textContent));
+    });
+    updateSelectedBuildings();
+    render();
+  };
+  chipContainer.insertBefore(coreChip, allChip.nextSibling);
+
+  updateSelectedBuildings();
+
+  verSelect.onchange = () => render();
+  cmpSelect.onchange = () => render();
+
+  document.getElementById('btn-grid').onclick = () => { mode = 'grid'; updateModeButtons(); render(); };
+  document.getElementById('btn-compare').onclick = () => { mode = 'compare'; updateModeButtons(); render(); };
+
+  // Modal zoom
+  const modal = document.getElementById('modal');
+  const modalImg = document.getElementById('modal-img');
+  modal.onclick = () => modal.classList.remove('open');
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') modal.classList.remove('open'); });
+
+  render();
+}
+
+function updateSelectedBuildings() {
+  selectedBuildings = new Set();
+  document.querySelectorAll('#building-chips .chip.active:not([style])').forEach(c => {
+    selectedBuildings.add(c.textContent);
+  });
+}
+
+function updateModeButtons() {
+  document.getElementById('btn-grid').classList.toggle('active', mode === 'grid');
+  document.getElementById('btn-compare').classList.toggle('active', mode === 'compare');
+}
+
+function getScore(building, version) {
+  if (!STATE || !STATE.buildings) return null;
+  const b = STATE.buildings[building];
+  if (!b || b.version !== version) return null;
+  return b.trimmedMean;
+}
+
+function scoreBadge(score) {
+  if (score == null) return '<span class="score-badge score-na">—</span>';
+  const cls = score >= 9 ? 'score-pass' : score >= 8 ? 'score-near' : 'score-fail';
+  return `<span class="score-badge ${cls}">${score.toFixed(1)}</span>`;
+}
+
+function imgPath(file) {
+  return file;
+}
+
+function openModal(src) {
+  const modal = document.getElementById('modal');
+  document.getElementById('modal-img').src = src;
+  modal.classList.add('open');
+}
+
+function render() {
+  const ver = document.getElementById('ver-select').value;
+  const cmp = document.getElementById('compare-select').value;
+  const grid = document.getElementById('grid');
+  const summary = document.getElementById('summary');
+
+  const buildings = Object.keys(INDEX.buildings)
+    .filter(b => selectedBuildings.has(b))
+    .filter(b => {
+      // In grid mode, show buildings that have the selected version
+      // In compare mode, show buildings that have EITHER version
+      if (mode === 'grid') return INDEX.buildings[b][ver];
+      return INDEX.buildings[b][ver] || (cmp && INDEX.buildings[b][cmp]);
+    })
+    .sort();
+
+  // Summary
+  let pass = 0, fail = 0, near = 0;
+  buildings.forEach(b => {
+    const s = getScore(b, ver);
+    if (s == null) return;
+    if (s >= 9) pass++;
+    else if (s >= 8) near++;
+    else fail++;
+  });
+  const stateVer = STATE?.version || '?';
+  summary.innerHTML = `
+    <span>Showing ${buildings.length} buildings</span>
+    <span>|</span>
+    <span style="color:var(--pass)">Pass: ${pass}</span>
+    <span style="color:var(--near)">Near: ${near}</span>
+    <span style="color:var(--fail)">Fail: ${fail}</span>
+    <span>|</span>
+    <span>Scores from ${stateVer} (${STATE?.model || '?'})</span>
+  `;
+
+  if (mode === 'grid') {
+    renderGrid(buildings, ver);
+  } else {
+    renderCompare(buildings, ver, cmp);
+  }
+}
+
+function renderGrid(buildings, ver) {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+
+  buildings.forEach(b => {
+    const file = INDEX.buildings[b][ver];
+    if (!file) return;
+
+    const versions = Object.keys(INDEX.buildings[b])
+      .sort((a, c) => {
+        const na = parseInt(a.replace(/^v/, '').replace(/[a-z]+$/, ''));
+        const nc = parseInt(c.replace(/^v/, '').replace(/[a-z]+$/, ''));
+        return nc - na;
+      });
+
+    const score = getScore(b, ver);
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-header">
+        <h2>${b}</h2>
+        ${scoreBadge(score)}
+        <div class="version-nav">
+          ${versions.map(v => `<button class="${v === ver ? 'active' : ''}" data-building="${b}" data-ver="${v}">${v}</button>`).join('')}
+        </div>
+      </div>
+      <div class="card-body">
+        <img src="${imgPath(file)}" alt="${b} ${ver}" loading="lazy"
+             onclick="openModal(this.src)">
+      </div>
+    `;
+    grid.appendChild(card);
+
+    // Version nav click handlers
+    card.querySelectorAll('.version-nav button').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const newVer = btn.dataset.ver;
+        const newFile = INDEX.buildings[btn.dataset.building][newVer];
+        if (newFile) {
+          const img = card.querySelector('.card-body img');
+          img.src = imgPath(newFile);
+          img.alt = `${btn.dataset.building} ${newVer}`;
+          card.querySelectorAll('.version-nav button').forEach(b2 => b2.classList.remove('active'));
+          btn.classList.add('active');
+        }
+      };
+    });
+  });
+}
+
+function renderCompare(buildings, ver, cmp) {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+
+  if (!cmp) {
+    grid.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">Select a comparison version</div>';
+    return;
+  }
+
+  buildings.forEach(b => {
+    const fileA = INDEX.buildings[b][ver];
+    const fileB = INDEX.buildings[b][cmp];
+
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const scoreA = getScore(b, ver);
+
+    card.innerHTML = `
+      <div class="card-header">
+        <h2>${b}</h2>
+        ${scoreBadge(scoreA)}
+      </div>
+      <div class="card-body">
+        <div class="compare-row">
+          <div class="compare-col">
+            <div class="compare-label">${ver}</div>
+            ${fileA
+              ? `<img src="${imgPath(fileA)}" alt="${b} ${ver}" loading="lazy" onclick="openModal(this.src)">`
+              : `<div class="no-img">No ${ver}</div>`}
+          </div>
+          <div class="compare-col">
+            <div class="compare-label">${cmp}</div>
+            ${fileB
+              ? `<img src="${imgPath(fileB)}" alt="${b} ${cmp}" loading="lazy" onclick="openModal(this.src)">`
+              : `<div class="no-img">No ${cmp}</div>`}
+          </div>
+        </div>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+loadData();
+</script>
+</body>
+</html>

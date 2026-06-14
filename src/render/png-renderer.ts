@@ -379,7 +379,51 @@ function getAO(grid: BlockGrid, x: number, y: number, z: number): number {
   for (const [cx, cy, cz] of checks) {
     if (isSolidBlock(grid.get(cx, cy, cz))) solidNeighbors++;
   }
-  return 1.0 - (solidNeighbors / checks.length) * 0.4;
+  return 1.0 - (solidNeighbors / checks.length) * 0.6; // v300: stronger AO for visible recesses
+}
+
+/**
+ * Compute shadow factor for a surface voxel via DDA raycast along [1,1,1] light.
+ * Returns 1.0 (fully lit) or 0.6 (40% darkened, in shadow).
+ *
+ * Self-intersection avoidance: for lateral faces (+x/-x/+z/-z), the ray origin
+ * is offset along the face normal so the loop starts outside the source block.
+ * For 'up', the loop starts at step=1 which already skips the source block
+ * without a Y offset — allowing the DDA to check (x+1, y+1, z+1) at step 1.
+ *
+ * @param face - Which face is visible; determines origin offset direction.
+ */
+export function computeShadow(
+  grid: BlockGrid,
+  x: number, y: number, z: number,
+  face: 'up' | '+x' | '-x' | '+z' | '-z',
+): number {
+  // Offset origin along face normal for lateral faces only.
+  // 'up': no Y offset needed — step=1 ensures (x+1, y+1, z+1) skips source.
+  let ox = x, oy = y, oz = z;
+  switch (face) {
+    case '+x':  ox += 1; break;
+    case '-x':  ox -= 1; break;
+    case '+z':  oz += 1; break;
+    case '-z':  oz -= 1; break;
+    default: break; // 'up': no offset, self-skip via step >= 1
+  }
+
+  // DDA along [1,1,1] — uniform direction, advance 1 in each axis per step.
+  // step=1 means first sample at (ox+1, oy+1, oz+1), safely past the source block.
+  const maxSteps = Math.max(grid.width, grid.height, grid.length);
+  for (let step = 1; step <= maxSteps; step++) {
+    const sx = ox + step;
+    const sy = oy + step;
+    const sz = oz + step;
+    if (sx >= grid.width || sy >= grid.height || sz >= grid.length) break;
+    if (sx < 0 || sy < 0 || sz < 0) continue;
+    const block = grid.get(sx, sy, sz);
+    if (block !== 'minecraft:air') {
+      return 0.6; // 40% shadow darkening
+    }
+  }
+  return 1.0; // fully lit
 }
 
 /**
@@ -519,11 +563,110 @@ export async function renderCutawayIso(
         }
 
         const ao = getAO(grid, x, y, z);
+        const shadow = computeShadow(grid, x, y, z, 'up');
+        const combined = ao * shadow;
         const sx = (x - z) * tile + cx;
         const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
         const halfT = Math.floor(tile / 2);
 
-        renderIsoBlock(pixels, imgW, texAtlas, bs, color, ao, sx, sy, tile, halfT);
+        renderIsoBlock(pixels, imgW, texAtlas, bs, color, combined, sx, sy, tile, halfT);
+      }
+    }
+  }
+
+  return encodePNG(pixels, imgW, imgH);
+}
+
+/**
+ * Render a cutaway isometric view from the back-left angle (mirrored from renderCutawayIso).
+ * Iteration order: z ascending, x descending — exposes faces hidden in the front-right view.
+ * Projection: sx = (z - x) * tile + cx (mirrored x/z swap relative to front-right).
+ * Used as a second VLM grading angle in the v300 pipeline.
+ */
+export async function renderCutawayIsoBackLeft(
+  grid: BlockGrid, story: number,
+  options: { tile?: number; storyH?: number; output?: string; title?: string } = {}
+): Promise<Buffer> {
+  const texAtlas = await ensureAtlas();
+  let { tile = 16 } = options;
+  const { storyH = 5 } = options;
+  const { width: w, height: h, length: l } = grid;
+  const blocks = grid.to3DArray();
+  const baseY = story * storyH;
+  const topY = Math.min(baseY + storyH, h);
+
+  // Back-left projection corners: sx = (z - x) * tile, sy unchanged
+  const corners = [
+    [0, baseY, 0], [w, baseY, 0], [0, topY, 0], [0, baseY, l],
+    [w, topY, 0], [w, baseY, l], [0, topY, l], [w, topY, l],
+  ];
+  let sxs = corners.map(([x, _y, z]) => (z - x) * tile);
+  let sys = corners.map(([x, y, z]) => -(y * tile) + (x + z) * Math.floor(tile / 2));
+  const margin = tile * 3;
+
+  let minSx = Math.min(...sxs) - margin;
+  let maxSx = Math.max(...sxs) + margin;
+  let minSy = Math.min(...sys) - margin;
+  let maxSy = Math.max(...sys) + margin + tile * 3;
+  let imgW = maxSx - minSx;
+  let imgH = maxSy - minSy;
+
+  if (Math.max(imgW, imgH) > MAX_DIM) {
+    const ratio = MAX_DIM / Math.max(imgW, imgH);
+    tile = Math.max(2, Math.round(tile * ratio));
+    sxs = corners.map(([x, _y, z]) => (z - x) * tile);
+    sys = corners.map(([x, y, z]) => -(y * tile) + (x + z) * Math.floor(tile / 2));
+    const m2 = tile * 3;
+    minSx = Math.min(...sxs) - m2;
+    maxSx = Math.max(...sxs) + m2;
+    minSy = Math.min(...sys) - m2;
+    maxSy = Math.max(...sys) + m2 + tile * 3;
+    imgW = maxSx - minSx;
+    imgH = maxSy - minSy;
+  }
+
+  const cx = -minSx;
+  const cy = -minSy;
+  const pixels = Buffer.alloc(imgW * imgH * 4);
+  fillRect(pixels, imgW, 0, 0, imgW, imgH, [22, 22, 28]);
+
+  // Cache block color lookups
+  const colorCache = new Map<string, RGB | null>();
+  function cachedBlockColor(bs: string): RGB | null {
+    let c = colorCache.get(bs);
+    if (c !== undefined) return c;
+    c = getBlockColor(bs);
+    colorCache.set(bs, c);
+    return c;
+  }
+
+  // Back-left iteration: z ascending (front-to-back), x descending (right-to-left)
+  for (let y = baseY; y < topY; y++) {
+    for (let z = 0; z < l; z++) {
+      for (let x = w - 1; x >= 0; x--) {
+        const bs = blocks[y][z][x];
+        const color = cachedBlockColor(bs);
+        if (color === null) continue;
+
+        // Skip fully interior blocks — never visible from any isometric angle
+        if (x > 0 && x < w - 1 && y > baseY && y < topY - 1 && z > 0 && z < l - 1 &&
+            cachedBlockColor(blocks[y + 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y - 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y][z][x - 1]) !== null &&
+            cachedBlockColor(blocks[y][z][x + 1]) !== null &&
+            cachedBlockColor(blocks[y][z - 1][x]) !== null &&
+            cachedBlockColor(blocks[y][z + 1][x]) !== null) {
+          continue;
+        }
+
+        const ao = getAO(grid, x, y, z);
+        const shadow = computeShadow(grid, x, y, z, 'up');
+        const combined = ao * shadow;
+        const sx = (z - x) * tile + cx; // mirrored projection: z leads, x follows
+        const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
+        const halfT = Math.floor(tile / 2);
+
+        renderIsoBlock(pixels, imgW, texAtlas, bs, color, combined, sx, sy, tile, halfT);
       }
     }
   }
@@ -637,6 +780,180 @@ export async function renderTopDown(
         r = clamp(r * heightFactor);
         g = clamp(g * heightFactor);
         b = clamp(b * heightFactor);
+        fillRect(pixels, imgW, px, py, scale, scale, [r, g, b]);
+      }
+    }
+  }
+
+  return encodePNG(pixels, imgW, imgH);
+}
+
+/**
+ * Render a front elevation view — orthographic projection of the building facade.
+ * For each (horizontal, Y) position, finds the first non-air block along the view axis.
+ * Reveals setbacks, spires, domes, and tapering that iso/topdown views compress away.
+ *
+ * @param face - Which face to render. 'auto' picks the longest horizontal extent.
+ *   'north'/'south' look along Z axis, 'east'/'west' look along X axis.
+ */
+export async function renderFrontElevation(
+  grid: BlockGrid,
+  options: {
+    scale?: number;
+    face?: 'north' | 'south' | 'east' | 'west' | 'auto';
+    alignedToBuilding?: boolean; // v300: when true, always render south face (-Z = primary facade after BuildingAlignment rotation)
+  } = {}
+): Promise<Buffer> {
+  const texAtlas = await ensureAtlas();
+  let { scale = 8, face = 'auto' } = options;
+  if (options.alignedToBuilding) {
+    face = 'south'; // -Z is always primary facade after BuildingAlignment rotation
+  }
+  const { width: w, height: h, length: l } = grid;
+  const blocks = grid.to3DArray();
+
+  // Find non-air bounding box
+  let minX = w, maxX = 0, minY = h, maxY = 0, minZ = l, maxZ = 0;
+  for (let y = 0; y < h; y++) {
+    for (let z = 0; z < l; z++) {
+      for (let x = 0; x < w; x++) {
+        if (blocks[y][z][x] !== 'minecraft:air') {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+          if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+        }
+      }
+    }
+  }
+  if (minX > maxX) { minX = 0; maxX = w - 1; minY = 0; maxY = h - 1; minZ = 0; maxZ = l - 1; }
+
+  // Auto-pick face: show the face with the longest horizontal extent
+  if (face === 'auto') {
+    const xExtent = maxX - minX + 1;
+    const zExtent = maxZ - minZ + 1;
+    face = xExtent >= zExtent ? 'south' : 'east'; // south shows X-axis width, east shows Z-axis depth
+  }
+
+  // Determine horizontal/depth axes based on face direction
+  const lookAlongZ = face === 'north' || face === 'south';
+  const hMin = lookAlongZ ? minX : minZ;
+  const hMax = lookAlongZ ? maxX : maxZ;
+  const hExtent = hMax - hMin + 1;
+  const vExtent = maxY - minY + 1;
+
+  const pad = 2;
+  const margin = Math.max(4, scale);
+  let imgW = (hExtent + pad * 2) * scale + margin * 2;
+  let imgH = (vExtent + pad * 2) * scale + margin * 2;
+
+  // Clamp to MAX_DIM
+  if (Math.max(imgW, imgH) > MAX_DIM) {
+    const ratio = MAX_DIM / Math.max(imgW, imgH);
+    scale = Math.max(2, Math.round(scale * ratio));
+    const m2 = Math.max(4, scale);
+    imgW = (hExtent + pad * 2) * scale + m2 * 2;
+    imgH = (vExtent + pad * 2) * scale + m2 * 2;
+  }
+
+  const ox = Math.max(4, scale) + pad * scale;
+  const oy = Math.max(4, scale) + pad * scale;
+
+  const pixels = Buffer.alloc(imgW * imgH * 4);
+  fillRect(pixels, imgW, 0, 0, imgW, imgH, [20, 20, 20]);
+
+  // Cache block color lookups
+  const colorCache = new Map<string, RGB | null>();
+  function cachedBlockColor(bs: string): RGB | null {
+    let c = colorCache.get(bs);
+    if (c !== undefined) return c;
+    c = getBlockColor(bs);
+    colorCache.set(bs, c);
+    return c;
+  }
+
+  // For each (horizontal, Y) find the first non-air block along the depth axis
+  for (let hIdx = 0; hIdx < hExtent; hIdx++) {
+    const hCoord = hMin + hIdx;
+    for (let y = minY; y <= maxY; y++) {
+      let frontBlock = 'minecraft:air';
+      let depth = -1;
+      // Track actual grid coordinates of the found block for shadow computation
+      let actualX = 0, actualZ = 0;
+
+      if (lookAlongZ) {
+        // Looking along Z: sweep from viewer toward building
+        if (face === 'south') {
+          // Viewer at -Z looking +Z
+          for (let z = minZ; z <= maxZ; z++) {
+            if (blocks[y][z][hCoord] !== 'minecraft:air') {
+              frontBlock = blocks[y][z][hCoord];
+              depth = z - minZ;
+              actualX = hCoord; actualZ = z;
+              break;
+            }
+          }
+        } else {
+          // north: Viewer at +Z looking -Z
+          for (let z = maxZ; z >= minZ; z--) {
+            if (blocks[y][z][hCoord] !== 'minecraft:air') {
+              frontBlock = blocks[y][z][hCoord];
+              depth = maxZ - z;
+              actualX = hCoord; actualZ = z;
+              break;
+            }
+          }
+        }
+      } else {
+        // Looking along X: sweep from viewer toward building
+        if (face === 'east') {
+          // Viewer at -X looking +X
+          for (let x = minX; x <= maxX; x++) {
+            if (blocks[y][hCoord][x] !== 'minecraft:air') {
+              frontBlock = blocks[y][hCoord][x];
+              depth = x - minX;
+              actualX = x; actualZ = hCoord;
+              break;
+            }
+          }
+        } else {
+          // west: Viewer at +X looking -X
+          for (let x = maxX; x >= minX; x--) {
+            if (blocks[y][hCoord][x] !== 'minecraft:air') {
+              frontBlock = blocks[y][hCoord][x];
+              depth = maxX - x;
+              actualX = x; actualZ = hCoord;
+              break;
+            }
+          }
+        }
+      }
+
+      const color = cachedBlockColor(frontBlock);
+      if (color === null) continue;
+
+      const px = ox + hIdx * scale;
+      // Y is inverted: top of building at top of image
+      const py = oy + (maxY - y) * scale;
+
+      // Depth-based brightness: closer = brighter (0.6–1.0 range)
+      const maxDepth = lookAlongZ ? (maxZ - minZ + 1) : (maxX - minX + 1);
+      const depthFactor = depth >= 0 ? 1.0 - 0.4 * (depth / Math.max(maxDepth, 1)) : 0.7;
+
+      // DDA directional shadow from [1,1,1] light — top-lit for front elevation
+      const shadow = computeShadow(grid, actualX, y, actualZ, 'up');
+      const brightnessFactor = depthFactor * shadow;
+
+      // Texture-based rendering
+      const texFace = lookAlongZ ? (face === 'south' ? 'north' : 'south') : (face === 'east' ? 'west' : 'east');
+      const texData = getTexData(texAtlas, frontBlock, texFace);
+      if (texData && scale >= 4) {
+        blitTextureTile(pixels, imgW, px, py, scale,
+          texData, texAtlas.tileSize, brightnessFactor, brightnessFactor, brightnessFactor);
+      } else {
+        let [r, g, b] = color;
+        r = clamp(r * brightnessFactor);
+        g = clamp(g * brightnessFactor);
+        b = clamp(b * brightnessFactor);
         fillRect(pixels, imgW, px, py, scale, scale, [r, g, b]);
       }
     }
@@ -891,7 +1208,7 @@ export async function renderSatelliteColored(
  * Rasterize a lat/lng polygon to a grid-space boolean mask using ray-casting PIP.
  * Returns Uint8Array[w*l] where 1 = inside polygon, 0 = outside.
  */
-function rasterizePolygonToGridMask(
+export function rasterizePolygonToGridMask(
   polygon: { lat: number; lon: number }[],
   centerLat: number,
   centerLng: number,
@@ -1300,11 +1617,103 @@ export async function renderExterior(
         }
 
         const ao = getAO(grid, x, y, z);
+        const shadow = computeShadow(grid, x, y, z, 'up');
+        const combined = ao * shadow;
         const sx = (x - z) * tile + cx;
         const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
         const halfT = Math.floor(tile / 2);
 
-        renderIsoBlock(pixels, imgW, texAtlas, bs, color, ao, sx, sy, tile, halfT);
+        renderIsoBlock(pixels, imgW, texAtlas, bs, color, combined, sx, sy, tile, halfT);
+      }
+    }
+  }
+
+  return encodePNG(pixels, imgW, imgH);
+}
+
+/**
+ * Render a full-exterior isometric view from the back-left angle.
+ * Mirror of renderExterior: projection uses (z - x) * tile instead of (x - z) * tile.
+ * Iteration order: z ascending, x descending — paints back-right faces visible from back-left.
+ * Used as the 5th image panel in the v300 defect-checklist grading pipeline.
+ */
+export async function renderExteriorBackLeft(
+  grid: BlockGrid,
+  options: { tile?: number; output?: string } = {}
+): Promise<Buffer> {
+  const texAtlas = await ensureAtlas();
+  let { tile = 10 } = options;
+  const { width: w, height: h, length: l } = grid;
+  const blocks = grid.to3DArray();
+
+  const corners = [
+    [0, 0, 0], [w, 0, 0], [0, h, 0], [0, 0, l],
+    [w, h, 0], [w, 0, l], [0, h, l], [w, h, l],
+  ];
+  // Back-left projection: sx = (z - x) * tile (mirrored from renderExterior)
+  let sxs = corners.map(([x, _y, z]) => (z - x) * tile);
+  let sys = corners.map(([x, y, z]) => -(y * tile) + (x + z) * Math.floor(tile / 2));
+  const margin = tile * 4;
+
+  let minSx = Math.min(...sxs) - margin;
+  let maxSx = Math.max(...sxs) + margin;
+  let minSy = Math.min(...sys) - margin;
+  let maxSy = Math.max(...sys) + margin;
+  let imgW = maxSx - minSx;
+  let imgH = maxSy - minSy;
+
+  if (Math.max(imgW, imgH) > MAX_DIM) {
+    const ratio = MAX_DIM / Math.max(imgW, imgH);
+    tile = Math.max(2, Math.round(tile * ratio));
+    sxs = corners.map(([x, _y, z]) => (z - x) * tile);
+    sys = corners.map(([x, y, z]) => -(y * tile) + (x + z) * Math.floor(tile / 2));
+    const m2 = tile * 4;
+    minSx = Math.min(...sxs) - m2; maxSx = Math.max(...sxs) + m2;
+    minSy = Math.min(...sys) - m2; maxSy = Math.max(...sys) + m2;
+    imgW = maxSx - minSx; imgH = maxSy - minSy;
+  }
+
+  const cx = -minSx;
+  const cy = -minSy;
+  const pixels = Buffer.alloc(imgW * imgH * 4);
+  fillRect(pixels, imgW, 0, 0, imgW, imgH, [22, 22, 28]);
+
+  const colorCache = new Map<string, RGB | null>();
+  function cachedBlockColor(bs: string): RGB | null {
+    let c = colorCache.get(bs);
+    if (c !== undefined) return c;
+    c = getBlockColor(bs);
+    colorCache.set(bs, c);
+    return c;
+  }
+
+  // Back-left iteration: z ascending (near to far from back-left POV), x descending
+  for (let y = 0; y < h; y++) {
+    for (let z = 0; z < l; z++) {
+      for (let x = w - 1; x >= 0; x--) {
+        const bs = blocks[y][z][x];
+        const color = cachedBlockColor(bs);
+        if (color === null) continue;
+
+        // Skip fully interior blocks — never visible from any isometric angle
+        if (x > 0 && x < w - 1 && y > 0 && y < h - 1 && z > 0 && z < l - 1 &&
+            cachedBlockColor(blocks[y + 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y - 1][z][x]) !== null &&
+            cachedBlockColor(blocks[y][z][x - 1]) !== null &&
+            cachedBlockColor(blocks[y][z][x + 1]) !== null &&
+            cachedBlockColor(blocks[y][z - 1][x]) !== null &&
+            cachedBlockColor(blocks[y][z + 1][x]) !== null) {
+          continue;
+        }
+
+        const ao = getAO(grid, x, y, z);
+        const shadow = computeShadow(grid, x, y, z, 'up');
+        const combined = ao * shadow;
+        const sx = (z - x) * tile + cx;
+        const sy = -(y * tile) + (x + z) * Math.floor(tile / 2) + cy;
+        const halfT = Math.floor(tile / 2);
+
+        renderIsoBlock(pixels, imgW, texAtlas, bs, color, combined, sx, sy, tile, halfT);
       }
     }
   }
@@ -1565,8 +1974,9 @@ export async function renderFootprintOverlay(
     }
   }
 
-  // Draw height-colored fill (semi-transparent) for building interior
-  // Use height relative to ground floor, not absolute Y, for better dynamic range
+  // Draw height-colored fill (semi-transparent) for building interior.
+  // Each grid cell maps to a filled rectangle in satellite pixels to avoid gaps
+  // at low resolutions where 1 block > 1 satellite pixel.
   const buildingRange = maxH - minHeight;
   for (let z = 0; z < l; z++) {
     for (let x = 0; x < w; x++) {
@@ -1576,11 +1986,12 @@ export async function renderFootprintOverlay(
         ? Math.max(0, Math.min(1, (hy - minHeight) / buildingRange))
         : 0.5;
 
-      const sx = Math.round(satCenterX + (x - gridCenterX) / blocksPerSatPx);
-      const sy = Math.round(satCenterY + (z - gridCenterZ) / blocksPerSatPx);
-      if (sx < 0 || sx >= imgW || sy < 0 || sy >= imgH) continue;
+      // Grid cell → satellite pixel rectangle (covers full cell area)
+      const sx0 = Math.round(satCenterX + (x - 0.5 - gridCenterX) / blocksPerSatPx);
+      const sy0 = Math.round(satCenterY + (z - 0.5 - gridCenterZ) / blocksPerSatPx);
+      const sx1 = Math.round(satCenterX + (x + 0.5 - gridCenterX) / blocksPerSatPx);
+      const sy1 = Math.round(satCenterY + (z + 0.5 - gridCenterZ) / blocksPerSatPx);
 
-      const dstIdx = (sy * imgW + sx) * 4;
       // Height color: low=blue, mid=yellow, high=red
       let cr: number, cg: number, cb: number;
       if (hFrac < 0.5) {
@@ -1595,25 +2006,31 @@ export async function renderFootprintOverlay(
         cb = 0;
       }
 
-      pixels[dstIdx] = clamp(pixels[dstIdx] * (1 - fillOpacity) + cr * fillOpacity);
-      pixels[dstIdx + 1] = clamp(pixels[dstIdx + 1] * (1 - fillOpacity) + cg * fillOpacity);
-      pixels[dstIdx + 2] = clamp(pixels[dstIdx + 2] * (1 - fillOpacity) + cb * fillOpacity);
+      for (let py = Math.max(0, sy0); py <= Math.min(imgH - 1, sy1); py++) {
+        for (let px = Math.max(0, sx0); px <= Math.min(imgW - 1, sx1); px++) {
+          const dstIdx = (py * imgW + px) * 4;
+          pixels[dstIdx] = clamp(pixels[dstIdx] * (1 - fillOpacity) + cr * fillOpacity);
+          pixels[dstIdx + 1] = clamp(pixels[dstIdx + 1] * (1 - fillOpacity) + cg * fillOpacity);
+          pixels[dstIdx + 2] = clamp(pixels[dstIdx + 2] * (1 - fillOpacity) + cb * fillOpacity);
+        }
+      }
     }
   }
 
-  // Draw outline: for each edge cell, draw a thick dot on the satellite image
+  // Draw outline: for each edge cell, fill the cell's satellite rectangle with outline color.
+  // Expands by outlineWidth/2 on each side for thicker lines.
   const halfW = Math.floor(outlineWidth / 2);
   for (let z = 0; z < l; z++) {
     for (let x = 0; x < w; x++) {
       if (!isEdge[z * w + x]) continue;
 
-      const sx = Math.round(satCenterX + (x - gridCenterX) / blocksPerSatPx);
-      const sy = Math.round(satCenterY + (z - gridCenterZ) / blocksPerSatPx);
+      const sx0 = Math.round(satCenterX + (x - 0.5 - gridCenterX) / blocksPerSatPx) - halfW;
+      const sy0 = Math.round(satCenterY + (z - 0.5 - gridCenterZ) / blocksPerSatPx) - halfW;
+      const sx1 = Math.round(satCenterX + (x + 0.5 - gridCenterX) / blocksPerSatPx) + halfW;
+      const sy1 = Math.round(satCenterY + (z + 0.5 - gridCenterZ) / blocksPerSatPx) + halfW;
 
-      for (let dy = -halfW; dy <= halfW; dy++) {
-        for (let dx = -halfW; dx <= halfW; dx++) {
-          const px = sx + dx, py = sy + dy;
-          if (px < 0 || px >= imgW || py < 0 || py >= imgH) continue;
+      for (let py = Math.max(0, sy0); py <= Math.min(imgH - 1, sy1); py++) {
+        for (let px = Math.max(0, sx0); px <= Math.min(imgW - 1, sx1); px++) {
           const dstIdx = (py * imgW + px) * 4;
           pixels[dstIdx] = outlineColor[0];
           pixels[dstIdx + 1] = outlineColor[1];

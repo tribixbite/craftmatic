@@ -1,0 +1,883 @@
+{
+  "version": "v315c",
+  "timestamp": "2026-04-13T05:44:53.560Z",
+  "target": 9,
+  "passing": 18,
+  "total": 10,
+  "model": "gemini-2.5-pro",
+  "buildings": {
+    "flatiron": {
+      "key": "flatiron",
+      "version": "v315c",
+      "difficulty": "easy",
+      "scores": [
+        8,
+        4,
+        4
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 8
+        },
+        {
+          "A": 0,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 4
+        },
+        {
+          "A": 0,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 4
+        }
+      ],
+      "trimmedMean": 4,
+      "diagnosis": "footprint(0.7/3), massing(0.0/1), proportions(1.0/2), high-variance(range=4)",
+      "timestamp": "2026-04-13T06:06:38.995Z",
+      "satRefQuality": 3
+    },
+    "citigroup": {
+      "key": "citigroup",
+      "version": "v315c",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 3,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 3,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 3,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "passing",
+      "timestamp": "2026-04-13T06:39:52.420Z",
+      "satRefQuality": 3
+    },
+    "pennzoil": {
+      "key": "pennzoil",
+      "version": "v315c",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 1,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 1,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 1,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "proportions(1.0/2)",
+      "timestamp": "2026-04-13T06:11:00.194Z",
+      "satRefQuality": 3
+    },
+    "nga-east": {
+      "key": "nga-east",
+      "version": "v315c",
+      "difficulty": "medium",
+      "scores": [
+        9
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 1,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9,
+      "diagnosis": "proportions(1.0/2)",
+      "timestamp": "2026-04-13T06:18:22.986Z",
+      "satRefQuality": 3
+    },
+    "dallas-cityhall": {
+      "key": "dallas-cityhall",
+      "version": "v315c",
+      "difficulty": "hard",
+      "scores": [
+        9,
+        8,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 3,
+          "B": 1,
+          "C": 2,
+          "D": 1,
+          "total": 9
+        },
+        {
+          "A": 3,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 8
+        },
+        {
+          "A": 3,
+          "B": 1,
+          "C": 2,
+          "D": 1,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9,
+      "diagnosis": "massing(0.7/1), proportions(1.0/2)",
+      "timestamp": "2026-04-13T06:21:26.850Z",
+      "satRefQuality": 3
+    },
+    "seattle-library": {
+      "key": "seattle-library",
+      "version": "v315c",
+      "difficulty": "hard",
+      "scores": [
+        8,
+        8,
+        8
+      ],
+      "subscores": [
+        {
+          "A": 3,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 8
+        },
+        {
+          "A": 3,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 8
+        },
+        {
+          "A": 3,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 8
+        }
+      ],
+      "trimmedMean": 8,
+      "diagnosis": "massing(0.0/1), proportions(1.0/2)",
+      "timestamp": "2026-04-13T06:26:48.023Z",
+      "satRefQuality": 3
+    },
+    "boston-cityhall": {
+      "key": "boston-cityhall",
+      "version": "v315c",
+      "difficulty": "hard",
+      "scores": [
+        8,
+        8,
+        8
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 8
+        }
+      ],
+      "trimmedMean": 8,
+      "diagnosis": "massing(0.0/1), proportions(1.0/2)",
+      "timestamp": "2026-04-13T06:29:13.840Z",
+      "satRefQuality": 3
+    },
+    "geisel": {
+      "key": "geisel",
+      "version": "v315c",
+      "difficulty": "hard",
+      "scores": [
+        8,
+        9,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 0,
+          "C": 2,
+          "D": 1,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 1,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 1,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9,
+      "diagnosis": "massing(0.7/1), proportions(1.0/2)",
+      "timestamp": "2026-04-13T06:52:47.986Z",
+      "satRefQuality": 3
+    },
+    "transamerica": {
+      "key": "transamerica",
+      "version": "v315c",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 3,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 3,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 3,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "passing",
+      "timestamp": "2026-04-13T06:57:01.735Z",
+      "satRefQuality": 3
+    },
+    "la-cityhall": {
+      "key": "la-cityhall",
+      "version": "v315c",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 3,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "passing",
+      "timestamp": "2026-04-13T07:04:03.130Z",
+      "satRefQuality": 3
+    },
+    "marina-city": {
+      "key": "marina-city",
+      "version": "v302",
+      "difficulty": "hard",
+      "scores": [
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-03-29T21:14:39.591Z",
+      "satRefQuality": 3
+    },
+    "hearst-tower": {
+      "key": "hearst-tower",
+      "version": "v310",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-04-08T16:51:33.017Z",
+      "satRefQuality": 3
+    },
+    "guggenheim": {
+      "key": "guggenheim",
+      "version": "v302",
+      "difficulty": "hard",
+      "scores": [
+        9,
+        9,
+        7,
+        9,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 1,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 7
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9,
+      "diagnosis": "footprint(1.8/2), identity(2.0/2)",
+      "timestamp": "2026-03-29T21:35:03.989Z",
+      "satRefQuality": 3
+    },
+    "fbi-hq": {
+      "key": "fbi-hq",
+      "version": "v302",
+      "difficulty": "medium",
+      "scores": [
+        10,
+        10,
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-03-29T21:39:54.789Z",
+      "satRefQuality": 3
+    },
+    "mopop": {
+      "key": "mopop",
+      "version": "v302",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        10,
+        10,
+        8,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 0,
+          "total": 10
+        },
+        {
+          "A": 1,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "footprint(1.8/2), identity(1.6/2)",
+      "timestamp": "2026-03-29T21:59:32.812Z",
+      "satRefQuality": 3
+    },
+    "natl-cathedral": {
+      "key": "natl-cathedral",
+      "version": "v302",
+      "difficulty": "hard",
+      "scores": [
+        9,
+        8,
+        9,
+        9,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 1,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 8
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9,
+      "diagnosis": "footprint(1.8/2), identity(2.0/2)",
+      "timestamp": "2026-03-29T22:05:36.321Z",
+      "satRefQuality": 3
+    },
+    "boa-tower": {
+      "key": "boa-tower",
+      "version": "v302",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        10,
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-03-29T22:33:03.331Z",
+      "satRefQuality": 3
+    },
+    "tribune-tower": {
+      "key": "tribune-tower",
+      "version": "v302",
+      "difficulty": "hard",
+      "scores": [
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 2,
+          "D": 2,
+          "total": 9
+        }
+      ],
+      "trimmedMean": 9,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-03-29T22:37:37.350Z",
+      "satRefQuality": 3
+    },
+    "vessel-nyc": {
+      "key": "vessel-nyc",
+      "version": "v310",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-04-08T16:57:27.612Z",
+      "satRefQuality": 3
+    },
+    "disney-hall": {
+      "key": "disney-hall",
+      "version": "v310",
+      "difficulty": "hard",
+      "scores": [
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-04-08T17:36:53.512Z",
+      "satRefQuality": 3
+    },
+    "coit-grandrapids": {
+      "key": "coit-grandrapids",
+      "version": "v313",
+      "difficulty": "medium",
+      "scores": [
+        10,
+        10,
+        10
+      ],
+      "subscores": [
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        },
+        {
+          "A": 2,
+          "B": 1,
+          "C": 3,
+          "D": 2,
+          "total": 10
+        }
+      ],
+      "trimmedMean": 10,
+      "diagnosis": "identity(2.0/2)",
+      "timestamp": "2026-04-09T14:39:47.441Z",
+      "satRefQuality": 3
+    }
+  }
+}

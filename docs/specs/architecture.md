@@ -69,7 +69,16 @@ src/                              # CLI + shared generation core
 │   └── item-sprites.ts           # 17 hand-drawn 16×16 furniture sprites
 ├── convert/
 │   ├── schem-to-three.ts         # .schem → Three.js Object3D
-│   └── three-to-schem.ts         # Three.js → .schem via raycasting
+│   ├── three-to-schem.ts         # Three.js → .schem via raycasting
+│   ├── voxelizer.ts              # Three.js → BlockGrid (solid + surface modes, BVH)
+│   ├── mesh-filter.ts            # 53 post-processing functions (cleanup, windows, etc.)
+│   ├── scene-pipeline.ts         # Scene enrichment orchestrator (building + environment)
+│   ├── scene-enrichment.ts       # API data aggregation (OSM, climate, landcover)
+│   ├── environment-builder.ts    # Places trees, roads, fences, ground into BlockGrid
+│   ├── voxel-classifier.ts       # Semantic voxel labeling (wall, roof, ground, etc.)
+│   ├── class-block-map.ts        # VoxelClass → Minecraft block (by climate context)
+│   ├── geo-projection.ts         # WGS84 ↔ BlockGrid coordinate conversion
+│   └── multi-angle-capture.ts    # Multi-camera LOD forcing for tile coverage
 └── types/
     └── index.ts                  # Shared TypeScript interfaces
 
@@ -79,17 +88,23 @@ web/                              # Browser SPA (Vite)
 │   ├── style.css                 # Responsive dark-mode CSS (mobile-first)
 │   ├── engine/
 │   │   ├── schematic-handler.ts  # WASM/browser schematic operations
-│   │   └── texture-loader.ts     # Browser texture loading
+│   │   ├── texture-loader.ts     # Browser texture loading
+│   │   ├── texture-sampler.ts    # Canvas-backed UV texture sampler (tiles pipeline)
+│   │   ├── tile-capture.ts       # Mesh extraction from TilesRenderer (tiles pipeline)
+│   │   └── mesh-to-grid.ts       # Browser mesh file → BlockGrid wrapper
 │   ├── viewer/
 │   │   ├── scene.ts              # Browser Three.js scene
-│   │   └── exporter.ts           # Client-side export
+│   │   ├── exporter.ts           # Client-side export (.schem, .litematic)
+│   │   └── selection.ts          # Manual XZ rectangle crop (raycaster ground plane)
 │   └── ui/                       # Tab modules + import enrichment
 │       ├── generator.ts          # Generate tab
 │       ├── import.ts             # Import tab (address pipeline orchestrator)
 │       ├── upload.ts             # Upload tab (.schem file ingestion)
 │       ├── gallery.ts            # Gallery tab (pre-generated examples)
 │       ├── comparison.ts         # Comparison tab (14-address accuracy dashboard)
-│       ├── map3d.ts              # Map 3D tab (Google 3D Tiles)
+│       ├── map3d.ts              # Map 3D tab (Google 3D Tiles viewer)
+│       ├── tiles.ts              # Tiles tab (3D Tiles → schematic pipeline)
+│       ├── building-bounds.ts    # Solar API + OSM building size resolution
 │       └── import-*.ts           # 22 API client modules (see Enrichment APIs)
 ├── public/                       # Static assets (textures, examples)
 └── index.html                    # SPA shell
@@ -176,6 +191,226 @@ textures/blocks/*.png (334 Faithful 32×32 CC-BY-SA)
   → atlas.entries.get(textureName)?.data → 32×32 RGBA pixel array
   → item-sprites.ts: 17 hand-drawn 16×16 sprites (beds, chests, lanterns, etc.)
 ```
+
+---
+
+## Photogrammetry Pipeline (Tiles Tab + CLI Voxelizer)
+
+Two paths convert real-world 3D data into Minecraft schematics:
+
+- **Browser** (Tiles tab): Address → Google 3D Tiles → mesh capture → voxelize → post-process → .schem
+- **CLI** (`scripts/voxelize-glb.ts`): Pre-saved GLB → voxelize → post-process → .schem
+
+Both share the core voxelizer (`src/convert/voxelizer.ts`) and post-processing filters (`src/convert/mesh-filter.ts`).
+
+### Photogrammetry Data Flow
+
+```
+Address Input (browser) or GLB file (CLI)
+  │
+  ├─── [Browser only] ──────────────────────────────────────────────────────────
+  │    Geocode (Google) → lat, lng
+  │    │
+  │    Building Bounds (Solar API + OSM) → widthM, captureRadiusM, satelliteZoom
+  │    │
+  │    TilesRenderer Init (WebGL + ReorientationPlugin + GoogleCloudAuthPlugin)
+  │    │
+  │    Tile Mesh Capture → cylindrical XZ filter → height filter → Three.js Group
+  │    │
+  │    GLB Export (async, non-blocking) → POST to receiver or browser download
+  │    │
+  ├─── [Both paths] ────────────────────────────────────────────────────────────
+  │
+  Voxelizer (surface mode + BVH + texture sampler) → BlockGrid
+  │
+  Post-Processing Pipeline (14 steps):
+  │  1. trimSparseBottomLayers         — remove residual terrain
+  │  2. removeGroundPlane              — subtract foundation plane
+  │  3. removeSmallComponents (≥500)   — delete photogrammetry debris
+  │  4. cropToAABB                     — isolate central building (if multi-component)
+  │  5. fillInteriorGaps (dilation=2)  — flood-fill sealed cavities (2 passes)
+  │  6. clearOpenAirFill               — remove fills in open courtyards/stadiums
+  │  7. stripVegetation                — remove tree/bush blocks (after fill uses them as walls)
+  │  8. morphClose3D                   — fill 1-voxel pockmarks (dilate + erode)
+  │  9. smoothSurface                  — remove 1-voxel protrusions
+  │ 10. flattenFacades (snap=1)        — histogram-based wall plane snapping
+  │ 11. glazeDarkWindows               — Chebyshev-1 vertical chain → gray_stained_glass
+  │ 12. injectSyntheticWindows         — regular grid pattern on bright monochrome facades
+  │ 13. modeFilter3D                   — 3×3×3 majority-vote smoother (glass protected)
+  │ 14. constrainPalette (sky remaps)  — cyan→stone, analysis-specific corrections
+  │
+  ├─── [Scene Mode only] ──────────────────────────────────────────────────────
+  │    extractEnvironmentPositions     — separate trees, roads, vehicles
+  │    detectAndRegularizeWindows      — snap existing windows to grid + add doors
+  │    replaceWithCleanFeatures        — procedural trees at detected positions
+  │    expandGrid (+8m padding/side)   — enlarge for environment
+  │    enrichScene:
+  │      classifyGrid → GeoProjection → enrichForScene (OSM + climate APIs)
+  │      → buildEnvironment (trees, roads, fences, ground)
+  │      → writeWithPriority (building > fence > road > ground)
+  │
+  └─→ BlockGrid → onResult callback → viewer + .schem download
+```
+
+### Module Reference
+
+| Module | Path | Lines | Key Exports |
+|--------|------|-------|-------------|
+| **Tiles tab** | `web/src/ui/tiles.ts` | ~990 | `initTiles()`, `TilesResultMeta` |
+| **Tile capture** | `web/src/engine/tile-capture.ts` | ~300 | `captureTileMeshes()` → `CaptureResult` |
+| **Texture sampler (browser)** | `web/src/engine/texture-sampler.ts` | 44 | `createCanvasTextureSampler()` |
+| **Building bounds** | `web/src/ui/building-bounds.ts` | ~200 | `resolveBuildingBounds()` → `BuildingBounds` |
+| **Manual selection** | `web/src/viewer/selection.ts` | ~150 | `enableSelection()` → `SelectionBounds` |
+| **Voxelizer** | `src/convert/voxelizer.ts` | ~800 | `threeToGrid()`, `threeToGridAsync()`, `createDataTextureSampler()` |
+| **Post-processing** | `src/convert/mesh-filter.ts` | ~6000 | 53 exported functions (see below) |
+| **Scene pipeline** | `src/convert/scene-pipeline.ts` | ~490 | `enrichScene()`, `expandGrid()` |
+| **Scene enrichment** | `src/convert/scene-enrichment.ts` | ~800 | `enrichForScene()` → `SceneEnrichment` |
+| **Environment builder** | `src/convert/environment-builder.ts` | ~660 | `buildEnvironment()` → `EnvironmentStats` |
+| **Voxel classifier** | `src/convert/voxel-classifier.ts` | ~500 | `classifyGrid()` → `ClassifiedGrid`, `VoxelClass` enum |
+| **Class-block map** | `src/convert/class-block-map.ts` | ~240 | `resolveBlock()` |
+| **Geo projection** | `src/convert/geo-projection.ts` | ~140 | `GeoProjection` (WGS84 ↔ grid XZ) |
+| **Multi-angle capture** | `src/convert/multi-angle-capture.ts` | ~240 | `positionCameraForAngle()` |
+| **Color matching** | `src/gen/color-blocks.ts` | ~400 | `rgbToWallBlock()` (CIE-Lab delta-E, 35 clusters) |
+| **CLI voxelizer** | `scripts/voxelize-glb.ts` | ~2560 | `main()` CLI entry point |
+
+### Voxelization Modes
+
+| Mode | Algorithm | Best For | Technique |
+|------|-----------|----------|-----------|
+| **solid** | Odd-even ray test | Watertight meshes (OBJ, STL uploads) | 3 perpendicular rays, count intersections before point |
+| **surface** | BVH closest-point proximity | Open surfaces (3D Tiles photogrammetry) | Fill voxel if mesh surface within 0.75/resolution distance |
+
+Both modes use CIE-Lab perceptual color matching (`rgbToWallBlock`) with position-based seed for deterministic variation across the 35 wall clusters.
+
+### Texture Sampling
+
+| Sampler | Environment | Technique |
+|---------|-------------|-----------|
+| `createCanvasTextureSampler()` | Browser | OffscreenCanvas per texture, `getImageData()` point sampling |
+| `createDataTextureSampler()` | CLI (Node/Bun) | Direct typed array pixel access, dominant-color (mode) bucketing, gamma correction, selective desaturation, black-point lift |
+
+The CLI sampler is substantially more sophisticated: it uses 8-bucket luminance mode sampling over a 49×49 kernel to extract the dominant surface color, avoiding mean-averaging artifacts where windows/shadows pull wall colors toward gray.
+
+### Window Detection
+
+Three complementary approaches detect/create windows:
+
+1. **glazeDarkWindows** — Finds dark exterior blocks (`gray_concrete`, `polished_deepslate`, `brown_concrete`, `black_concrete`, `deepslate`) on facades. Groups into vertical chains via Chebyshev-1 union-find. Chains with ≥3 members and ≥2-block vertical span are glazed to `gray_stained_glass`. Cap: ≤30% of facade area.
+
+2. **injectSyntheticWindows** — For bright monochrome facades where glazeDarkWindows found nothing (<0.5% non-air). Detects floor height via autocorrelation of Y-layer density, places windows in regular grid at scale-aware spacing. Only modifies the dominant facade material (>40% of facade).
+
+3. **detectAndRegularizeWindows** (scene mode) — Projects each facade (N/S/E/W) to 2D bitmap. Connected components of glass/dark blocks identify window clusters. If ≥3 found, snaps to regular grid (median spacing). Also places doors on ground level.
+
+All three accept a `resolution` parameter and scale their spatial thresholds (MIN_Y, floor period, horizontal spacing) proportionally.
+
+### Building Bounds Resolution
+
+Priority chain for determining building size and optimal capture parameters:
+
+| Priority | Source | Data | Confidence |
+|----------|--------|------|------------|
+| 1 | Google Solar API | ML-detected bounding box | 0.9 |
+| 2 | OSM building footprint | Community-verified polygon | 0.8 |
+| 3 | Geocode bounds | Property parcel (ROOFTOP level) | 0.6 |
+| 4 | Solar footprint area | Area with assumed aspect ratio | 0.5 |
+| 5 | Default | 25m × 25m | 0.2 |
+
+Output: `captureRadiusM` (diagonal × 0.75 + 10m buffer), `satelliteZoom` (fit building at ~60% of 640px image).
+
+### Scene Enrichment Data Sources
+
+| Source | Module | Data |
+|--------|--------|------|
+| OSM Overpass (3-server round-robin) | `scene-enrichment.ts` | Roads (width, surface), paths, fences (material), water features |
+| ESA WorldCover (S3 COG) | `scene-enrichment.ts` | Ground cover class → grass/forest/desert/urban |
+| USDA Hardiness Zone (inferred from lat) | `scene-enrichment.ts` | Climate zone → tree species palette |
+| OSM tree nodes | `scene-enrichment.ts` | Individual tree positions, species, height, leaf type |
+| Photogrammetry detection | `mesh-filter.ts` | `extractEnvironmentPositions()` — trees, roads, vehicles from tile geometry |
+
+### Voxel Classification (VoxelClass)
+
+Semantic roles assigned to every voxel for priority-aware environment writes:
+
+| Class | Priority | Examples |
+|-------|----------|----------|
+| `BUILDING_WALL` | 100 | Concrete, brick, stone |
+| `BUILDING_ROOF` | 90 | Roof slabs, shingles |
+| `BUILDING_WINDOW` | 85 | Stained glass |
+| `BUILDING_DOOR` | 85 | Door blocks |
+| `BUILDING_TRIM` | 80 | Decorative elements |
+| `FENCE` | 50 | Oak fence, iron bars |
+| `VEHICLE` | 45 | Detected cars/trucks |
+| `GROUND_ROAD` | 40 | Gray concrete |
+| `GROUND_SIDEWALK` | 35 | Smooth stone slab |
+| `GROUND_GRASS` | 20 | Grass block, podzol |
+| `VEGETATION_TREE` | 15 | Leaves, logs |
+| `AIR` | 0 | Empty space |
+
+Higher priority wins in conflicts — building voxels are never overwritten by environment.
+
+### Coordinate Systems
+
+```
+Geographic (WGS84):     Grid (BlockGrid):        Minecraft:
+  +lat = north            +X = east                +X = east
+  +lng = east             +Y = up                  +Y = up
+  height = meters         +Z = south               +Z = south
+                          origin = grid center
+```
+
+`GeoProjection` handles conversion using equirectangular approximation (accurate to <1m for radii <500m). The calibration offset from `alignOSMToFootprint()` corrects photogrammetry geocoding drift (~1-20 blocks).
+
+### Key Parameters
+
+| Parameter | Default | Range | Effect |
+|-----------|---------|-------|--------|
+| Resolution | 3 block/m | 1-4 | Voxel density. 3 ≈ 1 ft/block — best for architectural detail |
+| Capture radius | 30m (auto) | 20-150m | Sphere around geocoded center. Auto-set from building bounds |
+| Error target | 4.0+ | 4-20 | TilesRenderer LOD. Scales with radius to prevent GPU OOM |
+| Surface threshold | 0.75/res | — | Max distance from mesh surface to fill voxel |
+| Glaze cap | 30% | — | Max fraction of facade that can be glazed as windows |
+| Component min | 500 | — | Min voxels to survive component cleanup |
+| Flatten snap | 1 | — | Max blocks a facade voxel can be snapped to dominant plane |
+
+### CLI Voxelizer (`scripts/voxelize-glb.ts`)
+
+Standalone converter with extensive flags:
+
+```bash
+bun scripts/voxelize-glb.ts <input.glb> --auto [-o /absolute/path/out.schem]
+  --resolution N       # blocks/m (default: 1)
+  --mode surface|solid # voxelization algorithm
+  --coords LAT,LNG    # enable OSM footprint masking
+  --mask-dilate N      # masking tolerance (0=tight, 2=loose)
+  --enrich             # scene enrichment (requires --coords)
+  --no-glaze           # skip window glazing
+  --gamma N            # texture brightness correction
+  --kernel N           # texture sampling kernel radius
+  --desaturate N       # color desaturation factor
+```
+
+The CLI uses `createDataTextureSampler()` (raw typed-array access) instead of the browser's Canvas-backed sampler. It also supports OSM footprint masking via `--coords`, which queries Overpass for the building polygon and masks the voxelization to only include blocks within the footprint.
+
+### Technology Stack
+
+| Component | Package | Purpose |
+|-----------|---------|---------|
+| Tile loading | `3d-tiles-renderer` ^0.4.21 | Google 3D Tiles traversal + LOD management |
+| Auth | `GoogleCloudAuthPlugin` | Google Maps API key → tile bearer tokens |
+| Positioning | `ReorientationPlugin` | Lat/lng → tile scene origin |
+| Decompression | `DRACOLoader` | Google tiles use Draco mesh compression |
+| BVH | `three-mesh-bvh` | O(log n) closest-point queries for surface voxelization |
+| 3D engine | `three` ^0.172.0 | Scene graph, geometry, materials, raycasting |
+| Terrain | `geotiff` ^3.0.3 | ESA WorldCover + Meta canopy height COG tiles |
+
+### Cesium Evaluation (2026-03-15)
+
+Cesium JS was evaluated and **rejected** for this pipeline:
+- OSM Buildings are extruded boxes (no textures/detail) — worse geometry than Google tiles
+- CesiumJS has no API to extract mesh vertex data — blocks our voxelizer
+- Cannot run headless (requires full DOM) — breaks CLI mode
+- 23-75 MB bundle vs 3.1 MB for `3d-tiles-renderer`
+- `3d-tiles-renderer` already supports Cesium Ion auth (`CesiumIonAuthPlugin`) and `EXT_mesh_features` if needed in the future
 
 ---
 
@@ -299,7 +534,7 @@ The `gen --address` flag runs the full enrichment pipeline (same as Import tab) 
 
 ---
 
-## Web SPA Tabs (6)
+## Web SPA Tabs (7)
 
 | Tab | Module | Purpose |
 |-----|--------|---------|
@@ -309,6 +544,7 @@ The `gen --address` flag runs the full enrichment pipeline (same as Import tab) 
 | Gallery | `gallery.ts` | Pre-generated example buildings |
 | Comparison | `comparison.ts` | 14-address accuracy dashboard (generated vs. photo) |
 | Map 3D | `map3d.ts` | Google 3D Tiles photogrammetry viewer |
+| Tiles | `tiles.ts` | 3D Tiles → voxelized Minecraft schematic (photogrammetry pipeline) |
 
 SPA routing: vanilla `data-tab` attributes, no framework. Tab switching in `main.ts`.
 Dark mode, mobile-first responsive CSS.
@@ -335,6 +571,7 @@ Dark mode, mobile-first responsive CSS.
 | `pako` | ^2.1.0 | zlib compress/decompress |
 | `three` | ^0.172.0 | 3D scene construction |
 | `3d-tiles-renderer` | ^0.4.21 | Google Photogrammetry 3D Tiles |
+| `three-mesh-bvh` | ^0.9.0 | BVH acceleration for surface voxelization |
 | `pureimage` | ^0.4.18 | Pure-JS PNG encoding (no native deps) |
 | `commander` | ^13.1.0 | CLI argument parsing |
 | `express` | ^4.21.2 | Dev server for 3D viewer |

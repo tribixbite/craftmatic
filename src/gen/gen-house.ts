@@ -81,17 +81,19 @@ export function planShapeToSections(
   planShape: FloorPlanShape, bx1: number, bx2: number,
   bz1: number, zMid: number,
   wingW: number, wingL: number, rooms?: RoomType[],
+  wingFloors?: number,
 ): BuildingSection[] {
   if (planShape === 'rect' || wingW <= 0 || wingL <= 0) return [];
 
   const sections: BuildingSection[] = [];
   // L-shape: wing at back (bz1); T-shape: wing centered vertically
   const wz1 = planShape === 'T' ? zMid - Math.floor(wingL / 2) : bz1;
+  const wFloors = wingFloors ?? 1;
 
   // East wing (L/T/U)
   sections.push({
     x1: bx2 + 1, z1: wz1, width: wingW, length: wingL,
-    floors: 1,
+    floors: wFloors,
     roomType: rooms?.find(r => r === 'garage' || r === 'sunroom' || r === 'study') ?? 'study',
   });
 
@@ -102,7 +104,7 @@ export function planShapeToSections(
     if (wx2 > wx1) {
       sections.push({
         x1: wx1, z1: wz1, width: wx2 - wx1 + 1, length: wingL,
-        floors: 1,
+        floors: wFloors,
         roomType: rooms?.find(r => r === 'library' || r === 'laundry') ?? 'living',
       });
     }
@@ -212,6 +214,7 @@ export function generateHouse(
   planShape?: FloorPlanShape, roofHeightOverride?: number,
   windowSpacing?: number, footprintBitmap?: CoordinateBitmap,
   sections?: BuildingSection[], landscape?: LandscapeData,
+  decoratorNames?: string[], wingFloors?: number,
 ): BlockGrid {
   // Use style's preferred roof shape when no explicit override
   const roofShape: RoofShape = roofShapeOpt ?? style.defaultRoofShape;
@@ -377,7 +380,7 @@ export function generateHouse(
 
   // ── Wing sections (L/T/U plans or explicit BuildingSection[]) ─────
   const wings = sections
-    ?? planShapeToSections(effectivePlanShape, bx1, bx2, bz1, zMid, wingW, wingL, rooms);
+    ?? planShapeToSections(effectivePlanShape, bx1, bx2, bz1, zMid, wingW, wingL, rooms, wingFloors);
   for (const wing of wings) {
     generateWingSection(grid, wing, style, roofShape, effectiveRoofH, windowSpacing);
     // Connecting doorway between main body and wing
@@ -461,13 +464,6 @@ export function generateHouse(
     applyGroundCover(grid, bx1, bx2, bz1, bz2, porchDepth, landscape.groundCover, rng);
   }
 
-  // ── Style decorators — compositional details extracted to gen-decorators.ts ──
-  applyDecorators(undefined, {
-    grid, style, rng, floors, roofShape, effectiveRoofH,
-    bx1, bx2, bz1, bz2, bw, bl, xMid, zMid,
-    roofBase, porchDepth, landscape,
-  });
-
   // ── Bitmap footprint mask ────────────────────────────────────────
   // When an OSM-derived footprint bitmap is available, carve away any blocks
   // in the main building volume that fall outside the actual polygon footprint.
@@ -528,6 +524,14 @@ export function generateHouse(
       }
     }
   }
+
+  // ── Style decorators — run AFTER bitmap mask so decorators see final footprint
+  //    and aren't overridden by bitmap sealing (which uses style.wall) ──
+  applyDecorators(decoratorNames, {
+    grid, style, rng, floors, roofShape, effectiveRoofH,
+    bx1, bx2, bz1, bz2, bw, bl, xMid, zMid,
+    roofBase, porchDepth, landscape,
+  });
 
   return grid;
 }

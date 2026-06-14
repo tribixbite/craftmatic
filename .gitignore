@@ -30,3 +30,11 @@ data/
 web/public/lego-thumbs/
 # LEGO catalog JSON (regenerated — run: bun run prebuild:lego)
 web/public/lego-catalog.json
+
+# Test/dev LDraw model fixtures kept locally for renderer testing — not
+# part of the app or production bundle. Drop new ones into web/public/
+# for quick fetch('/<name>.ldr') access during development.
+web/public/*.ldr
+web/public/*.mpd
+web/public/*.io
+web/public/*.lxf

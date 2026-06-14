@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>v200 Visual Review — Honest Assessment</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --card: #16213e;
+    --border: #0f3460;
+    --text: #e0e0e0;
+    --dim: #8a8a9a;
+    --red: #e74c3c;
+    --orange: #e67e22;
+    --yellow: #f1c40f;
+    --green: #2ecc71;
+    --blue: #3498db;
+    --code-bg: #0d1117;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+    background: var(--bg);
+    color: var(--text);
+    padding: 16px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .subtitle { color: var(--dim); margin-bottom: 24px; font-size: 0.85rem; }
+
+  /* Summary bar */
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .stat-value { font-size: 1.6rem; font-weight: bold; }
+  .stat-label { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; }
+
+  /* Systemic issues */
+  .systemic {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 24px;
+  }
+  .systemic h2 { font-size: 1.1rem; margin-bottom: 12px; color: var(--orange); }
+  .issue-row {
+    display: grid;
+    grid-template-columns: 180px 1fr 200px;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+  }
+  .issue-row:last-child { border-bottom: none; }
+  .issue-name { font-weight: bold; color: var(--yellow); }
+  .issue-file { font-family: monospace; font-size: 0.75rem; color: var(--blue); }
+  .affected { color: var(--dim); font-size: 0.75rem; }
+
+  /* Building cards */
+  .building {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .building-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .building-header:hover { background: rgba(255,255,255,0.03); }
+  .building-name { font-size: 1.1rem; font-weight: bold; text-transform: capitalize; }
+  .grades {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+  .grade {
+    text-align: center;
+    line-height: 1.2;
+  }
+  .grade-value { font-size: 1.3rem; font-weight: bold; }
+  .grade-label { font-size: 0.6rem; color: var(--dim); text-transform: uppercase; }
+  .grade-mine .grade-value { color: var(--blue); }
+  .grade-vlm .grade-value { color: var(--dim); }
+  .grade-diff { font-size: 0.8rem; padding: 2px 6px; border-radius: 4px; }
+  .diff-over { background: rgba(231,76,60,0.2); color: var(--red); }
+  .diff-under { background: rgba(46,204,113,0.2); color: var(--green); }
+  .diff-match { background: rgba(52,152,219,0.2); color: var(--blue); }
+
+  .building-body { padding: 16px; display: none; }
+  .building.open .building-body { display: block; }
+
+  .composite-img {
+    width: 100%;
+    max-width: 800px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+  }
+
+  .assessment {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 700px) {
+    .assessment { grid-template-columns: 1fr; }
+    .issue-row { grid-template-columns: 1fr; }
+  }
+
+  .panel-review h4 { font-size: 0.85rem; margin-bottom: 6px; color: var(--yellow); }
+  .panel-review p { font-size: 0.8rem; line-height: 1.5; color: var(--dim); margin-bottom: 8px; }
+
+  .issues-list { list-style: none; }
+  .issues-list li {
+    font-size: 0.8rem;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    background: rgba(231,76,60,0.08);
+    border-left: 3px solid var(--red);
+    border-radius: 0 4px 4px 0;
+  }
+  .issues-list li .src {
+    display: block;
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: var(--blue);
+    margin-top: 2px;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: bold;
+    margin-right: 4px;
+  }
+  .tag-easy { background: rgba(46,204,113,0.2); color: var(--green); }
+  .tag-medium { background: rgba(241,196,15,0.2); color: var(--yellow); }
+  .tag-hard { background: rgba(231,76,60,0.2); color: var(--red); }
+
+  .score-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    margin-top: 4px;
+    overflow: hidden;
+  }
+  .score-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+
+  code {
+    background: var(--code-bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.78rem;
+  }
+
+  .verdict {
+    background: rgba(231,76,60,0.1);
+    border: 1px solid rgba(231,76,60,0.3);
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 12px;
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+  .verdict h3 { color: var(--red); margin-bottom: 6px; font-size: 0.9rem; }
+
+  .expand-icon { color: var(--dim); font-size: 1.2rem; transition: transform 0.2s; }
+  .building.open .expand-icon { transform: rotate(90deg); }
+
+  /* Score color coding */
+  .score-red { color: var(--red); }
+  .score-orange { color: var(--orange); }
+  .score-yellow { color: var(--yellow); }
+  .score-green { color: var(--green); }
+</style>
+</head>
+<body>
+
+<h1>v200 Pipeline Visual Review</h1>
+<p class="subtitle">Honest human assessment vs VLM (gemini-2.5-flash) grades &mdash; 2026-03-19</p>
+
+<div class="summary">
+  <div class="stat">
+    <div class="stat-value score-red">4.7</div>
+    <div class="stat-label">My Avg</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value score-orange">6.2</div>
+    <div class="stat-label">VLM Avg</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">+1.5</div>
+    <div class="stat-label">VLM Inflation</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value score-red">1/10</div>
+    <div class="stat-label">I'd Pass (7+)</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value score-orange">3/10</div>
+    <div class="stat-label">VLM Pass (7+)</div>
+  </div>
+</div>
+
+<!-- Systemic Issues -->
+<div class="systemic">
+  <h2>Systemic Pipeline Issues (traced to source)</h2>
+
+  <div class="issue-row">
+    <div class="issue-name">1. Window Glazing Holes</div>
+    <div>Dark facade blocks converted to <code>gray_stained_glass</code>, creating swiss-cheese appearance. Hardcoded DARK_BLOCKS set (lum 25-58) is too aggressive on dark-facade buildings. 30% cap helps but still leaves many holes.</div>
+    <div>
+      <div class="issue-file">mesh-filter.ts:902-984</div>
+      <div class="issue-file">voxelize-glb.ts:1929</div>
+      <div class="affected">Affects: chrysler, ansonia, willistower, esb, artinstitute</div>
+    </div>
+  </div>
+
+  <div class="issue-row">
+    <div class="issue-name">2. Height Truncation</div>
+    <div>Google 3D Tiles LOD tiles for upper floors of tall buildings are city-block-scale meshes that can't be isolated. Multi-angle banded capture helps but fundamental LOD limitation means buildings &gt;200m lose 50-80% of height. Setbacks, crowns, and spires are lost.</div>
+    <div>
+      <div class="issue-file">tiles-headless.ts (capture)</div>
+      <div class="issue-file">Google 3D Tiles LOD (external)</div>
+      <div class="affected">Affects: esb, chrysler, willistower</div>
+    </div>
+  </div>
+
+  <div class="issue-row">
+    <div class="issue-name">3. Neighbor Inclusion</div>
+    <div>OSM mask dilation includes adjacent structures (plazas, shared-wall buildings). Post-morph re-mask clips edges but can't remove structures within the dilated polygon. Connected structures survive even at dilate=1.</div>
+    <div>
+      <div class="issue-file">mesh-filter.ts:3477-3616</div>
+      <div class="issue-file">voxelize-glb.ts:2429-2469</div>
+      <div class="affected">Affects: citigroup, oculus, willistower, artinstitute</div>
+    </div>
+  </div>
+
+  <div class="issue-row">
+    <div class="issue-name">4. Column/Pole Artifacts</div>
+    <div>Street furniture (light poles, traffic signals) within capture radius survive OSM masking because they're not "building" features. <code>isolatePrimaryBuilding()</code> annexRadius=2 keeps poles touching main AABB within 2 blocks.</div>
+    <div>
+      <div class="issue-file">mesh-filter.ts:5870-5969</div>
+      <div class="issue-file">mesh-filter.ts:3133-3200</div>
+      <div class="affected">Affects: artinstitute, flatiron, esb</div>
+    </div>
+  </div>
+
+  <div class="issue-row">
+    <div class="issue-name">5. Uniform Gray Surface</div>
+    <div>Zone normalization + wall de-bake (1.5x brightness boost) maps all buildings to the same narrow palette: smooth_stone, light_gray_concrete. GRAY_BLOCKS exclusion set has 6 entries, but the de-bake always pushes toward lighter gray. Every building looks the same shade.</div>
+    <div>
+      <div class="issue-file">voxelize-glb.ts:1972-2051</div>
+      <div class="affected">Affects: all 10 buildings</div>
+    </div>
+  </div>
+
+  <div class="issue-row">
+    <div class="issue-name">6. Satellite Ref Mismatch</div>
+    <div>Some satZoom levels are too tight (z20 for Art Institute shows only rooftop HVAC equipment) or too loose. No relationship between capture radius and sat zoom — set manually per building.</div>
+    <div>
+      <div class="issue-file">iterate-grade.ts:330-360</div>
+      <div class="affected">Affects: artinstitute (z20 too tight), citigroup (z20 roof-only)</div>
+    </div>
+  </div>
+</div>
+
+<!-- Building Cards -->
+<div id="buildings">
+
+  <!-- 1. FLATIRON -->
+  <div class="building open">
+    <div class="building-header" onclick="this.parentElement.classList.toggle('open')">
+      <div>
+        <span class="building-name">1. Flatiron Building</span>
+        <span class="tag tag-easy">EASY</span>
+      </div>
+      <div class="grades">
+        <div class="grade grade-mine"><div class="grade-value">8</div><div class="grade-label">My Grade</div></div>
+        <div class="grade grade-vlm"><div class="grade-value">8.7</div><div class="grade-label">VLM</div></div>
+        <span class="grade-diff diff-match">&asymp;</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+    </div>
+    <div class="building-body">
+      <img class="composite-img" src="tiles/grade-v200-flatiron.jpg" alt="Flatiron composite">
+      <div class="assessment">
+        <div class="panel-review">
+          <h4>What Works</h4>
+          <p><strong>Top-down:</strong> Triangle wedge footprint is clearly visible and matches satellite. This is the best panel — the shape is unmistakable.</p>
+          <p><strong>Front elevation:</strong> Shows the thin wedge profile tapering to a point. You can recognize the Flatiron from this silhouette alone.</p>
+          <p><strong>Iso:</strong> Wedge form factor visible. Building mass looks correct.</p>
+        </div>
+        <div class="panel-review">
+          <h4>What Fails</h4>
+          <p><strong>Iso:</strong> Floating gray column artifact on right side — a detached piece of neighboring structure that survived OSM masking.</p>
+          <p><strong>Top-down:</strong> Scattered dark brown blocks across entire roof surface — window glazing (<code>gray_stained_glass</code>) misapplied to roof blocks that happen to be dark.</p>
+          <p><strong>Surface:</strong> Uniformly gray. The real Flatiron has distinctive terracotta/limestone facade — here it's generic smooth_stone.</p>
+        </div>
+      </div>
+      <ul class="issues-list">
+        <li>Floating column artifact (neighbor fragment not removed by OSM mask, dilate=1)
+          <span class="src">mesh-filter.ts:3477 maskToFootprint() — dilate buffer keeps connected fragments</span>
+        </li>
+        <li>Window glazing on roof — dark roof blocks incorrectly classified as windows
+          <span class="src">mesh-filter.ts:910-916 DARK_BLOCKS set matches gray_concrete (roof material)</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 2. CITIGROUP -->
+  <div class="building">
+    <div class="building-header" onclick="this.parentElement.classList.toggle('open')">
+      <div>
+        <span class="building-name">2. Citigroup Center</span>
+        <span class="tag tag-hard">HARD</span>
+      </div>
+      <div class="grades">
+        <div class="grade grade-mine"><div class="grade-value score-orange">6</div><div class="grade-label">My Grade</div></div>
+        <div class="grade grade-vlm"><div class="grade-value">8.7</div><div class="grade-label">VLM</div></div>
+        <span class="grade-diff diff-over">VLM+2.7</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+    </div>
+    <div class="building-body">
+      <img class="composite-img" src="tiles/grade-v200-citigroup.jpg" alt="Citigroup composite">
+      <div class="assessment">
+        <div class="panel-review">
+          <h4>What Works</h4>
+          <p><strong>Satellite:</strong> Shows the distinctive sloped/angled roof clearly at z20 — building's identity visible.</p>
+          <p><strong>Iso:</strong> Chunky tower with what appears to be a sloped crown feature at top-right corner. The 45-degree roof cut translates well to stepped voxels.</p>
+        </div>
+        <div class="panel-review">
+          <h4>What Fails</h4>
+          <p><strong>Top-down:</strong> Heart/butterfly-shaped footprint — clearly includes St. Peter's Church and/or adjacent buildings. Real Citigroup footprint is a single square tower on stilts.</p>
+          <p><strong>Front elevation:</strong> Ambiguous — hard to identify the building. Sloped crown not clearly visible from this angle.</p>
+          <p><strong>Satellite:</strong> At z20 mostly shows roof detail, not building in urban context. A VLM looking at the sat alone can't assess overall shape.</p>
+        </div>
+      </div>
+      <ul class="issues-list">
+        <li>Footprint includes neighbor buildings (heart shape) despite dilate=1 and z20 zoom
+          <span class="src">mesh-filter.ts:3477 maskToFootprint() — OSM polygon may include complex or connected footprints</span>
+        </li>
+        <li>Satellite zoom too tight (z20) — shows only roof texture, not building context
+          <span class="src">iterate-grade.ts:97 satZoom: 20 — should be z19 to show full block</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 3. PENNZOIL -->
+  <div class="building">
+    <div class="building-header" onclick="this.parentElement.classList.toggle('open')">
+      <div>
+        <span class="building-name">3. Pennzoil Place</span>
+        <span class="tag tag-hard">HARD</span>
+      </div>
+      <div class="grades">
+        <div class="grade grade-mine"><div class="grade-value score-yellow">7</div><div class="grade-label">My Grade</div></div>
+        <div class="grade grade-vlm"><div class="grade-value">8.0</div><div class="grade-label">VLM</div></div>
+        <span class="grade-diff diff-match">&asymp;</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+    </div>
+    <div class="building-body">
+      <img class="composite-img" src="tiles/grade-v200-pennzoil.jpg" alt="Pennzoil composite">
+      <div class="assessment">
+        <div class="panel-review">
+          <h4>What Works</h4>
+          <p><strong>Iso:</strong> Trapezoidal tower shape with angled top clearly visible. The 45-degree roof cut becomes clean stepped staircases — angular features survive voxelization well.</p>
+          <p><strong>Front elevation:</strong> Shows the distinctive pointed/angled silhouette — the building's wedge profile is recognizable.</p>
+          <p><strong>Top-down:</strong> Pointed/trapezoidal footprint visible.</p>
+        </div>
+        <div class="panel-review">
+          <h4>What Fails</h4>
+          <p><strong>Surface:</strong> Uniformly gray with scattered black/white noise blocks. Window glazing creates small dark dots scattered across facade.</p>
+          <p><strong>Scale:</strong> Only captures one of the twin towers (Pennzoil Place is two trapezoidal towers separated by a slot). The second tower is missing or merged.</p>
+        </div>
+      </div>
+      <ul class="issues-list">
+        <li>Surface noise — window glazing dots scattered across facade
+          <span class="src">mesh-filter.ts:937-946 facade detection picks up scattered dark blocks</span>
+        </li>
+        <li>Twin towers not clearly separated — OSM mask may merge the pair
+          <span class="src">mesh-filter.ts:3477 maskToFootprint() — single polygon for building complex</span>
+        </li>
+      </ul>
+      <div class="verdict">
+        <h3>Best Result in Set</h3>
+        This is the only building I'd rate 7+. Angular features (45-degree roof cuts, trapezoidal plan) translate well to voxels. The building is recognizable from iso and front views.
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. ESB -->
+  <div class="building">
+    <div class="building-header" onclick="this.parentElement.classList.toggle('open')">
+      <div>
+        <span class="building-name">4. Empire State Building</span>
+        <span class="tag tag-hard">HARD</span>
+      </div>
+      <div class="grades">
+        <div class="grade grade-mine"><div class="grade-value score-red">3</div><div class="grade-label">My Grade</div></div>
+        <div class="grade grade-vlm"><div class="grade-value">5.0</div><div class="grade-label">VLM</div></div>
+        <span class="grade-diff diff-over">VLM+2</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+    </div>
+    <div class="building-body">
+      <img class="composite-img" src="tiles/grade-v200-esb.jpg" alt="ESB composite">
+      <div class="assessment">
+        <div class="panel-review">
+          <h4>What Works</h4>
+          <p><strong>Satellite:</strong> Shows the ESB's art deco tower with visible setbacks — building's identity clear from above.</p>
+          <p><strong>Iso:</strong> Thin spire/antenna on top. Some sense of mass.</p>
+          <p><strong>Front elevation:</strong> Shows some terracing/stepping that hints at setbacks.</p>
+        </div>
+        <div class="panel-review">
+          <h4>What Fails</h4>
+          <p><strong>Iso:</strong> Gray chunky mass. The famous stepped setbacks are barely visible — the building looks like a generic gray box with a stick on top. Not recognizable as the ESB.</p>
+          <p><strong>Front elevation:</strong> Vertical bar artifacts on left side (neighboring buildings or capture artifacts). Steps are faint.</p>
+          <p><strong>Top-down:</strong> Generic rectangle — nothing distinctive.</p>
+          <p><strong>Height:</strong> Only bottom portion captured. The 443m tower is truncated to ~50 blocks — 80%+ of height lost.</p>
+        </div>
+      </div>
+      <ul class="issues-list">
+        <li>Height truncation — Google 3D Tiles LOD merges upper floors into city-block meshes
+          <span class="src">tiles-headless.ts — multi-angle banded capture can't isolate upper LOD tiles</span>
+        </li>
+        <li>Setbacks destroyed — the ESB's identity IS its stepped profile, which is lost to truncation + smoothing
+          <span class="src">mesh-filter.ts smoothSurface() + morphClose3D() — gated on hasSetbacks but base detection may fail on truncated capture</span>
+        </li>
+        <li>Vertical bar artifacts from neighboring structures
+          <span class="src">mesh-filter.ts:5870 isolatePrimaryBuilding() — annexRadius=2 keeps poles touching AABB</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 5. CHRYSLER -->
+  <div class="building">
+    <div class="building-header" onclick="this.parentElement.classList.toggle('open')">
+      <div>
+        <span class="building-name">5. Chrysler Building</span>
+        <span class="tag tag-hard">HARD</span>
+      </div>
+      <div class="grades">
+        <div class="grade grade-mine"><div class="grade-value score-red">3</div><div class="grade-label">My Grade</div></div>
+        <div class="grade grade-vlm"><div class="grade-value">5.3</div><div class="grade-label">VLM</div></div>
+        <span class="grade-diff diff-over">VLM+2.3</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+    </div>
+    <div class="building-body">
+      <img class="composite-img" src="tiles/grade-v200-chrysler.jpg" alt="Chrysler composite">
+      <div class="assessment">
+        <div class="panel-review">
+          <h4>What Works</h4>
+          <p><strong>Satellite:</strong> Shows the iconic radiating art deco crown — the most distinctive rooftop in NYC.</p>
+          <p><strong>Iso:</strong> A thin spire/antenna is visible at top.</p>
+        </div>
+        <div class="panel-review">
+          <h4>What Fails</h4>
+          <p><strong>Iso:</strong> Noisy gray mass with scattered dark holes (window glazing everywhere). The crown is completely invisible — the building's identity is entirely lost.</p>
+          <p><strong>Front elevation:</strong> Extremely messy — full of holes, looks like swiss cheese. No crown, no terracing, no art deco detail.</p>
+          <p><strong>Top-down:</strong> Very noisy footprint with random dark and light blocks everywhere. Doesn't match satellite's clean circular crown.</p>
+          <p><strong>Identity:</strong> Completely unrecognizable. This could be any building.</p>
+        </div>
+      </div>
+      <ul class="issues-list">
+        <li>Crown completely lost — Google 3D Tiles LOD limitation + height truncation
+          <span class="src">tiles-headless.ts — 319m building, crown at top is in low-detail LOD tile</span>
+        </li>
+        <li>Swiss-cheese facade from aggressive window glazing
+          <span class="src">mesh-filter.ts:910-916 DARK_BLOCKS — Chrysler's dark stone facade triggers heavy glazing</span>
+        </li>
+        <li>Surface noise — window blocks create visual holes in every view
+          <span class="src">mesh-filter.ts:937-946 facade detection + gray_stained_glass conversion</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 6. ANSONIA -->
+  <div class="building">
+    <div class="building-header" onclick="this.parentElement.classList.toggle('open')">
+      <div>
+        <span class="building-name">6. The Ansonia</span>
+        <span class="tag tag-medium">MEDIUM</span>
+      </div>
+      <div class="grades">
+        <div class="grade grade-mine"><div class="grade-value score-red">3</div><div class="grade-label">My Grade</div></div>
+        <div class="grade grade-vlm"><div class="grade-value">4.0</div><div class="grade-label">VLM</div></div>
+        <span class="grade-diff diff-match">&asymp;</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+    </div>
+    <div class="building-body">
+      <img class="composite-img" src="tiles/grade-v200-ansonia.jpg" alt="Ansonia composite">
+      <div class="assessment">
+        <div class="panel-review">
+          <h4>What Works</h4>
+          <p><strong>Satellite:</strong> Shows the Ansonia — a large Beaux-Arts residential building on Broadway.</p>
+          <p><strong>Iso:</strong> Building mass is present. Some facade variation visible with sandstone ground band.</p>
+        </div>
+        <div class="panel-review">
+          <h4>What Fails</h4>
+          <p><strong>Iso:</strong> Scattered dark holes everywhere — window glazing creates swiss-cheese appearance. The building looks like it's full of bullet holes.</p>
+          <p><strong>Front elevation:</strong> Oddly shaped blob. Bottom has sandstone/yellow band but rest is chaotic gray with black dots. Building silhouette doesn't match real Ansonia profile.</p>
+          <p><strong>Top-down:</strong> Extremely noisy — random dark blocks scattered throughout. Doesn't match satellite's clean rectangular roof.</p>
+          <p><strong>Footprint:</strong> Includes extra terrain/neighbors. A=1.0/4 across all runs.</p>
+        </div>
+      </div>
+      <ul class="issues-list">
+        <li>Swiss-cheese facade — dark Beaux-Arts stone triggers window glazing en masse
+          <span class="src">mesh-filter.ts:910-916 DARK_BLOCKS set — gray_concrete/polished_deepslate match building's dark stone</span>
+        </li>
+        <li>Footprint consistently scores 1/4 — OSM mask not tight enough or building not cleanly captured
+          <span class="src">voxelize-glb.ts:2429-2469 post-morph re-mask — dilate=1 may still be too loose</span>
+        </li>
+        <li>Top-down is chaotic — window blocks visible from above, obscuring roof shape
+          <span class="src">mesh-filter.ts:937-946 — glazing applies to any dark exterior block, including at roof level</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 7. OCULUS -->
+  <div class="building">
+    <div class="building-header" onclick="this.parentElement.classList.toggle('open')">
+      <div>
+        <span class="building-name">7. Oculus (WTC Hub)</span>
+        <span class="tag tag-hard">HARD</span>
+      </div>
+      <div class="grades">
+        <div class="grade grade-mine"><div class="grade-value score-red">4</div><div class="grade-label">My Grade</div></div>
+        <div class="grade grade-vlm"><div class="grade-value">6.7</div><div class="grade-label">VLM</div></div>
+        <span class="grade-diff diff-over">VLM+2.7</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+    </div>
+    <div class="building-body">
+      <img class="composite-img" src="tiles/grade-v200-oculus.jpg" alt="Oculus composite">
+      <div class="assessment">
+        <div class="panel-review">
+          <h4>What Works</h4>
+          <p><strong>Satellite:</strong> Shows the Oculus transit hub — distinctive white ribbed/winged structure next to the 9/11 Memorial pools.</p>
+          <p><strong>Iso:</strong> Some sense of a complex structure with varying heights and a rectangular void (memorial pool?).</p>
+        </div>
+        <div class="panel-review">
+          <h4>What Fails</h4>
+          <p><strong>Iso:</strong> Confusing gray mass. The distinctive wing-like white ribs are not visible at all. Includes surrounding structures — memorial pools, trees, walkways.</p>
+          <p><strong>Front elevation:</strong> Triangular shape includes surrounding terrain — trees, pool edges, ground. Multiple tones (gray, beige, dark) from mixed captured geometry.</p>
+          <p><strong>Top-down:</strong> Large gray mass with a dark rectangular hole (memorial pool included in capture). The Oculus footprint is lost in the surrounding plaza.</p>
+          <p><strong>Identity:</strong> Completely unrecognizable as the Oculus. Could be any flat commercial complex.</p>
+        </div>
+      </div>
+      <ul class="issues-list">
+        <li>Capture radius too large — includes entire WTC plaza (memorial pools, trees, neighbors)
+          <span class="src">iterate-grade.ts Oculus config — capture radius captures surrounding context</span>
+        </li>
+        <li>Distinctive wing ribs lost — the ribbed/curved form can't survive voxelization at res=2
+          <span class="src">voxelize-glb.ts resolution=2 — organic curves destroyed by cubic voxel grid</span>
+        </li>
+        <li>OSM mask ineffective — Oculus footprint blends with surrounding WTC plaza
+          <span class="src">mesh-filter.ts:3477 maskToFootprint() — OSM polygon may be complex/multipart</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 8. PORTLAND -->
+  <div class="building">
+    <div class="building-header" onclick="this.parentElement.classList.toggle('open')">
+      <div>
+        <span class="building-name">8. Portland Building</span>
+        <span class="tag tag-medium">MEDIUM</span>
+      </div>
+      <div class="grades">
+        <div class="grade grade-mine"><div class="grade-value score-red">5</div><div class="grade-label">My Grade</div></div>
+        <div class="grade grade-vlm"><div class="grade-value">6.0</div><div class="grade-label">VLM</div></div>
+        <span class="grade-diff diff-match">&asymp;</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+    </div>
+    <div class="building-body">
+      <img class="composite-img" src="tiles/grade-v200-portland.jpg" alt="Portland composite">
+      <div class="assessment">
+        <div class="panel-review">
+          <h4>What Works</h4>
+          <p><strong>Front elevation:</strong> Shows a building with horizontal floor lines and a peaked/triangular roof shape. Relatively clean compared to others.</p>
+          <p><strong>Iso:</strong> Small but clean building shape. Fewer artifacts than most others.</p>
+          <p><strong>Top-down:</strong> Mostly uniform dark rectangle — cleaner than NYC buildings.</p>
+        </div>
+        <div class="panel-review">
+          <h4>What Fails</h4>
+          <p><strong>Scale:</strong> Building appears tiny in the iso view — very small relative to the frame. Hard to see detail.</p>
+          <p><strong>Satellite:</strong> Shows multiple buildings — the Portland Building is just one of several in the frame. Not clear which is the target.</p>
+          <p><strong>Identity:</strong> The Portland Building's distinctive postmodern facade (colorful, decorated) is invisible. It's just a gray box with a peaked roof.</p>
+          <p><strong>Top-down:</strong> Scattered white noise blocks on otherwise clean surface.</p>
+        </div>
+      </div>
+      <ul class="issues-list">
+        <li>Building too small in frame — low-rise building at res=1 produces tiny voxel grid
+          <span class="src">iterate-grade.ts Portland config — resolution=1 on medium-height building</span>
+        </li>
+        <li>Postmodern facade color lost — zone normalization maps everything to gray
+          <span class="src">voxelize-glb.ts:1972-2051 — GRAY_BLOCKS exclusion + de-bake pushes all to smooth_stone</span>
+        </li>
+        <li>Satellite shows multiple buildings — ambiguous reference for grading
+          <span class="src">iterate-grade.ts:141 satZoom=20 — Portland downtown blocks are small, z20 captures neighbors</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 9. ART INSTITUTE -->
+  <div class="building">
+    <div class="building-header" onclick="this.parentElement.classList.toggle('open')">
+      <div>
+        <span class="building-name">9. Art Institute of Chicago</span>
+        <span class="tag tag-medium">MEDIUM</span>
+      </div>
+      <div class="grades">
+        <div class="grade grade-mine"><div class="grade-value score-red">3</div><div class="grade-label">My Grade</div></div>
+        <div class="grade grade-vlm"><div class="grade-value">3.3</div><div class="grade-label">VLM</div></div>
+        <span class="grade-diff diff-match">&asymp;</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+    </div>
+    <div class="building-body">
+      <img class="composite-img" src="tiles/grade-v200-artinstitute.jpg" alt="Art Institute composite">
+      <div class="assessment">
+        <div class="panel-review">
+          <h4>What Works</h4>
+          <p><strong>Satellite:</strong> Tight zoom shows the complex rooftop with blue/gray glass skylights, HVAC equipment, and white membranes. Interesting but doesn't help identify the building.</p>
+          <p>Very little works here. Building mass exists but has no identity.</p>
+        </div>
+        <div class="panel-review">
+          <h4>What Fails</h4>
+          <p><strong>Iso:</strong> Wide, low building flanked by 6+ tall thin column artifacts on both sides. These poles dominate the view — they're taller than the building itself.</p>
+          <p><strong>Front elevation:</strong> Building lost behind tall column artifacts. The Beaux-Arts facade (the building's identity) faces south but isn't visible from any angle.</p>
+          <p><strong>Top-down:</strong> Featureless gray/olive rectangle with scattered lighter blocks. No roof detail.</p>
+          <p><strong>Satellite:</strong> At z20, shows only rooftop — no ground-level context. Can't see the iconic lion statues, entrance, or facade.</p>
+        </div>
+      </div>
+      <ul class="issues-list">
+        <li>Column artifacts dominate — street light poles/signage captured in 3D tiles survive all filters
+          <span class="src">mesh-filter.ts:5870 isolatePrimaryBuilding() — tall poles within 2 blocks of AABB survive annexRadius check</span>
+        </li>
+        <li>Satellite zoom too tight (z20) — shows only rooftop equipment, not building
+          <span class="src">iterate-grade.ts:156 satZoom: 19 — at 19 still mostly roof; needs z18 to show facade</span>
+        </li>
+        <li>Beaux-Arts facade (identity) invisible — faces south, not visible from any standard render angle
+          <span class="src">png-renderer.ts renderFrontElevation() — picks longest face, which may not be the iconic facade</span>
+        </li>
+        <li>OSM mask shows "0 blocks removed" — building footprint may exceed capture radius
+          <span class="src">mesh-filter.ts:3477 — OSM polygon larger than captured grid → mask removes nothing</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 10. WILLIS TOWER -->
+  <div class="building">
+    <div class="building-header" onclick="this.parentElement.classList.toggle('open')">
+      <div>
+        <span class="building-name">10. Willis Tower (Sears)</span>
+        <span class="tag tag-hard">HARD</span>
+      </div>
+      <div class="grades">
+        <div class="grade grade-mine"><div class="grade-value score-red">5</div><div class="grade-label">My Grade</div></div>
+        <div class="grade grade-vlm"><div class="grade-value">6.7</div><div class="grade-label">VLM</div></div>
+        <span class="grade-diff diff-over">VLM+1.7</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+    </div>
+    <div class="building-body">
+      <img class="composite-img" src="tiles/grade-v200-willistower.jpg" alt="Willis Tower composite">
+      <div class="assessment">
+        <div class="panel-review">
+          <h4>What Works</h4>
+          <p><strong>Satellite:</strong> Shows the distinctive bundled-tube rooftop with multiple levels — dark roofs at different heights, glass skybox, green roof gardens.</p>
+          <p><strong>Iso:</strong> Some stepped rooftop sections visible — you can see different height levels. A thin antenna/spire.</p>
+          <p><strong>Front elevation:</strong> Stepped top partially visible — the bundled-tube setbacks are hinted at.</p>
+        </div>
+        <div class="panel-review">
+          <h4>What Fails</h4>
+          <p><strong>Iso:</strong> Chunky gray mass. The stepped rooftop is the only distinctive feature and it's partially preserved, but the overall building reads as "generic skyscraper."</p>
+          <p><strong>Top-down:</strong> Window glazing holes scattered across the dark roof — creates noisy appearance. Neighboring buildings visible at edges.</p>
+          <p><strong>Height:</strong> 442m building truncated. Only captures lower portion clearly.</p>
+          <p><strong>Front elevation:</strong> Includes neighboring building context on left side. Steps are visible but subtle.</p>
+        </div>
+      </div>
+      <ul class="issues-list">
+        <li>Height truncation — 442m building, upper floors in low-detail LOD
+          <span class="src">tiles-headless.ts — same Google 3D Tiles LOD issue as ESB/Chrysler</span>
+        </li>
+        <li>Window glazing holes on dark roof surfaces
+          <span class="src">mesh-filter.ts:910-916 DARK_BLOCKS — Willis Tower's dark glass roof triggers glazing</span>
+        </li>
+        <li>Neighboring buildings in capture
+          <span class="src">voxelize-glb.ts:2429 post-mask dilate=2 — allows neighbor structures within buffer</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<!-- Overall Verdict -->
+<div class="verdict">
+  <h3>Overall Verdict</h3>
+  <p><strong>The VLM consistently inflates scores by +1.5 points on average.</strong> The VLM is too lenient — it gives partial credit for vague similarities and doesn't penalize enough for lost identity. A building that's "a gray box with a stick on top" (ESB) gets 5.0 from the VLM when it should be 3.</p>
+
+  <p style="margin-top:8px"><strong>Only 1/10 buildings passes my 7+ bar (Pennzoil).</strong> Angular features (45-degree cuts, trapezoids) survive voxelization. Curves (Oculus wings), art deco detail (Chrysler crown), and height-dependent features (ESB setbacks) are all destroyed.</p>
+
+  <p style="margin-top:8px"><strong>Root causes in priority order:</strong></p>
+  <ol style="margin-top:4px; padding-left:20px; font-size:0.82rem;">
+    <li><strong>Height truncation</strong> (external) — Google 3D Tiles LOD limitation. No pipeline fix possible. Must choose shorter buildings or accept loss.</li>
+    <li><strong>Window glazing</strong> (fixable) — The DARK_BLOCKS set in mesh-filter.ts:910 is too aggressive. Needs luminance-adaptive threshold or should be disabled for buildings with dark facades. Quick win.</li>
+    <li><strong>Uniform gray surface</strong> (fixable) — Wall de-bake always pushes to lighter gray. Need to preserve captured color variation. The 1.5x brightness boost at voxelize-glb.ts:2043 washes out facade character.</li>
+    <li><strong>Neighbor inclusion</strong> (partially fixable) — OSM mask with dilate=1 still captures connected structures. Need per-building manual polygon or tighter isolation.</li>
+    <li><strong>Column artifacts</strong> (fixable) — Street furniture survives isolation filters. Need to filter by aspect ratio (very tall + very thin = pole, not building).</li>
+  </ol>
+
+  <p style="margin-top:8px"><strong>Building set critique:</strong> 5/10 buildings are skyscrapers (ESB, Chrysler, Citigroup, Willis, Pennzoil) where Google 3D Tiles can't capture upper floors. The set should favor shorter, distinctive buildings where the full form can be captured. The Oculus was a poor choice — organic curves don't voxelize. Art Institute was a poor choice — its identity is a ground-level facade that's invisible from standard angles.</p>
+</div>
+
+<script>
+// All buildings start collapsed except first
+document.querySelectorAll('.building').forEach((b, i) => {
+  if (i > 0) b.classList.remove('open');
+});
+</script>
+</body>
+</html>
