@@ -114,104 +114,10 @@ export async function exportOBJ(viewer: ViewerState, filename = 'craftmatic.obj'
 
 /** Export the BlockGrid as a .schem file */
 export function exportSchem(grid: BlockGrid, filename = 'craftmatic.schem'): void {
-  const { width, height, length } = grid;
-
-  // Build palette
-  const palette = grid.palette;
-  const paletteEntries: Array<[string, number]> = [];
-  for (const [blockState, id] of palette) {
-    paletteEntries.push([blockState, id]);
-  }
-
-  // Encode block data as varints
-  const blockData = grid.encodeBlockData();
-
-  // Build NBT structure manually (simplified — writes raw binary)
-  const parts: number[] = [];
-  const encoder = new TextEncoder();
-
-  function writeByte(v: number) { parts.push(v & 0xff); }
-  function writeShort(v: number) { parts.push((v >> 8) & 0xff, v & 0xff); }
-  function writeInt(v: number) {
-    parts.push((v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff);
-  }
-  function writeString(s: string) {
-    const bytes = encoder.encode(s);
-    writeShort(bytes.length);
-    for (const b of bytes) parts.push(b);
-  }
-  function writeByteArray(arr: Uint8Array) {
-    writeInt(arr.length);
-    for (const b of arr) parts.push(b);
-  }
-
-  // Root compound
-  writeByte(10); // TAG_Compound
-  writeString('Schematic');
-
-  // Version
-  writeByte(3); // TAG_Int
-  writeString('Version');
-  writeInt(2);
-
-  // DataVersion
-  writeByte(3); // TAG_Int
-  writeString('DataVersion');
-  writeInt(3700);
-
-  // Width
-  writeByte(2); // TAG_Short
-  writeString('Width');
-  writeShort(width);
-
-  // Height
-  writeByte(2); // TAG_Short
-  writeString('Height');
-  writeShort(height);
-
-  // Length
-  writeByte(2); // TAG_Short
-  writeString('Length');
-  writeShort(length);
-
-  // Palette compound
-  writeByte(10); // TAG_Compound
-  writeString('Palette');
-  for (const [blockState, id] of paletteEntries) {
-    writeByte(3); // TAG_Int
-    writeString(blockState);
-    writeInt(id);
-  }
-  writeByte(0); // TAG_End (Palette)
-
-  // PaletteMax
-  writeByte(3); // TAG_Int
-  writeString('PaletteMax');
-  writeInt(paletteEntries.length);
-
-  // BlockData
-  writeByte(7); // TAG_ByteArray
-  writeString('BlockData');
-  writeByteArray(blockData);
-
-  // Offset
-  writeByte(11); // TAG_IntArray
-  writeString('Offset');
-  writeInt(3);
-  writeInt(0); writeInt(0); writeInt(0);
-
-  // BlockEntities (empty list)
-  writeByte(9); // TAG_List
-  writeString('BlockEntities');
-  writeByte(10); // list type: Compound
-  writeInt(0); // length: 0
-
-  writeByte(0); // TAG_End (root)
-
-  // Gzip compress
-  const raw = new Uint8Array(parts);
-  const compressed = pako.gzip(raw);
-  const blob = new Blob([compressed], { type: 'application/octet-stream' });
+  // Delegate to the single validated encoder (test/schem-export.test.ts) so the
+  // downloaded file is byte-identical to the server-receiver path — no second
+  // hand-written NBT implementation to drift out of spec.
+  const blob = new Blob([encodeSchemBytes(grid) as unknown as BlobPart], { type: 'application/octet-stream' });
   downloadBlob(blob, filename);
 }
 
