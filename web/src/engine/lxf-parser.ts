@@ -42,7 +42,7 @@ import type { ParsedBrick } from './ldraw-parser';
 const CM_TO_LDU = 25;
 
 /** designID → [ldrawFile, tx, ty, tz, angle(rad), ax, ay, az]. */
-type PartAlign = [string, number, number, number, number, number, number, number];
+export type PartAlign = [string, number, number, number, number, number, number, number];
 let partMapPromise: Promise<Record<string, PartAlign>> | null = null;
 
 /** Lazily fetch + cache the LDD→LDraw part-alignment table (~232 KB). */
@@ -56,7 +56,7 @@ function loadPartMap(): Promise<Record<string, PartAlign>> {
 }
 
 /** Axis-angle (radians) → 3×3 row-major rotation matrix. */
-function axisAngleToMatrix(angle: number, ax: number, ay: number, az: number): number[] {
+export function axisAngleToMatrix(angle: number, ax: number, ay: number, az: number): number[] {
   if (Math.abs(angle) < 1e-9) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
   const n = Math.hypot(ax, ay, az);
   if (n < 1e-9) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -87,6 +87,68 @@ function mulVec(m: number[], v: [number, number, number]): [number, number, numb
   ];
 }
 
+/**
+ * Parse an LXFML `<Bone transformation>` string into a row-major rotation +
+ * translation. The LXFML value is a COLUMN-major 4×3 (9 rotation values then
+ * tx,ty,tz, LDD units); this returns the transposed row-major R plus t.
+ * Returns null when there aren't at least 12 values.
+ */
+export function parseBoneTransform(
+  tf: string,
+): { rBone: number[]; tBone: [number, number, number] } | null {
+  const v = tf.split(',').map(Number);
+  if (v.length < 12) return null;
+  return {
+    rBone: [v[0], v[3], v[6], v[1], v[4], v[7], v[2], v[5], v[8]],
+    tBone: [v[9], v[10], v[11]],
+  };
+}
+
+export interface LxfPlacement { rot: number[]; x: number; y: number; z: number; }
+
+/**
+ * The testable core of issue #108: compose the LDD bone transform with the
+ * per-part LDD→LDraw origin alignment, then convert LDD space (Y-up, cm) to
+ * LDraw space (Y-down, LDU). Pure — no DOM / fetch / ZIP.
+ *
+ *   R_world = R_bone · R_align,  t_world = R_bone · t_align + t_bone   (LDD)
+ *   rot = F·R_world·F,  pos = 25·(F·t_world),  F = diag(1,-1,1)
+ *
+ * `align` undefined → identity alignment (bare `designID.dat` fallback caller-side).
+ */
+export function composeLxfPlacement(
+  rBone: number[],
+  tBone: [number, number, number],
+  align: PartAlign | undefined,
+): LxfPlacement {
+  const tAlign: [number, number, number] = align ? [align[1], align[2], align[3]] : [0, 0, 0];
+  const rAlign = align
+    ? axisAngleToMatrix(align[4], align[5], align[6], align[7])
+    : [1, 0, 0, 0, 1, 0, 0, 0, 1];
+
+  const rWorld = mul3(rBone, rAlign);
+  const rotated = mulVec(rBone, tAlign);
+  const tWorld: [number, number, number] = [
+    rotated[0] + tBone[0],
+    rotated[1] + tBone[1],
+    rotated[2] + tBone[2],
+  ];
+
+  // LDD → LDraw: conjugate rotation by F=diag(1,-1,1) (negate row1 XOR col1),
+  // flip Y of translation, scale to LDU.
+  const rot = [
+     rWorld[0], -rWorld[1],  rWorld[2],
+    -rWorld[3],  rWorld[4], -rWorld[5],
+     rWorld[6], -rWorld[7],  rWorld[8],
+  ];
+  return {
+    rot,
+    x:  tWorld[0] * CM_TO_LDU,
+    y: -tWorld[1] * CM_TO_LDU,
+    z:  tWorld[2] * CM_TO_LDU,
+  };
+}
+
 export async function parseLxf(buffer: ArrayBuffer): Promise<ParsedBrick[]> {
   const xmlBytes = await extractFile(buffer, 'IMAGE100.LXFML');
   const xmlText = new TextDecoder('utf-8').decode(xmlBytes);
@@ -110,52 +172,16 @@ export async function parseLxf(buffer: ArrayBuffer): Promise<ParsedBrick[]> {
     const tf = bone?.getAttribute('transformation');
     if (!tf) continue;
 
-    const vals = tf.split(',').map(Number);
-    if (vals.length < 12) continue;
-
-    // Bone matrix is column-major 4×3: cols 0..2 are the rotation basis,
-    // vals[9..11] the translation (LDD units). Row-major R_bone:
-    const rBone = [
-      vals[0], vals[3], vals[6],
-      vals[1], vals[4], vals[7],
-      vals[2], vals[5], vals[8],
-    ];
-    const tBone: [number, number, number] = [vals[9], vals[10], vals[11]];
+    const boneT = parseBoneTransform(tf);
+    if (!boneT) continue;
 
     // Per-part LDD→LDraw alignment (filename + origin offset). Falls back to a
     // bare designID.dat with identity alignment when the part isn't in the table.
     const align = partMap[designID];
     const part = align ? align[0] : `${designID}.dat`;
-    const tAlign: [number, number, number] = align ? [align[1], align[2], align[3]] : [0, 0, 0];
-    const rAlign = align
-      ? axisAngleToMatrix(align[4], align[5], align[6], align[7])
-      : [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const { rot, x, y, z } = composeLxfPlacement(boneT.rBone, boneT.tBone, align);
 
-    // Compose in LDD space: R_world = R_bone·R_align, t_world = R_bone·t_align + t_bone
-    const rWorld = mul3(rBone, rAlign);
-    const rotated = mulVec(rBone, tAlign);
-    const tWorld: [number, number, number] = [
-      rotated[0] + tBone[0],
-      rotated[1] + tBone[1],
-      rotated[2] + tBone[2],
-    ];
-
-    // LDD → LDraw: conjugate rotation by F=diag(1,-1,1) (negate row1 XOR col1),
-    // flip Y of translation, scale to LDU.
-    const rot = [
-       rWorld[0], -rWorld[1],  rWorld[2],
-      -rWorld[3],  rWorld[4], -rWorld[5],
-       rWorld[6], -rWorld[7],  rWorld[8],
-    ];
-
-    bricks.push({
-      color,
-      x:  tWorld[0] * CM_TO_LDU,
-      y: -tWorld[1] * CM_TO_LDU,
-      z:  tWorld[2] * CM_TO_LDU,
-      rot,
-      part,
-    });
+    bricks.push({ color, x, y, z, rot, part });
   }
 
   if (bricks.length === 0) throw new Error('No brick placements found in LXFML');
