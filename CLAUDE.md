@@ -81,6 +81,13 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   Direct lights are neutral-temp; generous diffuse fill restores saturation.
 - **Creased normals**: `toCreasedNormals(geom, 38°)` — smooth studs/cylinders,
   crisp brick edges (not blanket `computeVertexNormals`, which melts corners).
+- **All materials are `DoubleSide`** (LDraw `.dat` winding is unreliable), so
+  triangle winding is **shading-irrelevant** — Three flips the normal per
+  `gl_FrontFacing`. Consequence: `resolvePartGeometry`'s cache keys by part id
+  and IGNORES its `invertWinding` arg (so a part used both normally and mirrored
+  shares one winding) — a latent correctness bug with **zero visual impact under
+  DoubleSide**. Don't "fix" it for shading. It ONLY becomes real if someone
+  adopts FrontSide/BFC culling for perf — then key the cache by winding first.
 - **`preserveDrawingBuffer` stays OFF** — it forces tiled mobile GPUs to copy the
   framebuffer every frame. `captureScreenshot()`/`captureScreenshotAt()` render
   explicitly before `toDataURL()`, which is the correct capture pattern.
