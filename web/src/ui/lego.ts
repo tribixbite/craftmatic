@@ -21,7 +21,7 @@ import {
   ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
-import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, countExportTriangles } from '@viewer/exporter.js';
+import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportLayerGuide, countExportTriangles } from '@viewer/exporter.js';
 import type { ViewerState } from '@viewer/scene.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 
@@ -234,6 +234,7 @@ function buildUI(): void {
         <optgroup label="Minecraft">
           <option value="schem">Schematic (.schem)</option>
           <option value="litematic">Litematica (.litematic)</option>
+          <option value="guide">Build guide, layer-by-layer (.html)</option>
         </optgroup>
         <optgroup label="Data">
           <option value="csv">Parts list (.csv)</option>
@@ -948,15 +949,25 @@ async function exportLoadedModel(fmt: string): Promise<void> {
       return;
     }
 
-    if (fmt === 'schem' || fmt === 'litematic') {
+    if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide') {
       setStatus('Voxelizing for Minecraft…', 'info');
       // Yield a frame so the status paints before the (sync) voxelize.
       await new Promise(r => setTimeout(r, 0));
       const opts: VoxelizeOptions = { cubicScale, detailScale };
       const { grid } = voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
-      if (fmt === 'schem') exportSchem(grid, `${base}.schem`);
-      else exportLitematic(grid, `${base}.litematic`);
       const blocks = grid.countNonAir();
+      if (fmt === 'schem') {
+        exportSchem(grid, `${base}.schem`);
+      } else if (fmt === 'litematic') {
+        exportLitematic(grid, `${base}.litematic`);
+      } else {
+        // Layer-by-layer build guide: one page section per Y layer with a
+        // colour legend + per-layer block counts — the "build it in Minecraft
+        // layer by layer" companion to the in-app layer slider.
+        exportLayerGuide(grid, base, `${base}-build-guide.html`);
+        setStatus(`Exported ${base}-build-guide.html (${grid.height} layers, ${blocks.toLocaleString()} blocks)`, 'success');
+        return;
+      }
       setStatus(`Exported ${base}.${fmt} (${blocks.toLocaleString()} blocks, ${grid.width}×${grid.height}×${grid.length})`, 'success');
       return;
     }
