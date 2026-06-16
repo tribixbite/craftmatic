@@ -1021,7 +1021,17 @@ async function parseMpdFile(file: File): Promise<void> {
     if (ext === 'lxf') {
       const buf = await file.arrayBuffer();
       const bricks = await parseLxf(buf);
+      currentMpdContent = undefined;
+      currentCustomParts = undefined;
       await voxelizeAndDisplay(bricks, file.name);
+      // LDD .lxf placement relies on a per-part LDD→LDraw origin-alignment table
+      // (ldraw.xml). This is exact for simple/axis-aligned builds but imperfect
+      // for models with many angled/curved parts (vehicles) — a known limitation
+      // of free LDD→LDraw conversion that even dedicated converters share. Set
+      // expectations rather than imply false precision; Studio .io renders best.
+      if (bricks.length > 150) {
+        setStatus('Loaded LDD .lxf. Note: LDD→LDraw part alignment is approximate for complex models (angled/curved parts may be misplaced) — a BrickLink Studio .io of the same set renders most accurately.', 'info');
+      }
       return;
     }
 
