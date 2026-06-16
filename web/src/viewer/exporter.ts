@@ -23,51 +23,100 @@ function downloadBlob(blob: Blob, filename: string): void {
 }
 
 /**
- * Expand InstancedMesh objects from the viewer into a flat group of regular
- * Mesh objects suitable for export. Most Three.js exporters (STL, GLTF, OBJ)
- * don't properly handle InstancedMesh, so we expand each instance into its
- * own Mesh with the correct world transform applied.
- *
- * IMPORTANT: Calls updateMatrixWorld() so exporters that read matrixWorld
- * (STL, GLTF) see correct positions instead of identity matrices.
+ * Real-world export scale. The viewer works in scene units where 1 unit =
+ * 1 stud = 20 LDU = 8 mm. STL/OBJ are unitless and every slicer assumes mm,
+ * so we bake printing exports at 8 mm/stud → the print comes out at TRUE LEGO
+ * size (not 1/8 scale, which is what 1 unit = 1 mm would give). GLB stays in
+ * scene units (glTF viewers fit-to-view; changing it would surprise Blender
+ * import workflows). 20248-stud Hogwarts won't fit a consumer bed at this
+ * scale — the user rescales in their slicer, but the default is meaningful.
  */
-function createExportGroup(viewer: ViewerState): { group: THREE.Group; cleanup: () => void } {
+export const EXPORT_MM_PER_STUD = 8;
+
+/** Minimum viewer surface an exportable mesh must expose. */
+export interface ExportMeshLike {
+  geometry: THREE.BufferGeometry;
+  material: THREE.Material | THREE.Material[];
+  userData: { originalMatrices?: THREE.Matrix4[] };
+}
+
+/**
+ * Bake InstancedMesh instances into a flat Group of plain Meshes suitable for
+ * export. Three's STL/GLTF/OBJ exporters don't handle InstancedMesh, so each
+ * instance becomes its own Mesh at its assembled (pre-explode) world matrix.
+ * `scale` applies a uniform real-world scale (see EXPORT_MM_PER_STUD).
+ *
+ * IMPORTANT: updateMatrixWorld(true) so exporters reading matrixWorld see the
+ * correct positions (and the group scale).
+ */
+function bakeInstances(meshes: readonly ExportMeshLike[], scale: number): { group: THREE.Group; cleanup: () => void } {
   const group = new THREE.Group();
   const tempMeshes: THREE.Mesh[] = [];
 
-  for (const instMesh of viewer.meshes) {
-    const originals = instMesh.userData.originalMatrices as THREE.Matrix4[] | undefined;
+  for (const instMesh of meshes) {
+    const originals = instMesh.userData.originalMatrices;
     if (!originals) continue;
-    const mat = instMesh.material as THREE.MeshStandardMaterial;
     for (const matrix of originals) {
-      const mesh = new THREE.Mesh(instMesh.geometry, mat);
+      const mesh = new THREE.Mesh(instMesh.geometry, instMesh.material);
       mesh.applyMatrix4(matrix);
       group.add(mesh);
       tempMeshes.push(mesh);
     }
   }
 
-  // Compute matrixWorld for all children — exporters rely on this
+  if (scale !== 1) group.scale.setScalar(scale);
   group.updateMatrixWorld(true);
 
   return {
     group,
     cleanup: () => {
       for (const m of tempMeshes) {
-        m.geometry = undefined!; // Don't dispose shared geometry
+        m.geometry = undefined!; // shared geometry — don't dispose
         group.remove(m);
       }
     },
   };
 }
 
-/** Export the current Three.js scene as GLB (binary glTF) */
+/** Total triangle count an export will bake (instances × per-part tris). */
+export function countExportTriangles(meshes: readonly ExportMeshLike[]): number {
+  let tris = 0;
+  for (const m of meshes) {
+    const n = m.userData.originalMatrices?.length ?? 0;
+    if (!n) continue;
+    const g = m.geometry;
+    const perPart = (g.index ? g.index.count : g.attributes['position']?.count ?? 0) / 3;
+    tris += perPart * n;
+  }
+  return tris;
+}
+
+// ── Pure, download-free export cores (node-testable; see test/mesh-export.test.ts) ──
+
+/** Bake instances → binary STL bytes at real-world mm scale. */
+export async function meshesToStlBinary(meshes: readonly ExportMeshLike[], scale = EXPORT_MM_PER_STUD): Promise<ArrayBuffer> {
+  const { STLExporter } = await import('three/examples/jsm/exporters/STLExporter.js');
+  const { group, cleanup } = bakeInstances(meshes, scale);
+  const result = new STLExporter().parse(group, { binary: true }) as unknown as DataView;
+  cleanup();
+  return result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength) as ArrayBuffer;
+}
+
+/** Bake instances → OBJ text at real-world mm scale. */
+export async function meshesToObj(meshes: readonly ExportMeshLike[], scale = EXPORT_MM_PER_STUD): Promise<string> {
+  const { OBJExporter } = await import('three/examples/jsm/exporters/OBJExporter.js');
+  const { group, cleanup } = bakeInstances(meshes, scale);
+  const result = new OBJExporter().parse(group);
+  cleanup();
+  return result;
+}
+
+/** Export the current Three.js scene as GLB (binary glTF, scene units / studs). */
 export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'): Promise<void> {
   const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
   const exporter = new GLTFExporter();
-
-  // Expand InstancedMesh — GLTFExporter's InstancedMesh support is unreliable
-  const { group, cleanup } = createExportGroup(viewer);
+  // GLB keeps scene units (1 unit = 1 stud); glTF viewers fit-to-view.
+  const { group, cleanup } = bakeInstances(viewer.meshes as unknown as ExportMeshLike[], 1);
 
   return new Promise((resolve, reject) => {
     exporter.parse(
@@ -84,32 +133,16 @@ export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'
   });
 }
 
-/** Export the current Three.js scene as binary STL (3D printing) */
+/** Export the current Three.js scene as binary STL (3D printing, real-world mm). */
 export async function exportSTL(viewer: ViewerState, filename = 'craftmatic.stl'): Promise<void> {
-  const { STLExporter } = await import('three/examples/jsm/exporters/STLExporter.js');
-  const exporter = new STLExporter();
-  const { group, cleanup } = createExportGroup(viewer);
-
-  const result = exporter.parse(group, { binary: true });
-  cleanup();
-
-  // STLExporter returns a DataView for binary output; cast past the
-  // SharedArrayBuffer/ArrayBuffer generic-variance mismatch (runtime is a valid BlobPart).
-  const blob = new Blob([result as unknown as BlobPart], { type: 'application/octet-stream' });
-  downloadBlob(blob, filename);
+  const bytes = await meshesToStlBinary(viewer.meshes as unknown as ExportMeshLike[]);
+  downloadBlob(new Blob([bytes as unknown as BlobPart], { type: 'application/octet-stream' }), filename);
 }
 
-/** Export the current Three.js scene as OBJ (universal 3D format) */
+/** Export the current Three.js scene as OBJ (universal 3D format, real-world mm). */
 export async function exportOBJ(viewer: ViewerState, filename = 'craftmatic.obj'): Promise<void> {
-  const { OBJExporter } = await import('three/examples/jsm/exporters/OBJExporter.js');
-  const exporter = new OBJExporter();
-  const { group, cleanup } = createExportGroup(viewer);
-
-  const result = exporter.parse(group);
-  cleanup();
-
-  const blob = new Blob([result], { type: 'text/plain' });
-  downloadBlob(blob, filename);
+  const text = await meshesToObj(viewer.meshes as unknown as ExportMeshLike[]);
+  downloadBlob(new Blob([text], { type: 'text/plain' }), filename);
 }
 
 /** Export the BlockGrid as a .schem file */

@@ -21,7 +21,7 @@ import {
   ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
-import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic } from '@viewer/exporter.js';
+import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, countExportTriangles } from '@viewer/exporter.js';
 import type { ViewerState } from '@viewer/scene.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 
@@ -915,20 +915,36 @@ async function exportLoadedModel(fmt: string): Promise<void> {
       }
       const meshes = currentLDrawViewer.exportMeshes();
       if (meshes.length === 0) { setStatus('No geometry to export.', 'error'); return; }
-      // exporter.ts bakes one Mesh per instance; warn on very large sets where
-      // the un-instanced OBJ/STL can be hundreds of MB.
-      const instances = meshes.reduce((n, m) => n + ((m.userData['originalMatrices'] as unknown[])?.length ?? 0), 0);
-      if ((fmt === 'obj' || fmt === 'stl') && instances > 6000) {
-        setStatus(`Baking ${instances.toLocaleString()} bricks to ${fmt.toUpperCase()} — large file, please wait…`, 'info');
-      } else {
-        setStatus(`Exporting ${fmt.toUpperCase()}…`, 'info');
+      // exporter.ts bakes one Mesh per instance (no instancing in OBJ/STL), so
+      // file size scales with triangles. OBJ ≈ 320 B/tri, STL = 50 B/tri.
+      // GLB stays compact (glTF reuses shared accessors). Guard the un-instanced
+      // formats so a huge set can't OOM the browser building a multi-GB
+      // string/buffer — steer the user to GLB instead.
+      const tris = countExportTriangles(meshes as unknown as Parameters<typeof countExportTriangles>[0]);
+      const OBJ_MAX_TRIS = 2_000_000; // ~640 MB OBJ
+      const STL_MAX_TRIS = 12_000_000; // ~600 MB STL
+      if (fmt === 'obj' && tris > OBJ_MAX_TRIS) {
+        setStatus(`Too large for OBJ (${(tris / 1e6).toFixed(1)}M triangles → ~${Math.round(tris * 320 / 1e6)} MB). Use GLB — it stays compact via shared geometry.`, 'error');
+        return;
       }
+      if (fmt === 'stl' && tris > STL_MAX_TRIS) {
+        setStatus(`Too large for STL (${(tris / 1e6).toFixed(1)}M triangles → ~${Math.round(tris * 50 / 1e6)} MB). Use GLB, or slice the model with the layer/step slider first.`, 'error');
+        return;
+      }
+      const big = (fmt === 'obj' || fmt === 'stl') && tris > 1_000_000;
+      setStatus(big ? `Baking ${(tris / 1e6).toFixed(1)}M triangles to ${fmt.toUpperCase()} — large file, please wait…` : `Exporting ${fmt.toUpperCase()}…`, 'info');
+      await new Promise(r => setTimeout(r, 0)); // paint the status before the (heavy, sync) bake
       // Only viewer.meshes is read by the exporters — duck-type a ViewerState.
       const shim = { meshes } as unknown as ViewerState;
-      if (fmt === 'glb') await exportGLB(shim, `${base}.glb`);
-      else if (fmt === 'obj') await exportOBJ(shim, `${base}.obj`);
-      else await exportSTL(shim, `${base}.stl`);
-      setStatus(`Exported ${base}.${fmt}`, 'success');
+      if (fmt === 'glb') { await exportGLB(shim, `${base}.glb`); setStatus(`Exported ${base}.glb`, 'success'); }
+      else {
+        // STL/OBJ bake at real-LEGO scale (8 mm/stud) so prints come out true size.
+        const sz = currentLDrawViewer.getModelSizeStuds();
+        const mm = sz ? ` at real scale ${Math.round(sz.x * 8)}×${Math.round(sz.z * 8)}×${Math.round(sz.y * 8)} mm` : '';
+        if (fmt === 'obj') await exportOBJ(shim, `${base}.obj`);
+        else await exportSTL(shim, `${base}.stl`);
+        setStatus(`Exported ${base}.${fmt}${mm}`, 'success');
+      }
       return;
     }
 
