@@ -456,6 +456,7 @@ interface PipelineStateRecord {
   objective: FullVerificationReport['objective'];
   consensus: FullVerificationReport['consensus'];
   provenance: FullVerificationReport['provenance'];
+  crossCheck: FullVerificationReport['crossCheck'];
   reason?: string;
 }
 
@@ -515,6 +516,7 @@ function mergeStateRecord(
     objective: report.objective,
     consensus: report.consensus,
     provenance: report.provenance,
+    crossCheck: report.crossCheck,
     ...(report.reason ? { reason: report.reason } : {}),
   };
 

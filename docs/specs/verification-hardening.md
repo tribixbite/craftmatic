@@ -86,7 +86,7 @@ is a data gap, not a bug, and the iterate loop should stop chasing it.
 evidence class (Tekton's provenance toggle + its 4-colour pixel check). Needs the
 Three/PNG render layer — tracked here, not yet started.
 
-## 3. Independent cross-check gates (measured-reality guard)
+## 3. Independent cross-check gates (measured-reality guard) — **DONE (2026-06-22)**
 
 **Problem.** `heightErr` compares the generated mesh's Y-span against the *fused*
 expected height — both flow from the same fusion. So the gate mostly catches
@@ -95,11 +95,28 @@ truncated-tiles height, generation builds to it and the gate passes while realit
 is wrong. Tekton's verifier checks against an *independent* corpus and explicitly
 fails if a value was normalised toward an ideal (its V09).
 
-- [ ] When tiles drove the height, cross-check against OSM `building:levels`×3.5
-      and Solar; emit a first-class `heightDisagreement` signal (fusion already
-      computes this delta to lower confidence — promote it into the report).
-- [ ] Generalise: any field resolved from one source gets a soft-fail when an
-      independent source disagrees beyond a threshold.
+**Done.**
+- [x] `src/pipeline/verify/cross-check.ts` — `crossCheckHeight(ctx, evidence)`
+      re-derives height estimates from sources that did NOT drive the chosen
+      value (OSM `building:levels`×3.5, Solar `estimatedHeightM`, Smarty
+      `storiesNumber`×3.5), and emits `CrossCheckResult { alternatives,
+      maxDisagreement, truncationSuspected, ok, warnings }`. `truncationSuspected`
+      = an independent survey ≥25% taller than the build (the Google-3D-Tiles
+      LOD-truncation signature).
+- [x] `FullVerificationReport.crossCheck`; `composeReport()` takes optional `ctx`
+      and runs the check when both `ctx` + `evidence` are present.
+- [x] Threaded `ctx: refined` into both call sites (`pipeline.ts`,
+      `browser-entry.ts`); persisted to `pipeline-state.json` (`build.ts`).
+- [x] `summariseReport()` prints `xcheck=truncated|disagree` + `xcheck_max=NN%`.
+- [x] Tests: `cross-check.test.ts` (6 cases), `report.test.ts` (+3),
+      `pipeline.test.ts` end-to-end assertion.
+
+**Advisory by design:** it does NOT flip `objective.pass` — OSM/Solar are
+themselves estimates, so a hard block would false-fail legitimate builds. The
+signal lets the iterate loop / a human act on a truncation the gates alone miss.
+
+**Deferred:** generalising the cross-check to non-height fields (e.g. footprint
+area vs OSM `way` area) — tracked, not started.
 
 ## 4. Promote the deterministic checklist to a production regression signal
 

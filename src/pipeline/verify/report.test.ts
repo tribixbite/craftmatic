@@ -7,6 +7,12 @@ import {
 import type { ConsensusResult } from './consensus.js';
 import type { ObjectiveResult } from './objective.js';
 import type { JointEvidence } from '../fusion/types.js';
+import type { BuildingContext } from '../context/types.js';
+
+// A 25-storey OSM record (≈87.5m) — independent of okEvidence's 24m tiles height.
+function truncationCtx(): BuildingContext {
+  return { levels: 25, rawSolar: null, rawSmarty: null } as unknown as BuildingContext;
+}
 
 // Varied confidences so the weakest link is deterministic: wall = inferred/0.20.
 // Mean = (1 + 0.95 + 0.8 + 0.2 + 0.85 + 1) / 6 = 0.80.
@@ -120,6 +126,24 @@ describe('composeReport', () => {
     expect(r.status).toBe('fail-objective');
     expect(r.provenance?.weakest?.field).toBe('wall');
   });
+
+  it('crossCheck is null without ctx, populated with ctx', () => {
+    const noCtx = composeReport({ objective: okObjective(), consensus: okConsensus(), evidence: okEvidence() });
+    expect(noCtx.crossCheck).toBeNull();
+    const withCtx = composeReport({
+      objective: okObjective(), consensus: okConsensus(), evidence: okEvidence(), ctx: truncationCtx(),
+    });
+    expect(withCtx.crossCheck).not.toBeNull();
+    expect(withCtx.crossCheck!.truncationSuspected).toBe(true);
+  });
+
+  it('crossCheck is advisory — a truncation signal does NOT change status', () => {
+    const r = composeReport({
+      objective: okObjective(), consensus: okConsensus(), evidence: okEvidence(), ctx: truncationCtx(),
+    });
+    expect(r.status).toBe('pass'); // gates + consensus pass; cross-check is advisory only
+    expect(r.crossCheck!.truncationSuspected).toBe(true);
+  });
 });
 
 describe('contextInsufficientReport', () => {
@@ -166,5 +190,14 @@ describe('summariseReport', () => {
   it('omits provenance fields when absent', () => {
     const r = composeReport({ objective: okObjective(), consensus: okConsensus() });
     expect(summariseReport(r)).not.toContain('prov_weak');
+  });
+
+  it('surfaces a truncation cross-check signal', () => {
+    const r = composeReport({
+      objective: okObjective(), consensus: okConsensus(), evidence: okEvidence(), ctx: truncationCtx(),
+    });
+    const s = summariseReport(r);
+    expect(s).toContain('xcheck=truncated');
+    expect(s).toMatch(/xcheck_max=\d+%/);
   });
 });

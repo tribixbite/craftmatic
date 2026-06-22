@@ -135,6 +135,10 @@ describe('runPipeline end-to-end (mocked fetchers)', () => {
     expect(result.report.provenance).not.toBeNull();
     expect(result.report.provenance!.fields.map(f => f.field)).toContain('wall');
     expect(result.report.provenance!.meanConfidence).toBeGreaterThan(0);
+
+    // Independent height cross-check runs (OSM 3 levels ≈ Solar 12m → agree).
+    expect(result.report.crossCheck).not.toBeNull();
+    expect(result.report.crossCheck!.truncationSuspected).toBe(false);
   }, 60_000);
 
   it('produces a context-insufficient report when geocode is too imprecise + no OSM/Solar', async () => {
