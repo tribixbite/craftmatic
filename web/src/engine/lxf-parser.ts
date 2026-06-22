@@ -160,28 +160,35 @@ export async function parseLxf(buffer: ArrayBuffer): Promise<ParsedBrick[]> {
   const partMap = await loadPartMap();
   const bricks: ParsedBrick[] = [];
 
+  // A <Brick> can contain MULTIPLE <Part> elements (assemblies — e.g. a hinge
+  // is designID 73983 wrapping parts 2430 + 2429), each with its OWN designID,
+  // materials, and <Bone> transform. Iterate every Part, not just the first,
+  // or assembly halves silently vanish.
   for (const brick of doc.querySelectorAll('Brick')) {
-    const designID = brick.getAttribute('designID') ?? '3001';
+    const brickDesign = brick.getAttribute('designID');
+    for (const partEl of brick.querySelectorAll('Part')) {
+      const designID = partEl.getAttribute('designID') ?? brickDesign ?? '3001';
 
-    const partEl = brick.querySelector('Part');
-    const materialsAttr = partEl?.getAttribute('materials') ?? '';
-    const materialId = parseInt(materialsAttr.split(',')[0], 10) || 194;
-    const color = lddToLDraw(materialId);
+      const materialsAttr = partEl.getAttribute('materials') ?? '';
+      const materialId = parseInt(materialsAttr.split(',')[0], 10) || 194;
+      const color = lddToLDraw(materialId);
 
-    const bone = brick.querySelector('Bone');
-    const tf = bone?.getAttribute('transformation');
-    if (!tf) continue;
+      // Each Part carries its own Bone(s); the first bone is its placement.
+      // (Multiple bones = a flex part's segments — out of scope; first wins,
+      // matching prior behaviour.)
+      const tf = partEl.querySelector('Bone')?.getAttribute('transformation');
+      if (!tf) continue;
+      const boneT = parseBoneTransform(tf);
+      if (!boneT) continue;
 
-    const boneT = parseBoneTransform(tf);
-    if (!boneT) continue;
+      // Per-part LDD→LDraw alignment (filename + origin offset). Falls back to a
+      // bare designID.dat with identity alignment when the part isn't in the table.
+      const align = partMap[designID];
+      const part = align ? align[0] : `${designID}.dat`;
+      const { rot, x, y, z } = composeLxfPlacement(boneT.rBone, boneT.tBone, align);
 
-    // Per-part LDD→LDraw alignment (filename + origin offset). Falls back to a
-    // bare designID.dat with identity alignment when the part isn't in the table.
-    const align = partMap[designID];
-    const part = align ? align[0] : `${designID}.dat`;
-    const { rot, x, y, z } = composeLxfPlacement(boneT.rBone, boneT.tBone, align);
-
-    bricks.push({ color, x, y, z, rot, part });
+      bricks.push({ color, x, y, z, rot, part });
+    }
   }
 
   if (bricks.length === 0) throw new Error('No brick placements found in LXFML');
