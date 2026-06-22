@@ -53,11 +53,32 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
 - `library.ldraw.org` serves individual parts but sends **no CORS header** — must
   be proxied; cannot fetch from the browser directly. Official layout:
   `/library/official/{parts,p,parts/s,p/48}/<stem>.dat`.
-- Parts that never resolve (LSynth `lsNN.dat` flexible parts → need curve
-  synthesis; a few set-custom OMR subparts like Red Baron `s100241`) are surfaced
-  in the LEGO-tab status + console via `viewer.missingParts` — not silent.
-  Sub-file refs that resolve nowhere (parent still renders, with small gaps) are
-  surfaced separately via `viewer.unresolvedSubparts`.
+- Parts that never resolve (a few set-custom OMR subparts like Red Baron
+  `s100241`) are surfaced in the LEGO-tab status + console via
+  `viewer.missingParts` — not silent. Sub-file refs that resolve nowhere (parent
+  still renders, with small gaps) are surfaced separately via
+  `viewer.unresolvedSubparts`.
+
+## LSynth flexible parts (hoses / tubes / cables) — VERIFIED already-handled + synth fallback
+- **Reality (measured across the whole corpus):** flexible parts already render.
+  OMR ships them **pre-synthesized** (`0 SYNTH SYNTHESIZED BEGIN…END` blocks of
+  placed `<set> - LSxx.dat` segment sub-parts, all inline-defined as
+  `Unofficial_Part` from primitives) — 72/72 SYNTH files are pre-synthesized,
+  0 need runtime synthesis (42006, 8272 verified: 0 missing). Studio `.io` bakes
+  flex into CustomParts meshes (handled). `lsNN.dat` are NOT in the LDraw library
+  (404) — they only ever appear inline-defined. So the old "LSynth surfaces as
+  missing" note was imprecise; in practice it doesn't.
+- **The one gap (uploads):** a hand-authored / editor-exported file with an
+  UNsynthesized `0 SYNTH BEGIN <type> <colour>` + constraints + `0 SYNTH END`
+  (no geometry between). `web/src/engine/lsynth.ts` `synthesizeLSynth(text)` is a
+  pure TEXT→TEXT pass run before `parseLDraw` (both `.io` and `.ldr/.mpd` paths,
+  via `maybeSynthesize` in lego.ts): each unsynthesized TUBE block (hose/
+  pneumatic/ribbed/cable/flex — NOT band/chain/tread) → a swept round tube
+  (centripetal Catmull-Rom spline through constraint positions + rotation-
+  minimizing frame, radius by type) emitted as an inline `0 FILE lsynth-N.dat`
+  tagged `Unofficial_Part` (so the parser emits it as a TERMINAL brick, not an
+  empty assembly) referenced at identity. Already-synthesized / non-tube blocks
+  pass through untouched — can't break working files. Tests: `test/lsynth.test.ts`.
 
 ## Renderer conventions (hard-won — do not regress)
 - **NO `logarithmicDepthBuffer`.** It forces per-fragment depth writes that

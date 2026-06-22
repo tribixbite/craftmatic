@@ -14,6 +14,7 @@ import { parseLDraw, countSteps, type ParsedBrick } from '@engine/ldraw-parser.j
 import { voxelizeLDraw, solidifyColumns, fillSingleVoxelGaps, keepLargestComponent, type VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
 import { voxelizeLDrawGeometry } from '@engine/ldraw-geometry.js';
 import { extractIoModel } from '@engine/io-extractor.js';
+import { synthesizeLSynth } from '@engine/lsynth.js';
 import { parseLxf } from '@engine/lxf-parser.js';
 import { studioColorToBlock } from '@engine/studio-colors.js';
 import { fetchBffInventory, bffInventoryToLDraw } from '@engine/bff-loader.js';
@@ -1022,6 +1023,19 @@ function reconstructionQuality(ldrText: string): 'good' | 'approximate' | 'broke
   return 'good';
 }
 
+/**
+ * Synthesize any UNsynthesized LSynth flex blocks (hand-authored / editor
+ * exports) into swept-tube geometry. Pre-synthesized OMR blocks and Studio
+ * .io baked flex parts pass through untouched. Surfaces a status note on hit.
+ */
+function maybeSynthesize(text: string): string {
+  const r = synthesizeLSynth(text);
+  if (r.count > 0) {
+    setStatus(`Synthesized ${r.count} flexible part${r.count > 1 ? 's' : ''} (hose/tube) from LSynth constraints.`, 'info');
+  }
+  return r.text;
+}
+
 async function parseMpdFile(file: File): Promise<void> {
   if (!onResult) return;
   setStatus(`Parsing ${file.name}…`, 'info');
@@ -1050,7 +1064,7 @@ async function parseMpdFile(file: File): Promise<void> {
     if (ext === 'io') {
       const buf = await file.arrayBuffer();
       const ioModel = await extractIoModel(buf);
-      text = ioModel.text;
+      text = maybeSynthesize(ioModel.text);
       currentMpdContent = text;
       currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
       const bricks = parseLDraw(text);
@@ -1059,7 +1073,7 @@ async function parseMpdFile(file: File): Promise<void> {
       return;
     }
 
-    text = await file.text();
+    text = maybeSynthesize(await file.text());
     currentMpdContent = text; // store for 3D renderer inline sub-model resolution
     currentCustomParts = undefined;
     const bricks = parseLDraw(text);
