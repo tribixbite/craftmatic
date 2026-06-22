@@ -130,6 +130,11 @@ describe('runPipeline end-to-end (mocked fetchers)', () => {
       // So expect '7a-parametric' or '7c-hybrid'.
       expect(result.artifacts.synthesisPath).toMatch(/7a-parametric|7c-hybrid/);
     }
+
+    // Provenance from fusion is threaded into the report (Stage 9).
+    expect(result.report.provenance).not.toBeNull();
+    expect(result.report.provenance!.fields.map(f => f.field)).toContain('wall');
+    expect(result.report.provenance!.meanConfidence).toBeGreaterThan(0);
   }, 60_000);
 
   it('produces a context-insufficient report when geocode is too imprecise + no OSM/Solar', async () => {

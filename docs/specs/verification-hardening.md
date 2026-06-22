@@ -55,10 +55,10 @@ deterministic gate yet (needs connected-component analysis on the grid); a
 `scripts/verify-corrupt.ts` CLI demo (Tekton's literal `demo:corrupt`) over a
 saved golden artifact would make the refusal visible in a live run.
 
-## 2. Carry provenance/confidence into the report (+ a confidence view)
+## 2. Carry provenance/confidence into the report (+ a confidence view) — **DONE (2026-06-22)**
 
 **Problem.** `verify/report.ts` `composeReport()` writes geometry metrics (IoU,
-h_err, watertight, voxels) to `pipeline-state.json` but **drops** the per-field
+h_err, watertight, voxels) to `pipeline-state.json` but **dropped** the per-field
 source/confidence fusion just computed. Tekton surfaces provenance (a toggle that
 colours the build by evidence class; a pixel check that all four classes render).
 
@@ -67,11 +67,24 @@ plateau" from "pipeline regression" — the single most-repeated frustration in
 project history. A low colour score on a building whose wall is `inferred/0.2`
 is a data gap, not a bug, and the iterate loop should stop chasing it.
 
-- [ ] Add a `provenance` block to `FullVerificationReport` (per-field
-      `{value, source, confidence}` for height, footprint, wall, roof).
-- [ ] Thread `JointEvidence` from fusion through Stage 9 into `composeReport`.
-- [ ] `summariseReport()` prints the lowest-confidence field.
-- [ ] (stretch) a "confidence view" render colouring the build by evidence class.
+**Done.**
+- [x] `src/pipeline/verify/provenance.ts` — `summariseProvenance(JointEvidence)`
+      → `ProvenanceSummary { fields[], weakest, meanConfidence }`; per-field
+      `{field, value, source, confidence}` for footprint, height, levels, wall,
+      roof, roofShape.
+- [x] `FullVerificationReport.provenance` added; `composeReport()` takes optional
+      `evidence` and fills it in every status branch (null when absent).
+- [x] Threaded `JointEvidence` into `composeReport` at both call sites
+      (`pipeline.ts`, `browser-entry.ts`) — both already had `evidence` in scope.
+- [x] `summariseReport()` prints `prov_weak=<field>/<source>/<conf>` + `prov_mean`.
+- [x] Persisted to `pipeline-state.json` via `scripts/build.ts`
+      (`PipelineStateRecord.provenance`).
+- [x] Tests: `report.test.ts` (+6 provenance cases), `pipeline.test.ts`
+      end-to-end assertion.
+
+**Deferred (stretch):** a "confidence view" render colouring the build by
+evidence class (Tekton's provenance toggle + its 4-colour pixel check). Needs the
+Three/PNG render layer — tracked here, not yet started.
 
 ## 3. Independent cross-check gates (measured-reality guard)
 

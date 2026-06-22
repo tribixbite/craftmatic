@@ -6,6 +6,25 @@ import {
 } from './report.js';
 import type { ConsensusResult } from './consensus.js';
 import type { ObjectiveResult } from './objective.js';
+import type { JointEvidence } from '../fusion/types.js';
+
+// Varied confidences so the weakest link is deterministic: wall = inferred/0.20.
+// Mean = (1 + 0.95 + 0.8 + 0.2 + 0.85 + 1) / 6 = 0.80.
+function okEvidence(): JointEvidence {
+  return {
+    footprint: { value: [{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }, { lat: 1, lon: 1 }], source: 'osm', confidence: 1 },
+    heightM: { value: 24, source: 'tiles', confidence: 0.95 },
+    levels: { value: 6, source: 'osm', confidence: 0.8 },
+    wallPalette: { value: [[60, 4, 8]], source: 'inferred', confidence: 0.2 },
+    roofPalette: { value: [[30, 0, 0]], source: 'sat', confidence: 0.85 },
+    roofShape: { value: 'flat', source: 'osm', confidence: 1 },
+    windowGrid: [null, null, null, null],
+    cornice: { value: false, source: 'inferred', confidence: 0.5 },
+    entry: { value: { edge: 0, offsetAlongEdge: 0.5 }, source: 'inferred', confidence: 0.3 },
+    trees: [],
+    roads: [],
+  };
+}
 
 function okObjective(): ObjectiveResult {
   return {
@@ -77,6 +96,30 @@ describe('composeReport', () => {
     const r = composeReport({ objective: okObjective(), consensus: okConsensus() });
     expect(r.lastRun).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
+
+  it('provenance is null when no evidence is passed', () => {
+    const r = composeReport({ objective: okObjective(), consensus: okConsensus() });
+    expect(r.provenance).toBeNull();
+  });
+
+  it('summarises per-field provenance when evidence is passed', () => {
+    const r = composeReport({ objective: okObjective(), consensus: okConsensus(), evidence: okEvidence() });
+    expect(r.provenance).not.toBeNull();
+    expect(r.provenance!.fields.map(f => f.field)).toEqual([
+      'footprint', 'height', 'levels', 'wall', 'roof', 'roofShape',
+    ]);
+    // Weakest link = the inferred wall colour.
+    expect(r.provenance!.weakest).toMatchObject({ field: 'wall', source: 'inferred', confidence: 0.2 });
+    expect(r.provenance!.meanConfidence).toBeCloseTo(0.8);
+    // Sources are carried through verbatim.
+    expect(r.provenance!.fields.find(f => f.field === 'height')!.source).toBe('tiles');
+  });
+
+  it('provenance survives a fail-objective status', () => {
+    const r = composeReport({ objective: failObjective(), evidence: okEvidence() });
+    expect(r.status).toBe('fail-objective');
+    expect(r.provenance?.weakest?.field).toBe('wall');
+  });
 });
 
 describe('contextInsufficientReport', () => {
@@ -86,6 +129,7 @@ describe('contextInsufficientReport', () => {
     expect(r.reason).toBe('no OSM polygon');
     expect(r.objective).toBeNull();
     expect(r.consensus).toBeNull();
+    expect(r.provenance).toBeNull();
   });
 });
 
@@ -110,5 +154,17 @@ describe('summariseReport', () => {
     const s = summariseReport(r);
     expect(s).toContain('consensus_min=9.0');
     expect(s).toContain('median=9.0');
+  });
+
+  it('surfaces the weakest-confidence field when provenance is present', () => {
+    const r = composeReport({ objective: okObjective(), consensus: okConsensus(), evidence: okEvidence() });
+    const s = summariseReport(r);
+    expect(s).toContain('prov_weak=wall/inferred/0.20');
+    expect(s).toContain('prov_mean=0.80');
+  });
+
+  it('omits provenance fields when absent', () => {
+    const r = composeReport({ objective: okObjective(), consensus: okConsensus() });
+    expect(summariseReport(r)).not.toContain('prov_weak');
   });
 });

@@ -8,12 +8,22 @@
 import type { PipelineStatus } from './types.js';
 import type { ObjectiveResult } from './objective.js';
 import type { ConsensusResult } from './consensus.js';
+import type { ProvenanceSummary } from './provenance.js';
+import { summariseProvenance } from './provenance.js';
+import type { JointEvidence } from '../fusion/types.js';
 
 export interface FullVerificationReport {
   readonly status: PipelineStatus;
   readonly lastRun: string;
   readonly objective: ObjectiveResult | null;
   readonly consensus: ConsensusResult | null;
+  /**
+   * Per-field chain of custody from fusion (source + confidence for height,
+   * footprint, wall/roof colour, etc.). `null` when no evidence was resolved
+   * (e.g. `context-insufficient`). Makes a build's score explainable — a low
+   * colour score on an `inferred/0.20` wall is a data gap, not a regression.
+   */
+  readonly provenance: ProvenanceSummary | null;
   /** Non-empty for `context-insufficient` status. */
   readonly reason?: string;
 }
@@ -26,14 +36,20 @@ export interface FullVerificationReport {
 export function composeReport(input: {
   readonly objective: ObjectiveResult;
   readonly consensus?: ConsensusResult;
+  /** Fused evidence (Stage 6). When provided, its per-field provenance is
+   *  summarised into the report; omit it and `provenance` is null. */
+  readonly evidence?: JointEvidence;
 }): FullVerificationReport {
   const lastRun = new Date().toISOString();
+  const provenance = input.evidence ? summariseProvenance(input.evidence) : null;
+
   if (!input.objective.pass) {
     return {
       status: 'fail-objective',
       lastRun,
       objective: input.objective,
       consensus: input.consensus ?? null,
+      provenance,
     };
   }
   if (!input.consensus) {
@@ -43,6 +59,7 @@ export function composeReport(input: {
       lastRun,
       objective: input.objective,
       consensus: null,
+      provenance,
     };
   }
   if (input.consensus.status === 'needs-human-review') {
@@ -51,6 +68,7 @@ export function composeReport(input: {
       lastRun,
       objective: input.objective,
       consensus: input.consensus,
+      provenance,
     };
   }
   if (input.consensus.pass) {
@@ -59,6 +77,7 @@ export function composeReport(input: {
       lastRun,
       objective: input.objective,
       consensus: input.consensus,
+      provenance,
     };
   }
   return {
@@ -66,6 +85,7 @@ export function composeReport(input: {
     lastRun,
     objective: input.objective,
     consensus: input.consensus,
+    provenance,
   };
 }
 
@@ -94,6 +114,13 @@ export function summariseReport(report: FullVerificationReport): string {
       `rounds=${report.consensus.rounds}`,
     );
   }
+  if (report.provenance?.weakest) {
+    const w = report.provenance.weakest;
+    parts.push(
+      `prov_weak=${w.field}/${w.source}/${w.confidence.toFixed(2)}`,
+      `prov_mean=${report.provenance.meanConfidence.toFixed(2)}`,
+    );
+  }
   if (report.reason) parts.push(`reason="${report.reason}"`);
   return parts.join(' ');
 }
@@ -108,6 +135,7 @@ export function contextInsufficientReport(reason: string): FullVerificationRepor
     lastRun: new Date().toISOString(),
     objective: null,
     consensus: null,
+    provenance: null,
     reason,
   };
 }

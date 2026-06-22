@@ -455,6 +455,7 @@ interface PipelineStateRecord {
   recentFailureSignatures: string[];
   objective: FullVerificationReport['objective'];
   consensus: FullVerificationReport['consensus'];
+  provenance: FullVerificationReport['provenance'];
   reason?: string;
 }
 
@@ -513,6 +514,7 @@ function mergeStateRecord(
     recentFailureSignatures: report.status === 'pass' ? [] : recent,
     objective: report.objective,
     consensus: report.consensus,
+    provenance: report.provenance,
     ...(report.reason ? { reason: report.reason } : {}),
   };
 
