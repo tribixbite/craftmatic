@@ -25,6 +25,7 @@ import { createGoogleSatelliteFetcher } from '../src/pipeline/capture/satellite.
 import { writeSchematic } from '../src/schem/write.js';
 import { writeLitematic } from '../src/schem/write-litematic.js';
 import { summariseReport } from '../src/pipeline/verify/report.js';
+import { preserveFailedReport } from './failed-history.js';
 import type { ContextFetchers } from '../src/pipeline/context/resolver.js';
 import type { StreetViewFetchers } from '../src/pipeline/capture/streetview.js';
 import { createGeminiScorer, singleModelFetchers } from '../src/pipeline/verify/gemini-scorer.js';
@@ -376,6 +377,11 @@ writeFileSync(paths.verification, JSON.stringify(result.report, null, 2));
 const statePath = join(projectRoot, 'output/pipeline-state.json');
 mergeStateRecord(statePath, slug, result.report, elapsed);
 
+// Preserve non-pass runs as immutable history (oscillating vs regressing).
+const archivedFailure = preserveFailedReport(
+  join(projectRoot, 'output/failed'), slug, result.report,
+);
+
 if (result.artifacts) {
   paths.printGlb = join(absOutDir, `${slug}.print.glb`);
   paths.sceneGlb = join(absOutDir, `${slug}.scene.glb`);
@@ -396,6 +402,7 @@ if (result.artifacts) {
 // ─── Report ────────────────────────────────────────────────────────────────
 
 console.error(`\nDone in ${elapsed}s — ${summariseReport(result.report)}`);
+if (archivedFailure) console.error(`  archived failing report → ${archivedFailure}`);
 if (result.artifacts) {
   console.log(paths.printGlb);
   console.log(paths.sceneGlb);

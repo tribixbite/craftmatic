@@ -155,15 +155,32 @@ the VLM's job.
 that's a change to `scripts/iterate.ts`'s selection logic, tracked but not yet
 done. The signal it needs is now in the report.
 
-## 5. Preserve failed reports as an immutable history
+## 5. Preserve failed reports as an immutable history — **DONE (2026-06-24)**
 
 **Problem.** `composeReport` writes per-slug to `pipeline-state.json` — each run
 **overwrites**; there is no history. Tekton keeps timestamped
 `verifier-report.*.failed.json`.
 
-- [ ] On a failing run, append to `output/failed/<slug>-<iso>.json`.
-- [ ] Lets the iterate loop tell *oscillating* (noise) from *monotonically
-      regressing* (real), and gives it memory across runs.
+**Done.**
+- [x] `scripts/failed-history.ts` — `preserveFailedReport(failedDir, slug,
+      report)` appends every non-pass report to
+      `output/failed/<slug>-<iso>.json` (colons/dots stripped for a safe
+      filename), then `pruneFailedHistory()` keeps the most recent
+      `MAX_FAILED_PER_SLUG` (25) per slug. The year-digit guard prevents a slug
+      that is a prefix of another (`geisel` vs `geisel-east`) from pruning across
+      slugs.
+- [x] Wired into `scripts/build.ts` after `mergeStateRecord`; logs the archive
+      path. `output/` is gitignored, so the archive is local-only (no churn).
+- [x] Test: `test/failed-history.test.ts` (4 — pass=no-op, safe filename, prune
+      cap, prefix-collision).
+
+**Why it's in `scripts/` not `src/pipeline/`:** the archiver uses `node:fs`; the
+pure-core `src/pipeline/` must stay browser-importable. `build.ts` already lives
+in `scripts/` and is the persistence layer.
+
+**Deferred (consumption):** having the iterate loop actually *read* the history
+to distinguish oscillating from regressing builds — that's `scripts/iterate.ts`
+logic, same bucket as #4's loop-ranking. The history it needs now exists.
 
 ---
 
