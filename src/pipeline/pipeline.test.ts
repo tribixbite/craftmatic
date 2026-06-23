@@ -139,6 +139,12 @@ describe('runPipeline end-to-end (mocked fetchers)', () => {
     // Independent height cross-check runs (OSM 3 levels ≈ Solar 12m → agree).
     expect(result.report.crossCheck).not.toBeNull();
     expect(result.report.crossCheck!.truncationSuspected).toBe(false);
+
+    // Deterministic defect score is computed from the real voxel grid.
+    expect(result.report.defectScore).not.toBeNull();
+    expect(result.report.defectScore!.score).toBeGreaterThanOrEqual(0);
+    expect(result.report.defectScore!.score).toBeLessThanOrEqual(10);
+    expect(result.report.defectScore!.grid.computed).toBe(true);
   }, 60_000);
 
   it('produces a context-insufficient report when geocode is too imprecise + no OSM/Solar', async () => {

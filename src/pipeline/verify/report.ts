@@ -12,8 +12,11 @@ import type { ProvenanceSummary } from './provenance.js';
 import { summariseProvenance } from './provenance.js';
 import type { CrossCheckResult } from './cross-check.js';
 import { crossCheckHeight } from './cross-check.js';
+import type { DefectScoreResult } from './defect.js';
+import { deriveDefects } from './defect.js';
 import type { JointEvidence } from '../fusion/types.js';
 import type { BuildingContext } from '../context/types.js';
+import type { BlockGrid } from '../../schem/types.js';
 
 export interface FullVerificationReport {
   readonly status: PipelineStatus;
@@ -34,6 +37,12 @@ export interface FullVerificationReport {
    * context/evidence was available.
    */
   readonly crossCheck: CrossCheckResult | null;
+  /**
+   * Deterministic defect score (0-10) derived from the objective gates +
+   * cross-check + a grid connected-component pass — a VLM-free regression
+   * signal the iterate loop can rank on. `null` when no grid was available.
+   */
+  readonly defectScore: DefectScoreResult | null;
   /** Non-empty for `context-insufficient` status. */
   readonly reason?: string;
 }
@@ -52,11 +61,17 @@ export function composeReport(input: {
   /** Refined context (Stage 2). With `evidence`, enables the independent
    *  height cross-check; omit either and `crossCheck` is null. */
   readonly ctx?: BuildingContext;
+  /** Voxel grid (Stage 8c). Enables the deterministic defect score; omit it
+   *  and `defectScore` is null. */
+  readonly grid?: BlockGrid;
 }): FullVerificationReport {
   const lastRun = new Date().toISOString();
   const provenance = input.evidence ? summariseProvenance(input.evidence) : null;
   const crossCheck = input.evidence && input.ctx
     ? crossCheckHeight(input.ctx, input.evidence)
+    : null;
+  const defectScore = input.grid
+    ? deriveDefects(input.objective, crossCheck, input.grid)
     : null;
 
   if (!input.objective.pass) {
@@ -67,6 +82,7 @@ export function composeReport(input: {
       consensus: input.consensus ?? null,
       provenance,
       crossCheck,
+      defectScore,
     };
   }
   if (!input.consensus) {
@@ -78,6 +94,7 @@ export function composeReport(input: {
       consensus: null,
       provenance,
       crossCheck,
+      defectScore,
     };
   }
   if (input.consensus.status === 'needs-human-review') {
@@ -88,6 +105,7 @@ export function composeReport(input: {
       consensus: input.consensus,
       provenance,
       crossCheck,
+      defectScore,
     };
   }
   if (input.consensus.pass) {
@@ -98,6 +116,7 @@ export function composeReport(input: {
       consensus: input.consensus,
       provenance,
       crossCheck,
+      defectScore,
     };
   }
   return {
@@ -107,6 +126,7 @@ export function composeReport(input: {
     consensus: input.consensus,
     provenance,
     crossCheck,
+    defectScore,
   };
 }
 
@@ -148,6 +168,12 @@ export function summariseReport(report: FullVerificationReport): string {
       `xcheck_max=${(report.crossCheck.maxDisagreement * 100).toFixed(0)}%`,
     );
   }
+  if (report.defectScore) {
+    parts.push(`defect_score=${report.defectScore.score.toFixed(1)}`);
+    if (report.defectScore.penalties.length > 0) {
+      parts.push(`defects=[${report.defectScore.penalties.join('|')}]`);
+    }
+  }
   if (report.reason) parts.push(`reason="${report.reason}"`);
   return parts.join(' ');
 }
@@ -164,6 +190,7 @@ export function contextInsufficientReport(reason: string): FullVerificationRepor
     consensus: null,
     provenance: null,
     crossCheck: null,
+    defectScore: null,
     reason,
   };
 }

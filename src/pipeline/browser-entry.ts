@@ -251,7 +251,7 @@ export async function runBrowserPipelineFromTiles(
     });
   }
 
-  const report = composeReport({ objective, consensus, evidence, ctx: refined });
+  const report = composeReport({ objective, consensus, evidence, ctx: refined, grid: voxelResult.grid });
 
   return {
     artifacts: {

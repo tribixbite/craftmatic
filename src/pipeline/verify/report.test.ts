@@ -8,6 +8,20 @@ import type { ConsensusResult } from './consensus.js';
 import type { ObjectiveResult } from './objective.js';
 import type { JointEvidence } from '../fusion/types.js';
 import type { BuildingContext } from '../context/types.js';
+import { BlockGrid } from '../../schem/types.js';
+
+// A small two-block-type body for the deterministic defect score.
+function okGrid(): BlockGrid {
+  const g = new BlockGrid(4, 4, 4);
+  for (let y = 0; y < 3; y++) {
+    for (let z = 0; z < 3; z++) {
+      for (let x = 0; x < 3; x++) g.set(x, y, z, 'minecraft:stone');
+    }
+  }
+  g.set(1, 1, 1, 'minecraft:bricks');
+  g.set(2, 2, 2, 'minecraft:glass');
+  return g;
+}
 
 // A 25-storey OSM record (≈87.5m) — independent of okEvidence's 24m tiles height.
 function truncationCtx(): BuildingContext {
@@ -144,6 +158,16 @@ describe('composeReport', () => {
     expect(r.status).toBe('pass'); // gates + consensus pass; cross-check is advisory only
     expect(r.crossCheck!.truncationSuspected).toBe(true);
   });
+
+  it('defectScore is null without a grid, computed with one', () => {
+    const noGrid = composeReport({ objective: okObjective(), consensus: okConsensus() });
+    expect(noGrid.defectScore).toBeNull();
+    const withGrid = composeReport({ objective: okObjective(), consensus: okConsensus(), grid: okGrid() });
+    expect(withGrid.defectScore).not.toBeNull();
+    expect(withGrid.defectScore!.score).toBeGreaterThanOrEqual(0);
+    expect(withGrid.defectScore!.score).toBeLessThanOrEqual(10);
+    expect(withGrid.defectScore!.grid.components).toBe(1);
+  });
 });
 
 describe('contextInsufficientReport', () => {
@@ -199,5 +223,10 @@ describe('summariseReport', () => {
     const s = summariseReport(r);
     expect(s).toContain('xcheck=truncated');
     expect(s).toMatch(/xcheck_max=\d+%/);
+  });
+
+  it('includes the deterministic defect score', () => {
+    const r = composeReport({ objective: okObjective(), consensus: okConsensus(), grid: okGrid() });
+    expect(summariseReport(r)).toMatch(/defect_score=\d+\.\d/);
   });
 });

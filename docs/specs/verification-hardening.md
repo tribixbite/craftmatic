@@ -50,10 +50,11 @@ its `demo:corrupt` / `demo:restore` proof that the gate has teeth.
       its specific gate and flips `pass=false`, and that re-running clean inputs
       passes again (the "restore" beat).
 
-**Follow-ups (tracked under #4/#5):** a `floating_artifacts` corruption has no
-deterministic gate yet (needs connected-component analysis on the grid); a
-`scripts/verify-corrupt.ts` CLI demo (Tekton's literal `demo:corrupt`) over a
-saved golden artifact would make the refusal visible in a live run.
+**Follow-ups:** `floating_artifacts` now has a deterministic signal —
+`analyseGridConnectivity()` in #4's `verify/defect.ts` (advisory, in
+`defectScore`, not a hard gate). A `scripts/verify-corrupt.ts` CLI demo
+(Tekton's literal `demo:corrupt`) over a saved golden artifact would still make
+the refusal visible in a live run — tracked, not started.
 
 ## 2. Carry provenance/confidence into the report (+ a confidence view) — **DONE (2026-06-22)**
 
@@ -118,21 +119,41 @@ signal lets the iterate loop / a human act on a truncation the gates alone miss.
 **Deferred:** generalising the cross-check to non-height fields (e.g. footprint
 area vs OSM `way` area) — tracked, not started.
 
-## 4. Promote the deterministic checklist to a production regression signal
+## 4. Promote the deterministic checklist to a production regression signal — **DONE (2026-06-23)**
 
 **Problem.** `src/grade/defect-score.ts` (8 booleans) is deterministic but
 **test-harness only**; production scoring is `gemini-2.5-pro` — the documented
 source of noise (leading-question inflation, plateaus). Several booleans are
 already computable from metrics the pipeline produces.
 
-- [ ] `height_truncated` ← `heightErr` + the #3 cross-check.
-- [ ] `footprint_wrong_shape` / `neighbor_merged` / `false_positives_merged` ←
-      low footprint IoU.
-- [ ] `floating_artifacts` ← connected-component pass on the grid (new; also
-      unblocks the #1 floating-artifact corruption).
-- [ ] Gate and *rank* the iterate loop on objective metrics + the deterministic
-      score; reserve the VLM for genuinely perceptual categories (colour harmony,
-      "reads as the building") as a final tie-break, not the optimization target.
+**Done.**
+- [x] `src/pipeline/verify/defect.ts` — `deriveDefects(objective, crossCheck,
+      grid)` derives the *provable* checklist deterministically and rolls it into
+      a stable 0-10 `DefectScoreResult { defects, score, penalties, grid }`:
+      - `height_truncated` ← `crossCheck.truncationSuspected || heightErr > 0.10`
+      - `facade_holes_visible` ← `!watertight`
+      - `floating_artifacts` ← `analyseGridConnectivity()` (6-connected component
+        pass; >2% of voxels off the main body) — **new; closes the #1
+        floating-artifact gap**
+      - `footprint_wrong_shape` ← `footprintIoU < 0.85`
+      - `surface_detail_visible` ← distinct block types ≥ 3 (monochrome guard)
+      - `proportions_correct` ← `heightErr ≤ 0.10 && footprintIoU ≥ 0.85`
+- [x] `FullVerificationReport.defectScore`; `composeReport()` takes optional
+      `grid`; `summariseReport()` prints `defect_score=N.N defects=[…]`; persisted
+      to `pipeline-state.json` (`build.ts`).
+- [x] Tests: `defect.test.ts` (9 — connectivity + every defect mapping),
+      `report.test.ts` (+2), `pipeline.test.ts` end-to-end.
+
+**Scope note (honest).** The two attribution-only defects — `neighbor_merged`,
+`false_positives_merged` — are deliberately **excluded** from the deterministic
+derivation: IoU can prove the footprint is wrong but not *why* (wrong shape vs
+merged neighbour vs false positive), which needs visual judgement. They remain
+the VLM's job.
+
+**Deferred (the consumption side):** making the iterate loop actually *rank* on
+`defectScore` (+ objective metrics) and demoting the VLM to a final tie-break —
+that's a change to `scripts/iterate.ts`'s selection logic, tracked but not yet
+done. The signal it needs is now in the report.
 
 ## 5. Preserve failed reports as an immutable history
 
