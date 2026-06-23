@@ -29,7 +29,7 @@ import { decomposePolygonByWaists } from './polygon-decompose.js';
 import { detectCurvedShape } from './curved-shape.js';
 import { douglasPeucker } from '../context/classify.js';
 import { rgbToWallBlock, rgbToRoofOverride } from '../../gen/color-blocks.js';
-import { DEFAULT_VOXEL_RESOLUTION } from '../pipeline.js';
+import { DEFAULT_VOXEL_RESOLUTION } from '../voxel-defaults.js';
 
 export interface SynthesizeSlicedOptions {
   /** Voxelizer resolution — used to size the slice delta. */

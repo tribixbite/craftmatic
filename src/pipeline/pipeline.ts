@@ -36,6 +36,7 @@ import type { ModelFetchers, RenderRoundFn } from './verify/consensus.js';
 import { scoreConsensus } from './verify/consensus.js';
 import { createGridRenderRound } from './verify/default-render-round.js';
 import { BlockGrid } from '../schem/types.js';
+import { DEFAULT_VOXEL_RESOLUTION, DEFAULT_VOXEL_MAX_DIMENSION } from './voxel-defaults.js';
 
 // ─── Input types ───────────────────────────────────────────────────────────
 
@@ -86,8 +87,9 @@ export interface RunPipelineOptions {
   };
 }
 
-export const DEFAULT_VOXEL_RESOLUTION = 6;
-export const DEFAULT_VOXEL_MAX_DIMENSION = 768;
+// Re-exported from the leaf module so existing `from './pipeline.js'` importers
+// keep working; new browser-reachable code should import from voxel-defaults.js.
+export { DEFAULT_VOXEL_RESOLUTION, DEFAULT_VOXEL_MAX_DIMENSION };
 
 export interface RunPipelineArtifacts {
   readonly printGlbBytes: ArrayBuffer;

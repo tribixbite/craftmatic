@@ -43,7 +43,7 @@ import { buildGlb } from './export/glb-writer.js';
 import { exportPrintGlb } from './export/glb-print.js';
 import { exportSceneGlb } from './export/glb-scene.js';
 import { exportVoxel } from './export/voxel.js';
-import { DEFAULT_VOXEL_RESOLUTION, DEFAULT_VOXEL_MAX_DIMENSION } from './pipeline.js';
+import { DEFAULT_VOXEL_RESOLUTION, DEFAULT_VOXEL_MAX_DIMENSION } from './voxel-defaults.js';
 import { runObjectiveGates } from './verify/objective.js';
 import type { FullVerificationReport } from './verify/report.js';
 import { composeReport } from './verify/report.js';
