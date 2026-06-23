@@ -17,11 +17,18 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import {
+  rankCandidates,
+  type Status,
+  type RankRecord,
+  type RankedCandidate,
+} from './iterate-ranking.js';
 
 const projectRoot = resolve(import.meta.dir, '..');
 const statePath = resolve(projectRoot, 'output/pipeline-state.json');
 const goldensPath = resolve(projectRoot, 'output/goldens.json');
 const outDir = resolve(projectRoot, 'output/pipeline');
+const failedDir = resolve(projectRoot, 'output/failed');
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -35,8 +42,6 @@ interface GoldensFile {
   goldens: Golden[];
 }
 
-type Status = 'pass' | 'fail-objective' | 'fail-consensus' | 'needs-human-review' | 'context-insufficient';
-
 interface StateRecord {
   address: string;
   status: Status;
@@ -44,8 +49,12 @@ interface StateRecord {
   elapsedSec: number;
   attempts: number;
   recentFailureSignatures: string[];
-  objective?: { failures?: string[] } | null;
+  objective?: { footprintIoU?: number; heightErr?: number; watertight?: boolean; failures?: string[] } | null;
   consensus?: { min?: number; median?: number; spread?: number; rounds?: number } | null;
+  /** Deterministic defect score (Roadmap #4) — primary intra-status rank key. */
+  defectScore?: { score?: number; penalties?: string[] } | null;
+  /** Independent height cross-check (Roadmap #3). */
+  crossCheck?: { truncationSuspected?: boolean; maxDisagreement?: number; ok?: boolean } | null;
   reason?: string;
 }
 
@@ -74,15 +83,35 @@ function loadState(): StateFile {
   }
 }
 
-/** Rank a state record by remediation urgency. Lower = worse. */
-function statusRank(status: Status): number {
-  switch (status) {
-    case 'fail-objective': return 0;
-    case 'fail-consensus': return 1;
-    case 'needs-human-review': return 2;
-    case 'context-insufficient': return 3;
-    case 'pass': return 4;
-  }
+/** Project a state record into the ranking subset (deterministic signals). */
+function toRankRecord(slug: string, rec: StateRecord): RankRecord {
+  return {
+    slug,
+    status: rec.status,
+    attempts: rec.attempts,
+    defectScore: rec.defectScore?.score ?? null,
+    consensusMedian: rec.consensus?.median ?? null,
+  };
+}
+
+/** Terminal statuses are skipped — rebuilding can't change them. */
+function isRemediable(rec: StateRecord | undefined): rec is StateRecord {
+  return Boolean(rec)
+    && rec!.status !== 'pass'
+    && rec!.status !== 'needs-human-review'
+    && rec!.status !== 'context-insufficient';
+}
+
+/**
+ * Ranked remediation queue (worst/most-urgent first). Ranks on deterministic
+ * defectScore + failed-history trend, with VLM consensus only as a final
+ * tie-break (see `iterate-ranking.ts`).
+ */
+function remediationQueue(state: StateFile, goldens: Golden[]): RankedCandidate[] {
+  const records = goldens
+    .filter(g => isRemediable(state.addresses[g.slug]))
+    .map(g => toRankRecord(g.slug, state.addresses[g.slug]));
+  return rankCandidates(records, failedDir);
 }
 
 function runBuild(golden: Golden, extraFlags: string[] = [], localTiles = false): number {
@@ -149,29 +178,26 @@ function summarise(state: StateFile, goldens: Golden[]): void {
       const rec = state.addresses[s];
       const failStr = rec.objective?.failures?.slice(0, 2).join('; ')
         ?? (rec.consensus ? `consensus min=${rec.consensus.min} median=${rec.consensus.median}` : '-');
-      console.log(`  ${s.padEnd(16)} ${rec.status.padEnd(22)} attempts=${rec.attempts} — ${failStr}`);
+      const defect = rec.defectScore?.score != null ? `defect=${rec.defectScore.score.toFixed(1)} ` : '';
+      const trunc = rec.crossCheck?.truncationSuspected ? 'trunc ' : '';
+      console.log(`  ${s.padEnd(16)} ${rec.status.padEnd(22)} attempts=${rec.attempts} ${defect}${trunc}— ${failStr}`);
+    }
+  }
+
+  // Ranked remediation queue — the order --worst will walk (worst first).
+  const queue = remediationQueue(state, goldens);
+  if (queue.length > 0) {
+    console.log(`\n─── Remediation queue (worst first) ───`);
+    for (const c of queue) {
+      const defect = c.record.defectScore != null ? c.record.defectScore.toFixed(1) : '-';
+      console.log(`  ${c.record.slug.padEnd(16)} ${c.record.status.padEnd(18)} trend=${c.trend.padEnd(11)} defect=${defect} attempts=${c.record.attempts}`);
     }
   }
 }
 
-function pickWorst(state: StateFile, goldens: Golden[]): Golden | null {
-  const candidates: Array<{ golden: Golden; rec: StateRecord }> = [];
-  for (const g of goldens) {
-    const rec = state.addresses[g.slug];
-    if (!rec) continue;
-    if (rec.status === 'pass') continue;
-    if (rec.status === 'needs-human-review') continue; // terminal — skip
-    if (rec.status === 'context-insufficient') continue; // terminal — skip
-    candidates.push({ golden: g, rec });
-  }
-  if (candidates.length === 0) return null;
-  // Sort by (status rank asc, then attempts asc so under-tried ones go first)
-  candidates.sort((a, b) => {
-    const byStatus = statusRank(a.rec.status) - statusRank(b.rec.status);
-    if (byStatus !== 0) return byStatus;
-    return a.rec.attempts - b.rec.attempts;
-  });
-  return candidates[0].golden;
+function pickWorst(state: StateFile, goldens: Golden[]): RankedCandidate | null {
+  const queue = remediationQueue(state, goldens);
+  return queue[0] ?? null;
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
@@ -261,14 +287,19 @@ if (only) {
 }
 
 if (hasFlag('--worst')) {
-  const g = pickWorst(state, goldens);
-  if (!g) {
+  const top = pickWorst(state, goldens);
+  if (!top) {
     console.log('no non-passing / non-terminal addresses — all goldens pass or require human review');
     summarise(state, goldens);
     process.exit(0);
   }
-  const rec = state.addresses[g.slug];
-  console.error(`worst: ${g.slug} (${rec.status}, ${rec.attempts} attempts)`);
+  const g = goldens.find(x => x.slug === top.record.slug);
+  if (!g) {
+    console.error(`internal: ranked slug ${top.record.slug} not in goldens`);
+    process.exit(1);
+  }
+  const defect = top.record.defectScore != null ? top.record.defectScore.toFixed(1) : '-';
+  console.error(`worst: ${g.slug} (${top.record.status}, trend=${top.trend}, defect=${defect}, ${top.record.attempts} attempts)`);
   const code = runBuild(g, extraBuildFlags, useLocalTiles);
   summarise(loadState(), goldens);
   process.exit(code);

@@ -150,10 +150,7 @@ derivation: IoU can prove the footprint is wrong but not *why* (wrong shape vs
 merged neighbour vs false positive), which needs visual judgement. They remain
 the VLM's job.
 
-**Deferred (the consumption side):** making the iterate loop actually *rank* on
-`defectScore` (+ objective metrics) and demoting the VLM to a final tie-break —
-that's a change to `scripts/iterate.ts`'s selection logic, tracked but not yet
-done. The signal it needs is now in the report.
+**Consumption side: DONE — see §6.**
 
 ## 5. Preserve failed reports as an immutable history — **DONE (2026-06-24)**
 
@@ -178,11 +175,43 @@ done. The signal it needs is now in the report.
 pure-core `src/pipeline/` must stay browser-importable. `build.ts` already lives
 in `scripts/` and is the persistence layer.
 
-**Deferred (consumption):** having the iterate loop actually *read* the history
-to distinguish oscillating from regressing builds — that's `scripts/iterate.ts`
-logic, same bucket as #4's loop-ranking. The history it needs now exists.
+**Consumption side: DONE — see §6.**
 
 ---
+
+## 6. Rank the iterate loop on deterministic signals (consumption of #4+#5) — **DONE (2026-06-24)**
+
+**Problem.** `scripts/iterate.ts` `pickWorst` ordered the rebuild queue by the
+status enum + attempt count only — blind to the deterministic `defectScore` and
+the failed-history trend that now exist. So it couldn't tell a real regression
+from tile-capture noise, and the VLM consensus implicitly drove priority.
+
+**Done.**
+- [x] `scripts/iterate-ranking.ts` (pure, unit-tested):
+  - `classifyTrend(scores)` → `regressing | improving | new | plateau |
+    oscillating` over the most recent 6 defectScores (≥2 direction changes past a
+    0.3 jitter band ⇒ oscillating).
+  - `readFailedScores(failedDir, slug)` reads the #5 archive chronologically
+    (same year-digit prefix guard).
+  - `compareRemediation` / `rankCandidates`: status band → trend (fix
+    regressions first; push noisy oscillators last) → **deterministic defectScore
+    (worse first)** → fewer attempts → **VLM consensus median as the LAST-resort
+    tie-break** (the demotion).
+- [x] `scripts/iterate.ts` rewired: `pickWorst` uses `rankCandidates`; `--status`
+      prints a "Remediation queue (worst first)" with per-slug `trend` + `defect`,
+      and the failure detail shows `defect=` / `trunc`.
+- [x] Tests: `test/iterate-ranking.test.ts` (15); smoke-ran `iterate.ts --status`
+      against live state (graceful on older records lacking `defectScore`).
+
+**Policy notes (tunable, documented in the module):** trend try-first order is
+`regressing > improving > new > plateau > oscillating` — runs help an improving
+or regressing build but won't converge an oscillator or move a plateau (those
+need a code change). Terminal statuses (`needs-human-review`,
+`context-insufficient`) are still excluded from the queue.
+
+**Still deferred:** the loop does not yet *auto-skip* a confirmed oscillator/
+plateau after N rounds — it only deprioritises them in the ordering. A hard
+"stop trying X" gate would need a confidence threshold on the trend.
 
 ## Audit flag (decision required, not a directive)
 
