@@ -88,6 +88,7 @@ function buildUI(): void {
     <div class="lego-section">
       <div class="lego-search-row">
         <input type="text" id="lego-search" class="lego-input lego-search-input"
+          aria-label="Search for a LEGO set by name or number"
           placeholder="Set name or number (e.g. 75192, Falcon, Technic)…">
         <button class="btn btn-primary btn-sm" id="lego-search-btn">Search</button>
       </div>

@@ -84,7 +84,7 @@ export function initGenerator(
 
     <div class="gen-options-body" id="gen-options-body">
       <div class="form-group">
-        <label class="form-label">Type</label>
+        <label class="form-label" for="gen-type">Type</label>
         <select id="gen-type" class="form-select">
           ${STRUCTURE_TYPES.map(t => `<option value="${t.value}">${t.label}</option>`).join('')}
         </select>
@@ -107,22 +107,22 @@ export function initGenerator(
 
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Floors</label>
+          <label class="form-label" for="gen-floors">Floors</label>
           <input id="gen-floors" type="number" class="form-input" value="2" min="1" max="8">
         </div>
         <div class="form-group">
-          <label class="form-label">Seed</label>
+          <label class="form-label" for="gen-seed">Seed</label>
           <input id="gen-seed" type="number" class="form-input" placeholder="Random">
         </div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Width</label>
+          <label class="form-label" for="gen-width">Width</label>
           <input id="gen-width" type="number" class="form-input" placeholder="Auto">
         </div>
         <div class="form-group">
-          <label class="form-label">Length</label>
+          <label class="form-label" for="gen-length">Length</label>
           <input id="gen-length" type="number" class="form-input" placeholder="Auto">
         </div>
       </div>
@@ -131,7 +131,7 @@ export function initGenerator(
         <summary class="customize-summary">Customize Colors</summary>
         <div class="customize-body">
           <div class="form-group">
-            <label class="form-label">House Color</label>
+            <label class="form-label" for="gen-wall">House Color</label>
             <select id="gen-wall" class="form-select">
               <option value="">Default (from style)</option>
               <option value="minecraft:white_concrete">White Concrete</option>
@@ -147,7 +147,7 @@ export function initGenerator(
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Trim Color</label>
+            <label class="form-label" for="gen-trim">Trim Color</label>
             <select id="gen-trim" class="form-select">
               <option value="">Default (from style)</option>
               <option value="minecraft:dark_oak_log">Dark Oak Log</option>
@@ -160,7 +160,7 @@ export function initGenerator(
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Door</label>
+            <label class="form-label" for="gen-door">Door</label>
             <select id="gen-door" class="form-select">
               <option value="">Default (from style)</option>
               <option value="oak">Oak</option>
@@ -181,7 +181,7 @@ export function initGenerator(
         <div class="customize-body">
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">Roof Shape</label>
+              <label class="form-label" for="gen-roof-shape">Roof Shape</label>
               <select id="gen-roof-shape" class="form-select">
                 <option value="">Auto</option>
                 <option value="gable">Gable</option>
@@ -192,7 +192,7 @@ export function initGenerator(
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label">Floor Plan</label>
+              <label class="form-label" for="gen-floorplan">Floor Plan</label>
               <select id="gen-floorplan" class="form-select">
                 <option value="">Auto</option>
                 <option value="rect">Rectangular</option>
@@ -204,17 +204,17 @@ export function initGenerator(
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">Window Spacing</label>
+              <label class="form-label" for="gen-window-spacing">Window Spacing</label>
               <input id="gen-window-spacing" type="number" class="form-input" placeholder="Auto" min="2" max="6">
             </div>
             <div class="form-group">
-              <label class="form-label">Roof Height</label>
+              <label class="form-label" for="gen-roof-height">Roof Height</label>
               <input id="gen-roof-height" type="number" class="form-input" placeholder="Auto" min="1" max="12">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">Season</label>
+              <label class="form-label" for="gen-season">Season</label>
               <select id="gen-season" class="form-select">
                 <option value="">None</option>
                 <option value="snow">Winter</option>
@@ -224,7 +224,7 @@ export function initGenerator(
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label">Foundation</label>
+              <label class="form-label" for="gen-foundation">Foundation</label>
               <select id="gen-foundation" class="form-select">
                 <option value="">Default</option>
                 <option value="slab">Slab</option>

@@ -135,13 +135,18 @@ export function initGallery(
   onSelect: (grid: BlockGrid, label: string) => void,
 ): void {
   GALLERY_ENTRIES.forEach((entry, idx) => {
-    const card = document.createElement('div');
+    // Use a real <button> so cards are keyboard-focusable and announced by
+    // screen readers (previously a clickable <div> with no role/tabindex).
+    const card = document.createElement('button');
+    card.type = 'button';
     card.className = 'gallery-card';
+    card.setAttribute('aria-label', `Open ${entry.label} — ${entry.type}, ${entry.style} style`);
     card.style.animationDelay = `${idx * 50}ms`;
 
     const preview = document.createElement('div');
     preview.className = 'gallery-preview loading';
-    preview.innerHTML = '<canvas></canvas>';
+    // Canvas thumbnail is decorative relative to the card's aria-label.
+    preview.innerHTML = '<canvas aria-hidden="true"></canvas>';
 
     card.innerHTML = '';
     card.appendChild(preview);

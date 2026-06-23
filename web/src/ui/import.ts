@@ -214,7 +214,7 @@ export function initImport(
           </div>
           <div class="import-api-input-row">
             <input id="import-parcl-key" type="password" class="form-input import-api-key-input"
-              placeholder="Paste API key" value="${escapeAttr(savedParclKey)}">
+              aria-label="Parcl Labs API key" placeholder="Paste API key" value="${escapeAttr(savedParclKey)}">
             <button id="import-parcl-save" class="btn btn-secondary btn-sm">${savedParclKey ? 'Saved' : 'Save'}</button>
             <a href="https://app.parcllabs.com" target="_blank" rel="noopener"
               class="import-api-link" title="Get free key">Get key</a>
@@ -231,7 +231,7 @@ export function initImport(
           </div>
           <div class="import-api-input-row">
             <input id="import-smarty-key" type="password" class="form-input import-api-key-input"
-              placeholder="Built-in key active" value="${smartyCustomKey ? escapeAttr(getSmartyKey()) : ''}">
+              aria-label="Smarty API key" placeholder="Built-in key active" value="${smartyCustomKey ? escapeAttr(getSmartyKey()) : ''}">
             <button id="import-smarty-save" class="btn btn-secondary btn-sm">${smartyCustomKey ? 'Saved' : 'Save'}</button>
             <a href="https://www.smarty.com/account/create" target="_blank" rel="noopener"
               class="import-api-link" title="Get free key">Get key</a>
@@ -248,7 +248,7 @@ export function initImport(
           </div>
           <div class="import-api-input-row">
             <input id="import-sv-key" type="password" class="form-input import-api-key-input"
-              placeholder="Paste API key" value="${escapeAttr(savedStreetViewKey)}">
+              aria-label="Google Street View API key" placeholder="Paste API key" value="${escapeAttr(savedStreetViewKey)}">
             <button id="import-sv-save" class="btn btn-secondary btn-sm">${savedStreetViewKey ? 'Saved' : 'Save'}</button>
             <a href="${STREETVIEW_SIGNUP_URL}" target="_blank" rel="noopener"
               class="import-api-link" title="Get free key">Get key</a>
@@ -265,7 +265,7 @@ export function initImport(
           </div>
           <div class="import-api-input-row">
             <input id="import-mb-token" type="password" class="form-input import-api-key-input"
-              placeholder="Paste access token" value="${escapeAttr(savedMapboxToken)}">
+              aria-label="Mapbox access token" placeholder="Paste access token" value="${escapeAttr(savedMapboxToken)}">
             <button id="import-mb-save" class="btn btn-secondary btn-sm">${savedMapboxToken ? 'Saved' : 'Save'}</button>
             <a href="${MAPBOX_SIGNUP_URL}" target="_blank" rel="noopener"
               class="import-api-link" title="Get free token">Get token</a>
@@ -282,7 +282,7 @@ export function initImport(
           </div>
           <div class="import-api-input-row">
             <input id="import-mly-token" type="password" class="form-input import-api-key-input"
-              placeholder="Paste client token" value="${escapeAttr(savedMlyToken)}">
+              aria-label="Mapillary client token" placeholder="Paste client token" value="${escapeAttr(savedMlyToken)}">
             <button id="import-mly-save" class="btn btn-secondary btn-sm">${savedMlyToken ? 'Saved' : 'Save'}</button>
             <a href="${MAPILLARY_SIGNUP_URL}" target="_blank" rel="noopener"
               class="import-api-link" title="Get free token">Get token</a>
@@ -296,7 +296,7 @@ export function initImport(
 
     <!-- Address lookup -->
     <div class="form-group">
-      <label class="form-label">Property Address</label>
+      <label class="form-label" for="import-address">Property Address</label>
       <div class="import-address-row">
         <input id="import-address" type="text" class="form-input"
           placeholder="123 Main St, City, State ZIP"
@@ -309,12 +309,12 @@ export function initImport(
     <!-- Property details form -->
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Stories</label>
+        <label class="form-label" for="import-stories">Stories</label>
         <input id="import-stories" type="number" class="form-input"
           value="${loadField('stories') || '2'}" min="1" max="100">
       </div>
       <div class="form-group">
-        <label class="form-label">Sq. Ft.</label>
+        <label class="form-label" for="import-sqft">Sq. Ft.</label>
         <input id="import-sqft" type="number" class="form-input"
           value="${loadField('sqft') || '2000'}" min="400" max="50000">
       </div>
@@ -322,12 +322,12 @@ export function initImport(
 
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Bedrooms</label>
+        <label class="form-label" for="import-beds">Bedrooms</label>
         <input id="import-beds" type="number" class="form-input"
           value="${loadField('beds') || '3'}" min="0" max="20">
       </div>
       <div class="form-group">
-        <label class="form-label">Bathrooms</label>
+        <label class="form-label" for="import-baths">Bathrooms</label>
         <input id="import-baths" type="number" class="form-input"
           value="${loadField('baths') || '2'}" min="0" max="15">
       </div>
@@ -335,12 +335,12 @@ export function initImport(
 
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Year Built</label>
+        <label class="form-label" for="import-year">Year Built</label>
         <input id="import-year" type="number" class="form-input"
           value="${loadField('year') || '2000'}" min="1600" max="2030">
       </div>
       <div class="form-group">
-        <label class="form-label">Type</label>
+        <label class="form-label" for="import-proptype">Type</label>
         <select id="import-proptype" class="form-select">
           <option value="house" ${loadField('proptype') === 'house' ? 'selected' : ''}>House</option>
           <option value="townhouse" ${loadField('proptype') === 'townhouse' ? 'selected' : ''}>Townhouse</option>
@@ -415,7 +415,7 @@ export function initImport(
       <div class="customize-body">
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Roof Material</label>
+            <label class="form-label" for="import-roof-type">Roof Material</label>
             <select id="import-roof-type" class="form-select">
               <option value="">Unknown</option>
               <option value="Asphalt Shingle">Asphalt Shingle</option>
@@ -427,7 +427,7 @@ export function initImport(
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Exterior Walls</label>
+            <label class="form-label" for="import-exterior-type">Exterior Walls</label>
             <select id="import-exterior-type" class="form-select">
               <option value="">Unknown</option>
               <option value="Wood">Wood</option>
@@ -442,7 +442,7 @@ export function initImport(
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Construction</label>
+            <label class="form-label" for="import-construction">Construction</label>
             <select id="import-construction" class="form-select">
               <option value="">Unknown</option>
               <option value="Frame">Frame</option>
@@ -452,7 +452,7 @@ export function initImport(
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Foundation</label>
+            <label class="form-label" for="import-foundation">Foundation</label>
             <select id="import-foundation" class="form-select">
               <option value="">Unknown</option>
               <option value="Slab">Slab</option>
@@ -464,7 +464,7 @@ export function initImport(
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Roof Frame</label>
+            <label class="form-label" for="import-roof-frame">Roof Frame</label>
             <select id="import-roof-frame" class="form-select">
               <option value="">Unknown</option>
               <option value="Gable">Gable</option>
@@ -475,7 +475,7 @@ export function initImport(
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Driveway</label>
+            <label class="form-label" for="import-driveway">Driveway</label>
             <select id="import-driveway" class="form-select">
               <option value="">Unknown</option>
               <option value="Asphalt">Asphalt</option>
@@ -487,27 +487,27 @@ export function initImport(
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Lot Size (sqft)</label>
+            <label class="form-label" for="import-lot-size">Lot Size (sqft)</label>
             <input id="import-lot-size" type="number" class="form-input" placeholder="0" min="0" max="500000">
           </div>
           <div class="form-group">
-            <label class="form-label">Garage Sq Ft</label>
+            <label class="form-label" for="import-garage-sqft">Garage Sq Ft</label>
             <input id="import-garage-sqft" type="number" class="form-input" placeholder="0" min="0" max="5000">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Fireplaces</label>
+            <label class="form-label" for="import-fireplace-count">Fireplaces</label>
             <input id="import-fireplace-count" type="number" class="form-input" placeholder="0" min="0" max="10">
           </div>
           <div class="form-group">
-            <label class="form-label">Total Rooms</label>
+            <label class="form-label" for="import-total-rooms">Total Rooms</label>
             <input id="import-total-rooms" type="number" class="form-input" placeholder="0" min="0" max="50">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Heating Fuel</label>
+            <label class="form-label" for="import-heating-fuel">Heating Fuel</label>
             <select id="import-heating-fuel" class="form-select">
               <option value="">Unknown</option>
               <option value="Natural Gas">Natural Gas</option>
@@ -518,7 +518,7 @@ export function initImport(
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">AC Type</label>
+            <label class="form-label" for="import-ac-type">AC Type</label>
             <select id="import-ac-type" class="form-select">
               <option value="">Unknown</option>
               <option value="Central">Central</option>
@@ -529,7 +529,7 @@ export function initImport(
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Heating System</label>
+            <label class="form-label" for="import-heating-system">Heating System</label>
             <select id="import-heating-system" class="form-select">
               <option value="">Unknown</option>
               <option value="Forced Air">Forced Air</option>

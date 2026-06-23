@@ -133,7 +133,7 @@ function buildUI(): void {
       </div>
       <div class="tiles-search-row">
         <input type="text" class="tiles-input" id="tiles-address"
-          placeholder="Enter address..." value="">
+          aria-label="Address to voxelize" placeholder="Enter address..." value="">
         <button class="btn btn-primary btn-sm" id="tiles-voxelize" ${!hasTileKey ? 'disabled' : ''}>Voxelize</button>
       </div>
       <div class="tiles-params">
@@ -180,7 +180,7 @@ function buildUI(): void {
           : 'Google Maps API key required. Set it in the <strong>Map</strong> tab, or paste below:'}</p>
         <div class="tiles-key-row">
           <input type="password" class="tiles-key-input" id="tiles-key-input"
-            placeholder="${hasTileKey ? 'Replace API key...' : 'Google Maps API key'}">
+            aria-label="Google Maps API key" placeholder="${hasTileKey ? 'Replace API key...' : 'Google Maps API key'}">
           <button class="btn btn-secondary btn-sm" id="tiles-key-save">Save</button>
           ${hasTileKey ? '<button class="btn btn-secondary btn-sm" id="tiles-key-clear">Clear</button>' : ''}
         </div>

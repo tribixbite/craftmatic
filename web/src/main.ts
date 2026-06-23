@@ -917,7 +917,9 @@ declare const __APP_VERSION__: string;
 const versionEl = document.getElementById('app-version');
 if (versionEl) {
   versionEl.textContent = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
-  versionEl.style.cssText = 'font-family:var(--font-mono,"JetBrains Mono",monospace);font-size:0.7rem;opacity:0.45;letter-spacing:0.02em;';
+  // opacity 0.45 rendered ~3.85:1 on the dark nav (below WCAG AA). 0.6 gives ~5.9:1
+  // while staying visually subtle as a version badge.
+  versionEl.style.cssText = 'font-family:var(--font-mono,"JetBrains Mono",monospace);font-size:0.7rem;opacity:0.6;letter-spacing:0.02em;';
 }
 
 // ─── Service Worker ─────────────────────────────────────────────────────────

@@ -136,7 +136,26 @@ export function initReview(
       activateVersion(stem);
     } catch (err) {
       console.error(`[review] Failed to parse ${file.name}:`, err);
+      // Surface a visible, transient error instead of failing silently — a user
+      // who drops a corrupt/unsupported file otherwise gets no feedback at all.
+      showLoadError(`Could not read “${file.name}” — it may be corrupt or an unsupported format.`);
     }
+  }
+
+  /** Show a dismissible error toast in the viewer pane for ~6s. */
+  function showLoadError(message: string): void {
+    let toast = viewerEl.querySelector('.review-load-error') as HTMLElement | null;
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.className = 'review-load-error';
+      viewerEl.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.remove('hidden');
+    window.clearTimeout((toast as HTMLElement & { _t?: number })._t);
+    (toast as HTMLElement & { _t?: number })._t = window.setTimeout(() => {
+      toast?.classList.add('hidden');
+    }, 6000);
   }
 
   // ─── Image loading ─────────────────────────────────────────────────────────

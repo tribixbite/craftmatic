@@ -10,7 +10,9 @@
   --border-focus: #5865f2;
   --text-primary: #e4e4ef;
   --text-secondary: #8888a8;
-  --text-muted: #5c5c78;
+  /* Bumped from #5c5c78 (2.9:1, failed WCAG even for large text) to ~4.2:1 on the
+     dark surfaces while staying visibly muted vs --text-secondary. */
+  --text-muted: #74749a;
   --accent: #5865f2;
   --accent-hover: #6d78f7;
   --accent-glow: rgba(88, 101, 242, 0.25);
@@ -320,6 +322,14 @@ html, body {
 }
 
 .gallery-card {
+  /* Rendered as a <button> for keyboard/SR access — reset native button chrome */
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  display: block;
+  padding: 0;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1590,6 +1600,25 @@ html, body {
   margin-bottom: 4px;
 }
 
+/* Actionable empty state when comparison-data.json is missing/unreadable */
+.cmp-load-error {
+  padding: 16px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.cmp-load-error-hint {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.cmp-load-error code {
+  font-family: var(--font-mono);
+  background: var(--bg-input);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
 .cmp-api-table {
   width: 100%;
   font-size: 11px;
@@ -2654,6 +2683,25 @@ html, body {
   min-height: 300px;
   position: relative;
 }
+
+/* Transient error toast when a dropped schematic can't be parsed */
+.review-load-error {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  max-width: 90%;
+  z-index: 5;
+  padding: 10px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  box-shadow: var(--shadow);
+  transition: opacity var(--transition);
+}
+.review-load-error.hidden { opacity: 0; pointer-events: none; }
 
 .review-images {
   flex: 2;
