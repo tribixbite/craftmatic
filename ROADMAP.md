@@ -35,45 +35,46 @@ covers *what to build next and why it matters*. Read both.
 
 ---
 
-## NEAR-TERM — the next ~100 hours (do these first, roughly ranked)
+## NEAR-TERM — status as of 2026-06-23 (most of the original floor is built)
 
-These make the *current, already-excellent* thing durable and actually usable.
-The rendering is already box-art quality — **more material/lighting tweaks are
-diminishing returns; resist them.**
+The original near-term list (tests/CI, user loop, MC bridge, prod reliability,
+hand-off) is **largely DONE** — see the strikethroughs. The rendering is box-art
+quality; **resist more material/lighting tweaks.** What actually remains:
 
-> ⚠️ Several items below are inferred — **verify the current state before
-> committing hours** (do tests exist? is prod healthy? does mobile work?).
+1. ~~**Protect what's built — tests & CI.**~~ ✅ **DONE.** Offline, deterministic
+   test net for every loader + the voxelizer + schem round-trip + LSynth + lxf
+   alignment math (`test/*.test.ts`, ~1031 tests); CI gates `typecheck` +
+   `typecheck:web` (whole `web/` tree type-clean) + tests + build. Golden-image
+   visual regression was de-risked into **geometry-level regression**
+   (`ldraw-geometry.test.ts`) — GPU-free, guards the same invariants. *True
+   pixel golden-image is still absent* (low priority; headless-WebGL-in-CI is
+   flaky — only revisit if a shading regression slips through).
+2. ~~**Close the user loop.**~~ ✅ Largely done: relevance search ranking,
+   source-quality gating (DBIX skip / vision "approximate" / incomplete-model
+   note), clear error/empty states (adversarial walkthrough passed),
+   layer/step slider, honest `.lxf` caveat.
+3. **Mobile LOD budget — the one near-term item still open (~10h).** The mobile
+   *profile* exists (pixel-ratio cap, 1024² shadows, SAO off, preserveDrawingBuffer
+   off). What's missing: a **triangle/LOD budget** so a 27M-tri UCS Falcon/ISD
+   doesn't melt a phone GPU (skip stud interiors / sub-pixel primitives, or a
+   distance LOD). The owner tests on a phone → real pull. **Highest near-term
+   priority now.**
+4. ~~**Minecraft bridge first-class.**~~ ✅ Strong: voxel fidelity **validated
+   across 20 varied large sets** (export→import round-trips perfect through both
+   importers; 0 unmapped colours; primitive-leak bug fixed); STL/OBJ at real mm
+   scale; layer-by-layer build guide exposed; `.schem`/`.litematic` validated.
+   Remaining polish: a UI control for the Accurate-vs-Cubic scale tradeoff is
+   present but tall models (Eiffel 384 in Accurate) could auto-suggest Cubic.
+5. ~~**Prod reliability/observability.**~~ ✅ `prod-smoke.yml` runs post-deploy +
+   daily, catching "deployed app renders nothing" (the historic `/ldraw-parts`
+   gap). Deploy is FF-to-main; CI-mirror clean-tree check before each push.
+6. ~~**Hand-off.**~~ ✅ CLAUDE.md is comprehensive + current.
 
-1. **Protect what's built — tests & CI (~25h). [highest leverage]**
-   - Golden-image **visual-regression** for ~10 reference models (headless render
-     → PNG, perceptual diff) so the renderer invariants can't silently break.
-   - **Unit tests for the four file loaders** with real fixtures: AES `.io`
-     decrypt, `.lxf` per-part alignment math (#108), `.mpd`/MPD step counting,
-     color maps. These are intricate and currently unguarded.
-   - **Fix the pre-existing TS errors** in `web/src/ui/*` and gate
-     `tsc --noEmit` + tests in CI. Right now the build doesn't type-gate, so one
-     careless commit can undo a week of careful work.
-2. **Close the user loop end-to-end (~30h).**
-   - Walk the path a *non-expert* hits adversarially: land → search a set →
-     auto-load → view → export. Fix the failure modes: set not in OMR, a part
-     that won't resolve, confusing errors, blank-screen-while-loading.
-   - Clear empty/error/loading states. The engine underneath doesn't matter if
-     the on-ramp loses people.
-3. **Make it work on a phone (~15h).** The owner tests from a phone, and 27M-tri
-   UCS models melt mobile GPUs. Touch controls, a triangle/LOD budget for big
-   sets, responsive layout. This is reach.
-4. **Treat the Minecraft bridge as first-class (~15h).** It's half the project's
-   identity and the genuinely *distinctive* thing. Voxel fidelity, the
-   layer-by-layer build guide, schematic accuracy, export UX.
-5. **Prod reliability/observability (~10h).** The `/ldraw-parts` proxy was once a
-   *silent* prod gap (deployed app had no geometry, nobody knew). Add a smoke
-   test that catches "prod renders nothing," basic error reporting, a deploy
-   checklist.
-6. **Hand-off (~5h).** README + CLAUDE.md good enough that a stranger can run,
-   test, and deploy. So it outlives whoever's typing.
-
-**If you only do one: #1.** The best gift to a project you won't maintain is the
-safety net that lets the next person change it without fear.
+**Next, in order:** (a) mobile LOD budget [#3]; (b) begin the **Layer-1
+verifier** (below) — the actual moat; (c) **instruction generation** (Layer 3,
+the killer app). Connectivity tools exist but are **dev-only** (`window.__ldrawViewer.auditConnectivity`)
+— surfacing + fusing them into the hybrid certifier is the bridge from
+near-term to the long-term thesis.
 
 ---
 
