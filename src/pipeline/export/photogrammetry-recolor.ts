@@ -76,10 +76,81 @@ interface PreparedMesh {
   baseColor: readonly [number, number, number] | null;
 }
 
+// Minimal structural types for the browser image-decode globals. The CLI
+// tsconfig has lib:["ES2022"] (no DOM), so we can't reference the DOM
+// `createImageBitmap`/`OffscreenCanvas` types directly. These cover only
+// the members `decodePngBrowser` uses, accessed via `globalThis`.
+interface BrowserBitmap { readonly width: number; readonly height: number; close(): void; }
+interface BrowserImageData { readonly width: number; readonly height: number; readonly data: Uint8ClampedArray; }
+interface BrowserCanvasCtx {
+  drawImage(img: BrowserBitmap, dx: number, dy: number): void;
+  getImageData(x: number, y: number, w: number, h: number): BrowserImageData;
+}
+interface BrowserCanvas { getContext(id: '2d'): BrowserCanvasCtx | null; }
+interface BrowserImageGlobals {
+  createImageBitmap?: (blob: unknown) => Promise<BrowserBitmap>;
+  OffscreenCanvas?: new (w: number, h: number) => BrowserCanvas;
+}
+
 /**
- * Decode a JPEG/PNG texture image into RGBA pixels. Uses jpeg-js for
- * JPEG; PNG uses pureimage as a fallback. Returns null for unsupported
- * mime types.
+ * True when a real browser image-decode pipeline is available
+ * (`createImageBitmap` + `OffscreenCanvas`). The headless Node/Bun CLI
+ * polyfills `createImageBitmap` to return a STUB ImageBitmap (no pixels),
+ * so we additionally require `OffscreenCanvas`, which the polyfill does
+ * not provide — distinguishing a real browser (main thread or worker)
+ * from the stubbed Node environment.
+ */
+function browserImageGlobals(): Required<BrowserImageGlobals> | null {
+  const g = globalThis as unknown as BrowserImageGlobals;
+  if (typeof g.createImageBitmap === 'function' && typeof g.OffscreenCanvas === 'function') {
+    return { createImageBitmap: g.createImageBitmap, OffscreenCanvas: g.OffscreenCanvas };
+  }
+  return null;
+}
+
+/**
+ * Decode a PNG byte buffer into RGBA pixels via the browser's
+ * `createImageBitmap` + `OffscreenCanvas` (same approach as
+ * `web/src/ui/browser-fetchers.ts`). Returns null on failure.
+ */
+async function decodePngBrowser(
+  bytes: Uint8Array,
+  g: Required<BrowserImageGlobals>,
+): Promise<DecodedTexture | null> {
+  try {
+    const blob = new Blob([bytes], { type: 'image/png' });
+    const bitmap = await g.createImageBitmap(blob);
+    const canvas = new g.OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      bitmap.close();
+      return null;
+    }
+    ctx.drawImage(bitmap, 0, 0);
+    const img = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    bitmap.close();
+    return { width: img.width, height: img.height, pixels: new Uint8Array(img.data.buffer) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Specifier for the Node-only PNG decoder leaf, assembled at runtime so
+ * vite's static import analyser cannot resolve the literal path. A bare
+ * `import('./png-decode-node.js')` (even with `@vite-ignore`) is still
+ * followed by rollup and would pull `node:stream` into the browser graph,
+ * producing an externalization warning. Concatenating the path defeats
+ * that static analysis: the browser never reaches this branch, and Node
+ * resolves the relative specifier at runtime.
+ */
+const PNG_NODE_DECODER = './png-decode' + '-node.js';
+
+/**
+ * Decode a JPEG/PNG texture image into RGBA pixels. JPEG uses jpeg-js
+ * (pure JS, works everywhere). PNG uses the browser canvas decoder when
+ * available, otherwise falls back to the Node-only `png-decode-node.ts`
+ * leaf (pureimage + node:stream).
  */
 async function decodeTexture(
   bytes: Uint8Array,
@@ -97,33 +168,16 @@ async function decodeTexture(
       return null;
     }
   }
-  // PNG via pureimage
-  try {
-    const pi = await import('pureimage');
-    // pureimage works with streams; wrap bytes in a Buffer
-    const { Readable } = await import('node:stream');
-    const buf = Buffer.from(bytes);
-    const stream = Readable.from(buf);
-    const img = await pi.decodePNGFromStream(stream);
-    const w = img.width;
-    const h = img.height;
-    const pixels = new Uint8Array(w * h * 4);
-    // Read RGBA (pureimage stores as int32 ABGR; we re-pack)
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const px = img.getPixelRGBA(x, y);
-        const i = (y * w + x) * 4;
-        // pureimage ABGR uint32: byte order R,G,B,A
-        pixels[i]     = (px >>> 24) & 0xff;  // R
-        pixels[i + 1] = (px >>> 16) & 0xff;  // G
-        pixels[i + 2] = (px >>>  8) & 0xff;  // B
-        pixels[i + 3] = px & 0xff;            // A
-      }
-    }
-    return { width: w, height: h, pixels };
-  } catch {
-    return null;
+  // PNG: prefer the browser canvas decoder; never touch node:stream there.
+  const browserGlobals = browserImageGlobals();
+  if (browserGlobals) {
+    return decodePngBrowser(bytes, browserGlobals);
   }
+  // Node/Bun fallback. The runtime-assembled specifier + @vite-ignore keep
+  // the node:stream-importing leaf out of the browser bundle entirely (so
+  // no externalization warning). See `png-decode-node.ts`.
+  const mod = await import(/* @vite-ignore */ PNG_NODE_DECODER) as typeof import('./png-decode-node.js');
+  return mod.decodePngNode(bytes);
 }
 
 /**
