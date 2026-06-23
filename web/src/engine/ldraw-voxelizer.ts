@@ -135,7 +135,11 @@ function isLDrawPrimitive(part: string): boolean {
   if (/^\d+-\d+/.test(filename)) return true;
   // Named geometry primitives (all from LDraw p/ primitives directory)
   if (bare.startsWith('stug-')) return true;
-  if (bare === 'axl2hole' || bare.startsWith('axlhol')) return true;
+  // Technic axle-hole PERIMETER primitives (all live in p/, never standalone
+  // parts): axlehole, axlehol8, axl2hole, axl3hol9, axl5hol8, … — 21 variants.
+  // The old `startsWith('axlhol')` missed the `axlehol*` spelling (note the 'e'),
+  // so e.g. 42130 BMW leaked 578 axlehol8 "bricks" into the voxelization.
+  if (/^axl\d*e?hol/.test(filename)) return true;
   if (bare.startsWith('connect')) return true;     // Technic connector geometry
   if (bare.startsWith('npeghol')) return true;     // notched peg hole variants
   if (bare.startsWith('npeghole')) return true;    // npeghole.dat (without surface)
