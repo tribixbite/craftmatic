@@ -64,6 +64,17 @@ const IS_MOBILE = typeof navigator !== 'undefined'
   && Math.min(screen.width, screen.height) < 900;
 const MAX_PIXEL_RATIO = IS_MOBILE ? 1.5 : 2;
 const SHADOW_MAP_SIZE = IS_MOBILE ? 1024 : 2048;
+// Adaptive edge LOD. The old code hard-CAPPED edge collection at 2M segments —
+// which silently TRUNCATED big sets (71043 Hogwarts, Colosseum, UCS Falcon all
+// have ~2M+) so some bricks got brick-separation outlines and some didn't
+// (inconsistent partial edges on hero sets). DESKTOP budget is raised to 3.5M
+// so those sets now get FULL, consistent edges (a quality improvement — and
+// only an absurd >3.5M model, none in practice, would drop, as a memory
+// backstop). MOBILE keeps a lower budget: fat lines are disproportionately
+// expensive there and edges aren't scrutinised on a phone, so >1.2M-segment
+// sets drop edges entirely (clean all-or-nothing, never partial). Mobile is a
+// conservative perf choice, not device-fps-validated here.
+const EDGE_SEGMENT_BUDGET = IS_MOBILE ? 1_200_000 : 3_500_000;
 
 function applyMat(v: Vec3, R: readonly number[], T: Vec3): Vec3 {
   return [
@@ -178,6 +189,9 @@ export class LDrawViewer {
   missingParts: { part: string; count: number }[] = [];
   /** Sub-file refs that resolved nowhere (parents render with small gaps). */
   unresolvedSubparts: string[] = [];
+  /** True when brick-separation edges were dropped because the model exceeded
+   *  EDGE_SEGMENT_BUDGET (UCS-class) — edges are sub-pixel at that scale. */
+  edgesDroppedForSize = false;
   // Cinematic camera transition state (null when not animating).
   // Render loop interpolates position/target/near/far with ease-in-out quad
   // over `duration` ms. Set by fitCameraToDirection(..., animate=true).
@@ -1119,6 +1133,7 @@ export class LDrawViewer {
     const group = new THREE.Group();
     const edgeMaterials: LineMaterial[] = [];
     this.currentGeomKeys.clear(); // repopulated as this model's geoms are touched
+    this.edgesDroppedForSize = false; // recomputed below per the edge budget
 
     // ── Bucket bricks by (partId, brickColor) for InstancedMesh ──────────
     // Same partId reused across many bricks → ONE shared geometry + ONE
@@ -1143,6 +1158,8 @@ export class LDrawViewer {
     const segStepArr: number[] = []; // 1 step per segment
     const segLayerArr: number[] = []; // 1 RAW layer per segment
     let segCount = 0;
+    // Set once collection exceeds EDGE_SEGMENT_BUDGET → drop edges model-wide.
+    let edgesOverBudget = false;
 
     const scale = LDU_TO_UNITS;
 
@@ -1187,9 +1204,10 @@ export class LDrawViewer {
       bucket.steps.push(bStep);
       bucket.layers.push(bLayer);
 
-      // Edges (merged fat lines; not InstancedMesh). World-space positions;
-      // cap total to bound memory.
-      if (segCount < 2_000_000) {
+      // Edges (merged fat lines; not InstancedMesh). World-space positions.
+      // Stop collecting once over the LOD budget; the model-wide edge mesh is
+      // then dropped entirely below (no inconsistent partial outlines).
+      if (!edgesOverBudget) {
         for (const [ev0, ev1] of geom.edges) {
           const we0 = applyMat(ev0, R, T);
           const we1 = applyMat(ev1, R, T);
@@ -1210,6 +1228,7 @@ export class LDrawViewer {
             segColor.push(ccid); segStepArr.push(bStep); segLayerArr.push(bLayer); segCount++;
           }
         }
+        if (segCount > EDGE_SEGMENT_BUDGET) edgesOverBudget = true;
       }
     }
 
@@ -1397,7 +1416,12 @@ export class LDrawViewer {
       return t;
     };
 
-    if (segCount > 0) {
+    if (edgesOverBudget) {
+      // UCS-class model: edges are sub-pixel here and were being truncated
+      // mid-model — drop them entirely so the outline set is consistent and a
+      // ~2M-segment fat-line draw is saved. Surfaced for the load status.
+      this.edgesDroppedForSize = true;
+    } else if (segCount > 0) {
       // Sort segment indices step-ascending.
       const order = [...segStepArr.keys()].sort((a, b) => segStepArr[a]! - segStepArr[b]!);
       const allEdgePos = new Float32Array(segCount * 6);

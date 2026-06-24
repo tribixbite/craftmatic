@@ -1300,6 +1300,7 @@ async function voxelizeAndDisplay(
         const missing = currentLDrawViewer.missingParts;
         const subGaps = currentLDrawViewer.unresolvedSubparts.length;
         const subGapNote = subGaps > 0 ? ` (${subGaps} sub-part file(s) unresolved — minor gaps, see console)` : '';
+        const edgeNote = currentLDrawViewer.edgesDroppedForSize ? ' · edge outlines hidden (very large model)' : '';
         if (missing.length > 0) {
           const totalMissing = missing.reduce((s, m) => s + m.count, 0);
           const names = missing.slice(0, 6).map(m => m.part.replace(/\.dat$/i, '')).join(', ');
@@ -1310,7 +1311,7 @@ async function voxelizeAndDisplay(
           );
           console.warn('[lego] unrendered parts (missing from /ldraw-parts or LSynth):', missing);
         } else {
-          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}${completeness}${subGapNote}`, subGaps > 0 || completeness ? 'info' : 'success');
+          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}${completeness}${subGapNote}${edgeNote}`, subGaps > 0 || completeness ? 'info' : 'success');
         }
         viewerEl.closest('.panel-layout')?.setAttribute('data-has-model', '');
         const explodeRow = document.getElementById('lego-explode-row');
