@@ -114,10 +114,26 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   explicitly before `toDataURL()`, which is the correct capture pattern.
 - **Mobile profile** (`IS_MOBILE`: touch + short edge <900px): pixel ratio ≤1.5,
   shadow map 1024², SAO skipped (SAOPass re-renders the scene for depth+normals).
+- **Adaptive edge LOD** (`EDGE_SEGMENT_BUDGET`, desktop 3.5M / mobile 1.2M): the
+  global edge `LineSegments2` is collected per-brick; if total segments exceed
+  the budget the WHOLE model's edges are dropped (`edgesDroppedForSize` → LEGO
+  status note). Do NOT reinstate the old `segCount < 2_000_000` HARD cap — it
+  truncated edges mid-model (hero sets like 71043 Hogwarts, ~2.65M segments, got
+  partial/inconsistent outlines). 3.5M gives Hogwarts + all normal/flagship sets
+  FULL consistent edges; only the 2 mega-sets whose edge buffers ≈200MB (UCS
+  Falcon ~3.8M, Colosseum ~4.5M) drop them — memory-responsible AND sub-pixel at
+  full view. Mobile drops earlier (fat lines are costly there).
 - **Geometry is verified correct** at the fundamental level (flush controlled
   stack at exact heights; ~0 duplicate placements; ~0 isolated bricks; matches
   official box images). The historic "overlap/float/flicker" reports were the
   two rendering bugs above, not placement errors.
+- **Renderer verified solid on the heaviest sets (2026-06, don't re-investigate):**
+  UCS Falcon 75192 (7552 bricks, ~6.9M mesh tris) renders correct + recognizable
+  at 97fps desktop, 0 missing; Colosseum 9060, Hogwarts 5936 likewise. **Printed
+  parts render** (minifig faces, printed tiles, multi-colour prints resolve via
+  the `colorTris` path — TEXMAP is only a subset). No correctness/fidelity gap.
+  The remaining renderer gap is mobile triangle/LOD for UCS-class sets (the edge
+  LOD above is a first lever; deeper mesh LOD needs a device to validate fps).
 
 ## Color systems (don't conflate)
 - **LDraw** ids (0=Black, 1=Blue, 15=White) — `.mpd`/`.ldr`.
