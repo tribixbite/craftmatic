@@ -269,7 +269,13 @@ export function prewarmCommonParts(): Promise<void> {
  */
 function looksLikePrimitive(stem: string): boolean {
   if (/^\d+-\d+/.test(stem)) return true; // fraction prims: 4-4cyli, 1-12ring14…
-  return /^(stud|stug|box|rect|ring|ndis|disc|edge|cyl|con[ec]?\d|axl|bump|chrd|tri|tooth|peghole|knob|duck|clip|filstud|logo|ldu|empty|arm\d|handle|hinge|t[0-9]{2}[io]|typestn?[0-9])/.test(stem);
+  // Real PARTS are numbered (3001, 32523…); these letter-prefixed names only
+  // exist as p/ primitives. Probing p/ first avoids a parts/ 404 round-trip per
+  // primitive (on prod, each is a CF-Worker hop to upstream). Misclassifying is
+  // safe: it just probes p/ first, then falls through. The technic family
+  // (bush/conn/confric/fric/fillet/npeghol/beamhole/ribt/stud-cyl/radius) was
+  // added after live prod testing surfaced dozens of such 404s on Technic sets.
+  return /^(stud|stug|box|rect|ring|ndis|disc|edge|cyl|con[ec]?\d|conn|confric|cone|axl|bump|chrd|tri|tooth|peghole|npeghol|knob|duck|clip|filstud|fillet|bush|fric|beamhol|ribt|logo|ldu|empty|arm\d|handle|hinge|t[0-9]{2}[io]|r[0-9]+o|st[0-9x]j|typestn?[0-9])/.test(stem);
 }
 
 async function fetchDatText(id: string): Promise<string | null> {
