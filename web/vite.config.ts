@@ -5,6 +5,9 @@ import { existsSync, createReadStream } from 'node:fs';
 // Path to clego's reconstructed LDR files (dev only)
 const CLEGO_RECONSTRUCTED = 'C:/git/clego/lego_sets/Reconstructed';
 const CLEGO_LDR = 'C:/git/clego/lego_sets/LDR';
+// Root of ALL clego model sources (OMR/, LDR/, IO/, LXF/, Reconstructed/, …).
+// Served at /lego-models/ for the unified best-model index (dev only).
+const CLEGO_MODELS_ROOT = 'C:/git/clego/lego_sets';
 // Path to LDraw parts library (dev only — served at /ldraw-parts for geometry-accurate mode)
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 
@@ -136,6 +139,27 @@ export default defineConfig({
           const filePath = `${CLEGO_LDR}/${filename}`;
           if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
           res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          createReadStream(filePath).pipe(res);
+        });
+      },
+    },
+    {
+      // Unified model root: serves ANY file below C:/git/clego/lego_sets
+      // (e.g. /lego-models/OMR/10001-1.mpd, /lego-models/LDR/10001%20Metro%20Liner.ldr).
+      // Paths come from the unified index (web/public/lego-models-index.json).
+      name: 'serve-clego-models',
+      configureServer(server) {
+        server.middlewares.use('/lego-models', (req, res, next) => {
+          if (!existsSync(CLEGO_MODELS_ROOT)) { next(); return; }
+          // Decode URL-encoded names (spaces etc.), strip query, block traversal.
+          const rel = decodeURIComponent((req.url ?? '').split('?')[0]!.replace(/^\//, '')).replace(/\.\./g, '');
+          if (!rel) { next(); return; }
+          const filePath = `${CLEGO_MODELS_ROOT}/${rel}`;
+          if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
+          // .io / .lxf are ZIP archives — must be served binary, not text.
+          const isBinary = /\.(io|lxf|bin|zip)$/i.test(rel);
+          res.setHeader('Content-Type', isBinary ? 'application/octet-stream' : 'text/plain; charset=utf-8');
           res.setHeader('Cache-Control', 'public, max-age=3600');
           createReadStream(filePath).pipe(res);
         });
