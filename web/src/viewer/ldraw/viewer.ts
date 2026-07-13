@@ -32,6 +32,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
 import type { Vec3, Triangle, LDrawViewerOptions } from './types.js';
+import type { ConnectivityReport } from './connectivity-audit.js';
 import {
   resolvePartGeometry,
   getCachedPartGeom,
@@ -823,6 +824,9 @@ export class LDrawViewer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // Materials are cached module-wide — restore any highlight-stashed colors
+    // or the next viewer instance renders them washed-out white.
+    this.clearDetachedHighlight();
     cancelAnimationFrame(this.animId);
     this.resizeObs?.disconnect();
     if (this.clickHandler) {
@@ -943,38 +947,92 @@ export class LDrawViewer {
    * or do some float?). Uses real triangle-surface voxel contact, not bounding
    * boxes, so SNOT/clip/microscale joints are detected correctly. Lazy-loaded.
    */
-  async auditConnectivity(resLDU = 4): Promise<unknown> {
-    const seen = new Set<ParsedBrick>();
-    const bricks: ParsedBrick[] = [];
-    for (const arr of this.instanceBrickMap.values()) {
-      for (const b of arr) if (!seen.has(b)) { seen.add(b); bricks.push(b); }
-    }
+  async auditConnectivity(resLDU = 4): Promise<ConnectivityReport> {
+    const bricks = this.collectAuditBricks();
     const { auditConnectivity } = await import('./connectivity-audit.js');
     return auditConnectivity(bricks, resLDU);
   }
 
-  /**
-   * Diagnostic: recolor pieces the connectivity audit marks as NOT in the main
-   * component bright red (everything else grey), so detached/floating pieces
-   * are visually obvious. Pass the same resLDU you'd give auditConnectivity.
-   */
-  async highlightDetached(resLDU = 6): Promise<unknown> {
+  /** Deduped bricks across all instanced meshes, in stable iteration order. */
+  private collectAuditBricks(): ParsedBrick[] {
     const seen = new Set<ParsedBrick>();
     const bricks: ParsedBrick[] = [];
     for (const arr of this.instanceBrickMap.values())
       for (const b of arr) if (!seen.has(b)) { seen.add(b); bricks.push(b); }
+    return bricks;
+  }
+
+  /**
+   * Run the connectivity audit and, when candidates exist, recolor pieces the
+   * audit marks as NOT in the main component bright red (everything else grey)
+   * so they're visually obvious. Returns the full report. When the model is
+   * fully connected nothing is recolored (a success shouldn't grey the model).
+   * Restore original colors with clearDetachedHighlight().
+   */
+  async highlightDetached(resLDU = 4): Promise<ConnectivityReport> {
+    const bricks = this.collectAuditBricks();
     const { auditConnectivity } = await import('./connectivity-audit.js');
     const rep = auditConnectivity(bricks, resLDU);
+    if (rep.detached === 0) return rep;
     const flag = new Map<ParsedBrick, boolean>();
     bricks.forEach((b, i) => flag.set(b, rep.isDetached[i]!));
+    // instanceColor MULTIPLIES material.color in the shader — on a green brick
+    // "red" would render near-black. Force every brick material to white while
+    // highlighted so the per-instance red/grey reads as an absolute color;
+    // original hexes are stashed and restored by clearDetachedHighlight().
+    for (const mesh of this.instanceBrickMap.keys()) {
+      for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        const mat = m as THREE.MeshPhysicalMaterial;
+        if (mat.color && !this.highlightStash.has(mat)) {
+          this.highlightStash.set(mat, mat.color.getHex());
+          mat.color.setHex(0xffffff);
+        }
+      }
+    }
     const red = new THREE.Color(0xff1133), grey = new THREE.Color(0x3a3a40);
     for (const [mesh, arr] of this.instanceBrickMap) {
       for (let i = 0; i < arr.length; i++) mesh.setColorAt(i, flag.get(arr[i]!) ? red : grey);
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
+    // The global edge overlay keeps per-segment ORIGINAL colors and is dense
+    // enough to visually read as the model itself (verified: it completely
+    // masked the recolor on 21063) — hide it while the highlight is active.
+    this.scene.traverse(o => {
+      if (o instanceof LineSegments2 && o.visible) { o.visible = false; this.highlightHiddenLines.push(o); }
+    });
+    this.detachedHighlightActive = true;
     this.invalidate();
     this.composer.render();
-    return JSON.stringify({ detached: rep.detached, largestPct: rep.largestPct, components: rep.components });
+    return rep;
+  }
+
+  /** True while highlightDetached()'s red/grey recolor is applied. */
+  detachedHighlightActive = false;
+  /** Original material color hexes stashed while the highlight is active. */
+  private highlightStash = new Map<THREE.Material, number>();
+  /** Edge overlays hidden while the highlight is active. */
+  private highlightHiddenLines: LineSegments2[] = [];
+
+  /**
+   * Restore original brick colors after highlightDetached(): material colors
+   * come back from the stash, and instance colors reset to white (the
+   * multiplicative identity) — exact original appearance.
+   */
+  clearDetachedHighlight(): void {
+    if (!this.detachedHighlightActive) return;
+    for (const [mat, hex] of this.highlightStash) {
+      (mat as THREE.MeshPhysicalMaterial).color?.setHex(hex);
+    }
+    this.highlightStash.clear();
+    const white = new THREE.Color(0xffffff);
+    for (const [mesh, arr] of this.instanceBrickMap) {
+      for (let i = 0; i < arr.length; i++) mesh.setColorAt(i, white);
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
+    for (const l of this.highlightHiddenLines) l.visible = true;
+    this.highlightHiddenLines = [];
+    this.detachedHighlightActive = false;
+    this.invalidate();
   }
 
   exportMeshes(): THREE.InstancedMesh[] {
@@ -1094,6 +1152,10 @@ export class LDrawViewer {
         }
       });
     }
+    // Undo any active connectivity highlight BEFORE dropping the meshes:
+    // materials are cached module-wide, so their stashed original colors must
+    // be restored or the next model renders washed-out white.
+    this.clearDetachedHighlight();
     this.stepGroups.clear();
     this.instanceBrickMap.clear();
     for (const m of this.allMeshMaterials) {

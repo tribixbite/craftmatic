@@ -70,11 +70,14 @@ quality; **resist more material/lighting tweaks.** What actually remains:
    gap). Deploy is FF-to-main; CI-mirror clean-tree check before each push.
 6. ~~**Hand-off.**~~ ✅ CLAUDE.md is comprehensive + current.
 
-**Next, in order:** (a) mobile LOD budget [#3]; (b) begin the **Layer-1
+**Next, in order:** (a) mobile LOD budget [#3]; (b) continue the **Layer-1
 verifier** (below) — the actual moat; (c) **instruction generation** (Layer 3,
-the killer app). Connectivity tools exist but are **dev-only** (`window.__ldrawViewer.auditConnectivity`)
-— surfacing + fusing them into the hybrid certifier is the bridge from
-near-term to the long-term thesis.
+the killer app). ✅ *First verifier step shipped (2026-07):* the geometry-contact
+connectivity audit is now **user-facing** — the LEGO tab's Verify checkbox runs
+it, reports ✓/%-connected in the status line, and red-highlights detached
+candidates (validated: 21063 .io → ✓ 100%; 21063 dbix_recon → 87%, correctly
+exposing real reconstruction placement gaps). Remaining verifier work: fuse
+with the LDCad snap engine into the hybrid certifier, then stability/build-order.
 
 ---
 
