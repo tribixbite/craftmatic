@@ -13,6 +13,7 @@ const LIVE_TESTS = [
   'test/import-water.test.ts',
   'test/parcl-osm-pipeline.test.ts',
   'test/lego-pipeline.test.ts',
+  'test/import-overture.test.ts', // S3-hosted PMTiles archive
 ];
 
 export default defineConfig({

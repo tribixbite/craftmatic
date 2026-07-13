@@ -152,7 +152,27 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
 
 ## Connectivity / "are pieces floating?" verification
 Two tools answer "is every piece connected, or do some float?":
-- **Geometry-contact (browser, primary)**: `viewer.auditConnectivity(resLDU=4)` voxelizes each part's triangle SURFACE, transforms per instance, unions pieces whose surfaces share/neighbour a voxel → connected components. `viewer.highlightDetached(resLDU)` recolors non-main pieces red to eyeball them. `web/src/viewer/ldraw/connectivity-audit.ts`. **It detects face contact (stud-stacking, flush) but is BLIND to clip/bar/pin/SNOT grips.** Result: traditional builds → one 100% component (21063 verified); SNOT/microscale (71043) under-counts but `highlightDetached` shows the "detached" pieces are embedded base/spires → **no floaters**.
+- **Geometry-contact (browser, primary — now USER-FACING)**: the LEGO tab's
+  **Verify checkbox** runs `viewer.highlightDetached(4)` and reports in
+  `#lego-status` (✓-success for one component; % + red highlight + honest
+  clip/pin-false-positive caveat otherwise); unchecking calls
+  `clearDetachedHighlight()` (restores stashed material colors + instance
+  colors + edge overlay + prior status). Engine: `viewer.auditConnectivity(resLDU=4)`
+  voxelizes each part's triangle SURFACE, transforms per instance, unions pieces
+  whose surfaces share/neighbour a voxel → connected components (typed
+  `ConnectivityReport`, offline-tested in `test/connectivity-audit.test.ts`).
+  `web/src/viewer/ldraw/connectivity-audit.ts`. **It detects face contact
+  (stud-stacking, flush) but is BLIND to clip/bar/pin/SNOT grips.** Result:
+  traditional builds → one 100% component (21063 .io verified, incl. via the UI
+  control); SNOT/microscale (71043) under-counts but the highlight shows the
+  "detached" pieces are embedded base/spires → **no floaters**. It's genuinely
+  useful on RECONSTRUCTED models: the 21063 dbix_recon LDR shows 87% / 409
+  detached — real placement gaps in the reconstruction, not audit noise.
+  **Highlight gotchas (hard-won)**: (1) `instanceColor` MULTIPLIES
+  `material.color` — force materials white (stash/restore) or red-on-green
+  renders black; (2) the global edge `LineSegments2` keeps original per-segment
+  colors and is dense enough to visually MASK the recolor entirely — hide it
+  while highlighted.
 - **LDCad snaps (offline, supplement)**: `scripts/ldcad_connectivity.py <model.io|.ldr>` uses the real LDCad shadow library to match male/female SNAP_CYL/CLP/FGR/GEN connectors. **COMPLETE but proven insufficient ALONE** — even 21063 (geometry-proven 100%) only reaches 69% via snaps, because LEGO joints are dominated by clutch/tile/flush contacts snaps don't encode. The true certifier is the HYBRID (geometry OR snap); not yet fused.
 - **Settled findings**: 21063 fully connected; **71043 has no floating pieces** (verified geometrically + visually). Don't re-litigate.
 
