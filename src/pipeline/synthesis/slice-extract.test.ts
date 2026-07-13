@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { sliceMeshAtY, extractBands } from './slice-extract.js';
 import type { MeshSliceInput } from './slice-extract.js';
 

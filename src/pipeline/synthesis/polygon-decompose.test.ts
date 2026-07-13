@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { decomposePolygonByWaists } from './polygon-decompose.js';
 
 // Build a "dumbbell" polygon — two 20×20m squares connected by a 3×3m

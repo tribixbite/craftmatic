@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { detectCurvedShape } from './curved-shape.js';
 import type { LatLon } from '../context/types.js';
 

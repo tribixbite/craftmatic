@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { synthesizeSlicedTiles } from './sliced-tiles.js';
 import { evaluateBRep } from './brep.js';
 import type { TileEvidence } from '../capture/types.js';
