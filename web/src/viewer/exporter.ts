@@ -38,6 +38,10 @@ export interface ExportMeshLike {
   geometry: THREE.BufferGeometry;
   material: THREE.Material | THREE.Material[];
   userData: { originalMatrices?: THREE.Matrix4[] };
+  /** Present on THREE.InstancedMesh when per-instance colors were set. */
+  instanceColor?: THREE.InstancedBufferAttribute | null;
+  /** THREE.InstancedMesh color accessor (paired with instanceColor). */
+  getColorAt?(index: number, color: THREE.Color): void;
 }
 
 /**
@@ -46,18 +50,56 @@ export interface ExportMeshLike {
  * instance becomes its own Mesh at its assembled (pre-explode) world matrix.
  * `scale` applies a uniform real-world scale (see EXPORT_MM_PER_STUD).
  *
+ * Per-instance colors: the renderer multiplies instanceColor with
+ * material.color in the shader, so instances that share one material can
+ * still show distinct colors on screen. A naive bake that reuses the shared
+ * material loses all of that in GLB/OBJ — so when instanceColor exists, the
+ * effective (material × instance) color is baked into a material CLONED per
+ * unique color, cached by hex. Identity tints (white) reuse the original.
+ *
  * IMPORTANT: updateMatrixWorld(true) so exporters reading matrixWorld see the
  * correct positions (and the group scale).
  */
 function bakeInstances(meshes: readonly ExportMeshLike[], scale: number): { group: THREE.Group; cleanup: () => void } {
   const group = new THREE.Group();
   const tempMeshes: THREE.Mesh[] = [];
+  const clonedMaterials: THREE.Material[] = [];
+  const tmpColor = new THREE.Color();
 
   for (const instMesh of meshes) {
     const originals = instMesh.userData.originalMatrices;
     if (!originals) continue;
-    for (const matrix of originals) {
-      const mesh = new THREE.Mesh(instMesh.geometry, instMesh.material);
+
+    // Per-instance color baking is only possible for a single material that
+    // actually has a .color (MeshStandard/Physical/Basic…); material arrays
+    // and colorless materials fall back to the shared-material path.
+    const baseMat = Array.isArray(instMesh.material) ? null : instMesh.material;
+    const baseColor = baseMat && 'color' in baseMat && (baseMat as THREE.MeshStandardMaterial).color instanceof THREE.Color
+      ? (baseMat as THREE.MeshStandardMaterial).color
+      : null;
+    const bakeColors = !!(instMesh.instanceColor && instMesh.getColorAt && baseMat && baseColor);
+    const baseHex = baseColor?.getHexString();
+    const matByHex = new Map<string, THREE.Material>();
+
+    for (let i = 0; i < originals.length; i++) {
+      const matrix = originals[i]!;
+      let material: THREE.Material | THREE.Material[] = instMesh.material;
+      if (bakeColors) {
+        instMesh.getColorAt!(i, tmpColor);
+        const effective = tmpColor.clone().multiply(baseColor!);
+        const hex = effective.getHexString();
+        if (hex !== baseHex) {
+          let m = matByHex.get(hex);
+          if (!m) {
+            m = baseMat!.clone();
+            (m as THREE.MeshStandardMaterial).color.copy(effective);
+            matByHex.set(hex, m);
+            clonedMaterials.push(m);
+          }
+          material = m;
+        }
+      }
+      const mesh = new THREE.Mesh(instMesh.geometry, material);
       mesh.applyMatrix4(matrix);
       group.add(mesh);
       tempMeshes.push(mesh);
@@ -74,6 +116,7 @@ function bakeInstances(meshes: readonly ExportMeshLike[], scale: number): { grou
         m.geometry = undefined!; // shared geometry — don't dispose
         group.remove(m);
       }
+      for (const m of clonedMaterials) m.dispose(); // per-color clones are export-only
     },
   };
 }
@@ -93,7 +136,9 @@ export function countExportTriangles(meshes: readonly ExportMeshLike[]): number 
 
 // ── Pure, download-free export cores (node-testable; see test/mesh-export.test.ts) ──
 
-/** Bake instances → binary STL bytes at real-world mm scale. */
+/** Bake instances → binary STL bytes at real-world mm scale.
+ *  STL stays geometry-only — the format has no color/material channel, so
+ *  per-brick colors are intentionally not carried (use GLB/OBJ for color). */
 export async function meshesToStlBinary(meshes: readonly ExportMeshLike[], scale = EXPORT_MM_PER_STUD): Promise<ArrayBuffer> {
   const { STLExporter } = await import('three/examples/jsm/exporters/STLExporter.js');
   const { group, cleanup } = bakeInstances(meshes, scale);
