@@ -1,13 +1,23 @@
 /**
  * Stage 7 — synthesis routing.
  *
- * Decides which synthesizer produces the B-rep based on context + tile
- * evidence. Per spec §Stage 7 Router:
- *   • iconic landmark  → '7c-hybrid' (parametric mass + photogrammetry detail)
- *   • curved/irregular → '7b-cleaned-tiles'
- *   • truncated skyscraper with polygon → '7a-parametric' (ignore truncated mesh)
- *   • no polygon       → '7b-cleaned-tiles'
- *   • default          → '7a-parametric'
+ * Decides which synthesizer produces the B-rep, in STRICT PRECEDENCE ORDER.
+ * Usable photogrammetry (meshes present, not truncated, coverage OK) is
+ * preferred for everything except small parametrizable homes, because the
+ * sliced silhouette captures setbacks / twin towers / cantilevers a single
+ * prism cannot. The iconic / curved / truncated / no-polygon rows below are
+ * therefore FALLBACKS — reached only when photogrammetry is NOT usable (which
+ * is why they never fire for a Guggenheim-class curved landmark that has good
+ * tiles: it takes row 2). Order matches the code exactly:
+ *
+ *   1. small/tiny + parametrizable footprint + polygon → '7a-parametric'
+ *        (a house fills a fraction of the capture radius → the blob is noise)
+ *   2. usable tiles (meshes, not truncated, coverage)  → '7d-sliced'  ← dominant
+ *   3. iconic landmark with any coverage               → '7c-hybrid'
+ *   4. curved / irregular footprint                    → '7b-cleaned-tiles'
+ *   5. truncated skyscraper with polygon               → '7a-parametric'
+ *   6. no polygon                                      → '7b-cleaned-tiles'
+ *   7. default                                         → '7a-parametric'
  */
 
 import type { RefinedBuildingContext } from '../context/types.js';
@@ -36,6 +46,22 @@ export function routeSynthesis(
   // is missing so per-band heights would underreport.
   const tilesUsable = tiles && !tiles.noCoverage && !tiles.truncated
     && tiles.meshes && tiles.meshes.length > 0;
+
+  // Small buildings: a house fills only a fraction of the tile-capture radius,
+  // so the photogrammetry silhouette is dominated by surrounding trees, ground
+  // and neighbours — the sliced path then misreads the blob as curved/irregular
+  // and the per-band heights are noise (a 44 m capture scaled to an 8 m house).
+  // The OSM polygon (extruded by parametric, including L/U plans) + a parametric
+  // roof reproduces a home far better, so prefer parametric for any small,
+  // parametrizable footprint with a usable polygon, even with tiles present.
+  // Curved/irregular footprints (which don't parametrize cleanly) and iconic
+  // landmarks (which want photogrammetry detail) still take their normal paths.
+  const smallWithPolygon = (ctx.size === 'tiny' || ctx.size === 'small')
+    && ctx.shape !== 'curved' && ctx.shape !== 'irregular'
+    && !iconic
+    && ctx.polygon != null && ctx.polygon.length >= 3;
+  if (smallWithPolygon) return '7a-parametric';
+
   if (tilesUsable) return '7d-sliced';
   if (iconic && tiles && !tiles.noCoverage) return '7c-hybrid';
   if (ctx.shape === 'curved' || ctx.shape === 'irregular') return '7b-cleaned-tiles';

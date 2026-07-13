@@ -49,53 +49,102 @@ function makeEv(polygon: LatLon[], roofShape: JointEvidence['roofShape']['value'
   };
 }
 
+/**
+ * Mirror a REAL capture: `captureTiles()` always attaches per-mesh geometry
+ * (see `capture/tiles.ts`), and the sliced router path is gated on it. A helper
+ * that omits `meshes` leaves `tilesUsable` permanently false, so every routing
+ * test would silently exercise a world the production pipeline never sees.
+ * `noCoverage` ⇒ scene extraction failed ⇒ no meshes.
+ */
 function makeTiles(truncated = false, noCoverage = false): TileEvidence {
   return {
     glbPath: null, glbBytes: new ArrayBuffer(0),
     heightmap: new Float32Array(0), heightmapWidth: 0, heightmapLength: 0,
     measuredBbox: { min: { x: 0, y: 0, z: 0 }, max: { x: 30, y: 12, z: 20 } },
     truncated, meshCount: noCoverage ? 0 : 10, noCoverage,
+    meshes: noCoverage ? [] : [{
+      positions: new Float32Array([0, 0, 0, 30, 0, 0, 30, 12, 20]),
+      indices: new Uint32Array([0, 1, 2]),
+    }],
   };
 }
 
 describe('routeSynthesis', () => {
-  it('→ 7a-parametric for rect with polygon, no truncation', () => {
-    const ctx = makeCtx({ shape: 'rect' });
-    const ev = makeEv(ctx.polygon! as LatLon[]);
-    expect(routeSynthesis(ctx, ev, makeTiles())).toBe('7a-parametric');
-  });
-  it('→ 7b-cleaned-tiles for curved shapes', () => {
-    const ctx = makeCtx({ shape: 'curved' });
-    const ev = makeEv(ctx.polygon! as LatLon[]);
-    expect(routeSynthesis(ctx, ev, makeTiles())).toBe('7b-cleaned-tiles');
-  });
-  it('→ 7b-cleaned-tiles for irregular shapes', () => {
-    const ctx = makeCtx({ shape: 'irregular' });
+  // ─── Row 2: usable photogrammetry is the dominant production path ─────────
+  it('→ 7d-sliced for a medium building with usable tiles', () => {
+    const ctx = makeCtx({ size: 'medium', shape: 'rect' });
     expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
-      .toBe('7b-cleaned-tiles');
+      .toBe('7d-sliced');
   });
-  it('→ 7b-cleaned-tiles when polygon null', () => {
-    const ctx = makeCtx({ polygon: null, polygonSource: 'inferred' });
-    expect(routeSynthesis(ctx, makeEv([]), makeTiles())).toBe('7b-cleaned-tiles');
+  it('→ 7d-sliced for curved footprints when tiles are usable', () => {
+    // Guggenheim-class curved massing is reproduced by the sliced silhouette,
+    // NOT cleaned-tiles, whenever photogrammetry is usable — row 2 beats row 4.
+    const ctx = makeCtx({ size: 'large', shape: 'curved' });
+    expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
+      .toBe('7d-sliced');
   });
-  it('→ 7a-parametric for truncated skyscraper with polygon', () => {
-    const ctx = makeCtx({ size: 'skyscraper', shape: 'rect' });
-    const ev = makeEv(ctx.polygon! as LatLon[]);
-    expect(routeSynthesis(ctx, ev, makeTiles(true))).toBe('7a-parametric');
+  it('→ 7d-sliced for a small building whose polygon is missing', () => {
+    // No polygon ⇒ the small-home rule (row 1) cannot fire, so usable tiles win.
+    const ctx = makeCtx({ size: 'small', shape: 'rect', polygon: null, polygonSource: 'inferred' });
+    expect(routeSynthesis(ctx, makeEv([]), makeTiles())).toBe('7d-sliced');
   });
-  it('→ 7c-hybrid for iconic landmark (tourism=attraction)', () => {
+
+  // ─── Row 1: small parametrizable homes prefer parametric even WITH tiles ──
+  it('→ 7a-parametric for a small rect home, beating usable tiles', () => {
+    // Regression guard for the small-with-polygon rule: it must take precedence
+    // over the sliced path (a house is a fraction of the ~44m capture radius).
+    const ctx = makeCtx({ size: 'small', shape: 'rect' });
+    expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
+      .toBe('7a-parametric');
+  });
+  it('→ 7a-parametric for a small L-plan (U) home with usable tiles', () => {
+    const ctx = makeCtx({ size: 'small', shape: 'U' });
+    expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
+      .toBe('7a-parametric');
+  });
+  it('does NOT divert a small CURVED home to parametric (not parametrizable)', () => {
+    // curved is excluded from row 1 → usable tiles win → sliced.
+    const ctx = makeCtx({ size: 'small', shape: 'curved' });
+    expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
+      .toBe('7d-sliced');
+  });
+
+  // ─── Rows 3-7: fallbacks reached only when photogrammetry is NOT usable ───
+  it('→ 7c-hybrid for an iconic landmark when tiles are truncated', () => {
+    // Truncated tiles are not "usable" (top missing) so row 2 is skipped and the
+    // iconic branch (row 3) is reached; with coverage it prefers hybrid.
     const rawOsm = {
       tags: { tourism: 'attraction', building: 'yes' },
     } as unknown as BuildingContext['rawOsm'];
-    const ctx = makeCtx({ shape: 'rect', rawOsm });
-    expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
+    const ctx = makeCtx({ size: 'large', shape: 'rect', rawOsm });
+    expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles(true)))
       .toBe('7c-hybrid');
+  });
+  it('→ 7b-cleaned-tiles for curved shapes with no coverage', () => {
+    const ctx = makeCtx({ size: 'large', shape: 'curved' });
+    expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles(false, true)))
+      .toBe('7b-cleaned-tiles');
+  });
+  it('→ 7b-cleaned-tiles for irregular shapes with no coverage', () => {
+    const ctx = makeCtx({ size: 'large', shape: 'irregular' });
+    expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles(false, true)))
+      .toBe('7b-cleaned-tiles');
+  });
+  it('→ 7b-cleaned-tiles when polygon null and tiles unusable', () => {
+    const ctx = makeCtx({ size: 'large', polygon: null, polygonSource: 'inferred' });
+    expect(routeSynthesis(ctx, makeEv([]), makeTiles(false, true)))
+      .toBe('7b-cleaned-tiles');
+  });
+  it('→ 7a-parametric for a truncated skyscraper with polygon', () => {
+    const ctx = makeCtx({ size: 'skyscraper', shape: 'rect' });
+    expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles(true)))
+      .toBe('7a-parametric');
   });
 });
 
 describe('synthesize', () => {
   it('7a path produces a parametric BRep', async () => {
-    const ctx = makeCtx();
+    const ctx = makeCtx(); // small rect home → row 1
     const ev = makeEv(ctx.polygon! as LatLon[]);
     const { path, brep } = synthesize(ctx, ev, makeTiles());
     expect(path).toBe('7a-parametric');
@@ -104,9 +153,10 @@ describe('synthesize', () => {
     expect(mesh.volume).toBeGreaterThan(0);
   });
   it('7b path produces a box BRep from measured tiles', async () => {
-    const ctx = makeCtx({ shape: 'curved' });
+    // curved + no coverage → row 4 (cleaned-tiles box).
+    const ctx = makeCtx({ size: 'large', shape: 'curved' });
     const ev = makeEv(ctx.polygon! as LatLon[]);
-    const { path, brep } = synthesize(ctx, ev, makeTiles());
+    const { path, brep } = synthesize(ctx, ev, makeTiles(false, true));
     expect(path).toBe('7b-cleaned-tiles');
     expect(brep.details.length).toBe(0); // cleaned-tiles box has no features
     const mesh = await evaluateBRep(brep);
@@ -114,7 +164,7 @@ describe('synthesize', () => {
     expect(mesh.volume).toBeGreaterThan(0);
   });
   it('7b path extrapolates height when truncated', async () => {
-    const ctx = makeCtx({ shape: 'curved', heightM: 100 });
+    const ctx = makeCtx({ size: 'large', shape: 'curved', heightM: 100 });
     const ev: JointEvidence = {
       ...makeEv(ctx.polygon! as LatLon[]),
       heightM: { value: 100, source: 'solar', confidence: 0.9 },
