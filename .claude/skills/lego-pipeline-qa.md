@@ -56,6 +56,17 @@ renderer, or deploying + verifying a change on prod.
    run test/prod-smoke.test.ts` (5 checks: app shell, /ldraw-parts+CORS, OMR
    proxy, catalog).
 
+## Verifying RENDERED COLORS (not just state) — hard-won
+- Playwright page screenshots of the WebGL canvas can be MANY frames stale in a
+  backgrounded automation tab (draws happen; the compositor never presents).
+  Do NOT debug color/visual state from them — use
+  `window.__ldrawViewer.captureScreenshot()` (explicit render → toDataURL,
+  reads the actual drawing buffer), save the data-URL to a file, decode, view.
+- Two recolor traps (both bit the connectivity highlight): `instanceColor`
+  MULTIPLIES `material.color` (force materials white for absolute colors), and
+  the global edge `LineSegments2` keeps original per-segment colors densely
+  enough to visually MASK an instance recolor — hide it while recoloring.
+
 ## Prod testing (craftmatic.click) gotchas
 - Clear the PWA SW first (`getRegistrations().unregister()` + `caches.delete`),
   then reload — it serves stale code otherwise.

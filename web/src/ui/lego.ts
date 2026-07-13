@@ -1107,6 +1107,13 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         setStatus('3D export needs the 3D renderer (enable “3D Render”).', 'error');
         return;
       }
+      // bakeInstances bakes material × instanceColor — drop an active
+      // connectivity-verify highlight or the export comes out red/grey.
+      if (currentLDrawViewer.detachedHighlightActive) {
+        currentLDrawViewer.clearDetachedHighlight();
+        const vb = document.getElementById('lego-verify') as HTMLInputElement | null;
+        if (vb) vb.checked = false;
+      }
       const meshes = currentLDrawViewer.exportMeshes();
       if (meshes.length === 0) { setStatus('No geometry to export.', 'error'); return; }
       // exporter.ts bakes one Mesh per instance (no instancing in OBJ/STL), so
