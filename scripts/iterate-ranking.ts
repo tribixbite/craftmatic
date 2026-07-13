@@ -21,6 +21,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isFailedArchiveFor } from './failed-history.js';
 
 export type Status =
   | 'pass' | 'fail-objective' | 'fail-consensus'
@@ -107,18 +108,13 @@ export function classifyTrend(scores: readonly number[]): TrendKind {
 
 /**
  * Read the chronological defectScore series for a slug from the failed-history
- * archive (`<failedDir>/<slug>-<iso>.json`). The year-digit guard (matching
+ * archive (`<failedDir>/<slug>-<iso>.json`). `isFailedArchiveFor` (shared with
  * pruneFailedHistory) keeps a prefix slug from reading another's files.
  */
 export function readFailedScores(failedDir: string, slug: string): number[] {
   if (!existsSync(failedDir)) return [];
-  const prefix = `${slug}-`;
   const files = readdirSync(failedDir)
-    .filter(f =>
-      f.startsWith(prefix) &&
-      f.endsWith('.json') &&
-      /^\d/.test(f.slice(prefix.length)),
-    )
+    .filter(f => isFailedArchiveFor(slug, f))
     .sort(); // ISO stamps sort chronologically ascending
 
   const scores: number[] = [];
@@ -128,7 +124,9 @@ export function readFailedScores(failedDir: string, slug: string): number[] {
         defectScore?: { score?: number } | null;
       };
       const sc = r.defectScore?.score;
-      if (typeof sc === 'number') scores.push(sc);
+      // Number.isFinite (not typeof) — a NaN score would poison classifyTrend's
+      // arithmetic and silently misclassify the whole series.
+      if (Number.isFinite(sc)) scores.push(sc as number);
     } catch {
       // Skip an unreadable/partial archive entry.
     }
@@ -148,15 +146,23 @@ export function compareRemediation(a: RankedCandidate, b: RankedCandidate): numb
   const byTrend = trendRank(a.trend) - trendRank(b.trend);
   if (byTrend !== 0) return byTrend;
 
-  const da = a.record.defectScore ?? 10;
-  const db = b.record.defectScore ?? 10;
+  // finiteOr, not `?? 10`: a NaN score returns NaN from the subtraction, which
+  // violates the comparator's total order (V8's sort then goes unstable). Treat
+  // null/NaN as the best-possible 10 (least urgent) so ordering stays total.
+  const da = finiteOr(a.record.defectScore, 10);
+  const db = finiteOr(b.record.defectScore, 10);
   if (da !== db) return da - db;
 
   if (a.record.attempts !== b.record.attempts) return a.record.attempts - b.record.attempts;
 
-  const ca = a.record.consensusMedian ?? 10;
-  const cb = b.record.consensusMedian ?? 10;
+  const ca = finiteOr(a.record.consensusMedian, 10);
+  const cb = finiteOr(b.record.consensusMedian, 10);
   return ca - cb;
+}
+
+/** Coerce null/undefined/non-finite to `fallback` so comparators stay total. */
+function finiteOr(v: number | null, fallback: number): number {
+  return v != null && Number.isFinite(v) ? v : fallback;
 }
 
 /**

@@ -63,6 +63,13 @@ describe('readFailedScores', () => {
     writeReport('geisel-east', 0, 3);
     expect(readFailedScores(dir, 'geisel')).toEqual([9]);
   });
+  it('does not read a NUMERIC-suffixed sibling slug (tower vs tower-2)', () => {
+    // The old `/^\d/` guard mis-claimed this: `tower-2-…`'s remainder starts
+    // with a digit, so `tower` wrongly ingested another building's score.
+    writeReport('tower', 0, 9);
+    writeReport('tower-2', 0, 3);
+    expect(readFailedScores(dir, 'tower')).toEqual([9]);
+  });
 });
 
 describe('compareRemediation', () => {
@@ -93,6 +100,15 @@ describe('compareRemediation', () => {
     const a = cand({ defectScore: 7, attempts: 1, consensusMedian: 5 });
     const b = cand({ defectScore: 7, attempts: 1, consensusMedian: 9 });
     expect(compareRemediation(a, b)).toBeLessThan(0); // lower consensus first, only here
+  });
+  it('stays a total order when a defectScore is NaN', () => {
+    // A NaN score must not leak NaN out of the subtraction (which breaks V8's
+    // sort). It coerces to the 10 fallback (least urgent), so the finite 8 wins.
+    const a = cand({ defectScore: NaN });
+    const b = cand({ defectScore: 8 });
+    expect(compareRemediation(a, b)).toBeGreaterThan(0);
+    expect(compareRemediation(b, a)).toBeLessThan(0);
+    expect(Number.isFinite(compareRemediation(a, b))).toBe(true);
   });
 });
 

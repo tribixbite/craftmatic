@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readdirSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
-import { preserveFailedReport, pruneFailedHistory } from '../scripts/failed-history.js';
+import { preserveFailedReport, pruneFailedHistory, isFailedArchiveFor } from '../scripts/failed-history.js';
 import type { FullVerificationReport } from '../src/pipeline/verify/report.js';
 
 // Only status + lastRun matter to the archiver — cast a minimal report.
@@ -63,10 +63,43 @@ describe('pruneFailedHistory', () => {
     for (const s of [0, 1]) writeFileSync(join(failedDir, `geisel-east-${isoAtSecond(s).replace(/[:.]/g, '-')}.json`), '{}');
 
     const removed = pruneFailedHistory(failedDir, 'geisel', 1);
-    // Only `geisel-<year>...` entries are eligible (year digit guard), so the
-    // two `geisel-east-...` files are untouched.
-    expect(removed.every(f => /^geisel-\d/.test(f))).toBe(true);
+    // Only `geisel`'s own archives are eligible, so the two `geisel-east-...`
+    // files are untouched.
+    expect(removed.every(f => isFailedArchiveFor('geisel', f))).toBe(true);
     expect(readdirSync(failedDir).filter(f => f.startsWith('geisel-east-')).length).toBe(2);
-    expect(readdirSync(failedDir).filter(f => /^geisel-\d/.test(f)).length).toBe(1);
+    expect(readdirSync(failedDir).filter(f => isFailedArchiveFor('geisel', f)).length).toBe(1);
+  });
+
+  it('does not prune across a NUMERIC-suffixed sibling (tower vs tower-2)', () => {
+    mkdirSync(failedDir, { recursive: true });
+    for (const s of [0, 1, 2]) writeFileSync(join(failedDir, `tower-${isoAtSecond(s).replace(/[:.]/g, '-')}.json`), '{}');
+    for (const s of [0, 1]) writeFileSync(join(failedDir, `tower-2-${isoAtSecond(s).replace(/[:.]/g, '-')}.json`), '{}');
+
+    pruneFailedHistory(failedDir, 'tower', 1);
+    // `tower-2-…` belongs to a different building; the old digit heuristic
+    // wrongly counted+pruned it. It must survive untouched.
+    expect(readdirSync(failedDir).filter(f => isFailedArchiveFor('tower-2', f)).length).toBe(2);
+    expect(readdirSync(failedDir).filter(f => isFailedArchiveFor('tower', f)).length).toBe(1);
+  });
+});
+
+describe('isFailedArchiveFor', () => {
+  const stamp = isoAtSecond(3).replace(/[:.]/g, '-'); // 2026-06-23T10-00-03-000Z
+
+  it('matches a slug\'s own archive, including digit-containing slugs', () => {
+    expect(isFailedArchiveFor('geisel', `geisel-${stamp}.json`)).toBe(true);
+    expect(isFailedArchiveFor('240-highland', `240-highland-${stamp}.json`)).toBe(true);
+  });
+  it('rejects a letter-leading sibling', () => {
+    expect(isFailedArchiveFor('geisel', `geisel-east-${stamp}.json`)).toBe(false);
+    expect(isFailedArchiveFor('240-highland', `240-highland-ave-${stamp}.json`)).toBe(false);
+  });
+  it('rejects a digit-leading sibling (the old guard\'s blind spot)', () => {
+    expect(isFailedArchiveFor('tower', `tower-2-${stamp}.json`)).toBe(false);
+  });
+  it('rejects non-archive files', () => {
+    expect(isFailedArchiveFor('geisel', 'geisel-notes.json')).toBe(false);
+    expect(isFailedArchiveFor('geisel', `geisel-${stamp}.txt`)).toBe(false);
+    expect(isFailedArchiveFor('geisel', 'geisel.json')).toBe(false);
   });
 });
