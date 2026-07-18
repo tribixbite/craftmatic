@@ -227,3 +227,70 @@ can be judged case-by-case.
 
 - [ ] Once #2 lands, audit: when OSM/SV give a high-confidence measured colour,
       does the pipeline honour it or override it? Quantify how often.
+
+## Visual QA findings — 2026-07-18 full-golden render sweep
+
+All 5 goldens rebuilt live (`scripts/build.ts`) and rendered through the exact
+VLM-scoring surface (`createGridRenderRound`: iso / front / td / cutaway).
+Geometry gates pass near-perfectly on 4/5 (IoU 0.98–1.00, h_err 0%), yet 4/5
+are visually unshippable — `defect_score=10.0` on three catastrophically bad
+builds. Ranked findings, each with the concrete mechanism:
+
+**P0-1 · Invalid block id `minecraft:deepslate_tile`** (real id is
+`deepslate_tiles`). #1 block in flatiron (22.9%), guggenheim (36.7%). Renders
+as hash-fallback purple in png-renderer (`colors.ts` hash path) and would be
+missing-texture magenta in-game. Sources: `color-blocks.ts:197` cluster base;
+`parametric.ts:98` / `cleaned-tiles.ts:71` whitelist the singular form;
+`address-pipeline.ts:771`. Related: `smooth_stone_slab[type=double]` (valid
+block) has no atlas entry → textureless flat fill. Fix: rename + add a
+deterministic palette-validity gate (every emitted state ∈ block registry)
+to the objective gates.
+
+**P0-2 · Recolor bakes shadows/noise into materials.** Dark facade texels →
+dark clusters (black splotch noise on geisel/pennzoil facades); flatiron glass
+= 0.1% (windows nonexistent); pennzoil's black-glass towers = 50% tuff +
+24.9% cobblestone. Every build carries 10–25% cobblestone. Fix direction:
+luminance-normalise before Lab cluster match, per-face median vote instead of
+per-voxel dither, archetype priors (commercial curtain-wall → glass family).
+
+**P0-3 · Sliced-band masking failures** (`sliced-tiles.ts` masking block):
+(a) cantilever exception (1.5–3× OSM area, centroid inside) has **no height
+gate** → ground bands merged with streets/neighbours are kept verbatim →
+plaza/street shards around every base; today's guggenheim absorbed neighbour
+mass → **IoU 0.57 fail-objective** (June same-code run: 0.99 — Google tile
+nondeterminism flips it). Fix: cantilever keep-as-is only above ~25% of
+building height; always OSM-anchor at ground.
+(b) adjacent bands alternate `ring = osmLocal` vs raw inside-ring as
+photogrammetry jitters around the OSM edge → false-setback "layer-cake"
+belts on flatiron (continuous real facade). Fix: majority/hysteresis
+anchoring across uniform band runs; snap rings within ±15% of OSM area to OSM.
+(c) routing: usable tiles → 7d beats spec'd curved→7b, so the
+helical-frustum synthesizer (6e4b372, built for Guggenheim) is dead code
+whenever tiles are usable; 7b scored 0.99 vs 7d's 0.57. Fix options: route
+curved+polygon → 7b, or objective-gate fallback (7d fails IoU → re-synthesize
+7b in-process).
+
+**P1-4 · defect_score blind spots.** Scored 10.0 on flatiron/pennzoil/geisel.
+Add deterministic penalties: invalid-block ratio > 0.5%; dominant exterior
+facade block share < 25% (measured: bad=18%, good=31–36%); glass≈0 on
+commercial archetypes; band-anchor oscillation count from synthesis meta.
+
+**P1-5 · Renderer distortions that corrupt VLM scoring:** glass renders as
+white lattice over black holes (alpha not composited) so correctly-glassed
+builds would be penalised; atlas load timeout under I/O load silently falls
+back to procedural textures (nondeterministic VLM input); block-face blit
+gaps (black triangles) at tile≥16; hash-colour fallback hides invalid ids —
+should fail loudly.
+
+**P2-6 · Report/provenance gaps:** synthesis path (7a–7d) not persisted in
+the verification report (goldens dashboard hardcodes stale paths); hollow
+parametric cutaway view is a bare wall ring (wasted VLM view); parametric
+window rows overshoot (5 rows on a 2-storey home).
+
+**P2-7 · Committed goldens stale** (`web/public/goldens/` Apr-19, pre-7d
+routing) — the visual baseline misrepresents the current pipeline.
+
+Validated: 240-highland via 7a-parametric (router fix) is visually coherent —
+correct hip roof, wall/roof palette, window grid; and the objective gates +
+failed-history correctly caught & archived today's guggenheim regression
+(defect_score 9.4, `footprint_wrong_shape`, immutable failed report).
