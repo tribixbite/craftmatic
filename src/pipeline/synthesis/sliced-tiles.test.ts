@@ -271,3 +271,59 @@ describe('cantilever height gate (ground-band neighbour merge)', () => {
     expect(maxAbsX(mesh.positions)).toBeGreaterThan(15);
   });
 });
+
+describe('band-anchor snap (layer-cake belts)', () => {
+  // OSM ±11.2m. Stack: a band jittered slightly INSIDE the wall line
+  // (±10.8, 0.93× OSM area), a band overshooting it (±11.6, partial
+  // overlap), then a genuine setback (±7, 0.39×). Pre-fix the first two
+  // anchored differently (raw ring vs OSM outline), stepping a continuous
+  // shaft into layer-cake belts; post-fix both snap to OSM while the real
+  // setback stays raw.
+  const D = 11.2 / 111_111;
+  function osmCtx(): RefinedBuildingContext {
+    const ctx = makeStubCtx() as unknown as {
+      center: { lat: number; lng: number };
+      mbr: { rotationDeg: number; widthM: number; depthM: number };
+    };
+    ctx.center = { lat: 0, lng: 0 };
+    ctx.mbr.rotationDeg = 0;
+    ctx.mbr.widthM = 23;
+    ctx.mbr.depthM = 23;
+    return ctx as unknown as RefinedBuildingContext;
+  }
+  function osmEv(): JointEvidence {
+    const ev = makeStubEv() as unknown as { footprint: unknown };
+    ev.footprint = {
+      value: [
+        { lat: -D, lon: -D }, { lat: -D, lon: D },
+        { lat: D, lon: D }, { lat: D, lon: -D },
+      ],
+      source: 'osm',
+      confidence: 1,
+    };
+    return ev as unknown as JointEvidence;
+  }
+
+  it('snaps jittered near-OSM bands to one silhouette, keeps real setbacks', async () => {
+    const inner = makeBox([-10.8, 0, -10.8], [10.8, 10, 10.8]);   // 0.93× OSM
+    const outer = makeBox([-11.6, 10, -11.6], [11.6, 20, 11.6]);  // overshoot
+    const setback = makeBox([-7, 20, -7], [7, 30, 7]);            // 0.39× OSM
+    const tiles = makeTileEvidence([inner, outer, setback], 30);
+    const brep = synthesizeSlicedTiles(osmCtx(), osmEv(), tiles, { voxelResolution: 6 });
+    const mesh = await evaluateBRep(brep);
+
+    let lowerMax = 0, topMax = 0;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const ax = Math.abs(mesh.positions[i]);
+      const y = mesh.positions[i + 1];
+      if (y < 18) lowerMax = Math.max(lowerMax, ax);
+      if (y > 22) topMax = Math.max(topMax, ax);
+    }
+    // Both lower bands sit on the OSM line (±11.2): the 0.93× ring snapped
+    // OUT to it (pre-fix it stayed at 10.8 — a false setback step).
+    expect(lowerMax).toBeGreaterThan(11.0);
+    expect(lowerMax).toBeLessThan(12.0);
+    // The genuine setback stays raw at ±7.
+    expect(topMax).toBeLessThan(8);
+  });
+});

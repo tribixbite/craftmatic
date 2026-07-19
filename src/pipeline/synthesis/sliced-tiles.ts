@@ -366,12 +366,20 @@ function synthesizeSlicedTilesImpl(
               && polyArea >= osmAreaForCanti * 1.5
               && polyArea <= osmAreaForCanti * 3;
             ring = isCantilever ? openRingFrom(poly) : osmLocal;
-            // The fully-inside case (polyArea < osmArea, real setback)
-            // still anchors to OSM under this rule. Setback detection
-            // is a separate path (band-area inference for roof shape).
+            // Fully-inside rings are kept raw ONLY when materially smaller
+            // than OSM (a real setback). Near-OSM-sized inside rings snap to
+            // OSM: photogrammetry jitters each band a little inside/outside
+            // the true wall line, so without the snap adjacent bands
+            // alternate between the full OSM outline (partial overlap) and a
+            // slightly smaller raw ring (fully inside) — rendering as false
+            // setback "layer-cake" belts on continuous shafts (flatiron,
+            // 2026-07-18). 0.85 sits between jitter (observed ≳0.9×) and
+            // genuine setbacks (≲0.7× on stepped towers).
             if (!isCantilever) {
               const allInside = poly.points.every(p => pointInPolygon(p.x, p.z, osmLocal));
-              if (allInside) ring = openRingFrom(poly);
+              if (allInside && polyArea < osmAreaForCanti * 0.85) {
+                ring = openRingFrom(poly);
+              }
             }
           }
         } else {
