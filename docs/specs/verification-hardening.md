@@ -294,3 +294,30 @@ Validated: 240-highland via 7a-parametric (router fix) is visually coherent —
 correct hip roof, wall/roof palette, window grid; and the objective gates +
 failed-history correctly caught & archived today's guggenheim regression
 (defect_score 9.4, `footprint_wrong_shape`, immutable failed report).
+
+### Fix status — 2026-07-19
+
+- [x] **P0-1** `deepslate_tile` → shared `roofBaseToFullBlock()` (emitter was
+      `sliced-tiles.ts pickRoofBlock`, an incomplete private copy of the
+      suffix map) + **objective gate 8: palette validity** via browser-safe
+      `blocks/known-blocks.ts` (texture-name ∪ colour-map registry;
+      `COMMON_TEXTURES` moved to pure `render/texture-names.ts` leaf).
+      Proven live: rebuilt flatiron palette holds `deepslate_tiles`, gate
+      silent. (b59e0f3)
+- [x] **P0-3a** cantilever height gate: band y0 ≥ max(8m, 25% of Y range);
+      regression pair proves the branch decides on Y alone. Live: flatiron
+      bad-tile-draw IoU 0.45 → **0.98**. (53541cf)
+- [x] **P0-3c** curved+polygon routes 7b ahead of usable tiles. Live:
+      guggenheim IoU 0.57 → **0.99**, defect 10.0. (53541cf)
+- [x] **P1-4 (facade)** `facade_incoherent` (−1) when no block reaches 25%
+      of side-exposed facade; rides the existing connectivity walk.
+      Calibrated: bad sliced flatiron 18%, highland 59%. (94057ef)
+- [x] **P1-5 (atlas)** self-healing atlas load — timeout no longer pins
+      procedural textures for process life; warning states the VLM-score
+      consequence. (e37c610)
+
+Remaining from the findings: P0-2 recolor shadow-baking (luminance
+normalisation + per-face median + archetype priors), P0-3b band-anchor
+hysteresis (layer-cake), P1-4 glass-on-commercial signal, P1-5 glass alpha
+compositing + face-blit gaps, P2-6 synthesis-path provenance in the report,
+P2-7 golden refresh.
