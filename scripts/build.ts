@@ -465,6 +465,7 @@ interface PipelineStateRecord {
   provenance: FullVerificationReport['provenance'];
   crossCheck: FullVerificationReport['crossCheck'];
   defectScore: FullVerificationReport['defectScore'];
+  synthesisPath: FullVerificationReport['synthesisPath'];
   reason?: string;
 }
 
@@ -526,6 +527,7 @@ function mergeStateRecord(
     provenance: report.provenance,
     crossCheck: report.crossCheck,
     defectScore: report.defectScore,
+    synthesisPath: report.synthesisPath,
     ...(report.reason ? { reason: report.reason } : {}),
   };
 

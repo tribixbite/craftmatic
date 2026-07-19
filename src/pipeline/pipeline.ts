@@ -279,7 +279,7 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
     consensus = result;
   }
 
-  const report = composeReport({ objective, consensus, evidence, ctx: refined, grid: voxelResult.grid });
+  const report = composeReport({ objective, consensus, evidence, ctx: refined, grid: voxelResult.grid, synthesisPath: path });
 
   return {
     slug,

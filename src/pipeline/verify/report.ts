@@ -43,6 +43,13 @@ export interface FullVerificationReport {
    * signal the iterate loop can rank on. `null` when no grid was available.
    */
   readonly defectScore: DefectScoreResult | null;
+  /**
+   * Which synthesizer produced the build ('7a-parametric' … '7d-sliced').
+   * Previously only visible in transient build stderr, so dashboards
+   * hardcoded stale paths and regressions couldn't be attributed to a
+   * routing change. `null` on older records / context-insufficient runs.
+   */
+  readonly synthesisPath: string | null;
   /** Non-empty for `context-insufficient` status. */
   readonly reason?: string;
 }
@@ -64,6 +71,8 @@ export function composeReport(input: {
   /** Voxel grid (Stage 8c). Enables the deterministic defect score; omit it
    *  and `defectScore` is null. */
   readonly grid?: BlockGrid;
+  /** Synthesis route that produced the build (router.ts). */
+  readonly synthesisPath?: string;
 }): FullVerificationReport {
   const lastRun = new Date().toISOString();
   const provenance = input.evidence ? summariseProvenance(input.evidence) : null;
@@ -83,6 +92,7 @@ export function composeReport(input: {
       provenance,
       crossCheck,
       defectScore,
+      synthesisPath: input.synthesisPath ?? null,
     };
   }
   if (!input.consensus) {
@@ -95,6 +105,7 @@ export function composeReport(input: {
       provenance,
       crossCheck,
       defectScore,
+      synthesisPath: input.synthesisPath ?? null,
     };
   }
   if (input.consensus.status === 'needs-human-review') {
@@ -106,6 +117,7 @@ export function composeReport(input: {
       provenance,
       crossCheck,
       defectScore,
+      synthesisPath: input.synthesisPath ?? null,
     };
   }
   if (input.consensus.pass) {
@@ -117,6 +129,7 @@ export function composeReport(input: {
       provenance,
       crossCheck,
       defectScore,
+      synthesisPath: input.synthesisPath ?? null,
     };
   }
   return {
@@ -127,6 +140,7 @@ export function composeReport(input: {
     provenance,
     crossCheck,
     defectScore,
+    synthesisPath: input.synthesisPath ?? null,
   };
 }
 
@@ -136,6 +150,7 @@ export function composeReport(input: {
  */
 export function summariseReport(report: FullVerificationReport): string {
   const parts: string[] = [`status=${report.status}`];
+  if (report.synthesisPath) parts.push(`path=${report.synthesisPath}`);
   if (report.objective) {
     parts.push(
       `iou=${report.objective.footprintIoU.toFixed(2)}`,
@@ -191,6 +206,7 @@ export function contextInsufficientReport(reason: string): FullVerificationRepor
     provenance: null,
     crossCheck: null,
     defectScore: null,
+    synthesisPath: null,
     reason,
   };
 }
