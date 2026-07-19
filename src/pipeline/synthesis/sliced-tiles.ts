@@ -28,7 +28,7 @@ import { projectPolygonToLocal } from './features.js';
 import { decomposePolygonByWaists } from './polygon-decompose.js';
 import { detectCurvedShape } from './curved-shape.js';
 import { douglasPeucker } from '../context/classify.js';
-import { rgbToWallBlock, rgbToRoofOverride } from '../../gen/color-blocks.js';
+import { rgbToWallBlock, rgbToRoofOverride, roofBaseToFullBlock } from '../../gen/color-blocks.js';
 import { DEFAULT_VOXEL_RESOLUTION } from '../voxel-defaults.js';
 
 export interface SynthesizeSlicedOptions {
@@ -328,6 +328,15 @@ function synthesizeSlicedTilesImpl(
     // Flatiron-class buildings where photogrammetry overshoots slightly
     // at the polygon edges but doesn't represent a real cantilever.
     const osmAreaForCanti = osmLocal !== null ? polygonAreaAbs(osmLocal) : 0;
+    // Cantilevers are an UPPER-floor phenomenon — a floor extending past the
+    // ground footprint. At street level the same area/centroid signature is
+    // produced by the building merging with sidewalk/plaza/neighbour mass in
+    // the photogrammetry (centroid stays inside OSM because the building
+    // dominates the blob). Ungated, those ground bands were kept verbatim:
+    // plaza shards ringed every base and guggenheim absorbed a neighbour
+    // block (IoU 0.99 → 0.57, 2026-07-18). Geisel's real cantilever tiers
+    // sit at ~60-80% of its height — far above this floor.
+    const cantileverMinY = minY + Math.max(8, (maxY - minY) * 0.25);
     for (const band of bands) {
       for (const poly of band.polygons) {
         let ring: readonly LocalPoint2D[];
@@ -353,6 +362,7 @@ function synthesizeSlicedTilesImpl(
             // buildings so 240-highland-style residences keep their
             // OSM-anchored silhouette.
             const isCantilever = osmAreaForCanti > 500
+              && band.y0 >= cantileverMinY
               && polyArea >= osmAreaForCanti * 1.5
               && polyArea <= osmAreaForCanti * 3;
             ring = isCantilever ? openRingFrom(poly) : osmLocal;
@@ -984,6 +994,7 @@ function pickWallBlock(lab: Lab): string {
 function pickRoofBlock(lab: Lab): string {
   const [r, g, b] = labToRgb(lab);
   const override = rgbToRoofOverride(r, g, b);
-  const base = override.cap.replace(/^minecraft:/, '').replace(/_slab\[type=bottom\]$/, '');
-  return `minecraft:${base}`;
+  // roofBaseToFullBlock owns the base→full-block suffix map. A previous
+  // inline strip here returned bare `minecraft:deepslate_tile` (invalid id).
+  return roofBaseToFullBlock(override.cap);
 }

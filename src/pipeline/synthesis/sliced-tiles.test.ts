@@ -201,3 +201,73 @@ describe('synthesizeSlicedTiles + evaluateBRep', () => {
     }
   });
 });
+
+describe('cantilever height gate (ground-band neighbour merge)', () => {
+  // 22.4×22.4m OSM square (501.8m² — just over the 500m² cantilever size
+  // gate) centred on the origin. The building box (±10) slices to vertices
+  // strictly inside the ring. The overhang blob ([-10..20]², 900m²) has one
+  // corner inside OSM (anyInside ✓), three outside (allInside ✗), centroid
+  // (5,5) inside, and a 1.79× area ratio — exactly the cantilever signature,
+  // so the branch decision rests on Y alone. The two tests share identical
+  // XZ geometry, differing only in the blob's Y band: if the signature ever
+  // drifts out of the cantilever window, the keep-test fails rather than
+  // both silently passing.
+  const D = 11.2 / 111_111;
+  function makeOsmCtx(): RefinedBuildingContext {
+    const ctx = makeStubCtx() as unknown as {
+      center: { lat: number; lng: number };
+      mbr: { rotationDeg: number; widthM: number; depthM: number };
+    };
+    ctx.center = { lat: 0, lng: 0 };
+    ctx.mbr.rotationDeg = 0;
+    // mbr 30 → cropHalf 20, keeping the blob's +20m edge out of the crop.
+    ctx.mbr.widthM = 30;
+    ctx.mbr.depthM = 30;
+    return ctx as unknown as RefinedBuildingContext;
+  }
+  function makeOsmEv(): JointEvidence {
+    const ev = makeStubEv() as unknown as { footprint: unknown };
+    ev.footprint = {
+      value: [
+        { lat: -D, lon: -D }, { lat: -D, lon: D },
+        { lat: D, lon: D }, { lat: D, lon: -D },
+      ],
+      source: 'osm',
+      confidence: 1,
+    };
+    return ev as unknown as JointEvidence;
+  }
+  const BUILDING: [[number, number, number], [number, number, number]] =
+    [[-10, 0, -10], [10, 30, 10]];
+  const BLOB_XZ: { x0: number; x1: number; z0: number; z1: number } =
+    { x0: -10, x1: 20, z0: -10, z1: 20 };
+
+  function maxAbsX(positions: Float32Array): number {
+    let m = 0;
+    for (let i = 0; i < positions.length; i += 3) m = Math.max(m, Math.abs(positions[i]));
+    return m;
+  }
+
+  it('anchors a GROUND band merged with plaza/neighbour mass to OSM', async () => {
+    // Blob at 0-4m: pre-fix its cantilever signature kept the merged ring
+    // verbatim — the plaza-shard / guggenheim-neighbour failure (IoU 0.57).
+    // The height gate (y0 below max(8m, 25% of range)) must anchor it.
+    const building = makeBox(...[BUILDING[0], BUILDING[1]] as [never, never]);
+    const blob = makeBox([BLOB_XZ.x0, 0, BLOB_XZ.z0], [BLOB_XZ.x1, 4, BLOB_XZ.z1]);
+    const tiles = makeTileEvidence([building, blob], 30);
+    const brep = synthesizeSlicedTiles(makeOsmCtx(), makeOsmEv(), tiles, { voxelResolution: 6 });
+    const mesh = await evaluateBRep(brep);
+    // Anchored to the ±11.2m OSM ring — never the blob's ±16.4m.
+    expect(maxAbsX(mesh.positions)).toBeLessThan(13);
+  });
+
+  it('still keeps a real UPPER-floor cantilever (Geisel-class)', async () => {
+    // Identical overhang at 12-16m — above the 8m floor — must survive as-is.
+    const building = makeBox(...[BUILDING[0], BUILDING[1]] as [never, never]);
+    const blob = makeBox([BLOB_XZ.x0, 12, BLOB_XZ.z0], [BLOB_XZ.x1, 16, BLOB_XZ.z1]);
+    const tiles = makeTileEvidence([building, blob], 30);
+    const brep = synthesizeSlicedTiles(makeOsmCtx(), makeOsmEv(), tiles, { voxelResolution: 6 });
+    const mesh = await evaluateBRep(brep);
+    expect(maxAbsX(mesh.positions)).toBeGreaterThan(15);
+  });
+});

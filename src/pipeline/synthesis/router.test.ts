@@ -76,12 +76,17 @@ describe('routeSynthesis', () => {
     expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
       .toBe('7d-sliced');
   });
-  it('→ 7d-sliced for curved footprints when tiles are usable', () => {
-    // Guggenheim-class curved massing is reproduced by the sliced silhouette,
-    // NOT cleaned-tiles, whenever photogrammetry is usable — row 2 beats row 4.
+  it('→ 7b-cleaned-tiles for curved footprints even with usable tiles', () => {
+    // Guggenheim regression 2026-07-18: the sliced silhouette merged the
+    // curved mass with a neighbour block (IoU 0.57 fail) where 7b scored
+    // 0.99 — curved+polygon takes row 2 ahead of the sliced short-circuit.
     const ctx = makeCtx({ size: 'large', shape: 'curved' });
     expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
-      .toBe('7d-sliced');
+      .toBe('7b-cleaned-tiles');
+  });
+  it('→ 7d-sliced for a curved footprint with NO polygon (no 7b anchor)', () => {
+    const ctx = makeCtx({ size: 'large', shape: 'curved', polygon: null, polygonSource: 'inferred' });
+    expect(routeSynthesis(ctx, makeEv([]), makeTiles())).toBe('7d-sliced');
   });
   it('→ 7d-sliced for a small building whose polygon is missing', () => {
     // No polygon ⇒ the small-home rule (row 1) cannot fire, so usable tiles win.
@@ -103,10 +108,11 @@ describe('routeSynthesis', () => {
       .toBe('7a-parametric');
   });
   it('does NOT divert a small CURVED home to parametric (not parametrizable)', () => {
-    // curved is excluded from row 1 → usable tiles win → sliced.
+    // curved is excluded from row 1; with a polygon the curved rule (row 2)
+    // sends it to cleaned-tiles, whose curved primitives fit the shape.
     const ctx = makeCtx({ size: 'small', shape: 'curved' });
     expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
-      .toBe('7d-sliced');
+      .toBe('7b-cleaned-tiles');
   });
 
   // ─── Rows 3-7: fallbacks reached only when photogrammetry is NOT usable ───

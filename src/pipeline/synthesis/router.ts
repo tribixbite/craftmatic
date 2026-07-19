@@ -12,12 +12,16 @@
  *
  *   1. small/tiny + parametrizable footprint + polygon → '7a-parametric'
  *        (a house fills a fraction of the capture radius → the blob is noise)
- *   2. usable tiles (meshes, not truncated, coverage)  → '7d-sliced'  ← dominant
- *   3. iconic landmark with any coverage               → '7c-hybrid'
- *   4. curved / irregular footprint                    → '7b-cleaned-tiles'
- *   5. truncated skyscraper with polygon               → '7a-parametric'
- *   6. no polygon                                      → '7b-cleaned-tiles'
- *   7. default                                         → '7a-parametric'
+ *   2. curved footprint with polygon                   → '7b-cleaned-tiles'
+ *        (the sliced silhouette merges a curved mass with its neighbours —
+ *         guggenheim 7d IoU 0.57 vs 7b 0.99; 7b routes through the curved/
+ *         helical primitives built for these shapes)
+ *   3. usable tiles (meshes, not truncated, coverage)  → '7d-sliced'  ← dominant
+ *   4. iconic landmark with any coverage               → '7c-hybrid'
+ *   5. curved / irregular footprint                    → '7b-cleaned-tiles'
+ *   6. truncated skyscraper with polygon               → '7a-parametric'
+ *   7. no polygon                                      → '7b-cleaned-tiles'
+ *   8. default                                         → '7a-parametric'
  */
 
 import type { RefinedBuildingContext } from '../context/types.js';
@@ -61,6 +65,17 @@ export function routeSynthesis(
     && !iconic
     && ctx.polygon != null && ctx.polygon.length >= 3;
   if (smallWithPolygon) return '7a-parametric';
+
+  // Curved massing beats usable tiles: the sliced silhouette merges a curved
+  // building's blob with sidewalk/neighbour mass (guggenheim via 7d scored
+  // IoU 0.57 fail-objective; via 7b, 0.99), and 7b is the path wired to the
+  // curved/helical primitives built for exactly these shapes. Requires a
+  // polygon — without one 7b has no silhouette anchor, so usable tiles (or
+  // the no-polygon fallback) still win below. Irregular (non-curved) shapes
+  // stay on the sliced path: their per-band silhouettes are genuine signal.
+  if (ctx.shape === 'curved' && ctx.polygon != null && ctx.polygon.length >= 3) {
+    return '7b-cleaned-tiles';
+  }
 
   if (tilesUsable) return '7d-sliced';
   if (iconic && tiles && !tiles.noCoverage) return '7c-hybrid';
