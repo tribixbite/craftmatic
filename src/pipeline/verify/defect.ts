@@ -25,6 +25,16 @@ const FLOATING_RATIO = 0.02;
 const MIN_BLOCK_TYPES = 3;
 /** Bounding-volume cap above which the connectivity pass is skipped (memory). */
 const MAX_CELLS_FOR_FLOOD = 64_000_000;
+/**
+ * Dominant-facade-block share below this ⇒ incoherent facade. Calibrated on
+ * the 2026-07 golden renders: the visually-jumbled sliced flatiron measured
+ * 18% dominant; coherent builds (parametric highland, flatiron post-router)
+ * measured 31-36%. A real facade has a primary material; per-voxel recolor
+ * dither that never settles on one reads as noise to both humans and VLMs.
+ */
+const FACADE_DOMINANT_MIN = 0.25;
+/** Facades smaller than this many exposed voxels are too small to judge. */
+const MIN_FACADE_VOXELS = 200;
 
 export interface GridStats {
   /** Non-air voxel count. */
@@ -39,6 +49,12 @@ export interface GridStats {
   readonly uniqueBlockTypes: number;
   /** False when the grid was too large to flood-fill (components left −1). */
   readonly computed: boolean;
+  /** Side-exposed (±x/±z face on air) voxel count — the visible facade. */
+  readonly facadeTotal: number;
+  /** Largest single block type's share of the facade (0 when no facade). */
+  readonly facadeDominantShare: number;
+  /** That block's state string, or null when no facade voxels exist. */
+  readonly facadeDominantState: string | null;
 }
 
 /**
@@ -50,6 +66,7 @@ export function analyseGridConnectivity(grid: BlockGrid): GridStats {
   const W = grid.width, H = grid.height, L = grid.length;
   const cells = W * H * L;
   const seen = new Set<number>();
+  const facadeCounts = new Map<number, number>();
 
   if (cells > MAX_CELLS_FOR_FLOOD) {
     let total = 0;
@@ -57,13 +74,20 @@ export function analyseGridConnectivity(grid: BlockGrid): GridStats {
       for (let z = 0; z < L; z++) {
         for (let x = 0; x < W; x++) {
           const id = grid.getIndex(x, y, z);
-          if (id !== 0) { total++; seen.add(id); }
+          if (id !== 0) {
+            total++;
+            seen.add(id);
+            if (isSideExposed(grid, x, y, z, W, L)) {
+              facadeCounts.set(id, (facadeCounts.get(id) ?? 0) + 1);
+            }
+          }
         }
       }
     }
     return {
       total, components: -1, largestSize: -1, disconnectedRatio: 0,
       uniqueBlockTypes: seen.size, computed: false,
+      ...facadeStats(grid, facadeCounts),
     };
   }
 
@@ -78,6 +102,9 @@ export function analyseGridConnectivity(grid: BlockGrid): GridStats {
         if (id === 0) continue;
         total++;
         seen.add(id);
+        if (isSideExposed(grid, x, y, z, W, L)) {
+          facadeCounts.set(id, (facadeCounts.get(id) ?? 0) + 1);
+        }
         const flat = (y * L + z) * W + x;
         if (visited[flat]) continue;
 
@@ -110,6 +137,39 @@ export function analyseGridConnectivity(grid: BlockGrid): GridStats {
   return {
     total, components, largestSize, disconnectedRatio,
     uniqueBlockTypes: seen.size, computed: true,
+    ...facadeStats(grid, facadeCounts),
+  };
+}
+
+/**
+ * A voxel is facade when any ±x/±z face neighbour is air (or the grid edge —
+ * trimmed grids abut their bounds). Vertical exposure (roofs, floors) is
+ * intentionally excluded: the coherence signal is about what a viewer sees
+ * looking AT the building, and roof material legitimately differs.
+ */
+function isSideExposed(
+  grid: BlockGrid, x: number, y: number, z: number, W: number, L: number,
+): boolean {
+  return (x === 0 || grid.getIndex(x - 1, y, z) === 0)
+    || (x === W - 1 || grid.getIndex(x + 1, y, z) === 0)
+    || (z === 0 || grid.getIndex(x, y, z - 1) === 0)
+    || (z === L - 1 || grid.getIndex(x, y, z + 1) === 0);
+}
+
+/** Resolve the facade tally into the GridStats facade fields. */
+function facadeStats(
+  grid: BlockGrid, facadeCounts: Map<number, number>,
+): Pick<GridStats, 'facadeTotal' | 'facadeDominantShare' | 'facadeDominantState'> {
+  let facadeTotal = 0, best = 0;
+  let bestId: number | null = null;
+  for (const [id, n] of facadeCounts) {
+    facadeTotal += n;
+    if (n > best) { best = n; bestId = id; }
+  }
+  return {
+    facadeTotal,
+    facadeDominantShare: facadeTotal > 0 ? best / facadeTotal : 0,
+    facadeDominantState: bestId !== null ? grid.blockStateFromIndex(bestId) : null,
   };
 }
 
@@ -135,6 +195,9 @@ export interface DeterministicDefects {
   readonly footprint_wrong_shape: boolean;
   readonly surface_detail_visible: boolean;
   readonly proportions_correct: boolean;
+  /** No block reaches FACADE_DOMINANT_MIN share of the visible facade —
+   *  per-voxel recolor dither with no primary material (reads as noise). */
+  readonly facade_incoherent: boolean;
 }
 
 export interface DefectScoreResult {
@@ -167,6 +230,8 @@ export function deriveDefects(
     footprint_wrong_shape: objective.footprintIoU < 0.85,
     surface_detail_visible: g.uniqueBlockTypes >= MIN_BLOCK_TYPES,
     proportions_correct: objective.heightErr <= 0.10 && objective.footprintIoU >= 0.85,
+    facade_incoherent: g.facadeTotal >= MIN_FACADE_VOXELS
+      && g.facadeDominantShare < FACADE_DOMINANT_MIN,
   };
 
   const penalties: string[] = [];
@@ -175,6 +240,7 @@ export function deriveDefects(
   if (defects.facade_holes_visible) { score -= 1; penalties.push('facade_holes_visible'); }
   if (defects.floating_artifacts) { score -= 1; penalties.push('floating_artifacts'); }
   if (!defects.surface_detail_visible) { score -= 1; penalties.push('uniform_surface'); }
+  if (defects.facade_incoherent) { score -= 1; penalties.push('facade_incoherent'); }
   if (defects.footprint_wrong_shape) { score -= 0.3; penalties.push('footprint_wrong_shape'); }
   if (!defects.proportions_correct) { score -= 0.3; penalties.push('proportions_off'); }
 

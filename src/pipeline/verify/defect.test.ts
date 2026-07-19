@@ -122,3 +122,49 @@ describe('deriveDefects', () => {
     expect(r.score).toBeCloseTo(9.4, 5);
   });
 });
+
+describe('facade coherence', () => {
+  // 10×10×10 hollow-ish solid: enough side-exposed voxels (>200) to judge.
+  function bigGrid(pick: (x: number, y: number, z: number) => string): BlockGrid {
+    const g = new BlockGrid(12, 12, 12);
+    for (let y = 1; y <= 10; y++) {
+      for (let z = 1; z <= 10; z++) {
+        for (let x = 1; x <= 10; x++) g.set(x, y, z, pick(x, y, z));
+      }
+    }
+    return g;
+  }
+
+  it('a single-material facade is coherent (dominant share 1.0)', () => {
+    const s = analyseGridConnectivity(bigGrid(() => 'minecraft:stone'));
+    expect(s.facadeTotal).toBeGreaterThan(200);
+    expect(s.facadeDominantShare).toBe(1);
+    expect(s.facadeDominantState).toBe('minecraft:stone');
+    const r = deriveDefects(obj(), null, bigGrid(() => 'minecraft:stone'));
+    expect(r.defects.facade_incoherent).toBe(false);
+    expect(r.penalties).not.toContain('facade_incoherent');
+  });
+
+  it('flags a fully-dithered facade (5-way alternation, max share 20%)', () => {
+    // Mimics per-voxel recolor dither: 5 materials round-robin by position,
+    // so no block exceeds ~20% — under the 25% coherence floor (the bad
+    // sliced-flatiron measured 18%).
+    const mats = [
+      'minecraft:stone', 'minecraft:bricks', 'minecraft:tuff',
+      'minecraft:andesite', 'minecraft:clay',
+    ];
+    const g = bigGrid((x, y, z) => mats[(x + y * 3 + z * 7) % mats.length]);
+    const s = analyseGridConnectivity(g);
+    expect(s.facadeDominantShare).toBeLessThan(0.25);
+    const r = deriveDefects(obj(), null, g);
+    expect(r.defects.facade_incoherent).toBe(true);
+    expect(r.penalties).toContain('facade_incoherent');
+  });
+
+  it('exempts facades too small to judge', () => {
+    // gridSolid's 4×4×4 body has ~64 side-exposed voxels — under the 200
+    // floor, so even a dithered surface must not flag.
+    const r = deriveDefects(obj(), null, gridSolid(3));
+    expect(r.defects.facade_incoherent).toBe(false);
+  });
+});
