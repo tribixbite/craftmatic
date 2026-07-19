@@ -7,6 +7,7 @@
 
 import type { BlockGrid } from '../../schem/types.js';
 import type { LatLon } from '../context/types.js';
+import { findUnknownStates } from '../../blocks/known-blocks.js';
 
 // ─── Gate 1: Footprint IoU ─────────────────────────────────────────────────
 
@@ -330,6 +331,20 @@ export function voxelOccupancy(
   return { count: n, limit: Math.round(500_000 * r * r) };
 }
 
+// ─── Gate 8: Palette validity ──────────────────────────────────────────────
+
+/**
+ * Every block state the voxel export emitted must be one the toolchain can
+ * draw faithfully (see `blocks/known-blocks.ts`). An unknown id means a
+ * palette-generation bug: it renders as hash-colour noise here and as the
+ * missing-texture magenta checker in-game — and it is invisible to every
+ * geometry gate. Checks the grid's PALETTE (a handful of entries), not the
+ * voxels, so it is O(palette) regardless of grid size.
+ */
+export function unknownPaletteStates(grid: BlockGrid): string[] {
+  return findUnknownStates(grid.palette.keys());
+}
+
 // ─── Composition ───────────────────────────────────────────────────────────
 
 export interface ObjectiveInputs {
@@ -356,6 +371,8 @@ export interface ObjectiveResult {
   readonly minWallThicknessMm: number;
   readonly voxelCount: number;
   readonly plinthWatertight: boolean | null;
+  /** Block states in the voxel palette the toolchain cannot draw (gate 8). */
+  readonly unknownBlockStates: readonly string[];
   readonly pass: boolean;
   readonly failures: readonly string[];
 }
@@ -386,6 +403,8 @@ export function runObjectiveGates(inputs: ObjectiveInputs): ObjectiveResult {
     plinthWT = analyseEdges(inputs.plinthIndices).boundaryCount === 0;
   }
 
+  const unknownStates = unknownPaletteStates(inputs.grid);
+
   const failures: string[] = [];
   if (iou < 0.85) failures.push(`footprint IoU ${iou.toFixed(2)} < 0.85`);
   if (hErr > 0.10) failures.push(`height error ${(hErr * 100).toFixed(0)}% > 10%`);
@@ -401,6 +420,9 @@ export function runObjectiveGates(inputs: ObjectiveInputs): ObjectiveResult {
   if (occ.count < 1) failures.push('voxel grid empty');
   if (occ.count > occ.limit) failures.push(`voxel count ${occ.count} > ${occ.limit}`);
   if (plinthWT === false) failures.push('plinth not watertight');
+  if (unknownStates.length > 0) {
+    failures.push(`unknown block ids in palette: ${unknownStates.join(', ')}`);
+  }
 
   return {
     footprintIoU: iou,
@@ -411,6 +433,7 @@ export function runObjectiveGates(inputs: ObjectiveInputs): ObjectiveResult {
     minWallThicknessMm: minThickMm,
     voxelCount: occ.count,
     plinthWatertight: plinthWT,
+    unknownBlockStates: unknownStates,
     pass: failures.length === 0,
     failures,
   };

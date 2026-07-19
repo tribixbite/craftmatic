@@ -352,6 +352,31 @@ export function rgbToWallBlock(r: number, g: number, b: number, seedOrX?: number
 }
 
 /**
+ * Map a ROOF_PALETTE base (material root like `deepslate_tile`, `oak`,
+ * `stone_brick`) to its FULL-BLOCK id. Bases are roots so `_stairs`/`_slab`
+ * derive cleanly, but the full-block forms need a suffix: wood roots take
+ * `_planks`, brick/tile roots take a trailing `s` (`deepslate_tile` →
+ * `deepslate_tiles`). Single source of truth — the sliced-tiles path
+ * previously had its own copy WITHOUT the suffix map and emitted the invalid
+ * id `minecraft:deepslate_tile` as the top block of two goldens. Accepts the
+ * bare root or a derived `_slab[...]`/`_stairs[...]` form, with or without
+ * the `minecraft:` prefix.
+ */
+export function roofBaseToFullBlock(base: string): BlockState {
+  const root = base
+    .replace(/^minecraft:/, '')
+    .replace(/_slab(\[[^\]]*\])?$/, '')
+    .replace(/_stairs(\[[^\]]*\])?$/, '');
+  if (['dark_oak', 'oak', 'spruce', 'birch', 'jungle', 'acacia', 'warped', 'crimson'].includes(root)) {
+    return `minecraft:${root}_planks`;
+  }
+  if (['stone_brick', 'deepslate_tile', 'nether_brick', 'mud_brick', 'polished_blackstone_brick'].includes(root)) {
+    return `minecraft:${root}s`;
+  }
+  return `minecraft:${root}`;
+}
+
+/**
  * Find the closest roof material to an observed RGB color.
  * Returns a full roofOverride object with north/south stair blocks and a cap slab.
  */

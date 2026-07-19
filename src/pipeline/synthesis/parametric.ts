@@ -20,7 +20,7 @@ import {
   projectPolygonToLocal,
 } from './features.js';
 import { douglasPeucker } from '../context/classify.js';
-import { rgbToWallBlock, rgbToRoofOverride } from '../../gen/color-blocks.js';
+import { rgbToWallBlock, rgbToRoofOverride, roofBaseToFullBlock } from '../../gen/color-blocks.js';
 import type {
   BuildingBRep,
   Feature,
@@ -81,25 +81,9 @@ function pickRoofBlock(lab: readonly [number, number, number]): string {
   // `rgbToRoofOverride` returns stairs + slab. For the parametric B-rep's
   // flat extrusion the cap slab is the right choice — stairs would need
   // orientation awareness we don't have yet at the material-ref level.
+  // roofBaseToFullBlock owns the base→full-block suffix map (planks/`s`).
   const override = rgbToRoofOverride(r, g, b);
-  // Prefer the base block name (strip the `_slab[type=bottom]` variant) so
-  // the voxelizer's single-material path doesn't carry redundant block-state
-  // metadata through.
-  const slabBlock = override.cap;
-  const base = slabBlock.replace(/_slab\[type=bottom\]$/, '');
-  // For roofs we want a full block, not a half-slab. ROOF_PALETTE bases are
-  // things like `dark_oak`, `stone_brick` (without the `_bricks` suffix),
-  // etc. Map to the corresponding full block.
-  const basename = base.replace(/^minecraft:/, '');
-  // Known bases that need `_bricks`/`_planks` suffix for full-block form
-  if (['dark_oak', 'oak', 'spruce', 'birch', 'jungle', 'acacia', 'warped', 'crimson'].includes(basename)) {
-    return `minecraft:${basename}_planks`;
-  }
-  if (['stone_brick', 'deepslate_tile', 'nether_brick', 'mud_brick', 'polished_blackstone_brick'].includes(basename)) {
-    return `minecraft:${basename}s`;
-  }
-  // Otherwise treat `base` as the full block name already (e.g. `stone`, `andesite`)
-  return `minecraft:${basename}`;
+  return roofBaseToFullBlock(override.cap);
 }
 
 function makeMaterial(lab: readonly [number, number, number], blockName: string): MaterialRef {

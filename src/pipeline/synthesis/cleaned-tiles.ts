@@ -23,7 +23,7 @@ import type { TileEvidence } from '../capture/types.js';
 import type { BuildingBRep, FloorSlab, RoofVolume, Wall } from './brep.js';
 import { projectPolygonToLocal } from './features.js';
 import { douglasPeucker } from '../context/classify.js';
-import { rgbToWallBlock, rgbToRoofOverride } from '../../gen/color-blocks.js';
+import { rgbToWallBlock, rgbToRoofOverride, roofBaseToFullBlock } from '../../gen/color-blocks.js';
 
 function makeMaterial(lab: Lab, block: string): MaterialRef {
   return { blockName: block, lab };
@@ -64,14 +64,8 @@ function pickWallBlock(lab: Lab): string {
 function pickRoofBlock(lab: Lab): string {
   const [r, g, b] = labToRgb(lab);
   const override = rgbToRoofOverride(r, g, b);
-  const base = override.cap.replace(/^minecraft:/, '').replace(/_slab\[type=bottom\]$/, '');
-  if (['dark_oak', 'oak', 'spruce', 'birch', 'jungle', 'acacia', 'warped', 'crimson'].includes(base)) {
-    return `minecraft:${base}_planks`;
-  }
-  if (['stone_brick', 'deepslate_tile', 'nether_brick', 'mud_brick', 'polished_blackstone_brick'].includes(base)) {
-    return `minecraft:${base}s`;
-  }
-  return `minecraft:${base}`;
+  // roofBaseToFullBlock owns the base→full-block suffix map (planks/`s`).
+  return roofBaseToFullBlock(override.cap);
 }
 
 /**

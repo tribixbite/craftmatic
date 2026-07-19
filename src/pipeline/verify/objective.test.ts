@@ -165,3 +165,40 @@ describe('runObjectiveGates', () => {
     expect(joined).toMatch(/watertight|boundary/i);
   });
 });
+
+describe('palette-validity gate (gate 8)', () => {
+  function passInputs(grid: BlockGrid) {
+    const { positions, indices } = tetraMesh();
+    const d = 1 / 111_111;
+    const target: LatLon[] = [
+      { lat: 0, lon: 0 }, { lat: 0, lon: d },
+      { lat: d, lon: d }, { lat: d, lon: 0 },
+    ];
+    return {
+      positions, indices, targetPolygon: target,
+      meshOrigin: { lat: 0, lng: 0 }, meshRotationDeg: 0,
+      expectedHeightM: 1, grid,
+    };
+  }
+
+  it('fails the build when the palette contains an unknown block id', () => {
+    const grid = new BlockGrid(4, 4, 4);
+    grid.set(0, 0, 0, 'minecraft:stone');
+    // The exact invalid id shipped as the top block of two goldens while
+    // every geometry gate passed (2026-07-18).
+    grid.set(1, 0, 0, 'minecraft:deepslate_tile');
+    const r = runObjectiveGates(passInputs(grid));
+    expect(r.unknownBlockStates).toEqual(['minecraft:deepslate_tile']);
+    expect(r.pass).toBe(false);
+    expect(r.failures.join('; ')).toContain('deepslate_tile');
+  });
+
+  it('passes a clean palette and reports no unknown states', () => {
+    const grid = new BlockGrid(4, 4, 4);
+    grid.set(0, 0, 0, 'minecraft:stone');
+    grid.set(1, 0, 0, 'minecraft:deepslate_tiles');
+    const r = runObjectiveGates(passInputs(grid));
+    expect(r.unknownBlockStates).toEqual([]);
+    expect(r.failures.join('; ')).not.toContain('unknown block');
+  });
+});
