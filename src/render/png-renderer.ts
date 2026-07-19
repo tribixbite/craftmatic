@@ -18,21 +18,50 @@ import { Writable } from 'node:stream';
 
 /** Cached atlas instance for textured rendering */
 let atlas: ProceduralAtlas | null = null;
+/** True once the real-texture (hybrid) atlas is what `atlas` holds. */
+let hybridLoaded = false;
+/** Single in-flight hybrid load, shared by every concurrent render. */
+let pendingHybrid: Promise<ProceduralAtlas | null> | null = null;
+/** After a first timeout, later calls only wait this long before reusing
+ *  the procedural fallback — a genuine decode hang must not tax every
+ *  subsequent render with the full initial wait. */
+let timedOutOnce = false;
 
-/** Ensure atlas is loaded (called once per render session).
- * Falls back to procedural-only atlas after 10s timeout to avoid ARM pureimage PNG decode hang. */
+/** First-load cap. Generous because losing the race has a real cost: a
+ *  procedural-texture render is a DIFFERENT image, so VLM consensus scores
+ *  stop being comparable across runs. The cap exists only for the ARM
+ *  pureimage PNG-decode hang, which never resolves at any timeout. */
+const ATLAS_TIMEOUT_MS = 45_000;
+const ATLAS_RETRY_WAIT_MS = 1_000;
+
+/**
+ * Ensure the atlas is loaded. Prefers real textures; falls back to the
+ * procedural atlas if the load exceeds the cap — WITHOUT abandoning it: the
+ * shared load keeps running and later renders self-heal onto real textures
+ * the moment it resolves, instead of pinning procedural for process life.
+ */
 async function ensureAtlas(): Promise<ProceduralAtlas> {
-  if (!atlas) {
-    const timeout = new Promise<null>(r => setTimeout(() => r(null), 10_000));
-    const hybrid = initDefaultAtlas();
-    const result = await Promise.race([hybrid, timeout]);
-    if (result) {
-      atlas = result;
-    } else {
-      console.warn('  Atlas load timeout — falling back to procedural textures');
-      atlas = getDefaultAtlas();
-    }
+  if (atlas && hybridLoaded) return atlas;
+  if (!pendingHybrid) {
+    pendingHybrid = initDefaultAtlas()
+      .then(a => { atlas = a; hybridLoaded = true; return a; })
+      .catch(() => null);
   }
+  const waitMs = timedOutOnce ? ATLAS_RETRY_WAIT_MS : ATLAS_TIMEOUT_MS;
+  const timeout = new Promise<null>(resolve => {
+    const t = setTimeout(() => resolve(null), waitMs);
+    (t as { unref?: () => void }).unref?.();
+  });
+  const result = await Promise.race([pendingHybrid, timeout]);
+  if (result) return result;
+  if (!timedOutOnce) {
+    timedOutOnce = true;
+    console.warn(
+      `  Atlas load exceeded ${waitMs / 1000}s — rendering with procedural textures. ` +
+      'Output differs from real-texture renders; VLM scores from this run are not comparable.',
+    );
+  }
+  if (!atlas) atlas = getDefaultAtlas();
   return atlas;
 }
 
