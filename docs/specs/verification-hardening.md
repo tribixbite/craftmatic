@@ -316,8 +316,20 @@ failed-history correctly caught & archived today's guggenheim regression
       procedural textures for process life; warning states the VLM-score
       consequence. (e37c610)
 
+- [x] **P0-3b (revised)** the layer-cake's dominant mechanism was NOT
+      anchor oscillation but **vertical voids**: photogrammetry drops whole
+      slices at reflective floor bands, and the surviving bands don't abut
+      (fresh flatiron carried three voids, one 6m tall — confirmed by a
+      per-layer occupancy profile). Two fixes: near-OSM inside rings snap to
+      OSM below 0.85× area (6d906c5) and true Y-gaps are bridged by the
+      band(s) ending at them via interval merge (dc47a34). Live: flatiron
+      **defect 10.0, zero penalties** (floating_artifacts + facade_incoherent
+      both cleared), one continuous shaft in the render.
+- [x] **P2-6** synthesis path persisted: composeReport takes synthesisPath,
+      report + pipeline-state records carry it, summariseReport prints
+      `path=…`. (1b37620)
+
 Remaining from the findings: P0-2 recolor shadow-baking (luminance
-normalisation + per-face median + archetype priors), P0-3b band-anchor
-hysteresis (layer-cake), P1-4 glass-on-commercial signal, P1-5 glass alpha
-compositing + face-blit gaps, P2-6 synthesis-path provenance in the report,
-P2-7 golden refresh.
+normalisation + per-face median + archetype priors — the residual facade
+noise on shaded sides), P1-4 glass-on-commercial signal, P1-5 glass alpha
+compositing + face-blit gaps, P2-7 golden refresh.
