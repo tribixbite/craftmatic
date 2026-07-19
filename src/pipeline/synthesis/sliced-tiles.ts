@@ -390,6 +390,44 @@ function synthesizeSlicedTilesImpl(
     }
   }
 
+  // Vertical continuity: photogrammetry loses geometry at reflective/glass
+  // floor bands, so whole slices vanish mid-shaft and the surviving bands
+  // don't abut — the Y-gaps render as void belts (flatiron carried a 6m void
+  // at ~2/3 height) and split the build into stacked slabs the connectivity
+  // pass then flags as floating. Buildings are vertically continuous between
+  // ground and roof, so bridge each internal gap by extending the band(s)
+  // ending at it. A genuine arch/gate doesn't trip this: a slice through an
+  // arch keeps its flanking columns, so its bands survive and no full-slice
+  // gap forms. Skipped on the per-part path (already full-height prisms).
+  if (partPolygons.length === 0 && masked.length > 0) {
+    const EPS = 1e-6;
+    // Merge the bands' [y0,y1] intervals; the complement between merged runs
+    // is the set of true vertical gaps (abutting or overlapping bands merge
+    // into one run and produce none).
+    const sorted = masked.map(b => [b.y0, b.y1] as [number, number]).sort((a, b) => a[0] - b[0]);
+    const runs: Array<[number, number]> = [];
+    for (const [a, b] of sorted) {
+      const last = runs[runs.length - 1];
+      if (last && a <= last[1] + EPS) last[1] = Math.max(last[1], b);
+      else runs.push([a, b]);
+    }
+    const bridges: MaskedBand[] = [];
+    for (let i = 0; i + 1 < runs.length; i++) {
+      const gapStart = runs[i][1];
+      const gapEnd = runs[i + 1][0];
+      for (const b of masked) {
+        // Extend every band ending at the gap (≥1 exists: the run's max end).
+        if (Math.abs(b.y1 - gapStart) < EPS) {
+          bridges.push({ polygon: b.polygon, y0: gapStart, y1: gapEnd });
+        }
+      }
+    }
+    if (bridges.length > 0) {
+      console.error(`  [sliced-tiles] bridged ${runs.length - 1} vertical void(s) for continuity`);
+      masked.push(...bridges);
+    }
+  }
+
   const trueMinY = masked.length > 0
     ? Math.min(...masked.map(b => b.y0))
     : minY;

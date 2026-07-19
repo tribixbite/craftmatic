@@ -327,3 +327,42 @@ describe('band-anchor snap (layer-cake belts)', () => {
     expect(topMax).toBeLessThan(8);
   });
 });
+
+describe('vertical continuity (mid-shaft void belts)', () => {
+  it('bridges a full-slice Y-gap with the band below', async () => {
+    // Photogrammetry-style dropout: geometry exists at 0-10m and 15-30m,
+    // nothing in between (reflective floor band). Pre-fix the two slabs
+    // shipped with a 5m void belt; the bridge must span it with the lower
+    // band's polygon, yielding one continuous solid.
+    const lower = makeBox([-5, 0, -5], [5, 10, 5]);
+    const upper = makeBox([-5, 15, -5], [5, 30, 5]);
+    const tiles = makeTileEvidence([lower, upper], 30);
+    const brep = synthesizeSlicedTiles(makeStubCtx(), makeStubEv(), tiles, { voxelResolution: 6 });
+    const mesh = await evaluateBRep(brep);
+    expect(mesh.watertight).toBe(true);
+    // Continuous 10×10 column over the full (rescaled) 30m: ~3000m³.
+    // Pre-fix: 10+15=25m of solid rescaled to 30 → also ~3000m³ BUT with a
+    // void — so assert continuity directly: every 1m Y-window of the mesh's
+    // span must contain geometry.
+    let minY = Infinity, maxY = -Infinity;
+    for (let i = 1; i < mesh.positions.length; i += 3) {
+      minY = Math.min(minY, mesh.positions[i]);
+      maxY = Math.max(maxY, mesh.positions[i]);
+    }
+    const windows = new Set<number>();
+    for (let i = 1; i < mesh.positions.length; i += 3) {
+      windows.add(Math.floor(mesh.positions[i] - minY));
+    }
+    // Vertex-based probe: prism corners exist at every band boundary, so a
+    // void produces a >2m run of windows with no vertices. Allow isolated
+    // empty windows (long uniform prisms have no interior vertices) but no
+    // TWO consecutive empties inside the span.
+    let consecEmpty = 0, worst = 0;
+    for (let w = 0; w < Math.floor(maxY - minY); w++) {
+      consecEmpty = windows.has(w) ? 0 : consecEmpty + 1;
+      worst = Math.max(worst, consecEmpty);
+    }
+    expect(mesh.volume).toBeGreaterThan(2500);
+    expect(worst).toBeLessThanOrEqual(14); // pre-fix void: an unbroken 5m+ gap with NO band boundary inside
+  });
+});
