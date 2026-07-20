@@ -270,7 +270,14 @@ export function reconcileWallPalette(
   if (svWalls.length > 0) {
     // No OSM hint — same logic as before, SV-first.
     const uniq = dedupLab(svWalls, 8);
-    return { value: uniq, source: 'sv', confidence: 0.9 };
+    // Shade guard: a near-black K-means primary on a RESIDENTIAL building is
+    // almost always a shaded street pano, not black siding (a Brooklyn
+    // rowhouse shipped as a featureless dark tombstone). Commercial towers
+    // (dark curtain wall — Pennzoil) are exempt: dark is plausible there.
+    const dark = uniq[0][0] < 30;
+    const residential = ctx.archType === 'residential';
+    const confidence = dark && residential ? 0.4 : 0.9;
+    return { value: uniq, source: 'sv', confidence };
   }
   // Final default: medium grey
   return { value: [[60, 0, 0]], source: 'inferred', confidence: 0.2 };

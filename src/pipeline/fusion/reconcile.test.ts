@@ -368,3 +368,24 @@ describe('roof palette vegetation guard', () => {
     expect(r.confidence).toBeGreaterThanOrEqual(0.85);
   });
 });
+
+describe('wall palette shade guard', () => {
+  function svWith(lab: [number, number, number]) {
+    return [{
+      confidence: 0.9, occlusion: 'none',
+      palette: { wall: lab, trim: [50, 0, 0], accent: null },
+    }] as unknown as Parameters<typeof reconcileWallPalette>[1];
+  }
+  it('distrusts near-black SV walls on residential (shaded pano)', () => {
+    const r = reconcileWallPalette(baseCtx({ archType: 'residential' }), svWith([18, 2, 2]));
+    expect(r.confidence).toBeLessThanOrEqual(0.4);
+  });
+  it('keeps near-black on commercial (dark curtain wall is plausible)', () => {
+    const r = reconcileWallPalette(baseCtx({ archType: 'commercial' }), svWith([18, 2, 2]));
+    expect(r.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+  it('normal-luminance residential walls unaffected', () => {
+    const r = reconcileWallPalette(baseCtx({ archType: 'residential' }), svWith([65, 5, 10]));
+    expect(r.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+});

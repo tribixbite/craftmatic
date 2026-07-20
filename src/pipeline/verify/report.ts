@@ -92,7 +92,7 @@ export function composeReport(input: {
     ? crossCheckHeight(input.ctx, input.evidence)
     : null;
   const defectScore = input.grid
-    ? deriveDefects(input.objective, crossCheck, input.grid)
+    ? deriveDefects(input.objective, crossCheck, input.grid, { archType: input.ctx?.archType })
     : null;
   const resolution = input.ctx
     ? {

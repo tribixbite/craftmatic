@@ -18,6 +18,7 @@
 import type { ObjectiveResult } from './objective.js';
 import type { CrossCheckResult } from './cross-check.js';
 import { BlockGrid } from '../../schem/types.js';
+import { getBlockColor } from '../../blocks/colors.js';
 
 /** Above this fraction of voxels off the largest body ⇒ floating artifacts. */
 const FLOATING_RATIO = 0.02;
@@ -35,6 +36,13 @@ const MAX_CELLS_FOR_FLOOD = 64_000_000;
 const FACADE_DOMINANT_MIN = 0.25;
 /** Facades smaller than this many exposed voxels are too small to judge. */
 const MIN_FACADE_VOXELS = 200;
+/**
+ * Mean facade luma below this on a RESIDENTIAL archetype ⇒ implausibly dark
+ * (shaded-pano wall palette). Calibrated on real builds: shade-victim
+ * rowhouse = 98, healthy residential = 140-169. Commercial is exempt —
+ * Pennzoil's genuine black-glass towers measure 103.
+ */
+const RESIDENTIAL_DARK_LUMA = 110;
 
 export interface GridStats {
   /** Non-air voxel count. */
@@ -55,6 +63,8 @@ export interface GridStats {
   readonly facadeDominantShare: number;
   /** That block's state string, or null when no facade voxels exist. */
   readonly facadeDominantState: string | null;
+  /** Count-weighted mean sRGB luma (0-255) of facade blocks; 0 = no facade. */
+  readonly facadeMeanLuma: number;
 }
 
 /**
@@ -159,17 +169,22 @@ function isSideExposed(
 /** Resolve the facade tally into the GridStats facade fields. */
 function facadeStats(
   grid: BlockGrid, facadeCounts: Map<number, number>,
-): Pick<GridStats, 'facadeTotal' | 'facadeDominantShare' | 'facadeDominantState'> {
+): Pick<GridStats, 'facadeTotal' | 'facadeDominantShare' | 'facadeDominantState' | 'facadeMeanLuma'> {
   let facadeTotal = 0, best = 0;
   let bestId: number | null = null;
+  let lumaSum = 0, lumaN = 0;
   for (const [id, n] of facadeCounts) {
     facadeTotal += n;
     if (n > best) { best = n; bestId = id; }
+    // Per-palette-id luma — O(palette), not O(voxels).
+    const c = getBlockColor(grid.blockStateFromIndex(id));
+    if (c) { lumaSum += (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) * n; lumaN += n; }
   }
   return {
     facadeTotal,
     facadeDominantShare: facadeTotal > 0 ? best / facadeTotal : 0,
     facadeDominantState: bestId !== null ? grid.blockStateFromIndex(bestId) : null,
+    facadeMeanLuma: lumaN > 0 ? lumaSum / lumaN : 0,
   };
 }
 
@@ -198,6 +213,9 @@ export interface DeterministicDefects {
   /** No block reaches FACADE_DOMINANT_MIN share of the visible facade —
    *  per-voxel recolor dither with no primary material (reads as noise). */
   readonly facade_incoherent: boolean;
+  /** Residential archetype with a near-black facade — a shaded street pano
+   *  baked into the wall palette, not black siding. */
+  readonly facade_implausibly_dark: boolean;
 }
 
 export interface DefectScoreResult {
@@ -220,6 +238,7 @@ export function deriveDefects(
   objective: ObjectiveResult,
   crossCheck: CrossCheckResult | null,
   grid: BlockGrid,
+  opts: { readonly archType?: string } = {},
 ): DefectScoreResult {
   const g = analyseGridConnectivity(grid);
 
@@ -232,6 +251,10 @@ export function deriveDefects(
     proportions_correct: objective.heightErr <= 0.10 && objective.footprintIoU >= 0.85,
     facade_incoherent: g.facadeTotal >= MIN_FACADE_VOXELS
       && g.facadeDominantShare < FACADE_DOMINANT_MIN,
+    facade_implausibly_dark: opts.archType === 'residential'
+      && g.facadeTotal >= MIN_FACADE_VOXELS
+      && g.facadeMeanLuma > 0
+      && g.facadeMeanLuma < RESIDENTIAL_DARK_LUMA,
   };
 
   const penalties: string[] = [];
@@ -241,6 +264,7 @@ export function deriveDefects(
   if (defects.floating_artifacts) { score -= 1; penalties.push('floating_artifacts'); }
   if (!defects.surface_detail_visible) { score -= 1; penalties.push('uniform_surface'); }
   if (defects.facade_incoherent) { score -= 1; penalties.push('facade_incoherent'); }
+  if (defects.facade_implausibly_dark) { score -= 1; penalties.push('facade_implausibly_dark'); }
   if (defects.footprint_wrong_shape) { score -= 0.3; penalties.push('footprint_wrong_shape'); }
   if (!defects.proportions_correct) { score -= 0.3; penalties.push('proportions_off'); }
 

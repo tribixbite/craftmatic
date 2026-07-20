@@ -168,3 +168,35 @@ describe('facade coherence', () => {
     expect(r.defects.facade_incoherent).toBe(false);
   });
 });
+
+describe('facade darkness (archetype-gated)', () => {
+  function bigDark(block: string): BlockGrid {
+    const g = new BlockGrid(12, 12, 12);
+    for (let y = 1; y <= 10; y++)
+      for (let z = 1; z <= 10; z++)
+        for (let x = 1; x <= 10; x++) g.set(x, y, z, block);
+    return g;
+  }
+  it('flags a near-black residential facade', () => {
+    // deepslate family luma ≈ 80 — well under the 110 residential floor.
+    const g = bigDark('minecraft:polished_deepslate');
+    const r = deriveDefects(obj(), null, g, { archType: 'residential' });
+    expect(r.defects.facade_implausibly_dark).toBe(true);
+    expect(r.penalties).toContain('facade_implausibly_dark');
+  });
+  it('exempts commercial (dark curtain wall is plausible)', () => {
+    const g = bigDark('minecraft:polished_deepslate');
+    const r = deriveDefects(obj(), null, g, { archType: 'commercial' });
+    expect(r.defects.facade_implausibly_dark).toBe(false);
+  });
+  it('no flag without archType (legacy callers)', () => {
+    const g = bigDark('minecraft:polished_deepslate');
+    const r = deriveDefects(obj(), null, g);
+    expect(r.defects.facade_implausibly_dark).toBe(false);
+  });
+  it('bright residential facade passes', () => {
+    const g = bigDark('minecraft:white_terracotta');
+    const r = deriveDefects(obj(), null, g, { archType: 'residential' });
+    expect(r.defects.facade_implausibly_dark).toBe(false);
+  });
+});
