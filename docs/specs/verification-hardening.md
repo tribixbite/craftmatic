@@ -333,3 +333,50 @@ Remaining from the findings: P0-2 recolor shadow-baking (luminance
 normalisation + per-face median + archetype priors — the residual facade
 noise on shaded sides), P1-4 glass-on-commercial signal, P1-5 glass alpha
 compositing + face-blit gaps, P2-7 golden refresh.
+
+## Random-address generalization sweep — 2026-07-20
+
+Four untuned addresses (Brooklyn rowhouse, Berwyn IL house, Ann Arbor
+main-street, Durham NC commercial). One hard gate failure + three new
+architecture gaps the goldens never exercised:
+
+- [x] **Roof taper scaled about the origin** (all 5 pitched types +
+      shed). Off-centre footprint → roof swings sideways off the walls.
+      Invisible on goldens (pin ≈ centroid); berwyn produced a ~50m wedge
+      beside an 8×12m building → IoU 0.35 fail. Centred on the
+      area-weighted footprint centroid; regression test on a 30m-offset
+      gable. Live: berwyn IoU 0.35 → **1.00**, grid 339 → 73 long. (committed
+      with this doc)
+- [ ] **P0-A · Building-selection plausibility.** The geocode for
+      "1123 Maple Ave, Berwyn" is RANGE_INTERPOLATED (street-interpolated
+      pin); the ~50m nearest-OSM-building search returned a park TOILET
+      BLOCK (`amenity=toilets`, 8×12m, 53m away) and the pipeline built it
+      as the house. Needed: reject/deprioritise candidate ways tagged
+      amenity=toilets/garage/shed/parking; weight by distance AND
+      addr:housenumber match; flag RANGE_INTERPOLATED/GEOMETRIC_CENTER pins
+      as low-confidence context (Evidence provenance already models this —
+      polygonSource confidence should drop, and the report should surface
+      it); cross-check footprint area vs Smarty/Parcl sqft (the `smarty`
+      fetcher in build.ts is still a `null` stub).
+- [ ] **P0-B · Satellite roof palette samples the surroundings.** Berwyn
+      roof = lab(51,-18,15) @ sat/0.85 — lawn green, rendered as a green
+      roof. Roof sampling must be masked to the building polygon (project
+      OSM footprint into the satellite crop), not a pin-centred patch, and
+      green-vegetation Lab should cap confidence.
+- [ ] **P0-C · SV wall palette on shaded facades.** Carroll rowhouse walls
+      are near-black (shaded street pano) → featureless dark tombstone at
+      defect 10.0. Wall-luminance plausibility floor (L* < ~25 with
+      residential archType ⇒ distrust / lift), same family as P0-2.
+- [ ] **P1-D · defect blindness to implausible darkness/monochrome-dark**:
+      carroll passes facade coherence (dominant share high) AND type-count
+      while being visually unreadable. Add mean-facade-L* signal.
+- [ ] **P2-E · Resolved context not persisted** — the chosen OSM way id /
+      polygon / locationType aren't written with artifacts, so wrong-building
+      forensics required a live re-query. Persist ctx summary
+      (way id, polygon source+area, locationType) into the verification
+      report.
+
+Positive: annarbor-midrise is a credible main-street massing (windows only
+on the front facade — parametric windows still single-facade); durham
+(7d) shows the known P0-2 recolor noise but correct block massing;
+carroll geometry (rowhouse proportions) is right.
