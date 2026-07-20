@@ -87,15 +87,32 @@ interface IndexModel {
 interface IndexSetEntry { name: string; year: string; parts: number; models: IndexModel[] }
 interface LegoModelsIndex { generated: string; sets: Record<string, IndexSetEntry> }
 
-const MODELS_BASE = '/lego-models';
+// Model corpus base. Dev: the vite middleware mounts C:/git/clego/lego_sets at
+// /lego-models. Prod: the corpus is published to a public R2 bucket (synced by
+// clego/sync_models_r2.py; keys are models/<relpath> + lego-models-index.json).
+// VITE_MODELS_BASE overrides both.
+const R2_MODELS_BASE = 'https://pub-02c7ef4c74d5445691176fe4b4455d50.r2.dev/models';
+// (tsconfig has no vite/client types; narrow cast keeps this file self-contained)
+const _viteEnv = (import.meta as unknown as
+  { env?: { DEV?: boolean; VITE_MODELS_BASE?: string } }).env;
+const MODELS_BASE: string =
+  _viteEnv?.VITE_MODELS_BASE ?? (_viteEnv?.DEV ? '/lego-models' : R2_MODELS_BASE);
 let _modelsIndex: LegoModelsIndex | null = null;
 
 async function getModelsIndex(): Promise<LegoModelsIndex> {
   if (_modelsIndex) return _modelsIndex;
-  try {
-    const r = await fetch('/lego-models-index.json');
-    if (r.ok) _modelsIndex = await r.json() as LegoModelsIndex;
-  } catch { /* offline or index not generated yet */ }
+  // Prod prefers the R2 copy (updated by every corpus sync, no site redeploy);
+  // the bundled public/ copy is the fallback. Dev serves the local file.
+  const urls = _viteEnv?.DEV
+    ? ['/lego-models-index.json']
+    : [`${R2_MODELS_BASE.replace(/\/models$/, '')}/lego-models-index.json`,
+       '/lego-models-index.json'];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u);
+      if (r.ok) { _modelsIndex = await r.json() as LegoModelsIndex; break; }
+    } catch { /* offline or index not generated yet — try next */ }
+  }
   _modelsIndex ??= { generated: '', sets: {} };
   return _modelsIndex;
 }
