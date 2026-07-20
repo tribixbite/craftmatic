@@ -413,27 +413,54 @@ function finaliseManifoldMeshFn(
 // ─── Roof shape builders ───────────────────────────────────────────────────
 
 async function buildRoofShape(m: ManifoldNamespace, roof: RoofVolume): Promise<ManifoldShape> {
-  const ring = polygonToRing(roof.polygon);
+  // manifold-3d's tapered extrude scales the top ring about the ORIGIN, not
+  // the footprint. When the polygon's centroid sits off-origin (geocode pin
+  // and OSM outline rarely coincide exactly), a tapered roof swings sideways
+  // off the building instead of peaking over it — an off-centre polygon
+  // (berwyn-house) produced a ~50m wedge beside the walls and IoU 0.35.
+  // Centre the ring on its centroid, extrude, then translate back.
+  const c = polygonCentroid(roof.polygon);
+  const centred = roof.polygon.map(p => ({ x: p.x - c.x, z: p.z - c.z }));
+  const ring = polygonToRing(centred);
   const thickness = Math.max(0.2, roof.peakZ - roof.baseZ);
+  const place = (s: ManifoldShape) => s.translate([c.x, c.z, roof.baseZ]);
 
   if (roof.type === 'flat') {
-    return m.Manifold.extrude([ring], 0.5).translate([0, 0, roof.baseZ]);
+    return place(m.Manifold.extrude([ring], 0.5));
   }
   if (roof.type === 'pyramidal') {
     // Taper the top to a point → scaleTop=[0,0]
-    return m.Manifold.extrude([ring], thickness, 1, 0, [0, 0]).translate([0, 0, roof.baseZ]);
+    return place(m.Manifold.extrude([ring], thickness, 1, 0, [0, 0]));
   }
   if (roof.type === 'dome') {
     // Approximate with a tapered extrusion (circle-like footprint assumed).
-    return m.Manifold.extrude([ring], thickness, 1, 0, [0.1, 0.1]).translate([0, 0, roof.baseZ]);
+    return place(m.Manifold.extrude([ring], thickness, 1, 0, [0.1, 0.1]));
   }
   // gabled / hipped / mansard / shed: use a "tent" extrusion — scaleTop 0.02
   // makes a ridge/peak without collapsing to a single point (avoids manifold
   // pinch singularity). Good enough for printable + voxel output.
   const scaleTopX = roof.type === 'shed' ? 1 : 0.02;
   const scaleTopY = roof.type === 'mansard' ? 0.7 : 0.02;
-  return m.Manifold.extrude([ring], thickness, 1, 0, [scaleTopX, scaleTopY])
-    .translate([0, 0, roof.baseZ]);
+  return place(m.Manifold.extrude([ring], thickness, 1, 0, [scaleTopX, scaleTopY]));
+}
+
+/** Area-weighted polygon centroid (vertex mean when the area is degenerate). */
+function polygonCentroid(poly: readonly LocalPoint2D[]): { x: number; z: number } {
+  let a = 0, cx = 0, cz = 0;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const cross = poly[j].x * poly[i].z - poly[i].x * poly[j].z;
+    a += cross;
+    cx += (poly[j].x + poly[i].x) * cross;
+    cz += (poly[j].z + poly[i].z) * cross;
+  }
+  if (Math.abs(a) < 1e-9) {
+    const n = Math.max(1, poly.length);
+    return {
+      x: poly.reduce((s, p) => s + p.x, 0) / n,
+      z: poly.reduce((s, p) => s + p.z, 0) / n,
+    };
+  }
+  return { x: cx / (3 * a), z: cz / (3 * a) };
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────

@@ -145,3 +145,35 @@ describe('evaluateBRep', () => {
     expect(maxY).toBeLessThan(4.5);
   });
 });
+
+describe('roof taper centring (off-origin polygons)', () => {
+  it('keeps a gabled roof over an off-centre footprint', async () => {
+    // Same 10m square shifted 30m east / 20m north of the origin. manifold's
+    // tapered extrude scales about the ORIGIN, so pre-fix the gabled roof
+    // swung ~30m sideways off the walls (berwyn-house: 50m wedge, IoU 0.35).
+    const OFF: LocalPoint2D[] = RECT_POLY.map(p => ({ x: p.x + 30, z: p.z + 20 }));
+    const brep = singleFloorBrep({
+      floors: [{ level: 0, elevationM: 0, thicknessM: 0.3, polygon: OFF }],
+      walls: [0, 1, 2, 3].map(i => ({
+        level: 0, facadeEdge: i, start: OFF[i], end: OFF[(i + 1) % 4],
+        heightM: 3, thicknessM: 0.3, material: 'wall' as const,
+      })),
+      roof: { type: 'gabled', baseZ: 3.3, peakZ: 5.5, pitchDeg: 30, polygon: OFF, params: {} },
+    });
+    const mesh = await evaluateBRep(brep);
+    expect(mesh.watertight).toBe(true);
+    // Every vertex must stay within the footprint bbox (+0.6m tolerance) —
+    // the pre-fix roof reached toward the origin, far outside it.
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      minX = Math.min(minX, mesh.positions[i]);
+      maxX = Math.max(maxX, mesh.positions[i]);
+      minZ = Math.min(minZ, mesh.positions[i + 2]);
+      maxZ = Math.max(maxZ, mesh.positions[i + 2]);
+    }
+    expect(minX).toBeGreaterThan(25 - 0.6);
+    expect(maxX).toBeLessThan(35 + 0.6);
+    expect(minZ).toBeGreaterThan(15 - 0.6);
+    expect(maxZ).toBeLessThan(25 + 0.6);
+  });
+});
