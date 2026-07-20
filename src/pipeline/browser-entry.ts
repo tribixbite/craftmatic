@@ -204,6 +204,7 @@ export async function runBrowserPipelineFromTiles(
       widthM: refined.mbr.widthM,
       depthM: refined.mbr.depthM,
       tiles: input.tiles,
+      polygon: refined.polygon,
       profile: input.profile,
       fetcher: input.satFetcher,
       onProgress: progress,

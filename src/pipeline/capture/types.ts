@@ -95,6 +95,9 @@ export interface SatEvidence {
     readonly primary: readonly [number, number, number];
     readonly secondary: readonly [number, number, number] | null;
   };
+  /** True when roof sampling was masked to the building footprint. When
+   *  false, fusion distrusts vegetation-green "roof" colours (lawn risk). */
+  readonly roofPaletteMaskedToFootprint?: boolean;
   readonly shadowAzimuthDeg: number | null;
 }
 

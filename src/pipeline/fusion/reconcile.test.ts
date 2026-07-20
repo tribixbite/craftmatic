@@ -343,3 +343,28 @@ describe('footprint confidence vs geocode pin quality', () => {
     expect(reconcileFootprint(baseCtx({ polygon: poly, polygonSource: 'osm', geocodeLocationType: 'GEOMETRIC_CENTER' }), null).confidence).toBe(0.7);
   });
 });
+
+describe('roof palette vegetation guard', () => {
+  function satWith(lab: [number, number, number], masked: boolean | undefined) {
+    return {
+      roofPalette: { primary: lab, secondary: null },
+      ...(masked !== undefined ? { roofPaletteMaskedToFootprint: masked } : {}),
+    } as unknown as Parameters<typeof reconcileRoofPalette>[1];
+  }
+  it('distrusts unmasked vegetation-green (the Berwyn lawn roof)', () => {
+    const r = reconcileRoofPalette(baseCtx({}), satWith([51, -18, 15], false));
+    expect(r.confidence).toBeLessThanOrEqual(0.35);
+  });
+  it('legacy captures without the flag are treated as unmasked', () => {
+    const r = reconcileRoofPalette(baseCtx({}), satWith([51, -18, 15], undefined));
+    expect(r.confidence).toBeLessThanOrEqual(0.35);
+  });
+  it('keeps confidence for footprint-masked green (real verdigris roof)', () => {
+    const r = reconcileRoofPalette(baseCtx({}), satWith([51, -18, 15], true));
+    expect(r.confidence).toBeGreaterThanOrEqual(0.85);
+  });
+  it('non-green roofs unaffected either way', () => {
+    const r = reconcileRoofPalette(baseCtx({}), satWith([40, 5, 10], false));
+    expect(r.confidence).toBeGreaterThanOrEqual(0.85);
+  });
+});

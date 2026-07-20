@@ -284,6 +284,16 @@ export function reconcileRoofPalette(
     const labs: Lab[] = [sat.roofPalette.primary];
     if (sat.roofPalette.secondary) labs.push(sat.roofPalette.secondary);
     let confidence = 0.85;
+    // Vegetation guard: when sampling was NOT masked to the footprint, a
+    // vegetation-green primary is far more likely lawn/trees around a small
+    // building than an actual green roof (a Berwyn build shipped a lawn
+    // roof at 0.85). Footprint-masked samples keep full confidence so real
+    // verdigris/green roofs are unaffected.
+    const [, a, b] = labs[0];
+    const looksVegetation = a < -12 && b > 8;
+    if (looksVegetation && sat.roofPaletteMaskedToFootprint !== true) {
+      confidence = 0.35;
+    }
     const osmLab = ctx.roofColourHint ? parseColourTag(ctx.roofColourHint) : null;
     if (osmLab) {
       const de = deltaE(labs[0], osmLab);

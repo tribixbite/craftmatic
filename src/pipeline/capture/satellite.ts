@@ -180,6 +180,10 @@ export interface CaptureSatelliteInput {
   readonly depthM: number;
   /** Tile evidence from Stage 3 — preferred for zoom computation. */
   readonly tiles?: TileEvidence | null;
+  /** Building footprint (lat/lon). When present, roof-palette sampling is
+   *  masked to the polygon's satellite-pixel projection so lawns/streets
+   *  around a small building can't pollute the roof colour. */
+  readonly polygon?: readonly { lat: number; lon: number }[] | null;
   readonly profile: CaptureProfile;
   readonly fetcher: SatelliteFetcher;
   readonly onProgress?: CaptureProgressFn;
@@ -188,7 +192,7 @@ export interface CaptureSatelliteInput {
 const SAT_SIZE = 640;
 
 export async function captureSatellite(input: CaptureSatelliteInput): Promise<SatEvidence> {
-  const { lat, lng, widthM, depthM, tiles, profile, fetcher, onProgress } = input;
+  const { lat, lng, widthM, depthM, tiles, polygon, profile, fetcher, onProgress } = input;
 
   // Prefer measured tile bbox for zoom; fall back to MBR dims.
   let fitW = widthM;
@@ -227,11 +231,28 @@ export async function captureSatellite(input: CaptureSatelliteInput): Promise<Sa
   }
 
   onProgress?.({ stage: 'satellite', message: 'extracting roof palette', ratio: 0.8 });
+  // Roof sampling area: the building polygon projected into the crop when
+  // available (pin-centred inner-70% otherwise). Without the footprint mask
+  // a small building's crop is dominated by its parcel — a Berwyn build
+  // sampled the LAWN and produced a green roof at high confidence.
+  let paletteMask = combinedMask;
+  let maskedToFootprint = false;
+  if (polygon && polygon.length >= 3) {
+    const poly = buildFootprintMask(polygon, lat, lng, zoom, width, height, SAT_SIZE);
+    if (poly.insideCount >= MIN_FOOTPRINT_PIXELS) {
+      paletteMask = new Uint8Array(width * height);
+      for (let i = 0; i < paletteMask.length; i++) {
+        paletteMask[i] = poly.outside[i] !== 0 ? 1 : combinedMask[i];
+      }
+      maskedToFootprint = true;
+    }
+  }
   const roofPaletteResult = extractPalette(pixels, width, height, 4, {
     k: 2,
-    mask: combinedMask,
-    // Inner 70% — skips edges where neighbouring buildings / streets intrude
-    zone: { x0: 0.15, y0: 0.15, x1: 0.85, y1: 0.85 },
+    mask: paletteMask,
+    // Full frame when footprint-masked; inner 70% otherwise (skips edges
+    // where neighbouring buildings / streets intrude).
+    zone: maskedToFootprint ? { x0: 0, y0: 0, x1: 1, y1: 1 } : { x0: 0.15, y0: 0.15, x1: 0.85, y1: 0.85 },
     stride: 2,
     seed: 1,
   });
@@ -253,8 +274,58 @@ export async function captureSatellite(input: CaptureSatelliteInput): Promise<Sa
     treeMask,
     treeMaskDim: { w: width, h: height },
     roofPalette: { primary: primaryRoof, secondary: secondaryRoof },
+    roofPaletteMaskedToFootprint: maskedToFootprint,
     shadowAzimuthDeg,
   };
+}
+
+/** Minimum footprint pixels inside the crop before the mask is trusted. */
+const MIN_FOOTPRINT_PIXELS = 200;
+
+/**
+ * Project a lat/lon footprint into satellite-crop pixel space (web-mercator,
+ * crop centred on lat/lng at `zoom`, logical size `satSize`, decoded size
+ * width×height) and rasterize it into an outside-mask (1 = outside polygon).
+ * Exported for tests.
+ */
+export function buildFootprintMask(
+  polygon: readonly { lat: number; lon: number }[],
+  latC: number,
+  lngC: number,
+  zoom: number,
+  width: number,
+  height: number,
+  satSize: number,
+): { outside: Uint8Array; insideCount: number } {
+  const scalePx = width / satSize;
+  const world = 256 * Math.pow(2, zoom) * scalePx;
+  const mercY = (lat: number): number => {
+    const s = Math.sin((lat * Math.PI) / 180);
+    return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+  };
+  const toPx = (p: { lat: number; lon: number }): { x: number; y: number } => ({
+    x: width / 2 + ((p.lon - lngC) / 360) * world,
+    y: height / 2 + (mercY(p.lat) - mercY(latC)) * world,
+  });
+  const pts = polygon.map(toPx);
+  const outside = new Uint8Array(width * height);
+  let insideCount = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      // Even-odd point-in-polygon per pixel centre.
+      let inside = false;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
+        if ((yi > y + 0.5) !== (yj > y + 0.5)
+          && x + 0.5 < ((xj - xi) * (y + 0.5 - yi)) / (yj - yi + 1e-12) + xi) {
+          inside = !inside;
+        }
+      }
+      if (inside) insideCount++;
+      else outside[y * width + x] = 1;
+    }
+  }
+  return { outside, insideCount };
 }
 
 function copyToArrayBuffer(arr: Uint8Array): ArrayBuffer {

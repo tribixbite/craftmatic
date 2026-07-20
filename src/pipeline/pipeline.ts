@@ -188,6 +188,7 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
       widthM: refined.mbr.widthM,
       depthM: refined.mbr.depthM,
       tiles,
+      polygon: refined.polygon,
       profile,
       fetcher: opts.fetchers.satellite,
       onProgress: progress,
