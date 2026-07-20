@@ -57,6 +57,17 @@ export interface RecolorOptions {
    */
   readonly clustersPerBand?: number;
   readonly bandHeightM?: number;
+  /**
+   * Percentile luminance normalisation before band clustering (default on).
+   * Photogrammetry bakes sun/shade into the texture, so the shaded side of a
+   * building samples 30-50 L* darker than its lit side and the k-means
+   * centroids land on slate/black clusters — shadow becomes MATERIAL. When
+   * the sample set shows a wide lighting spread (p90−p10 > 25 L*), L* is
+   * remapped [p10,p90] → [30,75] with chroma untouched. Uniformly-lit
+   * buildings (narrow spread — includes genuinely dark towers) pass through
+   * unchanged.
+   */
+  readonly normalizeLighting?: boolean;
 }
 
 interface DecodedTexture {
@@ -391,6 +402,11 @@ export async function recolorFromPhotogrammetry(
     }
   }
 
+  // ─── Pass 1.5: lighting normalisation ────────────────────────────────────
+  if (opts.normalizeLighting !== false) {
+    normalizeSampleLuminance(sampledRGB);
+  }
+
   // ─── Pass 2: per-band k-means cluster + snap ─────────────────────────────
   // Group voxels by Y band (bandRows tall each), run k-means on each band's
   // collected RGB samples in CIE-Lab space, then snap each voxel's colour
@@ -463,6 +479,59 @@ function rgbToLab(r: number, g: number, b: number): [number, number, number] {
   const f = (t: number): number => t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16 / 116);
   const fx = f(xn), fy = f(yn), fz = f(zn);
   return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function labToRgb(L: number, a: number, bb: number): [number, number, number] {
+  const fy = (L + 16) / 116;
+  const fx = fy + a / 500;
+  const fz = fy - bb / 200;
+  const finv = (t: number): number => {
+    const t3 = t * t * t;
+    return t3 > 0.008856 ? t3 : (t - 16 / 116) / 7.787;
+  };
+  const X = finv(fx) * 0.95047, Y = finv(fy), Z = finv(fz) * 1.08883;
+  const lr = X * 3.2404542 + Y * -1.5371385 + Z * -0.4985314;
+  const lg = X * -0.969266 + Y * 1.8760108 + Z * 0.041556;
+  const lb = X * 0.0556434 + Y * -0.2040259 + Z * 1.0572252;
+  const gam = (c: number): number => c > 0.0031308 ? 1.055 * Math.pow(c, 1 / 2.4) - 0.055 : 12.92 * c;
+  const clamp = (c: number): number => Math.max(0, Math.min(255, Math.round(gam(c) * 255)));
+  return [clamp(lr), clamp(lg), clamp(lb)];
+}
+
+/** Lighting spread (L* p90−p10) beyond which normalisation kicks in. */
+const LIGHTING_SPREAD_MIN = 25;
+/** Target L* range the [p10,p90] band is stretched onto. */
+const LIGHTING_TARGET_LO = 30;
+const LIGHTING_TARGET_HI = 75;
+
+/**
+ * Percentile luminance normalisation over the packed per-voxel sample array
+ * (in place). See `RecolorOptions.normalizeLighting`. Exported for tests.
+ */
+export function normalizeSampleLuminance(sampledRGB: Int32Array): void {
+  const Ls: number[] = [];
+  for (let i = 0; i < sampledRGB.length; i++) {
+    const packed = sampledRGB[i];
+    if (packed < 0) continue;
+    const lab = rgbToLab((packed >> 16) & 0xff, (packed >> 8) & 0xff, packed & 0xff);
+    Ls.push(lab[0]);
+  }
+  if (Ls.length < 50) return; // too few samples to estimate lighting
+  Ls.sort((a, b) => a - b);
+  const p10 = Ls[Math.floor(Ls.length * 0.1)];
+  const p90 = Ls[Math.min(Ls.length - 1, Math.floor(Ls.length * 0.9))];
+  const spread = p90 - p10;
+  if (spread <= LIGHTING_SPREAD_MIN) return; // uniform lighting — leave as-is
+
+  const scale = (LIGHTING_TARGET_HI - LIGHTING_TARGET_LO) / spread;
+  for (let i = 0; i < sampledRGB.length; i++) {
+    const packed = sampledRGB[i];
+    if (packed < 0) continue;
+    const [L, a, b] = rgbToLab((packed >> 16) & 0xff, (packed >> 8) & 0xff, packed & 0xff);
+    const nL = Math.max(15, Math.min(90, LIGHTING_TARGET_LO + (L - p10) * scale));
+    const [r, g, bl] = labToRgb(nL, a, b);
+    sampledRGB[i] = (r << 16) | (g << 8) | bl;
+  }
 }
 
 function kMeansLab(samples: ReadonlyArray<readonly [number, number, number]>, k: number): Array<[number, number, number]> {

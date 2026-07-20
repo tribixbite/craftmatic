@@ -200,3 +200,19 @@ describe('facade darkness (archetype-gated)', () => {
     expect(r.defects.facade_implausibly_dark).toBe(false);
   });
 });
+
+describe('facade glass share (advisory)', () => {
+  it('reports the glass fraction of the facade without penalising', () => {
+    const g = new BlockGrid(6, 6, 6);
+    for (let y = 1; y <= 4; y++)
+      for (let z = 1; z <= 4; z++)
+        for (let x = 1; x <= 4; x++) {
+          g.set(x, y, z, x === 1 ? 'minecraft:glass' : 'minecraft:stone');
+        }
+    const s = analyseGridConnectivity(g);
+    expect(s.facadeGlassShare).toBeGreaterThan(0.1);
+    expect(s.facadeGlassShare).toBeLessThan(0.6);
+    const r = deriveDefects(obj(), null, g, { archType: 'commercial' });
+    expect(r.penalties.join()).not.toContain('glass');
+  });
+});

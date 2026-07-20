@@ -65,6 +65,14 @@ export interface GridStats {
   readonly facadeDominantState: string | null;
   /** Count-weighted mean sRGB luma (0-255) of facade blocks; 0 = no facade. */
   readonly facadeMeanLuma: number;
+  /**
+   * Glass fraction of the visible facade. ADVISORY (no score penalty):
+   * measured across real builds every path under-glasses (0.26-2.2% by
+   * volume, real curtain walls are ~50%), so a threshold would penalise
+   * every commercial build identically instead of ranking them. Tracked so
+   * the windows workstream has a metric to move.
+   */
+  readonly facadeGlassShare: number;
 }
 
 /**
@@ -169,15 +177,17 @@ function isSideExposed(
 /** Resolve the facade tally into the GridStats facade fields. */
 function facadeStats(
   grid: BlockGrid, facadeCounts: Map<number, number>,
-): Pick<GridStats, 'facadeTotal' | 'facadeDominantShare' | 'facadeDominantState' | 'facadeMeanLuma'> {
+): Pick<GridStats, 'facadeTotal' | 'facadeDominantShare' | 'facadeDominantState' | 'facadeMeanLuma' | 'facadeGlassShare'> {
   let facadeTotal = 0, best = 0;
   let bestId: number | null = null;
-  let lumaSum = 0, lumaN = 0;
+  let lumaSum = 0, lumaN = 0, glassN = 0;
   for (const [id, n] of facadeCounts) {
     facadeTotal += n;
     if (n > best) { best = n; bestId = id; }
+    const state = grid.blockStateFromIndex(id);
+    if (state.includes('glass')) glassN += n;
     // Per-palette-id luma — O(palette), not O(voxels).
-    const c = getBlockColor(grid.blockStateFromIndex(id));
+    const c = getBlockColor(state);
     if (c) { lumaSum += (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) * n; lumaN += n; }
   }
   return {
@@ -185,6 +195,7 @@ function facadeStats(
     facadeDominantShare: facadeTotal > 0 ? best / facadeTotal : 0,
     facadeDominantState: bestId !== null ? grid.blockStateFromIndex(bestId) : null,
     facadeMeanLuma: lumaN > 0 ? lumaSum / lumaN : 0,
+    facadeGlassShare: facadeTotal > 0 ? glassN / facadeTotal : 0,
   };
 }
 
