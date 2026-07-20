@@ -425,3 +425,17 @@ concurrent builds (parallel background tasks) can drop each other's
 records — several July rebuilds show stale May state. Fix direction:
 per-slug state files or an O_EXCL lockfile around the merge. The
 immutable failed-history archive is per-file and unaffected.
+
+### Fix status — 2026-07-20 (round 2)
+
+- [x] **state race** mkdir-lock (stale-broken at 30s) + temp/rename atomic
+      write in mergeStateRecord; `scripts/sync-state.ts` re-syncs state from
+      verification.json artifacts; refresh-goldens `--json-only`. (c4ef633)
+- [x] **P0-2 (consolidation half)** buffered 6-neighbour majority pass over
+      recolored voxels (≥4 agreeing flips; boundaries with ≤3 untouched;
+      overlay voxels excluded). Live durham rebuild: purple checker gone,
+      roof reads sandstone, upper facades coherent; street-level
+      photo-splotch remains — needs per-face segmentation (open).
+- [-] **Smarty fetcher** stays a stub: no SMARTY credentials in .env; wiring
+      an untestable API client would be worse than the stub. Unblocks when
+      keys land.
