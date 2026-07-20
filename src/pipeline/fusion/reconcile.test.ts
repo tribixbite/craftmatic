@@ -326,3 +326,20 @@ describe('fuseEvidence', () => {
     expect(je.roofPalette.confidence).toBeGreaterThanOrEqual(0.9); // sat+OSM agree
   });
 });
+
+describe('footprint confidence vs geocode pin quality', () => {
+  const poly = [
+    { lat: 0, lon: 0 }, { lat: 0, lon: 0.0001 },
+    { lat: 0.0001, lon: 0.0001 }, { lat: 0.0001, lon: 0 },
+  ];
+  it('keeps 1.0 for ROOFTOP (and legacy contexts without the field)', () => {
+    expect(reconcileFootprint(baseCtx({ polygon: poly, polygonSource: 'osm', geocodeLocationType: 'ROOFTOP' }), null).confidence).toBe(1.0);
+    expect(reconcileFootprint(baseCtx({ polygon: poly, polygonSource: 'osm' }), null).confidence).toBe(1.0);
+  });
+  it('degrades RANGE_INTERPOLATED to 0.85 (wrong-parcel risk)', () => {
+    expect(reconcileFootprint(baseCtx({ polygon: poly, polygonSource: 'osm', geocodeLocationType: 'RANGE_INTERPOLATED' }), null).confidence).toBe(0.85);
+  });
+  it('degrades GEOMETRIC_CENTER to 0.7', () => {
+    expect(reconcileFootprint(baseCtx({ polygon: poly, polygonSource: 'osm', geocodeLocationType: 'GEOMETRIC_CENTER' }), null).confidence).toBe(0.7);
+  });
+});

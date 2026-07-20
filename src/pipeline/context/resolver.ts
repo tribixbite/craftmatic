@@ -326,6 +326,7 @@ export function buildBuildingContext(input: BuildContextInput): BuildingContext 
     center: { lat: center.lat, lng: center.lon },
     polygon,
     polygonSource,
+    geocodeLocationType: input.geocode.locationType,
     mbr,
     heightM,
     heightSource,

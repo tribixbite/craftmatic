@@ -190,7 +190,10 @@ const contextFetchers: ContextFetchers = {
         console.error(`warn: polygon-overrides.json parse error: ${(e as Error).message}`);
       }
     }
-    return searchOSMBuilding(lat, lng, 50);
+    // Leading house number from the query address pulls in the matching
+    // addr:housenumber way and penalises auxiliary structures (P0-A).
+    const houseNumber = address.match(/^\s*(\d+[a-z]?)\b/i)?.[1] ?? null;
+    return searchOSMBuilding(lat, lng, 50, houseNumber);
   },
   osmSiblings: async () => [], // follow-up: OSM building neighbour query
   osmBuildingParts: async (lat, lng, radius) => {
@@ -466,6 +469,7 @@ interface PipelineStateRecord {
   crossCheck: FullVerificationReport['crossCheck'];
   defectScore: FullVerificationReport['defectScore'];
   synthesisPath: FullVerificationReport['synthesisPath'];
+  resolution: FullVerificationReport['resolution'];
   reason?: string;
 }
 
@@ -528,6 +532,7 @@ function mergeStateRecord(
     crossCheck: report.crossCheck,
     defectScore: report.defectScore,
     synthesisPath: report.synthesisPath,
+    resolution: report.resolution,
     ...(report.reason ? { reason: report.reason } : {}),
   };
 

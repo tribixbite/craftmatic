@@ -35,7 +35,16 @@ export function reconcileFootprint(
   tiles: TileEvidence | null,
 ): Evidence<readonly LatLon[]> {
   if (ctx.polygon && ctx.polygon.length >= 3 && ctx.polygonSource === 'osm') {
-    return { value: ctx.polygon, source: 'osm', confidence: 1.0 };
+    // An OSM polygon is authoritative geometry, but WHICH building it is
+    // depends on the geocode pin: interpolated / centroid pins can land the
+    // nearest-building search on the wrong parcel (a RANGE_INTERPOLATED pin
+    // once selected a park toilet block). Degrade confidence so the report
+    // makes the risk visible instead of asserting certainty.
+    const pin = ctx.geocodeLocationType ?? 'ROOFTOP';
+    const confidence = pin === 'ROOFTOP' ? 1.0
+      : pin === 'RANGE_INTERPOLATED' ? 0.85
+      : 0.7; // GEOMETRIC_CENTER / APPROXIMATE
+    return { value: ctx.polygon, source: 'osm', confidence };
   }
   if (ctx.polygon && ctx.polygonSource === 'solar-bbox') {
     return { value: ctx.polygon, source: 'solar', confidence: 0.7 };

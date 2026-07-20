@@ -230,3 +230,26 @@ describe('summariseReport', () => {
     expect(summariseReport(r)).toMatch(/defect_score=\d+\.\d/);
   });
 });
+
+describe('resolution forensics', () => {
+  it('captures osmId, polygonSource and pin quality from ctx', () => {
+    const ctx = {
+      polygonSource: 'osm',
+      geocodeLocationType: 'RANGE_INTERPOLATED',
+      rawOsm: { osmId: 'way/477297788', footprintAreaSqm: 96.5 },
+    } as unknown as Parameters<typeof composeReport>[0]['ctx'];
+    const grid = new BlockGrid(2, 2, 2);
+    grid.set(0, 0, 0, 'minecraft:stone');
+    const r = composeReport({ objective: okObjective(), ctx, grid });
+    expect(r.resolution).toEqual({
+      osmId: 'way/477297788',
+      polygonSource: 'osm',
+      geocodeLocationType: 'RANGE_INTERPOLATED',
+      footprintAreaSqm: 96.5,
+    });
+  });
+  it('is null without ctx', () => {
+    const r = composeReport({ objective: okObjective() });
+    expect(r.resolution).toBeNull();
+  });
+});

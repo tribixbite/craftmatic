@@ -50,6 +50,18 @@ export interface FullVerificationReport {
    * routing change. `null` on older records / context-insufficient runs.
    */
   readonly synthesisPath: string | null;
+  /**
+   * Resolution forensics: which OSM element was chosen, how the polygon was
+   * sourced, and the geocode pin quality. Wrong-building selection (an
+   * interpolated pin once resolved a park toilet block) was previously
+   * undiagnosable from artifacts alone. `null` when no context was resolved.
+   */
+  readonly resolution: {
+    readonly osmId: string | null;
+    readonly polygonSource: string;
+    readonly geocodeLocationType: string | null;
+    readonly footprintAreaSqm: number | null;
+  } | null;
   /** Non-empty for `context-insufficient` status. */
   readonly reason?: string;
 }
@@ -82,6 +94,14 @@ export function composeReport(input: {
   const defectScore = input.grid
     ? deriveDefects(input.objective, crossCheck, input.grid)
     : null;
+  const resolution = input.ctx
+    ? {
+        osmId: input.ctx.rawOsm?.osmId ?? null,
+        polygonSource: input.ctx.polygonSource,
+        geocodeLocationType: input.ctx.geocodeLocationType ?? null,
+        footprintAreaSqm: input.ctx.rawOsm?.footprintAreaSqm ?? null,
+      }
+    : null;
 
   if (!input.objective.pass) {
     return {
@@ -93,6 +113,7 @@ export function composeReport(input: {
       crossCheck,
       defectScore,
       synthesisPath: input.synthesisPath ?? null,
+      resolution,
     };
   }
   if (!input.consensus) {
@@ -106,6 +127,7 @@ export function composeReport(input: {
       crossCheck,
       defectScore,
       synthesisPath: input.synthesisPath ?? null,
+      resolution,
     };
   }
   if (input.consensus.status === 'needs-human-review') {
@@ -118,6 +140,7 @@ export function composeReport(input: {
       crossCheck,
       defectScore,
       synthesisPath: input.synthesisPath ?? null,
+      resolution,
     };
   }
   if (input.consensus.pass) {
@@ -130,6 +153,7 @@ export function composeReport(input: {
       crossCheck,
       defectScore,
       synthesisPath: input.synthesisPath ?? null,
+      resolution,
     };
   }
   return {
@@ -141,6 +165,7 @@ export function composeReport(input: {
     crossCheck,
     defectScore,
     synthesisPath: input.synthesisPath ?? null,
+    resolution,
   };
 }
 
@@ -207,6 +232,7 @@ export function contextInsufficientReport(reason: string): FullVerificationRepor
     crossCheck: null,
     defectScore: null,
     synthesisPath: null,
+    resolution: null,
     reason,
   };
 }

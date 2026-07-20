@@ -88,6 +88,13 @@ export interface BuildingContext {
   /** Footprint polygon if OSM or Solar provided one. */
   readonly polygon: readonly LatLon[] | null;
   readonly polygonSource: 'osm' | 'solar-bbox' | 'inferred';
+  /**
+   * Geocode pin quality. A RANGE_INTERPOLATED / GEOMETRIC_CENTER pin can sit
+   * on the wrong parcel, so the nearest-OSM polygon is less trustworthy -
+   * fusion degrades footprint confidence accordingly. Optional for backward
+   * compatibility (absent => treated as ROOFTOP).
+   */
+  readonly geocodeLocationType?: 'ROOFTOP' | 'RANGE_INTERPOLATED' | 'GEOMETRIC_CENTER' | 'APPROXIMATE';
   readonly mbr: MBR;
 
   /** Best-estimate height in metres. Null when no source provides height. */

@@ -40,6 +40,9 @@ export interface OSMBuildingData {
   roofColour?: string;
   /** Actual polygon area in square meters (shoelace formula) */
   footprintAreaSqm: number;
+  /** OSM element ref ("way/123", "relation/456") — forensics for
+   *  wrong-building selection; persisted into the verification report. */
+  osmId?: string;
   /** Raw OSM tags object */
   tags: Record<string, string>;
 }
@@ -57,6 +60,8 @@ export async function searchOSMBuilding(
   lat: number,
   lng: number,
   radius = 50,
+  /** House number from the query address (see parseClosestBuilding). */
+  houseNumber?: string | null,
 ): Promise<OSMBuildingData | null> {
   // Fetch both ways and relations tagged [building] — relations capture multipolygon
   // buildings with inner/outer rings (courtyards, through-block buildings).
@@ -103,7 +108,7 @@ export async function searchOSMBuilding(
       const elements = data.elements;
       if (!Array.isArray(elements) || elements.length === 0) return null;
 
-      return parseClosestBuilding(elements, lat, lng);
+      return parseClosestBuilding(elements, lat, lng, houseNumber);
     } catch (err) {
       if (attempt < MAX_RETRIES) {
         const delay = (attempt + 1) * 3000;
@@ -475,15 +480,47 @@ function pointInPolygon(
   return inside;
 }
 
+/** Score penalty (metres-equivalent) for auxiliary structures — garages,
+ *  sheds, toilets etc. They stay selectable when nothing else is near, but a
+ *  principal building within this margin always beats them. */
+const AUX_STRUCTURE_PENALTY_M = 60;
+/** Bonus when a candidate's addr:housenumber exactly matches the query's. */
+const HOUSENUMBER_MATCH_BONUS_M = 80;
+/** Smaller bonus for merely carrying an address (it's SOMEBODY's building). */
+const ADDRESSED_BUILDING_BONUS_M = 10;
+
+/** building=/amenity= values that mark a structure as auxiliary — not the
+ *  addressed building a user asked to reconstruct. */
+const AUX_BUILDING_VALUES = new Set([
+  'garage', 'garages', 'shed', 'carport', 'roof', 'service', 'hut',
+  'greenhouse', 'kiosk', 'toilets', 'shelter', 'gazebo', 'boathouse',
+]);
+const AUX_AMENITY_VALUES = new Set([
+  'toilets', 'shelter', 'parking', 'bicycle_parking', 'bench', 'fountain',
+]);
+
+/** True when the way's tags mark an auxiliary structure. */
+export function isAuxiliaryStructure(tags: Record<string, string> | undefined): boolean {
+  if (!tags) return false;
+  const b = tags['building'];
+  const a = tags['amenity'];
+  return (b != null && AUX_BUILDING_VALUES.has(b))
+    || (a != null && AUX_AMENITY_VALUES.has(a));
+}
+
 /**
  * Parse Overpass JSON elements and return the best building match.
- * Priority: (1) containing polygon with largest area, (2) closest centroid.
+ * Priority: (1) containing PRINCIPAL polygon with largest area, (2) lowest
+ * plausibility-adjusted score (distance + auxiliary penalty − address bonus).
  * Exported for testing with mock responses.
  */
 export function parseClosestBuilding(
   elements: OverpassElement[],
   queryLat: number,
   queryLng: number,
+  /** House number from the query address — exact addr:housenumber match
+   *  strongly pulls that candidate in. */
+  houseNumber?: string | null,
 ): OSMBuildingData | null {
   // Extract geometry for each element
   interface Candidate {
@@ -521,17 +558,35 @@ export function parseClosestBuilding(
 
   if (candidates.length === 0) return null;
 
-  // Prefer: (1) buildings that contain the query point, sorted by area descending
-  // (2) otherwise closest centroid
+  // Prefer: (1) PRINCIPAL buildings that contain the query point, sorted by
+  // area descending; (2) otherwise lowest plausibility-adjusted score.
+  //
+  // Raw closest-centroid is not enough: an interpolated geocode pin can sit
+  // closer to an auxiliary structure than to the addressed building (a
+  // RANGE_INTERPOLATED pin for "1123 Maple Ave, Berwyn" reconstructed the
+  // park TOILET BLOCK 53m away instead of the house at 59m). Auxiliary
+  // structures are score-penalised (still usable as a last resort), and a
+  // matching addr:housenumber strongly pulls its candidate in.
   const containing = candidates
-    .filter(c => c.containsQuery)
+    .filter(c => c.containsQuery && !isAuxiliaryStructure(c.el.tags))
     .sort((a, b) => b.area - a.area);
 
   let bestElement: OverpassElement;
   if (containing.length > 0) {
     bestElement = containing[0].el;
   } else {
-    candidates.sort((a, b) => a.centroidDist - b.centroidDist);
+    const score = (c: Candidate): number => {
+      let s = c.centroidDist;
+      if (isAuxiliaryStructure(c.el.tags)) s += AUX_STRUCTURE_PENALTY_M;
+      const num = c.el.tags?.['addr:housenumber'];
+      if (num != null) {
+        s -= houseNumber != null && num.trim() === houseNumber.trim()
+          ? HOUSENUMBER_MATCH_BONUS_M
+          : ADDRESSED_BUILDING_BONUS_M;
+      }
+      return s;
+    };
+    candidates.sort((a, b) => score(a) - score(b));
     bestElement = candidates[0].el;
   }
 
@@ -602,6 +657,7 @@ export function parseClosestBuilding(
     roofMaterial: tags['roof:material'] || undefined,
     buildingColour: normalizeOSMColour(tags['building:colour']),
     roofColour: normalizeOSMColour(tags['roof:colour']),
+    osmId: `${bestElement.type}/${bestElement.id}`,
     tags,
   };
 }
