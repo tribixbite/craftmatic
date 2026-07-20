@@ -377,7 +377,13 @@ function synthesizeSlicedTilesImpl(
             // genuine setbacks (≲0.7× on stepped towers).
             if (!isCantilever) {
               const allInside = poly.points.every(p => pointInPolygon(p.x, p.z, osmLocal));
-              if (allInside && polyArea < osmAreaForCanti * 0.85) {
+              // Curved shapes keep EVERY fully-inside ring raw: per-band
+              // radius variation IS the spiral/cone signal the helical
+              // fitter reads — snapping near-OSM rings to the outline
+              // flattened guggenheim's taper into a constant-radius drum
+              // (scaleTop 1.0). Rectilinear shapes keep the 0.85 snap that
+              // kills layer-cake belts.
+              if (allInside && (curvedDetect.isCurved || polyArea < osmAreaForCanti * 0.85)) {
                 ring = openRingFrom(poly);
               }
             }
