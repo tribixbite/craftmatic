@@ -22,7 +22,7 @@ import {
   ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
-import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportLayerGuide, countExportTriangles } from '@viewer/exporter.js';
+import { exportGLB, exportSTL, exportOBJ, export3MF, exportSchem, exportLitematic, exportLayerGuide, countExportTriangles } from '@viewer/exporter.js';
 import type { ViewerState } from '@viewer/scene.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 
@@ -80,6 +80,9 @@ interface IndexModel {
   n: number;
   /** Alternate-model label (B-models, train cars, UCS variants…) — absent on primaries. */
   variant?: string;
+  /** 1 = known-rotation-bug script conversion (LXF lineage, src 'lxf_conv') —
+   *  parts may be misrotated/misplaced. Load, but label honestly. */
+  conv?: number;
 }
 interface IndexSetEntry { name: string; year: string; parts: number; models: IndexModel[] }
 interface LegoModelsIndex { generated: string; sets: Record<string, IndexSetEntry> }
@@ -300,6 +303,7 @@ function buildUI(): void {
         <option value="2560x1440">2560×1440 QHD</option>
         <option value="3840x2160">3840×2160 4K</option>
         <option value="7680x4320">7680×4320 8K</option>
+        <option value="turntable">Turntable video (.webm)</option>
       </select>
       <select id="lego-export-model" title="Download the loaded set as a 3D model or Minecraft schematic" style="margin-left:6px;font-size:0.7rem;padding:2px 4px;border-radius:3px">
         <option value="">Download…</option>
@@ -307,6 +311,7 @@ function buildUI(): void {
           <option value="glb">GLB (.glb)</option>
           <option value="obj">OBJ (.obj)</option>
           <option value="stl">STL (.stl)</option>
+          <option value="3mf">3MF, color 3D print (.3mf)</option>
         </optgroup>
         <optgroup label="Minecraft">
           <option value="schem">Schematic (.schem)</option>
@@ -610,7 +615,9 @@ function wireEvents(): void {
     const sel = e.target as HTMLSelectElement;
     const dim = sel.value;
     sel.value = ''; // reset back to placeholder
-    if (!dim || !currentLDrawViewer) return;
+    if (!dim) return;
+    if (dim === 'turntable') { void exportTurntable(); return; }
+    if (!currentLDrawViewer) return;
     const [wStr, hStr] = dim.split('x');
     const w = parseInt(wStr!, 10);
     const h = parseInt(hStr!, 10);
@@ -898,10 +905,22 @@ function selectSet(set: CatalogSet): void {
     // entries are all the same repackaged conversion). Only when every
     // indexed source fails does the classic OMR/reconstructed/BFF chain run.
     let loaded = false;
-    for (let i = 0; i < models.length && !loaded; i++) {
+    // Honest default: if the top-ranked entry is a conv-flagged script
+    // conversion but a non-conv source exists further down, try the first
+    // non-conv entry FIRST (picker order stays untouched — conv entries
+    // remain user-selectable, they just don't win the auto-pick).
+    let tryOrder = models.map((_, i) => i);
+    if (models[0]?.conv) {
+      const firstNonConv = models.findIndex(m => !m.conv);
+      if (firstNonConv > 0) {
+        tryOrder = [firstNonConv, ...tryOrder.filter(i => i !== firstNonConv)];
+      }
+    }
+    for (const i of tryOrder) {
       try {
         await loadIndexedModel(set, models, i);
         loaded = true;
+        break;
       } catch (err) {
         if (selectedSet !== set) return; // stale selection — stop entirely
         console.warn(`[lego] indexed source ${models[i]!.src} (${models[i]!.path}) failed:`, err);
@@ -950,7 +969,8 @@ function selectSet(set: CatalogSet): void {
 /** Compact option label: `omr · tier1 · 246 steps · 965 parts · B-Model`. */
 function sourceLabel(m: IndexModel): string {
   const variant = m.variant ? ` · ${m.variant}` : '';
-  return `${m.src} · tier${m.tier}${m.steps > 1 ? ` · ${m.steps} steps` : ''} · ${m.n} parts${variant}`;
+  const conv = m.conv ? ' · conversion' : '';
+  return `${m.src} · tier${m.tier}${m.steps > 1 ? ` · ${m.steps} steps` : ''} · ${m.n} parts${variant}${conv}`;
 }
 
 /** Build the source <select> + active-source badge for the selected set. */
@@ -1080,6 +1100,13 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
   }
   if (bricks.length === 0) throw new Error(`no brick placements in ${model.path}`);
   await voxelizeAndDisplay(bricks, `${set.set_num}-${model.src}`, colorFn);
+  // Index-level conversion flag (lineage metadata — catches laundered LXF
+  // conversions that text-sniffing can't). Set AFTER display on purpose: the
+  // render-success status would otherwise immediately overwrite the warning.
+  // Never blocks loading — for some sets this is the only model that exists.
+  if (model.conv && !loadIsStale(epoch)) {
+    setStatus('⚠ Script-converted model (LXF lineage) — some parts may be misrotated/misplaced. Prefer another source if available.', 'info');
+  }
 }
 
 // ─── OMR Auto-Load ───────────────────────────────────────────────────────────
@@ -1223,7 +1250,7 @@ async function exportLoadedModel(fmt: string): Promise<void> {
   if (!currentBricks) { setStatus('Load a set first, then export.', 'error'); return; }
   const base = (currentBricksLabel || 'model').replace(/\.[^.]+$/, '') || 'model';
   try {
-    if (fmt === 'glb' || fmt === 'obj' || fmt === 'stl') {
+    if (fmt === 'glb' || fmt === 'obj' || fmt === 'stl' || fmt === '3mf') {
       if (!currentLDrawViewer) {
         setStatus('3D export needs the 3D renderer (enable “3D Render”).', 'error');
         return;
@@ -1245,6 +1272,7 @@ async function exportLoadedModel(fmt: string): Promise<void> {
       const tris = countExportTriangles(meshes as unknown as Parameters<typeof countExportTriangles>[0]);
       const OBJ_MAX_TRIS = 2_000_000; // ~640 MB OBJ
       const STL_MAX_TRIS = 12_000_000; // ~600 MB STL
+      const THREEMF_MAX_TRIS = 1_500_000; // XML text ~200 B/tri before zip — string building is the bottleneck
       if (fmt === 'obj' && tris > OBJ_MAX_TRIS) {
         setStatus(`Too large for OBJ (${(tris / 1e6).toFixed(1)}M triangles → ~${Math.round(tris * 320 / 1e6)} MB). Use GLB — it stays compact via shared geometry.`, 'error');
         return;
@@ -1253,7 +1281,11 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         setStatus(`Too large for STL (${(tris / 1e6).toFixed(1)}M triangles → ~${Math.round(tris * 50 / 1e6)} MB). Use GLB, or slice the model with the layer/step slider first.`, 'error');
         return;
       }
-      const big = (fmt === 'obj' || fmt === 'stl') && tris > 1_000_000;
+      if (fmt === '3mf' && tris > THREEMF_MAX_TRIS) {
+        setStatus(`Too large for 3MF (${(tris / 1e6).toFixed(1)}M triangles — the XML would exceed browser string limits). Use GLB, or slice the model with the layer/step slider first.`, 'error');
+        return;
+      }
+      const big = (fmt === 'obj' || fmt === 'stl' || fmt === '3mf') && tris > 1_000_000;
       setStatus(big ? `Baking ${(tris / 1e6).toFixed(1)}M triangles to ${fmt.toUpperCase()} — large file, please wait…` : `Exporting ${fmt.toUpperCase()}…`, 'info');
       await new Promise(r => setTimeout(r, 0)); // paint the status before the (heavy, sync) bake
       // Only viewer.meshes is read by the exporters — duck-type a ViewerState.
@@ -1264,8 +1296,10 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         const sz = currentLDrawViewer.getModelSizeStuds();
         const mm = sz ? ` at real scale ${Math.round(sz.x * 8)}×${Math.round(sz.z * 8)}×${Math.round(sz.y * 8)} mm` : '';
         if (fmt === 'obj') await exportOBJ(shim, `${base}.obj`);
+        else if (fmt === '3mf') await export3MF(shim, `${base}.3mf`);
         else await exportSTL(shim, `${base}.stl`);
-        setStatus(`Exported ${base}.${fmt}${mm}`, 'success');
+        const colorNote = fmt === '3mf' ? ' with per-brick color' : '';
+        setStatus(`Exported ${base}.${fmt}${mm}${colorNote}`, 'success');
       }
       return;
     }
@@ -1323,6 +1357,40 @@ async function exportLoadedModel(fmt: string): Promise<void> {
     }
   } catch (err) {
     setStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+  }
+}
+
+/**
+ * Record a 360° turntable of the loaded 3D model and download it as
+ * {set}-turntable.webm. Camera is orbited from OUTSIDE the viewer through its
+ * public controls/camera surface (see @viewer/turntable.js).
+ */
+async function exportTurntable(): Promise<void> {
+  if (!currentLDrawViewer) {
+    setStatus('Turntable export needs a model loaded in 3D Render mode — load a set first.', 'error');
+    return;
+  }
+  try {
+    const { recordTurntable, turntableSupported } = await import('@viewer/turntable.js');
+    if (!turntableSupported()) {
+      setStatus('Turntable export is not supported in this browser (needs MediaRecorder + canvas.captureStream).', 'error');
+      return;
+    }
+    const base = (selectedSet?.set_num ?? currentBricksLabel.replace(/\.[^.]+$/, '')) || 'model';
+    setStatus('Recording turntable: 0%… (6 s orbit)', 'info');
+    const blob = await recordTurntable(currentLDrawViewer, {
+      durationMs: 6000,
+      fps: 30,
+      onProgress: f => setStatus(`Recording turntable: ${Math.round(f * 100)}%…`, 'info'),
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${base}-turntable.webm`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 100);
+    setStatus(`Exported ${base}-turntable.webm (${(blob.size / 1e6).toFixed(1)} MB, 360° orbit)`, 'success');
+  } catch (err) {
+    setStatus(`Turntable export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
   }
 }
 
