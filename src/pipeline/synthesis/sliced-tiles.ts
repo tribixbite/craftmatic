@@ -620,7 +620,7 @@ function synthesizeSlicedTilesImpl(
  *   • Radii don't vary monotonically (stepped or constant)
  *   • Centroid drift exceeds 30% of base radius (not actually centred)
  */
-function fitHelicalFrustum(
+export function fitHelicalFrustum(
   bands: ReadonlyArray<{ polygon: readonly LocalPoint2D[]; baseY: number; topY: number }>,
   circularity: number,
   osmLocal: readonly LocalPoint2D[] | null,
@@ -664,8 +664,29 @@ function fitHelicalFrustum(
   //       mass + drums + columns.
   //   (B) Monotonic radius change (≥60% same direction) → cone /
   //       inverted frustum. Catches ziggurats, Sugarloaf, Aldar HQ.
-  const radiusVariation = Math.abs(topR - baseR) / Math.max(baseR, topR);
-  const isCylinder = radiusVariation < 0.2;
+  // Least-squares r(y) trend across ALL bands. Comparing only the two
+  // endpoint bands missed gradual tapers: single-band radii are noisy
+  // (±1-2m from photogrammetry + band folding), so guggenheim's ~15-20%
+  // widening read as <20% endpoint variation and fit a drum. The fitted
+  // trend smooths band noise; the cylinder threshold drops to 12% since
+  // the fit no longer confuses noise with taper.
+  const nS = samples.length;
+  let sy = 0, sr = 0, syy = 0, syr = 0;
+  for (const s of samples) { sy += s.y; sr += s.r; syy += s.y * s.y; syr += s.y * s.r; }
+  const denom = nS * syy - sy * sy;
+  const slope = Math.abs(denom) > 1e-9 ? (nS * syr - sy * sr) / denom : 0;
+  const rMean = sr / nS, yMean = sy / nS;
+  const fitBaseR = Math.max(1, rMean + slope * (samples[0].y - yMean));
+  const fitTopR = Math.max(1, rMean + slope * (samples[nS - 1].y - yMean));
+  const radiusVariation = Math.abs(fitTopR - fitBaseR) / Math.max(fitBaseR, fitTopR);
+  // Fit quality gates BOTH modes: a profile oscillating ±20% around its mean
+  // is neither a credible cylinder nor a cone — its small fitted slope would
+  // otherwise slip into the cylinder branch. Real drums/cones/spirals track
+  // their trend line closely (observed residuals ≤5%).
+  let residSum = 0;
+  for (const s of samples) residSum += Math.abs(s.r - (rMean + slope * (s.y - yMean)));
+  if (residSum / nS > 0.15 * rMean) return null;
+  const isCylinder = radiusVariation < 0.12;
   let scaleRatio: number;
   if (isCylinder) {
     scaleRatio = 1.0;
@@ -677,8 +698,10 @@ function fitHelicalFrustum(
     }
     const total = increasing + decreasing;
     const monotonicFrac = Math.max(increasing, decreasing) / Math.max(total, 1);
-    if (monotonicFrac < 0.6) return null;
-    scaleRatio = topR / baseR;
+    // 0.5 (was 0.6): the trend fit already establishes direction; this only
+    // rejects grossly reversing profiles.
+    if (monotonicFrac < 0.5) return null;
+    scaleRatio = fitTopR / fitBaseR;
     if (scaleRatio < 0.3 || scaleRatio > 3) return null;
   }
   // Higher circularity → smoother fit needed (more divisions)
@@ -686,7 +709,7 @@ function fitHelicalFrustum(
   // Cap base radius to fit inside the OSM polygon so the cylinder
   // doesn't poke outside the validator's reference footprint. Inscribed
   // radius = min distance from cylinder centroid to OSM edges.
-  let cylinderR = baseR;
+  let cylinderR = fitBaseR;
   if (osmLocal !== null && osmLocal.length >= 3) {
     let minDistToEdge = Infinity;
     for (let i = 0, j = osmLocal.length - 1; i < osmLocal.length; j = i++) {
@@ -701,7 +724,7 @@ function fitHelicalFrustum(
       if (d < minDistToEdge) minDistToEdge = d;
     }
     if (isFinite(minDistToEdge) && minDistToEdge > 1) {
-      cylinderR = Math.min(baseR, minDistToEdge * 0.95);
+      cylinderR = Math.min(fitBaseR, minDistToEdge * 0.95);
     }
   }
   // Generate 24-vertex base circle centred at mean centroid with capped radius

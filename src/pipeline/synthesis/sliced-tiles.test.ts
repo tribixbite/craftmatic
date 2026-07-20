@@ -366,3 +366,41 @@ describe('vertical continuity (mid-shaft void belts)', () => {
     expect(worst).toBeLessThanOrEqual(14); // pre-fix void: an unbroken 5m+ gap with NO band boundary inside
   });
 });
+
+// ─── helical trend fit ──────────────────────────────────────────────────────
+import { fitHelicalFrustum } from './sliced-tiles.js';
+
+describe('fitHelicalFrustum radius trend', () => {
+  function circleBand(r: number, y0: number, y1: number) {
+    const poly = [];
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * 2 * Math.PI;
+      poly.push({ x: r * Math.cos(a), z: r * Math.sin(a) });
+    }
+    return { polygon: poly, baseY: y0, topY: y1 };
+  }
+
+  it('detects a gradual taper the endpoint comparison missed', () => {
+    // Radii trend 21→25 (~17% fitted variation) but the endpoint bands are
+    // noisy: 22 → 23.5 reads as only 6% endpoint-to-endpoint — the old
+    // fitter called this a cylinder (guggenheim's drum).
+    const radii = [22, 21, 22.5, 24, 25, 23.5];
+    const bands = radii.map((r, i) => circleBand(r, i * 5, i * 5 + 5));
+    const fit = fitHelicalFrustum(bands, 0.9, null);
+    expect(fit).not.toBeNull();
+    expect(fit!.scaleTop[0]).toBeGreaterThan(1.1); // widening upward
+  });
+
+  it('still fits a clean cylinder as a cylinder', () => {
+    const bands = [20, 20.2, 19.9, 20.1, 20, 20.1].map((r, i) => circleBand(r, i * 5, i * 5 + 5));
+    const fit = fitHelicalFrustum(bands, 0.9, null);
+    expect(fit).not.toBeNull();
+    expect(fit!.scaleTop[0]).toBe(1.0);
+  });
+
+  it('rejects oscillating (non-architectural) radius profiles', () => {
+    const bands = [20, 28, 19, 27, 18, 28].map((r, i) => circleBand(r, i * 5, i * 5 + 5));
+    const fit = fitHelicalFrustum(bands, 0.9, null);
+    expect(fit).toBeNull();
+  });
+});
