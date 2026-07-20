@@ -19,6 +19,13 @@ function crc32byte(crc: number, byte: number): number {
   return (CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8)) >>> 0;
 }
 
+/** Standard CRC-32 of a whole buffer (ZIP entry checksum). */
+function crc32(data: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < data.length; i++) crc = crc32byte(crc, data[i]);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
 // ─── ZipCrypto ───────────────────────────────────────────────────────────────
 
 function initKeys(password: string): Uint32Array {
@@ -71,6 +78,111 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
   let offset = 0;
   for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
   return result;
+}
+
+// ─── ZIP writer (uncomplicated: no encryption, deflate-or-stored) ────────────
+
+async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  const cs = new CompressionStream('deflate-raw');
+  const writer = cs.writable.getWriter();
+  const reader = cs.readable.getReader();
+
+  writer.write(data as Uint8Array<ArrayBuffer>);
+  writer.close();
+
+  const chunks: Uint8Array[] = [];
+  let totalLen = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    totalLen += value.length;
+  }
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
+  return result;
+}
+
+export interface ZipInputFile { name: string; data: Uint8Array }
+
+/**
+ * Build a standard ZIP archive (local headers + central directory + EOCD).
+ * Entries are DEFLATE-compressed via native CompressionStream when available
+ * and smaller, otherwise stored. No encryption, no zip64 (fine for <4 GB).
+ * Round-trip-verified against this module's own reader (test/threemf-export).
+ */
+export async function createZip(files: readonly ZipInputFile[]): Promise<Uint8Array> {
+  const enc = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+  const DOS_TIME = 0;
+  const DOS_DATE = 0x21; // 1980-01-01 — deterministic output
+
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const crc = crc32(f.data);
+    let method = 0;
+    let payload = f.data;
+    if (typeof CompressionStream !== 'undefined') {
+      try {
+        const deflated = await deflateRaw(f.data);
+        if (deflated.length < f.data.length) { method = 8; payload = deflated; }
+      } catch { /* keep stored */ }
+    }
+
+    const lh = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(lh.buffer);
+    lv.setUint32(0, SIG_LOCAL, true);
+    lv.setUint16(4, 20, true);              // version needed
+    lv.setUint16(6, 0, true);               // flags (sizes known — no descriptor)
+    lv.setUint16(8, method, true);
+    lv.setUint16(10, DOS_TIME, true);
+    lv.setUint16(12, DOS_DATE, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, payload.length, true); // compressed size
+    lv.setUint32(22, f.data.length, true);  // uncompressed size
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);              // extra len
+    lh.set(nameBytes, 30);
+    localParts.push(lh, payload);
+
+    const ch = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true);      // central dir signature
+    cv.setUint16(4, 20, true);              // version made by
+    cv.setUint16(6, 20, true);              // version needed
+    cv.setUint16(8, 0, true);               // flags
+    cv.setUint16(10, method, true);
+    cv.setUint16(12, DOS_TIME, true);
+    cv.setUint16(14, DOS_DATE, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, payload.length, true);
+    cv.setUint32(24, f.data.length, true);
+    cv.setUint16(28, nameBytes.length, true);
+    // extra(30)/comment(32)/disk(34)/int-attrs(36)/ext-attrs(38) all zero
+    cv.setUint32(42, offset, true);         // local header offset
+    ch.set(nameBytes, 46);
+    centralParts.push(ch);
+
+    offset += lh.length + payload.length;
+  }
+
+  const centralSize = centralParts.reduce((s, p) => s + p.length, 0);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, files.length, true);      // entries this disk
+  ev.setUint16(10, files.length, true);     // entries total
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);           // central dir offset
+  // comment length = 0
+
+  const out = new Uint8Array(offset + centralSize + 22);
+  let p = 0;
+  for (const part of [...localParts, ...centralParts, eocd]) { out.set(part, p); p += part.length; }
+  return out;
 }
 
 // ─── ZIP local file header parser ────────────────────────────────────────────

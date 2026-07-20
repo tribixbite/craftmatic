@@ -156,6 +156,128 @@ export async function meshesToObj(meshes: readonly ExportMeshLike[], scale = EXP
   return result;
 }
 
+// ── 3MF (color 3D printing) ────────────────────────────────────────────────
+
+const THREEMF_CONTENT_TYPES =
+  `<?xml version="1.0" encoding="UTF-8"?>\n` +
+  `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n` +
+  ` <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />\n` +
+  ` <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />\n` +
+  `</Types>\n`;
+
+const THREEMF_RELS =
+  `<?xml version="1.0" encoding="UTF-8"?>\n` +
+  `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n` +
+  ` <Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" />\n` +
+  `</Relationships>\n`;
+
+/**
+ * Serialize a baked export group as a 3MF 3D/3dmodel.model XML document.
+ * One <basematerials> group with a <base> per unique material color, one
+ * <object> per color (all of that color's meshes merged into one indexed
+ * mesh, pid/pindex → the material), and a <build> item per object.
+ * Coordinates convert Three.js Y-up → 3MF Z-up ((x,y,z) → (x,−z,y)) and the
+ * model is floored to z=0 so it lands on the slicer's build plate.
+ */
+function groupTo3mfModelXml(group: THREE.Group): string {
+  interface Bucket { hex: string; verts: number[]; tris: number[] }
+  const buckets = new Map<string, Bucket>();
+  const v = new THREE.Vector3();
+  let minZ = Infinity;
+
+  group.traverse(obj => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    const hex = mat && 'color' in mat && (mat as THREE.MeshStandardMaterial).color instanceof THREE.Color
+      ? (mat as THREE.MeshStandardMaterial).color.getHexString()
+      : '808080';
+    let b = buckets.get(hex);
+    if (!b) { b = { hex, verts: [], tris: [] }; buckets.set(hex, b); }
+
+    const geom = mesh.geometry;
+    const pos = geom.getAttribute('position');
+    if (!pos) return;
+    const index = geom.getIndex();
+    const base = b.verts.length / 3;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos as THREE.BufferAttribute, i).applyMatrix4(mesh.matrixWorld);
+      // Y-up → Z-up is a proper rotation (det +1) — triangle winding survives.
+      const z = v.y;
+      if (z < minZ) minZ = z;
+      b.verts.push(v.x, -v.z, z);
+    }
+    if (index) {
+      for (let i = 0; i < index.count; i++) b.tris.push(base + index.getX(i));
+    } else {
+      for (let i = 0; i < pos.count; i++) b.tris.push(base + i);
+    }
+  });
+
+  const colors = [...buckets.values()].filter(b => b.tris.length >= 3);
+  if (colors.length === 0) throw new Error('no geometry to export');
+  if (!Number.isFinite(minZ)) minZ = 0;
+
+  const r = (n: number): number => Math.round(n * 1000) / 1000; // µm precision at mm units
+  const xml: string[] = [];
+  xml.push(
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">`,
+    ` <metadata name="Application">craftmatic</metadata>`,
+    ` <resources>`,
+    `  <basematerials id="1">`,
+  );
+  for (const b of colors) {
+    xml.push(`   <base name="Color ${b.hex.toUpperCase()}" displaycolor="#${b.hex.toUpperCase()}" />`);
+  }
+  xml.push(`  </basematerials>`);
+  colors.forEach((b, ci) => {
+    xml.push(`  <object id="${ci + 2}" type="model" pid="1" pindex="${ci}">`, `   <mesh>`, `    <vertices>`);
+    for (let i = 0; i < b.verts.length; i += 3) {
+      xml.push(`     <vertex x="${r(b.verts[i]!)}" y="${r(b.verts[i + 1]!)}" z="${r(b.verts[i + 2]! - minZ)}" />`);
+    }
+    xml.push(`    </vertices>`, `    <triangles>`);
+    for (let i = 0; i < b.tris.length; i += 3) {
+      xml.push(`     <triangle v1="${b.tris[i]}" v2="${b.tris[i + 1]}" v3="${b.tris[i + 2]}" />`);
+    }
+    xml.push(`    </triangles>`, `   </mesh>`, `  </object>`);
+  });
+  xml.push(` </resources>`, ` <build>`);
+  colors.forEach((_, ci) => xml.push(`  <item objectid="${ci + 2}" />`));
+  xml.push(` </build>`, `</model>`, ``);
+  return xml.join('\n');
+}
+
+/**
+ * Bake instances → 3MF archive bytes at real-world mm scale, WITH per-brick
+ * color (the answer to "STL can't do color"): an OPC zip of
+ * [Content_Types].xml + _rels/.rels + 3D/3dmodel.model.
+ */
+export async function meshesTo3mf(meshes: readonly ExportMeshLike[], scale = EXPORT_MM_PER_STUD): Promise<Uint8Array> {
+  // Relative (not @engine alias) so the pure core stays importable from the
+  // node test harness, which only maps the @craft alias.
+  const { createZip } = await import('../engine/zip-utils.js');
+  const { group, cleanup } = bakeInstances(meshes, scale);
+  let modelXml: string;
+  try {
+    modelXml = groupTo3mfModelXml(group);
+  } finally {
+    cleanup();
+  }
+  const enc = new TextEncoder();
+  return createZip([
+    { name: '[Content_Types].xml', data: enc.encode(THREEMF_CONTENT_TYPES) },
+    { name: '_rels/.rels', data: enc.encode(THREEMF_RELS) },
+    { name: '3D/3dmodel.model', data: enc.encode(modelXml) },
+  ]);
+}
+
+/** Export the current Three.js scene as 3MF (color 3D printing, real-world mm). */
+export async function export3MF(viewer: ViewerState, filename = 'craftmatic.3mf'): Promise<void> {
+  const bytes = await meshesTo3mf(viewer.meshes as unknown as ExportMeshLike[]);
+  downloadBlob(new Blob([bytes as unknown as BlobPart], { type: 'model/3mf' }), filename);
+}
+
 /** Export the current Three.js scene as GLB (binary glTF, scene units / studs). */
 export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'): Promise<void> {
   const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
