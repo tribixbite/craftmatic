@@ -380,3 +380,41 @@ Positive: annarbor-midrise is a credible main-street massing (windows only
 on the front facade — parametric windows still single-facade); durham
 (7d) shows the known P0-2 recolor noise but correct block massing;
 carroll geometry (rowhouse proportions) is right.
+
+### Fix status — 2026-07-20 ("proceed until all addressed")
+
+- [x] **P0-A** scored building selection (aux-structure penalty 60m,
+      addr:housenumber match −80m, containing-principal fast path) in BOTH
+      osm clients; footprint confidence degrades on interpolated pins
+      (ROOFTOP 1.0 / RANGE_INTERPOLATED 0.85 / GEOMETRIC_CENTER 0.7).
+      Live: berwyn now resolves way/512361782 (the house), not the toilet. (4c6fcb6)
+- [x] **P2-E** report.resolution {osmId, polygonSource, geocodeLocationType,
+      footprintAreaSqm} persisted to state. (4c6fcb6)
+- [x] **P0-B** satellite roof sampling masked to the footprint polygon
+      (web-mercator projection, ≥200px) + vegetation guard for unmasked
+      greens (0.85→0.35). Live: berwyn lawn-roof confidence 0.35. (fc4c427)
+- [x] **P0-C** near-black SV walls on residential distrusted (0.9→0.4);
+      commercial exempt (Pennzoil real black glass). (7cef182)
+- [x] **P1-D** facade_implausibly_dark (−1), archetype-gated: calibrated
+      shade-victim 98 / healthy 140-169 / legit-dark-commercial 103 —
+      threshold 110, residential only. Fired on rebuilt carroll (109). (7cef182)
+- [x] **P0-2 (lighting half)** percentile L* normalisation in recolor:
+      spread p90−p10>25 → remap [p10,p90]→[30,75], chroma untouched;
+      uniform-lit (incl. genuinely dark) buildings unchanged. (afbafe3)
+- [x] **P1-4 (glass)** facadeGlassShare ADVISORY stat — measured 0.26-2.2%
+      everywhere vs ~50% real curtain wall: no separation, so no penalty;
+      it is the windows-workstream metric. (afbafe3)
+- [x] **P1-5 (glass alpha)** transparent texels composited over block base
+      colour at atlas load — glass renders solid light-blue, not
+      hole-punched. (302a7d1)
+- [x] **P1-5 (face gaps)** iso top-face diamond corrected to full
+      projection width (was half-width; unused _tile param was the fossil).
+      Residual large-tile scalloping (painter-order side-face overdraw)
+      remains a cosmetic follow-up. (c047ad7)
+- [x] **P2-7** `scripts/refresh-goldens.ts` + dashboard reads goldens.json
+      generated from pipeline-state — no more hardcoded stale metrics.
+
+Open (design-scale, tracked): recolor per-face median vote + archetype
+material priors (P0-2 second half); windows/glass representation across all
+paths (metric: facadeGlassShare); painter-order scallop at tile≥16;
+Smarty fetcher stub (area cross-check data source).
