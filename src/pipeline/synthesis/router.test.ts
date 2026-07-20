@@ -76,13 +76,14 @@ describe('routeSynthesis', () => {
     expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
       .toBe('7d-sliced');
   });
-  it('→ 7b-cleaned-tiles for curved footprints even with usable tiles', () => {
-    // Guggenheim regression 2026-07-18: the sliced silhouette merged the
-    // curved mass with a neighbour block (IoU 0.57 fail) where 7b scored
-    // 0.99 — curved+polygon takes row 2 ahead of the sliced short-circuit.
+  it('→ 7d-sliced for curved footprints with usable tiles (helical fit lives there)', () => {
+    // Independent visual QA (2026-07-20) showed 7b builds a BOX — the
+    // helical-frustum fit is wired only on the sliced path, and the 7d
+    // neighbour-merge that once scored IoU 0.57 was fixed by the cantilever
+    // height gate. Curved+usable-tiles belongs on 7d.
     const ctx = makeCtx({ size: 'large', shape: 'curved' });
     expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
-      .toBe('7b-cleaned-tiles');
+      .toBe('7d-sliced');
   });
   it('→ 7d-sliced for a curved footprint with NO polygon (no 7b anchor)', () => {
     const ctx = makeCtx({ size: 'large', shape: 'curved', polygon: null, polygonSource: 'inferred' });
@@ -108,11 +109,10 @@ describe('routeSynthesis', () => {
       .toBe('7a-parametric');
   });
   it('does NOT divert a small CURVED home to parametric (not parametrizable)', () => {
-    // curved is excluded from row 1; with a polygon the curved rule (row 2)
-    // sends it to cleaned-tiles, whose curved primitives fit the shape.
+    // curved is excluded from row 1 → usable tiles win → sliced (helical fit).
     const ctx = makeCtx({ size: 'small', shape: 'curved' });
     expect(routeSynthesis(ctx, makeEv(ctx.polygon! as LatLon[]), makeTiles()))
-      .toBe('7b-cleaned-tiles');
+      .toBe('7d-sliced');
   });
 
   // ─── Rows 3-7: fallbacks reached only when photogrammetry is NOT usable ───
