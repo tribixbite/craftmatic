@@ -458,9 +458,52 @@ export async function recolorFromPhotogrammetry(
     if (opts.onProgress) opts.onProgress(0.6 + 0.4 * (bandEnd / H));
   }
 
+  // ─── Pass 3: consolidate — 6-neighbour majority vote over recolored
+  // voxels. The per-voxel/patch cluster snap still leaves single-voxel and
+  // patch-boundary speckle (the black/pink splotch noise on shaded
+  // facades); one buffered mode pass absorbs outliers into their
+  // surrounding material without touching un-recolored voxels.
+  consolidateRecoloredBlocks(grid, sampledRGB);
+
   if (opts.onProgress) opts.onProgress(1);
   void sampled;
   return { replaced, skipped };
+}
+
+/**
+ * One buffered 6-neighbour majority pass over recolored voxels (those with a
+ * photogrammetry sample, `sampledRGB[i] >= 0`). A voxel flips to a
+ * neighbouring block state when ≥4 of its recolored face-neighbours agree on
+ * it. Buffered — reads all decisions from the pre-pass state so the result
+ * is order-independent. Exported for tests.
+ */
+export function consolidateRecoloredBlocks(grid: BlockGrid, sampledRGB: Int32Array): number {
+  const W = grid.width, H = grid.height, L = grid.length;
+  const idx = (x: number, y: number, z: number): number => (y * L + z) * W + x;
+  interface Flip { x: number; y: number; z: number; block: string }
+  const flips: Flip[] = [];
+  const MIN_AGREE = 4;
+  for (let y = 0; y < H; y++) {
+    for (let z = 0; z < L; z++) {
+      for (let x = 0; x < W; x++) {
+        if (sampledRGB[idx(x, y, z)] < 0) continue;
+        const self = grid.get(x, y, z);
+        const counts = new Map<string, number>();
+        for (const [dx, dy, dz] of [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]] as const) {
+          const nx = x + dx, ny = y + dy, nz = z + dz;
+          if (nx < 0 || nx >= W || ny < 0 || ny >= H || nz < 0 || nz >= L) continue;
+          if (sampledRGB[idx(nx, ny, nz)] < 0) continue;
+          const b = grid.get(nx, ny, nz);
+          if (b !== self) counts.set(b, (counts.get(b) ?? 0) + 1);
+        }
+        for (const [block, n] of counts) {
+          if (n >= MIN_AGREE) { flips.push({ x, y, z, block }); break; }
+        }
+      }
+    }
+  }
+  for (const f of flips) grid.set(f.x, f.y, f.z, f.block);
+  return flips.length;
 }
 
 // ─── k-means helpers ────────────────────────────────────────────────────────

@@ -16,7 +16,7 @@
  */
 
 import { resolve, join } from 'node:path';
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, rmdirSync, renameSync } from 'node:fs';
 import type { FullVerificationReport } from '../src/pipeline/verify/report.js';
 import { runPipeline } from '../src/pipeline/pipeline.js';
 import { searchOSMBuilding, searchOSMBuildingParts } from '../src/gen/api/osm.js';
@@ -498,7 +498,56 @@ function failureSignature(report: FullVerificationReport): string {
   return report.status;
 }
 
+/**
+ * Cross-process mutex around the state merge. `mkdirSync` is atomic on every
+ * platform (EEXIST when another process holds it), so concurrent builds
+ * serialise instead of read-modify-writing over each other — several July
+ * rebuilds lost their records to exactly that race. Stale locks (crashed
+ * holder) are broken after LOCK_STALE_MS.
+ */
+function withStateLock(path: string, fn: () => void): void {
+  const lockDir = `${path}.lock`;
+  const LOCK_STALE_MS = 30_000;
+  const RETRY_MS = 150;
+  const deadline = Date.now() + LOCK_STALE_MS * 2;
+  for (;;) {
+    try {
+      mkdirSync(lockDir);
+      break;
+    } catch {
+      // Held by another build — break stale locks, otherwise wait.
+      try {
+        const { statSync } = require('node:fs') as typeof import('node:fs');
+        if (Date.now() - statSync(lockDir).mtimeMs > LOCK_STALE_MS) {
+          rmdirSync(lockDir);
+          continue;
+        }
+      } catch { /* lock vanished between checks — retry immediately */ continue; }
+      if (Date.now() > deadline) {
+        console.error('warn: state lock timeout — merging without lock');
+        break;
+      }
+      const buf = new SharedArrayBuffer(4);
+      Atomics.wait(new Int32Array(buf), 0, 0, RETRY_MS); // sync sleep
+    }
+  }
+  try {
+    fn();
+  } finally {
+    try { rmdirSync(lockDir); } catch { /* already broken/removed */ }
+  }
+}
+
 function mergeStateRecord(
+  path: string,
+  slug: string,
+  report: FullVerificationReport,
+  elapsedSec: string,
+): void {
+  withStateLock(path, () => mergeStateRecordLocked(path, slug, report, elapsedSec));
+}
+
+function mergeStateRecordLocked(
   path: string,
   slug: string,
   report: FullVerificationReport,
@@ -537,5 +586,8 @@ function mergeStateRecord(
   };
 
   state.addresses[slug] = record;
-  writeFileSync(path, JSON.stringify(state, null, 2));
+  // Atomic replace: a reader never sees a half-written file.
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(state, null, 2));
+  renameSync(tmp, path);
 }

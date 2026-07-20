@@ -61,3 +61,53 @@ describe('normalizeSampleLuminance', () => {
     expect(Array.from(arr)).toEqual(before);
   });
 });
+
+// ─── consolidation pass ─────────────────────────────────────────────────────
+import { consolidateRecoloredBlocks } from './photogrammetry-recolor.js';
+import { BlockGrid } from '../../schem/types.js';
+
+describe('consolidateRecoloredBlocks', () => {
+  function markAll(grid: BlockGrid): Int32Array {
+    const m = new Int32Array(grid.width * grid.height * grid.length).fill(-1);
+    for (let y = 0; y < grid.height; y++)
+      for (let z = 0; z < grid.length; z++)
+        for (let x = 0; x < grid.width; x++)
+          if (grid.getIndex(x, y, z) !== 0) m[(y * grid.length + z) * grid.width + x] = 0x808080;
+    return m;
+  }
+
+  it('absorbs a single-voxel outlier into its surrounding material', () => {
+    const g = new BlockGrid(3, 3, 3);
+    for (let y = 0; y < 3; y++)
+      for (let z = 0; z < 3; z++)
+        for (let x = 0; x < 3; x++) g.set(x, y, z, 'minecraft:stone');
+    g.set(1, 1, 1, 'minecraft:polished_deepslate'); // speckle, 6 stone neighbours
+    const flips = consolidateRecoloredBlocks(g, markAll(g));
+    expect(flips).toBe(1);
+    expect(g.get(1, 1, 1)).toBe('minecraft:stone');
+  });
+
+  it('leaves a coherent two-material boundary alone', () => {
+    // Left half A, right half B — boundary voxels see ≤3 of the other side.
+    const g = new BlockGrid(4, 3, 3);
+    for (let y = 0; y < 3; y++)
+      for (let z = 0; z < 3; z++)
+        for (let x = 0; x < 4; x++)
+          g.set(x, y, z, x < 2 ? 'minecraft:stone' : 'minecraft:bricks');
+    const flips = consolidateRecoloredBlocks(g, markAll(g));
+    expect(flips).toBe(0);
+  });
+
+  it('never touches un-recolored voxels', () => {
+    const g = new BlockGrid(3, 3, 3);
+    for (let y = 0; y < 3; y++)
+      for (let z = 0; z < 3; z++)
+        for (let x = 0; x < 3; x++) g.set(x, y, z, 'minecraft:stone');
+    g.set(1, 1, 1, 'minecraft:glass'); // window overlay — NOT in the mask
+    const mask = markAll(g);
+    mask[(1 * 3 + 1) * 3 + 1] = -1;
+    const flips = consolidateRecoloredBlocks(g, mask);
+    expect(flips).toBe(0);
+    expect(g.get(1, 1, 1)).toBe('minecraft:glass');
+  });
+});

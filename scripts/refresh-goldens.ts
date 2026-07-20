@@ -25,7 +25,9 @@ const goldenDir = join(projectRoot, 'web/public/goldens');
 const stateFile = join(projectRoot, 'output/pipeline-state.json');
 
 const DEFAULT_SLUGS = ['flatiron', '240-highland', 'pennzoil', 'guggenheim', 'geisel'];
-const slugs = process.argv.slice(2).length > 0 ? process.argv.slice(2) : DEFAULT_SLUGS;
+const jsonOnly = process.argv.includes('--json-only');
+const slugArgs = process.argv.slice(2).filter(a => a !== '--json-only');
+const slugs = slugArgs.length > 0 ? slugArgs : DEFAULT_SLUGS;
 
 interface GoldenMeta {
   slug: string;
@@ -64,13 +66,15 @@ for (const slug of slugs) {
     const glb = join(srcDir, `${slug}.${kind}.glb`);
     if (existsSync(glb)) copyFileSync(glb, join(goldenDir, `${slug}.${kind}.glb`));
   }
-  console.error(`rendering ${slug}…`);
-  const grid = await parseToGrid(schem);
-  const pngs = await createGridRenderRound(grid)(1);
-  // render round order: iso, front, td, cutaway → map to dashboard names
-  writeFileSync(join(goldenDir, `${slug}-iso.png`), pngs[0]);
-  writeFileSync(join(goldenDir, `${slug}-front.png`), pngs[1]);
-  writeFileSync(join(goldenDir, `${slug}-td.png`), pngs[2]);
+  if (!jsonOnly) {
+    console.error(`rendering ${slug}…`);
+    const grid = await parseToGrid(schem);
+    const pngs = await createGridRenderRound(grid)(1);
+    // render round order: iso, front, td, cutaway → map to dashboard names
+    writeFileSync(join(goldenDir, `${slug}-iso.png`), pngs[0]);
+    writeFileSync(join(goldenDir, `${slug}-front.png`), pngs[1]);
+    writeFileSync(join(goldenDir, `${slug}-td.png`), pngs[2]);
+  }
 
   const rec = state[slug];
   out.push({
