@@ -418,3 +418,10 @@ Open (design-scale, tracked): recolor per-face median vote + archetype
 material priors (P0-2 second half); windows/glass representation across all
 paths (metric: facadeGlassShare); painter-order scallop at tile≥16;
 Smarty fetcher stub (area cross-check data source).
+
+**Known issue (found during golden refresh):** `mergeStateRecord` in
+build.ts is a non-atomic read-modify-write of `pipeline-state.json`;
+concurrent builds (parallel background tasks) can drop each other's
+records — several July rebuilds show stale May state. Fix direction:
+per-slug state files or an O_EXCL lockfile around the merge. The
+immutable failed-history archive is per-file and unaffected.
