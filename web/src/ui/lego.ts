@@ -78,6 +78,8 @@ interface IndexModel {
   tier: 1 | 2;
   steps: number;
   n: number;
+  /** Alternate-model label (B-models, train cars, UCS variants…) — absent on primaries. */
+  variant?: string;
 }
 interface IndexSetEntry { name: string; year: string; parts: number; models: IndexModel[] }
 interface LegoModelsIndex { generated: string; sets: Record<string, IndexSetEntry> }
@@ -98,7 +100,24 @@ async function getModelsIndex(): Promise<LegoModelsIndex> {
 /** Index keys are base set numbers ("10001"); catalog uses "10001-1". */
 function lookupIndexModels(idx: LegoModelsIndex, setNum: string): IndexModel[] | null {
   const entry = idx.sets[setNum] ?? idx.sets[baseSetNum(setNum)];
-  return entry && entry.models.length > 0 ? entry.models : null;
+  if (!entry || entry.models.length === 0) return null;
+  // Suffix sets ("10001-2"): the index is keyed by base number only, so all
+  // variants share one entry. When a model file names the full suffixed set
+  // number, float those entries to the front so a -2/-3 catalog set loads its
+  // own variant instead of the -1 primary (order otherwise preserved).
+  const suffixed = /-[2-9]\d*$/.test(setNum);
+  if (suffixed) {
+    const want = setNum.toLowerCase();
+    const hits = entry.models.filter(m => m.path.toLowerCase().includes(want));
+    if (hits.length > 0) return [...hits, ...entry.models.filter(m => !hits.includes(m))];
+  }
+  return entry.models;
+}
+
+/** Encode an index model path per segment — encodeURI leaves '#' and '?' raw,
+ *  and the corpus really contains filenames like "LDR/31378_step #cr.ldr". */
+function encodeModelPath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -122,6 +141,16 @@ let currentBricksColorFn: ((id: number) => string) | undefined;
 let currentMpdContent: string | undefined;
 /** Part definitions bundled inside the loaded .io archive (CustomParts/). */
 let currentCustomParts: Map<string, string> | undefined;
+/**
+ * Monotonic token bumped at the START of every user-initiated model load
+ * (upload, indexed-model load, OMR auto-load chain). Long async load paths
+ * capture it and bail before displaying if a newer load has started — without
+ * this, a slow earlier load (e.g. big OMR fetch) finishing LAST silently
+ * overwrites the model the user actually asked for.
+ */
+let loadEpoch = 0;
+const newLoadEpoch = (): number => ++loadEpoch;
+const loadIsStale = (epoch: number): boolean => epoch !== loadEpoch;
 /**
  * Persistent 3D viewer instance — kept alive across step-slider drags so
  * setMaxStep() is an O(1) visibility toggle instead of a full rebuild.
@@ -858,10 +887,13 @@ function selectSet(set: CatalogSet): void {
     try {
       await loadIndexedModel(set, models, 0);
     } catch (err) {
+      if (selectedSet !== set) return; // don't fall back for a stale selection
       const msg = err instanceof Error ? err.message : String(err);
       setStatus(`Indexed model failed (${msg}) — falling back to OMR/reconstructed…`, 'info');
       await autoLoadFromOMR(set);
     }
+  }).catch(err => {
+    console.warn('[lego] indexed auto-load chain failed:', err);
   });
 
   // Async: inject instruction PDF links when map is loaded
@@ -895,9 +927,10 @@ function selectSet(set: CatalogSet): void {
 
 // ─── Unified-index model loading + source picker ─────────────────────────────
 
-/** Compact option label: `omr · tier1 · 246 steps · 965 parts`. */
+/** Compact option label: `omr · tier1 · 246 steps · 965 parts · B-Model`. */
 function sourceLabel(m: IndexModel): string {
-  return `${m.src} · tier${m.tier}${m.steps > 1 ? ` · ${m.steps} steps` : ''} · ${m.n} parts`;
+  const variant = m.variant ? ` · ${m.variant}` : '';
+  return `${m.src} · tier${m.tier}${m.steps > 1 ? ` · ${m.steps} steps` : ''} · ${m.n} parts${variant}`;
 }
 
 /** Build the source <select> + active-source badge for the selected set. */
@@ -908,13 +941,16 @@ function renderSourcePicker(set: CatalogSet, models: IndexModel[]): void {
   select.innerHTML = models
     .map((m, i) => `<option value="${i}">${escAttr(sourceLabel(m))}</option>`)
     .join('');
-  select.addEventListener('change', () => {
+  // onchange assignment (NOT addEventListener): renderSourcePicker runs once
+  // per set selection, and stacked listeners from previous sets would each
+  // fire with their own stale set/models and race the current load.
+  select.onchange = () => {
     const i = parseInt(select.value, 10);
     if (!Number.isFinite(i) || !models[i]) return;
     void loadIndexedModel(set, models, i).catch(err => {
       setStatus(`Failed to load ${models[i]!.src} model: ${err instanceof Error ? err.message : String(err)}`, 'error');
     });
-  });
+  };
   updateSourcePickerUI(models, 0);
   // `.lego-scale-row`-style rows use flex; hidden alone is overridden by
   // inline display, so toggle both (same pattern as the step-slider row).
@@ -938,12 +974,15 @@ function updateSourcePickerUI(models: IndexModel[], idx: number): void {
 async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: number): Promise<void> {
   const model = models[idx];
   if (!model) throw new Error(`no model at index ${idx}`);
+  const epoch = newLoadEpoch();
   updateSourcePickerUI(models, idx);
 
-  const url = `${MODELS_BASE}/${encodeURI(model.path)}`;
+  const url = `${MODELS_BASE}/${encodeModelPath(model.path)}`;
   setStatus(`Loading ${sourceLabel(model)}: ${model.path}…`, 'info');
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${model.path}`);
+  // Bail if the user picked another set/source or uploaded while we fetched.
+  if (loadIsStale(epoch) || selectedSet !== set) return;
 
   const ext = model.path.split('.').pop()?.toLowerCase();
   let bricks: ParsedBrick[];
@@ -951,6 +990,7 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
 
   if (ext === 'io') {
     const ioModel = await extractIoModel(await resp.arrayBuffer());
+    if (loadIsStale(epoch) || selectedSet !== set) return;
     const text = maybeSynthesize(ioModel.text);
     currentMpdContent = text;
     currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
@@ -958,18 +998,33 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
     colorFn = studioColorToBlock;
   } else if (ext === 'lxf') {
     bricks = await parseLxf(await resp.arrayBuffer());
+    if (loadIsStale(epoch) || selectedSet !== set) return;
     currentMpdContent = undefined;
     currentCustomParts = undefined;
   } else {
     // .ldr / .mpd (and anything else text-shaped)
     const text = maybeSynthesize(await resp.text());
+    if (loadIsStale(epoch) || selectedSet !== set) return;
     currentMpdContent = text;
     currentCustomParts = undefined;
     bricks = parseLDraw(text);
+    // Parity with the upload path: set honest expectations for clego
+    // reconstructions (the defects are in the data, not the renderer).
+    const q = reconstructionQuality(text);
+    if (q === 'broken') {
+      setStatus('⚠ This file is a DBIX/LXFML conversion without part alignment — parts will render scattered/mis-rotated and colors may be wrong.', 'info');
+    } else if (q === 'approximate') {
+      setStatus('⚠ Vision-based reconstruction — part placements are approximate.', 'info');
+    }
   }
 
   if (bricks.length === 0) throw new Error(`no brick placements in ${model.path}`);
   await voxelizeAndDisplay(bricks, `${set.set_num}-${model.src}`, colorFn);
+  // Parity with the upload path: LDD→LDraw alignment is approximate for
+  // complex .lxf models — say so (after display, like parseMpdFile does).
+  if (ext === 'lxf' && bricks.length > 150) {
+    setStatus('Loaded LDD .lxf. Note: LDD→LDraw part alignment is approximate for complex models (angled/curved parts may be misplaced) — a Studio/LDraw source of the same set renders more accurately.', 'info');
+  }
 }
 
 // ─── OMR Auto-Load ───────────────────────────────────────────────────────────
@@ -980,6 +1035,8 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
 async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
   const btn = document.getElementById('lego-auto-load') as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
+  const epoch = newLoadEpoch();
+  try {
 
   // ── Source 1: LDraw OMR ──────────────────────────────────────────────────
   const inOmr = !isOmrLoaded() || isInOmr(set.set_num);
@@ -991,15 +1048,18 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       const resp = await fetch(url);
       if (resp.ok) {
         const text = await resp.text();
-        if (btn) btn.disabled = false;
+        if (loadIsStale(epoch) || selectedSet !== set) return;
         await parseMpdFile(new File([text], filename, { type: 'text/plain' }));
         return;
       }
-      // 404 → not found
+      // 404 → not found; fall through to the next source
     } catch (err) {
-      throw err;
+      // Transient network failure must NOT abort the chain (the old rethrow
+      // here skipped both fallbacks and stranded the button disabled).
+      console.warn('[lego] OMR fetch failed, trying fallbacks:', err);
     }
   }
+  if (loadIsStale(epoch) || selectedSet !== set) return;
 
   // ── Source 2: Clego reconstructed LDR (3D assembled model from PDF/IO) ──
   const reconIdx = await getReconstructedIndex();
@@ -1011,6 +1071,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       const resp = await fetch(`${RECONSTRUCTED_BASE}/${filename}`);
       if (resp.ok) {
         const text = await resp.text();
+        if (loadIsStale(epoch) || selectedSet !== set) return;
         const quality = reconstructionQuality(text);
         if (quality === 'broken') {
           // DBIX_LXFML-sourced conversions were written without per-part
@@ -1023,7 +1084,6 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
           currentCustomParts = undefined;
           const bricks = parseLDraw(text);
           if (bricks.length > 0) {
-            if (btn) btn.disabled = false;
             const warn = quality === 'approximate'
               ? ' ⚠ vision-based reconstruction — placements are approximate'
               : '';
@@ -1035,12 +1095,14 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       }
     } catch { /* fall through */ }
   }
+  if (loadIsStale(epoch) || selectedSet !== set) return;
 
   // ── Source 3: BrickLink BFF inventory (flat colour layout — last resort) ─
   setStatus(`No 3D model found — trying BL parts inventory for ${set.set_num}…`, 'info');
   try {
     const parts = await fetchBffInventory(set.set_num);
     if (parts.length > 0) {
+      if (loadIsStale(epoch) || selectedSet !== set) return;
       const ldrText = bffInventoryToLDraw(set.set_num, parts);
       currentMpdContent = ldrText;
       currentCustomParts = undefined;
@@ -1050,7 +1112,6 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
           `⚠ 2D colour map only — no 3D model available (${parts.length} part types from BL inventory)`,
           'info',
         );
-        if (btn) btn.disabled = false;
         await voxelizeAndDisplay(bricks, set.set_num, studioColorToBlock);
         return;
       }
@@ -1082,7 +1143,12 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       <p class="lego-omr-note">Download the <code>.mpd</code> or <code>.ldr</code> file, then drag it into the upload zone above.</p>
     `;
   }
-  if (btn) btn.disabled = false;
+
+  } finally {
+    // Whatever path was taken (success, stale bail, or an unexpected throw),
+    // the Auto-Load button must come back.
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ─── Export loaded set (3D model / Minecraft schematic) ──────────────────────
@@ -1237,6 +1303,7 @@ function maybeSynthesize(text: string): string {
 
 async function parseMpdFile(file: File): Promise<void> {
   if (!onResult) return;
+  const epoch = newLoadEpoch();
   setStatus(`Parsing ${file.name}…`, 'info');
 
   try {
@@ -1245,6 +1312,7 @@ async function parseMpdFile(file: File): Promise<void> {
     if (ext === 'lxf') {
       const buf = await file.arrayBuffer();
       const bricks = await parseLxf(buf);
+      if (loadIsStale(epoch)) return;
       currentMpdContent = undefined;
       currentCustomParts = undefined;
       await voxelizeAndDisplay(bricks, file.name);
@@ -1263,6 +1331,7 @@ async function parseMpdFile(file: File): Promise<void> {
     if (ext === 'io') {
       const buf = await file.arrayBuffer();
       const ioModel = await extractIoModel(buf);
+      if (loadIsStale(epoch)) return;
       text = maybeSynthesize(ioModel.text);
       currentMpdContent = text;
       currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
@@ -1273,6 +1342,7 @@ async function parseMpdFile(file: File): Promise<void> {
     }
 
     text = maybeSynthesize(await file.text());
+    if (loadIsStale(epoch)) return;
     currentMpdContent = text; // store for 3D renderer inline sub-model resolution
     currentCustomParts = undefined;
     const bricks = parseLDraw(text);

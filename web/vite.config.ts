@@ -152,8 +152,15 @@ export default defineConfig({
       configureServer(server) {
         server.middlewares.use('/lego-models', (req, res, next) => {
           if (!existsSync(CLEGO_MODELS_ROOT)) { next(); return; }
-          // Decode URL-encoded names (spaces etc.), strip query, block traversal.
-          const rel = decodeURIComponent((req.url ?? '').split('?')[0]!.replace(/^\//, '')).replace(/\.\./g, '');
+          // Decode URL-encoded names (spaces, '#'…), strip query, block traversal.
+          // decodeURIComponent throws URIError on malformed %-sequences → 400,
+          // not an unhandled middleware exception.
+          let rel: string;
+          try {
+            rel = decodeURIComponent((req.url ?? '').split('?')[0]!.replace(/^\//, '')).replace(/\.\./g, '');
+          } catch {
+            res.statusCode = 400; res.end(); return;
+          }
           if (!rel) { next(); return; }
           const filePath = `${CLEGO_MODELS_ROOT}/${rel}`;
           if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
