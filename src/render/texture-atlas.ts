@@ -378,7 +378,12 @@ export class ProceduralAtlas {
         const img = await pureimage.decodePNGFromStream(stream);
         const data = new Uint8Array(TILE * TILE * 4);
 
-        // Nearest-neighbor scale source PNG to TILE×TILE
+        // Nearest-neighbor scale source PNG to TILE×TILE. Transparent texels
+        // (glass, panes, leaves) are composited over the block's base colour:
+        // the blitters draw opaquely, so raw transparency shipped as black
+        // holes — a correctly-glassed facade rendered hole-punched and the
+        // VLM penalised CORRECT output.
+        const base = getBlockColor(`minecraft:${name}`) ?? [175, 205, 230];
         const srcW = img.width;
         const srcH = img.height;
         for (let y = 0; y < TILE; y++) {
@@ -387,10 +392,11 @@ export class ProceduralAtlas {
             const sx = Math.min(Math.floor(x * srcW / TILE), srcW - 1);
             const srcIdx = (sy * srcW + sx) * 4;
             const dstIdx = (y * TILE + x) * 4;
-            data[dstIdx] = img.data[srcIdx];
-            data[dstIdx + 1] = img.data[srcIdx + 1];
-            data[dstIdx + 2] = img.data[srcIdx + 2];
-            data[dstIdx + 3] = img.data[srcIdx + 3];
+            const alpha = img.data[srcIdx + 3] / 255;
+            data[dstIdx] = Math.round(img.data[srcIdx] * alpha + base[0] * (1 - alpha));
+            data[dstIdx + 1] = Math.round(img.data[srcIdx + 1] * alpha + base[1] * (1 - alpha));
+            data[dstIdx + 2] = Math.round(img.data[srcIdx + 2] * alpha + base[2] * (1 - alpha));
+            data[dstIdx + 3] = 255;
           }
         }
 
