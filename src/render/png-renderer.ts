@@ -155,11 +155,14 @@ function blitSprite(
  */
 function blitTextureIsoTop(
   buf: Buffer, imgW: number, sx: number, sy: number,
-  _tile: number, halfT: number, textureData: Uint8Array, tileSize: number,
+  tile: number, halfT: number, textureData: Uint8Array, tileSize: number,
   brightness: number,
 ): void {
+  // Same corner geometry as fillDiamond: half-width r·tile/halfT per row —
+  // the old r-wide raster left black gap-triangles between adjacent blocks.
   for (let row = 0; row <= halfT * 2; row++) {
-    const width = row <= halfT ? row : halfT * 2 - row;
+    const frac = row <= halfT ? row / Math.max(1, halfT) : (halfT * 2 - row) / Math.max(1, halfT);
+    const width = Math.round(frac * tile);
     const y = sy + row;
     for (let dx = 0; dx <= width * 2; dx++) {
       const x = sx - width + dx;
@@ -1807,9 +1810,15 @@ function fillCircle(buf: Buffer, imgW: number, cx: number, cy: number, r: number
   }
 }
 
-function fillDiamond(buf: Buffer, imgW: number, sx: number, sy: number, _tileW: number, halfH: number, color: RGB): void {
+function fillDiamond(buf: Buffer, imgW: number, sx: number, sy: number, tileW: number, halfH: number, color: RGB): void {
+  // Top-face diamond corners: N(sx,sy) E(sx+tileW,sy+halfH) S(sx,sy+2halfH)
+  // W(sx-tileW,sy+halfH) — the horizontal half-width at row r is
+  // r·tileW/halfH, NOT r. The old row-width diamond was half as wide as the
+  // projection's block step, leaving black gap-triangles between the top
+  // faces of adjacent blocks on every flat surface.
   for (let row = 0; row <= halfH * 2; row++) {
-    const width = row <= halfH ? row : halfH * 2 - row;
+    const frac = row <= halfH ? row / Math.max(1, halfH) : (halfH * 2 - row) / Math.max(1, halfH);
+    const width = Math.round(frac * tileW);
     const startX = sx - width;
     const y = sy + row;
     for (let dx = 0; dx <= width * 2; dx++) {
