@@ -149,7 +149,15 @@ let currentCustomParts: Map<string, string> | undefined;
  * overwrites the model the user actually asked for.
  */
 let loadEpoch = 0;
-const newLoadEpoch = (): number => ++loadEpoch;
+/**
+ * Source-quality caveat for the CURRENT load (broken/approximate conversion,
+ * .lxf alignment note …). voxelizeAndDisplay appends it to the final status —
+ * setting it via setStatus() before display doesn't work because the render
+ * success line immediately overwrites it (visual-QA finding: users never saw
+ * the "broken conversion" warning at all).
+ */
+let currentSourceWarning: string | undefined;
+const newLoadEpoch = (): number => { currentSourceWarning = undefined; return ++loadEpoch; };
 const loadIsStale = (epoch: number): boolean => epoch !== loadEpoch;
 /**
  * Persistent 3D viewer instance — kept alive across step-slider drags so
@@ -947,7 +955,9 @@ function renderSourcePicker(set: CatalogSet, models: IndexModel[]): void {
   select.onchange = () => {
     const i = parseInt(select.value, 10);
     if (!Number.isFinite(i) || !models[i]) return;
-    void loadIndexedModel(set, models, i).catch(err => {
+    // Explicit user choice → allowBroken: load even known-broken conversions,
+    // clearly labelled (the auto path skips them and falls back instead).
+    void loadIndexedModel(set, models, i, true).catch(err => {
       setStatus(`Failed to load ${models[i]!.src} model: ${err instanceof Error ? err.message : String(err)}`, 'error');
     });
   };
@@ -971,12 +981,32 @@ function updateSourcePickerUI(models: IndexModel[], idx: number): void {
  * Dispatch by extension: .ldr/.mpd → parseLDraw, .io → extractIoModel,
  * .lxf → parseLxf.
  */
-async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: number): Promise<void> {
+async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: number, allowBroken = false): Promise<void> {
   const model = models[idx];
   if (!model) throw new Error(`no model at index ${idx}`);
   const epoch = newLoadEpoch();
   updateSourcePickerUI(models, idx);
+  // Loading state: the PREVIOUS model stays on screen while this one streams
+  // in (parts fetch one by one), so the badge must say so and the picker must
+  // freeze — otherwise the UI claims the new source while still showing the
+  // old model. Epoch-guarded restore so a newer load's UI is never clobbered.
+  const srcBadge = document.getElementById('lego-source-badge');
+  const srcSelect = document.getElementById('lego-source-select') as HTMLSelectElement | null;
+  if (srcBadge) srcBadge.textContent = `${model.src} · loading…`;
+  if (srcSelect) srcSelect.disabled = true;
+  try {
+    await loadIndexedModelBody(set, model, epoch, allowBroken);
+    if (!loadIsStale(epoch) && srcBadge) srcBadge.textContent = model.src;
+  } catch (err) {
+    if (!loadIsStale(epoch) && srcBadge) srcBadge.textContent = `${model.src} · failed`;
+    throw err;
+  } finally {
+    if (!loadIsStale(epoch) && srcSelect) srcSelect.disabled = false;
+  }
+}
 
+async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
+                                    epoch: number, allowBroken: boolean): Promise<void> {
   const url = `${MODELS_BASE}/${encodeModelPath(model.path)}`;
   setStatus(`Loading ${sourceLabel(model)}: ${model.path}…`, 'info');
   const resp = await fetch(url);
@@ -1005,26 +1035,32 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
     // .ldr / .mpd (and anything else text-shaped)
     const text = maybeSynthesize(await resp.text());
     if (loadIsStale(epoch) || selectedSet !== set) return;
+    // Quality gate (visual-QA finding 2026-07-20: the index ranks unaligned
+    // convert_lxf.py conversions tier1 for some sets — they render as
+    // stacked/scrambled parts with LDD-material-id colors, e.g. 10255/1924).
+    // Auto-load SKIPS them (throw → caller falls back to the classic
+    // OMR/reconstructed/BFF chain); an EXPLICIT source-picker choice still
+    // loads them, labelled via currentSourceWarning (setStatus here would be
+    // clobbered by the render-success status).
+    const q = reconstructionQuality(text);
+    if (q === 'broken' && !allowBroken) {
+      throw new Error('unaligned LXFML conversion (scrambled placements/colors) — skipped');
+    }
+    if (q === 'broken') {
+      currentSourceWarning = 'this source is an unaligned LXFML conversion — parts render scattered/stacked and colors may be wrong (defects are in the file, not the renderer)';
+    } else if (q === 'approximate') {
+      currentSourceWarning = 'vision-based reconstruction — part placements are approximate';
+    }
     currentMpdContent = text;
     currentCustomParts = undefined;
     bricks = parseLDraw(text);
-    // Parity with the upload path: set honest expectations for clego
-    // reconstructions (the defects are in the data, not the renderer).
-    const q = reconstructionQuality(text);
-    if (q === 'broken') {
-      setStatus('⚠ This file is a DBIX/LXFML conversion without part alignment — parts will render scattered/mis-rotated and colors may be wrong.', 'info');
-    } else if (q === 'approximate') {
-      setStatus('⚠ Vision-based reconstruction — part placements are approximate.', 'info');
-    }
   }
 
+  if (ext === 'lxf' && bricks.length > 150) {
+    currentSourceWarning = 'LDD .lxf: part alignment is approximate for complex models — a Studio/LDraw source of the same set renders more accurately';
+  }
   if (bricks.length === 0) throw new Error(`no brick placements in ${model.path}`);
   await voxelizeAndDisplay(bricks, `${set.set_num}-${model.src}`, colorFn);
-  // Parity with the upload path: LDD→LDraw alignment is approximate for
-  // complex .lxf models — say so (after display, like parseMpdFile does).
-  if (ext === 'lxf' && bricks.length > 150) {
-    setStatus('Loaded LDD .lxf. Note: LDD→LDraw part alignment is approximate for complex models (angled/curved parts may be misplaced) — a Studio/LDraw source of the same set renders more accurately.', 'info');
-  }
 }
 
 // ─── OMR Auto-Load ───────────────────────────────────────────────────────────
@@ -1284,6 +1320,11 @@ async function exportLoadedModel(fmt: string): Promise<void> {
 function reconstructionQuality(ldrText: string): 'good' | 'approximate' | 'broken' {
   const head = ldrText.slice(0, 600);
   if (/Source:\s*DBIX_LXFML/i.test(head)) return 'broken';
+  // convert_lxf.py output is the same class under a different header: colors
+  // are raw LDD material ids and parts lack per-part LDD→LDraw alignment.
+  // Visual QA (2026-07-20): 10255 rendered as stacked buildings, 1924 as an
+  // exploded ferry, 8849 with ghost tires — all `Author: convert_lxf.py`.
+  if (/Author:\s*convert_lxf\.py/i.test(head)) return 'broken';
   if (/inverse isometric projection|blob (fallback|detection)/i.test(head)) return 'approximate';
   return 'good';
 }
@@ -1315,15 +1356,15 @@ async function parseMpdFile(file: File): Promise<void> {
       if (loadIsStale(epoch)) return;
       currentMpdContent = undefined;
       currentCustomParts = undefined;
-      await voxelizeAndDisplay(bricks, file.name);
       // LDD .lxf placement relies on a per-part LDD→LDraw origin-alignment table
       // (ldraw.xml). This is exact for simple/axis-aligned builds but imperfect
       // for models with many angled/curved parts (vehicles) — a known limitation
       // of free LDD→LDraw conversion that even dedicated converters share. Set
       // expectations rather than imply false precision; Studio .io renders best.
       if (bricks.length > 150) {
-        setStatus('Loaded LDD .lxf. Note: LDD→LDraw part alignment is approximate for complex models (angled/curved parts may be misplaced) — a BrickLink Studio .io of the same set renders most accurately.', 'info');
+        currentSourceWarning = 'LDD .lxf: part alignment is approximate for complex models — a Studio .io of the same set renders most accurately';
       }
+      await voxelizeAndDisplay(bricks, file.name);
       return;
     }
 
@@ -1351,9 +1392,9 @@ async function parseMpdFile(file: File): Promise<void> {
     // a known-imperfect reconstruction (the defects are in the data).
     const q = reconstructionQuality(text);
     if (q === 'broken') {
-      setStatus('⚠ This file is a DBIX/LXFML conversion without part alignment — parts will render scattered/mis-rotated and colors may be wrong. The defects are in the file, not the renderer.', 'info');
+      currentSourceWarning = 'this file is an unaligned LXFML conversion — parts render scattered/stacked and colors may be wrong (defects are in the file, not the renderer)';
     } else if (q === 'approximate') {
-      setStatus('⚠ Vision-based reconstruction — part placements are approximate.', 'info');
+      currentSourceWarning = 'vision-based reconstruction — part placements are approximate';
     }
     await voxelizeAndDisplay(bricks, file.name);
   } catch (err) {
@@ -1572,17 +1613,18 @@ async function voxelizeAndDisplay(
         const subGaps = currentLDrawViewer.unresolvedSubparts.length;
         const subGapNote = subGaps > 0 ? ` (${subGaps} sub-part file(s) unresolved — minor gaps, see console)` : '';
         const edgeNote = currentLDrawViewer.edgesDroppedForSize ? ' · edge outlines hidden (very large model)' : '';
+        const sourceNote = currentSourceWarning ? ` · ⚠ ${currentSourceWarning}` : '';
         if (missing.length > 0) {
           const totalMissing = missing.reduce((s, m) => s + m.count, 0);
           const names = missing.slice(0, 6).map(m => m.part.replace(/\.dat$/i, '')).join(', ');
           const more = missing.length > 6 ? ` +${missing.length - 6} more` : '';
           setStatus(
-            `${label} — ${bricks.length} bricks rendered${dims}${completeness}. ⚠ ${totalMissing} piece(s) of ${missing.length} part type(s) not in library: ${names}${more}${subGapNote}`,
+            `${label} — ${bricks.length} bricks rendered${dims}${completeness}. ⚠ ${totalMissing} piece(s) of ${missing.length} part type(s) not in library: ${names}${more}${subGapNote}${sourceNote}`,
             'info',
           );
           console.warn('[lego] unrendered parts (missing from /ldraw-parts or LSynth):', missing);
         } else {
-          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}${completeness}${subGapNote}${edgeNote}`, subGaps > 0 || completeness ? 'info' : 'success');
+          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}${completeness}${subGapNote}${edgeNote}${sourceNote}`, subGaps > 0 || completeness || currentSourceWarning ? 'info' : 'success');
         }
         viewerEl.closest('.panel-layout')?.setAttribute('data-has-model', '');
         const explodeRow = document.getElementById('lego-explode-row');
@@ -1629,6 +1671,7 @@ async function voxelizeAndDisplay(
 
   // Build status + warnings
   const warnings: string[] = [];
+  if (currentSourceWarning) warnings.push(`⚠ ${currentSourceWarning}`);
   if (result.warning) warnings.push(result.warning);
   if (result.wasFlipped) warnings.push('Model Y-axis was auto-flipped (upside-down source file)');
   if (result.unmappedColors.length > 0) {
