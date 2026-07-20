@@ -59,6 +59,36 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   still renders, with small gaps) are surfaced separately via
   `viewer.unresolvedSubparts`.
 
+## Source-quality gating (visual-QA 2026-07-20 — the renderer was never the problem)
+A 12-set visual QA (real WebGL captures, `output/visual-qa-*/`) showed every
+"broken-looking" render traced to **LXF-lineage source data**, not the renderer:
+`Author: convert_lxf.py` LDRs carry raw LDD material-id colors + no per-part
+alignment (10255 → stacked buildings, 1924 → exploded ferry decks, 8849 →
+ghost tires). Pipeline defenses now in `lego.ts`:
+- `reconstructionQuality()` flags `convert_lxf.py` AND `DBIX_LXFML` headers as
+  'broken'. (A color-palette fingerprint was tried and REMOVED — dead code:
+  `LDRAW_COLOR_RGB` already contains the extended ids like 10047/10070, so
+  table-membership can't discriminate. Don't re-add.)
+- **Indexed auto-load iterates sources**: broken entries throw → next indexed
+  source → classic OMR chain. 8849 now lands on its official OMR file (solid
+  tires) instead of the gated conversion. Explicit source-picker choices pass
+  `allowBroken` and load anyway, labelled.
+- **`currentSourceWarning`** (reset by `newLoadEpoch()`): load paths set it and
+  `voxelizeAndDisplay` appends it to the FINAL status — a plain setStatus()
+  before display is silently clobbered by the render-success status (this hid
+  every quality warning until the visual QA caught it).
+- **Load-epoch token**: every load initiator (upload / indexed / OMR chain)
+  bumps `loadEpoch` and bails at await-points if stale — a slow earlier load
+  can no longer overwrite the user's newer selection. autoLoadFromOMR also
+  falls through on transient OMR fetch errors (used to rethrow → skipped both
+  fallbacks and stranded the button disabled) and re-enables its button in
+  `finally`.
+- **Known residual (data-bound, needs upstream index metadata)**: laundered
+  conversions with no headers — 10255's ".io" is convert_lxf output repacked
+  (all 3 entries identical, LDD colors) and its `Reconstructed/*_reconstructed
+  .ldr` mirrors it. Text-level detection is impossible client-side; the model
+  index (clego-generated) needs lineage/authenticity ranking.
+
 ## LSynth flexible parts (hoses / tubes / cables) — VERIFIED already-handled + synth fallback
 - **Reality (measured across the whole corpus):** flexible parts already render.
   OMR ships them **pre-synthesized** (`0 SYNTH SYNTHESIZED BEGIN…END` blocks of
@@ -68,6 +98,12 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   flex into CustomParts meshes (handled). `lsNN.dat` are NOT in the LDraw library
   (404) — they only ever appear inline-defined. So the old "LSynth surfaces as
   missing" note was imprecise; in practice it doesn't.
+- **`ls<NN>` segment parts** (ls50, ls51 …) ship with the LSynth TOOL, not the
+  LDraw library — files authored with LSynth reference them externally with
+  matrices that stretch a unit-height segment along the hose path (8010 Darth
+  Vader places 181 of them; they rendered as 181 missing pieces). `parts.ts`
+  now synthesizes a placeholder on a definitive miss of `/^ls\d{1,3}$/`:
+  cylinder y∈[0,1], radius 4.5 LDU (mirrors the one bundled example ls10.dat).
 - **The one gap (uploads):** a hand-authored / editor-exported file with an
   UNsynthesized `0 SYNTH BEGIN <type> <colour>` + constraints + `0 SYNTH END`
   (no geometry between). `web/src/engine/lsynth.ts` `synthesizeLSynth(text)` is a

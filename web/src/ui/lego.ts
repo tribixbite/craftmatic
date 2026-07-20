@@ -892,12 +892,24 @@ function selectSet(set: CatalogSet): void {
     const models = lookupIndexModels(idx, set.set_num);
     if (!models) return;
     renderSourcePicker(set, models);
-    try {
-      await loadIndexedModel(set, models, 0);
-    } catch (err) {
-      if (selectedSet !== set) return; // don't fall back for a stale selection
-      const msg = err instanceof Error ? err.message : String(err);
-      setStatus(`Indexed model failed (${msg}) — falling back to OMR/reconstructed…`, 'info');
+    // Try indexed sources in order — quality-gated loads throw on broken
+    // conversions, so a set whose "best" entry is a bad LXF-lineage file
+    // still auto-loads its first GOOD source (visual-QA: 10255's first three
+    // entries are all the same repackaged conversion). Only when every
+    // indexed source fails does the classic OMR/reconstructed/BFF chain run.
+    let loaded = false;
+    for (let i = 0; i < models.length && !loaded; i++) {
+      try {
+        await loadIndexedModel(set, models, i);
+        loaded = true;
+      } catch (err) {
+        if (selectedSet !== set) return; // stale selection — stop entirely
+        console.warn(`[lego] indexed source ${models[i]!.src} (${models[i]!.path}) failed:`, err);
+      }
+    }
+    if (!loaded) {
+      if (selectedSet !== set) return;
+      setStatus('Indexed sources unavailable — falling back to OMR/reconstructed…', 'info');
       await autoLoadFromOMR(set);
     }
   }).catch(err => {
@@ -1022,6 +1034,13 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
     const ioModel = await extractIoModel(await resp.arrayBuffer());
     if (loadIsStale(epoch) || selectedSet !== set) return;
     const text = maybeSynthesize(ioModel.text);
+    // Some ".io" files are laundered LXF conversions (raw LDD material-id
+    // colors, no alignment) rather than authentic Studio exports — 10255's
+    // is. Same gate as the .ldr branch.
+    if (reconstructionQuality(text) === 'broken') {
+      if (!allowBroken) throw new Error('repackaged LXFML conversion (LDD colors, unaligned) — skipped');
+      currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
+    }
     currentMpdContent = text;
     currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
     bricks = parseLDraw(text);
@@ -1325,6 +1344,13 @@ function reconstructionQuality(ldrText: string): 'good' | 'approximate' | 'broke
   // Visual QA (2026-07-20): 10255 rendered as stacked buildings, 1924 as an
   // exploded ferry, 8849 with ghost tires — all `Author: convert_lxf.py`.
   if (/Author:\s*convert_lxf\.py/i.test(head)) return 'broken';
+  // NOTE (2026-07-20): a color-palette fingerprint for LXF lineage was tried
+  // and removed — LDRAW_COLOR_RGB already contains the extended/Studio ids
+  // (10047, 10070 …), so table-membership cannot discriminate. Files that
+  // launder LXF conversions through other containers WITHOUT the headers
+  // above (10255's ".io" and its recon derivatives) are not text-detectable;
+  // their defect is stacked PLACEMENT (LXF workspace layout), which needs
+  // lineage metadata upstream in the model index to catch.
   if (/inverse isometric projection|blob (fallback|detection)/i.test(head)) return 'approximate';
   return 'good';
 }
@@ -1374,6 +1400,11 @@ async function parseMpdFile(file: File): Promise<void> {
       const ioModel = await extractIoModel(buf);
       if (loadIsStale(epoch)) return;
       text = maybeSynthesize(ioModel.text);
+      // User explicitly chose the file — load it, but flag laundered LXF
+      // conversions masquerading as .io (raw LDD colors; 10255's is one).
+      if (reconstructionQuality(text) === 'broken') {
+        currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
+      }
       currentMpdContent = text;
       currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
       const bricks = parseLDraw(text);

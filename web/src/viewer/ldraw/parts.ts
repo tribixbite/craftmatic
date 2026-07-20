@@ -142,6 +142,28 @@ export function normId(id: string): string {
   return id.replace(/\\/g, '/').toLowerCase().replace(/\.dat$/i, '').trim();
 }
 
+/**
+ * Synthetic placeholder for LSynth segment parts (`ls<NN>`) that are absent
+ * from the LDraw library (they ship with the LSynth tool only). Mirrors the
+ * one bundled example we have (ls10.dat, "Electric Cable Segment"): a unit
+ * segment spanning y ∈ [0, 1] whose placement matrix stretches it along the
+ * synthesized hose path. Cylinder radius 4.5 LDU ≈ ribbed-hose/pneumatic
+ * girth; per-file matrices leave the radial axes ~unit so the radius reads
+ * from the part. Returns null for names that aren't LSynth segments.
+ */
+function synthesizeLsSegment(stem: string): string | null {
+  if (!/^ls\d{1,3}$/i.test(stem)) return null;
+  return [
+    `0 ~LSynth Segment ${stem} (synthesized placeholder)`,
+    `0 Name: ${stem}.dat`,
+    '0 !LDRAW_ORG Unofficial_Part',
+    '0 BFC CERTIFY CCW',
+    '1 16 0 0 0 4.5 0 0 0 1 0 0 0 4.5 4-4cyli.dat',
+    '1 16 0 0 0 4.5 0 0 0 1 0 0 0 4.5 4-4edge.dat',
+    '1 16 0 1 0 4.5 0 0 0 1 0 0 0 4.5 4-4edge.dat',
+  ].join('\n');
+}
+
 function applyMat(v: Vec3, R: readonly number[], T: Vec3): Vec3 {
   return [
     R[0]! * v[0] + R[1]! * v[1] + R[2]! * v[2] + T[0],
@@ -359,6 +381,20 @@ async function fetchDatText(id: string): Promise<string | null> {
       }
     }
     if (!sawTransient) {
+      // LSynth segment parts (ls10, ls50, ls51 …) are NOT in the LDraw
+      // library — they ship with the LSynth tool. Files authored with LSynth
+      // reference them externally with matrices that STRETCH a unit-height
+      // segment along the hose path (verified: 8010 Darth Vader places 181
+      // LS50/LS51 segments this way — all previously rendered as missing).
+      // Synthesize the standard segment shape: a cylinder spanning y∈[0,1]
+      // (ls10.dat's convention), radius ~4 LDU — the placement matrix does
+      // the rest. Approximate but restores whole hoses that were invisible.
+      const lsSeg = synthesizeLsSegment(stem);
+      if (lsSeg !== null) {
+        console.info(`[ldraw] synthesized LSynth segment placeholder for ${stem}.dat`);
+        datTextCache.set(key, lsSeg);
+        return lsSeg;
+      }
       datTextCache.set(key, null); // definitive miss only
       unresolvedDatNames.add(key);
     }
