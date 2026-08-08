@@ -29,6 +29,7 @@ import { decomposePolygonByWaists } from './polygon-decompose.js';
 import { detectCurvedShape } from './curved-shape.js';
 import { douglasPeucker } from '../context/classify.js';
 import { rgbToWallBlock, rgbToRoofOverride, roofBaseToFullBlock } from '../../gen/color-blocks.js';
+import { hexToLab, labToRgb } from '../color.js';
 import { DEFAULT_VOXEL_RESOLUTION } from '../voxel-defaults.js';
 
 export interface SynthesizeSlicedOptions {
@@ -625,7 +626,14 @@ export function fitHelicalFrustum(
   circularity: number,
   osmLocal: readonly LocalPoint2D[] | null,
 ): BuildingBRep['helicalFrustum'] | null {
-  if (bands.length < 4) return null;
+  // Rejection telemetry: every declined fit states WHICH gate declined it and
+  // the measured value vs threshold, so threshold calibration can be done from
+  // live build logs instead of re-running with a debugger.
+  const reject = (reason: string): null => {
+    console.error(`  [sliced-tiles] helical fit rejected: ${reason}`);
+    return null;
+  };
+  if (bands.length < 4) return reject(`bands=${bands.length} < 4`);
   // Per-band centroid + average-radius
   const samples = bands.map(b => {
     let cx = 0, cz = 0;
@@ -650,14 +658,14 @@ export function fitHelicalFrustum(
   }
   const baseR = samples[0].r;
   const topR = samples[samples.length - 1].r;
-  if (baseR < 1 || topR < 1) return null;
+  if (baseR < 1 || topR < 1) return reject(`degenerate radius base=${baseR.toFixed(1)}m top=${topR.toFixed(1)}m (< 1m)`);
   // Drift up to 1.2× radius permitted — Guggenheim-class buildings have
   // adjoining annexes shifting the per-band centroid away from the
   // rotunda's true axis. The frustum still captures the dominant
   // cylindrical mass at the mean centroid; the annex is approximated
   // by the swept circle's outer reach. bandedSilhouettes still
   // contribute to the union, covering the annex area at low Y.
-  if (maxDrift > 1.2 * Math.max(baseR, topR)) return null;
+  if (maxDrift > 1.2 * Math.max(baseR, topR)) return reject(`centroid drift ${maxDrift.toFixed(1)}m > 1.2×r=${(1.2 * Math.max(baseR, topR)).toFixed(1)}m`);
   // Two acceptance modes:
   //   (A) Constant radius (|baseR-topR|/baseR < 20%) → cylinder. Skips
   //       the monotonicity check. Catches Guggenheim's iconic cylindrical
@@ -685,7 +693,7 @@ export function fitHelicalFrustum(
   // their trend line closely (observed residuals ≤5%).
   let residSum = 0;
   for (const s of samples) residSum += Math.abs(s.r - (rMean + slope * (s.y - yMean)));
-  if (residSum / nS > 0.15 * rMean) return null;
+  if (residSum / nS > 0.15 * rMean) return reject(`trend residual ${(residSum / nS).toFixed(2)}m > 15% of rMean=${rMean.toFixed(1)}m (oscillating profile)`);
   const isCylinder = radiusVariation < 0.12;
   let scaleRatio: number;
   if (isCylinder) {
@@ -700,9 +708,9 @@ export function fitHelicalFrustum(
     const monotonicFrac = Math.max(increasing, decreasing) / Math.max(total, 1);
     // 0.5 (was 0.6): the trend fit already establishes direction; this only
     // rejects grossly reversing profiles.
-    if (monotonicFrac < 0.5) return null;
+    if (monotonicFrac < 0.5) return reject(`monotonicity ${(monotonicFrac * 100).toFixed(0)}% < 50% (reversing profile, variation=${(radiusVariation * 100).toFixed(0)}%)`);
     scaleRatio = fitTopR / fitBaseR;
-    if (scaleRatio < 0.3 || scaleRatio > 3) return null;
+    if (scaleRatio < 0.3 || scaleRatio > 3) return reject(`taper ratio ${scaleRatio.toFixed(2)} outside [0.3, 3]`);
   }
   // Higher circularity → smoother fit needed (more divisions)
   const nDivisions = circularity > 0.85 ? 16 : 8;
@@ -757,29 +765,6 @@ function polygonAreaAbs(poly: ReadonlyArray<LocalPoint2D>): number {
     a += (poly[j].x + poly[i].x) * (poly[i].z - poly[j].z);
   }
   return Math.abs(a) * 0.5;
-}
-
-/**
- * Convert a `#RRGGBB` hex colour string to CIE-Lab. Lab is the colour
- * space the synthesizer uses internally (wallLab/roofLab fields). Same
- * sRGB→linear→XYZ→Lab pipeline as the photogrammetry recolor pass.
- */
-function hexToLab(hex: string): Lab {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  const lin = (c: number): number => {
-    const cn = c / 255;
-    return cn > 0.04045 ? Math.pow((cn + 0.055) / 1.055, 2.4) : cn / 12.92;
-  };
-  const lr = lin(r), lg = lin(g), lb = lin(b);
-  const X = lr * 0.4124564 + lg * 0.3575761 + lb * 0.1804375;
-  const Y = lr * 0.2126729 + lg * 0.7151522 + lb * 0.0721750;
-  const Z = lr * 0.0193339 + lg * 0.1191920 + lb * 0.9503041;
-  const xn = X / 0.95047, yn = Y / 1.0, zn = Z / 1.08883;
-  const f = (t: number): number => t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16 / 116);
-  const fx = f(xn), fy = f(yn), fz = f(zn);
-  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
 
 interface RoofInference {
@@ -1038,27 +1023,6 @@ function pointInPolygon(
 
 function makeMaterial(lab: Lab, block: string): MaterialRef {
   return { blockName: block, lab };
-}
-
-function labToRgb(lab: Lab): readonly [number, number, number] {
-  const [L, a, b] = lab;
-  const fy = (L + 16) / 116;
-  const fx = fy + a / 500;
-  const fz = fy - b / 200;
-  const fInv = (t: number): number => t * t * t > 0.008856 ? t * t * t : (t - 16 / 116) / 7.787;
-  const x = fInv(fx) * 0.95047;
-  const y = fInv(fy) * 1.0;
-  const z = fInv(fz) * 1.08883;
-  const R = x * 3.2406 + y * -1.5372 + z * -0.4986;
-  const G = x * -0.9689 + y * 1.8758 + z * 0.0415;
-  const B = x * 0.0557 + y * -0.2040 + z * 1.0570;
-  const toS = (c: number): number => c > 0.0031308 ? 1.055 * Math.pow(c, 1 / 2.4) - 0.055 : 12.92 * c;
-  const clamp = (v: number): number => Math.max(0, Math.min(1, v));
-  return [
-    Math.round(clamp(toS(R)) * 255),
-    Math.round(clamp(toS(G)) * 255),
-    Math.round(clamp(toS(B)) * 255),
-  ];
 }
 
 function pickWallBlock(lab: Lab): string {

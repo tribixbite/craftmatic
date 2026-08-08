@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { evaluateBRep, type BuildingBRep } from '../synthesis/brep.js';
 import { threeToGrid, type VoxelizeMode } from '../../convert/voxelizer.js';
 import { BlockGrid } from '../../schem/types.js';
+import { labToHexColor } from '../color.js';
 
 export interface VoxelExportOptions {
   /** Blocks per metre. Default 1. */
@@ -86,30 +87,6 @@ function brepMeshToObject3D(
   mat.color.g = g;
   mat.color.b = b;
   return new THREE.Mesh(geo, mat);
-}
-
-function labToHexColor(lab: readonly [number, number, number]): number {
-  // Lightweight Lab → sRGB for material tinting. Voxelizer uses its own
-  // palette-matching so precise colour conversion isn't critical here.
-  const [L, a, b] = lab;
-  const fy = (L + 16) / 116;
-  const fx = fy + a / 500;
-  const fz = fy - b / 200;
-  const fInv = (t: number): number => t * t * t > 0.008856 ? t * t * t : (t - 16 / 116) / 7.787;
-  const x = fInv(fx) * 0.95047;
-  const y = fInv(fy) * 1.0;
-  const z = fInv(fz) * 1.08883;
-  let R = x * 3.2406 + y * -1.5372 + z * -0.4986;
-  let G = x * -0.9689 + y * 1.8758 + z * 0.0415;
-  let B = x * 0.0557 + y * -0.2040 + z * 1.0570;
-  const toS = (c: number): number => {
-    if (c > 0.0031308) return 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
-    return 12.92 * c;
-  };
-  R = Math.max(0, Math.min(1, toS(R)));
-  G = Math.max(0, Math.min(1, toS(G)));
-  B = Math.max(0, Math.min(1, toS(B)));
-  return (Math.round(R * 255) << 16) | (Math.round(G * 255) << 8) | Math.round(B * 255);
 }
 
 export async function exportVoxel(

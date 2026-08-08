@@ -27,6 +27,7 @@ import type {
   RoadSegment,
   TreeInstance,
 } from './types.js';
+import { rgbToLab } from '../color.js';
 
 // ─── Footprint ──────────────────────────────────────────────────────────────
 
@@ -211,22 +212,6 @@ function parseColourTag(hex: string): Lab | null {
   const named = OSM_NAMED_COLOURS[trimmed.replace(/[^a-z]/g, '')];
   if (named) return rgbToLab(named[0], named[1], named[2]);
   return null;
-}
-
-/** Duplicated tiny rgbToLab to avoid circular import from gen/color-blocks. */
-function rgbToLab(r: number, g: number, b: number): Lab {
-  // sRGB → XYZ → CIE-Lab (D65 white point)
-  const toLin = (c: number): number => {
-    const cc = c / 255;
-    return cc > 0.04045 ? Math.pow((cc + 0.055) / 1.055, 2.4) : cc / 12.92;
-  };
-  const R = toLin(r), G = toLin(g), B = toLin(b);
-  const x = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047;
-  const y = (R * 0.2126 + G * 0.7152 + B * 0.0722) / 1.00000;
-  const z = (R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883;
-  const f = (t: number): number => t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16 / 116);
-  const fx = f(x), fy = f(y), fz = f(z);
-  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
 
 export function reconcileWallPalette(

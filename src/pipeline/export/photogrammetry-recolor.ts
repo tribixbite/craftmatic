@@ -32,6 +32,7 @@ import jpeg from 'jpeg-js';
 import { rgbToWallBlock } from '../../gen/color-blocks.js';
 import type { BlockGrid } from '../../schem/types.js';
 import type { FullMeshPrimitive } from './glb-writer.js';
+import { rgbToLab, labToRgb } from '../color.js';
 
 export interface RecolorOptions {
   /** Grid origin in world metres (corresponds to grid voxel (0,0,0)). */
@@ -506,41 +507,6 @@ export function consolidateRecoloredBlocks(grid: BlockGrid, sampledRGB: Int32Arr
   return flips.length;
 }
 
-// ─── k-means helpers ────────────────────────────────────────────────────────
-
-function rgbToLab(r: number, g: number, b: number): [number, number, number] {
-  // sRGB → linear
-  const sr = r / 255, sg = g / 255, sb = b / 255;
-  const lin = (c: number): number => c > 0.04045 ? Math.pow((c + 0.055) / 1.055, 2.4) : c / 12.92;
-  const lr = lin(sr), lg = lin(sg), lb = lin(sb);
-  // linear sRGB → XYZ (D65)
-  const X = lr * 0.4124564 + lg * 0.3575761 + lb * 0.1804375;
-  const Y = lr * 0.2126729 + lg * 0.7151522 + lb * 0.0721750;
-  const Z = lr * 0.0193339 + lg * 0.1191920 + lb * 0.9503041;
-  // XYZ → Lab (D65 reference white)
-  const xn = X / 0.95047, yn = Y / 1.0, zn = Z / 1.08883;
-  const f = (t: number): number => t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16 / 116);
-  const fx = f(xn), fy = f(yn), fz = f(zn);
-  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
-}
-
-function labToRgb(L: number, a: number, bb: number): [number, number, number] {
-  const fy = (L + 16) / 116;
-  const fx = fy + a / 500;
-  const fz = fy - bb / 200;
-  const finv = (t: number): number => {
-    const t3 = t * t * t;
-    return t3 > 0.008856 ? t3 : (t - 16 / 116) / 7.787;
-  };
-  const X = finv(fx) * 0.95047, Y = finv(fy), Z = finv(fz) * 1.08883;
-  const lr = X * 3.2404542 + Y * -1.5371385 + Z * -0.4985314;
-  const lg = X * -0.969266 + Y * 1.8760108 + Z * 0.041556;
-  const lb = X * 0.0556434 + Y * -0.2040259 + Z * 1.0572252;
-  const gam = (c: number): number => c > 0.0031308 ? 1.055 * Math.pow(c, 1 / 2.4) - 0.055 : 12.92 * c;
-  const clamp = (c: number): number => Math.max(0, Math.min(255, Math.round(gam(c) * 255)));
-  return [clamp(lr), clamp(lg), clamp(lb)];
-}
-
 /** Lighting spread (L* p90−p10) beyond which normalisation kicks in. */
 const LIGHTING_SPREAD_MIN = 25;
 /** Target L* range the [p10,p90] band is stretched onto. */
@@ -572,7 +538,7 @@ export function normalizeSampleLuminance(sampledRGB: Int32Array): void {
     if (packed < 0) continue;
     const [L, a, b] = rgbToLab((packed >> 16) & 0xff, (packed >> 8) & 0xff, packed & 0xff);
     const nL = Math.max(15, Math.min(90, LIGHTING_TARGET_LO + (L - p10) * scale));
-    const [r, g, bl] = labToRgb(nL, a, b);
+    const [r, g, bl] = labToRgb([nL, a, b]);
     sampledRGB[i] = (r << 16) | (g << 8) | bl;
   }
 }
@@ -583,7 +549,7 @@ function kMeansLab(samples: ReadonlyArray<readonly [number, number, number]>, k:
   // Convert to Lab once
   const labs = samples.map(s => rgbToLab(s[0], s[1], s[2]));
   // Initialise with k samples spread by Lab-distance (k-means++ style)
-  const centroids: Array<[number, number, number]> = [labs[0]];
+  const centroids: Array<[number, number, number]> = [[...labs[0]]];
   for (let ci = 1; ci < k; ci++) {
     let bestIdx = 0, bestMinDistSq = -1;
     for (let i = 0; i < n; i++) {
@@ -598,7 +564,7 @@ function kMeansLab(samples: ReadonlyArray<readonly [number, number, number]>, k:
         bestIdx = i;
       }
     }
-    centroids.push(labs[bestIdx]);
+    centroids.push([...labs[bestIdx]]);
   }
   // Lloyd iterations
   const assignments = new Int32Array(n);

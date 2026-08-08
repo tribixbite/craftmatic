@@ -24,6 +24,7 @@ import type { BuildingBRep, FloorSlab, RoofVolume, Wall } from './brep.js';
 import { projectPolygonToLocal } from './features.js';
 import { douglasPeucker } from '../context/classify.js';
 import { rgbToWallBlock, rgbToRoofOverride, roofBaseToFullBlock } from '../../gen/color-blocks.js';
+import { labToRgb } from '../color.js';
 
 function makeMaterial(lab: Lab, block: string): MaterialRef {
   return { blockName: block, lab };
@@ -31,31 +32,9 @@ function makeMaterial(lab: Lab, block: string): MaterialRef {
 
 /**
  * Convert a Lab colour to the nearest full-block Minecraft block, via the
- * shared 36-cluster palette in `color-blocks.ts`. Same logic as parametric.ts
- * — inlined here to avoid a cross-directory import when both synthesizers
- * need the same picker.
+ * shared 36-cluster palette in `color-blocks.ts` and the shared Lab→sRGB
+ * conversion in `pipeline/color.ts`.
  */
-function labToRgb(lab: Lab): readonly [number, number, number] {
-  const [L, a, b] = lab;
-  const fy = (L + 16) / 116;
-  const fx = fy + a / 500;
-  const fz = fy - b / 200;
-  const fInv = (t: number): number => t * t * t > 0.008856 ? t * t * t : (t - 16 / 116) / 7.787;
-  const x = fInv(fx) * 0.95047;
-  const y = fInv(fy) * 1.0;
-  const z = fInv(fz) * 1.08883;
-  const R = x * 3.2406 + y * -1.5372 + z * -0.4986;
-  const G = x * -0.9689 + y * 1.8758 + z * 0.0415;
-  const B = x * 0.0557 + y * -0.2040 + z * 1.0570;
-  const toS = (c: number): number => c > 0.0031308 ? 1.055 * Math.pow(c, 1 / 2.4) - 0.055 : 12.92 * c;
-  const clamp = (v: number): number => Math.max(0, Math.min(1, v));
-  return [
-    Math.round(clamp(toS(R)) * 255),
-    Math.round(clamp(toS(G)) * 255),
-    Math.round(clamp(toS(B)) * 255),
-  ];
-}
-
 function pickWallBlock(lab: Lab): string {
   const [r, g, b] = labToRgb(lab);
   return rgbToWallBlock(r, g, b);

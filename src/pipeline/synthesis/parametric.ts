@@ -21,6 +21,7 @@ import {
 } from './features.js';
 import { douglasPeucker } from '../context/classify.js';
 import { rgbToWallBlock, rgbToRoofOverride, roofBaseToFullBlock } from '../../gen/color-blocks.js';
+import { labToRgb, labToRgbHex } from '../color.js';
 import type {
   BuildingBRep,
   Feature,
@@ -38,46 +39,17 @@ function archTypeFloorHeight(t: RefinedBuildingContext['archType']): number {
   return 3.5;
 }
 
-function labToRgbHex(lab: readonly [number, number, number]): string {
-  // Lab → XYZ → RGB (inverse of the duplicated rgbToLab from fusion/reconcile.ts)
-  const [L, a, b] = lab;
-  const fy = (L + 16) / 116;
-  const fx = fy + a / 500;
-  const fz = fy - b / 200;
-  const fInv = (t: number): number => t * t * t > 0.008856 ? t * t * t : (t - 16 / 116) / 7.787;
-  const x = fInv(fx) * 0.95047;
-  const y = fInv(fy) * 1.0;
-  const z = fInv(fz) * 1.08883;
-  const R = x * 3.2406 + y * -1.5372 + z * -0.4986;
-  const G = x * -0.9689 + y * 1.8758 + z * 0.0415;
-  const B = x * 0.0557 + y * -0.2040 + z * 1.0570;
-  const toS = (c: number): number => c > 0.0031308 ? 1.055 * Math.pow(c, 1 / 2.4) - 0.055 : 12.92 * c;
-  const clamp = (v: number): number => Math.max(0, Math.min(1, v));
-  const r = Math.round(clamp(toS(R)) * 255);
-  const g = Math.round(clamp(toS(G)) * 255);
-  const bl = Math.round(clamp(toS(B)) * 255);
-  return `#${[(r), (g), (bl)].map(v => v.toString(16).padStart(2, '0')).join('')}`;
-}
-
-/**
- * Parse a `#rrggbb` hex back to its RGB triple. Used with `labToRgbHex` so
- * we can feed full-colour SV palette samples into the shared 36-cluster
- * Lab-delta-E block matcher rather than the old L-only picker (which threw
- * away 2/3 of the colour information and mapped every mid-lightness colour
- * to `stone_bricks` regardless of hue).
- */
-function parseHex(hex: string): readonly [number, number, number] {
-  const n = parseInt(hex.replace('#', ''), 16);
-  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
-}
-
+// Full-colour SV palette samples feed the shared 36-cluster Lab-delta-E
+// block matcher (not the old L-only picker, which threw away 2/3 of the
+// colour information and mapped every mid-lightness colour to
+// `stone_bricks` regardless of hue). Lab→sRGB lives in pipeline/color.ts.
 function pickWallBlock(lab: readonly [number, number, number]): string {
-  const [r, g, b] = parseHex(labToRgbHex(lab));
+  const [r, g, b] = labToRgb(lab);
   return rgbToWallBlock(r, g, b);
 }
 
 function pickRoofBlock(lab: readonly [number, number, number]): string {
-  const [r, g, b] = parseHex(labToRgbHex(lab));
+  const [r, g, b] = labToRgb(lab);
   // `rgbToRoofOverride` returns stairs + slab. For the parametric B-rep's
   // flat extrusion the cap slab is the right choice — stairs would need
   // orientation awareness we don't have yet at the material-ref level.
