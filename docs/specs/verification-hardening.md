@@ -439,3 +439,42 @@ immutable failed-history archive is per-file and unaffected.
 - [-] **Smarty fetcher** stays a stub: no SMARTY credentials in .env; wiring
       an untestable API client would be worse than the stub. Unblocks when
       keys land.
+
+## Architectural audit — 2026-08-08
+
+Full-pipeline audit (stages 0–9, CLI + browser) triggered by the question
+"is helical-fit telemetry/calibration really the most impactful next step?"
+**Verdict: no.** The helical fit only fires for curved buildings (2 of 14
+tracked) and telemetry is observability, not quality. Ranked findings:
+
+**A0 · The iterate loop retried an unfixable state 282 times.** No VLM key
+exists in .env, so `--consensus gemini` is never wired and every objective-
+pass build lands at `fail-consensus` with `consensus=null`. The queue
+treated that as remediable; the goldens burned 86/44/58/53/41 attempts on
+signature-identical reports until the stop hook escalated ALL FIVE to
+terminal `needs-human-review`. FIXED (a92ab42): `isBlockedOnConsensus()`
+excludes credential-blocked records; `--status`/`--worst` explain the block.
+**Residual decision for a human: supply a GEMINI_API_KEY and reset the five
+goldens' status so they can re-enter the queue** (`scripts/sync-state.ts`
+after one fresh `--only` run per slug, or manual status edit).
+
+**A1 · Colour-conversion drift (9 private copies, 6 modules).** Synthesis
+copies used 4-decimal XYZ matrices, recolor used 7-decimal, parametric
+round-tripped Lab→hex→RGB. FIXED (d54b983): shared `src/pipeline/color.ts`
+with round-trip tests; all consumers converted.
+
+**A2 · Open design-scale gaps, in impact order** (all pre-audited, all still
+open): (1) windows/glass representation — facadeGlassShare 0.3–2% vs ~50%
+real curtain wall, EVERY commercial build; parametric windows still
+single-facade. (2) P0-2 second half — per-face median vote + archetype
+material priors (street-level photo splotch). (3) painter-order scallop at
+tile≥16. (4) `photogrammetry-recolor.ts` (~600 lines) has NO unit tests —
+riskiest untested module; extract pure helpers (k-means, majority pass,
+luminance normalisation is already exported) before the P0-2 work lands.
+(5) `synthesizeSlicedTilesImpl` ~490 lines / `evaluateBRep` ~250 —
+split-worthy but only alongside planned feature work, not speculatively.
+
+**A3 · Helical-fit telemetry** — done as a five-line follow-along
+(d54b983): each rejection gate logs measured value vs threshold. Threshold
+calibration itself WAITS for live rejections to accumulate; calibrating
+now would tune against goldens the fit already passes.
