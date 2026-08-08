@@ -166,6 +166,21 @@ function finiteOr(v: number | null, fallback: number): number {
 }
 
 /**
+ * A record is BLOCKED (not remediable) when its only outstanding gate is a
+ * consensus round that cannot run: status `fail-consensus`, no consensus
+ * scores ever recorded (`consensusMedian === null` — a run that scored always
+ * has a median), and no VLM credential available to score the next rebuild.
+ * Rebuilding such a record reproduces the identical report — the loop burned
+ * 53 signature-identical guggenheim rebuilds this way before the stop hook
+ * escalated. Blocked records leave the queue until credentials appear.
+ */
+export function isBlockedOnConsensus(record: RankRecord, hasVlmKey: boolean): boolean {
+  return record.status === 'fail-consensus'
+    && record.consensusMedian === null
+    && !hasVlmKey;
+}
+
+/**
  * Build ranked candidates (worst/most-urgent first) from state records, reading
  * each slug's failed-history to classify its trend.
  */

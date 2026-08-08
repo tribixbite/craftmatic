@@ -9,6 +9,7 @@ import {
   rankCandidates,
   statusRank,
   trendRank,
+  isBlockedOnConsensus,
   type RankRecord,
   type RankedCandidate,
   type Status,
@@ -129,5 +130,24 @@ describe('statusRank', () => {
     const order: Status[] = ['fail-objective', 'fail-consensus', 'needs-human-review', 'context-insufficient', 'pass'];
     const ranks = order.map(statusRank);
     expect(ranks).toEqual([...ranks].sort((x, y) => x - y)); // already ascending
+  });
+});
+
+describe('isBlockedOnConsensus', () => {
+  const base: RankRecord = {
+    slug: 'guggenheim', status: 'fail-consensus', attempts: 53,
+    defectScore: 10, consensusMedian: null,
+  };
+  it('blocks fail-consensus with no scores and no key (the 53-attempt loop)', () => {
+    expect(isBlockedOnConsensus(base, false)).toBe(true);
+  });
+  it('remediable when a VLM key is available', () => {
+    expect(isBlockedOnConsensus(base, true)).toBe(false);
+  });
+  it('remediable when consensus actually ran and scored low', () => {
+    expect(isBlockedOnConsensus({ ...base, consensusMedian: 6.5 }, false)).toBe(false);
+  });
+  it('fail-objective is never consensus-blocked', () => {
+    expect(isBlockedOnConsensus({ ...base, status: 'fail-objective' }, false)).toBe(false);
   });
 });

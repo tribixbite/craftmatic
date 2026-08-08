@@ -19,6 +19,7 @@ import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   rankCandidates,
+  isBlockedOnConsensus,
   type Status,
   type RankRecord,
   type RankedCandidate,
@@ -103,15 +104,38 @@ function isRemediable(rec: StateRecord | undefined): rec is StateRecord {
 }
 
 /**
+ * VLM credential presence — the same check `runBuild` uses to decide whether
+ * `--consensus gemini` can be wired. The queue must agree with the builder:
+ * if the builder can't score consensus, a consensus-only failure can't be
+ * remediated by rebuilding.
+ */
+function hasVlmKey(): boolean {
+  return Boolean(process.env['GOOGLE_GEMINI_API_KEY'] ?? process.env['GEMINI_API_KEY']);
+}
+
+/**
  * Ranked remediation queue (worst/most-urgent first). Ranks on deterministic
  * defectScore + failed-history trend, with VLM consensus only as a final
- * tie-break (see `iterate-ranking.ts`).
+ * tie-break (see `iterate-ranking.ts`). Records blocked on missing VLM
+ * credentials are excluded — rebuilding them reproduces the identical report.
  */
 function remediationQueue(state: StateFile, goldens: Golden[]): RankedCandidate[] {
+  const vlm = hasVlmKey();
   const records = goldens
     .filter(g => isRemediable(state.addresses[g.slug]))
-    .map(g => toRankRecord(g.slug, state.addresses[g.slug]));
+    .map(g => toRankRecord(g.slug, state.addresses[g.slug]))
+    .filter(r => !isBlockedOnConsensus(r, vlm));
   return rankCandidates(records, failedDir);
+}
+
+/** Slugs excluded from the queue because consensus can't run without a key. */
+function blockedOnConsensus(state: StateFile, goldens: Golden[]): string[] {
+  const vlm = hasVlmKey();
+  return goldens
+    .filter(g => isRemediable(state.addresses[g.slug]))
+    .map(g => toRankRecord(g.slug, state.addresses[g.slug]))
+    .filter(r => isBlockedOnConsensus(r, vlm))
+    .map(r => r.slug);
 }
 
 function runBuild(golden: Golden, extraFlags: string[] = [], localTiles = false): number {
@@ -192,6 +216,14 @@ function summarise(state: StateFile, goldens: Golden[]): void {
       const defect = c.record.defectScore != null ? c.record.defectScore.toFixed(1) : '-';
       console.log(`  ${c.record.slug.padEnd(16)} ${c.record.status.padEnd(18)} trend=${c.trend.padEnd(11)} defect=${defect} attempts=${c.record.attempts}`);
     }
+  }
+
+  const blocked = blockedOnConsensus(state, goldens);
+  if (blocked.length > 0) {
+    console.log(`\n─── Blocked awaiting VLM credentials (${blocked.length}) ───`);
+    console.log(`  ${blocked.join(', ')}`);
+    console.log(`  Objective gates pass; consensus never ran (no GEMINI_API_KEY).`);
+    console.log(`  Rebuilding cannot change these — set a key, then rerun --worst.`);
   }
 }
 
@@ -289,7 +321,12 @@ if (only) {
 if (hasFlag('--worst')) {
   const top = pickWorst(state, goldens);
   if (!top) {
-    console.log('no non-passing / non-terminal addresses — all goldens pass or require human review');
+    const blocked = blockedOnConsensus(state, goldens);
+    if (blocked.length > 0) {
+      console.log(`nothing actionable: ${blocked.length} slug(s) blocked awaiting VLM credentials (${blocked.join(', ')})`);
+    } else {
+      console.log('no non-passing / non-terminal addresses — all goldens pass or require human review');
+    }
     summarise(state, goldens);
     process.exit(0);
   }
