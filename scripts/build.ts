@@ -16,7 +16,7 @@
  */
 
 import { resolve, join } from 'node:path';
-import { readFileSync, existsSync, mkdirSync, writeFileSync, rmdirSync, renameSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, rmdirSync, renameSync, statSync } from 'node:fs';
 import type { FullVerificationReport } from '../src/pipeline/verify/report.js';
 import { runPipeline } from '../src/pipeline/pipeline.js';
 import { searchOSMBuilding, searchOSMBuildingParts } from '../src/gen/api/osm.js';
@@ -515,18 +515,22 @@ function withStateLock(path: string, fn: () => void): void {
       mkdirSync(lockDir);
       break;
     } catch {
-      // Held by another build — break stale locks, otherwise wait.
-      try {
-        const { statSync } = require('node:fs') as typeof import('node:fs');
-        if (Date.now() - statSync(lockDir).mtimeMs > LOCK_STALE_MS) {
-          rmdirSync(lockDir);
-          continue;
-        }
-      } catch { /* lock vanished between checks — retry immediately */ continue; }
+      // Held by another build. The deadline check MUST come before any
+      // `continue` path: the previous shape re-entered the loop from the
+      // stale-break and stat-vanish branches without checking it or
+      // sleeping, so a persistently-throwing branch span at 99% CPU for
+      // hours (pennzoil burned ~2h post-verify in two consecutive runs
+      // and never merged its state or wrote artifacts).
       if (Date.now() > deadline) {
         console.error('warn: state lock timeout — merging without lock');
         break;
       }
+      try {
+        if (Date.now() - statSync(lockDir).mtimeMs > LOCK_STALE_MS) {
+          rmdirSync(lockDir);
+          continue; // freshly broken — retry mkdir immediately
+        }
+      } catch { /* lock vanished or unreadable — fall through to sleep */ }
       const buf = new SharedArrayBuffer(4);
       Atomics.wait(new Int32Array(buf), 0, 0, RETRY_MS); // sync sleep
     }
@@ -565,7 +569,14 @@ function mergeStateRecordLocked(
 
   const prev = state.addresses[slug];
   const sig = failureSignature(report);
-  const attempts = (prev?.attempts ?? 0) + 1;
+  // Attempts count CONSECUTIVE runs with the same failure signature — a run
+  // that produces a different signature is new information (e.g. consensus
+  // median moved), so the counter resets. Without this, the stop hook's
+  // hard ceiling (attempts ≥ 10) kept re-escalating goldens to
+  // needs-human-review on every stop event off attempt counts accumulated
+  // during the credential-blocked era, even as fresh scores improved.
+  const lastSig = prev?.recentFailureSignatures?.at(-1);
+  const attempts = lastSig === sig ? (prev?.attempts ?? 0) + 1 : 1;
   const recent = [...(prev?.recentFailureSignatures ?? []), sig].slice(-5);
 
   const record: PipelineStateRecord = {

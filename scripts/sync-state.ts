@@ -25,10 +25,22 @@ const state: StateShape = existsSync(stateFile)
   : { version: 'v400', addresses: {} };
 if (!state.addresses) state.addresses = {};
 
+// Builds write FLAT `output/pipeline/<slug>.verification.json`; a legacy
+// per-slug subdirectory layout also exists. The original loop only probed
+// the subdirectory form, so it synced 0 records against every current
+// artifact. Collect slug → newest artifact path across both layouts.
+const artifactPaths = new Map<string, string>();
+for (const entry of readdirSync(pipeDir)) {
+  if (entry.endsWith('.verification.json')) {
+    artifactPaths.set(entry.slice(0, -'.verification.json'.length), join(pipeDir, entry));
+  } else {
+    const nested = join(pipeDir, entry, `${entry}.verification.json`);
+    if (!artifactPaths.has(entry) && existsSync(nested)) artifactPaths.set(entry, nested);
+  }
+}
+
 let updated = 0;
-for (const slug of readdirSync(pipeDir)) {
-  const vPath = join(pipeDir, slug, `${slug}.verification.json`);
-  if (!existsSync(vPath)) continue;
+for (const [slug, vPath] of artifactPaths) {
   const report = JSON.parse(readFileSync(vPath, 'utf8')) as FullVerificationReport;
   const prev = state.addresses[slug];
   if (prev?.lastRun && report.lastRun <= prev.lastRun) continue;
