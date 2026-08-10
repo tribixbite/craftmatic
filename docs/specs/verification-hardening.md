@@ -511,6 +511,28 @@ Verified: pennzoil rebuilt clean end-to-end (170s, pass, artifacts+state).
 across three runs — the gate straddles min≥7 on borderline builds. Queue:
 best-of-N or mean-of-3 scoring round before trusting near-threshold gates.
 
+### Calibration round — 2026-08-10 (later)
+
+- **WALL_CLUSTERS calibrated to rendered textures (b36baa5).** Texture-mean
+  audit found options drifting 90-155 RGB-distance from their cluster
+  targets (gray→gray_terracotta renders chocolate; sky-blue→
+  light_blue_terracotta renders gray-purple; ochre→sandstone renders pale;
+  pale-pink→pink_terracotta renders dusty rose). Replaced with
+  measured-nearest full blocks; new neutral-cream cluster
+  [212,197,169]→sandstone resolves the highland knife edge. Verified
+  visually: highland walls now sandstone, not mauve.
+- **Eave-aware window band** — 25th percentile of per-column tops; pitched
+  roofs no longer clip the upper row (regression test).
+- **Median-of-3 Gemini sampling** in fan-out mode (`gemini-fanout-med3`).
+- **240-highland residual (massing 0) is DATA:** its polygon-overrides.json
+  rectangle is far larger than the actual cottage — the model reads as a
+  warehouse-scale barn vs a small tree-hidden gambrel in SV. Fix: redraw
+  the override to the house body (or trust Solar bbox), then re-score.
+- **Flatiron rebuild during OSM Overpass outage** correctly FAILED
+  OBJECTIVE (IoU 0.58, prov_mean 0.49, levels inferred/0.13) — the gate
+  caught degraded context before spending a VLM call, and the new
+  signature reset its attempts counter. Rebuild when Overpass recovers.
+
 **New root cause found — wall-cluster knife edge:** pale cream Lab
 (~80,1,16) sits on the WALL_CLUSTERS boundary between `sandstone` (warm
 cream texture) and `white_terracotta` (renders mauve-pink). 240-highland's
