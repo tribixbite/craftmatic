@@ -499,6 +499,18 @@ min≥7). First-ever baseline scores localised the gap precisely: massing
 through the full objective+consensus gate.** Flatiron color 1→3, features
 still 1 (recolor splotch dominates its facade signal).
 
+**Loop hygiene (77adae7, dcb5fbb):** the state-lock retry loop could spin
+unbounded (pennzoil burned ~2h post-verify twice, died mid-merge leaving
+the lock held, pass never persisted) — deadline now checked before every
+retry path; attempts reset when the failure signature changes (stop-hook
+ceiling was re-escalating improving goldens off credential-era counts);
+sync-state handles the flat artifact layout (previously synced 0 records);
+iterate enforces a 15min per-build ceiling + persistence breadcrumbs.
+Verified: pennzoil rebuilt clean end-to-end (170s, pass, artifacts+state).
+**Consensus nondeterminism:** identical inputs scored min 7.0/6.0/7.0
+across three runs — the gate straddles min≥7 on borderline builds. Queue:
+best-of-N or mean-of-3 scoring round before trusting near-threshold gates.
+
 **New root cause found — wall-cluster knife edge:** pale cream Lab
 (~80,1,16) sits on the WALL_CLUSTERS boundary between `sandstone` (warm
 cream texture) and `white_terracotta` (renders mauve-pink). 240-highland's
