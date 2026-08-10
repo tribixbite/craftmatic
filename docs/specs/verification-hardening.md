@@ -478,3 +478,35 @@ split-worthy but only alongside planned feature work, not speculatively.
 (d54b983): each rejection gate logs measured value vs threshold. Threshold
 calibration itself WAITS for live rejections to accumulate; calibrating
 now would tune against goldens the fit already passes.
+
+## Live-consensus era — 2026-08-10
+
+GEMINI_API_KEY landed (bashrc `.secrets`); consensus runs for real
+(`gemini-fanout`, temp 0, single-model → spread 0, gate = median≥8.5 ∧
+min≥7). First-ever baseline scores localised the gap precisely: massing
+8-9 on the towers, color 1-4, features 0-1 everywhere. Two rebuilds landed
+(703aac6):
+
+- **True gable/hip ridges** (`brep.ts`): the uniform 0.02 tent taper was a
+  pyramid; gables now keep a full-length ridge along the long axis, hips
+  inset by the half-span. Mesh-level ridge-extent tests.
+- **Evidence-driven overlay windows** (`voxel.ts`): metre-sized windows
+  from the shared archetype table, one row per storey from fused levels,
+  face-aware columns; commercial walls with L*<45 flip to curtain-wall
+  (glass + storey spandrels + ~3m mullions).
+
+**Result: pennzoil 4/1/8/3 → 8/7/10/9 — status `pass`, the first golden
+through the full objective+consensus gate.** Flatiron color 1→3, features
+still 1 (recolor splotch dominates its facade signal).
+
+**New root cause found — wall-cluster knife edge:** pale cream Lab
+(~80,1,16) sits on the WALL_CLUSTERS boundary between `sandstone` (warm
+cream texture) and `white_terracotta` (renders mauve-pink). 240-highland's
+correct OSM cream resolves to white_terracotta and the whole house reads
+muddy mauve → VLM color 0-1. The cluster's representative colours don't
+match how the textures actually RENDER. Queue: re-derive WALL_CLUSTERS
+representative Lab values from the block textures as rendered by
+png-renderer (not the abstract colour map), then re-test the 21-building
+set. Also open: upper residential window row clips under the eave — the
+window band should end at the eave line (percentile of per-column topY),
+not grid height minus a fixed roofDepth.
