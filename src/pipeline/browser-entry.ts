@@ -227,6 +227,10 @@ export async function runBrowserPipelineFromTiles(
   const voxelResult = await exportVoxel(brep, {
     resolution: voxelResolution,
     maxDimension: voxelMaxDim,
+    overlay: {
+      archType: refined.archType,
+      levels: evidence.levels.value,
+    },
   });
 
   // Stage 9a: objective gates

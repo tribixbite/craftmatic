@@ -15,9 +15,25 @@
 import * as THREE from 'three';
 
 import { evaluateBRep, type BuildingBRep } from '../synthesis/brep.js';
+import { windowDimsFor } from '../synthesis/features.js';
 import { threeToGrid, type VoxelizeMode } from '../../convert/voxelizer.js';
 import { BlockGrid } from '../../schem/types.js';
+import type { ArchType } from '../context/types.js';
 import { labToHexColor } from '../color.js';
+
+/**
+ * Building evidence the architectural overlay uses to place windows at real
+ * storey heights instead of a blind every-4th-row pattern. All fields
+ * optional — the overlay falls back to archetype-typical estimates.
+ */
+export interface OverlayEvidence {
+  readonly archType?: ArchType;
+  /** Storey count from fused evidence (OSM building:levels etc.). */
+  readonly levels?: number;
+  /** Wall material L* — commercial walls darker than ~45 L* are treated as
+   * curtain wall (glass-dominant facade with wall-block mullions). */
+  readonly wallLabL?: number;
+}
 
 export interface VoxelExportOptions {
   /** Blocks per metre. Default 1. */
@@ -42,6 +58,8 @@ export interface VoxelExportOptions {
     readonly maxDistanceM?: number;
     readonly onProgress?: (frac: number) => void;
   };
+  /** Evidence for the architectural overlay's window placement. */
+  readonly overlay?: OverlayEvidence;
 }
 
 export interface VoxelExportResult {
@@ -148,7 +166,10 @@ export async function exportVoxel(
   const wallBlock = brep.materials.wall.blockName;
   const roofBlock = brep.materials.roof.blockName;
   const windowBlock = brep.materials.window.blockName;
-  applyMaterialOverlay(grid, wallBlock, roofBlock, windowBlock);
+  applyMaterialOverlay(grid, wallBlock, roofBlock, windowBlock, resolution, {
+    wallLabL: brep.materials.wall.lab[0],
+    ...opts.overlay,
+  });
 
   // Count non-air blocks
   let blockCount = 0;
@@ -245,11 +266,13 @@ function pointInPolygonXZ(
  * string) so k-means cluster-option variants (e.g. both sandstone AND
  * smooth_sandstone from the same Lab cluster) both participate.
  */
-function applyMaterialOverlay(
+export function applyMaterialOverlay(
   grid: BlockGrid,
   wallBlock: string,
   roofBlock: string,
   windowBlock: string,
+  resolution: number = 1,
+  ev: OverlayEvidence = {},
 ): void {
   const { width: W, height: H, length: L } = grid;
   const roofDepth = Math.max(1, Math.round(H * 0.05));
@@ -298,29 +321,72 @@ function applyMaterialOverlay(
     }
   }
 
-  // Pass 3 — windows. 2-wide × 2-tall rectangles, spaced every ~5 blocks
-  // horizontally, every ~4 blocks vertically. Skip top (roof+cornice),
-  // bottom (base), and any floor-trim rows from 3a.
-  const spacingX = Math.max(3, Math.round(W * 0.15));
-  const spacingZ = Math.max(3, Math.round(L * 0.15));
-  const winVStep = 4;
+  // Pass 3 — windows, placed at real storey heights. The old pass stamped
+  // single voxels on every 4th row with no knowledge of levels or metric
+  // scale — at 4 blocks/m a 2-storey house grew 6+ rows of invisible dots
+  // and the consensus VLM scored features 0-1 on every golden. Windows are
+  // now sized in metres from the archetype table (shared with the BRep
+  // feature generator), one row per storey, face-aware so each facade gets
+  // vertical window columns instead of a corner-wrapping moiré.
   const yMin = baseBandH;
   const yMax = H - roofDepth - corniceBandH;
-  // Single-voxel window stripes on the windowBand rows. 2-tall stamps
-  // regressed color scores (+glass voxels eat wall-material texture) —
-  // single-voxel windows read as regular fenestration to the VLM while
-  // preserving the dominant wall material.
-  for (let y = yMin; y < yMax; y++) {
-    if ((y - yMin) % winVStep !== 1) continue;
+  const res = Math.max(0.25, resolution);
+  const archType: ArchType = ev.archType ?? (H / res > 15 ? 'commercial' : 'residential');
+  const usable = yMax - yMin;
+  // Storey pitch in blocks: prefer evidence levels; else archetype-typical
+  // floor height. Clamp so at least one row fits and rows never touch.
+  const typFloorM = archType === 'residential' ? 3.0 : 4.0;
+  const storeys = ev.levels && ev.levels > 0
+    ? ev.levels
+    : Math.max(1, Math.round(usable / (typFloorM * res)));
+  const storeyBlocks = usable / Math.max(1, storeys);
+  const dims = windowDimsFor(archType);
+  const wBlk = Math.max(1, Math.round(dims.widthM * res));
+  const hBlk = Math.max(1, Math.min(Math.round(dims.heightM * res), Math.floor(storeyBlocks) - 1));
+  const pitchM = archType === 'residential' ? 3.5 : 2.8;
+  // Pitch floor of wBlk+2 guarantees ≥2 blocks of wall between windows, so
+  // coarse resolutions keep a masonry-dominant punched facade (~25-35%
+  // window share) instead of degenerating toward curtain wall.
+  const pitchBlk = Math.max(wBlk + 2, Math.round(pitchM * res));
+  // Curtain-wall mode: commercial archetype whose wall material is dark
+  // (L* < 45 — black/bronze glass towers like Pennzoil). The facade flips
+  // to glass-dominant with wall-block spandrels at storey lines and thin
+  // vertical mullions, instead of punched windows in a masonry field.
+  const curtainWall = archType === 'commercial' && ev.wallLabL != null && ev.wallLabL < 45;
+  // 1-block mullions on a ~3m module — at coarse resolutions a tighter pitch
+  // makes half the facade mullion and the curtain wall stops reading as glass.
+  const mullionPitch = Math.max(4, Math.round(3 * res));
+
+  const isReplaceableWall = (b: string): boolean =>
+    b !== AIR && b !== roofBlock && b !== trimBlock && b !== plinthBlock;
+
+  if (storeyBlocks >= 2 && usable >= 2) {
     for (let x = 0; x < W; x++) {
       for (let z = 0; z < L; z++) {
-        if (!isOuter(grid, x, y, z, W, L)) continue;
-        const b = grid.get(x, y, z);
-        if (b === AIR || b === roofBlock || b === trimBlock || b === plinthBlock) continue;
-        const onX = x % spacingX === Math.floor(spacingX / 2);
-        const onZ = z % spacingZ === Math.floor(spacingZ / 2);
-        if (!onX && !onZ) continue;
-        grid.set(x, y, z, windowBlock);
+        // Face direction: which horizontal neighbour is air decides the axis
+        // the window pattern runs along (pattern along the facade, not into it).
+        for (let y = yMin; y < yMax; y++) {
+          const b = grid.get(x, y, z);
+          if (!isReplaceableWall(b)) continue;
+          const airX = (x > 0 && grid.get(x - 1, y, z) === AIR) || (x < W - 1 && grid.get(x + 1, y, z) === AIR);
+          const airZ = (z > 0 && grid.get(x, y, z - 1) === AIR) || (z < L - 1 && grid.get(x, y, z + 1) === AIR);
+          if (!airX && !airZ) continue;
+          // Phase along the facade: X-normal walls pattern along Z and vice versa.
+          const along = airZ ? x : z;
+          if (curtainWall) {
+            // Glass everywhere except storey spandrels + vertical mullions.
+            const isSpandrel = storeyBlocks >= 3 && (y - yMin) % storeyBlocks < 1;
+            const isMullion = along % mullionPitch === 0;
+            if (!isSpandrel && !isMullion) grid.set(x, y, z, windowBlock);
+          } else {
+            // Punched windows: one row per storey, centred in the storey.
+            const storeyIdx = Math.min(storeys - 1, Math.floor((y - yMin) / storeyBlocks));
+            const rowY0 = yMin + Math.round(storeyIdx * storeyBlocks + (storeyBlocks - hBlk) / 2);
+            if (y < rowY0 || y >= rowY0 + hBlk) continue;
+            // Half-pitch offset insets the first window column from the corner.
+            if ((along + (pitchBlk >> 1)) % pitchBlk < wBlk) grid.set(x, y, z, windowBlock);
+          }
+        }
       }
     }
   }

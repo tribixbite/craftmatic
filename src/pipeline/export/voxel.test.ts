@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { exportVoxel } from './voxel.js';
+import { exportVoxel, applyMaterialOverlay } from './voxel.js';
+import { BlockGrid } from '../../schem/types.js';
 import type { BuildingBRep, MaterialRef } from '../synthesis/brep.js';
 import type { LocalPoint2D } from '../context/types.js';
 
@@ -72,4 +73,92 @@ describe('exportVoxel', () => {
     expect(result.wallBlock).toBe('minecraft:stone_bricks');
     expect(result.roofBlock).toBe('minecraft:deepslate_tiles');
   }, 20_000);
+});
+
+describe('applyMaterialOverlay window pass', () => {
+  const AIR = 'minecraft:air';
+  const WALL = 'minecraft:white_terracotta';
+  const ROOF = 'minecraft:stone_bricks';
+  const GLASS = 'minecraft:glass';
+
+  /** Hollow box grid W×H×L with 1-block walls, solid roof/floor slab. */
+  function hollowBox(W: number, H: number, L: number): BlockGrid {
+    const g = new BlockGrid(W, H, L);
+    for (let y = 0; y < H; y++) {
+      for (let z = 0; z < L; z++) {
+        for (let x = 0; x < W; x++) {
+          const shell = x === 0 || x === W - 1 || z === 0 || z === L - 1 || y === 0 || y === H - 1;
+          if (shell) g.set(x, y, z, WALL);
+        }
+      }
+    }
+    return g;
+  }
+
+  function countBlocks(g: BlockGrid, name: string): number {
+    let n = 0;
+    for (let y = 0; y < g.height; y++)
+      for (let z = 0; z < g.length; z++)
+        for (let x = 0; x < g.width; x++)
+          if (g.get(x, y, z) === name) n++;
+    return n;
+  }
+
+  /** Distinct y-rows that contain at least one glass voxel. */
+  function glassRows(g: BlockGrid): number[] {
+    const rows = new Set<number>();
+    for (let y = 0; y < g.height; y++)
+      for (let z = 0; z < g.length; z++)
+        for (let x = 0; x < g.width; x++)
+          if (g.get(x, y, z) === GLASS) { rows.add(y); break; }
+    return [...rows].sort((a, b) => a - b);
+  }
+
+  it('residential 2-storey at 4 blocks/m gets exactly 2 window bands', () => {
+    // 18m × 22m × 7m house at res 4 → 72×28×88 grid
+    const g = hollowBox(72, 28, 88);
+    applyMaterialOverlay(g, WALL, ROOF, GLASS, 4, { archType: 'residential', levels: 2 });
+    const rows = glassRows(g);
+    expect(rows.length).toBeGreaterThan(0);
+    // Rows cluster into vertical bands: count gaps > 1 block to find bands.
+    let bands = 1;
+    for (let i = 1; i < rows.length; i++) if (rows[i] - rows[i - 1] > 1) bands++;
+    expect(bands).toBe(2);
+    // Window glass is a visible but not dominant fraction of the facade.
+    const glass = countBlocks(g, GLASS);
+    const wall = countBlocks(g, WALL);
+    expect(glass / (glass + wall)).toBeGreaterThan(0.02);
+    expect(glass / (glass + wall)).toBeLessThan(0.5);
+  });
+
+  it('dark commercial walls flip to curtain-wall (glass-dominant facade)', () => {
+    // 30m × 30m × 40m tower at res 1 → 30×40×30
+    const g = hollowBox(30, 40, 30);
+    applyMaterialOverlay(g, WALL, ROOF, GLASS, 1, { archType: 'commercial', levels: 10, wallLabL: 20 });
+    const glass = countBlocks(g, GLASS);
+    const wall = countBlocks(g, WALL);
+    expect(glass / (glass + wall)).toBeGreaterThan(0.3);
+  });
+
+  it('light commercial keeps punched windows, dark commercial reads glassier', () => {
+    const punched = hollowBox(30, 40, 30);
+    applyMaterialOverlay(punched, WALL, ROOF, GLASS, 1, { archType: 'commercial', levels: 10, wallLabL: 80 });
+    const curtain = hollowBox(30, 40, 30);
+    applyMaterialOverlay(curtain, WALL, ROOF, GLASS, 1, { archType: 'commercial', levels: 10, wallLabL: 20 });
+    const share = (g: BlockGrid): number => {
+      const gl = countBlocks(g, GLASS), wa = countBlocks(g, WALL);
+      return gl / (gl + wa);
+    };
+    const punchedShare = share(punched);
+    const curtainShare = share(curtain);
+    expect(punchedShare).toBeGreaterThan(0.05);
+    expect(punchedShare).toBeLessThan(0.4);
+    expect(curtainShare).toBeGreaterThan(punchedShare + 0.15);
+  });
+
+  it('degenerate 2-block-tall grid places no windows', () => {
+    const g = hollowBox(10, 2, 10);
+    applyMaterialOverlay(g, WALL, ROOF, GLASS, 1, { archType: 'residential', levels: 1 });
+    expect(countBlocks(g, GLASS)).toBe(0);
+  });
 });

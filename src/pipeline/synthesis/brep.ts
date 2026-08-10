@@ -436,11 +436,42 @@ async function buildRoofShape(m: ManifoldNamespace, roof: RoofVolume): Promise<M
     // Approximate with a tapered extrusion (circle-like footprint assumed).
     return place(m.Manifold.extrude([ring], thickness, 1, 0, [0.1, 0.1]));
   }
-  // gabled / hipped / mansard / shed: use a "tent" extrusion — scaleTop 0.02
-  // makes a ridge/peak without collapsing to a single point (avoids manifold
-  // pinch singularity). Good enough for printable + voxel output.
-  const scaleTopX = roof.type === 'shed' ? 1 : 0.02;
-  const scaleTopY = roof.type === 'mansard' ? 0.7 : 0.02;
+  // gabled / hipped / mansard / shed: tapered "tent" extrusions. A uniform
+  // 0.02 taper collapses BOTH axes — that is a pyramid, and it made every
+  // gabled house render as a stepped cone (VLM massing=0 on 240-highland).
+  // A gable keeps its ridge: collapse only the SHORT axis; the long axis
+  // keeps scale 1 so the ridge runs the full footprint length. A hip's
+  // ridge is inset by the half-span at each end: ridge fraction =
+  // (long − short) / long, which degrades to a pyramid on square plans —
+  // geometrically exact for rectangular footprints.
+  let xExt = 0, zExt = 0;
+  {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const p of centred) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+    }
+    xExt = maxX - minX; zExt = maxZ - minZ;
+  }
+  const longIsX = xExt >= zExt;
+  const ridgeFrac = Math.max(
+    0.02,
+    (Math.max(xExt, zExt) - Math.min(xExt, zExt)) / Math.max(xExt, zExt, 1e-9),
+  );
+  let scaleTopX: number, scaleTopY: number;
+  if (roof.type === 'mansard') {
+    // Steep sides, flat-ish top deck.
+    scaleTopX = 0.7; scaleTopY = 0.7;
+  } else if (roof.type === 'shed') {
+    scaleTopX = 1; scaleTopY = 0.02;
+  } else if (roof.type === 'hipped') {
+    scaleTopX = longIsX ? ridgeFrac : 0.02;
+    scaleTopY = longIsX ? 0.02 : ridgeFrac;
+  } else {
+    // gabled: full-length ridge along the long axis
+    scaleTopX = longIsX ? 1 : 0.02;
+    scaleTopY = longIsX ? 0.02 : 1;
+  }
   return place(m.Manifold.extrude([ring], thickness, 1, 0, [scaleTopX, scaleTopY]));
 }
 

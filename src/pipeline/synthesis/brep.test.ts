@@ -177,3 +177,60 @@ describe('roof taper centring (off-origin polygons)', () => {
     expect(maxZ).toBeLessThan(25 + 0.6);
   });
 });
+
+describe('pitched roof ridge orientation', () => {
+  // 20m × 10m rectangle, long axis X. A gable must keep a full-length ridge
+  // along X; the old uniform 0.02 taper collapsed both axes into a pyramid.
+  const RECT_20x10: LocalPoint2D[] = [
+    { x: -10, z: -5 }, { x: 10, z: -5 }, { x: 10, z: 5 }, { x: -10, z: 5 },
+  ];
+
+  function pitchedBrep(type: RoofVolume['type']): BuildingBRep {
+    return singleFloorBrep({
+      floors: [{ level: 0, elevationM: 0, thicknessM: 0.3, polygon: RECT_20x10 }],
+      walls: [
+        { level: 0, facadeEdge: 0, start: RECT_20x10[0], end: RECT_20x10[1], heightM: 3, thicknessM: 0.3, material: 'wall' },
+        { level: 0, facadeEdge: 1, start: RECT_20x10[1], end: RECT_20x10[2], heightM: 3, thicknessM: 0.3, material: 'wall' },
+        { level: 0, facadeEdge: 2, start: RECT_20x10[2], end: RECT_20x10[3], heightM: 3, thicknessM: 0.3, material: 'wall' },
+        { level: 0, facadeEdge: 3, start: RECT_20x10[3], end: RECT_20x10[0], heightM: 3, thicknessM: 0.3, material: 'wall' },
+      ],
+      roof: { type, baseZ: 3.3, peakZ: 6.3, pitchDeg: 30, polygon: RECT_20x10, params: {} },
+    });
+  }
+
+  /** X/Z extents of all vertices within epsM of the mesh's top (Y-up). */
+  async function topExtents(brep: BuildingBRep, epsM = 0.4): Promise<{ xExt: number; zExt: number }> {
+    const mesh = await evaluateBRep(brep);
+    let maxY = -Infinity;
+    for (let i = 1; i < mesh.positions.length; i += 3) {
+      if (mesh.positions[i] > maxY) maxY = mesh.positions[i];
+    }
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      if (mesh.positions[i + 1] < maxY - epsM) continue;
+      const x = mesh.positions[i], z = mesh.positions[i + 2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    return { xExt: maxX - minX, zExt: maxZ - minZ };
+  }
+
+  it('gabled: full-length ridge along the long axis, collapsed across the short', async () => {
+    const { xExt, zExt } = await topExtents(pitchedBrep('gabled'));
+    expect(xExt).toBeGreaterThan(15);  // ridge ≈ 20m
+    expect(zExt).toBeLessThan(2);      // collapsed to ~0.2m
+  });
+
+  it('hipped: ridge inset to (long − short), still along the long axis', async () => {
+    const { xExt, zExt } = await topExtents(pitchedBrep('hipped'));
+    expect(xExt).toBeGreaterThan(6);   // ridgeFrac 0.5 × 20m ≈ 10m
+    expect(xExt).toBeLessThan(14);
+    expect(zExt).toBeLessThan(2);
+  });
+
+  it('pyramidal still tapers to a point', async () => {
+    const { xExt, zExt } = await topExtents(pitchedBrep('pyramidal'));
+    expect(xExt).toBeLessThan(1);
+    expect(zExt).toBeLessThan(1);
+  });
+});

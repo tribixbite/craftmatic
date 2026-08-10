@@ -244,6 +244,10 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
     resolution: voxelResolution,
     maxDimension: voxelMaxDim,
     photogrammetryRecolor,
+    overlay: {
+      archType: refined.archType,
+      levels: evidence.levels.value,
+    },
   });
   progress({ stage: 'export', message: 'done', ratio: 1 });
 

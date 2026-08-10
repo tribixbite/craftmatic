@@ -64,7 +64,9 @@ export function buildWindowGrid(input: BuildWindowGridInput): Feature[] {
   return out;
 }
 
-function windowDimsFor(archType: ArchType): { widthM: number; heightM: number } {
+/** Window width/height in metres by building archetype. Shared with the
+ * voxel-export material overlay so stamped windows match BRep feature sizes. */
+export function windowDimsFor(archType: ArchType): { widthM: number; heightM: number } {
   switch (archType) {
     case 'residential': return { widthM: 1.0, heightM: 1.3 };
     case 'commercial':  return { widthM: 1.5, heightM: 1.8 };
