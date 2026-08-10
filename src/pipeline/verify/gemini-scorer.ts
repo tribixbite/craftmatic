@@ -173,6 +173,30 @@ export function createGeminiScorer(opts: GeminiScorerOptions): ModelScoreFn {
   };
 }
 
+// ─── Median-of-N sampling ─────────────────────────────────────────────────
+
+/**
+ * Wrap a scorer so each round samples the model N times and returns the
+ * per-dimension MEDIAN. Gemini at temperature 0 still drifts run-to-run on
+ * identical images (observed min 7.0 / 6.0 / 7.0 across three pennzoil
+ * runs) — enough to flip the `min ≥ 7` release gate on borderline builds.
+ * Samples run concurrently; a failed sample contributes zeros, and the
+ * median of 3 tolerates one such outlier.
+ */
+export function medianOfN(scorer: ModelScoreFn, n = 3): ModelScoreFn {
+  return async (input) => {
+    const samples = await Promise.all(
+      Array.from({ length: Math.max(1, n) }, () => scorer(input)),
+    );
+    const dim = (k: keyof DimensionScores): number => {
+      const vs = samples.map(s => s[k]).sort((a, b) => a - b);
+      const m = vs.length;
+      return m % 2 === 1 ? vs[(m - 1) / 2] : (vs[m / 2 - 1] + vs[m / 2]) / 2;
+    };
+    return { color: dim('color'), features: dim('features'), massing: dim('massing'), overall: dim('overall') };
+  };
+}
+
 // ─── Single-model fan-out ─────────────────────────────────────────────────
 
 /**

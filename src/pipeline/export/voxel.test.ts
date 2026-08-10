@@ -162,3 +162,34 @@ describe('applyMaterialOverlay window pass', () => {
     expect(countBlocks(g, GLASS)).toBe(0);
   });
 });
+
+describe('eave-aware window band', () => {
+  const AIR = 'minecraft:air';
+  const WALL = 'minecraft:white_terracotta';
+  const ROOF = 'minecraft:stone_bricks';
+  const GLASS = 'minecraft:glass';
+
+  it('keeps all windows below the eave on a pitched-roof massing', () => {
+    // 24×24 walls up to y=12 (eave), then a solid stepped pyramid to y=22.
+    const W = 24, L = 24, H = 23;
+    const g = new BlockGrid(W, H, L);
+    for (let y = 0; y < 12; y++)
+      for (let z = 0; z < L; z++)
+        for (let x = 0; x < W; x++)
+          if (x === 0 || x === W - 1 || z === 0 || z === L - 1 || y === 0) g.set(x, y, z, WALL);
+    for (let y = 12; y < H; y++) {
+      const inset = y - 11; // pyramid: shrink 1 block per layer
+      for (let z = inset; z < L - inset; z++)
+        for (let x = inset; x < W - inset; x++)
+          g.set(x, y, z, WALL);
+    }
+    applyMaterialOverlay(g, WALL, ROOF, GLASS, 2, { archType: 'residential', levels: 2 });
+    let maxGlassY = -1;
+    for (let y = 0; y < H; y++)
+      for (let z = 0; z < L; z++)
+        for (let x = 0; x < W; x++)
+          if (g.get(x, y, z) === GLASS && y > maxGlassY) maxGlassY = y;
+    expect(maxGlassY).toBeGreaterThan(0);   // windows exist
+    expect(maxGlassY).toBeLessThan(12);     // none in the roof mass
+  });
+});

@@ -329,7 +329,22 @@ export function applyMaterialOverlay(
   // feature generator), one row per storey, face-aware so each facade gets
   // vertical window columns instead of a corner-wrapping moiré.
   const yMin = baseBandH;
-  const yMax = H - roofDepth - corniceBandH;
+  // Window band ends at the EAVE line, not grid height. On pitched roofs
+  // the top third of the grid is roof geometry — banding against H pushed
+  // the upper residential window row into the roof mass where it half
+  // clipped under the eave. The eave is the 25th percentile of per-column
+  // top heights: pitched roofs put most columns well above it (slope) but
+  // perimeter wall columns AT it; flat roofs collapse it to ≈ H−1 so
+  // towers keep their full band.
+  const tops: number[] = [];
+  for (let x = 0; x < W; x++) {
+    for (let z = 0; z < L; z++) {
+      if (topYOf[x][z] >= 0) tops.push(topYOf[x][z]);
+    }
+  }
+  tops.sort((a, b) => a - b);
+  const eaveY = tops.length > 0 ? tops[Math.floor(tops.length * 0.25)] : H - 1;
+  const yMax = Math.min(H - roofDepth - corniceBandH, eaveY - roofDepth + 1);
   const res = Math.max(0.25, resolution);
   const archType: ArchType = ev.archType ?? (H / res > 15 ? 'commercial' : 'residential');
   const usable = yMax - yMin;

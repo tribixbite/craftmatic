@@ -28,7 +28,7 @@ import { summariseReport } from '../src/pipeline/verify/report.js';
 import { preserveFailedReport } from './failed-history.js';
 import type { ContextFetchers } from '../src/pipeline/context/resolver.js';
 import type { StreetViewFetchers } from '../src/pipeline/capture/streetview.js';
-import { createGeminiScorer, singleModelFetchers } from '../src/pipeline/verify/gemini-scorer.js';
+import { createGeminiScorer, singleModelFetchers, medianOfN } from '../src/pipeline/verify/gemini-scorer.js';
 import { createClaudeScorer } from '../src/pipeline/verify/claude-scorer.js';
 import { createGpt5Scorer } from '../src/pipeline/verify/gpt5-scorer.js';
 import { createOpenRouterScorer } from '../src/pipeline/verify/openrouter-scorer.js';
@@ -264,7 +264,10 @@ function buildModelFetchers(): { models: ModelFetchers; mode: string } | null {
   if (!geminiKey) return null;
   const gemini: ModelScoreFn = createGeminiScorer({ apiKey: geminiKey });
   if (consensusMode === 'gemini') {
-    return { models: singleModelFetchers(gemini), mode: 'gemini-fanout' };
+    // Median-of-3: in fan-out mode this single opinion IS the whole gate,
+    // and Gemini at temp 0 drifts enough on identical inputs to flip
+    // `min >= 7` on borderline builds (observed 7.0/6.0/7.0).
+    return { models: singleModelFetchers(medianOfN(gemini, 3)), mode: 'gemini-fanout-med3' };
   }
 
   // Pick best available per slot. Slot 2 = Claude (or local-vlm or openrouter
@@ -302,7 +305,7 @@ function buildModelFetchers(): { models: ModelFetchers; mode: string } | null {
 
   // If no extra scorers configured at all → fan-out
   if (claudeName === 'gemini' && gpt5Name === 'gemini') {
-    return { models: singleModelFetchers(gemini), mode: 'gemini-fanout' };
+    return { models: singleModelFetchers(medianOfN(gemini, 3)), mode: 'gemini-fanout-med3' };
   }
 
   return { models: { gemini, claude, gpt5 }, mode: `multi(gemini,${claudeName},${gpt5Name})` };
