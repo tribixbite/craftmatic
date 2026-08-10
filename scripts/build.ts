@@ -376,14 +376,20 @@ const paths: Record<string, string> = {
 
 writeFileSync(paths.verification, JSON.stringify(result.report, null, 2));
 
+// Persistence-phase breadcrumbs: two consecutive runs died somewhere in
+// this block with no stack (external kill — the state lock was left held),
+// and the absence of stage logs made the wedge point unattributable.
+console.error('  [persist] merging pipeline-state');
 // Merge into canonical pipeline-state.json (the file the stop hook reads)
 const statePath = join(projectRoot, 'output/pipeline-state.json');
 mergeStateRecord(statePath, slug, result.report, elapsed);
 
+console.error('  [persist] archiving failure history');
 // Preserve non-pass runs as immutable history (oscillating vs regressing).
 const archivedFailure = preserveFailedReport(
   join(projectRoot, 'output/failed'), slug, result.report,
 );
+console.error('  [persist] writing artifacts');
 
 if (result.artifacts) {
   paths.printGlb = join(absOutDir, `${slug}.print.glb`);

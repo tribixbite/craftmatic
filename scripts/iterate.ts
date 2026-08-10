@@ -164,7 +164,17 @@ function runBuild(golden: Golden, extraFlags: string[] = [], localTiles = false)
     cwd: projectRoot,
     stdio: 'inherit',
     env: process.env,
+    // Hard per-build ceiling. A pennzoil build wedged post-verify for ~2h
+    // at 99% CPU and stalled the whole --all sweep behind it; no single
+    // build legitimately exceeds ~10 minutes (worst observed: geisel 144s
+    // with consensus). SIGTERM lets build.ts die cleanly; the state lock
+    // is stale-broken by the next build if it was held.
+    timeout: 15 * 60 * 1000,
+    killSignal: 'SIGTERM',
   });
+  if (result.signal) {
+    console.error(`  build killed by ${result.signal} (15min timeout ceiling)`);
+  }
   return result.status ?? 1;
 }
 
