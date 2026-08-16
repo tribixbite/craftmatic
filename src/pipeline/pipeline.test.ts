@@ -169,6 +169,45 @@ describe('runPipeline end-to-end (mocked fetchers)', () => {
     expect(result.artifacts).toBeNull();
   });
 
+  it('declines to grade when OSM is UNREACHABLE and the footprint is a fallback', async () => {
+    // Overpass down: the fetch REJECTS. Previously indistinguishable from
+    // "no building here", so the 152m Pennzoil was rebuilt as an 8m 3-level
+    // solar-bbox guess and recorded as fail-objective — blaming the pipeline
+    // for an outage and overwriting a verified pass.
+    const fetchers: ContextFetchers = {
+      ...makeContextFetchers(),
+      osm: async () => { throw new Error('fetch failed'); },
+      osmSiblings: async () => { throw new Error('fetch failed'); },
+    };
+    const result = await runPipeline({
+      address: FLATIRON.address,
+      apiKey: 'test-key',
+      projectRoot: '/nonexistent',
+      fetchers: { context: fetchers, streetview: makeSvFetchers(), satellite: makeSatFetcher() },
+    });
+    expect(result.report.status).toBe('context-insufficient');
+    expect(result.report.reason).toMatch(/unreachable/i);
+    // No artifacts — a previous good build on disk is left intact.
+    expect(result.artifacts).toBeNull();
+  });
+
+  it('still builds normally when OSM merely returns no building', async () => {
+    // Resolved-null is NOT an outage: solar/geocode fallbacks are legitimate
+    // evidence there, so the guard must not fire.
+    const fetchers: ContextFetchers = {
+      ...makeContextFetchers(),
+      osm: async () => null,
+    };
+    const result = await runPipeline({
+      address: FLATIRON.address,
+      apiKey: 'test-key',
+      projectRoot: '/nonexistent',
+      fetchers: { context: fetchers, streetview: makeSvFetchers(), satellite: makeSatFetcher() },
+      skipTiles: true,
+    });
+    expect(result.report.status).not.toBe('context-insufficient');
+  }, 60_000);
+
   it('forwards progress events across all stages', async () => {
     const seenStages = new Set<string>();
     await runPipeline({

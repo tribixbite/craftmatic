@@ -163,6 +163,69 @@ describe('applyMaterialOverlay window pass', () => {
   });
 });
 
+describe('metre-scaled cornice and base bands', () => {
+  const WALL = 'minecraft:smooth_sandstone';
+  const ROOF = 'minecraft:stone_bricks';
+  const GLASS = 'minecraft:glass';
+
+  function hollowBox(W: number, H: number, L: number): BlockGrid {
+    const g = new BlockGrid(W, H, L);
+    for (let y = 0; y < H; y++)
+      for (let z = 0; z < L; z++)
+        for (let x = 0; x < W; x++)
+          if (x === 0 || x === W - 1 || z === 0 || z === L - 1 || y === 0 || y === H - 1)
+            g.set(x, y, z, WALL);
+    return g;
+  }
+
+  /** Height of the contiguous run of `block` starting at y=0 on a side wall. */
+  function bandFromFloor(g: BlockGrid, block: string): number {
+    let n = 0;
+    for (let y = 0; y < g.height; y++) {
+      if (g.get(0, y, Math.floor(g.length / 2)) !== block) break;
+      n++;
+    }
+    return n;
+  }
+
+  it('scales the base band with resolution, not block count', () => {
+    // Same 40m building at 1 and 6 blocks/m must get the SAME METRIC base.
+    // The old code emitted a flat 2 blocks either way — 0.33m at res 6.
+    const lo = hollowBox(20, 40, 20);
+    applyMaterialOverlay(lo, WALL, ROOF, GLASS, 1, { archType: 'commercial', levels: 10 });
+    const hi = hollowBox(20, 240, 20);
+    applyMaterialOverlay(hi, WALL, ROOF, GLASS, 6, { archType: 'commercial', levels: 10 });
+
+    const loPlinth = bandFromFloor(lo, 'minecraft:smooth_stone');
+    const hiPlinth = bandFromFloor(hi, 'minecraft:smooth_stone');
+    expect(loPlinth).toBeGreaterThan(0);
+    // Metres, not blocks: the high-res plinth is ~6x the block count.
+    expect(hiPlinth / 6).toBeGreaterThan(loPlinth * 0.7);
+    expect(hiPlinth / 6).toBeLessThan(loPlinth * 1.4);
+  });
+
+  it('gives a 73m tower a visible cornice at 6 blocks/m', () => {
+    // Flatiron geometry: the old 3-block cornice was 0.5m — invisible.
+    const g = hollowBox(30, 441, 30);
+    applyMaterialOverlay(g, WALL, ROOF, GLASS, 6, { archType: 'commercial', levels: 22 });
+    let trim = 0;
+    for (let y = 0; y < g.height; y++)
+      if (g.get(0, y, 15) === 'minecraft:chiseled_sandstone') trim++;
+    expect(trim / 6).toBeGreaterThan(1.0);  // > 1 metre of cornice
+    expect(trim / 6).toBeLessThan(3.0);     // but never a stripe
+  });
+
+  it('leaves a small house without a banded stripe', () => {
+    // 5m cottage at 6 blocks/m: below the cornice threshold entirely.
+    const g = hollowBox(40, 30, 40);
+    applyMaterialOverlay(g, WALL, ROOF, GLASS, 6, { archType: 'residential', levels: 1 });
+    let trim = 0;
+    for (let y = 0; y < g.height; y++)
+      if (g.get(0, y, 20) === 'minecraft:chiseled_sandstone') trim++;
+    expect(trim).toBe(0);
+  });
+});
+
 describe('eave-aware window band', () => {
   const AIR = 'minecraft:air';
   const WALL = 'minecraft:white_terracotta';

@@ -91,6 +91,13 @@ export interface RunPipelineOptions {
 // keep working; new browser-reachable code should import from voxel-defaults.js.
 export { DEFAULT_VOXEL_RESOLUTION, DEFAULT_VOXEL_MAX_DIMENSION };
 
+/**
+ * Minimum fused-footprint confidence worth grading when OSM was unreachable.
+ * An OSM polygon scores 1.0; a solar bbox 0.3; a geocode guess lower still.
+ * 0.5 admits any real measurement and rejects the outage fallbacks.
+ */
+const FOOTPRINT_TRUST_MIN = 0.5;
+
 export interface RunPipelineArtifacts {
   readonly printGlbBytes: ArrayBuffer;
   readonly sceneGlbBytes: ArrayBuffer;
@@ -201,6 +208,23 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<RunPipeline
   progress({ stage: 'fusion', message: 'fusing evidence', ratio: 0 });
   const evidence = fuseEvidence({ ctx: refined, tiles, sv, sat });
   progress({ stage: 'fusion', message: 'done', ratio: 1 });
+
+  // ── Measured-reality guard ─────────────────────────────────────────────
+  // When OSM was UNREACHABLE (not merely empty) and the footprint fell back
+  // to a solar bbox / geocode guess, we have no building geometry worth
+  // grading. Continuing produces an invented building and — worse — records
+  // it as `fail-objective`, i.e. blames the pipeline for an outage and
+  // overwrites a previously verified pass. Bail before synthesis: no
+  // artifacts are written, so a good prior build stays on disk.
+  if (refined.osmUnavailable && evidence.footprint.confidence < FOOTPRINT_TRUST_MIN) {
+    const reason =
+      `OSM/Overpass unreachable — footprint fell back to `
+      + `${refined.polygonSource} at confidence `
+      + `${evidence.footprint.confidence.toFixed(2)}. Refusing to grade a building `
+      + `synthesized from absent evidence; retry when Overpass recovers.`;
+    progress({ stage: 'fusion', message: 'context insufficient (OSM unavailable)', ratio: 1 });
+    return { artifacts: null, slug, report: contextInsufficientReport(reason) };
+  }
 
   // ── Stage 7: synthesis ─────────────────────────────────────────────────
   progress({ stage: 'synthesis', message: 'synthesizing B-rep', ratio: 0 });

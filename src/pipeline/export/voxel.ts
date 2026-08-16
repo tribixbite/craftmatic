@@ -275,12 +275,21 @@ export function applyMaterialOverlay(
   ev: OverlayEvidence = {},
 ): void {
   const { width: W, height: H, length: L } = grid;
+  const res = Math.max(0.25, resolution);
+  const heightM = H / res;
   const roofDepth = Math.max(1, Math.round(H * 0.05));
-  // Tall buildings get a thicker cornice: 3 layers on >50m towers, 2 layers on
-  // mid-rise, 0 on small residential. Historic/BeauArts towers have pronounced
-  // cornice+parapet stacks that a single-voxel band fails to convey.
-  const corniceBandH = H > 50 ? 3 : H > 20 ? 2 : 0;
-  const baseBandH = H > 15 ? 2 : 0;
+  // Cornice and base are sized in METRES, not blocks. The old thresholds
+  // compared a BLOCK height against `50`/`15` and emitted 2-3 BLOCK bands —
+  // at the default 6 blocks/m that is a 0.5m cornice and a 0.33m plinth on a
+  // 73m tower: invisible, while the consensus scorer asks about "cornices,
+  // parapets" by name and scored features 1-2 on every tall golden.
+  // A real projecting cornice runs ~2-3% of facade height; a rusticated /
+  // storefront base runs about one storey. Both are clamped so a small house
+  // gets a modest eave and plinth rather than a banded stripe.
+  const corniceM = heightM > 8 ? Math.min(2.5, Math.max(0.4, heightM * 0.025)) : 0;
+  const baseM = heightM > 6 ? Math.min(4.5, Math.max(0.5, heightM * 0.06)) : 0;
+  const corniceBandH = Math.round(corniceM * res);
+  const baseBandH = Math.round(baseM * res);
   const trimBlock = pickTrimBlock(wallBlock);
   const plinthBlock = pickPlinthBlock(wallBlock);
 
@@ -345,8 +354,7 @@ export function applyMaterialOverlay(
   tops.sort((a, b) => a - b);
   const eaveY = tops.length > 0 ? tops[Math.floor(tops.length * 0.25)] : H - 1;
   const yMax = Math.min(H - roofDepth - corniceBandH, eaveY - roofDepth + 1);
-  const res = Math.max(0.25, resolution);
-  const archType: ArchType = ev.archType ?? (H / res > 15 ? 'commercial' : 'residential');
+  const archType: ArchType = ev.archType ?? (heightM > 15 ? 'commercial' : 'residential');
   const usable = yMax - yMin;
   // Storey pitch in blocks: prefer evidence levels; else archetype-typical
   // floor height. Clamp so at least one row fits and rows never touch.

@@ -577,6 +577,24 @@ function mergeStateRecordLocked(
   }
 
   const prev = state.addresses[slug];
+
+  // An environmental outage must not erase a verified pass. `context-
+  // insufficient` means we declined to grade (OSM unreachable), not that the
+  // build regressed — and because the pipeline bails before synthesis, the
+  // previous run's artifacts are still on disk, so the recorded pass still
+  // describes them. Keep the pass, note the skipped attempt.
+  if (report.status === 'context-insufficient' && prev?.status === 'pass') {
+    state.addresses[slug] = {
+      ...prev,
+      reason: `last run skipped: ${report.reason ?? 'context insufficient'}`,
+    };
+    const tmpKeep = `${path}.tmp-${process.pid}`;
+    writeFileSync(tmpKeep, JSON.stringify(state, null, 2));
+    renameSync(tmpKeep, path);
+    console.error('  [persist] prior pass preserved (this run was context-insufficient)');
+    return;
+  }
+
   const sig = failureSignature(report);
   // Attempts count CONSECUTIVE runs with the same failure signature — a run
   // that produces a different signature is new information (e.g. consensus

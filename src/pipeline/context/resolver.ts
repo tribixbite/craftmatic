@@ -397,9 +397,18 @@ export async function resolveContext(
   const geocode = await fetchers.geocode(address);
 
   // Stage 1 — parallel, independent
+  // A REJECTED osm fetch (Overpass down / rate-limited) and a RESOLVED null
+  // ("no building here") both used to collapse to null, so an outage silently
+  // degraded the build to a solar-bbox guess instead of reporting missing
+  // data. Observed 2026-08-10: with Overpass unreachable the 152m Pennzoil
+  // resolved as an 8m 3-level building (footprint conf 0.30, height 0.25)
+  // and was recorded as fail-objective — a pipeline regression blamed for an
+  // outage, overwriting a verified pass. Track the transport failure so the
+  // caller can refuse to render a verdict on absent evidence.
+  let osmUnavailable = false;
   const [solar, osm, smarty] = await Promise.all([
     fetchers.solar(geocode.lat, geocode.lng).catch(() => null),
-    fetchers.osm(geocode.lat, geocode.lng).catch(() => null),
+    fetchers.osm(geocode.lat, geocode.lng).catch(() => { osmUnavailable = true; return null; }),
     fetchers.smarty(address).catch(() => null),
   ]);
 
@@ -420,7 +429,7 @@ export async function resolveContext(
     : [];
 
   // Stage 2
-  return buildBuildingContext({
+  const ctx = buildBuildingContext({
     geocode,
     solar,
     osm,
@@ -429,6 +438,7 @@ export async function resolveContext(
     buildingParts,
     knownNoSvCoverage: opts.knownNoSvCoverage,
   });
+  return osmUnavailable ? { ...ctx, osmUnavailable: true } : ctx;
 }
 
 function roofShapeFromTags(tags: Record<string, string>): BuildingContext['roofShape'] {

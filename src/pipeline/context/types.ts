@@ -89,6 +89,13 @@ export interface BuildingContext {
   readonly polygon: readonly LatLon[] | null;
   readonly polygonSource: 'osm' | 'solar-bbox' | 'inferred';
   /**
+   * The OSM fetch REJECTED (Overpass unreachable / rate-limited) rather than
+   * returning "no building here". Distinguishes an outage from genuine
+   * absence of data, so the pipeline can decline to render a verdict instead
+   * of grading a building it had to invent. Absent on normal runs.
+   */
+  readonly osmUnavailable?: boolean;
+  /**
    * Geocode pin quality. A RANGE_INTERPOLATED / GEOMETRIC_CENTER pin can sit
    * on the wrong parcel, so the nearest-OSM polygon is less trustworthy -
    * fusion degrades footprint confidence accordingly. Optional for backward
