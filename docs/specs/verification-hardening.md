@@ -511,6 +511,38 @@ Verified: pennzoil rebuilt clean end-to-end (170s, pass, artifacts+state).
 across three runs — the gate straddles min≥7 on borderline builds. Queue:
 best-of-N or mean-of-3 scoring round before trusting near-threshold gates.
 
+### Outage guard + metre-scaled bands — 2026-08-10 (bf2347d)
+
+The loop's next block pointed at `applyMaterialOverlay` for `features`, and
+found the same resolution-unaware bug class already fixed for windows:
+`corniceBandH`/`baseBandH` compared a BLOCK height against `50`/`15` and
+emitted 2-3 BLOCK bands. At the default **6 blocks/m** that is a 0.5m cornice
+and a 0.33m plinth on a 73m tower — invisible, while the scorer asks about
+"cornices, parapets" by name. Now metre-based (~2.5% of facade height;
+~one storey base), clamped so a cottage gets an eave, not a stripe.
+
+**Verification of that fix is still pending: Overpass went down again**
+mid-round and both rebuilds returned degraded context.
+
+That second outage exposed something worse. `fetchers.osm(…).catch(() => null)`
+made a REJECTED fetch indistinguishable from "no building here", so the 152m
+**Pennzoil rebuilt as an 8m 3-level solar-bbox guess** (footprint conf 0.30,
+height 0.25, levels 0.125) and was recorded `fail-objective` — blaming the
+pipeline for an outage and **overwriting its verified pass**. This violated
+the project's own "measured reality wins" rule: the pipeline invented a
+building rather than reporting missing data.
+
+Fixed: `ctx.osmUnavailable` tracks the transport failure; `runPipeline` bails
+to `context-insufficient` *before synthesis* when the footprint also fell
+below 0.5 confidence (so no artifacts overwrite a good prior build);
+`mergeStateRecord` preserves a prior `pass` when a run comes back
+context-insufficient. A resolved-null OSM response is explicitly NOT an
+outage — tests pin both directions.
+
+**Damage to repair when Overpass recovers:** pennzoil's pass and artifacts
+were overwritten before the guard existed. Rebuild it (and flatiron) to
+re-earn the status and finally verify the cornice/base change.
+
 ### Facade-coherence metric was wrong — 2026-08-10 (e1ea38f)
 
 With the loop healthy again it immediately earned its keep: it blocked on
