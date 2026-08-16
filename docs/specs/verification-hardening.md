@@ -511,6 +511,42 @@ Verified: pennzoil rebuilt clean end-to-end (170s, pass, artifacts+state).
 across three runs — the gate straddles min≥7 on borderline builds. Queue:
 best-of-N or mean-of-3 scoring round before trusting near-threshold gates.
 
+### Overpass failover + offline API cache — 2026-08-16 (9b1adc9)
+
+**Overpass.** The "three servers for reliability" pool was three hostnames of
+ONE deployment (`overpass-api.de`, `lz4.`, `z.`) — every retry hit the same
+infrastructure, which is why the pipeline lost OSM twice in a day. Pool now
+spans independent operators with a 5-minute failure cooldown, and `osm.ts`
+fails over on ANY non-OK status (only 429/504 retried before; a 502 returned
+`null`, i.e. "no building"). Exhausting all mirrors now **throws**
+`OverpassUnavailableError` — the bf2347d outage guard was **inert** without
+this, because osm.ts swallowed every error so `ctx.osmUnavailable` was never
+set. Proven live: with the whole overpass-api.de family unreachable, failover
+carried flatiron to IoU 0.98 / prov_mean 0.83 / defect 10.0.
+
+**⚠ Never add a regional Overpass instance.** Probed 2026-08-16:
+`overpass.osm.ch` answers a New York query with **HTTP 200 + `elements: []`**
+and the same query for Zurich with real data — a Switzerland-only database.
+An empty 200 is indistinguishable from "nothing mapped here", so a regional
+mirror doesn't degrade the pipeline, it **corrupts** it: footprint falls back
+to a solar bbox and every downstream gate reports a confident wrong answer.
+I added osm.ch, caught it poisoning flatiron's cache with a `null`, and
+removed it. An outage is recoverable; a plausible wrong answer is not.
+
+**API cache (`output/api-cache/<slug>/`).** Every API-drawn input — geocode,
+Solar, OSM, siblings, building parts, Smarty, Street View panes, satellite
+crops — is recorded on first fetch and replayed after. Images are
+content-addressed blobs (deduped); JSON entries wrap their payload so a
+cached `null` round-trips as a real answer rather than a miss. Modes: `auto`
+(default), `refresh`, `offline`, `off` — via `--cache-mode`, `--offline` on
+iterate.ts, or `CRAFTMATIC_CACHE_MODE`. In `offline` a miss **throws** rather
+than silently reaching out, so "no network" is provable, not hoped for.
+
+Measured on flatiron: **28 hits / 0 misses, byte-identical output (IoU 0.98,
+942484 voxels), 39s vs 148s.** Synthesis/recolor/overlay work now iterates on
+device with the code change as the only variable. Blobs are gitignored;
+re-record with `--cache-mode refresh`.
+
 ### Outage guard + metre-scaled bands — 2026-08-10 (bf2347d)
 
 The loop's next block pointed at `applyMaterialOverlay` for `features`, and
