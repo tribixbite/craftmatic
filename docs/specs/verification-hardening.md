@@ -511,6 +511,36 @@ Verified: pennzoil rebuilt clean end-to-end (170s, pass, artifacts+state).
 across three runs — the gate straddles min≥7 on borderline builds. Queue:
 best-of-N or mean-of-3 scoring round before trusting near-threshold gates.
 
+### Facade-coherence metric was wrong — 2026-08-10 (e1ea38f)
+
+With the loop healthy again it immediately earned its keep: it blocked on
+flatiron, the rebuild (post-Overpass-recovery) cleared the objective failure
+**IoU 0.58 → 0.98, prov_mean 0.49 → 0.83, no code change** — confirming the
+new provenance warning correctly identified an outage, not a regression.
+
+That left `facade_incoherent` on a visually clean build. Measuring the actual
+facade composition rather than theorising found the cause: `smooth_sandstone`
+23.9% **+** `sandstone` 23.9% — one material, hash-split across two variants
+by `rgbToWallBlock`'s deliberate per-position option spread, each half landing
+just under the 25% floor. Together 47.8%. **The metric was wrong, the build
+was fine.** Dominance is now tallied per material family. Measured state →
+family: flatiron 23.9→48.4, highland 29.2→72.7, and pennzoil/geisel/
+guggenheim **unchanged** (58.0/46.9/35.9) — targeted at the split, not a
+blanket inflation. Flatiron defect 9.0 → **10.0**.
+
+Note this was partly self-inflicted: the b36baa5 calibration gave the
+neutral-cream cluster two options, which is what created the 50/50 split.
+
+**Rejected en route (recorded so it isn't retried blind):** a per-face median
+snap in the recolor pass — group exterior voxels by (facade direction ×
+vertical band), snap Lab outliers onto the band median. Two iterations,
+including replacing a naive air-neighbour face test (which pooled opposite
+walls, since a hollow shell has air on both sides of every wall voxel) with an
+O(N) outermost-shell precompute. Result: `facadeDominantShare` moved by 0.000
+and `uniqueBlockTypes` rose 13 → 15. Reverted. The visible splotch is real;
+this was not its fix. A future attempt should target the recolor's *sampling*
+(what gets read off the photogrammetry) rather than post-hoc smoothing.
+
 ### Stop-hook repair — 2026-08-10 (172054e)
 
 The hook that drives this entire loop was **dead on its primary path**: a
