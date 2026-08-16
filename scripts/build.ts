@@ -243,16 +243,41 @@ const streetViewFetchers: StreetViewFetchers = {
 // References come from output/reference-data/<slug>/ when that dir exists —
 // the same images fetch-reference-data.ts populates for category-grading.
 
-function loadReferencesForSlug(slugGuess: string): Uint8Array[] {
+function loadReferencesForSlug(slugGuess: string): {
+  refs: Uint8Array[]; skipped: string[]; svUsable: number;
+} {
   const refDir = resolve(projectRoot, 'output/reference-data', slugGuess);
-  if (!existsSync(refDir)) return [];
+  if (!existsSync(refDir)) return { refs: [], skipped: [], svUsable: 0 };
+
+  // Occlusion verdicts recorded when the references were captured. A facade
+  // the sniffer called `trees` shows vegetation, not the building — feeding
+  // it to the VLM invites a confident wrong verdict, so it is excluded.
+  // Satellite is always kept: a top-down crop is not tree-occluded the way
+  // a street-level pano is.
+  let occlusion: Record<string, string> = {};
+  const manifestPath = join(refDir, 'references.json');
+  if (existsSync(manifestPath)) {
+    try {
+      occlusion = (JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+        occlusion?: Record<string, string>;
+      }).occlusion ?? {};
+    } catch { /* unreadable manifest — fall back to using every reference */ }
+  }
+
   const refs: Uint8Array[] = [];
-  // Up to 4 SV angles + 1 satellite
+  const skipped: string[] = [];
+  let svUsable = 0;
   for (const name of ['sv-front.jpg', 'sv-right.jpg', 'sv-rear.jpg', 'sv-left.jpg', 'satellite.jpg']) {
     const p = join(refDir, name);
-    if (existsSync(p)) refs.push(new Uint8Array(readFileSync(p)));
+    if (!existsSync(p)) continue;
+    if (name !== 'satellite.jpg' && occlusion[name] === 'trees') {
+      skipped.push(name);
+      continue;
+    }
+    refs.push(new Uint8Array(readFileSync(p)));
+    if (name !== 'satellite.jpg') svUsable++;
   }
-  return refs;
+  return { refs, skipped, svUsable };
 }
 
 /**
@@ -328,9 +353,19 @@ const consensusOpt: RunPipelineOptions['consensus'] = (() => {
     return undefined;
   }
   const slugGuess = slugOverride ?? address.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80);
-  const references = loadReferencesForSlug(slugGuess);
+  const { refs: references, skipped, svUsable } = loadReferencesForSlug(slugGuess);
   if (references.length === 0) {
     console.error(`warn: no reference images at output/reference-data/${slugGuess}/ — consensus will run without references`);
+  }
+  if (skipped.length > 0) {
+    console.error(`  [consensus] excluded ${skipped.length} tree-occluded reference(s): ${skipped.join(', ')}`);
+  }
+  if (svUsable === 0 && references.length > 0) {
+    console.error(
+      '  [consensus] WARNING: no usable street-level reference — every facade pano is '
+      + 'tree-occluded. Scoring against satellite alone; low subjective scores here '
+      + 'reflect missing reference evidence, not necessarily the build.',
+    );
   }
   console.error(`  [consensus] mode=${built.mode}`);
   return {
@@ -468,11 +503,24 @@ function saveReferenceDataIfMissing(
   // front/right/rear/left via facadeEdge; pick 4 distinct-heading facades.
   const svNames = ['sv-front.jpg', 'sv-right.jpg', 'sv-rear.jpg', 'sv-left.jpg'];
   const svFacades = artifacts.captures.sv;
+  // Record each reference's occlusion verdict alongside the image. The
+  // pipeline already sniffs tree/adjacent-building occlusion for palette
+  // work; without persisting it, the consensus scorer is handed photos of
+  // FOLIAGE and asked whether the model matches them. 240-highland sits
+  // behind dense evergreens: it scored 0/0/0/0 on a build with IoU 1.00,
+  // 70% facade coherence and defect 10.0 — a confident wrong verdict formed
+  // against evidence that shows no building.
+  const occlusions: Record<string, string> = {};
   for (let i = 0; i < Math.min(svFacades.length, svNames.length); i++) {
     const dst = join(refDir, svNames[i]);
+    occlusions[svNames[i]] = svFacades[i].occlusion;
     if (!existsSync(dst)) {
       writeFileSync(dst, Buffer.from(svFacades[i].imageBytes));
     }
+  }
+  const manifestPath = join(refDir, 'references.json');
+  if (!existsSync(manifestPath)) {
+    writeFileSync(manifestPath, JSON.stringify({ occlusion: occlusions }, null, 2));
   }
   // Satellite
   const sat = artifacts.captures.satellite;
