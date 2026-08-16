@@ -174,26 +174,70 @@ function isSideExposed(
     || (z === L - 1 || grid.getIndex(x, y, z + 1) === 0);
 }
 
+/** Surface-finish prefixes that name the SAME material as the base block. */
+const FINISH_PREFIXES = [
+  'smooth_', 'polished_', 'chiseled_', 'cut_', 'cracked_', 'mossy_',
+];
+/** Shaped forms of the same material (a brick wall and its base are one look). */
+const FORM_SUFFIXES = ['_bricks', '_brick', '_tiles', '_tile', '_block'];
+
+/**
+ * Collapse a block state to the material a VIEWER perceives.
+ *
+ * `sandstone` and `smooth_sandstone` are one material to anyone looking at
+ * the building, but they are distinct block states — and `rgbToWallBlock`
+ * deliberately hash-splits a colour cluster across its options for texture
+ * variety, so one material routinely lands as a 50/50 pair. Counting states
+ * made a perfectly coherent 47.8% sandstone facade read as two 23.9%
+ * materials, both under the 25% floor, and `facade_incoherent` fired on a
+ * clean build (flatiron, 2026-08-10).
+ *
+ * Colour prefixes are deliberately KEPT: `white_concrete` and `gray_concrete`
+ * really are different materials to a viewer, and merging them would blind
+ * the gate to genuine confetti.
+ */
+export function facadeMaterialFamily(state: string): string {
+  let name = state.replace(/^minecraft:/, '').replace(/\[.*$/, '');
+  for (const p of FINISH_PREFIXES) {
+    if (name.startsWith(p)) { name = name.slice(p.length); break; }
+  }
+  for (const s of FORM_SUFFIXES) {
+    if (name.endsWith(s) && name.length > s.length) { name = name.slice(0, -s.length); break; }
+  }
+  return name;
+}
+
 /** Resolve the facade tally into the GridStats facade fields. */
 function facadeStats(
   grid: BlockGrid, facadeCounts: Map<number, number>,
 ): Pick<GridStats, 'facadeTotal' | 'facadeDominantShare' | 'facadeDominantState' | 'facadeMeanLuma' | 'facadeGlassShare'> {
-  let facadeTotal = 0, best = 0;
-  let bestId: number | null = null;
+  let facadeTotal = 0;
   let lumaSum = 0, lumaN = 0, glassN = 0;
+  // Dominance is measured per MATERIAL FAMILY; the reported state is the
+  // most-used concrete block within the winning family, so the field still
+  // names something that exists in the grid.
+  const familyTotals = new Map<string, number>();
+  const familyTopState = new Map<string, { state: string; n: number }>();
   for (const [id, n] of facadeCounts) {
     facadeTotal += n;
-    if (n > best) { best = n; bestId = id; }
     const state = grid.blockStateFromIndex(id);
     if (state.includes('glass')) glassN += n;
+    const fam = facadeMaterialFamily(state);
+    familyTotals.set(fam, (familyTotals.get(fam) ?? 0) + n);
+    const top = familyTopState.get(fam);
+    if (!top || n > top.n) familyTopState.set(fam, { state, n });
     // Per-palette-id luma — O(palette), not O(voxels).
     const c = getBlockColor(state);
     if (c) { lumaSum += (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) * n; lumaN += n; }
   }
+  let best = 0, bestFam: string | null = null;
+  for (const [fam, n] of familyTotals) {
+    if (n > best) { best = n; bestFam = fam; }
+  }
   return {
     facadeTotal,
     facadeDominantShare: facadeTotal > 0 ? best / facadeTotal : 0,
-    facadeDominantState: bestId !== null ? grid.blockStateFromIndex(bestId) : null,
+    facadeDominantState: bestFam !== null ? (familyTopState.get(bestFam)?.state ?? null) : null,
     facadeMeanLuma: lumaN > 0 ? lumaSum / lumaN : 0,
     facadeGlassShare: facadeTotal > 0 ? glassN / facadeTotal : 0,
   };

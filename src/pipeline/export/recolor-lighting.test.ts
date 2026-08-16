@@ -111,3 +111,4 @@ describe('consolidateRecoloredBlocks', () => {
     expect(g.get(1, 1, 1)).toBe('minecraft:glass');
   });
 });
+

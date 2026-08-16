@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analyseGridConnectivity, deriveDefects } from './defect.js';
+import { analyseGridConnectivity, deriveDefects, facadeMaterialFamily } from './defect.js';
 import { BlockGrid } from '../../schem/types.js';
 import type { ObjectiveResult } from './objective.js';
 import type { CrossCheckResult } from './cross-check.js';
@@ -161,6 +161,34 @@ describe('facade coherence', () => {
     expect(r.penalties).toContain('facade_incoherent');
   });
 
+  it('a facade hash-split across variants of ONE material stays coherent', () => {
+    // rgbToWallBlock deliberately hash-splits a colour cluster across its
+    // options for texture variety, so one material routinely lands as a
+    // 50/50 pair. Counted per block STATE that reads as two ~24% materials
+    // and tripped facade_incoherent on a clean flatiron (measured 23.9% +
+    // 23.9% sandstone = 47.8% of one material).
+    const g = bigGrid((x, y, z) =>
+      (x + y + z) % 2 === 0 ? 'minecraft:sandstone' : 'minecraft:smooth_sandstone');
+    const s = analyseGridConnectivity(g);
+    expect(s.facadeDominantShare).toBeGreaterThan(0.9);
+    expect(s.facadeDominantState).toContain('sandstone');
+    const r = deriveDefects(obj(), null, g);
+    expect(r.defects.facade_incoherent).toBe(false);
+  });
+
+  it('still flags confetti made of DIFFERENT material families', () => {
+    // Guard against the family collapse over-merging: these five are
+    // genuinely different materials and must not be pooled.
+    const mats = [
+      'minecraft:sandstone', 'minecraft:white_concrete', 'minecraft:gray_concrete',
+      'minecraft:brown_terracotta', 'minecraft:tuff',
+    ];
+    const g = bigGrid((x, y, z) => mats[(x + y * 3 + z * 7) % mats.length]);
+    const s = analyseGridConnectivity(g);
+    expect(s.facadeDominantShare).toBeLessThan(0.25);
+    expect(deriveDefects(obj(), null, g).defects.facade_incoherent).toBe(true);
+  });
+
   it('exempts facades too small to judge', () => {
     // gridSolid's 4×4×4 body has ~64 side-exposed voxels — under the 200
     // floor, so even a dithered surface must not flag.
@@ -214,5 +242,34 @@ describe('facade glass share (advisory)', () => {
     expect(s.facadeGlassShare).toBeLessThan(0.6);
     const r = deriveDefects(obj(), null, g, { archType: 'commercial' });
     expect(r.penalties.join()).not.toContain('glass');
+  });
+});
+
+describe('facadeMaterialFamily', () => {
+  it('collapses surface finishes onto the base material', () => {
+    for (const s of ['minecraft:sandstone', 'minecraft:smooth_sandstone', 'minecraft:cut_sandstone', 'minecraft:chiseled_sandstone']) {
+      expect(facadeMaterialFamily(s)).toBe('sandstone');
+    }
+  });
+  it('collapses shaped forms onto the base material', () => {
+    expect(facadeMaterialFamily('minecraft:stone_bricks')).toBe('stone');
+    expect(facadeMaterialFamily('minecraft:stone')).toBe('stone');
+    expect(facadeMaterialFamily('minecraft:smooth_stone')).toBe('stone');
+    expect(facadeMaterialFamily('minecraft:deepslate_tiles')).toBe('deepslate');
+  });
+  it('strips block-state properties', () => {
+    expect(facadeMaterialFamily('minecraft:smooth_stone_slab[type=double]'))
+      .toBe(facadeMaterialFamily('minecraft:smooth_stone_slab'));
+  });
+  it('KEEPS colour prefixes — they are genuinely different materials', () => {
+    expect(facadeMaterialFamily('minecraft:white_concrete')).toBe('white_concrete');
+    expect(facadeMaterialFamily('minecraft:gray_concrete')).toBe('gray_concrete');
+    expect(facadeMaterialFamily('minecraft:white_concrete'))
+      .not.toBe(facadeMaterialFamily('minecraft:gray_concrete'));
+  });
+  it('never returns an empty family', () => {
+    for (const s of ['minecraft:bricks', 'minecraft:tiles', 'minecraft:block', 'minecraft:stone']) {
+      expect(facadeMaterialFamily(s).length).toBeGreaterThan(0);
+    }
   });
 });
