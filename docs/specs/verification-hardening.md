@@ -511,6 +511,38 @@ Verified: pennzoil rebuilt clean end-to-end (170s, pass, artifacts+state).
 across three runs — the gate straddles min≥7 on borderline builds. Queue:
 best-of-N or mean-of-3 scoring round before trusting near-threshold gates.
 
+### 240-highland is source-data-limited — 2026-08-16 (2dd1e84)
+
+Stated explicitly, as the loop's own escape clause invites: **240-highland's
+subjective score is not pipeline-fixable through the overlay.** Evidence:
+
+- Every deterministic signal is healthy — IoU **1.00**, defect **10.0**,
+  facade dominant **70%** sandstone, glass 7.7%, 5 block types.
+- The reference photos show **trees, not a building**. The house sits behind
+  dense evergreens; the pipeline's own sniffer independently classifies both
+  captured panes as `trees`.
+- I previously recorded that its polygon override was "much larger than the
+  real cottage". **That was wrong** — measured from the override: 12.0m ×
+  14.6m = 175 m², an ordinary single-family footprint. Correcting the record.
+
+So the VLM was scoring a correct model against foliage and returning
+0/0/0/0 — the same failure mode as the Overpass `null` and the zero-score
+scorer fallback: *a measurement that could not be made, presented as a
+measurement that came out badly*. It then drove the loop to "improve
+features" on a build whose features are fine.
+
+Fixed the scorer-misleading half (2dd1e84): occlusion verdicts are persisted
+to `references.json` at capture and tree-occluded panes are excluded from the
+consensus reference set, with the exclusion logged; satellite is always kept.
+Verified: `excluded 2 tree-occluded reference(s): sv-front.jpg, sv-right.jpg`.
+
+This does **not** rescue the address, and shouldn't be expected to — there is
+no street-level view of this building to compare against. The right outcome
+is the escalator retiring it after N signature-identical attempts. Options if
+it ever matters: curate an oblique/aerial reference by hand into
+`reference-data/240-highland/`, or exempt tree-occluded addresses from the
+subjective gate entirely and let the deterministic gates stand alone.
+
 ### Per-column window ceiling; pennzoil re-passes — 2026-08-16 (c9f06f3)
 
 The eave clamp shipped with the metre-scaled bands used the 25th percentile
