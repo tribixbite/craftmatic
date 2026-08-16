@@ -511,6 +511,32 @@ Verified: pennzoil rebuilt clean end-to-end (170s, pass, artifacts+state).
 across three runs — the gate straddles min≥7 on borderline builds. Queue:
 best-of-N or mean-of-3 scoring round before trusting near-threshold gates.
 
+### Stop-hook repair — 2026-08-10 (172054e)
+
+The hook that drives this entire loop was **dead on its primary path**: a
+stale `ESC_ATTEMPTS` reference (constant is `ESC_ATTEMPTS_IDENTICAL`) raised
+NameError on every fail-objective build. A Stop hook exiting non-zero is a
+*non-blocking* error — so instead of prescribing a fix, the loop silently
+allowed the stop. It had no tests, so nothing caught it.
+
+Fixed alongside it:
+- **One-way escalation ratchet** (the mechanism that left all five goldens
+  terminal): escalate → hook stops instructing rebuilds → never rebuilt →
+  escalated forever. Escalations now record HEAD and auto-clear when the
+  pipeline code moves, resetting the attempt tally with them — without the
+  reset the stale tally re-trips the hard ceiling on the same run.
+- **Obsolete "wire consensus" branch** removed; `consensus=null` now reports
+  on stderr and allows the stop (same rule as `isBlockedOnConsensus`).
+- State writes use build.ts's mkdir-lock + atomic-rename; escalation scoped
+  to goldens (it was mutating `-qa` records); low provenance confidence
+  surfaced so an OSM outage isn't mistaken for a code regression; lever map
+  pointed at the modules that own these signals today.
+- `test/stop-hook.test.ts` — 12 paths, verified to fail against the
+  NameError before the fix. Two unwired hooks archived.
+
+Live effect: the three stale escalations cleared to `fail-consensus` with
+attempts 0, and the loop resumed prescribing work.
+
 ### Calibration round — 2026-08-10 (later)
 
 - **WALL_CLUSTERS calibrated to rendered textures (b36baa5).** Texture-mean
