@@ -163,6 +163,62 @@ describe('applyMaterialOverlay window pass', () => {
   });
 });
 
+describe('per-column window ceiling (terraced / sloped tops)', () => {
+  const WALL = 'minecraft:white_terracotta';
+  const ROOF = 'minecraft:stone_bricks';
+  const GLASS = 'minecraft:glass';
+
+  it('windows reach the top of a TERRACED tower, not the lowest setback', () => {
+    // Pennzoil-shaped massing: a full-width lower mass to y=60, then a
+    // half-width tower continuing to y=200. A global eave line at the 25th
+    // percentile of column tops sits at the LOW roof, blanking the entire
+    // upper tower — consensus massing fell 10 -> 4 on exactly this shape.
+    const W = 40, H = 200, L = 40;
+    const g = new BlockGrid(W, H, L);
+    const shell = (x: number, z: number, x0: number, x1: number, z0: number, z1: number): boolean =>
+      x === x0 || x === x1 || z === z0 || z === z1;
+    for (let y = 0; y < 60; y++)
+      for (let z = 0; z < L; z++)
+        for (let x = 0; x < W; x++)
+          if (shell(x, z, 0, W - 1, 0, L - 1) || y === 0) g.set(x, y, z, WALL);
+    for (let y = 60; y < H; y++)
+      for (let z = 10; z < 30; z++)
+        for (let x = 10; x < 30; x++)
+          if (shell(x, z, 10, 29, 10, 29) || y === 60) g.set(x, y, z, WALL);
+
+    applyMaterialOverlay(g, WALL, ROOF, GLASS, 2, { archType: 'commercial', levels: 25 });
+
+    let maxGlassY = -1, lowMassGlass = 0;
+    for (let y = 0; y < H; y++)
+      for (let z = 0; z < L; z++)
+        for (let x = 0; x < W; x++)
+          if (g.get(x, y, z) === GLASS) {
+            if (y > maxGlassY) maxGlassY = y;
+            if (y < 60) lowMassGlass++;
+          }
+    // Upper tower is glazed well above the setback, not truncated at it.
+    expect(maxGlassY).toBeGreaterThan(150);
+    expect(lowMassGlass).toBeGreaterThan(0); // and the podium still is too
+  });
+
+  it('a flat-topped box keeps its full-height window band', () => {
+    const W = 20, H = 100, L = 20;
+    const g = new BlockGrid(W, H, L);
+    for (let y = 0; y < H; y++)
+      for (let z = 0; z < L; z++)
+        for (let x = 0; x < W; x++)
+          if (x === 0 || x === W - 1 || z === 0 || z === L - 1 || y === 0 || y === H - 1)
+            g.set(x, y, z, WALL);
+    applyMaterialOverlay(g, WALL, ROOF, GLASS, 2, { archType: 'commercial', levels: 12 });
+    let maxGlassY = -1;
+    for (let y = 0; y < H; y++)
+      for (let z = 0; z < L; z++)
+        for (let x = 0; x < W; x++)
+          if (g.get(x, y, z) === GLASS && y > maxGlassY) maxGlassY = y;
+    expect(maxGlassY).toBeGreaterThan(H * 0.8);
+  });
+});
+
 describe('metre-scaled cornice and base bands', () => {
   const WALL = 'minecraft:smooth_sandstone';
   const ROOF = 'minecraft:stone_bricks';

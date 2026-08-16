@@ -338,22 +338,25 @@ export function applyMaterialOverlay(
   // feature generator), one row per storey, face-aware so each facade gets
   // vertical window columns instead of a corner-wrapping moiré.
   const yMin = baseBandH;
-  // Window band ends at the EAVE line, not grid height. On pitched roofs
-  // the top third of the grid is roof geometry — banding against H pushed
-  // the upper residential window row into the roof mass where it half
-  // clipped under the eave. The eave is the 25th percentile of per-column
-  // top heights: pitched roofs put most columns well above it (slope) but
-  // perimeter wall columns AT it; flat roofs collapse it to ≈ H−1 so
-  // towers keep their full band.
-  const tops: number[] = [];
-  for (let x = 0; x < W; x++) {
-    for (let z = 0; z < L; z++) {
-      if (topYOf[x][z] >= 0) tops.push(topYOf[x][z]);
-    }
-  }
-  tops.sort((a, b) => a - b);
-  const eaveY = tops.length > 0 ? tops[Math.floor(tops.length * 0.25)] : H - 1;
-  const yMax = Math.min(H - roofDepth - corniceBandH, eaveY - roofDepth + 1);
+  // The window band stops below the ROOF, and that ceiling is PER COLUMN.
+  //
+  // A global eave line (25th percentile of column tops) was tried first and
+  // is actively harmful on anything but a simple pitched roof: Pennzoil's
+  // sloped/terraced tops put three quarters of its columns above that
+  // percentile, so the clamp blanked the whole upper tower and consensus
+  // massing fell 10 → 4 on a build with IoU 1.00. Each column's own top is
+  // the honest ceiling — correct for flat, sloped, terraced AND pitched
+  // roofs alike, with no shape heuristic to mis-fire.
+  //
+  // The GLOBAL yMax below only sets the storey grid, so storey pitch stays
+  // uniform across the facade rather than shearing with the roofline.
+  const yMax = H - roofDepth - corniceBandH;
+  /** Highest window row allowed in this column: below its own roof mass. */
+  const columnCeiling = (x: number, z: number): number => {
+    const top = topYOf[x][z];
+    if (top < 0) return yMax;
+    return Math.min(yMax, top - roofDepth - corniceBandH + 1);
+  };
   const archType: ArchType = ev.archType ?? (heightM > 15 ? 'commercial' : 'residential');
   const usable = yMax - yMin;
   // Storey pitch in blocks: prefer evidence levels; else archetype-typical
@@ -388,7 +391,8 @@ export function applyMaterialOverlay(
       for (let z = 0; z < L; z++) {
         // Face direction: which horizontal neighbour is air decides the axis
         // the window pattern runs along (pattern along the facade, not into it).
-        for (let y = yMin; y < yMax; y++) {
+        const ceil = columnCeiling(x, z);
+        for (let y = yMin; y < ceil; y++) {
           const b = grid.get(x, y, z);
           if (!isReplaceableWall(b)) continue;
           const airX = (x > 0 && grid.get(x - 1, y, z) === AIR) || (x < W - 1 && grid.get(x + 1, y, z) === AIR);
