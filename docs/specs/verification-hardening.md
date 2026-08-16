@@ -511,6 +511,52 @@ Verified: pennzoil rebuilt clean end-to-end (170s, pass, artifacts+state).
 across three runs — the gate straddles min≥7 on borderline builds. Queue:
 best-of-N or mean-of-3 scoring round before trusting near-threshold gates.
 
+### Per-column window ceiling; pennzoil re-passes — 2026-08-16 (c9f06f3)
+
+The eave clamp shipped with the metre-scaled bands used the 25th percentile
+of per-column tops as ONE global ceiling. Right for a simple pitched roof,
+badly wrong for anything else: on Pennzoil's terraced tops three quarters of
+the columns sit ABOVE that percentile, so the clamp blanked the whole upper
+tower. **Consensus massing fell 10 → 1 on a build with IoU 1.00 and
+defect_score 10.0** — perfect geometry, empty facade. Every deterministic
+gate said the build was flawless; only the VLM caught it, which is precisely
+the division of labour the consensus stage exists for.
+
+Each column now stops below its OWN roof mass — no shape heuristic to
+mis-fire. Verified offline (28 cache hits, no network): pennzoil
+0/0/1/0 → **8/7/9/9, median 8.5, status=pass** — its first pass since the
+outage destroyed the original.
+
+**Golden board after the fix** (all IoU 0.98-1.00, all defect 10.0):
+
+| slug | color | features | massing | overall | status |
+|---|---|---|---|---|---|
+| pennzoil | 8 | 7 | 9 | 9 | **pass** |
+| flatiron | 3 | 2 | 9 | 4 | fail-consensus |
+| geisel | 1 | 0 | 1 | 0 | fail-consensus |
+| 240-highland | 2 | 0 | 0 | 0 | fail-consensus |
+| guggenheim | 1 | 0 | 0 | 0 | fail-consensus |
+
+Deterministic gates are saturated — every build scores defect 10.0 with
+near-perfect IoU — so all remaining signal is subjective. massing 0-1 with
+IoU 1.00 means the FOOTPRINT is right and the VERTICAL FORM is wrong.
+
+**Next lead, with data.** The helical-fit rejection telemetry (added d54b983,
+deliberately without calibration until live rejections existed) produced its
+first datum: guggenheim logs `helical fit rejected: trend residual 8.37m >
+15% of rMean=20.9m (oscillating profile)` — the rotunda the helical frustum
+was *built for* is declined, so it falls back to stair-stepped bands. Before
+loosening that threshold, note the same build logs `survived 207 bands, Y
+range -7.2..40.8 (48.0m) → scaled to expected 21.0m (×0.438)`: the capture
+spans 48m against a 21m building, i.e. it very likely swallowed the taller
+5th-Ave neighbours, which would ALSO explain the radius oscillation.
+Diagnose the capture contamination first; the threshold may be innocent.
+
+**Renderer caveat:** a standalone rescore hit `Atlas load exceeded 45s —
+rendering with procedural textures`, which the renderer itself flags as not
+comparable. The five builds above logged zero atlas timeouts, so their scores
+stand — but any score gathered outside a build must be checked for that line.
+
 ### Overpass failover + offline API cache — 2026-08-16 (9b1adc9)
 
 **Overpass.** The "three servers for reliability" pool was three hostnames of

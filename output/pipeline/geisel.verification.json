@@ -1,15 +1,16 @@
 {
   "status": "fail-consensus",
-  "lastRun": "2026-05-22T20:38:43.776Z",
+  "lastRun": "2026-08-16T15:52:14.095Z",
   "objective": {
-    "footprintIoU": 0.9999022052711359,
+    "footprintIoU": 1,
     "heightErr": 0,
     "watertight": true,
     "manifold": true,
-    "selfIntersect": 3029,
-    "minWallThicknessMm": 16.511404037475586,
-    "voxelCount": 1025239,
+    "selfIntersect": 2426,
+    "minWallThicknessMm": 7.710445880889893,
+    "voxelCount": 1773135,
     "plinthWatertight": null,
+    "unknownBlockStates": [],
     "pass": true,
     "failures": []
   },
@@ -17,26 +18,116 @@
     "status": "fail",
     "rounds": 1,
     "gemini": {
-      "color": 0,
+      "color": 1,
       "features": 0,
-      "massing": 2,
+      "massing": 1,
       "overall": 0
     },
     "claude": {
-      "color": 0,
+      "color": 1,
       "features": 0,
-      "massing": 2,
+      "massing": 1,
       "overall": 0
     },
     "gpt5": {
-      "color": 0,
+      "color": 1,
       "features": 0,
-      "massing": 2,
+      "massing": 1,
       "overall": 0
     },
     "min": 0,
-    "median": 0,
+    "median": 0.5,
     "spread": 0,
     "pass": false
+  },
+  "provenance": {
+    "fields": [
+      {
+        "field": "footprint",
+        "value": "13 pts",
+        "source": "osm",
+        "confidence": 1
+      },
+      {
+        "field": "height",
+        "value": "72.9m",
+        "source": "tiles",
+        "confidence": 0.95
+      },
+      {
+        "field": "levels",
+        "value": "24",
+        "source": "inferred",
+        "confidence": 0.475
+      },
+      {
+        "field": "wall",
+        "value": "lab(68,3,9) +2",
+        "source": "sv",
+        "confidence": 0.9
+      },
+      {
+        "field": "roof",
+        "value": "lab(64,8,20) +1",
+        "source": "sat",
+        "confidence": 0.85
+      },
+      {
+        "field": "roofShape",
+        "value": "gabled",
+        "source": "inferred",
+        "confidence": 0.5
+      }
+    ],
+    "weakest": {
+      "field": "levels",
+      "value": "24",
+      "source": "inferred",
+      "confidence": 0.475
+    },
+    "meanConfidence": 0.7791666666666667
+  },
+  "crossCheck": {
+    "chosenSource": "tiles",
+    "chosenHeightM": 72.86758422851562,
+    "alternatives": [],
+    "maxDisagreement": 0,
+    "truncationSuspected": false,
+    "ok": true,
+    "warnings": []
+  },
+  "defectScore": {
+    "defects": {
+      "height_truncated": false,
+      "facade_holes_visible": false,
+      "floating_artifacts": false,
+      "footprint_wrong_shape": false,
+      "surface_detail_visible": true,
+      "proportions_correct": true,
+      "facade_incoherent": false,
+      "facade_implausibly_dark": false
+    },
+    "score": 10,
+    "penalties": [],
+    "grid": {
+      "total": 1773135,
+      "components": 1,
+      "largestSize": 1773135,
+      "disconnectedRatio": 0,
+      "uniqueBlockTypes": 18,
+      "computed": true,
+      "facadeTotal": 1001984,
+      "facadeDominantShare": 0.3038042523633112,
+      "facadeDominantState": "minecraft:smooth_stone",
+      "facadeMeanLuma": 145.71682197679803,
+      "facadeGlassShare": 0.10000459089167092
+    }
+  },
+  "synthesisPath": "7d-sliced",
+  "resolution": {
+    "osmId": "way/1423937815",
+    "polygonSource": "osm",
+    "geocodeLocationType": "ROOFTOP",
+    "footprintAreaSqm": 3037.5
   }
 }
