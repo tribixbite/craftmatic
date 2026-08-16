@@ -266,8 +266,13 @@ const resOverride = popArg('--resolution');
 const maxDimOverride = popArg('--max-dim');
 const tilesGlbOverride = popArg('--tiles-glb');
 const useLocalTiles = hasFlag('--local-tiles');
+// --offline / --cache-mode <m>: replay recorded API responses instead of
+// hitting Google/Overpass. With a warm cache the whole sweep runs with no
+// network at all, so a code change is the only variable between runs.
+const cacheModeFlag = popArg('--cache-mode') ?? (hasFlag('--offline') ? 'offline' : null);
 const extraBuildFlags = [
   ...(fast ? ['--skip-tiles'] : []),
+  ...(cacheModeFlag ? ['--cache-mode', cacheModeFlag] : []),
   ...(resOverride !== null ? ['--resolution', resOverride] : []),
   ...(maxDimOverride !== null ? ['--max-dim', maxDimOverride] : []),
   ...(tilesGlbOverride !== null ? ['--tiles-glb', tilesGlbOverride] : []),
@@ -359,4 +364,5 @@ console.error('  bun scripts/iterate.ts --bootstrap');
 console.error('  bun scripts/iterate.ts --only <slug>');
 console.error('  bun scripts/iterate.ts --worst');
 console.error('  bun scripts/iterate.ts --all');
+console.error('\nFlags: --offline (replay recorded API data), --cache-mode auto|refresh|offline|off');
 process.exit(1);

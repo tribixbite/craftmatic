@@ -22,6 +22,12 @@ import { runPipeline } from '../src/pipeline/pipeline.js';
 import { searchOSMBuilding, searchOSMBuildingParts } from '../src/gen/api/osm.js';
 import { querySolarBuildingInsights } from '../src/gen/api/google-solar.js';
 import { createGoogleSatelliteFetcher } from '../src/pipeline/capture/satellite.js';
+import { ApiCache, parseCacheMode } from '../src/pipeline/cache/api-cache.js';
+import {
+  cacheContextFetchers,
+  cacheStreetViewFetchers,
+  cacheSatelliteFetcher,
+} from '../src/pipeline/cache/cached-fetchers.js';
 import { writeSchematic } from '../src/schem/write.js';
 import { writeLitematic } from '../src/schem/write-litematic.js';
 import { summariseReport } from '../src/pipeline/verify/report.js';
@@ -53,6 +59,9 @@ const outDir = popFlag('--out') ?? popFlag('-o') ?? 'output/pipeline';
 const slugOverride = popFlag('--slug');
 const tileTimeoutSec = parseInt(popFlag('--tile-timeout') ?? '0', 10);
 const consensusMode = popFlag('--consensus'); // 'gemini' | null — future: 'all'
+// auto (default) | refresh | offline | off. Env fallback lets a whole sweep
+// run offline without threading the flag through every call site.
+const cacheMode = parseCacheMode(popFlag('--cache-mode') ?? process.env['CRAFTMATIC_CACHE_MODE']);
 const resolutionFlag = popFlag('--resolution');
 const maxDimFlag = popFlag('--max-dim');
 const tilesGlbPath = popFlag('--tiles-glb');
@@ -345,15 +354,27 @@ const injectedTiles = tilesGlbPath !== null
     })
   : undefined;
 
+// ─── API cache ─────────────────────────────────────────────────────────────
+// Every API-drawn input is recorded to output/api-cache/<slug>/ on first
+// fetch and replayed thereafter, so iterating on synthesis/recolor/overlay
+// code needs no network and yields byte-identical evidence each run — the
+// code change becomes the only variable. `--cache-mode offline` proves it:
+// a miss throws instead of silently reaching for the network.
+const cacheSlug = slugOverride ?? address.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80);
+const apiCache = new ApiCache(join(projectRoot, 'output/api-cache'), cacheSlug, cacheMode);
+if (cacheMode !== 'off') {
+  console.error(`  [cache] mode=${cacheMode} dir=output/api-cache/${cacheSlug}${apiCache.warm ? ' (warm)' : ' (cold)'}`);
+}
+
 const started = Date.now();
 const result = await runPipeline({
   address,
   apiKey,
   projectRoot,
   fetchers: {
-    context: contextFetchers,
-    streetview: streetViewFetchers,
-    satellite: createGoogleSatelliteFetcher(apiKey),
+    context: cacheContextFetchers(contextFetchers, apiCache),
+    streetview: cacheStreetViewFetchers(streetViewFetchers, apiCache),
+    satellite: cacheSatelliteFetcher(createGoogleSatelliteFetcher(apiKey), apiCache),
   },
   onProgress: ({ stage, message, ratio }) => {
     const r = typeof ratio === 'number' ? ` ${(ratio * 100).toFixed(0)}%` : '';
@@ -382,6 +403,9 @@ writeFileSync(paths.verification, JSON.stringify(result.report, null, 2));
 // Persistence-phase breadcrumbs: two consecutive runs died somewhere in
 // this block with no stack (external kill — the state lock was left held),
 // and the absence of stage logs made the wedge point unattributable.
+apiCache.writeManifest(address);
+if (cacheMode !== 'off') console.error(`  [cache] ${apiCache.summary()}`);
+
 console.error('  [persist] merging pipeline-state');
 // Merge into canonical pipeline-state.json (the file the stop hook reads)
 const statePath = join(projectRoot, 'output/pipeline-state.json');

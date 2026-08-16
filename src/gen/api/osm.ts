@@ -9,7 +9,7 @@
  */
 
 import type { BlockState, FloorPlanShape } from '../../types/index.js';
-import { pickOverpassUrl } from '../../shared/overpass-query.js';
+import { pickOverpassUrl, reportOverpassFailure, reportOverpassSuccess } from '../../shared/overpass-query.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -71,6 +71,7 @@ export async function searchOSMBuilding(
   // Retry with exponential backoff for 429 (rate limit) and 504 (gateway timeout).
   // Rotate through servers on each retry (arnis pattern: 3 servers for reliability).
   const MAX_RETRIES = 5;
+  let lastError: string | null = null;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const serverUrl = pickOverpassUrl();
     try {
@@ -88,39 +89,62 @@ export async function searchOSMBuilding(
         signal: AbortSignal.timeout(20000),
       });
 
-      if (resp.status === 429 || resp.status === 504) {
+      // ANY non-OK response is a server problem, not an answer: fail the
+      // server over and retry elsewhere. Previously only 429/504 retried and
+      // every other status returned null — i.e. "no building here" — so a
+      // 502/503 from one mirror silently became a missing footprint.
+      if (!resp.ok) {
+        reportOverpassFailure(serverUrl);
+        lastError = `HTTP ${resp.status}`;
         if (attempt < MAX_RETRIES) {
-          const delay = (attempt + 1) * 3000; // 3s, 6s, 9s, 12s, 15s
-          console.warn(`OSM Overpass: HTTP ${resp.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
+          const delay = (attempt + 1) * 1500;
+          console.warn(`OSM Overpass: HTTP ${resp.status} from ${hostOf(serverUrl)}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
-        console.warn(`OSM Overpass: HTTP ${resp.status} after ${MAX_RETRIES} retries`);
-        return null;
-      }
-
-      if (!resp.ok) {
-        console.warn(`OSM Overpass: HTTP ${resp.status}`);
-        return null;
+        break;
       }
 
       const data = await resp.json() as { elements?: OverpassElement[] };
+      reportOverpassSuccess(serverUrl);
       const elements = data.elements;
+      // A well-formed empty result is a real answer: no building mapped here.
       if (!Array.isArray(elements) || elements.length === 0) return null;
 
       return parseClosestBuilding(elements, lat, lng, houseNumber);
     } catch (err) {
+      reportOverpassFailure(serverUrl);
+      lastError = (err as Error).message;
       if (attempt < MAX_RETRIES) {
-        const delay = (attempt + 1) * 3000;
-        console.warn(`OSM Overpass: error, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
+        const delay = (attempt + 1) * 1500;
+        console.warn(`OSM Overpass: ${lastError} from ${hostOf(serverUrl)}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
-      console.warn('OSM Overpass request failed:', err);
-      return null;
+      break;
     }
   }
-  return null;
+  // Every server failed. THROW rather than return null: the caller
+  // (resolveContext) distinguishes an unreachable Overpass from an empty
+  // result, and only the former should stop the pipeline from grading a
+  // building it had to invent. Returning null here made that guard inert.
+  throw new OverpassUnavailableError(lastError ?? 'unknown error');
+}
+
+/** Hostname only — keeps retry logs readable. */
+function hostOf(url: string): string {
+  try { return new URL(url).host; } catch { return url; }
+}
+
+/**
+ * Every Overpass mirror failed. Distinct from a `null` return, which means
+ * Overpass answered and there is genuinely no building at that location.
+ */
+export class OverpassUnavailableError extends Error {
+  constructor(detail: string) {
+    super(`Overpass unavailable after retries across all mirrors: ${detail}`);
+    this.name = 'OverpassUnavailableError';
+  }
 }
 
 // ─── building:part for compound buildings ──────────────────────────────────

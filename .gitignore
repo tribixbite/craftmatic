@@ -1,4 +1,5 @@
 node_modules/
+output/
 dist/
 web/dist/
 *.tgz
@@ -33,3 +34,6 @@ web/public/lego-catalog.json
 
 # Agent subagent worktrees — transient
 .claude/worktrees/
+
+# Recorded API responses (large; regenerate with --cache-mode refresh)
+output/api-cache/**/blobs/
