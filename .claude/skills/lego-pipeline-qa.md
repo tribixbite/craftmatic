@@ -53,8 +53,15 @@ renderer, or deploying + verifying a change on prod.
    `feat/lego-set-tab:main` (deploy.yml gates typecheck+test+build, deploys
    Pages + CF Worker).
 5. Watch: `gh run watch <id> --exit-status`. After: `PROD_SMOKE=1 bunx vitest
-   run test/prod-smoke.test.ts` (5 checks: app shell, /ldraw-parts+CORS, OMR
-   proxy, catalog).
+   run test/prod-smoke.test.ts` (app shell, /ldraw-parts+CORS, OMR proxy,
+   catalog, R2 model corpus).
+6. Worker/route/binding changes need `bunx wrangler deploy` (CI's deploy.yml
+   also runs it). Parts serve R2-FIRST from the `lego-models` bucket (keys
+   `ldraw/<relpath>` lowercase; mirror via `scripts/sync-ldraw-r2.mjs`,
+   resumable via output/_ldraw_r2_done.txt) — library.ldraw.org is only a
+   fallback and RATE-LIMITS bursts, so never reintroduce blanket
+   `cacheEverything+cacheTtl` (it week-caches upstream failures; use
+   cacheTtlByStatus) and never treat non-404 upstream errors as misses.
 
 ## Verifying RENDERED COLORS (not just state) — hard-won
 - Playwright page screenshots of the WebGL canvas can be MANY frames stale in a
