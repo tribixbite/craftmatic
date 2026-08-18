@@ -373,7 +373,16 @@ async function fetchDatText(id: string): Promise<string | null> {
             idbPutDat(key, text);
             return text;
           }
-          break; // got a definitive HTTP response (e.g. 404) — next path, no retry
+          if (r.status === 404 || r.status === 410) {
+            break; // definitive miss on this path — next path, no retry
+          }
+          // 429/5xx = upstream throttling or outage, NOT "part absent". A cold
+          // big-set load bursts hundreds of fetches and upstream rate-limits;
+          // treating those as definitive misses recorded thousands of real
+          // parts as permanently missing on prod (2026-08-17). Retry with
+          // backoff and never let this path contribute to a cached null.
+          sawTransient = true;
+          if (attempt < 2) await new Promise(res => setTimeout(res, 400 * (attempt + 1)));
         } catch {
           sawTransient = true; // timeout / network error — retry this path
           if (attempt < 2) await new Promise(res => setTimeout(res, 200 * (attempt + 1)));

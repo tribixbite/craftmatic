@@ -95,19 +95,30 @@ export default {
     // ── LDraw parts library proxy (official → unofficial fallback) ───────────
     // The client probes several candidate paths per part (parts/, p/,
     // parts/s/, p/48/, UnOfficial/...). We relay each to the matching upstream
-    // library dir. Edge-cached for a week; missing parts get a short-cached
-    // 404 so the client's next candidate path is tried quickly.
+    // library dir. Hits are edge-cached for a week; genuine 404s briefly.
+    //
+    // CRITICAL caching rule (prod incident 2026-08-17): a cold big-set load
+    // bursts hundreds of part fetches; upstream rate-limiting then returns
+    // errors, and blanket `cacheTtl + cacheEverything` EDGE-CACHED those
+    // failures for a week — thousands of real parts "missing" until the cache
+    // aged out. cacheTtlByStatus long-caches ONLY successes, and upstream
+    // throttle/5xx responses are relayed as 503 no-store (NOT converted to a
+    // cacheable 404) so the client retries instead of recording a miss.
     if (url.pathname.startsWith('/ldraw-parts/') && (request.method === 'GET' || request.method === 'HEAD')) {
       let rest = url.pathname.slice('/ldraw-parts/'.length).replace(/\.\./g, '');
       let libs = ['official', 'unofficial'];
       const unof = rest.match(/^unofficial\/(.*)$/i);
       if (unof) { rest = unof[1]; libs = ['unofficial']; }
       if (rest) {
+        let sawTransient = false;
         for (const lib of libs) {
           const r = await fetch(`https://library.ldraw.org/library/${lib}/${rest}`, {
             method: 'GET',
             headers: { 'User-Agent': 'craftmatic-proxy/1.0' },
-            cf: { cacheTtl: 604800, cacheEverything: true },
+            cf: {
+              cacheEverything: true,
+              cacheTtlByStatus: { '200-299': 604800, '404': 300, '400-499': 0, '500-599': 0 },
+            },
           });
           if (r.ok) {
             return new Response(request.method === 'HEAD' ? null : r.body, {
@@ -119,6 +130,13 @@ export default {
               },
             });
           }
+          if (r.status !== 404 && r.status !== 410) sawTransient = true;
+        }
+        if (sawTransient) {
+          return new Response(null, {
+            status: 503,
+            headers: { ...CORS_HEADERS, 'Cache-Control': 'no-store', 'Retry-After': '2' },
+          });
         }
       }
       return new Response(null, {
