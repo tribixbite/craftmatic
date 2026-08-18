@@ -146,6 +146,11 @@ let rootEl: HTMLElement;
 let onResult: ((grid: BlockGrid, label: string, isCubic: boolean) => void) | null = null;
 let selectedSet: CatalogSet | null = null;
 let searchResults: CatalogSet[] = [];
+/** Ranked-results cap (browse-all ranks the whole catalog; cap keeps it sane). */
+const RESULTS_MAX = 2000;
+/** Cards rendered per page; "Show more" reveals the next page. */
+const RESULTS_PAGE = 48;
+let visibleResults = RESULTS_PAGE;
 /** When true, use 1 stud = 1 block in all axes (no 2.5× vertical stretch). */
 let cubicScale = false;
 let detailScale = false;
@@ -359,38 +364,11 @@ function buildUI(): void {
       <span id="lego-explode-label" style="font-size:0.75rem;min-width:3.5em;text-align:right">0%</span>
     </div>
 
-    <!-- Primary: Upload LDraw file -->
-    <div class="lego-section">
-      <div class="lego-label-row">
-        <span class="lego-section-label">Upload LDraw File</span>
-        <span class="lego-section-sub">from LDraw OMR or BrickLink Studio</span>
-      </div>
-      <label class="lego-upload-zone" id="lego-upload-zone">
-        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5">
-          <rect x="2" y="7" width="20" height="14" rx="2"/>
-          <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
-          <circle cx="8" cy="4" r="1"/><circle cx="12" cy="4" r="1"/><circle cx="16" cy="4" r="1"/>
-        </svg>
-        <span class="lego-upload-zone-text">
-          Drop <code>.mpd</code> / <code>.ldr</code> / <code>.io</code> / <code>.lxf</code> here, or click to browse
-        </span>
-        <input type="file" id="lego-mpd-input" accept=".mpd,.ldr,.io,.lxf" hidden>
-      </label>
-      <div class="lego-omr-quick">
-        <span class="lego-omr-label">Get files:</span>
-        <a href="https://library.ldraw.org/omr/sets/" target="_blank" rel="noopener" class="lego-ext-link">LDraw OMR ↗</a>
-        <a href="https://www.bricklink.com/v3/studio/studio.page" target="_blank" rel="noopener" class="lego-ext-link">BrickLink Studio ↗</a>
-      </div>
-    </div>
-
-    <!-- Divider -->
-    <div class="lego-divider"><span>or search for a set</span></div>
-
-    <!-- Search (no API key required — uses public CSV) -->
+    <!-- PRIMARY FLOW: search / browse → pick → render -->
     <div class="lego-section">
       <div class="lego-search-row">
         <input type="text" id="lego-search" class="lego-input lego-search-input"
-          placeholder="Set name or number (e.g. 75192, Falcon, Technic)…">
+          placeholder="Search sets — or leave empty to browse all…">
         <button class="btn btn-primary btn-sm" id="lego-search-btn">Search</button>
       </div>
       <div class="lego-filters">
@@ -413,6 +391,33 @@ function buildUI(): void {
     <div class="lego-detail" id="lego-detail" hidden>
       <div class="lego-detail-inner" id="lego-detail-inner"></div>
       <div class="lego-omr-links" id="lego-omr-links"></div>
+    </div>
+
+    <!-- Divider -->
+    <div class="lego-divider"><span>or upload your own file</span></div>
+
+    <!-- Upload LDraw file -->
+    <div class="lego-section">
+      <div class="lego-label-row">
+        <span class="lego-section-label">Upload LDraw File</span>
+        <span class="lego-section-sub">from LDraw OMR or BrickLink Studio</span>
+      </div>
+      <label class="lego-upload-zone" id="lego-upload-zone">
+        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="7" width="20" height="14" rx="2"/>
+          <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+          <circle cx="8" cy="4" r="1"/><circle cx="12" cy="4" r="1"/><circle cx="16" cy="4" r="1"/>
+        </svg>
+        <span class="lego-upload-zone-text">
+          Drop <code>.mpd</code> / <code>.ldr</code> / <code>.io</code> / <code>.lxf</code> here, or click to browse
+        </span>
+        <input type="file" id="lego-mpd-input" accept=".mpd,.ldr,.io,.lxf" hidden>
+      </label>
+      <div class="lego-omr-quick">
+        <span class="lego-omr-label">Get files:</span>
+        <a href="https://library.ldraw.org/omr/sets/" target="_blank" rel="noopener" class="lego-ext-link">LDraw OMR ↗</a>
+        <a href="https://www.bricklink.com/v3/studio/studio.page" target="_blank" rel="noopener" class="lego-ext-link">BrickLink Studio ↗</a>
+      </div>
     </div>
   `;
 
@@ -774,10 +779,10 @@ function wireEvents(): void {
     const minYear  = minYrEl.value  ? parseInt(minYrEl.value)  : null;
     const maxYear  = maxYrEl.value  ? parseInt(maxYrEl.value)  : null;
 
-    if (!query && themeId == null && minYear == null) {
-      setStatus('Enter a set name, number, or choose a theme.', 'error');
-      return;
-    }
+    // Empty query + no filters = BROWSE ALL: rankSets scores every set by
+    // flagship-ness (part count + recency), so the front page is the good
+    // stuff, not 1970s promo polybags. No forced theme selection.
+    const browsing = !query && themeId == null && minYear == null && maxYear == null;
 
     searchBtn.disabled = true;
 
@@ -787,7 +792,8 @@ function wireEvents(): void {
         await ensureCatalog(msg => setStatus(msg, 'info'));
       }
 
-      searchResults = searchCatalog(query, themeId, minYear, maxYear);
+      searchResults = searchCatalog(query, themeId, minYear, maxYear, RESULTS_MAX);
+      visibleResults = RESULTS_PAGE;
       // Populate theme dropdown once loaded
       populateThemes(getThemes());
 
@@ -800,8 +806,13 @@ function wireEvents(): void {
         setStatus('No sets found — try a different query.', 'info');
         hideResults();
       } else {
-        setStatus(`${searchResults.length} set${searchResults.length !== 1 ? 's' : ''} found`, 'success');
-        renderResults(searchResults);
+        setStatus(
+          browsing
+            ? `Browsing all sets — ${searchResults.length.toLocaleString()}${searchResults.length >= RESULTS_MAX ? '+' : ''} available, best first`
+            : `${searchResults.length.toLocaleString()}${searchResults.length >= RESULTS_MAX ? '+' : ''} set${searchResults.length !== 1 ? 's' : ''} found`,
+          'success',
+        );
+        renderResults();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -813,19 +824,28 @@ function wireEvents(): void {
 
   searchBtn.addEventListener('click', doSearch);
   searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+  // Live filter re-run when theme / year filters change (no Search click needed)
+  document.getElementById('lego-theme')?.addEventListener('change', doSearch);
+  document.getElementById('lego-year-min')?.addEventListener('change', doSearch);
+  document.getElementById('lego-year-max')?.addEventListener('change', doSearch);
 
-  // Populate themes once catalog finishes loading in background
-  ensureCatalog().then(() => populateThemes(getThemes())).catch(() => {});
+  // Populate themes once the catalog loads, then show the browse-all grid so
+  // the tab isn't a dead end before the first search.
+  ensureCatalog().then(() => {
+    populateThemes(getThemes());
+    if (searchResults.length === 0 && !selectedSet) void doSearch();
+  }).catch(() => {});
 }
 
 // ─── Results ─────────────────────────────────────────────────────────────────
 
-function renderResults(sets: CatalogSet[]): void {
+function renderResults(): void {
   const resultsEl = document.getElementById('lego-results')!;
   const gridEl    = document.getElementById('lego-results-grid')!;
   resultsEl.hidden = false;
 
-  gridEl.innerHTML = sets.map((s, i) => {
+  const shown = searchResults.slice(0, visibleResults);
+  const cardHtml = shown.map((s, i) => {
     const inOmr = isInOmr(s.set_num);
     return `
     <button class="lego-result-card${inOmr ? ' lego-result-card-omr' : ''}" data-idx="${i}" title="${escAttr(s.name)}">
@@ -848,8 +868,22 @@ function renderResults(sets: CatalogSet[]): void {
   `;
   }).join('');
 
+  const remaining = searchResults.length - shown.length;
+  const moreHtml = remaining > 0
+    ? `<button class="lego-show-more" id="lego-show-more">Show ${Math.min(remaining, RESULTS_PAGE)} more (${remaining.toLocaleString()} remaining)</button>`
+    : '';
+  gridEl.innerHTML = cardHtml + moreHtml;
+
   gridEl.querySelectorAll<HTMLButtonElement>('.lego-result-card').forEach(card => {
-    card.addEventListener('click', () => selectSet(sets[parseInt(card.dataset['idx']!)]));
+    card.addEventListener('click', () => selectSet(shown[parseInt(card.dataset['idx']!)]!));
+  });
+  document.getElementById('lego-show-more')?.addEventListener('click', () => {
+    visibleResults += RESULTS_PAGE;
+    // Preserve scroll position across the re-render (innerHTML resets it).
+    const scroller = resultsEl;
+    const top = scroller.scrollTop;
+    renderResults();
+    scroller.scrollTop = top;
   });
 }
 
