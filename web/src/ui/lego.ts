@@ -1116,14 +1116,15 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
     currentSourceWarning = 'LDD .lxf: part alignment is approximate for complex models — a Studio/LDraw source of the same set renders more accurately';
   }
   if (bricks.length === 0) throw new Error(`no brick placements in ${model.path}`);
-  await voxelizeAndDisplay(bricks, `${set.set_num}-${model.src}`, colorFn);
   // Index-level conversion flag (lineage metadata — catches laundered LXF
-  // conversions that text-sniffing can't). Set AFTER display on purpose: the
-  // render-success status would otherwise immediately overwrite the warning.
+  // conversions that text-sniffing can't). Routed through currentSourceWarning
+  // so it APPENDS to the final render status (a bare setStatus after display
+  // replaced the whole info line — brick count, dims — with just the warning).
   // Never blocks loading — for some sets this is the only model that exists.
-  if (model.conv && !loadIsStale(epoch)) {
-    setStatus('⚠ Script-converted model (LXF lineage) — some parts may be misrotated/misplaced. Prefer another source if available.', 'info');
+  if (model.conv) {
+    currentSourceWarning = 'script-converted model (LXF lineage) — some parts may be misrotated/misplaced; prefer another source if available';
   }
+  await voxelizeAndDisplay(bricks, `${set.set_num}-${model.src}`, colorFn);
 }
 
 // ─── OMR Auto-Load ───────────────────────────────────────────────────────────
