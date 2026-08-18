@@ -57,4 +57,24 @@ describe.skipIf(!enabled)('production smoke', () => {
     expect(Array.isArray(items)).toBe(true);
     expect((items as unknown[]).length).toBeGreaterThan(10000);
   });
+
+  it('serves the model corpus index + a model from R2 (prod search→load path)', async () => {
+    // Prod loads indexed models from the public R2 bucket (see MODELS_BASE in
+    // lego.ts). If this breaks, search → pick silently degrades for ~10k sets.
+    const R2 = 'https://pub-02c7ef4c74d5445691176fe4b4455d50.r2.dev';
+    const idx = await fetch(`${R2}/lego-models-index.json`, { signal: AbortSignal.timeout(30000) });
+    expect(idx.status).toBe(200);
+    const data = await idx.json() as { sets: Record<string, { models: { path: string }[] }> };
+    expect(Object.keys(data.sets).length).toBeGreaterThan(5000);
+    // Fetch the first model of a known-indexed set, with CORS for the browser.
+    const model = data.sets['8849']?.models[0];
+    expect(model).toBeTruthy();
+    const r = await fetch(`${R2}/models/${model!.path.split('/').map(encodeURIComponent).join('/')}`, {
+      headers: { Origin: PROD },
+      signal: AbortSignal.timeout(30000),
+    });
+    expect(r.status).toBe(200);
+    expect(r.headers.get('access-control-allow-origin')).toBeTruthy();
+    expect((await r.text()).length).toBeGreaterThan(1000);
+  });
 });

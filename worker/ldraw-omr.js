@@ -72,7 +72,7 @@ async function getBffInventory(setNum) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') {
@@ -109,17 +109,49 @@ export default {
       let libs = ['official', 'unofficial'];
       const unof = rest.match(/^unofficial\/(.*)$/i);
       if (unof) { rest = unof[1]; libs = ['unofficial']; }
+      // R2-FIRST: the library is mirrored into the corpus bucket under
+      // ldraw/<relpath> (scripts/sync-ldraw-r2.mjs). Self-hosted reads can't
+      // be rate-limited; upstream below is only the fallback for unsynced
+      // keys. Bare paths check the official mirror; UnOfficial/-prefixed
+      // requests check the unofficial mirror key.
+      if (rest && env?.MODELS) {
+        // Keys are synced LOWERCASED (R2 is case-sensitive; the client's
+        // normId() lowercases every request, LDraw filenames are lowercase
+        // by convention).
+        const r2Key = (unof ? `ldraw/unofficial/${rest}` : `ldraw/${rest}`).toLowerCase();
+        try {
+          const obj = await env.MODELS.get(r2Key);
+          if (obj) {
+            return new Response(request.method === 'HEAD' ? null : obj.body, {
+              status: 200,
+              headers: {
+                ...CORS_HEADERS,
+                'Cache-Control': 'public, max-age=604800, immutable',
+                'Content-Type': 'text/plain; charset=utf-8',
+              },
+            });
+          }
+        } catch { /* R2 hiccup — fall through to upstream */ }
+      }
       if (rest) {
         let sawTransient = false;
         for (const lib of libs) {
-          const r = await fetch(`https://library.ldraw.org/library/${lib}/${rest}`, {
-            method: 'GET',
-            headers: { 'User-Agent': 'craftmatic-proxy/1.0' },
-            cf: {
-              cacheEverything: true,
-              cacheTtlByStatus: { '200-299': 604800, '404': 300, '400-499': 0, '500-599': 0 },
-            },
-          });
+          // One in-worker retry after a beat: upstream throttling is bursty
+          // (per-second), so a brief wait often clears it without bouncing
+          // the failure all the way back to the client.
+          let r;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            r = await fetch(`https://library.ldraw.org/library/${lib}/${rest}`, {
+              method: 'GET',
+              headers: { 'User-Agent': 'craftmatic-proxy/1.0' },
+              cf: {
+                cacheEverything: true,
+                cacheTtlByStatus: { '200-299': 604800, '404': 300, '400-499': 0, '500-599': 0 },
+              },
+            });
+            if (r.ok || r.status === 404 || r.status === 410) break;
+            if (attempt === 0) await new Promise(res => setTimeout(res, 600));
+          }
           if (r.ok) {
             return new Response(request.method === 'HEAD' ? null : r.body, {
               status: 200,
