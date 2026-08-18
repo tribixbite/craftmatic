@@ -117,21 +117,27 @@ export default {
       if (rest && env?.MODELS) {
         // Keys are synced LOWERCASED (R2 is case-sensitive; the client's
         // normId() lowercases every request, LDraw filenames are lowercase
-        // by convention).
-        const r2Key = (unof ? `ldraw/unofficial/${rest}` : `ldraw/${rest}`).toLowerCase();
-        try {
-          const obj = await env.MODELS.get(r2Key);
-          if (obj) {
-            return new Response(request.method === 'HEAD' ? null : obj.body, {
-              status: 200,
-              headers: {
-                ...CORS_HEADERS,
-                'Cache-Control': 'public, max-age=604800, immutable',
-                'Content-Type': 'text/plain; charset=utf-8',
-              },
-            });
-          }
-        } catch { /* R2 hiccup — fall through to upstream */ }
+        // by convention). Bare paths check the official mirror THEN the
+        // unofficial mirror (mirroring the upstream fallback order) so
+        // unofficial-only parts are still served without touching upstream.
+        const r2Keys = unof
+          ? [`ldraw/unofficial/${rest}`.toLowerCase()]
+          : [`ldraw/${rest}`.toLowerCase(), `ldraw/unofficial/${rest}`.toLowerCase()];
+        for (const r2Key of r2Keys) {
+          try {
+            const obj = await env.MODELS.get(r2Key);
+            if (obj) {
+              return new Response(request.method === 'HEAD' ? null : obj.body, {
+                status: 200,
+                headers: {
+                  ...CORS_HEADERS,
+                  'Cache-Control': 'public, max-age=604800, immutable',
+                  'Content-Type': 'text/plain; charset=utf-8',
+                },
+              });
+            }
+          } catch { /* R2 hiccup — fall through */ }
+        }
       }
       if (rest) {
         let sawTransient = false;
