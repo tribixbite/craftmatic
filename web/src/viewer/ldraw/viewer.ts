@@ -462,8 +462,12 @@ export class LDrawViewer {
     const uniqueParts = [...new Set(filteredBricks.map(b => normId(b.part)))];
 
     // Prefetch part geometry concurrently (cache-warm reads thereafter).
+    // Keep the cap modest: each part fans out into sub-part/primitive fetches
+    // and multiple candidate-path probes — 20 top-level parts hammered the
+    // prod proxy hard enough that library.ldraw.org rate-limited a cold
+    // big-set load (2026-08-17). Warm loads come from the IndexedDB cache.
     let done = 0;
-    const CONCURRENCY = 20;
+    const CONCURRENCY = 12;
     for (let i = 0; i < uniqueParts.length; i += CONCURRENCY) {
       const batch = uniqueParts.slice(i, i + CONCURRENCY);
       await Promise.all(batch.map(async partId => {
