@@ -45,11 +45,21 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   throttling during a load burst — retry instead; concurrency capped at 6).
   Caching nulls on transient failures turned existing parts (73111 …) into
   permanently missing pieces for the whole dev session — don't reintroduce.
-- **PROD**: the Cloudflare Worker (`worker/ldraw-omr.js`) proxies `/ldraw-parts/*`
-  → `library.ldraw.org/library/{official,unofficial}/*` (CORS + week edge cache,
-  GET+HEAD). Routed in `wrangler.toml` (`craftmatic.click/ldraw-parts/*`).
-  **Must `bunx wrangler deploy` to publish.** Without this route the deployed app
-  has NO geometry and silently falls back to voxelization.
+- **PROD**: the Cloudflare Worker (`worker/ldraw-omr.js`) serves `/ldraw-parts/*`
+  **R2-FIRST** from the `lego-models` bucket (keys `ldraw/<relpath>`, LOWERCASED
+  — R2 keys are case-sensitive and `normId()` lowercases every request; mirror
+  maintained by `scripts/sync-ldraw-r2.mjs`, resumable), falling back to
+  `library.ldraw.org/library/{official,unofficial}/*` for unsynced keys.
+  Routed in `wrangler.toml` (`craftmatic.click/ldraw-parts/*`) with the R2
+  binding `MODELS`. **Must `bunx wrangler deploy` to publish.** Without this
+  route the deployed app has NO geometry and silently falls back to voxelization.
+  **Why R2-first (prod incident 2026-08-17):** library.ldraw.org rate-limits
+  cold big-set bursts (even `stud.dat` 503'd); worse, the worker's old blanket
+  `cacheTtl+cacheEverything` EDGE-CACHED those failures for a week, so
+  thousands of real parts read "missing". Rules now: `cacheTtlByStatus`
+  (successes 1w, 404s 5min, errors 0), upstream throttle → 503 `no-store`
+  (never a cacheable 404), one in-worker retry; client treats only 404/410 as
+  definitive (`parts.ts`), and part-prefetch concurrency is 12.
 - `library.ldraw.org` serves individual parts but sends **no CORS header** — must
   be proxied; cannot fetch from the browser directly. Official layout:
   `/library/official/{parts,p,parts/s,p/48}/<stem>.dat`.
