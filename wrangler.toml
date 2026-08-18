@@ -13,3 +13,11 @@ zone_name = "craftmatic.click"
 [[routes]]
 pattern = "craftmatic.click/ldraw-parts/*"
 zone_name = "craftmatic.click"
+
+# Self-hosted LDraw library (keys ldraw/<relpath>) in the same R2 bucket as
+# the model corpus. The worker serves parts R2-first — library.ldraw.org
+# rate-limits cold big-set bursts (prod incident 2026-08-17), so upstream is
+# only a fallback for keys the sync hasn't covered.
+[[r2_buckets]]
+binding = "MODELS"
+bucket_name = "lego-models"
