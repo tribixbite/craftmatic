@@ -148,6 +148,21 @@ ghost tires). Pipeline defenses now in `lego.ts`:
   Direct lights are neutral-temp; generous diffuse fill restores saturation.
 - **Creased normals**: `toCreasedNormals(geom, 38°)` — smooth studs/cylinders,
   crisp brick edges (not blanket `computeVertexNormals`, which melts corners).
+- **Studio floor look (2026-08-21)**: radial light-pool floor texture (bright
+  pool ≈1.5×maxDim under the model → dark edges; the pool must occupy only the
+  central ~15% of the canvas because the plane spans 10×maxDim), slightly
+  transparent floor (opacity 0.8) + **fake-mirror reflection**: mirrored
+  InstancedMeshes under the floor SHARING geometry AND instanceMatrix buffers
+  (explode/step/resort follow for free), faded cloned materials registered in
+  `allMeshMaterials`, `userData.mirrorOf` → applyStepVisibility reads the
+  SOURCE mesh's step arrays (they're replaced on resort — read through the
+  reference). Gated to ≤200 meshes; hidden while the verify-highlight is
+  active. Transparent-pass back-to-front sorting draws reflections before the
+  floor — don't make the floor opaque or reflections vanish.
+- **Load cancellation**: `viewer.load()` carries a monotonic `loadSeq`; every
+  awaited stage bails when a newer load starts. UI paths capture `loadEpoch`
+  and skip stale status/progress writes. Rapid set-switching must always
+  settle on the LAST selection.
 - **All materials are `DoubleSide`** (LDraw `.dat` winding is unreliable), so
   triangle winding is **shading-irrelevant** — Three flips the normal per
   `gl_FrontFacing`. Consequence: `resolvePartGeometry`'s cache keys by part id
