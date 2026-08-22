@@ -260,16 +260,20 @@ export class LDrawViewer {
     // GOOD, it restores saturation). The white *specular* wash that used to
     // desaturate comes from the environment + clearcoat, now controlled at
     // the env level (dark studio) and material level (no clearcoat on ABS).
-    this.ambient = new THREE.AmbientLight(0xffffff, 0.55);
+    // Fill-vs-key balance (2026-08-21): flat fill (ambient+hemi) trimmed and
+    // the key raised — the previous 0.55+0.45 flat wash left models milky and
+    // low-contrast ("lighting doesn't look very good"). Saturation-critical
+    // pieces (NeutralToneMapping, dark env, single ABS material) unchanged.
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.42);
     this.scene.add(this.ambient);
-    this.hemi = new THREE.HemisphereLight(0xffffff, 0x6a5a4a, 0.45);
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0x6a5a4a, 0.38);
     this.scene.add(this.hemi);
-    this.keyLight = new THREE.DirectionalLight(0xfff6ea, 2.6);
+    this.keyLight = new THREE.DirectionalLight(0xfff6ea, 3.0);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
     this.keyLight.shadow.bias = -0.0005;
     this.keyLight.shadow.normalBias = 0.02;
-    this.keyLight.shadow.radius = 3;
+    this.keyLight.shadow.radius = 2.5;
     this.scene.add(this.keyLight);
     this.scene.add(this.keyLight.target);
     this.fillLight = new THREE.DirectionalLight(0xffffff, 0.55);
@@ -359,12 +363,12 @@ export class LDrawViewer {
         m.lookAt(0, 0, 0);
         envScene.add(m);
       };
-      panel(35, 45, 30, 70, 70, 5.0);   // key softbox, upper front-right
-      panel(-45, 15, 15, 55, 80, 1.6);  // fill, left side
-      panel(-10, 25, -45, 50, 50, 2.4); // rim/back
+      panel(35, 45, 30, 70, 70, 6.0);   // key softbox, upper front-right
+      panel(-45, 15, 15, 55, 80, 1.8);  // fill, left side
+      panel(-10, 25, -45, 50, 50, 3.0); // rim/back
       panel(0, -30, 10, 90, 90, 0.25);  // dim floor bounce
       viewer.scene.environment = pmremGen.fromScene(envScene, 0.08).texture;
-      viewer.scene.environmentIntensity = 0.85;
+      viewer.scene.environmentIntensity = 0.95;
       pmremGen.dispose();
     } catch (e) {
       console.warn('[LDrawViewer] Environment map failed (GPU limitation):', e);
@@ -439,8 +443,18 @@ export class LDrawViewer {
    *
    * Can be called multiple times — disposes previous model's meshes first.
    */
+  /** Monotonic load sequence — a newer load() call cancels older in-flight ones. */
+  private loadSeq = 0;
+
   async load(bricks: ParsedBrick[], opts?: LDrawViewerOptions): Promise<void> {
     if (this.disposed) throw new Error('LDrawViewer is disposed');
+    // Cancellation: rapid set-switching used to leave several load() calls
+    // racing on the SAME scene (each clears it, then keeps adding meshes as
+    // its awaits resolve — progress bars fight and stale meshes pollute the
+    // winner). Every awaited stage below re-checks the sequence and bails
+    // silently if a newer load has started; the newest call owns the scene.
+    const seq = ++this.loadSeq;
+    const stale = (): boolean => seq !== this.loadSeq || this.disposed;
 
     // Tear down previous model state
     this.unloadCurrent();
@@ -469,13 +483,15 @@ export class LDrawViewer {
     let done = 0;
     const CONCURRENCY = 12;
     for (let i = 0; i < uniqueParts.length; i += CONCURRENCY) {
+      if (stale()) return;
       const batch = uniqueParts.slice(i, i + CONCURRENCY);
       await Promise.all(batch.map(async partId => {
         await resolvePartGeometry(partId);
         done++;
-        opts?.onProgress?.(done, uniqueParts.length);
+        if (!stale()) opts?.onProgress?.(done, uniqueParts.length);
       }));
     }
+    if (stale()) return;
 
     // Repair pass (runs BEFORE meshes are built, so it fixes the render too):
     // concurrent resolution can leave a wrapper/sub-referenced part (e.g. the
@@ -488,7 +504,8 @@ export class LDrawViewer {
       g ? g.tris.length + [...g.colorTris.values()].reduce((s, a) => s + a.length, 0) : 0;
     const empties = uniqueParts.filter(p => triCount(getCachedPartGeom(p)) === 0);
     for (const p of empties) invalidatePartGeom(p);
-    for (const p of empties) await resolvePartGeometry(p);
+    for (const p of empties) { if (stale()) return; await resolvePartGeometry(p); }
+    if (stale()) return;
     const missing = new Map<string, number>();
     for (const p of uniqueParts) {
       if (triCount(getCachedPartGeom(p)) === 0) missing.set(p, instCount.get(p) ?? 1);
@@ -525,6 +542,46 @@ export class LDrawViewer {
     stepState.group.name = 'model';
     this.stepGroups.set(0, stepState);
     this.scene.add(stepState.group);
+
+    // Studio floor reflection: mirror every instanced mesh about the floor
+    // plane at low opacity (product-shot look). Geometry AND instanceMatrix
+    // buffers are SHARED with the real meshes, so explode / step slider /
+    // mode-resort drive the reflection for free; materials are faded clones
+    // (registered in allMeshMaterials for disposal). Gated by mesh count —
+    // it doubles draw calls, trivial for normal sets, skipped for mega-sets.
+    {
+      let meshCount = 0;
+      stepState.group.traverse(o => { if (o instanceof THREE.InstancedMesh) meshCount++; });
+      if (meshCount > 0 && meshCount <= 200) {
+        const floorY = bboxMin.y;
+        const mirror = new THREE.Group();
+        mirror.name = 'floor-reflection';
+        const toAdd: THREE.InstancedMesh[] = [];
+        stepState.group.traverse(o => {
+          if (!(o instanceof THREE.InstancedMesh) || Array.isArray(o.material)) return;
+          const rm = (o.material as THREE.Material).clone() as THREE.MeshPhysicalMaterial;
+          rm.transparent = true;
+          rm.opacity = 0.45 * (rm.opacity ?? 1);
+          rm.depthWrite = false;
+          this.allMeshMaterials.push(rm);
+          const ref = new THREE.InstancedMesh(o.geometry, rm, o.count);
+          ref.instanceMatrix = o.instanceMatrix; // shared buffer — follows explode/resort
+          ref.castShadow = false;
+          ref.receiveShadow = false;
+          ref.frustumCulled = false; // group-level mirror transform breaks per-mesh culling
+          ref.userData['mirrorOf'] = o;  // applyStepVisibility reads the source's step arrays
+          toAdd.push(ref);
+        });
+        for (const r of toAdd) mirror.add(r);
+        // Mirror about y = floorY: T(0, 2*floorY, 0) · S(1, -1, 1). The floor
+        // is slightly transparent; three sorts transparent objects
+        // back-to-front, so reflections (below the floor, farther) draw first
+        // and the floor blends over them — the standard fake-mirror order.
+        mirror.scale.set(1, -1, 1);
+        mirror.position.y = 2 * floorY;
+        stepState.group.add(mirror);
+      }
+    }
 
     // Apply initial maxStep (default = show all)
     this.currentMaxStep = opts?.maxStep ?? Number.POSITIVE_INFINITY;
@@ -1001,8 +1058,14 @@ export class LDrawViewer {
     // The global edge overlay keeps per-segment ORIGINAL colors and is dense
     // enough to visually read as the model itself (verified: it completely
     // masked the recolor on 21063) — hide it while the highlight is active.
+    // Same for the floor-reflection mirror (its cloned materials keep the
+    // original colors, which would contradict the red/grey recolor).
     this.scene.traverse(o => {
       if (o instanceof LineSegments2 && o.visible) { o.visible = false; this.highlightHiddenLines.push(o); }
+      if (o instanceof THREE.Group && o.name === 'floor-reflection' && o.visible) {
+        o.visible = false;
+        this.highlightHiddenGroups.push(o);
+      }
     });
     this.detachedHighlightActive = true;
     this.invalidate();
@@ -1016,6 +1079,8 @@ export class LDrawViewer {
   private highlightStash = new Map<THREE.Material, number>();
   /** Edge overlays hidden while the highlight is active. */
   private highlightHiddenLines: LineSegments2[] = [];
+  /** Groups (floor reflection) hidden while the highlight is active. */
+  private highlightHiddenGroups: THREE.Group[] = [];
 
   /**
    * Restore original brick colors after highlightDetached(): material colors
@@ -1035,6 +1100,8 @@ export class LDrawViewer {
     }
     for (const l of this.highlightHiddenLines) l.visible = true;
     this.highlightHiddenLines = [];
+    for (const g of this.highlightHiddenGroups) g.visible = true;
+    this.highlightHiddenGroups = [];
     this.detachedHighlightActive = false;
     this.invalidate();
   }
@@ -1063,7 +1130,11 @@ export class LDrawViewer {
     for (const stepState of this.stepGroups.values()) {
       stepState.group.traverse(obj => {
         if (obj instanceof THREE.InstancedMesh) {
-          const arr = obj.userData[meshKey] as Int32Array | undefined;
+          // Floor-reflection mirrors carry no step arrays of their own —
+          // they follow their source mesh (arrays get REPLACED on resort,
+          // so read through the reference, don't copy).
+          const src = (obj.userData['mirrorOf'] as THREE.InstancedMesh | undefined) ?? obj;
+          const arr = src.userData[meshKey] as Int32Array | undefined;
           if (arr) obj.count = upperBoundCount(arr, maxStep);
         } else if (obj instanceof LineSegments2) {
           const arr = obj.userData[segKey] as Int32Array | undefined;
@@ -1174,8 +1245,13 @@ export class LDrawViewer {
       this.scene.remove(obj);
       if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose();
-        if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
-        else (obj.material as THREE.Material).dispose();
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material as THREE.Material];
+        for (const m of mats) {
+          // floor light-pool + contact-shadow canvases own CanvasTextures
+          const map = (m as THREE.MeshPhysicalMaterial).map;
+          if (map) map.dispose();
+          m.dispose();
+        }
       }
     }
     this.backdropMeshes = [];
@@ -1783,13 +1859,46 @@ export class LDrawViewer {
     const curveR = gs * 0.55;
     const floorY = bboxMin.y - 0.01;
     const groundColor = 0x4a4a5a;
+    // Product-shot floor: a radial "light pool" under the model falling off
+    // to darker edges (multiplied via map — center brighter, rim ~40%), plus
+    // a modest clearcoat sheen so the env softboxes streak faintly across the
+    // floor near the model. The old single flat matte material lit the WHOLE
+    // 10×maxDim expanse evenly — the model floated in a washed-out void
+    // (user feedback 2026-08-21: "lighting doesn't look very good").
+    const poolCanv = document.createElement('canvas');
+    poolCanv.width = 512; poolCanv.height = 512;
+    const pctx = poolCanv.getContext('2d')!;
+    // The floor plane spans 10×maxDim — concentrate the pool in the central
+    // ~15% (≈ 1.5×maxDim radius) or the visible area sits inside a uniform
+    // center and reads flat.
+    const pool = pctx.createRadialGradient(256, 256, 0, 256, 256, 256);
+    pool.addColorStop(0.0, '#ffffff');
+    pool.addColorStop(0.07, '#ececf0');
+    pool.addColorStop(0.18, '#93939d');
+    pool.addColorStop(0.38, '#5a5a64');
+    pool.addColorStop(1.0, '#42424b');
+    pctx.fillStyle = pool;
+    pctx.fillRect(0, 0, 512, 512);
+    const poolTex = new THREE.CanvasTexture(poolCanv);
+    poolTex.colorSpace = THREE.SRGBColorSpace;
+    const floorMat = new THREE.MeshPhysicalMaterial({
+      color: groundColor, roughness: 0.5, metalness: 0.0,
+      clearcoat: 0.35, clearcoatRoughness: 0.3,
+      map: poolTex,
+      // Slightly transparent so the mirrored-model floor reflection (drawn
+      // below the plane, before the floor in the transparent pass) shows
+      // through — the fake-mirror studio look.
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+    });
+    // Cyc wall stays matte (specular on the wall reads as haze, not polish).
     const backdropMat = new THREE.MeshPhysicalMaterial({
-      color: groundColor, roughness: 0.7, metalness: 0.0,
-      clearcoat: 0.1, clearcoatRoughness: 0.5,
+      color: groundColor, roughness: 0.85, metalness: 0.0,
       side: THREE.DoubleSide,
     });
 
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(gs * 2, gs * 2), backdropMat);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(gs * 2, gs * 2), floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(center.x, floorY, center.z);
     floor.receiveShadow = true;
