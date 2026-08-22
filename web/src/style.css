@@ -171,6 +171,12 @@ html, body {
   gap: 16px;
 }
 
+/* The panel SCROLLS — its children must never flex-shrink to fit, or content
+ * collapses and overflows onto siblings. This bug class hit the LEGO results
+ * grid (squished to 3px) and the status line (multi-line text painting over
+ * the controls on mobile) before being fixed wholesale here. */
+.control-panel > * { flex-shrink: 0; }
+
 .viewer-panel {
   flex: 1;
   position: relative;
@@ -640,7 +646,9 @@ html, body {
 
 @media (max-width: 768px) {
   #nav { padding: 0 10px; gap: 10px; }
-  .nav-tabs { gap: 2px; justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
+  /* Tabs SCROLL horizontally on mobile — wrapping overflowed the fixed-height
+   * nav bar and the second row painted over the page content below. */
+  .nav-tabs { gap: 2px; justify-content: flex-start; min-width: 0; flex-wrap: nowrap; overflow-x: auto; }
   .nav-tab { padding: 5px 8px; font-size: 10.5px; flex-shrink: 0; }
   .nav-title { display: none; }
 
@@ -660,6 +668,12 @@ html, body {
   }
 
   .panel-layout[data-has-model] .control-panel { max-height: 35vh; }
+
+  /* ONE scroll context on mobile: the results list gets no inner scrollbar
+   * (its desktop max-height exceeds nothing here) — the control panel is the
+   * single scrolling column. Nested inner scrollbars inside a 35-40vh panel
+   * made touch scrolling clunky (scroll captured by the wrong region). */
+  .lego-results { max-height: none; }
 
   .viewer-panel { flex: 1; min-height: 55vh; }
 
@@ -2182,7 +2196,10 @@ html, body {
 .lego-status {
   padding: 8px 16px 0;
   font-size: 11px;
-  min-height: 0;
+  /* The control-panel is a flex column: without this, a multi-line status
+   * gets flex-shrunk to one line's height and the overflowing text paints
+   * OVER the controls below it (mobile bug: "loaded params overlap"). */
+  flex-shrink: 0;
 }
 .lego-status[hidden] { display: none; }
 .lego-status-info    { color: var(--text-secondary); }

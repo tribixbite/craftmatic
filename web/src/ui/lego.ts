@@ -1471,7 +1471,11 @@ function reconstructionQuality(ldrText: string): 'good' | 'approximate' | 'broke
   // above (10255's ".io" and its recon derivatives) are not text-detectable;
   // their defect is stacked PLACEMENT (LXF workspace layout), which needs
   // lineage metadata upstream in the model index to catch.
-  if (/inverse isometric projection|blob (fallback|detection)/i.test(head)) return 'approximate';
+  // Vision/PDF reconstruction lineages — placements are heuristic. recon_v3
+  // renders as a semi-coherent pile for many sets (visual QA 2026-08-21:
+  // ReconV3/2879 = interpenetrating bricks); it's the ONLY source for ~2.2k
+  // sets, so it loads — but always labeled, never silently.
+  if (/reconstructed by recon_v3|Reconstructed from PDF|inverse isometric projection|blob (fallback|detection)/i.test(head)) return 'approximate';
   return 'good';
 }
 
@@ -1491,6 +1495,11 @@ function maybeSynthesize(text: string): string {
 async function parseMpdFile(file: File): Promise<void> {
   if (!onResult) return;
   const epoch = newLoadEpoch();
+  // An upload replaces whatever set was selected — clear it, or the display
+  // label and the catalog-completeness note describe the WRONG set (seen:
+  // uploading a 374-piece train right after browsing a 6,838-piece set
+  // produced "file contains 374 of the set's 6,838 catalog pieces").
+  selectedSet = null;
   setStatus(`Parsing ${file.name}…`, 'info');
 
   try {
@@ -1638,12 +1647,19 @@ async function voxelizeAndDisplay(
 
   // ── Direct 3D Render mode: render LDraw triangles as meshes, skip voxelization ──
   if (directRenderMode) {
+    // Capture (not bump) the load epoch: re-entrant calls (slider/scale) run
+    // under the current epoch, while a NEW load initiator bumping it makes
+    // this call stale — bail before touching the UI so overlapping loads
+    // never fight over status/detail (the viewer itself also cancels stale
+    // load() calls internally via its loadSeq).
+    const displayEpoch = loadEpoch;
     const label = selectedSet
       ? `${selectedSet.set_num} ${selectedSet.name}`
       : filename.replace(/\.[^.]+$/, '');
     setStatus(`Rendering ${label} — ${bricks.length} bricks (loading geometry…)`, 'info');
     try {
       const { LDrawViewer } = await import('@viewer/ldraw/index.js');
+      if (loadIsStale(displayEpoch)) return;
       const viewerEl = rootEl.closest('.tab-content')?.querySelector('.viewer-area, .inline-viewer') as HTMLElement
         ?? document.getElementById('lego-viewer');
       if (viewerEl) {
@@ -1716,6 +1732,7 @@ async function voxelizeAndDisplay(
           datFiles: currentCustomParts,
           maxStep: currentStep,
           onProgress: (done, total) => {
+            if (loadIsStale(displayEpoch)) return; // a newer load owns the UI
             const pct = total > 0 ? done / total : 0;
             showProgress(pct);
             const now = Date.now();
@@ -1725,6 +1742,9 @@ async function voxelizeAndDisplay(
             }
           },
         });
+        // Stale = a newer load started while ours streamed in; the viewer
+        // already cancelled our scene work — leave the UI to the newer load.
+        if (loadIsStale(displayEpoch)) return;
         hideProgress();
         // Surface any pieces that couldn't be rendered (missing from the
         // bundled part library, or LSynth flexible parts needing synthesis)
