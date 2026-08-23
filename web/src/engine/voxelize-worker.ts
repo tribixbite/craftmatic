@@ -412,7 +412,117 @@ function voxelizeSurface(
   return { type: 'result', blocks, palette, width, height, length };
 }
 
-// ─── Solid mode (raycasting odd-even test) ───────────────────────────────────
+// ─── Solid mode: per-mesh parity fill ────────────────────────────────────────
+
+/**
+ * Multi-mesh voxelization by exact TRIANGLE RASTERIZATION — iterate meshes,
+ * sample every triangle at sub-cell density in world space, mark the touched
+ * cells with the mesh's material color. No watertightness or winding
+ * assumptions (LDraw-derived brick meshes are open surfaces with unreliable
+ * winding, which breaks ray-parity solid fills — verified: parity filled
+ * 1,299 of ~9,000 expected cells on the 8849 GLB; 'surface'
+ * closest-point mode was even sparser at ~1 cell per mesh). At LEGO scale
+ * (walls ≈ cell size) surface-touch marking IS effectively solid.
+ *
+ * Complexity O(total triangles × samples-per-triangle) — millions of cheap
+ * ops, independent of grid size.
+ */
+function voxelizeSolidMulti(
+  input: WorkerInput,
+  entries: MeshEntry[],
+): WorkerResult {
+  const box = new THREE.Box3(
+    new THREE.Vector3(...input.boxMin),
+    new THREE.Vector3(...input.boxMax),
+  );
+  const size = new THREE.Vector3();
+  box.getSize(size);
+
+  let width = Math.ceil(size.x * input.resolution);
+  let height = Math.ceil(size.y * input.resolution);
+  let length = Math.ceil(size.z * input.resolution);
+  let resolution = input.resolution;
+  if (input.maxDimension > 0) {
+    const largest = Math.max(width, height, length);
+    if (largest > input.maxDimension) {
+      const scale = input.maxDimension / largest;
+      width = Math.max(1, Math.round(width * scale));
+      height = Math.max(1, Math.round(height * scale));
+      length = Math.max(1, Math.round(length * scale));
+      resolution *= scale; // keep the voxel→world mapping consistent with the clamp
+    }
+  }
+
+  const blocks = new Uint16Array(width * height * length);
+  const palette: string[] = ['minecraft:air'];
+  const paletteMap = new Map<string, number>([['minecraft:air', 0]]);
+  let nextId = 1;
+  const getPaletteId = (block: string): number => {
+    let id = paletteMap.get(block);
+    if (id === undefined) { id = nextId++; paletteMap.set(block, id); palette[id] = block; }
+    return id;
+  };
+
+  const cell = 1 / resolution;
+  const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3();
+
+  const mark = (wx: number, wy: number, wz: number, r: number, g: number, b: number): void => {
+    const gx = Math.floor((wx - box.min.x) * resolution);
+    const gy = Math.floor((wy - box.min.y) * resolution);
+    const gz = Math.floor((wz - box.min.z) * resolution);
+    if (gx < 0 || gy < 0 || gz < 0 || gx >= width || gy >= height || gz >= length) return;
+    const idx = (gy * length + gz) * width + gx;
+    if (blocks[idx] !== 0) return;
+    blocks[idx] = getPaletteId(rgbToWallBlock(r, g, b, gx, gy, gz));
+  };
+
+  for (let m = 0; m < entries.length; m++) {
+    if (m % 100 === 0) {
+      self.postMessage({
+        type: 'progress',
+        progress: 0.2 + (m / entries.length) * 0.8,
+        currentY: m,
+        totalY: entries.length,
+        phase: 'voxelize',
+      } satisfies WorkerProgress);
+    }
+    const entry = entries[m];
+    const geo = entry.geometry;
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    const index = geo.index;
+    const triCount = index ? index.count / 3 : pos.count / 3;
+    const [r, g, b] = entry.materialColor;
+
+    for (let t = 0; t < triCount; t++) {
+      const i0 = index ? index.getX(t * 3) : t * 3;
+      const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+      const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+      va.fromBufferAttribute(pos, i0).applyMatrix4(entry.worldMatrix);
+      vb.fromBufferAttribute(pos, i1).applyMatrix4(entry.worldMatrix);
+      vc.fromBufferAttribute(pos, i2).applyMatrix4(entry.worldMatrix);
+      // Sample density: ~2 samples per cell along the longest edge (capped so
+      // one giant baseplate face can't dominate runtime).
+      const e = Math.max(va.distanceTo(vb), va.distanceTo(vc), vb.distanceTo(vc));
+      let n = Math.max(1, Math.ceil(e / (cell * 0.5)));
+      if (n > 64) n = 64;
+      for (let i = 0; i <= n; i++) {
+        for (let j = 0; j <= n - i; j++) {
+          const u = i / n, v = j / n, w = 1 - u - v;
+          mark(
+            u * va.x + v * vb.x + w * vc.x,
+            u * va.y + v * vb.y + w * vc.y,
+            u * va.z + v * vb.z + w * vc.z,
+            r, g, b,
+          );
+        }
+      }
+    }
+  }
+
+  return { type: 'result', blocks, palette, width, height, length };
+}
+
+// ─── Solid mode (global raycasting odd-even test — single-mesh fallback) ─────
 
 function voxelizeSolid(
   input: WorkerInput,
@@ -555,10 +665,14 @@ self.onmessage = (event: MessageEvent<WorkerInput>) => {
       }
     }
 
-    // Run voxelization
+    // Run voxelization. Solid mode with MANY meshes (LEGO bakes, multi-part
+    // scenes) uses the per-mesh parity fill — the global brute raycast is
+    // O(grid × meshes) and only sane for one or a few meshes.
     let result: WorkerResult;
     if (input.mode === 'surface') {
       result = voxelizeSurface(input, entries);
+    } else if (entries.length > 4) {
+      result = voxelizeSolidMulti(input, entries);
     } else {
       result = voxelizeSolid(input, entries);
     }
