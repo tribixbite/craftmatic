@@ -193,6 +193,20 @@ export interface VoxelizeOptions {
    */
   detailScale?: boolean;
   /**
+   * Uniform cubic cell size in LDU for ALL axes. Overrides cubicScale AND
+   * detailScale. Values that divide both 20 (stud) and 8 (plate) — 4, 2, 1 —
+   * give EXACT proportions with sub-stud resolution: cellLDU 4 = 5 cells per
+   * stud, 2 cells per plate (the "Ultra" export mode; ~125× the voxel volume
+   * of Accurate with none of its 2.5× vertical stretch).
+   */
+  cellLDU?: number;
+  /**
+   * Maximum grid dimension before downscaling (geometry voxelizer only).
+   * Default 384 protects the in-app voxel PREVIEW; exports pass higher caps
+   * (Minecraft schematics have no hard XZ limit; height ≤ 320 in modern MC).
+   */
+  maxDim?: number;
+  /**
    * If set, only include bricks with step ≤ maxStep. Used for step-by-step
    * assembly playback. Undefined = include all steps.
    */
@@ -224,8 +238,9 @@ export function voxelizeLDraw(
   // In cubic mode Y uses the same pitch as X/Z (20 LDU = 1 stud), eliminating
   // the 2.5× vertical stretch. In accurate mode 1 plate (8 LDU) = 1 cell.
   const detail = options?.detailScale === true;
-  const LDU_PER_Y = detail ? LDU_PER_PLATE : (options?.cubicScale ? LDU_PER_STUD : LDU_PER_PLATE);
-  const LDU_PER_XZ = detail ? LDU_PER_PLATE : LDU_PER_STUD;
+  const cell = options?.cellLDU;
+  const LDU_PER_Y = cell ?? (detail ? LDU_PER_PLATE : (options?.cubicScale ? LDU_PER_STUD : LDU_PER_PLATE));
+  const LDU_PER_XZ = cell ?? (detail ? LDU_PER_PLATE : LDU_PER_STUD);
   // Ratio of horizontal stud pitch to vertical cell pitch.
   // Used to convert stud-radius → plate-radius for arch semicircle formula.
   // Accurate: 20/8 = 2.5.  Cubic: 20/20 = 1.0.

@@ -152,14 +152,21 @@ export function makeMaterial(colorId: number): THREE.MeshPhysicalMaterial {
   // dark bricks matte and light bricks glossy, which read as different
   // plastics side by side). Saturation is preserved by (a) the dark studio
   // env not flooding white onto the surface, and (b) generous neutral
-  // diffuse fill lighting the base color. The single dielectric specular
-  // layer (F0≈0.04) plus the env's bright panels give the characteristic
-  // tight plastic highlight without a broad white wash.
+  // diffuse fill lighting the base color.
+  //
+  // specularIntensity 0.45 (calibrated 2026-08-23 by pixel-sampling sand
+  // green #A0BCAC on 21327): at full dielectric F0 the broad white specular
+  // from the direct lights sat ADDITIVELY on every mid-tone face and halved
+  // the chroma (rendered [183,198,187] vs target [160,188,172] — colors read
+  // "off"/pale). 0.45 restores [162,183,169] while Fresnel grazing gloss and
+  // stud glints survive. Tone mapping was measured innocent (NoToneMapping
+  // shifted the sample by <3/255).
   return new THREE.MeshPhysicalMaterial({
     color,
     roughness: 0.36,
     metalness: 0.0,
     envMapIntensity: 1.0,
+    specularIntensity: 0.45,
     clearcoat: 0.0,
     side: THREE.DoubleSide,
   });

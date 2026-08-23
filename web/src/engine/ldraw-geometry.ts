@@ -431,8 +431,9 @@ export async function voxelizeLDrawGeometry(
   const isDefaultFn  = colorFn == null;
   const unmappedColorSet = new Set<number>();
   const detail = options?.detailScale === true;
-  const LDU_PER_Y = detail ? 8 : (options?.cubicScale ? LDU_STUD : 8);
-  const LDU_XZ = detail ? 8 : LDU_STUD;
+  const cell = options?.cellLDU;
+  const LDU_PER_Y = cell ?? (detail ? 8 : (options?.cubicScale ? LDU_STUD : 8));
+  const LDU_XZ = cell ?? (detail ? 8 : LDU_STUD);
 
   // Auto-flip disabled: LDraw convention is Y-down, and our grid conversion
   // (gy = -wy / LDU_PER_Y) already handles the inversion. Flipping was
@@ -542,13 +543,14 @@ export async function voxelizeLDrawGeometry(
   let scale = 1;
   let warning: string | undefined;
 
+  const dimCap = options?.maxDim ?? MAX_DIM_GEO;
   const maxDim = Math.max(w, h, l);
-  if (maxDim > MAX_DIM_GEO) {
-    scale = MAX_DIM_GEO / maxDim;
+  if (maxDim > dimCap) {
+    scale = dimCap / maxDim;
     w = Math.max(1, Math.round(w * scale));
     h = Math.max(1, Math.round(h * scale));
     l = Math.max(1, Math.round(l * scale));
-    warning = `Model scaled down ${(1 / scale).toFixed(1)}× to fit limits (max dim ${MAX_DIM_GEO})`;
+    warning = `Model scaled down ${(1 / scale).toFixed(1)}× to fit limits (max dim ${dimCap})`;
   }
 
   const grid = new BlockGrid(w, h, l);
