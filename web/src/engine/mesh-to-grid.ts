@@ -55,9 +55,14 @@ export async function meshFileToGrid(
     resolution = maxDim / largestExtent;
   }
 
-  // Auto-detect mode: GLB/GLTF (photogrammetry) → surface, OBJ → solid
+  // Auto-detect mode: OBJ → solid; GLB/GLTF defaults to surface
+  // (photogrammetry), EXCEPT multi-mesh untextured scenes — the signature of
+  // a baked model export (e.g. our LEGO GLB: thousands of small closed brick
+  // meshes). Surface mode leaves those as sparse dust (~1 voxel per mesh,
+  // verified 2026-08-23); the per-mesh solid fill voxelizes them densely.
   const ext = filename.split('.').pop()?.toLowerCase();
-  const mode = options?.mode ?? (ext === 'obj' ? 'solid' : 'surface');
+  const looksLikeBakedModel = info.meshCount >= 10 && !info.hasTextures;
+  const mode = options?.mode ?? ((ext === 'obj' || looksLikeBakedModel) ? 'solid' : 'surface');
 
   // Try Web Worker path for non-blocking voxelization
   try {
@@ -149,12 +154,15 @@ async function voxelizeInWorker(
       }
     }
 
-    // Material base color (0-255 range)
-    const col = mat.color ?? new THREE.Color(0xB0B0B0);
+    // Material base color (0-255 sRGB). GLTFLoader stores colors in LINEAR
+    // working space — reading .r/.g/.b raw and treating them as sRGB darkens
+    // and hue-shifts everything (grey LEGO bricks voxelized to BROWN blocks,
+    // verified 2026-08-23). Convert back to sRGB before quantizing.
+    const col = (mat.color ?? new THREE.Color(0xB0B0B0)).clone().convertLinearToSRGB();
     const materialColor: [number, number, number] = [
-      Math.round(col.r * 255),
-      Math.round(col.g * 255),
-      Math.round(col.b * 255),
+      Math.round(Math.min(1, col.r) * 255),
+      Math.round(Math.min(1, col.g) * 255),
+      Math.round(Math.min(1, col.b) * 255),
     ];
 
     serializedMeshes.push({
