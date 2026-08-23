@@ -1357,11 +1357,52 @@ async function exportLoadedModel(fmt: string): Promise<void> {
     }
 
     if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide') {
-      setStatus('Voxelizing for Minecraft…', 'info');
-      // Yield a frame so the status paints before the (sync) voxelize.
+      // High-res PROPORTION-EXACT export (2026-08-23). The old default was
+      // "Accurate" voxelization: 1 stud per cell horizontally but 1 PLATE per
+      // cell vertically → 2.5× vertical stretch in Minecraft (the reported
+      // "axes skewed") and coarse 1-stud detail. Exports now pick the finest
+      // UNIFORM cubic cell that fits Minecraft-sane bounds — cellLDU 4 =
+      // 5 cells/stud + 2/plate (exact: 4 divides both 20 and 8) ≈ 125× the
+      // voxel volume of the old default. The build guide stays at 1 cell per
+      // stud (cellLDU 20, still cubic) — it's meant to be humanly followable.
+      const spanLDU = (() => {
+        let nx = Infinity, xx = -Infinity, ny = Infinity, xy = -Infinity, nz = Infinity, xz = -Infinity;
+        for (const b of currentBricks) {
+          if (b.x < nx) nx = b.x; if (b.x > xx) xx = b.x;
+          if (b.y < ny) ny = b.y; if (b.y > xy) xy = b.y;
+          if (b.z < nz) nz = b.z; if (b.z > xz) xz = b.z;
+        }
+        // Brick origins understate extents — pad by ~2 studs a side.
+        return { x: xx - nx + 80, y: xy - ny + 80, z: xz - nz + 80 };
+      })();
+      let cellLDU = 20;
+      if (fmt !== 'guide') {
+        for (const c of [4, 5, 8, 10, 20]) {
+          const w = spanLDU.x / c, h = spanLDU.y / c, l = spanLDU.z / c;
+          if (Math.max(w, l) <= 640 && h <= 320 && w * h * l <= 30_000_000) { cellLDU = c; break; }
+        }
+      }
+      const res = 20 / cellLDU;
+      setStatus(`Voxelizing for Minecraft at ${res}× stud resolution (${cellLDU} LDU cells)…`, 'info');
+      // Yield a frame so the status paints before the heavy voxelize.
       await new Promise(r => setTimeout(r, 0));
-      const opts: VoxelizeOptions = { cubicScale, detailScale };
-      const { grid } = voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
+      const opts: VoxelizeOptions = { cellLDU, maxDim: 700 };
+      // Geometry-accurate voxelization (real triangles) — in 3D-render mode
+      // the part geometry is already cached, so this is CPU-only. Falls back
+      // to the bbox voxelizer if geometry is unavailable (voxel-only mode).
+      let grid: BlockGrid;
+      try {
+        const r = await voxelizeLDrawGeometry(currentBricks, currentBricksColorFn, opts);
+        // Near-empty result = part geometry unavailable → bbox fallback.
+        grid = r.grid.countNonAir() >= currentBricks.length
+          ? r.grid
+          : voxelizeLDraw(currentBricks, currentBricksColorFn, opts).grid;
+      } catch {
+        grid = voxelizeLDraw(currentBricks, currentBricksColorFn, opts).grid;
+      }
+      // Close 1-cell surface holes from non-watertight part meshes. (No
+      // keepLargestComponent here — separate assemblies/minifigs are real.)
+      fillSingleVoxelGaps(grid);
       const blocks = grid.countNonAir();
       if (fmt === 'schem') {
         exportSchem(grid, `${base}.schem`);
@@ -1375,7 +1416,7 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         setStatus(`Exported ${base}-build-guide.html (${grid.height} layers, ${blocks.toLocaleString()} blocks)`, 'success');
         return;
       }
-      setStatus(`Exported ${base}.${fmt} (${blocks.toLocaleString()} blocks, ${grid.width}×${grid.height}×${grid.length})`, 'success');
+      setStatus(`Exported ${base}.${fmt} — ${blocks.toLocaleString()} blocks at ${res}× stud resolution, ${grid.width}×${grid.height}×${grid.length} (proportion-exact)`, 'success');
       return;
     }
 

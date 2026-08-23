@@ -33,6 +33,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
 import type { Vec3, Triangle, LDrawViewerOptions } from './types.js';
 import type { ConnectivityReport } from './connectivity-audit.js';
+import { WarpLoader } from './warp-loader.js';
 import {
   resolvePartGeometry,
   getCachedPartGeom,
@@ -264,11 +265,13 @@ export class LDrawViewer {
     // the key raised — the previous 0.55+0.45 flat wash left models milky and
     // low-contrast ("lighting doesn't look very good"). Saturation-critical
     // pieces (NeutralToneMapping, dark env, single ABS material) unchanged.
-    this.ambient = new THREE.AmbientLight(0xffffff, 0.42);
+    // Levels re-calibrated with ABS specularIntensity 0.45 (see materials.ts)
+    // by pixel-sampling sand green on 21327 against its real hex.
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.4);
     this.scene.add(this.ambient);
-    this.hemi = new THREE.HemisphereLight(0xffffff, 0x6a5a4a, 0.38);
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0x6a5a4a, 0.34);
     this.scene.add(this.hemi);
-    this.keyLight = new THREE.DirectionalLight(0xfff6ea, 3.0);
+    this.keyLight = new THREE.DirectionalLight(0xfff6ea, 2.9);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
     this.keyLight.shadow.bias = -0.0005;
@@ -276,7 +279,7 @@ export class LDrawViewer {
     this.keyLight.shadow.radius = 2.5;
     this.scene.add(this.keyLight);
     this.scene.add(this.keyLight.target);
-    this.fillLight = new THREE.DirectionalLight(0xffffff, 0.55);
+    this.fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
     this.scene.add(this.fillLight);
     this.rimLight = new THREE.DirectionalLight(0xffffff, 0.45);
     this.scene.add(this.rimLight);
@@ -368,7 +371,7 @@ export class LDrawViewer {
       panel(-10, 25, -45, 50, 50, 3.0); // rim/back
       panel(0, -30, 10, 90, 90, 0.25);  // dim floor bounce
       viewer.scene.environment = pmremGen.fromScene(envScene, 0.08).texture;
-      viewer.scene.environmentIntensity = 0.95;
+      viewer.scene.environmentIntensity = 0.8;
       pmremGen.dispose();
     } catch (e) {
       console.warn('[LDrawViewer] Environment map failed (GPU limitation):', e);
@@ -445,6 +448,8 @@ export class LDrawViewer {
    */
   /** Monotonic load sequence — a newer load() call cancels older in-flight ones. */
   private loadSeq = 0;
+  /** Hyperspace loading experience — fills the panel while parts stream in. */
+  private warp: WarpLoader | null = null;
 
   async load(bricks: ParsedBrick[], opts?: LDrawViewerOptions): Promise<void> {
     if (this.disposed) throw new Error('LDrawViewer is disposed');
@@ -458,6 +463,12 @@ export class LDrawViewer {
 
     // Tear down previous model state
     this.unloadCurrent();
+
+    // Hyperspace loading experience: the warp starfield owns the frame until
+    // this load finishes (or a newer one takes over — begin() resets it).
+    this.warp ??= new WarpLoader();
+    this.warp.begin(this.container, `${bricks.length.toLocaleString()} bricks incoming`);
+    try {
 
     // Inject MPD inlines + archive-bundled part definitions into the part
     // cache (both model-specific; cleared again on the next load).
@@ -488,7 +499,12 @@ export class LDrawViewer {
       await Promise.all(batch.map(async partId => {
         await resolvePartGeometry(partId);
         done++;
-        if (!stale()) opts?.onProgress?.(done, uniqueParts.length);
+        if (!stale()) {
+          opts?.onProgress?.(done, uniqueParts.length);
+          this.warp?.setProgress(done, uniqueParts.length, `${done} / ${uniqueParts.length} part geometries loaded`);
+          // Feed every few resolved parts into the warp as flying debris.
+          if (done % 6 === 0) this.warp?.addPartGeometry(getCachedPartGeom(partId));
+        }
       }));
     }
     if (stale()) return;
@@ -630,6 +646,12 @@ export class LDrawViewer {
     // step-group structure, etc. can be inspected from the console / E2E.
     if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
       (globalThis as Record<string, unknown>)['__ldrawViewer'] = this;
+    }
+
+    } finally {
+      // End the warp ONLY if this load still owns it — when a newer load has
+      // taken over (stale), its begin() already replaced the overlay/state.
+      if (seq === this.loadSeq) this.warp?.end();
     }
   }
 
@@ -888,6 +910,8 @@ export class LDrawViewer {
     // Materials are cached module-wide — restore any highlight-stashed colors
     // or the next viewer instance renders them washed-out white.
     this.clearDetachedHighlight();
+    this.warp?.dispose();
+    this.warp = null;
     cancelAnimationFrame(this.animId);
     this.resizeObs?.disconnect();
     if (this.clickHandler) {
@@ -927,10 +951,24 @@ export class LDrawViewer {
   }
 
   private startRenderLoop(): void {
+    let lastWarpT = 0;
     const loop = () => {
       if (this.disposed) return;
       if (!this.container.isConnected) return;
       this.animId = requestAnimationFrame(loop);
+
+      // Hyperspace warp loader owns the frame while a model streams in —
+      // continuous animation, composer skipped (the model scene is mid-build).
+      if (this.warp?.running) {
+        const now = performance.now();
+        const dt = lastWarpT > 0 ? Math.min((now - lastWarpT) / 1000, 0.1) : 0.016;
+        lastWarpT = now;
+        const w = this.container.clientWidth || 1, h = this.container.clientHeight || 1;
+        const still = this.warp.render(this.renderer, dt, w / h);
+        if (!still) { lastWarpT = 0; this.invalidate(); } // warp done → composite the model
+        return;
+      }
+      lastWarpT = 0;
 
       // Continuous-render conditions: a camera interpolation is running, the
       // turntable is on, or the Stats overlay wants a live FPS read.

@@ -163,6 +163,25 @@ ghost tires). Pipeline defenses now in `lego.ts`:
   awaited stage bails when a newer load starts. UI paths capture `loadEpoch`
   and skip stale status/progress writes. Rapid set-switching must always
   settle on the LAST selection.
+- **ABS specularIntensity 0.45** (materials.ts, calibrated 2026-08-23 by
+  pixel-sampling sand green on 21327 against #A0BCAC): full dielectric F0 laid
+  a broad white specular on every mid-tone face and HALVED the chroma (colors
+  read pale). Tone mapping measured innocent. Light levels re-tuned to match
+  (amb 0.4 / hemi 0.34 / key 2.9 / fill 0.5 / env 0.8) — re-calibrate BOTH
+  together or colors drift.
+- **Hyperspace warp loader** (`warp-loader.ts`): full-panel starfield + big
+  percent + real part geometries as flying debris, owns the render loop while
+  `warp.running` (composer skipped — the model scene is mid-build). begin()
+  replaces any previous run; load()'s finally ends it only when
+  `seq === loadSeq` (a newer load owns the overlay otherwise).
+- **Minecraft exports are proportion-exact + high-res** (2026-08-23): schem/
+  litematic pick the finest UNIFORM cubic cell from [4,5,8,10,20] LDU fitting
+  max(w,l)≤640, h≤320, ≤30M cells (cellLDU 4 = 5 cells/stud, 2/plate — 4
+  divides both 20 and 8, so NO 2.5× vertical stretch), geometry-voxelized
+  with a bbox fallback + fillSingleVoxelGaps (no keepLargestComponent —
+  minifigs are real separate components). The build guide stays at 1
+  cell/stud. GLB/OBJ/STL were verified axis-exact already (STL bbox matches
+  studs×8mm per axis to the decimal).
 - **All materials are `DoubleSide`** (LDraw `.dat` winding is unreliable), so
   triangle winding is **shading-irrelevant** — Three flips the normal per
   `gl_FrontFacing`. Consequence: `resolvePartGeometry`'s cache keys by part id
