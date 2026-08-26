@@ -38,6 +38,8 @@ export interface RankRecord {
   readonly defectScore: number | null;
   /** VLM consensus median; demoted to the final tie-break. */
   readonly consensusMedian: number | null;
+  /** Usable street-level references for the last run; null on older records. */
+  readonly svReferencesUsable?: number | null;
 }
 
 export interface RankedCandidate {
@@ -178,6 +180,26 @@ export function isBlockedOnConsensus(record: RankRecord, hasVlmKey: boolean): bo
   return record.status === 'fail-consensus'
     && record.consensusMedian === null
     && !hasVlmKey;
+}
+
+/**
+ * A record whose subjective score cannot be earned, because every
+ * street-level reference is occluded.
+ *
+ * The consensus scorer compares renders against reference photos. When those
+ * photos show FOLIAGE rather than the building (240-highland sits behind
+ * dense evergreens; the capture sniffer flags every pane `trees`), no amount
+ * of facade work can raise the score — the VLM has nothing to match against.
+ * The loop nonetheless kept nominating it as "worst" and prescribing overlay
+ * changes, four attempts running, because a low score looks like a bad build.
+ *
+ * `svReferencesUsable === 0` is the machine-checkable form of that. Records
+ * carrying it leave the queue; the satellite-only score stays on the record
+ * as information, it just stops driving code changes. Older records without
+ * the field (undefined/null) are never blocked.
+ */
+export function isBlockedOnReferences(record: RankRecord): boolean {
+  return record.status === 'fail-consensus' && record.svReferencesUsable === 0;
 }
 
 /**

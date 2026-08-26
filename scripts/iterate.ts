@@ -20,6 +20,7 @@ import { spawnSync } from 'node:child_process';
 import {
   rankCandidates,
   isBlockedOnConsensus,
+  isBlockedOnReferences,
   type Status,
   type RankRecord,
   type RankedCandidate,
@@ -52,6 +53,8 @@ interface StateRecord {
   recentFailureSignatures: string[];
   objective?: { footprintIoU?: number; heightErr?: number; watertight?: boolean; failures?: string[] } | null;
   consensus?: { min?: number; median?: number; spread?: number; rounds?: number } | null;
+  /** Reference-image usability recorded by the last build. */
+  references?: { svUsable?: number; skipped?: string[] };
   /** Deterministic defect score (Roadmap #4) — primary intra-status rank key. */
   defectScore?: { score?: number; penalties?: string[] } | null;
   /** Independent height cross-check (Roadmap #3). */
@@ -92,6 +95,7 @@ function toRankRecord(slug: string, rec: StateRecord): RankRecord {
     attempts: rec.attempts,
     defectScore: rec.defectScore?.score ?? null,
     consensusMedian: rec.consensus?.median ?? null,
+    svReferencesUsable: rec.references?.svUsable ?? null,
   };
 }
 
@@ -124,7 +128,7 @@ function remediationQueue(state: StateFile, goldens: Golden[]): RankedCandidate[
   const records = goldens
     .filter(g => isRemediable(state.addresses[g.slug]))
     .map(g => toRankRecord(g.slug, state.addresses[g.slug]))
-    .filter(r => !isBlockedOnConsensus(r, vlm));
+    .filter(r => !isBlockedOnConsensus(r, vlm) && !isBlockedOnReferences(r));
   return rankCandidates(records, failedDir);
 }
 

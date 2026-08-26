@@ -66,15 +66,27 @@ footprint is right and the *vertical form* is wrong.
 3. **geisel — massing 1 with IoU 1.00.** Untriaged. Brutalist cantilevered
    tiers; likely the same family as guggenheim (vertical form lost). Render
    it and look before theorising.
-4. **240-highland — closed as source-data-limited.** Do not spend overlay
-   work on it; see its section. Let the escalator retire it.
+4. **240-highland — REOPENED; my earlier "source-data-limited" call was too
+   strong.** Three of its four SV panes are genuinely foliage, but
+   `sv-left.jpg` is a clear facade view: cream clapboard, green shutters,
+   gabled dormers, a chimney. The model is a plain gabled prism in sandstone,
+   so `massing 0` is at least partly a real detail/massing gap, not purely
+   missing evidence. Treat it as a normal (hard) target.
 
 ## Traps that have already cost real time
 
 - **A failed measurement must never look like a measurement.** This bit us
-  three separate ways in one day: an Overpass `null` (outage read as "no
-  building"), the VLM scorer's zero-score error fallback, and tree photos fed
-  to the scorer as reference. When you add a fallback, make it *distinguishable*.
+  FOUR separate ways: an Overpass `null` (outage read as "no building"), the
+  VLM scorer's zero-score error fallback, tree photos fed to the scorer as
+  reference, and — inside the module written to fix the third — a
+  `catch { return 'none' }` that reported every reference as clear when a
+  field name was wrong. When you add a fallback, make it *distinguishable*,
+  and catch only the failure you actually mean to tolerate.
+- **The occlusion sniffer under-detects DARK foliage.** `veg ≥ 0.30` uses a
+  hue+saturation test, so shadowed evergreens fall through as "building".
+  240-highland's `sv-right.jpg` is near-solid dark conifer and sniffs as
+  `none`. Verdicts already in `references.json` are never overwritten, so a
+  human/agent correction sticks — that file accepts a `$comment`.
 - **NEVER add a regional Overpass mirror** (`overpass.osm.ch` answers New York
   with HTTP 200 + `elements: []`). Global-coverage instances only.
 - **Deterministic gates cannot see a blank facade.** The per-column-ceiling

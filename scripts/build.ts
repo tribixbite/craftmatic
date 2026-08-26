@@ -32,6 +32,7 @@ import { writeSchematic } from '../src/schem/write.js';
 import { writeLitematic } from '../src/schem/write-litematic.js';
 import { summariseReport } from '../src/pipeline/verify/report.js';
 import { preserveFailedReport } from './failed-history.js';
+import { ensureOcclusionManifest } from '../src/pipeline/verify/reference-occlusion.js';
 import type { ContextFetchers } from '../src/pipeline/context/resolver.js';
 import type { StreetViewFetchers } from '../src/pipeline/capture/streetview.js';
 import { createGeminiScorer, singleModelFetchers, medianOfN } from '../src/pipeline/verify/gemini-scorer.js';
@@ -345,6 +346,31 @@ function buildModelFetchers(): { models: ModelFetchers; mode: string } | null {
   return { models: { gemini, claude, gpt5 }, mode: `multi(gemini,${claudeName},${gpt5Name})` };
 }
 
+/**
+ * Reference usability for THIS run, surfaced into the state record.
+ *
+ * A build whose street-level references are all tree-occluded cannot earn a
+ * subjective score no matter what the overlay does — the VLM is comparing a
+ * model against foliage. Recording it lets the loop stop prescribing facade
+ * work on such an address instead of burning attempts on it (240-highland
+ * took four before this existed). Same rule as `isBlockedOnConsensus`: a
+ * record the prescribed action cannot fix must leave the queue.
+ */
+let referenceUsability: { svUsable: number; skipped: string[] } | null = null;
+
+/** Street-level pane filenames, in the order the scorer receives them. */
+const SV_PANE_NAMES = ['sv-front.jpg', 'sv-right.jpg', 'sv-rear.jpg', 'sv-left.jpg'] as const;
+
+// Judge every pane ON DISK before the reference set is assembled. The capture
+// path only judges the facades IT fetched, so a directory that accumulated
+// panes across runs (or picked up hand-curated ones) carries unjudged files
+// that then default to "usable" and keep feeding foliage to the scorer.
+await ensureOcclusionManifest(
+  resolve(projectRoot, 'output/reference-data',
+    slugOverride ?? address.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80)),
+  SV_PANE_NAMES,
+);
+
 const consensusOpt: RunPipelineOptions['consensus'] = (() => {
   if (!consensusMode) return undefined;
   const built = buildModelFetchers();
@@ -354,6 +380,7 @@ const consensusOpt: RunPipelineOptions['consensus'] = (() => {
   }
   const slugGuess = slugOverride ?? address.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80);
   const { refs: references, skipped, svUsable } = loadReferencesForSlug(slugGuess);
+  referenceUsability = { svUsable, skipped };
   if (references.length === 0) {
     console.error(`warn: no reference images at output/reference-data/${slugGuess}/ — consensus will run without references`);
   }
@@ -551,6 +578,8 @@ interface PipelineStateRecord {
   defectScore: FullVerificationReport['defectScore'];
   synthesisPath: FullVerificationReport['synthesisPath'];
   resolution: FullVerificationReport['resolution'];
+  /** Reference-image usability for the run that produced this record. */
+  references?: { svUsable: number; skipped: string[] };
   reason?: string;
 }
 
@@ -692,6 +721,7 @@ function mergeStateRecordLocked(
     defectScore: report.defectScore,
     synthesisPath: report.synthesisPath,
     resolution: report.resolution,
+    ...(referenceUsability ? { references: referenceUsability } : {}),
     ...(report.reason ? { reason: report.reason } : {}),
   };
 

@@ -379,8 +379,26 @@ if blocking["fail-consensus"]:
     #      identical report, so this must NOT block: it is the exact loop that
     #      burned 282 rebuilds across the goldens. Report it and allow stop.
     #      scripts/iterate-ranking.ts:isBlockedOnConsensus encodes the same rule.
-    ran = [s for s in blocking["fail-consensus"] if addresses[s].get("consensus") is not None]
+    #   C) Scored, but every street-level reference is tree-occluded — the VLM
+    #      compared the render against FOLIAGE. No facade change can raise
+    #      that score; the loop nominated 240-highland as "worst" and
+    #      prescribed overlay work four attempts running before this existed.
+    def refs_unusable(slug):
+        return (addresses[slug].get("references") or {}).get("svUsable") == 0
+
+    scored = [s for s in blocking["fail-consensus"] if addresses[s].get("consensus") is not None]
+    ran = [s for s in scored if not refs_unusable(s)]
+    ref_blocked = [s for s in scored if refs_unusable(s)]
     unwired = [s for s in blocking["fail-consensus"] if addresses[s].get("consensus") is None]
+
+    for slug in ref_blocked:
+        sys.stderr.write(
+            f"PIPELINE {slug}: fail-consensus but every street-level reference is "
+            f"tree-occluded — the scorer has no view of the building to compare "
+            f"against, so the subjective score is not earnable by facade work. "
+            f"Not queued. Curate an unoccluded reference into "
+            f"output/reference-data/{slug}/ if this address matters.\n"
+        )
 
     if ran:
         worst = sorted(ran, key=lambda s: (-addresses[s].get("attempts", 0), s))[0]

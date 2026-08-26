@@ -10,6 +10,7 @@ import {
   statusRank,
   trendRank,
   isBlockedOnConsensus,
+  isBlockedOnReferences,
   type RankRecord,
   type RankedCandidate,
   type Status,
@@ -149,5 +150,26 @@ describe('isBlockedOnConsensus', () => {
   });
   it('fail-objective is never consensus-blocked', () => {
     expect(isBlockedOnConsensus({ ...base, status: 'fail-objective' }, false)).toBe(false);
+  });
+});
+
+describe('isBlockedOnReferences', () => {
+  const base: RankRecord = {
+    slug: 'shrouded', status: 'fail-consensus', attempts: 4,
+    defectScore: 10, consensusMedian: 0, svReferencesUsable: 0,
+  };
+  it('blocks when every street-level reference is occluded', () => {
+    expect(isBlockedOnReferences(base)).toBe(true);
+  });
+  it('does not block while at least one usable reference remains', () => {
+    expect(isBlockedOnReferences({ ...base, svReferencesUsable: 1 })).toBe(false);
+  });
+  it('never blocks older records that lack the field', () => {
+    expect(isBlockedOnReferences({ ...base, svReferencesUsable: null })).toBe(false);
+    const { svReferencesUsable: _omit, ...without } = base;
+    expect(isBlockedOnReferences(without as RankRecord)).toBe(false);
+  });
+  it('only applies to fail-consensus — an objective failure is still real', () => {
+    expect(isBlockedOnReferences({ ...base, status: 'fail-objective' })).toBe(false);
   });
 });
