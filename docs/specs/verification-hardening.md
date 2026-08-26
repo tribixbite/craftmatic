@@ -1,6 +1,99 @@
 # Verification Hardening Roadmap (Tekton-derived)
 
-Status: **in progress** — opened 2026-06-21.
+Status: **in progress** — opened 2026-06-21. Last worked 2026-08-16.
+
+---
+
+# ▶ START HERE — handoff (updated 2026-08-16)
+
+**Reading order for this file:** items `## 1`–`## 6` are the original roadmap
+(all DONE). Everything from *Visual QA findings 2026-07-18* onward is a
+chronological work log — **oldest-first until "Live-consensus era", then
+newest-first**. You do not need to read it all; this section is the summary.
+
+## How to run anything (read this before your first build)
+
+```bash
+# One golden, replaying recorded API data — NO network, ~15-180s.
+bun scripts/iterate.ts --only <slug> --local-tiles --offline
+
+# Same but allowed to fetch + record whatever is missing (default mode).
+bun scripts/iterate.ts --only <slug> --local-tiles
+
+# Board / remediation queue.
+bun scripts/iterate.ts --status
+```
+
+Every API input (geocode, Solar, OSM, SV panes, satellite) is cached per-slug
+in `output/api-cache/`. **Always iterate with `--offline`** unless you
+deliberately need fresh evidence: it makes your code change the only variable,
+costs no quota, and survives Overpass outages. A cache miss throws rather than
+silently reaching the network. `--cache-mode refresh` re-records.
+
+Ground truth for a build is `output/pipeline/<slug>.verification.json`, not the
+console — bun buffers child stderr into redirected logs until the process
+exits, so a running build looks silent.
+
+## Current board (all five goldens, 2026-08-16)
+
+| slug | status | IoU | defect | color | features | massing | overall |
+|---|---|---|---|---|---|---|---|
+| pennzoil | **pass** | 1.00 | 10.0 | 8 | 7 | 9 | 9 |
+| flatiron | fail-consensus | 0.98 | 10.0 | 3 | 2 | 9 | 4 |
+| geisel | fail-consensus | 1.00 | 10.0 | 1 | 0 | 1 | 0 |
+| guggenheim | fail-consensus | 0.99 | 10.0 | 1 | 0 | 0 | 0 |
+| 240-highland | fail-consensus | 1.00 | 10.0 | 1 | 0 | 0 | 0 |
+
+**The deterministic gates are saturated** — every build is IoU ≥ 0.98 and
+defect 10.0. All remaining signal is subjective, so a change that doesn't move
+a VLM dimension moved nothing. `massing` 0-1 alongside IoU 1.00 means the
+footprint is right and the *vertical form* is wrong.
+
+## Ranked open work
+
+1. **guggenheim — diagnose capture contamination (best-evidenced lead).**
+   Build logs `helical fit rejected: trend residual 8.37m > 15% of
+   rMean=20.9m` AND `207 bands, Y range -7.2..40.8 (48.0m) → scaled to
+   expected 21.0m (×0.438)`. A 48m capture for a 21m building means the
+   capture very likely swallowed the taller 5th-Ave neighbours — which would
+   *also* explain the radius oscillation that rejects the helical fit.
+   **Diagnose the capture before touching the helical threshold**; the
+   threshold may be innocent. Start at `sliced-tiles.ts` masking + the
+   heightmap crop, not at `fitHelicalFrustum`.
+2. **flatiron — recolor splotch (colour 3, features 2).** Photogrammetry
+   noise fragments the facade. NOTE the rejected approach below before
+   starting: attack the recolor's *sampling*, not post-hoc smoothing.
+3. **geisel — massing 1 with IoU 1.00.** Untriaged. Brutalist cantilevered
+   tiers; likely the same family as guggenheim (vertical form lost). Render
+   it and look before theorising.
+4. **240-highland — closed as source-data-limited.** Do not spend overlay
+   work on it; see its section. Let the escalator retire it.
+
+## Traps that have already cost real time
+
+- **A failed measurement must never look like a measurement.** This bit us
+  three separate ways in one day: an Overpass `null` (outage read as "no
+  building"), the VLM scorer's zero-score error fallback, and tree photos fed
+  to the scorer as reference. When you add a fallback, make it *distinguishable*.
+- **NEVER add a regional Overpass mirror** (`overpass.osm.ch` answers New York
+  with HTTP 200 + `elements: []`). Global-coverage instances only.
+- **Deterministic gates cannot see a blank facade.** The per-column-ceiling
+  bug scored IoU 1.00 / defect 10.0 with an empty upper tower; only the VLM
+  caught it. Re-render and look before trusting green gates.
+- **`Atlas load exceeded 45s — rendering with procedural textures`** means the
+  VLM scored fake textures — those scores are not comparable. Builds rarely
+  hit it; the standalone `rescore.ts` scratch script often does. Grep for it.
+- **Overpass outage tell-tale:** `prov_mean≈0.49`, `levels/inferred/0.13`, IoU
+  collapse. That is the environment, not your code — rebuild, don't debug.
+
+## Rejected with data (do not retry blind)
+
+- **Per-face median snap in the recolor pass.** Two iterations, including
+  correct outermost-shell face detection replacing a naive air-neighbour test.
+  Moved `facadeDominantShare` by 0.000 and raised `uniqueBlockTypes` 13 → 15.
+  Reverted. The splotch is real; this was not its fix.
+
+---
 
 ## Origin
 

@@ -14,6 +14,8 @@ Technical specifications and design documents for the craftmatic library.
 | [Rendering](rendering.md) | 2D PNG and 3D rendering pipeline |
 | [Web Application](web-app.md) | Browser-based toolkit with Vite + Three.js |
 | [Import Pipeline](import-pipeline.md) | Address-to-structure generation pipeline, API integrations, and conversion logic |
+| [**Verification Hardening**](verification-hardening.md) | **ACTIVE WORK.** Evidence gates, VLM consensus, the golden loop. Start at its "▶ START HERE — handoff" section for current board, ranked next steps, and traps. |
+| [Bambu 3MF Export](bambu-3mf-export.md) | Bambu Studio 3MF export format |
 
 ## Status
 

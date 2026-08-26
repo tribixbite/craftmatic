@@ -147,10 +147,12 @@
     "240-highland": {
       "address": "240 Highland St, Newton, MA",
       "status": "fail-consensus",
-      "lastRun": "2026-08-16T15:55:27.279Z",
-      "elapsedSec": 15.5,
-      "attempts": 2,
+      "lastRun": "2026-08-16T16:01:55.829Z",
+      "elapsedSec": 15.1,
+      "attempts": 4,
       "recentFailureSignatures": [
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0"
       ],
@@ -171,19 +173,19 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 2,
+          "color": 1,
           "features": 0,
           "massing": 0,
           "overall": 0
         },
         "claude": {
-          "color": 2,
+          "color": 1,
           "features": 0,
           "massing": 0,
           "overall": 0
         },
         "gpt5": {
-          "color": 2,
+          "color": 1,
           "features": 0,
           "massing": 0,
           "overall": 0

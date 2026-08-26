@@ -2,51 +2,51 @@
   {
     "slug": "flatiron",
     "address": "175 5th Ave, New York, NY",
-    "status": "needs-human-review",
+    "status": "fail-consensus",
     "synthesisPath": "7d-sliced",
     "iou": 0.9825899214479306,
     "defectScore": 10,
-    "voxels": 942402,
-    "lastRun": "2026-07-19T06:38:59.803Z"
+    "voxels": 942484,
+    "lastRun": "2026-08-16T15:54:58.506Z"
   },
   {
     "slug": "240-highland",
-    "address": "240 Highland St, Newton, MA 02465",
-    "status": "needs-human-review",
-    "synthesisPath": null,
-    "iou": 1,
+    "address": "240 Highland St, Newton, MA",
+    "status": "fail-consensus",
+    "synthesisPath": "7a-parametric",
+    "iou": 0.9999009083402147,
     "defectScore": 10,
-    "voxels": 32142,
-    "lastRun": "2026-07-13T08:35:57.688Z"
+    "voxels": 33025,
+    "lastRun": "2026-08-16T16:01:55.829Z"
   },
   {
     "slug": "pennzoil",
     "address": "700 Milam St, Houston, TX",
-    "status": "needs-human-review",
-    "synthesisPath": null,
+    "status": "pass",
+    "synthesisPath": "7d-sliced",
     "iou": 0.9976452119309263,
     "defectScore": 10,
     "voxels": 1379781,
-    "lastRun": "2026-07-18T22:09:20.267Z"
+    "lastRun": "2026-08-16T15:48:36.139Z"
   },
   {
     "slug": "guggenheim",
     "address": "1071 5th Ave, New York, NY",
-    "status": "needs-human-review",
-    "synthesisPath": null,
+    "status": "fail-consensus",
+    "synthesisPath": "7d-sliced",
     "iou": 0.9914354230900994,
     "defectScore": 10,
-    "voxels": 625361,
-    "lastRun": "2026-07-19T06:24:49.134Z"
+    "voxels": 424876,
+    "lastRun": "2026-08-16T15:53:32.992Z"
   },
   {
     "slug": "geisel",
     "address": "9500 Gilman Dr, La Jolla, CA",
-    "status": "needs-human-review",
-    "synthesisPath": null,
-    "iou": 0.9999022052711359,
+    "status": "fail-consensus",
+    "synthesisPath": "7d-sliced",
+    "iou": 1,
     "defectScore": 10,
-    "voxels": 1662569,
-    "lastRun": "2026-07-18T22:19:31.500Z"
+    "voxels": 1773135,
+    "lastRun": "2026-08-16T15:52:14.095Z"
   }
 ]
