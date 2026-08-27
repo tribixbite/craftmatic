@@ -411,7 +411,7 @@ function buildUI(): void {
         <span class="lego-upload-zone-text">
           Drop <code>.mpd</code> / <code>.ldr</code> / <code>.io</code> / <code>.lxf</code> here, or click to browse
         </span>
-        <input type="file" id="lego-mpd-input" accept=".mpd,.ldr,.io,.lxf" hidden>
+        <input type="file" id="lego-mpd-input" accept=".mpd,.ldr,.io,.lxf,.lxfml" hidden>
       </label>
       <div class="lego-omr-quick">
         <span class="lego-omr-label">Get files:</span>
@@ -1108,9 +1108,14 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
     // Some ".io" files are laundered LXF conversions (raw LDD material-id
     // colors, no alignment) rather than authentic Studio exports — 10255's
     // is. Same gate as the .ldr branch.
-    if (reconstructionQuality(text) === 'broken') {
-      if (!allowBroken) throw new Error('repackaged LXFML conversion (LDD colors, unaligned) — skipped');
-      currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
+    {
+      const ioQ = reconstructionQuality(text);
+      if (ioQ === 'broken') {
+        if (!allowBroken) throw new Error('repackaged LXFML conversion (LDD colors, unaligned) — skipped');
+        currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
+      } else if (ioQ === 'dbix') {
+        currentSourceWarning = DBIX_WARNING; // laundered DBIX repack (72153's ".io")
+      }
     }
     currentMpdContent = text;
     currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
@@ -1138,6 +1143,8 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
     }
     if (q === 'broken') {
       currentSourceWarning = 'this source is an unaligned LXFML conversion — parts render scattered/stacked and colors may be wrong (defects are in the file, not the renderer)';
+    } else if (q === 'dbix') {
+      currentSourceWarning = DBIX_WARNING;
     } else if (q === 'approximate') {
       currentSourceWarning = 'vision-based reconstruction — part placements are approximate';
     }
@@ -1214,6 +1221,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
           // A flat BFF inventory beats a jumble; fall through.
           console.warn(`[lego] skipping ${filename}: DBIX_LXFML conversion lacks part alignment (would render scrambled)`);
         } else {
+          if (quality === 'dbix') currentSourceWarning = DBIX_WARNING;
           currentMpdContent = text;
           currentCustomParts = undefined;
           const bricks = parseLDraw(text);
@@ -1494,11 +1502,20 @@ async function exportTurntable(): Promise<void> {
  * - 'good': assembled from an already-LDraw source (model2.ldr) — faithful.
  * - 'approximate': vision-reconstructed from instruction pages — placements
  *   are heuristic (floaters/mis-orientations are in the DATA).
+ * - 'dbix': DBIX interactive-instruction conversion (`0 LEGO DBIX` /
+ *   `download_dbix_lxfml.py`) — placements broadly right for single-model
+ *   sets (75419 renders well) but MULTI-model sets collapse into one
+ *   overlapping pile (72153: all three Pokémon at a shared origin) and
+ *   angled parts can be misrotated. Load + warn; often the only source.
  * - 'broken': converted from DBIX LXFML without per-part LDD→LDraw origin
  *   alignment — renders scrambled; colors are raw material ids.
  */
-function reconstructionQuality(ldrText: string): 'good' | 'approximate' | 'broken' {
+/** Shared caveat for the 'dbix' class (see reconstructionQuality). */
+const DBIX_WARNING = 'script-converted DBIX model — multi-model sets render with their sub-models OVERLAPPED at one origin (e.g. all three 72153 Pokémon in one pile) and some angled parts misrotated; the defects are in the conversion, not the renderer';
+
+function reconstructionQuality(ldrText: string): 'good' | 'approximate' | 'dbix' | 'broken' {
   const head = ldrText.slice(0, 600);
+  if (/^0 LEGO DBIX|Author:\s*download_dbix_lxfml/im.test(head)) return 'dbix';
   if (/Source:\s*DBIX_LXFML/i.test(head)) return 'broken';
   // convert_lxf.py output is the same class under a different header: colors
   // are raw LDD material ids and parts lack per-part LDD→LDraw alignment.
@@ -1546,7 +1563,7 @@ async function parseMpdFile(file: File): Promise<void> {
   try {
     const ext = file.name.split('.').pop()?.toLowerCase();
 
-    if (ext === 'lxf') {
+    if (ext === 'lxf' || ext === 'lxfml') {
       const buf = await file.arrayBuffer();
       const bricks = await parseLxf(buf);
       if (loadIsStale(epoch)) return;
@@ -1570,10 +1587,15 @@ async function parseMpdFile(file: File): Promise<void> {
       const ioModel = await extractIoModel(buf);
       if (loadIsStale(epoch)) return;
       text = maybeSynthesize(ioModel.text);
-      // User explicitly chose the file — load it, but flag laundered LXF
-      // conversions masquerading as .io (raw LDD colors; 10255's is one).
-      if (reconstructionQuality(text) === 'broken') {
-        currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
+      // User explicitly chose the file — load it, but flag laundered LXF/DBIX
+      // conversions masquerading as .io (10255's and 72153's are).
+      {
+        const upQ = reconstructionQuality(text);
+        if (upQ === 'broken') {
+          currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
+        } else if (upQ === 'dbix') {
+          currentSourceWarning = DBIX_WARNING;
+        }
       }
       currentMpdContent = text;
       currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
@@ -1594,6 +1616,8 @@ async function parseMpdFile(file: File): Promise<void> {
     const q = reconstructionQuality(text);
     if (q === 'broken') {
       currentSourceWarning = 'this file is an unaligned LXFML conversion — parts render scattered/stacked and colors may be wrong (defects are in the file, not the renderer)';
+    } else if (q === 'dbix') {
+      currentSourceWarning = DBIX_WARNING;
     } else if (q === 'approximate') {
       currentSourceWarning = 'vision-based reconstruction — part placements are approximate';
     }

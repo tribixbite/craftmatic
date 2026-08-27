@@ -150,7 +150,14 @@ export function composeLxfPlacement(
 }
 
 export async function parseLxf(buffer: ArrayBuffer): Promise<ParsedBrick[]> {
-  const xmlBytes = await extractFile(buffer, 'IMAGE100.LXFML');
+  // .lxf is a ZIP wrapping IMAGE100.LXFML; a bare .lxfml is the same XML
+  // unwrapped (DBIX interactive-instruction dumps ship as .lxfml). Sniff the
+  // ZIP magic instead of trusting the extension.
+  const head = new Uint8Array(buffer.slice(0, 2));
+  const isZip = head[0] === 0x50 && head[1] === 0x4B; // 'PK'
+  const xmlBytes = isZip
+    ? await extractFile(buffer, 'IMAGE100.LXFML')
+    : new Uint8Array(buffer);
   const xmlText = new TextDecoder('utf-8').decode(xmlBytes);
 
   const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
