@@ -63,9 +63,20 @@ footprint is right and the *vertical form* is wrong.
 2. **flatiron — recolor splotch (colour 3, features 2).** Photogrammetry
    noise fragments the facade. NOTE the rejected approach below before
    starting: attack the recolor's *sampling*, not post-hoc smoothing.
-3. **geisel — massing 1 with IoU 1.00.** Untriaged. Brutalist cantilevered
-   tiers; likely the same family as guggenheim (vertical form lost). Render
-   it and look before theorising.
+3. **geisel — DIAGNOSED: its height is 2× reality, and nothing checked it.**
+   Evidence: `height = 72.9m (tiles/0.95)`, `levels = 24 (inferred)` — Geisel
+   Library is ~33m and 8 floors. The grid is 650×438×186 @ 6 blocks/m ≈
+   108 × 73 × 31m for a roughly-square 90m building.
+   **Root cause:** tile height is `maxY − minY` of the whole captured mesh
+   (`heightmap.ts` BboxAccumulator). Geisel sits on a canyon edge, so the
+   capture spans canyon floor → roof (`Y range 61.9..114.9`). It measures
+   CAPTURE EXTENT, not building height.
+   **Fix direction:** derive the base from the ground under the FOOTPRINT
+   (median terrain elevation inside the OSM polygon) rather than the global
+   bbox minimum. Everything downstream — levels, storey pitch, window rows —
+   inherits this error, so this is upstream of any overlay work.
+   Made visible (not yet fixed) this round: the report now prints
+   `h_unverified=73m/tiles`.
 4. **240-highland — REOPENED; my earlier "source-data-limited" call was too
    strong.** Three of its four SV panes are genuinely foliage, but
    `sv-left.jpg` is a clear facade view: cream clapboard, green shutters,
@@ -76,7 +87,10 @@ footprint is right and the *vertical form* is wrong.
 ## Traps that have already cost real time
 
 - **A failed measurement must never look like a measurement.** This bit us
-  FOUR separate ways: an Overpass `null` (outage read as "no building"), the
+  FIVE separate ways — a height cross-check with `alternatives: []` reported
+  `ok: true`, so geisel's 2×-wrong height read as corroborated. Read
+  `crossCheck.verified`, never `ok`, when you care whether something was
+  actually checked. The other four: an Overpass `null` (outage read as "no building"), the
   VLM scorer's zero-score error fallback, tree photos fed to the scorer as
   reference, and — inside the module written to fix the third — a
   `catch { return 'none' }` that reported every reference as clear when a

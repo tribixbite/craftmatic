@@ -48,6 +48,17 @@ export interface CrossCheckResult {
   readonly truncationSuspected: boolean;
   /** Advisory: true = no disagreement past threshold (or nothing to compare). */
   readonly ok: boolean;
+  /**
+   * An independent source actually existed to check against.
+   *
+   * `ok` deliberately conflates "agreed" with "nothing to compare", which
+   * makes an UNVERIFIABLE height indistinguishable from a verified one.
+   * Geisel shipped at 72.9m — more than double its real ~33m — sourced from
+   * photogrammetry at confidence 0.95, with `ok: true, alternatives: []`.
+   * Nothing had checked it; the report said the check passed. Consumers that
+   * care whether the height was actually corroborated must read THIS field.
+   */
+  readonly verified: boolean;
   readonly warnings: readonly string[];
 }
 
@@ -124,13 +135,26 @@ export function crossCheckHeight(ctx: BuildingContext, evidence: JointEvidence):
     warnings.unshift('photogrammetry height likely truncated (LOD) — independent survey is taller');
   }
 
+  // No independent source: say so out loud rather than reporting a pass.
+  // A silent unverified height is how a 2x error reached the goldens.
+  if (alternatives.length === 0) {
+    warnings.push(
+      `height ${chosenHeightM.toFixed(0)}m from ${chosenSource} is UNVERIFIED — ` +
+      'no independent source (OSM height/levels, Solar, Smarty) to cross-check against',
+    );
+  }
+
   return {
     chosenSource,
     chosenHeightM,
     alternatives,
     maxDisagreement,
     truncationSuspected,
-    ok: warnings.length === 0,
+    // `ok` keeps its established meaning (no DISAGREEMENT past threshold) so
+    // existing consumers are unaffected; an unverified height is surfaced via
+    // `verified` + the warning, not by flipping this.
+    ok: !warnings.some(w => !w.includes('UNVERIFIED')),
+    verified: alternatives.length > 0,
     warnings,
   };
 }

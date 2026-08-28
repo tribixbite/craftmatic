@@ -70,3 +70,32 @@ describe('crossCheckHeight', () => {
     expect(r.truncationSuspected).toBe(true);
   });
 });
+
+describe('unverified height (nothing to cross-check against)', () => {
+  it('reports verified=false and warns when no independent source exists', () => {
+    // The geisel case: photogrammetry said 72.9m for a ~33m library, at
+    // confidence 0.95, with no OSM height/levels, Solar or Smarty to check
+    // it. The old result was `ok: true, alternatives: []` — a check that
+    // could not run, reported as a check that passed.
+    const r = crossCheckHeight(ctx({}), heightEv(72.9, 'tiles'));
+    expect(r.alternatives).toHaveLength(0);
+    expect(r.verified).toBe(false);
+    expect(r.warnings.join(' ')).toContain('UNVERIFIED');
+    // `ok` keeps its established meaning — no DISAGREEMENT was found — so
+    // existing consumers are unaffected by the new signal.
+    expect(r.ok).toBe(true);
+  });
+
+  it('reports verified=true as soon as one independent source exists', () => {
+    const r = crossCheckHeight(ctx({ levels: 24 }), heightEv(72.9, 'tiles'));
+    expect(r.alternatives.length).toBeGreaterThan(0);
+    expect(r.verified).toBe(true);
+    expect(r.warnings.join(' ')).not.toContain('UNVERIFIED');
+  });
+
+  it('an agreeing independent source is verified AND ok', () => {
+    const r = crossCheckHeight(ctx({ solarHeightM: 33 }), heightEv(33, 'tiles'));
+    expect(r.verified).toBe(true);
+    expect(r.ok).toBe(true);
+  });
+});

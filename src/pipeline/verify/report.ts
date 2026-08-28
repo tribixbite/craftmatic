@@ -202,6 +202,12 @@ export function summariseReport(report: FullVerificationReport): string {
       `prov_mean=${report.provenance.meanConfidence.toFixed(2)}`,
     );
   }
+  if (report.crossCheck && !report.crossCheck.verified) {
+    // An unverified height is not a failure, but it IS the difference between
+    // a measured building and a guess nothing corroborated — geisel shipped
+    // 72.9m against a real ~33m this way.
+    parts.push(`h_unverified=${report.crossCheck.chosenHeightM.toFixed(0)}m/${report.crossCheck.chosenSource}`);
+  }
   if (report.crossCheck && !report.crossCheck.ok) {
     parts.push(
       `xcheck=${report.crossCheck.truncationSuspected ? 'truncated' : 'disagree'}`,
