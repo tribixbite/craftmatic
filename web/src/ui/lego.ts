@@ -17,6 +17,7 @@ import { extractIoModel } from '@engine/io-extractor.js';
 import { synthesizeLSynth } from '@engine/lsynth.js';
 import { parseLxf } from '@engine/lxf-parser.js';
 import { studioColorToBlock } from '@engine/studio-colors.js';
+import { reconstructionQuality, sourceCaveat } from '@engine/source-quality.js';
 import { fetchBffInventory, bffInventoryToLDraw } from '@engine/bff-loader.js';
 import {
   ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
@@ -1113,8 +1114,9 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
       if (ioQ === 'broken') {
         if (!allowBroken) throw new Error('repackaged LXFML conversion (LDD colors, unaligned) — skipped');
         currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
-      } else if (ioQ === 'dbix') {
-        currentSourceWarning = DBIX_WARNING; // laundered DBIX repack (72153's ".io")
+      } else {
+        const caveat = sourceCaveat(text, ioQ); // e.g. laundered DBIX repack (72153's ".io")
+        if (caveat) currentSourceWarning = caveat;
       }
     }
     currentMpdContent = text;
@@ -1143,10 +1145,9 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
     }
     if (q === 'broken') {
       currentSourceWarning = 'this source is an unaligned LXFML conversion — parts render scattered/stacked and colors may be wrong (defects are in the file, not the renderer)';
-    } else if (q === 'dbix') {
-      currentSourceWarning = DBIX_WARNING;
-    } else if (q === 'approximate') {
-      currentSourceWarning = 'vision-based reconstruction — part placements are approximate';
+    } else {
+      const caveat = sourceCaveat(text, q);
+      if (caveat) currentSourceWarning = caveat;
     }
     currentMpdContent = text;
     currentCustomParts = undefined;
@@ -1162,7 +1163,9 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
   // so it APPENDS to the final render status (a bare setStatus after display
   // replaced the whole info line — brick count, dims — with just the warning).
   // Never blocks loading — for some sets this is the only model that exists.
-  if (model.conv) {
+  // Don't clobber a more specific text-level caveat (e.g. DBIX_WARNING on a
+  // conv-flagged legacy dbix entry) with this generic one.
+  if (model.conv && !currentSourceWarning) {
     currentSourceWarning = 'script-converted model (LXF lineage) — some parts may be misrotated/misplaced; prefer another source if available';
   }
   await voxelizeAndDisplay(bricks, `${set.set_num}-${model.src}`, colorFn);
@@ -1221,14 +1224,13 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
           // A flat BFF inventory beats a jumble; fall through.
           console.warn(`[lego] skipping ${filename}: DBIX_LXFML conversion lacks part alignment (would render scrambled)`);
         } else {
-          if (quality === 'dbix') currentSourceWarning = DBIX_WARNING;
+          const caveat = sourceCaveat(text, quality);
+          if (caveat) currentSourceWarning = caveat;
           currentMpdContent = text;
           currentCustomParts = undefined;
           const bricks = parseLDraw(text);
           if (bricks.length > 0) {
-            const warn = quality === 'approximate'
-              ? ' ⚠ vision-based reconstruction — placements are approximate'
-              : '';
+            const warn = caveat ? ` ⚠ ${caveat}` : '';
             setStatus(`Loaded reconstructed 3D model for ${set.set_num} (${bricks.length} parts)${warn}`, 'info');
             await voxelizeAndDisplay(bricks, set.set_num);
             return;
@@ -1498,46 +1500,6 @@ async function exportTurntable(): Promise<void> {
 // ─── Parse + Voxelize ────────────────────────────────────────────────────────
 
 /**
- * Classify a clego-reconstructed LDR by its header provenance comments.
- * - 'good': assembled from an already-LDraw source (model2.ldr) — faithful.
- * - 'approximate': vision-reconstructed from instruction pages — placements
- *   are heuristic (floaters/mis-orientations are in the DATA).
- * - 'dbix': DBIX interactive-instruction conversion (`0 LEGO DBIX` /
- *   `download_dbix_lxfml.py`) — placements broadly right for single-model
- *   sets (75419 renders well) but MULTI-model sets collapse into one
- *   overlapping pile (72153: all three Pokémon at a shared origin) and
- *   angled parts can be misrotated. Load + warn; often the only source.
- * - 'broken': converted from DBIX LXFML without per-part LDD→LDraw origin
- *   alignment — renders scrambled; colors are raw material ids.
- */
-/** Shared caveat for the 'dbix' class (see reconstructionQuality). */
-const DBIX_WARNING = 'script-converted DBIX model — sub-models may render overlapped at one origin (72153: all three Pokémon in one pile), floating in mid-air (60502: 27 pieces ~28 studs up), or misrotated; the defects are in the conversion, not the renderer';
-
-function reconstructionQuality(ldrText: string): 'good' | 'approximate' | 'dbix' | 'broken' {
-  const head = ldrText.slice(0, 600);
-  if (/^0 LEGO DBIX|Author:\s*download_dbix_lxfml/im.test(head)) return 'dbix';
-  if (/Source:\s*DBIX_LXFML/i.test(head)) return 'broken';
-  // convert_lxf.py output is the same class under a different header: colors
-  // are raw LDD material ids and parts lack per-part LDD→LDraw alignment.
-  // Visual QA (2026-07-20): 10255 rendered as stacked buildings, 1924 as an
-  // exploded ferry, 8849 with ghost tires — all `Author: convert_lxf.py`.
-  if (/Author:\s*convert_lxf\.py/i.test(head)) return 'broken';
-  // NOTE (2026-07-20): a color-palette fingerprint for LXF lineage was tried
-  // and removed — LDRAW_COLOR_RGB already contains the extended/Studio ids
-  // (10047, 10070 …), so table-membership cannot discriminate. Files that
-  // launder LXF conversions through other containers WITHOUT the headers
-  // above (10255's ".io" and its recon derivatives) are not text-detectable;
-  // their defect is stacked PLACEMENT (LXF workspace layout), which needs
-  // lineage metadata upstream in the model index to catch.
-  // Vision/PDF reconstruction lineages — placements are heuristic. recon_v3
-  // renders as a semi-coherent pile for many sets (visual QA 2026-08-21:
-  // ReconV3/2879 = interpenetrating bricks); it's the ONLY source for ~2.2k
-  // sets, so it loads — but always labeled, never silently.
-  if (/reconstructed by recon_v3|Reconstructed from PDF|inverse isometric projection|blob (fallback|detection)/i.test(head)) return 'approximate';
-  return 'good';
-}
-
-/**
  * Synthesize any UNsynthesized LSynth flex blocks (hand-authored / editor
  * exports) into swept-tube geometry. Pre-synthesized OMR blocks and Studio
  * .io baked flex parts pass through untouched. Surfaces a status note on hit.
@@ -1593,8 +1555,9 @@ async function parseMpdFile(file: File): Promise<void> {
         const upQ = reconstructionQuality(text);
         if (upQ === 'broken') {
           currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
-        } else if (upQ === 'dbix') {
-          currentSourceWarning = DBIX_WARNING;
+        } else {
+          const caveat = sourceCaveat(text, upQ);
+          if (caveat) currentSourceWarning = caveat;
         }
       }
       currentMpdContent = text;
@@ -1616,10 +1579,9 @@ async function parseMpdFile(file: File): Promise<void> {
     const q = reconstructionQuality(text);
     if (q === 'broken') {
       currentSourceWarning = 'this file is an unaligned LXFML conversion — parts render scattered/stacked and colors may be wrong (defects are in the file, not the renderer)';
-    } else if (q === 'dbix') {
-      currentSourceWarning = DBIX_WARNING;
-    } else if (q === 'approximate') {
-      currentSourceWarning = 'vision-based reconstruction — part placements are approximate';
+    } else {
+      const caveat = sourceCaveat(text, q);
+      if (caveat) currentSourceWarning = caveat;
     }
     await voxelizeAndDisplay(bricks, file.name);
   } catch (err) {
