@@ -74,14 +74,28 @@ A 12-set visual QA (real WebGL captures, `output/visual-qa-*/`) showed every
 "broken-looking" render traced to **LXF-lineage source data**, not the renderer:
 `Author: convert_lxf.py` LDRs carry raw LDD material-id colors + no per-part
 alignment (10255 → stacked buildings, 1924 → exploded ferry decks, 8849 →
-ghost tires). Pipeline defenses now in `lego.ts`:
-- `reconstructionQuality()` flags `convert_lxf.py` AND `DBIX_LXFML` headers as
-  'broken', and `0 LEGO DBIX` / `download_dbix_lxfml.py` as **'dbix'**
-  (load + DBIX_WARNING via currentSourceWarning — single-model DBIX sets like
-  75419 render well; multi-model/positioned ones fail: 72153 = all three
-  Pokémon overlapped at one origin (verified the upstream LXFML itself lacks
-  the separation — no client fix possible), 60502 = 27 pieces floating ~28
-  studs up. Upstream work is filed in `C:/git/clego/TASKS-FROM-CRAFTMATIC.md`.)
+ghost tires). Pipeline defenses (classifier extracted to
+`web/src/engine/source-quality.ts`, offline-tested in
+`test/source-quality.test.ts`; `lego.ts` imports + wires the warnings):
+- **`0 !LINEAGE <tool> <good|partial>` is the CANONICAL stamp** (clego
+  converters emit it since 2026-08-28) and takes precedence over all legacy
+  sniffs — the v2 DBIX reconverter's files also start with `0 LEGO DBIX v2`,
+  which the legacy regex alone would misread as the warn-class. `good`→good,
+  `partial`→approximate. Companion markers: `0 DBIX MULTIMODEL UNPLACED`
+  (synthetic side-by-side layout → approximate + explicit caveat) and
+  `0 DBIX FLOATING CLUSTER n=<k> gap_ldu=<g>` (authored mid-air parts, e.g.
+  60502's airplane — informational note so users don't report it as a bug).
+- `reconstructionQuality()` legacy sniffs: `convert_lxf.py` / `DBIX_LXFML`
+  headers → 'broken'; un-stamped `0 LEGO DBIX` / `download_dbix_lxfml.py` →
+  **'dbix'** (= legacy v1 conversions: dropped parts + lost sub-assembly
+  transforms; superseded by `dbix_conv_v2` for ~2.1k sets). `sourceCaveat()`
+  maps class+markers → the user-facing warning at every load path.
+  NOTE (corrected 2026-08-28): the earlier claim that 72153's upstream LXFML
+  "lacks the separation" was WRONG (a double-counted bone probe) — the clego
+  v2 reconverter recovers all three Pokémon properly separated; genuine
+  multi-model collapse exists in only 5 sets, marked MULTIMODEL UNPLACED.
+  TASKS-FROM-CRAFTMATIC items #1–#6 are all DONE upstream (v2 sources:
+  `dbix_conv_v2` 2,119 · `io_model2_v2` 790 · authentic `io` 896 entries).
   (A color-palette fingerprint was tried and REMOVED — dead code:
   `LDRAW_COLOR_RGB` already contains the extended ids like 10047/10070, so
   table-membership can't discriminate; origin-collision and volume-per-brick
