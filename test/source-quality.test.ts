@@ -31,6 +31,19 @@ const DBIX_V2_FLOATING = `0 LEGO DBIX v2 60502
 1 511 769.6 -41.28 -10 1 0 0 0 1 0 0 0 1 973.dat
 `;
 
+// v2.1 header block (2026-08-28 repair pass): EXPLODE REPAIR is a fix
+// marker, not a defect — must classify good and stay silent; a remaining
+// FLOATING CLUSTER line still surfaces its note.
+const DBIX_V21_REPAIRED = `0 LEGO DBIX v2 60502
+0 !LINEAGE reconvert_dbix_v2 good
+0 Name: 60502
+0 Author: reconvert_dbix.py
+0 // parts emitted 940/941 structural (99.89%); 14 sticker/brief instances excluded
+0 DBIX EXPLODE REPAIR applied_parts=47 settled_parts=132
+0 DBIX FLOATING CLUSTER n=33 gap_ldu=69.0
+1 15 769.6 -41.28 -10 1 0 0 0 1 0 0 0 1 973.dat
+`;
+
 const DBIX_V2_PARTIAL = `0 LEGO DBIX v2 99999
 0 !LINEAGE reconvert_dbix_v2 partial
 0 Name: 99999
@@ -110,6 +123,13 @@ describe('sourceCaveat', () => {
 
   it('surfaces the authored floating cluster with its count', () => {
     expect(sourceCaveat(DBIX_V2_FLOATING, q(DBIX_V2_FLOATING))).toContain('31 parts');
+  });
+
+  it('treats the v2.1 EXPLODE REPAIR marker as good + only floating note', () => {
+    expect(q(DBIX_V21_REPAIRED)).toBe('good');
+    const caveat = sourceCaveat(DBIX_V21_REPAIRED, q(DBIX_V21_REPAIRED));
+    expect(caveat).toContain('33 parts');
+    expect(caveat).not.toContain('REPAIR');
   });
 
   it('names the synthetic layout for unplaced multi-model sets', () => {
