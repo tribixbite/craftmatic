@@ -76,9 +76,16 @@ A 12-set visual QA (real WebGL captures, `output/visual-qa-*/`) showed every
 alignment (10255 → stacked buildings, 1924 → exploded ferry decks, 8849 →
 ghost tires). Pipeline defenses now in `lego.ts`:
 - `reconstructionQuality()` flags `convert_lxf.py` AND `DBIX_LXFML` headers as
-  'broken'. (A color-palette fingerprint was tried and REMOVED — dead code:
+  'broken', and `0 LEGO DBIX` / `download_dbix_lxfml.py` as **'dbix'**
+  (load + DBIX_WARNING via currentSourceWarning — single-model DBIX sets like
+  75419 render well; multi-model/positioned ones fail: 72153 = all three
+  Pokémon overlapped at one origin (verified the upstream LXFML itself lacks
+  the separation — no client fix possible), 60502 = 27 pieces floating ~28
+  studs up. Upstream work is filed in `C:/git/clego/TASKS-FROM-CRAFTMATIC.md`.)
+  (A color-palette fingerprint was tried and REMOVED — dead code:
   `LDRAW_COLOR_RGB` already contains the extended ids like 10047/10070, so
-  table-membership can't discriminate. Don't re-add.)
+  table-membership can't discriminate; origin-collision and volume-per-brick
+  collapse metrics also proven non-discriminating. Don't re-add.)
 - **Indexed auto-load iterates sources**: broken entries throw → next indexed
   source → classic OMR chain. 8849 now lands on its official OMR file (solid
   tires) instead of the gated conversion. Explicit source-picker choices pass

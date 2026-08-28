@@ -1511,7 +1511,7 @@ async function exportTurntable(): Promise<void> {
  *   alignment — renders scrambled; colors are raw material ids.
  */
 /** Shared caveat for the 'dbix' class (see reconstructionQuality). */
-const DBIX_WARNING = 'script-converted DBIX model — multi-model sets render with their sub-models OVERLAPPED at one origin (e.g. all three 72153 Pokémon in one pile) and some angled parts misrotated; the defects are in the conversion, not the renderer';
+const DBIX_WARNING = 'script-converted DBIX model — sub-models may render overlapped at one origin (72153: all three Pokémon in one pile), floating in mid-air (60502: 27 pieces ~28 studs up), or misrotated; the defects are in the conversion, not the renderer';
 
 function reconstructionQuality(ldrText: string): 'good' | 'approximate' | 'dbix' | 'broken' {
   const head = ldrText.slice(0, 600);
