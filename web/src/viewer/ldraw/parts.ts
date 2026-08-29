@@ -402,6 +402,7 @@ async function fetchDatText(id: string): Promise<string | null> {
       datTextCache.set(key, persisted);
       return persisted;
     }
+    let expectMiss = false;
 
     // Batched lookup next: one aggregated request resolves ~a dozen parts'
     // whole candidate lists in a single round-trip (measured on prod: the
@@ -423,9 +424,14 @@ async function fetchDatText(id: string): Promise<string | null> {
             return text;
           }
         }
-        // Authoritative R2-mirror miss for every candidate. Fall through to
-        // per-path probing ONLY for the upstream-new-part case — but skip
-        // the retry storm: a definitive batch miss means 404s are expected.
+        // Authoritative R2-mirror miss for every candidate (the batch checks
+        // official+unofficial per name). Per-path probing below only matters
+        // for upstream-new parts — probe each candidate ONCE, no retry
+        // backoff: 404s are the expected outcome now, and the 3-attempt
+        // storm made each genuinely-missing part cost up to ~24 requests
+        // (measured: ~33 missing parts stretched a Falcon cold load by
+        // minutes all by themselves).
+        expectMiss = true;
       }
     }
 
@@ -439,6 +445,41 @@ async function fetchDatText(id: string): Promise<string | null> {
     // dropping a part — the previous code cached null on the FIRST failure,
     // which turned transient timeouts into permanently missing pieces.
     let sawTransient = false;
+    if (expectMiss) {
+      // Authoritative mirror miss: 404s are the expected outcome, so probe
+      // every candidate ONCE and in PARALLEL (upstream-new parts only) —
+      // sequential 3-attempt probing cost up to ~24 requests / ~30 s per
+      // genuinely-missing part and single-handedly stretched cold loads of
+      // sets with a few dozen unmirrored names by minutes.
+      const results = await Promise.all(orderedPaths.map(async path => {
+        try {
+          const r = await fetch(path, { signal: AbortSignal.timeout(8000) });
+          if (r.ok) return await r.text();
+          return (r.status === 404 || r.status === 410) ? null : 'transient';
+        } catch {
+          return 'transient';
+        }
+      }));
+      for (const res of results) {
+        if (res !== null && res !== 'transient') {
+          datTextCache.set(key, res);
+          idbPutDat(key, res);
+          return res;
+        }
+        if (res === 'transient') sawTransient = true;
+      }
+      if (!sawTransient) {
+        const lsSeg = synthesizeLsSegment(stem);
+        if (lsSeg !== null) {
+          console.info(`[ldraw] synthesized LSynth segment placeholder for ${stem}.dat`);
+          datTextCache.set(key, lsSeg);
+          return lsSeg;
+        }
+        datTextCache.set(key, null);
+        unresolvedDatNames.add(key);
+      }
+      return null;
+    }
     for (const path of orderedPaths) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
