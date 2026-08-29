@@ -350,6 +350,20 @@ async function flushBatch(): Promise<void> {
   }
 }
 
+/**
+ * Mecabricks-converted models reference decoration/version part variants
+ * that exist in NO LDraw library: `3626d1024` (head, decoration 1024),
+ * `3814d444` (printed torso), `30367v2` (mold version). On a definitive
+ * miss, fall back to the undecorated base part — the print is lost but the
+ * geometry renders (and the candidate-probe storm for these names is what
+ * stretched mecabricks-sourced cold loads by minutes). LDraw's own print
+ * suffixes are letters+p (3069bp01), so the d/v-digits pattern is safe.
+ */
+function mecabricksBaseName(stem: string): string | null {
+  const m = stem.match(/^(\d+[a-z]?)(?:d\d+|v\d+)$/);
+  return m ? m[1]! : null;
+}
+
 async function fetchDatText(id: string): Promise<string | null> {
   const key = normId(id);
   if (datTextCache.has(key)) return datTextCache.get(key)!;
@@ -475,6 +489,15 @@ async function fetchDatText(id: string): Promise<string | null> {
           datTextCache.set(key, lsSeg);
           return lsSeg;
         }
+        const base = mecabricksBaseName(stem);
+        if (base !== null) {
+          const baseText = await fetchDatText(base);
+          if (baseText !== null) {
+            datTextCache.set(key, baseText);
+            idbPutDat(key, baseText);
+            return baseText;
+          }
+        }
         datTextCache.set(key, null);
         unresolvedDatNames.add(key);
       }
@@ -520,6 +543,15 @@ async function fetchDatText(id: string): Promise<string | null> {
         console.info(`[ldraw] synthesized LSynth segment placeholder for ${stem}.dat`);
         datTextCache.set(key, lsSeg);
         return lsSeg;
+      }
+      const base = mecabricksBaseName(stem);
+      if (base !== null) {
+        const baseText = await fetchDatText(base);
+        if (baseText !== null) {
+          datTextCache.set(key, baseText);
+          idbPutDat(key, baseText);
+          return baseText;
+        }
       }
       datTextCache.set(key, null); // definitive miss only
       unresolvedDatNames.add(key);
