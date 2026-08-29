@@ -23,6 +23,53 @@ import { initTiles, type TilesResultMeta } from '@ui/tiles.js';
 import { initLego } from '@ui/lego.js';
 import { initReview } from '@ui/review.js';
 
+// ─── Global error boundary ───────────────────────────────────────────────────
+// An uncaught throw / rejection used to leave the app in whatever half-state
+// it crashed in (stranded loading overlay, dead panel) — and on some mobile
+// browsers escalates to the OS "this page failed to load" interstitial. Show
+// a small dismissable in-app banner with a reload action instead, and keep a
+// breadcrumb in localStorage for the next session. Throttled so an error
+// loop can't spam banners.
+let lastErrorBannerAt = 0;
+function showErrorBanner(msg: string): void {
+  const now = Date.now();
+  if (now - lastErrorBannerAt < 5000) return;
+  lastErrorBannerAt = now;
+  try {
+    localStorage.setItem('craftmatic-last-error', JSON.stringify({ t: new Date().toISOString(), msg: msg.slice(0, 500) }));
+  } catch { /* storage unavailable */ }
+  let el = document.getElementById('global-error-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'global-error-banner';
+    el.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;'
+      + 'background:#2a1215;border:1px solid #a33;color:#fbb;padding:10px 14px;border-radius:8px;'
+      + 'font:13px system-ui;display:flex;gap:10px;align-items:center;max-width:min(92vw,560px);box-shadow:0 4px 16px rgba(0,0,0,0.5)';
+    const txt = document.createElement('span');
+    txt.id = 'global-error-banner-text';
+    txt.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    const reload = document.createElement('button');
+    reload.textContent = 'Reload';
+    reload.style.cssText = 'background:#7c3aed;color:#fff;border:0;border-radius:5px;padding:4px 12px;cursor:pointer;font:12px system-ui';
+    reload.onclick = () => location.reload();
+    const close = document.createElement('button');
+    close.textContent = '✕';
+    close.style.cssText = 'background:none;border:0;color:#fbb;cursor:pointer;font-size:14px';
+    close.onclick = () => el?.remove();
+    el.append(txt, reload, close);
+    document.body.appendChild(el);
+  }
+  const txt = document.getElementById('global-error-banner-text');
+  if (txt) txt.textContent = `Something went wrong: ${msg}`;
+}
+window.addEventListener('error', e => {
+  if (e.message) showErrorBanner(e.message);
+});
+window.addEventListener('unhandledrejection', e => {
+  const r = e.reason;
+  showErrorBanner(r instanceof Error ? r.message : String(r ?? 'unknown error'));
+});
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let activeViewer: ViewerState | null = null;
