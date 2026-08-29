@@ -92,6 +92,82 @@ export default {
       }
     }
 
+    // ── Model corpus (same-origin, edge-compressed) ──────────────────────────
+    // The viewer used to fetch models + the index straight from the R2 public
+    // dev domain (pub-*.r2.dev), which serves bytes UNCOMPRESSED and off-zone
+    // (extra TLS handshake, no edge cache). Serving them through this worker
+    // puts them on the zone: Cloudflare gzip/brotli-compresses text responses
+    // (a 2.4 MB index → ~0.5 MB; .ldr models ~4-5x smaller) and edge-caches
+    // hits. Model keys are case-SENSITIVE exact relpaths under models/.
+    if ((request.method === 'GET' || request.method === 'HEAD') && env?.MODELS) {
+      let key = null, ctype = 'text/plain; charset=utf-8', ttl = 3600;
+      if (url.pathname === '/lego-models-index.json') {
+        key = 'lego-models-index.json';
+        ctype = 'application/json';
+        ttl = 300; // index updates on every corpus sync
+      } else if (url.pathname.startsWith('/lego-models/')) {
+        const rest = decodeURIComponent(url.pathname.slice('/lego-models/'.length)).replace(/\.\./g, '');
+        if (rest) {
+          key = `models/${rest}`;
+          if (/\.(io|lxf|bin)$/i.test(rest)) ctype = 'application/octet-stream';
+        }
+      }
+      if (key) {
+        try {
+          const obj = await env.MODELS.get(key);
+          if (obj) {
+            return new Response(request.method === 'HEAD' ? null : obj.body, {
+              status: 200,
+              headers: {
+                ...CORS_HEADERS,
+                'Cache-Control': `public, max-age=${ttl}`,
+                'Content-Type': ctype,
+              },
+            });
+          }
+        } catch { /* R2 hiccup — fall through to 404 */ }
+        return new Response(null, {
+          status: 404,
+          headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=60' },
+        });
+      }
+    }
+
+    // ── Batched parts multi-get ──────────────────────────────────────────────
+    // A cold big-set load needs hundreds of small .dat files; fetching them
+    // one-by-one is round-trip-bound even over H2. The client aggregates
+    // pending part fetches and asks for up to ~48 R2 keys at once here; the
+    // JSON response compresses well at the edge. R2-only — names the mirror
+    // doesn't have come back in `missing` and the client falls back to the
+    // per-file route (which still knows the upstream library).
+    if (url.pathname === '/ldraw-parts/_batch' && request.method === 'GET' && env?.MODELS) {
+      const files = (url.searchParams.get('files') || '')
+        .split(',').map(s => s.trim().replace(/\.\./g, '')).filter(Boolean).slice(0, 64);
+      const found = {};
+      const missing = [];
+      await Promise.all(files.map(async rest => {
+        const unof = rest.match(/^unofficial\/(.*)$/i);
+        const keys = unof
+          ? [`ldraw/unofficial/${unof[1]}`.toLowerCase()]
+          : [`ldraw/${rest}`.toLowerCase(), `ldraw/unofficial/${rest}`.toLowerCase()];
+        for (const k of keys) {
+          try {
+            const obj = await env.MODELS.get(k);
+            if (obj) { found[rest] = await obj.text(); return; }
+          } catch { /* hiccup — treat as missing; client falls back */ }
+        }
+        missing.push(rest);
+      }));
+      return new Response(JSON.stringify({ found, missing }), {
+        status: 200,
+        headers: {
+          ...CORS_HEADERS,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=604800',
+        },
+      });
+    }
+
     // ── LDraw parts library proxy (official → unofficial fallback) ───────────
     // The client probes several candidate paths per part (parts/, p/,
     // parts/s/, p/48/, UnOfficial/...). We relay each to the matching upstream
