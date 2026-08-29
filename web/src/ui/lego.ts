@@ -380,6 +380,28 @@ function buildUI(): void {
           placeholder="From" min="1950" max="2030" title="From year">
         <input type="number" id="lego-year-max" class="lego-input lego-year-input"
           placeholder="To" min="1950" max="2030" title="To year">
+        <input type="number" id="lego-pieces-min" class="lego-input lego-year-input"
+          placeholder="Min pcs" min="0" title="Minimum piece count">
+        <input type="number" id="lego-pieces-max" class="lego-input lego-year-input"
+          placeholder="Max pcs" min="0" title="Maximum piece count">
+        <select id="lego-sort" class="lego-select" title="Sort results">
+          <option value="relevance">Relevance</option>
+          <option value="pieces-desc">Pieces ↓</option>
+          <option value="pieces-asc">Pieces ↑</option>
+          <option value="year-desc">Year ↓</option>
+          <option value="year-asc">Year ↑</option>
+          <option value="name-asc">Name A-Z</option>
+        </select>
+        <select id="lego-source-filter" class="lego-select" title="Filter by available 3D model source">
+          <option value="">Any source</option>
+          <option value="omr">Official LDraw (omr/ldr)</option>
+          <option value="io">Studio (io)</option>
+          <option value="dbix">DBIX</option>
+          <option value="mecabricks">Mecabricks</option>
+          <option value="eurobricks">Eurobricks</option>
+          <option value="lxf">LDD (lxf)</option>
+          <option value="recon">Vision recon</option>
+        </select>
       </div>
     </div>
 
@@ -776,14 +798,23 @@ function wireEvents(): void {
     const themeEl  = document.getElementById('lego-theme')    as HTMLSelectElement;
     const minYrEl  = document.getElementById('lego-year-min') as HTMLInputElement;
     const maxYrEl  = document.getElementById('lego-year-max') as HTMLInputElement;
+    const sortEl   = document.getElementById('lego-sort')          as HTMLSelectElement | null;
+    const pMinEl   = document.getElementById('lego-pieces-min')    as HTMLInputElement  | null;
+    const pMaxEl   = document.getElementById('lego-pieces-max')    as HTMLInputElement  | null;
+    const srcEl    = document.getElementById('lego-source-filter') as HTMLSelectElement | null;
     const themeId  = themeEl.value  ? parseInt(themeEl.value)  : null;
     const minYear  = minYrEl.value  ? parseInt(minYrEl.value)  : null;
     const maxYear  = maxYrEl.value  ? parseInt(maxYrEl.value)  : null;
+    const sortMode = sortEl?.value || 'relevance';
+    const minPcs   = pMinEl?.value ? parseInt(pMinEl.value) : null;
+    const maxPcs   = pMaxEl?.value ? parseInt(pMaxEl.value) : null;
+    const srcGroup = srcEl?.value || null;
 
     // Empty query + no filters = BROWSE ALL: rankSets scores every set by
     // flagship-ness (part count + recency), so the front page is the good
     // stuff, not 1970s promo polybags. No forced theme selection.
-    const browsing = !query && themeId == null && minYear == null && maxYear == null;
+    const browsing = !query && themeId == null && minYear == null && maxYear == null
+      && minPcs == null && maxPcs == null && srcGroup == null;
 
     searchBtn.disabled = true;
 
@@ -794,6 +825,21 @@ function wireEvents(): void {
       }
 
       searchResults = searchCatalog(query, themeId, minYear, maxYear, RESULTS_MAX);
+      if (minPcs != null) searchResults = searchResults.filter(s => (s.num_parts ?? 0) >= minPcs);
+      if (maxPcs != null) searchResults = searchResults.filter(s => (s.num_parts ?? 0) <= maxPcs);
+      const srcMatch = srcGroup ? SOURCE_GROUPS[srcGroup] : undefined;
+      if (srcMatch) {
+        // Source filtering needs the unified models index — async, but cached
+        // after the first load, so only the first filtered search awaits a fetch.
+        const idx = await getModelsIndex();
+        searchResults = searchResults.filter(s => {
+          const models = lookupIndexModels(idx, s.set_num);
+          return models != null && models.some(m => srcMatch(m.src));
+        });
+      }
+      // Sort AFTER filtering, over the full list, before pagination.
+      // 'relevance' keeps rankSets order untouched.
+      sortSearchResults(searchResults, sortMode);
       visibleResults = RESULTS_PAGE;
       // Populate theme dropdown once loaded
       populateThemes(getThemes());
@@ -829,6 +875,10 @@ function wireEvents(): void {
   document.getElementById('lego-theme')?.addEventListener('change', doSearch);
   document.getElementById('lego-year-min')?.addEventListener('change', doSearch);
   document.getElementById('lego-year-max')?.addEventListener('change', doSearch);
+  document.getElementById('lego-sort')?.addEventListener('change', doSearch);
+  document.getElementById('lego-pieces-min')?.addEventListener('change', doSearch);
+  document.getElementById('lego-pieces-max')?.addEventListener('change', doSearch);
+  document.getElementById('lego-source-filter')?.addEventListener('change', doSearch);
 
   // Populate themes once the catalog loads, then show the browse-all grid so
   // the tab isn't a dead end before the first search.
@@ -836,6 +886,34 @@ function wireEvents(): void {
     populateThemes(getThemes());
     if (searchResults.length === 0 && !selectedSet) void doSearch();
   }).catch(() => {});
+}
+
+// ─── Search sort + extra filters ─────────────────────────────────────────────
+
+/** Source-filter groups (#lego-source-filter values) → predicate over an
+ *  indexed model's `src`. Sets absent from the models index only match
+ *  "Any source" (empty value — no predicate runs). */
+const SOURCE_GROUPS: Record<string, (src: string) => boolean> = {
+  omr:        src => src === 'omr' || src === 'ldr',
+  io:         src => src === 'io' || src.startsWith('io_model2'),
+  dbix:       src => src.startsWith('dbix_'),
+  mecabricks: src => src === 'mecabricks',
+  eurobricks: src => src === 'eurobricks',
+  lxf:        src => src === 'lxf',
+  recon:      src => src === 'recon_v3' || src === 'pdf_recon',
+};
+
+/** Sort the (already filtered) full result list in place, before pagination.
+ *  'relevance' = leave the rankSets order untouched. */
+function sortSearchResults(results: CatalogSet[], mode: string): void {
+  switch (mode) {
+    case 'pieces-desc': results.sort((a, b) => (b.num_parts ?? 0) - (a.num_parts ?? 0)); break;
+    case 'pieces-asc':  results.sort((a, b) => (a.num_parts ?? 0) - (b.num_parts ?? 0)); break;
+    case 'year-desc':   results.sort((a, b) => (b.year ?? 0) - (a.year ?? 0)); break;
+    case 'year-asc':    results.sort((a, b) => (a.year ?? 0) - (b.year ?? 0)); break;
+    case 'name-asc':    results.sort((a, b) => a.name.localeCompare(b.name)); break;
+    // default ('relevance'): no-op
+  }
 }
 
 // ─── Results ─────────────────────────────────────────────────────────────────
