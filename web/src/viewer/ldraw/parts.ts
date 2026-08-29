@@ -482,21 +482,25 @@ async function fetchDatText(id: string): Promise<string | null> {
         }
         if (res === 'transient') sawTransient = true;
       }
+      // Base-part fallback runs even when a probe was transient: under the
+      // parallel volley a single upstream-throttle 503 among 8 candidates
+      // otherwise skipped the fallback entirely, and every mecabricks
+      // decoration variant stayed "missing" on burst-heavy cold loads.
+      const base = mecabricksBaseName(stem);
+      if (base !== null) {
+        const baseText = await fetchDatText(base);
+        if (baseText !== null) {
+          datTextCache.set(key, baseText);
+          idbPutDat(key, baseText);
+          return baseText;
+        }
+      }
       if (!sawTransient) {
         const lsSeg = synthesizeLsSegment(stem);
         if (lsSeg !== null) {
           console.info(`[ldraw] synthesized LSynth segment placeholder for ${stem}.dat`);
           datTextCache.set(key, lsSeg);
           return lsSeg;
-        }
-        const base = mecabricksBaseName(stem);
-        if (base !== null) {
-          const baseText = await fetchDatText(base);
-          if (baseText !== null) {
-            datTextCache.set(key, baseText);
-            idbPutDat(key, baseText);
-            return baseText;
-          }
         }
         datTextCache.set(key, null);
         unresolvedDatNames.add(key);
@@ -544,17 +548,19 @@ async function fetchDatText(id: string): Promise<string | null> {
         datTextCache.set(key, lsSeg);
         return lsSeg;
       }
-      const base = mecabricksBaseName(stem);
-      if (base !== null) {
-        const baseText = await fetchDatText(base);
-        if (baseText !== null) {
-          datTextCache.set(key, baseText);
-          idbPutDat(key, baseText);
-          return baseText;
-        }
-      }
       datTextCache.set(key, null); // definitive miss only
       unresolvedDatNames.add(key);
+    }
+    // Mecabricks variant fallback regardless of transients (see volley path).
+    const base = mecabricksBaseName(stem);
+    if (base !== null) {
+      const baseText = await fetchDatText(base);
+      if (baseText !== null) {
+        datTextCache.set(key, baseText);
+        idbPutDat(key, baseText);
+        unresolvedDatNames.delete(key);
+        return baseText;
+      }
     }
     return null;
   })();
