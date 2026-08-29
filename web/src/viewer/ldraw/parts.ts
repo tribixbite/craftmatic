@@ -300,6 +300,56 @@ function looksLikePrimitive(stem: string): boolean {
   return /^(stud|stug|box|rect|ring|ndis|disc|edge|cyl|con[ec]?\d|conn|confric|cone|axl|bump|chrd|tri|tooth|peghole|npeghol|knob|duck|clip|filstud|fillet|bush|fric|beamhol|ribt|logo|ldu|empty|arm\d|handle|hinge|t[0-9]{2}[io]|r[0-9]+o|st[0-9x]j|typestn?[0-9])/.test(stem);
 }
 
+// ── Micro-batched part fetch ─────────────────────────────────────────────────
+// A cold big-set load needs hundreds of small .dat files; even over H2 the
+// per-request overhead (and the worker→R2 hop each) dominates. Concurrent
+// fetchDatText calls are aggregated for ~20 ms (or until 48 distinct names)
+// and resolved through ONE `/ldraw-parts/_batch?files=…` request served
+// R2-side by the worker. The endpoint checks official+unofficial mirrors per
+// name, so UnOfficial/ candidate variants need not be submitted. Absent
+// endpoint (dev middleware, old worker) → two failures disable batching for
+// the session and every caller falls back to the classic per-path probing.
+const BATCH_MAX = 48;
+const BATCH_DELAY_MS = 20;
+let batchDisabled = false;
+let batchFailures = 0;
+let pendingBatch: {
+  rels: Set<string>;
+  waiters: { resolve: (r: Map<string, string> | null) => void }[];
+} | null = null;
+let batchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function batchLookup(rels: string[]): Promise<Map<string, string> | null> {
+  if (batchDisabled || rels.length === 0) return Promise.resolve(null);
+  return new Promise(resolve => {
+    pendingBatch ??= { rels: new Set(), waiters: [] };
+    for (const r of rels) pendingBatch.rels.add(r);
+    pendingBatch.waiters.push({ resolve });
+    if (pendingBatch.rels.size >= BATCH_MAX) void flushBatch();
+    else batchTimer ??= setTimeout(() => { void flushBatch(); }, BATCH_DELAY_MS);
+  });
+}
+
+async function flushBatch(): Promise<void> {
+  const b = pendingBatch;
+  pendingBatch = null;
+  if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+  if (!b) return;
+  try {
+    const q = [...b.rels].join(',');
+    const r = await fetch(`${LDRAW_BASE}/_batch?files=${encodeURIComponent(q)}`,
+      { signal: AbortSignal.timeout(12000) });
+    if (!r.ok) throw new Error(String(r.status));
+    const data = await r.json() as { found?: Record<string, string> };
+    const map = new Map(Object.entries(data.found ?? {}));
+    batchFailures = 0;
+    for (const w of b.waiters) w.resolve(map);
+  } catch {
+    if (++batchFailures >= 2) batchDisabled = true;
+    for (const w of b.waiters) w.resolve(null);
+  }
+}
+
 async function fetchDatText(id: string): Promise<string | null> {
   const key = normId(id);
   if (datTextCache.has(key)) return datTextCache.get(key)!;
@@ -351,6 +401,32 @@ async function fetchDatText(id: string): Promise<string | null> {
     if (persisted !== undefined) {
       datTextCache.set(key, persisted);
       return persisted;
+    }
+
+    // Batched lookup next: one aggregated request resolves ~a dozen parts'
+    // whole candidate lists in a single round-trip (measured on prod: the
+    // per-path probing below took 4+ minutes for a cold UCS Falcon — 429
+    // parts × up to 8 candidate paths × retries). The endpoint checks the
+    // unofficial mirror per name itself, so UnOfficial/ variants and the
+    // /models/ last-resort are stripped from the submitted list.
+    {
+      const rels = orderedPaths
+        .map(p => p.slice(LDRAW_BASE.length + 1))
+        .filter(rel => !/^(unofficial|models)\//i.test(rel));
+      const batched = await batchLookup(rels);
+      if (batched) {
+        for (const rel of rels) {
+          const text = batched.get(rel);
+          if (text !== undefined) {
+            datTextCache.set(key, text);
+            idbPutDat(key, text);
+            return text;
+          }
+        }
+        // Authoritative R2-mirror miss for every candidate. Fall through to
+        // per-path probing ONLY for the upstream-new-part case — but skip
+        // the retry storm: a definitive batch miss means 404s are expected.
+      }
     }
 
     // Distinguish a DEFINITIVE miss (every candidate path returned a real HTTP

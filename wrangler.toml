@@ -14,6 +14,18 @@ zone_name = "craftmatic.click"
 pattern = "craftmatic.click/ldraw-parts/*"
 zone_name = "craftmatic.click"
 
+# Model corpus + index, same-origin (2026-08-29): serving these through the
+# worker instead of the raw pub-*.r2.dev domain gets edge gzip/brotli (the
+# 2.4 MB index was shipping uncompressed) plus edge caching. The batch parts
+# endpoint (/ldraw-parts/_batch) rides the existing /ldraw-parts/* route.
+[[routes]]
+pattern = "craftmatic.click/lego-models/*"
+zone_name = "craftmatic.click"
+
+[[routes]]
+pattern = "craftmatic.click/lego-models-index.json"
+zone_name = "craftmatic.click"
+
 # Self-hosted LDraw library (keys ldraw/<relpath>) in the same R2 bucket as
 # the model corpus. The worker serves parts R2-first — library.ldraw.org
 # rate-limits cold big-set bursts (prod incident 2026-08-17), so upstream is

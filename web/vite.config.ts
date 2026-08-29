@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
-import { existsSync, createReadStream } from 'node:fs';
+import { existsSync, createReadStream, readFileSync } from 'node:fs';
 
 // Path to clego's reconstructed LDR files (dev only)
 const CLEGO_RECONSTRUCTED = 'C:/git/clego/lego_sets/Reconstructed';
@@ -110,6 +110,34 @@ export default defineConfig({
         server.middlewares.use('/ldraw-parts', (req, res, next) => {
           const urlPath = (req.url ?? '').replace(/^\//, '').replace(/\.\./g, '');
           if (!urlPath) { next(); return; }
+          // Batched multi-get, mirroring the prod worker's /ldraw-parts/_batch:
+          // ?files=parts/3001.dat,p/4-4cyli.dat,… → {found:{name:text}, missing:[…]}.
+          // Local-file only (no upstream) — misses fall back to per-file probing
+          // client-side, exactly like prod's R2-only batch semantics.
+          if (urlPath.startsWith('_batch')) {
+            const q = new URL(req.url ?? '', 'http://x').searchParams.get('files') ?? '';
+            const found: Record<string, string> = {};
+            const missing: string[] = [];
+            for (const name of q.split(',').map(s => s.trim()).filter(Boolean).slice(0, 64)) {
+              const rel = name.replace(/\.\./g, '').replace(/^unofficial\//i, 'UnOfficial/');
+              const candidates = [`${LDRAW_ROOT}/${rel}`, `${LDRAW_ROOT}/UnOfficial/${rel}`];
+              let hit = false;
+              for (const c of candidates) {
+                if (existsSync(c)) {
+                  try {
+                    found[name] = readFileSync(c, 'utf-8');
+                    hit = true;
+                  } catch { /* unreadable — treat as missing */ }
+                  break;
+                }
+              }
+              if (!hit) missing.push(name);
+            }
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end(JSON.stringify({ found, missing }));
+            return;
+          }
           const localPath = `${LDRAW_ROOT}/${urlPath}`;
           const haveLocal = !FORCE_UPSTREAM && existsSync(LDRAW_ROOT) && existsSync(localPath);
           if (haveLocal) {

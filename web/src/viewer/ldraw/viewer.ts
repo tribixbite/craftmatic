@@ -554,7 +554,12 @@ export class LDrawViewer {
     // its own InstancedMeshes). Stepping is done by prefix-counting
     // step-sorted instances (see applyStepVisibility), not by toggling
     // per-step groups.
-    const stepState = this.buildStepGroup(filteredBricks, bboxMin, bboxMax);
+    const stepState = await this.buildStepGroup(
+      filteredBricks, bboxMin, bboxMax,
+      label => this.warp?.setProgress(uniqueParts.length, uniqueParts.length, label),
+      stale,
+    );
+    if (stale()) return;
     stepState.group.name = 'model';
     this.stepGroups.set(0, stepState);
     this.scene.add(stepState.group);
@@ -1304,12 +1309,30 @@ export class LDrawViewer {
    * Build a single step's Three.Group: per-color merged meshes + fat-line
    * edges. Mutates bboxMin/bboxMax to expand the scene-wide bbox so framing
    * stays stable across step toggles.
+   *
+   * ASYNC + time-sliced (2026-08-29): this used to be one synchronous block —
+   * on a 7.5k-brick set that froze the main thread for many seconds right
+   * after the fetch phase hit 100% (the "stuck/crashed between 100% and
+   * display" report: the tab shows Page-Unresponsive and mobile browsers
+   * kill it). The heavy loops now yield to the event loop every ~24 ms so
+   * the warp overlay keeps animating, progress text updates, and the
+   * browser never sees a killable hang. `bail` (newer load started) stops
+   * the build early; the caller discards the partial group.
    */
-  private buildStepGroup(
+  private async buildStepGroup(
     stepBricks: ParsedBrick[],
     bboxMin: THREE.Vector3,
     bboxMax: THREE.Vector3,
-  ): StepGroupState {
+    onProgress?: (label: string) => void,
+    bail?: () => boolean,
+  ): Promise<StepGroupState> {
+    let lastYield = performance.now();
+    const maybeYield = async (): Promise<void> => {
+      if (performance.now() - lastYield > 24) {
+        await new Promise<void>(r => setTimeout(r, 0));
+        lastYield = performance.now();
+      }
+    };
     const group = new THREE.Group();
     const edgeMaterials: LineMaterial[] = [];
     this.currentGeomKeys.clear(); // repopulated as this model's geoms are touched
@@ -1350,7 +1373,13 @@ export class LDrawViewer {
     let minRawLayer = Infinity;
     let maxRawLayer = -Infinity;
 
+    let brickIdx = 0;
     for (const brick of stepBricks) {
+      if ((++brickIdx & 511) === 0) {
+        if (bail?.()) return { group, edgeMaterials };
+        onProgress?.(`placing bricks ${brickIdx.toLocaleString()} / ${stepBricks.length.toLocaleString()}`);
+        await maybeYield();
+      }
       const partId = normId(brick.part);
       const geom = getCachedPartGeom(partId);
       if (!geom || (geom.tris.length === 0 && geom.colorTris.size === 0)) continue;
@@ -1438,7 +1467,13 @@ export class LDrawViewer {
     });
 
     const partLocalBox = new THREE.Box3();
+    let bucketIdx = 0;
     for (const bucket of sortedBuckets) {
+      if ((++bucketIdx & 15) === 0) {
+        if (bail?.()) return { group, edgeMaterials };
+        onProgress?.(`building meshes ${bucketIdx} / ${sortedBuckets.length}`);
+        await maybeYield();
+      }
       const partGeom = getCachedPartGeom(bucket.partId);
       if (!partGeom) continue;
 
@@ -1602,6 +1637,12 @@ export class LDrawViewer {
       // ~2M-segment fat-line draw is saved. Surfaced for the load status.
       this.edgesDroppedForSize = true;
     } else if (segCount > 0) {
+      // The edge sort+copy below allocates and fills tens of MB for big sets
+      // — give the browser a frame first so the last mesh-progress paint
+      // lands before this final block runs.
+      if (bail?.()) return { group, edgeMaterials };
+      onProgress?.(`building ${segCount.toLocaleString()} edge outlines`);
+      await maybeYield();
       // Sort segment indices step-ascending.
       const order = [...segStepArr.keys()].sort((a, b) => segStepArr[a]! - segStepArr[b]!);
       const allEdgePos = new Float32Array(segCount * 6);
