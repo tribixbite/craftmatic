@@ -63,6 +63,24 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
 - `library.ldraw.org` serves individual parts but sends **no CORS header** — must
   be proxied; cannot fetch from the browser directly. Official layout:
   `/library/official/{parts,p,parts/s,p/48}/<stem>.dat`.
+- **Batched part fetch (2026-08-29)**: `parts.ts` micro-batches concurrent
+  `fetchDatText` calls (20 ms window / 48 names) into ONE
+  `/ldraw-parts/_batch?files=…` request (worker: ≤64 R2 keys in parallel,
+  official+unofficial checked per name; dev: vite middleware mirror).
+  Measured: cold UCS Falcon fetch phase was 4+ min via per-path probing
+  (429 parts × ≤8 candidates × retries, 10-29 s single-part stalls);
+  Concorde cold in dev = 5 batch requests, 0 individual, 4.3 s. Endpoint
+  failure ×2 disables batching for the session (falls back to probing).
+- **Models + index are SAME-ORIGIN through the worker** (2026-08-29):
+  `/lego-models/*` and `/lego-models-index.json` routes → R2 binding. The raw
+  `pub-*.r2.dev` domain serves bytes UNCOMPRESSED and off-zone; the worker
+  path gets edge brotli/gzip (index 2.4 MB → 331 KB, .ldr ~5×) + edge cache.
+  `MODELS_BASE = '/lego-models'` in both dev and prod; r2.dev is only the
+  index fallback. **`buildStepGroup` is async + time-sliced** (yields ~24 ms,
+  bails on stale loads, streams "placing bricks / building meshes / building
+  edge outlines" into the warp overlay) — it used to freeze the main thread
+  after the fetch hit 100% (Page-Unresponsive kills = the "crash between
+  100% and display" class).
 - Parts that never resolve (a few set-custom OMR subparts like Red Baron
   `s100241`) are surfaced in the LEGO-tab status + console via
   `viewer.missingParts` — not silent. Sub-file refs that resolve nowhere (parent
