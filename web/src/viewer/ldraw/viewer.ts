@@ -64,7 +64,14 @@ const IS_MOBILE = typeof navigator !== 'undefined'
   && (navigator.maxTouchPoints ?? 0) > 0
   && typeof screen !== 'undefined'
   && Math.min(screen.width, screen.height) < 900;
-const MAX_PIXEL_RATIO = IS_MOBILE ? 1.5 : 2;
+// Mobile renders at (near-)native DPR now — the old 1.5 cap on DPR-3 phones
+// drew at HALF the CSS resolution and read as badly pixelated. Quality parity
+// with desktop by default; the ADAPTIVE guard in the render loop steps the
+// ratio back down (2.5 → … → 1.25) only if measured frame times actually
+// can't keep up on that device, instead of pre-emptively degrading everyone.
+const MAX_PIXEL_RATIO = IS_MOBILE
+  ? Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 2 : 2, 2.5)
+  : 2;
 const SHADOW_MAP_SIZE = IS_MOBILE ? 1024 : 2048;
 // Adaptive edge LOD. The old code hard-CAPPED edge collection at 2M segments —
 // which silently TRUNCATED big sets (71043 Hogwarts, Colosseum, UCS Falcon all
@@ -429,16 +436,32 @@ export class LDrawViewer {
     // Render loop
     viewer.startRenderLoop();
 
+    // GPU context loss (driver reset, GPU OOM eviction — common on mobile
+    // with mega-sets). preventDefault() opts into restoration, but after a
+    // real loss every GPU-side resource is gone — merely restarting the rAF
+    // loop rendered black forever (the "page failed to load"-adjacent dead
+    // panel). Recovery is owned by the UI layer: onContextLost tells it to
+    // dispose this viewer, rebuild, and reload the current model; if no
+    // handler is wired, fall back to the old pause/resume behaviour.
     viewer.renderer.domElement.addEventListener('webglcontextlost', e => {
       e.preventDefault();
       cancelAnimationFrame(viewer.animId);
+      console.warn('[LDrawViewer] WebGL context lost');
+      if (viewer.onContextLost) {
+        // Defer so the browser finishes its loss handling first.
+        setTimeout(() => viewer.onContextLost?.(), 250);
+      }
     });
     viewer.renderer.domElement.addEventListener('webglcontextrestored', () => {
-      viewer.startRenderLoop();
+      console.info('[LDrawViewer] WebGL context restored');
+      if (!viewer.onContextLost) viewer.startRenderLoop();
     });
 
     return viewer;
   }
+
+  /** UI-layer hook: rebuild the viewer + reload the model after context loss. */
+  onContextLost: (() => void) | null = null;
 
   /**
    * Load a model. Builds per-step Three.Group containers so subsequent
@@ -487,12 +510,15 @@ export class LDrawViewer {
     const uniqueParts = [...new Set(filteredBricks.map(b => normId(b.part)))];
 
     // Prefetch part geometry concurrently (cache-warm reads thereafter).
-    // Keep the cap modest: each part fans out into sub-part/primitive fetches
-    // and multiple candidate-path probes — 20 top-level parts hammered the
-    // prod proxy hard enough that library.ldraw.org rate-limited a cold
-    // big-set load (2026-08-17). Warm loads come from the IndexedDB cache.
+    // 48 concurrent parts since the micro-batcher landed (2026-08-29): the
+    // old cap of 12 was tuned for per-file upstream probing (rate-limit
+    // incident 2026-08-17) but STARVED the /_batch aggregator — batches
+    // went out ~12 names instead of 48, costing ~5x the round-trips
+    // (measured: 200 batch requests where ~40 suffice). Batch traffic hits
+    // our own R2, not upstream, so the old rate-limit concern doesn't apply;
+    // the rare unmirrored name still probes upstream but single-attempt.
     let done = 0;
-    const CONCURRENCY = 12;
+    const CONCURRENCY = 48;
     for (let i = 0; i < uniqueParts.length; i += CONCURRENCY) {
       if (stale()) return;
       const batch = uniqueParts.slice(i, i + CONCURRENCY);
@@ -955,6 +981,34 @@ export class LDrawViewer {
     this.needsRender = true;
   }
 
+  // ── Adaptive resolution ────────────────────────────────────────────────
+  // Frame-time EMA measured only on CONTINUOUS frames (camera anims /
+  // turntable — the moments where slowness is felt). If the device can't
+  // hold ~30 fps at the current pixel ratio, step down 0.25 at a time to a
+  // 1.25 floor; never steps back up mid-session (avoids oscillation).
+  private frameTimeEma = 0;
+  private slowFrameStreak = 0;
+
+  private adaptPixelRatio(frameMs: number, animating: boolean): void {
+    if (!animating) return; // one-off invalidations include shadow refreshes etc.
+    this.frameTimeEma = this.frameTimeEma === 0
+      ? frameMs
+      : this.frameTimeEma * 0.9 + frameMs * 0.1;
+    if (this.frameTimeEma > 34) this.slowFrameStreak++;
+    else this.slowFrameStreak = 0;
+    if (this.slowFrameStreak >= 30) {
+      const pr = this.renderer.getPixelRatio();
+      if (pr > 1.25) {
+        const next = Math.max(1.25, pr - 0.25);
+        this.renderer.setPixelRatio(next);
+        this.handleResize();
+        console.info(`[LDrawViewer] adaptive resolution: pixel ratio ${pr.toFixed(2)} → ${next.toFixed(2)} (frame ${this.frameTimeEma.toFixed(0)}ms)`);
+      }
+      this.slowFrameStreak = 0;
+      this.frameTimeEma = 0;
+    }
+  }
+
   private startRenderLoop(): void {
     let lastWarpT = 0;
     const loop = () => {
@@ -991,7 +1045,9 @@ export class LDrawViewer {
       // just the final OutputPass (which is 1 fullscreen triangle). Manual
       // reset per frame (autoReset off) keeps the dev __ldrawViewer probe valid.
       if (this.statsOverlay) { this.renderer.info.autoReset = false; this.renderer.info.reset(); }
+      const frameT0 = performance.now();
       this.composer.render();
+      this.adaptPixelRatio(performance.now() - frameT0, animating);
       this.needsRender = false;
       if (this.statsOverlay) this.updateStatsOverlay();
     };

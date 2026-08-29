@@ -1787,6 +1787,17 @@ async function voxelizeAndDisplay(
             <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
           </div>`;
           currentLDrawViewer = await LDrawViewer.create(viewerEl);
+          // GPU context loss (driver reset / GPU OOM, common on mobile with
+          // mega-sets) used to leave a permanently black panel. Rebuild the
+          // whole viewer and re-display the current model instead.
+          currentLDrawViewer.onContextLost = () => {
+            setStatus('Graphics context was lost — reloading the model…', 'info');
+            try { currentLDrawViewer?.dispose(); } catch { /* already dead */ }
+            currentLDrawViewer = null;
+            if (currentBricks) {
+              void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
+            }
+          };
           currentLDrawViewer.onBrickHover = (brick, x, y) => {
             const tip = document.getElementById('lego-hover-tooltip');
             if (!tip) return;
