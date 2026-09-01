@@ -21,6 +21,7 @@ export default defineConfig({
     alias: {
       '@craft': path.resolve(__dirname, 'src'),
       '@ui': path.resolve(__dirname, 'web/src/ui'),
+      '@engine': path.resolve(__dirname, 'web/src/engine'),
     },
   },
   test: {
