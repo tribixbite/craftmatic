@@ -243,8 +243,14 @@ export function ldrawColorToBlock(colorId: number): string {
     LDRAW_COLOR_TO_BLOCK[colorId] = match;
     return match;
   }
+  if (!warnedLdrawIds.has(colorId)) {
+    warnedLdrawIds.add(colorId);
+    console.warn(`[ldraw-colors] unmapped LDraw color id ${colorId} → minecraft:gray_concrete`);
+  }
   return 'minecraft:gray_concrete';
 }
+
+const warnedLdrawIds = new Set<number>();
 
 /**
  * LDraw color ID → hex RGB (for display in UI and perceptual fallback).

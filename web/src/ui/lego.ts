@@ -13,7 +13,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { parseLDraw, countSteps, type ParsedBrick } from '@engine/ldraw-parser.js';
 import { voxelizeLDraw, solidifyColumns, fillSingleVoxelGaps, keepLargestComponent, type VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
 import { voxelizeLDrawGeometry } from '@engine/ldraw-geometry.js';
-import { extractIoModel } from '@engine/io-extractor.js';
+import { extractIoModel, type IoModel } from '@engine/io-extractor.js';
 import { synthesizeLSynth } from '@engine/lsynth.js';
 import { parseLxf } from '@engine/lxf-parser.js';
 import { studioColorToBlock } from '@engine/studio-colors.js';
@@ -26,6 +26,25 @@ import {
 import { exportGLB, exportSTL, exportOBJ, export3MF, exportSchem, exportLitematic, exportLayerGuide, countExportTriangles } from '@viewer/exporter.js';
 import type { ViewerState } from '@viewer/scene.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
+
+/**
+ * Pick the colour→block table for an extracted .io model.
+ *
+ * MUST be chosen per-FILE, not per-extension. Studio ships the same model as
+ * `model.ldr` (standard LDraw ids) and `model2.ldr` (Studio/BrickLink ids), and
+ * `extractIoModel` prefers whichever has brick refs — modern exports win on
+ * model.ldr. Blanket-applying studioColorToBlock to every ".io" read LDraw ids
+ * through the BL table, so LDraw 15 (White) landed on Studio 15
+ * (Trans-Light Blue → light_blue_stained_glass): 21063's white castle walls
+ * exported as translucent blue glass, LDraw 71/28 as magenta/orange terrain.
+ * `undefined` means "use the default LDraw resolver".
+ */
+function ioColorFn(model: IoModel): ((id: number) => string) | undefined {
+  if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+    console.info(`[lego] .io colour space: ${model.colorSpace} — ${model.colorSpaceReason} (entry ${model.sourceEntry})`);
+  }
+  return model.colorSpace === 'bl' ? studioColorToBlock : undefined;
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -1204,7 +1223,7 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
     currentMpdContent = text;
     currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
     bricks = parseLDraw(text);
-    colorFn = studioColorToBlock;
+    colorFn = ioColorFn(ioModel);
   } else if (ext === 'lxf') {
     bricks = await parseLxf(await resp.arrayBuffer());
     if (loadIsStale(epoch) || selectedSet !== set) return;
@@ -1646,7 +1665,7 @@ async function parseMpdFile(file: File): Promise<void> {
       currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
       const bricks = parseLDraw(text);
       if (bricks.length === 0) throw new Error('No brick placements found in file.');
-      await voxelizeAndDisplay(bricks, file.name, studioColorToBlock);
+      await voxelizeAndDisplay(bricks, file.name, ioColorFn(ioModel));
       return;
     }
 

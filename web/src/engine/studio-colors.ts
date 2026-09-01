@@ -186,7 +186,19 @@ export const STUDIO_COLOR_TO_BLOCK: Record<number, string> = {
   1009: 'minecraft:yellow_stained_glass', // Rubber Trans-Yellow
 };
 
-/** Resolve a BrickLink Studio color ID to a Minecraft block state string. */
+const warnedStudioIds = new Set<number>();
+
+/**
+ * Resolve a BrickLink Studio color ID to a Minecraft block state string.
+ * Unknown ids fall back to a neutral grey (never a loud magenta) and are
+ * logged once each, so a colour-space mix-up is visible rather than silent.
+ */
 export function studioColorToBlock(colorId: number): string {
-  return STUDIO_COLOR_TO_BLOCK[colorId] ?? 'minecraft:gray_concrete';
+  const block = STUDIO_COLOR_TO_BLOCK[colorId];
+  if (block) return block;
+  if (!warnedStudioIds.has(colorId)) {
+    warnedStudioIds.add(colorId);
+    console.warn(`[studio-colors] unmapped Studio/BL color id ${colorId} → minecraft:gray_concrete`);
+  }
+  return 'minecraft:gray_concrete';
 }
