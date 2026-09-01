@@ -43,6 +43,43 @@ export class BlockGrid {
     return this._palette;
   }
 
+  /**
+   * Raw palette-indexed voxel data. Exposed so a grid can be moved across a
+   * Worker boundary as a transferable without copying it into JS objects.
+   * Treat as read-only unless you also maintain the palette.
+   */
+  get rawData(): Uint16Array {
+    return this.data;
+  }
+
+  /**
+   * Rebuild a grid from raw transferred parts (see `rawData`). `reversePalette`
+   * must be index-ordered, entry 0 = air.
+   */
+  static fromRaw(
+    width: number,
+    height: number,
+    length: number,
+    data: Uint16Array,
+    reversePalette: BlockState[],
+  ): BlockGrid {
+    const g = new BlockGrid(1, 1, 1);
+    g.width = width;
+    g.height = height;
+    (g as { length: number }).length = length;
+    g.data = data;
+    g._palette = new Map();
+    g._reversePalette = reversePalette.slice();
+    for (let i = 0; i < reversePalette.length; i++) g._palette.set(reversePalette[i]!, i);
+    g._nextId = reversePalette.length;
+    return g;
+  }
+
+  /** Palette as an index-ordered array (entry 0 = air) — pairs with `fromRaw`. */
+  reversePalette(): BlockState[] {
+    return this._reversePalette.slice();
+  }
+
   /** Get all block entities */
   get blockEntities(): BlockEntity[] {
     return this._blockEntities;
@@ -188,22 +225,38 @@ export class BlockGrid {
     });
   }
 
-  /** Encode block data as varint byte array for .schem format */
+  /**
+   * Encode block data as a varint byte array for the .schem format.
+   *
+   * Two-pass, exact-allocation: the output is sized from a per-palette-index
+   * varint-length table before writing, so the peak allocation is exactly the
+   * output size. (It used to accumulate every byte in a `number[]` — measured
+   * +783 MB RSS for a 28.5 MB result at the 30M-cell export cap; that was half
+   * the mobile OOM. Output bytes are unchanged.)
+   */
   encodeBlockData(): Uint8Array {
-    const result: number[] = [];
     const len = this.data.length;
+    // Varint byte length per palette index (indices are ≤ 65535 → 1–3 bytes).
+    const maxId = this._nextId; // exclusive upper bound of used indices
+    const lenOf = new Uint8Array(Math.max(1, maxId));
+    for (let id = 0; id < maxId; id++) {
+      lenOf[id] = id < 0x80 ? 1 : id < 0x4000 ? 2 : 3;
+    }
+    let total = 0;
+    for (let i = 0; i < len; i++) total += lenOf[this.data[i]] ?? 3;
+    const out = new Uint8Array(total);
+    let o = 0;
     for (let i = 0; i < len; i++) {
-      // Varint encoding of palette index
       let value = this.data[i];
       while (true) {
         let byte = value & 0x7f;
         value >>>= 7;
         if (value !== 0) byte |= 0x80;
-        result.push(byte);
+        out[o++] = byte;
         if (value === 0) break;
       }
     }
-    return new Uint8Array(result);
+    return out;
   }
 
   /** Expand grid height upward (adds air layers on top) */

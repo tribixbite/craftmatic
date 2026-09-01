@@ -82,6 +82,15 @@ export function setLDrawRoot(fsRoot: string): void {
   useFilesystem = true;
 }
 
+/**
+ * Point the fetch-based loader at a different origin/path (e.g. from a Web
+ * Worker, which has no page-relative base). Stays in fetch mode.
+ */
+export function setLDrawBase(base: string): void {
+  LDRAW_BASE = base.replace(/\/$/, '');
+  useFilesystem = false;
+}
+
 async function fetchDatText(id: string): Promise<string | null> {
   const key = normId(id);
   if (datTextCache.has(key)) return datTextCache.get(key)!;
@@ -246,10 +255,12 @@ function rayAxisHit(
 
 /**
  * Parity-fill ray hits into grid cells along one axis.
- * Returns filled grid positions along the sweep axis.
+ * Writes the filled grid positions into `out` (reused across rays to avoid
+ * allocating two arrays per ray).
  */
-function parityFill(hits: number[], cellSize: number): number[] {
-  if (hits.length === 0) return [];
+function parityFill(hits: number[], cellSize: number, out: number[]): void {
+  out.length = 0;
+  if (hits.length === 0) return;
   hits.sort((a, b) => a - b);
 
   // Deduplicate near-identical hits (shared triangle edges)
@@ -262,21 +273,54 @@ function parityFill(hits: number[], cellSize: number): number[] {
   // Odd count (non-watertight mesh) → fill only the surface cells at each hit
   // point instead of the full [min,max] range (which over-fills thin parts).
   if (dedup.length % 2 !== 0) {
-    const result: number[] = [];
-    for (const hit of dedup) result.push(Math.round(hit / cellSize));
-    return result;
+    for (const hit of dedup) out.push(Math.round(hit / cellSize));
+    return;
   }
   const pairs = dedup;
 
-  const result: number[] = [];
   for (let i = 0; i < pairs.length - 1; i += 2) {
     const g0 = Math.round(pairs[i]! / cellSize);
     const g1 = Math.round(pairs[i + 1]! / cellSize);
     for (let g = Math.min(g0, g1); g <= Math.max(g0, g1); g++) {
-      result.push(g);
+      out.push(g);
     }
   }
-  return result;
+}
+
+/**
+ * CSR index of triangles by the 2D lattice of ray origins for one sweep axis.
+ * `start[b]…start[b+1]` bounds the triangle indices covering bucket `b`,
+ * where `b = (g0 - lo0) * n1 + (g1 - lo1)`.
+ */
+interface TriBuckets { start: Int32Array; items: Int32Array; n1: number }
+
+function buildTriBuckets(
+  nTris: number,
+  lo0: number, hi0: number, lo1: number, hi1: number,
+  r0Lo: Int32Array, r0Hi: Int32Array, r1Lo: Int32Array, r1Hi: Int32Array,
+): TriBuckets {
+  const n0 = hi0 - lo0 + 1;
+  const n1 = hi1 - lo1 + 1;
+  const nb = n0 * n1;
+  const start = new Int32Array(nb + 1);
+  for (let t = 0; t < nTris; t++) {
+    const a0 = r0Lo[t]!, b0 = r0Hi[t]!, a1 = r1Lo[t]!, b1 = r1Hi[t]!;
+    for (let g0 = a0; g0 <= b0; g0++) {
+      const base = (g0 - lo0) * n1 - lo1 + 1;
+      for (let g1 = a1; g1 <= b1; g1++) start[base + g1]++;
+    }
+  }
+  for (let i = 0; i < nb; i++) start[i + 1] += start[i]!;
+  const items = new Int32Array(start[nb]!);
+  const cursor = start.slice(0, nb);
+  for (let t = 0; t < nTris; t++) {
+    const a0 = r0Lo[t]!, b0 = r0Hi[t]!, a1 = r1Lo[t]!, b1 = r1Hi[t]!;
+    for (let g0 = a0; g0 <= b0; g0++) {
+      const base = (g0 - lo0) * n1 - lo1;
+      for (let g1 = a1; g1 <= b1; g1++) items[cursor[base + g1]!++] = t;
+    }
+  }
+  return { start, items, n1 };
 }
 
 // ─── Rasterization (tri-axis) ────────────────────────────────────────────────
@@ -296,9 +340,10 @@ function parityFill(hits: number[], cellSize: number): number[] {
 function rasterizeTriangles(
   worldTris: Triangle[],
   LDU_PER_Y: number,
-  LDU_PER_XZ: number = LDU_STUD,
-): Array<readonly [number, number, number]> {
-  if (worldTris.length === 0) return [];
+  LDU_PER_XZ: number,
+  emit: (gx: number, gy: number, gz: number) => void,
+): void {
+  if (worldTris.length === 0) return;
 
   // Full 3D bounding box in world LDU
   let wxMin = Infinity, wxMax = -Infinity;
@@ -321,53 +366,140 @@ function rasterizeTriangles(
   const gzMin = Math.floor(wzMin / LDU_PER_XZ);
   const gzMax = Math.ceil(wzMax / LDU_PER_XZ);
 
-  // Use a Set to deduplicate cells from all 3 sweep axes
-  const cellSet = new Set<string>();
+  // Deduplicate cells from all 3 sweep axes.
+  // Keys are NUMERIC (offset from the part's own grid AABB, row-major) rather
+  // than `${gx},${gy},${gz}` strings — same insertion order, same dedup
+  // semantics, but no per-cell string allocation. (S3: string keys dominated
+  // the 85 s main-thread stall measured on 21063 at cellLDU 4.)
+  // Every emitted coordinate provably lies in [gMin, gMax] (parity hits come
+  // from ray/triangle intersections inside the mesh AABB; the surface pass
+  // rounds a sub-range of it), but pad by 2 and keep a string overflow set so a
+  // float edge case can never alias two cells onto one key.
+  const oX = gxMin - 2, oY = gyMin - 2, oZ = gzMin - 2;
+  const nX = (gxMax - gxMin) + 5;
+  const nY = (gyMax - gyMin) + 5;
+  const nZ = (gzMax - gzMin) + 5;
+  const cellSet = new Set<number>();
+  const overflow = new Set<string>();
 
   const addCell = (gx: number, gy: number, gz: number) => {
-    cellSet.add(`${gx},${gy},${gz}`);
+    const dx = gx - oX, dy = gy - oY, dz = gz - oZ;
+    if (dx < 0 || dy < 0 || dz < 0 || dx >= nX || dy >= nY || dz >= nZ) {
+      overflow.add(`${gx},${gy},${gz}`);
+      return;
+    }
+    cellSet.add((dx * nY + dy) * nZ + dz);
   };
 
+  // ── Per-triangle ray-index ranges (broad phase) ───────────────────────────
+  // Möller-Trumbore's u/v test already rejects every ray whose 2D origin falls
+  // outside the triangle's projected bounding box, so restricting each ray to
+  // the triangles whose box covers it is EXACTLY equivalent — just without the
+  // O(rays × triangles) scan that dominated the 60 s stall measured on 21063.
+  // Ranges are padded ±1 cell so a float rounding edge can never drop a
+  // boundary-touching ray. `hits` are sorted in parityFill, so changing the
+  // triangle visit order cannot change the output.
+  const nTris = worldTris.length;
+  const xLo = new Int32Array(nTris), xHi = new Int32Array(nTris);
+  const yLo = new Int32Array(nTris), yHi = new Int32Array(nTris);
+  const zLo = new Int32Array(nTris), zHi = new Int32Array(nTris);
+  for (let t = 0; t < nTris; t++) {
+    const [v0, v1, v2] = worldTris[t]!;
+    const txMin = Math.min(v0[0], v1[0], v2[0]), txMax = Math.max(v0[0], v1[0], v2[0]);
+    const tyMin = Math.min(v0[1], v1[1], v2[1]), tyMax = Math.max(v0[1], v1[1], v2[1]);
+    const tzMin = Math.min(v0[2], v1[2], v2[2]), tzMax = Math.max(v0[2], v1[2], v2[2]);
+    xLo[t] = Math.max(gxMin, Math.ceil(txMin / LDU_PER_XZ - 0.5) - 1);
+    xHi[t] = Math.min(gxMax, Math.floor(txMax / LDU_PER_XZ - 0.5) + 1);
+    yLo[t] = Math.max(gyMin, Math.ceil(-tyMax / LDU_PER_Y - 0.5) - 1);
+    yHi[t] = Math.min(gyMax, Math.floor(-tyMin / LDU_PER_Y - 0.5) + 1);
+    zLo[t] = Math.max(gzMin, Math.ceil(tzMin / LDU_PER_XZ - 0.5) - 1);
+    zHi[t] = Math.min(gzMax, Math.floor(tzMax / LDU_PER_XZ - 0.5) + 1);
+  }
+
+  // Bucketing only pays for itself on non-trivial meshes.
+  const BUCKET_MIN_TRIS = 24;
+  const useBuckets = nTris >= BUCKET_MIN_TRIS;
+
+  const hits: number[] = [];
+  const filled: number[] = [];
+
   // ── Sweep along Z (rays in XY plane, casting +Z) ──────────────────────────
-  for (let gx = gxMin; gx <= gxMax; gx++) {
-    for (let gy = gyMin; gy <= gyMax; gy++) {
-      const ox = (gx + 0.5) * LDU_PER_XZ;
-      const oy = -(gy + 0.5) * LDU_PER_Y;
-      const hits: number[] = [];
-      for (const [v0, v1, v2] of worldTris) {
-        const t = rayAxisHit(ox, oy, v0, v1, v2, 0, 1, 2);
-        if (t !== null) hits.push(t);
+  {
+    const bk = useBuckets ? buildTriBuckets(nTris, gxMin, gxMax, gyMin, gyMax, xLo, xHi, yLo, yHi) : null;
+    for (let gx = gxMin; gx <= gxMax; gx++) {
+      for (let gy = gyMin; gy <= gyMax; gy++) {
+        const ox = (gx + 0.5) * LDU_PER_XZ;
+        const oy = -(gy + 0.5) * LDU_PER_Y;
+        hits.length = 0;
+        if (bk) {
+          const b = (gx - gxMin) * bk.n1 + (gy - gyMin);
+          for (let k = bk.start[b]!; k < bk.start[b + 1]!; k++) {
+            const [v0, v1, v2] = worldTris[bk.items[k]!]!;
+            const t = rayAxisHit(ox, oy, v0, v1, v2, 0, 1, 2);
+            if (t !== null) hits.push(t);
+          }
+        } else {
+          for (const [v0, v1, v2] of worldTris) {
+            const t = rayAxisHit(ox, oy, v0, v1, v2, 0, 1, 2);
+            if (t !== null) hits.push(t);
+          }
+        }
+        parityFill(hits, LDU_PER_XZ, filled);
+        for (const gz of filled) addCell(gx, gy, gz);
       }
-      for (const gz of parityFill(hits, LDU_PER_XZ)) addCell(gx, gy, gz);
     }
   }
 
   // ── Sweep along X (rays in YZ plane, casting +X) ──────────────────────────
-  for (let gy = gyMin; gy <= gyMax; gy++) {
-    for (let gz = gzMin; gz <= gzMax; gz++) {
-      const oy = -(gy + 0.5) * LDU_PER_Y;
-      const oz = (gz + 0.5) * LDU_PER_XZ;
-      const hits: number[] = [];
-      for (const [v0, v1, v2] of worldTris) {
-        const t = rayAxisHit(oy, oz, v0, v1, v2, 1, 2, 0);
-        if (t !== null) hits.push(t);
+  {
+    const bk = useBuckets ? buildTriBuckets(nTris, gyMin, gyMax, gzMin, gzMax, yLo, yHi, zLo, zHi) : null;
+    for (let gy = gyMin; gy <= gyMax; gy++) {
+      for (let gz = gzMin; gz <= gzMax; gz++) {
+        const oy = -(gy + 0.5) * LDU_PER_Y;
+        const oz = (gz + 0.5) * LDU_PER_XZ;
+        hits.length = 0;
+        if (bk) {
+          const b = (gy - gyMin) * bk.n1 + (gz - gzMin);
+          for (let k = bk.start[b]!; k < bk.start[b + 1]!; k++) {
+            const [v0, v1, v2] = worldTris[bk.items[k]!]!;
+            const t = rayAxisHit(oy, oz, v0, v1, v2, 1, 2, 0);
+            if (t !== null) hits.push(t);
+          }
+        } else {
+          for (const [v0, v1, v2] of worldTris) {
+            const t = rayAxisHit(oy, oz, v0, v1, v2, 1, 2, 0);
+            if (t !== null) hits.push(t);
+          }
+        }
+        parityFill(hits, LDU_PER_XZ, filled);
+        for (const gx of filled) addCell(gx, gy, gz);
       }
-      for (const gx of parityFill(hits, LDU_PER_XZ)) addCell(gx, gy, gz);
     }
   }
 
   // ── Sweep along Y (rays in XZ plane, casting -Y in LDraw = +Y in grid) ───
-  for (let gx = gxMin; gx <= gxMax; gx++) {
-    for (let gz = gzMin; gz <= gzMax; gz++) {
-      const ox = (gx + 0.5) * LDU_PER_XZ;
-      const oz = (gz + 0.5) * LDU_PER_XZ;
-      const hits: number[] = [];
-      for (const [v0, v1, v2] of worldTris) {
-        const t = rayAxisHit(ox, oz, v0, v1, v2, 0, 2, 1);
-        if (t !== null) hits.push(-t);
-      }
-      for (const gy of parityFill(hits, LDU_PER_Y)) {
-        addCell(gx, gy, gz);
+  {
+    const bk = useBuckets ? buildTriBuckets(nTris, gxMin, gxMax, gzMin, gzMax, xLo, xHi, zLo, zHi) : null;
+    for (let gx = gxMin; gx <= gxMax; gx++) {
+      for (let gz = gzMin; gz <= gzMax; gz++) {
+        const ox = (gx + 0.5) * LDU_PER_XZ;
+        const oz = (gz + 0.5) * LDU_PER_XZ;
+        hits.length = 0;
+        if (bk) {
+          const b = (gx - gxMin) * bk.n1 + (gz - gzMin);
+          for (let k = bk.start[b]!; k < bk.start[b + 1]!; k++) {
+            const [v0, v1, v2] = worldTris[bk.items[k]!]!;
+            const t = rayAxisHit(ox, oz, v0, v1, v2, 0, 2, 1);
+            if (t !== null) hits.push(-t);
+          }
+        } else {
+          for (const [v0, v1, v2] of worldTris) {
+            const t = rayAxisHit(ox, oz, v0, v1, v2, 0, 2, 1);
+            if (t !== null) hits.push(-t);
+          }
+        }
+        parityFill(hits, LDU_PER_Y, filled);
+        for (const gy of filled) addCell(gx, gy, gz);
       }
     }
   }
@@ -394,18 +526,89 @@ function rasterizeTriangles(
           addCell(x, y, z);
   }
 
-  // Convert Set back to array
-  const cells: Array<readonly [number, number, number]> = [];
+  // Emit the deduplicated cells
   for (const key of cellSet) {
-    const [x, y, z] = key.split(',').map(Number) as [number, number, number];
-    cells.push([x, y, z]);
+    const dz = key % nZ;
+    const rest = (key - dz) / nZ;
+    const dy = rest % nY;
+    const dx = (rest - dy) / nY;
+    emit(dx + oX, dy + oY, dz + oZ);
   }
-  return cells;
+  for (const key of overflow) {
+    const [x, y, z] = key.split(',').map(Number) as [number, number, number];
+    emit(x, y, z);
+  }
+}
+
+// ─── Cell store ──────────────────────────────────────────────────────────────
+
+/**
+ * Chunked typed-array store for emitted voxel cells.
+ *
+ * WHY (S3): the accumulator used to be `Array<{gx,gy,gz,block,color}>` — 1.60M
+ * objects ≈ 98 MB measured on 21063 at cellLDU 4, and linear in cell count, so
+ * a 30M-cell export allocated hundreds of MB of short-lived objects. Parallel
+ * Int32/Uint16 chunks store the same information in 14 bytes per cell with no
+ * per-cell object header and no re-copy on growth. Block strings are interned
+ * into `blocks` (colour is accumulated per-brick, never per-cell).
+ */
+const CELL_CHUNK = 1 << 20;
+
+class CellStore {
+  private xs: Int32Array[] = [];
+  private ys: Int32Array[] = [];
+  private zs: Int32Array[] = [];
+  private bs: Uint16Array[] = [];
+  private fill = CELL_CHUNK; // force a new chunk on first push
+  count = 0;
+  readonly blocks: string[] = [];
+  private blockIdx = new Map<string, number>();
+
+  /** Intern a block-state string; returns its index for push(). */
+  blockId(block: string): number {
+    let i = this.blockIdx.get(block);
+    if (i === undefined) {
+      i = this.blocks.length;
+      if (i > 65535) throw new Error('CellStore: more than 65536 distinct block states');
+      this.blocks.push(block);
+      this.blockIdx.set(block, i);
+    }
+    return i;
+  }
+
+  push(gx: number, gy: number, gz: number, blockId: number): void {
+    if (this.fill === CELL_CHUNK) {
+      this.xs.push(new Int32Array(CELL_CHUNK));
+      this.ys.push(new Int32Array(CELL_CHUNK));
+      this.zs.push(new Int32Array(CELL_CHUNK));
+      this.bs.push(new Uint16Array(CELL_CHUNK));
+      this.fill = 0;
+    }
+    const c = this.xs.length - 1;
+    this.xs[c]![this.fill] = gx;
+    this.ys[c]![this.fill] = gy;
+    this.zs[c]![this.fill] = gz;
+    this.bs[c]![this.fill] = blockId;
+    this.fill++;
+    this.count++;
+  }
+
+  /** Iterate every stored cell. */
+  forEach(fn: (gx: number, gy: number, gz: number, blockId: number) => void): void {
+    for (let c = 0; c < this.xs.length; c++) {
+      const n = c === this.xs.length - 1 ? this.fill : CELL_CHUNK;
+      const X = this.xs[c]!, Y = this.ys[c]!, Z = this.zs[c]!, B = this.bs[c]!;
+      for (let i = 0; i < n; i++) fn(X[i]!, Y[i]!, Z[i]!, B[i]!);
+    }
+  }
 }
 
 // ─── Public: geometry-accurate voxelization ──────────────────────────────────
 
 const MAX_DIM_GEO = 384;
+
+/** Progress sink for long voxelizations (worker → UI banner). */
+export type VoxelProgress = (phase: string, pct?: number) => void;
 
 /**
  * Geometry-accurate async replacement for voxelizeLDraw().
@@ -421,6 +624,7 @@ export async function voxelizeLDrawGeometry(
   bricks: ParsedBrick[],
   colorFn?: (id: number) => string,
   options?: VoxelizeOptions,
+  onProgress?: VoxelProgress,
 ): Promise<VoxelizeResult> {
   if (bricks.length === 0) {
     const grid = new BlockGrid(1, 1, 1);
@@ -451,21 +655,30 @@ export async function voxelizeLDrawGeometry(
   const uniqueParts = [...new Set(
     effectiveBricks.map(b => b.part).filter(p => !isLDrawPrimitive(p)),
   )];
+  onProgress?.('loading part geometry', 0);
   await prefetchPartGeometry(uniqueParts);
 
   const IDENTITY = [1,0,0, 0,1,0, 0,0,1];
 
-  interface Cell { gx: number; gy: number; gz: number; block: string; color: number }
-  const cells: Cell[] = [];
+  const cells = new CellStore();
+  const colors = new Set<number>();
   let fallbackPartCount = 0;
 
+  let brickIdx = 0;
+  let lastPct = -1;
   for (const brick of effectiveBricks) {
+    if (onProgress) {
+      const pct = Math.floor((brickIdx / effectiveBricks.length) * 100);
+      if (pct !== lastPct) { lastPct = pct; onProgress('voxelizing', pct); }
+    }
+    brickIdx++;
     if (isLDrawPrimitive(brick.part)) continue;
     // Skip Technic structural parts (pins, axles, bushes) — same as bbox voxelizer
     const barePartId = brick.part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
     if (TECHNIC_INTERNAL_PARTS.has(barePartId)) continue;
 
     const block = resolveColor(brick.color);
+    const blockId = cells.blockId(block);
     if (isDefaultFn && !(brick.color in LDRAW_COLOR_TO_BLOCK)) {
       unmappedColorSet.add(brick.color);
     }
@@ -500,8 +713,10 @@ export async function voxelizeLDrawGeometry(
       const fbzMin = Math.round(bzMin / LDU_XZ), fbzMax = Math.round(bzMax / LDU_XZ);
       for (let x = fbxMin; x <= fbxMax; x++)
         for (let y = fbyMin; y <= fbyMax; y++)
-          for (let z = fbzMin; z <= fbzMax; z++)
-            cells.push({ gx: x, gy: y, gz: z, block, color: brick.color });
+          for (let z = fbzMin; z <= fbzMax; z++) {
+            cells.push(x, y, z, blockId);
+            colors.add(brick.color);
+          }
       continue;
     }
     const T: Vec3 = [brick.x, brick.y, brick.z];
@@ -513,12 +728,18 @@ export async function voxelizeLDrawGeometry(
       applyMat(v2, R, T),
     ]);
 
-    for (const [gx, gy, gz] of rasterizeTriangles(worldTris, LDU_PER_Y, LDU_XZ)) {
-      cells.push({ gx, gy, gz, block, color: brick.color });
-    }
+    let emitted = false;
+    rasterizeTriangles(worldTris, LDU_PER_Y, LDU_XZ, (gx, gy, gz) => {
+      cells.push(gx, gy, gz, blockId);
+      emitted = true;
+    });
+    if (emitted) colors.add(brick.color);
   }
 
-  if (cells.length === 0) {
+  if ((globalThis as { __voxProfile?: boolean }).__voxProfile) {
+    console.log(`[profile] cells=${cells.count.toLocaleString()} ≈ ${(cells.count * 14 / 1048576).toFixed(1)} MB (typed chunks)`);
+  }
+  if (cells.count === 0) {
     const grid = new BlockGrid(1, 1, 1);
     return {
       grid, brickCount: bricks.length, uniqueColors: 0,
@@ -528,14 +749,15 @@ export async function voxelizeLDrawGeometry(
   }
 
   // Compute bounds
-  let minX = cells[0]!.gx, maxX = cells[0]!.gx;
-  let minY = cells[0]!.gy, maxY = cells[0]!.gy;
-  let minZ = cells[0]!.gz, maxZ = cells[0]!.gz;
-  for (const c of cells) {
-    if (c.gx < minX) minX = c.gx; if (c.gx > maxX) maxX = c.gx;
-    if (c.gy < minY) minY = c.gy; if (c.gy > maxY) maxY = c.gy;
-    if (c.gz < minZ) minZ = c.gz; if (c.gz > maxZ) maxZ = c.gz;
-  }
+  onProgress?.('measuring bounds');
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+  cells.forEach((gx, gy, gz) => {
+    if (gx < minX) minX = gx; if (gx > maxX) maxX = gx;
+    if (gy < minY) minY = gy; if (gy > maxY) maxY = gy;
+    if (gz < minZ) minZ = gz; if (gz > maxZ) maxZ = gz;
+  });
 
   let w = maxX - minX + 1;
   let h = maxY - minY + 1;
@@ -553,16 +775,18 @@ export async function voxelizeLDrawGeometry(
     warning = `Model scaled down ${(1 / scale).toFixed(1)}× to fit limits (max dim ${dimCap})`;
   }
 
+  onProgress?.('building grid');
   const grid = new BlockGrid(w, h, l);
-  const colors = new Set<number>();
+  // Pre-intern the block palette in first-use order (identical to the old
+  // per-cell grid.set(string) path, which assigned ids in the same order).
+  const paletteIds = cells.blocks.map(b => grid.paletteIndexOf(b));
 
-  for (const c of cells) {
-    const x = Math.max(0, Math.min(w - 1, Math.round((c.gx - minX) * scale)));
-    const y = Math.max(0, Math.min(h - 1, Math.round((c.gy - minY) * scale)));
-    const z = Math.max(0, Math.min(l - 1, Math.round((c.gz - minZ) * scale)));
-    grid.set(x, y, z, c.block);
-    colors.add(c.color);
-  }
+  cells.forEach((gx, gy, gz, blockId) => {
+    const x = Math.max(0, Math.min(w - 1, Math.round((gx - minX) * scale)));
+    const y = Math.max(0, Math.min(h - 1, Math.round((gy - minY) * scale)));
+    const z = Math.max(0, Math.min(l - 1, Math.round((gz - minZ) * scale)));
+    grid.setIndex(x, y, z, paletteIds[blockId]!);
+  });
 
   if (fallbackPartCount > 0) {
     console.warn(`[geometry] ${fallbackPartCount} parts had no .dat geometry — skipped`);

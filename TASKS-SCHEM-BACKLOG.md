@@ -19,18 +19,26 @@ external viewer; also check our own Upload-tab re-import for comparison
 (it round-tripped cleanly in tests — the bug may be palette naming that our
 importer tolerates but schemat.io does not, e.g. data-version field).
 
-## S2 — export progress UI (MEDIUM, UX)
-Progress currently a scrollable status entry; invisible when scrolled.
-Build a FIXED overlaid top banner (position:fixed alert bar) showing the
-current step/process ("voxelizing 34%", "writing NBT", "compressing"),
-shared by all long exports in the LEGO tab.
+## S2 — export progress UI (MEDIUM, UX) — DONE 2026-09-01
+`web/src/ui/export-progress.ts`: fixed banner pinned at #nav's measured
+bottom (never covers the tab bar, verified at 390px), determinate bar with
+live phase + %, green auto-dismiss / red sticky-with-×. Wired into schem,
+litematic, build guide, GLB, OBJ, STL, 3MF; #lego-status stays the log.
 
-## S3 — schem generation perf + mobile OOM (MEDIUM)
-Hi-res export (up to 30M cells) OOMs/crashes mobile. Optimize WITHOUT
-quality loss: stream/chunk the voxel grid (typed arrays per Y-slab instead
-of one giant allocation), move voxelization + NBT encode into a Web Worker
-(keeps UI alive; the gzip step too), process in batches; profile allocation
-peaks first. Parallelize per-slab where the geometry voxelizer allows.
+## S3 — schem generation perf + mobile OOM (MEDIUM) — DONE 2026-09-01
+PROFILED FIRST: BlockGrid was already a palette-indexed Uint16Array; the
+peak was (a) `number[]` byte accumulation in encodeBlockData + both NBT
+writers — **1.33 GB RSS for a 0.2 MB file at the 30M-cell cap** — and
+(b) 1.60M `{gx,gy,gz,block,color}` objects (98 MB) in the geometry
+voxelizer, whose ray sweep was also O(rays × triangles) = 85 s of blocked
+main thread on 21063. Fixed with a growable-Uint8Array ByteWriter +
+exact-size varint encode, chunked typed-array cells, and a per-triangle
+bbox bucket index; then moved the whole chain into
+`web/src/engine/schem-worker.ts` (progress → S2 banner, inline fallback).
+Measured 21063 @ cellLDU 4: voxelize 85.5 s → 5.9 s, peak 935 → 490 MB;
+30M-cell encode 1332 → 338 MB. Output **byte-identical** (sha256 match,
+`scripts/_schem_ref.ts`) for .schem and .litematic; parseSchemFile
+round-trip clean. See CLAUDE.md for the invariants.
 
 ## S4 — port schem pipeline to the Upload tab + reconcile (MEDIUM)
 One shared schem-export module used by BOTH tabs (today the Upload tab has

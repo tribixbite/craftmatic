@@ -17,7 +17,7 @@ import { calcBitsPerEntry } from './litematic-decode.js';
  * @returns Packed BigInt64Array suitable for NBT LongArray
  */
 export function encodeBitPackedStates(
-  indices: number[],
+  indices: ArrayLike<number>,
   bitsPerEntry: number,
 ): BigInt64Array {
   const totalBits = indices.length * bitsPerEntry;
@@ -26,7 +26,7 @@ export function encodeBitPackedStates(
   const mask = (1n << BigInt(bitsPerEntry)) - 1n;
 
   for (let i = 0; i < indices.length; i++) {
-    const value = BigInt(indices[i]) & mask;
+    const value = BigInt(indices[i]!) & mask;
     const bitIndex = i * bitsPerEntry;
     const longIndex = Math.floor(bitIndex / 64);
     const bitOffset = bitIndex % 64;
