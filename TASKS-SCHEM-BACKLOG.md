@@ -40,14 +40,36 @@ Measured 21063 @ cellLDU 4: voxelize 85.5 s → 5.9 s, peak 935 → 490 MB;
 `scripts/_schem_ref.ts`) for .schem and .litematic; parseSchemFile
 round-trip clean. See CLAUDE.md for the invariants.
 
-## S4 — port schem pipeline to the Upload tab + reconcile (MEDIUM)
-One shared schem-export module used by BOTH tabs (today the Upload tab has
-its own path). User-configurable: resolution (blocks per stud), block
-mapping / texture-pack profile (future), extras like "insert light-emitting
-blocks in enclosed spaces with no windows" (flood-fill dark-room detection).
+## S4 — port schem pipeline to the Upload tab + reconcile (MEDIUM) — DONE 2026-09-01
+The Upload tab held a **BlockGrid**, not bricks (it imports .schem/.litematic/
+mesh), and exported it through `main.ts`'s download menu calling
+`exportSchem`/`exportLitematic` synchronously on the main thread. Both surfaces
+now call ONE module — `web/src/ui/schem-export.ts` `runMinecraftExport()` over
+`web/src/engine/schem-pipeline.ts` (the S3 worker + encoders): source
+`{kind:'bricks'}` voxelizes, `{kind:'grid'}` encodes only (an uploaded
+schematic is already blocks). `schem-worker.ts` is now just message plumbing;
+the inline fallback calls the same function, so the two cannot drift.
+Settings (`⚙ MC settings` popover, shared + localStorage-persisted):
+**resolution** (Auto / 1 / 2.5 / 5 blocks per stud, caps enforced, live dims
+preview), **block-mapping profile** (`engine/block-profiles.ts` — one real
+profile, the seam only), **light enclosed interiors** OFF by default
+(`engine/light-fill.ts`: boundary flood → sealed pockets ≥8 cells get glowstone
+one per 6³ bucket on the floor; a room with a doorway stays dark by design).
+Verified in the app: Upload tab 16,112 → 16,128 blocks with lights on; LEGO tab
+129×14×33 @5× vs 27×3×7 @1×. Defaults are byte-identical (below).
 
-## S5 — external-viewer compatibility tests (gate for S1-S4)
-Automated check: export a reference set, load the .schem in >=1 external
-web viewer (schemat.io via Playwright; also try mcschematic-compatible
-tooling offline) and screenshot-compare; add a palette lint (all block ids
-must exist in the target MC version's registry).
+## S5 — external-viewer compatibility tests (gate for S1-S4) — DONE 2026-09-01
+1. **Palette lint (offline, CI)**: `engine/palette-lint.ts` +
+   `engine/mc-block-registry.json` (curated verified Java 1.20 ids).
+   `test/palette-lint.test.ts` lints both colour tables, the fallbacks, the
+   profile light blocks and a real exported .schem's `Palette` — all clean, and
+   the lint proves non-vacuous on a deliberate typo.
+2. **schemat.io (manual, repeatable)**: `node scripts/schem-external-check.mjs`
+   exports 21063 through the shared path and screenshots schemat.io/view →
+   `output/schem-backlog/schemat-io-21063.png`. Verdict: WHITE castle, solid
+   walls, green/brown base — the S1 defect (translucent blue walls, magenta
+   terrain) is gone.
+3. **Byte-identical gate**: `scripts/_schem_ref.ts` (rewritten to drive the REAL
+   shared pipeline) on 21063 at defaults → sha256
+   `52d221188f5677475392a25c4e45f6d137ba43af547c9d8c4ba44b9a8194be6b`,
+   equal to the S3 baseline. No regression.
