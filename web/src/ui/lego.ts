@@ -23,9 +23,9 @@ import {
   ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
-import { exportGLB, exportSTL, exportOBJ, export3MF, exportLayerGuide, countExportTriangles } from '@viewer/exporter.js';
-import { encodeSchemBytes, encodeLitematicBytes } from '@engine/schem-encode.js';
-import type { SchemWorkerInput, SchemWorkerOutput } from '@engine/schem-worker.js';
+import { exportGLB, exportSTL, exportOBJ, export3MF, countExportTriangles } from '@viewer/exporter.js';
+import { runMinecraftExport, spanOfBricks } from '@ui/schem-export.js';
+import { mountSchemSettings, getSchemSettings } from '@ui/schem-settings-panel.js';
 import { beginExportProgress, type ExportProgressHandle } from '@ui/export-progress.js';
 import type { ViewerState } from '@viewer/scene.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
@@ -371,6 +371,7 @@ function buildUI(): void {
           <option value="csv">Parts list (.csv)</option>
         </optgroup>
       </select>
+      <span id="lego-mc-settings" style="margin-left:6px;display:inline-flex"></span>
     </div>
 
     <!-- Assembly step / vertical layer slider (hidden until a model loads) -->
@@ -714,6 +715,17 @@ function wireEvents(): void {
     if (!fmt) return;
     void exportLoadedModel(fmt);
   });
+
+  // ── Minecraft export settings (shared with the Upload tab) ────────────────
+  const mcSettingsHost = document.getElementById('lego-mc-settings');
+  if (mcSettingsHost) {
+    mountSchemSettings(mcSettingsHost, {
+      resolutionApplicable: true,
+      // Live output-size preview for whatever set is currently loaded.
+      getSpan: () => (currentBricks && currentBricks.length > 0 ? spanOfBricks(currentBricks) : null),
+      key: 'lego',
+    });
+  }
 
   // ── Explode slider ────────────────────────────────────────────────────────
   document.getElementById('lego-explode-slider')?.addEventListener('input', e => {
@@ -1412,101 +1424,6 @@ function loadColorNames(): Promise<Record<string, string>> {
   return colorNamesPromise;
 }
 
-/** Trigger a browser download of raw bytes. */
-function downloadBytes(bytes: Uint8Array, filename: string): void {
-  const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
-}
-
-interface SchemExportJob {
-  bytes?: Uint8Array;
-  grid?: BlockGrid;
-  width: number; height: number; length: number; nonAir: number;
-  /** True when the work ran inline because a Worker could not be created. */
-  inline: boolean;
-}
-
-/**
- * Run voxelize → fillSingleVoxelGaps → NBT → gzip in the export Web Worker,
- * streaming `{phase, pct}` to the progress banner.
- *
- * Falls back to running the SAME code inline on the main thread if the Worker
- * can't be constructed (old browser, blocked module worker). The inline path is
- * byte-for-byte the worker's — same functions, same order.
- */
-async function runSchemExportWorker(
-  bricks: ParsedBrick[],
-  colorSpace: 'ldraw' | 'bl',
-  options: VoxelizeOptions,
-  format: 'schem' | 'litematic' | 'guide',
-  onProgress: (phase: string, pct?: number) => void,
-): Promise<SchemExportJob> {
-  let worker: Worker | null = null;
-  try {
-    worker = new Worker(new URL('@engine/schem-worker.ts', import.meta.url), { type: 'module' });
-  } catch (err) {
-    console.warn('[lego] export worker unavailable, running inline:', err);
-  }
-
-  if (worker) {
-    try {
-      return await new Promise<SchemExportJob>((resolve, reject) => {
-        const w = worker!;
-        w.onmessage = (ev: MessageEvent<SchemWorkerOutput>) => {
-          const msg = ev.data;
-          if (msg.type === 'progress') { onProgress(msg.phase, msg.pct); return; }
-          if (msg.type === 'error') { w.terminate(); reject(new Error(msg.message)); return; }
-          w.terminate();
-          resolve({
-            bytes: msg.bytes,
-            grid: msg.grid
-              ? BlockGrid.fromRaw(msg.grid.width, msg.grid.height, msg.grid.length, msg.grid.data, msg.grid.palette)
-              : undefined,
-            width: msg.width, height: msg.height, length: msg.length, nonAir: msg.nonAir,
-            inline: false,
-          });
-        };
-        w.onerror = (e) => { w.terminate(); reject(new Error(`Export worker error: ${e.message}`)); };
-        const input: SchemWorkerInput = {
-          bricks, colorSpace, options, format,
-          ldrawBase: new URL('/ldraw-parts', location.origin).toString(),
-        };
-        w.postMessage(input);
-      });
-    } catch (err) {
-      console.warn('[lego] export worker failed, retrying inline:', err);
-    }
-  }
-
-  // ── Inline fallback (identical pipeline) ─────────────────────────────────
-  const colorFn = colorSpace === 'bl' ? studioColorToBlock : undefined;
-  let grid: BlockGrid;
-  try {
-    const r = await voxelizeLDrawGeometry(bricks, colorFn, options, onProgress);
-    grid = r.grid.countNonAir() >= bricks.length
-      ? r.grid
-      : voxelizeLDraw(bricks, colorFn, options).grid;
-  } catch {
-    grid = voxelizeLDraw(bricks, colorFn, options).grid;
-  }
-  onProgress('closing surface holes');
-  fillSingleVoxelGaps(grid);
-  const nonAir = grid.countNonAir();
-  const common = { width: grid.width, height: grid.height, length: grid.length, nonAir, inline: true };
-  if (format === 'guide') return { grid, ...common };
-  onProgress('writing NBT');
-  return {
-    bytes: format === 'schem' ? encodeSchemBytes(grid) : encodeLitematicBytes(grid),
-    ...common,
-  };
-}
-
 async function exportLoadedModel(fmt: string): Promise<void> {
   if (!currentBricks) { setStatus('Load a set first, then export.', 'error'); return; }
   const base = (currentBricksLabel || 'model').replace(/\.[^.]+$/, '') || 'model';
@@ -1577,68 +1494,22 @@ async function exportLoadedModel(fmt: string): Promise<void> {
     }
 
     if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide') {
-      // High-res PROPORTION-EXACT export (2026-08-23). The old default was
-      // "Accurate" voxelization: 1 stud per cell horizontally but 1 PLATE per
-      // cell vertically → 2.5× vertical stretch in Minecraft (the reported
-      // "axes skewed") and coarse 1-stud detail. Exports now pick the finest
-      // UNIFORM cubic cell that fits Minecraft-sane bounds — cellLDU 4 =
-      // 5 cells/stud + 2/plate (exact: 4 divides both 20 and 8) ≈ 125× the
-      // voxel volume of the old default. The build guide stays at 1 cell per
-      // stud (cellLDU 20, still cubic) — it's meant to be humanly followable.
-      const spanLDU = (() => {
-        let nx = Infinity, xx = -Infinity, ny = Infinity, xy = -Infinity, nz = Infinity, xz = -Infinity;
-        for (const b of currentBricks) {
-          if (b.x < nx) nx = b.x; if (b.x > xx) xx = b.x;
-          if (b.y < ny) ny = b.y; if (b.y > xy) xy = b.y;
-          if (b.z < nz) nz = b.z; if (b.z > xz) xz = b.z;
-        }
-        // Brick origins understate extents — pad by ~2 studs a side.
-        return { x: xx - nx + 80, y: xy - ny + 80, z: xz - nz + 80 };
-      })();
-      let cellLDU = 20;
-      if (fmt !== 'guide') {
-        for (const c of [4, 5, 8, 10, 20]) {
-          const w = spanLDU.x / c, h = spanLDU.y / c, l = spanLDU.z / c;
-          if (Math.max(w, l) <= 640 && h <= 320 && w * h * l <= 30_000_000) { cellLDU = c; break; }
-        }
-      }
-      const res = 20 / cellLDU;
-      setStatus(`Voxelizing for Minecraft at ${res}× stud resolution (${cellLDU} LDU cells)…`, 'info');
-      const bannerTitle = fmt === 'guide' ? `${base} build guide` : `${base}.${fmt}`;
-      progress = beginExportProgress(bannerTitle);
-      progress.update(`voxelizing at ${res}× stud resolution`);
-      // Yield a frame so the status + banner paint before the heavy work.
-      await new Promise(r => setTimeout(r, 0));
-      const opts: VoxelizeOptions = { cellLDU, maxDim: 700 };
-
-      // Voxelize + NBT-encode + gzip run in a Web Worker (S3): on 21063 at
-      // cellLDU 4 this stage measured 85 s of blocked main thread and a
-      // 1.33 GB allocation peak at the 30M-cell cap. `runSchemExportWorker`
-      // falls back to the identical inline path if a Worker can't be created.
-      const job = await runSchemExportWorker(
-        currentBricks,
-        currentBricksColorFn === studioColorToBlock ? 'bl' : 'ldraw',
-        opts,
-        fmt as 'schem' | 'litematic' | 'guide',
-        (phase, pct) => progress?.update(phase, pct),
-      );
-      const blocks = job.nonAir;
-      if (fmt === 'guide') {
-        // Layer-by-layer build guide: one page section per Y layer with a
-        // colour legend + per-layer block counts — the "build it in Minecraft
-        // layer by layer" companion to the in-app layer slider.
-        progress.update('writing build guide');
-        exportLayerGuide(job.grid!, base, `${base}-build-guide.html`);
-        const gmsg = `Exported ${base}-build-guide.html (${job.height} layers, ${blocks.toLocaleString()} blocks)`;
-        setStatus(gmsg, 'success');
-        progress.done(gmsg);
-        return;
-      }
-      progress.update('downloading');
-      downloadBytes(job.bytes!, `${base}.${fmt}`);
-      const msg = `Exported ${base}.${fmt} — ${blocks.toLocaleString()} blocks at ${res}× stud resolution, ${job.width}×${job.height}×${job.length} (proportion-exact)`;
-      setStatus(msg, 'success');
-      progress.done(`${blocks.toLocaleString()} blocks · ${job.width}×${job.height}×${job.length}`);
+      // Everything Minecraft-shaped goes through the ONE shared export module
+      // (ui/schem-export.ts → engine/schem-pipeline.ts, in a Web Worker) that
+      // the Upload tab also uses. Resolution / block mapping / interior lights
+      // come from the ⚙ settings popover; the defaults reproduce the shipped
+      // proportion-exact behaviour byte-for-byte.
+      await runMinecraftExport({
+        source: {
+          kind: 'bricks',
+          bricks: currentBricks,
+          colorSpace: currentBricksColorFn === studioColorToBlock ? 'bl' : 'ldraw',
+        },
+        format: fmt,
+        basename: base,
+        settings: getSchemSettings(),
+        onStatus: (m, k) => setStatus(m, k),
+      });
       return;
     }
 

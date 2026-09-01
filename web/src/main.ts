@@ -12,7 +12,9 @@ import { enableSelection } from '@viewer/selection.js';
 import { cropToAABB } from '@craft/convert/mesh-filter.js';
 import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
 import { trimGrid } from '@craft/gen/gen-utils.js';
-import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportHTML, exportThreeJSON, exportLayerGuide } from '@viewer/exporter.js';
+import { exportGLB, exportSTL, exportOBJ, exportHTML, exportThreeJSON, exportLayerGuide } from '@viewer/exporter.js';
+import { runMinecraftExport } from '@ui/schem-export.js';
+import { mountSchemSettings, getSchemSettings } from '@ui/schem-settings-panel.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initImport, type PropertyData } from '@ui/import.js';
 import { initUpload } from '@ui/upload.js';
@@ -212,6 +214,13 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid, legoYScale?: 
     () => grid,
   );
 
+  // Minecraft export settings (shared with the LEGO tab). The source is an
+  // already-voxelized grid, so the resolution row renders disabled.
+  const mcSettingsHost = document.createElement('span');
+  mcSettingsHost.style.display = 'inline-flex';
+  controlsDiv.insertBefore(mcSettingsHost, controlsDiv.querySelector('#inline-expand'));
+  mountSchemSettings(mcSettingsHost, { resolutionApplicable: false, key: 'inline-viewer' });
+
   // Expand button → opens full viewer overlay
   controlsDiv.querySelector('#inline-expand')!.addEventListener('click', () => {
     openFullViewer(grid);
@@ -336,13 +345,20 @@ function wireDownloadDropdown(
 
       try {
         switch (format) {
+          // Minecraft exports run through the SHARED export module (S4) — the
+          // same worker + encoders the LEGO tab uses, with the same ⚙ settings
+          // (block-mapping profile, interior light fill). The source here is
+          // already a BlockGrid (an uploaded/generated schematic), so the
+          // pipeline skips voxelization and just encodes it.
           case 'schem':
-            if (!grid) return;
-            exportSchem(grid, `${exportBasename}.schem`);
-            break;
           case 'litematic':
             if (!grid) return;
-            exportLitematic(grid, `${exportBasename}.litematic`);
+            await runMinecraftExport({
+              source: { kind: 'grid', grid },
+              format,
+              basename: exportBasename,
+              settings: getSchemSettings(),
+            });
             break;
           case 'stl':
             if (!viewer) return;
@@ -393,6 +409,15 @@ wireDownloadDropdown(
   () => activeGrid,
   true, // always open in overlay
 );
+
+// Same ⚙ settings next to the overlay viewer's download menu.
+{
+  const dd = document.getElementById('download-dropdown');
+  const host = document.createElement('span');
+  host.style.display = 'inline-flex';
+  dd?.parentElement?.insertBefore(host, dd.nextSibling);
+  if (dd) mountSchemSettings(host, { resolutionApplicable: false, key: 'overlay-viewer' });
+}
 
 // Close non-overlay dropdowns on outside click; overlay dropdown stays open
 document.addEventListener('click', () => {

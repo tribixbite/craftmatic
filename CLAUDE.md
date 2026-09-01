@@ -15,14 +15,14 @@ durable project knowledge only in private/agent memory.
 ## Dev / commands
 - Dev server: `bun dev:web` (port 4000). Add `--host` to expose on LAN (phone testing at the box's LAN IP:4000).
 - Typecheck: root is `bun run typecheck` (`tsc --noEmit`, the `src/` tree); the whole `web/` tree is `bun run typecheck:web` (`tsc --noEmit -p web/tsconfig.json`). **Both run in CI** (ci.yml + deploy.yml) so a careless edit can't silently compile-break. The `web` tree is currently type-clean — keep it that way (the old ~34 `ui/*` errors were fixed; the app still *builds* via Vite/esbuild without type-gating, but CI now gates it).
-- Build: `bun run build:web`. Tests: `bun test` (vitest). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests).
+- Build: `bun run build:web`. Tests: `bun test` (vitest). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression). Export-side offline suites: `test/schem-pipeline.test.ts` (the shared export module's grid path — byte-identical to a direct encode, no re-voxelization), `test/schem-settings.test.ts` (resolution planning vs the legacy ladder as an oracle), `test/light-fill.test.ts` (sealed room lit / open porch untouched), `test/palette-lint.test.ts` (every emitted block id is a real Minecraft block). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests).
 - Use **Chrome** for browser testing, not Edge.
 
 ## Key tabs
 Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO**
 
 ## Architecture (LEGO/LDraw path)
-- `web/src/ui/lego.ts` — LEGO tab UI: search, auto-load chain, upload, 3D-render controls, step/explode sliders, missing-parts surfacing, **export menu** (PNG; GLB/OBJ/STL via `exporter.ts`+`viewer.exportMeshes()`; Minecraft `.schem`/`.litematic` via `voxelizeLDraw`→`BlockGrid`; parts-list **`.csv` BOM** — part/color/count from `currentBricks`). OBJ/STL bake instances (no instancing in-format) → large on big sets; GLB is the compact 3D option. The slider row label is a **Step⟷Layer toggle**: layer mode slices by quantized plate height (`viewer.setSliderMode('layer')`) and is the DEFAULT for models without STEP meta (most Studio .io exports — 71043 has 5,936 bricks and ONE step); step mode is default when real steps exist.
+- `web/src/ui/lego.ts` — LEGO tab UI: search, auto-load chain, upload, 3D-render controls, step/explode sliders, missing-parts surfacing, **export menu** (PNG; GLB/OBJ/STL via `exporter.ts`+`viewer.exportMeshes()`; Minecraft `.schem`/`.litematic`/build guide via the SHARED `ui/schem-export.ts` (S4 — same module the Upload tab uses), with the `⚙ MC settings` popover next to the Download select; parts-list **`.csv` BOM** — part/color/count from `currentBricks`). OBJ/STL bake instances (no instancing in-format) → large on big sets; GLB is the compact 3D option. The slider row label is a **Step⟷Layer toggle**: layer mode slices by quantized plate height (`viewer.setSliderMode('layer')`) and is the DEFAULT for models without STEP meta (most Studio .io exports — 71043 has 5,936 bricks and ONE step); step mode is default when real steps exist.
 - `web/src/engine/ldraw-parser.ts` — MPD/LDR → `ParsedBrick[]` (world transform = parentRot×local + parentPos, recursive; det<0 → winding flip). `countSteps()` counts `0 STEP` at ANY depth (sets that nest steps in sub-assemblies, e.g. 31084, depend on this).
 - `web/src/viewer/ldraw/` — the direct 3D renderer (modular):
   - `viewer.ts` — Three.js scene/renderer/camera, lighting, env, post FX, camera framing/transitions, explode, picking, export (`exportMeshes()`). **Global instancing**: ONE InstancedMesh per (part,color) across the WHOLE model (not per step) + ONE global edge `LineSegments2`. Instances/segments are sorted step-ascending; the step slider sets `InstancedMesh.count` / `LineSegmentsGeometry.instanceCount` to a binary-search prefix — so a 1226-step set (UCS Falcon) is ~300 meshes / ~950 draw calls, not thousands. Static shadow map (`shadowMap.autoUpdate=false`, refreshed on scene change). **On-demand rendering**: the rAF loop only composites when `needsRender` is set (or a camera anim / autoRotate / Stats overlay is active) — idle scenes cost ~0 GPU. **Any new state mutation that changes the picture MUST call `this.invalidate()`** (or `requestShadowUpdate()`, which also invalidates); camera moves auto-invalidate via the OrbitControls `change` listener. Dev-only `window.__ldrawViewer` hook for `renderer.info` metrics.
@@ -224,8 +224,8 @@ ghost tires). Pipeline defenses (classifier extracted to
 - **Minecraft export runs in a Web Worker + the OOM cause (S3, 2026-09-01).**
   `web/src/engine/schem-worker.ts` runs voxelize → fillSingleVoxelGaps → NBT →
   gzip off the main thread and streams `{phase, pct}` to the banner;
-  `runSchemExportWorker` in `lego.ts` falls back to the identical inline path
-  if a Worker can't be constructed. **`vite.config.ts` must keep
+  `runSchemExportWorker` (now in `ui/schem-export.ts`, see S4 below) falls back
+  to the identical inline path if a Worker can't be constructed. **`vite.config.ts` must keep
   `worker: { format: 'es' }`** — the rollup default (`iife`) can't code-split,
   which the worker's graph needs. MEASURED before→after (21063 .io, cellLDU 4,
   7.47M-cell grid): voxelize 85.5 s → 5.9 s, peak RSS 935 → 490 MB; at the
@@ -250,6 +250,55 @@ ghost tires). Pipeline defenses (classifier extracted to
   fallback makes part resolution nondeterministic (two runs of the SAME code
   differed by 570 blocks). Profilers: `scripts/_schem_profile.ts` (full path),
   `scripts/_schem_encode_profile.ts` (encode at the 30M cap).
+- **ONE shared Minecraft-export module for every tab (S4, 2026-09-01).**
+  `web/src/ui/schem-export.ts` `runMinecraftExport()` is the ONLY path that
+  encodes a .schem/.litematic for a user download; it owns resolution planning,
+  the Worker (+ identical inline fallback via the same function), the progress
+  banner, the build-guide hand-off and the download. Two sources:
+  `{kind:'bricks'}` (LEGO tab → voxelize → fillSingleVoxelGaps → encode) and
+  `{kind:'grid'}` (Upload tab / generator / gallery inline+overlay viewers →
+  encode ONLY; an uploaded schematic is already blocks, re-voxelizing or
+  gap-filling it would be lossy). The work itself lives in
+  `web/src/engine/schem-pipeline.ts` (`runSchemPipeline`), which
+  `schem-worker.ts` is now just message plumbing around. `main.ts`'s old
+  `exportSchem/exportLitematic` dropdown calls are gone; those exporter.ts
+  helpers remain only for the dev/batch surfaces (tiles batch, comparison).
+  - **User settings** (`⚙ MC settings` popover, `ui/schem-settings-panel.ts`,
+    persisted in `localStorage['craftmatic.mcExportSettings']`, read at export
+    time so both tabs always agree): **Resolution** (Auto = the shipped ladder,
+    or 1 / 2.5 / 5 blocks per stud; an over-cap explicit choice is coarsened
+    back to the auto pick and the status says so), **Block mapping profile**
+    (`engine/block-profiles.ts` — ONE real profile; the seam exists so a second
+    mapping table is a data addition. Don't add placeholder profiles), and
+    **Light enclosed interiors** (OFF by default). Pure planning lives in
+    `engine/schem-settings.ts` (`planResolution`, `spanOfBricks`, `describePlan`).
+    The dims preview and the caps both use the BRICK-ORIGIN span + 80 LDU pad —
+    it understates a tiny model's real extent (unchanged pre-S4 behaviour).
+  - **Light fill** (`engine/light-fill.ts`): flood air inward from the grid
+    boundary → everything unreached is an enclosed pocket → pockets ≥ 8 cells
+    get glowstone on their FLOOR, one per `spacing`³ (6) bucket. A room with a
+    doorway is reachable from outside, so it stays dark by design. Runs after
+    fillSingleVoxelGaps, only when the flag is on.
+  - **Byte-identity is the gate.** With defaults (auto / default profile /
+    light fill OFF) the bricks path is the pre-S4 sequence exactly:
+    `scripts/_schem_ref.ts` (now driving the REAL shared pipeline) on 21063
+    still gives sha256 `52d2211…4be6b`. `test/schem-pipeline.test.ts` proves the
+    same for the grid path (bytes === `encodeSchemBytes(grid)`).
+- **External-viewer gate (S5, 2026-09-01)** — our importer round-trips whatever
+  we write, so a palette/colour-space mistake is invisible internally (that's
+  how S1 hid). Two halves:
+  1. **Palette lint, offline** — `engine/palette-lint.ts` +
+     `engine/mc-block-registry.json` (curated, verified Java 1.20 ids: the
+     16-colour families + solids + light sources). `test/palette-lint.test.ts`
+     asserts every value in BOTH colour tables, the fallbacks, the profile light
+     blocks and a REAL exported .schem's `Palette` are `minecraft:<known id>`.
+     A new block means adding it to the JSON deliberately.
+  2. **schemat.io, scripted + manual** — `node scripts/schem-external-check.mjs`
+     (node, NOT bun: `chromium.launch` hangs under bun here; `channel:'chrome'`)
+     exports 21063 through the shared pipeline, checks the baseline sha256,
+     uploads it to schemat.io/view and screenshots to `output/schem-backlog/`.
+     Verified 2026-09-01: white castle, solid walls, green/brown base — no
+     translucent walls, no magenta terrain. NOT in CI (third-party site).
 - **Export progress is a FIXED banner** (`web/src/ui/export-progress.ts`, S2):
   `beginExportProgress(title)` → `update(phase, pct?)` / `done()` / `fail()`.
   `#lego-status` stays the log (it scrolls out of view — that's why exports

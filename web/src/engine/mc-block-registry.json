@@ -1,0 +1,38 @@
+{
+  "_comment": "Known-good Minecraft block ids (Java 1.20.x, DataVersion 3700) that our exports are allowed to emit. Hand-curated: the 16-colour families we map LEGO colours onto, the light sources the light-fill option places, and the plain solids used by the generators. It exists so a TYPO in a mapping table (ldraw-colors.ts / studio-colors.ts / block-profiles.ts) fails test/palette-lint.test.ts instead of turning into an invisible/pink block in an external viewer. Adding a genuinely new block? Verify the id against the real registry, then add it here.",
+  "_source": "Minecraft Java Edition 1.20 block registry (verified ids)",
+  "colors": [
+    "white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray",
+    "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"
+  ],
+  "colorFamilies": ["concrete", "concrete_powder", "wool", "stained_glass", "terracotta", "glazed_terracotta"],
+  "blocks": [
+    "air",
+    "glass", "tinted_glass",
+    "glowstone", "sea_lantern", "shroomlight", "ochre_froglight", "verdant_froglight", "pearlescent_froglight",
+    "redstone_lamp", "jack_o_lantern",
+    "stone", "smooth_stone", "cobblestone", "stone_bricks", "mossy_stone_bricks", "chiseled_stone_bricks",
+    "andesite", "polished_andesite", "diorite", "polished_diorite", "granite", "polished_granite",
+    "deepslate", "polished_deepslate", "deepslate_bricks", "deepslate_tiles", "tuff", "calcite",
+    "basalt", "smooth_basalt", "blackstone", "polished_blackstone", "polished_blackstone_bricks",
+    "sandstone", "smooth_sandstone", "chiseled_sandstone", "cut_sandstone",
+    "red_sandstone", "smooth_red_sandstone", "cut_red_sandstone",
+    "bricks", "nether_bricks", "red_nether_bricks", "prismarine", "prismarine_bricks", "dark_prismarine",
+    "quartz_block", "smooth_quartz", "chiseled_quartz_block", "quartz_bricks", "quartz_pillar",
+    "purpur_block", "purpur_pillar", "end_stone", "end_stone_bricks", "obsidian", "crying_obsidian", "bedrock",
+    "netherrack", "magma_block", "soul_sand", "soul_soil", "gilded_blackstone",
+    "iron_block", "gold_block", "diamond_block", "emerald_block", "lapis_block", "redstone_block",
+    "coal_block", "netherite_block", "copper_block", "exposed_copper", "weathered_copper", "oxidized_copper",
+    "raw_iron_block", "raw_copper_block", "raw_gold_block", "amethyst_block", "honeycomb_block",
+    "bone_block", "slime_block", "honey_block", "dried_kelp_block", "hay_block", "sponge",
+    "dirt", "coarse_dirt", "rooted_dirt", "grass_block", "podzol", "mycelium", "mud", "packed_mud",
+    "clay", "sand", "red_sand", "gravel", "snow_block", "ice", "packed_ice", "blue_ice",
+    "moss_block", "mushroom_stem", "brown_mushroom_block", "red_mushroom_block",
+    "oak_planks", "spruce_planks", "birch_planks", "jungle_planks", "acacia_planks",
+    "dark_oak_planks", "mangrove_planks", "cherry_planks", "bamboo_planks", "crimson_planks", "warped_planks",
+    "oak_log", "spruce_log", "birch_log", "jungle_log", "acacia_log", "dark_oak_log",
+    "stripped_oak_log", "stripped_spruce_log", "stripped_birch_log",
+    "oak_leaves", "spruce_leaves", "birch_leaves", "jungle_leaves", "acacia_leaves", "dark_oak_leaves",
+    "water", "lava"
+  ]
+}
