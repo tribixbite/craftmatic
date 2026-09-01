@@ -123,7 +123,13 @@ async function loadBricks(src: 'io' | 'ldr', path: string) {
     const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
     const io = await extractIoModel(ab);
     const text = synthesizeLSynth(io.text).text;
-    return { bricks: parseLDraw(text), colorFn: studioColorToBlock };
+    // Colour table follows the CHOSEN ENTRY, not the ".io" extension — modern
+    // Studio exports win on model.ldr (LDraw ids), older ones on model2.ldr
+    // (Studio/BL ids). NB: this script's round-trip check cannot catch a
+    // mis-chosen table, since exporting and re-importing through the SAME
+    // wrong table is still self-consistent.
+    const colorFn = io.colorSpace === 'bl' ? studioColorToBlock : ldrawColorToBlock;
+    return { bricks: parseLDraw(text), colorFn };
   }
   const text = synthesizeLSynth(readFileSync(path, 'utf-8')).text;
   return { bricks: parseLDraw(text), colorFn: ldrawColorToBlock };
