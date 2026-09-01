@@ -221,6 +221,42 @@ ghost tires). Pipeline defenses (classifier extracted to
   minifigs are real separate components). The build guide stays at 1
   cell/stud. GLB/OBJ/STL were verified axis-exact already (STL bbox matches
   studs×8mm per axis to the decimal).
+- **Minecraft export runs in a Web Worker + the OOM cause (S3, 2026-09-01).**
+  `web/src/engine/schem-worker.ts` runs voxelize → fillSingleVoxelGaps → NBT →
+  gzip off the main thread and streams `{phase, pct}` to the banner;
+  `runSchemExportWorker` in `lego.ts` falls back to the identical inline path
+  if a Worker can't be constructed. **`vite.config.ts` must keep
+  `worker: { format: 'es' }`** — the rollup default (`iife`) can't code-split,
+  which the worker's graph needs. MEASURED before→after (21063 .io, cellLDU 4,
+  7.47M-cell grid): voxelize 85.5 s → 5.9 s, peak RSS 935 → 490 MB; at the
+  30M-cell cap the NBT encode alone was **1.33 GB RSS for a 0.2 MB file** →
+  338 MB. Three causes, all fixed, all output-preserving:
+  1. **`number[]` byte accumulation** (the OOM): `encodeBlockData` and both NBT
+     writers pushed every output byte into a JS array (+783 MB / +325 MB at
+     30M cells). Now `web/src/engine/byte-writer.ts` (growable Uint8Array) and
+     an exact-size two-pass varint encoder. Encoders moved to
+     `web/src/engine/schem-encode.ts` (no THREE/DOM, so the worker can import
+     them); `exporter.ts` re-exports them.
+  2. **object-per-cell accumulator** in `ldraw-geometry.ts` — 1.60M
+     `{gx,gy,gz,block,color}` objects ≈ 98 MB; now chunked parallel
+     Int32/Uint16 arrays (14 B/cell) with interned block strings.
+  3. **O(rays × triangles) sweep** (the 85 s): each sweep now has a
+     per-triangle bbox bucket index (CSR). Provably equivalent — Möller-
+     Trumbore's u/v test already rejects rays outside the projected bbox, and
+     `parityFill` sorts hits so visit order can't matter.
+  **Byte-identity is the gate, and it passed**: `scripts/_schem_ref.ts` on
+  21063 gives the same sha256 before and after (CLI/filesystem = deterministic).
+  Do NOT compare browser exports for identity — the dev `/ldraw-parts` upstream
+  fallback makes part resolution nondeterministic (two runs of the SAME code
+  differed by 570 blocks). Profilers: `scripts/_schem_profile.ts` (full path),
+  `scripts/_schem_encode_profile.ts` (encode at the 30M cap).
+- **Export progress is a FIXED banner** (`web/src/ui/export-progress.ts`, S2):
+  `beginExportProgress(title)` → `update(phase, pct?)` / `done()` / `fail()`.
+  `#lego-status` stays the log (it scrolls out of view — that's why exports
+  looked hung); the banner is the live surface, wired into schem/litematic/
+  guide/GLB/OBJ/STL/3MF (CSV is instant). It sits at `#nav`'s measured bottom
+  so it never covers the tab bar, and toggles `style.display` (never
+  `[hidden]` — a `display:` rule would override the attribute).
 - **All materials are `DoubleSide`** (LDraw `.dat` winding is unreliable), so
   triangle winding is **shading-irrelevant** — Three flips the normal per
   `gl_FrontFacing`. Consequence: `resolvePartGeometry`'s cache keys by part id

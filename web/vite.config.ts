@@ -35,6 +35,12 @@ export default defineConfig({
       },
     },
   },
+  // Workers are all constructed with { type: 'module' }; the rollup default
+  // ('iife') cannot code-split, which the export worker's dependency graph
+  // requires (ldraw-geometry has a CLI-only dynamic `import('node:fs')`).
+  worker: {
+    format: 'es',
+  },
   resolve: {
     alias: {
       '@engine': resolve(__dirname, 'src/engine'),

@@ -3,10 +3,13 @@
  */
 
 import * as THREE from 'three';
-import pako from 'pako';
 import type { ViewerState } from './scene.js';
 import { BlockGrid } from '@craft/schem/types.js';
-import { encodeBitPackedStates, decomposeBlockState, calcBitsPerEntry } from '@craft/schem/litematic-encode.js';
+import { encodeSchemBytes, encodeLitematicBytes } from '@engine/schem-encode.js';
+
+// Re-exported so existing import sites (tests, scripts, the schem receiver)
+// keep working after the encoders moved to a THREE-free module for the worker.
+export { encodeSchemBytes, encodeLitematicBytes };
 
 /** Trigger a browser download of a Blob */
 function downloadBlob(blob: Blob, filename: string): void {
@@ -321,184 +324,9 @@ export function exportSchem(grid: BlockGrid, filename = 'craftmatic.schem'): voi
   downloadBlob(blob, filename);
 }
 
-/** Encode a BlockGrid as gzipped .schem bytes (no file download) */
-export function encodeSchemBytes(grid: BlockGrid): Uint8Array {
-  // Reuse exportSchem logic but return bytes instead of triggering download
-  const { width, height, length } = grid;
-  const palette = grid.palette;
-  const paletteEntries: Array<[string, number]> = [];
-  for (const [blockState, id] of palette) paletteEntries.push([blockState, id]);
-  const blockData = grid.encodeBlockData();
-  const parts: number[] = [];
-  const enc = new TextEncoder();
-  const wb = (v: number) => { parts.push(v & 0xff); };
-  const ws = (v: number) => { parts.push((v >> 8) & 0xff, v & 0xff); };
-  const wi = (v: number) => { parts.push((v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff); };
-  const wstr = (s: string) => { const b = enc.encode(s); ws(b.length); for (const x of b) parts.push(x); };
-  const wba = (a: Uint8Array) => { wi(a.length); for (const x of a) parts.push(x); };
-
-  wb(10); wstr('Schematic');
-  wb(3); wstr('Version'); wi(2);
-  wb(3); wstr('DataVersion'); wi(3700);
-  wb(2); wstr('Width'); ws(width);
-  wb(2); wstr('Height'); ws(height);
-  wb(2); wstr('Length'); ws(length);
-  wb(10); wstr('Palette');
-  for (const [bs, id] of paletteEntries) { wb(3); wstr(bs); wi(id); }
-  wb(0); // end palette
-  wb(3); wstr('PaletteMax'); wi(paletteEntries.length);
-  wb(7); wstr('BlockData'); wba(blockData);
-  wb(10); wstr('Metadata');
-  wb(3); wstr('WEOffsetX'); wi(0);
-  wb(3); wstr('WEOffsetY'); wi(0);
-  wb(3); wstr('WEOffsetZ'); wi(0);
-  wb(0); // end metadata
-  wb(11); wstr('Offset'); wi(3); wi(0); wi(0); wi(0);
-  wb(9); wstr('BlockEntities'); wb(10); wi(0);
-  wb(0); // end root
-
-  return pako.gzip(new Uint8Array(parts));
-}
-
 /** Export the BlockGrid as a .litematic file (Litematica mod format) */
 export function exportLitematic(grid: BlockGrid, filename = 'craftmatic.litematic'): void {
-  const { width, height, length } = grid;
-  const nonAirCount = grid.countNonAir();
-  const totalVolume = width * height * length;
-  const timestamp = BigInt(Math.floor(Date.now() / 1000));
-  const regionName = 'craftmatic';
-
-  // Build inline NBT (same pattern as exportSchem — raw binary, no server deps)
-  const parts: number[] = [];
-  const encoder = new TextEncoder();
-
-  function writeByte(v: number) { parts.push(v & 0xff); }
-  function writeShort(v: number) { parts.push((v >> 8) & 0xff, v & 0xff); }
-  function writeInt(v: number) {
-    parts.push((v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff);
-  }
-  function writeLong(v: bigint) {
-    const hi = Number((v >> 32n) & 0xffffffffn);
-    const lo = Number(v & 0xffffffffn);
-    writeInt(hi);
-    writeInt(lo);
-  }
-  function writeString(s: string) {
-    const bytes = encoder.encode(s);
-    writeShort(bytes.length);
-    for (const b of bytes) parts.push(b);
-  }
-  function writeTagHeader(tagType: number, name: string) {
-    writeByte(tagType);
-    writeString(name);
-  }
-  function writeEnd() { writeByte(0); }
-
-  // NBT tag type constants (TAG_BYTE omitted — unused by this writer)
-  const TAG_INT = 3, TAG_LONG = 4, TAG_STRING = 8;
-  const TAG_LIST = 9, TAG_COMPOUND = 10, TAG_LONG_ARRAY = 12;
-
-  // Root compound
-  writeTagHeader(TAG_COMPOUND, '');
-
-  // MinecraftDataVersion + Version
-  writeTagHeader(TAG_INT, 'MinecraftDataVersion'); writeInt(3700);
-  writeTagHeader(TAG_INT, 'Version'); writeInt(5);
-
-  // Metadata
-  writeTagHeader(TAG_COMPOUND, 'Metadata');
-  writeTagHeader(TAG_STRING, 'Name'); writeString(regionName);
-  writeTagHeader(TAG_STRING, 'Author'); writeString('craftmatic');
-  writeTagHeader(TAG_STRING, 'Description'); writeString('');
-  writeTagHeader(TAG_INT, 'RegionCount'); writeInt(1);
-  writeTagHeader(TAG_LONG, 'TimeCreated'); writeLong(timestamp);
-  writeTagHeader(TAG_LONG, 'TimeModified'); writeLong(timestamp);
-  writeTagHeader(TAG_INT, 'TotalBlocks'); writeInt(nonAirCount);
-  writeTagHeader(TAG_INT, 'TotalVolume'); writeInt(totalVolume);
-  writeTagHeader(TAG_COMPOUND, 'EnclosingSize');
-  writeTagHeader(TAG_INT, 'x'); writeInt(width);
-  writeTagHeader(TAG_INT, 'y'); writeInt(height);
-  writeTagHeader(TAG_INT, 'z'); writeInt(length);
-  writeEnd(); // EnclosingSize
-  writeEnd(); // Metadata
-
-  // Regions
-  writeTagHeader(TAG_COMPOUND, 'Regions');
-  writeTagHeader(TAG_COMPOUND, regionName);
-
-  // Position + Size
-  writeTagHeader(TAG_COMPOUND, 'Position');
-  writeTagHeader(TAG_INT, 'x'); writeInt(0);
-  writeTagHeader(TAG_INT, 'y'); writeInt(0);
-  writeTagHeader(TAG_INT, 'z'); writeInt(0);
-  writeEnd();
-  writeTagHeader(TAG_COMPOUND, 'Size');
-  writeTagHeader(TAG_INT, 'x'); writeInt(width);
-  writeTagHeader(TAG_INT, 'y'); writeInt(height);
-  writeTagHeader(TAG_INT, 'z'); writeInt(length);
-  writeEnd();
-
-  // Build palette (air at index 0) and collect indices in Litematica XZY order
-  const paletteMap = new Map<string, number>();
-  const paletteList: string[] = [];
-  paletteMap.set('minecraft:air', 0);
-  paletteList.push('minecraft:air');
-
-  const indices: number[] = new Array(totalVolume);
-  for (let y = 0; y < height; y++) {
-    for (let z = 0; z < length; z++) {
-      for (let x = 0; x < width; x++) {
-        const bs = grid.get(x, y, z);
-        let idx = paletteMap.get(bs);
-        if (idx === undefined) {
-          idx = paletteList.length;
-          paletteMap.set(bs, idx);
-          paletteList.push(bs);
-        }
-        indices[x + z * width + y * width * length] = idx;
-      }
-    }
-  }
-
-  // BlockStatePalette
-  writeTagHeader(TAG_LIST, 'BlockStatePalette');
-  writeByte(TAG_COMPOUND);
-  writeInt(paletteList.length);
-  for (const blockState of paletteList) {
-    const { name, properties } = decomposeBlockState(blockState);
-    writeTagHeader(TAG_STRING, 'Name'); writeString(name);
-    if (properties) {
-      writeTagHeader(TAG_COMPOUND, 'Properties');
-      for (const [key, val] of Object.entries(properties)) {
-        writeTagHeader(TAG_STRING, key); writeString(val);
-      }
-      writeEnd();
-    }
-    writeEnd(); // palette entry
-  }
-
-  // BlockStates (bit-packed LongArray)
-  const bitsPerEntry = calcBitsPerEntry(paletteList.length);
-  const packed = encodeBitPackedStates(indices, bitsPerEntry);
-  writeTagHeader(TAG_LONG_ARRAY, 'BlockStates');
-  writeInt(packed.length);
-  for (const v of packed) writeLong(v);
-
-  // Empty lists (TileEntities, Entities, PendingBlockTicks, PendingFluidTicks)
-  for (const listName of ['TileEntities', 'Entities', 'PendingBlockTicks', 'PendingFluidTicks']) {
-    writeTagHeader(TAG_LIST, listName);
-    writeByte(TAG_COMPOUND);
-    writeInt(0);
-  }
-
-  writeEnd(); // region
-  writeEnd(); // Regions
-  writeEnd(); // root
-
-  // Gzip compress
-  const raw = new Uint8Array(parts);
-  const compressed = pako.gzip(raw);
-  const blob = new Blob([compressed], { type: 'application/octet-stream' });
+  const blob = new Blob([encodeLitematicBytes(grid) as unknown as BlobPart], { type: 'application/octet-stream' });
   downloadBlob(blob, filename);
 }
 
