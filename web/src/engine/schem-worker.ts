@@ -11,11 +11,13 @@
  * after the broad-phase fix, still far past a frame budget) and the encode
  * chain peaked at 1.33 GB RSS for a 0.12 MB file.
  *
- * Geometry: the worker re-resolves .dat text through the SAME `fetchDatText`
- * path as the main thread (`fetch` is available in module workers, and
- * /ldraw-parts is same-origin), so the output is bit-for-bit what the inline
- * path produced. `.io` CustomParts are not in the library and fall back to the
- * AABB dims fill here exactly as they did inline — no behaviour change.
+ * Geometry: the main thread seeds `input.datTexts` with every `.dat` text the
+ * viewer already resolved (`viewer/ldraw/parts.ts` → `collectDatTexts()`), so
+ * exporting the model on screen fetches NOTHING. Names outside the seed still
+ * resolve through the same `fetchDatText` path as before (`fetch` works in
+ * module workers and /ldraw-parts is same-origin), now with real per-part
+ * progress. The seed also carries `.io` CustomParts, which exist only in the
+ * archive and previously fell back to an AABB box fill in the export.
  */
 
 import { setLDrawBase } from './ldraw-geometry.js';
@@ -40,12 +42,17 @@ self.onmessage = async (event: MessageEvent<SchemWorkerInput>) => {
   try {
     if (input.ldrawBase) setLDrawBase(input.ldrawBase);
 
-    // Throttle progress posts — voxelizing fires per brick.
+    // Throttle progress posts — voxelizing and part-loading both fire per item.
+    // A phase CHANGE is always posted, never throttled: dropping it would leave
+    // the banner showing the previous phase's name and percentage while a
+    // different (often indeterminate) stage runs — a stale bar that lies.
     let lastPost = 0;
+    let lastPhase: string | null = null;
     const onProgress = (phase: string, pct?: number) => {
       const now = Date.now();
-      if (now - lastPost < 80) return;
+      if (phase === lastPhase && now - lastPost < 80) return;
       lastPost = now;
+      lastPhase = phase;
       post({ type: 'progress', phase, pct });
     };
 

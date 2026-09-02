@@ -231,6 +231,28 @@ export function preloadDatTexts(files: Map<string, string>): void {
 }
 
 /**
+ * Snapshot every `.dat` text this session has already resolved.
+ *
+ * WHY (2026-09-02): the Minecraft export re-resolved geometry through
+ * `engine/ldraw-geometry.ts`, whose fetch cache is a DIFFERENT module from this
+ * one — so exporting a model that was already loaded and rendered re-downloaded
+ * its whole part library. The main thread holds the texts already (library
+ * fetches, the IndexedDB warm cache, MPD inlines AND archive-bundled
+ * `CustomParts/`), so `ui/schem-export.ts` ships this map into the export
+ * worker as a seed and the export performs ZERO part fetches.
+ *
+ * `null` values are DEFINITIVE misses and are included on purpose: our
+ * candidate-path list is a superset of the export resolver's, so a miss here is
+ * a miss there too, and seeding it saves the export a pointless 404 volley.
+ *
+ * Bonus: `.io` CustomParts are only ever in memory (never in the library), so
+ * before this seam the export silently fell back to an AABB box fill for them.
+ */
+export function collectDatTexts(): Map<string, string | null> {
+  return new Map(datTextCache);
+}
+
+/**
  * Clear inline .ldr entries between model loads. Keeps the .dat library
  * cache (which is shared) but evicts model-specific MPD inlines and
  * preloaded archive part definitions.

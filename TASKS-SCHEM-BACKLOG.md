@@ -73,3 +73,7 @@ Verified in the app: Upload tab 16,112 → 16,128 blocks with lights on; LEGO ta
    shared pipeline) on 21063 at defaults → sha256
    `52d221188f5677475392a25c4e45f6d137ba43af547c9d8c4ba44b9a8194be6b`,
    equal to the S3 baseline. No regression.
+   *(Superseded 2026-09-02: the baseline is now
+   `d158bebb54bb00cad0ead543a8310bf53fbb7f7f49021252f852e820e2cf3fd7` — the
+   geometry resolver's half-assembled-part race was fixed. See
+   `scripts/_schem_ref.ts`.)*

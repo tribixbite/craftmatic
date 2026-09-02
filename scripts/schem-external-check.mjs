@@ -31,8 +31,12 @@ const LABEL = process.argv[3] ?? '21063';
 const OUT_DIR = resolve('output/schem-backlog');
 const VIEWER = 'https://schemat.io/view';
 
-/** sha256 of the S3/S4 reference export (21063, auto resolution, defaults). */
-const BASELINE_SHA = '52d221188f5677475392a25c4e45f6d137ba43af547c9d8c4ba44b9a8194be6b';
+/**
+ * sha256 of the S3/S4 reference export (21063, auto resolution, defaults).
+ * Re-derived 2026-09-02 (was 52d221188f…4be6b) when the geometry resolver's
+ * half-assembled-part race was fixed — see scripts/_schem_ref.ts.
+ */
+const BASELINE_SHA = 'd158bebb54bb00cad0ead543a8310bf53fbb7f7f49021252f852e820e2cf3fd7';
 
 mkdirSync(OUT_DIR, { recursive: true });
 const schemPath = resolve(OUT_DIR, `${LABEL}.schem`);

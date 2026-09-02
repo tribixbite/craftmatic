@@ -23,6 +23,7 @@ import {
   type SchemExportSettings,
 } from '@engine/schem-settings.js';
 import { exportLayerGuide } from '@viewer/exporter.js';
+import { collectDatTexts } from '@viewer/ldraw/parts.js';
 import { beginExportProgress, type ExportProgressHandle } from '@ui/export-progress.js';
 
 export type { SchemWorkerFormat };
@@ -150,10 +151,17 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
       if (!plan.requestedHonored) {
         status(`Requested ${20 / (plan.requestedCellLDU ?? 20)}× stud resolution exceeds Minecraft-sane bounds — using ${plan.cellsPerStud}×.`, 'info');
       }
+      // Hand the export every .dat text the viewer already downloaded. The
+      // export resolver (engine/ldraw-geometry.ts) has its OWN cache — a
+      // different module, and in the worker a different thread — so without
+      // this an export of the model on screen re-downloaded the whole part
+      // library. Seeded names are never fetched; anything missing still is.
+      const datTexts = collectDatTexts();
       input = {
         source: { kind: 'bricks', bricks: req.source.bricks, colorSpace: req.source.colorSpace, options: opts },
         format, profile: settings.profile, lightFill: settings.lightFill,
         ldrawBase: new URL('/ldraw-parts', location.origin).toString(),
+        datTexts,
       };
     } else {
       const g = req.source.grid;
@@ -171,7 +179,9 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
 
     const bannerTitle = format === 'guide' ? `${base} build guide` : `${base}.${format}`;
     progress = beginExportProgress(bannerTitle);
-    progress.update(req.source.kind === 'bricks' ? 'voxelizing' : 'encoding');
+    // Indeterminate until the pipeline reports its first real phase — claiming
+    // "voxelizing" here was a lie (part geometry is resolved first).
+    progress.update(req.source.kind === 'bricks' ? 'preparing part geometry' : 'encoding');
     // Yield a frame so the banner paints before the heavy work starts.
     await new Promise(r => setTimeout(r, 0));
 
