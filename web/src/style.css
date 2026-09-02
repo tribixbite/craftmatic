@@ -2518,6 +2518,28 @@ html, body {
   border-radius: 3px;
   pointer-events: none;
 }
+/* Best-source badge (top-LEFT, opposite the "3D" OMR badge): which model
+   source this set will actually load from — io/omr = authentic build files,
+   meca/dbix/lxf = conversions, recon = PDF/vision reconstruction. */
+.lego-src-badge {
+  position: absolute;
+  top: 5px; left: 5px;
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+.lego-src-badge.lego-src-authentic {
+  color: #4ade80;
+  border-color: color-mix(in srgb, #4ade80 45%, transparent);
+}
+.lego-src-badge.lego-src-recon { opacity: 0.75; }
 
 .lego-result-img {
   width: 100%;
