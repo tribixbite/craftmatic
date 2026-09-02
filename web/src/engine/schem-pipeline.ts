@@ -20,7 +20,7 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
-import { voxelizeLDrawGeometry } from './ldraw-geometry.js';
+import { voxelizeLDrawGeometry, seedDatTexts } from './ldraw-geometry.js';
 import { voxelizeLDraw, fillSingleVoxelGaps, type VoxelizeOptions } from './ldraw-voxelizer.js';
 import { encodeSchemBytes, encodeLitematicBytes } from './schem-encode.js';
 import { addInteriorLights, type LightFillResult } from './light-fill.js';
@@ -59,6 +59,13 @@ export interface SchemWorkerInput {
   lightFill: boolean;
   /** Absolute origin for /ldraw-parts fetches inside the worker (bricks only). */
   ldrawBase?: string;
+  /**
+   * Part name → `.dat` text already resolved on the main thread (`null` = a
+   * known-definitive miss). Seeds the geometry resolver so exporting a model
+   * that is already loaded and rendered fetches NOTHING. Bricks only; anything
+   * absent from the map is fetched as before (with progress).
+   */
+  datTexts?: ReadonlyMap<string, string | null>;
 }
 
 export type SchemWorkerOutput =
@@ -105,6 +112,14 @@ export async function runSchemPipeline(
   } else {
     const s = input.source;
     const colorFn = profile.colorFn(s.colorSpace);
+    // Reuse the .dat texts the viewer already downloaded (see seedDatTexts):
+    // the model on screen costs zero further network, and `.io` CustomParts —
+    // which exist ONLY in the archive and used to hit the AABB box fallback
+    // here — now voxelize from their real geometry.
+    if (input.datTexts && input.datTexts.size > 0) {
+      onProgress('reusing loaded part geometry');
+      seedDatTexts(input.datTexts);
+    }
     try {
       const r = await voxelizeLDrawGeometry(s.bricks, colorFn, s.options, onProgress);
       // Near-empty result = part geometry unavailable → bbox fallback.

@@ -91,6 +91,44 @@ export function setLDrawBase(base: string): void {
   useFilesystem = false;
 }
 
+/**
+ * Pre-populate the .dat text cache from an outside source.
+ *
+ * The export path used to re-download the whole part library for a model the
+ * viewer had ALREADY loaded, because the viewer's cache lives in
+ * `viewer/ldraw/parts.ts` — a different module (and, in the export worker, a
+ * different thread). `ui/schem-export.ts` now snapshots that cache
+ * (`collectDatTexts()`) and seeds it here before voxelizing, so an export of
+ * the rendered model does zero network work. Texts in, triangles out — the
+ * resolver below is untouched.
+ *
+ * A `null` value is a known-definitive miss (skip the fetch, use the AABB
+ * fallback). Seeding never DOWNGRADES a real text to a miss. Anything already
+ * cached with different text invalidates the assembled-triangle cache, since
+ * parents may have baked the old child in.
+ *
+ * @returns how many entries were newly added or changed.
+ */
+export function seedDatTexts(entries: Iterable<readonly [string, string | null]>): number {
+  let changed = 0;
+  let replaced = false;
+  for (const [rawId, text] of entries) {
+    const key = normId(rawId);
+    if (!key) continue;
+    const existing = datTextCache.get(key);
+    if (existing === text) continue;
+    // Never turn a resolved part into a missing one.
+    if (text === null && typeof existing === 'string') continue;
+    if (existing !== undefined) replaced = true;
+    datTextCache.set(key, text);
+    changed++;
+  }
+  // A replaced text can be embedded in an already-assembled parent, so the
+  // triangle cache as a whole is suspect. Pure additions can't invalidate it.
+  if (replaced) partGeomCache.clear();
+  return changed;
+}
+
 async function fetchDatText(id: string): Promise<string | null> {
   const key = normId(id);
   if (datTextCache.has(key)) return datTextCache.get(key)!;
@@ -152,12 +190,34 @@ async function fetchDatText(id: string): Promise<string | null> {
  * Sub-file references are recursively resolved and transformed into parent space.
  * Results are cached — concurrent calls for the same ID share one promise.
  */
-async function resolvePartTriangles(id: string, depth = 0): Promise<Triangle[]> {
+async function resolvePartTriangles(
+  id: string,
+  depth = 0,
+  ancestors: ReadonlySet<string> | null = null,
+): Promise<Triangle[]> {
   if (depth > 12) return [];
   const key = normId(id);
 
+  // IN-FLIGHT IS CHECKED FIRST — order matters (fixed 2026-09-02).
+  // `partGeomCache` is populated with the still-EMPTY triangle array before the
+  // sub-file references are appended (the cycle guard below), so a concurrent
+  // resolution that read the cache first could copy a partially-assembled part
+  // into its parent. Which callers lost that race depended purely on fetch
+  // timing, so the SAME model voxelized differently over a warm cache than over
+  // the network (measured on 21063: 1,184,777 vs 1,174,763 non-air cells). The
+  // in-flight promise always resolves to the COMPLETE array.
+  const inFlight = geomInFlight.get(key);
+  if (inFlight) {
+    // The one caller that may NOT wait is a genuine reference cycle — a part
+    // that (transitively) references itself would deadlock awaiting its own
+    // ancestor. It reads the partial array, exactly as before.
+    if (ancestors?.has(key)) return partGeomCache.get(key) ?? [];
+    return inFlight;
+  }
   if (partGeomCache.has(key)) return partGeomCache.get(key)!;
-  if (geomInFlight.has(key))  return geomInFlight.get(key)!;
+
+  const childAncestors = new Set(ancestors ?? []);
+  childAncestors.add(key);
 
   const promise = (async (): Promise<Triangle[]> => {
     const text = await fetchDatText(key);
@@ -193,7 +253,7 @@ async function resolvePartTriangles(id: string, depth = 0): Promise<Triangle[]> 
         const subId = tok.slice(14).join(' ').trim();
 
         subPromises.push(
-          resolvePartTriangles(subId, depth + 1).then(subTris => {
+          resolvePartTriangles(subId, depth + 1, childAncestors).then(subTris => {
             for (const [sv0, sv1, sv2] of subTris) {
               tris.push([applyMat(sv0, R, T), applyMat(sv1, R, T), applyMat(sv2, R, T)]);
             }
@@ -212,10 +272,27 @@ async function resolvePartTriangles(id: string, depth = 0): Promise<Triangle[]> 
   return result;
 }
 
-/** Batch-prefetch geometry for all provided part IDs in parallel. */
-export async function prefetchPartGeometry(partIds: string[]): Promise<void> {
+/**
+ * Batch-prefetch geometry for all provided part IDs in parallel.
+ *
+ * Progress is REAL: one tick per top-level part as it finishes resolving
+ * (`resolved / total`). Before this the phase posted a single `0` and then sat
+ * there for the whole download — on a cold big set that is minutes of a banner
+ * reading "loading part geometry 0%", which is indistinguishable from a hang.
+ */
+export async function prefetchPartGeometry(
+  partIds: string[],
+  onProgress?: VoxelProgress,
+): Promise<void> {
   const unique = [...new Set(partIds.map(normId))];
-  await Promise.all(unique.map(id => resolvePartTriangles(id)));
+  const total = unique.length;
+  if (total === 0) return;
+  let done = 0;
+  onProgress?.('loading part geometry', 0);
+  await Promise.all(unique.map(id => resolvePartTriangles(id).then(() => {
+    done++;
+    onProgress?.('loading part geometry', (done / total) * 100);
+  })));
 }
 
 // ─── Ray-triangle intersection (generic axis) ───────────────────────────────
@@ -655,8 +732,7 @@ export async function voxelizeLDrawGeometry(
   const uniqueParts = [...new Set(
     effectiveBricks.map(b => b.part).filter(p => !isLDrawPrimitive(p)),
   )];
-  onProgress?.('loading part geometry', 0);
-  await prefetchPartGeometry(uniqueParts);
+  await prefetchPartGeometry(uniqueParts, onProgress);
 
   const IDENTITY = [1,0,0, 0,1,0, 0,0,1];
 

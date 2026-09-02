@@ -15,7 +15,7 @@ durable project knowledge only in private/agent memory.
 ## Dev / commands
 - Dev server: `bun dev:web` (port 4000). Add `--host` to expose on LAN (phone testing at the box's LAN IP:4000).
 - Typecheck: root is `bun run typecheck` (`tsc --noEmit`, the `src/` tree); the whole `web/` tree is `bun run typecheck:web` (`tsc --noEmit -p web/tsconfig.json`). **Both run in CI** (ci.yml + deploy.yml) so a careless edit can't silently compile-break. The `web` tree is currently type-clean — keep it that way (the old ~34 `ui/*` errors were fixed; the app still *builds* via Vite/esbuild without type-gating, but CI now gates it).
-- Build: `bun run build:web`. Tests: `bun test` (vitest). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression). Export-side offline suites: `test/schem-pipeline.test.ts` (the shared export module's grid path — byte-identical to a direct encode, no re-voxelization), `test/schem-settings.test.ts` (resolution planning vs the legacy ladder as an oracle), `test/light-fill.test.ts` (sealed room lit / open porch untouched), `test/palette-lint.test.ts` (every emitted block id is a real Minecraft block). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests).
+- Build: `bun run build:web`. Tests: `bun test` (vitest). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression). Export-side offline suites: `test/schem-pipeline.test.ts` (the shared export module's grid path — byte-identical to a direct encode, no re-voxelization), `test/schem-settings.test.ts` (resolution planning vs the legacy ladder as an oracle), `test/light-fill.test.ts` (sealed room lit / open porch untouched), `test/palette-lint.test.ts` (every emitted block id is a real Minecraft block), `test/schem-seeded-geometry.test.ts` (the seeded resolver short-circuits fetch and matches the networked bytes; per-part progress advances; geometry is independent of fetch timing). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests).
 - Use **Chrome** for browser testing, not Edge.
 
 ## Key tabs
@@ -279,11 +279,45 @@ ghost tires). Pipeline defenses (classifier extracted to
     get glowstone on their FLOOR, one per `spacing`³ (6) bucket. A room with a
     doorway is reachable from outside, so it stays dark by design. Runs after
     fillSingleVoxelGaps, only when the flag is on.
+  - **The export REUSES the viewer's part geometry — zero network (S6,
+    2026-09-02).** The export resolver (`engine/ldraw-geometry.ts`) keeps its
+    own `.dat` text cache, a different module from the viewer's
+    (`viewer/ldraw/parts.ts`) and, in the worker, a different THREAD — so
+    exporting the model already on screen re-downloaded its whole part library.
+    `schem-export.ts` now snapshots the viewer's cache (`collectDatTexts()` —
+    library fetches + the IndexedDB warm cache + MPD inlines + archive
+    `CustomParts/`, `null` = definitive miss) and ships it as
+    `SchemWorkerInput.datTexts`; `runSchemPipeline` calls `seedDatTexts()`
+    before voxelizing. Texts in, triangles out — the resolver is untouched, and
+    anything absent from the seed still fetches (with progress). Measured in
+    Chrome on 21063: **53 `/ldraw-parts` requests during load, 0 during
+    export** (with 3D Render OFF, i.e. nothing pre-loaded: 866 during export,
+    as designed). Bonus: `.io` CustomParts exist only in the archive and used to
+    hit the AABB box fallback in the export — they now voxelize for real.
+    Tests: `test/schem-seeded-geometry.test.ts`.
+  - **Geometry resolution was TIMING-DEPENDENT until 2026-09-02 — don't
+    reintroduce.** `resolvePartTriangles` publishes a part's triangle array into
+    `partGeomCache` before its sub-file refs are appended (the cycle guard), and
+    the cache was checked BEFORE `geomInFlight` — so a parent could bake in a
+    half-assembled child, and which caller lost the race depended purely on
+    fetch timing. The same model voxelized to 1,184,777 cells over the network
+    and 1,174,763 over a warm cache, with 4,474 cells of real geometry lost even
+    cold. In-flight is now checked first; only a genuine reference CYCLE (an
+    explicit ancestor set threaded through the recursion) may read the partial
+    array. `viewer/ldraw/parts.ts` has the same shape and papers over it with
+    `invalidatePartGeom` — if you touch either resolver, keep the ordering.
   - **Byte-identity is the gate.** With defaults (auto / default profile /
     light fill OFF) the bricks path is the pre-S4 sequence exactly:
-    `scripts/_schem_ref.ts` (now driving the REAL shared pipeline) on 21063
-    still gives sha256 `52d2211…4be6b`. `test/schem-pipeline.test.ts` proves the
-    same for the grid path (bytes === `encodeSchemBytes(grid)`).
+    `scripts/_schem_ref.ts` (driving the REAL shared pipeline) on 21063 gives
+    sha256 `d158beb…f3fd7`, 1,189,251 non-air. **Re-derived 2026-09-02** (was
+    `52d2211…4be6b` / 1,184,777) by the race fix above — the old hash was
+    reproducible only because the CLI's timing was. The seeded browser export is
+    that grid **+16 cells** (1,189,267, confirmed in Chrome): the viewer's
+    candidate-path list has the `p/48/` hi-res alias tail, so it resolves 7
+    primitives (`1-12ring14`, `4-4aring`, …) that the bare export resolver
+    misses. Nothing else differs — a seed built from the EXPORT resolver's own
+    picks reproduces `d158beb…` exactly. `test/schem-pipeline.test.ts` proves
+    the grid path is `bytes === encodeSchemBytes(grid)`.
 - **External-viewer gate (S5, 2026-09-01)** — our importer round-trips whatever
   we write, so a palette/colour-space mistake is invisible internally (that's
   how S1 hid). Two halves:
@@ -306,6 +340,13 @@ ghost tires). Pipeline defenses (classifier extracted to
   guide/GLB/OBJ/STL/3MF (CSV is instant). It sits at `#nav`'s measured bottom
   so it never covers the tab bar, and toggles `style.display` (never
   `[hidden]` — a `display:` rule would override the attribute).
+  **Every phase must report honestly (2026-09-02).** `prefetchPartGeometry`
+  streams REAL `resolved/total` progress (it used to post a single `0` and sit
+  there for the whole download — minutes of "loading part geometry 0%", which
+  reads as a hang), and the worker's 80 ms progress throttle now ALWAYS posts a
+  phase CHANGE: throttling one left the banner showing the previous phase's
+  name and percentage. Omit `pct` for genuinely unknown work — the bar goes
+  indeterminate, which is honest; a stale number is not.
 - **All materials are `DoubleSide`** (LDraw `.dat` winding is unreliable), so
   triangle winding is **shading-irrelevant** — Three flips the normal per
   `gl_FrontFacing`. Consequence: `resolvePartGeometry`'s cache keys by part id

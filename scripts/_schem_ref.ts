@@ -5,10 +5,20 @@
  *
  * Usage: bun scripts/_schem_ref.ts [model.io] [out.schem] [forcedCellLDU]
  *
- * Baseline (2026-09-01, 21063 @ auto → cellLDU 4, default settings):
- *   schemSha256 52d221188f5677475392a25c4e45f6d137ba43af547c9d8c4ba44b9a8194be6b
+ * Baseline (2026-09-02, 21063 @ auto → cellLDU 4, default settings):
+ *   schemSha256 d158bebb54bb00cad0ead543a8310bf53fbb7f7f49021252f852e820e2cf3fd7
+ *   nonAir 1,189,251 · dims 131×196×291
  * Any change to voxelization, gap filling, the colour tables or the NBT writer
  * moves this hash. If you didn't mean to, you broke something.
+ *
+ * PREVIOUS baseline 52d221188f…4be6b (nonAir 1,184,777), retired 2026-09-02 by
+ * the concurrent-resolution fix in ldraw-geometry.ts. `partGeomCache` handed
+ * out a part's triangle array before its sub-file references had been appended,
+ * so a parent could bake in a HALF-ASSEMBLED child — which child lost the race
+ * depended purely on fetch timing. Two consequences, both now gone: 4,474 cells
+ * of real geometry were silently dropped, and the same model voxelized to a
+ * DIFFERENT grid over a warm cache (1,174,763 cells) than over the network. The
+ * old hash was reproducible only because the CLI's timing was.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
