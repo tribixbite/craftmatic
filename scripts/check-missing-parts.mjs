@@ -25,6 +25,12 @@
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+// Hundreds of keep-alive sockets are still open when the report finishes;
+// exiting resets them and Node surfaces that as an unhandled ECONNRESET AFTER
+// the output. It is teardown noise, not a failed probe (a failed probe is a
+// non-ok response, handled inline) — swallowing it keeps the report readable.
+process.on('uncaughtException', (e) => { if (e?.code !== 'ECONNRESET') throw e; });
+
 const args = process.argv.slice(2);
 const flag = (n, d) => { const i = args.indexOf(n); return i < 0 ? d : args[i + 1]; };
 
