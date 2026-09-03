@@ -693,6 +693,10 @@ export class LDrawViewer {
     // step-group structure, etc. can be inspected from the console / E2E.
     if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
       (globalThis as Record<string, unknown>)['__ldrawViewer'] = this;
+      // The raw resolver maps too: `substitutedParts` is their INTERSECTION
+      // with this model's parts, so when it comes back empty only these say
+      // whether the resolver never aliased or the intersection dropped it.
+      (globalThis as Record<string, unknown>)['__ldrawParts'] = { substitutedDatNames, unresolvedDatNames };
     }
 
     } finally {

@@ -113,17 +113,35 @@ async function remoteResolve(base, stems) {
 // ── model sourcing ──────────────────────────────────────────────────────────
 const index = JSON.parse(readFileSync(INDEX, 'utf8'));
 
+/**
+ * The app auto-loads models[0]; this picks the first `.ldr` instead, because a
+ * `.io` is a password-protected ZIP the checker can't read. When those differ
+ * the checker is reporting a DIFFERENT (usually lower-tier, converted) file
+ * than the app renders — which is the pessimistic direction, since converted
+ * sources are exactly the ones with unresolvable names — but the row must say
+ * so, or "10316 is clean" gets read as a claim about the wrong file.
+ */
 function pickModel(set) {
   const e = index.sets[set] ?? index.sets[`${set}-1`];
   if (!e) return null;
-  const m = e.models?.find(m => m.path.toLowerCase().endsWith('.ldr'));
-  return m ? { entry: e, path: m.path, src: m.src } : null;
+  const i = e.models?.findIndex(m => m.path.toLowerCase().endsWith('.ldr')) ?? -1;
+  if (i < 0) return null;
+  const m = e.models[i];
+  return { entry: e, path: m.path, src: m.src, notAppDefault: i > 0 ? e.models[0].path : null };
 }
 
+/**
+ * The model must come from the same world as the library: a local clego
+ * checkout can be REGENERATED ahead of what R2 serves (clego re-ran its part
+ * mapper mid-session and rewrote 10316's design ids in place), so mixing a
+ * local model with the prod library silently answers a question nobody asked.
+ * Local models only when the library is local too.
+ */
 async function loadModel(path) {
-  // Prefer a local clego checkout (fast, offline); else the same-origin corpus.
-  const local = join('C:/git/clego/lego_sets', path);
-  if (existsSync(local)) return readFileSync(local, 'utf8');
+  if (LOCAL) {
+    const local = join('C:/git/clego/lego_sets', path);
+    if (existsSync(local)) return readFileSync(local, 'utf8');
+  }
   const r = await fetch(`${MODELS}/${path}`);
   if (!r.ok) throw new Error(`${path} → HTTP ${r.status}`);
   return r.text();
@@ -186,11 +204,15 @@ for (const set of targets) {
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
   worst = Math.max(worst, missing.length);
   const aliasNote = aliased.length ? `  (${aliased.reduce((s, [, c]) => s + c, 0)} pieces via alias)` : '';
+  const srcNote = m.notAppDefault ? `  [app loads ${m.notAppDefault} instead]` : '';
   console.log(
     `${set.padEnd(8)} ${m.src.padEnd(14)} ${String(total).padStart(5)} refs  →  ` +
     (missing.length
       ? `MISSING ${pieces} piece(s) / ${missing.length} type(s): ${missing.slice(0, 8).map(([n, c]) => `${n}×${c}`).join(' ')}${missing.length > 8 ? ' …' : ''}`
-      : 'all parts resolve') + aliasNote,
+      : 'all parts resolve') + aliasNote + srcNote,
   );
+  if (upstreamOnly.length) {
+    console.log(`         ${upstreamOnly.reduce((s, [, c]) => s + c, 0)} piece(s) served by the upstream fallback, not the R2 mirror`);
+  }
 }
 process.exit(worst ? 2 : 0);
