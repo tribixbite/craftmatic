@@ -181,7 +181,13 @@ export default {
     // throttle/5xx responses are relayed as 503 no-store (NOT converted to a
     // cacheable 404) so the client retries instead of recording a miss.
     if (url.pathname.startsWith('/ldraw-parts/') && (request.method === 'GET' || request.method === 'HEAD')) {
+      // Decode before building the R2 key: the library ships p/box3#8p.dat,
+      // whose `#` the client must send as %23 or the URL ends at a fragment.
+      // Left encoded, the key lookup misses an object that IS mirrored — the
+      // same break already fixed on /lego-models/. Malformed escapes fall back
+      // to the raw path rather than throwing a 500.
       let rest = url.pathname.slice('/ldraw-parts/'.length).replace(/\.\./g, '');
+      try { rest = decodeURIComponent(rest); } catch { /* keep as-is */ }
       let libs = ['official', 'unofficial'];
       const unof = rest.match(/^unofficial\/(.*)$/i);
       if (unof) { rest = unof[1]; libs = ['unofficial']; }
@@ -223,7 +229,9 @@ export default {
           // the failure all the way back to the client.
           let r;
           for (let attempt = 0; attempt < 2; attempt++) {
-            r = await fetch(`https://library.ldraw.org/library/${lib}/${rest}`, {
+            // Re-encode per segment for the upstream URL — `rest` is decoded
+            // now, and a raw `#` would truncate the request at the fragment.
+            r = await fetch(`https://library.ldraw.org/library/${lib}/${rest.split('/').map(encodeURIComponent).join('/')}`, {
               method: 'GET',
               headers: { 'User-Agent': 'craftmatic-proxy/1.0' },
               cf: {
