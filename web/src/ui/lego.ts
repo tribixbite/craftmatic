@@ -1877,13 +1877,16 @@ async function voxelizeAndDisplay(
         const missing = currentLDrawViewer.missingParts;
         const subGaps = currentLDrawViewer.unresolvedSubparts.length;
         const subGapNote = subGaps > 0 ? ` (${subGaps} sub-part file(s) unresolved — minor gaps, see console)` : '';
-        // Alias substitutions are informational, not a defect: the piece IS
-        // drawn, just from a sibling mould / undecorated base because the exact
-        // name is in no LDraw library. Silent swaps would misrepresent fidelity.
+        // Alias resolutions are informational, not a defect: the piece IS
+        // drawn, under a different LDraw name. Some are exact (the model used
+        // LEGO's re-tooled design id, LDraw kept the original part number),
+        // others drop a print or pick a sibling mould — the console lists the
+        // exact name→name mapping. Stay neutral here rather than over- or
+        // under-claiming; a silent swap would misrepresent fidelity either way.
         const subst = currentLDrawViewer.substitutedParts;
         const substCount = subst.reduce((s, m) => s + m.count, 0);
         const substNote = subst.length > 0
-          ? ` · ${substCount} piece(s) drawn from a near mould/undecorated variant (${subst.length} part type(s), see console)`
+          ? ` · ${substCount} piece(s) resolved via part-name aliases (${subst.length} part type(s), see console)`
           : '';
         const edgeNote = currentLDrawViewer.edgesDroppedForSize ? ' · edge outlines hidden (very large model)' : '';
         const sourceNote = currentSourceWarning ? ` · ⚠ ${currentSourceWarning}` : '';

@@ -199,9 +199,10 @@ export class LDrawViewer {
   missingParts: { part: string; count: number }[] = [];
   /** Sub-file refs that resolved nowhere (parents render with small gaps). */
   unresolvedSubparts: string[] = [];
-  /** Top-level parts drawn with a mould/undecorated alias because the exact
-   *  name is in no LDraw library (`6538c` → `6538`). Shape is right, the print
-   *  or mould revision is not — reported so the swap is never silent. */
+  /** Top-level parts drawn under a DIFFERENT LDraw name because the requested
+   *  one is in no library — either the canonical name for a re-tooled design id
+   *  (`42923` → `63868`, exact) or a sibling mould / undecorated base
+   *  (`6538c` → `6538`, approximate). Reported so the swap is never silent. */
   substitutedParts: { part: string; renderedAs: string; count: number }[] = [];
   /** True when brick-separation edges were dropped because the model exceeded
    *  EDGE_SEGMENT_BUDGET (UCS-class) — edges are sub-pixel at that scale. */
@@ -569,7 +570,7 @@ export class LDrawViewer {
       .sort((a, b) => b.count - a.count);
     if (this.substitutedParts.length > 0) {
       console.info(
-        `[LDrawViewer] ${this.substitutedParts.length} part name(s) drawn with a mould/undecorated alias:`,
+        `[LDrawViewer] ${this.substitutedParts.length} part name(s) resolved via an alias:`,
         this.substitutedParts.map(s => `${s.part}→${s.renderedAs}×${s.count}`).join(', '),
       );
     }
