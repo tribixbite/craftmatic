@@ -128,6 +128,20 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   edge outlines" into the warp overlay) — it used to freeze the main thread
   after the fetch hit 100% (Page-Unresponsive kills = the "crash between
   100% and display" class).
+- **`#` in a filename is a THREE-WAY encoding contract** (prod incident
+  2026-09-03, clego SOURCES.md §5b): client percent-encodes per segment
+  (`encodeModelPath` in lego.ts / candidate paths in parts.ts), the worker
+  DECODES before the R2 lookup (both `/lego-models/` and `/ldraw-parts/`), and
+  the SYNC must percent-encode the key it PUTs. `wrangler r2 object put
+  <bucket>/<key>` does NOT — the `#` opens a URL fragment and the object lands
+  under a TRUNCATED key (`…/31378_step #cr.ldr` → `…/31378_step `), which
+  `wrangler r2 object get` reads back identically, so the CLI looks healthy
+  while prod 404s (96 index paths / 20 sets / 9 primary picks; dev was fine
+  because Vite decodes `req.url`). Distinct files can truncate to the same key
+  = silent data loss. Fixed on the sync side in BOTH mirrors
+  (`scripts/sync-ldraw-r2.mjs`, clego `sync_models_r2.py` → R2 REST API for
+  such keys). Guarded by `test/prod-smoke.test.ts`. Never diagnose this with
+  `wrangler r2 object list` — only the R2 REST list shows the real key.
 - Parts that never resolve (a few set-custom OMR subparts like Red Baron
   `s100241`) are surfaced in the LEGO-tab status + console via
   `viewer.missingParts` — not silent. Sub-file refs that resolve nowhere (parent
