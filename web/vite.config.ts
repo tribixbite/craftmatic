@@ -79,6 +79,15 @@ export default defineConfig({
         });
         const release = () => { upstreamActive--; upstreamQueue.shift()?.(); };
 
+        // The local clego library is a frozen Studio snapshot (LDraw release
+        // 207: 12k official parts vs upstream's 24k), so every mould released
+        // since 2020 misses locally and lands here. Ask the PROD worker first —
+        // it serves the R2 mirror, which the weekly sync keeps current, and it
+        // has no rate limit; library.ldraw.org throttles bursts hard and was
+        // the source of the "part exists but renders missing" class. Upstream
+        // stays as the second tier so dev still works if prod is mid-deploy.
+        const MIRROR = 'https://craftmatic.click/ldraw-parts';
+
         const fetchUpstream = async (urlPath: string): Promise<Buffer | null> => {
           if (upstreamCache.has(urlPath)) return upstreamCache.get(urlPath)!;
           let rest = urlPath;
@@ -88,6 +97,19 @@ export default defineConfig({
           await acquire();
           try {
             let sawTransient = false;
+            try {
+              const r = await fetch(`${MIRROR}/${urlPath}`, { signal: AbortSignal.timeout(10000) });
+              if (r.ok) {
+                const buf = Buffer.from(await r.arrayBuffer());
+                upstreamCache.set(urlPath, buf);
+                return buf;
+              }
+              // A 404 from the mirror is NOT definitive: the worker itself
+              // falls back upstream, but only for keys it recognises, so keep
+              // probing library.ldraw.org below before caching a miss.
+            } catch {
+              sawTransient = true;
+            }
             for (const lib of libs) {
               for (let attempt = 0; attempt < 3; attempt++) {
                 try {

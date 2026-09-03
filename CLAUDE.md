@@ -39,7 +39,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
 The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
 - **DEV**: served by a Vite middleware in `web/vite.config.ts` from a local clego
   install (`C:/git/clego/extracted/studio_release/app/ldraw`, ~1.8 GB / 67k files),
-  with an **upstream fallback** to `library.ldraw.org` on a local miss. A
+  falling back on a local miss to the **prod worker's R2 mirror**
+  (`craftmatic.click/ldraw-parts`) and only then to `library.ldraw.org`. The
+  local install is a frozen Studio snapshot (**LDraw release 207**: 12,136
+  official parts vs upstream's 24,737), so every mould released since 2020
+  misses locally — going to the mirror first keeps dev coverage equal to prod
+  without paying library.ldraw.org's throttling. A
   `FORCE_UPSTREAM` const (default `false`) bypasses local to mirror prod exactly.
   The fallback only caches a null on a DEFINITIVE upstream 404 (thrown fetches —
   throttling during a load burst — retry instead; concurrency capped at 6).
@@ -48,7 +53,7 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
 - **PROD**: the Cloudflare Worker (`worker/ldraw-omr.js`) serves `/ldraw-parts/*`
   **R2-FIRST** from the `lego-models` bucket (keys `ldraw/<relpath>`, LOWERCASED
   — R2 keys are case-sensitive and `normId()` lowercases every request; mirror
-  maintained by `scripts/sync-ldraw-r2.mjs`, resumable), falling back to
+  maintained by `scripts/sync-ldraw-r2.mjs`), falling back to
   `library.ldraw.org/library/{official,unofficial}/*` for unsynced keys.
   Routed in `wrangler.toml` (`craftmatic.click/ldraw-parts/*`) with the R2
   binding `MODELS`. **Must `bunx wrangler deploy` to publish.** Without this
@@ -60,6 +65,48 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   (successes 1w, 404s 5min, errors 0), upstream throttle → 503 `no-store`
   (never a cacheable 404), one in-worker retry; client treats only 404/410 as
   definitive (`parts.ts`), and part-prefetch concurrency is 12.
+- **Keeping the mirror CURRENT (2026-09-02).** The original seed was uploaded
+  from the Studio-bundled library, i.e. LDraw release **207** — so R2 was five
+  years stale and ~18k modern parts existed only behind the throttled upstream
+  fallback. `scripts/sync-ldraw-r2.mjs` was rewritten to pull the **upstream
+  release archives** (`updates/complete.zip` + `unofficial/ldrawunf.zip`) and
+  upload a **stateless delta**: the R2 list API returns each object's etag
+  (= content MD5 for single-shot PUTs), so new/changed files are computed by
+  comparison — no done-file, no committed manifest, a missed run self-heals.
+  New files upload first (a hole in the render beats a relicensed header).
+  Uploads go through the **R2 REST API** with `CLOUDFLARE_API_TOKEN` (the
+  deploy secret already has R2 write), ~300-600 files/min; keys present only in
+  R2 are never deleted. `.github/workflows/sync-ldraw-r2.yml` runs it weekly.
+  Verify coverage without a browser: `node scripts/check-missing-parts.mjs
+  --recent 10` (or `<set> …`), which replays the client's candidate paths +
+  alias ladder against prod or a local library.
+- **Design-id ≠ LDraw part name.** Mecabricks-lineage models write LEGO's
+  CURRENT design id; LDraw names a mould by its first/BrickLink-canonical
+  number and never renames it. For re-tooled families the two share no digits
+  (`42923`→`63868`, `44860`→`60897`, `26169`→`4865b`), so nothing resolves and
+  no suffix rule can help — the mapping is DATA, in
+  `web/src/engine/ldraw-part-aliases.ts` (every entry verified against the
+  target `.dat`'s own description). Above it, `partAliasCandidates()` in
+  `parts.ts` strips ONE suffix group per hop — lettered mould revisions
+  (`6538c`→`6538`), decorations/versions (`3626d1024`, `30367v2`), prints
+  (`98138pb042`→`98138`) — and chains (`u9132v1d1`→`u9132v1`→`u9132`).
+  Measured over 6,325 tier-1 corpus `.ldr` files: 1,323 of 2,639 orphaned names
+  = 20,289 of 39,081 placements recovered. Every candidate is verified against
+  the library before use and the hop only runs after a DEFINITIVE miss, so a
+  bad guess costs a lookup, not a wrong render. **The base must end in a digit**
+  — without that guard the print rule shreds primitives (`stud4`→`stu`), which
+  would substitute nonsense inside every part referencing them (test pins it).
+  Substitutions are recorded in `substitutedDatNames` → `viewer.substitutedParts`
+  → a LEGO-status note, so a near-mould swap is never silent. Tests:
+  `test/part-alias.test.ts`.
+- **Genuinely unmodelled molds are a real category — document, don't guess.**
+  10316 Rivendell's remainder after the above: `20926`/`20932` (dual-moulded
+  "2K" minifig leg halves — LDraw has only the obsolete single legs 3817/3816,
+  whose headers carry `!HELP Move down 12 units to align with hips`, i.e. a
+  DIFFERENT origin, so substituting misplaces them) and `1000341` (a
+  Mecabricks-INTERNAL id for one sword blade off the 37341 sprue; a bbox sweep
+  of every minifig/weapon part found no match within ±2.5 LDU). 3 pieces total.
+  A misplaced piece is worse than a visible hole — leave them missing.
 - `library.ldraw.org` serves individual parts but sends **no CORS header** — must
   be proxied; cannot fetch from the browser directly. Official layout:
   `/library/official/{parts,p,parts/s,p/48}/<stem>.dat`.

@@ -8,6 +8,7 @@
  */
 
 import type { Vec3, Triangle, Edge, PartGeom, UV } from './types.js';
+import { LDRAW_PART_ALIASES } from '../../engine/ldraw-part-aliases.js';
 
 const datTextCache = new Map<string, string | null>();
 const partGeomCache = new Map<string, PartGeom>();
@@ -26,6 +27,15 @@ export const inlineTransparentColors = new Set<number>();
  * Cleared per-model by clearMpdInlines().
  */
 export const unresolvedDatNames = new Set<string>();
+
+/**
+ * Names that only resolved through the mould/decoration alias ladder, mapped
+ * to the file actually rendered (`6538c` → `6538`). The substitute is the same
+ * element in a different mould revision or without its print, so the picture is
+ * right but not literally what the model asked for — surfaced by the viewer so
+ * the swap is never silent. Cleared per-model by clearMpdInlines().
+ */
+export const substitutedDatNames = new Map<string, string>();
 
 /**
  * Texture data from !DATA blocks. Keyed by image filename (lowercased,
@@ -260,6 +270,7 @@ export function collectDatTexts(): Map<string, string | null> {
 export function clearMpdInlines(): void {
   inlineTransparentColors.clear();
   unresolvedDatNames.clear();
+  substitutedDatNames.clear();
   for (const key of [...partGeomCache.keys()]) {
     if (key.endsWith('.ldr')) {
       partGeomCache.delete(key);
@@ -373,17 +384,55 @@ async function flushBatch(): Promise<void> {
 }
 
 /**
- * Mecabricks-converted models reference decoration/version part variants
- * that exist in NO LDraw library: `3626d1024` (head, decoration 1024),
- * `3814d444` (printed torso), `30367v2` (mold version). On a definitive
- * miss, fall back to the undecorated base part — the print is lost but the
- * geometry renders (and the candidate-probe storm for these names is what
- * stretched mecabricks-sourced cold loads by minutes). LDraw's own print
- * suffixes are letters+p (3069bp01), so the d/v-digits pattern is safe.
+ * Alias ladder for part names that exist in NO LDraw library. Converted models
+ * name pieces by mould/decoration variants LDraw either never adopted or names
+ * differently: mecabricks writes `3626d1024` (head, decoration 1024) and
+ * `30367v2` (mould version); BrickLink-lineage sources write `6538c`, `4085d`,
+ * `4589b` (lettered mould revisions) and `98138pb042` / `60169p1` (prints).
+ *
+ * Each hop strips ONE trailing suffix group, most specific first, and the
+ * result is only accepted if it really resolves — so a wrong guess costs a
+ * cache lookup, never a wrong render. Substituting a sibling mould revision or
+ * the undecorated base is a near-identical shape; the alternative is a hole.
+ * Every substitution is recorded in `substitutedDatNames` and surfaced by the
+ * viewer, so the swap is visible rather than silent.
+ *
+ * Measured over the clego corpus (6,325 tier-1 .ldr files, 2026-09-02): the
+ * ladder resolves 1,323 of 2,639 otherwise-unresolvable names = 20,289 of
+ * 39,081 orphaned placements. Chained suffixes need the loop (`u9132v1d1` →
+ * `u9132v1` → `u9132`).
+ *
+ * Deliberately NOT covered: names with no strippable suffix and no entry in
+ * LDRAW_PART_ALIASES (`x346`, `88355`), Studio custom-part hashes
+ * (`m102bdfd2_…`, only ever inside a .io archive), `bl_*` Studio synthetics,
+ * and genuinely unmodelled moulds (10316 Rivendell's `20926`/`20932`/`1000341`
+ * — see ldraw-part-aliases.ts for why guessing those is worse than a hole).
  */
-function mecabricksBaseName(stem: string): string | null {
-  const m = stem.match(/^(\d+[a-z]?)(?:d\d+|v\d+)$/);
-  return m ? m[1]! : null;
+export function partAliasCandidates(stem: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>([stem]);
+  // Explicit design-id → LDraw-name map first: these numbers differ outright
+  // (LEGO re-tooled the mould and issued a new design id, LDraw kept the old
+  // part number), so no amount of suffix stripping finds them.
+  const mapped = LDRAW_PART_ALIASES[stem];
+  if (mapped) { out.push(mapped); seen.add(mapped); }
+  let s = stem;
+  for (let hop = 0; hop < 4; hop++) {
+    const m =
+      // decoration / mould-version / print suffix: d1024, v2, p1, pb042, pr0011.
+      // The base must END in a digit (optionally + one mould letter) — LDraw
+      // part numbers do, and without that guard primitives get shredded
+      // (`stud4` → `stu`, substituting nonsense inside every part using it).
+      s.match(/^(.+?\d[a-z]?)(?:d\d+|v\d+|p[a-z]{0,2}\d+[a-z]?\d*)$/) ??
+      // lettered mould revision: 6538c → 6538, 3626av → 3626a
+      s.match(/^(.*\d[a-z]?)[a-z]$/);
+    const next = m?.[1];
+    if (!next || seen.has(next)) break;
+    seen.add(next);
+    out.push(next);
+    s = next;
+  }
+  return out;
 }
 
 async function fetchDatText(id: string): Promise<string | null> {
@@ -504,17 +553,17 @@ async function fetchDatText(id: string): Promise<string | null> {
         }
         if (res === 'transient') sawTransient = true;
       }
-      // Base-part fallback runs even when a probe was transient: under the
+      // Alias fallback runs even when a probe was transient: under the
       // parallel volley a single upstream-throttle 503 among 8 candidates
       // otherwise skipped the fallback entirely, and every mecabricks
       // decoration variant stayed "missing" on burst-heavy cold loads.
-      const base = mecabricksBaseName(stem);
-      if (base !== null) {
-        const baseText = await fetchDatText(base);
-        if (baseText !== null) {
-          datTextCache.set(key, baseText);
-          idbPutDat(key, baseText);
-          return baseText;
+      for (const alias of partAliasCandidates(stem)) {
+        const aliasText = await fetchDatText(alias);
+        if (aliasText !== null) {
+          substitutedDatNames.set(key, alias);
+          datTextCache.set(key, aliasText);
+          idbPutDat(key, aliasText);
+          return aliasText;
         }
       }
       if (!sawTransient) {
@@ -573,15 +622,15 @@ async function fetchDatText(id: string): Promise<string | null> {
       datTextCache.set(key, null); // definitive miss only
       unresolvedDatNames.add(key);
     }
-    // Mecabricks variant fallback regardless of transients (see volley path).
-    const base = mecabricksBaseName(stem);
-    if (base !== null) {
-      const baseText = await fetchDatText(base);
-      if (baseText !== null) {
-        datTextCache.set(key, baseText);
-        idbPutDat(key, baseText);
+    // Alias fallback regardless of transients (see volley path).
+    for (const alias of partAliasCandidates(stem)) {
+      const aliasText = await fetchDatText(alias);
+      if (aliasText !== null) {
+        substitutedDatNames.set(key, alias);
+        datTextCache.set(key, aliasText);
+        idbPutDat(key, aliasText);
         unresolvedDatNames.delete(key);
-        return baseText;
+        return aliasText;
       }
     }
     return null;
