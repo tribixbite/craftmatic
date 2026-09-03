@@ -33,6 +33,25 @@
  *                  every "minifig"/"weapon" part found zero match within
  *                  ±2.5 LDU of the Mecabricks mesh (8.1 × 11.2 × 56.4 LDU).
  *                  Genuinely unmodelled.
+ *
+ * NEXT OFFENDERS, if this table is ever extended (measured 2026-09-02 over the
+ * 6,325 tier-1 corpus .ldr files, AFTER this table + the suffix ladder, which
+ * together took the corpus from 39,081 orphaned placements to 12,315):
+ *   30241b  711 in  57 sets · 98560  579 in 111 · x346  342 in 69
+ *   88355   133 in  16      · x187   115 in  34 · 78c02  97 in 17
+ *   731c04   84 in  24      · 35293   76 in  26
+ * Each needs the same two-way verification as the rows above — a design id
+ * traced to its BrickLink/Rebrickable part, then the target .dat read to
+ * confirm the description matches. Do NOT bulk-guess them.
+ *
+ * Three residual classes here are NOT ours to fix, so don't chase them:
+ *   `rename_3023`/`rename_32123b`/… (1,088 placements, ~30 files) — an
+ *      un-stripped marker in clego's IOModel2V2 extractor output.
+ *   `m102bdfd2_…` (~900) — Studio CustomParts, which only exist INSIDE the
+ *      .io archive; the extracted standalone .ldr references them without
+ *      shipping them.
+ *   `6397 - ls60` (470, one set) — an LSynth segment name with the parent part
+ *      prefixed, which synthesizeLsSegment's /^ls\d{1,3}$/ doesn't match.
  */
 export const LDRAW_PART_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   // ── Clip / bar family: LEGO re-tooled these as "thick C-clip" versions and
