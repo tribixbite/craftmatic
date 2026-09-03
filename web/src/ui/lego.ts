@@ -1877,6 +1877,14 @@ async function voxelizeAndDisplay(
         const missing = currentLDrawViewer.missingParts;
         const subGaps = currentLDrawViewer.unresolvedSubparts.length;
         const subGapNote = subGaps > 0 ? ` (${subGaps} sub-part file(s) unresolved — minor gaps, see console)` : '';
+        // Alias substitutions are informational, not a defect: the piece IS
+        // drawn, just from a sibling mould / undecorated base because the exact
+        // name is in no LDraw library. Silent swaps would misrepresent fidelity.
+        const subst = currentLDrawViewer.substitutedParts;
+        const substCount = subst.reduce((s, m) => s + m.count, 0);
+        const substNote = subst.length > 0
+          ? ` · ${substCount} piece(s) drawn from a near mould/undecorated variant (${subst.length} part type(s), see console)`
+          : '';
         const edgeNote = currentLDrawViewer.edgesDroppedForSize ? ' · edge outlines hidden (very large model)' : '';
         const sourceNote = currentSourceWarning ? ` · ⚠ ${currentSourceWarning}` : '';
         if (missing.length > 0) {
@@ -1884,12 +1892,12 @@ async function voxelizeAndDisplay(
           const names = missing.slice(0, 6).map(m => m.part.replace(/\.dat$/i, '')).join(', ');
           const more = missing.length > 6 ? ` +${missing.length - 6} more` : '';
           setStatus(
-            `${label} — ${bricks.length} bricks rendered${dims}${completeness}. ⚠ ${totalMissing} piece(s) of ${missing.length} part type(s) not in library: ${names}${more}${subGapNote}${sourceNote}`,
+            `${label} — ${bricks.length} bricks rendered${dims}${completeness}. ⚠ ${totalMissing} piece(s) of ${missing.length} part type(s) not in library: ${names}${more}${subGapNote}${substNote}${sourceNote}`,
             'info',
           );
           console.warn('[lego] unrendered parts (missing from /ldraw-parts or LSynth):', missing);
         } else {
-          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}${completeness}${subGapNote}${edgeNote}${sourceNote}`, subGaps > 0 || completeness || currentSourceWarning ? 'info' : 'success');
+          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}${completeness}${subGapNote}${substNote}${edgeNote}${sourceNote}`, subGaps > 0 || subst.length > 0 || completeness || currentSourceWarning ? 'info' : 'success');
         }
         viewerEl.closest('.panel-layout')?.setAttribute('data-has-model', '');
         const explodeRow = document.getElementById('lego-explode-row');

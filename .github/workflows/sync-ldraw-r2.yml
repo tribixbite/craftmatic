@@ -1,0 +1,73 @@
+name: Sync LDraw library → R2
+
+# The prod worker serves /ldraw-parts/* R2-FIRST from the `lego-models` bucket
+# (keys ldraw/<relpath>, lowercased) because library.ldraw.org rate-limits cold
+# big-set bursts. That mirror only stays correct if it tracks upstream: the
+# original 2026-08-18 seed came from the LDraw library bundled with Studio,
+# frozen at release 207, so every mold released since 2020 was absent and sets
+# using them reported missing pieces (10316 Rivendell: "152 pieces of 14 part
+# types not in library"). LDraw ships roughly quarterly official updates and a
+# continuously-moving unofficial Parts Tracker, so a weekly pull is ample.
+#
+# The delta is stateless — scripts/sync-ldraw-r2.mjs compares content MD5s
+# against the R2 list API's etags — so a missed or duplicated run is harmless
+# and a failed run self-heals on the next one.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1' # Mondays 05:17 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report the delta without uploading'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-ldraw-r2
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ~230 MB of archives; caching them keeps a same-week re-run free and is
+      # polite to library.ldraw.org (the script re-downloads anything older
+      # than 20 h regardless, so a stale cache can never hide an update).
+      - name: Cache LDraw release archives
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ldraw-sync
+          key: ldraw-archives-${{ github.run_id }}
+          restore-keys: ldraw-archives-
+
+      - name: Sync new + changed parts to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::CLOUDFLARE_API_TOKEN secret is not set"; exit 1; }
+          node scripts/sync-ldraw-r2.mjs \
+            --cache ~/.cache/ldraw-sync \
+            --workers 24 \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      # A part that reaches R2 but not the worker's candidate paths is still a
+      # hole, so prove the round-trip on a part from a recent set.
+      - name: Smoke-test the mirror through the worker
+        if: ${{ !inputs.dry_run }}
+        run: |
+          for p in parts/3001.dat parts/61332.dat p/stud.dat; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://craftmatic.click/ldraw-parts/$p")
+            echo "$p -> $code"
+            [ "$code" = "200" ] || { echo "::error::/ldraw-parts/$p returned $code"; exit 1; }
+          done
