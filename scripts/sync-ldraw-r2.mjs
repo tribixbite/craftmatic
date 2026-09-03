@@ -245,24 +245,45 @@ if (DRY) {
 if (!todo.length) { console.log('nothing to do'); process.exit(0); }
 
 const queue = LIMIT ? todo.slice(0, LIMIT) : todo;
-let ok = 0, fail = 0, i = 0;
-const failed = [];
-async function worker() {
-  while (i < queue.length) {
-    const item = queue[i++];
-    if (await putObject(acct, item.key, item.buf)) ok++;
-    else { fail++; failed.push(item.key); }
-    const n = ok + fail;
-    if (n % 100 === 0) {
-      const rate = n / ((Date.now() - t0) / 60000);
-      console.log(`${n}/${queue.length} ok=${ok} fail=${fail} (${rate.toFixed(0)}/min, ETA ${((queue.length - n) / rate).toFixed(0)} min)`);
+
+/** One pass over `items`; returns the ones that never succeeded. */
+async function runPass(items, workers, label) {
+  let ok = 0, fail = 0, i = 0;
+  const failed = [];
+  const t = Date.now();
+  const worker = async () => {
+    while (i < items.length) {
+      const item = items[i++];
+      if (await putObject(acct, item.key, item.buf)) ok++;
+      else { fail++; failed.push(item); }
+      const n = ok + fail;
+      if (n % 100 === 0) {
+        const rate = n / ((Date.now() - t) / 60000);
+        console.log(`${label}${n}/${items.length} ok=${ok} fail=${fail} (${rate.toFixed(0)}/min, ETA ${((items.length - n) / rate).toFixed(0)} min)`);
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: workers }, worker));
+  console.log(`${label}pass done: ok=${ok} fail=${fail} of ${items.length} in ${((Date.now() - t) / 60000).toFixed(1)} min`);
+  return failed;
 }
-await Promise.all(Array.from({ length: WORKERS }, worker));
-console.log(`DONE: ok=${ok} fail=${fail} of ${queue.length} in ${((Date.now() - t0) / 60000).toFixed(1)} min`);
-if (failed.length) {
-  console.log('failed keys (rerun to retry — the delta recomputes):');
-  for (const k of failed.slice(0, 50)) console.log('  ' + k);
+
+let remaining = await runPass(queue, WORKERS, '');
+// Cloudflare's API rate-limits at ~1200 requests / 5 min, and a long run drifts
+// into it: a cold catch-up saw a few hundred keys exhaust their in-request
+// retries in one burst. Those are throttle victims, not bad data, so cool off
+// and take another pass at just them with a fraction of the concurrency rather
+// than failing the job and waiting a week for the next schedule.
+if (remaining.length) {
+  console.log(`retrying ${remaining.length} throttled key(s) after a 90 s cool-off`);
+  await sleep(90_000);
+  backoff = 0;
+  remaining = await runPass(remaining, Math.max(2, Math.floor(WORKERS / 8)), 'retry ');
 }
-process.exit(fail ? 1 : 0);
+
+console.log(`DONE: ${queue.length - remaining.length}/${queue.length} uploaded in ${((Date.now() - t0) / 60000).toFixed(1)} min, ${remaining.length} still failing`);
+if (remaining.length) {
+  console.log('still failing (the next run recomputes the delta and picks them up):');
+  for (const it of remaining.slice(0, 50)) console.log('  ' + it.key);
+}
+process.exit(remaining.length ? 1 : 0);
