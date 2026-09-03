@@ -77,4 +77,32 @@ describe.skipIf(!enabled)('production smoke', () => {
     expect(r.headers.get('access-control-allow-origin')).toBeTruthy();
     expect((await r.text()).length).toBeGreaterThan(1000);
   });
+
+  // ── `#` in a filename: prod-only, invisible until someone looks ──────────
+  // A `#` is a URL FRAGMENT delimiter, so every hop has to agree on encoding:
+  // the client sends %23, the worker decodes before the R2 lookup, and the
+  // SYNC must percent-encode the key it PUTs. `wrangler r2 object put` does
+  // NOT — it truncated `…/31378_step #cr.ldr` to `…/31378_step ` on upload
+  // (and read it back the same way, so the CLI reported success), killing 96
+  // index paths / 20 sets / 9 primary picks in prod while dev served them
+  // fine. Both trees really do contain such names, so both are asserted.
+  it('serves a model whose filename contains "#" (worker decode + sync encoding agree)', async () => {
+    const idx = await fetch(`${PROD}/lego-models-index.json`, { signal: AbortSignal.timeout(30000) });
+    expect(idx.status).toBe(200);
+    const data = await idx.json() as { sets: Record<string, { models: { path: string }[] }> };
+    const hashPath = Object.values(data.sets)
+      .flatMap(e => e.models.map(m => m.path))
+      .find(p => p.includes('#'));
+    if (!hashPath) return; // corpus may sanitise these names one day — not a failure
+    const r = await fetch(`${PROD}/lego-models/${hashPath.split('/').map(encodeURIComponent).join('/')}`,
+      { signal: AbortSignal.timeout(30000) });
+    expect(r.status).toBe(200);
+    expect(await r.text()).toMatch(/^1\s/m); // real geometry, not an error body
+  });
+
+  it('serves the one library part whose filename contains "#" (p/box3#8p.dat)', async () => {
+    const r = await fetch(`${PROD}/ldraw-parts/p/box3%238p.dat`, { signal: AbortSignal.timeout(20000) });
+    expect(r.status).toBe(200);
+    expect((await r.text())).toMatch(/^\s*[0-9]/);
+  });
 });
