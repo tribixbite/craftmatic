@@ -107,12 +107,20 @@ async function listR2(acct) {
 let backoff = 0;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+/**
+ * Object keys go in the URL PATH, so every segment must be percent-encoded — the
+ * library really does ship names with `#` in them (`p/box3#8p.dat`), and an
+ * unencoded `#` truncates the URL at the fragment, silently addressing the
+ * wrong key. `/` stays literal so the key's own structure survives.
+ */
+const encodeKey = (key) => key.split('/').map(encodeURIComponent).join('/');
+
 async function putObject(acct, key, buf) {
   for (let attempt = 0; attempt < 5; attempt++) {
     if (backoff) await sleep(backoff);
     let r;
     try {
-      r = await fetch(`${API}/accounts/${acct}/r2/buckets/${BUCKET}/objects/${key}`, {
+      r = await fetch(`${API}/accounts/${acct}/r2/buckets/${BUCKET}/objects/${encodeKey(key)}`, {
         method: 'PUT',
         headers: { ...auth, 'Content-Type': key.endsWith('.png') ? 'image/png' : 'text/plain' },
         body: buf,
