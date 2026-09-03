@@ -44,14 +44,17 @@
  * traced to its BrickLink/Rebrickable part, then the target .dat read to
  * confirm the description matches. Do NOT bulk-guess them.
  *
- * Three residual classes here are NOT ours to fix, so don't chase them:
+ * Two residual classes are upstream data defects, not resolution failures —
+ * don't chase them here:
  *   `rename_3023`/`rename_32123b`/… (1,088 placements, ~30 files) — an
  *      un-stripped marker in clego's IOModel2V2 extractor output.
  *   `m102bdfd2_…` (~900) — Studio CustomParts, which only exist INSIDE the
  *      .io archive; the extracted standalone .ldr references them without
  *      shipping them.
- *   `6397 - ls60` (470, one set) — an LSynth segment name with the parent part
- *      prefixed, which synthesizeLsSegment's /^ls\d{1,3}$/ doesn't match.
+ * And one open candidate on OUR side: `6397 - ls60` (470 placements, a single
+ * set) looks like an LSynth segment carrying its parent part's name, which
+ * synthesizeLsSegment's /^ls\d{1,3}$/ misses. Confirm the block really is a
+ * flex run before widening that regex — one set is thin evidence.
  */
 export const LDRAW_PART_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   // ── Clip / bar family: LEGO re-tooled these as "thick C-clip" versions and
