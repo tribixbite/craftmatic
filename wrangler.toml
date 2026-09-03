@@ -6,6 +6,22 @@ compatibility_date = "2024-11-01"
 pattern = "craftmatic.click/ldraw-omr/*"
 zone_name = "craftmatic.click"
 
+# BrickLink Studio BFF inventory (server-side anonymous token) and the
+# seymouria .ldr mirror. The worker has handled both since it was written, but
+# their routes lived only in the Cloudflare DASHBOARD — and were not in effect:
+# measured 2026-09-02, craftmatic.click/bff/inventory/21063-1 fell through to
+# GitHub Pages and returned its 404 page, so the LEGO tab's LAST-RESORT source
+# (the flat colour layout, and the only thing a brand-new set can fall back to)
+# was dead in production while working in dev. Declared here so a dashboard
+# edit cannot silently drop them again.
+[[routes]]
+pattern = "craftmatic.click/bff/*"
+zone_name = "craftmatic.click"
+
+[[routes]]
+pattern = "craftmatic.click/seymouria-ldr/*"
+zone_name = "craftmatic.click"
+
 # Parts library proxy — makes the 3D direct renderer work in production by
 # serving individual LDraw .dat geometry from library.ldraw.org (the parts
 # library is otherwise dev-only). Without this route the deployed app has no
