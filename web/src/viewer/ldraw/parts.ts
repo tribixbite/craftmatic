@@ -29,11 +29,19 @@ export const inlineTransparentColors = new Set<number>();
 export const unresolvedDatNames = new Set<string>();
 
 /**
- * Names that only resolved through the mould/decoration alias ladder, mapped
- * to the file actually rendered (`6538c` → `6538`). The substitute is the same
- * element in a different mould revision or without its print, so the picture is
- * right but not literally what the model asked for — surfaced by the viewer so
- * the swap is never silent. Cleared per-model by clearMpdInlines().
+ * Names that only resolved through the alias ladder, mapped to the file
+ * actually rendered (`42923` → `63868`, `6538c` → `6538`). Surfaced by the
+ * viewer so the swap is never silent.
+ *
+ * Lifetime deliberately matches `datTextCache`, NOT the model: that cache is
+ * module-level and survives loads, so the SECOND model to use an aliased name
+ * gets its text straight from the cache and never re-enters the alias branch.
+ * Clearing this map per-load would therefore report the swap on whichever model
+ * happened to be loaded first and stay silent for every one after. Growing
+ * without bound isn't the mirror risk, because the viewer intersects this with
+ * the CURRENT model's part list. (`unresolvedDatNames` has the same shape but
+ * no such filter, so it keeps its per-load clear.) Pinned by
+ * test/part-alias.test.ts "still reports … after clearMpdInlines".
  */
 export const substitutedDatNames = new Map<string, string>();
 
@@ -270,7 +278,7 @@ export function collectDatTexts(): Map<string, string | null> {
 export function clearMpdInlines(): void {
   inlineTransparentColors.clear();
   unresolvedDatNames.clear();
-  substitutedDatNames.clear();
+  // substitutedDatNames is NOT cleared — see its declaration.
   for (const key of [...partGeomCache.keys()]) {
     if (key.endsWith('.ldr')) {
       partGeomCache.delete(key);

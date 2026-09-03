@@ -13,8 +13,13 @@
  * is what these tests pin down.
  */
 
-import { describe, it, expect } from 'vitest';
-import { partAliasCandidates } from '../web/src/viewer/ldraw/parts.js';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import {
+  partAliasCandidates,
+  resolvePartGeometry,
+  substitutedDatNames,
+  clearMpdInlines,
+} from '../web/src/viewer/ldraw/parts.js';
 
 describe('partAliasCandidates', () => {
   it('strips mecabricks decoration and mould-version suffixes', () => {
@@ -94,5 +99,41 @@ describe('partAliasCandidates', () => {
       // Strictly shrinking guarantees the recursive resolver bottoms out.
       for (let i = 1; i < out.length; i++) expect(out[i]!.length).toBeLessThan(out[i - 1]!.length);
     }
+  });
+});
+
+/**
+ * The alias branch only runs on a cache MISS, and `datTextCache` is
+ * module-level — it outlives a model load. So the record of what was
+ * substituted must outlive the load too, or only the first model to use an
+ * aliased name reports the swap and every one after it renders the substitute
+ * silently. `clearMpdInlines()` (called at the top of every viewer.load) must
+ * therefore leave `substitutedDatNames` alone.
+ */
+describe('substitution reporting survives a model load boundary', () => {
+  let realFetch: typeof globalThis.fetch;
+  beforeAll(() => {
+    realFetch = globalThis.fetch;
+    // `6538` exists, `6538c` (the lettered mould revision the model asks for)
+    // does not — the exact shape of the corpus's top offender.
+    globalThis.fetch = (async (url: string | URL) => {
+      const stem = String(url).split('/').pop()!.replace(/\.dat$/i, '');
+      if (stem === 'aliastest6538') return new Response('0 BFC CERTIFY CCW\n3 16 0 0 0  10 0 0  0 0 10', { status: 200 });
+      return new Response('', { status: 404 });
+    }) as typeof globalThis.fetch;
+  });
+  afterAll(() => { globalThis.fetch = realFetch; });
+
+  it('still reports the substitution after clearMpdInlines()', async () => {
+    const g1 = await resolvePartGeometry('aliastest6538c');
+    expect(g1.tris.length, 'the alias must actually resolve').toBe(1);
+    expect(substitutedDatNames.get('aliastest6538c')).toBe('aliastest6538');
+
+    // A new model load: inlines are dropped, but the .dat text cache is not —
+    // so the second resolve returns from cache without re-entering the ladder.
+    clearMpdInlines();
+    const g2 = await resolvePartGeometry('aliastest6538c');
+    expect(g2.tris.length).toBe(1);
+    expect(substitutedDatNames.get('aliastest6538c'), 'swap must not go silent on a later load').toBe('aliastest6538');
   });
 });
