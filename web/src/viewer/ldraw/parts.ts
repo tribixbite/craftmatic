@@ -561,8 +561,12 @@ async function fetchDatText(id: string): Promise<string | null> {
         const aliasText = await fetchDatText(alias);
         if (aliasText !== null) {
           substitutedDatNames.set(key, alias);
+          // In-memory only, NOT idbPutDat: persisting the substitute under the
+          // requested name would short-circuit this branch next session, and
+          // the "drawn from a near variant" note would silently stop appearing
+          // on a warm load. The alias itself is cached under its own name, so
+          // re-deriving it costs one probe volley per substituted name.
           datTextCache.set(key, aliasText);
-          idbPutDat(key, aliasText);
           return aliasText;
         }
       }
@@ -627,8 +631,7 @@ async function fetchDatText(id: string): Promise<string | null> {
       const aliasText = await fetchDatText(alias);
       if (aliasText !== null) {
         substitutedDatNames.set(key, alias);
-        datTextCache.set(key, aliasText);
-        idbPutDat(key, aliasText);
+        datTextCache.set(key, aliasText); // in-memory only — see the note above
         unresolvedDatNames.delete(key);
         return aliasText;
       }
