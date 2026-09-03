@@ -142,6 +142,10 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   (`scripts/sync-ldraw-r2.mjs`, clego `sync_models_r2.py` → R2 REST API for
   such keys). Guarded by `test/prod-smoke.test.ts`. Never diagnose this with
   `wrangler r2 object list` — only the R2 REST list shows the real key.
+  **`%` is the same bug in disguise**: 8 corpus names contain a literal `%23`
+  (`IO/42181-size%231.io`); wrangler sent it raw, the API DEcoded it, and the
+  object landed under `…-size#1.io` — wrong key, same 404 (42181's primary
+  pick). Any key with `#`, `?` or `%` must go through the REST API encoded.
 - Parts that never resolve (a few set-custom OMR subparts like Red Baron
   `s100241`) are surfaced in the LEGO-tab status + console via
   `viewer.missingParts` — not silent. Sub-file refs that resolve nowhere (parent
