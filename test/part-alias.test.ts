@@ -137,3 +137,61 @@ describe('substitution reporting survives a model load boundary', () => {
     expect(substitutedDatNames.get('aliastest6538c'), 'swap must not go silent on a later load').toBe('aliastest6538');
   });
 });
+
+/**
+ * Root-cause note (2026-09-05, 71043 Hogwarts "scrambled render" prod
+ * incident): this race was the PRIME SUSPECT — if the alias ladder were ever
+ * kicked off concurrently with the exact-name candidate probe and the first
+ * responder won, a slow-but-real exact match could lose to a fast-but-wrong
+ * alias, silently displacing every instance of a part that actually exists.
+ * Investigation DISPROVED it as the cause of that incident (the corpus's own
+ * `!LINEAGE io_model2_v2 good`-stamped reconstruction for that set has real
+ * baked-in floating/side-model placement defects — see CLAUDE.md; zero alias
+ * substitutions were ever recorded during the broken load). But the hazard
+ * the coordinator described is real IN PRINCIPLE and worth guarding
+ * permanently: `partAliasCandidates()` must only ever be consulted after the
+ * exact name's own candidate volley returns a definitive, unanimous miss —
+ * never raced against it for speed.
+ */
+describe('exact-name resolution always wins over alias, regardless of fetch timing', () => {
+  let realFetch: typeof globalThis.fetch;
+  let aliasTargetFetchCount = 0;
+
+  beforeAll(() => {
+    realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL) => {
+      const s = String(url);
+      // The authoritative batch endpoint: report a miss for everything so the
+      // per-path parallel-probe volley (the prod-relevant path) runs.
+      if (s.includes('/_batch')) {
+        return new Response(JSON.stringify({ found: {} }), { status: 200 });
+      }
+      const stem = s.split('/').pop()!.replace(/\.dat$/i, '');
+      // The alias TARGET (what `racetest6538c` would hop to). Answers
+      // INSTANTLY with different, recognizably-wrong content — if timing ever
+      // decided the winner, this fast responder would win the race.
+      if (stem === 'racetest6538') {
+        aliasTargetFetchCount++;
+        return new Response('0 BFC CERTIFY CCW\n3 16 0 0 0  99 0 0  0 0 99', { status: 200 });
+      }
+      // The EXACT requested name's real geometry — genuinely exists, but only
+      // one candidate path answers, and only after a real delay (simulating a
+      // slow-but-successful upstream fetch).
+      if (stem === 'racetest6538c' && s.includes('/parts/racetest6538c.dat')) {
+        await new Promise(res => setTimeout(res, 40));
+        return new Response('0 BFC CERTIFY CCW\n3 16 0 0 0  10 0 0  0 0 10', { status: 200 });
+      }
+      return new Response('', { status: 404 });
+    }) as typeof globalThis.fetch;
+  });
+  afterAll(() => { globalThis.fetch = realFetch; });
+
+  it('returns the slow exact match, never the fast alias, and records no substitution', async () => {
+    const geom = await resolvePartGeometry('racetest6538c');
+    // The exact part's own triangle (side length 10), not the alias's (99).
+    expect(geom.tris.length).toBe(1);
+    expect(geom.tris[0]![1][0]).toBeCloseTo(10);
+    expect(substitutedDatNames.has('racetest6538c'), 'exact match must not be recorded as a substitution').toBe(false);
+    expect(aliasTargetFetchCount, 'the alias ladder must never be consulted when the exact name resolves').toBe(0);
+  });
+});
