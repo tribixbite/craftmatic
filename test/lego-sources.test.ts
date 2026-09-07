@@ -55,6 +55,14 @@ const IDX: LegoModelsIndex = {
   },
 };
 
+it('includes current and future reconstruction engines in the filter and badge', () => {
+  for (const src of ['pdf_recon', 'recon_v3', 'recon_v8', 'recon_v9']) {
+    expect(SOURCE_GROUPS.recon!(src)).toBe(true);
+    expect(sourceBadgeLabel(src)).toBe('recon');
+  }
+  expect(SOURCE_GROUPS.recon!('dbix_conv_v3')).toBe(false);
+});
+
 describe('bestIndexedModel — the source auto-load actually resolves', () => {
   it('is the first indexed entry', () => {
     expect(bestIndexedModel(IDX, '71040-1')?.src).toBe('mecabricks');
