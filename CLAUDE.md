@@ -5,6 +5,15 @@ Minecraft schematic toolkit **and** an LDraw (LEGO) 3D viewer, web UI in `web/`
 truth for architecture + hard-won conventions. Keep it current; do not keep
 durable project knowledge only in private/agent memory.
 
+**PDF reconstruction (2026-09-07):** see [the audited status](docs/pdf-reconstruction-status-2026-09-07.md).
+The user requires PDF-only set input and **zero runtime VLM**; VLM is permitted
+only during development/verification. Historical 95.4% extraction coverage is
+not model accuracy. The live index has 2,355 reconstruction-only base sets;
+no new audited output meets >95% full-pose accuracy. Do not launch the old VLM
+batch or overwrite better-source models. The actual engine is in `C:/git/clego`;
+`recon_extract.pdf_pipeline` is a quarantined deterministic research entry point,
+not a certified assembler. Filter the full catalog before paginating results.
+
 > **Where to go next** → see **[ROADMAP.md](ROADMAP.md)**: the near-term (~100h)
 > priorities (tests/CI first, then the user on-ramp, mobile, MC bridge,
 > reliability) and the long-term (~10k h) vision — a universal LEGO pipeline:
