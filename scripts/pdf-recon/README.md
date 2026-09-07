@@ -4,9 +4,31 @@ The [GPU matching/placement trial report](../../docs/pdf-reconstruction-matching
 documents the additional `matching_trials`, `step_transfer_trial`,
 `artwork_reuse_trial`, and `placement_rank_trial` scripts and their limits.
 
+Continued crop and full-model trials (all outputs quarantined):
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/pdf_crop_trial.py
+python -X utf8 -B scripts/pdf-recon/score_crop_gold.py
+python -X utf8 -B scripts/pdf-recon/test_pdf_crop_trial.py
+python -X utf8 -B scripts/pdf-recon/anchored_pipeline_trial.py C:/git/clego/lego_sets/PDF/6314914.pdf --out output/pdf-crop-trial/new-run --matcher cnn --strategy template --placement-matcher cnn
+python -X utf8 -B scripts/pdf-recon/anchored_pipeline_trial.py C:/git/clego/lego_sets/PDF/6314914.pdf --out output/pdf-crop-trial/new-joint-run --matcher cnn --strategy template --placement-matcher cnn --joint
+python -X utf8 -B scripts/pdf-recon/validate_joint_trial.py output/pdf-crop-trial/new-joint-run
+python -X utf8 -B scripts/pdf-recon/test_joint_validation.py
+```
+
+The CNN trial requires the locally trained `artwork-encoder.pt`. The gold
+fixture is a small visually checked development slice, not a population
+benchmark. Keep the native `--out` directory new for every model run; crop
+comparison and score aggregation commands use fixed research output paths.
+`--candidate-budget` and `--page-prefilter` are experimental placement controls;
+the measured 360-candidate/page-filter combination worsened strict placement.
+`inventory_ceiling.py RUN_DIRECTORY INDEPENDENT_TRUTH.mpd` diagnoses exact-ID
+catalog differences after reconstruction; its truth input is never assembly
+input. Universal aliases still need explicit frame-aware reconciliation.
+
 See [the status and limitations](../../docs/pdf-reconstruction-status-2026-09-07.md)
-before interpreting any score. All generated files belong under
-`output/pdf-recon-audit/`; none of these tools publishes models.
+before interpreting any score. Generated files belong under dedicated
+`output/pdf-*` research directories; none of these tools publishes models.
 
 The engine and universal assets live in `C:/git/clego`; Python needs that
 repository's installed NumPy/SciPy/OpenCV/PyMuPDF/Pillow dependencies. The new

@@ -166,7 +166,7 @@ def retrieval(emb, records, split):
             'top5_available': sum(r['top5'] for r in available), 'rows': rows}
 
 
-def train(steps):
+def train(steps,degrade=False):
     import cv2
     import numpy as np
     import torch
@@ -187,7 +187,9 @@ def train(steps):
     images = np.stack([cv2.cvtColor(cv2.imread(str(OUT / r['image'])), cv2.COLOR_BGR2RGB) for r in records])
     # Identical normalized artwork must not leak from train into evaluation.
     results = {'scope': 'cross-booklet BOM shape retrieval; PDF color given; exact-image matches excluded',
-               'device': device, 'steps': steps, 'baselines': {}, 'runtime_vlm_calls': 0}
+               'device': device, 'steps': steps, 'baselines': {}, 'runtime_vlm_calls': 0,
+               'resolution_degradation':degrade}
+    checkpoint_name='artwork-encoder-lowres.pt' if degrade else 'artwork-encoder.pt'
     for mode in ('pixels', 'hog'):
         emb = features(images, mode)
         results['baselines'][mode] = {s: retrieval(emb, records, s) for s in ('val', 'test')}
@@ -213,7 +215,11 @@ def train(steps):
         x = 1-F.grid_sample(1-x, grid, align_corners=False)
         gray = x.mean(1, keepdim=True).expand_as(x)
         mix = torch.rand(count, 1, 1, 1, device=device)
-        return (x*(1-mix)+gray*mix+torch.randn_like(x)*.025).clamp(0, 1)
+        x=(x*(1-mix)+gray*mix+torch.randn_like(x)*.025).clamp(0, 1)
+        if degrade:
+            size=random.choice([16,20,24,32,48,64])
+            x=F.interpolate(F.interpolate(x,size=(size,size),mode='bilinear',align_corners=False),size=(64,64),mode='bilinear',align_corners=False)
+        return x
     def encode():
         model.eval()
         with torch.no_grad():
@@ -240,9 +246,9 @@ def train(steps):
             print(record, flush=True)
             if score > best:
                 best = score
-                torch.save(model.state_dict(), OUT / 'artwork-encoder.pt')
+                torch.save(model.state_dict(), OUT / checkpoint_name)
                 results['best_step'] = step+1
-    model.load_state_dict(torch.load(OUT / 'artwork-encoder.pt', weights_only=True, map_location=device))
+    model.load_state_dict(torch.load(OUT / checkpoint_name, weights_only=True, map_location=device))
     emb = encode()
     results['learned'] = {s: retrieval(emb, records, s) for s in ('val', 'test')}
     # Transfer check on actual step PLI crops. Labels never select candidates
@@ -289,9 +295,10 @@ def train(steps):
     results['seconds'] = time.time()-started
     results['peak_gpu_bytes'] = torch.cuda.max_memory_allocated() if device == 'cuda' else 0
     results['parameters'] = sum(p.numel() for p in model.parameters())
-    results['checkpoint_sha256'] = hashlib.sha256((OUT / 'artwork-encoder.pt').read_bytes()).hexdigest()
-    write('matching-results.json', results)
-    print('saved matching-results.json', flush=True)
+    results['checkpoint_sha256'] = hashlib.sha256((OUT / checkpoint_name).read_bytes()).hexdigest()
+    output_name='matching-results-lowres.json' if degrade else 'matching-results.json'
+    write(output_name, results)
+    print('saved '+output_name, flush=True)
 
 
 if __name__ == '__main__':
@@ -299,5 +306,6 @@ if __name__ == '__main__':
     parser.add_argument('action', choices=['harvest', 'train'])
     parser.add_argument('--booklets', type=int, default=80)
     parser.add_argument('--steps', type=int, default=600)
+    parser.add_argument('--degrade',action='store_true')
     args = parser.parse_args()
-    harvest(args.booklets) if args.action == 'harvest' else train(args.steps)
+    harvest(args.booklets) if args.action == 'harvest' else train(args.steps,args.degrade)
