@@ -6,10 +6,10 @@ truth for architecture + hard-won conventions. Keep it current; do not keep
 durable project knowledge only in private/agent memory.
 
 **PDF reconstruction (2026-09-07):** see [the audited status](docs/pdf-reconstruction-status-2026-09-07.md).
-The user requires PDF-only set input and **zero runtime VLM**; VLM is permitted
+The user requires PDF-only set input, optionally an available parts list, and **zero runtime VLM**; VLM is permitted
 only during development/verification. Historical 95.4% extraction coverage is
 not model accuracy. The live index has 2,355 reconstruction-only base sets;
-no new audited output meets >95% full-pose accuracy. Do not launch the old VLM
+no new audited output meets the latest >=90% full-model placement target. Do not launch the old VLM
 batch or overwrite better-source models. The actual engine is in `C:/git/clego`;
 `recon_extract.pdf_pipeline` is a quarantined deterministic research entry point,
 not a certified assembler. Filter the full catalog before paginating results.
@@ -18,6 +18,16 @@ a small CNN improved eligible BOM-icon retrieval (374/411 vs 357/411 pixels),
 but did not improve actual unseen-set PLI transfer. Learned scalar placement
 rankers also failed. Do not equate this conditional icon score with model
 accuracy or scale training on the contaminated historical step labels.
+Current [placement rearchitecture](docs/pdf-placement-rearchitecture-2026-09-07.md)
+uses native PDF scenes, calibrated cameras, CAD geometry, joint additions and
+exploded-step constraints. Adding arrowhead-to-stud contact evidence selects
+6/6 exact poses in the opening development stage. Per-scene camera calibration,
+atomic groups and GPU depth/color plus visible-edge scoring extend this to 17/17 structurally
+correct emitted parts (10/17 raw strict, 11/17 after authoritative filename aliases;
+the remaining differences are verified unprinted-part yaw symmetries). This is only
+17/90 full-model coverage, NOT complete-model accuracy or population accuracy.
+Reference order is not necessarily PDF step order. Reference models remain
+evaluation-only; runtime proposals and production data must stay separate.
 Continued crop trials expose x-only component assignment and unmasked step
 text as real defects. Quantity-anchored crops + frozen CNN score 11/11 on a
 small visually checked development slice. Fixing a morphology coordinate shift
