@@ -1,5 +1,9 @@
 # PDF reconstruction diagnostics (Windows / PowerShell)
 
+The [GPU matching/placement trial report](../../docs/pdf-reconstruction-matching-trials-2026-09-07.md)
+documents the additional `matching_trials`, `step_transfer_trial`,
+`artwork_reuse_trial`, and `placement_rank_trial` scripts and their limits.
+
 See [the status and limitations](../../docs/pdf-reconstruction-status-2026-09-07.md)
 before interpreting any score. All generated files belong under
 `output/pdf-recon-audit/`; none of these tools publishes models.

@@ -13,6 +13,11 @@ no new audited output meets >95% full-pose accuracy. Do not launch the old VLM
 batch or overwrite better-source models. The actual engine is in `C:/git/clego`;
 `recon_extract.pdf_pipeline` is a quarantined deterministic research entry point,
 not a certified assembler. Filter the full catalog before paginating results.
+Follow-up [GPU matching trials](docs/pdf-reconstruction-matching-trials-2026-09-07.md):
+a small CNN improved eligible BOM-icon retrieval (374/411 vs 357/411 pixels),
+but did not improve actual unseen-set PLI transfer. Learned scalar placement
+rankers also failed. Do not equate this conditional icon score with model
+accuracy or scale training on the contaminated historical step labels.
 
 > **Where to go next** → see **[ROADMAP.md](ROADMAP.md)**: the near-term (~100h)
 > priorities (tests/CI first, then the user on-ramp, mobile, MC bridge,
