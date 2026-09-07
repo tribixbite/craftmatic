@@ -146,8 +146,6 @@ let rootEl: HTMLElement;
 let onResult: ((grid: BlockGrid, label: string, isCubic: boolean) => void) | null = null;
 let selectedSet: CatalogSet | null = null;
 let searchResults: CatalogSet[] = [];
-/** Ranked-results cap (browse-all ranks the whole catalog; cap keeps it sane). */
-const RESULTS_MAX = 2000;
 /** Cards rendered per page; "Show more" reveals the next page. */
 const RESULTS_PAGE = 48;
 let visibleResults = RESULTS_PAGE;
@@ -835,7 +833,10 @@ function wireEvents(): void {
         await ensureCatalog(msg => setStatus(msg, 'info'));
       }
 
-      searchResults = searchCatalog(query, themeId, minYear, maxYear, RESULTS_MAX);
+      // Apply source/piece filters and sorting to ALL matching sets. Capping
+      // first hid most reconstruction-only sets outside the top 2,000; the
+      // 48-card render pagination below already bounds DOM work.
+      searchResults = searchCatalog(query, themeId, minYear, maxYear, Infinity);
       if (minPcs != null) searchResults = searchResults.filter(s => (s.num_parts ?? 0) >= minPcs);
       if (maxPcs != null) searchResults = searchResults.filter(s => (s.num_parts ?? 0) <= maxPcs);
       const srcMatch = srcGroup ? SOURCE_GROUPS[srcGroup] : undefined;
@@ -875,8 +876,8 @@ function wireEvents(): void {
       } else {
         setStatus(
           browsing
-            ? `Browsing all sets — ${searchResults.length.toLocaleString()}${searchResults.length >= RESULTS_MAX ? '+' : ''} available, best first`
-            : `${searchResults.length.toLocaleString()}${searchResults.length >= RESULTS_MAX ? '+' : ''} set${searchResults.length !== 1 ? 's' : ''} found`,
+            ? `Browsing all sets — ${searchResults.length.toLocaleString()} available, best first`
+            : `${searchResults.length.toLocaleString()} set${searchResults.length !== 1 ? 's' : ''} found`,
           'success',
         );
         renderResults();

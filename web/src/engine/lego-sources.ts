@@ -140,7 +140,7 @@ export const SOURCE_GROUPS: Record<string, (src: string) => boolean> = {
   mecabricks: src => src.startsWith('mecabricks'),
   eurobricks: src => src === 'eurobricks',
   lxf:        src => src === 'lxf' || src === 'lxf_conv',
-  recon:      src => src === 'recon_v3' || src === 'pdf_recon',
+  recon:      src => sourceClass(src) === 'recon',
 };
 
 /** Short, card-sized label for a source id ("io_model2_v2" → "io"). */
@@ -152,6 +152,6 @@ export function sourceBadgeLabel(src: string): string {
   if (src.startsWith('dbix')) return 'dbix';
   if (src === 'lxf' || src === 'lxf_conv') return 'lxf';
   if (src === 'eurobricks') return 'euro';
-  if (src === 'recon_v3' || src === 'pdf_recon') return 'recon';
+  if (sourceClass(src) === 'recon') return 'recon';
   return src.slice(0, 6);
 }
