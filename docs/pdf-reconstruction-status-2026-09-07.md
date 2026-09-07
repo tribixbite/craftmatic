@@ -175,6 +175,13 @@ mold variants; such cases must remain unresolved or use an agreed equivalence.
 
 ## Open decisions
 
+Continuation results are in [the matching trial report](pdf-reconstruction-matching-trials-2026-09-07.md).
+Quantity association improved to 410/411 unique anchors across five development
+PDFs. The final joint-matching 40377 run reaches its PDF BOM's exact-ID ceiling
+(73/90 overlap with OMR; many differences are catalog names), but still only
+2/90 full poses. Expanding the candidate pool worsened placement. No new model
+meets the publication threshold.
+
 1. Does “100% accurate” require exact mold/print/orientation identity, or may
    physically and visually equivalent symmetric/mold variants count as equal?
    Current diagnostics use exact identifiers and conservative frames.

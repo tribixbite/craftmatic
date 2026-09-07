@@ -18,6 +18,20 @@ a small CNN improved eligible BOM-icon retrieval (374/411 vs 357/411 pixels),
 but did not improve actual unseen-set PLI transfer. Learned scalar placement
 rankers also failed. Do not equate this conditional icon score with model
 accuracy or scale training on the contaminated historical step labels.
+Continued crop trials expose x-only component assignment and unmasked step
+text as real defects. Quantity-anchored crops + frozen CNN score 11/11 on a
+small visually checked development slice. Fixing a morphology coordinate shift
+and using actual upper-ink distance recovers 409/412 quantity anchors on five
+PDFs (crop coverage, NOT identity accuracy). 40377 improves from 45 to 83 emitted
+parts / 31 to 69 correct part-color instances, but remains at 2/90 correct poses.
+Joint PDF inventory-capacity assignment then emits 86 parts / 72 correct
+part-color instances on the same fixture; full-pose accuracy stays 2/90.
+The final v5 duplicate-label fix yields 410/411 unique crop anchors and emits
+87 parts / 73 exact part-color instances on 40377, still 2/90 full poses.
+The PDF BOM itself overlaps OMR at only 73/90 exact IDs: at least 14 of the
+differences have universal catalog/rename evidence. Do not mislabel these all
+as CNN errors. A 360-candidate page-filtered placement trial worsened to 1/90.
+Keep `scripts/pdf-recon/anchored_pipeline_trial.py` opt-in and quarantined.
 
 > **Where to go next** → see **[ROADMAP.md](ROADMAP.md)**: the near-term (~100h)
 > priorities (tests/CI first, then the user on-ramp, mobile, MC bridge,

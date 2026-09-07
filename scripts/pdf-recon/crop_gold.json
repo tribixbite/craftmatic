@@ -1,0 +1,19 @@
+{
+  "set": "41637",
+  "pdf": "6274779.pdf",
+  "protocol": "Development diagnostic, not a representative test. Identities visually checked against the printed PDF BOM after inspecting anchored crops and before scoring predictions. No training on these crops. Exact mold names follow universal catalog mapping, not an assertion that the artwork distinguishes every mold.",
+  "reviewer": "Codex visual inspection",
+  "records": [
+    {"page": 7, "anchor_index": 1, "element": "6123809", "part": "22885", "color": "71"},
+    {"page": 7, "anchor_index": 2, "element": "6213777", "part": "3023b", "color": "3"},
+    {"page": 8, "anchor_index": 0, "element": "4535737", "part": "63868", "color": "15"},
+    {"page": 8, "anchor_index": 1, "element": "6123809", "part": "22885", "color": "71"},
+    {"page": 8, "anchor_index": 2, "element": "6213777", "part": "3023b", "color": "3"},
+    {"page": 14, "anchor_index": 0, "element": "243126", "part": "2431", "color": "0"},
+    {"page": 14, "anchor_index": 1, "element": "302401", "part": "3024", "color": "15"},
+    {"page": 14, "anchor_index": 2, "element": "6103415", "part": "3023b", "color": "26"},
+    {"page": 24, "anchor_index": 0, "element": "6096942", "part": "3024", "color": "26"},
+    {"page": 24, "anchor_index": 1, "element": "6103415", "part": "3023b", "color": "26"},
+    {"page": 24, "anchor_index": 2, "element": "6109953", "part": "6091", "color": "26"}
+  ]
+}
