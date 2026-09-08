@@ -7,8 +7,14 @@ its limitations; a selected candidate is a hypothesis, not a certified model.
 Pipeline per retained camera view:
   occupancy screen (necessary silhouette condition)
     -> per (part, colour) placement bank on the GPU depth/material rasterizer
-    -> exact-cardinality joint search with collision and support constraints
+    -> joint placement search with exact per-key cardinality, pairwise collision
+       exclusion and witnessed support connectivity, by support-frontier beam
+       (default) or by the exhaustive depth-first traversal
     -> native fixed-registration rerank of the retained complete assemblies
+
+The depth-first traversal does not scale past roughly three additions on a bank
+of this size; the beam is the default for that reason and reports its own
+incompleteness.
 """
 import argparse
 import hashlib
@@ -19,16 +25,44 @@ from placement_arrow_contacts import read_items
 from placement_attach_group import make_assembly
 from placement_cardinality_bank import build_bank
 from placement_cardinality_search import search_layers
+from placement_colored_cad import colored_triangles
+from placement_layer_beam import search_beam
 from placement_mixed_batch_search import fixed_native_score
+from placement_part_library import PartLibrary
 from placement_multi_shape_batch import shape_bank
 from placement_occupancy_screen import screen
 from placement_material_scene_score import MaterialFeatureSceneScorer
 
 
+def world_boxes(poses):
+    """Axis-aligned world bounds per pose, from universal CAD vertices.
+
+    Used only to skip provably separated pairs before the expensive voxel
+    collision test. A box overlap never asserts a collision.
+    """
+    library = PartLibrary()
+    local = {}
+    boxes = []
+    for part, T in poses:
+        if part not in local:
+            vertices = colored_triangles(part, 15, resolver=library.resolve)['triangles'].reshape(-1, 3)
+            low, high = vertices.min(0), vertices.max(0)
+            corners = np.array([[x, y, z] for x in (low[0], high[0])
+                                for y in (low[1], high[1]) for z in (low[2], high[2])])
+            local[part] = corners
+        world = local[part] @ np.asarray(T)[:3, :3].T + np.asarray(T)[:3, 3]
+        boxes.append((world.min(0), world.max(0)))
+    return boxes
+
+
 def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200000,
-        top_k=32, host_bytes=512 * 1024 ** 2):
+        top_k=32, host_bytes=512 * 1024 ** 2, method='beam', beam=64,
+        max_expansions=2_000_000, improve_rounds=8, improve_from=4):
+    if method not in ('beam', 'exact'):
+        raise ValueError('Unknown search method')
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
     poses = [(str(entry['part']), np.asarray(entry['T'], float)) for entry in record['poses']]
+    boxes = world_boxes(poses)
     shapes = [dict(items=[(part, 15, T)]) for part, T in poses]
     results, native = [], []
     for view_index, view in enumerate(registration['hypotheses'][:views]):
@@ -70,22 +104,33 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
             if key not in collision_cache:
                 if a == b:
                     collision_cache[key] = True
+                elif (boxes[a][1] < boxes[b][0]).any() or (boxes[b][1] < boxes[a][0]).any():
+                    collision_cache[key] = False  # provably separated in world space
                 else:
                     if a not in physical:
                         physical[a] = make_assembly([(poses[a][0], 15, poses[a][1])])
                     collision_cache[key] = bool(physical[a].collides(poses[b][0], poses[b][1]))
             return collision_cache[key]
 
-        # Single-layer target agreement changes traversal order only; it removes
-        # no candidate from the exact-cardinality search.
-        priorities = [float(np.sum((bank['labels'][i] == bank['target']) & (bank['target'] > 0)))
-                      for i in range(len(placements))]
-        result = search_layers(bank['base_depth'], bank['base_labels'], bank['depths'],
-                               bank['labels'], keys, quotas, bank['target'],
-                               base_supported=anchored, support_edges=support,
-                               max_nodes=max_nodes, conflict_test=conflict,
-                               priorities=priorities, top_k=top_k)
-        result.update(view=view_index, status='bounded_search', bank_metadata=bank['metadata'],
+        if method == 'beam':
+            result = search_beam(bank['base_depth'], bank['base_labels'], bank['depths'],
+                                 bank['labels'], keys, quotas, bank['target'],
+                                 base_supported=anchored, support_edges=support,
+                                 conflict_test=conflict, beam=beam, top_k=top_k,
+                                 max_expansions=max_expansions,
+                                 improve_rounds=improve_rounds, improve_from=improve_from)
+        else:
+            # Single-layer target agreement changes traversal order only; it
+            # removes no candidate from the exact-cardinality search.
+            priorities = [float(np.sum((bank['labels'][i] == bank['target']) & (bank['target'] > 0)))
+                          for i in range(len(placements))]
+            result = search_layers(bank['base_depth'], bank['base_labels'], bank['depths'],
+                                   bank['labels'], keys, quotas, bank['target'],
+                                   base_supported=anchored, support_edges=support,
+                                   max_nodes=max_nodes, conflict_test=conflict,
+                                   priorities=priorities, top_k=top_k)
+        result.update(view=view_index, status='bounded_search', search_method=method,
+                      bank_metadata=bank['metadata'],
                       occupancy_retained_shapes=len(ids), placements=len(placements),
                       quotas={f'{p}:{c}': q for (p, c), q in quotas.items()},
                       collision_pairs_tested=len(collision_cache))
@@ -139,6 +184,11 @@ if __name__ == '__main__':
     parser.add_argument('--max-nodes', type=int, default=200000)
     parser.add_argument('--top-k', type=int, default=32)
     parser.add_argument('--host-bytes', type=int, default=512 * 1024 ** 2)
+    parser.add_argument('--method', choices=('beam', 'exact'), default='beam')
+    parser.add_argument('--beam', type=int, default=64)
+    parser.add_argument('--max-expansions', type=int, default=2_000_000)
+    parser.add_argument('--improve-rounds', type=int, default=8)
+    parser.add_argument('--improve-from', type=int, default=4)
     args = parser.parse_args()
     record = json.loads(args.registry.read_text())
     registration = json.loads(args.registration.read_text())
@@ -167,7 +217,8 @@ if __name__ == '__main__':
         (snapshot / path.name).write_bytes(payload)
         hashes[path.name] = hashlib.sha256(payload).hexdigest()
     result = run(record, registration, scene, read_items(base_path), args.out, args.views,
-                 args.scale, args.max_nodes, args.top_k, args.host_bytes)
+                 args.scale, args.max_nodes, args.top_k, args.host_bytes, args.method,
+                 args.beam, args.max_expansions, args.improve_rounds, args.improve_from)
     result.update(pdf=record['pdf'], pdf_sha256=record['pdf_sha256'],
                   registry_sha256=hashlib.sha256(args.registry.read_bytes()).hexdigest(),
                   registration_sha256=hashlib.sha256(args.registration.read_bytes()).hexdigest(),
