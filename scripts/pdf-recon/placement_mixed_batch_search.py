@@ -30,7 +30,7 @@ def fixed_native_score(scorer,items,M,origin,renderpath=None):
     return evidence
 
 
-def run(record,registration,scene,base,out,views=3,scale=1.,max_nodes=100000,top_k=32):
+def run(record,registration,scene,base,out,views=3,scale=1.,max_nodes=100000,top_k=32,host_bytes=512*1024**2):
     scorer=MaterialFeatureSceneScorer(scene,plane_depth=True);part=record['part'];results=[];native=[]
     shapes=[dict(items=[(part,15,np.asarray(T))]) for T in record['poses']]
     for vi,view in enumerate(registration['hypotheses'][:views]):
@@ -40,7 +40,7 @@ def run(record,registration,scene,base,out,views=3,scale=1.,max_nodes=100000,top
             results.append(dict(view=vi,status='base_registration_rejected',base_occupancy=gate['base']));continue
         ids=gate['retained_indices'];subset=dict(record,poses=[record['poses'][i] for i in ids]);placements,quotas=color_bank(subset,record['allocated_pieces'])
         if not placements:results.append(dict(view=vi,status='no_occupancy_compatible_candidates'));continue
-        try:bank=build_bank(base,placements,M,origin,scorer,scale=scale)
+        try:bank=build_bank(base,placements,M,origin,scorer,scale=scale,max_host_bytes=host_bytes)
         except ValueError as exc:
             if 'Bank requires' not in str(exc):raise
             results.append(dict(view=vi,status='host_bank_budget_exceeded',reason=str(exc),occupancy_retained_shapes=len(ids)))
@@ -85,7 +85,7 @@ def run(record,registration,scene,base,out,views=3,scale=1.,max_nodes=100000,top
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--registry',type=Path,required=True);p.add_argument('--registration',type=Path,required=True);p.add_argument('--out',type=Path,required=True);p.add_argument('--views',type=int,default=3);p.add_argument('--scale',type=float,default=1.);p.add_argument('--max-nodes',type=int,default=100000);p.add_argument('--top-k',type=int,default=32);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--registry',type=Path,required=True);p.add_argument('--registration',type=Path,required=True);p.add_argument('--out',type=Path,required=True);p.add_argument('--views',type=int,default=3);p.add_argument('--scale',type=float,default=1.);p.add_argument('--max-nodes',type=int,default=100000);p.add_argument('--top-k',type=int,default=32);p.add_argument('--host-bytes',type=int,default=512*1024**2);a=p.parse_args()
     record=json.loads(a.registry.read_text());registration=json.loads(a.registration.read_text());basepath=Path(record['base_source'])
     for value in (record,registration):
         if value.get('truth_used') is not False or value.get('runtime_vlm_calls')!=0:raise ValueError('Runtime provenance missing')
@@ -98,6 +98,6 @@ if __name__=='__main__':
     a.out.mkdir(parents=True,exist_ok=False);snapshot=a.out/'source';snapshot.mkdir();hashes={}
     for path in Path(__file__).parent.glob('*.py'):
         payload=path.read_bytes();(snapshot/path.name).write_bytes(payload);hashes[path.name]=hashlib.sha256(payload).hexdigest()
-    result=run(record,registration,scene,read_items(basepath),a.out,a.views,a.scale,a.max_nodes,a.top_k)
+    result=run(record,registration,scene,read_items(basepath),a.out,a.views,a.scale,a.max_nodes,a.top_k,a.host_bytes)
     result.update(pdf=record['pdf'],pdf_sha256=record['pdf_sha256'],registry_sha256=hashlib.sha256(a.registry.read_bytes()).hexdigest(),registration_sha256=hashlib.sha256(a.registration.read_bytes()).hexdigest(),code_sha256_start=hashes)
     (a.out/'results.json').write_text(json.dumps(result,indent=2));print(json.dumps(result))

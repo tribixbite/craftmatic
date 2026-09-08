@@ -38,3 +38,7 @@ web/public/*.ldr
 web/public/*.mpd
 web/public/*.io
 web/public/*.lxf
+
+# Python bytecode caches (research scripts)
+__pycache__/
+*.pyc
