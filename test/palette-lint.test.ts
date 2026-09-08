@@ -103,3 +103,52 @@ describe('the lint itself', () => {
     expect(ids.has('definitely_not_a_block')).toBe(false);
   });
 });
+
+describe('stateful ids (block-shape passes)', () => {
+  it('knows the slab and stair ids the shape passes emit', () => {
+    const ids = knownBlockIds();
+    for (const id of ['sandstone_slab', 'smooth_sandstone_slab', 'cut_sandstone_slab',
+                      'oak_slab', 'quartz_slab', 'stone_brick_slab',
+                      'sandstone_stairs', 'oak_stairs', 'polished_blackstone_brick_stairs']) {
+      expect(ids.has(id)).toBe(true);
+    }
+    // Vanilla has smooth_stone_slab but NOT smooth_stone_stairs — the registry
+    // must not invent the symmetric id.
+    expect(ids.has('smooth_stone_slab')).toBe(true);
+    expect(ids.has('smooth_stone_stairs')).toBe(false);
+    // Nor a dyed slab, which does not exist in vanilla at all.
+    expect(ids.has('white_concrete_slab')).toBe(false);
+  });
+
+  it('accepts the states the shape passes actually write', () => {
+    const r = lintPalette([
+      'minecraft:sandstone_slab[type=bottom]',
+      'minecraft:sandstone_slab[type=top]',
+      'minecraft:oak_slab[type=double]',
+      'minecraft:oak_stairs[facing=north,half=bottom,shape=straight]',
+      'minecraft:quartz_stairs[facing=east,half=top,shape=outer_left]',
+    ]);
+    expect(r.issues).toEqual([]);
+  });
+
+  it('catches a bad state value, an unknown key and malformed syntax', () => {
+    const r = lintPalette([
+      'minecraft:sandstone_slab[type=lower]',        // not a vanilla `type`
+      'minecraft:oak_stairs[facing=up]',             // stairs never face up/down
+      'minecraft:oak_stairs[direction=north]',       // wrong property name
+      'minecraft:sandstone_slab[type]',              // no `=`
+      'minecraft:sandstone_slab[type=top,type=bottom]', // duplicate key
+      'minecraft:sandstone_slab[]',                  // empty state list
+    ]);
+    expect(r.issues.map(i => i.reason)).toEqual([
+      'bad-state-value', 'bad-state-value', 'unknown-state-key',
+      'malformed-state', 'duplicate-state', 'malformed-state',
+    ]);
+  });
+
+  it('checks syntax but not values for ids with no schema', () => {
+    // No schema for `_log`, so an unknown key passes; broken syntax still fails.
+    expect(lintPalette(['minecraft:oak_log[axis=y,persistent=true]']).ok).toBe(true);
+    expect(lintPalette(['minecraft:oak_log[axis y]']).ok).toBe(false);
+  });
+});
