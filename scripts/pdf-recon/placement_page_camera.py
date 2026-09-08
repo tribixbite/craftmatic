@@ -50,15 +50,30 @@ def page_camera(pdf, page, allocation_run, out, prior_parts=()):
             scene = next(s for s in scene_images(doc, doc[page]) if s['xref'] == target)
             graph = conservative_components(scene, protected_colors=palette['rgb'])
             clean = dict(scene, mask=graph['clean_mask'])
-            detections = detect_studs(clean['rgb'], clean['mask'])
-            rows.append(dict(page=page, xref=target,
-                             native_size=list(scene['rgb'].shape[:2][::-1]), bbox=list(scene['bbox']),
-                             row_camera=infer_camera_row(detections),
-                             robust_camera=infer_camera_robust(detections),
-                             multirow=row_camera_hypotheses(clean), detections=detections,
-                             arrow_count=len(graph['arrows']),
-                             warnings=['Ellipse proposals include side studs and holes; row matrices retain alternatives.',
-                                       'Arrow removal is conservative; ambiguous blobs stay in the mask.']))
+            # An exploded piece drawn above the assembly is a separate image
+            # component, and its studs are not the body's studs. A camera fitted
+            # to the whole drawing is therefore fitted partly to geometry that is
+            # not in the body yet. The body's own largest component is offered
+            # first, with the whole drawing retained as an alternative.
+            components = sorted((c for c in graph['components'] if c.get('mask') is not None),
+                                key=lambda c: -int(c['area']))
+            variants = [('whole_scene', clean['mask'])]
+            if len(components) > 1:
+                variants.insert(0, ('largest_component', components[0]['mask']))
+            for source, mask in variants:
+                view = dict(scene, mask=mask)
+                detections = detect_studs(view['rgb'], view['mask'])
+                rows.append(dict(page=page, xref=target, mask_source=source,
+                                 component_count=len(components),
+                                 native_size=list(scene['rgb'].shape[:2][::-1]),
+                                 bbox=list(scene['bbox']),
+                                 row_camera=infer_camera_row(detections),
+                                 robust_camera=infer_camera_robust(detections),
+                                 multirow=row_camera_hypotheses(view), detections=detections,
+                                 arrow_count=len(graph['arrows']),
+                                 warnings=['Ellipse proposals include side studs and holes; row matrices retain alternatives.',
+                                           'Arrow removal is conservative; ambiguous blobs stay in the mask.',
+                                           'Component choice is image evidence, not a certified separation of the assembly.']))
     return dict(status='ok' if any(r['multirow']['hypotheses'] for r in rows) else 'no_camera_hypothesis',
                 page=page, native_scenes=rows, allocated_pieces=pieces,
                 prior_parts=prior, scene_kinds=[(s['xref'], s['kind']) for s in evidence['scenes']],
