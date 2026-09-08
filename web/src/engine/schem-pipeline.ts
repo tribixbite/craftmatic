@@ -24,6 +24,7 @@ import { voxelizeLDrawGeometry, seedDatTexts } from './ldraw-geometry.js';
 import { voxelizeLDraw, fillSingleVoxelGaps, type VoxelizeOptions } from './ldraw-voxelizer.js';
 import { encodeSchemBytes, encodeLitematicBytes } from './schem-encode.js';
 import { addInteriorLights, type LightFillResult } from './light-fill.js';
+import { applyBlockShapes, type ShapeHints, type ShapeStats } from './block-shapes.js';
 import { getBlockProfile, type BrickColorSpace } from './block-profiles.js';
 import { BlockGrid } from '@craft/schem/types.js';
 
@@ -57,6 +58,13 @@ export interface SchemWorkerInput {
   profile: string;
   /** Light up enclosed interiors after voxelization. */
   lightFill: boolean;
+  /**
+   * Refine solid cells into partial Minecraft blocks (slabs, stairs) where the
+   * geometry is genuinely partial — engine/block-shapes.ts. Bricks only: a grid
+   * source is already blocks and carries no occupancy to refine from.
+   * `false` reproduces the pre-2026-09-08 all-cubes output byte for byte.
+   */
+  shapes: boolean;
   /** Absolute origin for /ldraw-parts fetches inside the worker (bricks only). */
   ldrawBase?: string;
   /**
@@ -82,6 +90,8 @@ export type SchemWorkerOutput =
       nonAir: number;
       /** Non-zero only when the light-fill option was on. */
       lights: number;
+      /** Present only when the block-shape pass ran. */
+      shapes?: ShapeStats;
     }
   | { type: 'error'; message: string };
 
@@ -93,6 +103,8 @@ export interface SchemPipelineResult {
   nonAir: number;
   lights: number;
   lightFill?: LightFillResult;
+  /** Non-null only when the block-shape pass ran (bricks source, shapes on). */
+  shapes?: ShapeStats;
 }
 
 /**
@@ -105,6 +117,7 @@ export async function runSchemPipeline(
 ): Promise<SchemPipelineResult> {
   const profile = getBlockProfile(input.profile);
   let grid: BlockGrid;
+  let shapeStats: ShapeStats | undefined;
 
   if (input.source.kind === 'grid') {
     const s = input.source;
@@ -112,6 +125,7 @@ export async function runSchemPipeline(
   } else {
     const s = input.source;
     const colorFn = profile.colorFn(s.colorSpace);
+    const wantShapes = input.shapes === true;
     // Reuse the .dat texts the viewer already downloaded (see seedDatTexts):
     // the model on screen costs zero further network, and `.io` CustomParts —
     // which exist ONLY in the archive and used to hit the AABB box fallback
@@ -120,17 +134,28 @@ export async function runSchemPipeline(
       onProgress('reusing loaded part geometry');
       seedDatTexts(input.datTexts);
     }
+    const options: VoxelizeOptions = wantShapes ? { ...s.options, shapes: true } : s.options;
+    let hints: ShapeHints | undefined;
     try {
-      const r = await voxelizeLDrawGeometry(s.bricks, colorFn, s.options, onProgress);
+      const r = await voxelizeLDrawGeometry(s.bricks, colorFn, options, onProgress);
       // Near-empty result = part geometry unavailable → bbox fallback.
-      grid = r.grid.countNonAir() >= s.bricks.length
-        ? r.grid
-        : voxelizeLDraw(s.bricks, colorFn, s.options).grid;
+      if (r.grid.countNonAir() >= s.bricks.length) {
+        grid = r.grid;
+        hints = r.shapeHints;
+      } else {
+        grid = voxelizeLDraw(s.bricks, colorFn, options).grid;
+      }
     } catch {
-      grid = voxelizeLDraw(s.bricks, colorFn, s.options).grid;
+      grid = voxelizeLDraw(s.bricks, colorFn, options).grid;
     }
     onProgress('closing surface holes');
     fillSingleVoxelGaps(grid);
+    // AFTER the gap fill, so a cell the fill just added counts as a neighbour:
+    // giving up the top half of a cell is only safe when the top half is air.
+    if (hints) {
+      onProgress('shaping partial blocks');
+      shapeStats = applyBlockShapes(grid, hints);
+    }
   }
 
   let lightFill: LightFillResult | undefined;
@@ -141,9 +166,9 @@ export async function runSchemPipeline(
 
   const nonAir = grid.countNonAir();
   const lights = lightFill?.lights ?? 0;
-  if (input.format === 'guide') return { grid, nonAir, lights, lightFill };
+  if (input.format === 'guide') return { grid, nonAir, lights, lightFill, shapes: shapeStats };
 
   onProgress(input.format === 'schem' ? 'writing NBT' : 'writing Litematica NBT');
   const bytes = input.format === 'schem' ? encodeSchemBytes(grid) : encodeLitematicBytes(grid);
-  return { grid, bytes, nonAir, lights, lightFill };
+  return { grid, bytes, nonAir, lights, lightFill, shapes: shapeStats };
 }

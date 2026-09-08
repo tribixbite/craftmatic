@@ -57,12 +57,21 @@ export interface SchemExportSettings {
   profile: string;
   /** Add light-emitting blocks to enclosed dark interiors. OFF by default. */
   lightFill: boolean;
+  /**
+   * Emit partial Minecraft blocks (slabs, stairs) where the LEGO geometry is
+   * genuinely partial — engine/block-shapes.ts. ON by default (the proposal's
+   * recommendation): it only ever refines a cell that is already solid, so the
+   * worst case is the previous all-cubes output. Turning it off reproduces that
+   * output byte for byte.
+   */
+  shapes: boolean;
 }
 
 export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
   resolution: 'auto',
   profile: DEFAULT_PROFILE_ID,
   lightFill: false,
+  shapes: true,
 };
 
 /** Model extent in LDU (already padded by the caller). */

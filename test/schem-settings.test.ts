@@ -41,7 +41,11 @@ describe('planResolution — auto', () => {
   });
 
   it('is the default setting', () => {
-    expect(DEFAULT_SCHEM_SETTINGS).toEqual({ resolution: 'auto', profile: 'default', lightFill: false });
+    // `shapes` defaults ON: the block-shape pass only refines cells that are
+    // already solid, so the worst case is the previous all-cubes output.
+    expect(DEFAULT_SCHEM_SETTINGS).toEqual({
+      resolution: 'auto', profile: 'default', lightFill: false, shapes: true,
+    });
   });
 
   it('reports cells-per-stud and approximate dims', () => {

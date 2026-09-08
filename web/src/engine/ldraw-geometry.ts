@@ -19,6 +19,7 @@ import type { ParsedBrick } from './ldraw-parser.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { type VoxelizeResult, type VoxelizeOptions, TECHNIC_INTERNAL_PARTS } from './ldraw-voxelizer.js';
+import { createShapeHints, addOccupancy, type ShapeHints } from './block-shapes.js';
 import { getPartDims } from './ldraw-part-dims.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1030,9 +1031,13 @@ export async function voxelizeLDrawGeometry(
   const cells = new CellStore();
   const colors = new Set<number>();
   let fallbackPartCount = 0;
-  // Per-brick cell range + world-LDU extent, for the inter-part contact pass.
+  // Per-brick cell range + world-LDU extent, for the inter-part contact pass
+  // AND the block-shape pass (which needs each part's real vertical extent to
+  // tell a half-occupied cell from a full one).
   const footprints: BrickFootprint[] = [];
   const bridgeEnabled = options?.bridgeParts !== false;
+  const shapesEnabled = options?.shapes === true;
+  const trackFootprints = bridgeEnabled || shapesEnabled;
 
   let brickIdx = 0;
   let lastPct = -1;
@@ -1088,7 +1093,7 @@ export async function voxelizeLDrawGeometry(
             cells.push(x, y, z, blockId);
             colors.add(brick.color);
           }
-      if (bridgeEnabled && cells.count > fbStart) {
+      if (trackFootprints && cells.count > fbStart) {
         footprints.push({
           part: brick.part, start: fbStart, end: cells.count, blockId,
           xn: bxMin, xx: bxMax, yn: byMin, yx: byMax, zn: bzMin, zx: bzMax,
@@ -1119,7 +1124,7 @@ export async function voxelizeLDrawGeometry(
     });
     if (emitted) {
       colors.add(brick.color);
-      if (bridgeEnabled) {
+      if (trackFootprints) {
         footprints.push({
           part: brick.part, start: geoStart, end: cells.count, blockId,
           xn: wxn, xx: wxx, yn: wyn, yx: wyx, zn: wzn, zx: wzx,
@@ -1188,6 +1193,15 @@ export async function voxelizeLDrawGeometry(
     grid.setIndex(x, y, z, paletteIds[blockId]!);
   });
 
+  // Per-cell vertical occupancy for the block-shape pass. Built from each
+  // part's REAL world-Y extent clamped to each of its cells, which is exactly
+  // right at a part's top/bottom boundary cells (the only place a cell can be
+  // half-occupied) and conservatively "full" everywhere in between — a part
+  // that doesn't fill its own Y extent at some XZ never emitted a cell there.
+  const shapeHints = shapesEnabled ? buildShapeHints(
+    cells, footprints, w, h, l, minX, minY, minZ, scale, LDU_PER_Y,
+  ) : undefined;
+
   if (fallbackPartCount > 0) {
     console.warn(`[geometry] ${fallbackPartCount} parts had no .dat geometry — skipped`);
   }
@@ -1202,5 +1216,54 @@ export async function voxelizeLDrawGeometry(
     wasFlipped: shouldFlip,
     fallbackPartCount,
     bridge,
+    shapeHints,
   };
 }
+
+/**
+ * Union every part's clamped vertical extent into per-cell occupancy hints.
+ *
+ * Cell `gy` covers world y in `[-(gy+0.5)·c, -(gy-0.5)·c]` (LDraw Y is down and
+ * cells are CENTRED on multiples of the cell size — see parityFill). In grid-up
+ * terms `u(wy) = -wy/c - gy + 0.5`, so 0 is the cell's bottom face and 1 its
+ * top. A part contributes `[u(yx), u(yn)]` clamped to `[0,1]`, identical for
+ * every cell it emitted in the same grid row — computed once per (part, row).
+ *
+ * Skipped when the grid was downscaled (`scale < 1` merges cells, so a cell's
+ * occupancy is no longer one part's clamped extent).
+ */
+function buildShapeHints(
+  cells: CellStore,
+  parts: BrickFootprint[],
+  w: number, h: number, l: number,
+  minX: number, minY: number, minZ: number,
+  scale: number,
+  cellLDU_Y: number,
+): ShapeHints | undefined {
+  if (scale !== 1) return undefined;
+  const total = w * h * l;
+  // 2 bytes per grid cell: 60 MB at the export's 30M-cell ceiling.
+  if (!Number.isFinite(total) || total <= 0 || total > 60_000_000) return undefined;
+  const hints = createShapeHints(w, h, l);
+  const lo = new Map<number, number>();   // grid row → uLo for this part
+  const hi = new Map<number, number>();
+  for (const f of parts) {
+    if (f.end <= f.start) continue;
+    lo.clear(); hi.clear();
+    cells.forRange(f.start, f.end, (gx, gy, gz) => {
+      const x = gx - minX, y = gy - minY, z = gz - minZ;
+      if (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= l) return;
+      let a = lo.get(gy);
+      if (a === undefined) {
+        // yx = the part's LOWEST point (largest LDraw y) → smallest u.
+        a = clamp01(-f.yx / cellLDU_Y - gy + 0.5);
+        lo.set(gy, a);
+        hi.set(gy, clamp01(-f.yn / cellLDU_Y - gy + 0.5));
+      }
+      addOccupancy(hints, x, y, z, a, hi.get(gy)!);
+    });
+  }
+  return hints;
+}
+
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);

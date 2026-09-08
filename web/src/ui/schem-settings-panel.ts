@@ -38,6 +38,8 @@ function load(): SchemExportSettings {
         resolution: RESOLUTION_OPTIONS.some(o => o.value === res) ? res as ResolutionChoice : 'auto',
         profile: BLOCK_PROFILES.some(p => p.id === parsed.profile) ? parsed.profile! : DEFAULT_SCHEM_SETTINGS.profile,
         lightFill: parsed.lightFill === true,
+        // Default ON, so a value stored before the setting existed opts in.
+        shapes: parsed.shapes !== false,
       };
     }
   } catch { /* private mode / corrupt value → defaults */ }
@@ -152,6 +154,14 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
     </div>
     <div class="mc-set-field">
       <label class="mc-set-check">
+        <input type="checkbox" id="mc-set-shapes">
+        <span>Block shapes<br>
+          <span class="mc-set-note">Uses slabs and stairs where a plate or slope is genuinely half a block. Only refines blocks that are already solid — never removes any. Vanilla has no dyed slab, so concrete-coloured bricks stay full cubes.</span>
+        </span>
+      </label>
+    </div>
+    <div class="mc-set-field">
+      <label class="mc-set-check">
         <input type="checkbox" id="mc-set-light">
         <span>Light enclosed interiors<br>
           <span class="mc-set-note">Adds glowstone to sealed rooms (rooms open to the outside are left alone). Off by default.</span>
@@ -166,12 +176,14 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   const resSel = pop.querySelector('#mc-set-res') as HTMLSelectElement;
   const profSel = pop.querySelector('#mc-set-profile') as HTMLSelectElement;
   const lightBox = pop.querySelector('#mc-set-light') as HTMLInputElement;
+  const shapeBox = pop.querySelector('#mc-set-shapes') as HTMLInputElement;
   const preview = pop.querySelector('[data-role="preview"]') as HTMLElement;
   const profNote = pop.querySelector('[data-role="profile-note"]') as HTMLElement;
 
   resSel.value = current.resolution;
   profSel.value = current.profile;
   lightBox.checked = current.lightFill;
+  shapeBox.checked = current.shapes;
   resSel.disabled = !opts.resolutionApplicable;
 
   const refresh = (): void => {
@@ -190,18 +202,21 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       resolution: resSel.value as ResolutionChoice,
       profile: profSel.value,
       lightFill: lightBox.checked,
+      shapes: shapeBox.checked,
     });
     refresh();
   };
   resSel.addEventListener('change', commit, sig);
   profSel.addEventListener('change', commit, sig);
   lightBox.addEventListener('change', commit, sig);
+  shapeBox.addEventListener('change', commit, sig);
 
   const close = (): void => { pop.classList.remove('is-open'); };
   const open = (): void => {
     // Sync from module state — the other surface's popover may have changed it.
     const s = load();
-    resSel.value = s.resolution; profSel.value = s.profile; lightBox.checked = s.lightFill;
+    resSel.value = s.resolution; profSel.value = s.profile;
+    lightBox.checked = s.lightFill; shapeBox.checked = s.shapes;
     refresh();
     const r = btn.getBoundingClientRect();
     pop.classList.add('is-open');
