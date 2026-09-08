@@ -295,7 +295,22 @@ export async function prefetchPartGeometry(
   })));
 }
 
+/**
+ * Diagnostic hook: resolve ONE brick's triangles in world LDU.
+ * Used by `scripts/_hair_probe.ts` to compare two parts' real extents without
+ * running a whole export. Not used by the pipeline.
+ */
+export async function __debugWorldTris(
+  brick: { part: string; x: number; y: number; z: number; rot?: number[] },
+): Promise<Triangle[]> {
+  const local = await resolvePartTriangles(brick.part);
+  const R = brick.rot ?? [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const T: Vec3 = [brick.x, brick.y, brick.z];
+  return local.map(([v0, v1, v2]) => [applyMat(v0, R, T), applyMat(v1, R, T), applyMat(v2, R, T)] as Triangle);
+}
+
 // ─── Ray-triangle intersection (generic axis) ───────────────────────────────
+// (see __debugCells below for the diagnostic wrapper around the rasterizer)
 
 const LDU_STUD = 20;
 
@@ -617,6 +632,21 @@ function rasterizeTriangles(
   }
 }
 
+/**
+ * Diagnostic hook: the exact grid cells ONE brick rasterizes to, in absolute
+ * (un-offset) grid coordinates, using the real rasterizer. Lets a probe compare
+ * two parts' voxel footprints without running a whole export.
+ */
+export async function __debugCells(
+  brick: { part: string; x: number; y: number; z: number; rot?: number[] },
+  cellLDU: number,
+): Promise<Array<[number, number, number]>> {
+  const worldTris = await __debugWorldTris(brick);
+  const out: Array<[number, number, number]> = [];
+  rasterizeTriangles(worldTris, cellLDU, cellLDU, (gx, gy, gz) => out.push([gx, gy, gz]));
+  return out;
+}
+
 // ─── Cell store ──────────────────────────────────────────────────────────────
 
 /**
@@ -670,6 +700,15 @@ class CellStore {
     this.count++;
   }
 
+  /** Iterate the cells pushed in `[start, end)` of the push sequence. */
+  forRange(start: number, end: number, fn: (gx: number, gy: number, gz: number) => void): void {
+    for (let i = start; i < end; i++) {
+      const c = (i / CELL_CHUNK) | 0;
+      const j = i % CELL_CHUNK;
+      fn(this.xs[c]![j]!, this.ys[c]![j]!, this.zs[c]![j]!);
+    }
+  }
+
   /** Iterate every stored cell. */
   forEach(fn: (gx: number, gy: number, gz: number, blockId: number) => void): void {
     for (let c = 0; c < this.xs.length; c++) {
@@ -678,6 +717,238 @@ class CellStore {
       for (let i = 0; i < n; i++) fn(X[i]!, Y[i]!, Z[i]!, B[i]!);
     }
   }
+}
+
+// ─── Inter-part contact ("floating hair") pass ───────────────────────────────
+
+/** Dev/CLI switch: `globalThis.__voxProfile = true` turns on measurement logs. */
+const VOX_PROFILE = (): boolean => (globalThis as { __voxProfile?: boolean }).__voxProfile === true;
+
+/**
+ * World-LDU extent + cell range of one brick's contribution to the cell store.
+ * `start`/`end` index the store's push sequence.
+ */
+interface BrickFootprint {
+  /** Part id, for diagnostics only. */
+  part: string;
+  start: number; end: number; blockId: number;
+  xn: number; xx: number; yn: number; yx: number; zn: number; zx: number;
+}
+
+/** What the contact pass did — surfaced for status/tests, never for control flow. */
+export interface BridgeStats {
+  /** Part pairs whose real LDraw geometry is within one cell of each other. */
+  nearPairs: number;
+  /** Of those, the pairs whose voxels shared no face and were reconnected. */
+  bridgedPairs: number;
+  /** Cells the pass added. */
+  cellsAdded: number;
+}
+
+/**
+ * Reach, in cells, of the bridge search. 2 = "at most one empty cell between",
+ * which covers a diagonal touch (Chebyshev 1, Manhattan 2-3) and one missing
+ * cell. Anything further apart is left alone.
+ */
+const BRIDGE_REACH = 2;
+/** Never add more than this many cells for a single pair. */
+const BRIDGE_PAIR_CELL_CAP = 512;
+/** Parts with more cells than this are structural (baseplates, hulls) — skipped as the pair SOURCE. */
+const BRIDGE_MAX_OWN_CELLS = 200_000;
+
+/**
+ * Per-axis separation between two world-LDU AABBs.
+ * ≤0 when they overlap; otherwise the width of the real air gap between them.
+ */
+function aabbSeparation(a: BrickFootprint, b: BrickFootprint): number {
+  return Math.max(
+    a.xn - b.xx, b.xn - a.xx,
+    a.yn - b.yx, b.yn - a.yx,
+    a.zn - b.zx, b.zn - a.zx,
+  );
+}
+
+/**
+ * Reconnect parts that quantization left touching only at a corner.
+ *
+ * WHY (2026-09-08, the "minifig hair floats above the head" report). Measured
+ * with `scripts/_hair_probe.ts` on 76416-1: LDraw authors a hairpiece so its
+ * socket clears the head stud — 62810's underside sits 1.81 LDU above the
+ * head's crown, 25972's 0.26 LDU. That clearance is a fraction of a 4-LDU cell,
+ * but it lands the hair's shell one row ABOVE and one column OUTSIDE the head's
+ * top row, so the two footprints meet only DIAGONALLY (minimum Chebyshev
+ * distance 1, no shared face). A diagonal touch reads as a floating hat, and
+ * nothing closed it: `fillSingleVoxelGaps` fills X and Z runs flanked on both
+ * sides and has no vertical pass at all, so a diagonal step is invisible to it.
+ *
+ * The pass is PAIRWISE and driven by real LDU adjacency, never by dilation:
+ *   • only pairs whose world-LDU AABBs are within `clearLDU` (one cell) of each
+ *     other are considered — parts that genuinely touch or nearly touch;
+ *   • a pair is skipped the moment its two footprints share any FACE;
+ *   • otherwise the shortest monotone path (≤ BRIDGE_REACH-1 cells) between the
+ *     two nearest cells is filled, in the colour of the upper part.
+ * Two minifigs standing a stud apart are 20 LDU and 5 cells apart, so no pair
+ * is ever formed; a deliberate 1-plate (8 LDU) air gap is likewise out of reach.
+ *
+ * Pairwise matters: the hair above IS voxel-connected to the neck bracket it
+ * clips into, so a "part has no contact anywhere" rule (tried first) left the
+ * visible head-to-hair gap wide open.
+ */
+function bridgePartContacts(
+  cells: CellStore,
+  parts: BrickFootprint[],
+  cellLDU_Y: number,
+  cellLDU_XZ: number,
+): BridgeStats {
+  const stats: BridgeStats = { nearPairs: 0, bridgedPairs: 0, cellsAdded: 0 };
+  if (parts.length < 2 || cells.count === 0) return stats;
+
+  // ── Occupancy bitset over the cell AABB (padded by the search reach) ───────
+  let xn = Infinity, xx = -Infinity, yn = Infinity, yx = -Infinity, zn = Infinity, zx = -Infinity;
+  cells.forEach((gx, gy, gz) => {
+    if (gx < xn) xn = gx; if (gx > xx) xx = gx;
+    if (gy < yn) yn = gy; if (gy > yx) yx = gy;
+    if (gz < zn) zn = gz; if (gz > zx) zx = gz;
+  });
+  const oX = xn - BRIDGE_REACH, oY = yn - BRIDGE_REACH, oZ = zn - BRIDGE_REACH;
+  const nX = xx - xn + 1 + 2 * BRIDGE_REACH;
+  const nY = yx - yn + 1 + 2 * BRIDGE_REACH;
+  const nZ = zx - zn + 1 + 2 * BRIDGE_REACH;
+  const total = nX * nY * nZ;
+  // 1 bit per cell — ≈4 MB at the export's 30M-cell ceiling.
+  if (!Number.isFinite(total) || total <= 0 || total > 400_000_000) return stats;
+  const occ = new Uint8Array(Math.ceil(total / 8));
+  const lin = (gx: number, gy: number, gz: number) => ((gx - oX) * nY + (gy - oY)) * nZ + (gz - oZ);
+  const setBit = (i: number) => { occ[i >>> 3]! |= 1 << (i & 7); };
+  cells.forEach((gx, gy, gz) => setBit(lin(gx, gy, gz)));
+
+  // ── Broadphase over part AABBs, bucketed in LDU ───────────────────────────
+  // A pair is eligible when its real air gap is smaller than HALF a cell — the
+  // grid cannot represent such a gap, so leaving it open is pure quantization
+  // error. A gap of a whole cell or more IS representable (and usually real:
+  // measured 4.00 LDU between stacked plates on 76416-1), so it stays open.
+  const clearLDU = Math.max(cellLDU_Y, cellLDU_XZ) / 2;
+  /** Window padding — the search reach, not the eligibility threshold. */
+  const windowPadLDU = Math.max(cellLDU_Y, cellLDU_XZ) * BRIDGE_REACH;
+  const BUCKET = 160; // 8 studs
+  const buckets = new Map<string, number[]>();
+  const bkey = (i: number, j: number, k: number) => `${i},${j},${k}`;
+  for (let p = 0; p < parts.length; p++) {
+    const f = parts[p]!;
+    for (let i = Math.floor(f.xn / BUCKET); i <= Math.floor(f.xx / BUCKET); i++)
+      for (let j = Math.floor(f.yn / BUCKET); j <= Math.floor(f.yx / BUCKET); j++)
+        for (let k = Math.floor(f.zn / BUCKET); k <= Math.floor(f.zx / BUCKET); k++) {
+          const key = bkey(i, j, k);
+          const arr = buckets.get(key);
+          if (arr) arr.push(p); else buckets.set(key, [p]);
+        }
+  }
+
+  // Offsets within the search reach, ordered by Manhattan distance so the first
+  // hit is always the shortest possible bridge.
+  const reachOffsets: Array<[number, number, number, number]> = [];
+  for (let dx = -BRIDGE_REACH; dx <= BRIDGE_REACH; dx++)
+    for (let dy = -BRIDGE_REACH; dy <= BRIDGE_REACH; dy++)
+      for (let dz = -BRIDGE_REACH; dz <= BRIDGE_REACH; dz++) {
+        const m = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
+        if (m >= 2) reachOffsets.push([dx, dy, dz, m]);
+      }
+  reachOffsets.sort((a, b) => a[3] - b[3] || a[1] - b[1] || a[0] - b[0] || a[2] - b[2]);
+  const FACE: ReadonlyArray<readonly [number, number, number]> =
+    [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+
+  const ownCells: number[] = [];   // flat triples for the source part
+  for (let p = 0; p < parts.length; p++) {
+    const f = parts[p]!;
+    const n = f.end - f.start;
+    if (n <= 0 || n > BRIDGE_MAX_OWN_CELLS) continue;
+
+    // Partners: parts whose real geometry is within one cell of this one.
+    const partners: number[] = [];
+    const seen = new Set<number>();
+    for (let i = Math.floor((f.xn - clearLDU) / BUCKET); i <= Math.floor((f.xx + clearLDU) / BUCKET); i++)
+      for (let j = Math.floor((f.yn - clearLDU) / BUCKET); j <= Math.floor((f.yx + clearLDU) / BUCKET); j++)
+        for (let k = Math.floor((f.zn - clearLDU) / BUCKET); k <= Math.floor((f.zx + clearLDU) / BUCKET); k++)
+          for (const q of buckets.get(bkey(i, j, k)) ?? []) {
+            if (q <= p || seen.has(q)) continue;   // each unordered pair once
+            seen.add(q);
+            if (aabbSeparation(f, parts[q]!) <= clearLDU) partners.push(q);
+          }
+    if (partners.length === 0) continue;
+    partners.sort((a, b) => a - b);               // determinism
+
+    ownCells.length = 0;
+    const own = new Set<number>();
+    cells.forRange(f.start, f.end, (gx, gy, gz) => {
+      ownCells.push(gx, gy, gz);
+      own.add(lin(gx, gy, gz));
+    });
+
+    for (const q of partners) {
+      const g = parts[q]!;
+      if (g.end - g.start <= 0) continue;
+      stats.nearPairs++;
+
+      // Cell window where the two parts could possibly meet.
+      const wxn = Math.max(f.xn, g.xn) - windowPadLDU, wxx = Math.min(f.xx, g.xx) + windowPadLDU;
+      const wyn = Math.max(f.yn, g.yn) - windowPadLDU, wyx = Math.min(f.yx, g.yx) + windowPadLDU;
+      const wzn = Math.max(f.zn, g.zn) - windowPadLDU, wzx = Math.min(f.zx, g.zx) + windowPadLDU;
+      const bxLo = Math.floor(wxn / cellLDU_XZ) - 1, bxHi = Math.ceil(wxx / cellLDU_XZ) + 1;
+      const byLo = Math.floor(-wyx / cellLDU_Y) - 1, byHi = Math.ceil(-wyn / cellLDU_Y) + 1;
+      const bzLo = Math.floor(wzn / cellLDU_XZ) - 1, bzHi = Math.ceil(wzx / cellLDU_XZ) + 1;
+
+      // Partner cells inside that window; bail out the moment a face is shared.
+      const window: number[] = [];
+      let touching = false;
+      cells.forRange(g.start, g.end, (gx, gy, gz) => {
+        if (touching) return;
+        if (gx < bxLo || gx > bxHi || gy < byLo || gy > byHi || gz < bzLo || gz > bzHi) return;
+        for (const [dx, dy, dz] of FACE) {
+          if (own.has(lin(gx + dx, gy + dy, gz + dz))) { touching = true; return; }
+        }
+        window.push(gx, gy, gz);
+      });
+      if (touching || window.length === 0) continue;
+
+      // Weld the whole interface: every partner cell in the window takes its
+      // OWN shortest path to the nearest cell of the other part. Welding only
+      // ever runs on a pair that shares no face at all, so a pair that already
+      // meets somewhere is never thickened — and a single bridge cell would
+      // leave the rest of the seam (a hairpiece's whole brim) still hovering.
+      let added = 0;
+      for (let w = 0; w < window.length && added < BRIDGE_PAIR_CELL_CAP; w += 3) {
+        const sx = window[w]!, sy = window[w + 1]!, sz = window[w + 2]!;
+        for (const [dx, dy, dz] of reachOffsets) {
+          const tx = sx + dx, ty = sy + dy, tz = sz + dz;
+          if (!own.has(lin(tx, ty, tz))) continue;
+          // Colour the bridge like the UPPER part (a hairpiece meeting a head
+          // should read as hair), stepping vertically first.
+          const upperBlock = sy >= ty ? g.blockId : f.blockId;
+          let cx = sx, cy = sy, cz = sz;
+          const step = (axis: 0 | 1 | 2, delta: number) => {
+            const s = Math.sign(delta);
+            for (let k = 0; k < Math.abs(delta); k++) {
+              if (axis === 0) cx += s; else if (axis === 1) cy += s; else cz += s;
+              if (cx === tx && cy === ty && cz === tz) return;
+              const ci = lin(cx, cy, cz);
+              if ((occ[ci >>> 3]! & (1 << (ci & 7))) !== 0) continue;
+              setBit(ci);
+              cells.push(cx, cy, cz, upperBlock);
+              added++; stats.cellsAdded++;
+            }
+          };
+          step(1, dy); step(0, dx); step(2, dz);
+          break;                                   // shortest path for this cell
+        }
+      }
+      if (added > 0) {
+        stats.bridgedPairs++;
+        if (VOX_PROFILE()) console.log(`[bridge] ${f.part} ↔ ${g.part}: +${added} cells (sep ${aabbSeparation(f, g).toFixed(2)} LDU)`);
+      }
+    }
+  }
+
+  return stats;
 }
 
 // ─── Public: geometry-accurate voxelization ──────────────────────────────────
@@ -739,6 +1010,9 @@ export async function voxelizeLDrawGeometry(
   const cells = new CellStore();
   const colors = new Set<number>();
   let fallbackPartCount = 0;
+  // Per-brick cell range + world-LDU extent, for the inter-part contact pass.
+  const footprints: BrickFootprint[] = [];
+  const bridgeEnabled = options?.bridgeParts !== false;
 
   let brickIdx = 0;
   let lastPct = -1;
@@ -787,29 +1061,59 @@ export async function voxelizeLDrawGeometry(
       const fbxMin = Math.round(bxMin / LDU_XZ), fbxMax = Math.round(bxMax / LDU_XZ);
       const fbyMin = Math.round(-byMax / LDU_PER_Y), fbyMax = Math.round(-byMin / LDU_PER_Y);
       const fbzMin = Math.round(bzMin / LDU_XZ), fbzMax = Math.round(bzMax / LDU_XZ);
+      const fbStart = cells.count;
       for (let x = fbxMin; x <= fbxMax; x++)
         for (let y = fbyMin; y <= fbyMax; y++)
           for (let z = fbzMin; z <= fbzMax; z++) {
             cells.push(x, y, z, blockId);
             colors.add(brick.color);
           }
+      if (bridgeEnabled && cells.count > fbStart) {
+        footprints.push({
+          part: brick.part, start: fbStart, end: cells.count, blockId,
+          xn: bxMin, xx: bxMax, yn: byMin, yx: byMax, zn: bzMin, zx: bzMax,
+        });
+      }
       continue;
     }
     const T: Vec3 = [brick.x, brick.y, brick.z];
 
-    // Transform local triangles → world LDU
-    const worldTris: Triangle[] = localTris.map(([v0, v1, v2]) => [
-      applyMat(v0, R, T),
-      applyMat(v1, R, T),
-      applyMat(v2, R, T),
-    ]);
+    // Transform local triangles → world LDU (tracking the extent for the
+    // inter-part contact pass, which needs REAL LDU adjacency, not cell hits).
+    let wxn = Infinity, wxx = -Infinity, wyn = Infinity, wyx = -Infinity, wzn = Infinity, wzx = -Infinity;
+    const worldTris: Triangle[] = localTris.map(([v0, v1, v2]) => {
+      const a = applyMat(v0, R, T), b = applyMat(v1, R, T), c = applyMat(v2, R, T);
+      for (const v of [a, b, c]) {
+        if (v[0] < wxn) wxn = v[0]; if (v[0] > wxx) wxx = v[0];
+        if (v[1] < wyn) wyn = v[1]; if (v[1] > wyx) wyx = v[1];
+        if (v[2] < wzn) wzn = v[2]; if (v[2] > wzx) wzx = v[2];
+      }
+      return [a, b, c];
+    });
 
+    const geoStart = cells.count;
     let emitted = false;
     rasterizeTriangles(worldTris, LDU_PER_Y, LDU_XZ, (gx, gy, gz) => {
       cells.push(gx, gy, gz, blockId);
       emitted = true;
     });
-    if (emitted) colors.add(brick.color);
+    if (emitted) {
+      colors.add(brick.color);
+      if (bridgeEnabled) {
+        footprints.push({
+          part: brick.part, start: geoStart, end: cells.count, blockId,
+          xn: wxn, xx: wxx, yn: wyn, yx: wyx, zn: wzn, zx: wzx,
+        });
+      }
+    }
+  }
+
+  // Close sub-cell gaps that quantization opened between parts that really do
+  // meet (the "minifig hair floats above the head" class). See bridgePartContacts.
+  let bridge: BridgeStats | undefined;
+  if (bridgeEnabled && footprints.length > 1) {
+    onProgress?.('joining parts');
+    bridge = bridgePartContacts(cells, footprints, LDU_PER_Y, LDU_XZ);
   }
 
   if ((globalThis as { __voxProfile?: boolean }).__voxProfile) {
@@ -877,5 +1181,6 @@ export async function voxelizeLDrawGeometry(
     unmappedColors: [...unmappedColorSet],
     wasFlipped: shouldFlip,
     fallbackPartCount,
+    bridge,
   };
 }

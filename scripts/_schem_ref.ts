@@ -5,9 +5,14 @@
  *
  * Usage: bun scripts/_schem_ref.ts [model.io] [out.schem] [forcedCellLDU]
  *
- * Baseline (2026-09-02, 21063 @ auto → cellLDU 4, default settings):
- *   schemSha256 d158bebb54bb00cad0ead543a8310bf53fbb7f7f49021252f852e820e2cf3fd7
- *   nonAir 1,189,251 · dims 131×196×291
+ * Baseline (2026-09-08, 21063 @ auto → cellLDU 4, default settings):
+ *   schemSha256 53dac11a867f174e4bec7d4d986210ba36381b34a8d7c20d9125a12f939e40e2
+ *   nonAir 1,190,999 · dims 131×196×291
+ * PREVIOUS baseline d158bebb54…3fd7 (nonAir 1,189,251), retired 2026-09-08 by
+ * the inter-part contact pass (bridgePartContacts) that closed the sub-cell
+ * gaps quantization opened between touching parts — the "minifig hair floats
+ * above the head" bug. Verified additive: 1,748 cells gained, 0 lost
+ * (`scripts/_schem_diff.ts`).
  * Any change to voxelization, gap filling, the colour tables or the NBT writer
  * moves this hash. If you didn't mean to, you broke something.
  *

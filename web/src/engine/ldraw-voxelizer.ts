@@ -170,6 +170,8 @@ export interface VoxelizeResult {
   wasFlipped?: boolean;
   /** Number of parts that had no explicit dims entry and fell back to 1×1×1 */
   fallbackPartCount: number;
+  /** Inter-part contact pass result (geometry voxelizer only). */
+  bridge?: { nearPairs: number; bridgedPairs: number; cellsAdded: number };
 }
 
 export interface VoxelizeOptions {
@@ -211,6 +213,13 @@ export interface VoxelizeOptions {
    * assembly playback. Undefined = include all steps.
    */
   maxStep?: number;
+  /**
+   * Reconnect parts that voxel quantization left touching only diagonally
+   * (geometry voxelizer only). Default ON — see `bridgeFloatingParts` in
+   * ldraw-geometry.ts for why minifig hair floated above heads without it.
+   * Set false to reproduce pre-2026-09-08 output.
+   */
+  bridgeParts?: boolean;
   /**
    * When true, skip large LEGO baseplates (3867, 3811, 3807, 3857, 3626b…).
    * Default: true. These flat plates typically dominate the view and obscure

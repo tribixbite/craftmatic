@@ -409,12 +409,42 @@ ghost tires). Pipeline defenses (classifier extracted to
     explicit ancestor set threaded through the recursion) may read the partial
     array. `viewer/ldraw/parts.ts` has the same shape and papers over it with
     `invalidatePartGeom` — if you touch either resolver, keep the ordering.
+  - **Inter-part contact pass ("floating minifig hair", 2026-09-08).**
+    `bridgePartContacts` in `engine/ldraw-geometry.ts`, ON by default
+    (`VoxelizeOptions.bridgeParts: false` reproduces the old output).
+    ROOT CAUSE, measured with `scripts/_hair_probe.ts` on 76416-1: LDraw authors
+    a hairpiece so its socket CLEARS the head stud — 62810's underside sits
+    **1.81 LDU** above the head's crown, 25972's 0.26, 99930's −0.12. A 4-LDU
+    cell cannot represent a gap that small, and the rounding drops the hair's
+    shell one row ABOVE and one column OUTSIDE the head's top row (which holds
+    only the stud), so the two footprints meet **diagonally** — min Chebyshev
+    distance 1, no shared face. In Minecraft that reads as a hovering hat.
+    Nothing closed it: `fillSingleVoxelGaps` fills X/Z runs flanked on BOTH
+    sides and has **no vertical pass at all**, so a diagonal step is invisible
+    to it. The pass is PAIRWISE (the first attempt — "part with no contact
+    anywhere" — missed the hair entirely, because the hair IS voxel-connected to
+    the neck bracket it clips into while still visibly floating over the head):
+    a pair is eligible only when its real world-LDU AABBs are within **half a
+    cell** (a gap of one cell or more is representable, so it is REAL — measured
+    4.00 LDU between stacked plates on 76416-1 — and stays open), it is skipped
+    the moment the two footprints share any face, and otherwise every partner
+    cell in the interface window takes its own shortest monotone path (≤1 cell)
+    to the other part, coloured as the upper part. Two minifigs a stud apart are
+    20 LDU / 5 cells apart: no pair is ever formed. Measured: 76416-1 2,229 near
+    pairs → 29 bridged, +236 cells (+0.15%); 71043 Hogwarts 29,299 → 363,
+    +3,765 cells (+0.10%), voxelize 8.7 s → 10.8 s. Content diff on 21063 (via
+    `scripts/_schem_diff.ts`, which re-imports both files through the real
+    parser): **1,748 gained, 0 lost**, 173 recoloured (gap-fill copies a
+    neighbour, and the neighbour changed). Tests: `test/part-bridge.test.ts`
+    (synthetic head+hair: 2 components → 1; a 3-LDU gap left alone; two heads
+    never fused; additive-only).
   - **Byte-identity is the gate.** With defaults (auto / default profile /
-    light fill OFF) the bricks path is the pre-S4 sequence exactly:
-    `scripts/_schem_ref.ts` (driving the REAL shared pipeline) on 21063 gives
-    sha256 `d158beb…f3fd7`, 1,189,251 non-air. **Re-derived 2026-09-02** (was
-    `52d2211…4be6b` / 1,184,777) by the race fix above — the old hash was
-    reproducible only because the CLI's timing was. The seeded browser export is
+    light fill OFF) `scripts/_schem_ref.ts` (driving the REAL shared pipeline)
+    on 21063 gives sha256 `53dac11…9e40e2`, 1,190,999 non-air.
+    **Re-derived 2026-09-08** (was `d158beb…f3fd7` / 1,189,251) by the contact
+    pass above — deliberate, verified additive-only. The hash before that was
+    `52d2211…4be6b` / 1,184,777, retired 2026-09-02 by the race fix — that one
+    was reproducible only because the CLI's timing was. The seeded browser export is
     that grid **+16 cells** (1,189,267, confirmed in Chrome): the viewer's
     candidate-path list has the `p/48/` hi-res alias tail, so it resolves 7
     primitives (`1-12ring14`, `4-4aring`, …) that the bare export resolver
