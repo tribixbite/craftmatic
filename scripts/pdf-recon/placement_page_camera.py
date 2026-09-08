@@ -30,34 +30,41 @@ def page_camera(pdf, page, allocation_run, out, prior_parts=()):
     prior = [(str(part), int(color)) for part, color in prior_parts]
     evidence = extract(pdf, page, allocation_run, out / 'evidence', prior_parts=prior)
     mains = [scene for scene in evidence['scenes'] if scene['kind'] == 'main_scene']
-    if len(mains) != 1:
-        return dict(status='main_scene_not_unique', page=page,
+    if not mains:
+        return dict(status='no_main_scene', page=page,
                     scene_kinds=[(s['xref'], s['kind']) for s in evidence['scenes']],
                     native_scenes=[], truth_used=False, runtime_vlm_calls=0, certified=False)
-    target = mains[0]['xref']
+    # Several non-panel drawings can share a page: a subassembly beside the main
+    # body, or two views of it. Layout alone cannot rank them, so every one is
+    # returned as a candidate and the caller decides on geometric evidence.
+    mains.sort(key=lambda s: -abs((s['bbox'][2] - s['bbox'][0]) * (s['bbox'][3] - s['bbox'][1])))
+    targets = [s['xref'] for s in mains]
     # The main scene shows every already-placed part, so its protected palette
     # must include the existing body's colours, not only the new allocations.
     palette = protected_cad_colors(list(dict.fromkeys(list(pieces) + prior)))
     if not palette['complete']:
         raise ValueError('Cannot classify arrows without every known part CAD print colour')
+    rows = []
     with pymupdf.open(pdf) as doc:
-        scene = next(s for s in scene_images(doc, doc[page]) if s['xref'] == target)
-        graph = conservative_components(scene, protected_colors=palette['rgb'])
-        clean = dict(scene, mask=graph['clean_mask'])
-        detections = detect_studs(clean['rgb'], clean['mask'])
-        row = dict(page=page, xref=target,
-                   native_size=list(scene['rgb'].shape[:2][::-1]), bbox=list(scene['bbox']),
-                   row_camera=infer_camera_row(detections),
-                   robust_camera=infer_camera_robust(detections),
-                   multirow=row_camera_hypotheses(clean), detections=detections,
-                   arrow_count=len(graph['arrows']),
-                   warnings=['Ellipse proposals include side studs and holes; row matrices retain alternatives.',
-                             'Arrow removal is conservative; ambiguous blobs stay in the mask.'])
-    return dict(status='ok' if row['multirow']['hypotheses'] else 'no_camera_hypothesis',
-                page=page, native_scenes=[row], allocated_pieces=pieces,
+        for target in targets:
+            scene = next(s for s in scene_images(doc, doc[page]) if s['xref'] == target)
+            graph = conservative_components(scene, protected_colors=palette['rgb'])
+            clean = dict(scene, mask=graph['clean_mask'])
+            detections = detect_studs(clean['rgb'], clean['mask'])
+            rows.append(dict(page=page, xref=target,
+                             native_size=list(scene['rgb'].shape[:2][::-1]), bbox=list(scene['bbox']),
+                             row_camera=infer_camera_row(detections),
+                             robust_camera=infer_camera_robust(detections),
+                             multirow=row_camera_hypotheses(clean), detections=detections,
+                             arrow_count=len(graph['arrows']),
+                             warnings=['Ellipse proposals include side studs and holes; row matrices retain alternatives.',
+                                       'Arrow removal is conservative; ambiguous blobs stay in the mask.']))
+    return dict(status='ok' if any(r['multirow']['hypotheses'] for r in rows) else 'no_camera_hypothesis',
+                page=page, native_scenes=rows, allocated_pieces=pieces,
                 prior_parts=prior, scene_kinds=[(s['xref'], s['kind']) for s in evidence['scenes']],
                 truth_used=False, runtime_vlm_calls=0, certified=False,
-                limitations=['Main-scene selection is layout evidence, not chronology.',
+                limitations=['Main-scene candidates are layout evidence, not chronology, and are '
+                             'ordered by drawn area only.',
                              'Camera hypotheses are proposals; availability is not accuracy.',
                              'Stud ellipse detection includes side studs and holes.'])
 
@@ -83,6 +90,7 @@ if __name__ == '__main__':
                   base_sha256=hashlib.sha256(args.base.read_bytes()).hexdigest() if args.base else None)
     (args.out / 'results.json').write_text(json.dumps(result, indent=2, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o)))
     print(json.dumps(dict(status=result['status'], page=args.page,
-                          xref=result['native_scenes'][0]['xref'] if result['native_scenes'] else None,
-                          hypotheses=len(result['native_scenes'][0]['multirow']['hypotheses']) if result['native_scenes'] else 0,
-                          detections=len(result['native_scenes'][0]['detections']) if result['native_scenes'] else 0)))
+                          scenes=[dict(xref=r['xref'],
+                                       hypotheses=len(r['multirow']['hypotheses']),
+                                       detections=len(r['detections']))
+                                  for r in result['native_scenes']])))

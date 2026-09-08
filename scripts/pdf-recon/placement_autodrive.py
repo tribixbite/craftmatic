@@ -67,8 +67,14 @@ def resume_checkpoints(record, config):
     return completed
 
 
-def place_page(pdf, page, allocation_run, base_model, step_dir, options):
-    """Return (status, detail, placement_dir_or_None) for one instruction page."""
+def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_matrices=()):
+    """Return (status, detail, placement_dir_or_None, matrices) for one page.
+
+    Several drawings on a page can be non-panel scenes: a subassembly beside
+    the body, or a second view of it. Layout cannot rank them, so each is tried
+    in drawn-area order and the first that yields a usable registration and a
+    complete search result is taken; every attempt is saved.
+    """
     from placement_arrow_contacts import read_items
     from placement_body_registration import register
     from placement_material_scene_score import MaterialFeatureSceneScorer
@@ -85,49 +91,16 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options):
     base = read_items(base_model)
     pieces, provenance = load_allocations(pdf, page, allocation_run)
     if not pieces:
-        return 'no_allocation', dict(reason='Page adds no allocated piece; cross-page state '
-                                            'and separate subassemblies are not implemented'), None
+        return ('no_allocation', dict(reason='Page adds no allocated piece; cross-page state '
+                                             'and separate subassemblies are not implemented'),
+                None, ())
 
     camera = page_camera(pdf, page, allocation_run, step_dir / 'camera',
                          prior_parts=[(part, color) for part, color, _ in base])
     write_atomic(step_dir / 'camera.json', json.dumps(camera, indent=2, default=str))
-    if camera['status'] != 'ok':
-        return 'camera_unsupported', dict(reason=camera['status'],
-                                          scene_kinds=camera.get('scene_kinds')), None
-    scene_record = camera['native_scenes'][0]
-    xref = scene_record['xref']
-    matrices = [h['matrix'] for h in scene_record['multirow']['hypotheses'][:options['camera_matrices']]]
-
-    with pymupdf.open(pdf) as doc:
-        scene = next(s for s in scene_images(doc, doc[page]) if s['xref'] == xref)
-    stable = options['stable_colors'] or base_colors(base)
-    hypotheses = []
-    for index, matrix in enumerate(matrices):
-        result = register(scene, base, matrix, stable_colors=tuple(stable))
-        for row in result['hypotheses'][:options['per_matrix']]:
-            hypotheses.append(dict(row, matrix_index=index))
-    hypotheses.sort(key=lambda r: -r['score'])
-    write_atomic(step_dir / 'registration.json',
-                 json.dumps(dict(hypotheses=hypotheses, stable_colors=stable, page=page, xref=xref,
-                                 pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
-                                 base=str(base_model), base_sha256=file_hash(base_model),
-                                 camera_matrices=len(matrices), truth_used=False,
-                                 runtime_vlm_calls=0, certified=False), indent=2))
-
-    scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
-    contained = refine(base, hypotheses[:options['refine_limit']], scorer,
-                       window=options['window'], tolerance=options['tolerance'],
-                       fraction=options['fraction'], fallback=options['fallback'],
-                       screen_fn=screen)
-    contained.update(page=page, xref=xref, pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
-                     base=str(base_model), base_sha256=file_hash(base_model))
-    write_atomic(step_dir / 'registration-refined.json', json.dumps(contained, indent=2))
-    if not contained['hypotheses']:
-        return 'no_contained_registration', dict(
-            reason='No camera hypothesis contains the existing body silhouette',
-            evaluated=len(contained['evaluated']),
-            best_overflow=min((r['best_containment']['outside_pixels']
-                               for r in contained['evaluated']), default=None)), None
+    if not camera['native_scenes']:
+        return ('camera_unsupported', dict(reason=camera['status'],
+                                           scene_kinds=camera.get('scene_kinds')), None, ())
 
     bank = registry(base, pieces, options['closure_rounds'],
                     options['max_closure_parents'], options['max_poses'])
@@ -135,39 +108,92 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options):
                 base_sha256=file_hash(base_model), allocated_pieces=pieces, runtime_vlm_calls=0)
     write_atomic(step_dir / 'registry.json', json.dumps(bank, indent=2))
     if not bank['poses']:
-        return 'no_candidate_poses', dict(reason='No collision-free connector mate for any '
-                                                 'allocated shape on the existing body'), None
+        return ('no_candidate_poses', dict(reason='No collision-free connector mate for any '
+                                                  'allocated shape on the existing body'), None, ())
 
-    placement = step_dir / 'placement'
-    placement.mkdir(exist_ok=True)
-    snapshot = placement / 'source'
-    snapshot.mkdir(exist_ok=True)
-    code_hashes = {}
-    for path in Path(__file__).parent.glob('*.py'):
-        payload = path.read_bytes()
-        (snapshot / path.name).write_bytes(payload)
-        code_hashes[path.name] = hashlib.sha256(payload).hexdigest()
-    started = time.perf_counter()
-    result = search_run(bank, contained, scene, base, placement, views=options['views'],
-                        scale=options['scale'], max_nodes=options['max_nodes'],
-                        top_k=options['top_k'], host_bytes=options['host_bytes'],
-                        method=options['method'], beam=options['beam'],
-                        max_expansions=options['max_expansions'],
-                        improve_rounds=options['improve_rounds'],
-                        improve_from=options['improve_from'])
-    result.update(pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'], seconds=time.perf_counter() - started,
-                  code_sha256_start=code_hashes, camera_source=str(step_dir / 'camera.json'),
-                  registration_source=str(step_dir / 'registration-refined.json'),
-                  stable_colors=stable)
-    write_atomic(placement / 'results.json', json.dumps(result, indent=2))
-    if result['status'] != 'candidates':
-        return 'search_produced_no_model', dict(reason=result['status'],
-                                                views=[v.get('status') for v in result['views']]), None
-    return 'placed', dict(selected_parts=result['selected_parts'], shapes=result['shapes'],
-                          seconds=result['seconds'],
-                          exhaustive=[v.get('search_exhaustive') for v in result['views']
-                                      if 'search_exhaustive' in v],
-                          score=result['results'][0]['evidence']['score']), placement
+    stable = options['stable_colors'] or base_colors(base)
+    attempts = []
+    for order, scene_record in enumerate(camera['native_scenes']):
+        xref = scene_record['xref']
+        proposed = [h['matrix'] for h in scene_record['multirow']['hypotheses']]
+        reused = not proposed
+        # A drawing with no detectable stud row still has to be registered. The
+        # camera changes slowly between instruction pages, so an earlier page's
+        # matrices are a legitimate PDF-derived proposal - recorded as reused.
+        matrices = (proposed or list(prior_matrices))[:options['camera_matrices']]
+        if not matrices:
+            attempts.append(dict(xref=xref, status='no_camera_hypothesis'))
+            continue
+        with pymupdf.open(pdf) as doc:
+            scene = next(s for s in scene_images(doc, doc[page]) if s['xref'] == xref)
+        hypotheses = []
+        for index, matrix in enumerate(matrices):
+            registered = register(scene, base, matrix, stable_colors=tuple(stable))
+            for row in registered['hypotheses'][:options['per_matrix']]:
+                hypotheses.append(dict(row, matrix_index=index))
+        hypotheses.sort(key=lambda r: -r['score'])
+        write_atomic(step_dir / f'registration-{order:02d}.json',
+                     json.dumps(dict(hypotheses=hypotheses, stable_colors=stable, page=page,
+                                     xref=xref, reused_prior_camera=reused, pdf=str(pdf),
+                                     pdf_sha256=provenance['pdf_sha256'], base=str(base_model),
+                                     base_sha256=file_hash(base_model),
+                                     camera_matrices=len(matrices), truth_used=False,
+                                     runtime_vlm_calls=0, certified=False), indent=2))
+        scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
+        contained = refine(base, hypotheses[:options['refine_limit']], scorer,
+                           window=options['window'], tolerance=options['tolerance'],
+                           fraction=options['fraction'], fallback=options['fallback'],
+                           screen_fn=screen)
+        contained.update(page=page, xref=xref, pdf=str(pdf),
+                         pdf_sha256=provenance['pdf_sha256'], base=str(base_model),
+                         base_sha256=file_hash(base_model), reused_prior_camera=reused)
+        write_atomic(step_dir / f'registration-refined-{order:02d}.json',
+                     json.dumps(contained, indent=2))
+        if not contained['hypotheses']:
+            attempts.append(dict(xref=xref, status='no_contained_registration',
+                                 reused_prior_camera=reused,
+                                 best_overflow=min((r['best_containment']['outside_pixels']
+                                                    for r in contained['evaluated']), default=None)))
+            continue
+        placement = step_dir / (f'placement-{order:02d}' if order else 'placement')
+        placement.mkdir(exist_ok=True)
+        snapshot = placement / 'source'
+        snapshot.mkdir(exist_ok=True)
+        code_hashes = {}
+        for path in Path(__file__).parent.glob('*.py'):
+            payload = path.read_bytes()
+            (snapshot / path.name).write_bytes(payload)
+            code_hashes[path.name] = hashlib.sha256(payload).hexdigest()
+        started = time.perf_counter()
+        result = search_run(bank, contained, scene, base, placement, views=options['views'],
+                            scale=options['scale'], max_nodes=options['max_nodes'],
+                            top_k=options['top_k'], host_bytes=options['host_bytes'],
+                            method=options['method'], beam=options['beam'],
+                            max_expansions=options['max_expansions'],
+                            improve_rounds=options['improve_rounds'],
+                            improve_from=options['improve_from'])
+        result.update(pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
+                      seconds=time.perf_counter() - started, code_sha256_start=code_hashes,
+                      camera_source=str(step_dir / 'camera.json'), scene_order=order,
+                      reused_prior_camera=reused, stable_colors=stable,
+                      registration_source=str(step_dir / f'registration-refined-{order:02d}.json'))
+        write_atomic(placement / 'results.json', json.dumps(result, indent=2))
+        if result['status'] != 'candidates':
+            attempts.append(dict(xref=xref, status='search_produced_no_model',
+                                 reason=result['status']))
+            continue
+        detail = dict(selected_parts=result['selected_parts'], shapes=result['shapes'],
+                      seconds=result['seconds'], xref=xref, scene_order=order,
+                      reused_prior_camera=reused,
+                      containment_fallback=contained['containment_fallback_used'],
+                      attempts=attempts,
+                      score=result['results'][0]['evidence']['score'])
+        return 'placed', detail, placement, matrices
+    return ('camera_unsupported' if attempts and all(a['status'] == 'no_camera_hypothesis'
+                                                     for a in attempts)
+            else 'no_contained_registration',
+            dict(reason='No page drawing produced a usable registration', attempts=attempts),
+            None, ())
 
 
 def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_on_unsupported=True):
@@ -207,6 +233,7 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
     out.mkdir(parents=True, exist_ok=True)
     write_atomic(journal, json.dumps(record, indent=2))
     current = base_model
+    prior_matrices = ()
     for page in pages:
         if page in completed:
             current = completed[page] / 'model.ldr'
@@ -217,8 +244,10 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
             attempt += 1
             step_dir = out / f'page-{page:03d}-attempt-{attempt}'
         try:
-            status, detail, placement = place_page(pdf, page, allocation_run, current,
-                                                   step_dir, options)
+            status, detail, placement, matrices = place_page(pdf, page, allocation_run, current,
+                                                             step_dir, options, prior_matrices)
+            if matrices:
+                prior_matrices = matrices
         except Exception as exc:  # keep the failed page's evidence, never a silent skip
             status, detail, placement = 'error', dict(error=str(exc),
                                                       traceback=traceback.format_exc()), None
