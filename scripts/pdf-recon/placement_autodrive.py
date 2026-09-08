@@ -174,7 +174,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                             improve_from=options['improve_from'],
                             restarts=options['restarts'], perturb=options['perturb'],
                             seed=options['seed'], native_rounds=options['native_rounds'],
-                            native_width=options['native_width'])
+                            native_width=options['native_width'],
+                            native_starts=options['native_starts'])
         result.update(pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
                       seconds=time.perf_counter() - started, code_sha256_start=code_hashes,
                       camera_source=str(step_dir / 'camera.json'), scene_order=order,
@@ -310,6 +311,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--native-rounds', type=int, default=0)
     parser.add_argument('--native-width', type=int, default=16)
+    parser.add_argument('--native-starts', type=int, default=1)
     args = parser.parse_args()
     options = dict(camera_matrices=args.camera_matrices, per_matrix=args.per_matrix,
                    refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
@@ -323,7 +325,8 @@ if __name__ == '__main__':
                    improve_from=args.improve_from, restarts=args.restarts,
                    perturb=args.perturb, seed=args.seed,
                    native_rounds=args.native_rounds,
-                   native_width=args.native_width)
+                   native_width=args.native_width,
+                   native_starts=args.native_starts)
     summary = run(args.pdf, args.allocation_run, args.base_run, args.pages, args.out, options,
                   resume=args.resume, stop_on_unsupported=not args.continue_on_unsupported)
     print(json.dumps(dict(status=summary['status'],

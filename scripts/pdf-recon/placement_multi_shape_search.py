@@ -109,7 +109,7 @@ def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
 def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200000,
         top_k=32, host_bytes=512 * 1024 ** 2, method='beam', beam=64,
         max_expansions=2_000_000, improve_rounds=8, improve_from=4,
-        restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16):
+        restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16, native_starts=1):
     if method not in ('beam', 'exact'):
         raise ValueError('Unknown search method')
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
@@ -216,11 +216,25 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                     todo.extend(fresh)
                 return seen == wanted
 
-            refined, evidence, report = native_exchange(
-                scorer, base, placements, keys, candidates[0]['indices'], M, origin, coarse,
-                conflict, connected, rounds=native_rounds, width=native_width)
-            result['native_exchange'] = report
-            if refined != tuple(candidates[0]['indices']):
+            # Different coarse optima lead to different native optima, so the
+            # exchange is restarted from several of them rather than only the
+            # coarse best. Every distinct result is kept for the rerank.
+            reports, produced = [], []
+            for start in candidates[:max(1, native_starts)]:
+                refined, evidence, report = native_exchange(
+                    scorer, base, placements, keys, start['indices'], M, origin, coarse,
+                    conflict, connected, rounds=native_rounds, width=native_width)
+                report['start'] = list(start['indices'])
+                report['native_score'] = evidence['score']
+                reports.append(report)
+                if refined != tuple(start['indices']):
+                    produced.append((evidence['score'], refined))
+            result['native_exchange'] = reports
+            seen_sets = {tuple(row['indices']) for row in candidates}
+            for _, refined in sorted(produced, key=lambda row: -row[0]):
+                if refined in seen_sets:
+                    continue
+                seen_sets.add(refined)
                 candidates.insert(0, dict(indices=list(refined), score=coarse.score(refined),
                                           native_exchange=True))
         for candidate in candidates:
@@ -285,6 +299,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--native-rounds', type=int, default=0)
     parser.add_argument('--native-width', type=int, default=16)
+    parser.add_argument('--native-starts', type=int, default=1)
     args = parser.parse_args()
     record = json.loads(args.registry.read_text())
     registration = json.loads(args.registration.read_text())
@@ -316,7 +331,7 @@ if __name__ == '__main__':
                  args.scale, args.max_nodes, args.top_k, args.host_bytes, args.method,
                  args.beam, args.max_expansions, args.improve_rounds, args.improve_from,
                  args.restarts, args.perturb, args.seed,
-                 args.native_rounds, args.native_width)
+                 args.native_rounds, args.native_width, args.native_starts)
     result.update(pdf=record['pdf'], pdf_sha256=record['pdf_sha256'],
                   registry_sha256=hashlib.sha256(args.registry.read_bytes()).hexdigest(),
                   registration_sha256=hashlib.sha256(args.registration.read_bytes()).hexdigest(),
