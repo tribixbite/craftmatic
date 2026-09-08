@@ -21,20 +21,40 @@ from pathlib import Path
 import numpy as np
 
 
-def build(registry, recall, colors_from_reference=True):
-    """Every combination of the recalled bank poses, one per reference target."""
-    options = []
+def build(registry, recall):
+    """Reference-equivalent assemblies that respect the page's own quota.
+
+    A reference part matching this page's allocation key may belong to a later
+    page: the reference file order is not the PDF step order. So the diagnostic
+    enumerates subsets of the recalled targets of exactly the allocated size per
+    (part, colour), not every recalled target at once - otherwise it compares
+    the run against a strictly larger assembly and reports nonsense.
+    """
+    quotas = {}
+    for part, color in registry['allocated_pieces']:
+        quotas[(str(part), int(color))] = quotas.get((str(part), int(color)), 0) + 1
+    by_key = {}
     for row in recall['rows']:
         if not row['present']:
             continue
-        options.append([(row['part'], int(row['color']), index) for index in row['bank_indices']])
-    if not options:
-        return []
+        by_key.setdefault((row['part'], int(row['color'])), []).append(row)
+    per_key = []
+    for key, quota in sorted(quotas.items()):
+        available = by_key.get(key, [])
+        if len(available) < quota:
+            return []
+        choices = []
+        for subset in itertools.combinations(available, quota):
+            # Each chosen reference target may map to several equivalent bank poses.
+            for indices in itertools.product(*[row['bank_indices'] for row in subset]):
+                choices.append([(key[0], key[1], index) for index in indices])
+        per_key.append(choices)
     combinations = []
-    for choice in itertools.product(*options):
+    for choice in itertools.product(*per_key):
+        flat = [entry for group in choice for entry in group]
         items = [(part, color, np.asarray(registry['poses'][index]['T'], float))
-                 for part, color, index in choice]
-        combinations.append((tuple(index for _, _, index in choice), items))
+                 for part, color, index in flat]
+        combinations.append((tuple(index for _, _, index in flat), items))
     return combinations
 
 
