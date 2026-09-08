@@ -1,4 +1,4 @@
-"""Beam search over registered CAD depth/material layers for one page step.
+"""Beam and exchange search over registered CAD depth/material layers.
 
 The exact-cardinality depth-first search does not scale past about three
 additions: on a six-bracket page with 1,382 registered placements it spent its
@@ -11,66 +11,127 @@ Structure of the search:
   only if it is base-anchored or adjacent, in the witnessed support graph, to
   something already chosen. Every connected set containing an anchor has such
   an insertion order, so this rule loses no structurally legal set.
-* Ranking during expansion uses an occlusion-free union approximation of the
-  per-class intersection-over-union, computed on sparse per-candidate pixel
-  index segments. It is optimistic about correct pixels and pessimistic about
-  hidden false positives.
-* Only complete states are scored exactly, with the real depth composite, and
-  only those survivors are handed to native rendering. Nothing is selected
-  from an incomplete-assembly image score.
+* Both expansion and improvement rank by the *exact* per-class
+  intersection-over-union of the real depth composite. Each candidate paints
+  few pixels, so its effect on the composite is evaluated incrementally on
+  sparse per-candidate index segments rather than by rebuilding the canvas.
+  There is no occlusion-free approximation anywhere in the ranking.
+* A quota-preserving exchange pass, restarted from several beam states and
+  optionally perturbed, leaves the local optimum that greedy expansion commits
+  to. Diagnostics on two 40377 pages showed the reference-equivalent assembly
+  outscoring the selected one under the runtime scorer: the failure being
+  attacked here is search, not evidence.
 
-The beam width is an explicit incompleteness: a correct assembly whose partial
-prefixes all rank below the width is lost. That is recorded, never hidden.
-No reference model, set inventory or VLM participates.
+Beam width, exchange rounds and restarts are explicit incompleteness. Nothing
+here is a global optimum, and no reference model, set inventory or VLM
+participates.
 """
 from collections import Counter
 import numpy as np
 
 
-def _segments(masks, classes, target, labels_of):
-    """Sparse per-(candidate, class) pixel indices for correct and false pixels."""
-    correct, false = [], []
-    for index in range(len(masks)):
-        layer = labels_of(index)
-        for class_index, value in enumerate(classes):
-            painted = layer == value
-            correct.append(np.flatnonzero(painted & (target == value)))
-            false.append(np.flatnonzero(painted & (target != value)))
-    return correct, false
+class LayerComposite:
+    """Exact depth-composite scoring with sparse per-candidate updates."""
 
+    def __init__(self, base_depth, base_labels, depths, labels, target):
+        self.base_depth = np.asarray(base_depth)
+        self.base_labels = np.asarray(base_labels)
+        self.depths = np.asarray(depths)
+        self.labels = np.asarray(labels)
+        self.target = np.asarray(target)
+        self.classes = [int(v) for v in np.unique(self.target) if v > 0]
+        if not self.classes:
+            raise ValueError('Target has no scored material classes')
+        flat_target = self.target.reshape(-1)
+        self.flat_target = flat_target
+        self.areas = np.array([int(np.sum(flat_target == c)) for c in self.classes], np.int64)
+        pieces, lengths = [], []
+        for index in range(len(self.labels)):
+            painted = np.flatnonzero(np.isfinite(self.depths[index]).reshape(-1))
+            pieces.append(painted)
+            lengths.append(len(painted))
+        self.pix = np.concatenate(pieces) if pieces else np.zeros(0, np.int64)
+        self.lengths = np.asarray(lengths, np.int64)
+        self.offsets = np.zeros(len(lengths), np.int64)
+        np.cumsum(self.lengths[:-1], out=self.offsets[1:])
+        self.lab = np.concatenate([self.labels[i].reshape(-1)[p]
+                                   for i, p in enumerate(pieces)]) if pieces else np.zeros(0, np.uint8)
+        self.dep = np.concatenate([self.depths[i].reshape(-1)[p]
+                                   for i, p in enumerate(pieces)]) if pieces else np.zeros(0)
+        self.tgt = flat_target[self.pix] if self.pix.size else np.zeros(0, np.uint8)
+        # Segment id per painted pixel and a class value -> column map, so a
+        # delta is four filtered bincounts over (segment, class) cells rather
+        # than a separate pass per class.
+        self.seg = np.repeat(np.arange(len(self.lengths)), self.lengths)
+        self.column = np.full(256, -1, np.int64)
+        for column, value in enumerate(self.classes):
+            self.column[value] = column
+        self.target_column = self.column[self.tgt] if self.tgt.size else np.zeros(0, np.int64)
+        self.cells = len(self.lengths) * len(self.classes)
+        self.base_cell = self.seg * len(self.classes)
 
-def _flatten(segments):
-    lengths = np.array([len(s) for s in segments], np.int64)
-    offsets = np.zeros(len(segments), np.int64)
-    np.cumsum(lengths[:-1], out=offsets[1:])
-    flat = np.concatenate(segments) if len(segments) else np.zeros(0, np.int64)
-    return flat, offsets, lengths
+    def composite(self, chosen):
+        depth = self.base_depth.copy()
+        label = self.base_labels.copy()
+        for index in sorted(chosen):
+            take = np.isfinite(self.depths[index]) & (self.depths[index] >= depth)
+            depth[take] = self.depths[index][take]
+            label[take] = self.labels[index][take]
+        return depth, label
 
+    def counts(self, label):
+        flat = label.reshape(-1)
+        correct = np.array([int(np.sum((flat == c) & (self.flat_target == c)))
+                            for c in self.classes], np.int64)
+        false = np.array([int(np.sum((flat == c) & (self.flat_target != c)))
+                          for c in self.classes], np.int64)
+        return correct, false
 
-def _gains(flat, offsets, lengths, covered):
-    """Per-segment count of indices not already covered by the state.
+    def metric(self, correct, false):
+        return float(np.mean(correct / np.maximum(1, self.areas + false)))
 
-    A prefix-sum difference is used rather than `add.reduceat`, which cannot
-    represent an empty trailing segment: candidates that paint no pixel of a
-    class are ordinary here, not an error.
-    """
-    if len(flat) == 0:
-        return np.zeros(len(offsets), np.int64)
-    running = np.zeros(len(flat) + 1, np.int64)
-    np.cumsum(~covered[flat], out=running[1:])
-    return running[offsets + lengths] - running[offsets]
+    def score(self, chosen):
+        return self.metric(*self.counts(self.composite(chosen)[1]))
+
+    def deltas(self, depth, label):
+        """Per-candidate change in correct and false counts if added to (depth, label).
+
+        Evaluated on the candidate's own painted pixels only, which is exact:
+        a candidate cannot change a pixel it does not paint, and the winner at
+        a painted pixel is decided by the same depth comparison the composite
+        uses.
+        """
+        n = len(self.lengths)
+        if self.pix.size == 0:
+            zero = np.zeros((n, len(self.classes)), np.int64)
+            return zero, zero
+        flat_depth = depth.reshape(-1)
+        flat_label = label.reshape(-1)
+        take = self.dep >= flat_depth[self.pix]
+        old = np.where(take, flat_label[self.pix], 0)
+        new = np.where(take, self.lab, 0)
+        columns = len(self.classes)
+        new_column = self.column[new]
+        old_column = self.column[old]
+        correct = np.zeros(self.cells, np.int64)
+        false = np.zeros(self.cells, np.int64)
+        for column_of, sign in ((new_column, 1), (old_column, -1)):
+            scored = column_of >= 0
+            hit = scored & (column_of == self.target_column)
+            miss = scored & ~hit
+            cell = self.base_cell + column_of
+            correct += sign * np.bincount(cell[hit], minlength=self.cells)
+            false += sign * np.bincount(cell[miss], minlength=self.cells)
+        return correct.reshape(n, columns), false.reshape(n, columns)
 
 
 def search_beam(base_depth, base_labels, depths, labels, keys, quotas, target,
                 base_supported=(), support_edges=(), conflict_test=None,
                 beam=64, top_k=16, max_expansions=2_000_000,
-                improve_rounds=8, improve_from=4):
-    """Return the highest exactly-scored complete assemblies found by the beam."""
+                improve_rounds=8, improve_from=4, restarts=0, perturb=2, seed=0):
+    """Return the highest exactly-scored complete assemblies found."""
     depths = np.asarray(depths)
     labels = np.asarray(labels)
-    target = np.asarray(target)
-    base_labels = np.asarray(base_labels)
-    base_depth = np.asarray(base_depth)
     n = len(labels)
     keys = list(keys)
     quotas = dict(quotas)
@@ -80,37 +141,12 @@ def search_beam(base_depth, base_labels, depths, labels, keys, quotas, target,
         raise ValueError('Candidate key missing from the quota')
     if beam < 1 or top_k < 1:
         raise ValueError('Beam width and retained count must be positive')
-    if labels.shape != depths.shape or labels.shape[1:] != target.shape:
+    if labels.shape != depths.shape or labels.shape[1:] != np.asarray(target).shape:
         raise ValueError('Layer dimensions mismatch')
-    classes = [int(v) for v in np.unique(target) if v > 0]
-    if not classes:
-        raise ValueError('Target has no scored material classes')
     total = sum(quotas.values())
     if total < 1:
         raise ValueError('Empty quota')
-
-    flat_target = target.reshape(-1)
-    areas = np.array([int(np.sum(flat_target == c)) for c in classes], np.int64)
-    flat_base = base_labels.reshape(-1)
-    pixels = flat_target.size
-    class_count = len(classes)
-    # The existing body's own correct and false pixels are pre-marked as covered
-    # so that a candidate painting over them is not credited a second time.
-    seed_correct = np.zeros(class_count * pixels, bool)
-    seed_false = np.zeros(class_count * pixels, bool)
-    for class_index, value in enumerate(classes):
-        painted = flat_base == value
-        window = slice(class_index * pixels, (class_index + 1) * pixels)
-        seed_correct[window] = painted & (flat_target == value)
-        seed_false[window] = painted & (flat_target != value)
-    correct_segments, false_segments = _segments(
-        labels, classes, flat_target, lambda i: labels[i].reshape(-1))
-    correct_flat, correct_offsets, correct_lengths = _flatten(correct_segments)
-    false_flat, false_offsets, false_lengths = _flatten(false_segments)
-
-    def totals(covered):
-        return np.array([int(np.sum(covered[c * pixels:(c + 1) * pixels]))
-                         for c in range(class_count)], np.int64)
+    model = LayerComposite(base_depth, base_labels, depths, labels, target)
 
     anchored = set(int(i) for i in base_supported)
     adjacency = [set() for _ in range(n)]
@@ -120,43 +156,51 @@ def search_beam(base_depth, base_labels, depths, labels, keys, quotas, target,
         adjacency[a].add(b)
         adjacency[b].add(a)
 
-    def approximate(correct_counts, false_counts):
-        return float(np.mean(correct_counts / np.maximum(1, areas + false_counts)))
+    def connected(chosen):
+        wanted = set(chosen)
+        seen = wanted & anchored
+        todo = list(seen)
+        while todo:
+            new = (adjacency[todo.pop()] & wanted) - seen
+            seen.update(new)
+            todo.extend(new)
+        return seen == wanted
 
-    start = dict(chosen=(), counts=Counter(), covered_correct=seed_correct,
-                 covered_false=seed_false, correct=totals(seed_correct),
-                 false=totals(seed_false), frontier=set(anchored))
+    def conflicts_with(index, chosen):
+        return conflict_test is not None and any(conflict_test(index, other) for other in chosen)
+
+    def rank(chosen, allowed):
+        """Exact score of each allowed addition to `chosen`, -inf elsewhere."""
+        depth, label = model.composite(chosen)
+        correct, false = model.counts(label)
+        dc, df = model.deltas(depth, label)
+        scores = np.mean((correct + dc) / np.maximum(1, model.areas + false + df), axis=1)
+        scores[~allowed] = -np.inf
+        return scores
+
+    start = dict(chosen=(), counts=Counter(), frontier=set(anchored))
     states = [start]
     expansions = 0
     budget_hit = False
     for _ in range(total):
         nominees = []
         for state in states:
-            available = np.zeros(n, bool)
-            candidates = state['frontier'] if state['chosen'] else anchored
-            for index in candidates:
+            allowed = np.zeros(n, bool)
+            for index in (state['frontier'] if state['chosen'] else anchored):
                 if state['counts'][keys[index]] < quotas[keys[index]]:
-                    available[index] = True
-            if not available.any():
+                    allowed[index] = True
+            if not allowed.any():
                 continue
-            gain_correct = _gains(correct_flat, correct_offsets, correct_lengths,
-                                  state['covered_correct']).reshape(n, class_count)
-            gain_false = _gains(false_flat, false_offsets, false_lengths,
-                                state['covered_false']).reshape(n, class_count)
-            scores = np.mean((state['correct'] + gain_correct)
-                             / np.maximum(1, areas + state['false'] + gain_false), axis=1)
-            scores[~available] = -1.
-            order = np.argsort(-scores, kind='stable')
+            scores = rank(state['chosen'], allowed)
             taken = 0
-            for index in order:
-                if scores[index] < 0 or taken >= beam:
+            for index in np.argsort(-scores, kind='stable'):
+                if not np.isfinite(scores[index]) or taken >= beam:
                     break
                 expansions += 1
                 if expansions > max_expansions:
                     budget_hit = True
                     break
-                if conflict_test is not None and any(conflict_test(int(index), j)
-                                                     for j in state['chosen']):
+                if conflicts_with(int(index), state['chosen']):
                     continue
                 nominees.append((float(scores[index]), state, int(index)))
                 taken += 1
@@ -172,90 +216,46 @@ def search_beam(base_depth, base_labels, depths, labels, keys, quotas, target,
             if chosen in seen:
                 continue
             seen.add(chosen)
-            covered_correct = state['covered_correct'].copy()
-            covered_false = state['covered_false'].copy()
-            for class_index in range(class_count):
-                segment = index * class_count + class_index
-                covered_correct[correct_flat[correct_offsets[segment]:
-                                             correct_offsets[segment] + correct_lengths[segment]]] = True
-                covered_false[false_flat[false_offsets[segment]:
-                                         false_offsets[segment] + false_lengths[segment]]] = True
             counts = state['counts'].copy()
             counts[keys[index]] += 1
-            correct = totals(covered_correct)
-            false = totals(covered_false)
-            fresh.append(dict(chosen=chosen, counts=counts, covered_correct=covered_correct,
-                              covered_false=covered_false, correct=correct, false=false,
-                              frontier=(state['frontier'] | adjacency[index] | anchored) - set(chosen),
-                              approximate=approximate(correct, false)))
+            fresh.append(dict(chosen=chosen, counts=counts, score=score,
+                              frontier=(state['frontier'] | adjacency[index] | anchored) - set(chosen)))
             if len(fresh) >= beam:
                 break
         states = fresh
         if budget_hit:
             break
 
-    def connected(chosen):
-        wanted = set(chosen)
-        seen = wanted & anchored
-        todo = list(seen)
-        while todo:
-            new = (adjacency[todo.pop()] & wanted) - seen
-            seen.update(new)
-            todo.extend(new)
-        return seen == wanted
+    def complete(chosen):
+        counts = Counter(keys[i] for i in chosen)
+        return all(counts[k] == q for k, q in quotas.items()) and connected(chosen)
 
-    def exact(chosen):
-        depth = base_depth.copy()
-        label = base_labels.copy()
-        for index in sorted(chosen):
-            take = np.isfinite(depths[index]) & (depths[index] >= depth)
-            depth[take] = depths[index][take]
-            label[take] = labels[index][take]
-        return float(np.mean([np.sum((target == c) & (label == c))
-                              / max(1, np.sum((target == c) | (label == c))) for c in classes]))
-
-    def composite_of(chosen):
-        depth = base_depth.copy()
-        label = base_labels.copy()
-        for index in sorted(chosen):
-            take = np.isfinite(depths[index]) & (depths[index] >= depth)
-            depth[take] = depths[index][take]
-            label[take] = labels[index][take]
-        return depth, label
-
-    def metric_of(label):
-        return float(np.mean([np.sum((target == c) & (label == c))
-                              / max(1, np.sum((target == c) | (label == c))) for c in classes]))
-
-    def legal(chosen, index):
-        if conflict_test is not None and any(conflict_test(index, other) for other in chosen):
-            return False
-        return connected(tuple(chosen) + (index,))
-
-    def improve(chosen, score, rounds):
-        """Greedy single-placement exchange on the exact depth composite.
-
-        The beam commits to early additions before the later ones are known;
-        an exchange pass can leave that local optimum. Only quota-preserving
-        exchanges are considered, so the assembly stays exactly allocated.
-        """
+    def exchange(chosen, rounds):
+        """Steepest-descent quota-preserving single-placement exchange."""
         chosen = list(chosen)
+        score = model.score(chosen)
         swaps = 0
         for _ in range(rounds):
             best = None
             for position, outgoing in enumerate(chosen):
                 rest = chosen[:position] + chosen[position + 1:]
-                partial_depth, partial_label = composite_of(rest)
-                for incoming in range(n):
-                    if incoming in chosen or keys[incoming] != keys[outgoing]:
+                depth, label = model.composite(rest)
+                correct, false = model.counts(label)
+                dc, df = model.deltas(depth, label)
+                scores = np.mean((correct + dc) / np.maximum(1, model.areas + false + df), axis=1)
+                same_key = np.array([keys[i] == keys[outgoing] for i in range(n)])
+                scores = np.where(same_key, scores, -np.inf)
+                scores[list(chosen)] = -np.inf
+                for index in np.argsort(-scores, kind='stable')[:64]:
+                    value = float(scores[index])
+                    if not np.isfinite(value) or value <= score + 1e-12:
+                        break
+                    if best is not None and value <= best[0]:
+                        break
+                    if conflicts_with(int(index), rest) or not connected(rest + [int(index)]):
                         continue
-                    if not legal(rest, incoming):
-                        continue
-                    take = np.isfinite(depths[incoming]) & (depths[incoming] >= partial_depth)
-                    label = np.where(take, labels[incoming], partial_label)
-                    value = metric_of(label)
-                    if value > score + 1e-12 and (best is None or value > best[0]):
-                        best = (value, position, incoming)
+                    best = (value, position, int(index))
+                    break
             if best is None:
                 break
             score, position, incoming = best
@@ -263,46 +263,63 @@ def search_beam(base_depth, base_labels, depths, labels, keys, quotas, target,
             swaps += 1
         return tuple(sorted(chosen)), score, swaps
 
-    retained = []
-    for state in states:
-        if any(state['counts'][k] != q for k, q in quotas.items()):
-            continue
-        if not connected(state['chosen']):
-            continue
-        retained.append(dict(indices=tuple(state['chosen']), score=exact(state['chosen']),
-                             approximate_score=state['approximate']))
+    retained = [dict(indices=tuple(s['chosen']), score=model.score(s['chosen']))
+                for s in states if complete(s['chosen'])]
     retained.sort(key=lambda row: (-row['score'], row['indices']))
     del retained[top_k:]
-    improved, total_swaps = [], 0
-    sources = retained[:max(0, improve_from)] if improve_rounds > 0 else []
-    for row in sources:
-        indices, score, swaps = improve(row['indices'], row['score'], improve_rounds)
-        total_swaps += swaps
-        if swaps:
-            improved.append(dict(indices=indices, score=score,
-                                 approximate_score=row['approximate_score'],
-                                 improved_from=list(row['indices']), exchanges=swaps))
-    unique, seen_keys = [], set()
-    for row in sorted(improved + retained, key=lambda r: (-r['score'], r['indices'])):
-        if row['indices'] in seen_keys:
-            continue
-        seen_keys.add(row['indices'])
-        unique.append(row)
-    del unique[top_k:]
+
+    found, exchanges = {row['indices']: row for row in retained}, 0
+    if improve_rounds > 0:
+        generator = np.random.default_rng(seed)
+        for row in retained[:max(0, improve_from)]:
+            indices, score, swaps = exchange(row['indices'], improve_rounds)
+            exchanges += swaps
+            if complete(indices):
+                found.setdefault(indices, dict(indices=indices, score=score,
+                                               improved_from=list(row['indices']),
+                                               exchanges=swaps))
+            current = indices
+            for _ in range(max(0, restarts)):
+                # Iterated local search: displace part of the solution, then let
+                # the exchange pass re-optimise from there.
+                trial = list(current)
+                for position in generator.choice(len(trial), size=min(perturb, len(trial)),
+                                                 replace=False):
+                    outgoing = trial[position]
+                    options = [i for i in range(n) if keys[i] == keys[outgoing]
+                               and i not in trial]
+                    if not options:
+                        continue
+                    pick = int(generator.choice(options))
+                    rest = [v for k, v in enumerate(trial) if k != position]
+                    if conflicts_with(pick, rest) or not connected(rest + [pick]):
+                        continue
+                    trial[position] = pick
+                if not complete(tuple(sorted(trial))):
+                    continue
+                indices, score, swaps = exchange(tuple(sorted(trial)), improve_rounds)
+                exchanges += swaps
+                if complete(indices) and indices not in found:
+                    found[indices] = dict(indices=indices, score=score,
+                                          improved_from=list(current), exchanges=swaps,
+                                          restart=True)
+                if indices in found and found[indices]['score'] > model.score(current):
+                    current = indices
+
+    unique = sorted(found.values(), key=lambda row: (-row['score'], row['indices']))[:top_k]
     return dict(indices=unique[0]['indices'] if unique else None,
                 score=unique[0]['score'] if unique else None,
                 candidates=unique, top_k=top_k, beam=beam, expansions=expansions,
                 expansion_budget=max_expansions, budget_hit=budget_hit,
                 complete_states=len(retained), final_states=len(states),
-                improved_states=len(improved), exchanges=total_swaps,
-                improve_rounds=improve_rounds, improve_from=improve_from,
+                improved_states=sum(1 for row in unique if 'improved_from' in row),
+                exchanges=exchanges, improve_rounds=improve_rounds, improve_from=improve_from,
+                restarts=restarts, perturb=perturb,
                 search_exhaustive=False, truth_used=False, certified=False,
-                method='Support-frontier beam over registered layers; occlusion-free union '
-                       'ranking during expansion; exact depth-composite score for complete '
-                       'states; quota-preserving single-placement exchange improvement',
-                limitations='Beam width is an explicit incompleteness: an assembly whose partial '
-                            'prefixes all rank below the width is never reached. Union ranking '
-                            'ignores mutual occlusion between additions. Exchange improvement is '
-                            'a local optimum of the coarse composite, not a global optimum. '
-                            'Optimality is not claimed inside or outside the registered layer '
-                            'representation.')
+                method='Support-frontier beam over registered layers ranked by the exact depth '
+                       'composite through sparse per-candidate deltas, then quota-preserving '
+                       'exchange with optional perturbed restarts',
+                limitations='Beam width, exchange rounds and restart count are explicit '
+                            'incompleteness: an assembly whose partial prefixes all rank below the '
+                            'width and which no exchange path reaches is never found. Optimality '
+                            'is not claimed inside or outside the registered layer representation.')
