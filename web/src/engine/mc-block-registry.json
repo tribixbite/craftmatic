@@ -10,7 +10,7 @@
     "air",
     "glass", "glass_pane", "tinted_glass",
     "iron_bars", "ladder",
-    "glowstone", "sea_lantern", "shroomlight", "ochre_froglight", "verdant_froglight", "pearlescent_froglight",
+    "glowstone", "lantern", "soul_lantern", "sea_lantern", "shroomlight", "ochre_froglight", "verdant_froglight", "pearlescent_froglight",
     "redstone_lamp", "jack_o_lantern",
     "stone", "smooth_stone", "cobblestone", "mossy_cobblestone", "stone_bricks", "mossy_stone_bricks", "chiseled_stone_bricks",
     "andesite", "polished_andesite", "diorite", "polished_diorite", "granite", "polished_granite",
@@ -123,6 +123,10 @@
     },
     "ladder": {
       "facing": ["north", "south", "east", "west"],
+      "waterlogged": ["true", "false"]
+    },
+    "lantern": {
+      "hanging": ["true", "false"],
       "waterlogged": ["true", "false"]
     }
   }

@@ -174,7 +174,13 @@ export async function runSchemPipeline(
   let lightFill: LightFillResult | undefined;
   if (input.lightFill) {
     onProgress('lighting enclosed interiors');
-    lightFill = addInteriorLights(grid, { lightBlock: profile.lightBlock });
+    lightFill = addInteriorLights(grid, {
+      lightBlock: profile.lightBlock,
+      // A lantern is the partial-block form of a light, so it is only reached
+      // when the shape passes are on — with them off the light fill behaves
+      // exactly as it did before slice 6.
+      ...(input.shapes === true && profile.lightElement ? { floorLightBlock: profile.lightElement } : {}),
+    });
   }
 
   const nonAir = grid.countNonAir();

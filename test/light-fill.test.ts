@@ -122,6 +122,46 @@ describe('addInteriorLights', () => {
     expect(countBlock(g, LIGHT)).toBe(0);
   });
 
+  it('puts the partial-block light on a supported floor (slice 6)', () => {
+    // The whole point of `floorLightBlock`: a lantern reads as a lamp in a room
+    // instead of a glowing cube filling a floor tile, at the same light level.
+    const g = sealedRoom(4);
+    const lantern = 'minecraft:lantern[hanging=false,waterlogged=false]';
+    const r = addInteriorLights(g, { floorLightBlock: lantern });
+    expect(r.lights).toBeGreaterThan(0);
+    expect(countBlock(g, lantern)).toBe(r.lights);
+    expect(countBlock(g, LIGHT)).toBe(0);
+  });
+
+  it('never stands a lantern on nothing', () => {
+    // A standing lantern with air under it pops off on the first block update,
+    // so every one placed must have something solid below. (The y === 0 case
+    // the guard also covers is unreachable in practice — air at y === 0 is on
+    // the grid boundary and is therefore exterior air, never a pocket — but the
+    // guard is what makes that a property rather than an accident.)
+    const g = sealedRoom(5);
+    const lantern = 'minecraft:lantern[hanging=false,waterlogged=false]';
+    const r = addInteriorLights(g, { floorLightBlock: lantern });
+    expect(r.lights).toBeGreaterThan(0);
+    let checked = 0;
+    for (let y = 0; y < g.height; y++)
+      for (let z = 0; z < g.length; z++)
+        for (let x = 0; x < g.width; x++) {
+          if (g.get(x, y, z) !== lantern) continue;
+          checked++;
+          expect(y).toBeGreaterThan(0);
+          expect(g.get(x, y - 1, z)).not.toBe('minecraft:air');
+        }
+    expect(checked).toBe(r.lights);
+  });
+
+  it('is unchanged when no partial-block light is asked for', () => {
+    const a = sealedRoom(4);
+    const b = sealedRoom(4);
+    expect(addInteriorLights(a)).toEqual(addInteriorLights(b, { floorLightBlock: LIGHT }));
+    expect(a.rawData).toEqual(b.rawData);
+  });
+
   it('lights two separate sealed rooms independently', () => {
     // Two hollow boxes side by side in one grid, separated by solid stone.
     const g = new BlockGrid(17, 8, 8);

@@ -435,6 +435,21 @@ export interface ShapeStats {
    * `noVariant` broken down by block id. This is the measured value of the
    * proposal's Pass D: every count here is a cell that WOULD take a slab if the
    * colour profile mapped that LEGO colour to a slab-capable material.
+   *
+   * WHAT REMAINS HERE AFTER slice 4, and why a CARPET does not fix it. Vanilla
+   * gives a dyed colour exactly one partial shape — `<colour>_carpet`, 1/16 of
+   * a block — so a carpet is the only thing that could ever refine these cells.
+   * It was built and measured on 21063 (2026-09-08) and removed:
+   *   • at the SAFE threshold (occupancy <= 0.25, where 1/16 really is the
+   *     nearest shape) it fired on 251 cells of 87,800 — and on ZERO of the
+   *     16,688 black ones, which sit at 0.4-0.7 of their cell;
+   *   • at the threshold the no-slab arithmetic actually implies (~0.53, since
+   *     the alternative is a whole cube) it would thin the top row of every
+   *     dyed wall to a sheet — the exact "sub-cell relief collapses" failure
+   *     that got both voxelization rewrites rejected;
+   *   • and unlike a slab it is a MATERIAL change (concrete → wool), so it
+   *     breaks the "0 recoloured" property every gate here is written against.
+   * So these cells stay cubes, and this map stays the honest record of it.
    */
   noVariantByBlock: Record<string, number>;
 }
@@ -549,6 +564,9 @@ export function applyBlockShapes(grid: BlockGrid, hints: ShapeHints): ShapeStats
         }
         const variants = variantsOf(idx);
         if (!variants.slab) {
+          // No slab in this family, and nothing else vanilla offers is an
+          // honest substitute. A dyed CARPET was built, measured and REMOVED —
+          // see the slice-6 note in ShapeStats.noVariantByBlock's docs.
           stats.noVariant++;
           const block = grid.blockStateFromIndex(idx);
           stats.noVariantByBlock[block] = (stats.noVariantByBlock[block] ?? 0) + 1;
