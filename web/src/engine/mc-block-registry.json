@@ -5,24 +5,26 @@
     "white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray",
     "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"
   ],
-  "colorFamilies": ["concrete", "concrete_powder", "wool", "stained_glass", "terracotta", "glazed_terracotta"],
+  "colorFamilies": ["concrete", "concrete_powder", "wool", "stained_glass", "stained_glass_pane", "terracotta", "glazed_terracotta"],
   "blocks": [
     "air",
-    "glass", "tinted_glass",
+    "glass", "glass_pane", "tinted_glass",
+    "iron_bars", "ladder",
     "glowstone", "sea_lantern", "shroomlight", "ochre_froglight", "verdant_froglight", "pearlescent_froglight",
     "redstone_lamp", "jack_o_lantern",
-    "stone", "smooth_stone", "cobblestone", "stone_bricks", "mossy_stone_bricks", "chiseled_stone_bricks",
+    "stone", "smooth_stone", "cobblestone", "mossy_cobblestone", "stone_bricks", "mossy_stone_bricks", "chiseled_stone_bricks",
     "andesite", "polished_andesite", "diorite", "polished_diorite", "granite", "polished_granite",
-    "deepslate", "polished_deepslate", "deepslate_bricks", "deepslate_tiles", "tuff", "calcite",
+    "deepslate", "cobbled_deepslate", "polished_deepslate", "deepslate_bricks", "deepslate_tiles", "tuff", "calcite",
     "basalt", "smooth_basalt", "blackstone", "polished_blackstone", "polished_blackstone_bricks",
     "sandstone", "smooth_sandstone", "chiseled_sandstone", "cut_sandstone",
     "red_sandstone", "smooth_red_sandstone", "cut_red_sandstone",
-    "bricks", "nether_bricks", "red_nether_bricks", "prismarine", "prismarine_bricks", "dark_prismarine",
+    "bricks", "mud_bricks", "nether_bricks", "red_nether_bricks", "prismarine", "prismarine_bricks", "dark_prismarine",
     "quartz_block", "smooth_quartz", "chiseled_quartz_block", "quartz_bricks", "quartz_pillar",
     "purpur_block", "purpur_pillar", "end_stone", "end_stone_bricks", "obsidian", "crying_obsidian", "bedrock",
     "netherrack", "magma_block", "soul_sand", "soul_soil", "gilded_blackstone",
     "iron_block", "gold_block", "diamond_block", "emerald_block", "lapis_block", "redstone_block",
     "coal_block", "netherite_block", "copper_block", "exposed_copper", "weathered_copper", "oxidized_copper",
+    "waxed_cut_copper", "waxed_exposed_cut_copper", "waxed_weathered_cut_copper", "waxed_oxidized_cut_copper",
     "raw_iron_block", "raw_copper_block", "raw_gold_block", "amethyst_block", "honeycomb_block",
     "bone_block", "slime_block", "honey_block", "dried_kelp_block", "hay_block", "sponge",
     "dirt", "coarse_dirt", "rooted_dirt", "grass_block", "podzol", "mycelium", "mud", "packed_mud",
@@ -35,6 +37,20 @@
     "oak_leaves", "spruce_leaves", "birch_leaves", "jungle_leaves", "acacia_leaves", "dark_oak_leaves",
     "water", "lava"
   ],
+  "_elementComment": "Ids the semantic-element pass (engine/part-elements.ts) may emit. Same discipline as the shape ids: listed only for a base material already verified in `blocks`, and only where vanilla really has that element. Wood has fences and no walls; stone has walls and no fences, except nether_brick_fence — the one non-wood fence in the game. There is NO stone_wall, smooth_stone_wall, polished_andesite_wall, quartz wall or plank wall.",
+  "fences": [
+    "oak_fence", "spruce_fence", "birch_fence", "jungle_fence", "acacia_fence",
+    "dark_oak_fence", "mangrove_fence", "cherry_fence", "bamboo_fence",
+    "crimson_fence", "warped_fence", "nether_brick_fence"
+  ],
+  "walls": [
+    "cobblestone_wall", "mossy_cobblestone_wall", "stone_brick_wall", "mossy_stone_brick_wall",
+    "andesite_wall", "diorite_wall", "granite_wall",
+    "cobbled_deepslate_wall", "polished_deepslate_wall", "deepslate_brick_wall", "deepslate_tile_wall",
+    "blackstone_wall", "polished_blackstone_wall", "polished_blackstone_brick_wall",
+    "sandstone_wall", "red_sandstone_wall", "brick_wall", "mud_brick_wall",
+    "nether_brick_wall", "red_nether_brick_wall", "prismarine_wall", "end_stone_brick_wall"
+  ],
   "_shapeComment": "Partial-geometry ids the block-shape passes (engine/block-shapes.ts) may emit. DISCIPLINE: a shape id is listed here ONLY for a base material already verified in `blocks` above, and only where vanilla really has that shape — Minecraft has smooth_stone_slab but NO smooth_stone_stairs, cut_sandstone_slab but NO cut_sandstone_stairs. There is NO slab or stair for any dyed family (concrete, wool, terracotta, stained glass): that is a hard vanilla limit, not an omission here.",
   "slabs": [
     "stone_slab", "smooth_stone_slab", "cobblestone_slab", "mossy_cobblestone_slab",
@@ -45,7 +61,9 @@
     "blackstone_slab", "polished_blackstone_slab", "polished_blackstone_brick_slab",
     "sandstone_slab", "smooth_sandstone_slab", "cut_sandstone_slab",
     "red_sandstone_slab", "smooth_red_sandstone_slab", "cut_red_sandstone_slab",
-    "brick_slab", "nether_brick_slab", "red_nether_brick_slab",
+    "brick_slab", "mud_brick_slab", "nether_brick_slab", "red_nether_brick_slab",
+    "waxed_cut_copper_slab", "waxed_exposed_cut_copper_slab",
+    "waxed_weathered_cut_copper_slab", "waxed_oxidized_cut_copper_slab",
     "prismarine_slab", "prismarine_brick_slab", "dark_prismarine_slab",
     "quartz_slab", "smooth_quartz_slab", "purpur_slab", "end_stone_brick_slab",
     "oak_slab", "spruce_slab", "birch_slab", "jungle_slab", "acacia_slab",
@@ -61,7 +79,9 @@
     "blackstone_stairs", "polished_blackstone_stairs", "polished_blackstone_brick_stairs",
     "sandstone_stairs", "smooth_sandstone_stairs",
     "red_sandstone_stairs", "smooth_red_sandstone_stairs",
-    "brick_stairs", "nether_brick_stairs", "red_nether_brick_stairs",
+    "brick_stairs", "mud_brick_stairs", "nether_brick_stairs", "red_nether_brick_stairs",
+    "waxed_cut_copper_stairs", "waxed_exposed_cut_copper_stairs",
+    "waxed_weathered_cut_copper_stairs", "waxed_oxidized_cut_copper_stairs",
     "prismarine_stairs", "prismarine_brick_stairs", "dark_prismarine_stairs",
     "quartz_stairs", "smooth_quartz_stairs", "purpur_stairs", "end_stone_brick_stairs",
     "oak_stairs", "spruce_stairs", "birch_stairs", "jungle_stairs", "acacia_stairs",
@@ -78,6 +98,31 @@
       "facing": ["north", "south", "east", "west"],
       "half": ["top", "bottom"],
       "shape": ["straight", "inner_left", "inner_right", "outer_left", "outer_right"],
+      "waterlogged": ["true", "false"]
+    },
+    "_pane": {
+      "east": ["true", "false"], "north": ["true", "false"],
+      "south": ["true", "false"], "west": ["true", "false"],
+      "waterlogged": ["true", "false"]
+    },
+    "iron_bars": {
+      "east": ["true", "false"], "north": ["true", "false"],
+      "south": ["true", "false"], "west": ["true", "false"],
+      "waterlogged": ["true", "false"]
+    },
+    "_fence": {
+      "east": ["true", "false"], "north": ["true", "false"],
+      "south": ["true", "false"], "west": ["true", "false"],
+      "waterlogged": ["true", "false"]
+    },
+    "_wall": {
+      "east": ["none", "low", "tall"], "north": ["none", "low", "tall"],
+      "south": ["none", "low", "tall"], "west": ["none", "low", "tall"],
+      "up": ["true", "false"],
+      "waterlogged": ["true", "false"]
+    },
+    "ladder": {
+      "facing": ["north", "south", "east", "west"],
       "waterlogged": ["true", "false"]
     }
   }

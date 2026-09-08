@@ -17,6 +17,7 @@
  */
 
 import { studioColorToBlock } from './studio-colors.js';
+import { texturedLdrawColorToBlock, texturedStudioColorToBlock } from './textured-palette.js';
 
 export type BrickColorSpace = 'ldraw' | 'bl';
 
@@ -32,6 +33,16 @@ export interface BlockMappingProfile {
 
 export const DEFAULT_PROFILE_ID = 'default';
 
+/**
+ * The perceptual/shape-capable palette (engine/textured-palette.ts).
+ *
+ * NOT the default, deliberately: it repaints every export, and the proposal's
+ * own rule (§6) is that a palette change ships selectable until a corpus-wide
+ * A/B says otherwise. It is the recommended pairing with the Block shapes
+ * setting, which is what the settings popover says.
+ */
+export const TEXTURED_PROFILE_ID = 'textured';
+
 export const BLOCK_PROFILES: readonly BlockMappingProfile[] = [
   {
     id: DEFAULT_PROFILE_ID,
@@ -39,6 +50,14 @@ export const BLOCK_PROFILES: readonly BlockMappingProfile[] = [
     description:
       'LEGO colours → dyed concrete, with stained glass for transparent bricks and metal blocks for chrome/gold.',
     colorFn: (space) => (space === 'bl' ? studioColorToBlock : undefined),
+    lightBlock: 'minecraft:glowstone',
+  },
+  {
+    id: TEXTURED_PROFILE_ID,
+    label: 'Textured + shapes — stone, wood & sandstone',
+    description:
+      'Perceptual (OKLab) match onto stone, sandstone, brick, quartz and plank families, which — unlike dyed concrete — have slabs and stairs. Pair it with Block shapes: on 21063 that takes shaped cells from 5,367 to 57,702. Saturated colours keep their concrete.',
+    colorFn: (space) => (space === 'bl' ? texturedStudioColorToBlock : texturedLdrawColorToBlock),
     lightBlock: 'minecraft:glowstone',
   },
 ];

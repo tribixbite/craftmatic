@@ -156,7 +156,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       <label class="mc-set-check">
         <input type="checkbox" id="mc-set-shapes">
         <span>Block shapes<br>
-          <span class="mc-set-note">Uses slabs and stairs where a plate or slope is genuinely half a block. Only refines blocks that are already solid — never removes any. Vanilla has no dyed slab, so concrete-coloured bricks stay full cubes.</span>
+          <span class="mc-set-note">Uses slabs and stairs where a plate or slope is genuinely half a block. Only refines blocks that are already solid — never removes any. Vanilla has no dyed slab, so with the default mapping only sandstone bricks can take one; the “Textured + shapes” mapping above is what unlocks the rest.</span>
         </span>
       </label>
     </div>

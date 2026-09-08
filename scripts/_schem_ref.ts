@@ -43,6 +43,9 @@ const lightFill = process.argv.includes('--lights');
 const bridgeParts = !process.argv.includes('--no-bridge');
 /** A/B switch for the block-shape pass (see engine/block-shapes.ts). */
 const shapes = !process.argv.includes('--no-shapes');
+/** `--profile=textured` to A/B a block-mapping profile (see engine/block-profiles.ts). */
+const profile = process.argv.find(a => a.startsWith('--profile='))?.slice('--profile='.length)
+  ?? DEFAULT_SCHEM_SETTINGS.profile;
 
 const b = readFileSync(file);
 const io = await extractIoModel(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
@@ -60,7 +63,7 @@ const { grid, bytes, shapes: shapeStats } = await runSchemPipeline({
     options: { cellLDU: plan.cellLDU, maxDim: 700, bridgeParts },
   },
   format: 'schem',
-  profile: DEFAULT_SCHEM_SETTINGS.profile,
+  profile,
   lightFill,
   shapes,
 });
@@ -72,6 +75,7 @@ console.log(JSON.stringify({
   file,
   cellLDU: plan.cellLDU,
   colorSpace: io.colorSpace,
+  profile,
   bridgeParts,
   lightFill,
   shapes,

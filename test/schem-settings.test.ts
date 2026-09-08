@@ -15,6 +15,7 @@ import {
 } from '../web/src/engine/schem-settings.js';
 import { getBlockProfile, BLOCK_PROFILES, DEFAULT_PROFILE_ID } from '../web/src/engine/block-profiles.js';
 import { studioColorToBlock } from '../web/src/engine/studio-colors.js';
+import { ldrawColorToBlock } from '../web/src/engine/ldraw-colors.js';
 
 /** The pre-S4 inline ladder, verbatim from lego.ts before the extraction. */
 function legacyAutoCell(span: SpanLDU): number {
@@ -147,9 +148,20 @@ describe('planResolution — explicit override', () => {
 });
 
 describe('block-mapping profiles', () => {
-  it('ships exactly one real profile (the seam, not fake entries)', () => {
-    expect(BLOCK_PROFILES).toHaveLength(1);
+  it('ships only real profiles (distinct tables, not fake entries)', () => {
+    // The rule the seam was built with (block-profiles.ts header): an entry
+    // must be a genuinely different mapping table, never a re-point at the
+    // default. Two ship today — `default` (concrete/glass) and `textured`
+    // (OKLab onto slab-capable stone/wood families, slice 4).
+    expect(BLOCK_PROFILES.length).toBeGreaterThanOrEqual(1);
     expect(BLOCK_PROFILES[0]!.id).toBe(DEFAULT_PROFILE_ID);
+    expect(new Set(BLOCK_PROFILES.map(p => p.id)).size).toBe(BLOCK_PROFILES.length);
+    // No two profiles may resolve every colour identically.
+    const resolved = BLOCK_PROFILES.map(p => {
+      const fn = p.colorFn('ldraw') ?? ldrawColorToBlock;
+      return [0, 15, 19, 71, 72, 4].map(fn).join('|');
+    });
+    expect(new Set(resolved).size).toBe(BLOCK_PROFILES.length);
   });
 
   it('resolves BL colour ids through the Studio table and LDraw through the engine default', () => {

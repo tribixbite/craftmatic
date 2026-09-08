@@ -51,6 +51,7 @@ export const SHAPE_VARIANTS: Readonly<Record<string, ShapeVariants>> = {
   'minecraft:stone': { slab: 'minecraft:stone_slab', stairs: 'minecraft:stone_stairs' },
   'minecraft:smooth_stone': { slab: 'minecraft:smooth_stone_slab' },
   'minecraft:cobblestone': { slab: 'minecraft:cobblestone_slab', stairs: 'minecraft:cobblestone_stairs' },
+  'minecraft:mossy_cobblestone': { slab: 'minecraft:mossy_cobblestone_slab', stairs: 'minecraft:mossy_cobblestone_stairs' },
   'minecraft:stone_bricks': { slab: 'minecraft:stone_brick_slab', stairs: 'minecraft:stone_brick_stairs' },
   'minecraft:mossy_stone_bricks': { slab: 'minecraft:mossy_stone_brick_slab', stairs: 'minecraft:mossy_stone_brick_stairs' },
   'minecraft:andesite': { slab: 'minecraft:andesite_slab', stairs: 'minecraft:andesite_stairs' },
@@ -59,6 +60,7 @@ export const SHAPE_VARIANTS: Readonly<Record<string, ShapeVariants>> = {
   'minecraft:polished_diorite': { slab: 'minecraft:polished_diorite_slab', stairs: 'minecraft:polished_diorite_stairs' },
   'minecraft:granite': { slab: 'minecraft:granite_slab', stairs: 'minecraft:granite_stairs' },
   'minecraft:polished_granite': { slab: 'minecraft:polished_granite_slab', stairs: 'minecraft:polished_granite_stairs' },
+  'minecraft:cobbled_deepslate': { slab: 'minecraft:cobbled_deepslate_slab', stairs: 'minecraft:cobbled_deepslate_stairs' },
   'minecraft:polished_deepslate': { slab: 'minecraft:polished_deepslate_slab', stairs: 'minecraft:polished_deepslate_stairs' },
   'minecraft:deepslate_bricks': { slab: 'minecraft:deepslate_brick_slab', stairs: 'minecraft:deepslate_brick_stairs' },
   'minecraft:deepslate_tiles': { slab: 'minecraft:deepslate_tile_slab', stairs: 'minecraft:deepslate_tile_stairs' },
@@ -72,6 +74,7 @@ export const SHAPE_VARIANTS: Readonly<Record<string, ShapeVariants>> = {
   'minecraft:smooth_red_sandstone': { slab: 'minecraft:smooth_red_sandstone_slab', stairs: 'minecraft:smooth_red_sandstone_stairs' },
   'minecraft:cut_red_sandstone': { slab: 'minecraft:cut_red_sandstone_slab' },
   'minecraft:bricks': { slab: 'minecraft:brick_slab', stairs: 'minecraft:brick_stairs' },
+  'minecraft:mud_bricks': { slab: 'minecraft:mud_brick_slab', stairs: 'minecraft:mud_brick_stairs' },
   'minecraft:nether_bricks': { slab: 'minecraft:nether_brick_slab', stairs: 'minecraft:nether_brick_stairs' },
   'minecraft:red_nether_bricks': { slab: 'minecraft:red_nether_brick_slab', stairs: 'minecraft:red_nether_brick_stairs' },
   'minecraft:prismarine': { slab: 'minecraft:prismarine_slab', stairs: 'minecraft:prismarine_stairs' },
@@ -81,6 +84,12 @@ export const SHAPE_VARIANTS: Readonly<Record<string, ShapeVariants>> = {
   'minecraft:smooth_quartz': { slab: 'minecraft:smooth_quartz_slab', stairs: 'minecraft:smooth_quartz_stairs' },
   'minecraft:purpur_block': { slab: 'minecraft:purpur_slab', stairs: 'minecraft:purpur_stairs' },
   'minecraft:end_stone_bricks': { slab: 'minecraft:end_stone_brick_slab', stairs: 'minecraft:end_stone_brick_stairs' },
+  // Waxed copper only — unwaxed cut copper oxidizes in-world, so a model built
+  // in it would drift off the LEGO hue the palette matched it to.
+  'minecraft:waxed_cut_copper': { slab: 'minecraft:waxed_cut_copper_slab', stairs: 'minecraft:waxed_cut_copper_stairs' },
+  'minecraft:waxed_exposed_cut_copper': { slab: 'minecraft:waxed_exposed_cut_copper_slab', stairs: 'minecraft:waxed_exposed_cut_copper_stairs' },
+  'minecraft:waxed_weathered_cut_copper': { slab: 'minecraft:waxed_weathered_cut_copper_slab', stairs: 'minecraft:waxed_weathered_cut_copper_stairs' },
+  'minecraft:waxed_oxidized_cut_copper': { slab: 'minecraft:waxed_oxidized_cut_copper_slab', stairs: 'minecraft:waxed_oxidized_cut_copper_stairs' },
   'minecraft:oak_planks': { slab: 'minecraft:oak_slab', stairs: 'minecraft:oak_stairs' },
   'minecraft:spruce_planks': { slab: 'minecraft:spruce_slab', stairs: 'minecraft:spruce_stairs' },
   'minecraft:birch_planks': { slab: 'minecraft:birch_slab', stairs: 'minecraft:birch_stairs' },
@@ -140,16 +149,37 @@ export interface ShapeHints {
    * Absent when the slope pass is off.
    */
   stair?: Uint8Array;
+  /**
+   * Per-cell semantic-element request (engine/part-elements.ts): 0 = none,
+   * 1-4 = an `ElementKind`, 255 = two different mapped parts claimed the cell.
+   * `applyPartElements` runs first and zeroes every cell it declines, so a
+   * non-zero entry afterwards means an element WAS placed and the slab/stair
+   * pass must leave that cell alone.
+   */
+  element?: Uint8Array;
 }
 
 /** Allocate hints for a grid, marked empty. */
 export function createShapeHints(
-  width: number, height: number, length: number, withStairs = false,
+  width: number, height: number, length: number, withStairs = false, withElements = false,
 ): ShapeHints {
   const n = width * height * length;
   const lo = new Uint8Array(n).fill(Q);
   const hi = new Uint8Array(n);
-  return { width, height, length, lo, hi, ...(withStairs ? { stair: new Uint8Array(n) } : {}) };
+  return {
+    width, height, length, lo, hi,
+    ...(withStairs ? { stair: new Uint8Array(n) } : {}),
+    ...(withElements ? { element: new Uint8Array(n) } : {}),
+  };
+}
+
+/** Record a part's element request for one cell, resolving collisions to "none". */
+export function addElementRequest(h: ShapeHints, x: number, y: number, z: number, kind: number): void {
+  if (!h.element) return;
+  const i = (y * h.length + z) * h.width + x;
+  const prev = h.element[i]!;
+  if (prev === 0) h.element[i] = kind;
+  else if (prev !== kind) h.element[i] = 255;
 }
 
 // ─── Slope parts → stairs (pass B) ───────────────────────────────────────────
@@ -476,12 +506,17 @@ export function applyBlockShapes(grid: BlockGrid, hints: ShapeHints): ShapeStats
     y < 0 || y >= height || grid.getIndex(x, y, z) === airIdx;
 
   const stair = hints.stair;
+  const element = hints.element;
   for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         const idx = grid.getIndex(x, y, z);
         if (idx === airIdx) continue;
         const i = (y * length + z) * width + x;
+        // A cell the element pass already turned into a pane/fence/bar/ladder
+        // is finished — a slab of it would be neither. (That pass zeroes every
+        // cell it DECLINED, so those still fall through to the rules below.)
+        if (element && element[i] !== 0) continue;
 
         // ── Slope pass: the owning part told us this cell is a wedge ────────
         // A cell this pass cannot take (family has no stairs, or the open side
