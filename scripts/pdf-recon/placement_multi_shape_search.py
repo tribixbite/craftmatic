@@ -68,11 +68,19 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
     for view_index, view in enumerate(registration['hypotheses'][:views]):
         M = np.asarray(view['projection'], float)
         origin = np.asarray(view['origin'], float)
-        gate = screen(base, shapes, M, origin, scorer)
+        # A view retained by containment refinement carries its own measured
+        # body overflow. The occupancy screen must allow exactly that much, or
+        # an explicitly uncontained fallback view is rejected here instead of
+        # being evaluated, and the page is silently lost.
+        allowance = int(view.get('outside_pixels') or 0)
+        gate = screen(base, shapes, M, origin, scorer, outside_tolerance_px=allowance)
+        gate['registration_overflow_allowance'] = allowance
+        gate['contained'] = bool(view.get('contained', True))
         (out / f'view-{view_index:02}-occupancy.json').write_text(json.dumps(gate, indent=2))
         if not gate['registration_consistent']:
             results.append(dict(view=view_index, status='base_registration_rejected',
-                                base_occupancy=gate['base']))
+                                base_occupancy=gate['base'],
+                                registration_overflow_allowance=allowance))
             continue
         ids = gate['retained_indices']
         subset = dict(record, poses=[record['poses'][i] for i in ids])
@@ -167,6 +175,8 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                 xref=registration['xref'], shapes=record['parts'],
                 selected_parts=len(base) + len(record['allocated_pieces']) if native else None,
                 truth_used=False, runtime_vlm_calls=0, certified=False,
+                uncontained_views=[i for i, v in enumerate(registration['hypotheses'][:views])
+                                   if not v.get('contained', True)],
                 limitations='Finite registered candidate bank; occupancy conditional on image '
                             'tolerance; bounded closure support graph may omit legal edges; finite '
                             'node budget and optional coarse raster lose optimality guarantees '
