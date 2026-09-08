@@ -16,7 +16,10 @@
 import { BlockGrid } from '@craft/schem/types.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
 import type { VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
-import { runSchemPipeline, type SchemWorkerInput, type SchemWorkerOutput, type SchemWorkerFormat } from '@engine/schem-pipeline.js';
+import {
+  runSchemPipeline,
+  type SchemWorkerInput, type SchemWorkerOutput, type SchemWorkerFormat, type McpackSummary,
+} from '@engine/schem-pipeline.js';
 import type { BrickColorSpace } from '@engine/block-profiles.js';
 import {
   planResolution, spanOfBricks, DEFAULT_SCHEM_SETTINGS,
@@ -49,6 +52,8 @@ export interface SchemExportJob {
   width: number; height: number; length: number; nonAir: number; lights: number;
   /** True when the work ran inline because a Worker could not be created. */
   inline: boolean;
+  /** Present only for the Bedrock `.mcpack` format. */
+  mcpack?: McpackSummary;
 }
 
 /**
@@ -85,6 +90,7 @@ export async function runSchemExportWorker(
             width: msg.width, height: msg.height, length: msg.length,
             nonAir: msg.nonAir, lights: msg.lights,
             inline: false,
+            ...(msg.mcpack ? { mcpack: msg.mcpack } : {}),
           });
         };
         w.onerror = (e) => { w.terminate(); reject(new Error(`Export worker error: ${e.message}`)); };
@@ -102,6 +108,7 @@ export async function runSchemExportWorker(
     width: r.grid.width, height: r.grid.height, length: r.grid.length,
     nonAir: r.nonAir, lights: r.lights,
     inline: true,
+    ...(r.mcpack ? { mcpack: r.mcpack } : {}),
   };
 }
 
@@ -119,6 +126,13 @@ export interface MinecraftExportRequest {
    * put a path separator in a download name.
    */
   basename: string;
+  /**
+   * Human-readable model name for surfaces that show one to the user — the
+   * Bedrock pack's display name in Minecraft's pack list, for instance, where
+   * `Colosseum (10276)` reads better than the filename stem. Defaults to
+   * `basename`.
+   */
+  label?: string;
   settings?: SchemExportSettings;
   /** Mirror phase/result text into a tab's own status line (the LEGO tab's log). */
   onStatus?: (message: string, kind: 'info' | 'success' | 'error') => void;
@@ -128,11 +142,13 @@ export interface MinecraftExportResult {
   ok: boolean;
   message: string;
   width?: number; height?: number; length?: number; nonAir?: number; lights?: number;
+  /** Present only for the Bedrock `.mcpack` format. */
+  mcpack?: McpackSummary;
 }
 
 /**
- * Export a loaded model (bricks or grid) as .schem / .litematic / build guide.
- * Shows the progress banner, downloads the file, returns a summary line.
+ * Export a loaded model (bricks or grid) as .schem / .litematic / .mcpack /
+ * build guide. Shows the progress banner, downloads the file, returns a summary.
  */
 export async function runMinecraftExport(req: MinecraftExportRequest): Promise<MinecraftExportResult> {
   const settings = req.settings ?? DEFAULT_SCHEM_SETTINGS;
@@ -169,6 +185,8 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         shapes: settings.shapes,
         ldrawBase: new URL('/ldraw-parts', location.origin).toString(),
         datTexts,
+        packStem: base,
+        packLabel: req.label ?? base,
       };
     } else {
       const g = req.source.grid;
@@ -183,6 +201,8 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         // An uploaded grid is already blocks — there is no sub-cell occupancy
         // left to refine from, so the shape pass has nothing to work with.
         format, profile: settings.profile, lightFill: settings.lightFill, shapes: false,
+        packStem: base,
+        packLabel: req.label ?? base,
       };
     }
 
@@ -209,6 +229,29 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
 
     progress.update('downloading');
     downloadBytes(job.bytes!, `${base}.${format}`);
+
+    // Bedrock: the file alone is not actionable — the user needs the command
+    // that places it and a warning about the blocks that had no equivalent.
+    if (format === 'mcpack' && job.mcpack) {
+      const { functionCommand, tileCount, unmapped } = job.mcpack;
+      const tileNote = tileCount > 1
+        ? `, split into ${tileCount} structures (Bedrock caps one at 64×384×64)`
+        : '';
+      const msg = `Exported ${base}.mcpack — ${blocks.toLocaleString()} blocks${resNote}, `
+        + `${job.width}×${job.height}×${job.length}${lightNote}${tileNote}. `
+        + `Open it with Minecraft, activate the behavior pack, then run ${functionCommand} where the model should go.`;
+      status(msg, 'success');
+      if (unmapped.length > 0) {
+        status(`${unmapped.length} block type(s) had no Bedrock equivalent and were left as air: ${unmapped.join(', ')}`, 'info');
+      }
+      progress.done(`${blocks.toLocaleString()} blocks · ${tileCount} structure${tileCount === 1 ? '' : 's'} · ${functionCommand}`);
+      return {
+        ok: true, message: msg,
+        width: job.width, height: job.height, length: job.length,
+        nonAir: blocks, lights: job.lights, mcpack: job.mcpack,
+      };
+    }
+
     const msg = `Exported ${base}.${format} — ${blocks.toLocaleString()} blocks${resNote}, ${job.width}×${job.height}×${job.length}${lightNote}`;
     status(msg, 'success');
     progress.done(`${blocks.toLocaleString()} blocks · ${job.width}×${job.height}×${job.length}`);

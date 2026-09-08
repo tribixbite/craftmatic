@@ -177,6 +177,7 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid, legoYScale?: 
       <div class="download-menu download-menu-up" id="inline-dl-menu" hidden>
         <button class="download-item" data-format="schem">.schem<span class="download-desc">Minecraft</span></button>
         <button class="download-item" data-format="litematic">.litematic<span class="download-desc">Litematica</span></button>
+        <button class="download-item" data-format="mcpack">.mcpack<span class="download-desc">Bedrock add-on</span></button>
         <button class="download-item" data-format="stl">STL<span class="download-desc">3D print</span></button>
         <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF</span></button>
         <button class="download-item" data-format="obj">OBJ<span class="download-desc">Universal</span></button>
@@ -352,6 +353,9 @@ function wireDownloadDropdown(
           // pipeline skips voxelization and just encodes it.
           case 'schem':
           case 'litematic':
+          // Bedrock: the same shared module, encoding the grid as a behavior
+          // pack of .mcstructure files instead of a single Java NBT file.
+          case 'mcpack':
             if (!grid) return;
             await runMinecraftExport({
               source: { kind: 'grid', grid },

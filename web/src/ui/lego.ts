@@ -350,9 +350,14 @@ function buildUI(): void {
           <option value="stl">STL (.stl)</option>
           <option value="3mf">3MF, color 3D print (.3mf)</option>
         </optgroup>
-        <optgroup label="Minecraft">
+        <optgroup label="Minecraft: Java">
           <option value="schem">Schematic (.schem)</option>
           <option value="litematic">Litematica (.litematic)</option>
+        </optgroup>
+        <optgroup label="Minecraft: Bedrock">
+          <option value="mcpack">Add-on, placeable in-game (.mcpack)</option>
+        </optgroup>
+        <optgroup label="Minecraft: any edition">
           <option value="guide">Build guide, layer-by-layer (.html)</option>
         </optgroup>
         <optgroup label="Data">
@@ -1482,12 +1487,14 @@ async function exportLoadedModel(fmt: string): Promise<void> {
       return;
     }
 
-    if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide') {
+    if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide' || fmt === 'mcpack') {
       // Everything Minecraft-shaped goes through the ONE shared export module
       // (ui/schem-export.ts → engine/schem-pipeline.ts, in a Web Worker) that
-      // the Upload tab also uses. Resolution / block mapping / interior lights
-      // come from the ⚙ settings popover; the defaults reproduce the shipped
-      // proportion-exact behaviour byte-for-byte.
+      // the Upload tab also uses — Bedrock `.mcpack` included, so it shares the
+      // whole voxelize/shape/light path and differs only in the encoder.
+      // Resolution / block mapping / interior lights come from the ⚙ settings
+      // popover; the defaults reproduce the shipped proportion-exact behaviour
+      // byte-for-byte.
       await runMinecraftExport({
         source: {
           kind: 'bricks',
@@ -1496,6 +1503,9 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         },
         format: fmt,
         basename: base,
+        // The pack's name in Minecraft's own add-on list, where "Colosseum
+        // (10276)" reads better than the filename stem.
+        label: selectedSet ? `${selectedSet.name} (${selectedSet.set_num})` : base,
         settings: getSchemSettings(),
         onStatus: (m, k) => setStatus(m, k),
       });

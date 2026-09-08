@@ -5,11 +5,12 @@
  *
  * What it checks
  *   1. the ⚙ MC settings popover lists every resolution option (incl. 10/stud);
- *   2. a .schem export completes through the Worker and downloads;
+ *   2. an export completes through the Worker and downloads;
  *   3. how long the export took, and the phases the banner reported.
  *
  * Usage (node, NOT bun — chromium.launch hangs under bun on this box):
  *   node scripts/_export_browser_check.mjs [model.io] [label] [--shapes on|off]
+ *                                          [--format schem|litematic|mcpack]
  * Requires `bun dev:web` on port 4000.
  *
  * `--shapes` seeds the persisted MC-settings before the page loads, so the two
@@ -24,6 +25,14 @@ const SOURCE = process.argv[2] ?? 'C:/git/clego/lego_sets/IO/76416-1.io';
 const LABEL = process.argv[3] ?? 'browser';
 const shapesArg = process.argv[process.argv.indexOf('--shapes') + 1];
 const SHAPES = process.argv.includes('--shapes') ? shapesArg !== 'off' : null;
+/**
+ * Which download-menu entry to drive. `mcpack` is the Bedrock target — same
+ * Worker, same grid, different encoder — so it belongs in the same gate rather
+ * than a second script.
+ */
+const FORMAT = process.argv.includes('--format')
+  ? process.argv[process.argv.indexOf('--format') + 1]
+  : 'schem';
 const OUT = resolve('output/vox-work');
 mkdirSync(OUT, { recursive: true });
 
@@ -83,21 +92,24 @@ const poll = setInterval(async () => {
 const dlPromise = page.waitForEvent('download', { timeout: 600_000 });
 const sel = page.locator('select').filter({ hasText: /schem|Download|GLB/i }).first();
 const tExport = Date.now();
-// The download menu is a <select>; pick the .schem entry by its label.
-const chosen = await sel.evaluate(s => {
-  const o = [...s.options].find(o => /\.schem/i.test(o.textContent));
+// The download menu is a <select>; pick the entry by its VALUE, which is the
+// format id the export path switches on.
+const chosen = await sel.evaluate((s, format) => {
+  const o = [...s.options].find(o => o.value === format);
   if (!o) return null;
   s.value = o.value;
   s.dispatchEvent(new Event('change', { bubbles: true }));
   return o.textContent.trim();
-});
-console.log('[export  ] chose:', chosen);
+}, FORMAT);
+console.log(`[export  ] chose: ${chosen} (value=${FORMAT})`);
+if (!chosen) { console.log('[export  ] FAIL: no download-menu option with that value'); await browser.close(); process.exit(1); }
 const dl = await dlPromise;
 clearInterval(poll);
-const saved = resolve(OUT, `${LABEL}.schem`);
+const saved = resolve(OUT, `${LABEL}.${FORMAT}`);
 if (existsSync(saved)) rmSync(saved);
 await dl.saveAs(saved);
 console.log(`[export  ] ${((Date.now() - tExport) / 1000).toFixed(1)} s → ${saved}`);
+console.log(`[export  ] downloaded filename: ${dl.suggestedFilename()}`);
 console.log('[export  ] banner phases:', JSON.stringify([...phases].slice(0, 12)));
 console.log('[export  ] status:', (await page.locator('#lego-status').textContent() ?? '').replace(/\s+/g, ' ').slice(-260));
 if (errors.length) console.log('[errors  ]', errors.slice(0, 6).join(' | '));

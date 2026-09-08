@@ -387,7 +387,7 @@ ghost tires). Pipeline defenses (classifier extracted to
   separator in a download name. Tests: `test/export-name.test.ts`.
 - **ONE shared Minecraft-export module for every tab (S4, 2026-09-01).**
   `web/src/ui/schem-export.ts` `runMinecraftExport()` is the ONLY path that
-  encodes a .schem/.litematic for a user download; it owns resolution planning,
+  encodes a .schem/.litematic/.mcpack for a user download; it owns resolution planning,
   the Worker (+ identical inline fallback via the same function), the progress
   banner, the build-guide hand-off and the download. Two sources:
   `{kind:'bricks'}` (LEGO tab → voxelize → fillSingleVoxelGaps → encode) and
@@ -691,6 +691,96 @@ ghost tires). Pipeline defenses (classifier extracted to
      uploads it to schemat.io/view and screenshots to `output/schem-backlog/`.
      Verified 2026-09-01: white castle, solid walls, green/brown base — no
      translucent walls, no magenta terrain. NOT in CI (third-party site).
+- **Bedrock Edition export: native `.mcpack`, no lossy hop (2026-09-08).**
+  The user's previous route was our Java `.schem` through `../HotSchem`, and that
+  conversion is where quality was lost. Verified from HotSchem's own source
+  (`HotSchem_BP/scripts/main.js`, `HotSchem-Importer.html`): it does **no block-id
+  renaming at all**, so every Java id whose Bedrock name differs fails
+  `BlockPermutation.resolve` and becomes **air** (`bricks`, `nether_bricks`,
+  `red_nether_bricks`, `end_stone_bricks`, `stone_slab`, `cobblestone_stairs`,
+  `snow_block`, `magma_block`, `slime_block`, `rooted_dirt`, `jack_o_lantern`,
+  `light_gray_glazed_terracotta`, `prismarine_brick_stairs`,
+  `end_stone_brick_stairs` — 14 of the ids our palette emits); it drops
+  `type=double` (a full block becomes a half); and it sends ladder `facing` to
+  `minecraft:cardinal_direction`, which `ladder` does not have (Bedrock uses
+  `facing_direction`), so every ladder falls back to one default orientation.
+  Its README says as much: "block-state translation is partial".
+  - **The format**: `.mcstructure` is Bedrock's native placeable structure —
+    little-endian NBT, **uncompressed, NO file header** (unlike `level.dat`'s
+    8-byte version+length prefix), unnamed root compound. `block_indices` is a
+    TAG_List of exactly **two** TAG_Lists of TAG_Int sharing one palette (layer 1
+    is waterlogging; we write all `-1`). Cells run **Z fastest**:
+    `index = x*sizeY*sizeZ + y*sizeZ + z` — the documented 2×3×4 example is
+    pinned in `test/mcstructure.test.ts`, because getting it wrong transposes the
+    whole model and no palette check would notice. `-1` means "leave the existing
+    block", so air is written as an explicit `minecraft:air` entry and a placed
+    model CLEARS its own box instead of having terrain poke through its interior.
+    `web/src/engine/mcstructure-encode.ts`; LE writers added to `byte-writer.ts`.
+  - **The mapping is DATA, generated from Mojang's own registry.**
+    `scripts/gen-bedrock-blocks.mjs` pulls
+    `bedrock-samples metadata/vanilladata_modules/mojang-blocks.json` (every
+    Bedrock id, every state name, every allowed value) → checked-in
+    `web/src/engine/bedrock-block-states.json` (444 blocks, 18 properties, 51
+    double-slab ids), scoped to the ids `mc-block-registry.json` allows. The
+    generator FAILS if a rename target does not exist, and forward-checks the
+    result against `main` so an id Mojang removed fails there, not in a world.
+    `engine/bedrock-blocks.ts` layers the translation on top and has **no silent
+    fallback** — `toBedrockBlock` returns null and the gap is reported.
+    `test/bedrock-blocks.test.ts` asserts every id in the registry maps.
+  - **Three versions must agree, and 1.21.40 is the measured floor.** Generator
+    ref `v1.21.40.3`, manifest `min_engine_version [1,21,40]`, palette `version`
+    stamp `18163712` (= 0x01152800 = 1.21.40.0). The flattening arrived in waves:
+    1.21.20 moved `stonebrick`+`stone_brick_type` → `stone_bricks`,
+    `stone_block_slab4` → `normal_stone_slab` and the `dirt`/`sand`/`quartz_block`
+    type states; **1.21.30** the whole wall family and `purpur_pillar`; **1.21.40**
+    added `mushroom_stem`. Generating from a newer ref would ship an id a 1.21.40
+    client lacks; from an older one, 15 of our ids don't resolve. Bedrock runs its
+    upgrade schemas FORWARD from the stamp, so an older stamp is the safe
+    direction (packs stamping 1.18.10.1 still load) — a stamp newer than the
+    client has no downgrade path.
+  - **The traps, all pinned by tests.** Bedrock's `stone_stairs` IS *cobblestone*
+    stairs and its stone stairs are `normal_stone_stairs` — both names exist in
+    both editions with different materials, so swapping them is invisible.
+    `snow`/`snow_block` swap meaning across editions. Java `terracotta` is
+    `hardened_clay`. Light gray glazed terracotta is `silver_glazed_terracotta`.
+    A **double slab is its own block** and where "double" goes is data, not a rule
+    (`oak_double_slab` but `waxed_double_cut_copper_slab`). Slabs use
+    `minecraft:vertical_half` (string), NOT `top_slot_bit` (used by zero blocks
+    now); stairs use `weirdo_direction` (**int** 0-3: east 0, west 1, south 2,
+    north 3) + `upside_down_bit` (**byte**) and have no `shape`; walls use
+    `wall_connection_type_*` where Java's `low` is **`short`**; panes, iron bars
+    and fences carry NO connection states (Bedrock recomputes them) so Java's
+    north/south/east/west must be DROPPED or the permutation is unresolvable. The
+    NBT *type* matters as much as the name — an int written as a byte silently
+    lands the block on its default permutation.
+  - **Tiling**: Bedrock caps one structure at **64×384×64**, so a big model is
+    split (`planStructureTiles`), each tile TRIMMED to its own occupied bbox and
+    empty tiles dropped — `block_indices` costs a flat 4 bytes/cell/layer with no
+    packing, so trimming is what keeps a 1.19M-block model at 233 KB. Because
+    each tile records its grid origin, the pack also ships
+    `functions/craftmatic/<name>.mcfunction` — one `structure load … ~dx ~dy ~dz`
+    per tile — so the player stands at the corner and runs **one** `/function`
+    instead of placing 15 pieces at computed coordinates. `engine/mcpack.ts`.
+  - **Pack identity is deterministic, not random**: manifest UUIDs are hashed
+    from the filename stem, so re-exporting a set UPDATES the pack the player
+    already has rather than adding a duplicate with the same name, and the output
+    is reproducible enough to test. `format_version: 2`, one `data` module,
+    manifest at the ZIP ROOT, structures under an explicit `structures/craftmatic/`
+    namespace (a file directly in `structures/` silently becomes `mystructure:…`).
+    `createZip({alwaysDeflate:true})` — no official word on whether Bedrock
+    accepts STORED entries, and DEFLATE costs nothing.
+  - **Verified / not verified.** Verified offline: the bytes decode with
+    `prismarine-nbt` in `little` mode and with an independent hand-written Python
+    LE-NBT reader (real 21063 pack, 4.98 MB tile, consumed to the last byte);
+    tiling reassembles cell-for-cell; the zip passes Python `zipfile.testzip()`
+    with DEFLATE throughout and a root manifest. **NOT verifiable without a
+    Bedrock client**: that the game accepts the `version` stamp, that a complete
+    `states` compound is preferred over a partial one (undocumented — vanilla
+    always writes complete), the ladder `facing_direction` north/south
+    convention (derived from the shared pre-1.13 metadata, not a quoted
+    cross-edition mapping), and `huge_mushroom_bits` 14/15 for cap/stem.
+    Activating ANY external behavior pack permanently disables achievements in
+    that world — the in-pack README says so.
 - **Export progress is a FIXED banner** (`web/src/ui/export-progress.ts`, S2):
   `beginExportProgress(title)` → `update(phase, pct?)` / `done()` / `fail()`.
   `#lego-status` stays the log (it scrolls out of view — that's why exports
