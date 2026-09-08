@@ -18,6 +18,7 @@ import { synthesizeLSynth } from '@engine/lsynth.js';
 import { parseLxf } from '@engine/lxf-parser.js';
 import { studioColorToBlock } from '@engine/studio-colors.js';
 import { reconstructionQuality, sourceCaveat } from '@engine/source-quality.js';
+import { modelExportStem } from '@engine/export-name.js';
 import { fetchBffInventory, bffInventoryToLDraw } from '@engine/bff-loader.js';
 import {
   ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
@@ -160,6 +161,22 @@ let directRenderMode = false;
 let currentBricks: ParsedBrick[] | null = null;
 let currentBricksLabel = '';
 let currentBricksColorFn: ((id: number) => string) | undefined;
+
+/**
+ * The stem every download from this tab is named with: `Colosseum-10276`.
+ *
+ * Deliberately NOT `currentBricksLabel` — that is the internal loader label and
+ * carries the source suffix (`10276-1-omr`), which is meaningless to the user.
+ * See engine/export-name.ts. Uploads have no catalog entry, so they fall back to
+ * the uploaded file's own name.
+ */
+function exportStem(): string {
+  return modelExportStem({
+    name: selectedSet?.name,
+    setNum: selectedSet?.set_num,
+    fallback: currentBricksLabel.replace(/\.[^.]+$/, ''),
+  });
+}
 /** Raw MPD/LDR content for inline sub-model resolution in 3D renderer */
 let currentMpdContent: string | undefined;
 /** Part definitions bundled inside the loaded .io archive (CustomParts/). */
@@ -670,7 +687,7 @@ function wireEvents(): void {
       const dataUrl = currentLDrawViewer.captureScreenshotAt(w, h);
       const a = document.createElement('a');
       a.href = dataUrl;
-      a.download = `${currentBricksLabel.replace(/\.[^.]+$/, '')}-${w}x${h}.png`;
+      a.download = `${exportStem()}-${w}x${h}.png`;
       a.click();
       setStatus(`Exported ${w}×${h} PNG`, 'success');
     } catch (err) {
@@ -774,7 +791,7 @@ function wireEvents(): void {
     const result = geometryMode
       ? await voxelizeLDrawGeometry(currentBricks, currentBricksColorFn, opts)
       : voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
-    if (onResult) onResult(result.grid, currentBricksLabel.replace(/\.[^.]+$/, ''), cubicScale);
+    if (onResult) onResult(result.grid, exportStem(), cubicScale);
   });
 
   // ── MPD file upload ────────────────────────────────────────────────────────
@@ -1398,7 +1415,7 @@ function loadColorNames(): Promise<Record<string, string>> {
 
 async function exportLoadedModel(fmt: string): Promise<void> {
   if (!currentBricks) { setStatus('Load a set first, then export.', 'error'); return; }
-  const base = (currentBricksLabel || 'model').replace(/\.[^.]+$/, '') || 'model';
+  const base = exportStem();
   let progress: ExportProgressHandle | null = null;
   try {
     if (fmt === 'glb' || fmt === 'obj' || fmt === 'stl' || fmt === '3mf') {
@@ -1536,7 +1553,7 @@ async function exportTurntable(): Promise<void> {
       setStatus('Turntable export is not supported in this browser (needs MediaRecorder + canvas.captureStream).', 'error');
       return;
     }
-    const base = (selectedSet?.set_num ?? currentBricksLabel.replace(/\.[^.]+$/, '')) || 'model';
+    const base = exportStem();
     setStatus('Recording turntable: 0%… (6 s orbit)', 'info');
     const blob = await recordTurntable(currentLDrawViewer, {
       durationMs: 6000,
