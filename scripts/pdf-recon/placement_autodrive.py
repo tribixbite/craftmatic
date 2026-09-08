@@ -171,7 +171,10 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                             method=options['method'], beam=options['beam'],
                             max_expansions=options['max_expansions'],
                             improve_rounds=options['improve_rounds'],
-                            improve_from=options['improve_from'])
+                            improve_from=options['improve_from'],
+                            restarts=options['restarts'], perturb=options['perturb'],
+                            seed=options['seed'], native_rounds=options['native_rounds'],
+                            native_width=options['native_width'])
         result.update(pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
                       seconds=time.perf_counter() - started, code_sha256_start=code_hashes,
                       camera_source=str(step_dir / 'camera.json'), scene_order=order,
@@ -302,6 +305,11 @@ if __name__ == '__main__':
     parser.add_argument('--max-expansions', type=int, default=2_000_000)
     parser.add_argument('--improve-rounds', type=int, default=8)
     parser.add_argument('--improve-from', type=int, default=4)
+    parser.add_argument('--restarts', type=int, default=0)
+    parser.add_argument('--perturb', type=int, default=2)
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--native-rounds', type=int, default=0)
+    parser.add_argument('--native-width', type=int, default=16)
     args = parser.parse_args()
     options = dict(camera_matrices=args.camera_matrices, per_matrix=args.per_matrix,
                    refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
@@ -312,7 +320,10 @@ if __name__ == '__main__':
                    max_closure_parents=args.max_closure_parents, max_poses=args.max_poses,
                    stable_colors=args.stable_colors, method=args.method, beam=args.beam,
                    max_expansions=args.max_expansions, improve_rounds=args.improve_rounds,
-                   improve_from=args.improve_from)
+                   improve_from=args.improve_from, restarts=args.restarts,
+                   perturb=args.perturb, seed=args.seed,
+                   native_rounds=args.native_rounds,
+                   native_width=args.native_width)
     summary = run(args.pdf, args.allocation_run, args.base_run, args.pages, args.out, options,
                   resume=args.resume, stop_on_unsupported=not args.continue_on_unsupported)
     print(json.dumps(dict(status=summary['status'],

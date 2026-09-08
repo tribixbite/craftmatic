@@ -55,9 +55,61 @@ def world_boxes(poses):
     return boxes
 
 
+def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
+                    conflict, connected, rounds=3, width=16):
+    """Quota-preserving exchange judged by the scorer that actually selects.
+
+    The layer search optimises the coarse per-class depth-composite IoU, but the
+    emitted assembly is chosen by the native colour-plus-visible-edge scorer.
+    Those objectives disagree: on 40377 page index 12 the reference-equivalent
+    assembly scored 0.8250 natively against the selected 0.8139, while never
+    ranking best on the coarse metric. This pass optimises the selection
+    objective directly, over the `width` best coarse alternatives per slot so
+    the number of GPU renders stays bounded.
+    """
+    chosen = list(indices)
+    best = fixed_native_score(scorer, base + [item for i in chosen
+                                              for item in placements[i]['items']], M, origin)
+    renders, swaps, trail = 1, 0, []
+    for _ in range(rounds):
+        improvement = None
+        for position, outgoing in enumerate(chosen):
+            rest = chosen[:position] + chosen[position + 1:]
+            depth, label = coarse.composite(rest)
+            correct, false = coarse.counts(label)
+            dc, df = coarse.deltas(depth, label)
+            order = np.mean((correct + dc) / np.maximum(1, coarse.areas + false + df), axis=1)
+            order = np.where([keys[i] == keys[outgoing] for i in range(len(keys))], order, -np.inf)
+            order[chosen] = -np.inf
+            for incoming in np.argsort(-order, kind='stable')[:width]:
+                incoming = int(incoming)
+                if not np.isfinite(order[incoming]):
+                    break
+                if conflict is not None and any(conflict(incoming, other) for other in rest):
+                    continue
+                if not connected(tuple(rest) + (incoming,)):
+                    continue
+                items = base + [item for i in rest + [incoming]
+                                for item in placements[i]['items']]
+                evidence = fixed_native_score(scorer, items, M, origin)
+                renders += 1
+                if evidence['score'] > best['score'] + 1e-12 and (
+                        improvement is None or evidence['score'] > improvement[0]['score']):
+                    improvement = (evidence, position, incoming)
+        if improvement is None:
+            break
+        best, position, incoming = improvement
+        trail.append(dict(position=position, incoming=incoming, score=best['score']))
+        chosen[position] = incoming
+        swaps += 1
+    return tuple(sorted(chosen)), best, dict(native_renders=renders, native_swaps=swaps,
+                                             trail=trail, width=width, rounds=rounds)
+
+
 def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200000,
         top_k=32, host_bytes=512 * 1024 ** 2, method='beam', beam=64,
-        max_expansions=2_000_000, improve_rounds=8, improve_from=4):
+        max_expansions=2_000_000, improve_rounds=8, improve_from=4,
+        restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16):
     if method not in ('beam', 'exact'):
         raise ValueError('Unknown search method')
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
@@ -126,7 +178,8 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                                  base_supported=anchored, support_edges=support,
                                  conflict_test=conflict, beam=beam, top_k=top_k,
                                  max_expansions=max_expansions,
-                                 improve_rounds=improve_rounds, improve_from=improve_from)
+                                 improve_rounds=improve_rounds, improve_from=improve_from,
+                                 restarts=restarts, perturb=perturb, seed=seed)
         else:
             # Single-layer target agreement changes traversal order only; it
             # removes no candidate from the exact-cardinality search.
@@ -142,7 +195,35 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                       occupancy_retained_shapes=len(ids), placements=len(placements),
                       quotas={f'{p}:{c}': q for (p, c), q in quotas.items()},
                       collision_pairs_tested=len(collision_cache))
-        for candidate in result['candidates']:
+        candidates = list(result['candidates'])
+        if native_rounds and candidates and method == 'beam':
+            from placement_layer_beam import LayerComposite
+            coarse = LayerComposite(bank['base_depth'], bank['base_labels'], bank['depths'],
+                                    bank['labels'], bank['target'])
+            adjacency = [set() for _ in range(len(placements))]
+            for a, b in support:
+                adjacency[a].add(b)
+                adjacency[b].add(a)
+            anchor_set = set(anchored)
+
+            def connected(group):
+                wanted = set(group)
+                seen = wanted & anchor_set
+                todo = list(seen)
+                while todo:
+                    fresh = (adjacency[todo.pop()] & wanted) - seen
+                    seen.update(fresh)
+                    todo.extend(fresh)
+                return seen == wanted
+
+            refined, evidence, report = native_exchange(
+                scorer, base, placements, keys, candidates[0]['indices'], M, origin, coarse,
+                conflict, connected, rounds=native_rounds, width=native_width)
+            result['native_exchange'] = report
+            if refined != tuple(candidates[0]['indices']):
+                candidates.insert(0, dict(indices=list(refined), score=coarse.score(refined),
+                                          native_exchange=True))
+        for candidate in candidates:
             items = base + [item for i in candidate['indices'] for item in placements[i]['items']]
             evidence = fixed_native_score(scorer, items, M, origin)
             lines = ['0 Quarantined PDF multi-shape batch; uncertified bounded search']
@@ -199,6 +280,11 @@ if __name__ == '__main__':
     parser.add_argument('--max-expansions', type=int, default=2_000_000)
     parser.add_argument('--improve-rounds', type=int, default=8)
     parser.add_argument('--improve-from', type=int, default=4)
+    parser.add_argument('--restarts', type=int, default=0)
+    parser.add_argument('--perturb', type=int, default=2)
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--native-rounds', type=int, default=0)
+    parser.add_argument('--native-width', type=int, default=16)
     args = parser.parse_args()
     record = json.loads(args.registry.read_text())
     registration = json.loads(args.registration.read_text())
@@ -228,7 +314,9 @@ if __name__ == '__main__':
         hashes[path.name] = hashlib.sha256(payload).hexdigest()
     result = run(record, registration, scene, read_items(base_path), args.out, args.views,
                  args.scale, args.max_nodes, args.top_k, args.host_bytes, args.method,
-                 args.beam, args.max_expansions, args.improve_rounds, args.improve_from)
+                 args.beam, args.max_expansions, args.improve_rounds, args.improve_from,
+                 args.restarts, args.perturb, args.seed,
+                 args.native_rounds, args.native_width)
     result.update(pdf=record['pdf'], pdf_sha256=record['pdf_sha256'],
                   registry_sha256=hashlib.sha256(args.registry.read_bytes()).hexdigest(),
                   registration_sha256=hashlib.sha256(args.registration.read_bytes()).hexdigest(),

@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from placement_layer_beam import search_beam
+from placement_layer_beam import LayerComposite, search_beam
 
 
 def layer(shape, pixels, value):
@@ -94,8 +94,10 @@ def test_scores_use_the_real_depth_composite_not_the_union_ranking():
                          {('A', 15): 1, ('B', 4): 1}, target, base_supported=(0, 1))
     best = result['candidates'][0]
     assert best['indices'] == (0, 1)
-    # Union ranking believes the class-1 pixel survives; the composite knows better.
-    assert best['score'] < best['approximate_score']
+    # Candidate 1 wins every pixel, so class 1 scores zero and class 2 scores
+    # one correct pixel against fifteen false ones. A union ranking that
+    # ignored occlusion would report a higher number.
+    assert best['score'] == pytest.approx((0.0 + 1 / 16) / 2)
 
 
 def test_beam_width_and_budget_are_reported():
@@ -175,3 +177,52 @@ def test_exchange_preserves_the_quota_of_every_key():
     chosen_keys = sorted([('A', 15), ('A', 15), ('B', 4), ('B', 4)][i]
                          for i in result['indices'])
     assert chosen_keys == [('A', 15), ('B', 4)]
+
+
+def test_incremental_deltas_agree_with_a_rebuilt_composite():
+    generator = np.random.default_rng(11)
+    shape = (6, 6)
+    target = generator.integers(0, 3, shape).astype(np.uint8)
+    depths, labels = [], []
+    for _ in range(5):
+        painted = generator.random(shape) > 0.4
+        depths.append(np.where(painted, generator.random(shape) * 4, -np.inf))
+        labels.append(np.where(painted, generator.integers(1, 3, shape), 0).astype(np.uint8))
+    depths, labels = np.stack(depths), np.stack(labels)
+    base_depth = np.where(generator.random(shape) > 0.5, 1.0, -np.inf)
+    base_labels = np.where(np.isfinite(base_depth), 1, 0).astype(np.uint8)
+    model = LayerComposite(base_depth, base_labels, depths, labels, target)
+    chosen = (1, 3)
+    depth, label = model.composite(chosen)
+    correct, false = model.counts(label)
+    dc, df = model.deltas(depth, label)
+    for index in range(len(labels)):
+        rebuilt = model.counts(model.composite(tuple(sorted(set(chosen) | {index})))[1])
+        if index in chosen:
+            continue
+        assert list(correct + dc[index]) == list(rebuilt[0])
+        assert list(false + df[index]) == list(rebuilt[1])
+
+
+def test_perturbed_restarts_can_beat_a_plain_exchange():
+    # Two disjoint pairs cover the target; the greedy first pick and every
+    # single exchange from it are worse than the true optimum.
+    target = np.zeros((6, 6), np.uint8)
+    target[0, 0] = target[0, 1] = target[5, 5] = target[5, 4] = 1
+    def make(pixels):
+        return layer((6, 6), pixels, 1)
+    depths, labels = zip(*[make(p) for p in (
+        [(0, 0), (0, 1), (3, 3), (3, 4), (2, 2)],   # attractive but impure
+        [(0, 0), (0, 1)],
+        [(5, 5), (5, 4)],
+        [(5, 5), (2, 0)],
+    )])
+    depths, labels = np.stack(depths), np.stack(labels)
+    base_depth = np.full((6, 6), -np.inf)
+    base_labels = np.zeros((6, 6), np.uint8)
+    result = search_beam(base_depth, base_labels, depths, labels, [('A', 15)] * 4,
+                         {('A', 15): 2}, target, base_supported=(0, 1, 2, 3),
+                         beam=1, improve_rounds=6, improve_from=4, restarts=6, perturb=2,
+                         seed=3)
+    assert result['indices'] == (1, 2)
+    assert result['score'] == pytest.approx(1.0)
