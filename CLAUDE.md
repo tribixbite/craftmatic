@@ -378,16 +378,49 @@ ghost tires). Pipeline defenses (classifier extracted to
     small models clear the caps at all — 21063, 60380, 71043 and 76416 are all
     refused (`scripts/_res_survey.ts` prints the auto and 10×/stud plans for any
     model). Putting it in the ladder would silently inflate every small export), **Block mapping profile**
-    (`engine/block-profiles.ts` — ONE real profile; the seam exists so a second
-    mapping table is a data addition. Don't add placeholder profiles), and
+    (`engine/block-profiles.ts` — TWO real profiles since 2026-09-08:
+    `default` (concrete & glass) and `textured` (see below). Don't add
+    placeholder profiles; an entry must be a genuinely different table), and
     **Light enclosed interiors** (OFF by default). Pure planning lives in
     `engine/schem-settings.ts` (`planResolution`, `spanOfBricks`, `describePlan`).
     The dims preview and the caps both use the BRICK-ORIGIN span + 80 LDU pad —
     it understates a tiny model's real extent (unchanged pre-S4 behaviour).
+  - **"Textured + shapes" profile** (`engine/textured-palette.ts`, 2026-09-08) —
+    OKLab nearest-neighbour over a palette of the families that actually HAVE
+    slabs and stairs (stone/deepslate/blackstone, sandstone, bricks/mud,
+    prismarine, quartz, purpur, end stone, waxed cut copper, all 11 planks) plus
+    the 16 dyed concretes as the fallback. **Selectable, NOT the default** — a
+    palette change repaints every export, so it ships opt-in. Measured on 21063:
+    shaped cells 5,367 → 57,702; on 60380 slabs 2,480 → 66,112; `nonAir`
+    identical either way (it only recolours). Three gates, and the third was
+    forced by a schemat.io A/B rather than reasoned up front:
+    1. absolute OKLab distance ≤ 0.08. A margin-only rule is NOT enough — OKLab
+       genuinely rates `acacia_planks` (0.103) closer to LEGO Red than
+       `red_concrete` (0.123), because MC's red concrete is a dark maroon, so
+       the first cut repainted red as wood, orange as bamboo, purple as crimson.
+    2. no worse than the best dyed candidate by more than 0.02.
+    3. **hue/chroma character.** The first A/B came back with 121,594 cells of
+       21063's Olive Green landscaping as `bamboo_planks` — a yellow floor where
+       the set has a lawn — and Dark Tan as neutral `polished_andesite`. A
+       chromatic colour now needs a candidate within 20° of hue keeping ≥35% of
+       its chroma; a neutral one may not GAIN chroma; and the matcher takes the
+       nearest candidate that PASSES (which is what makes Dark Tan `oak_planks`,
+       dh 7°, instead of andesite).
+    A colour is **only ever replaced by a shape-capable block** — where the
+    gates refuse everything the default table's hand-curated answer is kept
+    verbatim, rather than substituting the nearest dyed block (that is how LEGO
+    Orange briefly became `yellow_concrete`: nearer, and wrong). Black is the
+    honest hole: vanilla's darkest slab material, `blackstone`, is a whole OKLab
+    lightness step above LEGO black, so 16,688 cells stay cubes.
+    `scripts/_textured_survey.ts` prints every LDraw colour with both distances,
+    and `--probe=#RRGGBB` the per-axis deltas for one — tune from THAT, not from
+    estimates. Tests: `test/textured-palette.test.ts` (anchors in both
+    directions, including the three greens the guard saves).
   - **Light fill** (`engine/light-fill.ts`): flood air inward from the grid
     boundary → everything unreached is an enclosed pocket → pockets ≥ 8 cells
-    get glowstone on their FLOOR, one per `spacing`³ (6) bucket. A room with a
-    doorway is reachable from outside, so it stays dark by design. Runs after
+    get a light on their FLOOR, one per `spacing`³ (6) bucket (glowstone, or a
+    `lantern` when Block shapes is on — see below). A room with a doorway is
+    reachable from outside, so it stays dark by design. Runs after
     fillSingleVoxelGaps, only when the flag is on.
   - **The export REUSES the viewer's part geometry — zero network (S6,
     2026-09-02).** The export resolver (`engine/ldraw-geometry.ts`) keeps its
@@ -511,19 +544,75 @@ ghost tires). Pipeline defenses (classifier extracted to
       a lattice cell inside a stud's top disc reports the part's HIGHEST surface
       as its lowest point. Top gradient is primary; the underside is consulted
       only when the top is flat.
-    * **The ceiling, measured: vanilla has NO slab or stair for any dyed
-      family.** The colour tables emit ~97% concrete, so on 21063 only 5,355 of
-      87,800 candidate cells (sandstone) can take a shape; 71,150 are concrete.
-      No near-colour substitution is made — a quartz slab on a concrete wall is
-      a visible material seam. `ShapeStats.noVariantByBlock` reports exactly
-      what the proposal's Pass D (a slab-capable palette) would unlock. **Slices
-      2-3 are mechanism-complete but coverage-blocked on Pass D.**
+    * **The ceiling: vanilla has NO slab or stair for any dyed family.** The
+      DEFAULT tables emit ~97% concrete, so on 21063 only 5,355 of 87,800
+      candidate cells (sandstone) can take a shape; 71,150 are concrete. No
+      near-colour substitution is made — a quartz slab on a concrete wall is a
+      visible material seam. `ShapeStats.noVariantByBlock` reports exactly what
+      a slab-capable palette unlocks; the **Textured + shapes** profile below is
+      that palette, and it takes 21063 to 55,722 slabs + 1,980 stairs.
+    * **The residue, and why a CARPET does not fix it (slice 6, measured then
+      REMOVED).** `<colour>_carpet` is the only partial shape vanilla gives a
+      dyed colour, so it is the only thing that could reach the black cells the
+      slab table structurally cannot. At the safe threshold (occupancy ≤0.25,
+      where 1/16 of a block really is the nearest shape) it fired on **251 of
+      87,800** cells and on **zero** of 21063's 16,688 black ones (they sit at
+      0.4-0.7 of their cell). At the threshold the no-slab arithmetic implies
+      (~0.53, since the alternative is a whole cube) it thins the top row of
+      every dyed wall to a sheet — the exact "sub-cell relief collapses" failure
+      that got both voxelization rewrites rejected. And unlike a slab it is a
+      MATERIAL change (concrete→wool), breaking the "0 recoloured" property every
+      gate here is written against. Don't re-add it; the reasoning lives on
+      `ShapeStats.noVariantByBlock`'s docs.
     * Gates: **flag-off must ALWAYS reproduce the no-shapes hash**; shapes-ON is
       gated by CONTENT DIFF, never by hash. `scripts/_schem_diff.ts` separates a
       shape refinement from a recolour; 21058 shows 0 gained / 0 lost /
       0 recoloured / 20,793 shaped. `scripts/_schem_ref.ts --no-shapes` and
-      `scripts/_export_browser_check.mjs --shapes on|off` are the A/B switches.
+      `scripts/_export_browser_check.mjs --shapes on|off` are the A/B switches
+      (`_schem_ref.ts --profile=<id>` A/Bs a palette).
       Tests: `test/block-shapes.test.ts`, `test/schem-block-states.test.ts`.
+  - **Semantic elements: panes, fences, walls, bars, ladders (2026-09-08).**
+    `engine/part-elements.ts`, same `Block shapes` toggle, run by
+    `runSchemPipeline` BEFORE the slab/stair pass and zeroing `hints.element`
+    for every cell it declines (so a declined cell can still become a slab).
+    Same contract: one solid palette entry for another, footprint unchanged.
+    * **Membership is the LDraw description line again**, never a part-id list.
+      `Glass for …` → `<colour>_stained_glass_pane`/`glass_pane`; `^Fence` → the
+      wood fence or stone wall of the cell's OWN material; `Lattice` →
+      `iron_bars`, and only in a neutral gray/metal (iron_bars is a fixed
+      colour, so anywhere else the swap is a recolour); `Ladder` →
+      `ladder[facing]`. Connection states (`east/north/south/west`) are computed
+      from the grid, so a window is a sheet of connected panes, not a row of
+      posts.
+    * **Ladder facing comes from the GRID, not the part.** The LDraw origin of
+      "Plate 1 x 2 with Ladder" says nothing reliable about which face the rungs
+      are on. A ladder is placed only where a solid cell sits BEHIND it
+      (Minecraft's model hangs on the face opposite `facing`) and the climbing
+      side is open; otherwise the cell keeps its cube.
+    * **Resolution is part of the contract**: a Minecraft pane/fence/bar/ladder
+      is ONE cell, so `MAX_ELEMENT_CELLS = 64` turns elements on at 1-2.5
+      blocks/stud (a 1x4x6 window glass is ~5×8 cells) and off at 5, where the
+      same glass is ~150 cells. Verified: 21063 at auto (cellLDU 4) runs no
+      element pass at all.
+    * **DOORS ARE DELIBERATELY REFUSED** (514 placements measured), and this was
+      the proposal's headline element. Every LEGO door in the corpus is 3-4
+      studs wide and 5-7 bricks tall; a Minecraft door is one block wide and two
+      tall, so any mapping deletes ~95% of the part or leaves a door floating in
+      a wall of cubes. Likewise "Grille" tiles/bricks (6,523 placements — SOLID
+      mouldings; `iron_bars` would hole the wall), flora (1,533) and antennas
+      (280), both of which would be recolours. `scripts/_element_survey.ts`
+      reproduces every number (613 files, 530,695 placements).
+    * Gates: 21325 at 1 block/stud → 65 fences + 14 bars; 60365 → 99 panes; both
+      0 gained / 0 lost / 0 recoloured / 0 unshaped. Re-import through the real
+      Upload-tab parser preserves dims, non-air and all 53 palette entries.
+      Chrome (Worker path) reproduces the CLI's element counts exactly. Tests:
+      `test/part-elements.test.ts`.
+  - **Lanterns for the light fill (2026-09-08).** With `Block shapes` on, the
+    interior light fill drops `lantern[hanging=false]` instead of a glowstone
+    cube — same light level 15, reads as a lamp rather than a glowing floor
+    tile. `LightFillOptions.floorLightBlock` is used only where something solid
+    is below (a standing lantern otherwise pops off); with shapes off the light
+    fill is byte-identical to before.
   - **Byte-identity is the gate.** With defaults **and `--no-shapes`** (auto /
     default profile / light fill OFF) `scripts/_schem_ref.ts` (driving the REAL
     shared pipeline) on 21063 gives sha256 `53dac11…9e40e2`, 1,190,999 non-air.
@@ -547,7 +636,8 @@ ghost tires). Pipeline defenses (classifier extracted to
      blocks and a REAL exported .schem's `Palette` are `minecraft:<known id>`.
      A new block means adding it to the JSON deliberately. Since 2026-09-08 the
      `[k=v,…]` STATE tail is validated too (keys and values against a per-suffix
-     schema for `_slab`/`_stairs`; syntax + duplicate keys otherwise) — a state
+     schema for `_slab`/`_stairs`/`_pane`/`_fence`/`_wall`/`ladder`/`lantern`/
+     `iron_bars`; syntax + duplicate keys otherwise) — a state
      string is where a plausible typo hides best, since `[type=lower]` and
      `[facing=up]` round-trip through our own encoder and importer perfectly and
      only fail in Minecraft. Registry discipline: a shape id is listed only for
