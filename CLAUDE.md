@@ -372,6 +372,19 @@ ghost tires). Pipeline defenses (classifier extracted to
   fallback makes part resolution nondeterministic (two runs of the SAME code
   differed by 570 blocks). Profilers: `scripts/_schem_profile.ts` (full path),
   `scripts/_schem_encode_profile.ts` (encode at the 30M cap).
+- **Export filenames are `<Name≤12>-<setNumber>` (2026-09-08).**
+  `web/src/engine/export-name.ts` `modelExportStem()` builds every LEGO-tab
+  download name: the model name first (whole words, no spaces, ≤12 chars), then
+  the set number with the `-1` primary-variant suffix dropped —
+  `Colosseum-10276.schem`. The old stems were the internal loader label and
+  leaked the SOURCE into the user's Downloads folder (`10276-1-omr.schem`,
+  `21063-1-io.schem`), which says nothing about the model and made two exports of
+  one set look like different things. A NON-`-1` variant is kept (a different
+  physical release). Degrades: name+number → number → name → the uploaded file's
+  own name → `model`. Applies to every format (schem/litematic/guide/mcpack, GLB/
+  OBJ/STL/3MF, CSV, PNG, turntable) so one model gives one family of filenames;
+  `runMinecraftExport` re-sanitizes the stem so no caller can put a path
+  separator in a download name. Tests: `test/export-name.test.ts`.
 - **ONE shared Minecraft-export module for every tab (S4, 2026-09-01).**
   `web/src/ui/schem-export.ts` `runMinecraftExport()` is the ONLY path that
   encodes a .schem/.litematic for a user download; it owns resolution planning,
