@@ -29,7 +29,14 @@ import { applyPartElements, type ElementStats } from './part-elements.js';
 import { getBlockProfile, type BrickColorSpace } from './block-profiles.js';
 import { BlockGrid } from '@craft/schem/types.js';
 
-export type SchemWorkerFormat = 'schem' | 'litematic' | 'guide';
+/**
+ * `mcpack` is the Bedrock Edition target: a behavior pack of `.mcstructure`
+ * files (engine/mcpack.ts). It shares the whole grid-building path with the Java
+ * formats and differs only in the encoder, which is the point — the alternative
+ * was converting our `.schem` with an external tool, and that hop is where a
+ * Java→Bedrock translation loses blocks and block states.
+ */
+export type SchemWorkerFormat = 'schem' | 'litematic' | 'guide' | 'mcpack';
 
 /** A parsed LDraw model that still needs voxelizing. */
 export interface BrickSource {
@@ -75,6 +82,25 @@ export interface SchemWorkerInput {
    * absent from the map is fetched as before (with progress).
    */
   datTexts?: ReadonlyMap<string, string | null>;
+  /**
+   * Filename stem for the Bedrock pack (`format: 'mcpack'`). It becomes the
+   * pack's display name, its structure identifiers and its deterministic
+   * manifest UUIDs, so the same set always re-imports as an UPDATE rather than a
+   * second pack with the same name.
+   */
+  packStem?: string;
+  /** Human label for the pack (`Colosseum (10276)`); defaults to `packStem`. */
+  packLabel?: string;
+}
+
+/** What a Bedrock `.mcpack` export produced, for the status line. */
+export interface McpackSummary {
+  /** `/function craftmatic/<name>` the player runs to place the model. */
+  functionCommand: string;
+  /** One `.mcstructure` per entry. */
+  tileCount: number;
+  /** Java block ids with no Bedrock equivalent (written as air). */
+  unmapped: string[];
 }
 
 export type SchemWorkerOutput =
@@ -95,6 +121,8 @@ export type SchemWorkerOutput =
       shapes?: ShapeStats;
       /** Present only when the semantic-element pass ran (part-elements.ts). */
       elements?: ElementStats;
+      /** Present only for `format: 'mcpack'`. */
+      mcpack?: McpackSummary;
     }
   | { type: 'error'; message: string };
 
@@ -110,6 +138,8 @@ export interface SchemPipelineResult {
   shapes?: ShapeStats;
   /** Non-null only when a mapped part was small enough for a Minecraft element. */
   elements?: ElementStats;
+  /** Non-null only for `format: 'mcpack'`. */
+  mcpack?: McpackSummary;
 }
 
 /**
@@ -186,6 +216,25 @@ export async function runSchemPipeline(
   const nonAir = grid.countNonAir();
   const lights = lightFill?.lights ?? 0;
   if (input.format === 'guide') return { grid, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats };
+
+  if (input.format === 'mcpack') {
+    // Bedrock: same grid, different (little-endian, per-tile) encoder.
+    const { buildMcpack } = await import('./mcpack.js');
+    const pack = await buildMcpack(grid, {
+      stem: input.packStem ?? 'model',
+      ...(input.packLabel ? { label: input.packLabel } : {}),
+      onProgress,
+    });
+    return {
+      grid, bytes: pack.bytes, nonAir, lights, lightFill,
+      shapes: shapeStats, elements: elementStats,
+      mcpack: {
+        functionCommand: pack.functionCommand,
+        tileCount: pack.tiles.length,
+        unmapped: pack.unmapped,
+      },
+    };
+  }
 
   onProgress(input.format === 'schem' ? 'writing NBT' : 'writing Litematica NBT');
   const bytes = input.format === 'schem' ? encodeSchemBytes(grid) : encodeLitematicBytes(grid);

@@ -59,6 +59,50 @@ export class ByteWriter {
     this.u32(Number(v & 0xffffffffn));
   }
 
+  // ── Little-endian variants ────────────────────────────────────────────────
+  // Bedrock Edition NBT (`.mcstructure`, `level.dat`) is LITTLE-endian, unlike
+  // Java's big-endian NBT. Same sink, same growth policy — only the byte order
+  // differs, so the two encoders cannot drift apart on buffer handling.
+
+  /** Write a little-endian 16-bit value. */
+  u16le(v: number): void {
+    this.ensure(2);
+    this.buf[this.len++] = v & 0xff;
+    this.buf[this.len++] = (v >> 8) & 0xff;
+  }
+
+  /** Write a little-endian 32-bit value. */
+  u32le(v: number): void {
+    this.ensure(4);
+    this.buf[this.len++] = v & 0xff;
+    this.buf[this.len++] = (v >>> 8) & 0xff;
+    this.buf[this.len++] = (v >>> 16) & 0xff;
+    this.buf[this.len++] = (v >>> 24) & 0xff;
+  }
+
+  /** Write a little-endian signed 64-bit value (Bedrock TAG_Long). */
+  i64le(v: bigint): void {
+    this.u32le(Number(v & 0xffffffffn));
+    this.u32le(Number((v >> 32n) & 0xffffffffn));
+  }
+
+  /** Write a little-endian 32-bit float (Bedrock TAG_Float). */
+  f32le(v: number): void {
+    const b = new Uint8Array(4);
+    new DataView(b.buffer).setFloat32(0, v, true);
+    this.bytes(b);
+  }
+
+  /**
+   * Write a Bedrock NBT string: little-endian u16 byte length + UTF-8 bytes.
+   * (Bedrock uses the same length-prefixed form as Java, just LE.)
+   */
+  nbtStringLE(s: string, enc: TextEncoder): void {
+    const b = enc.encode(s);
+    this.u16le(b.length);
+    this.bytes(b);
+  }
+
   /** Write raw bytes. */
   bytes(a: Uint8Array): void {
     this.ensure(a.length);

@@ -106,13 +106,29 @@ async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
 
 export interface ZipInputFile { name: string; data: Uint8Array }
 
+export interface CreateZipOptions {
+  /**
+   * Use DEFLATE for every entry that compresses at all, even when "stored" would
+   * be a byte or two smaller.
+   *
+   * For `.mcpack` (engine/mcpack.ts): no official statement exists on which ZIP
+   * methods the Bedrock client accepts, and DEFLATE is what every pack in the
+   * wild uses, so a tiny stored `manifest.json` is a needless unknown. Costs
+   * nothing — the entries that would have been stored are ~200 bytes.
+   */
+  alwaysDeflate?: boolean;
+}
+
 /**
  * Build a standard ZIP archive (local headers + central directory + EOCD).
  * Entries are DEFLATE-compressed via native CompressionStream when available
  * and smaller, otherwise stored. No encryption, no zip64 (fine for <4 GB).
  * Round-trip-verified against this module's own reader (test/threemf-export).
  */
-export async function createZip(files: readonly ZipInputFile[]): Promise<Uint8Array> {
+export async function createZip(
+  files: readonly ZipInputFile[],
+  options: CreateZipOptions = {},
+): Promise<Uint8Array> {
   const enc = new TextEncoder();
   const localParts: Uint8Array[] = [];
   const centralParts: Uint8Array[] = [];
@@ -128,7 +144,7 @@ export async function createZip(files: readonly ZipInputFile[]): Promise<Uint8Ar
     if (typeof CompressionStream !== 'undefined') {
       try {
         const deflated = await deflateRaw(f.data);
-        if (deflated.length < f.data.length) { method = 8; payload = deflated; }
+        if (options.alwaysDeflate || deflated.length < f.data.length) { method = 8; payload = deflated; }
       } catch { /* keep stored */ }
     }
 

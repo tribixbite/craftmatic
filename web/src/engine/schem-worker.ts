@@ -56,11 +56,12 @@ self.onmessage = async (event: MessageEvent<SchemWorkerInput>) => {
       post({ type: 'progress', phase, pct });
     };
 
-    const { grid, bytes, nonAir, lights, shapes } = await runSchemPipeline(input, onProgress);
+    const { grid, bytes, nonAir, lights, shapes, mcpack } = await runSchemPipeline(input, onProgress);
 
     post({
       type: 'result',
       bytes,
+      mcpack,
       grid: input.format === 'guide'
         ? {
             width: grid.width, height: grid.height, length: grid.length,

@@ -1,0 +1,1291 @@
+{
+  "_comment": "GENERATED — do not hand-edit. Bedrock block ids + their complete state schemas, for every id the Minecraft export can emit. Regenerate with `node scripts/gen-bedrock-blocks.mjs`.",
+  "_source": "https://raw.githubusercontent.com/Mojang/bedrock-samples/v1.21.40.3/metadata/vanilladata_modules/mojang-blocks.json",
+  "_generatedFrom": "Mojang/bedrock-samples@v1.21.40.3",
+  "_forwardCheckedAgainst": "Mojang/bedrock-samples@main",
+  "_blockCount": 444,
+  "properties": {
+    "minecraft:vertical_half": {
+      "type": "string",
+      "default": "bottom",
+      "values": [
+        "bottom",
+        "top"
+      ]
+    },
+    "persistent_bit": {
+      "type": "bool",
+      "default": false,
+      "values": [
+        false,
+        true
+      ]
+    },
+    "update_bit": {
+      "type": "bool",
+      "default": false,
+      "values": [
+        false,
+        true
+      ]
+    },
+    "pillar_axis": {
+      "type": "string",
+      "default": "y",
+      "values": [
+        "y",
+        "x",
+        "z"
+      ]
+    },
+    "upside_down_bit": {
+      "type": "bool",
+      "default": false,
+      "values": [
+        false,
+        true
+      ]
+    },
+    "weirdo_direction": {
+      "type": "int",
+      "default": 0,
+      "values": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    "wall_connection_type_east": {
+      "type": "string",
+      "default": "none",
+      "values": [
+        "none",
+        "short",
+        "tall"
+      ]
+    },
+    "wall_connection_type_north": {
+      "type": "string",
+      "default": "none",
+      "values": [
+        "none",
+        "short",
+        "tall"
+      ]
+    },
+    "wall_connection_type_south": {
+      "type": "string",
+      "default": "none",
+      "values": [
+        "none",
+        "short",
+        "tall"
+      ]
+    },
+    "wall_connection_type_west": {
+      "type": "string",
+      "default": "none",
+      "values": [
+        "none",
+        "short",
+        "tall"
+      ]
+    },
+    "wall_post_bit": {
+      "type": "bool",
+      "default": false,
+      "values": [
+        false,
+        true
+      ]
+    },
+    "infiniburn_bit": {
+      "type": "bool",
+      "default": false,
+      "values": [
+        false,
+        true
+      ]
+    },
+    "facing_direction": {
+      "type": "int",
+      "default": 0,
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "deprecated": {
+      "type": "int",
+      "default": 0,
+      "values": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    "huge_mushroom_bits": {
+      "type": "int",
+      "default": 0,
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    "hanging": {
+      "type": "bool",
+      "default": false,
+      "values": [
+        false,
+        true
+      ]
+    },
+    "liquid_depth": {
+      "type": "int",
+      "default": 0,
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    "minecraft:cardinal_direction": {
+      "type": "string",
+      "default": "south",
+      "values": [
+        "south",
+        "west",
+        "north",
+        "east"
+      ]
+    }
+  },
+  "blocks": {
+    "acacia_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "acacia_fence": [],
+    "acacia_leaves": [
+      "persistent_bit",
+      "update_bit"
+    ],
+    "acacia_log": [
+      "pillar_axis"
+    ],
+    "acacia_planks": [],
+    "acacia_slab": [
+      "minecraft:vertical_half"
+    ],
+    "acacia_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "air": [],
+    "amethyst_block": [],
+    "andesite": [],
+    "andesite_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "andesite_slab": [
+      "minecraft:vertical_half"
+    ],
+    "andesite_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "andesite_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "bamboo_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "bamboo_fence": [],
+    "bamboo_planks": [],
+    "bamboo_slab": [
+      "minecraft:vertical_half"
+    ],
+    "bamboo_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "basalt": [
+      "pillar_axis"
+    ],
+    "bedrock": [
+      "infiniburn_bit"
+    ],
+    "birch_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "birch_fence": [],
+    "birch_leaves": [
+      "persistent_bit",
+      "update_bit"
+    ],
+    "birch_log": [
+      "pillar_axis"
+    ],
+    "birch_planks": [],
+    "birch_slab": [
+      "minecraft:vertical_half"
+    ],
+    "birch_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "black_concrete": [],
+    "black_concrete_powder": [],
+    "black_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "black_stained_glass": [],
+    "black_stained_glass_pane": [],
+    "black_terracotta": [],
+    "black_wool": [],
+    "blackstone": [],
+    "blackstone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "blackstone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "blackstone_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "blackstone_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "blue_concrete": [],
+    "blue_concrete_powder": [],
+    "blue_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "blue_ice": [],
+    "blue_stained_glass": [],
+    "blue_stained_glass_pane": [],
+    "blue_terracotta": [],
+    "blue_wool": [],
+    "bone_block": [
+      "deprecated",
+      "pillar_axis"
+    ],
+    "brick_block": [],
+    "brick_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "brick_slab": [
+      "minecraft:vertical_half"
+    ],
+    "brick_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "brick_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "brown_concrete": [],
+    "brown_concrete_powder": [],
+    "brown_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "brown_mushroom_block": [
+      "huge_mushroom_bits"
+    ],
+    "brown_stained_glass": [],
+    "brown_stained_glass_pane": [],
+    "brown_terracotta": [],
+    "brown_wool": [],
+    "calcite": [],
+    "cherry_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "cherry_fence": [],
+    "cherry_planks": [],
+    "cherry_slab": [
+      "minecraft:vertical_half"
+    ],
+    "cherry_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "chiseled_quartz_block": [
+      "pillar_axis"
+    ],
+    "chiseled_sandstone": [],
+    "chiseled_stone_bricks": [],
+    "clay": [],
+    "coal_block": [],
+    "coarse_dirt": [],
+    "cobbled_deepslate": [],
+    "cobbled_deepslate_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "cobbled_deepslate_slab": [
+      "minecraft:vertical_half"
+    ],
+    "cobbled_deepslate_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "cobbled_deepslate_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "cobblestone": [],
+    "cobblestone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "cobblestone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "cobblestone_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "copper_block": [],
+    "crimson_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "crimson_fence": [],
+    "crimson_planks": [],
+    "crimson_slab": [
+      "minecraft:vertical_half"
+    ],
+    "crimson_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "crying_obsidian": [],
+    "cut_red_sandstone": [],
+    "cut_red_sandstone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "cut_red_sandstone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "cut_sandstone": [],
+    "cut_sandstone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "cut_sandstone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "cyan_concrete": [],
+    "cyan_concrete_powder": [],
+    "cyan_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "cyan_stained_glass": [],
+    "cyan_stained_glass_pane": [],
+    "cyan_terracotta": [],
+    "cyan_wool": [],
+    "dark_oak_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "dark_oak_fence": [],
+    "dark_oak_leaves": [
+      "persistent_bit",
+      "update_bit"
+    ],
+    "dark_oak_log": [
+      "pillar_axis"
+    ],
+    "dark_oak_planks": [],
+    "dark_oak_slab": [
+      "minecraft:vertical_half"
+    ],
+    "dark_oak_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "dark_prismarine": [],
+    "dark_prismarine_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "dark_prismarine_slab": [
+      "minecraft:vertical_half"
+    ],
+    "dark_prismarine_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "deepslate": [
+      "pillar_axis"
+    ],
+    "deepslate_brick_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "deepslate_brick_slab": [
+      "minecraft:vertical_half"
+    ],
+    "deepslate_brick_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "deepslate_brick_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "deepslate_bricks": [],
+    "deepslate_tile_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "deepslate_tile_slab": [
+      "minecraft:vertical_half"
+    ],
+    "deepslate_tile_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "deepslate_tile_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "deepslate_tiles": [],
+    "diamond_block": [],
+    "diorite": [],
+    "diorite_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "diorite_slab": [
+      "minecraft:vertical_half"
+    ],
+    "diorite_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "diorite_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "dirt": [],
+    "dirt_with_roots": [],
+    "dried_kelp_block": [],
+    "emerald_block": [],
+    "end_brick_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "end_bricks": [],
+    "end_stone": [],
+    "end_stone_brick_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "end_stone_brick_slab": [
+      "minecraft:vertical_half"
+    ],
+    "end_stone_brick_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "exposed_copper": [],
+    "gilded_blackstone": [],
+    "glass": [],
+    "glass_pane": [],
+    "glowstone": [],
+    "gold_block": [],
+    "granite": [],
+    "granite_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "granite_slab": [
+      "minecraft:vertical_half"
+    ],
+    "granite_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "granite_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "grass_block": [],
+    "gravel": [],
+    "gray_concrete": [],
+    "gray_concrete_powder": [],
+    "gray_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "gray_stained_glass": [],
+    "gray_stained_glass_pane": [],
+    "gray_terracotta": [],
+    "gray_wool": [],
+    "green_concrete": [],
+    "green_concrete_powder": [],
+    "green_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "green_stained_glass": [],
+    "green_stained_glass_pane": [],
+    "green_terracotta": [],
+    "green_wool": [],
+    "hardened_clay": [],
+    "hay_block": [
+      "deprecated",
+      "pillar_axis"
+    ],
+    "honey_block": [],
+    "honeycomb_block": [],
+    "ice": [],
+    "iron_bars": [],
+    "iron_block": [],
+    "jungle_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "jungle_fence": [],
+    "jungle_leaves": [
+      "persistent_bit",
+      "update_bit"
+    ],
+    "jungle_log": [
+      "pillar_axis"
+    ],
+    "jungle_planks": [],
+    "jungle_slab": [
+      "minecraft:vertical_half"
+    ],
+    "jungle_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "ladder": [
+      "facing_direction"
+    ],
+    "lantern": [
+      "hanging"
+    ],
+    "lapis_block": [],
+    "lava": [
+      "liquid_depth"
+    ],
+    "light_blue_concrete": [],
+    "light_blue_concrete_powder": [],
+    "light_blue_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "light_blue_stained_glass": [],
+    "light_blue_stained_glass_pane": [],
+    "light_blue_terracotta": [],
+    "light_blue_wool": [],
+    "light_gray_concrete": [],
+    "light_gray_concrete_powder": [],
+    "light_gray_stained_glass": [],
+    "light_gray_stained_glass_pane": [],
+    "light_gray_terracotta": [],
+    "light_gray_wool": [],
+    "lime_concrete": [],
+    "lime_concrete_powder": [],
+    "lime_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "lime_stained_glass": [],
+    "lime_stained_glass_pane": [],
+    "lime_terracotta": [],
+    "lime_wool": [],
+    "lit_pumpkin": [
+      "minecraft:cardinal_direction"
+    ],
+    "magenta_concrete": [],
+    "magenta_concrete_powder": [],
+    "magenta_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "magenta_stained_glass": [],
+    "magenta_stained_glass_pane": [],
+    "magenta_terracotta": [],
+    "magenta_wool": [],
+    "magma": [],
+    "mangrove_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "mangrove_fence": [],
+    "mangrove_planks": [],
+    "mangrove_slab": [
+      "minecraft:vertical_half"
+    ],
+    "mangrove_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "moss_block": [],
+    "mossy_cobblestone": [],
+    "mossy_cobblestone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "mossy_cobblestone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "mossy_cobblestone_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "mossy_cobblestone_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "mossy_stone_brick_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "mossy_stone_brick_slab": [
+      "minecraft:vertical_half"
+    ],
+    "mossy_stone_brick_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "mossy_stone_brick_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "mossy_stone_bricks": [],
+    "mud": [],
+    "mud_brick_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "mud_brick_slab": [
+      "minecraft:vertical_half"
+    ],
+    "mud_brick_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "mud_brick_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "mud_bricks": [],
+    "mushroom_stem": [
+      "huge_mushroom_bits"
+    ],
+    "mycelium": [],
+    "nether_brick": [],
+    "nether_brick_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "nether_brick_fence": [],
+    "nether_brick_slab": [
+      "minecraft:vertical_half"
+    ],
+    "nether_brick_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "nether_brick_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "netherite_block": [],
+    "netherrack": [],
+    "normal_stone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "normal_stone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "normal_stone_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "oak_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "oak_fence": [],
+    "oak_leaves": [
+      "persistent_bit",
+      "update_bit"
+    ],
+    "oak_log": [
+      "pillar_axis"
+    ],
+    "oak_planks": [],
+    "oak_slab": [
+      "minecraft:vertical_half"
+    ],
+    "oak_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "obsidian": [],
+    "ochre_froglight": [
+      "pillar_axis"
+    ],
+    "orange_concrete": [],
+    "orange_concrete_powder": [],
+    "orange_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "orange_stained_glass": [],
+    "orange_stained_glass_pane": [],
+    "orange_terracotta": [],
+    "orange_wool": [],
+    "oxidized_copper": [],
+    "packed_ice": [],
+    "packed_mud": [],
+    "pearlescent_froglight": [
+      "pillar_axis"
+    ],
+    "pink_concrete": [],
+    "pink_concrete_powder": [],
+    "pink_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "pink_stained_glass": [],
+    "pink_stained_glass_pane": [],
+    "pink_terracotta": [],
+    "pink_wool": [],
+    "podzol": [],
+    "polished_andesite": [],
+    "polished_andesite_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_andesite_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_andesite_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "polished_blackstone": [],
+    "polished_blackstone_brick_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_blackstone_brick_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_blackstone_brick_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "polished_blackstone_brick_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "polished_blackstone_bricks": [],
+    "polished_blackstone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_blackstone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_blackstone_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "polished_blackstone_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "polished_deepslate": [],
+    "polished_deepslate_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_deepslate_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_deepslate_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "polished_deepslate_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "polished_diorite": [],
+    "polished_diorite_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_diorite_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_diorite_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "polished_granite": [],
+    "polished_granite_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_granite_slab": [
+      "minecraft:vertical_half"
+    ],
+    "polished_granite_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "prismarine": [],
+    "prismarine_brick_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "prismarine_brick_slab": [
+      "minecraft:vertical_half"
+    ],
+    "prismarine_bricks": [],
+    "prismarine_bricks_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "prismarine_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "prismarine_slab": [
+      "minecraft:vertical_half"
+    ],
+    "prismarine_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "prismarine_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "purple_concrete": [],
+    "purple_concrete_powder": [],
+    "purple_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "purple_stained_glass": [],
+    "purple_stained_glass_pane": [],
+    "purple_terracotta": [],
+    "purple_wool": [],
+    "purpur_block": [
+      "pillar_axis"
+    ],
+    "purpur_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "purpur_pillar": [
+      "pillar_axis"
+    ],
+    "purpur_slab": [
+      "minecraft:vertical_half"
+    ],
+    "purpur_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "quartz_block": [
+      "pillar_axis"
+    ],
+    "quartz_bricks": [],
+    "quartz_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "quartz_pillar": [
+      "pillar_axis"
+    ],
+    "quartz_slab": [
+      "minecraft:vertical_half"
+    ],
+    "quartz_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "raw_copper_block": [],
+    "raw_gold_block": [],
+    "raw_iron_block": [],
+    "red_concrete": [],
+    "red_concrete_powder": [],
+    "red_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "red_mushroom_block": [
+      "huge_mushroom_bits"
+    ],
+    "red_nether_brick": [],
+    "red_nether_brick_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "red_nether_brick_slab": [
+      "minecraft:vertical_half"
+    ],
+    "red_nether_brick_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "red_nether_brick_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "red_sand": [],
+    "red_sandstone": [],
+    "red_sandstone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "red_sandstone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "red_sandstone_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "red_sandstone_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "red_stained_glass": [],
+    "red_stained_glass_pane": [],
+    "red_terracotta": [],
+    "red_wool": [],
+    "redstone_block": [],
+    "redstone_lamp": [],
+    "sand": [],
+    "sandstone": [],
+    "sandstone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "sandstone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "sandstone_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "sandstone_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "sea_lantern": [],
+    "shroomlight": [],
+    "silver_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "slime": [],
+    "smooth_basalt": [],
+    "smooth_quartz": [
+      "pillar_axis"
+    ],
+    "smooth_quartz_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "smooth_quartz_slab": [
+      "minecraft:vertical_half"
+    ],
+    "smooth_quartz_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "smooth_red_sandstone": [],
+    "smooth_red_sandstone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "smooth_red_sandstone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "smooth_red_sandstone_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "smooth_sandstone": [],
+    "smooth_sandstone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "smooth_sandstone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "smooth_sandstone_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "smooth_stone": [],
+    "smooth_stone_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "smooth_stone_slab": [
+      "minecraft:vertical_half"
+    ],
+    "snow": [],
+    "soul_lantern": [
+      "hanging"
+    ],
+    "soul_sand": [],
+    "soul_soil": [],
+    "sponge": [],
+    "spruce_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "spruce_fence": [],
+    "spruce_leaves": [
+      "persistent_bit",
+      "update_bit"
+    ],
+    "spruce_log": [
+      "pillar_axis"
+    ],
+    "spruce_planks": [],
+    "spruce_slab": [
+      "minecraft:vertical_half"
+    ],
+    "spruce_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "stone": [],
+    "stone_brick_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "stone_brick_slab": [
+      "minecraft:vertical_half"
+    ],
+    "stone_brick_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "stone_brick_wall": [
+      "wall_connection_type_east",
+      "wall_connection_type_north",
+      "wall_connection_type_south",
+      "wall_connection_type_west",
+      "wall_post_bit"
+    ],
+    "stone_bricks": [],
+    "stone_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "stripped_birch_log": [
+      "pillar_axis"
+    ],
+    "stripped_oak_log": [
+      "pillar_axis"
+    ],
+    "stripped_spruce_log": [
+      "pillar_axis"
+    ],
+    "tinted_glass": [],
+    "tuff": [],
+    "verdant_froglight": [
+      "pillar_axis"
+    ],
+    "warped_double_slab": [
+      "minecraft:vertical_half"
+    ],
+    "warped_fence": [],
+    "warped_planks": [],
+    "warped_slab": [
+      "minecraft:vertical_half"
+    ],
+    "warped_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "water": [
+      "liquid_depth"
+    ],
+    "waxed_cut_copper": [],
+    "waxed_cut_copper_slab": [
+      "minecraft:vertical_half"
+    ],
+    "waxed_cut_copper_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "waxed_double_cut_copper_slab": [
+      "minecraft:vertical_half"
+    ],
+    "waxed_exposed_cut_copper": [],
+    "waxed_exposed_cut_copper_slab": [
+      "minecraft:vertical_half"
+    ],
+    "waxed_exposed_cut_copper_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "waxed_exposed_double_cut_copper_slab": [
+      "minecraft:vertical_half"
+    ],
+    "waxed_oxidized_cut_copper": [],
+    "waxed_oxidized_cut_copper_slab": [
+      "minecraft:vertical_half"
+    ],
+    "waxed_oxidized_cut_copper_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "waxed_oxidized_double_cut_copper_slab": [
+      "minecraft:vertical_half"
+    ],
+    "waxed_weathered_cut_copper": [],
+    "waxed_weathered_cut_copper_slab": [
+      "minecraft:vertical_half"
+    ],
+    "waxed_weathered_cut_copper_stairs": [
+      "upside_down_bit",
+      "weirdo_direction"
+    ],
+    "waxed_weathered_double_cut_copper_slab": [
+      "minecraft:vertical_half"
+    ],
+    "weathered_copper": [],
+    "white_concrete": [],
+    "white_concrete_powder": [],
+    "white_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "white_stained_glass": [],
+    "white_stained_glass_pane": [],
+    "white_terracotta": [],
+    "white_wool": [],
+    "yellow_concrete": [],
+    "yellow_concrete_powder": [],
+    "yellow_glazed_terracotta": [
+      "facing_direction"
+    ],
+    "yellow_stained_glass": [],
+    "yellow_stained_glass_pane": [],
+    "yellow_terracotta": [],
+    "yellow_wool": []
+  },
+  "doubleSlabs": {
+    "acacia_slab": "acacia_double_slab",
+    "andesite_slab": "andesite_double_slab",
+    "bamboo_slab": "bamboo_double_slab",
+    "birch_slab": "birch_double_slab",
+    "blackstone_slab": "blackstone_double_slab",
+    "brick_slab": "brick_double_slab",
+    "cherry_slab": "cherry_double_slab",
+    "cobbled_deepslate_slab": "cobbled_deepslate_double_slab",
+    "cobblestone_slab": "cobblestone_double_slab",
+    "crimson_slab": "crimson_double_slab",
+    "cut_red_sandstone_slab": "cut_red_sandstone_double_slab",
+    "cut_sandstone_slab": "cut_sandstone_double_slab",
+    "dark_oak_slab": "dark_oak_double_slab",
+    "dark_prismarine_slab": "dark_prismarine_double_slab",
+    "deepslate_brick_slab": "deepslate_brick_double_slab",
+    "deepslate_tile_slab": "deepslate_tile_double_slab",
+    "diorite_slab": "diorite_double_slab",
+    "end_stone_brick_slab": "end_stone_brick_double_slab",
+    "granite_slab": "granite_double_slab",
+    "jungle_slab": "jungle_double_slab",
+    "mangrove_slab": "mangrove_double_slab",
+    "mossy_cobblestone_slab": "mossy_cobblestone_double_slab",
+    "mossy_stone_brick_slab": "mossy_stone_brick_double_slab",
+    "mud_brick_slab": "mud_brick_double_slab",
+    "nether_brick_slab": "nether_brick_double_slab",
+    "normal_stone_slab": "normal_stone_double_slab",
+    "oak_slab": "oak_double_slab",
+    "polished_andesite_slab": "polished_andesite_double_slab",
+    "polished_blackstone_brick_slab": "polished_blackstone_brick_double_slab",
+    "polished_blackstone_slab": "polished_blackstone_double_slab",
+    "polished_deepslate_slab": "polished_deepslate_double_slab",
+    "polished_diorite_slab": "polished_diorite_double_slab",
+    "polished_granite_slab": "polished_granite_double_slab",
+    "prismarine_brick_slab": "prismarine_brick_double_slab",
+    "prismarine_slab": "prismarine_double_slab",
+    "purpur_slab": "purpur_double_slab",
+    "quartz_slab": "quartz_double_slab",
+    "red_nether_brick_slab": "red_nether_brick_double_slab",
+    "red_sandstone_slab": "red_sandstone_double_slab",
+    "sandstone_slab": "sandstone_double_slab",
+    "smooth_quartz_slab": "smooth_quartz_double_slab",
+    "smooth_red_sandstone_slab": "smooth_red_sandstone_double_slab",
+    "smooth_sandstone_slab": "smooth_sandstone_double_slab",
+    "smooth_stone_slab": "smooth_stone_double_slab",
+    "spruce_slab": "spruce_double_slab",
+    "stone_brick_slab": "stone_brick_double_slab",
+    "warped_slab": "warped_double_slab",
+    "waxed_cut_copper_slab": "waxed_double_cut_copper_slab",
+    "waxed_exposed_cut_copper_slab": "waxed_exposed_double_cut_copper_slab",
+    "waxed_oxidized_cut_copper_slab": "waxed_oxidized_double_cut_copper_slab",
+    "waxed_weathered_cut_copper_slab": "waxed_weathered_double_cut_copper_slab"
+  }
+}
