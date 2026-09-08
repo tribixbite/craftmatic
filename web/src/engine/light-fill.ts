@@ -35,6 +35,17 @@ import type { BlockGrid } from '@craft/schem/types.js';
 export interface LightFillOptions {
   /** Block placed in the pockets. Default `minecraft:glowstone`. */
   lightBlock?: string;
+  /**
+   * Block placed instead of `lightBlock` when the candidate cell has a SOLID
+   * cell below it — i.e. almost always, since candidates are floor cells.
+   *
+   * Exists so the shape passes can put a `lantern` in a room rather than a
+   * whole glowing cube (slice 6): a lantern is the partial-block form of a
+   * light, same light level 15, and it reads as a lamp instead of a block of
+   * lava-glass. It is NOT used at `y === 0`, where there is nothing below and a
+   * standing lantern would pop off on the first block update.
+   */
+  floorLightBlock?: string;
   /** Pockets with fewer cells than this are left dark. Default 8. */
   minPocketCells?: number;
   /** Approximate spacing (in cells) between lights along a pocket floor. Default 6. */
@@ -72,6 +83,7 @@ class IntStack {
  */
 export function addInteriorLights(grid: BlockGrid, opts: LightFillOptions = {}): LightFillResult {
   const lightBlock = opts.lightBlock ?? 'minecraft:glowstone';
+  const floorLightBlock = opts.floorLightBlock ?? lightBlock;
   const minPocketCells = Math.max(1, opts.minPocketCells ?? 8);
   const spacing = Math.max(1, Math.floor(opts.spacing ?? 6));
 
@@ -128,7 +140,8 @@ export function addInteriorLights(grid: BlockGrid, opts: LightFillOptions = {}):
       cells++;
       // Floor candidate: bottom of the grid, or a solid cell directly below.
       const below = i - yStride;
-      if (i < yStride || data[below] !== 0) {
+      const supported = i >= yStride && data[below] !== 0;
+      if (i < yStride || supported) {
         const y = (i / yStride) | 0;
         const rem = i - y * yStride;
         const z = (rem / zStride) | 0;
@@ -138,7 +151,9 @@ export function addInteriorLights(grid: BlockGrid, opts: LightFillOptions = {}):
           ((z / spacing) | 0) * bucketsX +
           ((y / spacing) | 0) * bucketsX * bucketsZ;
         // First candidate per bucket wins (flood order is deterministic).
-        if (!buckets.has(key)) buckets.set(key, i);
+        // Value packs the cell index with "has something solid underneath", so
+        // a standing lantern is never placed on nothing (see floorLightBlock).
+        if (!buckets.has(key)) buckets.set(key, i * 2 + (supported ? 1 : 0));
       }
       // 6-neighbourhood, guarded at the grid faces.
       const y = (i / yStride) | 0;
@@ -157,7 +172,12 @@ export function addInteriorLights(grid: BlockGrid, opts: LightFillOptions = {}):
     if (buckets.size === 0) continue; // no floor at all — nothing sensible to light
     result.pockets++;
     const lightId = grid.paletteIndexOf(lightBlock);
-    for (const i of buckets.values()) { data[i] = lightId; result.lights++; }
+    const floorId = floorLightBlock === lightBlock ? lightId : grid.paletteIndexOf(floorLightBlock);
+    for (const packed of buckets.values()) {
+      const i = (packed - (packed % 2)) / 2;
+      data[i] = packed % 2 === 1 ? floorId : lightId;
+      result.lights++;
+    }
   }
 
   return result;

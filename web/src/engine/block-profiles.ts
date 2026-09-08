@@ -29,6 +29,13 @@ export interface BlockMappingProfile {
   colorFn(space: BrickColorSpace): ((colorId: number) => string) | undefined;
   /** Block used by the interior light-fill option. */
   lightBlock: string;
+  /**
+   * Partial-block form of `lightBlock`, used by the light fill when the Block
+   * shapes setting is on AND the light has something solid under it (slice 6).
+   * A lantern is light level 15 like glowstone but reads as a lamp in a room
+   * instead of a glowing cube filling a floor tile.
+   */
+  lightElement?: string;
 }
 
 export const DEFAULT_PROFILE_ID = 'default';
@@ -51,6 +58,7 @@ export const BLOCK_PROFILES: readonly BlockMappingProfile[] = [
       'LEGO colours → dyed concrete, with stained glass for transparent bricks and metal blocks for chrome/gold.',
     colorFn: (space) => (space === 'bl' ? studioColorToBlock : undefined),
     lightBlock: 'minecraft:glowstone',
+    lightElement: 'minecraft:lantern[hanging=false,waterlogged=false]',
   },
   {
     id: TEXTURED_PROFILE_ID,
@@ -59,6 +67,7 @@ export const BLOCK_PROFILES: readonly BlockMappingProfile[] = [
       'Perceptual (OKLab) match onto stone, sandstone, brick, quartz and plank families, which — unlike dyed concrete — have slabs and stairs. Pair it with Block shapes: on 21063 that takes shaped cells from 5,367 to 57,702. Saturated colours keep their concrete.',
     colorFn: (space) => (space === 'bl' ? texturedStudioColorToBlock : texturedLdrawColorToBlock),
     lightBlock: 'minecraft:glowstone',
+    lightElement: 'minecraft:lantern[hanging=false,waterlogged=false]',
   },
 ];
 
