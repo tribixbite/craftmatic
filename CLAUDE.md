@@ -444,7 +444,16 @@ ghost tires). Pipeline defenses (classifier extracted to
     parser): **1,748 gained, 0 lost**, 173 recoloured (gap-fill copies a
     neighbour, and the neighbour changed). Tests: `test/part-bridge.test.ts`
     (synthetic head+hair: 2 components → 1; a 3-LDU gap left alone; two heads
-    never fused; additive-only).
+    never fused; additive-only). **Evidence on the real parts**:
+    `scripts/_minifig_slice.ts <model.io> [cell] [figIndex] --pair [--out pfx]`
+    voxelizes a head and the piece sitting on it both ways and prints the two
+    slices side by side — 76416-1 fig #2 at cellLDU 4 goes from a FULL air row
+    between hair and head (2 components) to a closed seam (1 component, +37
+    cells) — and `--out` writes both as `.schem` for an external view:
+    `output/schem-backlog/hair-off-zoom.png` vs `hair-on-zoom.png`.
+    `scripts/_schem_ref.ts --no-bridge` is the A/B switch and still reproduces
+    the pre-fix hash `d158beb…f3fd7` exactly, so the pass is provably the only
+    change.
   - **Two "more accurate" voxelization rewrites were MEASURED AND REJECTED
     (2026-09-08) — don't retry them without a visual A/B.** Both are
     geometrically more correct than what ships and both look worse.
