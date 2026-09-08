@@ -16,6 +16,9 @@
  * Usage (node, NOT bun — `chromium.launch` hangs under bun on this box):
  *   node scripts/schem-external-check.mjs
  *   node scripts/schem-external-check.mjs C:/git/clego/lego_sets/IO/21063.io 21063
+ *   node scripts/schem-external-check.mjs output/vox-work/before.schem before
+ *     (a `.schem` argument is viewed AS IS — for A/B-ing two pipeline builds
+ *      without re-exporting, e.g. before/after a voxelizer change)
  *
  * Verdict is by eye on the screenshot: 21063 must be a WHITE castle on a
  * green/brown base — no translucent walls, no magenta/orange terrain.
@@ -39,21 +42,28 @@ const VIEWER = 'https://schemat.io/view';
 const BASELINE_SHA = 'd158bebb54bb00cad0ead543a8310bf53fbb7f7f49021252f852e820e2cf3fd7';
 
 mkdirSync(OUT_DIR, { recursive: true });
-const schemPath = resolve(OUT_DIR, `${LABEL}.schem`);
+const viewOnly = SOURCE.toLowerCase().endsWith('.schem');
+const schemPath = viewOnly ? resolve(SOURCE) : resolve(OUT_DIR, `${LABEL}.schem`);
 
-// ── 1. Export through the shared pipeline ───────────────────────────────────
-console.log(`[export] ${SOURCE} → ${schemPath}`);
-const refOut = execFileSync('bun', ['scripts/_schem_ref.ts', SOURCE, schemPath], {
-  encoding: 'utf-8', maxBuffer: 1 << 24,
-});
-const ref = JSON.parse(refOut);
-console.log(`[export] cellLDU ${ref.cellLDU} · ${ref.dims.join('×')} · ${ref.nonAir.toLocaleString()} blocks`);
-console.log(`[export] palette (${ref.palette.length}): ${ref.palette.join(', ')}`);
-console.log(`[export] sha256 ${ref.schemSha256}`);
-if (LABEL === '21063') {
-  console.log(ref.schemSha256 === BASELINE_SHA
-    ? '[gate ] BYTE-IDENTICAL to the S3 baseline ✓'
-    : `[gate ] ⚠ HASH DRIFT — expected ${BASELINE_SHA}`);
+// ── 1. Export through the shared pipeline (unless handed a .schem) ──────────
+if (viewOnly) {
+  const sha = createHash('sha256').update(readFileSync(schemPath)).digest('hex');
+  console.log(`[export] (skipped) viewing ${schemPath}`);
+  console.log(`[export] sha256 ${sha}`);
+} else {
+  console.log(`[export] ${SOURCE} → ${schemPath}`);
+  const refOut = execFileSync('bun', ['scripts/_schem_ref.ts', SOURCE, schemPath], {
+    encoding: 'utf-8', maxBuffer: 1 << 24,
+  });
+  const ref = JSON.parse(refOut);
+  console.log(`[export] cellLDU ${ref.cellLDU} · ${ref.dims.join('×')} · ${ref.nonAir.toLocaleString()} blocks`);
+  console.log(`[export] palette (${ref.palette.length}): ${ref.palette.join(', ')}`);
+  console.log(`[export] sha256 ${ref.schemSha256}`);
+  if (LABEL === '21063') {
+    console.log(ref.schemSha256 === BASELINE_SHA
+      ? '[gate ] BYTE-IDENTICAL to the reference baseline ✓'
+      : `[gate ] ⚠ HASH DRIFT — expected ${BASELINE_SHA}`);
+  }
 }
 
 // ── 2. Load it in schemat.io ────────────────────────────────────────────────

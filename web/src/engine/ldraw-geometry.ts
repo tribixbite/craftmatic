@@ -364,6 +364,17 @@ function parityFill(hits: number[], cellSize: number, out: number[]): void {
   // Parity fill: pairs [t0,t1], [t2,t3], …
   // Odd count (non-watertight mesh) → fill only the surface cells at each hit
   // point instead of the full [min,max] range (which over-fills thin parts).
+  //
+  // CELLS ARE CENTRED ON g·c (`Math.round`), deliberately. A half-open lattice
+  // (cell g owns [g·c,(g+1)·c)) was tried on 2026-09-08 and REVERTED: it makes
+  // a part's cell dimensions exactly right — a 2×4 brick becomes 10×7×20 at
+  // cellLDU 4 instead of 11×8×21 — but every LEGO face sits on a multiple of
+  // 4 LDU, i.e. exactly on a lattice boundary, so sub-cell relief (wall
+  // buttresses, panel recesses, the whole architectural read of 21063) collapses
+  // flush into the wall behind it and the surface picks up single-cell noise.
+  // Verified in schemat.io: `output/schem-backlog/before-z2.png` (centred, kept)
+  // vs `after-z2.png` (half-open, rejected). Centred cells over-cover by half a
+  // cell per side, and that conservative bias is what preserves thin features.
   if (dedup.length % 2 !== 0) {
     for (const hit of dedup) out.push(Math.round(hit / cellSize));
     return;
@@ -597,6 +608,15 @@ function rasterizeTriangles(
   }
 
   // ── Surface pass: mark every cell any triangle surface touches ────────────
+  // This fills each triangle's 3D bounding BOX, which over-covers a slanted
+  // triangle. That over-coverage is DELIBERATE and was re-verified 2026-09-08:
+  // replacing it with an exact triangle/cell overlap test (Akenine-Möller SAT)
+  // is geometrically correct and visually WORSE — sub-cell relief (wall
+  // buttresses, arch recesses) collapses flush into the surface behind it and
+  // the remaining shell speckles, because a curved part becomes a one-cell skin
+  // whose neighbours win half the boundary cells. Measured on 21063: 1,190,999
+  // -> 1,049,085 cells, and see output/schem-backlog/before-z2.png (kept) vs
+  // sat-z2.png (exact, rejected). Do not "fix" this without a visual A/B.
   for (const [v0, v1, v2] of worldTris) {
     const txMin = Math.min(v0[0], v1[0], v2[0]);
     const txMax = Math.max(v0[0], v1[0], v2[0]);

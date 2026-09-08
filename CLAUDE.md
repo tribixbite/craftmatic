@@ -438,6 +438,32 @@ ghost tires). Pipeline defenses (classifier extracted to
     neighbour, and the neighbour changed). Tests: `test/part-bridge.test.ts`
     (synthetic head+hair: 2 components → 1; a 3-LDU gap left alone; two heads
     never fused; additive-only).
+  - **Two "more accurate" voxelization rewrites were MEASURED AND REJECTED
+    (2026-09-08) — don't retry them without a visual A/B.** Both are
+    geometrically more correct than what ships and both look worse.
+    1. **Exact triangle/cell overlap (Akenine-Möller SAT) instead of the
+       surface pass's bounding-BOX fill.** Correct: the box fill marks cells a
+       slanted triangle never enters. But the over-coverage is what carries
+       sub-cell relief — with SAT, 21063's wall buttresses and arch recesses
+       collapse flush into the wall behind them, and a curved part becomes a
+       one-cell skin whose neighbours win half its boundary cells, so surfaces
+       speckle. 1,190,999 → 1,049,085 cells. See
+       `output/schem-backlog/before-z2.png` (ships) vs `sat-z2.png` (rejected).
+    2. **Half-open cell lattice (cell g owns [g·c,(g+1)·c), floor instead of
+       round).** Makes a part's dimensions exactly right — a 2×4 brick is
+       10×7×20 cells at cellLDU 4 instead of 11×8×21 — and puts the ray lattice
+       at true cell centres (origins are `(g+0.5)·c`, so today's rounding samples
+       a cell CORNER). But every LEGO face is a multiple of 4 LDU, i.e. exactly
+       on a lattice boundary at cellLDU 4, so tie-breaking decides every
+       surface: −25.7% cells and the same flattening plus worse noise
+       (`after-z2.png`). Centred cells over-cover by half a cell per side and
+       that conservative bias is the fidelity.
+    Measurement tools kept: `scripts/_vox_stats.ts` (set-level cells / bridge /
+    time), `scripts/_vox_partcheck.ts` (per-part cells vs the part's real LDU
+    extent + enclosed-air holes), `scripts/_vox_range.ts` (emitted cell range vs
+    exact extent), `scripts/_schem_diff.ts` (decoded gained/lost/recoloured).
+    `scripts/schem-external-check.mjs` now also accepts a `.schem` path directly,
+    so two pipeline builds can be A/B'd in schemat.io without re-exporting.
   - **Byte-identity is the gate.** With defaults (auto / default profile /
     light fill OFF) `scripts/_schem_ref.ts` (driving the REAL shared pipeline)
     on 21063 gives sha256 `53dac11…9e40e2`, 1,190,999 non-air.
