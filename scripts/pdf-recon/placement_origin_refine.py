@@ -22,17 +22,31 @@ import sys
 import numpy as np
 
 
-def refine(base, hypotheses, scorer, window=3, tolerance=0, screen_fn=None):
+def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallback=0,
+           screen_fn=None):
     """Return containment-refined registrations sorted by template score.
 
     `window` is the half-width, in native raster pixels, of the exhaustive
-    integer offset search around each supplied origin. `tolerance` is the
-    number of overflowing body pixels accepted as raster/antialias noise.
+    integer offset search around each supplied origin. A hypothesis is accepted
+    when its overflow is at most `tolerance` pixels or `fraction` of the body's
+    own rendered area, whichever is larger; the proportional allowance exists
+    because a body that already contains a misplaced part protrudes through the
+    artwork through no fault of the camera.
+
+    If nothing is accepted, the `fallback` least-overflowing hypotheses are
+    returned anyway, each flagged `contained: False` with its measured
+    overflow, so the caller can proceed on explicitly weaker evidence instead
+    of silently dropping the page. A caller that requires containment can pass
+    `fallback=0` and get the strict behaviour.
     """
     if window < 0 or int(window) != window:
         raise ValueError('Offset window must be a nonnegative integer')
     if tolerance < 0 or int(tolerance) != tolerance:
         raise ValueError('Overflow tolerance must be a nonnegative integer')
+    if not 0.0 <= fraction < 1.0:
+        raise ValueError('Proportional allowance must be a fraction below one')
+    if fallback < 0 or int(fallback) != fallback:
+        raise ValueError('Fallback count must be a nonnegative integer')
     if screen_fn is None:
         from placement_occupancy_screen import screen as screen_fn
     offsets = [(dx, dy) for dy in range(-window, window + 1)
@@ -51,7 +65,8 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, screen_fn=None):
                           occupied_pixels=evidence['occupied_pixels'])
             if best is None or record['outside_pixels'] < best['outside_pixels']:
                 best = record
-            if record['outside_pixels'] <= tolerance:
+            allowance = max(tolerance, int(fraction * record['occupied_pixels']))
+            if record['outside_pixels'] <= allowance:
                 accepted = record
                 break
         row = dict(source_index=index, rotation_index=hypothesis.get('rotation_index'),
@@ -75,15 +90,34 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, screen_fn=None):
         row.pop('key', None)
     retained = [r for r in rows if r['contained'] and r['duplicate_of'] is None]
     retained.sort(key=lambda r: -(r['template_score'] if r['template_score'] is not None else 0))
+    used_fallback = False
+    if not retained and fallback:
+        used_fallback = True
+        # Nothing is contained. Proceed on the least-overflowing hypotheses, each
+        # carrying its measured overflow, rather than dropping the page silently.
+        ordered = sorted(rows, key=lambda r: (r['best_containment']['outside_pixels'],
+                                              -(r['template_score'] or 0)))
+        for row in ordered[:fallback]:
+            row = dict(row)
+            row.update(origin=(np.asarray(row['source_origin'], float)
+                               + row['best_containment']['offset']).tolist(),
+                       applied_offset=row['best_containment']['offset'],
+                       outside_pixels=row['best_containment']['outside_pixels'],
+                       occupied_pixels=row['best_containment']['occupied_pixels'],
+                       containment_fallback=True)
+            retained.append(row)
     return dict(hypotheses=retained, evaluated=rows, offset_window=window,
-                overflow_tolerance=tolerance, retained=len(retained),
+                overflow_tolerance=tolerance, proportional_allowance=fraction,
+                containment_fallback_used=used_fallback, fallback_limit=fallback,
+                retained=len(retained),
                 rejected=sum(1 for r in rows if not r['contained']),
                 duplicates=sum(1 for r in rows if r.get('duplicate_of') is not None),
                 truth_used=False, runtime_vlm_calls=0, certified=False,
                 protocol='Exhaustive integer offsets around each template origin; '
                          'smallest correction satisfying exact rendered-silhouette containment '
                          'in the dilated target foreground',
-                limitations='Containment is a necessary condition only. Occlusion of the existing '
+                limitations='Containment is a necessary condition only, and a fallback result is '
+                            'explicitly not contained. Occlusion of the existing '
                             'body by later parts, cropped artwork and coincidental silhouettes are '
                             'not excluded. Offsets are integer native-raster pixels; no scale, '
                             'shear or rotation is refit. Not a certified camera.')
@@ -96,6 +130,8 @@ if __name__ == '__main__':
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--window', type=int, default=3)
     parser.add_argument('--tolerance', type=int, default=0)
+    parser.add_argument('--fraction', type=float, default=0.0)
+    parser.add_argument('--fallback', type=int, default=0)
     parser.add_argument('--limit', type=int, default=12)
     args = parser.parse_args()
     import pymupdf
@@ -115,7 +151,7 @@ if __name__ == '__main__':
         scene = next(s for s in scene_images(doc, doc[source['page']]) if s['xref'] == source['xref'])
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
     result = refine(read_items(base_path), source['hypotheses'][:args.limit], scorer,
-                    args.window, args.tolerance)
+                    args.window, args.tolerance, args.fraction, args.fallback)
     result.update(pdf=str(pdf), pdf_sha256=source['pdf_sha256'], page=source['page'],
                   xref=source['xref'], base=source['base'], base_sha256=source['base_sha256'],
                   source_registration=str(args.registration),

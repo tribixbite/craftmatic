@@ -1,0 +1,547 @@
+{
+  "part": "41740",
+  "truth_used": false,
+  "method": "Full colored triangle connectivity, sorted vertices, six-decimal LDU comparison; all24 proper rotations",
+  "geometry_files": {
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\parts\\41740.dat": "13f803c6010593bf20a4332b53a4424584126075efc8296457cd93fb8cd76a37",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\stud3.dat": "9b82aa357afed71f867ea406ea49422bf08e82758bce18d2c17c55cc16705897",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4edge.dat": "54a52196e421fd1717d291ff52ea57553b1fb238907c1678cc1f1a84c698b1da",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4disc.dat": "a00b5547776f61a7389d303616987c76b3c4de86ad8ec32f22857e1bd5e5e40f",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4cyli.dat": "4a742c2765b6ebf98245baaf8a160a4ff587fc93d36c8ee2b9074712a2f968c4",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\box5.dat": "cbdbde0656b6037f595a7bfe3ae00cda51ab115e4b0db21baa8d349e78ab2a7d",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\box4.dat": "72e1169ec1b2f11d44a6aaf6e87e15ec82a6cb35b5c56dcf7b1185d6b8b954aa",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\stud.dat": "db037d518d7c08bcdc1f0e7497f4f98e97d99850531dd62d602965520f3bf8f4",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\box3u5p.dat": "09d4c4afeb5706d5795c01aa75cd732669028c13fc805e23b8a24fdd0b9b22b5",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\box2-5.dat": "5100d00ac37c5a0756ac0fce6527f5a7d35c5af9a49594f588d2c9dfddd7f0b2"
+  },
+  "rotations": [
+    {
+      "rotation": [
+        [
+          -1.0,
+          -0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          -0.0,
+          -0.0,
+          1.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 11.704686801448384,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          -1.0,
+          0.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          1.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          -1.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 0.0,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          1.0,
+          -0.0,
+          -0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          -0.0
+        ],
+        [
+          0.0,
+          -0.0,
+          -1.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 11.704686801448384,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "identity": true,
+      "max_vertex_hausdorff_ldu": 0.0,
+      "full_colored_triangle_invariant": true
+    },
+    {
+      "rotation": [
+        [
+          -1.0,
+          -0.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          -0.0,
+          -1.0
+        ],
+        [
+          -0.0,
+          -1.0,
+          -0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 9.178235124467012,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          1.0
+        ],
+        [
+          -0.0,
+          1.0,
+          0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 9.178235124467012,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          1.0,
+          -0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 9.178235124467012,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          1.0,
+          0.0,
+          -0.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 9.178235124467012,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          -0.0,
+          -1.0,
+          -0.0
+        ],
+        [
+          -1.0,
+          -0.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          -0.0,
+          -1.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 43.41658669218482,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          -0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 43.41658669218482,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          1.0,
+          -0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -0.0,
+          1.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 43.41658669218482,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          0.0,
+          1.0,
+          -0.0
+        ],
+        [
+          1.0,
+          0.0,
+          -0.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 43.41658669218482,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          -0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          -1.0,
+          -0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          -1.0,
+          0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 39.20458765399784,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          -0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          -1.0,
+          0.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          1.0,
+          -0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 39.20458765399784,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          0.0,
+          -0.0,
+          -1.0
+        ],
+        [
+          1.0,
+          -0.0,
+          -0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          -0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 39.20458765399784,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 39.20458765399784,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          -0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          -0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          -1.0,
+          -0.0,
+          0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 39.20458765399784,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          -0.0,
+          1.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          -1.0,
+          0.0,
+          -0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 39.20458765399784,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          0.0,
+          -1.0,
+          -0.0
+        ],
+        [
+          0.0,
+          -0.0,
+          -1.0
+        ],
+        [
+          1.0,
+          -0.0,
+          -0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 39.20458765399784,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 39.20458765399784,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          -0.0,
+          -0.0,
+          -1.0
+        ],
+        [
+          -0.0,
+          -1.0,
+          -0.0
+        ],
+        [
+          -1.0,
+          -0.0,
+          -0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 35.61249780624774,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          -0.0,
+          0.0,
+          1.0
+        ],
+        [
+          -0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 34.311076928595526,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          1.0,
+          -0.0,
+          0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 35.61249780624774,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "rotation": [
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0
+        ],
+        [
+          1.0,
+          0.0,
+          -0.0
+        ]
+      ],
+      "identity": false,
+      "max_vertex_hausdorff_ldu": 34.311076928595526,
+      "full_colored_triangle_invariant": false
+    }
+  ]
+}

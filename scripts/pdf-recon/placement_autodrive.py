@@ -117,6 +117,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options):
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
     contained = refine(base, hypotheses[:options['refine_limit']], scorer,
                        window=options['window'], tolerance=options['tolerance'],
+                       fraction=options['fraction'], fallback=options['fallback'],
                        screen_fn=screen)
     contained.update(page=page, xref=xref, pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
                      base=str(base_model), base_sha256=file_hash(base_model))
@@ -254,6 +255,10 @@ if __name__ == '__main__':
     parser.add_argument('--refine-limit', type=int, default=16)
     parser.add_argument('--window', type=int, default=3)
     parser.add_argument('--tolerance', type=int, default=0)
+    parser.add_argument('--fraction', type=float, default=0.0,
+                        help='Overflow allowed as a fraction of the rendered body area')
+    parser.add_argument('--fallback', type=int, default=0,
+                        help='Proceed on this many least-overflowing views when none is contained')
     parser.add_argument('--views', type=int, default=2)
     parser.add_argument('--scale', type=float, default=1.)
     parser.add_argument('--max-nodes', type=int, default=200000)
@@ -271,6 +276,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     options = dict(camera_matrices=args.camera_matrices, per_matrix=args.per_matrix,
                    refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
+                   fraction=args.fraction, fallback=args.fallback,
                    views=args.views, scale=args.scale, max_nodes=args.max_nodes,
                    top_k=args.top_k, host_bytes=args.host_bytes,
                    closure_rounds=args.closure_rounds,

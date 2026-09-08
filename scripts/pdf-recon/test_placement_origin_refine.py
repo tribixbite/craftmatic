@@ -80,3 +80,45 @@ def test_zero_window_only_tests_the_supplied_origin():
                               rotation_index=0)], None, window=0, screen_fn=screen_fn)
     assert calls == [(4.0, 5.0)]
     assert result['hypotheses'][0]['origin'] == [4, 5]
+
+
+def test_proportional_allowance_accepts_overflow_from_a_flawed_body():
+    # 1% of a 1000-pixel body is a 10-pixel allowance; the exact origin is one
+    # step away and overflows by 7.
+    result = refine([], [dict(projection=IDENTITY, origin=[10, 12], score=0.9,
+                              rotation_index=0)],
+                    None, window=2, tolerance=0, fraction=0.01,
+                    screen_fn=make_screen([10, 13]))
+    assert result['retained'] == 1
+    assert result['hypotheses'][0]['outside_pixels'] == 7
+    assert result['proportional_allowance'] == 0.01
+
+
+def test_fallback_returns_the_least_overflowing_view_flagged_uncontained():
+    hypotheses = [dict(projection=ROTATED, origin=[0, 0], score=0.9, rotation_index=9),
+                  dict(projection=ROTATED, origin=[5, 5], score=0.4, rotation_index=3)]
+    strict = refine([], hypotheses, None, window=1, screen_fn=make_screen([0, 0]))
+    assert strict['retained'] == 0
+    lenient = refine([], hypotheses, None, window=1, fallback=1,
+                     screen_fn=make_screen([0, 0]))
+    assert lenient['retained'] == 1
+    assert lenient['containment_fallback_used'] is True
+    best = lenient['hypotheses'][0]
+    assert best['contained'] is False
+    assert best['containment_fallback'] is True
+    assert best['outside_pixels'] == 200
+
+
+def test_fallback_is_not_used_when_something_is_contained():
+    result = refine([], [dict(projection=IDENTITY, origin=[10, 13], score=0.9,
+                              rotation_index=0)],
+                    None, window=1, fallback=4, screen_fn=make_screen([10, 13]))
+    assert result['containment_fallback_used'] is False
+    assert result['hypotheses'][0]['contained'] is True
+
+
+def test_invalid_allowances_are_rejected():
+    with pytest.raises(ValueError):
+        refine([], [], None, fraction=1.5, screen_fn=make_screen([0, 0]))
+    with pytest.raises(ValueError):
+        refine([], [], None, fallback=-1, screen_fn=make_screen([0, 0]))
