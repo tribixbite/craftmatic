@@ -10,8 +10,8 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  planResolution, describePlan, RESOLUTION_CAPS, AUTO_CELL_LADDER,
-  DEFAULT_SCHEM_SETTINGS, type SpanLDU,
+  planResolution, describePlan, capViolation, RESOLUTION_CAPS, AUTO_CELL_LADDER,
+  RESOLUTION_OPTIONS, DEFAULT_SCHEM_SETTINGS, type SpanLDU,
 } from '../web/src/engine/schem-settings.js';
 import { getBlockProfile, BLOCK_PROFILES, DEFAULT_PROFILE_ID } from '../web/src/engine/block-profiles.js';
 import { studioColorToBlock } from '../web/src/engine/studio-colors.js';
@@ -87,7 +87,8 @@ describe('planResolution — explicit override', () => {
     expect(plan.requestedHonored).toBe(false);
     expect(plan.requestedCellLDU).toBe(4);
     expect(plan.cellLDU).toBe(8);
-    expect(describePlan(plan)).toMatch(/would exceed the 640-block limit/);
+    expect(plan.refusedBy).toBe('horizontal');
+    expect(describePlan(plan)).toMatch(/would exceed the 640-block width limit/);
   });
 
   it('enforces every cap, not just the horizontal one', () => {
@@ -96,6 +97,44 @@ describe('planResolution — explicit override', () => {
     const plan = planResolution(tall, '4');
     expect(plan.requestedHonored).toBe(false);
     expect(plan.dims.height).toBeLessThanOrEqual(RESOLUTION_CAPS.maxHeight);
+  });
+
+  it('names the cap that actually refused, not always the width one', () => {
+    // Height is the binding cap here; saying "width" sends the user to resize
+    // the wrong axis (21063 at 10×/stud is exactly this case).
+    const tall: SpanLDU = { x: 200, y: 3200, z: 200 };
+    const plan = planResolution(tall, '4');
+    expect(plan.refusedBy).toBe('height');
+    expect(describePlan(plan)).toMatch(/height limit/);
+    expect(capViolation(tall, 4)).toBe('height');
+    expect(capViolation(tall, 20)).toBe(null);
+  });
+
+  it('offers 10 blocks per stud, and honours it when it fits', () => {
+    const opt = RESOLUTION_OPTIONS.find(o => o.value === '2');
+    expect(opt?.cellLDU).toBe(2);
+    const small: SpanLDU = { x: 184, y: 153, z: 261 };   // 5969-1, measured
+    const plan = planResolution(small, '2');
+    expect(plan.requestedHonored).toBe(true);
+    expect(plan.cellLDU).toBe(2);
+    expect(plan.cellsPerStud).toBe(10);
+  });
+
+  it('keeps 10 blocks per stud OUT of the auto ladder', () => {
+    // Opt-in only: it is ~7× the cells of the 5×/stud tier, so putting it in
+    // the ladder would silently inflate every small export (and move the
+    // 21063 reference hash).
+    expect(AUTO_CELL_LADDER).not.toContain(2);
+    const small: SpanLDU = { x: 184, y: 153, z: 261 };
+    expect(planResolution(small, 'auto').cellLDU).toBe(4);
+  });
+
+  it('refuses 10 blocks per stud for a model that cannot fit it', () => {
+    const big: SpanLDU = { x: 580, y: 824, z: 1220 };    // 21063, measured
+    const plan = planResolution(big, '2');
+    expect(plan.requestedHonored).toBe(false);
+    expect(plan.refusedBy).toBe('height');
+    expect(plan.cellLDU).toBe(planResolution(big, 'auto').cellLDU);
   });
 
   it('describePlan reports the block dims a user will get', () => {
