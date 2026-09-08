@@ -22,6 +22,7 @@ import {
   planResolution, spanOfBricks, DEFAULT_SCHEM_SETTINGS,
   type SchemExportSettings,
 } from '@engine/schem-settings.js';
+import { safeFilenameStem } from '@engine/export-name.js';
 import { exportLayerGuide } from '@viewer/exporter.js';
 import { collectDatTexts } from '@viewer/ldraw/parts.js';
 import { beginExportProgress, type ExportProgressHandle } from '@ui/export-progress.js';
@@ -111,7 +112,12 @@ export type MinecraftExportSource =
 export interface MinecraftExportRequest {
   source: MinecraftExportSource;
   format: SchemWorkerFormat;
-  /** Filename stem, e.g. "21063" → 21063.schem. */
+  /**
+   * Filename stem, e.g. "Colosseum-10276" → Colosseum-10276.schem. Build it with
+   * `engine/export-name.ts` `modelExportStem()` — name first, then set number,
+   * and never the internal source suffix. Sanitized again here so no caller can
+   * put a path separator in a download name.
+   */
   basename: string;
   settings?: SchemExportSettings;
   /** Mirror phase/result text into a tab's own status line (the LEGO tab's log). */
@@ -130,7 +136,7 @@ export interface MinecraftExportResult {
  */
 export async function runMinecraftExport(req: MinecraftExportRequest): Promise<MinecraftExportResult> {
   const settings = req.settings ?? DEFAULT_SCHEM_SETTINGS;
-  const base = req.basename || 'model';
+  const base = safeFilenameStem(req.basename ?? '') || 'model';
   const { format } = req;
   const status = req.onStatus ?? (() => {});
   let progress: ExportProgressHandle | null = null;
