@@ -19,7 +19,11 @@ import type { ParsedBrick } from './ldraw-parser.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { type VoxelizeResult, type VoxelizeOptions, TECHNIC_INTERNAL_PARTS } from './ldraw-voxelizer.js';
-import { createShapeHints, addOccupancy, type ShapeHints } from './block-shapes.js';
+import {
+  createShapeHints, addOccupancy, addStairRequest,
+  isSlopeDescription, analyzeSlope, stairCodeForPlacement,
+  type ShapeHints, type SlopeAnalysis,
+} from './block-shapes.js';
 import { getPartDims } from './ldraw-part-dims.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -754,6 +758,8 @@ interface BrickFootprint {
   part: string;
   start: number; end: number; blockId: number;
   xn: number; xx: number; yn: number; yx: number; zn: number; zx: number;
+  /** Stair code for the block-shape pass (0 = this brick is not a placed slope). */
+  stair?: number;
 }
 
 /** What the contact pass did — surfaced for status/tests, never for control flow. */
@@ -1128,6 +1134,7 @@ export async function voxelizeLDrawGeometry(
         footprints.push({
           part: brick.part, start: geoStart, end: cells.count, blockId,
           xn: wxn, xx: wxx, yn: wyn, yx: wyx, zn: wzn, zx: wzx,
+          stair: shapesEnabled ? stairCodeFor(brick.part, localTris, R) : 0,
         });
       }
     }
@@ -1201,6 +1208,7 @@ export async function voxelizeLDrawGeometry(
   const shapeHints = shapesEnabled ? buildShapeHints(
     cells, footprints, w, h, l, minX, minY, minZ, scale, LDU_PER_Y,
   ) : undefined;
+  if (shapesEnabled) slopeCache.clear();
 
   if (fallbackPartCount > 0) {
     console.warn(`[geometry] ${fallbackPartCount} parts had no .dat geometry — skipped`);
@@ -1242,14 +1250,16 @@ function buildShapeHints(
 ): ShapeHints | undefined {
   if (scale !== 1) return undefined;
   const total = w * h * l;
-  // 2 bytes per grid cell: 60 MB at the export's 30M-cell ceiling.
+  // 2-3 bytes per grid cell: 90 MB at the export's 30M-cell ceiling.
   if (!Number.isFinite(total) || total <= 0 || total > 60_000_000) return undefined;
-  const hints = createShapeHints(w, h, l);
+  const anyStairs = parts.some(f => (f.stair ?? 0) > 0);
+  const hints = createShapeHints(w, h, l, anyStairs);
   const lo = new Map<number, number>();   // grid row → uLo for this part
   const hi = new Map<number, number>();
   for (const f of parts) {
     if (f.end <= f.start) continue;
     lo.clear(); hi.clear();
+    const stair = f.stair ?? 0;
     cells.forRange(f.start, f.end, (gx, gy, gz) => {
       const x = gx - minX, y = gy - minY, z = gz - minZ;
       if (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= l) return;
@@ -1261,9 +1271,38 @@ function buildShapeHints(
         hi.set(gy, clamp01(-f.yn / cellLDU_Y - gy + 0.5));
       }
       addOccupancy(hints, x, y, z, a, hi.get(gy)!);
+      if (stair > 0) addStairRequest(hints, x, y, z, stair);
     });
   }
   return hints;
 }
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/**
+ * Slope analysis per part id — `null` for "checked, not a usable slope".
+ * Cleared at the end of every voxelization: a seeded/replaced `.dat` text can
+ * change a part's geometry within one session (see seedDatTexts).
+ */
+const slopeCache = new Map<string, SlopeAnalysis | null>();
+
+/**
+ * The stair code for one placed brick, or 0 when the part is not a slope (or is
+ * placed at an angle a stair cannot represent).
+ *
+ * Membership comes from the LDraw library's OWN description line — the first
+ * line of the `.dat`, already in `datTextCache` — and orientation from the
+ * part's real triangles. Neither is guessed; see `isSlopeDescription` for why a
+ * hand-written part-id list was rejected.
+ */
+function stairCodeFor(part: string, localTris: Triangle[], rot: readonly number[]): number {
+  const key = normId(part);
+  let slope = slopeCache.get(key);
+  if (slope === undefined) {
+    const text = datTextCache.get(key);
+    const header = text ? (text.slice(0, text.indexOf('\n') + 1 || undefined)) : '';
+    slope = header && isSlopeDescription(header) ? analyzeSlope(localTris) : null;
+    slopeCache.set(key, slope);
+  }
+  return slope ? stairCodeForPlacement(slope, rot) : 0;
+}
