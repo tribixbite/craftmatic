@@ -20,6 +20,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { getPartDims, getPartShape, getPartFrameThickness, getBracketShelfDir, hasDims } from './ldraw-part-dims.js';
+import type { ShapeHints } from './block-shapes.js';
 
 /**
  * Large flat LEGO baseplates that dominate the view and obscure the model.
@@ -172,6 +173,12 @@ export interface VoxelizeResult {
   fallbackPartCount: number;
   /** Inter-part contact pass result (geometry voxelizer only). */
   bridge?: { nearPairs: number; bridgedPairs: number; cellsAdded: number };
+  /**
+   * Per-cell vertical occupancy for the block-shape pass (geometry voxelizer
+   * only, and only when `VoxelizeOptions.shapes` is on). Consumed by
+   * `applyBlockShapes` AFTER the gap fill — see engine/block-shapes.ts.
+   */
+  shapeHints?: ShapeHints;
 }
 
 export interface VoxelizeOptions {
@@ -220,6 +227,12 @@ export interface VoxelizeOptions {
    * Set false to reproduce pre-2026-09-08 output.
    */
   bridgeParts?: boolean;
+  /**
+   * Record per-cell vertical occupancy so the block-shape pass can refine solid
+   * cells into slabs/stairs (geometry voxelizer only). Costs 2 bytes per grid
+   * cell and one extra pass over the emitted cells; off unless asked for.
+   */
+  shapes?: boolean;
   /**
    * When true, skip large LEGO baseplates (3867, 3811, 3807, 3857, 3626b…).
    * Default: true. These flat plates typically dominate the view and obscure

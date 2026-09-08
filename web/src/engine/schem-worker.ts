@@ -56,7 +56,7 @@ self.onmessage = async (event: MessageEvent<SchemWorkerInput>) => {
       post({ type: 'progress', phase, pct });
     };
 
-    const { grid, bytes, nonAir, lights } = await runSchemPipeline(input, onProgress);
+    const { grid, bytes, nonAir, lights, shapes } = await runSchemPipeline(input, onProgress);
 
     post({
       type: 'result',
@@ -68,6 +68,7 @@ self.onmessage = async (event: MessageEvent<SchemWorkerInput>) => {
           }
         : undefined,
       width: grid.width, height: grid.height, length: grid.length, nonAir, lights,
+      shapes,
     });
   } catch (err) {
     post({ type: 'error', message: err instanceof Error ? err.message : String(err) });

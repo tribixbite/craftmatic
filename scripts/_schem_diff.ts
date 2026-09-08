@@ -29,9 +29,28 @@ const AIR = 'minecraft:air';
 const at = (g: typeof A, x: number, y: number, z: number) =>
   (x < g.width && y < g.height && z < g.length) ? g.get(x, y, z) : AIR;
 
-let gained = 0, lost = 0, recolored = 0, same = 0;
+/**
+ * Is `b` the same MATERIAL as `a`, only carrying a partial shape?
+ * `minecraft:sandstone` → `minecraft:sandstone_slab[type=bottom]` is a shape
+ * refinement; `minecraft:sandstone` → `minecraft:white_concrete` is a recolour.
+ * Written as a suffix rule over the vanilla naming (see engine/block-shapes.ts).
+ */
+const SHAPE_SUFFIXES = ['_slab', '_stairs', '_wall'];
+function isShapeRefinement(a: string, b: string): boolean {
+  const base = b.replace(/\[.*$/, '');
+  for (const suffix of SHAPE_SUFFIXES) {
+    if (!base.endsWith(suffix)) continue;
+    const stem = base.slice(0, -suffix.length);
+    return [stem, `${stem}s`, `${stem}_planks`, `${stem}_block`].includes(a);
+  }
+  return false;
+}
+
+let gained = 0, lost = 0, recolored = 0, shaped = 0, unshaped = 0, same = 0;
 const gainedBy = new Map<string, number>();
 const lostBy = new Map<string, number>();
+const shapedBy = new Map<string, number>();
+const recoloredBy = new Map<string, number>();
 const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
 
 for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) for (let x = 0; x < W; x++) {
@@ -39,13 +58,17 @@ for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) for (let x = 0; x < W; x
   if (a === b) { if (a !== AIR) same++; continue; }
   if (a === AIR) { gained++; bump(gainedBy, b); }
   else if (b === AIR) { lost++; bump(lostBy, a); }
-  else recolored++;
+  else if (isShapeRefinement(a, b)) { shaped++; bump(shapedBy, `${a} → ${b}`); }
+  // A full cube where the BEFORE side had a shape is a regression, counted apart.
+  else if (isShapeRefinement(b, a)) { unshaped++; bump(recoloredBy, `${a} → ${b}`); }
+  else { recolored++; bump(recoloredBy, `${a} → ${b}`); }
 }
 
 const top = (m: Map<string, number>) => [...m.entries()].sort((p, q) => q[1] - p[1]).slice(0, 6);
 console.log(JSON.stringify({
   before: { file: aPath, dims: [A.width, A.height, A.length] },
   after:  { file: bPath, dims: [B.width, B.height, B.length] },
-  unchangedSolid: same, gained, lost, recolored,
+  unchangedSolid: same, gained, lost, recolored, shaped, unshaped,
   gainedBy: top(gainedBy), lostBy: top(lostBy),
+  shapedBy: top(shapedBy), recoloredBy: top(recoloredBy),
 }, null, 1));

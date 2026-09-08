@@ -160,6 +160,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
       input = {
         source: { kind: 'bricks', bricks: req.source.bricks, colorSpace: req.source.colorSpace, options: opts },
         format, profile: settings.profile, lightFill: settings.lightFill,
+        shapes: settings.shapes,
         ldrawBase: new URL('/ldraw-parts', location.origin).toString(),
         datTexts,
       };
@@ -173,7 +174,9 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
           kind: 'grid', width: g.width, height: g.height, length: g.length,
           data: new Uint16Array(g.rawData), palette: g.reversePalette(),
         },
-        format, profile: settings.profile, lightFill: settings.lightFill,
+        // An uploaded grid is already blocks — there is no sub-cell occupancy
+        // left to refine from, so the shape pass has nothing to work with.
+        format, profile: settings.profile, lightFill: settings.lightFill, shapes: false,
       };
     }
 

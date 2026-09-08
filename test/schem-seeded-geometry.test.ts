@@ -107,6 +107,9 @@ function job(parts: string[], datTexts?: Map<string, string | null>): SchemWorke
     format: 'schem',
     profile: DEFAULT_SCHEM_SETTINGS.profile,
     lightFill: false,
+    // Shapes off: this asserts seeded == networked BYTES, and a shape
+    // refinement is a legitimate change to those bytes.
+    shapes: false,
     datTexts,
   };
 }

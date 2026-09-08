@@ -41,6 +41,8 @@ const forcedCell = process.argv[4];
 const lightFill = process.argv.includes('--lights');
 /** A/B switch for the inter-part contact pass (see bridgePartContacts). */
 const bridgeParts = !process.argv.includes('--no-bridge');
+/** A/B switch for the block-shape pass (see engine/block-shapes.ts). */
+const shapes = !process.argv.includes('--no-shapes');
 
 const b = readFileSync(file);
 const io = await extractIoModel(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
@@ -50,7 +52,7 @@ const choice: ResolutionChoice = (forcedCell as ResolutionChoice) ?? DEFAULT_SCH
 const plan = planResolution(spanOfBricks(bricks), choice);
 
 const t0 = Date.now();
-const { grid, bytes } = await runSchemPipeline({
+const { grid, bytes, shapes: shapeStats } = await runSchemPipeline({
   source: {
     kind: 'bricks',
     bricks,
@@ -60,6 +62,7 @@ const { grid, bytes } = await runSchemPipeline({
   format: 'schem',
   profile: DEFAULT_SCHEM_SETTINGS.profile,
   lightFill,
+  shapes,
 });
 const voxMs = Date.now() - t0;
 
@@ -71,6 +74,8 @@ console.log(JSON.stringify({
   colorSpace: io.colorSpace,
   bridgeParts,
   lightFill,
+  shapes,
+  shapeStats,
   dims: [grid.width, grid.height, grid.length],
   nonAir: grid.countNonAir(),
   palette: [...grid.palette.keys()],

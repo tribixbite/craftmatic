@@ -54,7 +54,7 @@ describe('runSchemPipeline — grid source', () => {
     const direct = encodeSchemBytes(g);
     const r = await runSchemPipeline({
       source: asSource(g), format: 'schem',
-      profile: DEFAULT_SCHEM_SETTINGS.profile, lightFill: DEFAULT_SCHEM_SETTINGS.lightFill,
+      profile: DEFAULT_SCHEM_SETTINGS.profile, lightFill: DEFAULT_SCHEM_SETTINGS.lightFill, shapes: false,
     });
     expect(r.lights).toBe(0);
     expect(r.bytes).toEqual(direct);
@@ -65,7 +65,7 @@ describe('runSchemPipeline — grid source', () => {
     // Fixed timestamp: the litematic header embeds "now" otherwise.
     const direct = encodeLitematicBytes(g, 1_700_000_000);
     const r = await runSchemPipeline({
-      source: asSource(g), format: 'litematic', profile: 'default', lightFill: false,
+      source: asSource(g), format: 'litematic', profile: 'default', lightFill: false, shapes: false,
     });
     // The two embedded TimeCreated/TimeModified longs differ (the pipeline
     // stamps "now"), which perturbs the gzip stream length — compare the
@@ -84,7 +84,7 @@ describe('runSchemPipeline — grid source', () => {
     g.set(2, 2, 2, 'minecraft:air');
     const before = g.countNonAir();
     const r = await runSchemPipeline({
-      source: asSource(g), format: 'schem', profile: 'default', lightFill: false,
+      source: asSource(g), format: 'schem', profile: 'default', lightFill: false, shapes: false,
     });
     expect(r.nonAir).toBe(before);
     expect(r.grid.get(2, 2, 2)).toBe('minecraft:air');
@@ -93,10 +93,10 @@ describe('runSchemPipeline — grid source', () => {
   it('lights enclosed interiors when the option is ON (and only then)', async () => {
     const g = hollowBox();
     const off = await runSchemPipeline({
-      source: asSource(g), format: 'schem', profile: 'default', lightFill: false,
+      source: asSource(g), format: 'schem', profile: 'default', lightFill: false, shapes: false,
     });
     const on = await runSchemPipeline({
-      source: asSource(g), format: 'schem', profile: 'default', lightFill: true,
+      source: asSource(g), format: 'schem', profile: 'default', lightFill: true, shapes: false,
     });
 
     expect(off.lights).toBe(0);
@@ -110,7 +110,7 @@ describe('runSchemPipeline — grid source', () => {
   it('returns the grid (and no bytes) for the build-guide format', async () => {
     const g = hollowBox();
     const r = await runSchemPipeline({
-      source: asSource(g), format: 'guide', profile: 'default', lightFill: false,
+      source: asSource(g), format: 'guide', profile: 'default', lightFill: false, shapes: false,
     });
     expect(r.bytes).toBeUndefined();
     expect(r.grid.width).toBe(g.width);
@@ -120,7 +120,7 @@ describe('runSchemPipeline — grid source', () => {
   it('reports progress phases to its callback', async () => {
     const phases: string[] = [];
     await runSchemPipeline(
-      { source: asSource(hollowBox()), format: 'schem', profile: 'default', lightFill: true },
+      { source: asSource(hollowBox()), format: 'schem', profile: 'default', lightFill: true, shapes: false },
       (phase) => phases.push(phase),
     );
     expect(phases).toContain('lighting enclosed interiors');
