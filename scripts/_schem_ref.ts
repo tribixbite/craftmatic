@@ -55,7 +55,7 @@ const choice: ResolutionChoice = (forcedCell as ResolutionChoice) ?? DEFAULT_SCH
 const plan = planResolution(spanOfBricks(bricks), choice);
 
 const t0 = Date.now();
-const { grid, bytes, shapes: shapeStats } = await runSchemPipeline({
+const { grid, bytes, shapes: shapeStats, elements: elementStats } = await runSchemPipeline({
   source: {
     kind: 'bricks',
     bricks,
@@ -80,6 +80,7 @@ console.log(JSON.stringify({
   lightFill,
   shapes,
   shapeStats,
+  elementStats,
   dims: [grid.width, grid.height, grid.length],
   nonAir: grid.countNonAir(),
   palette: [...grid.palette.keys()],

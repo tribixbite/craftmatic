@@ -20,10 +20,13 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { type VoxelizeResult, type VoxelizeOptions, TECHNIC_INTERNAL_PARTS } from './ldraw-voxelizer.js';
 import {
-  createShapeHints, addOccupancy, addStairRequest,
+  createShapeHints, addOccupancy, addStairRequest, addElementRequest,
   isSlopeDescription, analyzeSlope, stairCodeForPlacement,
   type ShapeHints, type SlopeAnalysis,
 } from './block-shapes.js';
+import {
+  elementKindForDescription, MAX_ELEMENT_CELLS, ELEMENT_NONE, type ElementKind,
+} from './part-elements.js';
 import { getPartDims } from './ldraw-part-dims.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -760,6 +763,8 @@ interface BrickFootprint {
   xn: number; xx: number; yn: number; yx: number; zn: number; zx: number;
   /** Stair code for the block-shape pass (0 = this brick is not a placed slope). */
   stair?: number;
+  /** Semantic element kind (0 = this part maps to no Minecraft element). */
+  element?: ElementKind;
 }
 
 /** What the contact pass did — surfaced for status/tests, never for control flow. */
@@ -1135,6 +1140,7 @@ export async function voxelizeLDrawGeometry(
           part: brick.part, start: geoStart, end: cells.count, blockId,
           xn: wxn, xx: wxx, yn: wyn, yx: wyx, zn: wzn, zx: wzx,
           stair: shapesEnabled ? stairCodeFor(brick.part, localTris, R) : 0,
+          element: shapesEnabled ? elementKindFor(brick.part) : ELEMENT_NONE,
         });
       }
     }
@@ -1208,7 +1214,7 @@ export async function voxelizeLDrawGeometry(
   const shapeHints = shapesEnabled ? buildShapeHints(
     cells, footprints, w, h, l, minX, minY, minZ, scale, LDU_PER_Y,
   ) : undefined;
-  if (shapesEnabled) slopeCache.clear();
+  if (shapesEnabled) { slopeCache.clear(); elementCache.clear(); }
 
   if (fallbackPartCount > 0) {
     console.warn(`[geometry] ${fallbackPartCount} parts had no .dat geometry — skipped`);
@@ -1253,13 +1259,18 @@ function buildShapeHints(
   // 2-3 bytes per grid cell: 90 MB at the export's 30M-cell ceiling.
   if (!Number.isFinite(total) || total <= 0 || total > 60_000_000) return undefined;
   const anyStairs = parts.some(f => (f.stair ?? 0) > 0);
-  const hints = createShapeHints(w, h, l, anyStairs);
+  // A part only earns an element when the swap is size-comparable — a Minecraft
+  // pane/fence/bar is one cell, so a part spanning half a wall is not a
+  // candidate however well its description matches. See MAX_ELEMENT_CELLS.
+  const anyElements = parts.some(f => (f.element ?? 0) > 0 && f.end - f.start <= MAX_ELEMENT_CELLS);
+  const hints = createShapeHints(w, h, l, anyStairs, anyElements);
   const lo = new Map<number, number>();   // grid row → uLo for this part
   const hi = new Map<number, number>();
   for (const f of parts) {
     if (f.end <= f.start) continue;
     lo.clear(); hi.clear();
     const stair = f.stair ?? 0;
+    const element = (f.element ?? 0) > 0 && f.end - f.start <= MAX_ELEMENT_CELLS ? f.element! : 0;
     cells.forRange(f.start, f.end, (gx, gy, gz) => {
       const x = gx - minX, y = gy - minY, z = gz - minZ;
       if (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= l) return;
@@ -1272,6 +1283,7 @@ function buildShapeHints(
       }
       addOccupancy(hints, x, y, z, a, hi.get(gy)!);
       if (stair > 0) addStairRequest(hints, x, y, z, stair);
+      if (element > 0) addElementRequest(hints, x, y, z, element);
     });
   }
   return hints;
@@ -1299,10 +1311,32 @@ function stairCodeFor(part: string, localTris: Triangle[], rot: readonly number[
   const key = normId(part);
   let slope = slopeCache.get(key);
   if (slope === undefined) {
-    const text = datTextCache.get(key);
-    const header = text ? (text.slice(0, text.indexOf('\n') + 1 || undefined)) : '';
-    slope = header && isSlopeDescription(header) ? analyzeSlope(localTris) : null;
+    slope = isSlopeDescription(headerOf(key)) ? analyzeSlope(localTris) : null;
     slopeCache.set(key, slope);
   }
   return slope ? stairCodeForPlacement(slope, rot) : 0;
+}
+
+/** The `.dat`'s first line — the LDraw library's own description of the part. */
+function headerOf(key: string): string {
+  const text = datTextCache.get(key);
+  return text ? text.slice(0, text.indexOf('\n') + 1 || undefined) : '';
+}
+
+/** Semantic-element kind per part id, cached alongside the slope analysis. */
+const elementCache = new Map<string, ElementKind>();
+
+/**
+ * Which Minecraft element (if any) a part maps to — description-driven, exactly
+ * like the slope test above. See engine/part-elements.ts for what is in the
+ * table and, more importantly, what was measured and left out.
+ */
+function elementKindFor(part: string): ElementKind {
+  const key = normId(part);
+  let kind = elementCache.get(key);
+  if (kind === undefined) {
+    kind = elementKindForDescription(headerOf(key));
+    elementCache.set(key, kind);
+  }
+  return kind;
 }

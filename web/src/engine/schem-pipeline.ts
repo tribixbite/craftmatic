@@ -25,6 +25,7 @@ import { voxelizeLDraw, fillSingleVoxelGaps, type VoxelizeOptions } from './ldra
 import { encodeSchemBytes, encodeLitematicBytes } from './schem-encode.js';
 import { addInteriorLights, type LightFillResult } from './light-fill.js';
 import { applyBlockShapes, type ShapeHints, type ShapeStats } from './block-shapes.js';
+import { applyPartElements, type ElementStats } from './part-elements.js';
 import { getBlockProfile, type BrickColorSpace } from './block-profiles.js';
 import { BlockGrid } from '@craft/schem/types.js';
 
@@ -92,6 +93,8 @@ export type SchemWorkerOutput =
       lights: number;
       /** Present only when the block-shape pass ran. */
       shapes?: ShapeStats;
+      /** Present only when the semantic-element pass ran (part-elements.ts). */
+      elements?: ElementStats;
     }
   | { type: 'error'; message: string };
 
@@ -105,6 +108,8 @@ export interface SchemPipelineResult {
   lightFill?: LightFillResult;
   /** Non-null only when the block-shape pass ran (bricks source, shapes on). */
   shapes?: ShapeStats;
+  /** Non-null only when a mapped part was small enough for a Minecraft element. */
+  elements?: ElementStats;
 }
 
 /**
@@ -118,6 +123,7 @@ export async function runSchemPipeline(
   const profile = getBlockProfile(input.profile);
   let grid: BlockGrid;
   let shapeStats: ShapeStats | undefined;
+  let elementStats: ElementStats | undefined;
 
   if (input.source.kind === 'grid') {
     const s = input.source;
@@ -153,6 +159,13 @@ export async function runSchemPipeline(
     // AFTER the gap fill, so a cell the fill just added counts as a neighbour:
     // giving up the top half of a cell is only safe when the top half is air.
     if (hints) {
+      // Elements first: a window's glass is a pane, not a slab of glass, and
+      // the pass zeroes the cells it declines so they still reach the slab
+      // rules below.
+      if (hints.element) {
+        onProgress('placing window panes and fences');
+        elementStats = applyPartElements(grid, hints);
+      }
       onProgress('shaping partial blocks');
       shapeStats = applyBlockShapes(grid, hints);
     }
@@ -166,9 +179,9 @@ export async function runSchemPipeline(
 
   const nonAir = grid.countNonAir();
   const lights = lightFill?.lights ?? 0;
-  if (input.format === 'guide') return { grid, nonAir, lights, lightFill, shapes: shapeStats };
+  if (input.format === 'guide') return { grid, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats };
 
   onProgress(input.format === 'schem' ? 'writing NBT' : 'writing Litematica NBT');
   const bytes = input.format === 'schem' ? encodeSchemBytes(grid) : encodeLitematicBytes(grid);
-  return { grid, bytes, nonAir, lights, lightFill, shapes: shapeStats };
+  return { grid, bytes, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats };
 }
