@@ -192,6 +192,7 @@ const BLOCK_COLORS: Record<string, RGB> = {
 
   // Metal
   'minecraft:iron_bars': [160, 160, 160],
+  'minecraft:ladder': [143, 110, 63],
   'minecraft:iron_block': [222, 222, 222],
   'minecraft:iron_door': [195, 195, 195],
   'minecraft:iron_trapdoor': [190, 190, 190],
@@ -440,6 +441,32 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:armor_stand': [160, 130, 95],
   'minecraft:stonecutter': [130, 130, 130],
   'minecraft:carved_pumpkin': [198, 118, 24],
+
+  // ── Materials the "Textured + shapes" export profile can emit ─────────────
+  // (web/src/engine/textured-palette.ts). Every candidate in that profile MUST
+  // have a colour here, or a re-imported export renders it through the hash
+  // fallback — i.e. a random colour — in the Upload tab's 3D view. The ones
+  // above already covered most families; these are the gaps.
+  // Values are average sRGB of the vanilla 1.20 texture, consistent with the
+  // neighbouring entries in this table.
+  'minecraft:diorite': [188, 188, 188],
+  'minecraft:polished_diorite': [192, 193, 195],
+  'minecraft:granite': [149, 103, 83],
+  'minecraft:polished_granite': [154, 107, 86],
+  'minecraft:cobbled_deepslate': [77, 77, 80],
+  'minecraft:cut_sandstone': [216, 203, 155],
+  'minecraft:cut_red_sandstone': [181, 98, 31],
+  'minecraft:red_nether_bricks': [69, 3, 5],
+  'minecraft:jungle_planks': [160, 115, 80],
+  'minecraft:mangrove_planks': [115, 54, 44],
+  'minecraft:cherry_planks': [226, 168, 158],
+  'minecraft:bamboo_planks': [193, 154, 72],
+  // Waxed copper, so the colour a model is designed in is the colour it stays —
+  // unwaxed copper oxidizes in-world and would drift off the LEGO hue it matched.
+  'minecraft:waxed_cut_copper': [192, 108, 78],
+  'minecraft:waxed_exposed_cut_copper': [150, 117, 85],
+  'minecraft:waxed_weathered_cut_copper': [105, 141, 103],
+  'minecraft:waxed_oxidized_cut_copper': [81, 164, 134],
 };
 
 /** Blocks considered "furniture" — drawn with a marker in detailed view */
@@ -478,8 +505,12 @@ export const DOOR_BLOCKS = new Set([
   'minecraft:warped_door', 'minecraft:crimson_door', 'minecraft:copper_door',
 ]);
 
-/** Shape suffixes whose colour comes from the underlying material block. */
-const SHAPE_SUFFIXES = ['_slab', '_stairs', '_wall', '_fence', '_trapdoor', '_button', '_pressure_plate'];
+/**
+ * Shape suffixes whose colour comes from the underlying material block.
+ * `_pane` is here for the semantic-element pass (part-elements.ts): it emits
+ * all 16 `<colour>_stained_glass_pane` ids and only a handful are listed above.
+ */
+const SHAPE_SUFFIXES = ['_slab', '_stairs', '_wall', '_fence', '_pane', '_trapdoor', '_button', '_pressure_plate'];
 
 /**
  * For a partial-shape id, the id of the material block whose colour it shares —

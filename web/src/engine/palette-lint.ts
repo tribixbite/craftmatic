@@ -32,6 +32,8 @@ export function knownBlockIds(): Set<string> {
   }
   for (const id of REGISTRY.slabs) ids.add(id);
   for (const id of REGISTRY.stairs) ids.add(id);
+  for (const id of REGISTRY.fences) ids.add(id);
+  for (const id of REGISTRY.walls) ids.add(id);
   return ids;
 }
 
