@@ -23,7 +23,18 @@ def unique_quantities(quantities):
             yield quantity
 
 
-def crop_items(rgb, words, quantities, background, scale=1.6):
+def pdf_pli_panel_bounds(page,background,scale=1.6):
+    """Native PDF filled panels matching the declared PLI background color."""
+    boxes=[]
+    for drawing in page.get_drawings():
+        fill=drawing.get('fill');rect=drawing['rect']
+        if fill is None or len(fill)!=3 or rect.width<20 or rect.height<20:continue
+        if np.max(np.abs(np.asarray(fill)*255-np.asarray(background)))>5:continue
+        boxes.append([float(v)*scale for v in rect])
+    return boxes
+
+
+def crop_items(rgb, words, quantities, background, scale=1.6,panel_bounds=()):
     """Find local components ABOVE each quantity, excluding all PDF text.
 
     Unlike x-only partitioning, this cannot assign a step digit or artwork
@@ -48,6 +59,11 @@ def crop_items(rgb, words, quantities, background, scale=1.6):
         if area<12 or min(w,h)<3 or max(w,h)>320 or w*h>40000:
             continue
         if max(w,h)/min(w,h)>35:
+            continue
+        # A sparse component matching an actual PDF filled-panel boundary is
+        # decoration, not competing part artwork. Without PDF geometry this
+        # rule abstains; ordinary hollow/frame-shaped parts remain eligible.
+        if area/(w*h)<.12 and any(np.max(np.abs(np.asarray((x,y,x+w,y+h))-b))<=3 for b in panel_bounds):
             continue
         py,px=np.where(labels[y:y+h,x:x+w]==i)
         candidates.append((i,(x,y,x+w,y+h),area,px+x,py+y))
@@ -75,7 +91,9 @@ def crop_items(rgb, words, quantities, background, scale=1.6):
             out.append({'qty':q['qty'],'anchor':list(q['bbox']),'unresolved':'no nearby nontext artwork'})
             continue
         if len(options)>1 and options[1][0]-options[0][0]<3:
-            out.append({'qty':q['qty'],'anchor':list(q['bbox']),'unresolved':'ambiguous artwork association'})
+            out.append({'qty':q['qty'],'anchor':list(q['bbox']),'unresolved':'ambiguous artwork association',
+                        'crop_candidates':[dict(association_cost=score,component=index,bbox=list(box),area=area)
+                                           for score,index,box,area in options]})
             continue
         score,index,box,area=options[0]
         out.append({'qty':q['qty'],'anchor':list(q['bbox']),'bbox':list(box),'component':index,'association_cost':score})

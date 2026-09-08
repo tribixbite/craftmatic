@@ -39,7 +39,11 @@ def group_transforms(assembly,group,candidate_cache,solids,any_anchor=False):
             yield transform,anchor_index
 
 
-def run(pdf,base_run,groups,page,out,limit=4,gpu_render=False,camera_mode='row',any_anchor=False,plane_depth=False,copies=1,coarse_pairs=0,coarse_method='surface',target_xref=None,feature_edges=False):
+def run(pdf,base_run,groups,page,out,limit=4,gpu_render=False,camera_mode='row',any_anchor=False,plane_depth=False,copies=1,coarse_pairs=0,coarse_method='surface',target_xref=None,feature_edges=False,material_colors=False):
+    if coarse_pairs<0:raise ValueError('Screening limit must be nonnegative')
+    if (feature_edges or material_colors) and not gpu_render:raise ValueError('Feature/material scoring requires GPU rendering')
+    if coarse_pairs and copies==1 and coarse_method!='layers':raise ValueError('Single-group screening requires cached layers')
+    feature_edges=feature_edges or material_colors
     if out.exists():raise ValueError('Choose a new output directory')
     out.mkdir(parents=True)
     source=out/'source';source.mkdir()
@@ -104,7 +108,10 @@ def run(pdf,base_run,groups,page,out,limit=4,gpu_render=False,camera_mode='row',
     if not matrices:raise ValueError('Complete scene camera unresolved')
     (out/'camera.json').write_text(json.dumps(dict(camera,source_page=page,xref=scene['xref'],studs=studs),indent=2))
     if gpu_render:
-        if feature_edges:
+        if material_colors:
+            from placement_material_scene_score import MaterialFeatureSceneScorer
+            scorer=MaterialFeatureSceneScorer(scene,plane_depth=plane_depth)
+        elif feature_edges:
             from placement_feature_scene_score import PdfFeatureSceneScorer
             scorer=PdfFeatureSceneScorer(scene,plane_depth=plane_depth)
         else:
@@ -130,7 +137,7 @@ def run(pdf,base_run,groups,page,out,limit=4,gpu_render=False,camera_mode='row',
             placed=[(p,c,global_transform@T) for p,c,T in group]
             if any(assembly.collides(solids.get(p,p),T) for p,c,T in placed):continue
             legal+=1
-            if copies==2:
+            if copies==2 or coarse_pairs:
                 placements.append(dict(items=placed,anchor_index=anchor_index))
                 continue
             items=base+placed
@@ -158,6 +165,21 @@ def run(pdf,base_run,groups,page,out,limit=4,gpu_render=False,camera_mode='row',
                 coarse_limit=coarse_pairs,coarse_method=coarse_method,checkpoint=checkpoint)
             ranked.extend(selected);tested+=details['tested_views']
             repeated_reports.append(dict(group=path.name,candidate_placements=len(placements),**details))
+        elif coarse_pairs:
+            from placement_layer_pair_screen import shortlist_pairs
+            screening=[]
+            for vi,projection in enumerate(projections):
+                candidates,summary=shortlist_pairs(base,placements,projection,scorer,limit=coarse_pairs,copies=1)
+                screening.append(dict(view=vi,**summary))
+                for index,empty_index,coarse_score in candidates:
+                    placed=placements[index];items=base+placed['items']
+                    result=scorer.score(items,projection);tested+=1
+                    if result.get('bbox_rejected') or not np.isfinite(result['score']):continue
+                    ranked.append(dict(items=items,projection=projection,evidence=result,
+                        group_source=path.name,anchor_index=placed['anchor_index']))
+                status=dict(group=path.name,view=vi+1,views=len(projections),tested_views=tested,copies=1)
+                print(json.dumps(status),flush=True);(out/'progress.json').write_text(json.dumps(status,indent=2))
+            repeated_reports.append(dict(group=path.name,copies=1,candidate_placements=len(placements),screening=screening,exhaustive=False))
         print(f'group={path.name} legal={legal} views={tested}',flush=True)
     ranked.sort(key=lambda r:-r['evidence']['score'])
     if not ranked:raise ValueError('No compatible complete-scene group placement')
@@ -178,6 +200,7 @@ def run(pdf,base_run,groups,page,out,limit=4,gpu_render=False,camera_mode='row',
         'copies':copies,'repeated_search':repeated_reports,
         'coarse_pairs':coarse_pairs,'coarse_method':coarse_method if coarse_pairs else None,
         'feature_edges':feature_edges,
+        'material_colors':material_colors,
         'group_equivalence':deduplication,
         'arrow_evidence':arrow_evidence,
         'base_source':str(base_run),'base_sha256':hashlib.sha256((base_run/'model.ldr').read_bytes()).hexdigest(),
@@ -206,9 +229,10 @@ if __name__=='__main__':
     parser.add_argument('--any-anchor',action='store_true')
     parser.add_argument('--plane-depth',action='store_true')
     parser.add_argument('--copies',type=int,choices=[1,2],default=1)
-    parser.add_argument('--coarse-pairs',type=int,default=0)
+    parser.add_argument('--coarse-pairs','--screen-limit',dest='coarse_pairs',type=int,default=0)
     parser.add_argument('--coarse-method',choices=['surface','layers'],default='surface')
     parser.add_argument('--target-xref',type=int)
     parser.add_argument('--feature-edges',action='store_true')
+    parser.add_argument('--material-colors',action='store_true')
     args=parser.parse_args()
-    run(args.pdf,args.base_run,args.groups,args.page,args.out,args.limit,args.gpu_render,args.camera_mode,args.any_anchor,args.plane_depth,args.copies,args.coarse_pairs,args.coarse_method,args.target_xref,args.feature_edges)
+    run(args.pdf,args.base_run,args.groups,args.page,args.out,args.limit,args.gpu_render,args.camera_mode,args.any_anchor,args.plane_depth,args.copies,args.coarse_pairs,args.coarse_method,args.target_xref,args.feature_edges,args.material_colors)

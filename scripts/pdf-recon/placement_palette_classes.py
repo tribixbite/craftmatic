@@ -49,6 +49,15 @@ def material_render(scorer,items,projection):
     returns explicit color order, per-pixel material labels and mask.
     """
     M=np.asarray(projection,float);colors=sorted(set(int(c) for p,c,T in items));parts=[];lo=[];hi=[]
+    key=(tuple((p,str(c),np.asarray(T,float).tobytes()) for p,c,T in items),M.tobytes())
+    if getattr(scorer,'last_layer_key',None)==key and getattr(scorer,'last_layer',None) is not None:
+        layer=scorer.last_layer;mask=layer['mask'][0];owner=layer['owner'][0]
+        codes=np.concatenate([scorer.geometry[(p,str(c))]['colors'] for p,c,T in items])
+        lookup=np.zeros(len(codes),np.uint8)
+        for index,color in enumerate(colors):lookup[codes==color]=index+1
+        labels=np.zeros(mask.shape,np.uint8);labels[mask]=lookup[owner[mask].astype(int)-1]
+        return dict(labels=labels,mask=mask,colors=colors,reused_owner_buffer=True,
+            protocol='Actual visible CAD triangle material ID from shared depth/owner buffer; no shaded-RGB reclassification')
     for p,c,T in items:
         d=scorer._project_part(p,c,T,M);off=M@T[:3,3]
         parts.append((p,c,T,d,off));lo.append(d['lo']+off);hi.append(d['hi']+off)

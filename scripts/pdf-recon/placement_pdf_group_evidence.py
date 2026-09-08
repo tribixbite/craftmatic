@@ -31,7 +31,11 @@ def inset_multiplier(page,scene):
 
 def load_allocations(pdf,page,allocation_run):
     manifest=json.loads((allocation_run/'manifest.json').read_text())
+    if 'allocation_pages' in manifest and page not in manifest['allocation_pages']:
+        raise ValueError('Page outside explicitly validated slot-adapter allocation scope')
     path=allocation_run/'global-assignment.json';assignment=json.loads(path.read_text())
+    if manifest.get('allocation_pages')!=assignment.get('allocation_pages'):
+        raise ValueError('Allocation manifest/assignment page scopes disagree')
     digest=hashlib.sha256(pdf.read_bytes()).hexdigest()
     claimed=manifest.get('pdf_sha256') or manifest.get('inputs_sha256',{}).get(manifest.get('pdf'))
     if claimed!=digest:raise ValueError('PDF allocation cache hash mismatch')
