@@ -9,8 +9,12 @@
  *   3. how long the export took, and the phases the banner reported.
  *
  * Usage (node, NOT bun — chromium.launch hangs under bun on this box):
- *   node scripts/_export_browser_check.mjs [model.io] [label]
+ *   node scripts/_export_browser_check.mjs [model.io] [label] [--shapes on|off]
  * Requires `bun dev:web` on port 4000.
+ *
+ * `--shapes` seeds the persisted MC-settings before the page loads, so the two
+ * halves of the block-shape A/B can be driven through the REAL browser path
+ * (Worker included) without clicking the popover.
  */
 import { chromium } from 'playwright-core';
 import { mkdirSync, copyFileSync, rmSync, existsSync } from 'node:fs';
@@ -18,6 +22,8 @@ import { resolve, basename } from 'node:path';
 
 const SOURCE = process.argv[2] ?? 'C:/git/clego/lego_sets/IO/76416-1.io';
 const LABEL = process.argv[3] ?? 'browser';
+const shapesArg = process.argv[process.argv.indexOf('--shapes') + 1];
+const SHAPES = process.argv.includes('--shapes') ? shapesArg !== 'off' : null;
 const OUT = resolve('output/vox-work');
 mkdirSync(OUT, { recursive: true });
 
@@ -30,6 +36,15 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const errors = [];
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+
+if (SHAPES !== null) {
+  await page.addInitScript((shapes) => {
+    localStorage.setItem('craftmatic.mcExportSettings', JSON.stringify({
+      resolution: 'auto', profile: 'default', lightFill: false, shapes,
+    }));
+  }, SHAPES);
+  console.log(`[settings] block shapes ${SHAPES ? 'ON' : 'OFF'}`);
+}
 
 await page.goto('http://localhost:4000/', { waitUntil: 'domcontentloaded' });
 await page.getByRole('button', { name: /LEGO/i }).first().click().catch(() => {});
