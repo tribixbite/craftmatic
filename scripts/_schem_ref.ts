@@ -3,7 +3,7 @@
  * shared export path (engine/schem-pipeline.ts — the same code the LEGO tab's
  * Web Worker runs), then print its sha256.
  *
- * Usage: bun scripts/_schem_ref.ts [model.io] [out.schem] [forcedCellLDU]
+ * Usage: bun scripts/_schem_ref.ts [model.io] [out.schem] [forcedCellLDU] [--no-bridge]
  *
  * Baseline (2026-09-08, 21063 @ auto → cellLDU 4, default settings):
  *   schemSha256 53dac11a867f174e4bec7d4d986210ba36381b34a8d7c20d9125a12f939e40e2
@@ -39,6 +39,8 @@ const file = process.argv[2] ?? 'C:/git/clego/lego_sets/IO/21063.io';
 const out  = process.argv[3] ?? 'out.schem';
 const forcedCell = process.argv[4];
 const lightFill = process.argv.includes('--lights');
+/** A/B switch for the inter-part contact pass (see bridgePartContacts). */
+const bridgeParts = !process.argv.includes('--no-bridge');
 
 const b = readFileSync(file);
 const io = await extractIoModel(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
@@ -53,7 +55,7 @@ const { grid, bytes } = await runSchemPipeline({
     kind: 'bricks',
     bricks,
     colorSpace: io.colorSpace === 'bl' ? 'bl' : 'ldraw',
-    options: { cellLDU: plan.cellLDU, maxDim: 700 },
+    options: { cellLDU: plan.cellLDU, maxDim: 700, bridgeParts },
   },
   format: 'schem',
   profile: DEFAULT_SCHEM_SETTINGS.profile,
@@ -67,6 +69,7 @@ console.log(JSON.stringify({
   file,
   cellLDU: plan.cellLDU,
   colorSpace: io.colorSpace,
+  bridgeParts,
   lightFill,
   dims: [grid.width, grid.height, grid.length],
   nonAir: grid.countNonAir(),
