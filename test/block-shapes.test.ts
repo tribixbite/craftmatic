@@ -19,6 +19,8 @@ import { BlockGrid } from '../src/schem/types.js';
 import {
   classifyOccupancy, createShapeHints, addOccupancy, applyBlockShapes,
   slabIdFor, stairsIdFor, SHAPE_VARIANTS,
+  isSlopeDescription, analyzeSlope, stairCodeForPlacement, stairCode,
+  decodeStairCode, addStairRequest,
 } from '../web/src/engine/block-shapes.js';
 import { lintPalette } from '../web/src/engine/palette-lint.js';
 
@@ -169,5 +171,159 @@ describe('applyBlockShapes', () => {
     addOccupancy(hints, 0, 2, 0, 0.6, 1);
     applyBlockShapes(grid, hints);
     expect(lintPalette(grid.reversePalette().filter(b => b !== AIR)).issues).toEqual([]);
+  });
+});
+
+// ─── Slope pass (stairs) ─────────────────────────────────────────────────────
+
+type Tri = [[number, number, number], [number, number, number], [number, number, number]];
+
+/**
+ * A wedge shaped like a real LEGO slope: full height at +z, thinning toward −z,
+ * with studs poking 4 LDU above the brick top and a wall thickness kept at the
+ * thin end. LDraw Y points DOWN, so y=0 is the brick top and y=24 its underside.
+ * The studs matter — they are what made a naive underside probe misread a
+ * NORMAL slope as inverted (see analyzeSlope).
+ */
+function wedgeTris(inverted = false): Tri[] {
+  const out: Tri[] = [];
+  const t = (z: number) => (z + 20) / 40;                       // 0 at −z, 1 at +z
+  const topY = (z: number) => inverted ? 0 : 24 - t(z) * 20;    // normal: top falls toward −z
+  const botY = (z: number) => inverted ? 24 - (1 - t(z)) * 20 : 24;
+  for (let i = 0; i < 8; i++) {
+    const z0 = -20 + i * 5, z1 = z0 + 5;
+    for (const x of [-20, -10, 0, 10, 20]) {
+      out.push([[x, topY(z0), z0], [x, topY(z1), z1], [x, botY(z1), z1]]);
+      out.push([[x, topY(z0), z0], [x, botY(z1), z1], [x, botY(z0), z0]]);
+    }
+  }
+  // Two studs on the full-height end, as flat discs at y = −4.
+  for (const x of [-10, 10]) {
+    out.push([[x - 6, -4, 14], [x + 6, -4, 14], [x, -4, 6]]);
+    out.push([[x - 6, -4, 14], [x, -4, 6], [x - 6, -4, 6]]);
+  }
+  return out;
+}
+
+describe('slope detection', () => {
+  it('accepts the 33° and 45° single-wedge families from the library description', () => {
+    expect(isSlopeDescription('0 Slope Brick 45  2 x  1')).toBe(true);
+    expect(isSlopeDescription('0 Slope Brick 45  2 x  2 Inverted')).toBe(true);
+    expect(isSlopeDescription('0 Slope Brick 33  3 x  2')).toBe(true);
+    expect(isSlopeDescription('0 =Slope Brick 45  2 x  4')).toBe(true);
+  });
+
+  it('rejects cheese, steep, multi-face and non-slope parts', () => {
+    // Each string is a real first line from the LDraw library.
+    expect(isSlopeDescription('0 =Slope Brick 31  1 x  1 x  0.667 ')).toBe(false);
+    expect(isSlopeDescription('0 Slope Brick 18  4 x  2')).toBe(false);
+    expect(isSlopeDescription('0 Slope Brick 75  2 x  1 x  3 Inverted')).toBe(false);
+    expect(isSlopeDescription('0 Slope Brick 33  2 x  2 Double')).toBe(false);
+    expect(isSlopeDescription('0 Slope Brick 33  3 x  3 Double Convex')).toBe(false);
+    expect(isSlopeDescription('0 Slope Brick 33/45  6 x  4 with  2 x  2 Cutout')).toBe(false);
+    expect(isSlopeDescription('0 Brick  2 x  4')).toBe(false);
+    expect(isSlopeDescription('0 Plate  2 x  4')).toBe(false);
+  });
+
+  it('reads a normal wedge as pointing at its full-height end', () => {
+    expect(analyzeSlope(wedgeTris(false))).toEqual({ ux: 0, uz: 1, inverted: false });
+  });
+
+  it('reads an inverted wedge (cut underside) as half=top', () => {
+    expect(analyzeSlope(wedgeTris(true))).toEqual({ ux: 0, uz: 1, inverted: true });
+  });
+
+  it('returns null for a plain box', () => {
+    const box: Tri[] = [];
+    for (const x of [-20, 0, 20]) for (const z of [-20, 0, 20]) {
+      box.push([[x, 0, z], [x, 24, z], [x + 5, 24, z]]);
+      box.push([[x, 0, z], [x + 5, 24, z], [x + 5, 0, z]]);
+    }
+    expect(analyzeSlope(box)).toBeNull();
+  });
+});
+
+describe('stairCodeForPlacement', () => {
+  const slope = { ux: 0, uz: 1, inverted: false };
+  const yaw = (deg: number): number[] => {
+    const c = Math.round(Math.cos(deg * Math.PI / 180)), s = Math.round(Math.sin(deg * Math.PI / 180));
+    return [c, 0, s, 0, 1, 0, -s, 0, c];
+  };
+
+  it('rotates the facing with the brick, grid +z being south', () => {
+    const facings = [0, 90, 180, 270].map(d => decodeStairCode(stairCodeForPlacement(slope, yaw(d)))!.facing);
+    expect(facings).toEqual(['south', 'east', 'north', 'west']);
+  });
+
+  it('flips an upside-down placement to half=top and back', () => {
+    const flip = [1, 0, 0, 0, -1, 0, 0, 0, 1];
+    expect(decodeStairCode(stairCodeForPlacement(slope, flip))!.half).toBe('top');
+    expect(decodeStairCode(stairCodeForPlacement({ ...slope, inverted: true }, flip))!.half).toBe('bottom');
+    expect(decodeStairCode(stairCodeForPlacement({ ...slope, inverted: true }, yaw(0)))!.half).toBe('top');
+  });
+
+  it('refuses a placement a stair cannot represent', () => {
+    const onItsSide = [1, 0, 0, 0, 0, -1, 0, 1, 0];   // rolled 90°, local Y horizontal
+    expect(stairCodeForPlacement(slope, onItsSide)).toBe(0);
+    const yaw45 = [0.707, 0, 0.707, 0, 1, 0, -0.707, 0, 0.707];
+    expect(stairCodeForPlacement(slope, yaw45)).toBe(0);
+  });
+});
+
+describe('applyBlockShapes — stairs', () => {
+  const stairsGrid = (block: string) => {
+    const grid = new BlockGrid(1, 2, 1);
+    grid.set(0, 0, 0, block);
+    grid.set(0, 1, 0, block);
+    const hints = createShapeHints(1, 2, 1, true);
+    addOccupancy(hints, 0, 0, 0, 0, 1);
+    addOccupancy(hints, 0, 1, 0, 0, 1);
+    return { grid, hints };
+  };
+
+  it('places a stair on a slope cell whose descending side is open', () => {
+    const { grid, hints } = stairsGrid('minecraft:sandstone');
+    addStairRequest(hints, 0, 1, 0, stairCode('south', 'bottom'));
+    const stats = applyBlockShapes(grid, hints);
+    expect(grid.get(0, 1, 0)).toBe('minecraft:sandstone_stairs[facing=south,half=bottom,shape=straight]');
+    expect(grid.get(0, 0, 0)).toBe('minecraft:sandstone');
+    expect(stats).toMatchObject({ stairs: 1, stairCandidates: 1 });
+  });
+
+  it('leaves a slope cell alone when the cell above is solid', () => {
+    const { grid, hints } = stairsGrid('minecraft:sandstone');
+    addStairRequest(hints, 0, 0, 0, stairCode('south', 'bottom'));
+    applyBlockShapes(grid, hints);
+    expect(grid.get(0, 0, 0)).toBe('minecraft:sandstone');
+  });
+
+  it('drops the request when two slopes claim the same cell', () => {
+    const { grid, hints } = stairsGrid('minecraft:sandstone');
+    addStairRequest(hints, 0, 1, 0, stairCode('south', 'bottom'));
+    addStairRequest(hints, 0, 1, 0, stairCode('east', 'bottom'));
+    const stats = applyBlockShapes(grid, hints);
+    expect(grid.get(0, 1, 0)).toBe('minecraft:sandstone');
+    expect(stats.stairs).toBe(0);
+  });
+
+  it('falls through to the slab pass when the family has no stairs', () => {
+    const grid = new BlockGrid(1, 2, 1);
+    grid.set(0, 0, 0, 'minecraft:white_concrete');
+    const hints = createShapeHints(1, 2, 1, true);
+    addOccupancy(hints, 0, 0, 0, 0, 0.4);
+    addStairRequest(hints, 0, 0, 0, stairCode('north', 'bottom'));
+    const stats = applyBlockShapes(grid, hints);
+    expect(grid.get(0, 0, 0)).toBe('minecraft:white_concrete');
+    expect(stats).toMatchObject({ stairs: 0, stairNoVariant: 1, candidates: 1, noVariant: 1 });
+  });
+
+  it('interns only the stair orientations it actually places', () => {
+    // paletteIndexOf INTERNS, so resolving all eight orientations eagerly put
+    // unused entries in every export's palette.
+    const { grid, hints } = stairsGrid('minecraft:sandstone');
+    addStairRequest(hints, 0, 1, 0, stairCode('west', 'bottom'));
+    applyBlockShapes(grid, hints);
+    expect(grid.reversePalette().filter(b => b.includes('_stairs')))
+      .toEqual(['minecraft:sandstone_stairs[facing=west,half=bottom,shape=straight]']);
   });
 });
