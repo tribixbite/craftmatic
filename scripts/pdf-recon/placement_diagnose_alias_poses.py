@@ -37,7 +37,7 @@ def yaw_equivalent_score(recon,truth):
     Q=np.array([[0.,0.,1.],[0.,1.,0.],[-1.,0.,0.]])
     def local_symmetries(part):
         if part=='3941':return [np.eye(3),Q,Y,Q.T]
-        return [np.eye(3),Y] if part in ('3010','3710','3020','3023b') else [np.eye(3)]
+        return [np.eye(3),Y] if part in ('3010','3710','3020','3023b','3005','3069b','3003','4032a') else [np.eye(3)]
     for i,p in enumerate(truth):groups[p[:2]].append(i)
     transforms={}
     for part,color,p,R in recon:
@@ -60,16 +60,19 @@ def yaw_equivalent_score(recon,truth):
         if len(edges)<=best:continue
         a,b=zip(*edges);graph=csr_matrix((np.ones(len(edges)),(a,b)),shape=(len(recon),len(truth)))
         best=max(best,int(np.sum(maximum_bipartite_matching(graph,perm_type='column')>=0)))
-    return {'matched':best,'recon_parts':len(recon),'truth_parts':len(truth),'precision':best/len(recon),'coverage':best/len(truth),'symmetries':['3010 local yaw180','3710 local yaw180','3020 local yaw180','3023b local yaw180','3941 local yaw90/180/270'],'symmetry_evidence':['output/pdf-placement-diagnosis/universal-symmetry-vertices.json','output/pdf-placement-diagnosis/3020-universal-symmetry.json','output/pdf-placement-diagnosis/3023b-rename-symmetry.json'],'limitations':'Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts.'}
+    return {'matched':best,'recon_parts':len(recon),'truth_parts':len(truth),'precision':best/len(recon),'coverage':best/len(truth),'symmetries':['3010 local yaw180','3710 local yaw180','3020 local yaw180','3023b local yaw180','3005 local yaw180','3069b local yaw180','3003 local yaw180','4032a local yaw180','3941 local yaw90/180/270'],'symmetry_evidence':['output/pdf-placement-diagnosis/universal-symmetry-vertices.json','output/pdf-placement-diagnosis/3020-universal-symmetry.json','output/pdf-placement-diagnosis/3023b-rename-symmetry.json','output/pdf-placement-diagnosis/3005-universal-symmetry.json','output/pdf-placement-diagnosis/3069b-full-symmetry.json','output/pdf-placement-diagnosis/3003-full-symmetry.json','output/pdf-placement-diagnosis/4032a-full-symmetry.json'],'limitations':'Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts.'}
 
 
 if __name__=='__main__':
-    run=Path(sys.argv[1]);metadata=json.loads((run/'results.json').read_text())
+    import argparse
+    parser=argparse.ArgumentParser();parser.add_argument('run',type=Path);parser.add_argument('pattern',nargs='?',default='beam_*.ldr');parser.add_argument('--truth',default='C:/git/clego/lego_sets/OMR/40377-1.mpd');parser.add_argument('--out',type=Path)
+    args=parser.parse_args();run=args.run;metadata=json.loads((run/'results.json').read_text())
     if metadata.get('truth_used') is not False:raise ValueError('Runtime input provenance lacks truth-free declaration')
-    library=PartLibrary();truth=read_parts('C:/git/clego/lego_sets/OMR/40377-1.mpd');ct,aliases=canonicalize(truth,library);rows=[]
-    pattern=sys.argv[2] if len(sys.argv)>2 else 'beam_*.ldr'
+    library=PartLibrary();truth=read_parts(args.truth);ct,aliases=canonicalize(truth,library);rows=[]
+    pattern=args.pattern
     for path in sorted(run.glob(pattern)):
         recon=read_parts(path);cr,found=canonicalize(recon,library);aliases.update(found)
         rows.append({'file':path.name,'strict':score(recon,truth),'canonical_alias':score(cr,ct),'canonical_structural_yaw':yaw_equivalent_score(cr,ct)})
     result={'scope':'Independent OMR evaluation only. Authoritative filename aliases and declared unprinted structural symmetries reported separately from raw strict score. No evaluation chooses runtime output.','run':str(run),'aliases':aliases,'alias_provenance':library.provenance,'rename_provenance':verified_rename_graph()[1],'selected':rows[0],'oracle_best_strict':max(rows,key=lambda r:r['strict']['matched']),'oracle_best_structural':max(rows,key=lambda r:r['canonical_structural_yaw']['matched']),'beams':rows}
-    out=Path('output/pdf-placement-diagnosis')/(run.name+'-alias-poses.json');out.write_text(json.dumps(result,indent=2));print(out)
+    result['truth_path']=args.truth
+    out=args.out or Path('output/pdf-placement-diagnosis')/(run.name+'-alias-poses.json');out.write_text(json.dumps(result,indent=2));print(out)

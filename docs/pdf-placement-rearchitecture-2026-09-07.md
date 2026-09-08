@@ -40,6 +40,9 @@ All results below concern set 40377 development stages, evaluated post hoc again
 | `40377-gpu-thirteen-v1` | 8/13 raw strict; 13/13 structural | Two-plate group attached through either member; native per-scene camera hypotheses and corrected depth planes. Only 13/90 whole-model coverage. |
 | `40377-gpu-seventeen-layers-v3` | 9/17 raw strict; 15/17 structural | Correct 17/17 candidate retained at rank three; one whole two-part group is misplaced in the selected result. |
 | `40377-gpu-seventeen-native-edges-v4` | 10/17 raw strict; 17/17 structural | Fixed-native-coordinate color plus visible-edge scoring selects the correct retained assembly from PDF evidence. Only 17/90 whole-model coverage. |
+| `40377-gpu-eighteen-material-screen-v2` | 11/18 raw strict; 18/18 structural | Actual visible CAD material labels replace shaded-RGB classification. Cached single-group screening preserves the exhaustive selection. |
+| `40377-automatic-to26-v1/page-009/placement` | 13/22 raw strict; 16/22 canonical; 22/22 structural | Automatic PDF allocation, pair construction, quantity and joint attachment. Only 22/90 full-model coverage. |
+| `40377-automatic-to26-v1/page-010/placement` | 15/26 raw strict; 20/26 canonical; 26/26 structural | Second automatically dispatched repeated pair. Two distinct internal group geometries and 24,513 detailed views scored in 383.67 seconds. Only 26/90 full-model coverage. |
 
 Evidence lives in `output/pdf-placement-beam/` and `output/pdf-placement-diagnosis/`. The six-part run scored 1,265,750 candidate hypotheses. GPU rendering tests recorded eight passing checks, exact repeated GPU scores and agreement with CPU in the tested cases; these are implementation checks, not accuracy evidence.
 
@@ -82,9 +85,19 @@ Color-only scoring preferred a quarter-turned, offset two-part group because app
 
 `placement_continue.py` dispatches supported singleton and repeated exploded-pair pages from a PDF-derived checkpoint, preserving PDF image identity and stopping on unresolved callouts or unsupported structures. It does not yet implement whole-PDF startup, arbitrary subassemblies, cross-page state or global backtracking. A separate layout graph recognizes numbered inset substeps and a cross-page incoming shaft, but geometric attachment still must validate those proposals.
 
+New continuation runs write atomic journals and support explicit `--resume`. Reuse requires unchanged PDF, allocation, base model/manifest, run configuration and completed model/results hashes; only a contiguous completed prefix can be skipped. Failed page directories are preserved and retries use distinct attempt directories. Legacy journals without those hashes are rejected rather than silently trusted. Completed checkpoints record their own source snapshots; resumed runs may contain explicitly recorded different code versions.
+
 Contained overlapping XObjects caused false multiple-main-scene ambiguity on page indices 7, 9 and 10. Correcting PDF-edge versus OpenCV-pixel-center alignment yields 93.6–94.5% blurred pixel agreement and 98.0–99.7% foreground coverage for the corresponding fragments. The detector retains changed artwork and spatially separate views in synthetic controls. This is a bounded layout/pixel hypothesis, not proof that every overlapping PDF image may be discarded.
 
-## Inventory omission versus mold uncertainty
+## Material scoring and continuation checks
+
+Shading caused 3,477 of 6,070 visible white CAD pixels in a controlled render to be classified as gray. The optional material scorer obtains labels from actual visible triangle materials, sharing one depth/owner buffer with edge rendering. Its pastel-aware target classifier also recovers the later pink brick. Seventeen-part material IoU improves from 0.4909 to 0.8788; this is an image metric, not placement accuracy. Selected structural placements remain correct in separate 9-, 11-, 13-, 17- and 18-part checks. The automatic next step reaches 22/22 structural placements. Reports are saved in `output/pdf-placement-diagnosis/`, including `material-regression-summary.json` and `40377-automatic-page009-alias-poses.json`.
+
+Single-group cached screening now uses an explicit empty second layer, scores complete candidates, and preserves the exhaustive eighteen-part selection. Three native/synthetic controls check its index convention, color classification and score agreement. The ordinary placement unit suite passes 59 tests. Optional visible part-instance seams distinguish real coplanar brick joints from triangle boundaries and preserve the accepted seventeen-part selection across all twenty retained candidates; this experiment remains separate from the default scorer.
+
+The numbered page-index-11 inset now independently selects all six group placements correctly. Page-index-13 construction retains both 4032 mold branches: all four poses/identities agree for the 4032a branch, while the 4032b branch differs in one mold identity. Runtime retains both alternatives; evaluation does not choose the branch. Mixed six-bracket placement, connecting these groups to the full assembly, cross-page continuation and global backtracking remain open.
+
+## Inventory omission versus mold uncertainty (slot trial)
 
 The missing page-index-13 callout was caused by dropping an inventory record whose element ID maps to both 4032a and 4032b. `global_pdf_slot_assignment.py` assigns callouts to PDF inventory slots, preserving one capacity for that record and both possible mold IDs. The saved 40377 slot trial assigns all 55 callouts / 90 pieces, leaving 89 unambiguous identity instances and one explicit mold ambiguity. The recovered round-plate callout matches its PDF inventory icon at 0.970806 frozen-encoder similarity. All 54 previously assigned callouts retain their previous IDs, colors and quantities.
 

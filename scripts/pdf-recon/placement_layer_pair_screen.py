@@ -73,19 +73,26 @@ def classify(rgb,mask,palette):
     return labels,valid
 
 
-def shortlist_pairs(base,placements,projection,scorer,limit=256):
+def shortlist_pairs(base,placements,projection,scorer,limit=256,copies=2):
     if limit<1:raise ValueError('limit must be positive')
+    if copies not in (1,2):raise ValueError('Only one or two groups supported')
     started=time.perf_counter();M=np.asarray(projection,float)
     blo,bhi=projected_bounds(base,M,scorer)
     bounds=[projected_bounds(row['items'],M,scorer) for row in placements]
-    if len(bounds)<2:return [],dict(span_pairs=0,reason='Fewer than two placements')
+    if len(bounds)<copies:return [],dict(span_pairs=0,reason='Insufficient placements')
     lows=np.asarray([a for a,b in bounds]);highs=np.asarray([b for a,b in bounds])
-    pairs=np.asarray(list(compatible_pairs(lows,highs,blo,bhi,scorer.target_span,scorer.span_tolerance)),np.int32).reshape(-1,2)
+    if copies==2:
+        pairs=np.asarray(list(compatible_pairs(lows,highs,blo,bhi,scorer.target_span,scorer.span_tolerance)),np.int32).reshape(-1,2)
+    else:
+        errors=np.abs(np.maximum(highs,bhi)-np.minimum(lows,blo)-scorer.target_span)/scorer.target_span
+        indices=np.flatnonzero(np.max(errors,axis=1)<=scorer.span_tolerance)
+        pairs=np.column_stack((indices,np.full(len(indices),len(placements)))).astype(np.int32)
     if not len(pairs):return [],dict(span_pairs=0,reason='Exact physical span gate rejected all pairs')
     all_items=base+[item for row in placements for item in row['items']]
     colors=sorted(set(int(c) for p,c,T in all_items))
     if len(colors)>16:raise ValueError('Coarse GPU screen supports at most16 base colors')
     palette=np.stack([_rgb(c) for c in colors]).astype(np.uint8)
+    material_colors=bool(getattr(scorer,'material_colors',False))
     glo=np.minimum(blo,lows.min(0));ghi=np.maximum(bhi,highs.max(0))
     scale=64./max(scorer.target_span)
     # Store only uint32 depth bits and uint8 color labels per cached pixel.
@@ -94,7 +101,7 @@ def shortlist_pairs(base,placements,projection,scorer,limit=256):
         target_size=np.maximum(1,np.ceil(np.array(scorer.mask.shape[::-1])*scale).astype(int))
         padding=int(target_size.max())+3
         size=np.ceil((ghi-glo)*scale).astype(int)+2*padding+2
-        bytes_needed=(len(placements)+1)*int(np.prod(size))*5
+        bytes_needed=(len(placements)+1+(copies==1))*int(np.prod(size))*5
         if bytes_needed<=192*1024**2:break
         scale*=.8
     else:raise ValueError('Layer cache cannot fit declared memory budget')
@@ -107,26 +114,39 @@ def shortlist_pairs(base,placements,projection,scorer,limit=256):
             d=scorer._project_part(p,c,T,M)
             xy=(d['xy']+M@T[:3,3])*scale+origin
             z=d['vertex_depth']+d['camera']@T[:3,3]
-            ts.append(np.concatenate((xy,z[:,:,None]),2));cs.append(d['shaded'])
+            ts.append(np.concatenate((xy,z[:,:,None]),2))
+            if material_colors:
+                codes=scorer.geometry[(p,str(c))]['colors'];paint=np.zeros((len(codes),3),np.uint8)
+                for index,color in enumerate(colors):paint[codes==color,0]=index+1
+                cs.append(paint)
+            else:cs.append(d['shaded'])
         return np.concatenate(ts),np.concatenate(cs)
     geometry=[triangles(base)]+[triangles(row['items']) for row in placements]
     depth_offset=1.-min(t[:,:,2].min() for t,c in geometry)
-    depths=cp.empty((len(geometry),h,w),cp.uint32);labels=cp.empty((len(geometry),h,w),cp.uint8)
+    layer_count=len(geometry)+(copies==1)
+    depths=cp.zeros((layer_count,h,w),cp.uint32);labels=cp.zeros((layer_count,h,w),cp.uint8)
     for index,(t,c) in enumerate(geometry):
         layer=raster.render_depth(t[None],c[None],w,h,depth_offset=depth_offset,device=True)
         image=cp.asnumpy(layer['rgb'][0]);mask=cp.asnumpy(layer['mask'][0])
-        lab,_=classify(image,mask,palette)
+        if material_colors:lab=np.where(mask,image[:,:,0],0).astype(np.uint8)
+        else:lab,_=classify(image,mask,palette)
         depths[index]=layer['depth_bits'][0];labels[index]=cp.asarray(lab)
     del layer,geometry
     affine=np.array([[scale,0.,0.],[0.,scale,0.]])
     rgb=cv2.warpAffine(scorer.rgb,affine,tuple(target_size),flags=cv2.INTER_NEAREST,borderValue=(245,245,245))
     targetmask=cv2.warpAffine(scorer.mask.astype(np.uint8),affine,tuple(target_size),flags=cv2.INTER_NEAREST)>0
-    target,valid=classify(rgb,targetmask,palette)
+    if material_colors:
+        from placement_palette_classes import palette_labels
+        target,valid=palette_labels(rgb,targetmask,palette)
+    else:target,valid=classify(rgb,targetmask,palette)
     targetcounts=np.array([((target==i+1)&valid).sum() for i in range(len(colors))],np.int32)
     # Integer target-window shifts approximate subpixel resampling only; the
     # exact native combined bounds determine every individual alignment.
-    pair_lo=np.minimum(np.minimum(lows[pairs[:,0]],lows[pairs[:,1]]),blo)
-    pair_hi=np.maximum(np.maximum(highs[pairs[:,0]],highs[pairs[:,1]]),bhi)
+    if copies==2:
+        pair_lo=np.minimum(np.minimum(lows[pairs[:,0]],lows[pairs[:,1]]),blo)
+        pair_hi=np.maximum(np.maximum(highs[pairs[:,0]],highs[pairs[:,1]]),bhi)
+    else:
+        pair_lo=np.minimum(lows[pairs[:,0]],blo);pair_hi=np.maximum(highs[pairs[:,0]],bhi)
     native_origins=scorer.target_center-(pair_lo+pair_hi)/2
     shifts=np.round(origin-native_origins*scale).astype(np.int32)
     kernel=cp.RawKernel(SCORE_KERNEL,'score_pairs',options=('--std=c++11',))
@@ -140,7 +160,7 @@ def shortlist_pairs(base,placements,projection,scorer,limit=256):
         values[start:start+len(part)]=cp.asnumpy(scores)
     order=np.argsort(-values,kind='stable')[:limit]
     result=[(int(pairs[k,0]),int(pairs[k,1]),float(values[k])) for k in order]
-    summary=dict(span_pairs=len(pairs),retained=len(result),cache_layers=len(placements)+1,
+    summary=dict(span_pairs=len(pairs),retained=len(result),cache_layers=layer_count,copies=copies,material_colors=material_colors,
         coarse_scale=scale,coarse_target_size=target_size.tolist(),canvas_size=[w,h],
         cache_bytes=bytes_needed,gpu_pool_reserved_bytes=cp.get_default_memory_pool().total_bytes(),
         seconds=time.perf_counter()-started,collision_checked=False,

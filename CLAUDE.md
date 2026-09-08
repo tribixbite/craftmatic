@@ -22,10 +22,10 @@ Current [placement rearchitecture](docs/pdf-placement-rearchitecture-2026-09-07.
 uses native PDF scenes, calibrated cameras, CAD geometry, joint additions and
 exploded-step constraints. Adding arrowhead-to-stud contact evidence selects
 6/6 exact poses in the opening development stage. Per-scene camera calibration,
-atomic groups and GPU depth/color plus visible-edge scoring extend this to 17/17 structurally
-correct emitted parts (10/17 raw strict, 11/17 after authoritative filename aliases;
+atomic groups and GPU material/color plus visible-edge scoring extend this to 26/26 structurally
+correct emitted parts (15/26 raw strict, 20/26 after authoritative filename aliases;
 the remaining differences are verified unprinted-part yaw symmetries). This is only
-17/90 full-model coverage, NOT complete-model accuracy or population accuracy.
+26/90 full-model coverage, NOT complete-model accuracy or population accuracy.
 Reference order is not necessarily PDF step order. Reference models remain
 evaluation-only; runtime proposals and production data must stay separate.
 Continued crop trials expose x-only component assignment and unmasked step
