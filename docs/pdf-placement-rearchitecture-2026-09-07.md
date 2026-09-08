@@ -233,9 +233,15 @@ both, and evaluation does not choose.
    40377 and is not yet explained by exploded-component contamination.
 2. Page index 20's drawings are all small part views with no body view, so the
    page cannot be registered against the assembly at all.
-3. Pages that add no callout (indices 14, 21, 32) need cross-page attachment of
-   a separately built body. The page-13 group exists and is internally correct;
-   its attachment on page index 14 is the immediate next step.
+3. Cross-page attachment now works end to end on this fixture. Page index 13
+   builds a separate four-piece stack and page index 14, which adds no callout,
+   attaches it: 9,984 legal group placements, 49,152 scored views, giving 42
+   emitted parts at 41 structural, 28 canonical-alias and 22 raw-strict, i.e.
+   41/90 coverage at precision 0.976. That is a better model than the 82-part
+   chain at 40/90 and precision 0.488, because it stops before the page-17
+   registration wall rather than emitting parts through it. Pages 21 and 32 need
+   the same treatment, and multi-body state inside the driver, which would
+   schedule it without a hand-issued command, is still absent.
 4. Page index 13 is a separate subassembly built from nothing, not an addition
    to the main body. Multi-body state is still absent from the driver.
 5. The second fixture 41624 has a complete 109/109 slot assignment but three
