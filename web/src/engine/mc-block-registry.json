@@ -34,5 +34,51 @@
     "stripped_oak_log", "stripped_spruce_log", "stripped_birch_log",
     "oak_leaves", "spruce_leaves", "birch_leaves", "jungle_leaves", "acacia_leaves", "dark_oak_leaves",
     "water", "lava"
-  ]
+  ],
+  "_shapeComment": "Partial-geometry ids the block-shape passes (engine/block-shapes.ts) may emit. DISCIPLINE: a shape id is listed here ONLY for a base material already verified in `blocks` above, and only where vanilla really has that shape — Minecraft has smooth_stone_slab but NO smooth_stone_stairs, cut_sandstone_slab but NO cut_sandstone_stairs. There is NO slab or stair for any dyed family (concrete, wool, terracotta, stained glass): that is a hard vanilla limit, not an omission here.",
+  "slabs": [
+    "stone_slab", "smooth_stone_slab", "cobblestone_slab", "mossy_cobblestone_slab",
+    "stone_brick_slab", "mossy_stone_brick_slab",
+    "andesite_slab", "polished_andesite_slab", "diorite_slab", "polished_diorite_slab",
+    "granite_slab", "polished_granite_slab",
+    "cobbled_deepslate_slab", "polished_deepslate_slab", "deepslate_brick_slab", "deepslate_tile_slab",
+    "blackstone_slab", "polished_blackstone_slab", "polished_blackstone_brick_slab",
+    "sandstone_slab", "smooth_sandstone_slab", "cut_sandstone_slab",
+    "red_sandstone_slab", "smooth_red_sandstone_slab", "cut_red_sandstone_slab",
+    "brick_slab", "nether_brick_slab", "red_nether_brick_slab",
+    "prismarine_slab", "prismarine_brick_slab", "dark_prismarine_slab",
+    "quartz_slab", "smooth_quartz_slab", "purpur_slab", "end_stone_brick_slab",
+    "oak_slab", "spruce_slab", "birch_slab", "jungle_slab", "acacia_slab",
+    "dark_oak_slab", "mangrove_slab", "cherry_slab", "bamboo_slab",
+    "crimson_slab", "warped_slab"
+  ],
+  "stairs": [
+    "stone_stairs", "cobblestone_stairs", "mossy_cobblestone_stairs",
+    "stone_brick_stairs", "mossy_stone_brick_stairs",
+    "andesite_stairs", "polished_andesite_stairs", "diorite_stairs", "polished_diorite_stairs",
+    "granite_stairs", "polished_granite_stairs",
+    "cobbled_deepslate_stairs", "polished_deepslate_stairs", "deepslate_brick_stairs", "deepslate_tile_stairs",
+    "blackstone_stairs", "polished_blackstone_stairs", "polished_blackstone_brick_stairs",
+    "sandstone_stairs", "smooth_sandstone_stairs",
+    "red_sandstone_stairs", "smooth_red_sandstone_stairs",
+    "brick_stairs", "nether_brick_stairs", "red_nether_brick_stairs",
+    "prismarine_stairs", "prismarine_brick_stairs", "dark_prismarine_stairs",
+    "quartz_stairs", "smooth_quartz_stairs", "purpur_stairs", "end_stone_brick_stairs",
+    "oak_stairs", "spruce_stairs", "birch_stairs", "jungle_stairs", "acacia_stairs",
+    "dark_oak_stairs", "mangrove_stairs", "cherry_stairs", "bamboo_stairs",
+    "crimson_stairs", "warped_stairs"
+  ],
+  "_stateComment": "Property schemas keyed by id SUFFIX, longest match wins. An id with a schema has its state keys AND values checked; an id without one is only checked for syntax (`k=v` pairs, no duplicate keys). Values are the vanilla blockstate enums.",
+  "stateSchemas": {
+    "_slab": {
+      "type": ["top", "bottom", "double"],
+      "waterlogged": ["true", "false"]
+    },
+    "_stairs": {
+      "facing": ["north", "south", "east", "west"],
+      "half": ["top", "bottom"],
+      "shape": ["straight", "inner_left", "inner_right", "outer_left", "outer_right"],
+      "waterlogged": ["true", "false"]
+    }
+  }
 }

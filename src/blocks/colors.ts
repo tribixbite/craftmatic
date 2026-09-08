@@ -478,6 +478,27 @@ export const DOOR_BLOCKS = new Set([
   'minecraft:warped_door', 'minecraft:crimson_door', 'minecraft:copper_door',
 ]);
 
+/** Shape suffixes whose colour comes from the underlying material block. */
+const SHAPE_SUFFIXES = ['_slab', '_stairs', '_wall', '_fence', '_trapdoor', '_button', '_pressure_plate'];
+
+/**
+ * For a partial-shape id, the id of the material block whose colour it shares —
+ * or null when `base` is not a shape id or the material isn't in the table.
+ * `minecraft:oak_slab` → `minecraft:oak_planks`; `minecraft:brick_slab` →
+ * `minecraft:bricks`.
+ */
+function shapeMaterialId(base: string): string | null {
+  for (const suffix of SHAPE_SUFFIXES) {
+    if (!base.endsWith(suffix)) continue;
+    const stem = base.slice(0, -suffix.length);
+    for (const candidate of [stem, `${stem}s`, `${stem}_planks`, `${stem}_block`]) {
+      if (candidate in BLOCK_COLORS) return candidate;
+    }
+    return null;
+  }
+  return null;
+}
+
 /**
  * Look up color for a block state with prefix/property fallback.
  * Returns null for air blocks.
@@ -489,6 +510,16 @@ export function getBlockColor(blockState: string): RGB | null {
 
   // Exact match
   if (base in BLOCK_COLORS) return BLOCK_COLORS[base];
+
+  // Partial-shape ids inherit their MATERIAL's colour. The block-shape export
+  // passes emit `minecraft:sandstone_slab[type=bottom]` etc.; without this a
+  // shape whose id isn't listed above (there are ~90 slab/stair ids and this
+  // table is hand-written) fell through to the hash fallback and re-imported as
+  // a random colour in the Upload tab's 3D view. The ladder covers vanilla's
+  // material-naming: `sandstone_slab`→sandstone, `stone_brick_slab`→stone_bricks,
+  // `oak_slab`→oak_planks, `quartz_slab`→quartz_block.
+  const material = shapeMaterialId(base);
+  if (material) return BLOCK_COLORS[material];
 
   // Prefix matching for variants (e.g. "minecraft:potted_" matches any potted plant)
   for (const [prefix, color] of Object.entries(BLOCK_COLORS)) {
