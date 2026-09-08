@@ -480,9 +480,53 @@ ghost tires). Pipeline defenses (classifier extracted to
     exact extent), `scripts/_schem_diff.ts` (decoded gained/lost/recoloured).
     `scripts/schem-external-check.mjs` now also accepts a `.schem` path directly,
     so two pipeline builds can be A/B'd in schemat.io without re-exporting.
-  - **Byte-identity is the gate.** With defaults (auto / default profile /
-    light fill OFF) `scripts/_schem_ref.ts` (driving the REAL shared pipeline)
-    on 21063 gives sha256 `53dac11…9e40e2`, 1,190,999 non-air.
+  - **Partial blocks: slabs + stairs (2026-09-08).** `engine/block-shapes.ts`,
+    behind the `Block shapes` MC setting (**ON by default**), run by
+    `runSchemPipeline` after `fillSingleVoxelGaps`; **bricks source only** (an
+    uploaded grid is already blocks). It never creates or removes a cell — it
+    replaces one SOLID palette entry with another — so the over-coverage rule
+    above still holds and a one-cell-thick feature keeps its cell either way.
+    Two passes:
+    * **occupancy → slab.** The voxelizer records per-cell vertical occupancy
+      (`VoxelizeOptions.shapes`, 2-3 B/cell): each part's real world-Y extent
+      clamped to each cell it emitted, unioned as a hull. A cell under 0.75 of
+      its height with the mass on ONE side of the midline becomes a slab —
+      **and only when the half it gives up is air anyway**, which is what keeps
+      an interior seam (two stacked bricks share a boundary cell whose
+      occupancy unions to "full") a cube. The proposal's literal rule
+      ("bottom ≥0.6, top ≤0.2") was CORRECTED: centred cells put most of a
+      stacked plate into the brick's own boundary cell and only ~10% into the
+      cell above, so the commonest plate arrangement in LEGO scored 0.2 and
+      stayed a cube (21063: 1,813 → 2,775 candidates at cellLDU 20).
+    * **slope → stairs.** Membership from the LDraw library's OWN description
+      line (350 parts start `Slope Brick`; 32-60° single-face only, so cheese
+      31° and the steep/double/convex families are out) — NOT a part-id list,
+      which would be stale immediately (`3040`/`3665` are `~Moved to` stubs).
+      Direction and inverted-ness come from the part's triangles
+      (`analyzeSlope`). **`facing` is the FULL-HEIGHT side** — verified by
+      rendering (`output/schem-backlog/schemat-io-stair-flush.png`), NOT from
+      this repo's generator, whose gable code reads inconsistently and which
+      asks for the non-existent `minecraft:smooth_stone_stairs`. First attempt
+      read normal slope 3040b as inverted: LEGO parts are hollow and studded, so
+      a lattice cell inside a stud's top disc reports the part's HIGHEST surface
+      as its lowest point. Top gradient is primary; the underside is consulted
+      only when the top is flat.
+    * **The ceiling, measured: vanilla has NO slab or stair for any dyed
+      family.** The colour tables emit ~97% concrete, so on 21063 only 5,355 of
+      87,800 candidate cells (sandstone) can take a shape; 71,150 are concrete.
+      No near-colour substitution is made — a quartz slab on a concrete wall is
+      a visible material seam. `ShapeStats.noVariantByBlock` reports exactly
+      what the proposal's Pass D (a slab-capable palette) would unlock. **Slices
+      2-3 are mechanism-complete but coverage-blocked on Pass D.**
+    * Gates: **flag-off must ALWAYS reproduce the no-shapes hash**; shapes-ON is
+      gated by CONTENT DIFF, never by hash. `scripts/_schem_diff.ts` separates a
+      shape refinement from a recolour; 21058 shows 0 gained / 0 lost /
+      0 recoloured / 20,793 shaped. `scripts/_schem_ref.ts --no-shapes` and
+      `scripts/_export_browser_check.mjs --shapes on|off` are the A/B switches.
+      Tests: `test/block-shapes.test.ts`, `test/schem-block-states.test.ts`.
+  - **Byte-identity is the gate.** With defaults **and `--no-shapes`** (auto /
+    default profile / light fill OFF) `scripts/_schem_ref.ts` (driving the REAL
+    shared pipeline) on 21063 gives sha256 `53dac11…9e40e2`, 1,190,999 non-air.
     **Re-derived 2026-09-08** (was `d158beb…f3fd7` / 1,189,251) by the contact
     pass above — deliberate, verified additive-only. The hash before that was
     `52d2211…4be6b` / 1,184,777, retired 2026-09-02 by the race fix — that one
@@ -501,7 +545,16 @@ ghost tires). Pipeline defenses (classifier extracted to
      16-colour families + solids + light sources). `test/palette-lint.test.ts`
      asserts every value in BOTH colour tables, the fallbacks, the profile light
      blocks and a REAL exported .schem's `Palette` are `minecraft:<known id>`.
-     A new block means adding it to the JSON deliberately.
+     A new block means adding it to the JSON deliberately. Since 2026-09-08 the
+     `[k=v,…]` STATE tail is validated too (keys and values against a per-suffix
+     schema for `_slab`/`_stairs`; syntax + duplicate keys otherwise) — a state
+     string is where a plausible typo hides best, since `[type=lower]` and
+     `[facing=up]` round-trip through our own encoder and importer perfectly and
+     only fail in Minecraft. Registry discipline: a shape id is listed only for
+     a base material already verified in `blocks`, and only where vanilla really
+     has it (`smooth_stone_slab` exists, `smooth_stone_stairs` does not — and
+     `src/gen/material-resolver.ts` still asks for the latter, a pre-existing
+     generator bug this lint would catch if that path were linted).
   2. **Browser gate** — `node scripts/_export_browser_check.mjs [model.io] [label]`
      (node, dev server on 4000) drives the REAL LEGO tab in Chrome: it reads the
      ⚙ MC settings resolution list, uploads a model, exports a `.schem` through
