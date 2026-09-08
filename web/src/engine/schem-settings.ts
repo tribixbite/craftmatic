@@ -29,7 +29,7 @@ export const RESOLUTION_CAPS = {
 } as const;
 
 /** `auto`, or a cell size in LDU rendered as a string (a `<select>` value). */
-export type ResolutionChoice = 'auto' | '4' | '8' | '20';
+export type ResolutionChoice = 'auto' | '2' | '4' | '8' | '20';
 
 export interface ResolutionOption {
   value: ResolutionChoice;
@@ -40,6 +40,12 @@ export interface ResolutionOption {
 
 export const RESOLUTION_OPTIONS: readonly ResolutionOption[] = [
   { value: 'auto', label: 'Auto — finest that fits' },
+  // 10 blocks per stud is OPT-IN only and deliberately NOT in AUTO_CELL_LADDER:
+  // it is 6.9× the cells of the 5×/stud tier (measured on 5969-1: 15,502 →
+  // 107,191 non-air, 98 → 186 ms) and only small models clear the caps at all
+  // (21063, 60380, 71043 and 76416 are all refused — see scripts/_res_survey.ts).
+  // Adding it to the ladder would silently make every small export 7× bigger.
+  { value: '2', label: '10 blocks per stud (2 LDU)', cellLDU: 2 },
   { value: '4', label: '5 blocks per stud (4 LDU)', cellLDU: 4 },
   { value: '8', label: '2.5 blocks per stud (8 LDU)', cellLDU: 8 },
   { value: '20', label: '1 block per stud (20 LDU)', cellLDU: 20 },
@@ -85,18 +91,27 @@ export interface ResolutionPlan {
   requestedHonored: boolean;
   /** The cell size the user asked for, when it wasn't honoured. */
   requestedCellLDU?: number;
+  /** Which cap refused the requested cell size. */
+  refusedBy?: 'horizontal' | 'height' | 'cells';
   /** True when even the coarsest ladder step exceeds the caps. */
   overCap: boolean;
 }
 
+/**
+ * Which cap a cell size breaks, or null when it fits.
+ * (The maths is the exact historical `fits` test, just reported.)
+ */
+export function capViolation(span: SpanLDU, cellLDU: number): 'horizontal' | 'height' | 'cells' | null {
+  const w = span.x / cellLDU, h = span.y / cellLDU, l = span.z / cellLDU;
+  if (Math.max(w, l) > RESOLUTION_CAPS.maxHorizontal) return 'horizontal';
+  if (h > RESOLUTION_CAPS.maxHeight) return 'height';
+  if (w * h * l > RESOLUTION_CAPS.maxCells) return 'cells';
+  return null;
+}
+
 /** Does a cell size keep the grid inside the caps? (exact historical maths) */
 function fits(span: SpanLDU, cellLDU: number): boolean {
-  const w = span.x / cellLDU, h = span.y / cellLDU, l = span.z / cellLDU;
-  return (
-    Math.max(w, l) <= RESOLUTION_CAPS.maxHorizontal &&
-    h <= RESOLUTION_CAPS.maxHeight &&
-    w * h * l <= RESOLUTION_CAPS.maxCells
-  );
+  return capViolation(span, cellLDU) === null;
 }
 
 function planFor(span: SpanLDU, cellLDU: number, extra: Partial<ResolutionPlan>): ResolutionPlan {
@@ -132,13 +147,22 @@ export function planResolution(span: SpanLDU, choice: ResolutionChoice = 'auto')
   if (choice === 'auto') return planFor(span, autoCell, { overCap: !anyFits });
 
   const requested = Number(choice);
-  if (fits(span, requested)) return planFor(span, requested, {});
+  const violation = capViolation(span, requested);
+  if (violation === null) return planFor(span, requested, {});
   return planFor(span, autoCell, {
     requestedHonored: false,
     requestedCellLDU: requested,
+    refusedBy: violation,
     overCap: !anyFits,
   });
 }
+
+/** Which cap the requested (refused) cell size broke — set only when refused. */
+const CAP_REASON: Record<'horizontal' | 'height' | 'cells', string> = {
+  horizontal: `the ${RESOLUTION_CAPS.maxHorizontal}-block width limit`,
+  height: `the ${RESOLUTION_CAPS.maxHeight}-block height limit`,
+  cells: `the ${RESOLUTION_CAPS.maxCells / 1e6}M-block limit`,
+};
 
 /** Human-readable one-liner for the settings popover / status line. */
 export function describePlan(plan: ResolutionPlan): string {
@@ -148,7 +172,10 @@ export function describePlan(plan: ResolutionPlan): string {
     : plan.cells.toLocaleString();
   const base = `≈ ${width}×${height}×${length} blocks (${cells} cells) at ${plan.cellsPerStud}× stud`;
   if (!plan.requestedHonored) {
-    return `${base} — ${20 / (plan.requestedCellLDU ?? 20)}× stud would exceed the ${RESOLUTION_CAPS.maxHorizontal}-block limit`;
+    // Name the cap that actually refused it — it is usually height, not width,
+    // and a wrong reason sends the user resizing the wrong thing.
+    const reason = plan.refusedBy ? CAP_REASON[plan.refusedBy] : CAP_REASON.horizontal;
+    return `${base} — ${20 / (plan.requestedCellLDU ?? 20)}× stud would exceed ${reason}`;
   }
   if (plan.overCap) return `${base} — larger than the usual limits, export may be slow`;
   return base;

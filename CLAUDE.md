@@ -369,8 +369,15 @@ ghost tires). Pipeline defenses (classifier extracted to
   - **User settings** (`⚙ MC settings` popover, `ui/schem-settings-panel.ts`,
     persisted in `localStorage['craftmatic.mcExportSettings']`, read at export
     time so both tabs always agree): **Resolution** (Auto = the shipped ladder,
-    or 1 / 2.5 / 5 blocks per stud; an over-cap explicit choice is coarsened
-    back to the auto pick and the status says so), **Block mapping profile**
+    or 1 / 2.5 / 5 / **10** blocks per stud; an over-cap explicit choice is
+    coarsened back to the auto pick and the status names the cap that refused
+    it — usually HEIGHT, not width, so `refusedBy` is reported rather than
+    guessed. **10 blocks per stud (cellLDU 2) is opt-in only and deliberately
+    NOT in `AUTO_CELL_LADDER`**: it is ~7× the cells of the 5×/stud tier
+    (5969-1: 15,502 → 107,191 non-air, 98 → 186 ms, peak RSS 295 MB) and only
+    small models clear the caps at all — 21063, 60380, 71043 and 76416 are all
+    refused (`scripts/_res_survey.ts` prints the auto and 10×/stud plans for any
+    model). Putting it in the ladder would silently inflate every small export), **Block mapping profile**
     (`engine/block-profiles.ts` — ONE real profile; the seam exists so a second
     mapping table is a data addition. Don't add placeholder profiles), and
     **Light enclosed interiors** (OFF by default). Pure planning lives in
@@ -486,7 +493,15 @@ ghost tires). Pipeline defenses (classifier extracted to
      asserts every value in BOTH colour tables, the fallbacks, the profile light
      blocks and a REAL exported .schem's `Palette` are `minecraft:<known id>`.
      A new block means adding it to the JSON deliberately.
-  2. **schemat.io, scripted + manual** — `node scripts/schem-external-check.mjs`
+  2. **Browser gate** — `node scripts/_export_browser_check.mjs [model.io] [label]`
+     (node, dev server on 4000) drives the REAL LEGO tab in Chrome: it reads the
+     ⚙ MC settings resolution list, uploads a model, exports a `.schem` through
+     the Web Worker and reports the phases the progress banner showed. Verified
+     2026-09-08: 71043 (5,936 bricks) exports in **3.2 s** with a warm geometry
+     cache — banner phases `voxelizing 1…85% → joining parts → closing surface
+     holes` — 637,850 blocks at 2.5×/stud; 76416-1 cold (no IDB cache) 157 s,
+     dominated by part fetches, not voxelization.
+  3. **schemat.io, scripted + manual** — `node scripts/schem-external-check.mjs`
      (node, NOT bun: `chromium.launch` hangs under bun here; `channel:'chrome'`)
      exports 21063 through the shared pipeline, checks the baseline sha256,
      uploads it to schemat.io/view and screenshots to `output/schem-backlog/`.
