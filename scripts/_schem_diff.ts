@@ -35,7 +35,7 @@ const at = (g: typeof A, x: number, y: number, z: number) =>
  * refinement; `minecraft:sandstone` → `minecraft:white_concrete` is a recolour.
  * Written as a suffix rule over the vanilla naming (see engine/block-shapes.ts).
  */
-const SHAPE_SUFFIXES = ['_slab', '_stairs', '_wall'];
+const SHAPE_SUFFIXES = ['_slab', '_stairs', '_wall', '_fence', '_pane'];
 function isShapeRefinement(a: string, b: string): boolean {
   const base = b.replace(/\[.*$/, '');
   for (const suffix of SHAPE_SUFFIXES) {
@@ -46,10 +46,23 @@ function isShapeRefinement(a: string, b: string): boolean {
   return false;
 }
 
-let gained = 0, lost = 0, recolored = 0, shaped = 0, unshaped = 0, same = 0;
+/**
+ * The two semantic elements whose material is FIXED (`iron_bars` is a dark gray
+ * and `ladder` is oak), so they cannot be derived from the cell's own block the
+ * way a pane or a fence can. Counted apart from both refinements and recolours,
+ * because they are honestly a bit of each — see engine/part-elements.ts.
+ */
+const FIXED_ELEMENTS = ['minecraft:iron_bars', 'minecraft:ladder'];
+function isFixedElement(b: string): boolean {
+  const base = b.replace(/\[.*$/, '');
+  return FIXED_ELEMENTS.includes(base);
+}
+
+let gained = 0, lost = 0, recolored = 0, shaped = 0, unshaped = 0, same = 0, elements = 0;
 const gainedBy = new Map<string, number>();
 const lostBy = new Map<string, number>();
 const shapedBy = new Map<string, number>();
+const elementsBy = new Map<string, number>();
 const recoloredBy = new Map<string, number>();
 const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
 
@@ -59,6 +72,7 @@ for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) for (let x = 0; x < W; x
   if (a === AIR) { gained++; bump(gainedBy, b); }
   else if (b === AIR) { lost++; bump(lostBy, a); }
   else if (isShapeRefinement(a, b)) { shaped++; bump(shapedBy, `${a} → ${b}`); }
+  else if (isFixedElement(b)) { elements++; bump(elementsBy, `${a} → ${b}`); }
   // A full cube where the BEFORE side had a shape is a regression, counted apart.
   else if (isShapeRefinement(b, a)) { unshaped++; bump(recoloredBy, `${a} → ${b}`); }
   else { recolored++; bump(recoloredBy, `${a} → ${b}`); }
@@ -68,7 +82,7 @@ const top = (m: Map<string, number>) => [...m.entries()].sort((p, q) => q[1] - p
 console.log(JSON.stringify({
   before: { file: aPath, dims: [A.width, A.height, A.length] },
   after:  { file: bPath, dims: [B.width, B.height, B.length] },
-  unchangedSolid: same, gained, lost, recolored, shaped, unshaped,
+  unchangedSolid: same, gained, lost, recolored, shaped, unshaped, elements,
   gainedBy: top(gainedBy), lostBy: top(lostBy),
-  shapedBy: top(shapedBy), recoloredBy: top(recoloredBy),
+  shapedBy: top(shapedBy), elementsBy: top(elementsBy), recoloredBy: top(recoloredBy),
 }, null, 1));
