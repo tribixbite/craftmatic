@@ -42,6 +42,25 @@ The PDF BOM itself overlaps OMR at only 73/90 exact IDs: at least 14 of the
 differences have universal catalog/rename evidence. Do not mislabel these all
 as CNN errors. A 360-candidate page-filtered placement trial worsened to 1/90.
 Keep `scripts/pdf-recon/anchored_pipeline_trial.py` opt-in and quarantined.
+**2026-09-08 driver + search rewrite:** 40377 coverage moved 26/90 → **40/90
+(44.4%)**, still far from 90%. The stage-specific runs are replaced by
+`placement_autodrive.py` (camera → registration → silhouette-containment
+refinement → multi-shape registry → search, atomic journal, hash-verified
+resume). Two evaluation-only diagnostics proved the bottleneck was the SEARCH,
+not the evidence: the pose bank already contained the reference poses and the
+reference-equivalent assembly outscored the selected one under the runtime
+scorer. `placement_layer_beam.py` replaced the depth-first traversal (which
+reached ZERO complete assemblies in its 100k-node budget on a six-part page)
+with a support-frontier beam ranked by the *exact* depth composite via sparse
+bincount deltas, plus a quota-preserving exchange; `native_exchange` then
+optimises the scorer that actually selects. Page 12: 33/38 → 37/38, hitting the
+reference-equivalent score exactly. **The binding constraint is now camera
+registration from page index 17 onward** (native score 0.81 → 0.14-0.38); the
+37 parts added after page 16 contribute ONE correct pose, so emitting them
+raises coverage by 1 and drops precision 0.87 → 0.49. Do not read a rising
+part count as rising accuracy. Structural evaluation itself was wrong until
+`placement_part_symmetry_table.py` replaced a hand-written symmetry list with
+per-part universal-CAD proofs (a square 4x4 plate's four-fold yaw was missing).
 
 > **Where to go next** → see **[ROADMAP.md](ROADMAP.md)**: the near-term (~100h)
 > priorities (tests/CI first, then the user on-ramp, mobile, MC bridge,

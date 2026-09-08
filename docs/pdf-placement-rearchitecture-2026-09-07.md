@@ -102,3 +102,144 @@ The numbered page-index-11 inset now independently selects all six group placeme
 The missing page-index-13 callout was caused by dropping an inventory record whose element ID maps to both 4032a and 4032b. `global_pdf_slot_assignment.py` assigns callouts to PDF inventory slots, preserving one capacity for that record and both possible mold IDs. The saved 40377 slot trial assigns all 55 callouts / 90 pieces, leaving 89 unambiguous identity instances and one explicit mold ambiguity. The recovered round-plate callout matches its PDF inventory icon at 0.970806 frozen-encoder similarity. All 54 previously assigned callouts retain their previous IDs, colors and quantities.
 
 This fixes the omitted-piece accounting in the new slot experiment; it does not resolve the mold or prove identity accuracy. The legacy placement allocation interface still takes one ID per callout and does not consume this new variant-bearing file. Tests ensure two mold alternatives do not double capacity and a quantity group cannot be split or forced into insufficient inventory. No reference model or VLM participates.
+
+## Autonomous multi-page driving and the search rewrite
+
+The page-11 rigid-group attachment that was running at the previous checkpoint
+completed. Independent evaluation of its 32 emitted parts records 32/32
+structural, 21/32 canonical-alias and 15/32 raw-strict poses, so whole-model
+coverage moved from 26/90 to **32/90**. That is coverage, not model accuracy.
+
+Four generic components replace the stage-specific development runs.
+
+`placement_origin_refine.py` uses silhouette containment. The already-placed
+body is opaque, so at the true registration none of its rendered pixels may lie
+outside the artwork's dilated foreground. An explicit integer offset window
+recovers the quantized template origin, and orientations that cannot contain the
+body at any offset are rejected with their measured overflow. On page index 12
+this converts a registration rejected for 22 overflow pixels into an exact fit
+and discards 8 of 12 hypotheses; wrong orientations overflow by about 18,000
+pixels, so the test discriminates strongly. Containment is necessary, never
+sufficient. Because a body that already contains a misplaced part legitimately
+protrudes, the gate also accepts overflow up to a stated fraction of the body's
+own area, and can fall back to the least-overflowing views explicitly flagged
+uncontained. The occupancy screen inside the search allows exactly the overflow
+its view measured; without that the fallback was rejected one stage later and
+the page died with `no_models`.
+
+`placement_multi_shape_batch.py` and `placement_multi_shape_search.py`
+generalize the single-shape registry to a page holding several distinct CAD
+shapes in several colours, with cross-shape closure, collision and witnessed
+support, and a per (part, colour) quota. Seven of the remaining 40377 pages
+need this.
+
+`placement_page_camera.py` selects a page's main drawings from the existing PDF
+scene evidence and emits row/robust/multirow camera proposals for any page.
+Every non-panel drawing is returned as a candidate, ordered by drawn area,
+because layout alone cannot rank a subassembly against the body. An exploded
+piece is a separate image component whose studs are not the body's studs, so
+the largest component's own camera is offered before the whole-drawing camera.
+
+`placement_autodrive.py` chains camera, registration, containment refinement,
+registry and search across a page scope, writing an atomic journal with
+hash-verified resume, and reusing the previous page's camera matrices when a
+drawing exposes no stud row.
+
+### The search was the defect, and it was measurable
+
+Two evaluation-only diagnostics distinguish failures that look identical in the
+output. `placement_diagnose_bank_recall.py` asks whether the enumerated pose
+bank contains the reference poses at all; `placement_diagnose_target_score.py`
+scores the reference-equivalent assembly with the runtime scorer at the runtime
+registration, respecting the page's own quota. On page index 12 the bank holds
+exactly the six poses the page needs (five light bluish grey, one tan) and the
+reference-equivalent assembly scored 0.8250 against the selected 0.8139:
+**search failure, not scoring failure**. Page index 15 gave the same verdict.
+
+The exact-cardinality depth-first search does not scale past about three
+additions. On page index 12, with 1,382 registered placements, it exhausted its
+100,000-node budget and reached zero complete assemblies on its two
+best-registered views, emitting 33/38 structural poses.
+
+`placement_layer_beam.py` replaces the traversal. States expand only through
+base anchors and witnessed support edges, which loses no structurally legal set
+because every connected set containing an anchor has such an insertion order.
+Ranking uses the exact depth composite: a candidate can only change pixels it
+paints, so its effect on the per-class correct and false counts is four filtered
+bincounts over (segment, class) cells - 81 ms for a 4,000-candidate bank, and a
+test pins the deltas against a rebuilt composite. A quota-preserving exchange
+pass with perturbed restarts leaves the local optimum greedy expansion commits
+to. This raised page index 12 to 36/38.
+
+The residual came from an objective mismatch: the search optimised the coarse
+composite while selection used the native colour-plus-visible-edge scorer, and
+the two disagree. `native_exchange` runs the same quota-preserving exchange
+judged by the scorer that actually selects, over the best coarse alternatives
+per slot so the render count stays bounded, restarted from several coarse
+optima. Page index 12 then reaches **37/38 structural** and its selected native
+score is 0.825037871607446 - the exact value the reference equivalent scores,
+i.e. the search finds a score-equivalent assembly rather than a worse local
+optimum.
+
+### Whole-chain result and where it stops
+
+| Checkpoint | Emitted | Structural | Canonical alias | Raw strict |
+| --- | ---: | ---: | ---: | ---: |
+| page-11 attachment (start of this work) | 32 | 32 | 21 | 15 |
+| page index 12 | 38 | 37 | 26 | 20 |
+| page index 15 | 44 | 38 | - | - |
+| page index 16 | 45 | 39 | - | - |
+| pages 14-32 driven to page index 30 | 82 | 40 | 27 | 21 |
+
+Whole-model coverage therefore moved 26/90 to **40/90 (44.4%)**, with the
+page-16 checkpoint the accurate one at 39 correct of 45 emitted. This is not
+90%, and the later pages are not accurate: from page index 17 the selected
+native score falls from 0.81 to between 0.14 and 0.38, and the 37 parts added
+after page 16 contribute one correct pose between them. Emitting them raises
+coverage by one and lowers precision from 0.87 to 0.49.
+
+The cause is registration, not search. At page index 17 the body renders at a
+visibly different viewpoint and scale from the artwork (body-only native score
+0.29, visible-edge score 0.14) and containment cannot be satisfied at any
+offset - best overflow 569 pixels. Fitting the camera to the body's own image
+component rather than the whole drawing was tried and did not recover the page.
+Until a page's camera is right, everything downstream of it is decoration.
+
+### Structural evaluation was itself wrong
+
+The structural score used a hand-written symmetry list that omitted the
+four-fold yaw of a square 4x4 plate, so page index 16's 3031 was counted wrong
+while sitting at exactly the reference position with a rotation differing by a
+quarter turn. `placement_part_symmetry_table.py` now derives each part's local
+group from the saved universal-CAD proofs instead: `vertex` level for parts
+whose rotated CAD occupies the same surface, `triangle` level when the full
+colored triangle set also maps onto itself, identity only for printed moulds,
+and each proof re-validated against the current geometry files on load. Proofs
+are recorded for all 34 parts of this set; the legacy hand-listed number is
+still reported beside the new one (39 versus 40 on the same model).
+
+### Identity branches instead of dropped pages
+
+`placement_slot_branches.py` emits one ordinary allocation directory per
+combination of an ambiguous inventory identity, so a page is no longer dropped
+whole because one element maps to two moulds. Page index 13 of 40377 produced
+its two 4032a/4032b branches this way. Post hoc, the existing 4032a group
+construction is internally 4/4 correct and the 4032b branch 3/4; runtime keeps
+both, and evaluation does not choose.
+
+### Open gaps, unchanged or newly measured
+
+1. Registration collapse from page index 17 onward is the binding constraint on
+   40377 and is not yet explained by exploded-component contamination.
+2. Page index 20's drawings are all small part views with no body view, so the
+   page cannot be registered against the assembly at all.
+3. Pages that add no callout (indices 14, 21, 32) need cross-page attachment of
+   a separately built body. The page-13 group exists and is internally correct;
+   its attachment on page index 14 is the immediate next step.
+4. Page index 13 is a separate subassembly built from nothing, not an addition
+   to the main body. Multi-body state is still absent from the driver.
+5. The second fixture 41624 has a complete 109/109 slot assignment but three
+   unmapped identities on pages 3 and 15, which breaks any contiguous drive; its
+   existing three-piece bootstrap is 2/3 structural.
+6. Repeated multiplicities, occlusion, flexible parts, global backtracking and
+   whole-PDF autonomous startup remain unimplemented, as before.
