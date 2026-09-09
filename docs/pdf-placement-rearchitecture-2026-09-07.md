@@ -402,7 +402,15 @@ render the body — exactly the case on a subassembly page — the last page tha
 did draw the body supplies the reference, which is still PDF-only because an
 assembly only grows.
 
-Verified on pages 19-21: page 19 places, page 20 reports `subassembly_page`
+Verified end to end on 40377 pages 13 to 14: the driver measures that page 14
+draws the body (42,432 pixels against a 40,090 body silhouette, threshold
+24,054) while allocating nothing, finds the page-13 stack pending, and runs the
+attachment itself - 9,984 legal group placements, 49,152 scored views, 42
+emitted parts at 41 structural, 28 canonical-alias and 22 raw-strict, precision
+0.976. Those are round one's numbers to the part; what changed is that no human
+issued the command.
+
+Also verified on pages 19-21: page 19 places, page 20 reports `subassembly_page`
 carrying its measurement (8,136 against a 41,733 body and a 25,039 threshold)
 instead of a camera failure, and page 21 reports that it would attach were a
 subassembly pending. The driver now carries that pending body and runs
@@ -441,3 +449,84 @@ slot assignment's unmapped identity count goes from 3 to 0, and the whole
 inventory now carries one identity per piece. As a control, the slot adapter
 refuses page index 3 outright on the pre-bridge assignment and produces a
 19-piece page 3-8 allocation on the bridged one.
+
+### Page 17 unpicked, one defect at a time
+
+Page index 17 turned out to hold four independent defects. Each was isolated by
+measurement, and fixing one only exposed the next, so they are reported as a
+sequence rather than as a single result. Every run below starts from the same
+page-15 checkpoint and differs only in what is switched on.
+
+| What is fixed | p17 bank recall | p17 registration | p17 native score | p17 emitted / structural |
+| --- | --- | --- | ---: | --- |
+| round one | 1 of 2 at 24,000 poses | fallback, 541 px outside, 68% covered | 0.331 | 51 / 46 |
+| + evidence-ordered closure | **2 of 2 at 8,192 poses** | fallback, 541 px outside, 68% covered | 0.332 | 51 / 46 |
+| + carried camera matrix | 2 of 2 | **contained, 2 px outside, 97.8% covered** | **0.570** | 51 / 46 |
+| + channel-spread neutrality | 2 of 2 | contained, 2 px outside, 97.8% covered | 0.544 | 51 / 46 |
+
+Read down the columns rather than across the last one. Candidate generation is
+fixed: the correct pose is now in the bank at a *smaller* budget than the one
+that failed. The camera is fixed: the body registers with two pixels of overflow
+where it previously could not be contained at all. And the scorer's treatment of
+black is fixed, which changes the failure completely even though the structural
+count does not move.
+
+That last row is the one worth stating carefully, because a count of 46 hides
+what happened. Before the colour fix the search put the two black plates at
+reference-frame heights of -4 and -8 LDU, which is buried in the base of the
+model - hiding them scored better than placing them. After it, one plate sits at
+(10, -168, -10) against a reference (0, -168, 0), on the correct surface and
+within 14 LDU, and the second at (-20, -112, 44). The selected assembly now
+renders 10,051 class-0 pixels where it rendered 307. The margin by which the
+wrong assembly wins fell from 0.0129 (0.5699 against 0.5570) to 0.0033 (0.5442
+against 0.5409). None of that earns a structural match, which requires one LDU.
+
+### The whole-chain numbers
+
+Driving pages 15 to 19 from the page-14 checkpoint with evidence-ordered closure
+at the *round-one* budget - 128 parents and 8,192 poses, against round one's 64
+and 8,192 - reproduces round one exactly:
+
+| Checkpoint | Emitted | Structural | Precision |
+| --- | ---: | ---: | ---: |
+| page index 15 | 48 | 45 | 0.938 |
+| **page index 16** | **49** | **46** | **0.939** |
+| page index 17 | 51 | 46 | 0.902 |
+| page index 18 | 52 | 46 | 0.885 |
+| page index 19 | 58 | 46 | 0.793 |
+
+So whole-model coverage stands where round one left it, at **46/90 (51.1%)** at
+the page-16 checkpoint. Fixing recall did not raise it, and neither did fixing
+the camera or the colour classifier, because page 17's remaining error is a
+sub-stud pose difference the scorer cannot resolve. The emitted-but-wrong tail
+did not retract either: pages 17 to 19 still emit 12 parts and get none of them
+right. What round two can claim is that three of the four reasons for that tail
+are now measured and removed, and the fourth is characterised precisely enough
+to attack.
+
+### 41624 driven for the first time
+
+With the identity blocker gone, 41624 has a page 3-8 allocation of 19 pieces and
+can be driven. Its first honest numbers, from its existing three-piece bootstrap
+(itself 2 of 3 structural):
+
+| Checkpoint | Emitted | Structural | Precision |
+| --- | ---: | ---: | ---: |
+| bootstrap (page index 2) | 3 | 2 | 0.667 |
+| page index 3 | 6 | 2 | 0.333 |
+| page index 4 | 9 | 3 | 0.333 |
+| page index 8 | 22 | 3 | 0.136 |
+
+That is **3/109 (2.8%) coverage**. The drive works mechanically - six pages, no
+unsupported page, every camera contained or explicitly fallen back - and places
+almost nothing correctly. Page index 3 is only drivable at all because of the
+camera prescan: its drawing exposes no stud row, and as the first page of the
+scope it had no predecessor to borrow from, so it previously died and took the
+three pieces the identity work had just recovered with it. Borrowing page 4's
+camera registers it at 0.642.
+
+The fixture's problem is now its start, not its identity: three of the first six
+parts are wrong, and every later page registers against that. 40377 already
+showed what this costs - attaching the page-13 subassembly was worth six extra
+correct poses downstream purely by repairing the body. Whole-PDF startup, which
+would build that first body properly, remains the unimplemented gap it was.
