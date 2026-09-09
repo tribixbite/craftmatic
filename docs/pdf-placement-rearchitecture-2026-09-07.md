@@ -3867,3 +3867,266 @@ Round eight's number is **-3**, and that is the most useful number the program h
 produced. It is the first time a strictly better optimum of the selection
 objective has been shown to make the model strictly worse, on a deterministic
 A/B, and it is what closes the search era of this work.
+
+## Round nine: the opening, with backtracking, and what the inventory cannot say
+
+Round eight's memo named two investments in priority order - page-level
+backtracking over the opening, and inventory capacity as the first non-pixel
+evidence - and a checkpoint: if the two together move the from-scratch fixtures'
+driver-own-contribution by less than about +10 each, the next tier gets a costed
+plan rather than an implementation. Both were built. This section is what they
+measure.
+
+### Before any policy: what the retained sets actually contain
+
+Page-level backtracking can only ever reach an assembly the page's own search
+retained, and every one of those is already on disk - `beam_NN.ldr`, ranked,
+with the objective score that ranked it. `placement_alternatives_oracle` scores
+all of them against the reference. No GPU, no re-search, five minutes of CPU per
+fixture, and it decides where a budget belongs before an hour is spent on one.
+
+| fixture | placed pages | retained bodies per page | pages whose retained set holds a better body | summed page-level reachable delta | pages ending in an exact tie | widest tie |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 41601 | 17 | 12-39 | **2** | **+2** | 13 | 8 |
+| 41624 | 31 | 12-44 | **1** | **+1** | 20 | 12 |
+
+**Fifteen of 41601's seventeen driven pages retain nothing better than what was
+selected**, and thirty of 41624's thirty-one. On those pages every retained body
+- up to 44 of them - carries exactly the same correct poses as the one the
+objective picked. This is round seven's "retention is the smallest lever" in a
+stronger form: it is not that the ranking is wrong inside the retained set, it
+is that the model is not in the retained set at all.
+
+The **openings** are a different matter, and the two fixtures differ:
+
+| construction | retained | distinct | selected | best retained | rank of the best | objective gap | top-tie width |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 41601 (7 pieces) | 36 | 36 | **3 of 7** | **6 of 7** (twelve bodies) | 24 | **0.0132** | **24** |
+| 41624 (3 pieces) | 36 | 36 | **3** | 3 | 0 | 0 | 2 |
+
+41601's opening search has something to reach and 41624's does not: its
+construction already selected the best body it retained. 41601's is the sharper
+statement - the objective's top plateau is a **24-way exact tie**, every member
+of which is 3 of 7 correct, and the twelve bodies at 6 of 7 sit in a second
+exact tie 0.0132 below it. No tie-break reaches them; a preference reversal
+worth 2% of the objective does.
+
+### Backtracking, built
+
+`placement_backtrack.py` reopens a committed site, takes an alternative, and
+re-drives forward. Four decisions carry the design:
+
+* **The branch set is the objective's own indifference classes.** Branching on
+  retained bodies would make 36 branches of 41601's construction; branching on
+  exact-score classes makes **two**, and the structural spread inside every
+  censused class is zero, so the collapse loses nothing measurable. Every class
+  and its width is recorded.
+* **A reopened site costs no re-search.** `derive_base` writes the alternative
+  as a checkpoint's `model.ldr` and reorders the retained list so the
+  alternative is first, because `registration_of_run` seeds drawing-to-drawing
+  propagation from `results[0]`'s view - a branch has to propagate from the
+  camera its own body was scored at, or the reopening changes two things.
+* **A reopened site is strictly earlier than the page that raised the trigger.**
+  Every trigger is a statement about an inherited body, so the page that reports
+  one cannot be the page that caused it.
+* **Selection is runtime-legal**: more of the booklet placed, then more pieces
+  emitted, then fewer instrument contradictions, then the mean page score. The
+  reference is read afterwards, by the oracle, and never chooses a branch.
+
+`--reuse-root` adopts a completed run as branch 0 after verifying its page
+scope, its whole option set and its base-model hash, so a measurement does not
+pay for its own baseline twice.
+
+### The triggers fire once in four completed journals
+
+| journal | registration_collapse | refusal_run | score_trend | capacity_violation |
+| --- | :-: | :-: | :-: | :-: |
+| 40377 round seven (window) | - | - | - | - |
+| 40377 round eight (compound) | **page 22** | - | page 22 | - |
+| 41601 round eight | - | - | - | - |
+| 41624 round seven | - | page 37 | - | - |
+
+`registration_collapse` is a body-template fallback that *also* moves the camera
+scale past the gate's own tolerance. Both halves are load-bearing: a
+body-template fallback at a stable scale happens on three of 40377's pages and
+three of 41624's and is harmless. The one firing is round eight's measured
+regression exactly. `score_trend` fires on the same page but also has to be
+silent on round seven's page 22, which fell 30% while gaining three poses; it
+cannot separate the two chains and is off by default.
+
+**And 41601 produces no contradiction at all.** Seventeen placed pages, all
+`drawing_to_drawing`, registration IoU 0.73 to 0.98, a camera scale that moves
+monotonically from 1.10 to 1.27 px/LDU - a healthy-looking run carrying a
+3-of-108 body. A wrong opening is **silent** under every instrument the driver
+has. That is the finding that shapes the round: a trigger-driven backtracker
+would never fire on the fixture that most needs one, which is why the
+unconditional opening search (`--backtrack-triggers always`) exists at all.
+
+### Inventory capacity: three claims, three measurements, and no lever
+
+The brief's second investment is the BOM as a likelihood. `placement_capacity`
+keeps three claims apart, because two of them are provably vacuous as a ranker
+and saying which is the result.
+
+**1. Count capacity cannot rank two assemblies of one page.** The page
+allocation is exact per key, the search enforces that quota, and every retained
+assembly therefore uses the identical multiset. Measured on 41601: 34 of its 46
+unambiguous keys have their *whole* pool allocated inside the driven scope, and
+every driven page emitted its whole allocation (the journal's per-page piece
+deltas match the allocation on all 17). Two candidates of one page are
+count-identical by construction.
+
+**2. The draw-down audit finds nothing on this fixture.** Consuming the pool page
+by page in scope order, no page overdraws a key and no allocated key is missing
+from the inventory: **zero deficits**, so `capacity_violation` never fires on
+41601. The audit is still the right shape - it is a statement about the whole
+run rather than about one pose, so it belongs in the trigger set - but it is
+silent here, which makes it the fourth instrument that cannot see a 3-of-108
+body.
+
+**3. The look-ahead is constant across every candidate.** `capacity_of_body`
+asks what the rest of the booklet still needs and counts, per key, the
+collision-free connector mates the committed body offers and the distinct
+one-stud lattice cells they occupy - round six's non-chaining measure. Over
+**75 candidate bodies on two sites**:
+
+| site | candidates | deficient keys | total deficit | minimum slack | remaining locations |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 41601 construction (76 pieces still to place) | 36 | **2 on every one** | **2 on every one** | -1 | 1899-2018 |
+| 41601 page 3 (72 pieces still to place) | 39 | **2 on every one** | **2 on every one** | -1 | 2205-2564 |
+
+The two deficient keys are `98138` and `98138pb072` on every body, because
+neither has a base-attached mate on a small body at all - they mate onto a piece
+a later page adds. That is round six's own recorded caveat reproduced exactly,
+and it means the deficits carry no information about the candidate.
+
+The one term that does vary is the total remaining locations, and it is worse
+than useless:
+
+| site | correct-class bodies | wrong-class bodies |
+| --- | --- | --- |
+| construction | 6 of 7: mean **1901** locations (1899-1905) | 3 of 7: mean **1964** (1910-2018) |
+| page 3 | 4 correct: mean **2320** (2235-2426) | 3 correct: mean **2343** (2205-2564) |
+
+On the construction the two classes are perfectly separated **in the wrong
+direction** - the correct opening leaves *less* remaining capacity, so a
+"more capacity is better" rule picks the wrong class every time. And the
+inverted rule that would have looked so good on that one site is refuted by the
+second: on page 3 the ranges overlap almost completely and both extremes -
+most capacity and least capacity - are wrong-class bodies. One site would have
+produced a confident wrong law; two sites produce the honest answer.
+
+`rank(candidates, band)` applies the term the way the brief specifies, inside a
+stated band below the best score so it can break a tie and can never override
+image evidence. Its measured effect on both sites, at every band up to and
+beyond the 0.0133 the construction would need: **zero reorderings**.
+
+**The worked case the brief named, `4070`:72, resolves the same way.** Seven of
+41601's eight retention losses are that one part in that one colour, its
+inventory pool is 17 and the pages draw 4, 4, 4 and 1 of it, and every one of
+those allocations is exact. The inventory says exactly how many go where - and
+it says the same thing to every candidate assembly on the page, because they all
+place four. What it cannot say is *which four locations*, and that is the whole
+question.
+
+### The mould classes: one capacity pool, not one search candidate
+
+Round eight filed the equivalence class as the cheap on-ramp lever and predicted
+it would recover four pieces. Measured rather than assumed, with the pipeline's
+own representations:
+
+| class | universal bounds | max difference | 4 LDU voxels | eroded cores | connector sets | disposition |
+| --- | --- | ---: | --- | --- | --- | --- |
+| `15573`/`3794a`/`3794b` | identical | **0.0 LDU** | 176 / 191 / 175 (symmetric difference 29, 13) | 37 / 36 / 36 | differ | pool, not identity |
+| `4032a`/`4032b` | identical | **0.0 LDU** | 254 / 256 (symmetric difference 2) | 44 / 48 | differ | pool, not identity |
+
+So the memo's premise is confirmed exactly - the outsides agree to the LDU, with
+zero difference - and its proposed conclusion is not. `Assembly.candidates` and
+`Assembly.collides` read the voxel set and the connector set, and both differ,
+so the search cannot treat these names as one candidate; the *inventory* can,
+because the piece, its colour and its count are known and only the filename is
+not. Pooling them closes 41601's inventory completely: 46 keys and 104 pieces
+with 4 ambiguous becomes **48 keys and 108 pieces with none**.
+
+The scope this buys is far larger than the four pieces, because a refused row
+refuses its whole page:
+
+| policy | drivable pages | allocated pieces | withheld, declared | allocation ceiling |
+| --- | ---: | ---: | ---: | ---: |
+| `refuse` (round eight) | 19 | 83 | 0 | 76.9% |
+| `withhold` | **23** | **92** | 4 | **85.2%** |
+| `canonical` | 23 | 96 | 0 | 88.9% |
+
+`withhold` declares the class row without allocating it: the page's other pieces
+are drivable, the withheld piece's ink is attributable at the camera gate
+(`placement_autodrive.page_withheld`, the same mechanism a skipped page's pieces
+use - without it the gate would refuse the page one stage later for a reason
+that has nothing to do with its camera), and no filename is ever guessed.
+`canonical` allocates the class under its canonical member and records that the
+name is a coin flip inside a proven-equivalent class. Nine allocated pieces for
+no guess is the honest default, and it is a larger number than any search-side
+lever this program has delivered on any fixture.
+
+### Three drives, and the predictions made before they ran
+
+The program's prediction protocol: state the expectation from the probe, then
+drive, then record both. All three configurations differ from their own
+already-completed baseline in the backtracking flags alone, and each adopts that
+baseline as branch 0 after a hash-and-option check.
+
+| drive | site reopened | what the probe says is there | prediction |
+| --- | --- | --- | --- |
+| **41601 opening search** (`--backtrack-triggers always --backtrack-order base-first`) | the construction, class 1 of 2 | a 6-of-7 opening against the selected 3-of-7, 0.0132 of score below it | The cascade claim says a correct opening puts later reference poses back inside the enumerated banks. If it holds, the chain should end well above the +3 the opening itself supplies; if it does not, the driver's own contribution stays single-digit and the chain lands near 6-9 of 108. |
+| **40377 validation** (`--backtrack-triggers registration_collapse --backtrack-order nearest`) | page 19, class 1 of 8 | 51 structural selected, and the next class is **50** - one *worse* | The policy has no access to that number. It reopens because page 22 collapsed. The branch starts one pose down and recovers only if pages 22-30 keep `drawing_to_drawing` at 1.69 px/LDU: about 53 if the collapse is avoided, about 50 if it recurs. Round eight's chain scored 51. |
+| **41624 ceiling probe** (`--force-reopen 3=3`) | page 3, class 3 of 6 | the one retained body on the whole fixture with a fourth correct pose | A policy would need three branches to reach it, so this measures the ceiling rather than the policy. If a +1 opening propagates, the chain ends above 6 of 109; if the failure is downstream of the opening, it ends at 6 or 7. |
+
+### 41601's opening search: the model doubles, the driver still contributes nothing
+
+Branch 0 is round eight's drive, adopted after a hash-and-option check. Branch 1
+is the same 18-page scope, the same options, driven from the construction's
+second score class - the 6-of-7 opening the objective ranked twenty-fourth.
+
+| | branch 0 (round eight's opening) | **branch 1 (the 6-of-7 opening)** |
+| --- | ---: | ---: |
+| opening structural | 3 of 7 | **6 of 7** |
+| pages placed | 17 | 16 |
+| emitted | 77 | 75 |
+| **final structural** | **3 of 108** | **6 of 108** |
+| coverage | 0.028 | **0.056** |
+| precision | 0.039 | **0.080** |
+| **driver-own contribution** | **+0** | **+0** |
+| pages ending in a tie | 13 of 17 | 11 of 16 |
+| mean page score | 0.5152 | 0.4910 |
+
+**The model doubles and the drive still adds nothing.** Branch 1's structural
+count is 6 at page 3 and 6 at page 27, unchanged across all sixteen driven
+pages, exactly as branch 0 held 3 across seventeen. Every correct pose in either
+chain came from its opening.
+
+That is a direct refutation of round eight's own reading of the `unreachable`
+class. The population table says where the difference went:
+
+| class | branch 0 | branch 1 | change |
+| --- | ---: | ---: | ---: |
+| correct | 3 | **6** | +3 |
+| unreachable | 66 | **58** | **-8** |
+| mis-selected | 5 | **15** | **+10** |
+| visibility limited | 7 | 3 | -4 |
+| out of scope | 24 | 22 | -2 |
+| allocation blocked | 3 | 4 | +1 |
+
+Round eight said "41601's body is already wrong at page 3, so from page 4 onward
+no page's bank can contain the reference pose", and treated `unreachable` as a
+cascade a correct opening would unwind. Measured: a substantially correct
+opening unwinds **eight** of the sixty-six, and **ten** reference instances move
+from `unreachable` straight into `mis_selected` - the bank now holds the right
+pose and the run picks another one. Fixing the opening converts unreachable into
+mis-selected, not into correct.
+
+**And the runtime-legal selection rule chose the worse branch.** Branch 0 placed
+one more page and emitted two more pieces (its retry pass recovered page 15,
+which branch 1 never placed), so `downstream` ordered it first - selecting a
+3-of-108 model over a 6-of-108 one. Every term in that rule is honest and none
+of them can see the model. The mechanism reached a better body; the criterion
+could not identify it. That is round eight's finding in a new place: not the
+image objective this time, but every runtime-legal proxy the driver has.

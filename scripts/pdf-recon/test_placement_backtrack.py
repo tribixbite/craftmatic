@@ -240,5 +240,20 @@ class ReopenOrderTest(unittest.TestCase):
             reopen_sites(branch, 'whatever')
 
 
+class ForcedPlanTest(unittest.TestCase):
+    """The ceiling probe: named sites, named classes, recorded as a probe."""
+
+    def test_a_plan_parses_pages_and_the_base(self):
+        from placement_backtrack import forced_plan
+        self.assertEqual(forced_plan(['base=1', '3=3']), [(None, 1), (3, 3)])
+        self.assertEqual(forced_plan([]), [])
+
+    def test_an_unparseable_entry_is_an_error_rather_than_a_silent_skip(self):
+        from placement_backtrack import forced_plan
+        with self.assertRaises(ValueError):
+            forced_plan(['page-three=1'])
+
+
+
 if __name__ == '__main__':
     unittest.main()
