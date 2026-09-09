@@ -2693,3 +2693,49 @@ base-attached set, so they were never budget-limited at all and no enumeration
 work can help them. And pages 17, 28 and 30 hold 13 to 17 times more legal poses
 than the search has ever seen, which is the reachability headroom the population
 table's `unreachable` class was measuring the absence of.
+
+### Root cause: LDraw 19 and 191 share a hue, and palette order decides the winner
+
+The first hypothesis — that `placement_undrawn_pieces` classifies against a
+palette of the allocated colours alone, so a single-colour allocation has no
+competitor — was implemented and **refuted**. Replaying the rule over all
+thirteen driven pages with the body's colours added changes no verdict, and page
+26's drawn share for 191 stays at 6.244 against a 0.25 threshold. The two colour
+tables are identical too: `recon_v7.render.color_rgb` and
+`placement_colored_cad._rgb` agree on all nine colours to the byte.
+
+The actual cause is in `palette_labels`, and it is exact. Converted to OpenCV
+HSV, **LDraw 19 (Tan, 228 205 158) and LDraw 191 (Bright Light Orange, 248 187
+61) both have hue 20**. The classifier discriminates hue-bearing colours by hue
+distance alone — saturation and value are gates, not discriminators — so every
+pixel of either colour is a perfect tie, and `np.argmin` resolves a tie by taking
+the **lower palette index**. Which colour wins is therefore decided by the order
+of the list that happens to be passed in.
+
+Classifying 40377 page 26's own drawing three ways:
+
+| palette order | pixels → 19 | pixels → 191 | unclassified |
+| --- | ---: | ---: | ---: |
+| `build_bank`'s, sorted numerically | **12,353** | **0** | 5,495 |
+| the undrawn rule's, allocated colour first | 117 | **12,236** | 5,495 |
+| with 19 removed entirely | 0 | 12,236 | 5,607 |
+
+The same ~12,300 pixels, three verdicts. `build_bank` sorts its palette
+numerically, so 19 precedes 191 and takes every orange pixel; the undrawn rule
+builds its palette allocated-colours-first, so 191 precedes 19 and takes them
+back. **That is why the two measurements disagreed, and neither was wrong about
+its own palette.**
+
+The consequence is not symmetric. 40377 contains **one** tan part and **ten**
+bright light orange ones, so the coarse target hands roughly 12,300 pixels of
+orange to a colour with a single small part in the whole model, and leaves the
+class the page is actually placing empty. Pages 26 and 27 then score exactly zero
+agreement for all 1,926 and 4,142 candidates, their traversal order is arbitrary,
+and they place 0 of 7 reference targets.
+
+**The fix is a discriminator, not a threshold.** 19 and 191 are far apart in
+saturation — 78 against 192 — so a tie on hue should be broken on saturation
+distance rather than on list position. That is a change to a shared classifier
+and, as the module's own docstring already warns about the neutral-spread fix,
+scores from before and after are not comparable; it is the first thing to do next
+round rather than something to slip in beside a measurement.
