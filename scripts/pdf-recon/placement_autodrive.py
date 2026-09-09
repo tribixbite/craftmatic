@@ -280,7 +280,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         write_atomic(step_dir / f'registration-{order:02d}.json',
                      json.dumps(dict(hypotheses=hypotheses, stable_colors=stable, page=page,
                                      xref=xref, reused_prior_camera=reused, pdf=str(pdf),
-                                     scale_prior=prior_scale,
+                                     scale_prior_px_per_ldu=prior_scale,
                                      scale_prior_matrices=len(rescaled),
                                      matrix_scales=[projection_scale(m) for m in matrices],
                                      pdf_sha256=provenance['pdf_sha256'], base=str(base_model),
@@ -368,8 +368,9 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                       reused_prior_camera=reused,
                       mask_source=scene_record.get('mask_source'),
                       containment_fallback=contained['containment_fallback_used'],
-                      attempts=attempts, scale_prior=prior_scale,
-                      applied_scale=projection_scale(contained['hypotheses'][0]['projection']),
+                      attempts=attempts, scale_prior_px_per_ldu=prior_scale,
+                      camera_scale_px_per_ldu=projection_scale(
+                          contained['hypotheses'][0]['projection']),
                       score=result['results'][0]['evidence']['score'])
         return ('placed', detail, placement, matrices,
                 projection_scale(contained['hypotheses'][0]['projection']))
