@@ -4750,3 +4750,32 @@ LDU. Round ten's on-ramp gains came from repairing association and from using
 size; the residue needs the identity evidence itself to improve, which CLAUDE.md
 already records as measured-and-hard (a small CNN improved eligible BOM-icon
 retrieval and did **not** transfer to unseen-set PLI).
+
+### The size gate on all six fixtures, including where it costs something
+
+The gate was calibrated on three fixtures and the breadth run makes six
+available. At the shipped tolerance of 0.30, against the same pipeline with the
+gate effectively off:
+
+| set | pairs gated | accounted, gated | accounted, off | exact pages, gated | exact pages, off |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 40377 | 0 | 68 | 68 | 17 | 17 |
+| 41601 | 12 | **81** | 80 | **12** | 11 |
+| 41604 | 1 | 49 | **50** | 7 | **8** |
+| 41606 | 11 | 62 | 62 | 14 | 14 |
+| 41624 | 0 | 85 | 85 | 26 | 26 |
+| 41625 | 1 | **89** | 88 | **21** | 20 |
+| **pooled** | 25 | **434** | 433 | **97** | 96 |
+
+**Net +1 accounted piece and +1 exactly matched page across six fixtures, and
+one fixture where it costs exactly that much.** On its own that is a wash, and
+it would not justify the module. What justifies it is *which* piece: on 41601 it
+restores the opening page to the reference's own first two steps, and every
+round of this program has measured the opening deciding the chain while a page
+late in the booklet decides almost nothing.
+
+A control worth recording: at a tolerance of 0.0001 - every deviation a
+violation - the gate destroys every allocation (226, 294 and 201 pairs banned on
+the three new fixtures, scope down by a third to a half, and it does not
+converge). The statistic is an outlier test and nothing else; it says which
+assignment disagrees with its page, never which assignment is right.
