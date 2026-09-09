@@ -2930,3 +2930,34 @@ Two consequences for reading this record.
   one between genuinely different assemblies. Whether the upstream pose ordering
   removes it downstream is a measurement nobody has made yet, and
   `placement_score_ties` is the tool that would make it.
+
+### The budget experiment, closed: it enlarged a tied set from two to three
+
+Running the tie census on the parent-budget chain itself finishes the story with
+a number rather than an inference:
+
+| page | round five: retained / tied | round six: retained / tied | best score |
+| ---: | ---: | ---: | --- |
+| 19 | 44 / **2** | 45 / **3** | 0.524586 in both |
+| 22 | 13 / 1 | 42 / 2 | 0.3668 vs 0.2529 |
+| 26 (retry) | 15 / 3 | 12 / **12** | 0.2918 vs 0.2438 |
+
+**The only measurable effect of raising the parent budget through page 19 was to
+enlarge that page's tied set from two members to three**, at an identical top
+score of 0.524586, and the stable sort then handed the page to a different one.
+Everything downstream — page 22's registration falling from `drawing_to_drawing`
+to `body_template`, pages 26 and 27 refusing a camera in the main pass — follows
+from that draw, not from the budget.
+
+Page 26 on the retry pass is the extreme: **12 retained assemblies, all 12 tied
+exactly, all 12 distinct**. Its selection is a one-in-twelve coin flip among
+assemblies the objective cannot separate at all — which is the same page whose
+coarse target contains no bright light orange, so the objective is not merely
+indifferent there, it is blind.
+
+The budget experiment therefore returns no usable chain number, and saying so is
+the result. What it did establish stands: every page of both fixtures hits the
+parent budget, page 26 recalls 3 of 5 reference poses at 128 parents and 5 of 5
+at 1024, and the enlarged bank places no better. The chain-level question needs a
+deterministic tie-break first, which is what the concurrent `pose_tie_ranks` work
+is for.
