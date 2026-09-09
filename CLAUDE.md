@@ -496,6 +496,38 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   Mecabricks-INTERNAL id for one sword blade off the 37341 sprue; a bbox sweep
   of every minifig/weapon part found no match within ±2.5 LDU). 3 pieces total.
   A misplaced piece is worse than a visible hole — leave them missing.
+- **Corpus hole rate is 0.067%, and it is almost entirely ONE source class**
+  (census 2026-09-09, `scripts/missing-geometry-census.ts`, 214 sets / 80
+  flagships + 20 per class, 564k placements): 379 missing pieces / 111 distinct
+  names. `omr`, `io`, `dbix_conv_v2/v3`, `recon_v3`, `pdf_recon`, `recon_v8` and
+  `lxf` are **clean (0)**; `mecabricks` + `mecabricks_search` carry 369 of the
+  379, `eurobricks` 8, `ldr` 2. The deep pass (walk every resolved part, check
+  ITS sub-file refs) found **0 unresolved sub-file names** — the "silent hole"
+  class is empty. So do not go looking for a broad missing-geometry problem:
+  what remains is a Mecabricks design-id ↔ LDraw-name mapping tail.
+- **A ghost-box placeholder for a missing part is NOT derivable — don't build
+  one.** Evaluated 2026-09-09 against the census: of the 111 unresolved names,
+  exactly **1** (`98560`) has a real entry in `ldraw-part-dims.ts`; the other 110
+  (338 pieces) fall through `getPartDims` to the 1×1×1 DEFAULT, so any box drawn
+  for them would be an invented size. Same rule as substitution — fabricated
+  geometry is worse than a hole. (`98560` is not an argument for the box either:
+  it maps to a real mould and wants an alias row.)
+- **The R2 mirror is a SUPERSET of upstream — verify misses against prod, not
+  against the release archives.** R2 was first seeded from the Studio-bundled
+  library and `sync-ldraw-r2.mjs` never deletes, so prod still serves parts the
+  current `complete.zip`/`ldrawunf.zip` do not ship: every `bl_*` Studio
+  synthetic (`bl_24246pb057` — 144 placements in 21063 alone) and legacy
+  "Needs Work" moulds like `3814`. Measured on the census sample: **489 of 683**
+  names absent from the release archives resolve fine on the mirror. A census or
+  checker run against archives alone therefore invents holes; the census resolves
+  offline in bulk and re-checks every miss against prod for exactly this reason.
+  (Corollary: `ldraw-part-aliases.ts`'s note that `bl_*` names are uncovered is
+  true of the ALIAS LADDER but not of prod resolution — they resolve directly.)
+- **`_batch` sheds load under sustained bursts.** It returns the full TEXT of
+  everything it finds, so a wide burst makes the Worker do real work and
+  Cloudflare answers 503 (reproduced: 6 parallel 48-path batches → one 503).
+  A 503 is indistinguishable from an absent part, so any offline tool must treat
+  exhausted retries as FATAL rather than as misses, and must commit in slices.
 - `library.ldraw.org` serves individual parts but sends **no CORS header** — must
   be proxied; cannot fetch from the browser directly. Official layout:
   `/library/official/{parts,p,parts/s,p/48}/<stem>.dat`.
@@ -686,6 +718,41 @@ ghost tires). Pipeline defenses (classifier extracted to
   read pale). Tone mapping measured innocent. Light levels re-tuned to match
   (amb 0.4 / hemi 0.34 / key 2.9 / fill 0.5 / env 0.8) — re-calibrate BOTH
   together or colors drift.
+- **The vignette's `darkness` is NOT a strength — it is the COLOUR TARGET's
+  complement** (fixed 2026-09-09; this was the user-reported "glare/brightness
+  that looks like fog"). VignetteShader is
+  `mix(texel.rgb, vec3(1.0 - darkness), dot(uv,uv))`, so `darkness: 0.8` dragged
+  every pixel toward LINEAR 0.2 — which OutputPass tone-maps and sRGB-encodes to
+  a **~124/255 mid grey** — and `offset: 1.2` gave the corners 72% of it. That is
+  a grey veil over the whole frame, not a vignette, and being achromatic it
+  DESATURATED everything. Measured (4 sets, identical cameras): it lifted mean
+  frame luminance 14-18 and the darkest 1% by 3-13, and moved brick pixels up to
+  50/255. Now `darkness 1.0` (target pure black ⇒ the pass is a plain multiply,
+  `mix(c,0,t) === c*(1-t)`, so it can only darken and preserves chromaticity
+  exactly) + `offset 0.95`. Saturation recovered ×1.23 with hue drift 0.15°.
+  **Never raise `darkness` below 1.0 to "soften" the vignette** — that is the
+  bug; soften with `offset`.
+- **SAO's `saoScale`/`saoKernelRadius` must be SIZE-INVARIANT** (fixed
+  2026-09-09). SAOShader uses `scale` only as `scale / cameraFar`, and occlusion
+  grows as that ratio shrinks; `cameraFar = (fitDist+maxDim)*8` and the framing
+  distance are both linear in maxDim, so the well-conditioned value is a
+  CONSTANT. Deriving it from `maxDim` inverted that — the smaller the set, the
+  heavier the smear — and SAO only runs on ≤80-mesh scenes, i.e. exactly the
+  small sets. `saoKernelRadius` is in SCREEN PIXELS (shader divides by target
+  size) so it must not carry world units either. Now `scale 13`, `kernel 24`:
+  the pass's effect on brick pixels fell 59.7→17.4 / 52.2→16.4 / 26.0→12.6 mean
+  on three small sets and p99 rose (highlights had been crushed).
+- **`scene.fog` (FogExp2 at `0.15/maxDim`) is deliberate and stays.** It reads
+  as a candidate for "haze" but measured only −2 to −4.7 luminance on bricks and
+  it DARKENS rather than glares. It is what fades the 10×maxDim floor plane into
+  the background; removing it would expose a hard floor horizon.
+- **Diagnose look regressions with `scripts/renderer-pass-isolation.mjs`**
+  before touching any constant — it captures one camera with exactly one pass
+  disabled at a time, raycasts each sample back to its brick (so a sample knows
+  its LDraw colour and camera distance, which is what separates a
+  distance-dependent wash from a uniform lift), and `scripts/_calib_table.ts`
+  turns two runs into a hue/chroma calibration table. `legacy-*` variants
+  restore old parameter values at runtime for a same-session cost comparison.
 - **Hyperspace warp loader** (`warp-loader.ts`): full-panel starfield + big
   percent + real part geometries as flying debris, owns the render loop while
   `warp.running` (composer skipped — the model scene is mid-build). begin()
