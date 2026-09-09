@@ -80,6 +80,23 @@ def _chamfer(first, second, scale=4.):
     return float(np.exp(-distance / scale))
 
 
+def _target_classes(scorer, colors):
+    """Target colour classes and validity for one palette, cached on the scorer.
+
+    Classifying the drawing is per-scene work, not per-candidate; without the
+    cache a rerank over fifty candidates reclassifies the same image fifty
+    times.
+    """
+    cache = getattr(scorer, '_local_delta_classes', None)
+    if cache is None:
+        cache = scorer._local_delta_classes = {}
+    key = tuple(int(c) for c in colors)
+    if key not in cache:
+        palette = np.stack([_rgb(c) for c in key]).astype(np.uint8)
+        cache[key] = palette_labels(scorer.rgb, scorer.mask, palette)
+    return cache[key]
+
+
 def target_edges(rgb, mask):
     gray = cv2.cvtColor(np.asarray(rgb, np.uint8), cv2.COLOR_RGB2GRAY)
     gray = cv2.GaussianBlur(gray, (3, 3), .6)
@@ -113,8 +130,7 @@ def local_evidence(scorer, base_layer, layer, region_record, class_weight=.4,
     if not region.any():
         return dict(local_score=0., local_class=None, local_coverage=0., local_false=1.,
                     local_edge=0., local_classes=0, discriminative_pixels=0)
-    palette = np.stack([_rgb(c) for c in layer['colors']]).astype(np.uint8)
-    target_labels, valid = palette_labels(scorer.rgb, target_mask, palette)
+    target_labels, valid = _target_classes(scorer, layer['colors'])
     changed = region & (layer['labels'] != base_layer['labels'])
     ious = []
     for index in range(1, len(layer['colors']) + 1):
