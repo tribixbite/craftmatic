@@ -75,9 +75,11 @@ while (Date.now() < deadline) {
     }
     return n;
   });
-  if (bricks > 0) break;
-  await page.waitForTimeout
-    ? await page.waitForTimeout(2000) : null;
+  const settled = bricks > 0 && await page.evaluate(() =>
+    /bricks rendered/.test(document.getElementById('lego-status')?.textContent ?? '')
+    && !(window.__ldrawViewer?.warp?.running));
+  if (settled) { await page.waitForTimeout(2500); break; }
+  await page.waitForTimeout(2000);
 }
 
 const probe = await page.evaluate(async () => {
