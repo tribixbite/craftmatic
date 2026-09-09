@@ -550,9 +550,15 @@ export class LDrawViewer {
     // from the library, or an LSynth flexible part needing curve synthesis).
     const triCount = (g?: { tris: unknown[]; colorTris: Map<number, unknown[]> }): number =>
       g ? g.tris.length + [...g.colorTris.values()].reduce((s, a) => s + a.length, 0) : 0;
+    // Invalidation is TRANSITIVE (an ancestor that flattened an incomplete
+    // child's triangles into itself is stale too), so rebuild everything it
+    // dropped — not just the empties. Re-resolving only the named parts left
+    // those ancestors with NO cached geometry, which reads as a missing part:
+    // measured, that silently cost 71043 all 25 placements of `90398`.
     const empties = uniqueParts.filter(p => triCount(getCachedPartGeom(p)) === 0);
-    for (const p of empties) invalidatePartGeom(p);
-    for (const p of empties) { if (stale()) return; await resolvePartGeometry(p); }
+    const dropped = new Set<string>();
+    for (const p of empties) for (const k of invalidatePartGeom(p)) dropped.add(k);
+    for (const p of dropped) { if (stale()) return; await resolvePartGeometry(p); }
     if (stale()) return;
     const missing = new Map<string, number>();
     for (const p of uniqueParts) {
@@ -1549,8 +1555,29 @@ export class LDrawViewer {
     });
 
     const partLocalBox = new THREE.Box3();
+    /**
+     * Stamp part identity onto an InstancedMesh.
+     *
+     * Why (audit P2, focused visual fixtures): the meshes carried NO part
+     * identity at all, so an offline probe reading live instance matrices could
+     * measure WHERE things are but never WHAT they are — which makes a targeted
+     * assertion like "worn headgear coincides with its head" impossible to
+     * write. `primary` marks exactly one mesh per (part, colour) bucket, so a
+     * probe can count PLACEMENTS: a multi-coloured part emits several meshes
+     * over the SAME matrices, and summing all of them over-counts (10182:
+     * 2,432 instances for 2,417 placements).
+     */
+    let bucketPrimaryTagged = false;
+    const tagInstance = (inst: THREE.InstancedMesh, partId: string, brickColor: number,
+                         kind: 'main' | 'color' | 'texture'): void => {
+      inst.userData['partName'] = partId;
+      inst.userData['brickColor'] = brickColor;
+      inst.userData['meshKind'] = kind;
+      if (!bucketPrimaryTagged) { inst.userData['primary'] = true; bucketPrimaryTagged = true; }
+    };
     let bucketIdx = 0;
     for (const bucket of sortedBuckets) {
+      bucketPrimaryTagged = false;
       if ((++bucketIdx & 15) === 0) {
         if (bail?.()) return { group, edgeMaterials };
         onProgress?.(`building meshes ${bucketIdx} / ${sortedBuckets.length}`);
@@ -1581,6 +1608,7 @@ export class LDrawViewer {
         // inst.count to the prefix where step <= maxStep.
         inst.userData['stepArr'] = Int32Array.from(bucket.steps);
         inst.userData['layerArr'] = Int32Array.from(bucket.layers);
+        tagInstance(inst, bucket.partId, bucket.brickColor, 'main');
         // Compute the InstancedMesh's true world-space bbox/sphere from
         // instance matrices — without this, frustum culling uses the
         // part-local bbox (small, around origin) and culls the entire mesh
@@ -1624,6 +1652,7 @@ export class LDrawViewer {
         cInst.userData['originalMatrices'] = bucket.matrices.map(m => m.clone());
         cInst.userData['stepArr'] = Int32Array.from(bucket.steps);
         cInst.userData['layerArr'] = Int32Array.from(bucket.layers);
+        tagInstance(cInst, bucket.partId, ccid, 'color');
         cInst.computeBoundingBox();
         cInst.computeBoundingSphere();
         if (subGeom.boundingBox) {
@@ -1681,7 +1710,8 @@ export class LDrawViewer {
           tInst.instanceMatrix.needsUpdate = true;
           tInst.userData['originalMatrices'] = bucket.matrices.map(m => m.clone());
           tInst.userData['stepArr'] = Int32Array.from(bucket.steps);
-        tInst.userData['layerArr'] = Int32Array.from(bucket.layers);
+          tInst.userData['layerArr'] = Int32Array.from(bucket.layers);
+          tagInstance(tInst, bucket.partId, bucket.brickColor, 'texture');
           tInst.computeBoundingBox();
           tInst.computeBoundingSphere();
           group.add(tInst);
