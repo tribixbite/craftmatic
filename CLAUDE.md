@@ -172,7 +172,30 @@ four, from every root) and both are 1 structural of N, i.e. 0 of 6 and 0 of 3
 beyond the nailed root — page 31's two drawings align at IoU 0.9914 because flat
 black tiles on a black 6x6 plate barely change the silhouette, so that one is a
 DATA limit. Attaching a 1-of-7 body would poison the pages after it, so the reach
-drive runs without `--group-run`.
+drive runs without `--group-run`. **RESULT: 40377 moves 48/90 to 53/90 (58.9%)**
+in one 16→32 invocation - ten of the thirteen pages 20-32 reached, nine placements
+after page 19 on the propagated camera. Page 18 places its plate at EXACTLY
+(0, -112, -48) in the full chain where every earlier run put it 4 LDU shallow, and
+page 19 then places a corner-round tile on it - the piece that was 8 LDU out of
+reach before. So **the page-18 tie was downstream of registration quality, not an
+irreducible scorer limit; the earlier memo in this round saying otherwise is
+corrected.** Honest checkpoints move opposite ways: page 18 is most accurate
+(49 of 52, 0.942), page 29 highest coverage (53 of 68, 0.779), the run ends at
+53 of 77 (0.688); pages 23-30 emit 14 for 3 correct. 41624 goes 3/109 to
+**5/109**, accurate checkpoint page 4 at 9 emitted / 5 structural / 0.556, ending
+22/5 at 0.227 - and its pages 5-8 were unblocked by a second gate defect:
+`scale_window` makes the cross-page scale criterion an INTERVAL from the previous
+accepted scale to that scale times the drawing ratio, because the ratio over-states
+(1.23 on a nine-piece assembly) and round three used it as a point, refusing an
+unchanged 1.0860 camera for being "19% off". **The binding constraint is now that
+CONTAINMENT still passes through the body even though camera choice does not**:
+40377 page 22's propagated registration covers 90.3% of its drawing against 76-80%
+for the alternatives and is rejected by 116 pixels of 55,333, because the body
+carries page 19's five wrong parts. Do not raise the fraction knob - compare a
+page's registrations by coverage within a relative multiple of the best achievable
+overflow instead. Also: 2 of page 20's 7 pieces CANNOT BE SCORED at all
+(`98138pb072` in the PDF BOM vs `98138pz0` in the model, alias parked as a
+candidate with its evidence), so page 20 caps at 5 of 7 until that is settled.
 
 > **Where to go next** → see **[ROADMAP.md](ROADMAP.md)**: the near-term (~100h)
 > priorities (tests/CI first, then the user on-ramp, mobile, MC bridge,
