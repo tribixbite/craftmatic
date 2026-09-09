@@ -226,6 +226,31 @@ def page_allocation(pdf, page, allocation_run):
     return [(str(part), int(color)) for part, color in pieces]
 
 
+def page_withheld(page, allocation_run):
+    """Pieces a page draws that the allocation declares but does not allocate.
+
+    `placement_slot_adapter --mould-policy withhold` admits a page whose only
+    ambiguity is a proven mould-equivalence class by *declaring* the class row
+    instead of allocating it: the piece exists, its count and colour are known,
+    and no filename is guessed. The page still draws it, so its ink has to be
+    attributable at the camera gate exactly like the pieces of a page the drive
+    could not place - otherwise admitting the page would refuse it again one
+    stage later, for a reason that has nothing to do with its camera.
+    """
+    path = Path(allocation_run) / 'global-assignment.json'
+    if not path.is_file():
+        return []
+    assignment = json.loads(path.read_text())
+    pieces = []
+    for row in assignment.get('withheld_classes') or []:
+        if int(row['page']) != int(page):
+            continue
+        # The class members share a bounding box by construction, so any member
+        # measures the same addable area; the canonical one is recorded.
+        pieces.extend([(str(row['canonical']), int(row['color']))] * int(row['qty']))
+    return pieces
+
+
 def update_outstanding(outstanding, page, placed, allocation=(), attached_pages=()):
     """Record whether a page still owes its pieces, and return the flat list.
 
@@ -627,7 +652,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         # its ink to the current page's two pieces refuses every later page for a
         # reason that is nothing to do with the camera. The list is PDF-derived
         # (it is the allocation) and is recorded with the verdict.
-        attributable = list(pieces) + list(unplaced_pieces or ())
+        withheld_classes = page_withheld(page, allocation_run)
+        attributable = list(pieces) + list(withheld_classes) + list(unplaced_pieces or ())
         accepted, gate_record = camera_gate(
             contained['hypotheses'], expected_scale,
             addable_area(attributable, contained['hypotheses'][0]['projection'])
@@ -639,6 +665,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         write_atomic(step_dir / f'camera-gate-{order:02d}.json',
                      json.dumps(dict(gate_record, page=page, xref=xref,
                                      attributable_pieces=[list(p) for p in attributable],
+                                     withheld_class_pieces=[list(p) for p in withheld_classes],
                                      unplaced_pieces=[list(p) for p in (unplaced_pieces or ())]),
                                 indent=2))
         if not accepted:
