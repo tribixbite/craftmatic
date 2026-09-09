@@ -505,6 +505,10 @@ and 8,192 - reproduces round one exactly:
 | page index 18 | 52 | 46 | 0.885 |
 | page index 19 | 58 | 46 | 0.793 |
 
+Re-running pages 16 to 19 with everything switched on - evidence-ordered
+closure, carried camera matrices and channel-spread neutrality - gives the same
+four rows: 49/46, 51/46, 52/46, 58/46.
+
 So whole-model coverage stands where round one left it, at **46/90 (51.1%)** at
 the page-16 checkpoint. Fixing recall did not raise it, and neither did fixing
 the camera or the colour classifier, because page 17's remaining error is a
