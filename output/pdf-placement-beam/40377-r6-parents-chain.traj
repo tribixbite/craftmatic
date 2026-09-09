@@ -1,0 +1,72 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r6-parents-chain",
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "status": "stopped_unsupported_page",
+  "rows": [
+    {
+      "page": 16,
+      "status": "placed",
+      "score": 0.6372338224690584,
+      "withheld": [],
+      "emitted": 49,
+      "strict": 26,
+      "canonical": 32,
+      "structural": 46,
+      "truth_parts": 90,
+      "precision": 0.9387755102040817,
+      "coverage": 0.5111111111111111,
+      "legacy_structural": 45
+    },
+    {
+      "page": 17,
+      "status": "placed",
+      "score": 0.5780034952011921,
+      "withheld": [
+        "60474:0"
+      ],
+      "emitted": 51,
+      "strict": 26,
+      "canonical": 32,
+      "structural": 48,
+      "truth_parts": 90,
+      "precision": 0.9411764705882353,
+      "coverage": 0.5333333333333333,
+      "legacy_structural": 45
+    },
+    {
+      "page": 18,
+      "status": "placed",
+      "score": 0.5357490227060575,
+      "withheld": [],
+      "emitted": 52,
+      "strict": 27,
+      "canonical": 33,
+      "structural": 49,
+      "truth_parts": 90,
+      "precision": 0.9423076923076923,
+      "coverage": 0.5444444444444444,
+      "legacy_structural": 46
+    },
+    {
+      "page": 19,
+      "status": "placed",
+      "score": 0.5245855326837143,
+      "withheld": [],
+      "emitted": 58,
+      "strict": 28,
+      "canonical": 34,
+      "structural": 50,
+      "truth_parts": 90,
+      "precision": 0.8620689655172413,
+      "coverage": 0.5555555555555556,
+      "legacy_structural": 47
+    },
+    {
+      "page": 20,
+      "status": "subassembly_page",
+      "reason": "The page draws no view of the current assembly, so it builds a separate body; no construction is supplied for it"
+    }
+  ],
+  "scope": "Evaluation-only, executed after the run; the reference model chooses nothing at runtime.",
+  "limitations": "Structural equivalence uses derived universal-CAD symmetry proofs; coverage is whole-model placement agreement, not certification."
+}

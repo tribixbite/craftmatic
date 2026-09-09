@@ -2466,3 +2466,23 @@ target carries no class the page's candidates can match, so the priority contain
 no information and the traversal order there is effectively arbitrary. That is
 its own bug, on a page that places 0 of 5, and it is invisible to any ranking
 comparison because both rankings are equally uninformative.
+
+### The parent-budget chain through page 19: nothing changes
+
+| page | round five (128 parents) | round six (1024 parents) |
+| ---: | --- | --- |
+| 16 | 49 emitted / 46 structural, 0.6372 | 49 / 46, 0.6372 |
+| 17 | 51 / 48, 0.5780 | 51 / 48, 0.5780 |
+| 18 | 52 / 49, 0.5357 | 52 / 49, 0.5357 |
+| 19 | 58 / 50, 0.5246 | 58 / 50, 0.5246 |
+
+Identical on every row, and on pages 16 and 17 identical to sixteen figures of
+image score. Four of the first four pages hit the pose cap before exhausting even
+128 parents, so the extra budget is never spent, exactly as page 16 predicted.
+The chain continues past page 20 on a resume; pages 22 to 30 are where the
+parent budget was the binding one and where any effect has to appear.
+
+(The first attempt at this chain stopped at page 20 because
+`--continue-on-unsupported` was omitted, which is a driver argument rather than a
+page option and so is not recorded in the resume config a run writes. The resumed
+run carries pages 16-19 forward unchanged.)
