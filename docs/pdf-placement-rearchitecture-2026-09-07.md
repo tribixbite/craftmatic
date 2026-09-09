@@ -4386,6 +4386,23 @@ Every one of those came from **choosing a different body to drive from**. None
 came from the drive placing better, and the drive's own contribution is
 single-digit or zero on every fixture the program has measured.
 
+### One note on the objective's formulation, recorded and not acted on
+
+Out of this round's scope by the brief, so nothing was changed, but two
+measurements bear on it and belong in the record.
+
+* **The top plateau is broad and geometrically real.** 41601's construction ends
+  in a 24-way exact tie whose members are *not* relabelings of one assembly: all
+  36 retained bodies have distinct placement multisets, any two tied bodies share
+  on average **3.5 of 7** placements (as few as 2), and the four `3005` bricks
+  alone occupy seven distinct positions inside the tie. A per-class,
+  single-view, depth-composite IoU assigns twenty-four materially different
+  seven-piece assemblies the same value to sixteen significant figures.
+* **The plateau is on the wrong side of a 2% preference.** The bodies it contains
+  are 3 of 7 correct and bilaterally incomplete; the class it demotes by 0.0132
+  is 6 of 7 correct and bilaterally complete. So the formulation is not merely
+  indifferent here - it prefers, and the preference is inverted.
+
 ### Round nine's trajectory
 
 | round | 40377 | 41624 | 41601 | what the round bought |
