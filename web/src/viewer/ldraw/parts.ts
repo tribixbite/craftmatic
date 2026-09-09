@@ -106,9 +106,18 @@ export function getCachedPartGeom(id: string): PartGeom | undefined {
  *
  * TRANSITIVE: every ancestor that flattened this part's triangles into itself
  * is invalidated too — see `geomDependents`.
+ *
+ * RETURNS every key it dropped, ancestors included. Callers that invalidate in
+ * order to REBUILD must re-resolve all of them: dropping an ancestor and then
+ * re-resolving only the part you named leaves the ancestor with no cached
+ * geometry at all, which the viewer reports as a missing part. (Measured: it
+ * cost 71043 all 25 placements of `90398` and 10316 one more, until the repair
+ * pass was changed to rebuild the whole returned set.)
  */
-export function invalidatePartGeom(id: string): void {
-  invalidateGeomTree(normId(id));
+export function invalidatePartGeom(id: string): string[] {
+  const dropped = new Set<string>();
+  invalidateGeomTree(normId(id), dropped);
+  return [...dropped];
 }
 
 /** Delete `key`'s assembled geometry and that of everything holding a copy. */

@@ -259,20 +259,35 @@ describe('assembled geometry is invalidated when a child definition changes', ()
     expect((await resolvePartGeometry('chaintop')).tris.length).toBe(1);
   });
 
-  it('invalidatePartGeom() is transitive too', async () => {
+  /**
+   * The viewer's repair pass invalidates every part that resolved EMPTY and
+   * then re-resolves it sequentially. Transitive invalidation silently broke
+   * that contract: it also dropped ancestors, which the pass never rebuilt, so
+   * they read back as missing parts. Measured on 71043 — all 25 placements of
+   * `90398` vanished — and fixed by having the pass rebuild everything the
+   * call REPORTS dropping. That return value is the contract.
+   */
+  it('invalidatePartGeom() is transitive AND reports every key it dropped', async () => {
     mockFetch({
       rev: 'missing',
       files: {
         'invchild': tris(1),
         'invparent': `0 BFC CERTIFY CCW\n1 16 0 0 0 1 0 0 0 1 0 0 0 1 invchild.dat`,
+        'invtop': `0 BFC CERTIFY CCW\n1 16 0 0 0 1 0 0 0 1 0 0 0 1 invparent.dat`,
       },
     });
     const { resolvePartGeometry, invalidatePartGeom, getCachedPartGeom } = await freshSession();
 
-    await resolvePartGeometry('invparent');
+    await resolvePartGeometry('invtop');
     expect(getCachedPartGeom('invparent')).toBeDefined();
-    invalidatePartGeom('invchild');
+    expect(getCachedPartGeom('invtop')).toBeDefined();
+
+    const dropped = invalidatePartGeom('invchild');
     expect(getCachedPartGeom('invparent'),
       'a parent that baked in the repaired child must be rebuilt as well').toBeUndefined();
+    expect(getCachedPartGeom('invtop')).toBeUndefined();
+    expect(new Set(dropped),
+      'a caller that invalidates in order to REBUILD needs the whole set back')
+      .toEqual(new Set(['invchild', 'invparent', 'invtop']));
   });
 });
