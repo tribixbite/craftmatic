@@ -227,10 +227,58 @@ its two 4032a/4032b branches this way. Post hoc, the existing 4032a group
 construction is internally 4/4 correct and the 4032b branch 3/4; runtime keeps
 both, and evaluation does not choose.
 
+### Result after cross-page attachment: 46/90
+
+Attaching the page-13 subassembly on page index 14 does not only add its own
+four parts; it repairs the body the later pages register against. Driving pages
+15 onward from that 42-part checkpoint gives:
+
+| Checkpoint | Emitted | Structural | Precision |
+| --- | ---: | ---: | ---: |
+| page index 12 | 38 | 37 | 0.974 |
+| page index 14 (subassembly attached) | 42 | 41 | 0.976 |
+| page index 15 | 48 | 45 | 0.938 |
+| **page index 16** | **49** | **46** | **0.939** |
+| page index 17 | 51 | 46 | 0.902 |
+| page index 18 | 52 | 46 | 0.885 |
+| page index 19 | 58 | 46 | 0.793 |
+
+Whole-model coverage is therefore **46/90 (51.1%)** at the page-16 checkpoint,
+up from 26/90 when this work began, and every part emitted after page 16 is
+wrong. The same pages driven without the subassembly reached only 39 correct at
+page 16, so the four-part attachment is worth six additional correct poses
+downstream — a wrong body registers worse, and a worse registration places
+worse.
+
+### Page index 17 is a third, distinct failure
+
+Its three plausible causes were separated by measurement rather than argument.
+
+* Camera. A development-only visual check (remote VLM, verification only, never
+  a pipeline input) compared the artwork against our render at the selected
+  registration and reported the same viewpoint and the same apparent scale.
+  The camera is not the defect.
+* Target contamination. The page draws one plate already attached and an
+  identical one exploded above it. Those detached pixels can never be explained
+  by an incomplete body, so they depress the score and drag the registration.
+  Restricting the target to the body's own image component raised the selected
+  native score from 0.1631 to 0.3325 and changed no pose.
+* Candidate generation. The bank recall diagnostic finds only one of the two
+  reference 60474 poses in the enumerated bank. Raising the bounded closure from
+  64 to 1,024 parents and 8,192 to 24,000 poses — 277 seconds of enumeration,
+  budget still exhausted — did not produce the second. The stacked plate is not
+  reachable through the current connector closure at all, which is a
+  candidate-generation gap, distinct from both search and registration.
+
+That is now the binding constraint, and it is a different problem from the one
+the search rewrite solved.
+
 ### Open gaps, unchanged or newly measured
 
-1. Registration collapse from page index 17 onward is the binding constraint on
-   40377 and is not yet explained by exploded-component contamination.
+1. The stacked second 60474 on page index 17 is not reachable through the
+   bounded connector closure at any budget tried, and the pages after it place
+   nothing correctly. Candidate generation, not search or camera, is the
+   binding constraint on 40377 now.
 2. Page index 20's drawings are all small part views with no body view, so the
    page cannot be registered against the assembly at all.
 3. Cross-page attachment now works end to end on this fixture. Page index 13
