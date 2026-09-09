@@ -47,6 +47,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 ABSOLUTE_VISIBILITY_FLOOR = 200
 
 
+def classify(present_in_bank, painted, rival, visibility_ratio=0.25,
+             floor=ABSOLUTE_VISIBILITY_FLOOR):
+    """The primary class of one bank-eligible failure, from measured quantities.
+
+    Precedence is deliberate and stated: a pose the bank never held cannot have
+    been mis-selected however visible it is, and a pose the objective could not
+    see cannot have been mis-ranked. `painted` is the area against the body the
+    run actually scored on, which is what its objective saw; `rival` is the most
+    any addition the run *did* select paints on the same page.
+    """
+    if not present_in_bank:
+        return 'unreachable'
+    if painted is None:
+        return 'unmeasured'
+    if painted < floor or (rival and painted < visibility_ratio * rival):
+        return 'visibility_limited'
+    return 'mis_selected'
+
+
 def canonical_name(part, library):
     """The universal-CAD canonical stem, matching the evaluation's own aliasing."""
     from placement_diagnose_alias_poses import verified_rename_graph
@@ -266,14 +285,7 @@ def build(run, truth_path, allocation_run, render=True, visibility_ratio=0.25):
                      evidence_share_of_drawing=(None if painted is None or not target_pixels
                                                 else painted / target_pixels),
                      pages_allocating=[row['page'] for row in candidates])
-        if not best['present']:
-            entry['primary_class'] = 'unreachable'
-        elif painted is None:
-            entry['primary_class'] = 'unmeasured'
-        elif painted < ABSOLUTE_VISIBILITY_FLOOR or (rival and painted < visibility_ratio * rival):
-            entry['primary_class'] = 'visibility_limited'
-        else:
-            entry['primary_class'] = 'mis_selected'
+        entry['primary_class'] = classify(best['present'], painted, rival, visibility_ratio)
         rows.append(entry)
 
     counts = {}
