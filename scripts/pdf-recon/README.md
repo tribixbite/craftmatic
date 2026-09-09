@@ -373,3 +373,121 @@ python -X utf8 -B scripts/pdf-recon/placement_element_bridge.py `
 The output directory is an ordinary allocation source for
 `global_pdf_slot_assignment.py`, and from there `placement_slot_adapter.py`
 produces the page-scoped allocation the driver consumes.
+
+## Round nine: backtracking, capacity, and the mould classes
+
+**Measure the retained sets before building a policy over them.** Page-level
+backtracking can only reach an assembly the page already retained, and those
+files are on disk. `placement_alternatives_oracle` scores every one of them
+against the reference (evaluation only, no GPU, no re-search):
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_alternatives_oracle.py `
+  --run output/pdf-placement-beam/41601-r8-drive `
+  --dir output/pdf-placement-beam/41601-r8-construction/construction `
+  --truth C:/git/clego/lego_sets/OMR/41601-1.mpd `
+  --out output/pdf-placement-diagnosis/r9-alt/41601-drive-alternatives.json
+```
+
+The answer decides where a budget belongs. On 41601, **15 of 17 driven pages
+retain nothing better than what was selected** and the summed page-level
+reachable delta is +2; on 41624 it is **+1 over 31 pages** and its construction
+already selected the best body it retained. But 41601's **construction** retains
+twelve bodies at 6 of 7 correct behind a 24-way exact tie at 3 of 7, 0.0132 of
+objective score below it. The opening is the only site on either fixture where a
+better body was ever retained.
+
+**Backtracking** (`placement_backtrack.py`) reopens a committed site, takes one
+representative per exact objective-score class - not per retained body, which
+turns 36 bodies into two branches - and re-drives forward. `--reuse-root` adopts
+a completed run as branch 0 after verifying its page scope, option set and base
+hash, so a measurement does not pay for its own baseline twice.
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_backtrack.py `
+  --pdf C:/git/clego/lego_sets/PDF/6220569.pdf `
+  --allocation-run output/pdf-placement-diagnosis/41601-allocation-v1 `
+  --base-run output/pdf-placement-beam/41601-r8-construction/construction `
+  --pages 3 4 6 7 9 11 12 13 14 15 16 18 20 22 23 24 25 27 `
+  --out output/pdf-placement-beam/41601-r9-backtrack `
+  --reuse-root output/pdf-placement-beam/41601-r8-drive `
+  --backtrack-budget 1 --backtrack-triggers always --backtrack-order base-first `
+  --camera-prescan --containment-multiple 4.0 --drawing-registration prefer `
+  --exchange-window-order own_agreement --fallback 2 --fraction 0.01 `
+  --host-bytes 12000000000 --improve-rounds 5 --max-closure-parents 128 `
+  --native-rounds 3 --native-starts 3 --repair-anti-studs --restarts 2 `
+  --retry-passes 1 --tie-break pose --top-k 12 --views 3
+```
+
+**The triggers fire once in four completed journals, and that is the finding.**
+`registration_collapse` (a body-template fallback that also moves the camera
+scale past the gate's tolerance) fires on the round-eight compound chain at page
+22 - the measured regression - and nowhere else; `refusal_run` (three
+consecutive refused pages) fires once on 41624; `score_trend` cannot separate
+the two 40377 chains and is off by default. **41601 produces no contradiction at
+all** while carrying a 3-of-108 body: 17 pages of `drawing_to_drawing`
+registration at IoU 0.73-0.98 and a monotone camera scale. A wrong opening is
+silent, which is why `always` exists - it is the unconditional opening search.
+A reopened site is always strictly *earlier* than the page that raised the
+trigger, because every trigger is a statement about an inherited body.
+
+**Inventory capacity** (`placement_capacity.py`) separates three claims and
+measures each:
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_capacity.py `
+  --slots output/pdf-placement-diagnosis/41601-slots-color/slot-assignment.json `
+  --allocation output/pdf-placement-diagnosis/41601-allocation-v1/global-assignment.json `
+  --pages 2 3 4 6 7 9 11 12 13 14 15 16 18 20 22 23 24 25 27 `
+  --probe-directory output/pdf-placement-beam/41601-r8-construction/construction `
+  --after-page 2 --band 0.014 `
+  --out output/pdf-placement-diagnosis/r9-capacity/41601-construction-capacity.json
+```
+
+* **count capacity is vacuous as a ranker, provably**: the page quota is exact,
+  34 of 46 unambiguous keys have their whole pool allocated inside the scope, and
+  every driven page placed its whole allocation, so two retained assemblies of
+  one page are count-identical;
+* **the draw-down audit** finds **zero** deficits on 41601, so
+  `capacity_violation` never fires there. It is still the right shape for a
+  trigger and composes with `placement_backtrack.assess`;
+* **the look-ahead** (`capacity_of_body`: collision-free mates and their distinct
+  one-stud lattice cells, per key the later pages still need) is **identical
+  across all 36 candidate openings** - two deficient keys, deficit two, on every
+  one. The two are `98138`/`98138pb072`, which have no base-attached mate on any
+  seven-piece body because they mate onto a later sibling: round six's caveat,
+  reproduced. The only varying term, total locations, ranks the *wrong* class
+  higher (1910-2018 against 1899-1905).
+
+`rank(candidates, band)` applies the term only inside a stated band below the
+best objective score, so it can break a tie and cannot override image evidence.
+On the one site that matters the band would have to be 0.0133 and the ordering
+inside it is flat, so the term changes nothing there.
+
+**Mould equivalence** (`placement_mould_equivalence.py`) settles the filed item
+by measuring it rather than assuming it:
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_mould_equivalence.py `
+  --slots output/pdf-placement-diagnosis/41601-slots-color/slot-assignment.json `
+  --out output/pdf-placement-diagnosis/r9-capacity/41601-mould-classes.json
+```
+
+`15573`/`3794a`/`3794b` and `4032a`/`4032b` have **exactly** equal universal
+bounding boxes (maximum difference 0.0 LDU), so they are one physical piece and
+one capacity pool - pooling them closes 41601's inventory at 48 keys and 108
+pieces with nothing ambiguous left. They are **not** one search candidate: their
+4 LDU collision voxel sets differ (symmetric differences 29 and 13, and 2), their
+eroded cores differ, and their connector sets differ, so `Assembly.candidates`
+and `collides` do not agree and the search must keep the names apart. A printed
+mould is never pooled.
+
+`placement_slot_adapter --mould-classes TABLE --mould-policy {refuse,withhold,
+canonical}` admits a proven class instead of refusing its page. On 41601 the two
+classes hold four pieces but sit on four pages carrying thirteen allocated
+pieces, so `withhold` - declare the class row, allocate nothing, guess no
+filename - takes the drivable scope from **83 pieces on 19 pages to 92 on 23**
+(`canonical` reaches 96, at the cost of a recorded within-class coin flip). The
+driver attributes a withheld piece's ink at the camera gate exactly as it
+attributes a skipped page's (`placement_autodrive.page_withheld`), or admitting
+the page would refuse it again one stage later.

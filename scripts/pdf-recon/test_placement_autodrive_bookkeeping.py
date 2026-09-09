@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from placement_autodrive import page_allocation, projection_scale, update_outstanding
+from placement_autodrive import (page_allocation, page_withheld, projection_scale,
+                                 update_outstanding)
 
 
 def test_a_page_that_did_not_place_keeps_owing_its_pieces():
@@ -61,19 +62,6 @@ def test_projection_scale_is_the_mean_singular_value():
     assert abs(projection_scale([[2., 0., 0.], [0., 2., 0.]]) - 2.0) < 1e-12
 
 
-if __name__ == '__main__':
-    failures = 0
-    for name, function in sorted(globals().items()):
-        if name.startswith('test_') and callable(function):
-            try:
-                function()
-                print('ok  ', name)
-            except AssertionError as error:
-                failures += 1
-                print('FAIL', name, error)
-    print('failures', failures)
-    sys.exit(1 if failures else 0)
-
 
 def test_an_excluded_construction_still_owes_its_pieces():
     # `construction_excluded` is not `placed`, so page 20's seven pieces stay
@@ -95,3 +83,39 @@ def test_the_exclusion_option_is_parsed_per_page():
     options = build_options(args)
     assert options['excluded_constructions'] == {'20': '1 of 5 structural',
                                                  '31': '1 of 4 structural'}
+
+
+def test_a_withheld_mould_class_is_attributable_without_being_allocated():
+    # `--mould-policy withhold` admits the page and declares the class row. The
+    # piece is drawn, so the gate has to be allowed to attribute its ink; it is
+    # not allocated, so the search never places it and no filename is guessed.
+    import json
+    import tempfile
+    with tempfile.TemporaryDirectory() as directory:
+        run = Path(directory)
+        (run / 'global-assignment.json').write_text(json.dumps(dict(
+            evidence=[], withheld_classes=[
+                dict(page=8, qty=1, canonical='15573', color=72,
+                     members=['15573', '3794a', '3794b']),
+                dict(page=10, qty=2, canonical='4032a', color=25,
+                     members=['4032a', '4032b'])])))
+        assert page_withheld(8, run) == [('15573', 72)]
+        assert page_withheld(10, run) == [('4032a', 25), ('4032a', 25)]
+        assert page_withheld(11, run) == []
+    # An allocation written before the policy existed has no such rows and must
+    # not become an error.
+    assert page_withheld(8, Path(directory)) == []
+
+
+if __name__ == '__main__':
+    failures = 0
+    for name, function in sorted(globals().items()):
+        if name.startswith('test_') and callable(function):
+            try:
+                function()
+                print('ok  ', name)
+            except AssertionError as error:
+                failures += 1
+                print('FAIL', name, error)
+    print('failures', failures)
+    sys.exit(1 if failures else 0)
