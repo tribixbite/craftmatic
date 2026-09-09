@@ -95,6 +95,13 @@ def file_hash(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def default_options():
+    """The driver's own option defaults, for reconciling an older journal."""
+    parser = argparse.ArgumentParser()
+    autodrive.add_page_options(parser)
+    return autodrive.build_options(parser.parse_args([]))
+
+
 def score_classes(directory):
     """Retained assemblies of one placement directory, by exact objective score.
 
@@ -298,6 +305,17 @@ SELECTION_KEYS = dict(
                                 -metrics['camera_failures'],
                                 -metrics['registration_collapses'],
                                 metrics['mean_page_score'] or 0.),
+    # Contradictions first, coverage second. Measured after the fact on the two
+    # branches this round drove: `downstream` chose the worse model on *both*
+    # (3 of 108 over 6, and 51 of 90 over 53), while ordering the instrument
+    # contradictions ahead of the coverage terms would have chosen the better
+    # model on both - 40377 on the registration collapse, 41601 on the camera
+    # failures. That is a rule fitted to two observations and it is offered as a
+    # hypothesis for the next round to test, not as a validated criterion.
+    contradictions=lambda metrics: (-metrics['registration_collapses'],
+                                    -metrics['camera_failures'],
+                                    metrics['placed_pages'], metrics['pieces_emitted'],
+                                    metrics['mean_page_score'] or 0.),
     # The control: the objective alone, which is what the driver does today.
     objective=lambda metrics: (metrics['mean_page_score'] or 0.,),
     # The control that changes nothing, for an A/B that isolates the branch set.
@@ -412,10 +430,21 @@ def run(pdf, allocation_run, base_run, pages, out, options, budget=1,
         # configuration change because of that round trip.
         stored = json.loads(json.dumps(options, default=str))
         recorded = config.get('options') or {}
+        # An option added to the driver *after* a run cannot have changed that
+        # run's behaviour as long as this call leaves it at its own documented
+        # no-op default - `--compound-width 0` is the shipped behaviour, and
+        # 41624's round-seven journal predates the flag existing. Reconciled
+        # keys are recorded rather than silently accepted, and a key whose value
+        # differs from the default is still a configuration change.
+        defaults = json.loads(json.dumps(default_options(), default=str))
+        reconciled = sorted(key for key in set(recorded) ^ set(stored)
+                            if stored.get(key, defaults.get(key)) == defaults.get(key)
+                            and recorded.get(key, defaults.get(key)) == defaults.get(key))
         differing = {key for key in set(recorded) | set(stored)
-                     if recorded.get(key) != stored.get(key)}
+                     if key not in reconciled and recorded.get(key) != stored.get(key)}
         if differing:
             raise ValueError(f'Adopted run differs in options: {sorted(differing)}')
+        record['adopted_option_keys_absent_at_their_default'] = reconciled
         if config.get('base_model_sha256') != file_hash(Path(base_run) / 'model.ldr'):
             raise ValueError('Adopted run started from a different checkpoint')
         root = dict(label='root', parent=None, base=str(base_run), out=str(reuse_root),
