@@ -5,6 +5,7 @@
     "distinct_reference_targets": 32,
     "in_bank": 24,
     "survived_screen": 23,
+    "survived_screen_any_view": 23,
     "in_any_retained_assembly": 10,
     "in_selected_assembly": 8,
     "lost_before_enumeration": 8,
@@ -19,6 +20,7 @@
       "view": 2,
       "candidate_screen_skipped": false,
       "retained_candidates": 1258,
+      "retained_candidates_any_view": 1262,
       "targets": [
         {
           "part": "3031",
@@ -26,6 +28,7 @@
           "truth_index": 48,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": true,
           "in_selected": true
         },
@@ -35,6 +38,7 @@
           "truth_index": 51,
           "in_bank": true,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -44,6 +48,7 @@
           "truth_index": 67,
           "in_bank": true,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         }
@@ -55,6 +60,7 @@
       "view": 2,
       "candidate_screen_skipped": false,
       "retained_candidates": 2322,
+      "retained_candidates_any_view": 2330,
       "targets": [
         {
           "part": "60474",
@@ -62,6 +68,7 @@
           "truth_index": 49,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": true,
           "in_selected": true
         },
@@ -71,6 +78,7 @@
           "truth_index": 50,
           "in_bank": true,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": true,
           "in_selected": true
         }
@@ -82,6 +90,7 @@
       "view": 1,
       "candidate_screen_skipped": false,
       "retained_candidates": 1436,
+      "retained_candidates_any_view": 1577,
       "targets": [
         {
           "part": "3031",
@@ -89,6 +98,7 @@
           "truth_index": 51,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": true,
           "in_selected": true
         },
@@ -98,6 +108,7 @@
           "truth_index": 67,
           "in_bank": true,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         }
@@ -109,6 +120,7 @@
       "view": 1,
       "candidate_screen_skipped": false,
       "retained_candidates": 2637,
+      "retained_candidates_any_view": 3833,
       "targets": [
         {
           "part": "41740",
@@ -116,6 +128,7 @@
           "truth_index": 52,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -125,6 +138,7 @@
           "truth_index": 53,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -134,6 +148,7 @@
           "truth_index": 54,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": true,
           "in_selected": true
         },
@@ -143,6 +158,7 @@
           "truth_index": 55,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -152,6 +168,7 @@
           "truth_index": 56,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -161,6 +178,7 @@
           "truth_index": 57,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         }
@@ -172,6 +190,7 @@
       "view": 0,
       "candidate_screen_skipped": false,
       "retained_candidates": 669,
+      "retained_candidates_any_view": 669,
       "targets": [
         {
           "part": "87079",
@@ -179,6 +198,7 @@
           "truth_index": 65,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -188,6 +208,7 @@
           "truth_index": 66,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -197,6 +218,7 @@
           "truth_index": 68,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -206,6 +228,7 @@
           "truth_index": 69,
           "in_bank": true,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -215,6 +238,7 @@
           "truth_index": 70,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": true,
           "in_selected": true
         },
@@ -224,6 +248,7 @@
           "truth_index": 71,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": true,
           "in_selected": false
         }
@@ -235,6 +260,7 @@
       "view": 0,
       "candidate_screen_skipped": false,
       "retained_candidates": 1718,
+      "retained_candidates_any_view": 1718,
       "targets": [
         {
           "part": "3031",
@@ -242,6 +268,7 @@
           "truth_index": 67,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         }
@@ -253,6 +280,7 @@
       "view": 1,
       "candidate_screen_skipped": false,
       "retained_candidates": 548,
+      "retained_candidates_any_view": 552,
       "targets": [
         {
           "part": "87079",
@@ -260,6 +288,7 @@
           "truth_index": 65,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -269,6 +298,7 @@
           "truth_index": 66,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -278,6 +308,7 @@
           "truth_index": 68,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -287,6 +318,7 @@
           "truth_index": 69,
           "in_bank": true,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -296,6 +328,7 @@
           "truth_index": 71,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         }
@@ -307,6 +340,7 @@
       "view": 0,
       "candidate_screen_skipped": false,
       "retained_candidates": 474,
+      "retained_candidates_any_view": 506,
       "targets": [
         {
           "part": "87079",
@@ -314,6 +348,7 @@
           "truth_index": 65,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -323,6 +358,7 @@
           "truth_index": 66,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -332,6 +368,7 @@
           "truth_index": 68,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -341,6 +378,7 @@
           "truth_index": 69,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -350,6 +388,7 @@
           "truth_index": 71,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         }
@@ -361,6 +400,7 @@
       "view": 0,
       "candidate_screen_skipped": false,
       "retained_candidates": 1926,
+      "retained_candidates_any_view": 1926,
       "targets": [
         {
           "part": "3023b",
@@ -368,6 +408,7 @@
           "truth_index": 59,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -377,6 +418,7 @@
           "truth_index": 72,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -386,6 +428,7 @@
           "truth_index": 73,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -395,6 +438,7 @@
           "truth_index": 74,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -404,6 +448,7 @@
           "truth_index": 75,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         }
@@ -415,6 +460,7 @@
       "view": 1,
       "candidate_screen_skipped": false,
       "retained_candidates": 4142,
+      "retained_candidates_any_view": 4142,
       "targets": [
         {
           "part": "43723",
@@ -422,6 +468,7 @@
           "truth_index": 76,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -431,6 +478,7 @@
           "truth_index": 77,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         }
@@ -442,6 +490,7 @@
       "view": 2,
       "candidate_screen_skipped": false,
       "retained_candidates": 4847,
+      "retained_candidates_any_view": 5699,
       "targets": [
         {
           "part": "3623",
@@ -449,6 +498,7 @@
           "truth_index": 78,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -458,6 +508,7 @@
           "truth_index": 79,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": true,
           "in_selected": true
         },
@@ -467,6 +518,7 @@
           "truth_index": 80,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         }
@@ -478,6 +530,7 @@
       "view": 0,
       "candidate_screen_skipped": false,
       "retained_candidates": 1565,
+      "retained_candidates_any_view": 1642,
       "targets": [
         {
           "part": "15068",
@@ -485,6 +538,7 @@
           "truth_index": 81,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": true,
           "in_selected": false
         },
@@ -494,6 +548,7 @@
           "truth_index": 82,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": true,
           "in_selected": true
         }
@@ -505,6 +560,7 @@
       "view": 2,
       "candidate_screen_skipped": false,
       "retained_candidates": 4390,
+      "retained_candidates_any_view": 4541,
       "targets": [
         {
           "part": "85984",
@@ -512,6 +568,7 @@
           "truth_index": 83,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -521,6 +578,7 @@
           "truth_index": 84,
           "in_bank": true,
           "survived_screen": true,
+          "survived_any_view": true,
           "in_any_beam": false,
           "in_selected": false
         },
@@ -530,6 +588,7 @@
           "truth_index": 85,
           "in_bank": false,
           "survived_screen": false,
+          "survived_any_view": false,
           "in_any_beam": false,
           "in_selected": false
         }
@@ -540,5 +599,5 @@
   "runtime_vlm_calls": 0,
   "certified": false,
   "scope": "Evaluation-only. Bank membership, screen survival and beam membership are read from the run's own artifacts; the reference model supplies the poses and selects nothing.",
-  "limitations": "Screen survival is measured on the view the search selected, so a pose kept on another view is reported as dropped. Beam membership is over the assemblies the run wrote, which is the top of the beam and not everything the search touched."
+  "limitations": "Screen survival is reported twice - on the view the search selected, and over the union of every scored view - because the two differ and neither alone is the whole answer. Beam membership is over the assemblies the run wrote, which is the top of the beam and not everything the search touched."
 }

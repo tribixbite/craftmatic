@@ -2298,6 +2298,12 @@ Counted in **distinct reference instances**, not per-page opportunities:
 | selected correctly | 8 | 2 | 10 |
 | distinct targets | 32 | 78 | 110 |
 
+The screen row is reported on the view the search selected. Measuring instead
+over the union of every scored view — the tool's own stated limitation, made
+measurable rather than left as a caveat — changes 40377 not at all (23 targets
+survive either way) and moves exactly one part on 41624, from 7 screen losses to
+6 and 7 retention losses to 8. The conclusion is unaffected.
+
 **Ranking is 4 of the 100 losses.** Rounds two through six bought and measured
 selection objectives — the local rerank five times, the seated tie-break twice,
 a mirror-consistency tie-break once — against the smallest stage in the pipeline.
