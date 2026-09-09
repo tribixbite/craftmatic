@@ -1299,3 +1299,34 @@ to that scale times the ratio, widened by the tolerance at both ends - which is 
 `placement_drawing_scale` always said the ratio was good for. It collapses to the
 old point behaviour when no ratio is supplied, and a refusal now names the window
 it fell outside.
+
+### Open gaps after round four
+
+Round three's list is superseded. Its items 1 and 2 are closed - registration no
+longer passes through the emitted body, and pages 20-32 are now characterised and
+driven rather than untouched - and what replaces them is this.
+
+1. **The pipeline commits a page before the evidence that decides it exists.**
+   Page 18's two candidates differ by 4 LDU, are both physically valid seatings,
+   and are separated by 0.0012 of image score by three different objectives, two
+   of which prefer the wrong one. Page 19's drawing settles it. A bounded one-page
+   decision window is the measured requirement; nothing implements it.
+2. **Choosing what to expand in a later closure round.** The per-round parent
+   budget landed and reaches rounds two and three. The evidence ordering that
+   makes round one's budget spend well is a permutation of the base-attached poses
+   only, so a later round still expands an arbitrary prefix - which is why page
+   19's five tiles stay 10 and 26 LDU from any enumerated pose even with the
+   correct mount in the body.
+3. **A subassembly construction completes and is wrong.** Both of 40377's are 1
+   structurally correct of their emitted set, i.e. 0 beyond the nailed root. Page
+   31's is a data limit its own drawings prove - two views at IoU 0.9914 because
+   flat black tiles on a black plate barely change the silhouette - and page 20's
+   is not yet diagnosed. Until a construction is right, attaching it makes the
+   pages after it worse rather than better.
+4. **The drawing ratio is only a bound, and how loose a bound depends on the
+   model's size.** It reaches 1.23 on a nine-piece assembly against 0.99-1.11 on a
+   49-part one. The gate now treats it as an interval; anything else that consumes
+   it must too.
+5. **Repeated multiplicities, occlusion, flexible parts, whole-PDF autonomous
+   startup and population certification** remain untouched, as after rounds one,
+   two and three.
