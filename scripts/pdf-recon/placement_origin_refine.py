@@ -14,6 +14,41 @@ only. It is used here for two separate purposes, reported separately:
    alone cannot choose one, so the accepted scale is the contained registration
    that covers the most target foreground.
 
+## The absolute allowance was calibrated on a nearly-correct body
+
+Round four removed the emitted body from *choosing* a page's camera - the
+drawing-to-drawing propagation composes the previous page's accepted
+registration with the similarity between the two drawings - but the containment
+filter still passes through it, and page index 22 of 40377 measured what that
+costs. Its propagated registrations cover 90.3% and 92.4% of the drawing where
+every body-template alternative covers 76-80%; the body carries page 19's five
+wrong parts, so those propagated renders protrude, and the unit-scale one was
+rejected for overflowing by **669 pixels against a 553-pixel allowance - 116
+pixels of 55,333**. Containment then kept only the small body-template
+registrations and the camera gate correctly refused those for being below the
+scale window, so the page was refused twice and pages 26 and 27 with it.
+
+A fixed fraction of the body's own area cannot express that, because the number
+it should scale with is how wrong the body already is, and that is not known in
+advance. What *is* measurable, within one page and against one body, is the
+overflow the page's own hypotheses achieve. `relative_multiple` therefore also
+admits a registration whose overflow, **as a fraction of its own rendered
+area**, is within a multiple of the smallest such fraction any hypothesis on
+this page achieves. Normalising by the render's own area is load-bearing: a
+camera that is simply too small overflows less in absolute pixels and would
+otherwise set an unbeatable floor.
+
+The rule is self-limiting by construction. On a page where some registration is
+cleanly contained the floor is zero, the relative allowance collapses to the
+absolute one, and nothing changes - measured on 40377 pages 16-19, 23, 25 and
+28-30, whose admitted sets are identical with and without it. It only loosens
+where *no* hypothesis is contained, which is exactly the evidence that the body,
+not the camera, is what protrudes. `relative_cap` bounds it further: when even
+the best hypothesis overflows by more than that fraction of its own area the
+page has no registration worth comparing against, and the relative rule is not
+applied at all (40377 page 26's second drawing, floor 7.3%, is refused as
+before rather than admitting eleven hypotheses at 7-27%).
+
 This is not a certified camera. Containment is necessary, never sufficient:
 an occluded body, a cropped scene or a coincidental silhouette can satisfy it.
 No reference model, set inventory or VLM participates.
@@ -40,8 +75,37 @@ def _centered_origin(base, M, origin, scale, scorer, screen_fn):
     return origin + (1.0 - scale) * (centre - origin)
 
 
+def overflow_ratio(record):
+    """Overflow as a fraction of the render's own area, which is comparable.
+
+    Absolute overflow is not comparable between hypotheses of one page: a camera
+    that renders the body too small overflows less simply by being small, and
+    would set a floor no correct registration could meet.
+    """
+    return record['outside_pixels'] / max(1, record['occupied_pixels'])
+
+
+def relative_allowances(rows, multiple, cap):
+    """Per-hypothesis overflow allowance measured within this page, in pixels.
+
+    Returns `(allowances, floor, ratio)` where `floor` is the smallest overflow
+    ratio any hypothesis on the page achieves and `ratio` is the admitted
+    ceiling. When nothing on the page registers better than `cap`, the page has
+    no usable reference and the relative rule is withheld entirely.
+    """
+    if multiple <= 0 or not rows:
+        return {}, None, None
+    floor = min(overflow_ratio(row['best_containment']) for row in rows)
+    if floor > cap:
+        return {}, floor, None
+    ratio = min(multiple * floor, cap)
+    return ({row['source_index']: int(ratio * row['best_containment']['occupied_pixels'])
+             for row in rows}, floor, ratio)
+
+
 def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallback=0,
-           screen_fn=None, scales=(1.0,)):
+           screen_fn=None, scales=(1.0,), relative_multiple=0.0, relative_cap=0.03,
+           coverage_order=False):
     """Return containment-refined registrations sorted by template score.
 
     `window` is the half-width, in native raster pixels, of the exhaustive
@@ -62,6 +126,21 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
     smallest containing offset, which makes `scales=(1.0,)` identical to the
     previous single-scale behaviour.
 
+    `relative_multiple` adds the within-page rule described in the module
+    docstring: a hypothesis whose overflow ratio is within that multiple of the
+    smallest ratio the page achieves is admitted too, capped at `relative_cap`
+    and withheld entirely when the page's own floor exceeds it. Such a
+    hypothesis is admitted at its *least-overflowing* offset rather than at the
+    smallest offset satisfying an allowance it never satisfies, and is recorded
+    with `admission: 'relative'`. At `relative_multiple=0` the function is
+    identical to its previous behaviour.
+
+    `coverage_order` ranks what is retained by how much of the target the
+    registered body covers instead of by template score. Coverage cannot be a
+    threshold *across* pages - it depends on how large the assembly already is -
+    but within one page and one body it is directly comparable, and a
+    propagated registration carries no template score to be ranked by.
+
     If nothing is accepted, the `fallback` least-overflowing hypotheses are
     returned anyway, each flagged `contained: False` with its measured
     overflow, so the caller can proceed on explicitly weaker evidence instead
@@ -76,6 +155,10 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
         raise ValueError('Proportional allowance must be a fraction below one')
     if fallback < 0 or int(fallback) != fallback:
         raise ValueError('Fallback count must be a nonnegative integer')
+    if relative_multiple < 0:
+        raise ValueError('Relative overflow multiple must be nonnegative')
+    if not 0.0 <= relative_cap < 1.0:
+        raise ValueError('Relative overflow cap must be a fraction below one')
     scales = tuple(float(s) for s in scales)
     if not scales or any(s <= 0 for s in scales):
         raise ValueError('Scale ladder must be non-empty and positive')
@@ -86,7 +169,7 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
     # Prefer the smallest correction that satisfies containment, so a valid
     # registration is never silently translated further than necessary.
     offsets.sort(key=lambda d: (abs(d[0]) + abs(d[1]), abs(d[0]), d))
-    rows, seen = [], set()
+    measured = []
     for index, hypothesis in enumerate(hypotheses):
         M0 = np.asarray(hypothesis['projection'], float)
         origin0 = np.asarray(hypothesis['origin'], float)
@@ -112,11 +195,33 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
             # the drawing wins; coverage is the only one of these measures that
             # a shrinking camera cannot game.
             accepted = max(ladder, key=lambda r: (r['covered_pixels'] or 0, -abs(r['scale'] - 1.0)))
-        row = dict(source_index=index, rotation_index=hypothesis.get('rotation_index'),
-                   template_score=hypothesis.get('score'),
-                   projection=M0.tolist(), source_origin=origin0.tolist(),
-                   best_containment=best, contained=accepted is not None,
-                   scale_ladder=ladder if len(scales) > 1 else None)
+        measured.append((dict(source_index=index, rotation_index=hypothesis.get('rotation_index'),
+                              template_score=hypothesis.get('score'),
+                              projection=M0.tolist(), source_origin=origin0.tolist(),
+                              best_containment=best,
+                              scale_ladder=ladder if len(scales) > 1 else None),
+                         M0, accepted))
+    # The absolute allowance is a fraction of the body's own area and so cannot
+    # express how wrong the body already is. Compare the page's hypotheses
+    # against each other as well, in the only unit that is comparable between
+    # them - overflow as a fraction of each render's own area.
+    allowances, floor, ceiling = relative_allowances(
+        [row for row, _, _ in measured if row['best_containment'] is not None],
+        relative_multiple, relative_cap)
+    rows = []
+    for row, M0, accepted in measured:
+        admission = 'absolute' if accepted is not None else None
+        if accepted is None and row['best_containment'] is not None:
+            allowance = allowances.get(row['source_index'])
+            if allowance is not None and row['best_containment']['outside_pixels'] <= allowance:
+                # Admitted at its least-overflowing offset: it never satisfies
+                # the absolute allowance, so there is no "smallest containing
+                # offset" for it to be admitted at.
+                accepted, admission = row['best_containment'], 'relative'
+                row['relative_allowance'] = allowance
+        row['contained'] = accepted is not None
+        row['admission'] = admission
+        best = row['best_containment']
         if accepted is None:
             row['rejection'] = 'No offset in the window satisfies silhouette containment'
             if len(scales) > 1:
@@ -137,11 +242,13 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
         row['duplicate_of'] = next((r['source_index'] for r in rows if r.get('key') == key), None)
         row['key'] = key
         rows.append(row)
-        seen.add(key)
     for row in rows:
         row.pop('key', None)
-    retained = [r for r in rows if r['contained'] and r['duplicate_of'] is None]
-    retained.sort(key=lambda r: -(r['template_score'] if r['template_score'] is not None else 0))
+    retained = [r for r in rows if r['contained'] and r.get('duplicate_of') is None]
+    if coverage_order:
+        retained.sort(key=lambda r: -(r['covered_pixels'] or 0))
+    else:
+        retained.sort(key=lambda r: -(r['template_score'] if r['template_score'] is not None else 0))
     used_fallback = False
     if not retained and fallback:
         used_fallback = True
@@ -162,6 +269,10 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
             retained.append(row)
     return dict(hypotheses=retained, evaluated=rows, offset_window=window,
                 overflow_tolerance=tolerance, proportional_allowance=fraction,
+                relative_multiple=relative_multiple, relative_cap=relative_cap,
+                overflow_ratio_floor=floor, relative_ratio_ceiling=ceiling,
+                relative_admissions=sum(1 for r in rows if r.get('admission') == 'relative'),
+                coverage_order=bool(coverage_order),
                 containment_fallback_used=used_fallback, fallback_limit=fallback,
                 scales=list(scales), retained=len(retained),
                 applied_scales=sorted({r.get('applied_scale', 1.0) for r in retained}),
@@ -171,14 +282,20 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
                 protocol='Exhaustive integer offsets around each template origin, optionally over '
                          'a camera-scale ladder; each scale keeps its smallest containing offset '
                          'and the accepted scale is the contained registration covering the most '
-                         'target foreground',
+                         'target foreground. With a relative multiple, a hypothesis whose overflow '
+                         "ratio is within that multiple of the page's own smallest ratio is also "
+                         'admitted, at its least-overflowing offset',
                 limitations='Containment is a necessary condition only, and a fallback result is '
                             'explicitly not contained. Occlusion of the existing '
                             'body by later parts, cropped artwork and coincidental silhouettes are '
                             'not excluded. Offsets are integer native-raster pixels and the scale '
                             'ladder is a finite set of uniform scales; no shear or rotation is '
                             'refit, and coverage rewards a body that is merely large as well as '
-                            'one that is correct. Not a certified camera.')
+                            "one that is correct. A relative admission is a comparison among one "
+                            "page's own hypotheses against one body: it says a registration is no "
+                            'worse than the best this page can do, never that it is right, and it '
+                            'loosens exactly when nothing on the page is cleanly contained. '
+                            'Not a certified camera.')
 
 
 if __name__ == '__main__':
@@ -194,6 +311,16 @@ if __name__ == '__main__':
     parser.add_argument('--scales', type=float, nargs='+', default=[1.0],
                         help='Camera-scale ladder; the contained scale covering the most target '
                              'foreground is accepted')
+    parser.add_argument('--relative-multiple', type=float, default=0.0,
+                        help="Also admit a registration whose overflow, as a fraction of its own "
+                             "rendered area, is within this multiple of the smallest such fraction "
+                             'the page achieves; 0 disables the within-page rule')
+    parser.add_argument('--relative-cap', type=float, default=0.03,
+                        help='Ceiling on that relative allowance, and the floor above which the '
+                             'page has no registration worth comparing against')
+    parser.add_argument('--coverage-order', action='store_true',
+                        help='Rank retained registrations by target coverage instead of template '
+                             'score')
     args = parser.parse_args()
     import pymupdf
     from placement_arrow_contacts import read_items
@@ -213,7 +340,8 @@ if __name__ == '__main__':
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
     result = refine(read_items(base_path), source['hypotheses'][:args.limit], scorer,
                     args.window, args.tolerance, args.fraction, args.fallback,
-                    scales=tuple(args.scales))
+                    scales=tuple(args.scales), relative_multiple=args.relative_multiple,
+                    relative_cap=args.relative_cap, coverage_order=args.coverage_order)
     result.update(pdf=str(pdf), pdf_sha256=source['pdf_sha256'], page=source['page'],
                   xref=source['xref'], base=source['base'], base_sha256=source['base_sha256'],
                   source_registration=str(args.registration),
