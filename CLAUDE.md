@@ -508,14 +508,16 @@ The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
   Substitutions are recorded in `substitutedDatNames` → `viewer.substitutedParts`
   → a LEGO-status note, so a near-mould swap is never silent. Tests:
   `test/part-alias.test.ts`.
-- **Genuinely unmodelled molds are a real category — document, don't guess.**
-  10316 Rivendell's remainder after the above: `20926`/`20932` (dual-moulded
-  "2K" minifig leg halves — LDraw has only the obsolete single legs 3817/3816,
-  whose headers carry `!HELP Move down 12 units to align with hips`, i.e. a
-  DIFFERENT origin, so substituting misplaces them) and `1000341` (a
-  Mecabricks-INTERNAL id for one sword blade off the 37341 sprue; a bbox sweep
-  of every minifig/weapon part found no match within ±2.5 LDU). 3 pieces total.
-  A misplaced piece is worse than a visible hole — leave them missing.
+- **Wrong-FRAME mappings belong in clego's harvester, never in the client
+  alias table** (settled 2026-09-09, MB_TRANSFORM_AUDIT.md §11). The former
+  "genuinely unmodelled" trio was superseded corpus-side: `20926`/`20932` map
+  to `3816`/`3817` with a measured (0,24,0)-class delta, `1000337–1000341` are
+  the 37341 sprue's lettered parts, and `98560` → `3684c` (631 placements /
+  124 sets) — 21 mappings / 1,839 placements landed via `mb_partmap` +
+  `mb_align` deltas at harvest, 38 sets DEFECTIVE→PASS, zero regressions.
+  The client-side table is FILENAME-ONLY: adding any of these there would
+  place the part 24–72 LDU out. If the census surfaces a new confirmed
+  identity whose frame differs, route it to clego, don't alias it here.
 - **Corpus hole rate is 0.067%, and it is almost entirely ONE source class**
   (census 2026-09-09, `scripts/missing-geometry-census.ts`, 214 sets / 80
   flagships + 20 per class, 564k placements): 379 missing pieces / 111 distinct
