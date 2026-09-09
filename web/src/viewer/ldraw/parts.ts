@@ -624,49 +624,68 @@ export function partAliasCandidates(stem: string): string[] {
   return out;
 }
 
+/**
+ * Every library-relative path a part name may live at, in probe order.
+ *
+ * Exported (and kept free of `LDRAW_BASE`) because it is the single definition
+ * of "where can this name resolve" — the renderer probes it, and the offline
+ * census (`scripts/missing-geometry-census.ts`) replays it to decide whether a
+ * name is a genuine hole. A census that re-implemented this drifted instantly:
+ * directory-prefixed refs like `48\1-12edge` are ordinary `p/48/` primitives,
+ * and probing only the bare stem reported 100 phantom misses on one Technic set.
+ *
+ * `id` may carry a directory prefix (`s\3001s01`, `48\1-12edge`, `8\2-4ndis`)
+ * and any case; it is normalised here.
+ */
+export function candidateRelPaths(id: string): string[] {
+  const key = normId(id);
+  const stem = key.split('/').pop()!;
+  const paths: string[] = [];
+  if (key.includes('/')) {
+    if (key.startsWith('s/'))
+      paths.push(`parts/${key}.dat`, `parts/s/${stem}.dat`, `UnOfficial/parts/${key}.dat`);
+    else if (key.startsWith('48/'))
+      paths.push(`p/${key}.dat`, `p/48/${stem}.dat`, `UnOfficial/p/${key}.dat`);
+    else
+      paths.push(`p/${key}.dat`, `UnOfficial/p/${key}.dat`);
+  } else if (looksLikePrimitive(stem)) {
+    // Primitive-shaped name → p/ first; the parts/ fallbacks below still run
+    // for the rare part whose number begins like a primitive.
+    paths.push(
+      `p/${stem}.dat`,
+      `UnOfficial/p/${stem}.dat`,
+      `parts/${stem}.dat`,
+      `UnOfficial/parts/${stem}.dat`,
+      // Some Studio-era subparts reference primitives that only exist as
+      // hi-res `48/` variants (e.g. bare `1-12ring14` → p/48/1-12ring14.dat).
+      // The 48/ version is the same shape at finer tessellation — a safe
+      // drop-in that closes those silent geometry holes.
+      `p/48/${stem}.dat`,
+      `UnOfficial/p/48/${stem}.dat`,
+    );
+  }
+  paths.push(
+    `parts/${stem}.dat`,
+    `p/${stem}.dat`,
+    `parts/s/${stem}.dat`,
+    `UnOfficial/parts/${stem}.dat`,
+    `UnOfficial/parts/s/${stem}.dat`,
+    `UnOfficial/p/${stem}.dat`,
+    `UnOfficial/p/48/${stem}.dat`,
+    `models/${stem}.dat`,
+  );
+  // De-duplicate while preserving first-occurrence order.
+  const seen = new Set<string>();
+  return paths.filter(p => !seen.has(p) && (seen.add(p), true));
+}
+
 async function fetchDatText(id: string): Promise<string | null> {
   const key = normId(id);
   if (datTextCache.has(key)) return datTextCache.get(key)!;
   if (datInFlight.has(key)) return datInFlight.get(key)!;
 
   const stem = key.split('/').pop()!;
-  const paths: string[] = [];
-  if (key.includes('/')) {
-    if (key.startsWith('s/'))
-      paths.push(`${LDRAW_BASE}/parts/${key}.dat`, `${LDRAW_BASE}/parts/s/${stem}.dat`, `${LDRAW_BASE}/UnOfficial/parts/${key}.dat`);
-    else if (key.startsWith('48/'))
-      paths.push(`${LDRAW_BASE}/p/${key}.dat`, `${LDRAW_BASE}/p/48/${stem}.dat`, `${LDRAW_BASE}/UnOfficial/p/${key}.dat`);
-    else
-      paths.push(`${LDRAW_BASE}/p/${key}.dat`, `${LDRAW_BASE}/UnOfficial/p/${key}.dat`);
-  } else if (looksLikePrimitive(stem)) {
-    // Primitive-shaped name → p/ first; the parts/ fallbacks below still run
-    // for the rare part whose number begins like a primitive.
-    paths.push(
-      `${LDRAW_BASE}/p/${stem}.dat`,
-      `${LDRAW_BASE}/UnOfficial/p/${stem}.dat`,
-      `${LDRAW_BASE}/parts/${stem}.dat`,
-      `${LDRAW_BASE}/UnOfficial/parts/${stem}.dat`,
-      // Some Studio-era subparts reference primitives that only exist as
-      // hi-res `48/` variants (e.g. bare `1-12ring14` → p/48/1-12ring14.dat).
-      // The 48/ version is the same shape at finer tessellation — a safe
-      // drop-in that closes those silent geometry holes.
-      `${LDRAW_BASE}/p/48/${stem}.dat`,
-      `${LDRAW_BASE}/UnOfficial/p/48/${stem}.dat`,
-    );
-  }
-  paths.push(
-    `${LDRAW_BASE}/parts/${stem}.dat`,
-    `${LDRAW_BASE}/p/${stem}.dat`,
-    `${LDRAW_BASE}/parts/s/${stem}.dat`,
-    `${LDRAW_BASE}/UnOfficial/parts/${stem}.dat`,
-    `${LDRAW_BASE}/UnOfficial/parts/s/${stem}.dat`,
-    `${LDRAW_BASE}/UnOfficial/p/${stem}.dat`,
-    `${LDRAW_BASE}/UnOfficial/p/48/${stem}.dat`,
-    `${LDRAW_BASE}/models/${stem}.dat`,
-  );
-  // De-duplicate while preserving first-occurrence order.
-  const seen = new Set<string>();
-  const orderedPaths = paths.filter(p => !seen.has(p) && (seen.add(p), true));
+  const orderedPaths = candidateRelPaths(key).map(p => `${LDRAW_BASE}/${p}`);
 
   const promise = (async (): Promise<string | null> => {
     // Persistent cache first: library .dat files are immutable in practice,
