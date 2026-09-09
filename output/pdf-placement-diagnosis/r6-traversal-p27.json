@@ -1,0 +1,63 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r5-contain-v1",
+  "page": 27,
+  "view": 1,
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "mask_source": "whole_scene",
+  "screened_placements": 4142,
+  "reference_targets": 2,
+  "located_reference_poses": 0,
+  "target_classes": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    9
+  ],
+  "candidate_classes": [
+    8
+  ],
+  "bank_colors": [
+    0,
+    1,
+    15,
+    19,
+    29,
+    71,
+    72,
+    191,
+    322
+  ],
+  "classes_shared": [],
+  "priority_is_uninformative": true,
+  "rows": [
+    {
+      "kind": "selected_by_the_run",
+      "placement": 711,
+      "painted": 4579.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 712,
+      "rate_rank": 712
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 2269,
+      "painted": 4506.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 2270,
+      "rate_rank": 2270
+    }
+  ],
+  "median_count_rank": null,
+  "median_rate_rank": null,
+  "truth_used_at_runtime": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Evaluation-only. The bank, screen and camera are the run's own; the reference model supplies the poses to locate and selects nothing. No runtime code is changed by this measurement.",
+  "limitations": "Ranks are over the screened bank for this page and view only. A better rank is a necessary condition for the traversal to reach a pose, not a proof that the search would then keep it, because the traversal is over combinations and this ranks single placements."
+}

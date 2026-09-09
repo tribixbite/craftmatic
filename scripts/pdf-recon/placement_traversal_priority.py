@@ -151,6 +151,16 @@ def main():
                 selected_indices.append(index)
 
     watched = sorted(set(reference_indices.values()) | set(selected_indices))
+    # What the drawing actually says where a candidate paints. A zero agreement
+    # can mean the piece is not drawn there, or that the drawing's colour at
+    # those pixels was classified as a different palette entry; the histogram
+    # separates the two, and 0 stands for "no confident class".
+    target_array = np.asarray(bank['target'])
+    footprint = {}
+    for index in watched:
+        painted_mask = np.asarray(bank['labels'][index]) > 0
+        values, counts = np.unique(target_array[painted_mask], return_counts=True)
+        footprint[index] = {int(v): int(c) for v, c in zip(values, counts)}
     count_rank = ranks_of(agreement, watched)
     rate_rank = ranks_of(rate, watched)
     rows = []
@@ -158,16 +168,33 @@ def main():
         rows.append(dict(kind='reference', truth_index=truth_index, placement=index,
                          painted=float(painted[index]), agreement=float(agreement[index]),
                          rate=float(rate[index]), count_rank=count_rank[index],
-                         rate_rank=rate_rank[index]))
+                         rate_rank=rate_rank[index],
+                         drawing_classes_under_footprint=footprint[index]))
     for index in selected_indices:
         rows.append(dict(kind='selected_by_the_run', placement=index,
                          painted=float(painted[index]), agreement=float(agreement[index]),
                          rate=float(rate[index]), count_rank=count_rank[index],
-                         rate_rank=rate_rank[index]))
+                         rate_rank=rate_rank[index],
+                         drawing_classes_under_footprint=footprint[index]))
+    # Why an agreement can be zero for the whole bank. If no class a candidate
+    # paints appears in the coarse target at all, the priority carries no
+    # information and the traversal order on that page is arbitrary - a
+    # different failure from a candidate that agrees badly, and invisible to any
+    # comparison of two rankings because both are equally uninformative.
+    target = np.asarray(bank['target'])
+    target_classes = sorted(int(v) for v in np.unique(target) if v > 0)
+    candidate_classes = sorted({int(v) for i in range(len(bank['labels']))
+                                for v in np.unique(np.asarray(bank['labels'][i])) if v > 0})
     reference_rows = [row for row in rows if row['kind'] == 'reference']
     record = dict(run=str(args.run), page=args.page, view=view, truth=args.truth,
                   mask_source=mask_source, screened_placements=len(placements),
                   reference_targets=len(targets), located_reference_poses=len(reference_indices),
+                  target_classes=target_classes, candidate_classes=candidate_classes,
+                  # 1-based indices into this list, so a class number can be read
+                  # back as the LDraw colour it stands for.
+                  bank_colors=[int(c) for c in bank['metadata']['colors']],
+                  classes_shared=sorted(set(target_classes) & set(candidate_classes)),
+                  priority_is_uninformative=not (set(target_classes) & set(candidate_classes)),
                   rows=rows,
                   median_count_rank=(float(np.median([r['count_rank'] for r in reference_rows]))
                                      if reference_rows else None),
@@ -185,6 +212,10 @@ def main():
     args.out.write_text(json.dumps(record, indent=2))
     print(f'screened {len(placements)} placements, located {len(reference_indices)} of '
           f'{len(targets)} reference poses')
+    palette = [int(c) for c in bank['metadata']['colors']]
+    named = lambda ks: [f'{k}={palette[k - 1]}' for k in ks]
+    print(f'target classes {named(target_classes)}, candidate classes '
+          f'{named(candidate_classes)}, shared {named(sorted(set(target_classes) & set(candidate_classes)))}')
     print(f"{'kind':<20} {'painted':>8} {'agree':>8} {'rate':>7} {'count#':>7} {'rate#':>7}")
     for row in rows:
         print(f"{row['kind']:<20} {row['painted']:>8.0f} {row['agreement']:>8.0f} "

@@ -2499,3 +2499,51 @@ experiment.
   guard intends; a changed option, a changed page scope and a checkpoint without
   hashes are still refused, and now tested. The resumed run carries pages 16-19
   forward unchanged.
+
+### Pages 26 and 27 allocate a colour their drawings do not contain
+
+The zero agreement on page 26 is not a near-miss and not a classifier confusing
+two similar colours. Reading the palette back by index:
+
+| page | bank palette | target classes present | candidate classes |
+| ---: | --- | --- | --- |
+| 25 | 0 1 15 19 29 71 72 322 | all eight | 15 |
+| **26** | 0 1 15 19 29 71 72 **191** 322 | everything **except 191** | **191** |
+| **27** | 0 1 15 19 29 71 72 **191** 322 | everything **except 191** | **191** |
+| 30 | 0 1 15 19 29 71 72 191 322 | everything except 191 | 0, 1 |
+
+191 is bright light orange and 322 is medium azure — nowhere near each other, so
+this is not a nearest-colour collision. 191 enters the palette only on the pages
+whose candidates carry it, and on those pages **not one drawing pixel is
+classified as it**.
+
+What the drawing says underneath the *correct* poses settles it. Page 26's three
+locatable reference poses paint 2,029-2,040 px each, and the classes beneath
+them are white, black, 71 and 72 — never 191:
+
+| pose | painted | drawing classes under the footprint |
+| --- | ---: | --- |
+| reference | 2,040 | 15: 1421, 0: 289, 71: 130, 72: 81, 19: 23, none: 96 |
+| reference | 2,029 | 15: 626, 0: 552, 71: 170, 72: 126, none: 555 |
+| reference | 2,030 | 0: 414, 15: 207, 71: 137, 72: 87, none: 1185 |
+| selected | 2,308 | 1: 2029, 19: 83, 29: 27, none: 140 |
+| selected | 2,277 | 19: 2032, none: 244 |
+
+So the page's four bright-light-orange plates are **not visible in its drawing at
+all**, and the coarse composite is blind to them by construction: a candidate
+painting a class the target does not contain adds nothing to `correct` and
+nothing to `false`. Every one of page 26's 1,926 candidates and page 27's 4,142
+scores exactly zero, the traversal order there is arbitrary, and between them the
+two pages hold **7 reference targets and place 0**.
+
+This is the sharpest form of the visibility class the round was briefed on — not
+"the piece paints few pixels" but "the piece's colour is absent from the
+drawing" — and it is exactly what `placement_undrawn_pieces` was built for in
+round five. **That rule reported withholding nothing on all thirteen of 40377's
+pages, at a smallest drawn share of 2.139.** The two measurements disagree and
+which is right is not settled here: they may classify colour differently, or the
+rule's drawn-share denominator may not be the quantity this measures. Reconciling
+them is the first thing to do on these two pages, because if the drawing really
+contains no 191, then withholding those pieces from the image-judged search — the
+mechanism round five already built and shipped opt-in — is the correct handling
+and it is not firing.

@@ -7,6 +7,23 @@
   "screened_placements": 2637,
   "reference_targets": 6,
   "located_reference_poses": 6,
+  "target_classes": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "candidate_classes": [
+    3
+  ],
+  "classes_shared": [
+    3
+  ],
+  "priority_is_uninformative": false,
   "rows": [
     {
       "kind": "reference",
