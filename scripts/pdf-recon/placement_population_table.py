@@ -131,12 +131,19 @@ def page_scorer(step):
                 registration_source=accepted.get('registration_source'))
 
 
-def measure_page(run, page, truth, library, symmetries, render=True):
-    """Reference targets of one driven page, with bank presence and visibility."""
+def measure_page(step, truth, library, symmetries, render=True):
+    """Reference targets of one driven page, with bank presence and visibility.
+
+    `step` is the step DIRECTORY, taken from the journal's own recorded placement
+    path rather than rebuilt from the page number: a page the main pass refused
+    for want of a camera and the retry pass then placed lives in
+    `page-NNN-retry-K`, so deriving the directory from `page-{n:03d}` reports it
+    missing and the whole table fails. 41601 page 15 is such a page.
+    """
     from placement_diagnose_bank_recall import bank_recall
     from placement_diagnose_alias_poses import canonicalize
     from pose_score import read_parts
-    step = Path(run) / f'page-{page:03d}'
+    step = Path(step)
     registry = json.loads((step / 'registry-00.json').read_text())
     if registry.get('truth_used') is not False or registry.get('runtime_vlm_calls') != 0:
         raise ValueError('Registry provenance lacks truth-free zero-VLM attestation')
@@ -214,7 +221,8 @@ def build(run, truth_path, allocation_run, render=True, visibility_ratio=0.25):
 
     targets, pages, control = {}, [], []
     for step in placed:
-        recall, rows, context = measure_page(run, step['page'], truth, library, symmetries, render)
+        recall, rows, context = measure_page(Path(step['placement']).parent, truth, library,
+                                             symmetries, render)
         for row in rows:
             row['page'] = step['page']
             # The false-positive control for the visibility class: a reference
