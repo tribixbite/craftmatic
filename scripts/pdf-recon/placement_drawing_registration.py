@@ -59,8 +59,9 @@ def propagate(previous_mask, current_mask, projection, origin,
 
     Returns a record whose `hypotheses` are in the shape
     `placement_origin_refine.refine` consumes - `projection`, `origin`, `score`
-    and `rotation_index` - ordered by the silhouette agreement of the alignment
-    that produced them. The record always says why it produced none.
+    and `rotation_index`. The best-agreement scale comes first and the unit
+    scale, meaning an unchanged camera, is always offered beside it. The record
+    always says why it produced none.
     """
     if keep < 1 or int(keep) != keep:
         raise ValueError('Keep count must be a positive integer')
@@ -82,8 +83,16 @@ def propagate(previous_mask, current_mask, projection, origin,
                       'two drawings are not the same assembly at the same viewpoint', fit=fit)
     # Every ladder entry is a legitimate proposal; the optimum can be a hair
     # above its neighbour and containment is a stronger test than IoU. Keep the
-    # best few distinct scales rather than only the argmax.
-    ladder = sorted(fit['ladder'], key=lambda row: -row['iou'])[:int(keep)]
+    # best few distinct scales rather than only the argmax - and always keep the
+    # unit-scale row alongside the argmax, because the later drawing also holds
+    # the pieces the step adds, so the IoU optimum is biased above the true
+    # camera ratio: measured on 40377, drawing 15 to 16 optimises at 1.03 while
+    # both pages' own stud rows measure the same scale to within 1%.
+    by_iou = sorted(fit['ladder'], key=lambda row: -row['iou'])
+    unit = min(fit['ladder'], key=lambda row: abs(row['scale'] - 1.0))
+    ordered = [by_iou[0]] + ([unit] if unit is not by_iou[0] else [])
+    ordered += [row for row in by_iou if row is not by_iou[0] and row is not unit]
+    ladder = ordered[:int(keep)]
     hypotheses = []
     for row in ladder:
         scale = float(row['scale'])

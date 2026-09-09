@@ -96,6 +96,20 @@ def test_the_body_is_never_consulted_and_bad_input_is_refused():
         raise AssertionError(f'Invalid input {bad} must be refused')
 
 
+def test_the_unit_scale_is_offered_beside_a_growth_biased_optimum():
+    """A drawing grown by new pieces optimises above the true camera ratio, so
+    an unchanged camera must stay on the table."""
+    origin = np.array([55., 65.])
+    previous = draw(WORLD, PROJECTION, origin, (220, 240))
+    current = draw(np.vstack([WORLD, EXTRA]), PROJECTION, origin, (220, 240))
+    result = propagate(previous, current, PROJECTION, origin, keep=2)
+    scales = [row['drawing_scale'] for row in result['hypotheses']]
+    assert 1.0 in scales, scales
+    assert len(set(scales)) == 2, scales
+    unit = next(row for row in result['hypotheses'] if row['drawing_scale'] == 1.0)
+    assert np.allclose(unit['projection'], PROJECTION)
+
+
 def test_keeping_more_of_the_ladder_returns_ordered_alternatives():
     origin = np.array([60., 70.])
     previous = draw(WORLD, PROJECTION, origin, (220, 240))
@@ -103,7 +117,10 @@ def test_keeping_more_of_the_ladder_returns_ordered_alternatives():
     result = propagate(previous, current, PROJECTION, origin, keep=3)
     assert len(result['hypotheses']) == 3
     scores = [row['score'] for row in result['hypotheses']]
-    assert scores == sorted(scores, reverse=True)
+    # The contract is that the best agreement leads; the unit scale is inserted
+    # next whatever its agreement, and the remainder follow by agreement.
+    assert scores[0] == max(scores)
+    assert scores[2:] == sorted(scores[2:], reverse=True)
     assert result['min_iou'] == MIN_IOU
     assert result['truth_used'] is False and result['runtime_vlm_calls'] == 0
 
