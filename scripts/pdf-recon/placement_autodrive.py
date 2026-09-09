@@ -35,6 +35,15 @@ page has supplied one. Every page is in the same PDF, so none of this is new
 information; each is a proposal that registration and containment still have to
 accept, and where a matrix came from is recorded.
 
+Every one of those proposals is still *chosen* by rendering the emitted body and
+template-matching it, so a body carrying a wrong part registers worse and the
+error compounds forwards - measured on page index 18, which rejected the carried
+camera because the body overflowed the drawing by 4,007 pixels. With
+`--drawing-registration` the camera and origin are instead propagated from the
+previous page's accepted registration through the similarity that aligns the two
+*drawings* (`placement_drawing_registration`), which the body takes no part in.
+The body still supplies containment, collision and scoring.
+
 The journal is written atomically and `--resume` re-verifies the PDF, the
 allocation, the starting body and every completed checkpoint before skipping a
 contiguous completed prefix.
@@ -157,8 +166,8 @@ def attach_pending(pdf, page, base_model, step_dir, options, pending, kind_evide
                   tested_views=report.get('tested_views'),
                   seconds=time.perf_counter() - started)
     if not (placement / 'model.ldr').is_file():
-        return 'attachment_failed', detail, None, (), None
-    return 'placed', detail, placement, (), None
+        return 'attachment_failed', detail, None, (), None, None
+    return 'placed', detail, placement, (), None, None
 
 
 def prescan_cameras(pdf, allocation_run, pages, base, out):
@@ -222,8 +231,8 @@ def largest_drawing(pdf, page, palette):
 
 def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_matrices=(),
                prior_scale=None, pending=None, prior_body_area=0, prescan=None,
-               pieces_override=None, prior_page=None):
-    """Return (status, detail, placement_dir_or_None, matrices, scale) for one page.
+               pieces_override=None, prior_page=None, prior_registration=None):
+    """Return (status, detail, placement_dir, matrices, scale, registration) for one page.
 
     Several drawings on a page can be non-panel scenes: a subassembly beside
     the body, or a second view of it. Layout cannot rank them, so each is tried
@@ -234,12 +243,20 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     construction uses this: one allocated piece becomes the body the page is
     registered against, and the rest are the pieces to place. The provenance the
     real allocation carries is preserved and the override is recorded.
+
+    `prior_registration` is the previous page's accepted registration together
+    with the target mask it was accepted against. With `--drawing-registration`
+    the page's camera and origin are propagated through the measured similarity
+    between the two drawings instead of being template-matched against the
+    emitted body, so a body carrying a wrong part can no longer take the camera
+    down with it. The returned sixth value is this page's own such record.
     """
     from placement_arrow_contacts import read_items
     from placement_arrow_mask import conservative_components
     from placement_body_registration import register
     from placement_camera_gate import (UNEXPLAINED_MAX, SCALE_TOLERANCE, addable_area,
                                        gate as camera_gate)
+    from placement_drawing_registration import propagate
     from placement_drawing_scale import align, scaled_matrices
     from placement_evidence_closure import rank_parents
     from placement_exploded_page import detached_pieces, withhold
@@ -275,9 +292,9 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         if not pieces:
             return ('no_allocation', dict(reason='Page adds no allocated piece and exposes no '
                                                  'drawing to attach a pending body against'),
-                    None, (), None)
+                    None, (), None, None)
         return ('camera_unsupported', dict(reason=camera['status'],
-                                           scene_kinds=camera.get('scene_kinds')), None, (), None)
+                                           scene_kinds=camera.get('scene_kinds')), None, (), None, None)
 
     # What kind of step is this? A drawing that shows the current assembly
     # cannot be much smaller than that assembly's own silhouette, so the page
@@ -313,13 +330,13 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     if kind == 'no_allocation':
         return ('no_allocation', dict(reason='Page adds no allocated piece and no subassembly is '
                                              'pending', kind_evidence=kind_evidence),
-                None, (), None)
+                None, (), None, None)
     if kind == 'subassembly':
         return ('subassembly_page',
                 dict(reason='The page draws no view of the current assembly, so it builds a '
                             'separate body; construction of a body from nothing is not '
                             'implemented in the driver',
-                     kind_evidence=kind_evidence), None, (), None)
+                     kind_evidence=kind_evidence), None, (), None, None)
 
     # Base-attached enumeration depends only on the body and the allocation, so
     # it is done once; closure is per drawing because in evidence mode the
@@ -331,7 +348,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     if not seed.poses:
         return ('no_candidate_poses', dict(reason='No collision-free connector mate for any '
                                                   'allocated shape on the existing body'),
-                None, (), None)
+                None, (), None, None)
     evidence_mode = options.get('closure_mode', 'bank') == 'evidence'
     bank = None
     if not evidence_mode:
@@ -369,6 +386,20 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                                            for other in own)]
         rescaled = (scale_prior_matrices(own, prior_scale) if options.get('scale_prior', True)
                     else [])
+        # The drawing has to be read before it can be measured against the
+        # previous page's, so the target mask is settled first: which pixels the
+        # page asks to explain is the same decision every later stage uses.
+        with pymupdf.open(pdf) as doc:
+            scene = next(s for s in scene_images(doc, doc[page]) if s['xref'] == xref)
+        drawing = scene
+        arrows = conservative_components(scene, protected_colors=palette['rgb'])['arrows']
+        if scene_record.get('mask_source') == 'largest_component':
+            # A piece drawn detached above the assembly is not in the body yet.
+            # Leaving it in the target makes its pixels permanently unexplained,
+            # which both drags the registration off the body and collapses the
+            # score. Restricting the target to the body's own image component
+            # scores the assembly against the assembly.
+            scene = restrict_to_body_component(scene, [], palette)
         # The drawings settle the scale without the body. Consecutive pages draw
         # the same assembly plus a few pieces, so the similarity aligning the
         # previous drawing onto this one is measurable from PDF pixels alone -
@@ -388,26 +419,48 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                                              previous_page=prior_page, page=page, xref=xref,
                                              ladder=drawing_fit['ladder']), indent=2))
         matrices = own + carried + rescaled + measured
-        if not matrices:
+        # Registration through the drawings rather than through the body. The
+        # previous page's accepted registration, composed with the similarity
+        # that aligns its drawing onto this one, is a camera *and* an origin that
+        # the emitted assembly took no part in choosing - so a body carrying a
+        # wrong part cannot destroy this page's camera the way it destroyed page
+        # index 18's in round three.
+        drawing_mode = options.get('drawing_registration', 'off')
+        propagated, propagation = [], None
+        if drawing_mode != 'off' and prior_registration is not None:
+            propagation = propagate(prior_registration['mask'], scene['mask'],
+                                    prior_registration['projection'], prior_registration['origin'],
+                                    keep=options.get('drawing_registration_keep', 2),
+                                    min_iou=options.get('drawing_registration_min_iou', 0.6),
+                                    rotation_index=prior_registration.get('rotation_index'))
+            propagated = propagation['hypotheses']
+            write_atomic(step_dir / f'drawing-registration-{order:02d}.json',
+                         json.dumps(dict({k: v for k, v in propagation.items() if k != 'ladder'},
+                                         page=page, xref=xref,
+                                         previous_page=prior_registration.get('page'),
+                                         previous_source=prior_registration.get('source'),
+                                         ladder=propagation.get('ladder')), indent=2))
+        if drawing_mode == 'only' and not propagated:
+            attempts.append(dict(xref=xref, status='no_drawing_registration',
+                                 reason=(propagation or {}).get(
+                                     'reason', 'No previous accepted registration to propagate')))
+            continue
+        if not matrices and not propagated:
             attempts.append(dict(xref=xref, status='no_camera_hypothesis'))
             continue
-        with pymupdf.open(pdf) as doc:
-            scene = next(s for s in scene_images(doc, doc[page]) if s['xref'] == xref)
-        drawing = scene
-        arrows = conservative_components(scene, protected_colors=palette['rgb'])['arrows']
-        if scene_record.get('mask_source') == 'largest_component':
-            # A piece drawn detached above the assembly is not in the body yet.
-            # Leaving it in the target makes its pixels permanently unexplained,
-            # which both drags the registration off the body and collapses the
-            # score. Restricting the target to the body's own image component
-            # scores the assembly against the assembly.
-            scene = restrict_to_body_component(scene, [], palette)
         hypotheses = []
-        for index, matrix in enumerate(matrices):
-            registered = register(scene, base, matrix, stable_colors=tuple(stable))
-            for row in registered['hypotheses'][:options['per_matrix']]:
-                hypotheses.append(dict(row, matrix_index=index))
-        hypotheses.sort(key=lambda r: -r['score'])
+        if drawing_mode != 'only':
+            for index, matrix in enumerate(matrices):
+                registered = register(scene, base, matrix, stable_colors=tuple(stable))
+                for row in registered['hypotheses'][:options['per_matrix']]:
+                    hypotheses.append(dict(row, matrix_index=index))
+            hypotheses.sort(key=lambda r: -r['score'])
+        # Propagated registrations come first so containment refines them first
+        # and a body-template alternative is only reached when every propagated
+        # one fails. Their scores are silhouette agreements, not the template
+        # precisions the body hypotheses carry, so the two are never compared as
+        # numbers - the ordering is the policy and it is recorded.
+        hypotheses = propagated + hypotheses
         write_atomic(step_dir / f'registration-{order:02d}.json',
                      json.dumps(dict(hypotheses=hypotheses, stable_colors=stable, page=page,
                                      xref=xref, reused_prior_camera=reused, pdf=str(pdf),
@@ -419,6 +472,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                                      carried_prior_matrices=len(carried),
                                      borrowed_camera_page=borrowed_from,
                                      matrix_scales=[projection_scale(m) for m in matrices],
+                                     drawing_registration=drawing_mode,
+                                     drawing_registration_hypotheses=len(propagated),
                                      pdf_sha256=provenance['pdf_sha256'], base=str(base_model),
                                      base_sha256=file_hash(base_model),
                                      camera_matrices=len(matrices), truth_used=False,
@@ -428,9 +483,24 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                            window=options['window'], tolerance=options['tolerance'],
                            fraction=options['fraction'], fallback=options['fallback'],
                            screen_fn=screen, scales=tuple(options.get('scales') or (1.0,)))
+        if propagated:
+            # `refine` orders what it retains by template score, which a
+            # propagated registration does not have and must not be judged by.
+            # Keep every propagated survivor ahead of every body-template one,
+            # each group in its own order.
+            contained['hypotheses'].sort(
+                key=lambda row: (row['source_index'] >= len(propagated),
+                                 -(row['template_score'] if row['template_score'] is not None
+                                   else 0.0)))
+            for row in contained['hypotheses']:
+                row['registration_source'] = ('drawing_to_drawing'
+                                              if row['source_index'] < len(propagated)
+                                              else 'body_template')
         contained.update(page=page, xref=xref, pdf=str(pdf),
                          pdf_sha256=provenance['pdf_sha256'], base=str(base_model),
-                         base_sha256=file_hash(base_model), reused_prior_camera=reused)
+                         base_sha256=file_hash(base_model), reused_prior_camera=reused,
+                         drawing_registration=drawing_mode,
+                         drawing_registration_hypotheses=len(propagated))
         write_atomic(step_dir / f'registration-refined-{order:02d}.json',
                      json.dumps(contained, indent=2))
         if not contained['hypotheses']:
@@ -464,6 +534,11 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         contained['hypotheses'] = accepted
         contained['camera_gate'] = {key: value for key, value in gate_record.items()
                                     if key != 'verdicts'}
+        accepted_registration = dict(
+            accepted[0], registration_source=accepted[0].get('registration_source',
+                                                             'body_template'),
+            drawing_iou=(propagated[accepted[0]['source_index']]['drawing_iou']
+                         if propagated and accepted[0]['source_index'] < len(propagated) else None))
         write_atomic(step_dir / f'registration-refined-{order:02d}.json',
                      json.dumps(contained, indent=2))
         # Does this drawing show one of the page's own new pieces detached?
@@ -556,14 +631,24 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                       exploded_reason=exploded.get('reason'),
                       drawing_scale=drawing_fit and drawing_fit['scale'],
                       drawing_scale_iou=drawing_fit and drawing_fit['iou'],
+                      registration_source=accepted_registration['registration_source'],
+                      drawing_registration_iou=accepted_registration.get('drawing_iou'),
                       arrow_attachment=result['results'][0].get('arrow_attachment'),
                       containment_fallback=contained['containment_fallback_used'],
                       attempts=attempts, scale_prior_px_per_ldu=prior_scale,
                       camera_scale_px_per_ldu=projection_scale(
                           contained['hypotheses'][0]['projection']),
                       score=result['results'][0]['evidence']['score'])
+        # What the next page propagates from: the registration this page's
+        # search actually used, and the exact target mask it was accepted
+        # against.
+        carry = dict(mask=np.asarray(scene['mask'], bool),
+                     projection=accepted_registration['projection'],
+                     origin=accepted_registration['origin'],
+                     rotation_index=accepted_registration.get('rotation_index'),
+                     page=page, xref=xref, source=str(placement))
         return ('placed', detail, placement, matrices,
-                projection_scale(contained['hypotheses'][0]['projection']))
+                projection_scale(contained['hypotheses'][0]['projection']), carry)
     # Say which of the three the page actually failed. A camera the acceptance
     # test refused is not the same event as a camera that could not be
     # registered at all, and a journal that calls both 'no_contained
@@ -577,7 +662,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         status = 'no_contained_registration'
     return (status,
             dict(reason='No page drawing produced a usable registration', attempts=attempts),
-            None, (), None)
+            None, (), None, None)
 
 
 def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_on_unsupported=True):
@@ -631,6 +716,18 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
     # lets the driver schedule its attachment on the page that asks for it
     # instead of the attachment being issued by hand.
     pending, prior_body_area = options.get('pending_body'), 0
+    # The scope's first page has no page before it in this run, but the
+    # checkpoint it starts from recorded its own accepted registration and the
+    # drawing it was accepted against, so drawing-to-drawing propagation works
+    # from the very first driven page rather than needing one body-registered
+    # page to prime it.
+    prior_registration = None
+    if options.get('drawing_registration', 'off') != 'off':
+        from placement_drawing_registration import registration_of_run
+        prior_registration, why = registration_of_run(base_run)
+        record['drawing_registration_seed'] = (
+            dict(page=prior_registration['page'], source=prior_registration['source'])
+            if prior_registration else dict(unavailable=why))
     prescan = (prescan_cameras(pdf, allocation_run, pages, read_items(base_model),
                                out / 'camera-prescan')
                if options.get('camera_prescan') else None)
@@ -647,12 +744,15 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
             attempt += 1
             step_dir = out / f'page-{page:03d}-attempt-{attempt}'
         try:
-            status, detail, placement, matrices, scale = place_page(
+            status, detail, placement, matrices, scale, registration = place_page(
                 pdf, page, allocation_run, current, step_dir, options, prior_matrices, prior_scale,
-                pending, prior_body_area, prescan, prior_page=prior_page)
+                pending, prior_body_area, prescan, prior_page=prior_page,
+                prior_registration=prior_registration)
             if status == 'placed':
                 # The page whose drawing this one is measured against next.
                 prior_page = page
+            if registration is not None:
+                prior_registration = registration
             if status == 'placed' and (detail or {}).get('kind') != 'attachment':
                 kind_file = step_dir / 'page-kind.json'
                 if kind_file.is_file():
@@ -700,11 +800,14 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
         for page in deferred:
             step_dir = out / f'page-{page:03d}-retry-{attempt_pass}'
             try:
-                status, detail, placement, matrices, scale = place_page(
+                status, detail, placement, matrices, scale, registration = place_page(
                     pdf, page, allocation_run, current, step_dir, options, prior_matrices,
-                    prior_scale, pending, prior_body_area, prescan, prior_page=prior_page)
+                    prior_scale, pending, prior_body_area, prescan, prior_page=prior_page,
+                    prior_registration=prior_registration)
                 if status == 'placed':
                     prior_page = page
+                if registration is not None:
+                    prior_registration = registration
                 if matrices:
                     prior_matrices = matrices
                 if scale:
@@ -783,6 +886,17 @@ def add_page_options(parser):
     parser.add_argument('--no-drawing-scale', action='store_true',
                         help="Do not measure the scale between the previous page's drawing and "
                              "this one, nor use it to rescale carried cameras")
+    parser.add_argument('--drawing-registration', choices=('off', 'prefer', 'only'), default='off',
+                        help="Register this page by propagating the previous page's accepted "
+                             'registration through the measured similarity between the two '
+                             'drawings, so the emitted body cannot destroy the camera. '
+                             "'prefer' keeps body-template registration as a fallback; 'only' "
+                             'refuses the drawing rather than falling back')
+    parser.add_argument('--drawing-registration-keep', type=int, default=2,
+                        help='How many of the alignment ladder’s best scales to propagate')
+    parser.add_argument('--drawing-registration-min-iou', type=float, default=0.6,
+                        help='Silhouette agreement below which the two drawings are not treated '
+                             'as the same assembly at the same viewpoint')
     parser.add_argument('--no-exploded-target', action='store_true',
                         help='Score every allocated piece against the drawing even when the page '
                              'draws one of them detached; reproduces the round-two objective')
@@ -828,6 +942,9 @@ def build_options(args):
                 scale_prior=not args.no_scale_prior, retry_passes=args.retry_passes,
                 exploded_target=not args.no_exploded_target,
                 drawing_scale=not args.no_drawing_scale,
+                drawing_registration=args.drawing_registration,
+                drawing_registration_keep=args.drawing_registration_keep,
+                drawing_registration_min_iou=args.drawing_registration_min_iou,
                 local_rerank=args.local_rerank,
                 camera_gate=args.camera_gate,
                 camera_unexplained_max=(args.camera_unexplained_max

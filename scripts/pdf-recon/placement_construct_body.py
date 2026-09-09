@@ -97,7 +97,7 @@ def construct(pdf, page, allocation_run, out, options, roots=2, prescan_pages=()
         remainder.remove(root)
         started = time.perf_counter()
         try:
-            status, detail, placement, _, scale = place_page(
+            status, detail, placement, _, scale, _registration = place_page(
                 pdf, page, allocation_run, attempt / 'model.ldr', attempt / 'page',
                 options, prescan=prescan, pieces_override=remainder)
         except Exception as error:                                  # noqa: BLE001
