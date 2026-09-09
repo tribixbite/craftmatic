@@ -1,0 +1,2929 @@
+{
+  "run": "output\\pdf-placement-beam\\41624-r5-full-scope",
+  "truth": "C:/git/clego/lego_sets/OMR/41624-1.mpd",
+  "allocation_run": "output\\pdf-placement-diagnosis\\41624-element-bridge",
+  "truth_parts": 109,
+  "emitted": 75,
+  "correct": 5,
+  "coverage": 0.045871559633027525,
+  "precision": 0.06666666666666667,
+  "global_alignment": {
+    "rotation": [
+      [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        1.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "translation": [
+      0.0,
+      -56.0,
+      0.0
+    ]
+  },
+  "classes": {
+    "mis_selected": 13,
+    "out_of_scope": 18,
+    "visibility_limited": 3,
+    "unreachable": 60,
+    "allocation_blocked": 10
+  },
+  "bank_visibility_cross_tab": {
+    "bank=True visible=True": 14,
+    "bank=False visible=False": 32,
+    "bank=False visible=True": 28,
+    "bank=True visible=False": 2
+  },
+  "visibility_ratio": 0.25,
+  "absolute_visibility_floor": 200,
+  "correctly_placed_control": [
+    {
+      "page": 4,
+      "part": "3005",
+      "color": 4,
+      "present_in_bank": true,
+      "painted_against_complete_reference": 0,
+      "painted_against_our_body": 780
+    },
+    {
+      "page": 4,
+      "part": "3004",
+      "color": 2,
+      "present_in_bank": true,
+      "painted_against_complete_reference": 0,
+      "painted_against_our_body": 1493
+    }
+  ],
+  "correctly_placed_painted": [
+    780,
+    1493
+  ],
+  "complete_reference_control": {
+    "painted": [
+      0,
+      0
+    ],
+    "applicable": false,
+    "body_fraction_of_model": [
+      0.027522935779816515,
+      0.05504587155963303,
+      0.08256880733944955,
+      0.11926605504587157,
+      0.12844036697247707,
+      0.1559633027522936,
+      0.1926605504587156,
+      0.21100917431192662,
+      0.23853211009174313,
+      0.26605504587155965,
+      0.28440366972477066,
+      0.3119266055045872,
+      0.3302752293577982,
+      0.3486238532110092,
+      0.3669724770642202,
+      0.3853211009174312,
+      0.41284403669724773,
+      0.42201834862385323,
+      0.48623853211009177,
+      0.5137614678899083,
+      0.5321100917431193,
+      0.5596330275229358,
+      0.5779816513761468,
+      0.5871559633027523,
+      0.6146788990825688,
+      0.6330275229357798,
+      0.6513761467889908
+    ],
+    "note": "A correctly placed reference instance must itself paint a usable area against the complete reference model for that measurement to separate anything. Where it does not, the finished model buries every addition at the page's own camera and the control is reported as inapplicable."
+  },
+  "pages": [
+    {
+      "page": 3,
+      "status": "placed",
+      "reference_targets": 5,
+      "present_in_bank": 2,
+      "selected_painted": [
+        1344,
+        1287,
+        435
+      ],
+      "base_parts": 3,
+      "additions": [
+        [
+          "3700",
+          4
+        ],
+        [
+          "3700",
+          4
+        ],
+        [
+          "2431",
+          0
+        ]
+      ],
+      "target_pixels": 7123,
+      "mask_source": "whole_scene",
+      "registration_source": "body_template",
+      "bank_poses": 7479
+    },
+    {
+      "page": 4,
+      "status": "placed",
+      "reference_targets": 4,
+      "present_in_bank": 3,
+      "selected_painted": [
+        1493,
+        657,
+        780
+      ],
+      "base_parts": 6,
+      "additions": [
+        [
+          "3004",
+          2
+        ],
+        [
+          "3005",
+          4
+        ],
+        [
+          "3005",
+          4
+        ]
+      ],
+      "target_pixels": 7524,
+      "mask_source": "largest_component",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 1654
+    },
+    {
+      "page": 5,
+      "status": "placed",
+      "reference_targets": 10,
+      "present_in_bank": 4,
+      "selected_painted": [
+        2223,
+        2240,
+        2088,
+        1734
+      ],
+      "base_parts": 9,
+      "additions": [
+        [
+          "22885",
+          71
+        ],
+        [
+          "22885",
+          71
+        ],
+        [
+          "3010",
+          0
+        ],
+        [
+          "3010pzt",
+          4
+        ]
+      ],
+      "target_pixels": 11222,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    },
+    {
+      "page": 6,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 2,
+      "selected_painted": [
+        2922
+      ],
+      "base_parts": 13,
+      "additions": [
+        [
+          "3010",
+          0
+        ]
+      ],
+      "target_pixels": 11596,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 7174
+    },
+    {
+      "page": 7,
+      "status": "placed",
+      "reference_targets": 7,
+      "present_in_bank": 1,
+      "selected_painted": [
+        1828,
+        1229,
+        472
+      ],
+      "base_parts": 14,
+      "additions": [
+        [
+          "33909",
+          0
+        ],
+        [
+          "33909",
+          0
+        ],
+        [
+          "87079",
+          0
+        ]
+      ],
+      "target_pixels": 12371,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 3471
+    },
+    {
+      "page": 8,
+      "status": "placed",
+      "reference_targets": 7,
+      "present_in_bank": 1,
+      "selected_painted": [
+        938,
+        823,
+        515,
+        0
+      ],
+      "base_parts": 17,
+      "additions": [
+        [
+          "3023b",
+          0
+        ],
+        [
+          "3023b",
+          0
+        ],
+        [
+          "3023b",
+          0
+        ],
+        [
+          "3023b",
+          0
+        ]
+      ],
+      "target_pixels": 12166,
+      "mask_source": "largest_component",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 1483
+    },
+    {
+      "page": 9,
+      "status": "placed",
+      "reference_targets": 3,
+      "present_in_bank": 0,
+      "selected_painted": [
+        51,
+        610
+      ],
+      "base_parts": 21,
+      "additions": [
+        [
+          "87079",
+          0
+        ],
+        [
+          "87079",
+          0
+        ]
+      ],
+      "target_pixels": 13215,
+      "mask_source": "largest_component",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 806
+    },
+    {
+      "page": 10,
+      "status": "placed",
+      "reference_targets": 7,
+      "present_in_bank": 1,
+      "selected_painted": [
+        1150,
+        2303,
+        2485
+      ],
+      "base_parts": 23,
+      "additions": [
+        [
+          "22885",
+          71
+        ],
+        [
+          "22885",
+          71
+        ],
+        [
+          "22885",
+          71
+        ]
+      ],
+      "target_pixels": 16970,
+      "mask_source": "whole_scene",
+      "registration_source": "body_template",
+      "bank_poses": 8192
+    },
+    {
+      "page": 11,
+      "status": "placed",
+      "reference_targets": 5,
+      "present_in_bank": 2,
+      "selected_painted": [
+        1472,
+        922,
+        632
+      ],
+      "base_parts": 26,
+      "additions": [
+        [
+          "3004",
+          2
+        ],
+        [
+          "3023b",
+          19
+        ],
+        [
+          "3023b",
+          19
+        ]
+      ],
+      "target_pixels": 16966,
+      "mask_source": "whole_scene",
+      "registration_source": "body_template",
+      "bank_poses": 4812
+    },
+    {
+      "page": 12,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 0,
+      "selected_painted": [
+        1044,
+        1041
+      ],
+      "base_parts": 29,
+      "additions": [
+        [
+          "32952",
+          4
+        ],
+        [
+          "32952",
+          4
+        ]
+      ],
+      "target_pixels": 16966,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 4670
+    },
+    {
+      "page": 13,
+      "status": "placed",
+      "reference_targets": 10,
+      "present_in_bank": 2,
+      "selected_painted": [
+        1673,
+        1067,
+        909
+      ],
+      "base_parts": 31,
+      "additions": [
+        [
+          "11211",
+          72
+        ],
+        [
+          "3021",
+          0
+        ],
+        [
+          "3023b",
+          19
+        ]
+      ],
+      "target_pixels": 16976,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    },
+    {
+      "page": 14,
+      "status": "placed",
+      "reference_targets": 1,
+      "present_in_bank": 0,
+      "selected_painted": [
+        3082,
+        2904
+      ],
+      "base_parts": 34,
+      "additions": [
+        [
+          "3031",
+          0
+        ],
+        [
+          "3031",
+          0
+        ]
+      ],
+      "target_pixels": 17417,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    },
+    {
+      "page": 15,
+      "status": "placed",
+      "reference_targets": 7,
+      "present_in_bank": 1,
+      "selected_painted": [
+        1807,
+        2582
+      ],
+      "base_parts": 36,
+      "additions": [
+        [
+          "22885",
+          71
+        ],
+        [
+          "22885",
+          71
+        ]
+      ],
+      "target_pixels": 20944,
+      "mask_source": "whole_scene",
+      "registration_source": "body_template",
+      "bank_poses": 8192
+    },
+    {
+      "page": 16,
+      "status": "placed",
+      "reference_targets": 3,
+      "present_in_bank": 0,
+      "selected_painted": [
+        2517,
+        282
+      ],
+      "base_parts": 38,
+      "additions": [
+        [
+          "3003",
+          29
+        ],
+        [
+          "6256",
+          0
+        ]
+      ],
+      "target_pixels": 20948,
+      "mask_source": "whole_scene",
+      "registration_source": "body_template",
+      "bank_poses": 3292
+    },
+    {
+      "page": 19,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 1,
+      "selected_painted": [
+        1617,
+        1376
+      ],
+      "base_parts": 40,
+      "additions": [
+        [
+          "3710",
+          71
+        ],
+        [
+          "3710",
+          71
+        ]
+      ],
+      "target_pixels": 21959,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    },
+    {
+      "page": 20,
+      "status": "placed",
+      "reference_targets": 4,
+      "present_in_bank": 0,
+      "selected_painted": [
+        1192,
+        1711,
+        1279
+      ],
+      "base_parts": 42,
+      "additions": [
+        [
+          "11211",
+          72
+        ],
+        [
+          "11211",
+          72
+        ],
+        [
+          "11211",
+          72
+        ]
+      ],
+      "target_pixels": 22541,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    },
+    {
+      "page": 21,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 0,
+      "selected_painted": [
+        2988
+      ],
+      "base_parts": 45,
+      "additions": [
+        [
+          "3020",
+          0
+        ]
+      ],
+      "target_pixels": 22789,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    },
+    {
+      "page": 23,
+      "status": "placed",
+      "reference_targets": 10,
+      "present_in_bank": 0,
+      "selected_painted": [
+        344,
+        1895,
+        362,
+        271,
+        437,
+        437,
+        1737
+      ],
+      "base_parts": 46,
+      "additions": [
+        [
+          "15573",
+          191
+        ],
+        [
+          "2431",
+          19
+        ],
+        [
+          "25269",
+          19
+        ],
+        [
+          "25269",
+          19
+        ],
+        [
+          "25269",
+          19
+        ],
+        [
+          "25269",
+          19
+        ],
+        [
+          "92593",
+          19
+        ]
+      ],
+      "target_pixels": 23416,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    },
+    {
+      "page": 24,
+      "status": "placed",
+      "reference_targets": 1,
+      "present_in_bank": 0,
+      "selected_painted": [
+        361,
+        357,
+        125
+      ],
+      "base_parts": 53,
+      "additions": [
+        [
+          "6141",
+          0
+        ],
+        [
+          "98138pz0",
+          0
+        ],
+        [
+          "98138pz0",
+          0
+        ]
+      ],
+      "target_pixels": 23584,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 1087
+    },
+    {
+      "page": 25,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 0,
+      "selected_painted": [
+        1140,
+        176
+      ],
+      "base_parts": 56,
+      "additions": [
+        [
+          "6091",
+          19
+        ],
+        [
+          "6091",
+          19
+        ]
+      ],
+      "target_pixels": 23612,
+      "mask_source": "largest_component",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 2014
+    },
+    {
+      "page": 26,
+      "status": "placed",
+      "reference_targets": 7,
+      "present_in_bank": 0,
+      "selected_painted": [
+        1136,
+        172,
+        1251
+      ],
+      "base_parts": 58,
+      "additions": [
+        [
+          "2431",
+          0
+        ],
+        [
+          "3024",
+          19
+        ],
+        [
+          "63864",
+          0
+        ]
+      ],
+      "target_pixels": 24403,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 6365
+    },
+    {
+      "page": 27,
+      "status": "placed",
+      "reference_targets": 4,
+      "present_in_bank": 0,
+      "selected_painted": [
+        1331,
+        519
+      ],
+      "base_parts": 61,
+      "additions": [
+        [
+          "26603",
+          0
+        ],
+        [
+          "3069b",
+          19
+        ]
+      ],
+      "target_pixels": 24406,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 1947
+    },
+    {
+      "page": 30,
+      "status": "placed",
+      "reference_targets": 4,
+      "present_in_bank": 0,
+      "selected_painted": [
+        1383
+      ],
+      "base_parts": 63,
+      "additions": [
+        [
+          "33909",
+          0
+        ]
+      ],
+      "target_pixels": 25095,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 2878
+    },
+    {
+      "page": 36,
+      "status": "placed",
+      "reference_targets": 7,
+      "present_in_bank": 1,
+      "selected_painted": [
+        479,
+        447,
+        659
+      ],
+      "base_parts": 64,
+      "additions": [
+        [
+          "3023b",
+          0
+        ],
+        [
+          "4085b",
+          0
+        ],
+        [
+          "4085b",
+          0
+        ]
+      ],
+      "target_pixels": 28723,
+      "mask_source": "largest_component",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 4653
+    },
+    {
+      "page": 37,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 0,
+      "selected_painted": [
+        865,
+        436
+      ],
+      "base_parts": 67,
+      "additions": [
+        [
+          "93273",
+          0
+        ],
+        [
+          "93273",
+          0
+        ]
+      ],
+      "target_pixels": 29143,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 2946
+    },
+    {
+      "page": 38,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 0,
+      "selected_painted": [
+        1829,
+        1975
+      ],
+      "base_parts": 69,
+      "additions": [
+        [
+          "6256",
+          0
+        ],
+        [
+          "6256",
+          0
+        ]
+      ],
+      "target_pixels": 31584,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 371
+    },
+    {
+      "page": 39,
+      "status": "placed",
+      "reference_targets": 4,
+      "present_in_bank": 0,
+      "selected_painted": [
+        1065,
+        1784,
+        843,
+        1293
+      ],
+      "base_parts": 71,
+      "additions": [
+        [
+          "3020",
+          0
+        ],
+        [
+          "3020",
+          0
+        ],
+        [
+          "3020",
+          0
+        ],
+        [
+          "3022",
+          25
+        ]
+      ],
+      "target_pixels": 37367,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    }
+  ],
+  "rows": [
+    {
+      "truth_index": 3,
+      "part": "3700",
+      "color": 4,
+      "reference_position": [
+        0.0,
+        -80.0,
+        30.0
+      ],
+      "page": 3,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 1511,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1344,
+      "evidence_share_of_drawing": 0.21212972062333288,
+      "pages_allocating": [
+        3
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 4,
+      "part": "2780",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -70.0,
+        20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 5,
+      "part": "3700",
+      "color": 4,
+      "reference_position": [
+        0.0,
+        -80.0,
+        10.0
+      ],
+      "page": 3,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 1449,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1344,
+      "evidence_share_of_drawing": 0.20342552295381158,
+      "pages_allocating": [
+        3
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 6,
+      "part": "3005",
+      "color": 4,
+      "reference_position": [
+        -30.0,
+        -80.0,
+        30.0
+      ],
+      "page": 4,
+      "present_in_bank": true,
+      "bank_hits": 4,
+      "painted_against_our_body": 553,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1493,
+      "evidence_share_of_drawing": 0.07349813928761297,
+      "pages_allocating": [
+        4
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 9,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        -30.0,
+        -104.0,
+        0.0
+      ],
+      "page": 15,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 365,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2582,
+      "evidence_share_of_drawing": 0.01742742551566081,
+      "pages_allocating": [
+        5,
+        10,
+        15
+      ],
+      "primary_class": "visibility_limited"
+    },
+    {
+      "truth_index": 10,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        30.0,
+        -104.0,
+        0.0
+      ],
+      "page": 5,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 2020,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2240,
+      "evidence_share_of_drawing": 0.18000356442701837,
+      "pages_allocating": [
+        5,
+        10,
+        15
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 11,
+      "part": "3010",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -104.0,
+        30.0
+      ],
+      "page": 6,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_our_body": 1205,
+      "painted_against_complete_reference": 51,
+      "rival_painted": 2922,
+      "evidence_share_of_drawing": 0.10391514315281132,
+      "pages_allocating": [
+        5,
+        6
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 12,
+      "part": "3010pzt",
+      "color": 4,
+      "reference_position": [
+        0.0,
+        -80.0,
+        -30.0
+      ],
+      "page": 5,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 2922,
+      "painted_against_complete_reference": 1735,
+      "rival_painted": 2240,
+      "evidence_share_of_drawing": 0.2603813936909642,
+      "pages_allocating": [
+        5
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 13,
+      "part": "3010",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -104.0,
+        -30.0
+      ],
+      "page": 6,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_our_body": 2915,
+      "painted_against_complete_reference": 949,
+      "rival_painted": 2922,
+      "evidence_share_of_drawing": 0.2513797861331494,
+      "pages_allocating": [
+        5,
+        6
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 14,
+      "part": "3941",
+      "color": 14,
+      "reference_position": [
+        0.0,
+        -104.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 15,
+      "part": "3020",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -112.0,
+        20.0
+      ],
+      "page": 39,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1784,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        21,
+        39
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 16,
+      "part": "33909",
+      "color": 0,
+      "reference_position": [
+        -20.0,
+        -112.0,
+        -20.0
+      ],
+      "page": 30,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 6,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1383,
+      "evidence_share_of_drawing": 0.00023909145248057382,
+      "pages_allocating": [
+        7,
+        30
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 17,
+      "part": "33909",
+      "color": 0,
+      "reference_position": [
+        20.0,
+        -112.0,
+        -20.0
+      ],
+      "page": 7,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 1409,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1828,
+      "evidence_share_of_drawing": 0.11389540053350578,
+      "pages_allocating": [
+        7,
+        30
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 18,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        -48.0,
+        -84.0,
+        -10.0
+      ],
+      "page": 36,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 2,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 659,
+      "evidence_share_of_drawing": 6.963060961598719e-05,
+      "pages_allocating": [
+        8,
+        36
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 19,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        -48.0,
+        -84.0,
+        10.0
+      ],
+      "page": 36,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 659,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        8,
+        36
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 20,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        48.0,
+        -84.0,
+        -10.0
+      ],
+      "page": 36,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 318,
+      "rival_painted": 659,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        8,
+        36
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 21,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        48.0,
+        -84.0,
+        10.0
+      ],
+      "page": 36,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 11,
+      "painted_against_complete_reference": 76,
+      "rival_painted": 659,
+      "evidence_share_of_drawing": 0.0003829683528879295,
+      "pages_allocating": [
+        8,
+        36
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 22,
+      "part": "3069b",
+      "color": 0,
+      "reference_position": [
+        -56.0,
+        -94.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 23,
+      "part": "3069b",
+      "color": 0,
+      "reference_position": [
+        56.0,
+        -94.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 24,
+      "part": "11476",
+      "color": 15,
+      "reference_position": [
+        56.0,
+        -74.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 25,
+      "part": "11476",
+      "color": 15,
+      "reference_position": [
+        -56.0,
+        -74.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 26,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        0.0,
+        -152.0,
+        30.0
+      ],
+      "page": 15,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1173,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2582,
+      "evidence_share_of_drawing": 0.056006493506493504,
+      "pages_allocating": [
+        5,
+        10,
+        15
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 27,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        30.0,
+        -152.0,
+        20.0
+      ],
+      "page": 15,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 652,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2582,
+      "evidence_share_of_drawing": 0.03113063407181054,
+      "pages_allocating": [
+        5,
+        10,
+        15
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 28,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        -30.0,
+        -152.0,
+        20.0
+      ],
+      "page": 15,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1853,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2582,
+      "evidence_share_of_drawing": 0.08847402597402597,
+      "pages_allocating": [
+        5,
+        10,
+        15
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 29,
+      "part": "3023b",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -120.0,
+        10.0
+      ],
+      "page": 11,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1472,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        11,
+        13
+      ],
+      "primary_class": "visibility_limited"
+    },
+    {
+      "truth_index": 30,
+      "part": "3023b",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -152.0,
+        10.0
+      ],
+      "page": 11,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_our_body": 489,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1472,
+      "evidence_share_of_drawing": 0.028822350583519982,
+      "pages_allocating": [
+        11,
+        13
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 31,
+      "part": "3004",
+      "color": 2,
+      "reference_position": [
+        0.0,
+        -144.0,
+        10.0
+      ],
+      "page": 11,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 163,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1472,
+      "evidence_share_of_drawing": 0.00960745019450666,
+      "pages_allocating": [
+        4,
+        11
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 32,
+      "part": "32952",
+      "color": 4,
+      "reference_position": [
+        -10.0,
+        -152.0,
+        -10.0
+      ],
+      "page": 12,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 243,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1044,
+      "evidence_share_of_drawing": 0.014322763173405634,
+      "pages_allocating": [
+        12
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 33,
+      "part": "32952",
+      "color": 4,
+      "reference_position": [
+        10.0,
+        -152.0,
+        -10.0
+      ],
+      "page": 12,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1044,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        12
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 34,
+      "part": "99780",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -120.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 35,
+      "part": "3023b",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -128.0,
+        -30.0
+      ],
+      "page": 13,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 175,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1673,
+      "evidence_share_of_drawing": 0.010308671065032988,
+      "pages_allocating": [
+        11,
+        13
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 36,
+      "part": "11211",
+      "color": 72,
+      "reference_position": [
+        0.0,
+        -152.0,
+        -30.0
+      ],
+      "page": 20,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1711,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        13,
+        20
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 37,
+      "part": "3022",
+      "color": 25,
+      "reference_position": [
+        -28.0,
+        -132.0,
+        -20.0
+      ],
+      "page": 39,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1784,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        39
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 38,
+      "part": "3022",
+      "color": 25,
+      "reference_position": [
+        28.0,
+        -132.0,
+        -20.0
+      ],
+      "page": 39,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1784,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        39
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 39,
+      "part": "33909",
+      "color": 0,
+      "reference_position": [
+        36.0,
+        -132.0,
+        -20.0
+      ],
+      "page": 30,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 14,
+      "rival_painted": 1383,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        7,
+        30
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 40,
+      "part": "33909",
+      "color": 0,
+      "reference_position": [
+        -36.0,
+        -132.0,
+        -20.0
+      ],
+      "page": 30,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 6,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1383,
+      "evidence_share_of_drawing": 0.00023909145248057382,
+      "pages_allocating": [
+        7,
+        30
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 41,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        -20.0,
+        -192.0,
+        30.0
+      ],
+      "page": 15,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1357,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2582,
+      "evidence_share_of_drawing": 0.06479182582123759,
+      "pages_allocating": [
+        5,
+        10,
+        15
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 42,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        20.0,
+        -192.0,
+        30.0
+      ],
+      "page": 15,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1969,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2582,
+      "evidence_share_of_drawing": 0.0940126050420168,
+      "pages_allocating": [
+        5,
+        10,
+        15
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 43,
+      "part": "99206",
+      "color": 15,
+      "reference_position": [
+        -30.0,
+        -168.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 44,
+      "part": "99206",
+      "color": 15,
+      "reference_position": [
+        30.0,
+        -168.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 45,
+      "part": "4032a",
+      "color": 72,
+      "reference_position": [
+        0.0,
+        -168.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 46,
+      "part": "3003",
+      "color": 29,
+      "reference_position": [
+        0.0,
+        -192.0,
+        0.0
+      ],
+      "page": 16,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 944,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2517,
+      "evidence_share_of_drawing": 0.04506396792056521,
+      "pages_allocating": [
+        16
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 47,
+      "part": "6231",
+      "color": 0,
+      "reference_position": [
+        30.0,
+        -192.0,
+        10.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          17,
+          "camera_refused"
+        ],
+        [
+          17,
+          "camera_refused"
+        ]
+      ]
+    },
+    {
+      "truth_index": 48,
+      "part": "6231",
+      "color": 0,
+      "reference_position": [
+        -30.0,
+        -192.0,
+        10.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          17,
+          "camera_refused"
+        ],
+        [
+          17,
+          "camera_refused"
+        ]
+      ]
+    },
+    {
+      "truth_index": 49,
+      "part": "2420",
+      "color": 0,
+      "reference_position": [
+        10.0,
+        -200.0,
+        30.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          18,
+          "camera_refused"
+        ],
+        [
+          18,
+          "camera_refused"
+        ]
+      ]
+    },
+    {
+      "truth_index": 50,
+      "part": "2420",
+      "color": 0,
+      "reference_position": [
+        -10.0,
+        -200.0,
+        30.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          18,
+          "camera_refused"
+        ],
+        [
+          18,
+          "camera_refused"
+        ]
+      ]
+    },
+    {
+      "truth_index": 51,
+      "part": "3710",
+      "color": 71,
+      "reference_position": [
+        0.0,
+        -160.0,
+        -30.0
+      ],
+      "page": 19,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 500,
+      "painted_against_complete_reference": 7,
+      "rival_painted": 1617,
+      "evidence_share_of_drawing": 0.022769707181565645,
+      "pages_allocating": [
+        19
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 52,
+      "part": "3710",
+      "color": 71,
+      "reference_position": [
+        0.0,
+        -168.0,
+        -30.0
+      ],
+      "page": 19,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_our_body": 629,
+      "painted_against_complete_reference": 8,
+      "rival_painted": 1617,
+      "evidence_share_of_drawing": 0.028644291634409583,
+      "pages_allocating": [
+        19
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 53,
+      "part": "11211",
+      "color": 72,
+      "reference_position": [
+        -30.0,
+        -192.0,
+        -20.0
+      ],
+      "page": 20,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1503,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1711,
+      "evidence_share_of_drawing": 0.06667849696109313,
+      "pages_allocating": [
+        13,
+        20
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 54,
+      "part": "11211",
+      "color": 72,
+      "reference_position": [
+        0.0,
+        -192.0,
+        -30.0
+      ],
+      "page": 13,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 1055,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1673,
+      "evidence_share_of_drawing": 0.06214655984919887,
+      "pages_allocating": [
+        13,
+        20
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 55,
+      "part": "11211",
+      "color": 72,
+      "reference_position": [
+        30.0,
+        -192.0,
+        -20.0
+      ],
+      "page": 13,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 1196,
+      "painted_against_complete_reference": 14,
+      "rival_painted": 1673,
+      "evidence_share_of_drawing": 0.07045240339302544,
+      "pages_allocating": [
+        13,
+        20
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 56,
+      "part": "3020",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -200.0,
+        -20.0
+      ],
+      "page": 39,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 402,
+      "painted_against_complete_reference": 1780,
+      "rival_painted": 1784,
+      "evidence_share_of_drawing": 0.010758155591832366,
+      "pages_allocating": [
+        21,
+        39
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 57,
+      "part": "3021",
+      "color": 0,
+      "reference_position": [
+        -20.0,
+        -162.0,
+        -48.0
+      ],
+      "page": 13,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 2043,
+      "painted_against_complete_reference": 125,
+      "rival_painted": 1673,
+      "evidence_share_of_drawing": 0.12034637134778511,
+      "pages_allocating": [
+        13
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 58,
+      "part": "3021",
+      "color": 0,
+      "reference_position": [
+        20.0,
+        -162.0,
+        -48.0
+      ],
+      "page": 13,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1930,
+      "painted_against_complete_reference": 749,
+      "rival_painted": 1673,
+      "evidence_share_of_drawing": 0.1136899151743638,
+      "pages_allocating": [
+        13
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 59,
+      "part": "3023b",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -122.0,
+        -52.0
+      ],
+      "page": 13,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 602,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1673,
+      "evidence_share_of_drawing": 0.03546182846371348,
+      "pages_allocating": [
+        11,
+        13
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 60,
+      "part": "2431",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -162.0,
+        -56.0
+      ],
+      "page": 23,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 296,
+      "painted_against_complete_reference": 1475,
+      "rival_painted": 1895,
+      "evidence_share_of_drawing": 0.012640929279125385,
+      "pages_allocating": [
+        23
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 61,
+      "part": "92593",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -142.0,
+        -56.0
+      ],
+      "page": 23,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 637,
+      "painted_against_complete_reference": 907,
+      "rival_painted": 1895,
+      "evidence_share_of_drawing": 0.027203621455415102,
+      "pages_allocating": [
+        23
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 62,
+      "part": "25269",
+      "color": 19,
+      "reference_position": [
+        30.0,
+        -182.0,
+        -56.0
+      ],
+      "page": 23,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 440,
+      "rival_painted": 1895,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        23
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 63,
+      "part": "25269",
+      "color": 19,
+      "reference_position": [
+        -10.0,
+        -182.0,
+        -56.0
+      ],
+      "page": 23,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 52,
+      "painted_against_complete_reference": 426,
+      "rival_painted": 1895,
+      "evidence_share_of_drawing": 0.002220703792278784,
+      "pages_allocating": [
+        23
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 64,
+      "part": "25269",
+      "color": 19,
+      "reference_position": [
+        10.0,
+        -182.0,
+        -56.0
+      ],
+      "page": 23,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 317,
+      "rival_painted": 1895,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        23
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 65,
+      "part": "25269",
+      "color": 19,
+      "reference_position": [
+        -30.0,
+        -182.0,
+        -56.0
+      ],
+      "page": 23,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 253,
+      "painted_against_complete_reference": 306,
+      "rival_painted": 1895,
+      "evidence_share_of_drawing": 0.010804578066279467,
+      "pages_allocating": [
+        23
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 66,
+      "part": "15573",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -122.0,
+        -60.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 67,
+      "part": "98138pz1",
+      "color": 0,
+      "reference_position": [
+        -30.0,
+        -142.0,
+        -64.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 68,
+      "part": "98138pz1",
+      "color": 0,
+      "reference_position": [
+        30.0,
+        -142.0,
+        -64.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 69,
+      "part": "6141",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -122.0,
+        -68.0
+      ],
+      "page": 24,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 372,
+      "rival_painted": 361,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        24
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 70,
+      "part": "6091",
+      "color": 19,
+      "reference_position": [
+        52.0,
+        -122.0,
+        -30.0
+      ],
+      "page": 25,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 185,
+      "painted_against_complete_reference": 937,
+      "rival_painted": 1140,
+      "evidence_share_of_drawing": 0.007834999152973065,
+      "pages_allocating": [
+        25
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 71,
+      "part": "6091",
+      "color": 19,
+      "reference_position": [
+        -52.0,
+        -122.0,
+        -30.0
+      ],
+      "page": 25,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 117,
+      "painted_against_complete_reference": 381,
+      "rival_painted": 1140,
+      "evidence_share_of_drawing": 0.004955107572420803,
+      "pages_allocating": [
+        25
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 72,
+      "part": "3024",
+      "color": 19,
+      "reference_position": [
+        -44.0,
+        -122.0,
+        -10.0
+      ],
+      "page": 26,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1251,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        26
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 73,
+      "part": "63864",
+      "color": 0,
+      "reference_position": [
+        -48.0,
+        -142.0,
+        10.0
+      ],
+      "page": 26,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 543,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1251,
+      "evidence_share_of_drawing": 0.022251362537392943,
+      "pages_allocating": [
+        26
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 74,
+      "part": "2431",
+      "color": 0,
+      "reference_position": [
+        -48.0,
+        -152.0,
+        30.0
+      ],
+      "page": 26,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 441,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1251,
+      "evidence_share_of_drawing": 0.018071548580092613,
+      "pages_allocating": [
+        3,
+        26
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 75,
+      "part": "26603",
+      "color": 0,
+      "reference_position": [
+        -48.0,
+        -162.0,
+        -20.0
+      ],
+      "page": 27,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1340,
+      "painted_against_complete_reference": 128,
+      "rival_painted": 1331,
+      "evidence_share_of_drawing": 0.05490453167253954,
+      "pages_allocating": [
+        27
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 76,
+      "part": "3069b",
+      "color": 19,
+      "reference_position": [
+        -52.0,
+        -122.0,
+        -20.0
+      ],
+      "page": 27,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 5,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1331,
+      "evidence_share_of_drawing": 0.00020486765549455053,
+      "pages_allocating": [
+        27
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 77,
+      "part": "3024",
+      "color": 19,
+      "reference_position": [
+        44.0,
+        -122.0,
+        -10.0
+      ],
+      "page": 26,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 12,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1251,
+      "evidence_share_of_drawing": 0.0004917428185059214,
+      "pages_allocating": [
+        26
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 78,
+      "part": "63864",
+      "color": 0,
+      "reference_position": [
+        48.0,
+        -142.0,
+        10.0
+      ],
+      "page": 26,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 33,
+      "painted_against_complete_reference": 708,
+      "rival_painted": 1251,
+      "evidence_share_of_drawing": 0.0013522927508912838,
+      "pages_allocating": [
+        26
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 79,
+      "part": "2431",
+      "color": 0,
+      "reference_position": [
+        48.0,
+        -152.0,
+        30.0
+      ],
+      "page": 26,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 574,
+      "painted_against_complete_reference": 564,
+      "rival_painted": 1251,
+      "evidence_share_of_drawing": 0.023521698151866575,
+      "pages_allocating": [
+        3,
+        26
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 80,
+      "part": "3069b",
+      "color": 19,
+      "reference_position": [
+        52.0,
+        -122.0,
+        -20.0
+      ],
+      "page": 27,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 82,
+      "painted_against_complete_reference": 622,
+      "rival_painted": 1331,
+      "evidence_share_of_drawing": 0.0033598295501106284,
+      "pages_allocating": [
+        27
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 81,
+      "part": "26603",
+      "color": 0,
+      "reference_position": [
+        48.0,
+        -162.0,
+        -20.0
+      ],
+      "page": 27,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 350,
+      "painted_against_complete_reference": 2076,
+      "rival_painted": 1331,
+      "evidence_share_of_drawing": 0.014340735884618537,
+      "pages_allocating": [
+        27
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 82,
+      "part": "3031",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -152.0,
+        48.0
+      ],
+      "page": 14,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1300,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 3082,
+      "evidence_share_of_drawing": 0.07463971981397485,
+      "pages_allocating": [
+        14
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 83,
+      "part": "87079",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -172.0,
+        56.0
+      ],
+      "page": 9,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 610,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        7,
+        9
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 84,
+      "part": "87079",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -132.0,
+        56.0
+      ],
+      "page": 9,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 5,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 610,
+      "evidence_share_of_drawing": 0.00037835792659856227,
+      "pages_allocating": [
+        7,
+        9
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 85,
+      "part": "3020",
+      "color": 4,
+      "reference_position": [
+        0.0,
+        -48.0,
+        0.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          32,
+          "camera_refused"
+        ],
+        [
+          32,
+          "camera_refused"
+        ]
+      ]
+    },
+    {
+      "truth_index": 86,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        30.0,
+        -40.0,
+        0.0
+      ],
+      "page": 36,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 252,
+      "rival_painted": 659,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        8,
+        36
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 87,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        -30.0,
+        -40.0,
+        0.0
+      ],
+      "page": 8,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 938,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        8,
+        36
+      ],
+      "primary_class": "visibility_limited"
+    },
+    {
+      "truth_index": 88,
+      "part": "3021",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        -24.0,
+        -10.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          34,
+          "camera_refused"
+        ],
+        [
+          34,
+          "camera_refused"
+        ]
+      ]
+    },
+    {
+      "truth_index": 89,
+      "part": "3069b",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        -32.0,
+        -30.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          34,
+          "camera_refused"
+        ],
+        [
+          34,
+          "camera_refused"
+        ]
+      ]
+    },
+    {
+      "truth_index": 90,
+      "part": "15573",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        -32.0,
+        -10.0
+      ],
+      "page": 23,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 17,
+      "rival_painted": 1895,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        23
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 91,
+      "part": "15573",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        -32.0,
+        10.0
+      ],
+      "page": 23,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1895,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        23
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 92,
+      "part": "3021",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        -24.0,
+        -10.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          34,
+          "camera_refused"
+        ],
+        [
+          34,
+          "camera_refused"
+        ]
+      ]
+    },
+    {
+      "truth_index": 93,
+      "part": "3069b",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        -32.0,
+        -30.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          34,
+          "camera_refused"
+        ],
+        [
+          34,
+          "camera_refused"
+        ]
+      ]
+    },
+    {
+      "truth_index": 94,
+      "part": "15573",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        -32.0,
+        -10.0
+      ],
+      "page": 23,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 95,
+      "painted_against_complete_reference": 234,
+      "rival_painted": 1895,
+      "evidence_share_of_drawing": 0.004057055005124701,
+      "pages_allocating": [
+        23
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 95,
+      "part": "15573",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        -32.0,
+        10.0
+      ],
+      "page": 23,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 27,
+      "painted_against_complete_reference": 226,
+      "rival_painted": 1895,
+      "evidence_share_of_drawing": 0.0011530577382985992,
+      "pages_allocating": [
+        23
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 96,
+      "part": "88704",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -70.0,
+        21.25
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          35,
+          "camera_refused"
+        ],
+        [
+          35,
+          "camera_refused"
+        ]
+      ]
+    },
+    {
+      "truth_index": 97,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -208.0,
+        -10.0
+      ],
+      "page": 36,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_our_body": 626,
+      "painted_against_complete_reference": 97,
+      "rival_painted": 659,
+      "evidence_share_of_drawing": 0.02179438080980399,
+      "pages_allocating": [
+        8,
+        36
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 98,
+      "part": "60897",
+      "color": 0,
+      "reference_position": [
+        -10.0,
+        -208.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 99,
+      "part": "60897",
+      "color": 0,
+      "reference_position": [
+        10.0,
+        -208.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 100,
+      "part": "93273",
+      "color": 0,
+      "reference_position": [
+        -10.0,
+        -200.0,
+        0.0
+      ],
+      "page": 37,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 824,
+      "painted_against_complete_reference": 709,
+      "rival_painted": 865,
+      "evidence_share_of_drawing": 0.028274371204062725,
+      "pages_allocating": [
+        37
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 101,
+      "part": "93273",
+      "color": 0,
+      "reference_position": [
+        10.0,
+        -200.0,
+        0.0
+      ],
+      "page": 37,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 665,
+      "painted_against_complete_reference": 1202,
+      "rival_painted": 865,
+      "evidence_share_of_drawing": 0.022818515595511787,
+      "pages_allocating": [
+        37
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 102,
+      "part": "6256",
+      "color": 0,
+      "reference_position": [
+        55.4916,
+        -203.9469,
+        17.0
+      ],
+      "page": 38,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1792,
+      "painted_against_complete_reference": 2530,
+      "rival_painted": 1975,
+      "evidence_share_of_drawing": 0.05673758865248227,
+      "pages_allocating": [
+        16,
+        38
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 103,
+      "part": "6256",
+      "color": 0,
+      "reference_position": [
+        -55.4558,
+        -204.2426,
+        17.0
+      ],
+      "page": 38,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1586,
+      "painted_against_complete_reference": 1130,
+      "rival_painted": 1975,
+      "evidence_share_of_drawing": 0.05021529888551165,
+      "pages_allocating": [
+        16,
+        38
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 104,
+      "part": "3958",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -8.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 105,
+      "part": "2431",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -16.0,
+        -30.0
+      ],
+      "page": 26,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 902,
+      "painted_against_complete_reference": 542,
+      "rival_painted": 1251,
+      "evidence_share_of_drawing": 0.03696266852436176,
+      "pages_allocating": [
+        3,
+        26
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 106,
+      "part": "87079",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -16.0,
+        20.0
+      ],
+      "page": 9,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 380,
+      "painted_against_complete_reference": 25,
+      "rival_painted": 610,
+      "evidence_share_of_drawing": 0.028755202421490732,
+      "pages_allocating": [
+        7,
+        9
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 107,
+      "part": "15573",
+      "color": 0,
+      "reference_position": [
+        -20.0,
+        -16.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 108,
+      "part": "15573",
+      "color": 0,
+      "reference_position": [
+        20.0,
+        -16.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    }
+  ],
+  "scope": "Evaluation-only, executed after the run. The reference model supplies the targets, the alignment and the poses measured; none of it participates in candidate generation, scoring or selection, and nothing here is certified.",
+  "limitations": "Visibility is measured against the complete reference assembly at the page's own accepted camera and mask, so it excludes occlusion by our own errors but still depends on that camera being right. A reference instance allocated by several pages is reported at the page whose bank holds it. Reference file order is not PDF step order, so a target attributed to one page can genuinely belong to another."
+}

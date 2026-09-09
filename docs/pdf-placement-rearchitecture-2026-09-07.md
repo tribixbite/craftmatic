@@ -2079,3 +2079,34 @@ every fraction.
 The control abstains. 41624's three-piece opening construction has **one**
 mirror-eligible part, the plane test declines on every candidate, and the ranking
 returns the same selection it was given: delta +0.
+
+### 41624 driven to its full scope: 26 pages, 75 parts, still 5 correct
+
+Round five's full-scope run finished during round six. It drives pages 3 to 39,
+places on 26 of them, refuses a camera on 9 (twice, counting the retry pass) and
+emits 75 parts.
+
+| checkpoint | page 3 | page 4 | page 8 | page 16 | page 27 | page 39 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| emitted | 6 | 9 | 21 | 40 | 63 | 75 |
+| structural | 3 | **5** | 5 | 5 | 5 | **5** |
+| precision | 0.500 | 0.556 | 0.238 | 0.125 | 0.079 | **0.067** |
+
+**Every correct pose is placed by page 4.** The 70 parts pages 5 to 39 add
+contribute nothing, and precision falls by a factor of eight. Round five's
+warning that this run's early rows are not comparable with the `p2to8` runs
+stands — it uses the `41624-element-bridge` allocation, whose page-3 third
+callout is the disputed `2431` — but the outcome is the same 5/109 either way,
+which is now measured on three separate configurations.
+
+The population table on that run is the round's most useful single number:
+
+| class | count | share of the 86 in-scope failures |
+| --- | ---: | ---: |
+| `unreachable` | **60** | 69.8% |
+| `mis_selected` | 13 | 15.1% |
+| `allocation_blocked` | 10 | 11.6% |
+| `visibility_limited` | 3 | 3.5% |
+
+On the deepest drive either fixture has ever had, **seven of ten failures are a
+reference pose the page's own bank never contained**.
