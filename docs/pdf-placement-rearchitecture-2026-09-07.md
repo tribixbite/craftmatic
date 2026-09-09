@@ -594,3 +594,154 @@ are replaced by what is now binding.
    since it both finishes page 20's subassembly and attaches it.
 5. Repeated multiplicities, occlusion, flexible parts, global backtracking and
    population certification remain untouched.
+
+## Round three: the target, the budget, the camera test and construction
+
+### What round two called a scorer failure was three separate defects
+
+Round two left "the scorer cannot separate sub-stud pose differences" as the
+binding constraint, on the evidence that 40377 page index 17 selected an
+assembly beating the reference-equivalent by 0.0033. Taking that apart produced
+three findings, none of which is a scorer resolution limit.
+
+**The diagnostic was not measuring the run.** `placement_diagnose_target_score`
+rebuilt the page's drawing from the PDF and skipped the run's own mask decision.
+Page index 17 restricted its target to the body's image component - 52,177
+pixels - while the diagnostic scored the whole 65,869-pixel drawing. The same
+selected assembly scores 0.5442 under the run and 0.2865 under the diagnostic,
+so the saved verdict compared two different questions. `placement_run_scene` now
+rebuilds the run's own target, the driver records `mask_source` in
+`results.json`, and both diagnostics use it.
+
+**The target of an exploded page does not contain the piece being added.** Page
+index 17 draws one black 4x4 round plate placed and an identical one exploded
+above it under two red arrows, so the body component shows a *one*-plate
+assembly. Measured at the run's own registration and mask: body alone 0.5954,
+body plus the lower plate 0.5679, body plus both 0.5409, and the selected
+assembly - one plate misplaced, the other buried in the torso - 0.5442.
+Completeness itself is penalised, so no amount of pose resolution can win.
+`placement_exploded_page` detects such a piece from the conservative component
+graph, an accepted arrow and the component's drawn area against what one
+allocated part covers at the page camera. It fires on page index 17 of 40377 and
+on no other page of that booklet, and on pages 2 and 8 of 41624, so every other
+page keeps its previous behaviour exactly.
+
+**The withheld piece is placed by the arrows, and that channel is exact.** Given
+the drawn plate at (30, -152, 0), `placement_exploded_attach` scores every
+enumerated pose by `placement_arrow_contacts` insertion evidence and selects the
+stacked (30, -160, 0) out of 8,192 poses at 0.51 px mean arrowhead error and
+score 1.0, against 0.1244 and 11.34 px for the next distinct translation. That
+is the pose the independent model holds; nothing here reads it.
+
+### The correct pose was never in the bank, and the reason was a unit error
+
+Switching the exploded handling on did not move page index 17. Driving pages 16
+to 19 with it reproduces round two to the part: 49/46, 51/46, 52/46, 58/46.
+`placement_diagnose_coarse_rank`, which rebuilds a page's own bank and reports
+where a requested pose sits under the coarse composite and under the native
+scorer, found the correct pose absent from the screened bank altogether.
+
+The occupancy screen rejects a placement whose opaque silhouette leaves the
+drawn foreground, with an absolute tolerance carried from the *body's* residual
+overflow - 2 pixels on that page. Removing the arrows from the target mask
+notches it along the drawn plate, so the reference-equivalent plate renders
+9,551 pixels of which 19 fall outside, 0.199% of its own area, and it was
+discarded before the search could score it; the median candidate on that page
+overflows 1,748 pixels. A proportional allowance in the candidate's own units at
+0.01 grows the retained set from 1,635 to 2,027 of 8,192 and keeps the correct
+pose. With it in the bank, the coarse composite ranks its 2 LDU neighbour first
+(0.34132 against 0.34059) and the native scorer that actually selects ranks the
+reference pose first (0.56789 against 0.56737), with both inside the retained
+top twelve.
+
+### A camera is now accepted, carried or refused, with the reason recorded
+
+`placement_camera_gate` measures two things at the containment-refined
+registration. The first is the drawn ink the registered body does not explain,
+divided by the largest area the page's own allocated pieces could cover at that
+camera - the convex hull of each part's projected universal-CAD vertices,
+maximised over the 24 cube orientations, which over-states a real silhouette.
+The second is departure from the expected scale.
+
+Raw coverage cannot serve, and that is worth stating because it was the obvious
+first choice. Coverage depends on how large the body already is: 40377's good
+pages cover 94-98% at 49 parts, while 41624's good pages cover 47-78% at 3-9
+parts, because most of what they do not cover is the pieces the page is adding.
+A 0.90 coverage threshold accepts 40377 and refuses all of 41624.
+
+Measured across both fixtures, with the outcome of the page that used each
+registration:
+
+| fixture | page | px per LDU | unexplained / addable | placed correctly |
+| ------- | ---: | ---------: | --------------------: | ---------------- |
+| 40377   |   16 |     1.6918 |                 0.223 | 1 of 1           |
+| 40377   |   17 |     1.6918 |                 0.053 | camera carried   |
+| 40377   |   18 |     1.4791 |                 1.105 | 0 of 1           |
+| 40377   |   19 |     1.4831 |                 1.582 | 0 of 6           |
+| 41624   |    3 |     1.0753 |                 0.409 | 2 of 3 retained  |
+| 41624   |    4 |     1.0753 |                 0.535 | 1 of 3           |
+| 41624   |    5 |     1.0196 |                 0.616 | 0 of 4           |
+| 41624   |    6 |     0.8723 |                 1.431 | 0 of 2           |
+| 41624   |    7 |     0.8723 |                 1.228 | 0 of 3           |
+| 41624   |    8 |     0.8723 |                 1.359 | 0 of 4           |
+
+Every page that placed anything correctly is below 0.62; every page whose camera
+is measurably wrong is above 1.10. The default sits in that gap. The test is
+necessary, never sufficient - 41624 page 5 passes and still places nothing right
+- and it refuses a correct camera when the body it renders is itself wrong,
+which is the intended conservative failure.
+
+### The drawings measure the scale the body cannot
+
+Every camera proposal the driver made passed through the emitted body, so a
+wrong body took the camera down with it. Page index 18 rejected the carried
+camera because the body overflows its drawing by 4,007 pixels and covers 88.6%
+of it, and the body overflows because it carries page 17's wrong parts; the page
+then kept its own stud-row camera, 12.6% small, and page 19 inherited that
+scale.
+
+The drawings settle it without the body. Maximising silhouette
+intersection-over-union of one drawing against the next over a scale ladder, on
+40377: 15 to 16 gives 1.03 at IoU 0.972, 16 to 17 gives 0.99 at 0.976, 17 to 18
+gives 1.03 at 0.959, 18 to 19 gives 1.00 at 0.987, and even the non-adjacent 19
+to 22 gives 1.02 at 0.894. The booklet is drawn at one scale throughout, and
+page 18's drawing is 1.03 times page 17's rather than the 0.87 its own stud rows
+imply. `placement_drawing_scale` offers the carried matrices rescaled by that
+measured ratio, and the camera gate's expected scale becomes the previous
+accepted scale times the ratio. The ratio slightly over-states the camera ratio
+because the later drawing also holds the pieces the step adds, so it is a
+proposal and a bound, never a calibration.
+
+### A body can be built from a drawing with nothing to register against
+
+The observation that makes a first page ordinary is that the reconstruction's
+global frame is free: evaluation aligns whole frames, and
+`placement_body_registration` already sweeps all 24 cube rotations of the
+camera, which is the same hypothesis set as rotating the assembly. One allocated
+piece can therefore be nailed to the identity transform without loss of
+generality, and the page becomes an addition of the remaining pieces to a
+one-piece body - the pipeline `place_page` already runs, exploded-piece handling
+included. `placement_construct_body` tries roots in descending drawn area and
+keeps the best complete result by the page's own image score.
+
+On 41624 page index 2, whose drawing shows a 4x4 plate with one 1x2 attached and
+a second 1x2 exploded above under two green arrows: the 4x4 plate registers at
+0.9214 coverage with 0.249 of the drawing unexplained against what the page can
+add, the exploded detector withholds one 1x2, the search places the other, and
+the arrows place the withheld one. Three emitted, two structural, in 17 seconds -
+the same result as the stage-specific three-piece bootstrap it replaces, reached
+generically and with the borrowed camera the prescan supplies. The arrow-placed
+plate is the one that lands exactly right: after the free global yaw it sits at
+the reference (30, -8, 0) relative to the root, while the image-placed plate is
+one stud inboard of (-30, -8, 0).
+
+That one-stud error is a genuine selection failure, and the only one this round
+found. Both poses are in the bank and both survive screening; the whole-drawing
+scorer prefers the wrong one 0.87677 to 0.87575. Restricting the evidence to the
+region the addition changes, and counting colour only where the addition changes
+the class the body already renders - a red plate on a red plate changes none, so
+colour abstains and the visible-edge chamfer decides - ranks the reference pose
+first at 0.7841 against 0.7727. That is `--local-rerank`, and it is off by
+default: one fixture is not evidence for a default objective, and 40377 page
+index 17 does not need it, since under the corrected exploded target the
+whole-drawing scorer already ranks the reference pose first there.
