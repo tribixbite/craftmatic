@@ -33,6 +33,28 @@ from placement_pdf_group_evidence import load_allocations
 
 CANDIDATE_KINDS = ('CYL', 'CLP', 'FGR', 'GEN')
 
+# The collision predicate is 98% of closure time (`placement_closure_profile` on
+# 40377 page 18: 18.87 s of 19.2 s for 64 parents). `placement_fast_collision`
+# is a bit-exact vectorisation of it, so switching it on changes the bank's
+# runtime and nothing else - the pose list, its order and every recorded field
+# are identical. Set to False to A/B the two implementations.
+FAST_COLLISION = True
+
+
+def _assembly(items):
+    """`make_assembly` with the vectorised collision predicate bound on.
+
+    The accelerator reads the assembly's own voxel occupancy, so it is applied
+    only to something that has one: the offline tests substitute a stand-in
+    assembly with hand-written `candidates`/`collides` and no voxel model, and
+    those must keep exercising the closure's own logic rather than this.
+    """
+    result = make_assembly(items)
+    if FAST_COLLISION and hasattr(result, 'occ') and hasattr(result, 'corevox'):
+        from placement_fast_collision import accelerate
+        accelerate(result)
+    return result
+
 
 class ShapeRegistry:
     """Mutable pose bank for one page's allocated shapes.
@@ -47,7 +69,7 @@ class ShapeRegistry:
             raise ValueError('No allocated pieces')
         self.started = time.perf_counter()
         self.parts = sorted({str(part) for part, _ in pieces})
-        self.assembly = make_assembly(base)
+        self.assembly = _assembly(base)
         self.poses, self.lookup = [], {}
         self.anchored, self.edges = set(), set()
         self.native = {}
@@ -101,7 +123,7 @@ class ShapeRegistry:
         if self.relative is None:
             self.relative = {}
             for parent_part in self.parts:
-                single = make_assembly([(parent_part, 15, np.eye(4))])
+                single = _assembly([(parent_part, 15, np.eye(4))])
                 for child_part in self.parts:
                     self.relative[(parent_part, child_part)] = single.candidates(
                         child_part, kinds=CANDIDATE_KINDS, check_collision=True,
