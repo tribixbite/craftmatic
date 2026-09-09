@@ -2774,3 +2774,42 @@ on colour and makes saved numbers incomparable — the same warning the module's
 own neutral-spread fix carries. Enabling it and re-driving both fixtures is a
 round's work on its own, and it is now a one-argument experiment instead of an
 unknown.
+
+### The collision's scope, and where the tie-break does not reach
+
+The 19/191 tie is not a 40377 quirk. Both fixtures have it, and on 41624 it is
+larger:
+
+| fixture | colour 19 (Tan) | colour 191 (Bright Light Orange) | share of the model |
+| --- | ---: | ---: | ---: |
+| 40377 | 1 part | 10 parts | 11 of 90 |
+| 41624 | **17 parts** | 8 parts | **25 of 109** |
+
+Both palettes sort numerically, so 19 precedes 191 and takes every tied pixel on
+both fixtures. On 41624 that is a colour carrying 8 parts that can never win a
+pixel against one carrying 17.
+
+41624 is worse than a single tie, because four of its colours sit within nine hue
+degrees of each other — 4 (h3), 25 (h15), 19 (h20), 191 (h20), 14 (h24) — well
+inside the classifier's own 20-degree acceptance window. Pairwise:
+
+| pair | hue | saturation | Lab | verdict |
+| --- | ---: | ---: | ---: | --- |
+| 19 / 191 | **0** | **114** | 44.1 | tie on hue, separated cleanly by saturation |
+| 25 / 191 | 5 | 39 | 38.3 | marginal |
+| 14 / 191 | 4 | **5** | **16.7** | separated by nothing in HSV |
+| 14 / 19 | 4 | 119 | 48.1 | saturation separates |
+
+So the honest limit of the tie-break just added: **it resolves the hue-0 tie on
+both fixtures** — 10 parts on 40377 and 8 on 41624 whose colour currently cannot
+win a pixel — and it does **not** separate 14 from 191, which differ by 5
+saturation levels and 16.7 in Lab and are simply near-identical colours. 41624
+has one part in colour 14, so that residual is one part; the finding is recorded
+because the next person to hit it should not expect the tie-break to help.
+
+The general statement is the one to carry: **hue is the wrong metric for this
+job.** A Lab distance separates every pair in the table above by 16.7 or more
+while hue separates two of them by zero, and it needs no tie-break because it has
+no ties. Replacing the discriminator is a larger change than adding a tie-break —
+it moves every classification, not only the tied ones — and it is named here as
+the principled version rather than smuggled in.
