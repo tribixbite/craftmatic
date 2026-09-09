@@ -5,9 +5,11 @@
     "pages": 6,
     "planes_accepted": 0,
     "reference_targets": 33,
-    "wrong_targets": 31,
+    "wrong_target_opportunities": 31,
+    "distinct_wrong_targets": 29,
     "admitted": 0,
-    "hit": 0,
+    "hit_opportunities": 0,
+    "distinct_reference_instances_hit": 0,
     "false_positive_proposals": 0
   },
   "rows": [
@@ -26,6 +28,32 @@
       "correct_additions": 0,
       "emitted_additions": 3,
       "wrong_targets": 3,
+      "targets": [
+        {
+          "part": "3700",
+          "color": 4,
+          "truth_index": 3,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "2780",
+          "color": 0,
+          "truth_index": 4,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3700",
+          "color": 4,
+          "truth_index": 5,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
       "status": "plane_refused",
       "proposals": 0,
       "admitted": 0,
@@ -48,6 +76,40 @@
       "correct_additions": 2,
       "emitted_additions": 3,
       "wrong_targets": 2,
+      "targets": [
+        {
+          "part": "3005",
+          "color": 4,
+          "truth_index": 6,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3005",
+          "color": 4,
+          "truth_index": 7,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        },
+        {
+          "part": "3004",
+          "color": 2,
+          "truth_index": 8,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        },
+        {
+          "part": "3004",
+          "color": 2,
+          "truth_index": 31,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
       "status": "plane_refused",
       "proposals": 0,
       "admitted": 0,
@@ -70,6 +132,88 @@
       "correct_additions": 0,
       "emitted_additions": 4,
       "wrong_targets": 10,
+      "targets": [
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 9,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 10,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3010",
+          "color": 0,
+          "truth_index": 11,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3010pzt",
+          "color": 4,
+          "truth_index": 12,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3010",
+          "color": 0,
+          "truth_index": 13,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 26,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 27,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 28,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 41,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 42,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
       "status": "plane_refused",
       "proposals": 0,
       "admitted": 0,
@@ -97,6 +241,32 @@
       "correct_additions": 0,
       "emitted_additions": 2,
       "wrong_targets": 3,
+      "targets": [
+        {
+          "part": "3010",
+          "color": 0,
+          "truth_index": 11,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3010",
+          "color": 0,
+          "truth_index": 13,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3941",
+          "color": 14,
+          "truth_index": 14,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
       "status": "plane_refused",
       "proposals": 0,
       "admitted": 0,
@@ -124,6 +294,56 @@
       "correct_additions": 0,
       "emitted_additions": 3,
       "wrong_targets": 6,
+      "targets": [
+        {
+          "part": "3020",
+          "color": 0,
+          "truth_index": 15,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 16,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 17,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 39,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 40,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3020",
+          "color": 0,
+          "truth_index": 56,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
       "status": "plane_refused",
       "proposals": 0,
       "admitted": 0,
@@ -151,6 +371,64 @@
       "correct_additions": 0,
       "emitted_additions": 4,
       "wrong_targets": 7,
+      "targets": [
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 18,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 19,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 20,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 21,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 86,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 87,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 97,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
       "status": "plane_refused",
       "proposals": 0,
       "admitted": 0,

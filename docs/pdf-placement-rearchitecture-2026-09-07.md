@@ -1927,3 +1927,55 @@ The practical consequence for round six's plan: a channel that proposes poses
 what the bank already holds addresses at most 22; a channel aimed specifically at
 invisible pieces addresses 5. Mirror completion is worth building for the first
 reason, not the third.
+
+### Mirror completion: what it converts, and the count that was inflated
+
+The channel proposes the reflection of an already-placed piece about the model's
+own symmetry plane. It needs no drawing evidence about the piece being placed,
+which is why it was worth trying against a class the drawings cannot decide.
+
+Three parts, each measured:
+
+* **The mould has to admit the reflection.** `placement_verify_part_mirrors`
+  records, for each of the 24 improper octahedral elements, whether a mould's
+  universal CAD maps onto itself. If some improper `Q` does, the reflection of a
+  placement `(p, R)` by plane reflection `S` is realised by the **proper** frame
+  `S R Q`, so the proposal names a buildable pose. 47 of the two fixtures' 54
+  moulds admit one; the seven that do not are five printed moulds and the chiral
+  43722/43723 wedge pair. The vertex tolerance is 0.01 LDU rather than exact:
+  LDraw's curved primitives store polygon vertices rounded to a few decimals and
+  that rounding is not itself mirror-symmetric, so 4032a, 3941 and 60474 reflect
+  onto themselves to 0.001 LDU and to nothing tighter. Triangle-level invariance
+  is never true and would mean nothing if it were, because LDraw splits a quad
+  along one diagonal and a diagonal is chiral: 0 of 54 moulds admit one.
+* **The plane is detected, never assumed.** Candidate offsets are exactly the
+  midpoints implied by pairs of same-mould same-colour placements in that page's
+  own base body. On 40377 the detector finds axis 2 at offset 0 on every driven
+  page, at agreement 0.850 on page 16 falling to 0.661 on page 30 as the body
+  accumulates errors — the agreement is itself a readout of body quality.
+* **The proposal is gated physically.** It must not collide and must engage at
+  least one connector, by `recon_v8.assembly`'s own predicates.
+
+**The asymmetric control does what it must.** On 41624 the plane is refused on
+all six driven pages — agreement 0.000 to 0.333 against a 0.5 floor — and the
+channel proposes nothing at all. Zero false positives, by abstention. A guard was
+needed to get that: the three-part opening body reached agreement **1.000** on a
+meaningless plane, so a plane is now refused below eight mirror-eligible parts.
+
+**The conversion, in distinct parts.** Five admitted proposals on 40377 produce
+four hits — but on **two** distinct reference instances. The channel re-proposes
+the same missing 87079 tile on pages 22, 24 and 25, because every later page
+whose allocation names that identity offers the same opportunity. The denominator
+is inflated by the same multiplicity: 37 wrong-target *opportunities* across the
+13 pages are **25** distinct wrong parts. So the honest figure is **2 of 25**,
+with one false positive, and the earlier per-page reading of "4 of 37" counted
+opportunities on both sides of the ratio.
+
+**Where the proposals come from matters more than the plane does.** Across pages
+the channel proposes *nothing*: a model's symmetric pair is allocated on the same
+page, so when the page runs neither partner is placed. Both conversions come from
+a within-page source — the page's own first correctly placed piece, or a piece a
+previous page placed correctly and whose partner is still outstanding. And both
+targets were already in that page's bank, so on this fixture mirror completion is
+a **selection prior**, not the reachability expansion the population table said
+was the larger class.
