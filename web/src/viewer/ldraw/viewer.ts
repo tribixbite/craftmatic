@@ -304,11 +304,11 @@ export class LDrawViewer {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.fxaaPass = new ShaderPass(FXAAShader);
     this.composer.addPass(this.fxaaPass);
-    // Vignette. `darkness` is NOT a strength â€” read the shader:
+    // Vignette. `darkness` is NOT a strength — read the shader:
     //   mix(texel.rgb, vec3(1.0 - darkness), dot(uv, uv))
     // it is the COMPLEMENT of the colour every pixel is dragged toward. The old
     // 0.8 therefore blended toward LINEAR 0.2, which the OutputPass tone-maps
-    // and sRGB-encodes to a ~124/255 mid grey â€” and with offset 1.2 the corners
+    // and sRGB-encodes to a ~124/255 mid grey — and with offset 1.2 the corners
     // took 72% of it. That is not a vignette, it is a grey veil laid over the
     // whole frame: measured (scripts/renderer-pass-isolation.mjs, 4 sets) it
     // lifted mean frame luminance by 14-18 and the darkest 1% by 3-13, and
@@ -316,9 +316,9 @@ export class LDrawViewer {
     // It is what users see as haze/glare over the model.
     //
     // darkness = 1.0 targets pure black, so the pass becomes a plain multiply
-    // (mix(c, 0, t) === c * (1 - t)) â€” it can only darken, never lift, and it
+    // (mix(c, 0, t) === c * (1 - t)) — it can only darken, never lift, and it
     // preserves chromaticity exactly, which is what keeps the calibrated ABS
-    // colours intact. offset 0.95 puts the corners at ~55% linear â‰ˆ 79% after
+    // colours intact. offset 0.95 puts the corners at ~55% linear ≈ 79% after
     // tone mapping: a visible frame, no veil.
     const vignettePass = new ShaderPass(VignetteShader);
     vignettePass.uniforms['offset']!.value = 0.95;
@@ -695,7 +695,7 @@ export class LDrawViewer {
       // iso pose uses the model-aware axes too.
       this.detectOrientation();
       this.frameCamera(visualCenter, size, bboxMin, bboxMax, maxDim);
-      this.installSAO(maxDim);
+      this.installSAO();
       this.updateEdgeLineWidth(maxDim);
       this.adaptExposure();
       // Cache for setView() presets
@@ -2397,7 +2397,7 @@ export class LDrawViewer {
     this.setView('front');
   }
 
-  private installSAO(maxDim: number): void {
+  private installSAO(): void {
     if (this.saoPass) {
       const idx = this.composer.passes.indexOf(this.saoPass);
       if (idx >= 0) this.composer.passes.splice(idx, 1);
@@ -2417,8 +2417,24 @@ export class LDrawViewer {
       this.saoPass = new SAOPass(this.scene, this.camera);
       this.saoPass.params.saoBias = 0.4;
       this.saoPass.params.saoIntensity = 0.04;
-      this.saoPass.params.saoScale = Math.max(4, maxDim * 0.4);
-      this.saoPass.params.saoKernelRadius = Math.max(12, maxDim * 1.0);
+      // saoScale and saoKernelRadius must be SIZE-INVARIANT, and deriving them
+      // from maxDim made them the opposite. Read SAOShader: it computes
+      //   scaleDividedByCameraFar = scale / cameraFar
+      //   scaledScreenDistance    = scaleDividedByCameraFar * viewDistance
+      //   occlusion = max(0, … / scaledScreenDistance - bias) / (1 + d²)
+      // so `scale` only ever appears as scale/cameraFar, and occlusion grows as
+      // that ratio SHRINKS. We set cameraFar = (fitDist + maxDim) * 8 and frame
+      // at viewDistance ≈ fitDist — both linear in maxDim — so the ratio that
+      // makes the occlusion term well-conditioned is a constant, and the old
+      // `maxDim * 0.4` turned it into a per-model lottery: small sets got a
+      // tiny scale, the divide blew the occlusion up, and the pass laid a broad
+      // grey smear across model and floor (measured on 4 small sets: removing
+      // SAO moved brick pixels by 26-60/255 mean and lifted frame mean 8-9).
+      // cameraFar/fitDist ≈ 8 · (1.5 + 1)/1.5 ≈ 13 for our framing.
+      // `saoKernelRadius` is in SCREEN PIXELS (SAOShader: kernelRadius/size),
+      // so it must not carry world units either.
+      this.saoPass.params.saoScale = 13;
+      this.saoPass.params.saoKernelRadius = 24;
       this.saoPass.params.saoBlurRadius = 5;
       // Insert after RenderPass (index 1), before fxaa/vignette/output
       this.composer.passes.splice(1, 0, this.saoPass);
