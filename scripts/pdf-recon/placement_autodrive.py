@@ -67,8 +67,43 @@ def resume_checkpoints(record, config):
     return completed
 
 
-def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_matrices=()):
-    """Return (status, detail, placement_dir_or_None, matrices) for one page.
+def projection_scale(matrix):
+    """Pixels per LDU implied by a 2x3 native projection.
+
+    Both singular values of these projections are equal by construction, so the
+    mean is the uniform scale and is directly comparable between pages.
+    """
+    return float(np.linalg.svd(np.asarray(matrix, float), compute_uv=False).mean())
+
+
+def scale_prior_matrices(matrices, prior_scale, tolerance=0.02):
+    """The page's own orientations, rescaled to the previous page's px per stud.
+
+    A page's stud-row camera fixes orientation well but scale only as well as
+    the rows it happened to find. On 40377 page index 17 those rows give 29.1
+    to 30.1 pixels per stud where pages 15 and 16 both measure 33.8 to 34.1, a
+    13% error: the body then renders a 175x276 silhouette against the drawing's
+    199x318, containment fails at every offset, and the search fills the
+    leftover band with a misplaced plate. Consecutive instruction pages draw the
+    same assembly at the same size, so the previous page's measured scale is a
+    legitimate PDF-derived proposal - exactly as the previous page's whole
+    matrix already is when a drawing exposes no stud row. It is offered as an
+    extra hypothesis, never a substitute: registration and containment choose.
+    """
+    if not prior_scale:
+        return []
+    extra = []
+    for matrix in matrices:
+        scale = projection_scale(matrix)
+        if scale <= 0 or abs(prior_scale / scale - 1.0) <= tolerance:
+            continue
+        extra.append((np.asarray(matrix, float) * (prior_scale / scale)).tolist())
+    return extra
+
+
+def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_matrices=(),
+               prior_scale=None):
+    """Return (status, detail, placement_dir_or_None, matrices, scale) for one page.
 
     Several drawings on a page can be non-panel scenes: a subassembly beside
     the body, or a second view of it. Layout cannot rank them, so each is tried
@@ -96,14 +131,14 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     if not pieces:
         return ('no_allocation', dict(reason='Page adds no allocated piece; cross-page state '
                                              'and separate subassemblies are not implemented'),
-                None, ())
+                None, (), None)
 
     camera = page_camera(pdf, page, allocation_run, step_dir / 'camera',
                          prior_parts=[(part, color) for part, color, _ in base])
     write_atomic(step_dir / 'camera.json', json.dumps(camera, indent=2, default=str))
     if not camera['native_scenes']:
         return ('camera_unsupported', dict(reason=camera['status'],
-                                           scene_kinds=camera.get('scene_kinds')), None, ())
+                                           scene_kinds=camera.get('scene_kinds')), None, (), None)
 
     # Base-attached enumeration depends only on the body and the allocation, so
     # it is done once; closure is per drawing because in evidence mode the
@@ -114,7 +149,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                              runtime_vlm_calls=0)
     if not seed.poses:
         return ('no_candidate_poses', dict(reason='No collision-free connector mate for any '
-                                                  'allocated shape on the existing body'), None, ())
+                                                  'allocated shape on the existing body'),
+                None, (), None)
     evidence_mode = options.get('closure_mode', 'bank') == 'evidence'
     bank = None
     if not evidence_mode:
@@ -134,6 +170,9 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         # camera changes slowly between instruction pages, so an earlier page's
         # matrices are a legitimate PDF-derived proposal - recorded as reused.
         matrices = (proposed or list(prior_matrices))[:options['camera_matrices']]
+        rescaled = (scale_prior_matrices(matrices, prior_scale) if options.get('scale_prior', True)
+                    else [])
+        matrices = matrices + rescaled
         if not matrices:
             attempts.append(dict(xref=xref, status='no_camera_hypothesis'))
             continue
@@ -156,6 +195,9 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         write_atomic(step_dir / f'registration-{order:02d}.json',
                      json.dumps(dict(hypotheses=hypotheses, stable_colors=stable, page=page,
                                      xref=xref, reused_prior_camera=reused, pdf=str(pdf),
+                                     scale_prior=prior_scale,
+                                     scale_prior_matrices=len(rescaled),
+                                     matrix_scales=[projection_scale(m) for m in matrices],
                                      pdf_sha256=provenance['pdf_sha256'], base=str(base_model),
                                      base_sha256=file_hash(base_model),
                                      camera_matrices=len(matrices), truth_used=False,
@@ -164,7 +206,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         contained = refine(base, hypotheses[:options['refine_limit']], scorer,
                            window=options['window'], tolerance=options['tolerance'],
                            fraction=options['fraction'], fallback=options['fallback'],
-                           screen_fn=screen)
+                           screen_fn=screen, scales=tuple(options.get('scales') or (1.0,)))
         contained.update(page=page, xref=xref, pdf=str(pdf),
                          pdf_sha256=provenance['pdf_sha256'], base=str(base_model),
                          base_sha256=file_hash(base_model), reused_prior_camera=reused)
@@ -226,6 +268,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                       camera_source=str(step_dir / 'camera.json'), scene_order=order,
                       reused_prior_camera=reused, stable_colors=stable,
                       closure_mode=options.get('closure_mode', 'bank'),
+                      applied_scales=contained.get('applied_scales'),
                       closure_parent_order=attempt_bank['closure_parent_order'],
                       registry_source=str(step_dir / (f'registry-{order:02d}.json' if evidence_mode
                                                       else 'registry.json')),
@@ -240,14 +283,16 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                       reused_prior_camera=reused,
                       mask_source=scene_record.get('mask_source'),
                       containment_fallback=contained['containment_fallback_used'],
-                      attempts=attempts,
+                      attempts=attempts, scale_prior=prior_scale,
+                      applied_scale=projection_scale(contained['hypotheses'][0]['projection']),
                       score=result['results'][0]['evidence']['score'])
-        return 'placed', detail, placement, matrices
+        return ('placed', detail, placement, matrices,
+                projection_scale(contained['hypotheses'][0]['projection']))
     return ('camera_unsupported' if attempts and all(a['status'] == 'no_camera_hypothesis'
                                                      for a in attempts)
             else 'no_contained_registration',
             dict(reason='No page drawing produced a usable registration', attempts=attempts),
-            None, ())
+            None, (), None)
 
 
 def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_on_unsupported=True):
@@ -287,7 +332,7 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
     out.mkdir(parents=True, exist_ok=True)
     write_atomic(journal, json.dumps(record, indent=2))
     current = base_model
-    prior_matrices = ()
+    prior_matrices, prior_scale = (), None
     for page in pages:
         if page in completed:
             current = completed[page] / 'model.ldr'
@@ -298,10 +343,12 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
             attempt += 1
             step_dir = out / f'page-{page:03d}-attempt-{attempt}'
         try:
-            status, detail, placement, matrices = place_page(pdf, page, allocation_run, current,
-                                                             step_dir, options, prior_matrices)
+            status, detail, placement, matrices, scale = place_page(
+                pdf, page, allocation_run, current, step_dir, options, prior_matrices, prior_scale)
             if matrices:
                 prior_matrices = matrices
+            if scale:
+                prior_scale = scale
         except Exception as exc:  # keep the failed page's evidence, never a silent skip
             status, detail, placement = 'error', dict(error=str(exc),
                                                       traceback=traceback.format_exc()), None
@@ -342,6 +389,12 @@ if __name__ == '__main__':
                         help='Overflow allowed as a fraction of the rendered body area')
     parser.add_argument('--fallback', type=int, default=0,
                         help='Proceed on this many least-overflowing views when none is contained')
+    parser.add_argument('--no-scale-prior', action='store_true',
+                        help="Do not offer the previous page's measured camera scale as an extra "
+                             'hypothesis on this page')
+    parser.add_argument('--scales', type=float, nargs='+', default=[1.0],
+                        help='Camera-scale ladder for containment refinement; the stud-row camera '
+                             'fixes the projection only up to overall scale')
     parser.add_argument('--views', type=int, default=2)
     parser.add_argument('--scale', type=float, default=1.)
     parser.add_argument('--max-nodes', type=int, default=200000)
@@ -369,7 +422,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     options = dict(camera_matrices=args.camera_matrices, per_matrix=args.per_matrix,
                    refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
-                   fraction=args.fraction, fallback=args.fallback,
+                   fraction=args.fraction, fallback=args.fallback, scales=tuple(args.scales),
+                   scale_prior=not args.no_scale_prior,
                    views=args.views, scale=args.scale, max_nodes=args.max_nodes,
                    top_k=args.top_k, host_bytes=args.host_bytes,
                    closure_rounds=args.closure_rounds,

@@ -9,6 +9,10 @@ only. It is used here for two separate purposes, reported separately:
    offset window recovers the sub-template origin that satisfies containment.
 2. Whole camera orientations that cannot satisfy containment at any offset in
    the window are rejected with their measured overflow.
+3. Optionally, the camera's overall scale is refit over an explicit ladder. A
+   stud-row camera fixes the projection only up to that scale, and containment
+   alone cannot choose one, so the accepted scale is the contained registration
+   that covers the most target foreground.
 
 This is not a certified camera. Containment is necessary, never sufficient:
 an occluded body, a cropped scene or a coincidental silhouette can satisfy it.
@@ -22,8 +26,22 @@ import sys
 import numpy as np
 
 
+def _centered_origin(base, M, origin, scale, scorer, screen_fn):
+    """Origin that keeps the rendered body's centre fixed while `M` is scaled.
+
+    pixel = scale * (M @ world) + origin_s, so holding the projected centroid c
+    fixed gives origin_s = origin + (1 - scale) * (c - origin). At scale 1 this
+    is the supplied origin exactly, so a single-scale ladder reproduces the
+    previous behaviour byte for byte.
+    """
+    if scale == 1.0:
+        return origin
+    centre = np.asarray(screen_fn(base, [], M, origin, scorer)['base']['centroid'], float)
+    return origin + (1.0 - scale) * (centre - origin)
+
+
 def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallback=0,
-           screen_fn=None):
+           screen_fn=None, scales=(1.0,)):
     """Return containment-refined registrations sorted by template score.
 
     `window` is the half-width, in native raster pixels, of the exhaustive
@@ -32,6 +50,17 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
     own rendered area, whichever is larger; the proportional allowance exists
     because a body that already contains a misplaced part protrudes through the
     artwork through no fault of the camera.
+
+    `scales` optionally refits the camera's overall scale. The stud-row camera
+    fixes the projection up to that scale, and on 40377 page index 17 it is
+    about 14% small: the body renders a 175x276 silhouette against a 199x318
+    drawing, so no translation can register it, the containment test fails at
+    every offset, and the search fills the leftover band with a misplaced part.
+    Containment alone cannot choose a scale - a render that is too small is
+    trivially contained - so the accepted scale is the one whose contained
+    registration *covers* the most target foreground. Each scale keeps its own
+    smallest containing offset, which makes `scales=(1.0,)` identical to the
+    previous single-scale behaviour.
 
     If nothing is accepted, the `fallback` least-overflowing hypotheses are
     returned anyway, each flagged `contained: False` with its measured
@@ -47,6 +76,9 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
         raise ValueError('Proportional allowance must be a fraction below one')
     if fallback < 0 or int(fallback) != fallback:
         raise ValueError('Fallback count must be a nonnegative integer')
+    scales = tuple(float(s) for s in scales)
+    if not scales or any(s <= 0 for s in scales):
+        raise ValueError('Scale ladder must be non-empty and positive')
     if screen_fn is None:
         from placement_occupancy_screen import screen as screen_fn
     offsets = [(dx, dy) for dy in range(-window, window + 1)
@@ -56,31 +88,51 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
     offsets.sort(key=lambda d: (abs(d[0]) + abs(d[1]), abs(d[0]), d))
     rows, seen = [], set()
     for index, hypothesis in enumerate(hypotheses):
-        M = np.asarray(hypothesis['projection'], float)
-        origin = np.asarray(hypothesis['origin'], float)
-        best, accepted = None, None
-        for dx, dy in offsets:
-            evidence = screen_fn(base, [], M, origin + [dx, dy], scorer)['base']
-            record = dict(offset=[dx, dy], outside_pixels=evidence['outside_pixels'],
-                          occupied_pixels=evidence['occupied_pixels'])
-            if best is None or record['outside_pixels'] < best['outside_pixels']:
-                best = record
-            allowance = max(tolerance, int(fraction * record['occupied_pixels']))
-            if record['outside_pixels'] <= allowance:
-                accepted = record
-                break
+        M0 = np.asarray(hypothesis['projection'], float)
+        origin0 = np.asarray(hypothesis['origin'], float)
+        best, accepted, ladder = None, None, []
+        for scale in scales:
+            M = M0 * scale
+            anchor = _centered_origin(base, M0, origin0, scale, scorer, screen_fn)
+            for dx, dy in offsets:
+                evidence = screen_fn(base, [], M, anchor + [dx, dy], scorer)['base']
+                record = dict(offset=[dx, dy], scale=scale,
+                              outside_pixels=evidence['outside_pixels'],
+                              occupied_pixels=evidence['occupied_pixels'],
+                              covered_pixels=evidence.get('covered_pixels'),
+                              target_pixels=evidence.get('target_pixels'))
+                if best is None or record['outside_pixels'] < best['outside_pixels']:
+                    best = dict(record, anchor=anchor.tolist())
+                allowance = max(tolerance, int(fraction * record['occupied_pixels']))
+                if record['outside_pixels'] <= allowance:
+                    ladder.append(dict(record, anchor=anchor.tolist()))
+                    break
+        if ladder:
+            # Among contained registrations the scale that explains the most of
+            # the drawing wins; coverage is the only one of these measures that
+            # a shrinking camera cannot game.
+            accepted = max(ladder, key=lambda r: (r['covered_pixels'] or 0, -abs(r['scale'] - 1.0)))
         row = dict(source_index=index, rotation_index=hypothesis.get('rotation_index'),
                    template_score=hypothesis.get('score'),
-                   projection=M.tolist(), source_origin=origin.tolist(),
-                   best_containment=best, contained=accepted is not None)
+                   projection=M0.tolist(), source_origin=origin0.tolist(),
+                   best_containment=best, contained=accepted is not None,
+                   scale_ladder=ladder if len(scales) > 1 else None)
         if accepted is None:
             row['rejection'] = 'No offset in the window satisfies silhouette containment'
+            if len(scales) > 1:
+                row['projection'] = (M0 * best['scale']).tolist()
+                row['source_origin'] = best['anchor']
             rows.append(row)
             continue
-        refined = (origin + accepted['offset']).tolist()
-        row.update(origin=refined, applied_offset=accepted['offset'],
+        M = M0 * accepted['scale']
+        refined = (np.asarray(accepted['anchor'], float) + accepted['offset']).tolist()
+        row.update(projection=M.tolist(), source_origin=accepted['anchor'],
+                   origin=refined, applied_offset=accepted['offset'],
+                   applied_scale=accepted['scale'],
                    outside_pixels=accepted['outside_pixels'],
-                   occupied_pixels=accepted['occupied_pixels'])
+                   occupied_pixels=accepted['occupied_pixels'],
+                   covered_pixels=accepted['covered_pixels'],
+                   target_pixels=accepted['target_pixels'])
         key = (row['rotation_index'], tuple(np.round(M, 9).flat), tuple(refined))
         row['duplicate_of'] = next((r['source_index'] for r in rows if r.get('key') == key), None)
         row['key'] = key
@@ -99,28 +151,34 @@ def refine(base, hypotheses, scorer, window=3, tolerance=0, fraction=0.0, fallba
                                               -(r['template_score'] or 0)))
         for row in ordered[:fallback]:
             row = dict(row)
-            row.update(origin=(np.asarray(row['source_origin'], float)
-                               + row['best_containment']['offset']).tolist(),
+            anchor = np.asarray(row['best_containment'].get('anchor', row['source_origin']), float)
+            row.update(origin=(anchor + row['best_containment']['offset']).tolist(),
                        applied_offset=row['best_containment']['offset'],
+                       applied_scale=row['best_containment'].get('scale', 1.0),
                        outside_pixels=row['best_containment']['outside_pixels'],
                        occupied_pixels=row['best_containment']['occupied_pixels'],
+                       covered_pixels=row['best_containment'].get('covered_pixels'),
                        containment_fallback=True)
             retained.append(row)
     return dict(hypotheses=retained, evaluated=rows, offset_window=window,
                 overflow_tolerance=tolerance, proportional_allowance=fraction,
                 containment_fallback_used=used_fallback, fallback_limit=fallback,
-                retained=len(retained),
+                scales=list(scales), retained=len(retained),
+                applied_scales=sorted({r.get('applied_scale', 1.0) for r in retained}),
                 rejected=sum(1 for r in rows if not r['contained']),
                 duplicates=sum(1 for r in rows if r.get('duplicate_of') is not None),
                 truth_used=False, runtime_vlm_calls=0, certified=False,
-                protocol='Exhaustive integer offsets around each template origin; '
-                         'smallest correction satisfying exact rendered-silhouette containment '
-                         'in the dilated target foreground',
+                protocol='Exhaustive integer offsets around each template origin, optionally over '
+                         'a camera-scale ladder; each scale keeps its smallest containing offset '
+                         'and the accepted scale is the contained registration covering the most '
+                         'target foreground',
                 limitations='Containment is a necessary condition only, and a fallback result is '
                             'explicitly not contained. Occlusion of the existing '
                             'body by later parts, cropped artwork and coincidental silhouettes are '
-                            'not excluded. Offsets are integer native-raster pixels; no scale, '
-                            'shear or rotation is refit. Not a certified camera.')
+                            'not excluded. Offsets are integer native-raster pixels and the scale '
+                            'ladder is a finite set of uniform scales; no shear or rotation is '
+                            'refit, and coverage rewards a body that is merely large as well as '
+                            'one that is correct. Not a certified camera.')
 
 
 if __name__ == '__main__':
@@ -133,6 +191,9 @@ if __name__ == '__main__':
     parser.add_argument('--fraction', type=float, default=0.0)
     parser.add_argument('--fallback', type=int, default=0)
     parser.add_argument('--limit', type=int, default=12)
+    parser.add_argument('--scales', type=float, nargs='+', default=[1.0],
+                        help='Camera-scale ladder; the contained scale covering the most target '
+                             'foreground is accepted')
     args = parser.parse_args()
     import pymupdf
     from placement_arrow_contacts import read_items
@@ -151,7 +212,8 @@ if __name__ == '__main__':
         scene = next(s for s in scene_images(doc, doc[source['page']]) if s['xref'] == source['xref'])
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
     result = refine(read_items(base_path), source['hypotheses'][:args.limit], scorer,
-                    args.window, args.tolerance, args.fraction, args.fallback)
+                    args.window, args.tolerance, args.fraction, args.fallback,
+                    scales=tuple(args.scales))
     result.update(pdf=str(pdf), pdf_sha256=source['pdf_sha256'], page=source['page'],
                   xref=source['xref'], base=source['base'], base_sha256=source['base_sha256'],
                   source_registration=str(args.registration),

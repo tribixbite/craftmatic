@@ -14,6 +14,7 @@ def screen(base,placements,projection,origin,scorer,dilation_px=3,outside_tolera
     M=np.asarray(projection,float);origin=np.asarray(origin,float);raster=LayerRasterizer()
     allowed=cv2.dilate(scorer.mask.astype(np.uint8),np.ones((2*dilation_px+1,2*dilation_px+1),np.uint8))>0
     H,W=allowed.shape
+    target=np.asarray(scorer.mask,bool);target_pixels=int(target.sum())
     def evidence(items):
         triangles=[]
         for p,c,T in items:
@@ -26,7 +27,13 @@ def screen(base,placements,projection,origin,scorer,dilation_px=3,outside_tolera
         ys,xs=np.nonzero(layer['mask'][0]);gx=xs+low[0];gy=ys+low[1];inside=(gx>=0)&(gy>=0)&(gx<W)&(gy<H)
         compatible=np.zeros(len(xs),bool);compatible[inside]=allowed[gy[inside],gx[inside]]
         outside=int((~compatible).sum())
-        return dict(occupied_pixels=len(xs),outside_pixels=outside,allowed=outside<=outside_tolerance_px)
+        # Coverage of the undilated target is reported alongside containment
+        # because containment alone cannot compare camera scales: a render that
+        # is too small is trivially contained and explains nothing.
+        covered=np.zeros((H,W),bool);covered[gy[inside],gx[inside]]=True
+        return dict(occupied_pixels=len(xs),outside_pixels=outside,allowed=outside<=outside_tolerance_px,
+            covered_pixels=int((covered&target).sum()),target_pixels=target_pixels,
+            centroid=[float(gx.mean()),float(gy.mean())] if len(gx) else None)
     base_evidence=evidence(base)
     rows=[dict(index=i,**evidence(p['items'])) for i,p in enumerate(placements)] if base_evidence['allowed'] else []
     return dict(retained_indices=[r['index'] for r in rows if r['allowed']],candidates=rows,base=base_evidence,
