@@ -193,13 +193,12 @@ describe.skipIf(!enabled)('production smoke', () => {
     const bundle = /assets\/(index-[A-Za-z0-9_-]+\.js)/.exec(html)?.[1] ?? null;
     const idx = await (await fetch(`${PROD}/lego-models-index.json`, { signal: AbortSignal.timeout(30000) })).json() as LegoIndexShape;
     const revResp = await fetch(`${PROD}/ldraw-parts/_rev`, { signal: AbortSignal.timeout(20000) });
-    // 404 is a SUPPORTED answer until the weekly sync has published a stamp
-    // (scripts/sync-ldraw-r2.mjs); the client treats an unknown revision as
-    // "keep the cache", never as "the library changed". Once a stamp exists
-    // this can tighten to `toBe(200)`.
-    expect([200, 404]).toContain(revResp.status);
-    const rev = revResp.status === 200 ? (await revResp.json() as { rev?: string }) : null;
-    if (rev) expect(typeof rev.rev, '_rev must carry a string revision').toBe('string');
+    // The first stamp was published 2026-09-09 (rev 4bacd2066441, 46,228 files)
+    // by a full sync run, so a 404 here now means the stamp REGRESSED — the
+    // worker route is gone or the object was deleted. Hard-require it.
+    expect(revResp.status, '/ldraw-parts/_rev must serve the library revision stamp').toBe(200);
+    const rev = await revResp.json() as { rev?: string };
+    expect(typeof rev.rev, '_rev must carry a string revision').toBe('string');
     console.log('[prod-smoke] deployment revisions: ' + JSON.stringify({
       appBundle: bundle,
       indexGenerated: idx.generated,
