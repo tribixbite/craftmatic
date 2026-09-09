@@ -4677,3 +4677,43 @@ separated a real error and cost nothing on the fixtures where there was no error
 to find. Round nine's list of non-pixel candidates - inventory capacity,
 connector-graph likelihood, seated contact - had produced zero, zero and a
 retracted claim.
+
+### The on-ramp, measured on six fixtures instead of three
+
+The PDF is now the pipeline's only input: `placement_pdf_inventory` extracts the
+printed BOM (reproducing 41601's existing inventory record for record), and the
+slot assignment no longer reads a completed *allocation* to recover a verified
+PDF hash - which had made the on-ramp circular, since an allocation is
+downstream of that assignment. So the on-ramp can be measured on any fixture
+with a stepped reference, and three more exist: `41604`, `41606` and `41625` are
+the only other BrickHeadz OMR files that are Cheenzo-authored, carry real `0
+STEP` structure and sit in the size band.
+
+Six fixtures, one command each, no attended step, identical configuration:
+
+| set | scope pages | printed pieces | in scope | of printed | pages excluded | size-gate pairs | accounted | fraction | exact pages |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: |
+| 40377 | 28 | 90 | **90** | **100%** | - | 0 | 68 | 0.756 | 17 |
+| 41601 | 24 | 108 | 103 | 95% | 27 | 12 | 81 | 0.786 | 12 |
+| 41604 | 17 | 101 | 63 | **62%** | 6, 7, 15, 18, 19, 23 | 1 | 49 | 0.778 | 7 |
+| 41606 | 28 | 113 | 103 | 91% | 13, 17, 18 | 11 | 62 | 0.602 | 14 |
+| 41624 | 37 | 109 | 106 | 97% | 13 | 0 | 85 | 0.802 | 26 |
+| 41625 | 35 | 129 | 122 | 95% | 3, 14 | 1 | 89 | 0.730 | 21 |
+
+**Median 95% of the printed inventory reaches a drivable page scope with no
+human decision, mean 90%**, and about three quarters of the allocated pieces
+group the way the reference's own steps group them. Round nine's equivalent
+number, on the one fixture it was measured on, was 77% with the scope chosen by
+hand.
+
+The residue is two named classes, and neither is a placement problem:
+
+* **A callout the solver cannot place in any slot** (41604: 8 callouts, 41606: 3,
+  41601: 1 after gating). The crop is found and the identity is not.
+* **An element the catalog maps to no LDraw name at all** (41625 pages 3 and 14,
+  seven pieces). The adapter is right to refuse: there is no name to allocate.
+
+41604 is the one fixture where the on-ramp is genuinely weak, and it is weak in
+one specific way: eight unassigned callouts spread over six pages, one of which
+carries thirteen pieces. Its 62% is a matcher-recall number, not a scope-policy
+number, and it is the honest counterexample to the other five.
