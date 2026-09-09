@@ -57,6 +57,22 @@ page 26's bank recall 3/5 → 5/5 while changing its placement not at all, so th
 budget is a precondition, not a fix. Measured architecture ceiling: **79/90 on
 40377, 31/109 on 41624**. The two fixtures fail at different stages (retention
 vs enumeration), so nothing here generalises on two fixtures.
+**A chain-level A/B is untrustworthy until the tie-break is deterministic**
+(`placement_score_ties`): 7 of 40377's 13 driven pages and 15 of 41624's 27 end
+in an *exact* tie at the top image score, every one between genuinely different
+assemblies, up to 12 of them. A perfect tie-break is worth **zero** coverage —
+inside every exact tie on 40377 all members have the same correct-part count — so
+ties are variance, not bias. But they redirect the chain: one 25269 quarter tile
+on page 19, two quarter turns apart and identical to 16 significant figures,
+moved page 22 from `drawing_to_drawing` at 1.6916 px/LDU to `body_template` at
+1.4863 and its score 0.3668 → 0.2529. The raised-parent-budget chain's only
+measurable effect through page 19 was enlarging that tied set from 2 to 3.
+**Colour classification: LDraw 19 (Tan) and 191 (Bright Light Orange) both have
+OpenCV hue 20**, hue was the sole discriminator and `argmin` broke the tie by
+palette index, so 40377 pages 26/27 had *zero* bright-light-orange in their
+coarse target and scored 0 agreement for all 1,926 and 4,142 candidates. Both
+fixtures carry the collision (41624: 17 tan vs 8 orange parts). Lab distance
+separates every pair in that warm cluster by ≥16.7 where hue separates two by 0.
 **The `scripts/pdf-recon` tests use three harnesses and mixing them hides
 failures.** Most files are a `if __name__ == '__main__'` loop printing `ok  <name>`
 (run with `python -X utf8 -B <file>`), some are `unittest` (`Ran N tests`), and a
