@@ -47,7 +47,15 @@ def verified_local_symmetries(part):
     return list(symmetries(part,'vertex'))
 
 
-def yaw_equivalent_score(recon,truth,local_symmetries=None):
+def yaw_equivalent_matching(recon,truth,local_symmetries=None):
+    """The structural matching itself, not only its size.
+
+    Identical enumeration and objective to `yaw_equivalent_score`, which is now a
+    thin wrapper, so a population table that asks *which* reference instances are
+    unmatched reports the same instances the headline number counts. Returns the
+    best matching as reconstruction-index -> reference-index pairs together with
+    the global rigid transform that realised it.
+    """
     groups=defaultdict(list)
     local_symmetries=local_symmetries or legacy_local_symmetries
     for i,p in enumerate(truth):groups[p[:2]].append(i)
@@ -60,7 +68,7 @@ def yaw_equivalent_score(recon,truth,local_symmetries=None):
                 if np.linalg.det(rotation)<.999:continue
                 offset=tp-rotation@p
                 transforms.setdefault(tuple(np.round(np.r_[rotation.flatten(),offset],4)),(rotation,offset))
-    best=0
+    best=0;best_pairs=[];best_transform=None
     for rotation,offset in transforms.values():
         edges=[]
         for j,(part,color,p,R) in enumerate(recon):
@@ -71,8 +79,20 @@ def yaw_equivalent_score(recon,truth,local_symmetries=None):
                 if any(np.allclose(rotation@R,v,atol=1e-4,rtol=0) for v in variants):edges.append((j,i))
         if len(edges)<=best:continue
         a,b=zip(*edges);graph=csr_matrix((np.ones(len(edges)),(a,b)),shape=(len(recon),len(truth)))
-        best=max(best,int(np.sum(maximum_bipartite_matching(graph,perm_type='column')>=0)))
-    return {'matched':best,'recon_parts':len(recon),'truth_parts':len(truth),'precision':best/len(recon),'coverage':best/len(truth),'symmetry_source':'placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested','symmetry_evidence':'output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries','limitations':'Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts.'}
+        assignment=maximum_bipartite_matching(graph,perm_type='column')
+        matched=int(np.sum(assignment>=0))
+        if matched>best:
+            best=matched
+            # perm_type='column' returns, per reconstruction row, the reference
+            # column it is matched to, so the array is indexed by recon part.
+            best_pairs=[(int(j),int(assignment[j])) for j in range(len(recon)) if assignment[j]>=0]
+            best_transform={'rotation':rotation.tolist(),'translation':offset.tolist()}
+    return best,best_pairs,best_transform
+
+
+def yaw_equivalent_score(recon,truth,local_symmetries=None):
+    best,pairs,transform=yaw_equivalent_matching(recon,truth,local_symmetries)
+    return {'matched':best,'recon_parts':len(recon),'truth_parts':len(truth),'precision':best/len(recon),'coverage':best/len(truth),'matched_pairs':pairs,'alignment':transform,'symmetry_source':'placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested','symmetry_evidence':'output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries','limitations':'Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts.'}
 
 
 if __name__=='__main__':
