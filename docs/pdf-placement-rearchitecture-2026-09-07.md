@@ -2547,3 +2547,149 @@ them is the first thing to do on these two pages, because if the drawing really
 contains no 191, then withholding those pieces from the image-judged search — the
 mechanism round five already built and shipped opt-in — is the correct handling
 and it is not firing.
+
+## Round seven: the closure was never a budget problem, it was a predicate problem
+
+Round six's ceiling memo put "finish the closure" first on the measured list and
+called the parent budget "a number in a config". The coordinator's addendum then
+narrowed that: the budget is two constants, neither ever tuned, and on the pages
+where the **pose** cap binds, raising parents alone is provably inert. Round
+seven begins by asking what the closure actually costs, and the answer changes
+the shape of the problem: it was never affordable to finish, and now it is.
+
+### Round six's two in-flight runs, absorbed
+
+**`40377-r6-parents-chain`, 1024 closure parents, everything else round five.**
+Through page 19 it reproduces round five *exactly* - 49/26/46, 51/26/48,
+52/27/49, 58/28/50 emitted/strict/structural, precision to the digit - and the
+registries say why:
+
+| page | base-attached | r5 poses (128 parents) | r6 poses (1024 parents) | which cap binds |
+| ---: | ---: | ---: | ---: | --- |
+| 16 | 4,668 | 8,192 | **8,192** | pose |
+| 17 | 4,269 | 8,192 | **8,192** | pose |
+| 18 | 5,258 | 8,192 | **8,192** | pose |
+| 19 | 3,191 | 7,467 | **8,192** | parent, then pose |
+
+Three of the four pages fill the 8,192-pose cap before exhausting even 128
+parents, so the parent budget is inert on them and a raise cannot change one
+byte. Page 19 is the one that had headroom: its bank grows by 725 poses, it
+becomes pose-capped in turn, and **its output is still identical**. That is the
+round-six "the budget converts one class into another" finding reproduced on a
+second page, this time with the conversion visible and worth nothing.
+
+**`40377-r6-retain-p19`, beam 256 / top-k 64.** Completes. It writes **200**
+retained assemblies instead of 44 and emits the same **58** parts. Width is not
+the retention lever, measured on the fixture's own extreme case.
+
+### Where the parent-expansion time goes
+
+`placement_closure_profile` rebuilds a page's `ShapeRegistry` from the registry
+the run itself wrote and times one closure round with the stages separated. The
+registry's own `seconds` field cannot answer this: in evidence mode the driver
+builds one seed per page and calls `branch()` per drawing, and `branch` copies
+`started` from the seed, so the recorded 129.7 s on page 18 spans the
+registration and ranking work done in between.
+
+On 40377 page 18 (one shape, `3031`, 5,258 base-attached poses, 392 relative
+mates per parent), expanding **64** parents:
+
+| stage | seconds | share |
+| --- | ---: | ---: |
+| `collision` (`Assembly.collides`) | **18.87** | **98.3%** |
+| `transform` (4x4 product, rounding, bank lookup) | 0.28 | 1.4% |
+| everything else | 0.06 | 0.3% |
+| one closure round, 64 of 5,258 parents | 19.21 | |
+
+25,088 candidates produce 22,111 duplicate keys and only 2,977 collision calls -
+and those 2,977 calls are the whole cost, at **6.3 ms each**. Finishing this one
+page's own first round projects to **1,578 s**. That is why round six's attempt
+at 1024 parents and 32,768 poses had not finished page 16 after fifty minutes:
+not a wall in the search, a scalar predicate.
+
+### The predicate is a Python loop, and it did not need to be
+
+`Assembly.collision` builds the candidate's voxel set by walking up to 4,000
+surface samples in Python - nine multiplies, a floor and a set insertion each -
+then tests dict membership per voxel, then erodes the set with six more
+membership tests per voxel. `placement_fast_collision` does the same arithmetic
+on numpy arrays and packs the voxels into sorted int64 keys.
+
+The point of the module is that it is not an approximation:
+
+* The world coordinate is evaluated elementwise in the same association order
+  the scalar loop uses. IEEE 754 requires each individual multiply and add to be
+  correctly rounded and numpy does not contract them into an FMA, so every
+  intermediate is bit-identical. Dividing by the 4 LDU voxel edge and flooring
+  are both exact.
+* The rotated point cloud is cached per (part, rotation) with the rotation's
+  exact bytes as the key, and only the translation is added per pose - the same
+  expression tree, so caching changes no value.
+* `collision()` computes both core terms unconditionally, because
+  `candidates()` stores the floats it returns. `collides()` short-circuits, and
+  each exit is a proven implication rather than a heuristic - notably: erosion
+  is a subset, so the second core term can never exceed the plain count, and a
+  plain share already at or below the core threshold settles the disjunction
+  without eroding anything.
+* Only the erosion probes are restricted, to the voxels that are actually
+  occupied. Erosion is still judged against the whole voxel set, so the count is
+  the same one; a voxel outside the body cannot contribute to the eroded
+  intersection however interior it is.
+
+It patches an `Assembly` **instance**, never the class, so `C:/git/clego` is
+unmodified and `Assembly.candidates` - which calls `self.collision` - is
+accelerated for free.
+
+**Equivalence is the gate, and it is checked three ways.** Over 3,000 real
+closure transforms on page 18 the `(plain, core)` tuple and the `collides`
+verdict both agree on every one. `test_placement_fast_collision` asserts the
+packed key set equals the scalar voxelisation, that the erosion matches
+`assembly.erode`, that the restricted probe form matches the unrestricted one,
+and that a whole recorded registry is equal field for field with the fast path
+on and off. And the A/B on real pages hashes the entire record: page 18 and page
+26 at 128 parents produce **identical sha256** with and without it.
+
+| measurement, 40377 page 18 | scalar | vectorised | ratio |
+| --- | ---: | ---: | ---: |
+| one `collides` call | 6.34 ms | 0.345 ms | **18.4x** |
+| base-attached enumeration (5,258 poses) | 39.95 s | 4.76 s | 8.4x |
+| 64 closure parents | 19.21 s | 1.23 s | 15.6x |
+| projected full first round | 1,578 s | 101 s | |
+
+The counts are unchanged at every step - 25,088 candidates, 22,111 duplicates,
+2,977 collision calls, 1,315 poses added, 6,573 bank poses - which is what makes
+this a speedup rather than a different search.
+
+### What a complete closure actually contains
+
+With the predicate affordable, every 40377 page's **complete** first closure
+round can be measured for the first time. No budget: parents run to the
+base-attached count, poses to two million.
+
+| page | base-attached | r5 bank (128 parents / 8,192) | complete round-1 bank | closure seconds |
+| ---: | ---: | ---: | ---: | ---: |
+| 16 | 4,668 | 8,192 | **50,056** | 100.0 |
+| 17 | 4,269 | 8,192 | **108,444** | 144.8 |
+| 18 | 5,258 | 8,192 | **57,711** | 121.2 |
+| 19 | 3,191 | 7,467 | **65,637** | 35.5 |
+| 22 | 1,437 | 1,437 | 1,437 | 0.0 |
+| 23 | 5,396 | 8,192 | **60,582** | 125.1 |
+| 24 | 1,390 | 1,390 | 1,390 | 0.0 |
+| 25 | 1,321 | 1,321 | 1,321 | 0.0 |
+| 26 | 808 | 2,090 | 5,889 | 1.9 |
+| 27 | 2,698 | 5,333 | **31,853** | 24.0 |
+| 28 | 4,379 | 8,192 | **140,430** | 72.2 |
+| 29 | 984 | 2,130 | 8,330 | 2.3 |
+| 30 | 2,136 | 5,609 | **86,707** | 24.7 |
+
+The whole chain's complete enumeration is about **11 minutes**, against a page
+26 that round six timed at "about a minute" for one page and a page 16 that had
+not finished in fifty. Page 26's complete bank is 5,889 poses at 808 parents,
+which reproduces round six's one-page experiment exactly.
+
+Two results in that table are worth separating from the speedup. Pages 22, 24
+and 25 add **nothing** in closure: their complete round-one bank is their
+base-attached set, so they were never budget-limited at all and no enumeration
+work can help them. And pages 17, 28 and 30 hold 13 to 17 times more legal poses
+than the search has ever seen, which is the reachability headroom the population
+table's `unreachable` class was measuring the absence of.
