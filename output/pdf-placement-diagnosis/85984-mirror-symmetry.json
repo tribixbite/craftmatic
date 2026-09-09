@@ -1,0 +1,549 @@
+{
+  "part": "85984",
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "method": "All 24 improper octahedral elements, sorted-vertex six-decimal LDU comparison of the full coloured triangle set and a two-sided vertex Hausdorff distance",
+  "geometry_files": {
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\parts\\85984.dat": "4ec471415207722114f48abb384626d3dbda59796803cafc7feaf824ed88d426",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\parts\\s\\85984s01.dat": "be8c8a230e87f02663d9a985895d1342fe5246523609296e3d64862895bb8721",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\rect.dat": "ffeb2dd3d9b83c38841f18f1f74800fbba9e90c5fb6badfff2a795f08a96cb71",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\box4.dat": "72e1169ec1b2f11d44a6aaf6e87e15ec82a6cb35b5c56dcf7b1185d6b8b954aa",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4edge.dat": "54a52196e421fd1717d291ff52ea57553b1fb238907c1678cc1f1a84c698b1da",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4cyls.dat": "ca950cd575e4b49c4bf67c63c586471c10275ac831ce0e590cbb810593fbb486",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\stud3a.dat": "5261532d394fe3802a92210e6aaa56ed8be158336a561ace21d98bae0793933c",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4disc.dat": "a00b5547776f61a7389d303616987c76b3c4de86ad8ec32f22857e1bd5e5e40f",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4cyli.dat": "4a742c2765b6ebf98245baaf8a160a4ff587fc93d36c8ee2b9074712a2f968c4",
+    "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\rect3.dat": "07ac46908b6668d993b6de0fb001a34cd996542106b80ebc7de63317d8dde865"
+  },
+  "reflections": [
+    {
+      "reflection": [
+        [
+          1.0,
+          0.0,
+          -0.0
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 11.790016492354876,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          1.0,
+          -0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          0.0,
+          -0.0,
+          1.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 15.663971399361019,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 0.0,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -1.0,
+          -0.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          -1.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          -0.0,
+          -1.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 15.663971399361019,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 12.023310692151309,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          1.0,
+          -0.0,
+          -0.0
+        ],
+        [
+          0.0,
+          -0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          -1.0,
+          -0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 11.874342087037917,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -1.0,
+          0.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          -0.0,
+          1.0,
+          -0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 12.023310692151309,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -1.0,
+          -0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          -0.0,
+          -1.0,
+          0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 12.023310692151309,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 21.114980653554955,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          0.0,
+          -1.0,
+          -0.0
+        ],
+        [
+          1.0,
+          -0.0,
+          -0.0
+        ],
+        [
+          0.0,
+          -0.0,
+          -1.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 21.114980653554955,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -0.0,
+          1.0,
+          -0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          -1.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 21.114980653554955,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          -0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          -0.0,
+          1.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 21.114980653554955,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          1.0,
+          0.0,
+          -0.0
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 22.761170620159234,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          1.0,
+          -0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 22.761170620159234,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -0.0,
+          0.0,
+          1.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          1.0,
+          0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 22.761170620159234,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -0.0,
+          -0.0,
+          -1.0
+        ],
+        [
+          -1.0,
+          -0.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          -1.0,
+          -0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 22.761170620159234,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          0.0,
+          1.0,
+          -0.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          1.0,
+          0.0,
+          -0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 22.761170620159234,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          1.0,
+          -0.0,
+          0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 22.761170620159234,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          1.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 22.761170620159234,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -0.0,
+          -1.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          -0.0,
+          -1.0
+        ],
+        [
+          -1.0,
+          -0.0,
+          -0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 22.761170620159234,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 17.43755903215814,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          0.0,
+          -0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          -1.0,
+          -0.0
+        ],
+        [
+          1.0,
+          -0.0,
+          -0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 21.69717050677346,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          -0.0,
+          1.0,
+          -0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          -0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 17.43755903215814,
+      "full_colored_triangle_invariant": false
+    },
+    {
+      "reflection": [
+        [
+          -0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          -0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          -0.0,
+          0.0
+        ]
+      ],
+      "determinant": -1.0,
+      "max_vertex_hausdorff_ldu": 21.69717050677346,
+      "full_colored_triangle_invariant": false
+    }
+  ],
+  "limitations": "Only octahedral reflections are tested. A mould whose mirror symmetry lies off the cube axes is reported as having none, which makes the channel abstain rather than propose a wrong pose."
+}

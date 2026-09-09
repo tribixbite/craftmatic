@@ -1,0 +1,1088 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r5-contain-v1",
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "totals": {
+    "pages": 13,
+    "planes_accepted": 13,
+    "reference_targets": 45,
+    "wrong_targets": 37,
+    "admitted": 5,
+    "hit": 4,
+    "false_positive_proposals": 1
+  },
+  "rows": [
+    {
+      "page": 16,
+      "base_parts": 48,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 34,
+        "eligible": 40,
+        "parts": 48,
+        "fraction": 0.85,
+        "self_mapped": 16,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 3,
+      "correct_additions": 1,
+      "emitted_additions": 1,
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "wrong_targets": 2,
+      "hit": 0,
+      "missed_targets": 2,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "3031",
+          "color": 15,
+          "truth_index": 48,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        },
+        {
+          "part": "3031",
+          "color": 15,
+          "truth_index": 51,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3031",
+          "color": 15,
+          "truth_index": 67,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "decisions": []
+    },
+    {
+      "page": 17,
+      "base_parts": 49,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 35,
+        "eligible": 41,
+        "parts": 49,
+        "fraction": 0.8536585365853658,
+        "self_mapped": 17,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 2,
+      "correct_additions": 2,
+      "emitted_additions": 2,
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "wrong_targets": 0,
+      "hit": 0,
+      "missed_targets": 0,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "60474",
+          "color": 0,
+          "truth_index": 49,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        },
+        {
+          "part": "60474",
+          "color": 0,
+          "truth_index": 50,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        }
+      ],
+      "decisions": []
+    },
+    {
+      "page": 18,
+      "base_parts": 51,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 37,
+        "eligible": 43,
+        "parts": 51,
+        "fraction": 0.8604651162790697,
+        "self_mapped": 19,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 2,
+      "correct_additions": 1,
+      "emitted_additions": 1,
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "wrong_targets": 1,
+      "hit": 0,
+      "missed_targets": 1,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "3031",
+          "color": 15,
+          "truth_index": 51,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        },
+        {
+          "part": "3031",
+          "color": 15,
+          "truth_index": 67,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "decisions": []
+    },
+    {
+      "page": 19,
+      "base_parts": 52,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 44,
+        "parts": 52,
+        "fraction": 0.8636363636363636,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 6,
+      "correct_additions": 1,
+      "emitted_additions": 6,
+      "status": "measured",
+      "proposals": 1,
+      "admitted": 1,
+      "admitted_rows": [
+        {
+          "part": "25269",
+          "color": 15,
+          "source_index": 52,
+          "source_position": [
+            86.0,
+            -126.0,
+            -30.0
+          ],
+          "transform": [
+            [
+              0.0,
+              -1.0,
+              0.0,
+              86.0
+            ],
+            [
+              -1.0,
+              0.0,
+              -3.061617e-16,
+              -126.0
+            ],
+            [
+              3.061617e-16,
+              0.0,
+              -1.0,
+              30.0
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            86.0,
+            -126.0,
+            30.0
+          ],
+          "collides": false,
+          "engaged": 1,
+          "added_connectors": 1,
+          "admitted": true,
+          "reference_hit": 57
+        }
+      ],
+      "wrong_targets": 5,
+      "hit": 1,
+      "missed_targets": 4,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "41740",
+          "color": 15,
+          "truth_index": 52,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "2431",
+          "color": 15,
+          "truth_index": 53,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 54,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 55,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 56,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 57,
+          "present_in_bank": true,
+          "mirror_hit": true,
+          "already_placed": false
+        }
+      ],
+      "decisions": [
+        {
+          "part": "25269",
+          "color": 15,
+          "quota": 4,
+          "distinct_admitted": 1,
+          "determined": true
+        }
+      ]
+    },
+    {
+      "page": 22,
+      "base_parts": 58,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 50,
+        "parts": 58,
+        "fraction": 0.76,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 6,
+      "correct_additions": 1,
+      "emitted_additions": 2,
+      "status": "measured",
+      "proposals": 1,
+      "admitted": 1,
+      "admitted_rows": [
+        {
+          "part": "87079",
+          "color": 15,
+          "source_index": 58,
+          "source_position": [
+            30.0,
+            -76.0,
+            48.0
+          ],
+          "transform": [
+            [
+              1.0,
+              0.0,
+              6.123234e-17,
+              30.0
+            ],
+            [
+              6.123234e-17,
+              0.0,
+              -1.0,
+              -76.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0,
+              -48.0
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            30.0,
+            -76.0,
+            -48.0
+          ],
+          "collides": false,
+          "engaged": 4,
+          "added_connectors": 8,
+          "admitted": true,
+          "reference_hit": 65
+        }
+      ],
+      "wrong_targets": 5,
+      "hit": 1,
+      "missed_targets": 4,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 65,
+          "present_in_bank": true,
+          "mirror_hit": true,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 66,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 68,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 69,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 70,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 71,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "decisions": [
+        {
+          "part": "87079",
+          "color": 15,
+          "quota": 2,
+          "distinct_admitted": 1,
+          "determined": true
+        }
+      ]
+    },
+    {
+      "page": 23,
+      "base_parts": 60,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 52,
+        "parts": 60,
+        "fraction": 0.7307692307692307,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 1,
+      "correct_additions": 0,
+      "emitted_additions": 1,
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "wrong_targets": 1,
+      "hit": 0,
+      "missed_targets": 1,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "3031",
+          "color": 15,
+          "truth_index": 67,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "decisions": []
+    },
+    {
+      "page": 24,
+      "base_parts": 61,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 53,
+        "parts": 61,
+        "fraction": 0.7169811320754716,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 5,
+      "correct_additions": 0,
+      "emitted_additions": 2,
+      "status": "measured",
+      "proposals": 2,
+      "admitted": 1,
+      "admitted_rows": [
+        {
+          "part": "87079",
+          "color": 15,
+          "source_index": 58,
+          "source_position": [
+            30.0,
+            -76.0,
+            48.0
+          ],
+          "transform": [
+            [
+              1.0,
+              0.0,
+              6.123234e-17,
+              30.0
+            ],
+            [
+              6.123234e-17,
+              0.0,
+              -1.0,
+              -76.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0,
+              -48.0
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            30.0,
+            -76.0,
+            -48.0
+          ],
+          "collides": false,
+          "engaged": 4,
+          "added_connectors": 8,
+          "admitted": true,
+          "reference_hit": 65
+        }
+      ],
+      "wrong_targets": 5,
+      "hit": 1,
+      "missed_targets": 4,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 65,
+          "present_in_bank": true,
+          "mirror_hit": true,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 66,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 68,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 69,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 71,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "decisions": [
+        {
+          "part": "87079",
+          "color": 15,
+          "quota": 2,
+          "distinct_admitted": 1,
+          "determined": true
+        }
+      ]
+    },
+    {
+      "page": 25,
+      "base_parts": 63,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 55,
+        "parts": 63,
+        "fraction": 0.6909090909090909,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 5,
+      "correct_additions": 0,
+      "emitted_additions": 2,
+      "status": "measured",
+      "proposals": 4,
+      "admitted": 2,
+      "admitted_rows": [
+        {
+          "part": "87079",
+          "color": 15,
+          "source_index": 58,
+          "source_position": [
+            30.0,
+            -76.0,
+            48.0
+          ],
+          "transform": [
+            [
+              1.0,
+              0.0,
+              6.123234e-17,
+              30.0
+            ],
+            [
+              6.123234e-17,
+              0.0,
+              -1.0,
+              -76.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0,
+              -48.0
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            30.0,
+            -76.0,
+            -48.0
+          ],
+          "collides": false,
+          "engaged": 4,
+          "added_connectors": 8,
+          "admitted": true,
+          "reference_hit": 65
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "source_index": 62,
+          "source_position": [
+            -18.0,
+            -76.0,
+            20.0
+          ],
+          "transform": [
+            [
+              0.0,
+              1.0,
+              0.0,
+              -18.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0,
+              -76.0
+            ],
+            [
+              0.0,
+              0.0,
+              -1.0,
+              -20.0
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            -18.0,
+            -76.0,
+            -20.0
+          ],
+          "collides": false,
+          "engaged": 3,
+          "added_connectors": 8,
+          "admitted": true,
+          "reference_hit": null
+        }
+      ],
+      "wrong_targets": 5,
+      "hit": 1,
+      "missed_targets": 4,
+      "false_positive_proposals": 1,
+      "targets": [
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 65,
+          "present_in_bank": true,
+          "mirror_hit": true,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 66,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 68,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 69,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 71,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "decisions": [
+        {
+          "part": "87079",
+          "color": 15,
+          "quota": 2,
+          "distinct_admitted": 2,
+          "determined": true
+        }
+      ]
+    },
+    {
+      "page": 26,
+      "base_parts": 65,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 39,
+        "eligible": 57,
+        "parts": 65,
+        "fraction": 0.6842105263157895,
+        "self_mapped": 21,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 5,
+      "correct_additions": 0,
+      "emitted_additions": 4,
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "wrong_targets": 5,
+      "hit": 0,
+      "missed_targets": 5,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "3023b",
+          "color": 191,
+          "truth_index": 59,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3023b",
+          "color": 191,
+          "truth_index": 72,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3023b",
+          "color": 191,
+          "truth_index": 73,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3023b",
+          "color": 191,
+          "truth_index": 74,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3023b",
+          "color": 191,
+          "truth_index": 75,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "decisions": []
+    },
+    {
+      "page": 27,
+      "base_parts": 69,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 39,
+        "eligible": 57,
+        "parts": 69,
+        "fraction": 0.6842105263157895,
+        "self_mapped": 21,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 2,
+      "correct_additions": 0,
+      "emitted_additions": 2,
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "wrong_targets": 2,
+      "hit": 0,
+      "missed_targets": 2,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "43723",
+          "color": 191,
+          "truth_index": 76,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "43722",
+          "color": 191,
+          "truth_index": 77,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "decisions": []
+    },
+    {
+      "page": 28,
+      "base_parts": 71,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 39,
+        "eligible": 57,
+        "parts": 71,
+        "fraction": 0.6842105263157895,
+        "self_mapped": 21,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 3,
+      "correct_additions": 1,
+      "emitted_additions": 3,
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "wrong_targets": 2,
+      "hit": 0,
+      "missed_targets": 2,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "3623",
+          "color": 1,
+          "truth_index": 78,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3710",
+          "color": 1,
+          "truth_index": 79,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        },
+        {
+          "part": "61252",
+          "color": 1,
+          "truth_index": 80,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "decisions": []
+    },
+    {
+      "page": 29,
+      "base_parts": 74,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 40,
+        "eligible": 60,
+        "parts": 74,
+        "fraction": 0.6666666666666666,
+        "self_mapped": 22,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 2,
+      "correct_additions": 1,
+      "emitted_additions": 2,
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "wrong_targets": 1,
+      "hit": 0,
+      "missed_targets": 1,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "15068",
+          "color": 1,
+          "truth_index": 81,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "15068",
+          "color": 1,
+          "truth_index": 82,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        }
+      ],
+      "decisions": []
+    },
+    {
+      "page": 30,
+      "base_parts": 76,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 41,
+        "eligible": 62,
+        "parts": 76,
+        "fraction": 0.6612903225806451,
+        "self_mapped": 23,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 3,
+      "correct_additions": 0,
+      "emitted_additions": 3,
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "wrong_targets": 3,
+      "hit": 0,
+      "missed_targets": 3,
+      "false_positive_proposals": 0,
+      "targets": [
+        {
+          "part": "85984",
+          "color": 1,
+          "truth_index": 83,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "3069b",
+          "color": 1,
+          "truth_index": 84,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "60478",
+          "color": 0,
+          "truth_index": 85,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "decisions": []
+    }
+  ],
+  "truth_used_at_runtime": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Proposals are generated from the run's own base body, allocation and universal CAD; the reference model scores them afterwards and selects nothing.",
+  "limitations": "The ceiling is per page and assumes the page's own base body, so a page whose body is already wrong cannot mirror a correct partner it never had. Mirror-mould pairs are not proposed, and only axis-aligned planes are searched."
+}
