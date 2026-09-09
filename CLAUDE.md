@@ -102,7 +102,9 @@ each candidate's own painted agreement — one bincount, no extra render), worth
 `--chromatic-metric lab` (a correctness fix, **not** a lever — on pages 26/27 it
 demotes the correct poses from the plateau to ranks 1,164–1,639). **Chain
 numbers: r5's 53/90 survives re-baselining under determinism; the window
-ordering reaches 54/90** (alias 38, strict 32, precision 0.684 at 79 emitted).
+ordering reaches 54/90** (alias 38, strict 32, precision 0.684 at 79 emitted)
+**and 41624 reaches 6/109** (86 emitted, the extra part on page 5, but 20 of 31
+placed pages tie-exposed — the highest in the program).
 Round six's 1024-parent chain finishing at **50/90 is a coin flip, not its
 configuration**. `placement_trajectory` now prints a `tied` column per row — do
 not quote an inter-round delta without it. The breadth clause has fired; the plan
