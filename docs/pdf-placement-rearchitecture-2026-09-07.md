@@ -1455,3 +1455,398 @@ it is a second-order lever now, not the binding one.
    are one correct parent away.
 4. *Then the look-ahead window*, as the first memo said, but as the fourth item
    rather than the first.
+
+## Round five: containment inside the page, a settled alias, and what a late page can see
+
+Round four's recommendations were taken in its order. The first is done and
+works on its own terms — three refused pages become drivable on the registration
+that best explains their drawings — the second removed an impossibility without
+making the construction right, and the third turned out to be aimed at the wrong
+defect. None of them raised whole-model coverage, and the reason they did not is
+the round's actual finding: registration is no longer the constraint anywhere on
+40377 pages 16 to 30. Evidence is.
+
+### Containment judged within the page, not against the body
+
+Round four's binding measurement was that camera *choice* no longer passes
+through the emitted body but containment still does, and that page index 22 of
+40377 paid 116 pixels of 55,333 for it. The absolute allowance is a fraction of
+the body's own rendered area, and the quantity it should scale with is how wrong
+the body already is, which is not known in advance.
+
+What is knowable, within one page and against one body, is the overflow the
+page's own hypotheses achieve. `placement_origin_refine` now also admits a
+registration whose overflow **as a fraction of its own rendered area** is within
+a multiple of the smallest such fraction any hypothesis on that page reaches.
+Normalising by the render's own area is load-bearing rather than cosmetic: a
+camera that is simply too small overflows less in absolute pixels and would
+otherwise set a floor no correct registration could meet. On page 22 the
+body-template survivors overflow 147 to 440 pixels while rendering 42k-48k, and
+the propagated registration overflows 669 while rendering 55,333 — 0.317% against
+1.209%, where the absolute rule compares 147 against 669 and gets the ordering
+backwards.
+
+The rule is self-limiting by construction, and that is measured rather than
+asserted. Where any hypothesis is cleanly contained the page's floor is zero, the
+relative allowance collapses to the absolute one and nothing changes. Where the
+floor itself exceeds `relative_cap` the page has no registration worth comparing
+against and the rule is withheld entirely — 40377 page 26's second drawing, whose
+best hypothesis overflows by 7.3% of its own area, is refused exactly as before
+instead of admitting eleven hypotheses at 7-27%.
+
+`placement_containment_regression` replays both rules over every page a completed
+run recorded. Admission and the camera verdict are closed-form in the saved
+overflow, occupied and covered pixel counts, so this re-evaluates measurements
+rather than re-running anything; what it cannot predict is what the search then
+selects, and a drawing whose accepted registration changes has to be driven.
+
+| run | drawings | unchanged | changed |
+| --- | ---: | ---: | --- |
+| 40377 `r4-reach-v3` | 17 | 14 | p22 refused → propagated at 90.3% coverage; p26 main refused → 89.8%; p26 retry 58.5% body template → 80.6% propagated |
+| 41624 `r4-window-v1` | 6 | 6 | none |
+| 41624 `r4-draw-c1` | 7 | 7 | none |
+
+Coverage *ordering* is implemented, measured and **not adopted**: ranking retained
+registrations by coverage instead of template score changes the first accepted
+registration on 10 of the 17 drawings, including pages that place correctly
+today. One page's evidence is not a reason to change the default objective on
+seven others.
+
+### `98138pb072` is `98138pz0`, on three independent sources
+
+Round four parked this and noted that page index 20 could not score above 5 of 7
+until it was settled. It is settled, by evidence of exactly the kind that settled
+`3010pb291`/`3010py3` in an earlier round.
+
+* **The universal part's own header.** The current official `98138pz0.dat`
+  declares `0 !KEYWORDS Brickheadz, BrickLink 98138pb072, Eye, Rebrickable
+  98138pr0060`. `PartLibrary` already consumes that field, so fetching the file
+  into the universal-parts cache is the whole change — no resolver code moved.
+  Why it was unavailable offline is dateable: the locally installed library is
+  the Studio-bundled LDraw release 207, whose copy is `UPDATE 2017-01`, and the
+  keywords arrived with `2023-04-21 [Cheenzo] Subfiled pattern for reuse, added
+  keywords` in `UPDATE 2023-03`.
+* **Studio's own part table.** `StudioPartDefinition2.txt` carries two rows for
+  BL item key 153546, both with BL ItemNo `98138pb072` and the identical
+  description "Tile, Round 1 x 1 with 2 White Squares Pattern (BrickHeadz
+  Standard Eye)", one mapping to `98138pb072.dat` and one to `98138pz0.dat`.
+* **The CAD.** Recursive parse of both files: identical bounding boxes to 0.0
+  LDU, surface areas within 3 parts per million, 94.2% of distinct vertices
+  shared exactly at 0.001 LDU in both directions. The residual 5.8% is the
+  official part's `4-4ering` primitive against the Studio file's flat triangles,
+  which is why triangle counts are reported rather than asserted equal.
+
+Recorded by `placement_verify_98138_alias`. The evaluation now canonicalises
+`98138pb072` to `98138pz0` through the existing alias mechanism, so page 20's two
+tiles are scorable.
+
+### Page 20's construction was not a well-posed problem, and the PDF says so
+
+Unparking the alias did not raise page 20's construction: it stays at 1 of 7
+structural, i.e. nothing beyond the nailed root. The reason is that its seven
+allocated pieces are not one rigid body.
+
+`placement_diagnose_group_connectivity` measures that with the exact predicate
+`Assembly._consume_coincident` uses, at the pieces' reference poses: components
+of **5, 1 and 1**. The two black round tiles engage zero connectors with any of
+the other six or with each other, and sit 31 LDU away on a piece page 19 placed.
+Page 31's four pieces come back as one component of 4, so the diagnostic
+discriminates rather than always splitting. `placement_construct_body` requires a
+complete connected assembly of everything it is given, so no correct result was
+*reachable* — which is why 84 retained candidates over three roots topped out at
+2 of 7.
+
+The PDF says the same thing without the model, twice.
+
+* **The substep drawings are not all one object.** Page 20's three drawings align
+  162 to 164 at scale 1.00 and IoU 0.9334, and 168 to either of them only at
+  scale 0.80 and IoU 0.34 — below the 0.60 floor `placement_drawing_registration`
+  already refuses at. 168 is the exploded first substep; 162 and 164 are the
+  built states. Round four compared only substeps 2 and 3 and read the page as
+  cumulative throughout.
+* **The final substep contains no ink of the withheld colour.** Classified
+  against the page's own allocated colours, xref 164's 8,136 foreground pixels
+  are 6,523 bright-light-orange, 509 white and **57 black** — 0.7%, which is
+  outline. One 1x1 round tile covers about 510 pixels at that camera. The control
+  is page index 21, the attachment page, whose drawing is 31% black because it
+  shows those tiles installed on the head beside a black 4x4 round plate.
+
+`placement_undrawn_pieces` turns the second into an opt-in rule: a colour with
+less drawn ink than one of its own pieces must cover is not in this drawing, so
+those pieces are withheld from the construction and stay outstanding for a later
+page. It withholds a whole colour rather than guessing which piece, never
+withholds every piece, and refuses when it would leave fewer than two. Its
+limitation is occlusion and it is real — a piece drawn but wholly hidden is
+indistinguishable from one not drawn — which is why the threshold is a fraction
+of a *single* piece's silhouette and why it is off by default. On page 31, whose
+four black pieces sit on a black plate, it measures a drawn share of 16 and
+withholds nothing.
+
+With the two tiles withheld, page 20's construction is a well-posed five-piece
+build and its own image score rises from 0.4543 to 0.6120. **It is still 1 of 5
+structural.** `--local-rerank 0.5` reproduces the identical selection at the
+identical score. One root retains a 3-of-5 candidate it does not select, so there
+is a selection gap there, but the runtime result is 20% and the fix-or-exclude
+rule says exclude: `--exclude-construction PAGE=REASON` records that decision in
+the journal, keeps the page's pieces outstanding and keeps its ink attributable,
+so a deliberate exclusion is distinguishable from an absent construction.
+
+### Pages 23-30 are a visibility failure, not a closure-ordering one
+
+Round four's third recommendation was to aim the later closure rounds at these
+pages, on the reading that the per-round parent budget lands but the evidence
+ordering does not apply there. Measured, that is not what they are missing.
+
+* **Bank recall, from the run's own registries.** Page 23 holds 1 of 1 reference
+  poses, page 28 3 of 3, page 29 2 of 2, page 30 2 of 3. The correct poses are
+  already enumerated at round one, so a later closure round is not the gap.
+* **Every retained candidate, not just the selected one.** Across pages 23, 24,
+  25, 26, 27, 28 and 29 the best retained beats the selected on exactly one page,
+  by one pose. Re-ranking is worth at most that, which reproduces round three's
+  finding on the earlier pages.
+* **The arrow channel, measured rather than quoted.** Accepted arrowheads in each
+  page's largest drawing: pages 23, 24, 25 and 26 have none; 27, 28, 29 and 30
+  have 3, 1, 2 and 2. So it reaches half the class — and it orders closure
+  *parents*, which recall says these pages do not need.
+
+What does explain them is how little of the added piece the drawing shows. Page
+23 adds one white 4x4 plate to a 58-part body. Its reference pose paints **899**
+drawn pixels; the four top-ranked rivals paint 10,939 to 11,003, because the true
+mounting face is turned away and theirs are not. Every channel prefers the
+visible rival:
+
+| page 23 candidate | coarse rank | native rank | local rank | painted px | engaged mates | voxel contacts |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| selected | 1 | 1 | 9 | 10,944 | 12 | 697 |
+| best local rival | 9 | 5 | 1 | 11,003 | - | - |
+| **reference** | **260** | **13 of 16** | **13 of 16** | **899** | **10** | **534** |
+
+The local objective, which restricts the evidence to the region the addition
+changes, prefers the wrong pose *more* strongly than the whole-drawing one
+(0.2673 against 0.2266), because 899 pixels of an occluded sliver agree with the
+drawing worse than a plate-shaped 11,000 do. The seated tie-break prefers it too:
+the wrong pose engages twelve connector mates against the reference pose's ten.
+This is not a resolution limit and not a tie — it is an evidence shortage of one
+order of magnitude.
+
+`placement_diagnose_visibility` then answers the question that decides whether a
+look-ahead window could fix it. The same pose, measured against each later page's
+own body at that page's own accepted registration, on the round-four chain:
+
+| page | 23 | 24 | 25 | 28 | 29 | 30 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| painted pixels | 899 | 74 | 74 | 74 | 74 | 74 |
+| drawn foreground | 58,519 | 59,485 | 61,901 | 66,731 | 67,445 | 70,051 |
+
+The obvious objection is that the piece looks occluded only because the body
+occluding it carries wrong parts. `--reference-model` answers it: the
+independent model is mapped into reconstruction coordinates through the inverse
+of the recall diagnostic's measured alignment, the pose under test is removed,
+and the measurement is repeated against that complete, correct assembly. On the
+round-five chain, whose body is a part better:
+
+| painted against | page 23 | page 24 | page 25 |
+| --- | ---: | ---: | ---: |
+| our emitted body (60-63 parts) | 523 | 528 | 528 |
+| the complete 89-part reference model | **75** | **76** | **76** |
+
+The piece is *more* hidden inside the finished model than behind our errors, so
+the mounting face is turned away at the booklet's viewpoint and repairing the
+body cannot reveal it.
+
+The booklet never shows that face again, so **no window over those pages can
+decide page 23 by the piece's own silhouette.** Round four's separate argument
+for the window — that page 19's six pieces mount on page 18's plate and only fit
+one of its two candidates, so the *children's reachability* decides the parent —
+is untouched by this and remains the case for building it. The pixel argument for
+it is not available on this class.
+
+The class is not uniform, and the counter-case is worth stating because it is the
+one place the local objective wins. On page 28 the reference `3710` is coarse and
+native rank 1 and is placed correctly, while the reference `61252` is native rank
+13 and **local rank 1** at 0.24246, the best local score in the sample. So the
+local rerank now has five measurements — +1 on 41624's opening, negative on page
+18, neutral on page 20's construction, negative on page 23, positive on page 28 —
+and is a lever with a scope rather than a default.
+
+### 41624: the 3 to 5 was the opening, not the registration
+
+Round four reported 41624 moving 3/109 to 5/109 with drawing-to-drawing
+registration on, and said the control separating that from the better 3-of-3
+opening was queued rather than measured. Measured now, same opening, same code,
+`--drawing-registration off`:
+
+| page | control (off) | round four (prefer) |
+| ---: | --- | --- |
+| 3 | 6 emitted / 3 structural, 0.6171, body template | 6 / 3, 0.6171, body template |
+| 4 | 9 / **5**, 0.6511, body template | 9 / **5**, 0.6623, drawing to drawing |
+| 5 | 13 / 5, 0.5047 | 13 / 5, 0.5051 |
+| 6 | 15 / 5, 0.4684 | 15 / 5, 0.4842 |
+| 7 | camera refused | 18 / 5, 0.4670 |
+| 8 | camera refused | 22 / 5, 0.4613 |
+
+The fixture reaches **5/109 either way**. The whole of round four's 3 to 5 is the
+opening round three built and never drove from; drawing-to-drawing registration
+contributed no correct pose here. What it did contribute is pages 7 and 8, which
+emit seven more parts and get none right, taking precision from 0.333 to 0.227.
+The round-five containment change is separately inert on this fixture — the
+replay over both round-four runs' thirteen drawings changes no admission and no
+accepted registration, because 41624's pages register cleanly and their overflow
+floor is zero.
+
+Driving the fixture's full page scope needs an allocation that covers it, and the
+only one that does is superseded on three of its pages. `41624-element-bridge`
+spans pages 2 to 39 with 99 pieces, but its page-3 third callout is `2431` (Tile
+1 x 4) at icon score 0.523 where the bridged `p2to8` allocation rounds three and
+four used assigns element `4121715` to `2780`, "Technic Pin with Friction and
+Slots", at 0.967 — and that page's own drawings show a red 1x2 brick with a pin
+pushed into it. Pages 6 and 7 differ too. So the full-scope drive's early rows
+are not comparable with the table above, and the honest statement about it is
+that it drives mechanically through more than a dozen pages and adds no correct
+pose after page 4: 31 emitted at 5 structural by page index 12, precision falling
+from 0.556 to 0.161.
+
+**That mis-identification was found by the round's own new rule, from PDF pixels
+alone.** Run over every driven addition page of both fixtures, `placement_undrawn
+_pieces` withholds nothing on all thirteen of 40377's — the smallest drawn share
+is 2.139 against a 0.25 threshold — and fires exactly once on 41624, on page
+index 3, where the black class's drawn share is **0.061**. A black 1x4 tile would
+cover about sixteen times the ink that page has. So the rule has a second use it
+was not written for: a consistency check between an allocation's identities and
+the drawing's colour classes.
+
+### A latent defect the exclusion test exposed
+
+`--exclude-construction PAGE=REASON` was straightforward to add and did not fire,
+which is how a second defect surfaced. The body-area probe that decides whether a
+page draws the current assembly renders the body at the previous page's matrix or
+at the page's own. A page exposing no stud row with no predecessor in its scope
+has neither, so the probe abstained and the kind test fell back to the ordinary
+addition path — exactly wrong on a subassembly page, and a subassembly page is
+the most likely first page of a scope to expose no rows. The prescan already
+measures a neighbour's camera for this case; the probe now borrows it too and the
+kind evidence records which camera it used.
+
+Measured: starting a scope at page index 20, that page went from
+`camera_refused` after four attempts to register a subassembly drawing against
+the main body, to `subassembly` on the measurement it should have made — 8,136
+drawn pixels against a 43,667-pixel body silhouette and a 26,200 threshold, on a
+camera borrowed from page 21. The main round-five drive is unaffected because it
+carries page 19's matrices, so the branch never fired there.
+
+### Round five's whole-chain result: 53/90, unchanged
+
+Pages 16 to 32 driven in one invocation from the same page-15 checkpoint as round
+four, differing only by `--containment-multiple 4`:
+
+| page | round four | round five |
+| ---: | --- | --- |
+| 16 | placed 49 / 46 | placed 49 / 46 |
+| 17 | placed 51 / 48 | placed 51 / 48 |
+| 18 | placed **52 / 49** (0.942) | placed **52 / 49** (0.942) |
+| 19 | placed 58 / 50 | placed 58 / 50 |
+| 20 | subassembly page | subassembly page (construction excluded) |
+| 21 | no allocation | no allocation |
+| 22 | **camera refused, twice** | **placed 60 / 51** |
+| 23 | placed 59 / 50 | placed 61 / 51 |
+| 24 | placed 61 / 50 | placed 63 / 51 |
+| 25 | placed 63 / 50 | placed 65 / 51 |
+| 26 | camera refused, placed on retry 75 / 53 | placed 69 / 51 |
+| 27 | camera refused, placed on retry 77 / 53 | placed 71 / 51 |
+| 28 | placed 66 / 51 | placed 74 / 52 |
+| 29 | placed 68 / **53** (0.779) | placed 76 / **53** (0.697) |
+| 30 | placed 71 / 53 | placed 79 / 53 (0.671) |
+| 31 | subassembly page | subassembly page |
+| 32 | no allocation | no allocation |
+
+Round four's rows for pages 26 and 27 come from its retry pass, which ran after
+page 30, so its chain is not in page order at the end and round five's is.
+
+**Whole-model coverage is 53/90 (58.9%) in both.** The containment fix did what
+it was measured to do — page 22 registers on the propagated camera that covers
+90.3% of its drawing, and places one of its two pieces correctly, which is the
+only correct pose it adds — and the chain gives it back. Pages 26 and 27, which
+round four reached only on a retry, now place in the main pass and place nothing
+right either way; the extra wrong parts they and pages 23-25 contribute cost one
+pose at page 29, which added two correct poses in round four and one here. Net
+zero, and precision at the coverage peak falls from 0.779 to 0.697.
+
+The accurate checkpoint is unchanged and identical to the part: page 18, 49
+correct of 52 emitted, 0.942. The 27 parts emitted after page 19 contribute two
+correct poses between them.
+
+That is the honest reading of round four's first recommendation. It was right
+about the defect — an absolute allowance calibrated on a nearly-correct body was
+rejecting the registration that best explains the drawing — and fixing it makes
+three refused pages drivable without making them place better, because what
+those pages are short of is evidence, not registration.
+
+### Code changed during the run, and what that does and does not mean
+
+The per-page source snapshots disclose it, so it is stated rather than left to be
+found: `placement_autodrive.py` was edited while the round-five chain was
+executing, and page 16's snapshot hashes differently from page 25's. The
+difference is the `construction_excluded` branch, its command-line flag, its
+options key and one message string. The branch is unreachable without a flag this
+run does not pass, and a running Python process keeps the module it imported, so
+the run is behaviourally identical to the code it was launched with. That is what
+the snapshots are for; a change that *had* mattered would be visible the same way.
+
+### Open gaps after round five
+
+Round four's list is superseded. Its item 1 is closed — containment no longer
+judges a registration against an absolute fraction of the body's area — and its
+item 3 is measured rather than open: page 20's construction was never a well-posed
+problem and page 31's is a data limit, so both are excluded on stated evidence.
+What replaces them is this.
+
+1. **The late pages' correct pose is an order of magnitude less visible than its
+   rivals, in the finished model as well as in ours.** 40377 page 23's plate
+   paints 899 pixels against 11,000, and 75 against the complete reference
+   assembly. Every image objective and the physical seating measure prefer the
+   visible rival. This is an evidence shortage, not a scorer defect, and it is
+   the reason pages 23-30 place little. Nothing in the drawings of pages 24-30
+   revisits that face.
+2. **Two of 40377's thirteen late pages hold subassemblies that are excluded
+   rather than solved**, worth eleven allocated pieces directly and more
+   downstream, since pages 21 and 32 are attachments that would repair the body.
+   Page 20's is now well posed at five pieces and still 1 of 5; page 31's is the
+   data limit its own two drawings prove at IoU 0.9914.
+3. **The allocation is per *step*, not per body.** Page 20's parts strip lists
+   seven pieces of which two are installed by the attachment on the next page.
+   `placement_undrawn_pieces` detects that case from the drawing's colour classes,
+   but the withheld pieces are then placed by nothing: the attachment stage
+   attaches a rigid group and cannot also place loose pieces.
+4. **The look-ahead window is still unimplemented, and its case is now narrower.**
+   The pixel argument for it does not apply to the late pages, because the
+   booklet never redraws the face. The reachability argument round four measured
+   — page 19's `41740` goes from 4 LDU out of reach to exactly enumerable once
+   page 18's plate is right — is untouched and remains the case for it.
+5. **Repeated multiplicities, occlusion-aware scoring, flexible parts, global
+   backtracking and population certification** remain untouched, as after rounds
+   one through four.
+
+### Recommendation, in order
+
+1. *Treat visibility as a first-class quantity in the search, not as an implicit
+   weight.* Every objective in the pipeline rewards explained ink, so a candidate
+   that paints 11,000 pixels is compared with one that paints 899 as if the two
+   were equally evidenced. The measurement to make first is a population one, not
+   another objective: across every page of both fixtures, how often is the
+   reference pose's painted area an order of magnitude below the selected one's?
+   That number decides whether this is the late-page failure or *the* failure.
+2. *Get one construction right, on the fixture that can show it.* Page 20's is
+   now well posed and its retained set contains a 3-of-5 candidate its scorer
+   does not select, which is a concrete, bounded selection question on a
+   five-piece body — unlike every late-page tie, whose information is missing
+   rather than mis-weighted.
+3. *Place the withheld pieces.* A colour the construction's drawing does not show
+   is placed by the attachment page instead, which currently attaches a rigid
+   group and nothing else. Two of 40377's ninety parts sit behind this.
+4. *Keep the look-ahead window, for reachability rather than for pixels.* Round
+   four's measurement stands; round five's says not to expect it to fix pages
+   23-30.
+5. *Do not buy another selection objective.* The local rerank now has five
+   measurements across two fixtures — one clear gain, two clear losses, one
+   neutral, one gain — and the seated tie-break has two losses. Both are levers
+   with scopes, not defaults.

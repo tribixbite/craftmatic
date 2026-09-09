@@ -196,6 +196,61 @@ page's registrations by coverage within a relative multiple of the best achievab
 overflow instead. Also: 2 of page 20's 7 pieces CANNOT BE SCORED at all
 (`98138pb072` in the PDF BOM vs `98138pz0` in the model, alias parked as a
 candidate with its evidence), so page 20 caps at 5 of 7 until that is settled.
+Round five took round four's three recommendations in order and **coverage stayed
+at 53/90 (58.9%)** — the round's finding is that registration is no longer the
+constraint anywhere on 40377 pages 16-30, evidence is.
+(1) **Containment is judged WITHIN the page now.** `placement_origin_refine` also
+admits a registration whose overflow AS A FRACTION OF ITS OWN RENDERED AREA is
+within a multiple (default 4) of the smallest such fraction the page reaches,
+capped at 3% and withheld when the page's own floor exceeds the cap. Normalising
+by the render's own area is load-bearing — a too-small camera overflows less in
+absolute pixels and would set an unbeatable floor (page 22: 147/46,380 = 0.317%
+vs the propagated 669/55,333 = 1.209%; the absolute rule compares 147 to 669 and
+gets it backwards). The rule is SELF-LIMITING: a page with any cleanly contained
+hypothesis has a zero floor and nothing changes. `placement_containment_regression`
+replays both rules over every recorded page (admission and camera verdict are
+closed-form in the saved overflow/occupied/covered counts): 14 of 17 drawings
+identical on 40377, 23 of 23 on 41624. Page 22 places and gets 1 of 2 right — the
+only correct pose it adds — and pages 26/27 now place in the main pass and place
+nothing right, costing one pose at page 29. **Net zero; precision at the coverage
+peak falls 0.779 → 0.697.** Coverage ORDERING is implemented, measured and NOT
+adopted (changes 10 of 17 first-accepted registrations).
+(2) **`98138pb072` IS `98138pz0`** — the current official part declares
+`!KEYWORDS ... BrickLink 98138pb072` (absent offline only because Studio bundles
+LDraw release 207 and the keywords arrived in UPDATE 2023-03), Studio's
+`StudioPartDefinition2.txt` has two rows for BL key 153546, and the CAD matches
+(bboxes to 0.0 LDU, areas within 3 ppm, 94.2% shared vertices). Fetching the part
+into `output/pdf-universal-parts/` is the whole change. It does NOT fix page 20:
+`placement_diagnose_group_connectivity` shows its 7 pieces are THREE connector
+components (5, 1, 1) — the two black round tiles engage ZERO mates with anything
+and sit 31 LDU away on a page-19 piece — so the 7-piece build was never well
+posed (page 31's 4 are one component, so the test discriminates). The PDF agrees:
+page 20's drawings align 162↔164 at IoU 0.9334 but 168 at only 0.34, and the
+final substep is 0.7% black where one round tile needs ~510 px (page 21, the
+attachment, is 31% black). `placement_undrawn_pieces` withholds a colour whose
+ink is below a fraction of ONE of its pieces; page 20 becomes well-posed at five
+pieces, image score 0.4543→0.6120, and is **still 1 of 5**, so it is EXCLUDED
+(`--exclude-construction PAGE=REASON`). That rule fires on 1 of 22 driven addition
+pages and that one is a WRONG IDENTITY (41624 p3 `2431` at 0.523 where the bridged
+allocation has `2780` at 0.967) — a PDF-only allocation cross-check.
+(3) **Pages 23-30 are a VISIBILITY failure, not a closure-ordering one.** Bank
+recall is 1/1, 3/3, 2/2, 2/3 on pages 23/28/29/30; the best RETAINED candidate
+beats the selected on 1 of 7 pages by 1 pose; arrows reach pages 27-30 but NOT
+23-26 (and they order closure parents, which recall says these pages don't need).
+Page 23's plate paints **899 drawn pixels against its rivals' 10,939-11,003** and
+loses under the coarse composite (rank 260), the native scorer (13/16), the LOCAL
+objective (13/16, by more) AND the seated tie-break (10 mates/534 contacts vs
+12/697). It paints **74** px on every later page and **75 against the COMPLETE
+89-part reference model**, so the viewpoint hides it and repairing the body cannot
+reveal it — a look-ahead window cannot decide it by silhouette (round four's
+separate reachability argument for the window stands). Local rerank now has five
+measurements (+1, −, neutral, −, +): a lever with a scope, not a default.
+41624: round four's 3→5 was **entirely the opening**, not drawing-to-drawing
+registration — the queued control (`--drawing-registration off`, same opening)
+reaches the same 5/109 and refuses pages 7-8 that the propagated camera drove for
+7 emitted, 0 correct. Also fixed: the page-kind body-area probe now borrows a
+prescan camera, so a scope whose FIRST page is a subassembly page is no longer
+driven as an ordinary addition.
 
 > **Where to go next** → see **[ROADMAP.md](ROADMAP.md)**: the near-term (~100h)
 > priorities (tests/CI first, then the user on-ramp, mobile, MC bridge,
