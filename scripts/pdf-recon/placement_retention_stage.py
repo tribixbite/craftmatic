@@ -556,6 +556,119 @@ def fix_trial(run, page, truth, library, symmetries, width=16, rounds=4,
                             'native objective ranks below some other pose is still not taken.')
 
 
+def double_probe(run, page, truth, library, symmetries, width=8, max_renders=48):
+    """Is a target with no legal ONE-swap reachable by a legal TWO-placement one?
+
+    `page_stage`'s `no_legal_assembly` verdict is a statement about the minimal
+    quota-preserving edit, not about the assembly space: a closure pose is legal
+    only together with the placement that witnesses its support, and a pose that
+    collides with the piece in its place needs that piece replaced in the same
+    move. Both are two-placement edits, both stay quota-preserving, and both have
+    a small guided partner set - so whether they exist is a measurement, not an
+    argument.
+
+    Reachability is not the interesting half. The run takes a move only when it
+    raises the objective that actually selects, so this also native-scores every
+    legal compound assembly and reports the signed difference from the assembly
+    the run chose. A reachable target whose best compound assembly scores lower
+    is not recovered by building the move; it is a second instance of round
+    seven's headline, in a class that had not been measured for it.
+
+    Evaluation-only: the reference model names the targets afterwards and selects
+    nothing. The enumeration itself reads only the run's own artifacts and would
+    run unchanged at runtime.
+    """
+    from placement_compound_exchange import compound_assemblies
+    from placement_diagnose_alias_poses import canonicalize
+    from placement_diagnose_bank_recall import bank_recall
+    from placement_mixed_batch_search import fixed_native_score
+    from pose_score import read_parts
+    view = rebuild_view(run, page)
+    model, keys = view['model'], view['keys']
+    original, anchored, adjacency = view['original'], view['anchored'], view['adjacency']
+    base_items, _ = canonicalize(read_parts(Path(view['registry']['base_source'])), library)
+    recall = bank_recall(view['registry'], truth, base_items, symmetries=symmetries)
+    retained = set(view['occupancy']['retained_indices'])
+    position = {pose: index for index, pose in enumerate(original)}
+    agreement = own_agreement(model.seg, model.lab, model.tgt, len(keys))
+    bank_conflict = collision_probe(view['registry'])
+
+    def conflict(a, b):
+        """The search's own predicate, on bank positions rather than pose ids."""
+        return bank_conflict(original[int(a)], original[int(b)])
+
+    def linked(group):
+        return connected(group, anchored, adjacency)
+
+    selected = [int(i) for i in view['selected']['coarse']['indices']]
+    selected_native = float(view['selected']['evidence']['score'])
+    renders, rows = 0, []
+    for row in recall['rows']:
+        hits = [position[i] for i in row['bank_indices'] if i in retained
+                and keys[position[i]] == (row['part'], int(row['color']))]
+        if not hits:
+            continue
+        record = dict(part=row['part'], color=int(row['color']), truth_index=row['truth_index'],
+                      screened_placements=hits,
+                      # A target the run already placed needs no edit at all, and
+                      # counting it as structural would inflate the class: its
+                      # `swap_sets` is empty for the same reason a compound move
+                      # is - it is already in the assembly.
+                      already_selected=any(h in selected for h in hits),
+                      single_swap_legal=False,
+                      compound_assemblies=0, best_native_delta=None, best_group=None,
+                      renders=0, reports=[])
+        if record['already_selected']:
+            rows.append(record)
+            continue
+        for placement in hits:
+            for candidate in swap_sets(selected, placement, keys):
+                rest = [i for i in candidate if i != placement]
+                if not any(conflict(placement, i) for i in rest) and linked(candidate):
+                    record['single_swap_legal'] = True
+        if record['single_swap_legal']:
+            # The one-swap already reaches it; the compound move is not the
+            # question for this instance and its renders belong elsewhere.
+            rows.append(record)
+            continue
+        for placement in hits:
+            groups, report = compound_assemblies(selected, placement, keys, adjacency, conflict,
+                                                 linked, agreement, width, mode='both',
+                                                 quotas=view['quotas'])
+            report['placement'] = int(placement)
+            record['reports'].append(report)
+            record['compound_assemblies'] += len(groups)
+            for group in groups:
+                if renders >= max_renders:
+                    break
+                items = view['base'] + [item for i in group
+                                        for item in view['placements'][i]['items']]
+                score = float(fixed_native_score(view['scorer'], items, view['projection'],
+                                                 view['origin'])['score'])
+                renders += 1
+                record['renders'] += 1
+                delta = score - selected_native
+                if record['best_native_delta'] is None or delta > record['best_native_delta']:
+                    record['best_native_delta'] = delta
+                    record['best_group'] = [int(i) for i in group]
+        rows.append(record)
+    structural = [r for r in rows if not r['single_swap_legal'] and not r['already_selected']]
+    return dict(page=page, view=view['view'], width=width, max_renders=max_renders,
+                selected=sorted(selected), selected_native=selected_native,
+                screened_reference_targets=len(rows),
+                structural_targets=len(structural),
+                compound_reachable=sum(1 for r in structural if r['compound_assemblies']),
+                compound_improves=sum(1 for r in structural
+                                      if (r['best_native_delta'] or 0) > 0),
+                total_renders=renders, targets=rows,
+                truth_used_at_runtime=False, runtime_vlm_calls=0, certified=False,
+                limitations='One page, one view, enumerated from the assembly the run selected '
+                            'rather than from a re-drive, and the partner set is capped at '
+                            '`width` per generator, so an unreachable verdict is bounded by that '
+                            'width. A positive native delta says the move would be taken from '
+                            'this start, not that a re-driven chain reaches the same start.')
+
+
 def classify_mechanism(probes):
     """Name the binding constraint for one lost target, from its own numbers."""
     if not probes:
@@ -583,6 +696,12 @@ def main():
                              'of the population measurement')
     parser.add_argument('--fix-width', type=int, default=16)
     parser.add_argument('--fix-rounds', type=int, default=4)
+    parser.add_argument('--double-probe', type=int, default=None,
+                        help='Measure, on this page, whether the targets with no legal one-swap '
+                             'are reachable by a legal quota-preserving TWO-placement exchange, '
+                             "and whether such an assembly raises the run's own native score")
+    parser.add_argument('--double-width', type=int, default=8)
+    parser.add_argument('--double-renders', type=int, default=48)
     args = parser.parse_args()
     from placement_diagnose_alias_poses import canonicalize
     from placement_part_library import PartLibrary
@@ -594,6 +713,28 @@ def main():
     library = PartLibrary()
     truth, _ = canonicalize(read_parts(args.truth), library)
     names = {str(part) for part, *_ in truth}
+    if args.double_probe is not None:
+        registry = json.loads((args.run / f'page-{args.double_probe:03d}' /
+                               'registry-00.json').read_text())
+        wanted = names | {str(entry['part']) for entry in registry['poses']}
+        symmetries = {part: list(part_symmetries(part, 'vertex')) for part in wanted}
+        probe = double_probe(args.run, args.double_probe, truth, library, symmetries,
+                             width=args.double_width, max_renders=args.double_renders)
+        probe.update(run=str(args.run), truth=args.truth)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(probe, indent=2))
+        print(f"page {probe['page']} view {probe['view']} screened targets "
+              f"{probe['screened_reference_targets']} structural {probe['structural_targets']} "
+              f"compound-reachable {probe['compound_reachable']} "
+              f"improves {probe['compound_improves']} renders {probe['total_renders']}")
+        for row in probe['targets']:
+            if row['single_swap_legal'] or row['already_selected']:
+                continue
+            print(f"  ti {row['truth_index']:>3} {row['part']:>10}:{row['color']:<4} "
+                  f"assemblies {row['compound_assemblies']:>3} "
+                  f"best native delta {row['best_native_delta']}")
+        print(args.out)
+        return
     if args.fix_trial is not None:
         registry = json.loads((args.run / f'page-{args.fix_trial:03d}' /
                                'registry-00.json').read_text())

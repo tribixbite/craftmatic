@@ -728,7 +728,10 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                             max_bank_candidates=options.get('max_bank_candidates'),
                             exchange_window_order=options.get('exchange_window_order',
                                                               'incremental'),
-                            tie_break=options.get('tie_break', 'index'))
+                            tie_break=options.get('tie_break', 'index'),
+                            compound_width=options.get('compound_width', 0),
+                            compound_mode=options.get('compound_mode', 'both'),
+                            compound_budget=options.get('compound_budget', 64))
         result.update(pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
                       seconds=time.perf_counter() - started, code_sha256_start=code_hashes,
                       camera_source=str(step_dir / 'camera.json'), scene_order=order,
@@ -1161,6 +1164,24 @@ def add_page_options(parser):
                              'order and the reference poses sit at window ranks 86-299. Measured '
                              'on that page: native 0.524586 to 0.532940, reference targets 1 of 6 '
                              'to 2 of 6, at 217 renders against 84')
+    parser.add_argument('--compound-width', type=int, default=0,
+                        help='Partners per rejected exchange candidate for the two-placement '
+                             'moves (0 = off, the shipped behaviour). A one-at-a-time exchange '
+                             'cannot reach seven of round seven\'s twenty-one lost instances at '
+                             'all: five are closure poses whose witness is not in the assembly '
+                             '(0 collide, 11 disconnect) and two collide with the piece standing '
+                             'in their place. The move stays quota-preserving and the partner is '
+                             'guided - the witnessing neighbour, or a replacement carrying the '
+                             "blocker's key - so this enlarges the reachable set, never the "
+                             'physical claim')
+    parser.add_argument('--compound-mode', choices=('connectivity', 'collision', 'both'),
+                        default='both',
+                        help='Which guided partner generator the compound exchange uses, so the '
+                             'two classes can be measured apart')
+    parser.add_argument('--compound-budget', type=int, default=64,
+                        help='Extra native renders one exchange pass may spend on compound moves. '
+                             'Each is a GPU render and a rejected window entry is not rare, so '
+                             'this is the cost control; the run journals whether it was exhausted')
     parser.add_argument('--tie-break', choices=('index', 'pose'), default='index',
                         help='Break exact score ties by the rounded pose instead of by bank '
                              'index. Index order is closure enumeration order, so two '
@@ -1228,6 +1249,8 @@ def build_options(args):
                 palette_saturation_tiebreak=args.palette_saturation_tiebreak,
                 chromatic_metric=args.chromatic_metric,
                 exchange_window_order=args.exchange_window_order,
+                compound_width=args.compound_width, compound_mode=args.compound_mode,
+                compound_budget=args.compound_budget,
                 tie_break=args.tie_break)
 
 
