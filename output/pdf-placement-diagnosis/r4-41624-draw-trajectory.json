@@ -1,0 +1,57 @@
+{
+  "run": "output\\pdf-placement-beam\\41624-r4-draw-c1",
+  "truth": "C:/git/clego/lego_sets/OMR/41624-1.mpd",
+  "status": "completed_requested_pages_uncertified",
+  "rows": [
+    {
+      "page": 3,
+      "status": "placed",
+      "score": 0.6171040808771345,
+      "withheld": [],
+      "emitted": 6,
+      "strict": 1,
+      "canonical": 2,
+      "structural": 3,
+      "truth_parts": 109,
+      "precision": 0.5,
+      "coverage": 0.027522935779816515,
+      "legacy_structural": 2
+    },
+    {
+      "page": 4,
+      "status": "placed",
+      "score": 0.6622517284384875,
+      "withheld": [],
+      "emitted": 9,
+      "strict": 1,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.5555555555555556,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 5,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 6,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 7,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 8,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    }
+  ],
+  "scope": "Evaluation-only, executed after the run; the reference model chooses nothing at runtime.",
+  "limitations": "Structural equivalence uses derived universal-CAD symmetry proofs; coverage is whole-model placement agreement, not certification."
+}
