@@ -400,7 +400,9 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     bank = None
     if not evidence_mode:
         bank = seed.branch().close(options['closure_rounds'], options['max_closure_parents'],
-                                   options['max_poses']).record()
+                                   options['max_poses'],
+                                   per_round_parents=options.get('per_round_parents', False)
+                                   ).record()
         bank.update(provenance_fields)
         write_atomic(step_dir / 'registry.json', json.dumps(bank, indent=2))
 
@@ -630,7 +632,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                 views=options['views'], arrows=arrows)
             attempt_bank = seed.branch().close(
                 options['closure_rounds'], options['max_closure_parents'],
-                options['max_poses'], parent_order, 'pdf_evidence').record()
+                options['max_poses'], parent_order, 'pdf_evidence',
+                per_round_parents=options.get('per_round_parents', False)).record()
             attempt_bank.update(provenance_fields)
             attempt_bank['closure_parent_ranking'] = {
                 key: value for key, value in ranking.items() if key != 'merged'}
@@ -1021,6 +1024,10 @@ def add_page_options(parser):
     parser.add_argument('--closure-rounds', type=int, default=1)
     parser.add_argument('--max-closure-parents', type=int, default=64)
     parser.add_argument('--max-poses', type=int, default=8192)
+    parser.add_argument('--per-round-parents', action='store_true',
+                        help='Count the closure parent budget per round instead of globally, so '
+                             'a second connector hop is reachable on a page whose base-attached '
+                             'set already exceeds the budget')
     parser.add_argument('--closure-mode', choices=('bank', 'evidence'), default='evidence',
                         help="'evidence' ranks closure parents by the page's own arrowhead and "
                              "silhouette evidence before spending the parent budget; 'bank' keeps "
@@ -1073,7 +1080,7 @@ def build_options(args):
                 top_k=args.top_k, host_bytes=args.host_bytes,
                 closure_rounds=args.closure_rounds,
                 max_closure_parents=args.max_closure_parents, max_poses=args.max_poses,
-                closure_mode=args.closure_mode,
+                closure_mode=args.closure_mode, per_round_parents=args.per_round_parents,
                 stable_colors=args.stable_colors, method=args.method, beam=args.beam,
                 max_expansions=args.max_expansions, improve_rounds=args.improve_rounds,
                 improve_from=args.improve_from, restarts=args.restarts,
