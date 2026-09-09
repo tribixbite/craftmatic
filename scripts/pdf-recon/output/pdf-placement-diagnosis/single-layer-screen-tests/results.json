@@ -1,0 +1,70 @@
+{
+  "truth_used": false,
+  "protocol": "Universal synthetic and bound native-PDF cache controls; no set pose truth",
+  "tests": {
+    "pair_kernel": {
+      "full_canvas_false_positive_penalty": true,
+      "score": 0.7333333492279053,
+      "cpu_expected": 0.7333333333333334
+    },
+    "synthetic_single": {
+      "summary": {
+        "span_pairs": 3,
+        "retained": 3,
+        "cache_layers": 5,
+        "copies": 1,
+        "material_colors": true,
+        "coarse_scale": 0.7619047619047619,
+        "coarse_target_size": [
+          71,
+          57
+        ],
+        "canvas_size": [
+          236,
+          205
+        ],
+        "cache_bytes": 1209500,
+        "gpu_pool_reserved_bytes": 4031488,
+        "seconds": 0.029415299999527633,
+        "collision_checked": false,
+        "metric": "0.8 target-supported macro color-region IoU +0.2 silhouette IoU; full canvas union",
+        "approximate": true,
+        "certified": false,
+        "truth_used": false,
+        "limitations": [
+          "Integer coarse target-window shifts lose subpixel precision.",
+          "Finite shortlist can discard the best full-resolution candidate.",
+          "Layer cache covers supplied independently legal placements, not all possible poses."
+        ]
+      },
+      "scores": [
+        {
+          "index": 0,
+          "virtual_second": 3,
+          "coarse": 0.9305754899978638,
+          "native_comparable": 1.0
+        },
+        {
+          "index": 2,
+          "virtual_second": 3,
+          "coarse": 0.7378568053245544,
+          "native_comparable": 0.7668554149324045
+        },
+        {
+          "index": 1,
+          "virtual_second": 3,
+          "coarse": 0.7132604718208313,
+          "native_comparable": 0.6964823612864366
+        }
+      ],
+      "single_only": [
+        [
+          0,
+          1,
+          0.9764432311058044
+        ]
+      ],
+      "sentinel_protocol": "j=n is virtual empty layer; only i indexes a real group"
+    }
+  }
+}
