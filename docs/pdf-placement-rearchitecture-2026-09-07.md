@@ -3690,3 +3690,180 @@ autonomous page-by-page drive contributes **single-digit** correct poses and the
 stops gaining, whatever the family, the part count, the colour variety or the
 page shape. 41601 is a near-identical BrickHeadz to 40377 and behaves like
 41624.
+
+### 41601 driven end to end: 3/108, and the 17 driven pages add zero correct poses
+
+Round seven's adopted configuration exactly - deterministic pose tie-break,
+`own_agreement` exchange window, `--compound-width` off so the fixture stays
+comparable with the other two - from the page-2 construction over the 18-page
+scope the slot adapter allowed.
+
+| checkpoint | page 3 | page 9 | page 14 | page 24 | final (after retries) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| emitted | 11 | 32 | 51 | 70 | **77** |
+| **structural** | **3** | **3** | **3** | **3** | **3** |
+
+77 emitted against 108, coverage **0.028**, precision **0.039**, and **13 of 17
+placed pages end in an exact tie among genuinely different assemblies** - the
+highest per-page tie exposure of the three fixtures. The three correct poses are
+the construction's own; the seventeen driven pages add **74 parts and not one
+correct pose**.
+
+### The three population tables, side by side
+
+`placement_population_table`, one primary class per unplaced reference part:
+
+| fixture | truth | correct | emitted | out of scope | allocation blocked | unreachable | visibility limited | mis-selected |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 40377 | 90 | 53 | 79 | 3 | 10 | **8** | 4 | 12 |
+| 41624 | 109 | 5 | 75 | 18 | 10 | **60** | 3 | 13 |
+| **41601** | **108** | **3** | **77** | **24** | **3** | **66** | **7** | **5** |
+
+**41601 reproduces 41624 and not 40377**, which is the answer the breadth plan
+was built to get: `unreachable` is 63% of 41601's failures and 58% of 41624's,
+against 9% of 40377's. Combined with the checkpoint measurement above, the two
+readings are one reading - 40377's `unreachable` share is small *because* its
+inherited body already holds 45 of the model, so few reference poses are left for
+its late pages to enumerate.
+
+**And `unreachable` on a from-scratch fixture is mostly a cascade, not an
+independent enumeration defect.** The closure enumerates poses attached to the
+*current body*; 41601's body is already wrong at page 3, so from page 4 onward no
+page's bank can contain the reference pose. One wrong opening converts most of the
+model into `unreachable` by construction. That is why the class is 66 on the
+fixture that gained nothing and 8 on the fixture that started from a good body.
+
+### 41601's retention table, and the pooled gap over three fixtures
+
+| | 40377 | 41624 | 41601 |
+| --- | ---: | ---: | ---: |
+| distinct reference targets | 32 | 78 | 78 |
+| in bank | 24 | 18 | **12** |
+| survived the screen | 23 | 11 | **9** |
+| in some retained assembly | 10 | 4 | **1** |
+| screened and in no retained assembly | 14 | 7 | **8** |
+| of those: search missed a better assembly | 4 | 0 | **1** |
+| of those: the objective prefers another pose | 7 | 3 | **4** |
+| of those: no legal one-swap | 3 | 4 | **3** |
+
+Its three structural instances are all reachable by a two-placement exchange and
+**none** improves the objective (-0.0093 to -0.0249). Pooled over all three
+fixtures, with both probe kinds and per distinct instance:
+
+| | instances | with a legal edit | the objective would take | it prefers its own |
+| --- | ---: | ---: | ---: | ---: |
+| 40377 | 14 | 14 | 5 | 9 |
+| 41624 | 7 | 6 | 0 | 6 |
+| 41601 | 8 | 8 | **1** | 7 |
+| **pooled** | **29** | **28** | **6** | **22 (78.6%)** |
+
+Three fixtures, three families of failure stage, one constant: **on 22 of the 28
+losses a legal edit can reach, the objective that selects scores the reference
+below what the run already chose.** Five of the six exceptions are on 40377 page
+19. The share did not fall when a third, independently chosen fixture was added -
+it rose.
+
+## The round-eight strategy memo
+
+### Is any further image-scoring investment rational? No, and the evidence is now direct
+
+Three independent lines, all measured this round, all pointing the same way:
+
+1. **A better optimum produced a worse model.** The compound chain found a
+   strictly better-scoring page-19 assembly (+0.002 on the objective that
+   selects, not a tie) and the chain lost three poses (54 to 51). This is not
+   "the lever bought nothing"; it is the objective's gradient pointing away from
+   the model.
+2. **78.6% of reachable losses are already objective preferences**, over three
+   fixtures, and the share rose when the third was added. No traversal,
+   retention, budget or move-set change touches any of them by construction.
+3. **The remaining upside is five parts on one page.** Every instance a better
+   search could convert is concentrated on 40377 page 19 - one page, one fixture,
+   out of 61 placed pages across three fixtures.
+
+So the answer to "does any image-scoring investment remain rational" is **no, not
+as a ranking or search investment**. The one image-side question still open is
+*different in kind*: the objective is a single-view, per-class depth-composite IoU
+over one page's drawing, and its measured pathology - a candidate whose pixels are
+already painted with the same class contributes nothing, so a wrong piece standing
+in the right place is invisible - is a property of that *formulation*, not of how
+it is optimised.
+
+### What the next architecture has to be, in measured priority order
+
+**1. The opening, not the objective (the largest class by far).** 41601 and 41624
+lose 63% and 58% of their models to `unreachable`, and that class is a cascade
+from a wrong body in the first pages. 40377's own 45-pose base was built by hand,
+page by page, and is the only reason its numbers ever looked different. Nothing in
+the current architecture verifies or repairs an opening; the driver commits page 3
+and never revisits it ("Selected checkpoints freeze earlier poses; no global
+backtracking", the journal's own limitation). This is where a 90% target lives or
+dies, and it is not a scoring problem - it is the absence of backtracking over a
+decision the whole chain inherits.
+
+**2. Evidence that is not the drawing's pixels.** In measured order of what the
+instruments actually carry:
+
+* **BOM / inventory-capacity constraints as a likelihood, not a filter.** The
+  allocation is already exact per page and per key and currently constrains
+  cardinality only. 41601's `4070`:72 is the worked example - seven of its eight
+  retention losses are one part in one colour whose instances the objective cannot
+  tell apart, and the inventory says exactly how many go where.
+* **Connector-graph likelihood.** The witnessed support graph is computed for
+  every candidate pair and used only as a legality predicate. Turning it into a
+  score rescores assemblies already retained, so it is the cheapest experiment
+  available. The honest caveat is that its partially-built form
+  (`placement_seated_contact`, `--seated-tolerance`) measured
+  **non-discriminating** on the one case it was built for, and that module's own
+  docstring records a retracted 16% claim. It is a lead, not a plan.
+* **Multi-view / cross-page consistency.** The same piece is drawn on several
+  pages at different cameras and the objective scores each page independently.
+  40377 page 19's own tie - one `25269` in two image-indistinguishable quarter
+  turns, identical to sixteen significant figures - cannot be resolved within one
+  view by any amount of scoring, and 13 of 17 pages on 41601 end in such a tie.
+
+**3. The on-ramp, which is cheap and currently costs more than the search does.**
+41601 lost 25 of 108 pieces before a pose was searched, four of them to
+mould-variant ambiguity an equivalence class resolves without guessing. That is a
+larger number than anything the search has delivered on any fixture.
+
+### Is 90% reachable under this architecture? On the measured evidence, no
+
+Stated as plainly as the numbers allow:
+
+* the best whole-model result in the program is **54 of 90 (60%)** on the one
+  fixture whose opening was hand-built, of which **9** came from the driver;
+* both fixtures driven from their own construction land at **6 of 109 (5.5%)** and
+  **3 of 108 (2.8%)**;
+* the driver's own contribution, measured on three fixtures, is **+9, +3, +0**
+  correct poses over 13, 31 and 17 placed pages.
+
+A 90% target requires roughly 97 correct poses on 41601. The architecture as
+driven produces **zero** after the opening. That gap is not closed by any lever
+this program has costed, and the round's own attempt to close it with a strictly
+better search made one fixture worse. **90% is not reachable under this
+architecture**, and the honest reframing is that the *reachable* target for an
+autonomous page-by-page image-scored driver is what it has demonstrated: a correct
+opening plus single digits.
+
+The remaining breadth fixtures - 3, 4 and 5 in the plan, the flat baseplate, the
+sub-assembly set and the clean-colour set - are **no longer the priority**. Their
+purpose was to decide whether the failure profile is consistent, and three
+fixtures already answer that: it is consistent once the checkpoint is controlled
+for. A fourth and fifth confirmation of a twice-confirmed finding is not worth a
+week. The next round should attack **the opening, with backtracking**, and measure
+it on 41601 and 41624 - the two fixtures that start from nothing and therefore
+actually test it.
+
+### Round eight's trajectory
+
+| round | 40377 | 41624 | 41601 | what the round bought |
+| ---: | ---: | ---: | ---: | --- |
+| 6 | 53/90 | 5/109 | - | the population, three channels not adopted |
+| 7 | 54/90 | 6/109 | - | affordable closure, deterministic ties, retention is the smallest lever |
+| **8** | **51/90** | 6/109 (predicted +0) | **3/108** | **the two-placement move, built and measured negative; 45 of 40377's 54 shown to be inherited; the objective measured wrong on 78.6% of reachable losses over three fixtures** |
+
+Round eight's number is **-3**, and that is the most useful number the program has
+produced. It is the first time a strictly better optimum of the selection
+objective has been shown to make the model strictly worse, on a deterministic
+A/B, and it is what closes the search era of this work.

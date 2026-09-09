@@ -199,6 +199,26 @@ def assembly_diversity(assemblies, keys):
 # Run-artifact reconstruction (rebuilds exactly what the search saw)
 # ---------------------------------------------------------------------------
 
+def step_directory(run, page):
+    """The step directory for a page, including a page the retry pass placed.
+
+    A page the main pass refused for want of a camera and the retry pass then
+    placed lives in `page-NNN-retry-K`, so a diagnostic that rebuilds the path
+    from the page number alone reports it missing and the whole table fails
+    (41601 page 15). The retry directory is preferred over an abandoned main
+    attempt because it is the one holding a registry, and the highest retry wins
+    because that is the pass whose model the chain carried forward.
+    """
+    run = Path(run)
+    direct = run / f'page-{page:03d}'
+    if (direct / 'registry-00.json').is_file():
+        return direct
+    for candidate in sorted(run.glob(f'page-{page:03d}-retry-*'), reverse=True):
+        if (candidate / 'registry-00.json').is_file():
+            return candidate
+    raise FileNotFoundError(f'No step directory with a registry for page {page} under {run}')
+
+
 def rebuild_view(run, page, view=None):
     """Rebuild one page/view's placement bank byte-identically to the run.
 
@@ -215,7 +235,7 @@ def rebuild_view(run, page, view=None):
     from placement_page_mask import part_palette, restrict_to_body_component
     import pymupdf
     from vector_scene import scene_images
-    step = Path(run) / f'page-{page:03d}'
+    step = step_directory(run, page)
     registry = json.loads((step / 'registry-00.json').read_text())
     result = json.loads((step / 'placement' / 'results.json').read_text())
     if registry.get('truth_used') is not False or result.get('truth_used') is not False:
@@ -714,7 +734,7 @@ def main():
     truth, _ = canonicalize(read_parts(args.truth), library)
     names = {str(part) for part, *_ in truth}
     if args.double_probe is not None:
-        registry = json.loads((args.run / f'page-{args.double_probe:03d}' /
+        registry = json.loads((step_directory(args.run, args.double_probe) /
                                'registry-00.json').read_text())
         wanted = names | {str(entry['part']) for entry in registry['poses']}
         symmetries = {part: list(part_symmetries(part, 'vertex')) for part in wanted}
@@ -736,7 +756,7 @@ def main():
         print(args.out)
         return
     if args.fix_trial is not None:
-        registry = json.loads((args.run / f'page-{args.fix_trial:03d}' /
+        registry = json.loads((step_directory(args.run, args.fix_trial) /
                                'registry-00.json').read_text())
         wanted = names | {str(entry['part']) for entry in registry['poses']}
         symmetries = {part: list(part_symmetries(part, 'vertex')) for part in wanted}
@@ -762,7 +782,7 @@ def main():
             continue
         if args.pages and step['page'] not in args.pages:
             continue
-        registry = json.loads((args.run / f"page-{step['page']:03d}" /
+        registry = json.loads((step_directory(args.run, step['page']) /
                                'registry-00.json').read_text())
         wanted = names | {str(entry['part']) for entry in registry['poses']}
         symmetries = {part: list(part_symmetries(part, 'vertex')) for part in wanted}
