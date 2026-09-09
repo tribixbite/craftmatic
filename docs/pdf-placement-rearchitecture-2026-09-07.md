@@ -2813,3 +2813,49 @@ while hue separates two of them by zero, and it needs no tie-break because it ha
 no ties. Replacing the discriminator is a larger change than adding a tie-break —
 it moves every classification, not only the tied ones — and it is named here as
 the principled version rather than smuggled in.
+
+### Correction: the chain is not robust to an image-indistinguishable tie
+
+The table above says pages 16-19 are identical under the raised parent budget.
+That is true of every reported number and **false of the emitted model**, which
+is the thing the next page consumes. Comparing the two runs file by file:
+
+| page | model sha256 | image score |
+| ---: | --- | --- |
+| 16 | identical | identical, 0.6372338224690584 |
+| 17 | identical | identical, 0.5780034952011921 |
+| 18 | identical | identical, 0.5357490227060575 |
+| 19 | **differs in one line** | **identical, 0.5245855326837143** |
+
+The differing line is one `25269` quarter tile at the same position (10, 20, 10)
+in both, under two different proper rotations a quarter turn apart — both
+orthonormal, both determinant 1, and the mould has exactly **one** proven vertex
+symmetry, so they are genuinely distinct placements. The image objective scores
+them the same to sixteen significant figures, and the structural evaluation
+counts 50 either way, so the tile is wrong in both and nothing in the run can
+tell them apart.
+
+What follows from that one tie is not small. Page 22 inherits a different base
+body, and with it:
+
+| page 22 | round five | round six |
+| --- | --- | --- |
+| base sha256 | ea12976997ed | 631a5aac4ebf |
+| registration source | `drawing_to_drawing`, IoU 0.890 | **`body_template`** |
+| selected view | 0 | **2** |
+| camera scale px/LDU | 1.6916 | **1.4863** |
+| image score | 0.3668 | **0.2529** |
+| bank | 1,437 poses | 1,437 poses |
+
+The bank is byte-for-byte the same size, the emitted part count is the same 60,
+and the page nevertheless registers by a different mechanism at a different scale
+for a third of the score. Pages 26 and 27 then refuse a camera, where round five
+placed them.
+
+So the raised parent budget's effect on this chain is **not** the thing being
+measured: it is downstream of a coin-flip at page 19 that the budget happened to
+land on the other side of. Any A/B of a chain-level change has to carry this — a
+single tie broken differently, on a pose no objective can rank, redirects the
+camera path five pages later. That is a property of the pipeline worth knowing
+independently of any lever, and it means chain-level comparisons of two
+configurations are only as trustworthy as the number of such ties between them.
