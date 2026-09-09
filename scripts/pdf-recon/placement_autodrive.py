@@ -665,7 +665,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                             native_starts=options['native_starts'],
                             image_pieces=image_pieces, withheld=withheld, arrows=arrows,
                             outside_fraction=options.get('fraction', 0.),
-                            local_rerank=options.get('local_rerank', 0.))
+                            local_rerank=options.get('local_rerank', 0.),
+                            seated_tolerance=options.get('seated_tolerance', 0.))
         result.update(pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
                       seconds=time.perf_counter() - started, code_sha256_start=code_hashes,
                       camera_source=str(step_dir / 'camera.json'), scene_order=order,
@@ -980,6 +981,8 @@ def add_page_options(parser):
                              'area this page own allocated pieces could cover')
     parser.add_argument('--camera-scale-tolerance', type=float, default=None,
                         help="Allowed relative difference from the previous page's camera scale")
+    parser.add_argument('--seated-tolerance', type=float, default=0.,
+                        help='Within this fraction below the best image score, prefer the candidate whose additions have more face contact with the body - a tie-break for a depth difference the image cannot resolve, never an objective')
     parser.add_argument('--local-rerank', type=float, default=0.,
                         help='Weight on evidence restricted to the region an addition changes, '
                              'blended with the whole-drawing score when ranking candidates')
@@ -1050,7 +1053,7 @@ def build_options(args):
                 drawing_registration=args.drawing_registration,
                 drawing_registration_keep=args.drawing_registration_keep,
                 drawing_registration_min_iou=args.drawing_registration_min_iou,
-                local_rerank=args.local_rerank,
+                local_rerank=args.local_rerank, seated_tolerance=args.seated_tolerance,
                 camera_gate=args.camera_gate,
                 camera_unexplained_max=(args.camera_unexplained_max
                                         if args.camera_unexplained_max is not None
