@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np
 
 from placement_camera_gate import (SCALE_TOLERANCE, UNEXPLAINED_MAX, gate, measure,
-                                   projection_scale, verdict)
+                                   projection_scale, scale_window, verdict)
 
 # The real 40377 page-16 projection, renormalised so scaling it scales the
 # measured pixels per LDU exactly.
@@ -52,7 +52,7 @@ def test_the_measured_good_and_bad_pages_separate():
     assert abs(good['unexplained_share'] - 1170 / 22282) < 1e-6
     assert not bad['accepted']
     assert any(r.startswith('unexplained_ink') for r in bad['reasons'])
-    assert any(r.startswith('scale_differs') for r in bad['reasons'])
+    assert any(r.startswith('scale_outside_the_') for r in bad['reasons'])
 
 
 def test_a_small_body_early_in_a_model_is_not_refused_for_low_coverage():
@@ -143,3 +143,35 @@ if __name__ == '__main__':
                 print('FAIL', name, error)
     print('failures', failures)
     sys.exit(1 if failures else 0)
+
+
+def test_the_scale_criterion_is_a_window_bounded_by_the_drawing_ratio():
+    """41624 pages 5-8: the camera stayed put and the fitted ratio said 1.23.
+
+    Round three expected `prior x ratio` as a point, so an unchanged camera was
+    refused for being 19% off an expectation 23% wrong, with every other
+    criterion passing. The ratio is a bound, so the window runs from the previous
+    accepted scale to that scale times the ratio.
+    """
+    unchanged = hypothesis(1.0860, 1 - 3778 / 10413, target=10413, outside=0)
+    point = verdict(unchanged, prior_scale=1.0860 * 1.23, new_piece_area=10413)
+    assert not point['accepted']
+    windowed = verdict(unchanged, prior_scale=1.0860, new_piece_area=10413,
+                       drawing_ratio=1.23)
+    assert windowed['accepted'], windowed
+    assert windowed['scale_window'][0] < 1.0860 < windowed['scale_window'][1]
+    # The grown camera the ratio allows is inside the window; a shrunken one is not.
+    grown = verdict(hypothesis(1.0860 * 1.20, .8, target=10413, outside=0),
+                    prior_scale=1.0860, new_piece_area=10413, drawing_ratio=1.23)
+    assert grown['accepted'], grown
+    shrunk = verdict(hypothesis(1.0860 * 0.80, .8, target=10413, outside=0),
+                     prior_scale=1.0860, new_piece_area=10413, drawing_ratio=1.23)
+    assert not shrunk['accepted']
+    assert any(r.startswith('scale_outside_the_') for r in shrunk['reasons'])
+
+
+def test_a_ratio_below_one_still_gives_an_ordered_window():
+    low = scale_window(2.0, 0.9)
+    assert low[0] < 1.8 and low[1] > 2.0
+    assert scale_window(None, 1.2) is None
+    assert scale_window(2.0)[0] < 2.0 < scale_window(2.0)[1]

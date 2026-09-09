@@ -20,7 +20,9 @@ fixtures:
   early page of a small model.
 * **Cross-page scale.** Consecutive instruction pages draw the same assembly at
   the same size, so a camera whose scale departs from the previous accepted
-  page's is mis-scaled, not looking at a smaller drawing.
+  page's is mis-scaled, not looking at a smaller drawing. This is a *window*, not
+  a point: it runs from the previous accepted scale to that scale times the
+  measured drawing ratio, because the ratio over-states (see `scale_window`).
 
 Measured, with the outcome of the page that used each registration:
 
@@ -76,6 +78,32 @@ def addable_area(pieces, projection):
     return float(total)
 
 
+def scale_window(prior_scale, drawing_ratio=None, tolerance=SCALE_TOLERANCE):
+    """The scales this page's camera may take, as a closed interval.
+
+    A point expectation was wrong, and 41624 pages 5 to 8 are the measurement.
+    Round three wired the drawing-to-drawing ratio in as the expected scale, but
+    that ratio *over-states* the camera ratio - the later drawing also holds the
+    pieces the step adds, so the fit absorbs part of that growth - and the
+    over-statement scales with the fraction of the assembly the step adds. On
+    40377, adding one to six pieces to a 49-part body, it stays between 0.99 and
+    1.11. On 41624, adding four to a nine-piece assembly, page 4 to 5 fits at
+    **1.23**. The gate then expected 1.23 times the previous scale, the camera
+    stayed where it was, and four pages were refused for being "19% off" an
+    expectation that was itself 23% wrong - with every other criterion passing.
+
+    So the ratio is a bound, exactly as `placement_drawing_scale` says: the true
+    camera ratio lies between one and the fitted ratio. The window is that
+    interval, widened by the tolerance at both ends. With no ratio supplied it
+    collapses to the previous behaviour, a point at `prior_scale`.
+    """
+    if not prior_scale:
+        return None
+    ratio = 1.0 if drawing_ratio is None else float(drawing_ratio)
+    low, high = sorted((float(prior_scale), float(prior_scale) * ratio))
+    return low * (1.0 - tolerance), high * (1.0 + tolerance)
+
+
 def measure(hypothesis, prior_scale=None, new_piece_area=None):
     """Acceptance quantities for one containment-refined registration."""
     containment = hypothesis.get('best_containment') or {}
@@ -105,9 +133,14 @@ def measure(hypothesis, prior_scale=None, new_piece_area=None):
 
 
 def verdict(hypothesis, prior_scale=None, new_piece_area=None,
-            unexplained_max=UNEXPLAINED_MAX, scale_tolerance=SCALE_TOLERANCE):
+            unexplained_max=UNEXPLAINED_MAX, scale_tolerance=SCALE_TOLERANCE,
+            drawing_ratio=None):
     """Accept or refuse one registration, with every failing reason listed."""
     values = measure(hypothesis, prior_scale, new_piece_area)
+    window = scale_window(prior_scale, drawing_ratio, scale_tolerance)
+    if window:
+        values['scale_window'] = [window[0], window[1]]
+        values['drawing_ratio'] = None if drawing_ratio is None else float(drawing_ratio)
     reasons = []
     if not values['contained'] or values['containment_fallback']:
         reasons.append('not_contained')
@@ -120,14 +153,17 @@ def verdict(hypothesis, prior_scale=None, new_piece_area=None,
     elif values['unexplained_share'] > unexplained_max:
         reasons.append('unexplained_ink_%.2fx_what_this_page_can_add'
                        % values['unexplained_share'])
-    if values['scale_ratio'] is not None and abs(values['scale_ratio'] - 1.) > scale_tolerance:
-        reasons.append('scale_differs_from_previous_page_by_%.1f%%'
-                       % (100 * abs(values['scale_ratio'] - 1.)))
+    if window and not window[0] <= values['px_per_ldu'] <= window[1]:
+        edge = window[0] if values['px_per_ldu'] < window[0] else window[1]
+        reasons.append('scale_outside_the_%.4f_to_%.4f_window_by_%.1f%%'
+                       % (window[0], window[1],
+                          100 * abs(values['px_per_ldu'] / edge - 1.)))
     return dict(values, accepted=not reasons, reasons=reasons)
 
 
 def gate(hypotheses, prior_scale=None, new_piece_area=None, mode='enforce',
-         unexplained_max=UNEXPLAINED_MAX, scale_tolerance=SCALE_TOLERANCE):
+         unexplained_max=UNEXPLAINED_MAX, scale_tolerance=SCALE_TOLERANCE,
+         drawing_ratio=None):
     """Order and optionally filter a page's refined registrations.
 
     `report` measures and records without changing which registrations are used,
@@ -136,15 +172,20 @@ def gate(hypotheses, prior_scale=None, new_piece_area=None, mode='enforce',
     """
     if mode not in MODES:
         raise ValueError(f'Unknown camera-gate mode {mode!r}')
-    rows = [verdict(h, prior_scale, new_piece_area, unexplained_max, scale_tolerance)
+    rows = [verdict(h, prior_scale, new_piece_area, unexplained_max, scale_tolerance,
+                    drawing_ratio)
             for h in hypotheses]
     record = dict(mode=mode, unexplained_max=unexplained_max, scale_tolerance=scale_tolerance,
                   prior_px_per_ldu=(float(prior_scale) if prior_scale else None),
+                  drawing_ratio=(None if drawing_ratio is None else float(drawing_ratio)),
+                  scale_window=list(scale_window(prior_scale, drawing_ratio, scale_tolerance) or ()),
                   addable_pixels=(float(new_piece_area) if new_piece_area else None),
                   evaluated=len(rows), accepted=sum(r['accepted'] for r in rows),
                   verdicts=rows, truth_used=False, runtime_vlm_calls=0, certified=False,
                   protocol='Containment, unexplained drawn ink against the page own addable CAD '
-                           'area, and cross-page scale consistency at the refined registration',
+                           'area, and a cross-page scale window running from the previous accepted '
+                           'scale to that scale times the measured drawing ratio, since the ratio '
+                           'over-states the camera ratio and is a bound rather than a target',
                   limitations='Necessary conditions only. A wrong camera can still explain the '
                               'drawing, and a correct camera is refused when the body it renders '
                               'is itself wrong, which is the intended conservative failure.')

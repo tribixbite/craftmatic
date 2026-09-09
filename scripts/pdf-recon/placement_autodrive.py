@@ -564,8 +564,12 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         # The expected camera scale for this page is the previous accepted one
         # times what the drawings themselves measure, not the previous one
         # unchanged.
-        expected_scale = (prior_scale * drawing_fit['scale']
-                          if prior_scale and drawing_fit else prior_scale)
+        # The drawing ratio is a BOUND on the camera ratio, not a target: it
+        # over-states, and the over-statement grows with the fraction of the
+        # assembly the step adds. Expecting `prior x ratio` as a point refused
+        # 41624 pages 5 to 8 for being 19% off an expectation 23% wrong.
+        expected_scale = prior_scale
+        expected_ratio = drawing_fit['scale'] if (prior_scale and drawing_fit) else None
         # Unexplained ink is attributed to what the drawing can legitimately show
         # that the body does not hold: this page's own allocation, plus anything
         # an earlier page of this scope allocated and the drive did not place. A
@@ -580,7 +584,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
             if attributable else None,
             mode=options.get('camera_gate', 'enforce'),
             unexplained_max=options.get('camera_unexplained_max', UNEXPLAINED_MAX),
-            scale_tolerance=options.get('camera_scale_tolerance', SCALE_TOLERANCE))
+            scale_tolerance=options.get('camera_scale_tolerance', SCALE_TOLERANCE),
+            drawing_ratio=expected_ratio)
         write_atomic(step_dir / f'camera-gate-{order:02d}.json',
                      json.dumps(dict(gate_record, page=page, xref=xref,
                                      attributable_pieces=[list(p) for p in attributable],
