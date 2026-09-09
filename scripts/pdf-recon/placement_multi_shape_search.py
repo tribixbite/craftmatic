@@ -66,8 +66,36 @@ def world_boxes(poses):
     return boxes
 
 
+def pose_tie_ranks(placements):
+    """A tie-break rank that depends on the POSE, not on where it landed in the bank.
+
+    `argsort(kind='stable')` breaks an exact score tie by array position, which
+    is bank index, which is closure enumeration order - so two configurations
+    that both hold a tied pair can resolve it differently for no reason that has
+    anything to do with the drawing. Round six's parent-budget chain diverged
+    from round five at page 22 for exactly this: page 19 emits one `25269` tile
+    in two image-indistinguishable quarter turns, identical to sixteen
+    significant figures and both structurally wrong, and every later page
+    inherits the registration path of whichever side happened to win.
+
+    Ranking by the rounded placement itself makes the resolution a property of
+    the geometry, so a chain A/B measures the configuration it claims to.
+    """
+    def signature(placement):
+        return (str(placement['key'][0]), int(placement['key'][1]),
+                tuple(tuple(np.round(np.asarray(T, float).flatten(), 5))
+                      for _, _, T in placement['items']))
+
+    order = sorted(range(len(placements)), key=lambda i: signature(placements[i]))
+    ranks = np.empty(len(placements), np.int64)
+    for rank, index in enumerate(order):
+        ranks[index] = rank
+    return ranks
+
+
 def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
-                    conflict, connected, rounds=3, width=16, window_order='incremental'):
+                    conflict, connected, rounds=3, width=16, window_order='incremental',
+                    tie_ranks=None):
     """Quota-preserving exchange judged by the scorer that actually selects.
 
     The layer search optimises the coarse per-class depth-composite IoU, but the
@@ -98,7 +126,7 @@ def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
     chosen = list(indices)
     best = fixed_native_score(scorer, base + [item for i in chosen
                                               for item in placements[i]['items']], M, origin)
-    renders, swaps, trail = 1, 0, []
+    renders, swaps, trail, census = 1, 0, [], []
     for _ in range(rounds):
         improvement = None
         for position, outgoing in enumerate(chosen):
@@ -107,12 +135,27 @@ def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
             correct, false = coarse.counts(label)
             dc, df = coarse.deltas(depth, label)
             if window_order == 'own_agreement':
-                order = coarse.own_agreement().astype(float)
+                raw = coarse.own_agreement().astype(float)
             else:
-                order = np.mean((correct + dc) / np.maximum(1, coarse.areas + false + df), axis=1)
-            order = np.where([keys[i] == keys[outgoing] for i in range(len(keys))], order, -np.inf)
+                raw = np.mean((correct + dc) / np.maximum(1, coarse.areas + false + df), axis=1)
+            same_key = np.array([keys[i] == keys[outgoing] for i in range(len(keys))])
+            # How many alternatives this ordering cannot tell apart from the one
+            # actually in the slot. Recorded per page so a chain table carries
+            # its own exposure to a coin flip instead of assuming none: round
+            # six's parent-budget chain diverged at page 22 because a tie on
+            # page 19 fell the other way.
+            slot_value = float(raw[outgoing])
+            census.append(dict(position=position, slot=int(outgoing),
+                               eligible=int(same_key.sum()),
+                               tied_with_slot=int(np.count_nonzero(same_key
+                                                                   & (raw == slot_value))),
+                               distinct_values=int(np.unique(raw[same_key]).size)
+                               if same_key.any() else 0))
+            order = np.where(same_key, raw, -np.inf)
             order[chosen] = -np.inf
-            for incoming in np.argsort(-order, kind='stable')[:width]:
+            ranked = (np.argsort(-order, kind='stable') if tie_ranks is None
+                      else np.lexsort((tie_ranks, -order)))
+            for incoming in ranked[:width]:
                 incoming = int(incoming)
                 if not np.isfinite(order[incoming]):
                     break
@@ -135,7 +178,11 @@ def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
         swaps += 1
     return tuple(sorted(chosen)), best, dict(native_renders=renders, native_swaps=swaps,
                                              trail=trail, width=width, rounds=rounds,
-                                             window_order=window_order)
+                                             window_order=window_order,
+                                             pose_tie_break=tie_ranks is not None,
+                                             tie_census=census,
+                                             ties_at_slot=[row['tied_with_slot']
+                                                           for row in census[:len(chosen)]])
 
 
 def stratified_cap(placements, original, gate, limit):
@@ -197,7 +244,8 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         max_expansions=2_000_000, improve_rounds=8, improve_from=4,
         restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16, native_starts=1,
         image_pieces=None, withheld=(), arrows=(), outside_fraction=0., local_rerank=0.,
-        seated_tolerance=0., max_bank_candidates=None, exchange_window_order='incremental'):
+        seated_tolerance=0., max_bank_candidates=None, exchange_window_order='incremental',
+        tie_break='index'):
     if method not in ('beam', 'exact'):
         raise ValueError('Unknown search method')
     withheld = [(str(part), int(color)) for part, color in withheld]
@@ -265,6 +313,9 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         witnesses = {tuple(edge) for edge in record['support_edges']}
         support = [(j, i) for i in range(len(placements)) for j in range(i)
                    if tuple(sorted((original[i], original[j]))) in witnesses]
+        if tie_break not in ('index', 'pose'):
+            raise ValueError('Unknown tie-break')
+        tie_ranks = pose_tie_ranks(placements) if tie_break == 'pose' else None
         physical, collision_cache = {}, {}
 
         def conflict(i, j):
@@ -288,7 +339,8 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                                  conflict_test=conflict, beam=beam, top_k=top_k,
                                  max_expansions=max_expansions,
                                  improve_rounds=improve_rounds, improve_from=improve_from,
-                                 restarts=restarts, perturb=perturb, seed=seed)
+                                 restarts=restarts, perturb=perturb, seed=seed,
+                                 tie_ranks=tie_ranks)
         else:
             # Single-layer target agreement changes traversal order only; it
             # removes no candidate from the exact-cardinality search.
@@ -333,7 +385,7 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                 refined, evidence, report = native_exchange(
                     scorer, base, placements, keys, start['indices'], M, origin, coarse,
                     conflict, connected, rounds=native_rounds, width=native_width,
-                    window_order=exchange_window_order)
+                    window_order=exchange_window_order, tie_ranks=tie_ranks)
                 report['start'] = list(start['indices'])
                 report['native_score'] = evidence['score']
                 reports.append(report)
@@ -393,6 +445,18 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
     # each group the drawn-assembly image score decides, unchanged.
     native.sort(key=lambda r: (-r['attached_pieces'],
                                -r['evidence'].get('combined_score', r['evidence']['score'])))
+    # Python's sort is stable, so assemblies the objective scores bit-identically
+    # keep the order candidate generation produced - which depends on the bank,
+    # which depends on the closure budget. Measured over both fixtures' round-five
+    # runs, 7 of 40377's 13 driven pages and 15 of 41624's 27 end in an exact tie
+    # at the top, every one of them between genuinely different assemblies and up
+    # to twelve of them. A perfect tie-break is worth zero coverage - inside every
+    # exact tie on 40377 all members have the same correct-part count - so this is
+    # about reproducibility, not accuracy: without it, changing an unrelated
+    # setting silently reselects, and 40377 page 19's two-way tie moved page 22
+    # from drawing_to_drawing at 1.6916 px/LDU to body_template at 1.4863.
+    # Off by default: turning it on reselects on tied pages and makes saved
+    # numbers incomparable with earlier ones.
     # A 4 LDU depth difference on a plate mostly hidden behind the body it mounts
     # on is not something an image objective resolves: on 40377 page index 18 the
     # whole-drawing score separates the two by 0.0012 and gets it wrong. Inside a

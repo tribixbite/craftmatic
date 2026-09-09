@@ -727,7 +727,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                             seated_tolerance=options.get('seated_tolerance', 0.),
                             max_bank_candidates=options.get('max_bank_candidates'),
                             exchange_window_order=options.get('exchange_window_order',
-                                                              'incremental'))
+                                                              'incremental'),
+                            tie_break=options.get('tie_break', 'index'))
         result.update(pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
                       seconds=time.perf_counter() - started, code_sha256_start=code_hashes,
                       camera_source=str(step_dir / 'camera.json'), scene_order=order,
@@ -1160,6 +1161,15 @@ def add_page_options(parser):
                              'order and the reference poses sit at window ranks 86-299. Measured '
                              'on that page: native 0.524586 to 0.532940, reference targets 1 of 6 '
                              'to 2 of 6, at 217 renders against 84')
+    parser.add_argument('--tie-break', choices=('index', 'pose'), default='index',
+                        help='Break exact score ties by the rounded pose instead of by bank '
+                             'index. Index order is closure enumeration order, so two '
+                             'configurations holding the same tied pair can resolve it '
+                             "differently for no reason connected to the drawing: round six's "
+                             'parent-budget chain diverged from round five at page 22 because '
+                             "page 19's two image-indistinguishable quarter turns of one 25269 "
+                             'fell the other way. A chain A/B is only as trustworthy as its tie '
+                             'exposure, which every page now journals')
     return parser
 
 
@@ -1217,7 +1227,8 @@ def build_options(args):
                 native_starts=args.native_starts,
                 palette_saturation_tiebreak=args.palette_saturation_tiebreak,
                 chromatic_metric=args.chromatic_metric,
-                exchange_window_order=args.exchange_window_order)
+                exchange_window_order=args.exchange_window_order,
+                tie_break=args.tie_break)
 
 
 def apply_palette_options(options):
