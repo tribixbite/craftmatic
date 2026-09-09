@@ -4579,3 +4579,43 @@ statistic is dominated by a large part drawn on a page of small parts, not by
 identity error. A joint identity/size/capacity assignment - a per-page scale
 variable solved WITH the identities rather than after them - is the principled
 form, and it is filed rather than fitted.
+
+### The derived allocation reproduces a hand-worked one exactly, and extends it
+
+The strongest available check on an automated on-ramp is a human's own careful
+output, and 40377 has one: its allocation was worked page by page over rounds
+one to nine and is the input every 40377 chain in this program has been driven
+from. Run the round-ten pipeline on 40377 with no attended step and compare.
+
+| | hand-worked (rounds 1-9) | **round ten, derived** |
+| --- | ---: | ---: |
+| pages | 17 | **28** |
+| allocated pieces | 54 | 89 (+1 withheld) |
+| of the printed inventory | 60.0% | **100%** |
+| pages where the (part, colour, quantity) bags differ | - | **0 of 17** |
+
+**Every one of the seventeen hand-worked pages reproduces identically**, down to
+part, colour and count, and the derived allocation adds pages 2-11 and 13 - the
+thirty-five pieces the *hand-built opening* supplied. That reframes the
+program's own scoreboard: 40377's "54 of 90" was measured against an allocation
+that only ever contained 54 pieces on 17 pages, with the other 36 hand-placed
+before the driver started. The fixture can now be driven from scratch.
+
+Pooled over a wider corpus - 25 PDFs and 1,104 anchors - the association repair
+changes 12 crop boxes. `placement_canonical_invariance` scores every one of them
+against what the MATCHER sees rather than against the box:
+
+| outcome | boxes |
+| --- | ---: |
+| byte-identical matcher input | 3 |
+| newly usable (no valid crop before) | 1 |
+| genuinely different | **8** |
+| lost (was usable, now not) | **0** |
+
+All eight genuinely-different boxes were inspected: every one is the whole part
+replacing a fragment or replacing the PLI panel frame - four translucent
+assemblies cropped to half their length, two beams cropped short of their tip
+behind a length badge, one small part cropped to its lower half, and one crop
+that was the entire panel row of three parts. Translucent and light-coloured
+artwork fragmenting under a single ink threshold is a **corpus-wide** failure
+mode, not a property of 41601 page 5.
