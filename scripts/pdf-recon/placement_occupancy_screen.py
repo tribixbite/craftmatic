@@ -9,8 +9,23 @@ import numpy as np
 from placement_cuda_layers import LayerRasterizer
 
 
-def screen(base,placements,projection,origin,scorer,dilation_px=3,outside_tolerance_px=0):
+def screen(base,placements,projection,origin,scorer,dilation_px=3,outside_tolerance_px=0,outside_fraction=0.):
+    """Reject placements whose opaque silhouette leaves the drawn foreground.
+
+    `outside_tolerance_px` is an absolute allowance carried from the body's own
+    residual overflow. It is the wrong unit for a candidate: a body that already
+    contains a misplaced part overflows by a couple of pixels, and inheriting
+    that number as a candidate's budget rejects correct candidates for their own
+    antialiasing. Measured on 40377 page index 17, where the arrows the mask
+    removes leave notches along the drawn plate: the reference-equivalent black
+    plate renders 9,551 pixels of which 19 fall outside, so an inherited
+    tolerance of 2 discarded it before it was ever scored, while the median
+    candidate overflows 1,748 pixels. `outside_fraction` adds a proportional
+    allowance in the candidate's own units; at 0.01 the retained set on that
+    page grows from 1,635 to 2,027 of 8,192 and the correct pose survives.
+    """
     if dilation_px<0 or outside_tolerance_px<0:raise ValueError('Negative pixel tolerance')
+    if not 0.<=outside_fraction<1.:raise ValueError('Proportional allowance must be a fraction below one')
     M=np.asarray(projection,float);origin=np.asarray(origin,float);raster=LayerRasterizer()
     allowed=cv2.dilate(scorer.mask.astype(np.uint8),np.ones((2*dilation_px+1,2*dilation_px+1),np.uint8))>0
     H,W=allowed.shape
@@ -31,7 +46,8 @@ def screen(base,placements,projection,origin,scorer,dilation_px=3,outside_tolera
         # because containment alone cannot compare camera scales: a render that
         # is too small is trivially contained and explains nothing.
         covered=np.zeros((H,W),bool);covered[gy[inside],gx[inside]]=True
-        return dict(occupied_pixels=len(xs),outside_pixels=outside,allowed=outside<=outside_tolerance_px,
+        return dict(occupied_pixels=len(xs),outside_pixels=outside,
+            allowed=outside<=max(outside_tolerance_px,int(outside_fraction*len(xs))),
             covered_pixels=int((covered&target).sum()),target_pixels=target_pixels,
             centroid=[float(gx.mean()),float(gy.mean())] if len(gx) else None)
     base_evidence=evidence(base)
@@ -39,6 +55,7 @@ def screen(base,placements,projection,origin,scorer,dilation_px=3,outside_tolera
     return dict(retained_indices=[r['index'] for r in rows if r['allowed']],candidates=rows,base=base_evidence,
         candidate_screen_skipped=not base_evidence['allowed'],input_candidates=len(placements),
         registration_consistent=base_evidence['allowed'],dilation_px=dilation_px,outside_tolerance_px=outside_tolerance_px,
+        outside_fraction=outside_fraction,
         projection=M.tolist(),origin=origin.tolist(),truth_used=False,certified=False,
         protocol='Exact native raster occupied mask; no convex hull and no partial-state image-score pruning',
         limitations='Necessary condition only under specified registration and silhouette tolerance. Failing base occupancy invalidates this view rather than proving candidate failure. Does not establish collision, connectivity, or candidate recall.')
