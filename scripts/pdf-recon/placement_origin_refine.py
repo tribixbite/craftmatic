@@ -93,10 +93,12 @@ def relative_allowances(rows, multiple, cap):
     ceiling. When nothing on the page registers better than `cap`, the page has
     no usable reference and the relative rule is withheld entirely.
     """
-    if multiple <= 0 or not rows:
+    if not rows:
         return {}, None, None
+    # The floor is worth recording whether or not the rule is applied: it is the
+    # page's own measurement of how far from contained its best hypothesis is.
     floor = min(overflow_ratio(row['best_containment']) for row in rows)
-    if floor > cap:
+    if multiple <= 0 or floor > cap:
         return {}, floor, None
     ratio = min(multiple * floor, cap)
     return ({row['source_index']: int(ratio * row['best_containment']['occupied_pixels'])
