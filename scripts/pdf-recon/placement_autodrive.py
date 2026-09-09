@@ -342,9 +342,19 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         page_scenes = {s['xref']: s for s in scene_images(doc, doc[page])}
     areas = [int(np.asarray(page_scenes[record['xref']]['mask'], bool).sum())
              for record in camera['native_scenes'] if record['xref'] in page_scenes]
-    reference_matrix = (list(prior_matrices) or
-                        [h['matrix'] for record in camera['native_scenes']
-                         for h in record['multirow']['hypotheses']])[:1]
+    # The body-area probe needs *some* matrix to render the body at. A page that
+    # exposes no stud row of its own and has no predecessor in this scope has
+    # neither, and then the kind test abstains to the ordinary addition path -
+    # which is exactly wrong on a subassembly page, and a subassembly page is
+    # the most likely first page of a scope to expose no rows. The prescan
+    # already measured a neighbour's camera for precisely this case, so the
+    # probe borrows it too rather than only the registration doing so.
+    borrowed_matrices, borrowed_probe_page = (), None
+    own_matrices = [h['matrix'] for record in camera['native_scenes']
+                    for h in record['multirow']['hypotheses']]
+    if not prior_matrices and not own_matrices and prescan:
+        borrowed_matrices, borrowed_probe_page = nearest_prescan(prescan, page)
+    reference_matrix = (list(prior_matrices) or own_matrices or list(borrowed_matrices))[:1]
     measured = 0
     if reference_matrix and base:
         probe = MaterialFeatureSceneScorer(page_scenes[camera['native_scenes'][0]['xref']],
@@ -361,6 +371,10 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                          kind=kind, pending_body=str(pending) if pending else None,
                          body_area_source='rendered_body' if measured else
                          ('previous_body_drawing' if prior_body_area else 'unavailable'),
+                         body_probe_camera=('previous_page' if prior_matrices else
+                                            ('own' if own_matrices else
+                                             ('borrowed' if borrowed_matrices else 'none'))),
+                         body_probe_borrowed_from=borrowed_probe_page,
                          previous_body_drawing_area=int(prior_body_area))
     write_atomic(step_dir / 'page-kind.json', json.dumps(kind_evidence, indent=2))
     if kind == 'attachment':
