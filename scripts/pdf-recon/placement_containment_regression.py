@@ -41,7 +41,11 @@ def admissions(evaluated, tolerance, fraction, multiple, cap):
         # searched offsets in a preferred order and stopped at the first
         # containing one, which `best_containment` need not be.
         if row.get('contained') and row.get('admission', 'absolute') == 'absolute':
-            kind, source = 'absolute', row
+            # A row the run accepted carries the accepted offset's own counts at
+            # the top level; fall back to the measured best when it does not, so
+            # a record written by an older or partial writer still replays.
+            kind = 'absolute'
+            source = row if 'outside_pixels' in row else dict(row, **best)
         elif best['outside_pixels'] <= absolute:
             kind, source = 'absolute', dict(row, **best)
         elif row['source_index'] in allowances and \
