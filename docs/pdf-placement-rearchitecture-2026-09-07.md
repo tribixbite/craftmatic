@@ -4809,3 +4809,82 @@ A caveat that belongs beside both: an OMR leaf count is not a printed piece
 count (41625 draws 182 leaves against a 129-piece BOM, because the reference
 expands sub-parts), so the accounted *fraction* is comparable across
 allocations of one fixture and not across fixtures.
+
+### The combined 41601 run: both gains, and exactly the larger of the two
+
+Round nine ended with 41601's two gains never combined - a symmetry-selected
+6-of-7 opening on the round-eight scope, and the mould-pooled 92-piece/23-page
+scope from the round-eight opening. One drive, one variable changed against each
+of them.
+
+| | r8 drive | r9 backtrack branch 1 | r9 wide scope | **r10 combined** |
+| --- | ---: | ---: | ---: | ---: |
+| opening | 3 of 7 | **6 of 7** | 3 of 7 | **6 of 7** |
+| scope | 18 pages / 83 | 18 / 83 | **22 / 92** | **22 / 92** |
+| pages placed | 17 | 16 | 21 | **20** |
+| emitted | 77 | 75 | 86 | **85** |
+| **structural** | 3 | **6** | 3 | **6 of 108** |
+| coverage | 0.028 | 0.056 | 0.028 | **0.056** |
+| precision | 0.039 | 0.080 | 0.035 | 0.071 |
+| **driver's own contribution** | +0 | +0 | +0 | **+0** |
+| pages ending in an exact tie | 13 of 17 | 11 of 16 | 16 of 21 | **13 of 20** |
+
+**The two gains do not add; the combination is exactly the maximum of them.**
+The better opening supplies its three poses and the wider scope supplies its
+eight emitted pieces, and the structural count is 6 at page 3 and 6 at page 24 -
+unchanged across all twenty placed pages, for the fourth chain running.
+
+The prediction registered before the drive was "6 of 108 on about 21 placed
+pages and 84-88 emitted, anything above 8 would be the first evidence that scope
+and opening interact". Measured: **6 of 108, 20 placed pages, 85 emitted.** There
+is no interaction.
+
+### The multi-view probe: the second view's verdict is decided by whose camera it is
+
+Round nine costed this as "the highest-value untested item" at two to three
+engineering days, with an explicit stopping rule. It cost eighteen seconds of
+GPU, and it stops.
+
+Each of the construction's 36 retained bodies was scored as a fixed assembly
+under a later page's **accepted registration** - the page's own camera, native
+origin and mask decision, rebuilt byte-identically from the run that placed it -
+using the same call the search's own exchange uses. Two later pages, and two
+lineages: the run driven from the 3-of-7 opening and the run driven from the
+6-of-7 one.
+
+| registration's lineage | page | class 0 (3 of 7, n=24) | class 1 (6 of 7, n=12) | separated | picks |
+| --- | ---: | --- | --- | :-: | --- |
+| 3-of-7 (`r8-drive`) | 3 | 0.0837 - **0.6283** | 0.1088 | no | **class 0** |
+| 3-of-7 (`r8-drive`) | 4 | 0.0804 - **0.3895** | 0.0963 | no | **class 0** |
+| 6-of-7 (`branch-01`) | 3 | 0.1039 - 0.1066 | **0.6167** | yes | **class 1** |
+| 6-of-7 (`branch-01`) | 4 | 0.0926 - 0.0993 | **0.3868** | yes | **class 1** |
+
+**The two lineages disagree, completely and symmetrically.** Under either one,
+the body that produced that page's camera scores five to six times higher than
+the other class - because a page's accepted registration is *propagated from the
+body its own run drove*, so scoring alternatives under it asks a circular
+question. The probe's own docstring predicted this bias and the measurement
+confirms it is not a small correction: it is the entire signal.
+
+Two further facts from the same table, both against the multi-view idea:
+
+* **The within-class tie survives every view.** Twenty-four bodies still take at
+  most two distinct values and twelve still take exactly one, to full precision,
+  under all four registrations. A second view separates the two *classes* and
+  does not separate the geometrically distinct bodies inside either one - the
+  24-way tie round nine measured is still 12-wide at the best score.
+* **The pathology is therefore the objective's formulation, not the single
+  view**, which is exactly the branch round nine's stopping rule assigned to
+  that outcome.
+
+The prediction registered before the probe said the tie would break but the
+classes would not be cleanly separated in the right direction under both
+lineages. Half right, and the half that was wrong matters: the *between-class*
+gap moved hugely, the *within-class* tie did not move at all, and the direction
+was set by whose camera it was.
+
+**Verdict: do not build the integration.** A multi-view objective would first
+need each candidate registered independently on the later page, which is a
+per-candidate registration search per page and reintroduces the same objective
+one level down. That is a far larger item than the two to three days round nine
+costed, and it is now costed on evidence.
