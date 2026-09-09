@@ -42,3 +42,6 @@ web/public/*.lxf
 # Python bytecode caches (research scripts)
 __pycache__/
 *.pyc
+
+# pdf-recon research artifacts written beside the scripts by their own tests
+scripts/pdf-recon/output/
