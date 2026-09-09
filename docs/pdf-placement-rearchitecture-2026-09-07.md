@@ -1158,3 +1158,71 @@ two drawings align at scale 1.00 with IoU 0.9914, because the pieces are three
 flat black tiles laid on a black 6x6 plate and they barely change the silhouette.
 Colour is uniform, the silhouette is nearly invariant, and the visible-edge channel
 sees little. A drawing that does not distinguish the alternatives cannot be made to.
+
+### The connector repair unblocks both constructions, and neither is correct
+
+With the repair and a four-round closure at 512 parents - a one-piece root has only
+432 to 1,284 base-attached poses, so the global parent budget *does* reach later
+rounds there, unlike on a full body - `placement_construct_body` completes both of
+40377's subassembly pages from every root it tries: page 20 seven parts from three
+roots, page 31 four parts from three roots. Before the repair page 20 returned
+`no_models` at every root and every drawing, so one printed round tile with no
+legal mate was the whole blocker.
+
+Post hoc, every one of the six results is **1** structurally correct part of its
+emitted set. A construction nails one piece at the identity transform, so the
+honest reading is 0 of 6 on page 20 and 0 of 3 on page 31. Completion and
+correctness are different achievements and only the first was reached.
+
+That decides how the reach drive is run. Attaching a 1-of-7 body on page 21 would
+poison the body the nine untested addition pages register against - the mechanism
+round one measured in the other direction, when a *correct* four-piece attachment
+was worth six extra downstream poses. So the drive runs without `--group-run`:
+pages 20, 21, 31 and 32 are recorded skipped, and their 11 allocated pieces are
+carried as unexplained-ink credit so the camera gate does not refuse pages 22 to 30
+for ink those pages never owed.
+
+### Strategy: what round four fixed, and what it exposed instead
+
+Round three's first recommendation was to register a page against the previous
+page's drawing rather than the emitted body, and to treat page 18 as the test.
+That is done and it worked on its own terms: page 18 registers at 98.4% coverage
+inside the containment allowance where its own stud rows reach 75.4% and round
+three could not contain it at any offset, the gate accepts it, and the search
+selects the propagated view over both body-template alternatives. Registration is
+no longer the binding constraint on pages 12 to 19.
+
+**It did not raise coverage, and the reason is the shape of the problem rather than
+any remaining defect in the parts round four touched.** An instruction booklet is a
+dependency tree and this pipeline commits irrevocably at each node. Page 18's single
+4x4 plate is the root of at least thirteen further parts - page 19's six mount on it
+through the `41740`, and page 20's seven attach into the same region on page 21. Its
+two candidate poses differ by 4 LDU, both are physically valid seatings engaging
+twelve connectors each, and three separate objectives - whole-drawing, local, seated
+- rank them within a quarter of one per cent, two of them wrongly. The page does not
+contain the information that separates them.
+
+The next page does. Page 19's drawing shows the same plate one step later, and page
+19's own six pieces only fit on one of the two candidates. So the measurement points
+at a bounded two-page window rather than at a better objective.
+
+**Recommendation, in order.**
+
+1. *Decide page N with page N+1's drawing.* Not general global backtracking - a
+   window of one. Page N's retained alternatives are already saved as `beam_*.ldr`,
+   there are at most a few dozen, and page N+1's registration is already computed
+   without reference to the emitted body. Score each alternative's continuation and
+   commit the one the pair prefers. Page 18's 0.0012 margin is decisive evidence
+   that one page of look-ahead is worth more than a fourth selection objective.
+2. *Rank a later closure round's frontier by the same evidence that ranks the
+   first.* The per-round parent budget landed this round and reaches rounds two and
+   three; what is missing is choosing what to expand in them. Page 19's five tiles
+   are one correct parent - the `41740` pose, already exactly enumerable once page
+   18 is right - away from reachable.
+3. *Keep the camera gate refusing, and keep charging a skipped page's ink to that
+   page.* Both are in. A refused page emitting nothing is still worth more than six
+   wrong poses, and the attribution fix is what stops the refusal cascading.
+4. *Stop buying selection objectives for sub-stud ties.* Three were measured this
+   round and all three fail on page 18. Two of them - the local rerank and the
+   seated tie-break - were built and measured in this round specifically to attack
+   it. The information is not in the page.
