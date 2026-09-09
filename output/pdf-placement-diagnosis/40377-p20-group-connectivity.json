@@ -1,0 +1,254 @@
+{
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "requested": [
+    [
+      "3023b",
+      15
+    ],
+    [
+      "3069b",
+      191
+    ],
+    [
+      "6091",
+      191
+    ],
+    [
+      "6091",
+      191
+    ],
+    [
+      "3023b",
+      191
+    ],
+    [
+      "98138pb072",
+      0
+    ],
+    [
+      "98138pb072",
+      0
+    ]
+  ],
+  "canonical": [
+    [
+      "3023b",
+      15
+    ],
+    [
+      "3069b",
+      191
+    ],
+    [
+      "6091",
+      191
+    ],
+    [
+      "6091",
+      191
+    ],
+    [
+      "3023b",
+      191
+    ],
+    [
+      "98138pz0",
+      0
+    ],
+    [
+      "98138pz0",
+      0
+    ]
+  ],
+  "aliases": {
+    "3023": "3023b"
+  },
+  "centre": [
+    0.0,
+    -92.0,
+    -68.0
+  ],
+  "radius_ldu": 45.0,
+  "located": [
+    {
+      "part": "3023b",
+      "color": 191,
+      "position": [
+        0.0,
+        -82.0,
+        -64.0
+      ]
+    },
+    {
+      "part": "3023b",
+      "color": 15,
+      "position": [
+        0.0,
+        -82.0,
+        -56.0
+      ]
+    },
+    {
+      "part": "3069b",
+      "color": 191,
+      "position": [
+        0.0,
+        -82.0,
+        -80.0
+      ]
+    },
+    {
+      "part": "6091",
+      "color": 191,
+      "position": [
+        -10.0,
+        -82.0,
+        -80.0
+      ]
+    },
+    {
+      "part": "6091",
+      "color": 191,
+      "position": [
+        10.0,
+        -82.0,
+        -80.0
+      ]
+    },
+    {
+      "part": "98138pz0",
+      "color": 0,
+      "position": [
+        -30.0,
+        -102.0,
+        -64.0
+      ]
+    },
+    {
+      "part": "98138pz0",
+      "color": 0,
+      "position": [
+        30.0,
+        -102.0,
+        -64.0
+      ]
+    }
+  ],
+  "unlocated": {},
+  "components": [
+    [
+      {
+        "part": "3023b",
+        "color": 191,
+        "position": [
+          0.0,
+          -82.0,
+          -64.0
+        ]
+      },
+      {
+        "part": "3023b",
+        "color": 15,
+        "position": [
+          0.0,
+          -82.0,
+          -56.0
+        ]
+      },
+      {
+        "part": "3069b",
+        "color": 191,
+        "position": [
+          0.0,
+          -82.0,
+          -80.0
+        ]
+      },
+      {
+        "part": "6091",
+        "color": 191,
+        "position": [
+          -10.0,
+          -82.0,
+          -80.0
+        ]
+      },
+      {
+        "part": "6091",
+        "color": 191,
+        "position": [
+          10.0,
+          -82.0,
+          -80.0
+        ]
+      }
+    ],
+    [
+      {
+        "part": "98138pz0",
+        "color": 0,
+        "position": [
+          -30.0,
+          -102.0,
+          -64.0
+        ]
+      }
+    ],
+    [
+      {
+        "part": "98138pz0",
+        "color": 0,
+        "position": [
+          30.0,
+          -102.0,
+          -64.0
+        ]
+      }
+    ]
+  ],
+  "component_sizes": [
+    5,
+    1,
+    1
+  ],
+  "mates": [
+    {
+      "a": 0,
+      "b": 1,
+      "engaged": 2,
+      "a_part": "3023b",
+      "b_part": "3023b"
+    },
+    {
+      "a": 0,
+      "b": 3,
+      "engaged": 1,
+      "a_part": "3023b",
+      "b_part": "6091"
+    },
+    {
+      "a": 0,
+      "b": 4,
+      "engaged": 1,
+      "a_part": "3023b",
+      "b_part": "6091"
+    },
+    {
+      "a": 2,
+      "b": 3,
+      "engaged": 1,
+      "a_part": "3069b",
+      "b_part": "6091"
+    },
+    {
+      "a": 2,
+      "b": 4,
+      "engaged": 1,
+      "a_part": "3069b",
+      "b_part": "6091"
+    }
+  ],
+  "one_group": false,
+  "scope": "Evaluation-only. Reads the independent model to say whether a page's allocation is a well-posed rigid group; nothing here selects a runtime pose or enters candidate generation.",
+  "limitations": "Connectivity is the connector-mate predicate only: two pieces held together solely by a third, or by friction the shadow library does not record, read as separate. Instances are located by part, colour and proximity to a supplied centre, which is an argument."
+}
