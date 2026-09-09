@@ -205,13 +205,19 @@ def nearest_prescan(prescan, page):
 
 
 def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_matrices=(),
-               prior_scale=None, pending=None, prior_body_area=0, prescan=None):
+               prior_scale=None, pending=None, prior_body_area=0, prescan=None,
+               pieces_override=None):
     """Return (status, detail, placement_dir_or_None, matrices, scale) for one page.
 
     Several drawings on a page can be non-panel scenes: a subassembly beside
     the body, or a second view of it. Layout cannot rank them, so each is tried
     in drawn-area order and the first that yields a usable registration and a
     complete search result is taken; every attempt is saved.
+
+    `pieces_override` replaces the page's allocation with a subset of it. Body
+    construction uses this: one allocated piece becomes the body the page is
+    registered against, and the rest are the pieces to place. The provenance the
+    real allocation carries is preserved and the override is recorded.
     """
     from placement_arrow_contacts import read_items
     from placement_arrow_mask import conservative_components
@@ -235,6 +241,16 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     step_dir.mkdir(parents=True, exist_ok=True)
     base = read_items(base_model)
     pieces, provenance = load_allocations(pdf, page, allocation_run)
+    if pieces_override is not None:
+        allocated = list(pieces)
+        pieces = [(str(part), int(color)) for part, color in pieces_override]
+        for piece in pieces:
+            if piece in allocated:
+                allocated.remove(piece)
+            else:
+                raise ValueError(f'Override piece {piece} is not in the page allocation')
+        provenance = dict(provenance, allocation_override=[list(p) for p in pieces],
+                          allocation_override_remainder=[list(p) for p in allocated])
     camera = page_camera(pdf, page, allocation_run, step_dir / 'camera',
                          prior_parts=[(part, color) for part, color, _ in base])
     write_atomic(step_dir / 'camera.json', json.dumps(camera, indent=2, default=str))
@@ -659,15 +675,8 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
     return record
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--pdf', type=Path, required=True)
-    parser.add_argument('--allocation-run', type=Path, required=True)
-    parser.add_argument('--base-run', type=Path, required=True)
-    parser.add_argument('--pages', type=int, nargs='+', required=True)
-    parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--resume', action='store_true')
-    parser.add_argument('--continue-on-unsupported', action='store_true')
+def add_page_options(parser):
+    """Per-page pipeline options, shared by the driver and the constructor."""
     parser.add_argument('--camera-matrices', type=int, default=2)
     parser.add_argument('--camera-prior-matrices', type=int, default=2,
                         help="How many of the previous page's matrices to offer alongside this "
@@ -740,40 +749,58 @@ if __name__ == '__main__':
     parser.add_argument('--native-rounds', type=int, default=0)
     parser.add_argument('--native-width', type=int, default=16)
     parser.add_argument('--native-starts', type=int, default=1)
+    return parser
+
+
+def build_options(args):
+    """The per-page options dictionary `place_page` consumes."""
+    return dict(camera_matrices=args.camera_matrices,
+                camera_prior_matrices=args.camera_prior_matrices, per_matrix=args.per_matrix,
+                refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
+                fraction=args.fraction, fallback=args.fallback, scales=tuple(args.scales),
+                scale_prior=not args.no_scale_prior, retry_passes=args.retry_passes,
+                exploded_target=not args.no_exploded_target,
+                camera_gate=args.camera_gate,
+                camera_unexplained_max=(args.camera_unexplained_max
+                                        if args.camera_unexplained_max is not None
+                                        else CAMERA_UNEXPLAINED_MAX),
+                camera_scale_tolerance=(args.camera_scale_tolerance
+                                        if args.camera_scale_tolerance is not None
+                                        else CAMERA_SCALE_TOLERANCE),
+                camera_prescan=args.camera_prescan,
+                body_area_ratio=args.body_area_ratio, attach_limit=args.attach_limit,
+                attach_coarse_pairs=args.attach_coarse_pairs,
+                group_runs={entry.split('=', 1)[0]: entry.split('=', 1)[1]
+                            for entry in args.group_run},
+                pending_body=(dict(page=int(args.pending_body.split('=', 1)[0]),
+                                   groups=args.pending_body.split('=', 1)[1])
+                              if args.pending_body else None),
+                views=args.views, scale=args.scale, max_nodes=args.max_nodes,
+                top_k=args.top_k, host_bytes=args.host_bytes,
+                closure_rounds=args.closure_rounds,
+                max_closure_parents=args.max_closure_parents, max_poses=args.max_poses,
+                closure_mode=args.closure_mode,
+                stable_colors=args.stable_colors, method=args.method, beam=args.beam,
+                max_expansions=args.max_expansions, improve_rounds=args.improve_rounds,
+                improve_from=args.improve_from, restarts=args.restarts,
+                perturb=args.perturb, seed=args.seed,
+                native_rounds=args.native_rounds,
+                native_width=args.native_width,
+                native_starts=args.native_starts)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--pdf', type=Path, required=True)
+    parser.add_argument('--allocation-run', type=Path, required=True)
+    parser.add_argument('--base-run', type=Path, required=True)
+    parser.add_argument('--pages', type=int, nargs='+', required=True)
+    parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--continue-on-unsupported', action='store_true')
+    add_page_options(parser)
     args = parser.parse_args()
-    options = dict(camera_matrices=args.camera_matrices,
-                   camera_prior_matrices=args.camera_prior_matrices, per_matrix=args.per_matrix,
-                   refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
-                   fraction=args.fraction, fallback=args.fallback, scales=tuple(args.scales),
-                   scale_prior=not args.no_scale_prior, retry_passes=args.retry_passes,
-                   exploded_target=not args.no_exploded_target,
-                   camera_gate=args.camera_gate,
-                   camera_unexplained_max=(args.camera_unexplained_max
-                                           if args.camera_unexplained_max is not None
-                                           else CAMERA_UNEXPLAINED_MAX),
-                   camera_scale_tolerance=(args.camera_scale_tolerance
-                                           if args.camera_scale_tolerance is not None
-                                           else CAMERA_SCALE_TOLERANCE),
-                   camera_prescan=args.camera_prescan,
-                   body_area_ratio=args.body_area_ratio, attach_limit=args.attach_limit,
-                   attach_coarse_pairs=args.attach_coarse_pairs,
-                   group_runs={entry.split('=', 1)[0]: entry.split('=', 1)[1]
-                               for entry in args.group_run},
-                   pending_body=(dict(page=int(args.pending_body.split('=', 1)[0]),
-                                      groups=args.pending_body.split('=', 1)[1])
-                                 if args.pending_body else None),
-                   views=args.views, scale=args.scale, max_nodes=args.max_nodes,
-                   top_k=args.top_k, host_bytes=args.host_bytes,
-                   closure_rounds=args.closure_rounds,
-                   max_closure_parents=args.max_closure_parents, max_poses=args.max_poses,
-                   closure_mode=args.closure_mode,
-                   stable_colors=args.stable_colors, method=args.method, beam=args.beam,
-                   max_expansions=args.max_expansions, improve_rounds=args.improve_rounds,
-                   improve_from=args.improve_from, restarts=args.restarts,
-                   perturb=args.perturb, seed=args.seed,
-                   native_rounds=args.native_rounds,
-                   native_width=args.native_width,
-                   native_starts=args.native_starts)
+    options = build_options(args)
     summary = run(args.pdf, args.allocation_run, args.base_run, args.pages, args.out, options,
                   resume=args.resume, stop_on_unsupported=not args.continue_on_unsupported)
     print(json.dumps(dict(status=summary['status'],
