@@ -204,9 +204,25 @@ def nearest_prescan(prescan, page):
     return list(prescan[source]), source
 
 
+def largest_drawing(pdf, page, palette):
+    """The page's main drawing foreground, arrows removed, body component only."""
+    import pymupdf
+    from placement_arrow_mask import conservative_components
+    from vector_scene import scene_images
+    with pymupdf.open(pdf) as doc:
+        scenes = scene_images(doc, doc[page])
+        if not scenes:
+            return None
+        scene = max(scenes, key=lambda s: int(np.asarray(s['mask'], bool).sum()))
+        graph = conservative_components(scene, protected_colors=palette['rgb'])
+    components = sorted((c for c in graph['components'] if c.get('mask') is not None),
+                        key=lambda c: -int(c['area']))
+    return components[0]['mask'] if components else np.asarray(scene['mask'], bool)
+
+
 def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_matrices=(),
                prior_scale=None, pending=None, prior_body_area=0, prescan=None,
-               pieces_override=None):
+               pieces_override=None, prior_page=None):
     """Return (status, detail, placement_dir_or_None, matrices, scale) for one page.
 
     Several drawings on a page can be non-panel scenes: a subassembly beside
@@ -224,6 +240,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     from placement_body_registration import register
     from placement_camera_gate import (UNEXPLAINED_MAX, SCALE_TOLERANCE, addable_area,
                                        gate as camera_gate)
+    from placement_drawing_scale import align, scaled_matrices
     from placement_evidence_closure import rank_parents
     from placement_exploded_page import detached_pieces, withhold
     from placement_material_scene_score import MaterialFeatureSceneScorer
@@ -352,7 +369,25 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                                            for other in own)]
         rescaled = (scale_prior_matrices(own, prior_scale) if options.get('scale_prior', True)
                     else [])
-        matrices = own + carried + rescaled
+        # The drawings settle the scale without the body. Consecutive pages draw
+        # the same assembly plus a few pieces, so the similarity aligning the
+        # previous drawing onto this one is measurable from PDF pixels alone -
+        # and on 40377 it says page 18's drawing is 1.03 times page 17's, where
+        # its own stud rows imply 0.87.
+        measured, drawing_fit = [], None
+        if prior_page is not None and options.get('drawing_scale', True):
+            previous = largest_drawing(pdf, prior_page, palette)
+            if previous is not None:
+                drawing_fit = align(previous, restrict_to_body_component(
+                    drawing, [], palette)['mask'])
+                measured = scaled_matrices(list(prior_matrices)[:options['camera_prior_matrices']],
+                                           drawing_fit['scale'])
+                write_atomic(step_dir / f'drawing-scale-{order:02d}.json',
+                             json.dumps(dict({k: v for k, v in drawing_fit.items()
+                                              if k != 'ladder'},
+                                             previous_page=prior_page, page=page, xref=xref,
+                                             ladder=drawing_fit['ladder']), indent=2))
+        matrices = own + carried + rescaled + measured
         if not matrices:
             attempts.append(dict(xref=xref, status='no_camera_hypothesis'))
             continue
@@ -377,6 +412,9 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                      json.dumps(dict(hypotheses=hypotheses, stable_colors=stable, page=page,
                                      xref=xref, reused_prior_camera=reused, pdf=str(pdf),
                                      scale_prior_px_per_ldu=prior_scale,
+                                     drawing_scale=drawing_fit and drawing_fit['scale'],
+                                     drawing_scale_iou=drawing_fit and drawing_fit['iou'],
+                                     measured_scale_matrices=len(measured),
                                      scale_prior_matrices=len(rescaled),
                                      carried_prior_matrices=len(carried),
                                      borrowed_camera_page=borrowed_from,
@@ -404,8 +442,13 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         # A registration that satisfies containment is not thereby believable.
         # Measure it: consecutive pages draw the same assembly at the same size,
         # and a registration must explain most of the drawing it claims to be.
+        # The expected camera scale for this page is the previous accepted one
+        # times what the drawings themselves measure, not the previous one
+        # unchanged.
+        expected_scale = (prior_scale * drawing_fit['scale']
+                          if prior_scale and drawing_fit else prior_scale)
         accepted, gate_record = camera_gate(
-            contained['hypotheses'], prior_scale,
+            contained['hypotheses'], expected_scale,
             addable_area(pieces, contained['hypotheses'][0]['projection']) if pieces else None,
             mode=options.get('camera_gate', 'enforce'),
             unexplained_max=options.get('camera_unexplained_max', UNEXPLAINED_MAX),
@@ -510,6 +553,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                       mask_source=scene_record.get('mask_source'),
                       exploded_withheld=exploded.get('withheld', []),
                       exploded_reason=exploded.get('reason'),
+                      drawing_scale=drawing_fit and drawing_fit['scale'],
+                      drawing_scale_iou=drawing_fit and drawing_fit['iou'],
                       arrow_attachment=result['results'][0].get('arrow_attachment'),
                       containment_fallback=contained['containment_fallback_used'],
                       attempts=attempts, scale_prior_px_per_ldu=prior_scale,
@@ -566,7 +611,7 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
     RETRYABLE = ('camera_unsupported', 'no_contained_registration')
     deferred = []
     current = base_model
-    prior_matrices, prior_scale = (), None
+    prior_matrices, prior_scale, prior_page = (), None, None
     # Subassembly constructions supplied for specific pages; the driver decides
     # when to attach them, which page the booklet points at, and records both.
     supplied = dict(options.get('group_runs') or {})
@@ -594,7 +639,10 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
         try:
             status, detail, placement, matrices, scale = place_page(
                 pdf, page, allocation_run, current, step_dir, options, prior_matrices, prior_scale,
-                pending, prior_body_area, prescan)
+                pending, prior_body_area, prescan, prior_page=prior_page)
+            if status == 'placed':
+                # The page whose drawing this one is measured against next.
+                prior_page = page
             if status == 'placed' and (detail or {}).get('kind') != 'attachment':
                 kind_file = step_dir / 'page-kind.json'
                 if kind_file.is_file():
@@ -644,7 +692,9 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
             try:
                 status, detail, placement, matrices, scale = place_page(
                     pdf, page, allocation_run, current, step_dir, options, prior_matrices,
-                    prior_scale, pending, prior_body_area, prescan)
+                    prior_scale, pending, prior_body_area, prescan, prior_page=prior_page)
+                if status == 'placed':
+                    prior_page = page
                 if matrices:
                     prior_matrices = matrices
                 if scale:
@@ -717,6 +767,9 @@ def add_page_options(parser):
                              'area this page own allocated pieces could cover')
     parser.add_argument('--camera-scale-tolerance', type=float, default=None,
                         help="Allowed relative difference from the previous page's camera scale")
+    parser.add_argument('--no-drawing-scale', action='store_true',
+                        help="Do not measure the scale between the previous page's drawing and "
+                             "this one, nor use it to rescale carried cameras")
     parser.add_argument('--no-exploded-target', action='store_true',
                         help='Score every allocated piece against the drawing even when the page '
                              'draws one of them detached; reproduces the round-two objective')
