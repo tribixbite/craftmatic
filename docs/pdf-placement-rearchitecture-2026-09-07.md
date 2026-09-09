@@ -481,6 +481,16 @@ renders 10,051 class-0 pixels where it rendered 307. The margin by which the
 wrong assembly wins fell from 0.0129 (0.5699 against 0.5570) to 0.0033 (0.5442
 against 0.5409). None of that earns a structural match, which requires one LDU.
 
+The colour fix must not be sold as an accuracy gain, because it is not one yet.
+It is a correctness fix with an unambiguous argument - LDraw black is a neutral,
+and drawn black now classifies as one - and its mechanism is measured. Its
+effect on placement so far is mixed: it improves the page-17 failure mode
+without changing the count, and on 41624 pages 3 to 5 it *costs* one structural
+match, 2 correct of 13 emitted against 3 of 13 without it. Across the two
+fixtures the measured accuracy change is neutral to slightly negative. It stays
+in because a classifier that cannot see a black brick will keep producing the
+page-17 failure elsewhere, not because it raised a number.
+
 ### The whole-chain numbers
 
 Driving pages 15 to 19 from the page-14 checkpoint with evidence-ordered closure
