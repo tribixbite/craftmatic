@@ -768,19 +768,34 @@ agreement uses the derived universal-CAD symmetry proofs.
 | + candidate overflow budget + camera gate | 16 | 49 | 46 | 0.939 |
 | **+ candidate overflow budget + camera gate** | **17** | **51** | **48** | **0.941** |
 | + candidate overflow budget + camera gate | 18 | camera refused | - | - |
+| + candidate overflow budget + camera gate | 19 | 57 | 48 | 0.842 |
 
 The exploded target alone reproduces round two to the part, which is what
 pointed at the occupancy screen. With both, page index 17 places the drawn plate
 at (30, -152, 0) - the pose the diagnostic predicted it would select, at the
 score it predicted, 0.5679 - and the arrows place the stacked one at
 (30, -160, 0) with 0.51 px of arrowhead error. Whole-model coverage moves
-**46/90 to 48/90 (53.3%)** and precision recovers from 0.902 to 0.941.
+**46/90 to 48/90 (53.3%)** and precision recovers from 0.902 to 0.941. The
+accurate checkpoint is page index 17.
 
-Page index 18 is then refused rather than driven: its registration leaves 1.05
-times more drawn ink unexplained than the page can possibly add, and its scale
-is 12.6% below the previous accepted page. Round two emitted seven more parts
-across pages 17 to 19 and got none of them right, taking precision to 0.793; the
-gate now emits nothing there instead, with both numbers recorded.
+Page index 18 is refused rather than driven: its registration leaves 1.05 times
+more drawn ink unexplained than the page can possibly add, and its scale is
+12.6% below the previous accepted page. Round two emitted a part there and got
+it wrong.
+
+Page index 19 is the honest counter-example, and it is worth reporting in full.
+The gate did its job: it rejected the page's own 1.5346 camera - 9.3% off the
+previous accepted scale, 1.32 times more unexplained ink than the page can add -
+and accepted the carried 1.6918 matrix, which covers 93.4% of the drawing at
+0.380. That is the choice round two's template score got wrong. The registration
+duly improves, from a selected score of 0.3809 to 0.4748. And the page still
+places none of its six pieces correctly, so precision falls from 0.941 to 0.842.
+
+Two things follow. The camera test is necessary and not sufficient, as stated.
+And refusing page 18 is not free: the body now lacks the plate that page adds,
+page 19's drawing shows it, and the pieces page 19 attaches sit on it. Stopping
+error propagation by refusal substitutes a missing-part gap for a wrong-part
+one, which the next page still has to register against.
 
 On 41624 the constructor plus the local rerank take the opening from 2 of 3 to
 3 of 3, which is the first page of that fixture placed exactly right.
