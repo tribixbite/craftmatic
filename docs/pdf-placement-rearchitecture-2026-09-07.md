@@ -1243,3 +1243,25 @@ measures. And 27-28 fits at 1.06 while 30-32 fits at 1.11, the latter because pa
 32 draws the model on the stand it has just attached: that is the over-statement
 `placement_drawing_scale` warns about, and it is why the unit scale has to be
 offered alongside the fitted one rather than instead of it.
+
+### On a small assembly the fitted drawing ratio is badly inflated
+
+The same measurement on 41624's pages 2 to 8, whose assembly grows from three
+pieces to nineteen:
+
+| pair | 2-3 | 3-4 | 4-5 | 5-6 | 6-7 | 7-8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| scale | 1.01 | 1.00 | **1.23** | 1.00 | 1.05 | 1.01 |
+| IoU | 0.700 | 0.804 | 0.747 | 0.966 | 0.953 | 0.819 |
+
+Every pair still aligns above the 0.60 floor, so the propagation applies to this
+fixture as well. But 4 to 5 fits at **1.23**, because page 5 adds four pieces to a
+nine-piece assembly and the fit absorbs that growth. On 40377 the same measure
+stays between 0.99 and 1.11, because a step there adds one to six pieces to a
+49-part body.
+
+So the over-statement scales with the fraction of the assembly a step adds. That
+makes the unit-scale hypothesis *more* load-bearing early in a booklet than late,
+and it makes using the fitted ratio on its own actively wrong on a small model -
+which is worth stating because the fitted ratio is what round three wired in as
+the camera gate's expected scale.
