@@ -24,6 +24,15 @@ nothing here is certified or published. Pages whose structure is not supported
 subassembly whose construction is not supplied) stop the run with saved evidence
 instead of guessing.
 
+A page that fails only for want of a camera can be retried after later pages
+have supplied one. The driver's camera prior is the previous page's measured
+matrix, so the first page of a scope has none, and a drawing that exposes no
+stud row there dies with `no_camera_hypothesis` - 41624 page index 3 does
+exactly that. Every page is in the same PDF, so retrying it once a neighbour has
+been registered uses no new information; the pieces simply join a body that has
+grown, which the final assembly does not distinguish. Retries are recorded with
+their pass number and the order they were taken in.
+
 The journal is written atomically and `--resume` re-verifies the PDF, the
 allocation, the starting body and every completed checkpoint before skipping a
 contiguous completed prefix.
@@ -393,7 +402,7 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
                   allocation_sha256=file_hash(allocation_run / 'global-assignment.json'),
                   base_model_sha256=file_hash(base_model),
                   base_manifest_sha256=file_hash(base_manifest),
-                  pages=list(pages), options=options, version=1)
+                  pages=list(pages), options=options, version=2)
     journal = out / 'autodrive.json'
     record = dict(pdf=str(pdf.resolve()), pdf_sha256=config['pdf_sha256'],
                   allocation_run=str(allocation_run), base_source=str(base_run),
@@ -418,12 +427,20 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
         raise ValueError('Choose a new output directory or explicitly resume')
     out.mkdir(parents=True, exist_ok=True)
     write_atomic(journal, json.dumps(record, indent=2))
+    # Failures a later page's camera could repair, retried after the main pass.
+    RETRYABLE = ('camera_unsupported', 'no_contained_registration')
+    deferred = []
     current = base_model
     prior_matrices, prior_scale = (), None
     # Subassembly constructions supplied for specific pages; the driver decides
     # when to attach them, which page the booklet points at, and records both.
     supplied = dict(options.get('group_runs') or {})
-    pending, prior_body_area = None, 0
+    # A subassembly may have been built before this run's page scope begins -
+    # 40377 builds one on page index 13, which the allocation scopes out because
+    # of a mould ambiguity resolved in separate branches. Declaring it pending
+    # lets the driver schedule its attachment on the page that asks for it
+    # instead of the attachment being issued by hand.
+    pending, prior_body_area = options.get('pending_body'), 0
     for page in pages:
         if page in completed:
             current = completed[page] / 'model.ldr'
@@ -477,6 +494,42 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
             record['status'] = 'stopped_unsupported_page'
             write_atomic(journal, json.dumps(record, indent=2))
             return record
+    for attempt_pass in range(1, int(options.get('retry_passes') or 0) + 1):
+        if not deferred:
+            break
+        placed_any, still = False, []
+        for page in deferred:
+            step_dir = out / f'page-{page:03d}-retry-{attempt_pass}'
+            try:
+                status, detail, placement, matrices, scale = place_page(
+                    pdf, page, allocation_run, current, step_dir, options, prior_matrices,
+                    prior_scale, pending, prior_body_area)
+                if matrices:
+                    prior_matrices = matrices
+                if scale:
+                    prior_scale = scale
+            except Exception as exc:
+                status, detail, placement = 'error', dict(error=str(exc),
+                                                          traceback=traceback.format_exc()), None
+            step = dict(page=page, status=status, detail=detail, directory=str(step_dir),
+                        retry_pass=attempt_pass, pending_body=dict(pending) if pending else None)
+            if placement is not None:
+                step['placement'] = str(placement)
+                step['checkpoint_hashes'] = {name: file_hash(placement / name)
+                                             for name in ('model.ldr', 'results.json')}
+                current = placement / 'model.ldr'
+                placed_any = True
+            elif status in RETRYABLE:
+                still.append(page)
+            record['steps'].append(step)
+            record['last_checkpoint'] = str(current)
+            write_atomic(journal, json.dumps(record, indent=2))
+            print(json.dumps(dict(page=page, status=status, retry_pass=attempt_pass,
+                                  detail=detail)), flush=True)
+        deferred = still
+        if not placed_any:
+            break
+    record['deferred_pages_unplaced'] = deferred
     record['status'] = 'completed_requested_pages_uncertified'
     write_atomic(journal, json.dumps(record, indent=2))
     return record
@@ -500,6 +553,12 @@ if __name__ == '__main__':
                         help='Overflow allowed as a fraction of the rendered body area')
     parser.add_argument('--fallback', type=int, default=0,
                         help='Proceed on this many least-overflowing views when none is contained')
+    parser.add_argument('--retry-passes', type=int, default=0,
+                        help='After the main pass, retry pages that failed for want of a camera, '
+                             'now that later pages have supplied one')
+    parser.add_argument('--pending-body', metavar='PAGE=DIRECTORY', default=None,
+                        help='A PDF-derived subassembly built before this page scope, awaiting '
+                             'attachment; the driver picks the page to attach it on')
     parser.add_argument('--group-run', action='append', default=[], metavar='PAGE=DIRECTORY',
                         help='PDF-derived subassembly construction for a page that builds a '
                              'separate body; the driver schedules its attachment itself')
@@ -542,11 +601,14 @@ if __name__ == '__main__':
     options = dict(camera_matrices=args.camera_matrices, per_matrix=args.per_matrix,
                    refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
                    fraction=args.fraction, fallback=args.fallback, scales=tuple(args.scales),
-                   scale_prior=not args.no_scale_prior,
+                   scale_prior=not args.no_scale_prior, retry_passes=args.retry_passes,
                    body_area_ratio=args.body_area_ratio, attach_limit=args.attach_limit,
                    attach_coarse_pairs=args.attach_coarse_pairs,
                    group_runs={entry.split('=', 1)[0]: entry.split('=', 1)[1]
                                for entry in args.group_run},
+                   pending_body=(dict(page=int(args.pending_body.split('=', 1)[0]),
+                                      groups=args.pending_body.split('=', 1)[1])
+                                 if args.pending_body else None),
                    views=args.views, scale=args.scale, max_nodes=args.max_nodes,
                    top_k=args.top_k, host_bytes=args.host_bytes,
                    closure_rounds=args.closure_rounds,
