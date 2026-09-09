@@ -1,0 +1,825 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r5-contain-v1",
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "allocation_run": "output\\pdf-placement-diagnosis\\40377-corrected-late-allocation",
+  "truth_parts": 90,
+  "emitted": 79,
+  "correct": 53,
+  "coverage": 0.5888888888888889,
+  "precision": 0.6708860759493671,
+  "global_alignment": {
+    "rotation": [
+      [
+        0.0,
+        0.0,
+        1.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "translation": [
+      0.0,
+      -16.0,
+      30.0
+    ]
+  },
+  "classes": {
+    "out_of_scope": 3,
+    "unmeasured": 16,
+    "allocation_blocked": 10,
+    "unreachable": 8
+  },
+  "bank_visibility_cross_tab": {
+    "bank=True visible=None": 16,
+    "bank=False visible=None": 8
+  },
+  "visibility_ratio": 0.25,
+  "absolute_visibility_floor": 200,
+  "pages": [
+    {
+      "page": 16,
+      "status": "placed",
+      "reference_targets": 3,
+      "present_in_bank": 3
+    },
+    {
+      "page": 17,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 2
+    },
+    {
+      "page": 18,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 2
+    },
+    {
+      "page": 19,
+      "status": "placed",
+      "reference_targets": 6,
+      "present_in_bank": 6
+    },
+    {
+      "page": 22,
+      "status": "placed",
+      "reference_targets": 6,
+      "present_in_bank": 4
+    },
+    {
+      "page": 23,
+      "status": "placed",
+      "reference_targets": 1,
+      "present_in_bank": 1
+    },
+    {
+      "page": 24,
+      "status": "placed",
+      "reference_targets": 5,
+      "present_in_bank": 2
+    },
+    {
+      "page": 25,
+      "status": "placed",
+      "reference_targets": 5,
+      "present_in_bank": 2
+    },
+    {
+      "page": 26,
+      "status": "placed",
+      "reference_targets": 5,
+      "present_in_bank": 3
+    },
+    {
+      "page": 27,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 0
+    },
+    {
+      "page": 28,
+      "status": "placed",
+      "reference_targets": 3,
+      "present_in_bank": 2
+    },
+    {
+      "page": 29,
+      "status": "placed",
+      "reference_targets": 2,
+      "present_in_bank": 2
+    },
+    {
+      "page": 30,
+      "status": "placed",
+      "reference_targets": 3,
+      "present_in_bank": 2
+    }
+  ],
+  "rows": [
+    {
+      "truth_index": 32,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        -30.0,
+        -112.0,
+        -20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 42,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        -30.0,
+        -152.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 43,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        -20.0,
+        -152.0,
+        30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 52,
+      "part": "41740",
+      "color": 15,
+      "reference_position": [
+        0.0,
+        -102.0,
+        -56.0
+      ],
+      "page": 19,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        19
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 53,
+      "part": "2431",
+      "color": 15,
+      "reference_position": [
+        0.0,
+        -122.0,
+        -56.0
+      ],
+      "page": 19,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        19
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 55,
+      "part": "25269",
+      "color": 15,
+      "reference_position": [
+        -10.0,
+        -142.0,
+        -56.0
+      ],
+      "page": 19,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        19
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 56,
+      "part": "25269",
+      "color": 15,
+      "reference_position": [
+        10.0,
+        -142.0,
+        -56.0
+      ],
+      "page": 19,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        19
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 57,
+      "part": "25269",
+      "color": 15,
+      "reference_position": [
+        30.0,
+        -142.0,
+        -56.0
+      ],
+      "page": 19,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        19
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 58,
+      "part": "3023b",
+      "color": 15,
+      "reference_position": [
+        0.0,
+        -82.0,
+        -56.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          20,
+          "subassembly_page"
+        ]
+      ]
+    },
+    {
+      "truth_index": 59,
+      "part": "3023b",
+      "color": 191,
+      "reference_position": [
+        0.0,
+        -82.0,
+        -64.0
+      ],
+      "page": 26,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        26
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 60,
+      "part": "6091",
+      "color": 191,
+      "reference_position": [
+        -10.0,
+        -82.0,
+        -80.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          20,
+          "subassembly_page"
+        ]
+      ]
+    },
+    {
+      "truth_index": 61,
+      "part": "6091",
+      "color": 191,
+      "reference_position": [
+        10.0,
+        -82.0,
+        -80.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          20,
+          "subassembly_page"
+        ]
+      ]
+    },
+    {
+      "truth_index": 62,
+      "part": "3069b",
+      "color": 191,
+      "reference_position": [
+        0.0,
+        -82.0,
+        -80.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          20,
+          "subassembly_page"
+        ]
+      ]
+    },
+    {
+      "truth_index": 63,
+      "part": "98138pz0",
+      "color": 0,
+      "reference_position": [
+        -30.0,
+        -102.0,
+        -64.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          20,
+          "subassembly_page"
+        ]
+      ]
+    },
+    {
+      "truth_index": 64,
+      "part": "98138pz0",
+      "color": 0,
+      "reference_position": [
+        30.0,
+        -102.0,
+        -64.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          20,
+          "subassembly_page"
+        ]
+      ]
+    },
+    {
+      "truth_index": 65,
+      "part": "87079",
+      "color": 15,
+      "reference_position": [
+        -48.0,
+        -92.0,
+        0.0
+      ],
+      "page": 22,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        22,
+        24,
+        25
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 66,
+      "part": "87079",
+      "color": 15,
+      "reference_position": [
+        -48.0,
+        -132.0,
+        0.0
+      ],
+      "page": 22,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        22,
+        24,
+        25
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 67,
+      "part": "3031",
+      "color": 15,
+      "reference_position": [
+        0.0,
+        -112.0,
+        48.0
+      ],
+      "page": 16,
+      "present_in_bank": true,
+      "bank_hits": 4,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        16,
+        18,
+        23
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 68,
+      "part": "87079",
+      "color": 15,
+      "reference_position": [
+        0.0,
+        -92.0,
+        56.0
+      ],
+      "page": 22,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        22,
+        24,
+        25
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 69,
+      "part": "87079",
+      "color": 15,
+      "reference_position": [
+        0.0,
+        -132.0,
+        56.0
+      ],
+      "page": 22,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        22,
+        24,
+        25
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 71,
+      "part": "87079",
+      "color": 15,
+      "reference_position": [
+        48.0,
+        -132.0,
+        0.0
+      ],
+      "page": 22,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        22,
+        24,
+        25
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 72,
+      "part": "3023b",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        0.0,
+        0.0
+      ],
+      "page": 26,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        26
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 73,
+      "part": "3023b",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        8.0,
+        0.0
+      ],
+      "page": 26,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        26
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 74,
+      "part": "3023b",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        0.0,
+        0.0
+      ],
+      "page": 26,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        26
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 75,
+      "part": "3023b",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        8.0,
+        0.0
+      ],
+      "page": 26,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        26
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 76,
+      "part": "43723",
+      "color": 191,
+      "reference_position": [
+        -40.0,
+        16.0,
+        -10.0
+      ],
+      "page": 27,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        27
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 77,
+      "part": "43722",
+      "color": 191,
+      "reference_position": [
+        40.0,
+        16.0,
+        -10.0
+      ],
+      "page": 27,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        27
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 78,
+      "part": "3623",
+      "color": 1,
+      "reference_position": [
+        10.0,
+        -184.0,
+        10.0
+      ],
+      "page": 28,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        28
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 80,
+      "part": "61252",
+      "color": 1,
+      "reference_position": [
+        -30.0,
+        -184.0,
+        10.0
+      ],
+      "page": 28,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        28
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 81,
+      "part": "15068",
+      "color": 1,
+      "reference_position": [
+        0.0,
+        -176.0,
+        -20.0
+      ],
+      "page": 29,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        29
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 83,
+      "part": "85984",
+      "color": 1,
+      "reference_position": [
+        30.0,
+        -184.0,
+        0.0
+      ],
+      "page": 30,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        30
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 84,
+      "part": "3069b",
+      "color": 1,
+      "reference_position": [
+        -30.0,
+        -192.0,
+        0.0
+      ],
+      "page": 30,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        30
+      ],
+      "primary_class": "unmeasured"
+    },
+    {
+      "truth_index": 85,
+      "part": "60478",
+      "color": 0,
+      "reference_position": [
+        -80.0,
+        -184.0,
+        10.0
+      ],
+      "page": 30,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_complete_reference": null,
+      "painted_against_our_body": null,
+      "rival_painted": null,
+      "pages_allocating": [
+        30
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 86,
+      "part": "3958",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        32.0,
+        0.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          31,
+          "subassembly_page"
+        ]
+      ]
+    },
+    {
+      "truth_index": 87,
+      "part": "87079",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        24.0,
+        20.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          31,
+          "subassembly_page"
+        ]
+      ]
+    },
+    {
+      "truth_index": 88,
+      "part": "92593",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        24.0,
+        -10.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          31,
+          "subassembly_page"
+        ]
+      ]
+    },
+    {
+      "truth_index": 89,
+      "part": "2431",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        24.0,
+        -30.0
+      ],
+      "primary_class": "allocation_blocked",
+      "blocked_pages": [
+        [
+          31,
+          "subassembly_page"
+        ]
+      ]
+    }
+  ],
+  "scope": "Evaluation-only, executed after the run. The reference model supplies the targets, the alignment and the poses measured; none of it participates in candidate generation, scoring or selection, and nothing here is certified.",
+  "limitations": "Visibility is measured against the complete reference assembly at the page's own accepted camera and mask, so it excludes occlusion by our own errors but still depends on that camera being right. A reference instance allocated by several pages is reported at the page whose bank holds it. Reference file order is not PDF step order, so a target attributed to one page can genuinely belong to another."
+}

@@ -2021,3 +2021,61 @@ built for it is 2 of 25 distinct wrong parts - of which 1 is runtime-reachable,
 at 50% precision. The tooling stays because the plane-agreement number is a
 useful independent readout of body quality (0.850 at page 16 falling to 0.661 at
 page 30, tracking the errors the chain accumulates), but no driver flag is added.
+
+### Inventory-capacity forcing: the premise is false by two orders of magnitude
+
+The proposed rule was: when a page's allocation leaves exactly one piece and the
+legal-mate enumeration offers exactly one collision-legal, connector-engaged
+region, place it there whatever the drawing shows. `placement_inventory_forcing`
+counts the regions.
+
+| fixture | allocated identities | single-piece | distinct one-stud locations (min / median / max) | forced |
+| --- | ---: | ---: | ---: | ---: |
+| 40377 pages 16-30 | 20 | 13 | 110 / 382 / 669 | **0** |
+| 41624 pages 3-8 | 12 | 7 | 64 / 230 / 408 | **0** |
+
+Not one allocated identity on either fixture has as few distinct locations as its
+own quota. The rule can never fire, and the gap is not marginal.
+
+Two measurement traps were hit on the way, and both are recorded because either
+one alone yields a confident wrong answer:
+
+* **Single-linkage clustering chains through a dense body.** Every candidate
+  position is within one stud of some other, so 40377 page 16's 8,192 poses come
+  back as **one** region and six of twenty identities read as forced. The count
+  above uses occupied cells of a one-stud lattice, which cannot chain; the
+  chained number is kept beside it as the control that exposed the artefact.
+* **Neither physical filter does what it looks like.** The collision test rejects
+  nothing — `legal` equals `bank` on every page of both fixtures, because the
+  enumeration already screened it. And "at least one connector engaged with the
+  base" is not a valid filter at all: a twelve-pose sample per identity finds
+  engagement 0 on nineteen of 40377's twenty identities, because closure also
+  enumerates poses that mate with a *sibling addition* rather than with the base.
+  This module was written assuming the opposite; the sample refuted it and the
+  assumption is recorded rather than quietly used.
+
+### A construction's own symmetry is worth one part, on the one construction available
+
+Round five left 40377 page 20's five-piece head at 1 of 5 with a 3-of-5 candidate
+retained and not selected, and called it a selection gap. It is, and there is a
+runtime-legal signal for it that comes from neither the drawing nor the reference:
+a subassembly is usually bilaterally symmetric about its own plane, so a candidate
+that is not says something about itself.
+
+`placement_construction_symmetry` ranks the retained candidates by the plane
+agreement each one reaches *on its own parts*:
+
+| plane agreement | candidates | structural score |
+| --- | ---: | --- |
+| 0.333 (1 of 3 eligible) | 16 | all 1 of 5 |
+| 0.667 (2 of 3 eligible) | 20 | eight at 3, eight at 2, four at 1 |
+
+Ranking by agreement first and image score second selects `beam_08` at 2 of 5
+instead of `beam_00` at 1 of 5: **+1**, against an oracle of 3. The honest caveat
+is the sample: the head has five pieces of which three are mirror-eligible, so the
+discrimination is one part wide, which is why the eligible count is printed beside
+every fraction.
+
+The control abstains. 41624's three-piece opening construction has **one**
+mirror-eligible part, the plane test declines on every candidate, and the ranking
+returns the same selection it was given: delta +0.

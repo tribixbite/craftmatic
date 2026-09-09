@@ -1,0 +1,365 @@
+{
+  "run": "output\\pdf-placement-beam\\41624-r4-window-v1",
+  "truth": "C:/git/clego/lego_sets/OMR/41624-1.mpd",
+  "region_radius_ldu": 20.0,
+  "totals": {
+    "pages": 6,
+    "allocated_identities": 12,
+    "single_piece_identities": 7,
+    "forced": 0,
+    "forced_correct": 0,
+    "median_cells": 229.5,
+    "cells_min": 64,
+    "cells_max": 408,
+    "chained_regions_forced": 5,
+    "median_chained_regions": 1.0
+  },
+  "rows": [
+    {
+      "page": 3,
+      "base_parts": 3,
+      "allocated_identities": 2,
+      "allocated_pieces": 3,
+      "pieces": [
+        {
+          "part": "2780",
+          "color": 0,
+          "quota": 1,
+          "bank_poses": 3526,
+          "legal_poses": 3526,
+          "regions": 2,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 1,
+          "regions_holding_a_reference_pose": [
+            1
+          ],
+          "cells": 64,
+          "cells_holding_a_reference_pose": [
+            43
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": false,
+          "region_sizes": [
+            8,
+            3518
+          ]
+        },
+        {
+          "part": "3700",
+          "color": 4,
+          "quota": 2,
+          "bank_poses": 4666,
+          "legal_poses": 4666,
+          "regions": 1,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 2,
+          "regions_holding_a_reference_pose": [
+            0
+          ],
+          "cells": 135,
+          "cells_holding_a_reference_pose": [
+            72,
+            115
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": false,
+          "region_sizes": [
+            4666
+          ]
+        }
+      ]
+    },
+    {
+      "page": 4,
+      "base_parts": 6,
+      "allocated_identities": 2,
+      "allocated_pieces": 3,
+      "pieces": [
+        {
+          "part": "3004",
+          "color": 2,
+          "quota": 1,
+          "bank_poses": 1359,
+          "legal_poses": 1359,
+          "regions": 1,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 2,
+          "regions_holding_a_reference_pose": [
+            0
+          ],
+          "cells": 136,
+          "cells_holding_a_reference_pose": [
+            48
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": true,
+          "region_sizes": [
+            1359
+          ]
+        },
+        {
+          "part": "3005",
+          "color": 4,
+          "quota": 2,
+          "bank_poses": 689,
+          "legal_poses": 689,
+          "regions": 1,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 2,
+          "regions_holding_a_reference_pose": [
+            0
+          ],
+          "cells": 68,
+          "cells_holding_a_reference_pose": [
+            48,
+            51
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": false,
+          "region_sizes": [
+            689
+          ]
+        }
+      ]
+    },
+    {
+      "page": 5,
+      "base_parts": 9,
+      "allocated_identities": 3,
+      "allocated_pieces": 4,
+      "pieces": [
+        {
+          "part": "22885",
+          "color": 71,
+          "quota": 2,
+          "bank_poses": 3063,
+          "legal_poses": 3063,
+          "regions": 2,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 7,
+          "regions_holding_a_reference_pose": [
+            1
+          ],
+          "cells": 391,
+          "cells_holding_a_reference_pose": [
+            165,
+            169
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": true,
+          "region_sizes": [
+            22,
+            3041
+          ]
+        },
+        {
+          "part": "3010",
+          "color": 0,
+          "quota": 1,
+          "bank_poses": 2638,
+          "legal_poses": 2638,
+          "regions": 2,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 2,
+          "regions_holding_a_reference_pose": [
+            1
+          ],
+          "cells": 301,
+          "cells_holding_a_reference_pose": [
+            174
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": false,
+          "region_sizes": [
+            4,
+            2634
+          ]
+        },
+        {
+          "part": "3010pzt",
+          "color": 4,
+          "quota": 1,
+          "bank_poses": 2491,
+          "legal_poses": 2491,
+          "regions": 2,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 1,
+          "regions_holding_a_reference_pose": [
+            1
+          ],
+          "cells": 289,
+          "cells_holding_a_reference_pose": [
+            69
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": false,
+          "region_sizes": [
+            4,
+            2487
+          ]
+        }
+      ]
+    },
+    {
+      "page": 6,
+      "base_parts": 13,
+      "allocated_identities": 2,
+      "allocated_pieces": 2,
+      "pieces": [
+        {
+          "part": "3010",
+          "color": 0,
+          "quota": 1,
+          "bank_poses": 4440,
+          "legal_poses": 4440,
+          "regions": 1,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 2,
+          "regions_holding_a_reference_pose": [
+            0
+          ],
+          "cells": 352,
+          "cells_holding_a_reference_pose": [
+            228
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": true,
+          "region_sizes": [
+            4440
+          ]
+        },
+        {
+          "part": "3941",
+          "color": 14,
+          "quota": 1,
+          "bank_poses": 3752,
+          "legal_poses": 3752,
+          "regions": 1,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 1,
+          "regions_holding_a_reference_pose": [
+            0
+          ],
+          "cells": 228,
+          "cells_holding_a_reference_pose": [
+            111
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": true,
+          "region_sizes": [
+            3752
+          ]
+        }
+      ]
+    },
+    {
+      "page": 7,
+      "base_parts": 15,
+      "allocated_identities": 2,
+      "allocated_pieces": 3,
+      "pieces": [
+        {
+          "part": "3020",
+          "color": 0,
+          "quota": 1,
+          "bank_poses": 5581,
+          "legal_poses": 5581,
+          "regions": 1,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 2,
+          "regions_holding_a_reference_pose": [],
+          "cells": 408,
+          "cells_holding_a_reference_pose": [],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": true,
+          "region_sizes": [
+            5581
+          ]
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "quota": 2,
+          "bank_poses": 2611,
+          "legal_poses": 2611,
+          "regions": 1,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 4,
+          "regions_holding_a_reference_pose": [
+            0
+          ],
+          "cells": 231,
+          "cells_holding_a_reference_pose": [
+            75
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": false,
+          "region_sizes": [
+            2611
+          ]
+        }
+      ]
+    },
+    {
+      "page": 8,
+      "base_parts": 18,
+      "allocated_identities": 1,
+      "allocated_pieces": 4,
+      "pieces": [
+        {
+          "part": "3023b",
+          "color": 0,
+          "quota": 4,
+          "bank_poses": 1632,
+          "legal_poses": 1632,
+          "regions": 2,
+          "engagement_sample": 12,
+          "engagement_sample_min": 0,
+          "reference_targets": 7,
+          "regions_holding_a_reference_pose": [
+            1
+          ],
+          "cells": 188,
+          "cells_holding_a_reference_pose": [
+            134,
+            135
+          ],
+          "forced": false,
+          "forced_correct": false,
+          "chained_regions_forced": false,
+          "region_sizes": [
+            8,
+            1624
+          ]
+        }
+      ]
+    }
+  ],
+  "truth_used_at_runtime": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Evaluation-only. The bank, the base body and the physical filters are the run's own; the reference model is read afterwards to say whether a surviving region was the right one.",
+  "limitations": "Regions cluster positions only, so a single region can still hold several orientations, and the count is therefore a lower bound on the ambiguity a forcing rule would have to resolve. Arrow evidence is not applied: the pages this rule was proposed for have none."
+}
