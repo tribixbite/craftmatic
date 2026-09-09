@@ -15,7 +15,9 @@ import { voxelizeLDraw, solidifyColumns, fillSingleVoxelGaps, keepLargestCompone
 import { voxelizeLDrawGeometry } from '@engine/ldraw-geometry.js';
 import { extractIoModel, type IoModel } from '@engine/io-extractor.js';
 import { synthesizeLSynth } from '@engine/lsynth.js';
-import { parseLxf } from '@engine/lxf-parser.js';
+import {
+  parseLxfWithDiagnostics, describeLxfDiagnostics, type LxfDiagnostics,
+} from '@engine/lxf-parser.js';
 import { studioColorToBlock } from '@engine/studio-colors.js';
 import { reconstructionQuality, sourceCaveat } from '@engine/source-quality.js';
 import { modelExportStem } from '@engine/export-name.js';
@@ -221,6 +223,13 @@ interface LoadDiagnostics {
   attempts: { src: string; path: string; error: string }[];
   url?: string;
   loader?: string;
+  /**
+   * How the LDD→LDraw alignment table served the last `.lxf` load: table
+   * state/identity, mapped vs unmapped placements, skipped transforms. Absent
+   * for every other source kind. Audit P1 #3 — an alignment failure used to be
+   * completely invisible.
+   */
+  lxfAlignment?: LxfDiagnostics;
 }
 let loadDiag: LoadDiagnostics = {
   models: null, intendedIndex: null, loadedIndex: null, attempts: [],
@@ -1376,6 +1385,29 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
   }
 }
 
+/**
+ * Surface a `.lxf` load's alignment coverage: keep the structured record for the
+ * diagnostic bundle, log it, and fold the one-line summary into
+ * `currentSourceWarning` so the user sees it in the FINAL status (a bare
+ * setStatus here is clobbered by the render-success status — see the
+ * `currentSourceWarning` contract above).
+ *
+ * A missing table is a hard failure with a retry hint, not a silent fallback to
+ * raw LDD origins: that silent path is exactly audit P1 item 3.
+ */
+function reportLxfDiagnostics(d: LxfDiagnostics, model: string): void {
+  loadDiag.lxfAlignment = d;
+  const line = describeLxfDiagnostics(d);
+  if (d.table.state !== 'ok') {
+    console.error('[lego] LDD alignment table unavailable', { model, ...d.table });
+  } else {
+    console.info('[lego] .lxf alignment coverage', { model, ...d });
+  }
+  if (line) {
+    currentSourceWarning = currentSourceWarning ? `${currentSourceWarning}; ${line}` : line;
+  }
+}
+
 async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: number,
                                     epoch: number, allowBroken: boolean): Promise<void> {
   const url = `${MODELS_BASE}/${encodeModelPath(model.path)}`;
@@ -1412,8 +1444,10 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
     bricks = parseLDraw(text);
     colorFn = ioColorFn(ioModel);
   } else if (ext === 'lxf') {
-    bricks = await parseLxf(await resp.arrayBuffer());
+    const parsed = await parseLxfWithDiagnostics(await resp.arrayBuffer());
     if (loadIsStale(epoch) || selectedSet !== set) return;
+    bricks = parsed.bricks;
+    reportLxfDiagnostics(parsed.diagnostics, model.path);
     currentMpdContent = undefined;
     currentCustomParts = undefined;
   } else {
@@ -1815,8 +1849,9 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
 
     if (ext === 'lxf' || ext === 'lxfml') {
       const buf = await file.arrayBuffer();
-      const bricks = await parseLxf(buf);
+      const parsed = await parseLxfWithDiagnostics(buf);
       if (loadIsStale(epoch)) return;
+      const bricks = parsed.bricks;
       currentMpdContent = undefined;
       currentCustomParts = undefined;
       // LDD .lxf placement relies on a per-part LDD→LDraw origin-alignment table
@@ -1827,6 +1862,7 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
       if (bricks.length > 150) {
         currentSourceWarning = 'LDD .lxf: part alignment is approximate for complex models — a Studio .io of the same set renders most accurately';
       }
+      reportLxfDiagnostics(parsed.diagnostics, file.name);
       await voxelizeAndDisplay(bricks, file.name);
       return;
     }
