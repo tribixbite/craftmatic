@@ -10,7 +10,10 @@
     "admitted": 0,
     "hit_opportunities": 0,
     "distinct_reference_instances_hit": 0,
-    "false_positive_proposals": 0
+    "false_positive_proposals": 0,
+    "runtime_available_admitted": 0,
+    "runtime_available_distinct_hits": 0,
+    "runtime_available_false_positives": 0
   },
   "rows": [
     {

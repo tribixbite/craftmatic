@@ -105,5 +105,32 @@ class PlaneDetectionTests(unittest.TestCase):
         self.assertEqual(result['parts'], 13)
 
 
+class MirrorConsistencyTests(unittest.TestCase):
+    def test_it_counts_an_addition_that_mirrors_the_body(self):
+        from placement_mirror_rerank import mirror_consistency
+        plane = dict(axis=2, offset=0.0)
+        base = [('3020', 15, placement(0.0, 0.0, 30.0))]
+        self.assertEqual(mirror_consistency(base, [('3020', 15, placement(0.0, 0.0, -30.0))],
+                                            plane), 1)
+        self.assertEqual(mirror_consistency(base, [('3020', 15, placement(0.0, 0.0, -50.0))],
+                                            plane), 0)
+
+    def test_a_same_side_pair_is_not_mirror_consistent(self):
+        # 40377 page 22 adds two 87079 tiles stacked on one side; neither is the
+        # other's reflection, which is why a tie-break had nothing to reorder.
+        from placement_mirror_rerank import mirror_consistency
+        plane = dict(axis=2, offset=0.0)
+        additions = [('3020', 15, placement(30.0, -76.0, 48.0)),
+                     ('3020', 15, placement(30.0, -116.0, 48.0))]
+        self.assertEqual(mirror_consistency([], additions, plane), 0)
+
+    def test_a_chiral_addition_is_never_counted(self):
+        from placement_mirror_rerank import mirror_consistency
+        plane = dict(axis=2, offset=0.0)
+        base = [('43722', 0, placement(0.0, 0.0, 30.0))]
+        self.assertEqual(mirror_consistency(base, [('43722', 0, placement(0.0, 0.0, -30.0))],
+                                            plane), 0)
+
+
 if __name__ == '__main__':
     unittest.main()
