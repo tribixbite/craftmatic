@@ -1,5 +1,5 @@
 import unittest
-from placement_slot_adapter import adapt
+from placement_slot_adapter import adapt,admissible_pages,blocked_rows
 
 
 def table(members=('4032a','4032b'),pool=True,colors=True):
@@ -40,5 +40,36 @@ class AdapterTests(unittest.TestCase):
         source=self.source();source['unresolved']=[dict(page=2,qty=1)]
         with self.assertRaises(ValueError):adapt(source,[2])
 
+
+class AutoScopeTests(unittest.TestCase):
+    """The page scope is derivable, so it is not a human decision."""
+
+    def source(self):
+        return dict(pdf='input.pdf',pdf_sha256='hash',pdf_only=True,truth_used=False,runtime_vlm_calls=0,
+            evidence=[dict(page=2,qty=3,part_choices=[dict(part='3001',color='15')],inventory_slot=0),
+                      dict(page=3,qty=2,part_choices=[dict(part='3002',color='15')],inventory_slot=1),
+                      dict(page=4,qty=1,part_choices=[dict(part='4032a',color='72'),dict(part='4032b',color='72')],inventory_slot=2),
+                      dict(page=4,qty=2,part_choices=[dict(part='3003',color='15')],inventory_slot=3),
+                      dict(page=5,qty=4,part_choices=[dict(part='3004',color='15')],inventory_slot=4)],
+            unresolved=[dict(page=5,qty=1,unresolved='ambiguous artwork association')])
+
+    def test_a_refused_row_takes_its_whole_page_out_and_says_what_it_costs(self):
+        pages,excluded=admissible_pages(self.source())
+        self.assertEqual(pages,[2,3])
+        self.assertEqual([row['page'] for row in excluded],[4,5])
+        self.assertEqual([row['allocated_pieces_lost'] for row in excluded],[3,4])
+
+    def test_a_proven_mould_class_returns_its_page_to_the_scope(self):
+        pages,excluded=admissible_pages(self.source(),table(),'withhold')
+        self.assertEqual(pages,[2,3,4])
+        self.assertEqual([row['page'] for row in excluded],[5])
+
+    def test_the_derived_scope_is_exactly_what_adapt_accepts(self):
+        source=self.source()
+        pages,_=admissible_pages(source,table(),'withhold')
+        adapted=adapt(source,pages,table(),'withhold')
+        self.assertEqual(adapted['allocation_pages'],pages)
+        self.assertEqual(adapted['assigned_pieces'],7)
+        self.assertEqual(adapted['withheld_pieces'],1)
 
 if __name__=='__main__':unittest.main()
