@@ -231,13 +231,24 @@ console.log(`R2: ${have.size} objects under ldraw/`);
 
 const todo = [];
 let same = 0;
-for (const [key, entry] of want) {
+/**
+ * Content revision of the mirrored file set: sha256/12 over the sorted
+ * `key:md5` list. The browser's persistent .dat cache keys its identity off
+ * this (served as /ldraw-parts/_rev), so it MUST be a content hash and not the
+ * run time — the sync is weekly and usually a no-op, and a timestamp would
+ * evict every visitor's whole part cache every week for nothing.
+ */
+const revHash = createHash('sha256');
+for (const [key, entry] of [...want].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) {
   const buf = entry.read();
   const md5 = createHash('md5').update(buf).digest('hex');
+  revHash.update(`${key}:${md5}\n`);
   const etag = have.get(key);
   if (etag === md5) { same++; continue; }
   todo.push({ key, buf, kind: etag ? 'changed' : 'new' });
 }
+const REV = revHash.digest('hex').slice(0, 12);
+console.log(`library revision: ${REV} (content hash of ${want.size} files)`);
 // New files first: a missing part is a hole in the render, whereas a "changed"
 // one is usually just the 2024 CC-BY relicense header rewrite. An interrupted
 // run therefore always leaves the highest-value work done.
@@ -245,12 +256,46 @@ todo.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'new' ? -1 : 1));
 const nNew = todo.filter(t => t.kind === 'new').length;
 console.log(`delta: ${nNew} new, ${todo.length - nNew} changed, ${same} unchanged`);
 
+/**
+ * Publish `ldraw/_rev.json`, the stamp the worker serves at
+ * `/ldraw-parts/_rev` and the browser uses as its part-cache identity.
+ *
+ * Only ever written for a COMPLETE, fully successful run: a `--only`/`--limit`
+ * subset describes a fraction of the mirror, and a run with failed uploads
+ * describes bytes that are not actually in R2. Publishing either would tell
+ * every browser to drop its cache and re-download a library that had NOT
+ * finished changing — worse than not stamping at all.
+ */
+const FULL_RUN = !ONLY && !LIMIT && !DRY;
+async function publishRevision(uploaded) {
+  if (!FULL_RUN) { console.log('partial run — revision stamp NOT published'); return; }
+  const body = Buffer.from(JSON.stringify({
+    rev: REV,
+    generated: new Date().toISOString(),
+    files: want.size,
+    uploaded,
+    source: 'library.ldraw.org release archives (complete.zip + ldrawunf.zip)',
+    note: 'rev is a content hash of the mirrored file set, not the run time — '
+        + 'a no-op sync leaves it unchanged so warm browser caches survive.',
+  }, null, 1));
+  const ok = await putObject(acct, 'ldraw/_rev.json', body);
+  console.log(ok ? `revision stamp published: ${REV}` : 'FAILED to publish revision stamp');
+  return ok;
+}
+
 if (DRY) {
   for (const t of todo.slice(0, 40)) console.log(`  ${t.kind.padEnd(7)} ${t.key}`);
   if (todo.length > 40) console.log(`  … ${todo.length - 40} more`);
   process.exit(0);
 }
-if (!todo.length) { console.log('nothing to do'); process.exit(0); }
+if (!todo.length) {
+  console.log('nothing to do');
+  // Still (re)stamp: the mirror is provably current, and the stamp may be
+  // absent (first run after this feature) or left behind by an earlier
+  // interrupted sync.
+  await publishRevision(0);
+  process.exit(0);
+}
 
 const queue = LIMIT ? todo.slice(0, LIMIT) : todo;
 
@@ -290,6 +335,8 @@ if (remaining.length) {
 }
 
 console.log(`DONE: ${queue.length - remaining.length}/${queue.length} uploaded in ${((Date.now() - t0) / 60000).toFixed(1)} min, ${remaining.length} still failing`);
+if (!remaining.length) await publishRevision(queue.length);
+else console.log('uploads still failing — revision stamp NOT published (the next run recomputes it)');
 if (remaining.length) {
   console.log('still failing (the next run recomputes the delta and picks them up):');
   for (const it of remaining.slice(0, 50)) console.log('  ' + it.key);

@@ -47,13 +47,25 @@ export interface LegoDiagnosticsInput {
   fallbackLoader?: string | undefined;
   /** The user-facing source-quality caveat shown with the render, if any. */
   warning?: string | undefined;
+  /**
+   * Index hash vs the hash of the bytes that actually rendered.
+   * `match: null` = not comparable (schema-1 entry, or no WebCrypto), which is
+   * NOT a mismatch. Only `false` means the deployed file differs from the one
+   * the index's grade/lineage/defects describe.
+   */
+  contentHash?: { expected: string | null; actual: string | null; match: boolean | null } | undefined;
   /** vite `__APP_VERSION__` (a build date). */
   appVersion?: string | undefined;
   /** Data-table revisions that affect placement/resolution. */
   mapping?: {
     lddPartMapEntries?: number | null;
+    /** The MEASURED LDD alignment table — the one that fixed 71043. */
+    lddMeasuredAlignEntries?: number | null;
     partAliasEntries?: number | null;
+    /** Persistent .dat cache FORMAT version (parts.ts IDB_VERSION_KEY). */
     datCacheVersion?: string | null;
+    /** Deployed parts-library revision the cache is pinned to; null = unknown. */
+    libraryRevision?: string | null;
   } | undefined;
   /** Render state at the moment the bundle was taken. */
   render?: {
@@ -148,11 +160,14 @@ export function buildLegoDiagnostics(input: LegoDiagnosticsInput): Record<string
       attempts: [...(input.attempts ?? [])],
       available: models ? models.map(diagSource) : null,
       warning: input.warning ?? null,
+      contentHash: input.contentHash ?? null,
     },
     mapping: {
       lddPartMapEntries: input.mapping?.lddPartMapEntries ?? null,
+      lddMeasuredAlignEntries: input.mapping?.lddMeasuredAlignEntries ?? null,
       partAliasEntries: input.mapping?.partAliasEntries ?? null,
       datCacheVersion: input.mapping?.datCacheVersion ?? null,
+      libraryRevision: input.mapping?.libraryRevision ?? null,
     },
     render: {
       mode: input.render?.mode ?? null,
@@ -175,6 +190,11 @@ export function buildLegoDiagnostics(input: LegoDiagnosticsInput): Record<string
         + ' the geometry audit (or was modified after it was) — it is not a defect claim.',
       'contactAudit reports surface-contact CANDIDATES, not certified mechanical'
         + ' assembly; see web/src/viewer/ldraw/connectivity-audit.ts for its limits.',
+      'mapping.libraryRevision null means the deployed parts-library revision could'
+        + ' not be established (no IndexedDB, no /ldraw-parts/_rev endpoint, or'
+        + ' offline) — it is not a claim that the library is unversioned.',
+      'source.loaded.hash is the index\'s sha256/12 of the model file bytes: the'
+        + ' identity to re-fetch for an exact reproduction.',
     ],
   };
 }

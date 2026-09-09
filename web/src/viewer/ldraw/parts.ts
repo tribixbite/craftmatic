@@ -15,6 +15,25 @@ const partGeomCache = new Map<string, PartGeom>();
 const datInFlight = new Map<string, Promise<string | null>>();
 const geomInFlight = new Map<string, Promise<PartGeom>>();
 
+/**
+ * Reverse dependency edges: child part key → every parent whose ASSEMBLED
+ * geometry baked that child's triangles in.
+ *
+ * Why (audit P1 #6, "dependent assembled geometry invalidated when child
+ * definitions change"): `resolvePartGeometry` flattens a sub-file's triangles
+ * into its parent and caches the result. Dropping only the child's entry
+ * therefore leaves every parent still holding the OLD child geometry. That is
+ * a real leak, not a hypothetical: a Studio `.io` ships `CustomParts/` that
+ * include the exact PRIMITIVES its modified parts need (`p/48/…`), which
+ * ordinary library parts also reference — so model A's modified primitive can
+ * stay baked inside a shared library part while model B renders.
+ *
+ * Edges are recorded at resolve time and only ever read to widen an
+ * invalidation, so a stale edge (child evicted by the LRU) costs one extra
+ * cache delete, never a wrong render.
+ */
+const geomDependents = new Map<string, Set<string>>();
+
 const MAX_CACHE_ENTRIES = 10_000;
 
 /** Color IDs discovered to be transparent via inline !COLOUR ALPHA definitions */
@@ -84,9 +103,21 @@ export function getCachedPartGeom(id: string): PartGeom | undefined {
  * that came back incomplete from a concurrent-resolution race (a parent that
  * read a child's not-yet-populated placeholder). The underlying .dat text
  * stays cached (it's fine); only the assembled triangle set is rebuilt.
+ *
+ * TRANSITIVE: every ancestor that flattened this part's triangles into itself
+ * is invalidated too — see `geomDependents`.
  */
 export function invalidatePartGeom(id: string): void {
-  partGeomCache.delete(normId(id));
+  invalidateGeomTree(normId(id));
+}
+
+/** Delete `key`'s assembled geometry and that of everything holding a copy. */
+function invalidateGeomTree(key: string, seen = new Set<string>()): void {
+  if (seen.has(key)) return; // reference cycles exist in the wild
+  seen.add(key);
+  partGeomCache.delete(key);
+  const parents = geomDependents.get(key);
+  if (parents) for (const p of parents) invalidateGeomTree(p, seen);
 }
 
 let LDRAW_BASE = '/ldraw-parts';
@@ -101,12 +132,54 @@ export function setLDrawBase(base: string): void {
 // network time). Only POSITIVE results are persisted — misses stay
 // session-local so library additions are picked up. Every operation degrades
 // silently to "no persistent cache" (node/vitest, private browsing, quota).
-// Bump IDB_VERSION_KEY to invalidate after a known library-wide change.
+//
+// ── Cache identity is tied to the DEPLOYED library (audit P1 #6) ─────────────
+// "Immutable in practice" is not "immutable". The weekly R2 sync
+// (scripts/sync-ldraw-r2.mjs) re-uploads every part whose upstream bytes
+// changed, and a CORRECTED part would otherwise stay stale forever in a warm
+// browser: the entry is keyed only by part name, so the browser never asks for
+// it again. `IDB_VERSION_KEY` was a hand-maintained 'v1' and nobody bumped it.
+//
+// So cache identity now carries a real, deployed revision:
+//   IDB_VERSION_KEY   — the cache FORMAT version (bump when the stored value
+//                       shape changes; entry keys are prefixed with it).
+//   library revision  — `GET /ldraw-parts/_rev` → `{ rev }`, written into R2 by
+//                       the sync and served by the worker (dev: a constant
+//                       stamp from the vite middleware). Stored in the object
+//                       store under IDB_REV_KEY; a MISMATCH clears the store
+//                       once and records the new revision.
+//
+// WHY a served revision rather than hashing a canary set of parts: a canary
+// only detects changes to the canary. The 2026-09-02 rewrite of the sync
+// uploads a delta over the whole 48k-file mirror, so the part that gets
+// corrected is exactly the one no canary would contain. One small request
+// describes the entire mirror instead.
+//
+// WHY the revision is a CONTENT hash and not the sync's run timestamp: the
+// sync runs weekly and is usually a no-op. A timestamp would evict every
+// browser's whole part cache every week for nothing. The stamp hashes the
+// sorted `key:md5` list of the synced file set, so it only moves when the
+// library's bytes actually move.
+//
+// FAILURE SEMANTICS (deliberate): an UNKNOWN revision — endpoint absent (older
+// worker), offline, 404, malformed body, timeout — never invalidates anything
+// and never records anything. Only a KNOWN revision that differs from the
+// stored one clears the cache. Guessing "changed" on a network blip would
+// throw away a warm cache and re-download the library on a flaky connection.
 
 const IDB_NAME = 'craftmatic-ldraw';
 const IDB_STORE = 'dat-text';
 const IDB_VERSION_KEY = 'v1';
+/** Meta record holding the library revision this cache was filled from.
+ *  `:` and `__` cannot appear in a normId()'d part key, so it cannot collide. */
+const IDB_REV_KEY = `${IDB_VERSION_KEY}:__meta:library-rev`;
+/** Budget for the revision probe. Exceeding it means "unknown", not "changed". */
+const REV_TIMEOUT_MS = 3500;
 let idbHandle: Promise<IDBDatabase | null> | null = null;
+/** Deployed library revision, once known. null = not probed / unknowable. */
+let libraryRevision: string | null = null;
+let revisionProbe: Promise<string | null> | null = null;
+let cacheReady: Promise<void> | null = null;
 
 function openIdb(): Promise<IDBDatabase | null> {
   if (idbHandle) return idbHandle;
@@ -129,13 +202,11 @@ function openIdb(): Promise<IDBDatabase | null> {
   return idbHandle;
 }
 
-/** Read a cached .dat text. undefined = not cached (or no IDB available). */
-async function idbGetDat(key: string): Promise<string | undefined> {
-  const db = await openIdb();
-  if (!db) return undefined;
+/** Raw single-record read. undefined = absent or unreadable. */
+function idbGetRaw(db: IDBDatabase, key: string): Promise<string | undefined> {
   return new Promise(resolve => {
     try {
-      const rq = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(`${IDB_VERSION_KEY}:${key}`);
+      const rq = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(key);
       rq.onsuccess = () => resolve(typeof rq.result === 'string' ? rq.result : undefined);
       rq.onerror = () => resolve(undefined);
     } catch {
@@ -144,16 +215,110 @@ async function idbGetDat(key: string): Promise<string | undefined> {
   });
 }
 
-/** Persist a fetched .dat text (fire-and-forget). */
-function idbPutDat(key: string, text: string): void {
-  void openIdb().then(db => {
-    if (!db) return;
+/** Raw single-record write. Resolves either way — persistence is best-effort. */
+function idbPutRaw(db: IDBDatabase, key: string, value: string): Promise<void> {
+  return new Promise(resolve => {
     try {
-      db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(text, `${IDB_VERSION_KEY}:${key}`);
+      const rq = db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(value, key);
+      rq.onsuccess = () => resolve();
+      rq.onerror = () => resolve();
     } catch {
-      // quota / private mode — persistent cache is best-effort
+      resolve();
     }
   });
+}
+
+/** Drop every cached part text. Used only on a proven revision change. */
+function idbClearStore(db: IDBDatabase): Promise<void> {
+  return new Promise(resolve => {
+    try {
+      const rq = db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).clear();
+      rq.onsuccess = () => resolve();
+      rq.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/**
+ * Ask the deployment which library revision it is serving.
+ * Returns null for EVERY failure mode — see the FAILURE SEMANTICS note above.
+ */
+async function probeLibraryRevision(): Promise<string | null> {
+  try {
+    const r = await fetch(`${LDRAW_BASE}/_rev`, { signal: AbortSignal.timeout(REV_TIMEOUT_MS) });
+    if (!r.ok) return null;
+    const body = await r.json() as { rev?: unknown };
+    return typeof body.rev === 'string' && body.rev.length > 0 ? body.rev : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reconcile the persistent cache with the deployed library revision. Runs at
+ * most once per page session; every persistent read/write awaits it.
+ *
+ * Gated on IndexedDB being available: with no persistent cache there is
+ * nothing to version, so node/vitest and private-mode browsers never issue the
+ * probe request at all (which also keeps the offline test suites fetch-exact).
+ */
+function ensureCacheRevision(): Promise<void> {
+  cacheReady ??= (async () => {
+    const db = await openIdb();
+    if (!db) return;
+    const rev = await (revisionProbe ??= probeLibraryRevision());
+    if (rev === null) return; // unknown → keep whatever is cached
+    libraryRevision = rev;
+    const stored = await idbGetRaw(db, IDB_REV_KEY);
+    if (stored === rev) return;
+    // Two cases clear, for the same reason — the cached bytes cannot be shown
+    // to match the served library:
+    //   stored !== undefined → the library moved under a warm cache.
+    //   stored === undefined → entries predate revision tracking (or the store
+    //     is empty, in which case the clear is a no-op), so their provenance
+    //     is unknown. Clearing once at adoption is the whole point of the item.
+    await idbClearStore(db);
+    if (stored !== undefined) {
+      console.info(`[ldraw] part cache cleared: library revision ${stored} → ${rev}`);
+    }
+    await idbPutRaw(db, IDB_REV_KEY, rev);
+  })();
+  return cacheReady;
+}
+
+/**
+ * Kick off the revision reconciliation before any model load needs it, so the
+ * probe's round-trip overlaps app idle instead of stalling the first part
+ * fetch. Safe to call repeatedly; the work happens once.
+ */
+export function primePartCache(): Promise<void> {
+  return ensureCacheRevision();
+}
+
+/**
+ * Cache identity, for the diagnostic bundle. `library` is null when the
+ * revision could not be established (no IndexedDB, no `_rev` endpoint,
+ * offline) — that is "not tracked", not "revision zero".
+ */
+export function partCacheRevision(): { format: string; library: string | null } {
+  return { format: IDB_VERSION_KEY, library: libraryRevision };
+}
+
+/** Read a cached .dat text. undefined = not cached (or no IDB available). */
+async function idbGetDat(key: string): Promise<string | undefined> {
+  await ensureCacheRevision();
+  const db = await openIdb();
+  if (!db) return undefined;
+  return idbGetRaw(db, `${IDB_VERSION_KEY}:${key}`);
+}
+
+/** Persist a fetched .dat text (fire-and-forget). */
+function idbPutDat(key: string, text: string): void {
+  void ensureCacheRevision()
+    .then(() => openIdb())
+    .then(db => { if (db) return idbPutRaw(db, `${IDB_VERSION_KEY}:${key}`, text); return undefined; });
 }
 
 export function normId(id: string): string {
@@ -242,7 +407,9 @@ export function preloadDatTexts(files: Map<string, string>): void {
       const key = normId(segs.slice(i).join('/'));
       if (!key) continue;
       datTextCache.set(key, text);
-      partGeomCache.delete(key); // text changed → stale assembled geometry
+      // Text changed → this part's assembled geometry AND every parent that
+      // already flattened the old definition into itself are stale.
+      invalidateGeomTree(key);
       preloadedDatKeys.add(key);
     }
   }
@@ -274,6 +441,11 @@ export function collectDatTexts(): Map<string, string | null> {
  * Clear inline .ldr entries between model loads. Keeps the .dat library
  * cache (which is shared) but evicts model-specific MPD inlines and
  * preloaded archive part definitions.
+ *
+ * The eviction is TRANSITIVE (`invalidateGeomTree`): a `.io`'s `CustomParts/`
+ * can redefine a name a SHARED library part references, and dropping only the
+ * custom entry left the previous model's definition baked inside that shared
+ * part for every model after it. Pinned by test/part-cache-revision.test.ts.
  */
 export function clearMpdInlines(): void {
   inlineTransparentColors.clear();
@@ -281,12 +453,12 @@ export function clearMpdInlines(): void {
   // substitutedDatNames is NOT cleared — see its declaration.
   for (const key of [...partGeomCache.keys()]) {
     if (key.endsWith('.ldr')) {
-      partGeomCache.delete(key);
+      invalidateGeomTree(key);
       datTextCache.delete(key);
     }
   }
   for (const key of preloadedDatKeys) {
-    partGeomCache.delete(key);
+    invalidateGeomTree(key);
     datTextCache.delete(key);
   }
   preloadedDatKeys.clear();
@@ -917,6 +1089,14 @@ export async function resolvePartGeometry(
                   + R[2]! * (R[3]! * R[7]! - R[4]! * R[6]!);
         const childInvert = invertWinding !== (det < 0) !== invertNext;
         invertNext = false;
+
+        // Record the reverse edge BEFORE resolving: this parent is about to
+        // flatten the child's triangles into itself, so a later change to the
+        // child's definition must invalidate this parent too.
+        const childKey = normId(subId);
+        let parents = geomDependents.get(childKey);
+        if (!parents) { parents = new Set(); geomDependents.set(childKey, parents); }
+        parents.add(key);
 
         subPromises.push(
           resolvePartGeometry(subId, depth + 1, childInvert).then(sub => {

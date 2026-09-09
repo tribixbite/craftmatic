@@ -231,6 +231,15 @@ interface LoadDiagnostics {
    * completely invisible.
    */
   lxfAlignment?: LxfDiagnostics;
+  /**
+   * Content identity of the bytes that actually rendered, checked against the
+   * index's `hash` (schema 2). Audit P1 #6: the index carries a sha256/12 per
+   * file, so "is the deployed model the one the index describes?" is now an
+   * answerable question rather than an assumption — and every grade, lineage
+   * and defect list in the index describes THAT file, not merely that path.
+   * `expected: null` = a schema-1 entry / ungraded corpus, not a mismatch.
+   */
+  contentHash?: { expected: string | null; actual: string | null; match: boolean | null };
 }
 let loadDiag: LoadDiagnostics = {
   models: null, intendedIndex: null, loadedIndex: null, attempts: [],
@@ -289,7 +298,11 @@ export function initLego(
         const schedule = (window as Window & { requestIdleCallback?: (cb: () => void) => void })
           .requestIdleCallback ?? ((fn: () => void) => setTimeout(fn, 500));
         schedule(() => {
-          void import('@viewer/ldraw/parts.js').then(({ prewarmCommonParts }) => prewarmCommonParts());
+          void import('@viewer/ldraw/parts.js').then(({ prewarmCommonParts, primePartCache }) =>
+            // Reconcile the persistent part cache with the DEPLOYED library
+            // revision before the warmup fills it (audit P1 #6) — doing it here
+            // also keeps the probe's round-trip off the first model load.
+            primePartCache().then(() => prewarmCommonParts()));
         });
       }
     })
@@ -1298,11 +1311,19 @@ function updateDiagnosticsButton(): void {
  */
 async function downloadDiagnostics(): Promise<void> {
   const { LDRAW_PART_ALIASES } = await import('@engine/ldraw-part-aliases.js');
-  let lddEntries: number | null = null;
-  try {
-    const r = await fetch('/ldd-part-map.json');
-    if (r.ok) lddEntries = Object.keys(await r.json() as Record<string, unknown>).length;
-  } catch { /* absent table is itself a finding — reported as null */ }
+  const { partCacheRevision } = await import('@viewer/ldraw/parts.js');
+  const countEntries = async (url: string): Promise<number | null> => {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      return Object.keys(await r.json() as Record<string, unknown>).length;
+    } catch { return null; } // absent table is itself a finding — reported as null
+  };
+  const [lddEntries, measuredEntries] = await Promise.all([
+    countEntries('/ldd-part-map.json'),
+    countEntries('/ldd-measured-align.json'),
+  ]);
+  const cacheRev = partCacheRevision();
   const explodeEl = document.getElementById('lego-explode-slider') as HTMLInputElement | null;
   const v = currentLDrawViewer;
   const bundle = buildLegoDiagnostics({
@@ -1316,14 +1337,18 @@ async function downloadDiagnostics(): Promise<void> {
     sourceUrl: loadDiag.url,
     fallbackLoader: loadDiag.loader,
     warning: currentSourceWarning,
+    contentHash: loadDiag.contentHash,
     appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : undefined,
     mapping: {
       lddPartMapEntries: lddEntries,
+      lddMeasuredAlignEntries: measuredEntries,
       partAliasEntries: Object.keys(LDRAW_PART_ALIASES).length,
-      // TODO(audit P1 #6): parts.ts's IDB_VERSION_KEY is module-private, so the
-      // .dat cache revision cannot be reported yet. Export it when cache
-      // identity is tied to the deployed library revision.
-      datCacheVersion: null,
+      // Cache FORMAT version and the DEPLOYED library revision it is pinned to
+      // (audit P1 #6). `libraryRevision: null` means the revision could not be
+      // established — no IndexedDB, no `_rev` endpoint, or offline — NOT that
+      // the library is unversioned.
+      datCacheVersion: cacheRev.format,
+      libraryRevision: cacheRev.library,
     },
     render: {
       mode: directRenderMode ? 'direct-3d' : 'voxel',
@@ -1427,6 +1452,22 @@ function reportLxfDiagnostics(d: LxfDiagnostics, model: string): void {
   }
 }
 
+/**
+ * sha256/12 of the raw bytes — the same identity clego stamps into the index.
+ * Returns null wherever WebCrypto isn't available (insecure context), because
+ * "could not check" must never read as "did not match".
+ */
+async function contentHash12(buf: ArrayBuffer): Promise<string | null> {
+  try {
+    const subtle = globalThis.crypto?.subtle;
+    if (!subtle) return null;
+    const digest = await subtle.digest('SHA-256', buf);
+    return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
+  } catch {
+    return null;
+  }
+}
+
 async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: number,
                                     epoch: number, allowBroken: boolean): Promise<void> {
   const url = `${MODELS_BASE}/${encodeModelPath(model.path)}`;
@@ -1437,12 +1478,32 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
   // Bail if the user picked another set/source or uploaded while we fetched.
   if (loadIsStale(epoch) || selectedSet !== set) return;
 
+  // Read the bytes ONCE, then branch. Every source kind derives from `buf`, so
+  // the content hash below covers exactly what rendered — not a second fetch
+  // that could serve different bytes.
+  const buf = await resp.arrayBuffer();
+  const actualHash = await contentHash12(buf);
+  loadDiag.contentHash = {
+    expected: model.hash ?? null,
+    actual: actualHash,
+    match: model.hash && actualHash ? model.hash === actualHash : null,
+  };
+  if (loadDiag.contentHash.match === false) {
+    // The deployed file is NOT the file the index describes. Everything the
+    // index says about it — grade, severity, defects, lineage — describes other
+    // bytes, so say so rather than presenting stale metadata as measured fact.
+    console.warn('[lego] model content hash mismatch', { path: model.path, expected: model.hash, actual: actualHash });
+    const note = 'the deployed file does not match the index hash — its recorded grade/lineage describe different bytes';
+    currentSourceWarning = currentSourceWarning ? `${currentSourceWarning}; ${note}` : note;
+  }
+  if (loadIsStale(epoch) || selectedSet !== set) return;
+
   const ext = model.path.split('.').pop()?.toLowerCase();
   let bricks: ParsedBrick[];
   let colorFn: ((id: number) => string) | undefined;
 
   if (ext === 'io') {
-    const ioModel = await extractIoModel(await resp.arrayBuffer());
+    const ioModel = await extractIoModel(buf);
     if (loadIsStale(epoch) || selectedSet !== set) return;
     const text = maybeSynthesize(ioModel.text);
     // Some ".io" files are laundered LXF conversions (raw LDD material-id
@@ -1463,15 +1524,17 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
     bricks = parseLDraw(text);
     colorFn = ioColorFn(ioModel);
   } else if (ext === 'lxf') {
-    const parsed = await parseLxfWithDiagnostics(await resp.arrayBuffer());
+    const parsed = await parseLxfWithDiagnostics(buf);
     if (loadIsStale(epoch) || selectedSet !== set) return;
     bricks = parsed.bricks;
     reportLxfDiagnostics(parsed.diagnostics, model.path);
     currentMpdContent = undefined;
     currentCustomParts = undefined;
   } else {
-    // .ldr / .mpd (and anything else text-shaped)
-    const text = maybeSynthesize(await resp.text());
+    // .ldr / .mpd (and anything else text-shaped). Decoded from the same
+    // buffer the hash covers; TextDecoder strips a BOM exactly as
+    // Response.text() would.
+    const text = maybeSynthesize(new TextDecoder().decode(buf));
     if (loadIsStale(epoch) || selectedSet !== set) return;
     // Quality gate (visual-QA finding 2026-07-20: the index ranks unaligned
     // convert_lxf.py conversions tier1 for some sets — they render as
