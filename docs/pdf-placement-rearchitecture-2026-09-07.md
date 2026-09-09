@@ -3195,6 +3195,99 @@ resolve a three-pose chain-level effect at all** until the tie-break is
 deterministic, and that is now the precondition for every A/B this program runs,
 not a refinement of one.
 
+### Round seven's whole-chain result: 53/90 re-baselined, then 54/90
+
+Two 40377 chains, same base checkpoint, same 17-page scope, same allocation.
+Both driven with `--tie-break pose`, so the comparison is between the
+configurations and not between two rolls of the same dice. They differ in exactly
+one flag.
+
+| | round five | **control** (r5 config + deterministic tie-break) | **window** (control + `own_agreement`) |
+| --- | ---: | ---: | ---: |
+| emitted | 79 | 79 | 79 |
+| structural | **53** | **53** | **54** |
+| authoritative-alias | 36 | 37 | **38** |
+| raw strict | 30 | 31 | **32** |
+| precision | 0.671 | 0.671 | **0.684** |
+| coverage | 0.589 | 0.589 | **0.600** |
+| pages with a tie among different assemblies | 7 of 13 | 7 of 13 | 9 of 13 |
+
+**Round five's 53/90 survives re-baselining**, which is the first thing that had
+to be checked and was not guaranteed: the control reaches the same 53 structural
+parts, with one more at the alias and strict levels, so determinism cost nothing
+and tightened two of the three agreement measures.
+
+**The exchange window ordering is worth +1 structural on the whole chain**, and
+it is the same part the single-page gate predicted: page 19 goes 50 to 51 at the
+moment the correct `41740` enters the emitted assembly, and the gain survives
+eleven more pages to the end. It also carries +1 at alias and strict level and
+raises precision at identical emission, which a lucky tie would not do
+consistently across three measures.
+
+It is +1, and the honest frame is that the round-six ceiling table predicted at
+most 4 from this lever on this fixture and the diagnosis predicted 1 realised.
+**The prediction was exact.**
+
+Two costs are recorded rather than buried. Pages 26 and 27 are `camera_refused`
+on the main pass in the window chain and recovered by the retry pass at the same
+54 - the changed page-19 body moves the camera path, which is the same
+sensitivity round six's chain hit, now visible because both sides are
+deterministic. And the tie exposure rises from 7 to 9 of 13 pages, which is a
+property of the assemblies retained rather than of the mechanism; the two chains
+share an identical bank, so nothing in this +1 is a re-rolled tie.
+
+### The single-page gate, with everything on
+
+One page-19 drive from round five's own page-18 body, with the complete closure,
+the screened-set cap, the Lab classifier, the own-agreement window and the pose
+tie-break all on at once:
+
+| | round five page 19 | everything on |
+| --- | ---: | ---: |
+| closure | 128 parents, 7,467 poses | **3,191 parents, 65,637 poses, complete** |
+| screened (best view) | 2,716 | **19,222** (capped to 6,000 for the bank) |
+| emitted | 58 | 58 |
+| structural | 50 | **51** |
+| alias / strict | 34 / 28 | **35 / 29** |
+| tie exposure | 2 | **1** |
+
+The complete closure and the 7x larger screened set buy nothing beyond what the
+window ordering alone buys, which is the third independent confirmation of round
+six's "the budget converts one class into another" finding — and this time the
+conversion is measured at eight times the bank size rather than three.
+
+### Round seven's trajectory
+
+| round | 40377 | 41624 | what the round bought |
+| ---: | ---: | ---: | --- |
+| 1 | 26/90 | — | native scenes, calibrated cameras, CAD geometry |
+| 2 | 46/90 | 3/109 | camera, identity, the body table |
+| 3 | 46/90 | 3/109 | the target, the budget, construction |
+| 4 | 48/90 → 53/90 | 5/109 | drawing-to-drawing registration, per-round closure |
+| 5 | 53/90 | 5/109 | containment judged in-page, the 98138 alias |
+| 6 | 53/90 | 5/109 (full scope) | the population, and three channels not adopted |
+| **7** | **54/90** | *(re-drive in flight)* | **an affordable closure, a deterministic tie-break, and the measurement that retention is the smallest lever** |
+
+Round seven's number is +1. What it actually delivered is three things the
+number does not show:
+
+* the closure is **finishable** — 18x on the predicate, every page's complete
+  first round in seconds to 2.4 minutes against a projected 26 minutes for one
+  page — and finishing it is measured to buy nothing by itself, so that
+  recommendation is now closed rather than outstanding;
+* every chain comparison in this program up to round six was **un-baselined**,
+  and round six's own 3-part regression is now attributed to a coin flip rather
+  than to its configuration;
+* **retention is the smallest lever, not the second largest.** Ten of the
+  twenty-one instances filed under it are the objective preferring another pose,
+  and on page 19 a perfect search over the bank still returns the wrong assembly
+  because the reference-equivalent complete assembly scores *below* the beam's own
+  best. Every remaining lever is costed in distinct parts, and none of them is
+  large.
+
+That is why the breadth clause fires, and why the plan below aims at the
+objective rather than at another search stage.
+
 ## The breadth plan
 
 Round six's memo said: depth for one more round, then breadth, and named the
