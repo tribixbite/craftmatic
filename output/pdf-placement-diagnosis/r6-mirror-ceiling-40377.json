@@ -5,9 +5,11 @@
     "pages": 13,
     "planes_accepted": 13,
     "reference_targets": 45,
-    "wrong_targets": 37,
+    "wrong_target_opportunities": 37,
+    "distinct_wrong_targets": 25,
     "admitted": 5,
-    "hit": 4,
+    "hit_opportunities": 4,
+    "distinct_reference_instances_hit": 2,
     "false_positive_proposals": 1
   },
   "rows": [
@@ -33,14 +35,7 @@
       "reference_targets": 3,
       "correct_additions": 1,
       "emitted_additions": 1,
-      "status": "measured",
-      "proposals": 0,
-      "admitted": 0,
-      "admitted_rows": [],
       "wrong_targets": 2,
-      "hit": 0,
-      "missed_targets": 2,
-      "false_positive_proposals": 0,
       "targets": [
         {
           "part": "3031",
@@ -67,6 +62,13 @@
           "already_placed": false
         }
       ],
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "hit": 0,
+      "missed_targets": 2,
+      "false_positive_proposals": 0,
       "decisions": []
     },
     {
@@ -91,14 +93,7 @@
       "reference_targets": 2,
       "correct_additions": 2,
       "emitted_additions": 2,
-      "status": "measured",
-      "proposals": 0,
-      "admitted": 0,
-      "admitted_rows": [],
       "wrong_targets": 0,
-      "hit": 0,
-      "missed_targets": 0,
-      "false_positive_proposals": 0,
       "targets": [
         {
           "part": "60474",
@@ -117,6 +112,13 @@
           "already_placed": true
         }
       ],
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "hit": 0,
+      "missed_targets": 0,
+      "false_positive_proposals": 0,
       "decisions": []
     },
     {
@@ -141,14 +143,7 @@
       "reference_targets": 2,
       "correct_additions": 1,
       "emitted_additions": 1,
-      "status": "measured",
-      "proposals": 0,
-      "admitted": 0,
-      "admitted_rows": [],
       "wrong_targets": 1,
-      "hit": 0,
-      "missed_targets": 1,
-      "false_positive_proposals": 0,
       "targets": [
         {
           "part": "3031",
@@ -167,6 +162,13 @@
           "already_placed": false
         }
       ],
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "hit": 0,
+      "missed_targets": 1,
+      "false_positive_proposals": 0,
       "decisions": []
     },
     {
@@ -191,6 +193,57 @@
       "reference_targets": 6,
       "correct_additions": 1,
       "emitted_additions": 6,
+      "wrong_targets": 5,
+      "targets": [
+        {
+          "part": "41740",
+          "color": 15,
+          "truth_index": 52,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "2431",
+          "color": 15,
+          "truth_index": 53,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 54,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 55,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 56,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 57,
+          "present_in_bank": true,
+          "mirror_hit": true,
+          "already_placed": false
+        }
+      ],
       "status": "measured",
       "proposals": 1,
       "admitted": 1,
@@ -242,60 +295,9 @@
           "reference_hit": 57
         }
       ],
-      "wrong_targets": 5,
       "hit": 1,
       "missed_targets": 4,
       "false_positive_proposals": 0,
-      "targets": [
-        {
-          "part": "41740",
-          "color": 15,
-          "truth_index": 52,
-          "present_in_bank": true,
-          "mirror_hit": false,
-          "already_placed": false
-        },
-        {
-          "part": "2431",
-          "color": 15,
-          "truth_index": 53,
-          "present_in_bank": true,
-          "mirror_hit": false,
-          "already_placed": false
-        },
-        {
-          "part": "25269",
-          "color": 15,
-          "truth_index": 54,
-          "present_in_bank": true,
-          "mirror_hit": false,
-          "already_placed": true
-        },
-        {
-          "part": "25269",
-          "color": 15,
-          "truth_index": 55,
-          "present_in_bank": true,
-          "mirror_hit": false,
-          "already_placed": false
-        },
-        {
-          "part": "25269",
-          "color": 15,
-          "truth_index": 56,
-          "present_in_bank": true,
-          "mirror_hit": false,
-          "already_placed": false
-        },
-        {
-          "part": "25269",
-          "color": 15,
-          "truth_index": 57,
-          "present_in_bank": true,
-          "mirror_hit": true,
-          "already_placed": false
-        }
-      ],
       "decisions": [
         {
           "part": "25269",
@@ -328,6 +330,57 @@
       "reference_targets": 6,
       "correct_additions": 1,
       "emitted_additions": 2,
+      "wrong_targets": 5,
+      "targets": [
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 65,
+          "present_in_bank": true,
+          "mirror_hit": true,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 66,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 68,
+          "present_in_bank": false,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 69,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 70,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": true
+        },
+        {
+          "part": "87079",
+          "color": 15,
+          "truth_index": 71,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
       "status": "measured",
       "proposals": 1,
       "admitted": 1,
@@ -379,10 +432,84 @@
           "reference_hit": 65
         }
       ],
-      "wrong_targets": 5,
       "hit": 1,
       "missed_targets": 4,
       "false_positive_proposals": 0,
+      "decisions": [
+        {
+          "part": "87079",
+          "color": 15,
+          "quota": 2,
+          "distinct_admitted": 1,
+          "determined": true
+        }
+      ]
+    },
+    {
+      "page": 23,
+      "base_parts": 60,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 52,
+        "parts": 60,
+        "fraction": 0.7307692307692307,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 1,
+      "correct_additions": 0,
+      "emitted_additions": 1,
+      "wrong_targets": 1,
+      "targets": [
+        {
+          "part": "3031",
+          "color": 15,
+          "truth_index": 67,
+          "present_in_bank": true,
+          "mirror_hit": false,
+          "already_placed": false
+        }
+      ],
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "hit": 0,
+      "missed_targets": 1,
+      "false_positive_proposals": 0,
+      "decisions": []
+    },
+    {
+      "page": 24,
+      "base_parts": 61,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 53,
+        "parts": 61,
+        "fraction": 0.7169811320754716,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 5,
+      "correct_additions": 0,
+      "emitted_additions": 2,
+      "wrong_targets": 5,
       "targets": [
         {
           "part": "87079",
@@ -419,94 +546,12 @@
         {
           "part": "87079",
           "color": 15,
-          "truth_index": 70,
-          "present_in_bank": true,
-          "mirror_hit": false,
-          "already_placed": true
-        },
-        {
-          "part": "87079",
-          "color": 15,
           "truth_index": 71,
-          "present_in_bank": true,
+          "present_in_bank": false,
           "mirror_hit": false,
           "already_placed": false
         }
       ],
-      "decisions": [
-        {
-          "part": "87079",
-          "color": 15,
-          "quota": 2,
-          "distinct_admitted": 1,
-          "determined": true
-        }
-      ]
-    },
-    {
-      "page": 23,
-      "base_parts": 60,
-      "plane": {
-        "axis": 2,
-        "offset": 0.0,
-        "matched": 38,
-        "eligible": 52,
-        "parts": 60,
-        "fraction": 0.7307692307692307,
-        "self_mapped": 20,
-        "accepted": true,
-        "minimum_fraction": 0.5,
-        "normal": [
-          0.0,
-          0.0,
-          1.0
-        ]
-      },
-      "reference_targets": 1,
-      "correct_additions": 0,
-      "emitted_additions": 1,
-      "status": "measured",
-      "proposals": 0,
-      "admitted": 0,
-      "admitted_rows": [],
-      "wrong_targets": 1,
-      "hit": 0,
-      "missed_targets": 1,
-      "false_positive_proposals": 0,
-      "targets": [
-        {
-          "part": "3031",
-          "color": 15,
-          "truth_index": 67,
-          "present_in_bank": true,
-          "mirror_hit": false,
-          "already_placed": false
-        }
-      ],
-      "decisions": []
-    },
-    {
-      "page": 24,
-      "base_parts": 61,
-      "plane": {
-        "axis": 2,
-        "offset": 0.0,
-        "matched": 38,
-        "eligible": 53,
-        "parts": 61,
-        "fraction": 0.7169811320754716,
-        "self_mapped": 20,
-        "accepted": true,
-        "minimum_fraction": 0.5,
-        "normal": [
-          0.0,
-          0.0,
-          1.0
-        ]
-      },
-      "reference_targets": 5,
-      "correct_additions": 0,
-      "emitted_additions": 2,
       "status": "measured",
       "proposals": 2,
       "admitted": 1,
@@ -558,10 +603,42 @@
           "reference_hit": 65
         }
       ],
-      "wrong_targets": 5,
       "hit": 1,
       "missed_targets": 4,
       "false_positive_proposals": 0,
+      "decisions": [
+        {
+          "part": "87079",
+          "color": 15,
+          "quota": 2,
+          "distinct_admitted": 1,
+          "determined": true
+        }
+      ]
+    },
+    {
+      "page": 25,
+      "base_parts": 63,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 55,
+        "parts": 63,
+        "fraction": 0.6909090909090909,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "reference_targets": 5,
+      "correct_additions": 0,
+      "emitted_additions": 2,
+      "wrong_targets": 5,
       "targets": [
         {
           "part": "87079",
@@ -604,38 +681,6 @@
           "already_placed": false
         }
       ],
-      "decisions": [
-        {
-          "part": "87079",
-          "color": 15,
-          "quota": 2,
-          "distinct_admitted": 1,
-          "determined": true
-        }
-      ]
-    },
-    {
-      "page": 25,
-      "base_parts": 63,
-      "plane": {
-        "axis": 2,
-        "offset": 0.0,
-        "matched": 38,
-        "eligible": 55,
-        "parts": 63,
-        "fraction": 0.6909090909090909,
-        "self_mapped": 20,
-        "accepted": true,
-        "minimum_fraction": 0.5,
-        "normal": [
-          0.0,
-          0.0,
-          1.0
-        ]
-      },
-      "reference_targets": 5,
-      "correct_additions": 0,
-      "emitted_additions": 2,
       "status": "measured",
       "proposals": 4,
       "admitted": 2,
@@ -733,52 +778,9 @@
           "reference_hit": null
         }
       ],
-      "wrong_targets": 5,
       "hit": 1,
       "missed_targets": 4,
       "false_positive_proposals": 1,
-      "targets": [
-        {
-          "part": "87079",
-          "color": 15,
-          "truth_index": 65,
-          "present_in_bank": true,
-          "mirror_hit": true,
-          "already_placed": false
-        },
-        {
-          "part": "87079",
-          "color": 15,
-          "truth_index": 66,
-          "present_in_bank": false,
-          "mirror_hit": false,
-          "already_placed": false
-        },
-        {
-          "part": "87079",
-          "color": 15,
-          "truth_index": 68,
-          "present_in_bank": false,
-          "mirror_hit": false,
-          "already_placed": false
-        },
-        {
-          "part": "87079",
-          "color": 15,
-          "truth_index": 69,
-          "present_in_bank": true,
-          "mirror_hit": false,
-          "already_placed": false
-        },
-        {
-          "part": "87079",
-          "color": 15,
-          "truth_index": 71,
-          "present_in_bank": false,
-          "mirror_hit": false,
-          "already_placed": false
-        }
-      ],
       "decisions": [
         {
           "part": "87079",
@@ -811,14 +813,7 @@
       "reference_targets": 5,
       "correct_additions": 0,
       "emitted_additions": 4,
-      "status": "measured",
-      "proposals": 0,
-      "admitted": 0,
-      "admitted_rows": [],
       "wrong_targets": 5,
-      "hit": 0,
-      "missed_targets": 5,
-      "false_positive_proposals": 0,
       "targets": [
         {
           "part": "3023b",
@@ -861,6 +856,13 @@
           "already_placed": false
         }
       ],
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "hit": 0,
+      "missed_targets": 5,
+      "false_positive_proposals": 0,
       "decisions": []
     },
     {
@@ -885,14 +887,7 @@
       "reference_targets": 2,
       "correct_additions": 0,
       "emitted_additions": 2,
-      "status": "measured",
-      "proposals": 0,
-      "admitted": 0,
-      "admitted_rows": [],
       "wrong_targets": 2,
-      "hit": 0,
-      "missed_targets": 2,
-      "false_positive_proposals": 0,
       "targets": [
         {
           "part": "43723",
@@ -911,6 +906,13 @@
           "already_placed": false
         }
       ],
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "hit": 0,
+      "missed_targets": 2,
+      "false_positive_proposals": 0,
       "decisions": []
     },
     {
@@ -935,14 +937,7 @@
       "reference_targets": 3,
       "correct_additions": 1,
       "emitted_additions": 3,
-      "status": "measured",
-      "proposals": 0,
-      "admitted": 0,
-      "admitted_rows": [],
       "wrong_targets": 2,
-      "hit": 0,
-      "missed_targets": 2,
-      "false_positive_proposals": 0,
       "targets": [
         {
           "part": "3623",
@@ -969,6 +964,13 @@
           "already_placed": false
         }
       ],
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "hit": 0,
+      "missed_targets": 2,
+      "false_positive_proposals": 0,
       "decisions": []
     },
     {
@@ -993,14 +995,7 @@
       "reference_targets": 2,
       "correct_additions": 1,
       "emitted_additions": 2,
-      "status": "measured",
-      "proposals": 0,
-      "admitted": 0,
-      "admitted_rows": [],
       "wrong_targets": 1,
-      "hit": 0,
-      "missed_targets": 1,
-      "false_positive_proposals": 0,
       "targets": [
         {
           "part": "15068",
@@ -1019,6 +1014,13 @@
           "already_placed": true
         }
       ],
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "hit": 0,
+      "missed_targets": 1,
+      "false_positive_proposals": 0,
       "decisions": []
     },
     {
@@ -1043,14 +1045,7 @@
       "reference_targets": 3,
       "correct_additions": 0,
       "emitted_additions": 3,
-      "status": "measured",
-      "proposals": 0,
-      "admitted": 0,
-      "admitted_rows": [],
       "wrong_targets": 3,
-      "hit": 0,
-      "missed_targets": 3,
-      "false_positive_proposals": 0,
       "targets": [
         {
           "part": "85984",
@@ -1077,6 +1072,13 @@
           "already_placed": false
         }
       ],
+      "status": "measured",
+      "proposals": 0,
+      "admitted": 0,
+      "admitted_rows": [],
+      "hit": 0,
+      "missed_targets": 3,
+      "false_positive_proposals": 0,
       "decisions": []
     }
   ],

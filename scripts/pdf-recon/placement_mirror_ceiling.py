@@ -88,6 +88,9 @@ def page_ceiling(run, page, truth, library, symmetries, minimum_fraction=0.5,
     row['correct_additions'] = len(correct_additions)
     row['emitted_additions'] = len(additions)
     row['wrong_targets'] = sum(1 for target in targets if not target.get('already_placed'))
+    row['targets'] = [dict(part=t['part'], color=t['color'], truth_index=t['truth_index'],
+                           present_in_bank=t['present_in_bank'], mirror_hit=t['hit'],
+                           already_placed=bool(t.get('already_placed'))) for t in targets]
     if not plane or not plane.get('accepted'):
         row.update(status='plane_refused', proposals=0, admitted=0, hit=0,
                    false_positive_proposals=0, missed_targets=row['wrong_targets'])
@@ -151,12 +154,23 @@ def main():
         symmetries = {part: list(part_symmetries(part, 'vertex')) for part in set(names)}
         rows.append(page_ceiling(args.run, step['page'], truth, library, symmetries,
                                  args.minimum_fraction))
+    # Per-page hits double count: the channel re-proposes the same missing piece
+    # on every later page whose allocation still names its identity, so summing
+    # the page column reports opportunities rather than parts. 40377's five
+    # admitted proposals are four hits on **two** distinct reference instances.
+    distinct_hits = {proposal['reference_hit'] for row in rows
+                     for proposal in row.get('admitted_rows', [])
+                     if proposal.get('reference_hit') is not None}
+    distinct_wrong = {target['truth_index'] for row in rows for target in row.get('targets', [])
+                      if not target['already_placed']}
     totals = dict(pages=len(rows),
                   planes_accepted=sum(1 for row in rows if (row['plane'] or {}).get('accepted')),
                   reference_targets=sum(row['reference_targets'] for row in rows),
-                  wrong_targets=sum(row.get('wrong_targets', 0) for row in rows),
+                  wrong_target_opportunities=sum(row.get('wrong_targets', 0) for row in rows),
+                  distinct_wrong_targets=len(distinct_wrong),
                   admitted=sum(row.get('admitted', 0) for row in rows),
-                  hit=sum(row.get('hit', 0) for row in rows),
+                  hit_opportunities=sum(row.get('hit', 0) for row in rows),
+                  distinct_reference_instances_hit=len(distinct_hits),
                   false_positive_proposals=sum(row.get('false_positive_proposals', 0)
                                                for row in rows))
     record = dict(run=str(args.run), truth=args.truth, totals=totals, rows=rows,
