@@ -66,20 +66,20 @@ if __name__ == '__main__':
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--limit', type=int, default=64)
     args = parser.parse_args()
-    import pymupdf
     from placement_arrow_contacts import read_items
     from placement_material_scene_score import MaterialFeatureSceneScorer
     from placement_mixed_batch_search import fixed_native_score
-    from vector_scene import scene_images
+    from placement_run_scene import run_scene
     registry = json.loads(args.registry.read_text())
     recall = json.loads(args.recall.read_text())
     run = json.loads((args.run / 'results.json').read_text())
     if registry.get('truth_used') is not False or run.get('truth_used') is not False:
         raise ValueError('Runtime artifacts lack truth-free provenance')
     base = read_items(Path(registry['base_source']))
-    with pymupdf.open(registry['pdf']) as doc:
-        scene = next(s for s in scene_images(doc, doc[registry['page']])
-                     if s['xref'] == run['xref'])
+    # The run's own target, not a fresh whole-drawing rebuild: a page that
+    # restricted its mask to the body's image component scores a different
+    # question, and comparing across the two is meaningless.
+    scene, mask_source = run_scene(run, read_items(args.run / 'model.ldr'))
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
     views = []
     for row in run['results'][:1]:
@@ -108,6 +108,7 @@ if __name__ == '__main__':
                   verdict=('scoring_failure' if rows and selected is not None and rows[0]['score'] < selected
                            else 'search_failure' if rows and selected is not None else 'inconclusive'),
                   combinations_scored=len(combinations), views_scored=len(views),
+                  mask_source=mask_source, target_pixels=int(scorer.mask.sum()),
                   registry=str(args.registry), run=str(args.run),
                   run_sha256=hashlib.sha256((args.run / 'results.json').read_bytes()).hexdigest(),
                   scope='Evaluation-only diagnostic executed after the run.',

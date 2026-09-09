@@ -51,6 +51,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from placement_arrow_contacts import read_items
+from placement_camera_gate import (UNEXPLAINED_MAX as CAMERA_UNEXPLAINED_MAX,
+                                   SCALE_TOLERANCE as CAMERA_SCALE_TOLERANCE)
 
 
 def file_hash(path):
@@ -214,7 +216,10 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     from placement_arrow_contacts import read_items
     from placement_arrow_mask import conservative_components
     from placement_body_registration import register
+    from placement_camera_gate import (UNEXPLAINED_MAX, SCALE_TOLERANCE, addable_area,
+                                       gate as camera_gate)
     from placement_evidence_closure import rank_parents
+    from placement_exploded_page import detached_pieces, withhold
     from placement_material_scene_score import MaterialFeatureSceneScorer
     from placement_multi_shape_batch import ShapeRegistry
     from placement_multi_shape_search import run as search_run
@@ -337,6 +342,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
             continue
         with pymupdf.open(pdf) as doc:
             scene = next(s for s in scene_images(doc, doc[page]) if s['xref'] == xref)
+        drawing = scene
         arrows = conservative_components(scene, protected_colors=palette['rgb'])['arrows']
         if scene_record.get('mask_source') == 'largest_component':
             # A piece drawn detached above the assembly is not in the body yet.
@@ -379,6 +385,38 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                                  best_overflow=min((r['best_containment']['outside_pixels']
                                                     for r in contained['evaluated']), default=None)))
             continue
+        # A registration that satisfies containment is not thereby believable.
+        # Measure it: consecutive pages draw the same assembly at the same size,
+        # and a registration must explain most of the drawing it claims to be.
+        accepted, gate_record = camera_gate(
+            contained['hypotheses'], prior_scale,
+            addable_area(pieces, contained['hypotheses'][0]['projection']) if pieces else None,
+            mode=options.get('camera_gate', 'enforce'),
+            unexplained_max=options.get('camera_unexplained_max', UNEXPLAINED_MAX),
+            scale_tolerance=options.get('camera_scale_tolerance', SCALE_TOLERANCE))
+        write_atomic(step_dir / f'camera-gate-{order:02d}.json',
+                     json.dumps(dict(gate_record, page=page, xref=xref), indent=2))
+        if not accepted:
+            attempts.append(dict(xref=xref, status='camera_refused',
+                                 reused_prior_camera=reused, borrowed_camera_page=borrowed_from,
+                                 reason=gate_record.get('refusal'),
+                                 best=gate_record['verdicts'][0] if gate_record['verdicts'] else None))
+            continue
+        contained['hypotheses'] = accepted
+        contained['camera_gate'] = {key: value for key, value in gate_record.items()
+                                    if key != 'verdicts'}
+        write_atomic(step_dir / f'registration-refined-{order:02d}.json',
+                     json.dumps(contained, indent=2))
+        # Does this drawing show one of the page's own new pieces detached?
+        # If it does, the image cannot place that piece and must not be asked
+        # to: scoring a complete assembly against a drawing that omits a piece
+        # rewards hiding it. The arrows place it instead, after the search.
+        exploded = dict(count=0, withheld_keys=[], reason='disabled')
+        if options.get('exploded_target', True):
+            exploded = detached_pieces(drawing, pieces,
+                                       contained['hypotheses'][0]['projection'], palette)
+        write_atomic(step_dir / f'exploded-{order:02d}.json', json.dumps(exploded, indent=2))
+        image_pieces, withheld = withhold(pieces, exploded.get('withheld_keys') or [])
         attempt_bank = bank
         if evidence_mode:
             # Bank order carries no information about the page, and the closure
@@ -423,11 +461,21 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                             restarts=options['restarts'], perturb=options['perturb'],
                             seed=options['seed'], native_rounds=options['native_rounds'],
                             native_width=options['native_width'],
-                            native_starts=options['native_starts'])
+                            native_starts=options['native_starts'],
+                            image_pieces=image_pieces, withheld=withheld, arrows=arrows)
         result.update(pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
                       seconds=time.perf_counter() - started, code_sha256_start=code_hashes,
                       camera_source=str(step_dir / 'camera.json'), scene_order=order,
                       reused_prior_camera=reused, stable_colors=stable,
+                      # The target mask belongs in the run's own record. Without
+                      # it a post-hoc diagnostic rebuilds the drawing from the
+                      # PDF and silently scores a different question: on page
+                      # index 17 the whole drawing is 65,869 pixels against the
+                      # 52,177 the run actually used, and the same selected
+                      # assembly scores 0.2865 instead of 0.5442.
+                      mask_source=scene_record.get('mask_source', 'whole_scene'),
+                      exploded_withheld=exploded.get('withheld', []),
+                      exploded_reason=exploded.get('reason'),
                       closure_mode=options.get('closure_mode', 'bank'),
                       applied_scales=contained.get('applied_scales'),
                       closure_parent_order=attempt_bank['closure_parent_order'],
@@ -443,6 +491,9 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                       seconds=result['seconds'], xref=xref, scene_order=order,
                       reused_prior_camera=reused, borrowed_camera_page=borrowed_from,
                       mask_source=scene_record.get('mask_source'),
+                      exploded_withheld=exploded.get('withheld', []),
+                      exploded_reason=exploded.get('reason'),
+                      arrow_attachment=result['results'][0].get('arrow_attachment'),
                       containment_fallback=contained['containment_fallback_used'],
                       attempts=attempts, scale_prior_px_per_ldu=prior_scale,
                       camera_scale_px_per_ldu=projection_scale(
@@ -647,6 +698,18 @@ if __name__ == '__main__':
                              'of the body')
     parser.add_argument('--attach-limit', type=int, default=4)
     parser.add_argument('--attach-coarse-pairs', type=int, default=256)
+    parser.add_argument('--camera-gate', choices=('off', 'report', 'enforce'), default='enforce',
+                        help="Accept a page's camera only when its refined registration is "
+                             'contained, covers the drawing and keeps the previous accepted '
+                             "page's scale; 'report' measures without filtering")
+    parser.add_argument('--camera-unexplained-max', type=float, default=None,
+                        help='Drawn ink the body does not explain, as a multiple of the largest '
+                             'area this page own allocated pieces could cover')
+    parser.add_argument('--camera-scale-tolerance', type=float, default=None,
+                        help="Allowed relative difference from the previous page's camera scale")
+    parser.add_argument('--no-exploded-target', action='store_true',
+                        help='Score every allocated piece against the drawing even when the page '
+                             'draws one of them detached; reproduces the round-two objective')
     parser.add_argument('--no-scale-prior', action='store_true',
                         help="Do not offer the previous page's measured camera scale as an extra "
                              'hypothesis on this page')
@@ -683,6 +746,14 @@ if __name__ == '__main__':
                    refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
                    fraction=args.fraction, fallback=args.fallback, scales=tuple(args.scales),
                    scale_prior=not args.no_scale_prior, retry_passes=args.retry_passes,
+                   exploded_target=not args.no_exploded_target,
+                   camera_gate=args.camera_gate,
+                   camera_unexplained_max=(args.camera_unexplained_max
+                                           if args.camera_unexplained_max is not None
+                                           else CAMERA_UNEXPLAINED_MAX),
+                   camera_scale_tolerance=(args.camera_scale_tolerance
+                                           if args.camera_scale_tolerance is not None
+                                           else CAMERA_SCALE_TOLERANCE),
                    camera_prescan=args.camera_prescan,
                    body_area_ratio=args.body_area_ratio, attach_limit=args.attach_limit,
                    attach_coarse_pairs=args.attach_coarse_pairs,
