@@ -30,10 +30,33 @@ def solve_slots(items,slots,scores,floor=.30):
         gap=float(result.mip_gap) if getattr(result,'mip_gap',None) is not None else None)
 
 
+def bind_pdf(pdf,allocation_run):
+    """Verify the PDF against whatever provenance the input directory carries.
+
+    Historically this stage read a completed ALLOCATION merely to recover a
+    verified PDF hash, which made the on-ramp circular: an allocation is
+    downstream of this assignment. A directory holding only the printed
+    inventory (`placement_pdf_inventory`) carries the same claim, and a bare
+    inventory carries none - in which case the PDF is hashed here and the
+    provenance says so, rather than a hash being taken on trust.
+    """
+    if (allocation_run/'manifest.json').is_file() and (allocation_run/'global-assignment.json').is_file():
+        from placement_pdf_group_evidence import load_allocations
+        return load_allocations(pdf,0,allocation_run)[1],'allocation manifest'
+    digest=hashlib.sha256(pdf.read_bytes()).hexdigest()
+    manifest=allocation_run/'inventory-manifest.json'
+    if manifest.is_file():
+        claimed=json.loads(manifest.read_text())
+        if claimed.get('pdf_sha256')!=digest:raise ValueError('Inventory manifest PDF hash mismatch')
+        if claimed.get('truth_used') is not False or claimed.get('runtime_vlm_calls')!=0:
+            raise ValueError('Inventory provenance is not truth-free and VLM-free')
+        return dict(pdf_sha256=digest),'inventory manifest'
+    return dict(pdf_sha256=digest),'hashed here; the inventory directory carries no manifest'
+
+
 def run(pdf,allocation_run,out,color_constraints=False,panel_geometry=False,inventory_components=False):
     if out.exists():raise ValueError('Choose a new output directory')
-    from placement_pdf_group_evidence import load_allocations
-    _,bound=load_allocations(pdf,0,allocation_run)
+    bound,provenance=bind_pdf(pdf,allocation_run)
     import pymupdf,torch
     from frozen_pdf_matcher import Encoder,OUT
     from matching_trials import canonical
@@ -118,7 +141,7 @@ def run(pdf,allocation_run,out,color_constraints=False,panel_geometry=False,inve
         printed_inventory_pieces=sum(r['qty'] for r in inventory['records']),
         usable_slot_capacity=sum(s['qty'] for s in slots),unusable_inventory=unusable_inventory,solver=solver,
         color_constraints=color_constraints,color_contradictions_rejected=len(color_evidence['rejected']) if color_evidence else 0,
-        panel_geometry=panel_geometry,
+        panel_geometry=panel_geometry,pdf_binding=provenance,
         inventory_components=inventory_components,inventory_refinements=inventory_refinements,
         inventory_sha256=hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
         checkpoint_sha256=hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
