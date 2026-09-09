@@ -2418,3 +2418,51 @@ That leaves the second-largest class — 20 of 100 losses across both fixtures, 
 of them on 40377 — with **no measured lever at all**. Enumeration has one that
 works on 8 of 13 pages and converts nothing on its own; retention now has one
 that has been tried and does nothing.
+
+### The traversal priority is an agreement count, and that is a lead
+
+If retention is lost in the traversal, the traversal order is worth reading. It
+is one expression, identical in `placement_multi_shape_search` and
+`placement_mixed_batch_search`:
+
+    priorities = [float(np.sum((labels[i] == target) & (target > 0))) for i in ...]
+
+A raw **count** of agreeing pixels, bounded above by the candidate's own painted
+area. A pose covering 11,000 px can score up to 11,000; one covering 500 px can
+score at most 500 however perfectly it agrees. `placement_cardinality_search`
+then orders by `-priority` within each colour group, so the small-footprint pose
+is explored last **by construction** — which is the same area bias the population
+table found in the objectives, sitting one stage earlier and never examined.
+
+`placement_traversal_priority` measures the scale-free alternative — the same
+agreement divided by the candidate's own painted area — without changing
+anything. Median rank of a page's reference poses in its own screened bank:
+
+| page | screened | reference poses located | by count | by rate |
+| ---: | ---: | ---: | ---: | ---: |
+| 16 | 1,258 | 1 of 3 | **1** | **1** |
+| 17 | 2,322 | 1 of 2 | **1** | **1** |
+| **19** | 2,637 | **6 of 6** | **1502** | **120.5** |
+| 26 | 1,926 | 2 of 5 | 71 | 71 |
+| 28 | 4,847 | 2 of 3 | 58.5 | **75** |
+
+Page 19 is the case retention loses: its four small 25269 plates paint 874-964 px
+and sit at ranks 1501-1507 of 2,637 under the count, and at 117-292 under the
+rate — an order of magnitude, on the page where five of six screened targets
+never reach a retained assembly. The two pages the run already gets right are
+**rank 1 under both**, so the change does not demote a correct pose that is
+already first. Page 28 is a small regression, 58.5 to 75.
+
+Two things this is not. It is not an adoption: one large win, two neutral
+controls and one small loss is the same mixed shape every lever in this program
+has had, and the honest next step is an A/B drive of the whole chain, not a
+default. And it is not sufficient even where it wins — the ranking is over single
+placements while the traversal is over combinations, so a better rank is a
+necessary condition for reaching a pose, not a proof the search would keep it.
+
+**A separate defect the same measurement exposed.** On page 26 the agreement is
+**0 for every candidate in the bank**, both reference and selected. The coarse
+target carries no class the page's candidates can match, so the priority contains
+no information and the traversal order there is effectively arbitrary. That is
+its own bug, on a page that places 0 of 5, and it is invisible to any ranking
+comparison because both rankings are equally uninformative.
