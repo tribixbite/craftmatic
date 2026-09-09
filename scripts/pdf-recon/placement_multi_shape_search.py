@@ -34,6 +34,7 @@ from placement_attach_group import make_assembly
 from placement_cardinality_bank import build_bank
 from placement_cardinality_search import search_layers
 from placement_colored_cad import colored_triangles
+from placement_compound_exchange import compound_assemblies, ordered_replacement
 from placement_exploded_attach import attach_detached
 from placement_layer_beam import search_beam
 from placement_local_delta import added_region, local_evidence, render_layers
@@ -95,7 +96,8 @@ def pose_tie_ranks(placements):
 
 def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
                     conflict, connected, rounds=3, width=16, window_order='incremental',
-                    tie_ranks=None):
+                    tie_ranks=None, adjacency=None, quotas=None, compound_width=0,
+                    compound_mode='both', compound_budget=64):
     """Quota-preserving exchange judged by the scorer that actually selects.
 
     The layer search optimises the coarse per-class depth-composite IoU, but the
@@ -120,15 +122,51 @@ def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
     renders against 84. The honest negative control is page 26, where all three
     screened targets are lost to the objective rather than the window and the
     ordering changes nothing: 0 of 3 either way, native identical.
+
+    `compound_width` opens the *two*-placement moves this pass otherwise cannot
+    make, and only for a candidate the one-swap has already rejected. Round seven
+    measured seven distinct reference instances whose every one-swap probe is
+    structurally illegal rather than weakly ranked: five are closure poses whose
+    witness is not in the assembly (0 collide, 11 disconnect) and two collide
+    with the piece standing in their place. Both are quota-preserving with a
+    guided partner - the witnessing neighbour, or a replacement carrying the
+    blocker's key - see `placement_compound_exchange`. `compound_budget` caps the
+    extra renders per exchange pass, because each one is a GPU render and a
+    rejected window entry is not rare.
     """
     if window_order not in ('incremental', 'own_agreement'):
         raise ValueError('Unknown exchange window ordering')
+    if compound_width and adjacency is None:
+        raise ValueError('Compound exchange needs the witnessed support adjacency')
     chosen = list(indices)
     best = fixed_native_score(scorer, base + [item for i in chosen
                                               for item in placements[i]['items']], M, origin)
     renders, swaps, trail, census = 1, 0, [], []
+    compound = dict(width=int(compound_width), mode=compound_mode,
+                    budget=int(compound_budget), renders=0, attempts=0,
+                    rejected_single=dict(collision=0, connectivity=0),
+                    legal_assemblies=0, budget_exhausted=False, taken=[], reports=[])
     for _ in range(rounds):
         improvement = None
+
+        def consider(sequence, replacement, detail):
+            """Score one candidate assembly; keep it if it beats the incumbent.
+
+            `sequence` is the item build order and `replacement` the slot-ordered
+            assembly, both given explicitly rather than derived by sorting: an
+            exact tie between two improvements is resolved by which slot was
+            visited first, so a re-sorted assembly would silently re-roll ties
+            that have nothing to do with the move under test. At
+            `compound_width` 0 this reproduces the shipped pass exactly.
+            """
+            nonlocal improvement, renders
+            items = base + [item for i in sequence for item in placements[i]['items']]
+            evidence = fixed_native_score(scorer, items, M, origin)
+            renders += 1
+            if evidence['score'] > best['score'] + 1e-12 and (
+                    improvement is None or evidence['score'] > improvement[0]['score']):
+                improvement = (evidence, list(replacement), detail)
+
         for position, outgoing in enumerate(chosen):
             rest = chosen[:position] + chosen[position + 1:]
             depth, label = coarse.composite(rest)
@@ -159,27 +197,50 @@ def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
                 incoming = int(incoming)
                 if not np.isfinite(order[incoming]):
                     break
-                if conflict is not None and any(conflict(incoming, other) for other in rest):
+                collides = conflict is not None and any(conflict(incoming, other)
+                                                        for other in rest)
+                if collides or not connected(tuple(rest) + (incoming,)):
+                    reason = 'collision' if collides else 'connectivity'
+                    compound['rejected_single'][reason] += 1
+                    if not compound_width:
+                        continue
+                    if compound['renders'] >= compound_budget:
+                        compound['budget_exhausted'] = True
+                        continue
+                    compound['attempts'] += 1
+                    groups, report = compound_assemblies(
+                        chosen, incoming, keys, adjacency, conflict, connected, raw,
+                        compound_width, mode=compound_mode, quotas=quotas, tie_ranks=tie_ranks)
+                    report.update(position=position, rejected_single_on=reason)
+                    compound['reports'].append(report)
+                    compound['legal_assemblies'] += len(groups)
+                    for group in groups:
+                        if compound['renders'] >= compound_budget:
+                            compound['budget_exhausted'] = True
+                            break
+                        compound['renders'] += 1
+                        replacement = ordered_replacement(chosen, group, keys)
+                        kept = [i for i in chosen if i in set(group)]
+                        arriving = [i for i in group if i not in chosen]
+                        consider(kept + arriving, replacement,
+                                 dict(kind='compound', position=position, incoming=incoming,
+                                      partner=[int(i) for i in arriving if i != incoming]))
                     continue
-                if not connected(tuple(rest) + (incoming,)):
-                    continue
-                items = base + [item for i in rest + [incoming]
-                                for item in placements[i]['items']]
-                evidence = fixed_native_score(scorer, items, M, origin)
-                renders += 1
-                if evidence['score'] > best['score'] + 1e-12 and (
-                        improvement is None or evidence['score'] > improvement[0]['score']):
-                    improvement = (evidence, position, incoming)
+                consider(rest + [incoming], chosen[:position] + [incoming]
+                         + chosen[position + 1:],
+                         dict(kind='single', position=position, incoming=incoming))
         if improvement is None:
             break
-        best, position, incoming = improvement
-        trail.append(dict(position=position, incoming=incoming, score=best['score']))
-        chosen[position] = incoming
+        best, chosen, detail = improvement
+        trail.append(dict(score=best['score'], **detail))
+        if detail['kind'] == 'compound':
+            compound['taken'].append(dict(trail_index=len(trail) - 1, **detail))
         swaps += 1
     return tuple(sorted(chosen)), best, dict(native_renders=renders, native_swaps=swaps,
                                              trail=trail, width=width, rounds=rounds,
                                              window_order=window_order,
                                              pose_tie_break=tie_ranks is not None,
+                                             compound=compound,
                                              tie_census=census,
                                              ties_at_slot=[row['tied_with_slot']
                                                            for row in census[:len(chosen)]])
@@ -245,7 +306,7 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16, native_starts=1,
         image_pieces=None, withheld=(), arrows=(), outside_fraction=0., local_rerank=0.,
         seated_tolerance=0., max_bank_candidates=None, exchange_window_order='incremental',
-        tie_break='index'):
+        tie_break='index', compound_width=0, compound_mode='both', compound_budget=64):
     if method not in ('beam', 'exact'):
         raise ValueError('Unknown search method')
     withheld = [(str(part), int(color)) for part, color in withheld]
@@ -385,7 +446,9 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                 refined, evidence, report = native_exchange(
                     scorer, base, placements, keys, start['indices'], M, origin, coarse,
                     conflict, connected, rounds=native_rounds, width=native_width,
-                    window_order=exchange_window_order, tie_ranks=tie_ranks)
+                    window_order=exchange_window_order, tie_ranks=tie_ranks,
+                    adjacency=adjacency, quotas=quotas, compound_width=compound_width,
+                    compound_mode=compound_mode, compound_budget=compound_budget)
                 report['start'] = list(start['indices'])
                 report['native_score'] = evidence['score']
                 reports.append(report)
@@ -525,6 +588,10 @@ if __name__ == '__main__':
     parser.add_argument('--native-rounds', type=int, default=0)
     parser.add_argument('--native-width', type=int, default=16)
     parser.add_argument('--native-starts', type=int, default=1)
+    parser.add_argument('--compound-width', type=int, default=0)
+    parser.add_argument('--compound-mode', choices=('connectivity', 'collision', 'both'),
+                        default='both')
+    parser.add_argument('--compound-budget', type=int, default=64)
     args = parser.parse_args()
     record = json.loads(args.registry.read_text())
     registration = json.loads(args.registration.read_text())
@@ -556,7 +623,9 @@ if __name__ == '__main__':
                  args.scale, args.max_nodes, args.top_k, args.host_bytes, args.method,
                  args.beam, args.max_expansions, args.improve_rounds, args.improve_from,
                  args.restarts, args.perturb, args.seed,
-                 args.native_rounds, args.native_width, args.native_starts)
+                 args.native_rounds, args.native_width, args.native_starts,
+                 compound_width=args.compound_width, compound_mode=args.compound_mode,
+                 compound_budget=args.compound_budget)
     result.update(pdf=record['pdf'], pdf_sha256=record['pdf_sha256'],
                   registry_sha256=hashlib.sha256(args.registry.read_bytes()).hexdigest(),
                   registration_sha256=hashlib.sha256(args.registration.read_bytes()).hexdigest(),

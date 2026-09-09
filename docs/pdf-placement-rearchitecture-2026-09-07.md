@@ -3407,3 +3407,71 @@ similar objective-disagreement share, then the objective is the target and the
 breadth round should be three fixtures rather than five, with the saved effort
 spent on a scoring experiment instead. Run fixture 1 first and decide on its
 population table.
+
+## Round eight: the two-placement move, built, and what it is worth
+
+Round seven diagnosed and designed three connectivity/collision fixes and left
+them unbuilt: a **compound exchange** (the mechanism - a quota-preserving edit
+that changes two placements at once), **closure-parent connectivity** (the
+guided partner for a pose whose one-swap probes all fail on connectivity) and a
+**conflict-guided double exchange** (the guided partner for a pose that collides
+with the piece standing in its place). They are one module,
+`placement_compound_exchange`, called from the production pass
+(`native_exchange`, `--compound-width`) and from the diagnostic
+(`placement_retention_stage --double-probe`) so the measurement and the runtime
+move are the same code.
+
+### A correction to the brief before any of it is driven
+
+The round-seven ceiling table reads "5 reachable" and "2 reachable" for the two
+classes, and the natural reading - **+7 reachable on 40377** - is wrong. Those
+seven are distinct instances across **both** fixtures. Read out of the mechanism
+tables per fixture:
+
+| class | 40377 | 41624 |
+| --- | ---: | ---: |
+| closure-parent connectivity | 1 (ti 75, page 26) | 4 (ti 87 p8; ti 29, ti 30 p11; ti 97 p36) |
+| collision | 2 (ti 53 p19; ti 78 p28) | 0 |
+| **total** | **3** | **4** |
+
+So the honest ceiling for track one on 40377 is **three** instances, not seven,
+and the 58-60/90 the brief hoped for was never reachable from this lever.
+
+### The probe, run before the drive: 6 of 7 reachable, 1 of 7 realisable
+
+`--double-probe` enumerates the guided two-placement exchanges from the assembly
+the run selected, checks each for quota, collision and connectivity in full, and
+native-scores every legal one against what the run chose. It is the same
+prediction-then-drive method round seven used, and it costs eight to seventy-two
+GPU renders per page rather than an hour.
+
+| fixture | page | instance | class | legal compound assemblies | best native delta | recovered |
+| --- | ---: | --- | --- | ---: | ---: | :-: |
+| 40377 | 19 | ti 53 `2431`:15 | collision | 8 | **+0.008185** | **yes** |
+| 40377 | 28 | ti 78 `3623`:1 | collision | 12 | -0.001336 | no |
+| 40377 | 26 | ti 75 `3023b`:191 | connectivity | 72 | -0.012655 | no |
+| 41624 | 8 | ti 87 `3023b`:0 | connectivity | 48 | -0.006285 | no |
+| 41624 | 11 | ti 29 `3023b`:19 | connectivity | 8 | -0.053801 | no |
+| 41624 | 11 | ti 30 `3023b`:19 | connectivity | 8 | -0.058523 | no |
+| 41624 | 36 | ti 97 `3023b`:0 | connectivity | **0** | - | no |
+
+**The mechanism works and the objective does not want it.** Six of the seven
+instances round seven filed as structurally unreachable are reachable by a legal
+quota-preserving two-placement exchange, so the diagnosis was right about the
+mechanism; but on five of those six the run's own native scorer prefers the
+assembly it already had, by 1.3e-3 to 5.9e-2. That is round seven's headline
+arriving in a class that had never been measured for it: the retention losses
+were 10 of 21 objective preferences, and the *structural* losses are 5 of 6.
+
+The one exception is 40377 page 19's `2431`, which the round-seven diagnosis
+named as the rank-0 single placement on the whole page: its best compound
+assembly scores **+0.008185** above the selected one, half again the +0.005633
+the window-ordering fix was worth on the same page. Predicted before driving:
+**+1 structural on 40377, +0 on 41624.**
+
+**41624's ti 97 is unreachable at any move size, and the reason is exact.** Its
+page allocates `3023b`:0 with quota **one**, and every witnessed neighbour of the
+target is *also* a `3023b`:0. A quota-preserving exchange cannot admit two
+placements of a key the page allocates once, so no two-placement move - and no
+larger one that keeps the allocation - can contain both the pose and its witness.
+That instance is blocked by the page allocation, not by the search.
