@@ -564,9 +564,18 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                       score=result['results'][0]['evidence']['score'])
         return ('placed', detail, placement, matrices,
                 projection_scale(contained['hypotheses'][0]['projection']))
-    return ('camera_unsupported' if attempts and all(a['status'] == 'no_camera_hypothesis'
-                                                     for a in attempts)
-            else 'no_contained_registration',
+    # Say which of the three the page actually failed. A camera the acceptance
+    # test refused is not the same event as a camera that could not be
+    # registered at all, and a journal that calls both 'no_contained
+    # registration' hides the measurement that produced the refusal.
+    statuses = {a['status'] for a in attempts}
+    if attempts and statuses == {'no_camera_hypothesis'}:
+        status = 'camera_unsupported'
+    elif attempts and statuses <= {'camera_refused', 'no_camera_hypothesis'}:
+        status = 'camera_refused'
+    else:
+        status = 'no_contained_registration'
+    return (status,
             dict(reason='No page drawing produced a usable registration', attempts=attempts),
             None, (), None)
 
@@ -609,7 +618,7 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
     out.mkdir(parents=True, exist_ok=True)
     write_atomic(journal, json.dumps(record, indent=2))
     # Failures a later page's camera could repair, retried after the main pass.
-    RETRYABLE = ('camera_unsupported', 'no_contained_registration')
+    RETRYABLE = ('camera_unsupported', 'no_contained_registration', 'camera_refused')
     deferred = []
     current = base_model
     prior_matrices, prior_scale, prior_page = (), None, None
