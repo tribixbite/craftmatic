@@ -1,0 +1,180 @@
+{
+  "fixture": "40377",
+  "body_view_pages": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    32
+  ],
+  "pairs": [
+    {
+      "previous": 15,
+      "current": 16,
+      "scale": 1.03,
+      "iou": 0.9716,
+      "offset": [
+        -3,
+        1
+      ]
+    },
+    {
+      "previous": 16,
+      "current": 17,
+      "scale": 1.01,
+      "iou": 0.7794,
+      "offset": [
+        -2,
+        106
+      ]
+    },
+    {
+      "previous": 17,
+      "current": 18,
+      "scale": 1.0,
+      "iou": 0.794,
+      "offset": [
+        1,
+        -100
+      ]
+    },
+    {
+      "previous": 18,
+      "current": 19,
+      "scale": 1.0,
+      "iou": 0.9874,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    {
+      "previous": 19,
+      "current": 21,
+      "scale": 1.0,
+      "iou": 0.9723,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    {
+      "previous": 21,
+      "current": 22,
+      "scale": 1.01,
+      "iou": 0.9076,
+      "offset": [
+        6,
+        -4
+      ]
+    },
+    {
+      "previous": 22,
+      "current": 23,
+      "scale": 1.0,
+      "iou": 0.9227,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    {
+      "previous": 23,
+      "current": 24,
+      "scale": 1.0,
+      "iou": 0.9831,
+      "offset": [
+        8,
+        0
+      ]
+    },
+    {
+      "previous": 24,
+      "current": 25,
+      "scale": 1.0,
+      "iou": 0.9266,
+      "offset": [
+        24,
+        0
+      ]
+    },
+    {
+      "previous": 25,
+      "current": 26,
+      "scale": 0.99,
+      "iou": 0.8471,
+      "offset": [
+        -20,
+        16
+      ]
+    },
+    {
+      "previous": 26,
+      "current": 27,
+      "scale": 1.0,
+      "iou": 0.955,
+      "offset": [
+        0,
+        11
+      ]
+    },
+    {
+      "previous": 27,
+      "current": 28,
+      "scale": 1.06,
+      "iou": 0.8206,
+      "offset": [
+        -8,
+        -6
+      ]
+    },
+    {
+      "previous": 28,
+      "current": 29,
+      "scale": 1.0,
+      "iou": 0.9874,
+      "offset": [
+        0,
+        1
+      ]
+    },
+    {
+      "previous": 29,
+      "current": 30,
+      "scale": 1.0,
+      "iou": 0.9513,
+      "offset": [
+        49,
+        19
+      ]
+    },
+    {
+      "previous": 30,
+      "current": 32,
+      "scale": 1.11,
+      "iou": 0.8376,
+      "offset": [
+        -41,
+        2
+      ]
+    }
+  ],
+  "min_iou": 0.7794,
+  "max_iou": 0.9874,
+  "finding": "Every consecutive pair of 40377 body-view drawings, pages 15 to 32, aligns under a uniform scale and integer translation. That is the whole precondition for propagating a registration through the drawings rather than through the emitted body, and it holds across the entire remaining scope rather than only on the pages round three measured.",
+  "scope": "PDF pixels only; the alignment absorbs part of the growth the step adds, so the ratio is a proposal and a bound, never a calibration.",
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false
+}
