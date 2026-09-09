@@ -4717,3 +4717,36 @@ The residue is two named classes, and neither is a placement problem:
 one specific way: eight unassigned callouts spread over six pages, one of which
 carries thirteen pieces. Its 62% is a matcher-recall number, not a scope-policy
 number, and it is the honest counterexample to the other five.
+
+### What is left in the on-ramp is identity, and it has a number
+
+Pooled over the six fixtures' 410 callouts, the identity stage divides cleanly:
+
+| outcome | callouts | share |
+| --- | ---: | ---: |
+| assigned the slot that is its own best match | **369** | **90.0%** |
+| assigned some other slot - a solver compromise | 28 | 6.8% |
+| assigned nothing | 13 | 3.2% |
+
+The compromises are usually tiny (median score gap 0.013 on four fixtures) and
+occasionally not (0.198 on 40377, 0.122 on 41604). Both residues have the same
+cause and it is not the solver: **the frozen artwork encoder cannot separate
+small parts of the same shape**, so several callouts crowd onto one slot and the
+global assignment has to break the tie by capacity.
+
+41604 is the clearest case and worth recording exactly, because its 62% is the
+breadth table's outlier. Its eight unassigned callouts are all real, inspected
+part callouts - dark red 1x2 plates and tiles on six different pages - and every
+one of them ranks `32028`:320 (a 1x2 plate with door rail, printed capacity
+**one**) as its best match at 0.75-0.78. The fixture's dark red 1x2 capacity is
+not short: `3023b`:320 has eleven, `3070b`:320 four, `87079`:320 four,
+`3069b`:320 three. The inventory can hold them; the encoder cannot tell them
+apart, and the solver leaves eight callouts rather than guess.
+
+That is the same failure as 41601's three `3031` claimants, and it bounds what
+the CAD-size gate can do: the gate separates parts whose *sizes* differ (a 4x4
+plate from a 2x2), and `3023b` and `32028` have the same bounding box to the
+LDU. Round ten's on-ramp gains came from repairing association and from using
+size; the residue needs the identity evidence itself to improve, which CLAUDE.md
+already records as measured-and-hard (a small CNN improved eligible BOM-icon
+retrieval and did **not** transfer to unseen-set PLI).
