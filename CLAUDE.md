@@ -61,7 +61,15 @@ pages), and the driver now holds a body table and schedules cross-page
 attachment itself. 41624's three unmapped identities are resolved by confirming
 the factorized universal-catalog bridge against the element's own inventory icon
 (modal foreground colour, not the mean - the mean makes white read as grey);
-all 109 pieces now carry one identity.
+all 109 pieces now carry one identity. RESULTS, honestly: whole-model coverage
+on 40377 stays at 46/90 - fixing recall, the camera and the colour classifier
+each changed the failure mode without moving the count, because page 17's
+residual is a sub-stud pose difference. The colour fix is a correctness fix, not
+an accuracy gain: it costs one structural match on 41624. The page-13 to
+page-14 attachment now runs under the driver and reproduces the hand-issued
+result to the part (42 emitted / 41 structural / precision 0.976). 41624 is
+driven for the first time and reaches 3/109 - its blocker is now its 2-of-3
+bootstrap, not identity. Do not re-litigate any of these as search failures.
 **2026-09-08 driver + search rewrite:** 40377 coverage moved 26/90 → **46/90
 (51.1%, 46 correct of 49 emitted, precision 0.94)**, still far from 90%. The stage-specific runs are replaced by
 `placement_autodrive.py` (camera → registration → silhouette-containment
