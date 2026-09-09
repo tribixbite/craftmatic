@@ -2903,3 +2903,30 @@ path without either being better. **Every chain comparison in rounds two through
 six carries this exposure and none of them measured it**; the honest way to run a
 chain-level A/B from here is to report it alongside, or to fix the tie-break to
 something deterministic under both configurations before comparing.
+
+### Concurrent work in the same tree, and what this session did not touch
+
+Two commits landed in `scripts/pdf-recon` during this round that this session did
+not author — `perf(recon): the closure was unaffordable because its predicate was
+scalar` and `feat(recon): an adaptive closure budget, a screened-set cap, Lab
+classes and an unplateaued window` — and there is further uncommitted work in the
+same files. They act on this round's measurements directly: an **adaptive closure
+budget** for the finding that no page ever finishes its closure and that a fixed
+pair of constants is the wrong shape, **Lab classes** for the finding that hue is
+the wrong discriminator, a **`pose_tie_ranks`** ordering for the page-19 tie, and
+an `own_agreement` exchange window for the traversal-priority result.
+
+Two consequences for reading this record.
+
+* The `saturation_tiebreak` measured above survives in the classifier beside the
+  new Lab path, and its six tests still pass. It is now the fallback rather than
+  the recommendation, which is the right relationship: Lab has no ties to break.
+* **An assembly-level tie-break was written here and then removed rather than
+  committed.** `pose_tie_ranks` addresses the same coin flip one stage earlier,
+  in a file being actively edited, and the census says a perfect assembly-level
+  tie-break is worth zero coverage — so a second overlapping mechanism would have
+  been duplicated semantics and a merge hazard for no measured gain. The
+  assembly-level tie itself remains as measured: 7 of 13 and 15 of 27 pages, every
+  one between genuinely different assemblies. Whether the upstream pose ordering
+  removes it downstream is a measurement nobody has made yet, and
+  `placement_score_ties` is the tool that would make it.
