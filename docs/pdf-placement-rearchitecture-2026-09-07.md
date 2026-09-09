@@ -2364,3 +2364,24 @@ in any number above.
 
 Both are far slower per page than the round-five settings, and that cost is
 itself a result any adoption has to carry.
+
+### The two budgets interact, and page 16 is the case that shows it
+
+The re-scoped chain's first page reports the experiment's own limit. 40377 page
+16 at `--max-closure-parents 1024`, with the pose budget left at round five's
+8192, produces a bank of **8,192 poses and a score of 0.6372338224690584** — the
+same 49 parts and the identical score to sixteen significant figures as round
+five at 128 parents.
+
+The registry says why: page 16 hits *both* budgets in both runs. The closure
+fills its 8,192-pose cap before it exhausts even 128 parents, so the extra 896
+parents are never reached and the enumeration is byte-identical. Page 26 was the
+opposite case — its closure had pose headroom, ran out of parents at 128, and
+finished at 808 when allowed to.
+
+So "raise the parent budget" is not a single lever. It is inert on the 5 of 13
+pages where the pose cap binds first, and effective on the 8 where it does not.
+Raising both together is what the abandoned first attempt did, and its cost was
+the experiment itself — page 16's closure had not finished in fifty minutes at
+32768 poses. A budget policy that actually works has to be adaptive rather than a
+pair of constants, and neither constant has ever been tuned.
