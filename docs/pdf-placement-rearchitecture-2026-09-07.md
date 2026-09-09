@@ -4779,3 +4779,33 @@ violation - the gate destroys every allocation (226, 294 and 201 pairs banned on
 the three new fixtures, scope down by a third to a half, and it does not
 converge). The statistic is an outlier test and nothing else; it says which
 assignment disagrees with its page, never which assignment is right.
+
+### The on-ramp's quality, decomposed: identity, then page
+
+Two numbers separate cleanly and should never be quoted as one. The first
+ignores pages entirely - how much of the allocated multiset is a part and colour
+the reference actually contains, after canonical renaming:
+
+| set | reference leaves | allocated | multiset overlap | share of allocated |
+| --- | ---: | ---: | ---: | ---: |
+| 40377 | 96 | 89 | 85 | **96%** |
+| 41601 | 112 | 99 | 90 | 91% |
+| 41604 | 106 | 62 | 58 | 94% |
+| 41606 | 117 | 102 | 89 | 87% |
+| 41624 | 109 | 100 | 92 | 92% |
+| 41625 | 182 | 117 | 99 | 85% |
+
+**Mean 91%.** Part of the residue is genuine catalog disagreement rather than
+error - CLAUDE.md already records 40377's printed BOM overlapping its OMR at
+73/90 exact ids with at least fourteen differences carrying universal
+catalog/rename evidence, and canonicalisation is what lifts that to 96% here.
+
+The second number is the page assignment, and it is the weaker one: the
+order-preserving audit accounts for a mean **74%** of allocated pieces. So of
+the pieces whose identity is right, roughly four in five land on a page the
+reference's own step structure agrees with, and one in five does not.
+
+A caveat that belongs beside both: an OMR leaf count is not a printed piece
+count (41625 draws 182 leaves against a 129-piece BOM, because the reference
+expands sub-parts), so the accounted *fraction* is comparable across
+allocations of one fixture and not across fixtures.
