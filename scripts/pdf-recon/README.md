@@ -295,6 +295,65 @@ classifications, and the repair demotes them from the plateau to ranks
 makes saved scores incomparable; runs that set it are comparable only with each
 other.
 
+## Round eight: the two-placement exchange, and the objective gap pooled
+
+**A one-at-a-time exchange cannot reach a structurally illegal pose, however it
+is ranked.** `placement_compound_exchange` builds the quota-preserving edits that
+change *two* placements at once, with a guided partner for each of round seven's
+two structural loss classes: the witnessing neighbour of a closure pose whose
+one-swap probes all fail on connectivity, and a replacement carrying the key of
+the piece a colliding pose has to displace. `--compound-width N` turns it on in
+the driver (0 = off, the shipped behaviour) and it fires **only** for a candidate
+the one-swap has already rejected; `--compound-mode` measures the two generators
+apart and `--compound-budget` caps the extra GPU renders per exchange pass, which
+the run journals along with whether it was exhausted. A width with no support
+adjacency is an error, never a silent fallback.
+
+**Cost the class before driving it.** `placement_retention_stage --double-probe
+PAGE` enumerates the same moves from the run's own artifacts, checks each for
+quota, collision and connectivity in full, and native-scores every legal one
+against the assembly the run selected - eight to seventy-two renders instead of
+an hour:
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_retention_stage.py `
+  --run output/pdf-placement-beam/40377-r5-contain-v1 `
+  --truth C:/git/clego/lego_sets/OMR/40377-1.mpd `
+  --double-probe 19 --out output/pdf-placement-diagnosis/r8-double/40377-p19.json
+```
+
+Measured over both fixtures' seven structural instances: **six are reachable** by
+a legal two-placement exchange, and **one** raises the run's own native score
+(40377 page 19's `2431`, +0.008185). 41624 truth index 97 is unreachable at any
+move size and the reason is exact - its page allocates the key **once** and every
+witnessed neighbour of the target carries the same key, so no quota-preserving
+exchange can hold both the pose and its witness.
+
+**Pool the two probes before choosing the next lever.**
+`placement_objective_gap` reads the mechanism tables and the double probes - they
+compute the same signed native delta - and counts per distinct reference
+instance:
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_objective_gap.py `
+  --mechanism output/pdf-placement-diagnosis/r7-retention/40377-mechanism.json `
+              output/pdf-placement-diagnosis/r7-retention/41624-mechanism.json `
+  --double output/pdf-placement-diagnosis/r8-double/*.json `
+  --out output/pdf-placement-diagnosis/r8-objective-gap.json
+```
+
+21 instances, 20 with a legal edit, **15 of the 20 the objective scores below
+what the run already chose**. Read the concentration, not the share: all five
+convertible instances are on 40377 **page 19**.
+
+**A fresh fixture's on-ramp is one attended decision.** Identity, colour
+confirmation, slot assignment, construction and the drive all run unattended; the
+page scope does not, because `placement_slot_adapter` refuses any page holding an
+ambiguous or unmapped row and that refusal is correct. On 41601 it costs 25 of
+108 pieces. Four of those are **mould-variant** ambiguity (`15573`/`3794a`/
+`3794b`, `4032a`/`4032b`) whose universal CAD bounding boxes agree to the LDU -
+`--color-constraints` changes nothing there, and no drawing can separate them.
+
 ## Inventory identity
 
 `placement_catalog_factor_bridge.py` learns Rebrickable-to-LDraw part and colour
