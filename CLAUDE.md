@@ -72,6 +72,38 @@ page-14 attachment now runs under the driver and reproduces the hand-issued
 result to the part (42 emitted / 41 structural / precision 0.976). 41624 is
 driven for the first time and reaches 3/109 - its blocker is now its 2-of-3
 bootstrap, not identity. Do not re-litigate any of these as search failures.
+Round three moved 40377 from 46/90 to **48/90 (53.3%, 48 correct of 51 emitted,
+precision 0.941)** and found that round two's "the scorer cannot separate
+sub-stud poses" verdict was three separate defects, none of them scorer
+resolution. (1) `placement_diagnose_target_score` rebuilt the drawing without
+the run's own mask, scoring 65,869 px where the run used 52,177, so its verdicts
+compared two different questions - `placement_run_scene` now rebuilds the run's
+target and the driver records `mask_source`. (2) An exploded page's target does
+NOT contain the piece being added: 40377 page 17 draws one black plate placed
+and one exploded, so body 0.5954 > body+one 0.5679 > body+both 0.5409 and
+completeness itself is penalised. `placement_exploded_page` withholds such a
+piece from the image phase (it fires on 1 of 40377's 26 pages and 2 of 41624's,
+so nothing else changes) and `placement_exploded_attach` places it from the
+arrows - 0.51 px arrowhead error, score 1.0 against 0.1244 for the next pose.
+(3) The occupancy screen budgeted a candidate's overflow in the BODY's units:
+2 px tolerance against a correct plate's own 19 px of antialiasing, so the right
+pose was never in the bank. A proportional allowance in the candidate's own
+units (0.01) keeps it, and page 17 then places both plates. `placement_camera_gate`
+makes a camera an accepted/refused decision with a recorded reason - unexplained
+drawn ink over what the page can add (0.05-0.62 on every page that placed
+correctly, 1.10-1.58 on every page that did not, both fixtures) plus cross-page
+scale; raw coverage CANNOT serve, it depends on body size and would refuse all
+of 41624. `placement_drawing_scale` measures the camera scale from the drawings
+alone (consecutive 40377 drawings align at 0.99-1.03, IoU 0.89-0.99), which is
+what refutes page 18's own 12.6%-small stud rows without the body.
+`placement_construct_body` builds a body from a drawing with nothing to register
+against by nailing one allocated piece to the identity transform - the frame is
+free and the camera sweep already covers every root orientation - and reproduces
+41624's stage-specific 3-piece bootstrap (2/3) generically in 17 s. Do NOT
+re-attack pages 12-19 for the target: they hold only 58 of 90 parts, so a
+perfect drive through page 19 caps at 64%. Evaluating every retained candidate
+rather than the selected one gives at most +1 pose per page (46 vs 47 on pages
+17 and 18, equal on 16 and 19), so selection is not what is missing.
 **2026-09-08 driver + search rewrite:** 40377 coverage moved 26/90 → **46/90
 (51.1%, 46 correct of 49 emitted, precision 0.94)**, still far from 90%. The stage-specific runs are replaced by
 `placement_autodrive.py` (camera → registration → silhouette-containment
