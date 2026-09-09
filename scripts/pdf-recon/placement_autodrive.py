@@ -83,7 +83,13 @@ def base_colors(items):
 
 
 def resume_checkpoints(record, config):
-    if record.get('resume_config') != config:
+    # Compare the SERIALISED forms. The guard is meant to catch a changed input
+    # or option, and comparing a live config against a parsed journal instead
+    # compares Python types: `scales` is built as a tuple and JSON reads it back
+    # as a list, so every run that ever wrote one was unresumable regardless of
+    # whether anything had actually changed. Round-tripping both sides asks the
+    # question the guard intends without weakening it.
+    if record.get('resume_config') != json.loads(json.dumps(config)):
         raise ValueError('Resume inputs/configuration changed or legacy journal lacks input hashes')
     completed = {}
     for step in record['steps']:
