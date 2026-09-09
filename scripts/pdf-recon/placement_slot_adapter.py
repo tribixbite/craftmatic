@@ -38,6 +38,44 @@ def class_index(table):
     return index
 
 
+def blocked_rows(source,mould_classes=None,mould_policy='refuse'):
+    """Every row of the slot source this adapter would refuse, with its page.
+
+    Refusal is a property of a row, so the page scope that the adapter accepts
+    is derivable rather than chosen: it is the set of pages that carry evidence
+    and carry no refused row. Round nine recorded the page-scope decision as
+    the pipeline's one attended step; this is the function that closes it, and
+    it deliberately reports what it excludes rather than dropping it silently.
+    """
+    admissible=class_index(mould_classes) if mould_policy!='refuse' else {}
+    blocked=[]
+    for entry in source['evidence']:
+        choices=sorted(set((str(c['part']),str(c['color'])) for c in entry.get('part_choices',[])))
+        if len(choices)==1:continue
+        names=tuple(sorted({part for part,_ in choices}));colors=sorted({color for _,color in choices})
+        if len(colors)==1 and admissible.get(names) is not None:continue
+        blocked.append(dict(page=entry['page'],inventory_slot=entry.get('inventory_slot'),
+                            qty=int(entry['qty']),choices=choices,
+                            reason='Ambiguous or unmapped inventory identity'))
+    blocked.extend(dict(entry,reason='Unresolved callout') for entry in source.get('unresolved',[]))
+    return blocked
+
+
+def admissible_pages(source,mould_classes=None,mould_policy='refuse'):
+    """The maximal page scope this adapter accepts, and why each page is out."""
+    refused={}
+    for row in blocked_rows(source,mould_classes,mould_policy):
+        refused.setdefault(int(row['page']),[]).append(row)
+    carried={}
+    for entry in source['evidence']:
+        carried[int(entry['page'])]=carried.get(int(entry['page']),0)+int(entry['qty'])
+    pages=sorted(page for page in carried if page not in refused)
+    excluded=[dict(page=page,allocated_pieces_lost=carried.get(page,0),
+                   reasons=sorted({row['reason'] for row in rows}),rows=rows)
+              for page,rows in sorted(refused.items())]
+    return pages,excluded
+
+
 def adapt(source,pages,mould_classes=None,mould_policy='refuse'):
     if mould_policy not in MOULD_POLICIES:raise ValueError('Unknown mould policy: '+str(mould_policy))
     pages=sorted(set(map(int,pages)))
@@ -70,12 +108,21 @@ def adapt(source,pages,mould_classes=None,mould_policy='refuse'):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--source',required=True,type=Path);p.add_argument('--pages',required=True,type=int,nargs='+');p.add_argument('--out',required=True,type=Path);p.add_argument('--inventory',type=Path);p.add_argument('--checkpoint',type=Path)
+    p=argparse.ArgumentParser();p.add_argument('--source',required=True,type=Path);p.add_argument('--pages',type=int,nargs='+');p.add_argument('--out',required=True,type=Path);p.add_argument('--inventory',type=Path);p.add_argument('--checkpoint',type=Path)
+    p.add_argument('--auto-scope',action='store_true',help='Derive the page scope from the slot source instead of taking it from a human: every page that carries evidence and no refused row')
     p.add_argument('--mould-classes',type=Path,help='A placement_mould_equivalence table whose proven classes may be admitted')
     p.add_argument('--mould-policy',choices=MOULD_POLICIES,default='refuse',help='What to do with a row the table proves is one physical piece under several names')
     a=p.parse_args()
+    if (a.pages is None)==(not a.auto_scope):raise SystemExit('Give either an explicit --pages scope or --auto-scope')
     table=json.loads(a.mould_classes.read_text()) if a.mould_classes else None
-    payload=a.source.read_bytes();source=json.loads(payload);adapted=adapt(source,a.pages,table,a.mould_policy)
+    payload=a.source.read_bytes();source=json.loads(payload)
+    scope,excluded=(admissible_pages(source,table,a.mould_policy) if a.auto_scope else (a.pages,None))
+    adapted=adapt(source,scope,table,a.mould_policy)
+    if a.auto_scope:
+        adapted['scope_source']='placement_slot_adapter.admissible_pages'
+        adapted['excluded_pages']=excluded
+        adapted['excluded_pieces']=sum(row['allocated_pieces_lost'] for row in excluded)
+        adapted['limitations'].append('The page scope is derived from the slot source; an excluded page is recorded with the rows that refused it and the pieces that scope loses.')
     adapted['mould_classes_source']=str(a.mould_classes.resolve()) if a.mould_classes else None
     adapted['mould_classes_sha256']=hashlib.sha256(a.mould_classes.read_bytes()).hexdigest() if a.mould_classes else None
     if hashlib.sha256(Path(source['pdf']).read_bytes()).hexdigest()!=source['pdf_sha256']:raise ValueError('Actual PDF hash mismatch')
@@ -90,4 +137,4 @@ if __name__=='__main__':
     a.out.mkdir(parents=True,exist_ok=False);(a.out/'slot-source.json').write_bytes(payload)
     (a.out/'global-assignment.json').write_text(json.dumps(adapted,indent=2))
     manifest={k:adapted[k] for k in ('pdf','pdf_sha256','pdf_only','truth_used','runtime_vlm_calls','allocation_pages','inventory_sha256','checkpoint_sha256','slot_source','slot_source_sha256','verified_artifacts','mould_policy','mould_classes_source','mould_classes_sha256')}
-    manifest['adapter_sha256']=hashlib.sha256(Path(__file__).read_bytes()).hexdigest();(a.out/'manifest.json').write_text(json.dumps(manifest,indent=2));print(json.dumps(dict(pages=a.pages,pieces=adapted['assigned_pieces'],withheld=adapted['withheld_pieces'],policy=adapted['mould_policy'],out=str(a.out))))
+    manifest['adapter_sha256']=hashlib.sha256(Path(__file__).read_bytes()).hexdigest();(a.out/'manifest.json').write_text(json.dumps(manifest,indent=2));print(json.dumps(dict(pages=scope,pieces=adapted['assigned_pieces'],withheld=adapted['withheld_pieces'],policy=adapted['mould_policy'],auto_scope=bool(a.auto_scope),excluded_pages=[row['page'] for row in (excluded or [])],out=str(a.out))))

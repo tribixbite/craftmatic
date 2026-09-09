@@ -57,3 +57,68 @@ class CropProtocol(unittest.TestCase):
 
 
 if __name__=='__main__': unittest.main()
+
+
+class FragmentGrouping(unittest.TestCase):
+    """Translucent artwork reaches the strong ink threshold only in places."""
+
+    def scene(self):
+        background=(182,215,242)
+        rgb=np.full((120,120,3),background,np.uint8)
+        body=np.asarray(background,int)-20   # weak ink only
+        edge=np.asarray(background,int)-40   # strong ink
+        rgb[20:50,20:60]=body
+        rgb[20:26,20:60]=edge
+        rgb[44:50,20:60]=edge
+        return rgb,background,{'bbox':(20,55,30,65),'qty':2}
+
+    def test_ungrouped_association_lands_on_one_fragment(self):
+        rgb,background,q=self.scene()
+        result=crop_items(rgb,[],[q],background,scale=1,group_fragments=False)
+        self.assertEqual(result[0]['bbox'],[20,44,60,50])
+
+    def test_grouping_recovers_the_whole_part(self):
+        rgb,background,q=self.scene()
+        result=crop_items(rgb,[],[q],background,scale=1)
+        self.assertEqual(result[0]['bbox'],[20,20,60,50])
+
+    def test_grouping_never_reports_weak_only_extent(self):
+        # The reported box is the union of STRONG boxes, so a part whose strong
+        # mask is already one component is unchanged and a weak halo is never
+        # mistaken for the part's edge.
+        background=(182,215,242)
+        rgb=np.full((120,120,3),background,np.uint8)
+        rgb[20:50,20:60]=np.asarray(background,int)-20
+        rgb[24:46,24:56]=np.asarray(background,int)-90
+        result=crop_items(rgb,[],[{'bbox':(24,55,34,65),'qty':1}],background,scale=1)
+        self.assertEqual(result[0]['bbox'],[24,24,56,46])
+
+
+class ExclusiveAssociation(unittest.TestCase):
+    """One drawn component belongs to one quantity label."""
+
+    def scene(self):
+        rgb=np.full((120,120,3),255,np.uint8)
+        rgb[30:50,20:31]=0
+        rgb[30:50,36:70]=0
+        return rgb,[{'bbox':(30,60,40,70),'qty':1},{'bbox':(60,60,70,70),'qty':2}]
+
+    def test_per_anchor_nearest_refuses_a_decidable_anchor(self):
+        rgb,quantities=self.scene()
+        result=crop_items(rgb,[],quantities,(255,255,255),scale=1,exclusive=False)
+        self.assertEqual(result[0].get('unresolved'),'ambiguous artwork association')
+
+    def test_exclusivity_decides_it_without_new_evidence(self):
+        rgb,quantities=self.scene()
+        result=crop_items(rgb,[],quantities,(255,255,255),scale=1)
+        self.assertEqual(result[0]['bbox'],[20,30,31,50])
+        self.assertEqual(result[1]['bbox'],[36,30,70,50])
+
+    def test_genuinely_shared_artwork_still_refuses_both(self):
+        rgb=np.full((100,100,3),255,np.uint8)
+        rgb[30:50,20:60]=0
+        quantities=[{'bbox':(20,55,30,65),'qty':1},{'bbox':(22,55,32,65),'qty':2}]
+        result=crop_items(rgb,[],quantities,(255,255,255),scale=1)
+        self.assertTrue(all('bbox' not in r for r in result))
+        self.assertEqual({r['unresolved'] for r in result},
+                         {'same artwork claimed by multiple quantities'})

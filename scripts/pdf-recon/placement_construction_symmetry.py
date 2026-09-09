@@ -27,7 +27,15 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
-def rank(directory, truth_path, minimum_eligible=2, band=None):
+def rank(directory, truth_path=None, minimum_eligible=2, band=None):
+    """Rank retained constructions by their own bilateral plane agreement.
+
+    `truth_path` is optional and is used for nothing but *reporting* the
+    structural score of each candidate. The selection reads only the candidate
+    assemblies and universal CAD, so omitting the reference gives the identical
+    pick with no reference anywhere in the loop - which is what a production
+    (and an autonomous-measurement) run needs.
+    """
     from placement_arrow_contacts import read_items
     from placement_diagnose_alias_poses import (canonicalize, verified_local_symmetries,
                                                 yaw_equivalent_score)
@@ -41,7 +49,7 @@ def rank(directory, truth_path, minimum_eligible=2, band=None):
     if result.get('truth_used') is not False:
         raise ValueError('Run artifacts lack truth-free provenance')
     library = PartLibrary()
-    truth, _ = canonicalize(read_parts(truth_path), library)
+    truth = None if truth_path is None else canonicalize(read_parts(truth_path), library)[0]
     rows = []
     for entry in result['results']:
         path = directory / entry['file']
@@ -50,11 +58,13 @@ def rank(directory, truth_path, minimum_eligible=2, band=None):
         items = [(canonical_name(part, library), int(color), np.asarray(T, float))
                  for part, color, T in read_items(path)]
         plane = detect_plane(items, minimum_fraction=0.0, minimum_eligible=minimum_eligible)
-        recon, _ = canonicalize(read_parts(path), library)
-        structural = yaw_equivalent_score(recon, truth, verified_local_symmetries)['matched']
+        structural = None
+        if truth is not None:
+            recon, _ = canonicalize(read_parts(path), library)
+            structural = int(yaw_equivalent_score(recon, truth, verified_local_symmetries)['matched'])
         seating = seated_contact(items[:1], items[1:]) if len(items) > 1 else {}
         rows.append(dict(file=entry['file'], score=float(entry['evidence']['score']),
-                         structural=int(structural), parts=len(items),
+                         structural=structural, parts=len(items),
                          plane_fraction=(plane or {}).get('fraction'),
                          plane_matched=(plane or {}).get('matched'),
                          plane_eligible=(plane or {}).get('eligible'),
@@ -65,11 +75,14 @@ def rank(directory, truth_path, minimum_eligible=2, band=None):
     window = rows if band is None else [row for row in rows
                                         if row['score'] >= selected['score'] - band]
     reranked = max(window, key=lambda row: ((row['plane_fraction'] or 0.0), row['score']))
-    return dict(directory=str(directory), truth=str(truth_path), rows=rows,
+    return dict(directory=str(directory),
+                truth=None if truth_path is None else str(truth_path), rows=rows,
                 candidates=len(rows), band=band, eligible_for_rerank=len(window),
                 selected=selected, symmetry_reranked=reranked,
-                delta=reranked['structural'] - selected['structural'],
-                oracle_best=max(row['structural'] for row in rows),
+                delta=(None if truth is None
+                       else reranked['structural'] - selected['structural']),
+                oracle_best=(None if truth is None
+                             else max(row['structural'] for row in rows)),
                 minimum_eligible=minimum_eligible,
                 truth_used_at_runtime=False, runtime_vlm_calls=0, certified=False,
                 scope='The ranking reads only the candidate assemblies and universal CAD. The '
@@ -83,7 +96,9 @@ def rank(directory, truth_path, minimum_eligible=2, band=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('directory', type=Path)
-    parser.add_argument('--truth', required=True)
+    parser.add_argument('--truth', default=None,
+                        help='Optional reference model, used only to REPORT each candidate\'s '
+                             'structural score; the selection never reads it')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--minimum-eligible', type=int, default=2)
     parser.add_argument('--band', type=float, default=None)
@@ -95,12 +110,13 @@ def main():
     for row in sorted(record['rows'], key=lambda r: -r['score']):
         fraction = row['plane_fraction']
         ratio = '%s/%s' % (row['plane_matched'], row['plane_eligible'])
-        print(f"{row['file']:<14} {row['score']:>8.4f} {row['structural']:>7} "
+        print(f"{row['file']:<14} {row['score']:>8.4f} {str(row['structural']):>7} "
               f"{(('%.3f' % fraction) if fraction is not None else '-'):>7} "
               f"{ratio:>7} {str(row['engaged']):>8}")
     print(f"selected {record['selected']['file']} -> {record['selected']['structural']}; "
           f"symmetry-reranked {record['symmetry_reranked']['file']} -> "
-          f"{record['symmetry_reranked']['structural']}; delta {record['delta']:+d}; "
+          f"{record['symmetry_reranked']['structural']}; "
+          f"delta {'-' if record['delta'] is None else '%+d' % record['delta']}; "
           f"oracle {record['oracle_best']}")
     print(args.out)
 
