@@ -119,6 +119,9 @@ def test_registry_bank_is_unchanged_by_acceleration():
             multi.FAST_COLLISION = original
     slow, quick = records
     for record in (slow, quick):
+        # The two wall-clock fields are the only ones that are ALLOWED to
+        # differ - the whole point of the change is that one is faster.
         record.pop('seconds')
+        record.pop('closure_seconds')
     assert slow['poses'] == quick['poses']
     assert slow == quick

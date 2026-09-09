@@ -84,6 +84,7 @@ class ShapeRegistry:
         self.relative = None
         self.processed, self.limited, self.rounds_done = 0, False, 0
         self.round_limited, self.pose_limited, self.per_round_parents = False, False, False
+        self.time_limited, self.closure_seconds, self.max_seconds = False, 0.0, None
         self.parent_order_source = 'bank_order'
 
     def add(self, part, T):
@@ -111,6 +112,7 @@ class ShapeRegistry:
         clone.native = dict(self.native)
         clone.processed, clone.limited, clone.rounds_done = 0, False, 0
         clone.round_limited, clone.pose_limited, clone.per_round_parents = False, False, False
+        clone.time_limited, clone.closure_seconds, clone.max_seconds = False, 0.0, None
         clone.parent_order_source = 'bank_order'
         return clone
 
@@ -131,7 +133,8 @@ class ShapeRegistry:
         return self.relative
 
     def close(self, closure_rounds=1, max_closure_parents=64, max_poses=8192,
-              parent_order=None, order_source=None, per_round_parents=False):
+              parent_order=None, order_source=None, per_round_parents=False,
+              max_seconds=None):
         """Expand bounded closure rounds, visiting parents in `parent_order`.
 
         `parent_order` is a permutation of the current base-attached pose
@@ -154,7 +157,18 @@ class ShapeRegistry:
         inherited ordering rather than an arbitrary one. Pose exhaustion still
         stops everything, because a bank that is already full cannot hold another
         round's children. The default is unchanged, byte for byte.
+
+        `max_closure_parents=None` removes the parent budget entirely, which is
+        what "finish the closure" means. `max_seconds` bounds the wall clock
+        instead, checked between parents, so a page that turns out to be
+        expensive degrades into a partial bank rather than hanging a chain.
+        Which limit stopped the expansion is recorded separately: parent, pose
+        and time are three different events, and round six's whole reading of
+        the budget depended on telling the first two apart.
         """
+        clock = time.perf_counter()
+        self.max_seconds = None if max_seconds is None else float(max_seconds)
+        parent_budget = float('inf') if max_closure_parents is None else max_closure_parents
         relative = self.relative_mates()
         if parent_order is None:
             frontier = list(range(len(self.poses)))
@@ -169,9 +183,14 @@ class ShapeRegistry:
             round_processed = 0
             for parent in frontier:
                 spent = round_processed if per_round_parents else self.processed
-                if spent >= max_closure_parents:
+                if spent >= parent_budget:
                     self.limited = True
                     self.round_limited = True
+                    break
+                if (self.max_seconds is not None
+                        and time.perf_counter() - clock >= self.max_seconds):
+                    self.limited = True
+                    self.time_limited = True
                     break
                 self.processed += 1
                 round_processed += 1
@@ -198,11 +217,12 @@ class ShapeRegistry:
             # A full pose bank cannot hold another round's children, so that stops
             # everything. A spent per-round parent budget does not: the point of
             # the per-round mode is that the next round gets its own.
-            if self.pose_limited or (self.limited and not per_round_parents):
+            if self.pose_limited or self.time_limited or (self.limited and not per_round_parents):
                 break
             frontier = next_frontier
             if not frontier:
                 break
+        self.closure_seconds = time.perf_counter() - clock
         return self
 
     def record(self):
@@ -220,6 +240,14 @@ class ShapeRegistry:
                     closure_pose_budget_hit=self.pose_limited,
                     closure_per_round_parents=self.per_round_parents,
                     closure_parent_order=self.parent_order_source,
+                    closure_time_budget_hit=self.time_limited,
+                    closure_max_seconds=self.max_seconds,
+                    closure_seconds=self.closure_seconds,
+                    # Every requested round expanded every parent it was handed
+                    # and no cap fired. That is NOT `closure_exhaustive`: one
+                    # round cannot enumerate a two-hop child, so the bank is
+                    # complete for the rounds asked for and no more.
+                    closure_rounds_complete=not self.limited,
                     seconds=time.perf_counter() - self.started, truth_used=False,
                     candidate_settings=dict(kinds=list(CANDIDATE_KINDS), check_collision=True,
                                             check_occlusion=False, with_slide=False),
@@ -233,14 +261,16 @@ class ShapeRegistry:
 
 
 def registry(base, pieces, closure_rounds=1, max_closure_parents=64, max_poses=8192,
-             parent_order=None, order_source=None, per_round_parents=False):
+             parent_order=None, order_source=None, per_round_parents=False,
+             max_seconds=None):
     """Enumerate base-attached poses for every allocated shape, then close.
 
     `pieces` is the PDF allocation as (part, colour) records; colours do not
     affect geometry and are used only to derive the distinct shape set.
     """
     bank = ShapeRegistry(base, pieces)
-    bank.close(closure_rounds, max_closure_parents, max_poses, parent_order, order_source, per_round_parents)
+    bank.close(closure_rounds, max_closure_parents, max_poses, parent_order, order_source,
+               per_round_parents, max_seconds)
     return bank.record()
 
 

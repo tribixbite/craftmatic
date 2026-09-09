@@ -435,7 +435,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     if not evidence_mode:
         bank = seed.branch().close(options['closure_rounds'], options['max_closure_parents'],
                                    options['max_poses'],
-                                   per_round_parents=options.get('per_round_parents', False)
+                                   per_round_parents=options.get('per_round_parents', False),
+                                   max_seconds=options.get('closure_max_seconds')
                                    ).record()
         bank.update(provenance_fields)
         write_atomic(step_dir / 'registry.json', json.dumps(bank, indent=2))
@@ -686,7 +687,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
             attempt_bank = seed.branch().close(
                 options['closure_rounds'], options['max_closure_parents'],
                 options['max_poses'], parent_order, 'pdf_evidence',
-                per_round_parents=options.get('per_round_parents', False)).record()
+                per_round_parents=options.get('per_round_parents', False),
+                max_seconds=options.get('closure_max_seconds')).record()
             attempt_bank.update(provenance_fields)
             attempt_bank['closure_parent_ranking'] = {
                 key: value for key, value in ranking.items() if key != 'merged'}
@@ -722,7 +724,10 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                             image_pieces=image_pieces, withheld=withheld, arrows=arrows,
                             outside_fraction=options.get('fraction', 0.),
                             local_rerank=options.get('local_rerank', 0.),
-                            seated_tolerance=options.get('seated_tolerance', 0.))
+                            seated_tolerance=options.get('seated_tolerance', 0.),
+                            max_bank_candidates=options.get('max_bank_candidates'),
+                            exchange_window_order=options.get('exchange_window_order',
+                                                              'incremental'))
         result.update(pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
                       seconds=time.perf_counter() - started, code_sha256_start=code_hashes,
                       camera_source=str(step_dir / 'camera.json'), scene_order=order,
@@ -1091,9 +1096,24 @@ def add_page_options(parser):
     parser.add_argument('--max-nodes', type=int, default=200000)
     parser.add_argument('--top-k', type=int, default=16)
     parser.add_argument('--host-bytes', type=int, default=4 * 1024 ** 3)
+    parser.add_argument('--max-bank-candidates', type=int, default=None,
+                        help='Cap the screened candidates the bank rasterises, round robin over '
+                             'quota keys by coverage rate. Needed once closures finish: page 28 '
+                             "keeps 69% of a 140,430-pose bank, and without a cap build_bank "
+                             'refuses and the page produces nothing at all')
     parser.add_argument('--closure-rounds', type=int, default=1)
-    parser.add_argument('--max-closure-parents', type=int, default=64)
+    parser.add_argument('--max-closure-parents', type=int, default=64,
+                        help='Closure parents to expand; 0 removes the budget so the round '
+                             'finishes. Round seven measured the cost of finishing: with the '
+                             'vectorised collision predicate every 40377 page completes its own '
+                             'first round in seconds to 2.4 minutes, against the 26 minutes the '
+                             'scalar predicate projected for one page')
     parser.add_argument('--max-poses', type=int, default=8192)
+    parser.add_argument('--closure-max-seconds', type=float, default=None,
+                        help='Wall-clock bound on one page closure, checked between parents. A '
+                             'page that turns out expensive degrades into a partial bank instead '
+                             'of hanging the chain, and the registry records that time, not the '
+                             'parent or pose cap, is what stopped it')
     parser.add_argument('--per-round-parents', action='store_true',
                         help='Count the closure parent budget per round instead of globally, so '
                              'a second connector hop is reachable on a page whose base-attached '
@@ -1114,6 +1134,32 @@ def add_page_options(parser):
     parser.add_argument('--native-rounds', type=int, default=0)
     parser.add_argument('--native-width', type=int, default=16)
     parser.add_argument('--native-starts', type=int, default=1)
+    parser.add_argument('--palette-saturation-tiebreak', type=float, default=0.,
+                        help='Break ties between palette colours that share a hue by saturation. '
+                             'LDraw 19 (Tan) and 191 (Bright Light Orange) both convert to hue '
+                             "20, so argmin decides between them by the palette's own order: on "
+                             '40377 page 26 that hands all 12,353 orange pixels to tan and leaves '
+                             'the page allocating a colour its own classified target does not '
+                             'contain. 0 keeps the shipped behaviour. Turning it on changes '
+                             'classifications, so scores are comparable only with other runs that '
+                             'also set it')
+    parser.add_argument('--chromatic-metric', choices=('hue', 'lab'), default='hue',
+                        help='Order chromatic palette entries by CIE Lab distance instead of hue. '
+                             'Subsumes the saturation tie-break: the hue collision is a cluster, '
+                             'not a pair - 41624 has four colours inside nine hue degrees over 25 '
+                             'of its 109 parts, and 14 and 191 are not separable in HSV at all. '
+                             'Ordering only; acceptance stays the hue test, so the same pixels '
+                             'are classified and only which class they get can change. Scores are '
+                             'comparable only with other runs that also set it')
+    parser.add_argument('--exchange-window-order', choices=('incremental', 'own_agreement'),
+                        default='incremental',
+                        help="Order the native exchange's rendered window by each candidate's own "
+                             'painted agreement instead of by its incremental effect on the '
+                             'composite. The incremental rule plateaus - 47-59% of a key\'s '
+                             'candidates tie exactly on 40377 page 19, so the window fills in bank '
+                             'order and the reference poses sit at window ranks 86-299. Measured '
+                             'on that page: native 0.524586 to 0.532940, reference targets 1 of 6 '
+                             'to 2 of 6, at 217 renders against 84')
     return parser
 
 
@@ -1153,8 +1199,14 @@ def build_options(args):
                               if args.pending_body else None),
                 views=args.views, scale=args.scale, max_nodes=args.max_nodes,
                 top_k=args.top_k, host_bytes=args.host_bytes,
+                max_bank_candidates=args.max_bank_candidates,
                 closure_rounds=args.closure_rounds,
-                max_closure_parents=args.max_closure_parents, max_poses=args.max_poses,
+                # 0 means "no parent budget": the closure runs to exhaustion.
+                # Stored as None so the journal records the intent rather than a
+                # sentinel a later reader would have to know about.
+                max_closure_parents=(args.max_closure_parents or None),
+                max_poses=args.max_poses,
+                closure_max_seconds=args.closure_max_seconds,
                 closure_mode=args.closure_mode, per_round_parents=args.per_round_parents,
                 stable_colors=args.stable_colors, method=args.method, beam=args.beam,
                 max_expansions=args.max_expansions, improve_rounds=args.improve_rounds,
@@ -1162,7 +1214,27 @@ def build_options(args):
                 perturb=args.perturb, seed=args.seed,
                 native_rounds=args.native_rounds,
                 native_width=args.native_width,
-                native_starts=args.native_starts)
+                native_starts=args.native_starts,
+                palette_saturation_tiebreak=args.palette_saturation_tiebreak,
+                chromatic_metric=args.chromatic_metric,
+                exchange_window_order=args.exchange_window_order)
+
+
+def apply_palette_options(options):
+    """Settle the pixel classifier for the whole process, once, before driving.
+
+    The coarse target, the undrawn-colour rule and the camera gate all classify
+    with the same function, so this cannot be a per-call argument: a run whose
+    target says a pixel is orange while its undrawn rule says tan contradicts
+    itself. Both settings are recorded in the journal options, so a run always
+    says which classifier produced its numbers.
+    """
+    import placement_palette_classes
+    weight = float(options.get('palette_saturation_tiebreak') or 0.)
+    metric = options.get('chromatic_metric') or 'hue'
+    placement_palette_classes.SATURATION_TIEBREAK = weight
+    placement_palette_classes.CHROMATIC_METRIC = metric
+    return dict(saturation_tiebreak=weight, chromatic_metric=metric)
 
 
 if __name__ == '__main__':
@@ -1177,6 +1249,7 @@ if __name__ == '__main__':
     add_page_options(parser)
     args = parser.parse_args()
     options = build_options(args)
+    apply_palette_options(options)
     summary = run(args.pdf, args.allocation_run, args.base_run, args.pages, args.out, options,
                   resume=args.resume, stop_on_unsupported=not args.continue_on_unsupported)
     print(json.dumps(dict(status=summary['status'],
