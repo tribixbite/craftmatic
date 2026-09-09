@@ -56,13 +56,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 MIN_SHARE = 0.25
 
 
-def drawn_class_pixels(scene, colors):
-    """Foreground pixels of the drawing per LDraw colour, plus the unclassified."""
+def drawn_class_pixels(scene, colors, context=()):
+    """Foreground pixels of the drawing per LDraw colour, plus the unclassified.
+
+    `context` adds colours that are present in the scene but not allocated - in
+    practice the body's own colours. It is load-bearing rather than cosmetic:
+    `palette_labels` assigns each pixel to the nearest palette entry, so a
+    palette built only from the allocated colours has nothing for a pixel to
+    lose to, and a page allocating a single colour classifies the *entire*
+    drawing as that colour. Measured on 40377 page 26, which allocates only 191:
+    against the allocated palette alone the drawn share is far above threshold,
+    and against the same drawing with the body's eight colours competing, not one
+    pixel is classified 191 at all.
+
+    Counts are returned for `colors` only; the context entries exist to take
+    pixels away from them, which is the whole point.
+    """
     sys.path.insert(0, 'C:/git/clego')
     from recon_v7.render import color_rgb
     from placement_palette_classes import palette_labels
     colors = list(dict.fromkeys(int(c) for c in colors))
-    palette = np.asarray([color_rgb(c) for c in colors], np.uint8)
+    extra = [c for c in dict.fromkeys(int(c) for c in context) if c not in colors]
+    palette = np.asarray([color_rgb(c) for c in colors + extra], np.uint8)
     rgb = np.asarray(scene['rgb'] if 'rgb' in scene else scene['image'])[:, :, :3]
     mask = np.asarray(scene['mask'], bool)
     labels, _ = palette_labels(rgb, mask, palette)
@@ -71,7 +86,7 @@ def drawn_class_pixels(scene, colors):
     return counts, int(mask.sum()), int(((labels == 0) & mask).sum())
 
 
-def undrawn(scene, pieces, projection, min_share=MIN_SHARE, resolver=None):
+def undrawn(scene, pieces, projection, min_share=MIN_SHARE, resolver=None, context_colors=()):
     """Which allocated pieces this drawing has too little of their colour for.
 
     Returns a record with `withheld_keys` (part, colour) pairs, the per-colour
@@ -82,7 +97,7 @@ def undrawn(scene, pieces, projection, min_share=MIN_SHARE, resolver=None):
     from placement_exploded_page import silhouette_area_range
     pieces = [(str(part), int(color)) for part, color in pieces]
     colors = sorted({color for _, color in pieces})
-    counts, foreground, unclassified = drawn_class_pixels(scene, colors)
+    counts, foreground, unclassified = drawn_class_pixels(scene, colors, context_colors)
     rows, withheld = [], []
     for color in colors:
         needed = min(silhouette_area_range(part, color, projection, resolver)[0]
@@ -108,9 +123,13 @@ def undrawn(scene, pieces, projection, min_share=MIN_SHARE, resolver=None):
                                                             if p not in withheld],
                 colors=rows, foreground_pixels=foreground, unclassified_pixels=unclassified,
                 min_share=min_share, reason=reason,
+                context_colors=sorted({int(c) for c in context_colors}),
                 truth_used=False, runtime_vlm_calls=0, certified=False,
                 protocol='Per-colour drawn ink from the palette classifier against the smallest '
-                         'silhouette one allocated piece of that colour can cover at this camera',
+                         'silhouette one allocated piece of that colour can cover at this camera. '
+                         'The classifier palette is the allocated colours plus any context colours '
+                         'supplied; without the latter a single-colour allocation has no competitor '
+                         'and absorbs the whole drawing.',
                 limitations='A piece drawn but wholly occluded by the rest of the assembly is '
                             'indistinguishable from one that is not drawn, so this withholds a '
                             'whole colour only when its ink falls below a fraction of a single '
