@@ -144,6 +144,20 @@
       "precision": 0.16129032258064516,
       "coverage": 0.045871559633027525,
       "legacy_structural": 3
+    },
+    {
+      "page": 13,
+      "status": "placed",
+      "score": 0.5044182592405834,
+      "withheld": [],
+      "emitted": 34,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.14705882352941177,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
     }
   ],
   "scope": "Evaluation-only, executed after the run; the reference model chooses nothing at runtime.",

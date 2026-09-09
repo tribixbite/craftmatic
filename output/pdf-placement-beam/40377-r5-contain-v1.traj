@@ -1,7 +1,7 @@
 {
   "run": "output\\pdf-placement-beam\\40377-r5-contain-v1",
   "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
-  "status": "running",
+  "status": "completed_requested_pages_uncertified",
   "rows": [
     {
       "page": 16,
@@ -196,6 +196,16 @@
       "precision": 0.6708860759493671,
       "coverage": 0.5888888888888889,
       "legacy_structural": 49
+    },
+    {
+      "page": 31,
+      "status": "subassembly_page",
+      "reason": "The page draws no view of the current assembly, so it builds a separate body; construction of a body from nothing is not implemented in the driver"
+    },
+    {
+      "page": 32,
+      "status": "no_allocation",
+      "reason": "Page adds no allocated piece and no subassembly is pending"
     }
   ],
   "scope": "Evaluation-only, executed after the run; the reference model chooses nothing at runtime.",
