@@ -42,6 +42,26 @@ The PDF BOM itself overlaps OMR at only 73/90 exact IDs: at least 14 of the
 differences have universal catalog/rename evidence. Do not mislabel these all
 as CNN errors. A 360-candidate page-filtered placement trial worsened to 1/90.
 Keep `scripts/pdf-recon/anchored_pipeline_trial.py` opt-in and quarantined.
+Round nine (backtracking + inventory capacity) settles where the remaining loss
+is. Page-level backtracking is built (`placement_backtrack.py`) and works: the
+`registration_collapse` trigger fires on round eight's known regression, reopens
+page 19 and recovers 40377 from 51 to 53/90. But **the drive's own contribution
+is +0 whatever body it starts from** - 41601 driven from a 6-of-7 opening lands
+6/108 and adds nothing over sixteen pages, exactly as it added nothing from its
+3-of-7 opening (3/108); 41624 from a +1 opening gains 13 emitted pieces, 5 placed
+pages and zero correct poses. 15 of 17 driven pages on 41601 retain *nothing*
+better than what was selected. So do not spend on the per-page search: spend on
+what picks a body. `placement_construction_symmetry` (round six) selects 41601's
+6-of-7 opening with no reference at all (plane agreement 1.000 vs 0.600).
+**Inventory capacity is refuted as a ranker** (count capacity is vacuous where the
+page quota is exact; 0 draw-down deficits; the look-ahead is identical on all 75
+candidate bodies measured) - do not rebuild it. Mould variants
+(`15573`/`3794a`/`3794b`, `4032a`/`4032b`) share an *exactly* equal universal
+bounding box but differ in voxels, cores and connectors: **one capacity pool, not
+one search candidate**, and admitting them takes 41601's drivable scope from 83
+pieces on 19 pages to 92 on 23 (`placement_slot_adapter --mould-policy
+withhold`). The open problem round nine created: every runtime-legal
+branch-selection rule shipped picks the *worse* branch when a better one exists.
 **Round six measured the failure population instead of buying another channel**
 (`placement_population_table`, `placement_retention_audit`). Across both fixtures
 110 distinct reference instances are lost as: **68 never enumerated, 8 rejected
