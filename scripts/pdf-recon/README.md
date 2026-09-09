@@ -105,6 +105,42 @@ Options that matter, and why:
   the driver classifies as building a separate body.
 * `--retry-passes N` retries pages that failed only for want of a camera, after
   later pages have supplied one.
+* `--camera-gate {off,report,enforce}` (default `enforce`) accepts a page's
+  camera only when its refined registration is contained, leaves no more drawn
+  ink unexplained than the page's own allocated pieces could cover, and keeps
+  the expected scale. `report` measures without filtering, which is how a gated
+  run is compared with an ungated one. Thresholds are `--camera-unexplained-max`
+  and `--camera-scale-tolerance`.
+* `--no-exploded-target` scores every allocated piece against the drawing even
+  when the page draws one of them detached, reproducing the round-two objective.
+  With the default on, a detected detached piece is withheld from the
+  image-judged search and placed afterwards from the page's arrows.
+* `--no-drawing-scale` stops the driver measuring the scale between the previous
+  page's drawing and this one. That measurement is PDF-only and does not pass
+  through the emitted body, so it survives a wrong body; it supplies extra
+  rescaled camera hypotheses and the camera gate's expected scale.
+* `--local-rerank W` (default 0, off) blends the whole-drawing score with
+  evidence restricted to the region an addition changes. It fixes a measured
+  one-stud selection error on 41624 page index 2 and is not needed on the 40377
+  pages tested, so it stays opt-in.
+
+Body construction, for a page with no assembly to register against - a first
+page, or one that starts a subassembly:
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_construct_body.py `
+  --pdf C:/git/clego/lego_sets/PDF/6248865.pdf `
+  --allocation-run output/pdf-placement-diagnosis/41624-bridged-allocation-p2to8 `
+  --page 2 --prescan-pages 3 4 5 --roots 2 `
+  --out output/pdf-placement-beam/NEW-CONSTRUCTION --closure-mode evidence `
+  --fraction 0.01 --fallback 2 --views 3 --native-rounds 3 --native-starts 3
+```
+
+It nails one allocated piece to the identity transform - the reconstruction
+frame is free and the camera sweep already covers every root orientation - and
+runs the ordinary page pipeline for the rest. The selected result is written to
+`construction/`, an ordinary placement directory a driver consumes with
+`--base-run` or `--group-run`.
 
 Evaluation is separate and post hoc. None of these read a reference model:
 
@@ -122,7 +158,22 @@ python -X utf8 -B scripts/pdf-recon/placement_diagnose_alias_poses.py `
 `placement_diagnose_bank_recall.py` answers whether the enumerated bank contains
 the reference poses at all, `placement_diagnose_target_score.py` whether the
 runtime scorer prefers them, and `placement_diagnose_alias_poses.py` reports raw
-strict, authoritative-alias and structural pose agreement separately. Local
+strict, authoritative-alias and structural pose agreement separately.
+`placement_trajectory.py RUN --truth OMR.mpd` prints the whole run as a table of
+emitted, structural, canonical-alias and raw-strict agreement per checkpoint.
+`placement_diagnose_coarse_rank.py` rebuilds a page's own bank and reports where
+a requested pose sits under the coarse composite and under the native scorer, so
+a pose lost to the occupancy screen, to coarse ranking, or to the two objectives
+disagreeing can be told apart; `--outside-fraction` applies the proportional
+occupancy allowance. `placement_diagnose_local_delta.py` reports the same
+candidates under the whole-drawing scorer and under region-local evidence.
+
+Every diagnostic rebuilds the run's own target through `placement_run_scene`,
+which reads the `mask_source` the run recorded. A diagnostic that rebuilds the
+drawing from the PDF without it scores a different question: on 40377 page index
+17 the run used the body's image component (52,177 px) and a naive rebuild uses
+the whole drawing (65,869 px), and the same assembly scores 0.5442 or 0.2865
+depending on which. Local
 symmetries come from saved universal-CAD proofs
 (`placement_verify_part_symmetries.py`), never a hand list.
 
