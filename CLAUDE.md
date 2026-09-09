@@ -42,6 +42,15 @@ The PDF BOM itself overlaps OMR at only 73/90 exact IDs: at least 14 of the
 differences have universal catalog/rename evidence. Do not mislabel these all
 as CNN errors. A 360-candidate page-filtered placement trial worsened to 1/90.
 Keep `scripts/pdf-recon/anchored_pipeline_trial.py` opt-in and quarantined.
+**The `scripts/pdf-recon` tests use three harnesses and mixing them hides
+failures.** Most files are a `if __name__ == '__main__'` loop printing `ok  <name>`
+(run with `python -X utf8 -B <file>`), some are `unittest` (`Ran N tests`), and a
+few are **pytest** (`test_placement_multi_shape_batch.py`,
+`test_placement_evidence_closure.py`, `test_placement_origin_refine.py`). Running a
+pytest file with plain `python` exits **0 having run nothing**, so a sweep that only
+checks exit codes silently skips them — run those with `python -m pytest -q` from
+`scripts/pdf-recon`. Current totals: 148 tests across the print-style and unittest
+files, 36 more under pytest.
 Round two of the placement program fixed candidate generation and the page-17
 camera. The bounded connector closure expands only a bounded number of
 base-attached poses and visited them in enumeration order, so on 40377 page
