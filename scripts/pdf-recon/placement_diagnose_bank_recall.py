@@ -37,14 +37,14 @@ def bank_recall(registry, truth, base_items, position_tolerance=1.0, rotation_to
     for part, color in registry['allocated_pieces']:
         quotas[(str(part), int(color))] = quotas.get((str(part), int(color)), 0) + 1
     wanted = []
-    for part, color, position, frame in truth:
+    for index, (part, color, position, frame) in enumerate(truth):
         if (part, int(color)) not in quotas:
             continue
         if (part, int(color), tuple(np.round(position, 3))) in placed:
             continue  # already in the body: this is a later page's copy
-        wanted.append((part, int(color), position, frame))
+        wanted.append((index, part, int(color), position, frame))
     rows = []
-    for part, color, position, frame in wanted:
+    for truth_index, part, color, position, frame in wanted:
         hits = []
         for index, entry in enumerate(registry['poses']):
             if str(entry['part']) != part:
@@ -59,6 +59,11 @@ def bank_recall(registry, truth, base_items, position_tolerance=1.0, rotation_to
                    for variant in local):
                 hits.append(index)
         rows.append(dict(part=part, color=color, reference_position=position.tolist(),
+                         # The reference file index identifies the instance exactly, so a
+                         # downstream table can join a page's target on the same object a
+                         # whole-model matching reports rather than on a rounded position.
+                         truth_index=int(truth_index),
+                         reference_frame=np.asarray(frame, float).tolist(),
                          bank_indices=hits, present=bool(hits)))
     return dict(alignment=alignment, allocated_quotas={f'{p}:{c}': q for (p, c), q in quotas.items()},
                 reference_targets=len(rows), present=sum(1 for r in rows if r['present']),

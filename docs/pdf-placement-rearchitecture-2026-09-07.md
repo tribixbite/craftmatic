@@ -1850,3 +1850,80 @@ What replaces them is this.
    measurements across two fixtures — one clear gain, two clear losses, one
    neutral, one gain — and the seated tie-break has two losses. Both are levers
    with scopes, not defaults.
+
+## Round six: what the whole population is actually blocked by
+
+Round five ended by recommending a population measurement before another
+objective, on the grounds that one page's 899-against-11,000 might be the
+failure or might be *a* failure. It is a failure, and a small one. Measured
+across every reference part both fixtures fail to place, visibility accounts for
+**5 of 63 in-scope parts**. Candidate generation accounts for 26.
+
+### The table, and how each class is decided
+
+`placement_population_table` assigns every reference part the final assembly does
+not place correctly to exactly one primary class. It reads the run's own
+journal, each page's own registry and each page's own accepted camera; the
+reference model supplies the targets, the alignment and the poses measured, all
+strictly after the run.
+
+* `out_of_scope` — no page of the run allocates it. Nothing the run does could
+  place it.
+* `allocation_blocked` — a page allocates it and that page was never driven: a
+  subassembly construction the driver refuses, a page with no allocation.
+* `unreachable` — a driven page allocates it and the reference pose is **absent
+  from that page's enumerated bank**, so no scorer could have selected it. The
+  bank test is `placement_diagnose_bank_recall`'s, with saved universal-CAD
+  symmetry proofs.
+* `visibility_limited` — the pose is in the bank but paints under 200 px, or
+  under a quarter of the page's own selected addition, **against the body the run
+  actually scored it on**. That is the quantity the objective saw.
+* `mis_selected` — in the bank, painting a competitive area, still not selected.
+
+| class | 40377 pages 16-32 | 41624 pages 3-8 | total | share of in-scope |
+| --- | ---: | ---: | ---: | ---: |
+| `unreachable` | 8 | 18 | **26** | 41.3% |
+| `mis_selected` | 12 | 10 | **22** | 34.9% |
+| `allocation_blocked` | 10 | 0 | 10 | 15.9% |
+| `visibility_limited` | 4 | 1 | **5** | 7.9% |
+| in-scope failures | 34 | 29 | 63 | |
+| `out_of_scope` | 3 | 75 | 78 | — |
+| correct | 53/90 | 5/109 | | |
+
+41624's 75 out-of-scope parts are the 101 pages the six-page drive never
+reaches; they are excluded from every share above rather than counted as
+failures of anything measured here.
+
+### Two controls, one of which fails and says so
+
+**Correctly-placed control.** Nine reference instances 40377 *did* place
+correctly paint 874 to 14,133 px against their own page body (median 9,332), and
+678 to 4,861 against the complete reference model. Every part in the
+`visibility_limited` class paints 0 to 979. The class separates, on this fixture.
+
+**Complete-reference control, and where it is inapplicable.** Round five's
+measurement — is the piece hidden by the viewpoint or only by our own wrong
+parts? — needs the finished model to be a fair stand-in for the body. On 41624
+pages 3-8 it is not: the two parts the run places *correctly* paint **0** pixels
+against the complete 109-part reference at those pages' cameras, because a
+six-to-twenty-two-part body's camera buries every addition under the whole
+finished model. The tool reports `complete_reference_control: applicable=false`
+rather than quoting the number, and classification uses the body the run scored
+against. On 40377 pages 16-30, where the body is 49 to 79 of 90 parts, the
+control is applicable and round five's page-23 figures reproduce exactly: 523 px
+against our body, 75 against the complete reference, rival 619.
+
+### What this says about round five's reading
+
+Round five's page-23 measurement is confirmed and its generalisation is not.
+Page 23 is one part. The largest class on both fixtures is `unreachable` — the
+correct pose was never enumerated — and it is 18 of 29 on 41624, where round four
+and five spent their effort on registration and cameras. The second is
+`mis_selected`, which is the only class a better objective can convert, and it is
+22 parts. Visibility-limited is 5.
+
+The practical consequence for round six's plan: a channel that proposes poses
+**outside the enumerated bank** addresses 26 parts; a channel that only re-ranks
+what the bank already holds addresses at most 22; a channel aimed specifically at
+invisible pieces addresses 5. Mirror completion is worth building for the first
+reason, not the third.
