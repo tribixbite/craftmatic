@@ -370,10 +370,24 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                                              'pending', kind_evidence=kind_evidence),
                 None, (), None, None)
     if kind == 'subassembly':
+        # A construction can be deliberately left out rather than merely absent,
+        # and the two are different events. Attaching a construction that is
+        # wrong poisons the body every later page registers against - round one
+        # measured the same mechanism forwards, when a *correct* four-piece
+        # attachment was worth six extra downstream poses - so a construction
+        # that cannot be made right is excluded on stated evidence, its pieces
+        # stay outstanding, and the journal says which and why.
+        excluded = (options.get('excluded_constructions') or {}).get(str(page))
+        if excluded:
+            return ('construction_excluded',
+                    dict(reason='A construction for this page was deliberately excluded rather '
+                                'than attached, so its error does not propagate into the pages '
+                                'that register against the body',
+                         exclusion_evidence=excluded, allocated_pieces=pieces,
+                         kind_evidence=kind_evidence), None, (), None, None)
         return ('subassembly_page',
                 dict(reason='The page draws no view of the current assembly, so it builds a '
-                            'separate body; construction of a body from nothing is not '
-                            'implemented in the driver',
+                            'separate body; no construction is supplied for it',
                      kind_evidence=kind_evidence), None, (), None, None)
 
     # Base-attached enumeration depends only on the body and the allocation, so
@@ -1000,6 +1014,12 @@ def add_page_options(parser):
     parser.add_argument('--group-run', action='append', default=[], metavar='PAGE=DIRECTORY',
                         help='PDF-derived subassembly construction for a page that builds a '
                              'separate body; the driver schedules its attachment itself')
+    parser.add_argument('--exclude-construction', action='append', default=[],
+                        metavar='PAGE=REASON',
+                        help='Record that this page\'s construction is deliberately left out, with '
+                             'the measured reason. Its pieces stay outstanding and its ink stays '
+                             'attributable, and the journal says it was excluded rather than '
+                             'merely unsupplied')
     parser.add_argument('--body-area-ratio', type=float, default=0.6,
                         help='A drawing below this fraction of the body silhouette is not a view '
                              'of the body')
@@ -1106,6 +1126,8 @@ def build_options(args):
                 attach_coarse_pairs=args.attach_coarse_pairs,
                 group_runs={entry.split('=', 1)[0]: entry.split('=', 1)[1]
                             for entry in args.group_run},
+                excluded_constructions={entry.split('=', 1)[0]: entry.split('=', 1)[1]
+                                        for entry in args.exclude_construction},
                 pending_body=(dict(page=int(args.pending_body.split('=', 1)[0]),
                                    groups=args.pending_body.split('=', 1)[1])
                               if args.pending_body else None),

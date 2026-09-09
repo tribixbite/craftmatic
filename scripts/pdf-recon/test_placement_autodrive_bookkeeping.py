@@ -73,3 +73,25 @@ if __name__ == '__main__':
                 print('FAIL', name, error)
     print('failures', failures)
     sys.exit(1 if failures else 0)
+
+
+def test_an_excluded_construction_still_owes_its_pieces():
+    # `construction_excluded` is not `placed`, so page 20's seven pieces stay
+    # attributable to page 20 and the camera gate on pages 22 to 30 does not
+    # charge their ink to whatever two pieces those pages happen to add.
+    outstanding = {}
+    pieces = [('3023b', 15), ('3069b', 191), ('6091', 191), ('6091', 191),
+              ('3023b', 191), ('98138pb072', 0), ('98138pb072', 0)]
+    assert update_outstanding(outstanding, 20, False, pieces) == pieces
+    assert update_outstanding(outstanding, 23, True) == pieces
+
+
+def test_the_exclusion_option_is_parsed_per_page():
+    from placement_autodrive import add_page_options, build_options
+    import argparse
+    parser = add_page_options(argparse.ArgumentParser())
+    args = parser.parse_args(['--exclude-construction', '20=1 of 5 structural',
+                              '--exclude-construction', '31=1 of 4 structural'])
+    options = build_options(args)
+    assert options['excluded_constructions'] == {'20': '1 of 5 structural',
+                                                 '31': '1 of 4 structural'}
