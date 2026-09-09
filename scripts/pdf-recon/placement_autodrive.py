@@ -111,6 +111,11 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         return ('no_candidate_poses', dict(reason='No collision-free connector mate for any '
                                                   'allocated shape on the existing body'), None, ())
 
+    from placement_arrow_mask import protected_cad_colors
+    palette = protected_cad_colors(list(dict.fromkeys(
+        list(pieces) + [(part, int(color)) for part, color, _ in base])))
+    if not palette['complete']:
+        raise ValueError('Cannot classify arrows without every known part CAD print colour')
     stable = options['stable_colors'] or base_colors(base)
     attempts = []
     for order, scene_record in enumerate(camera['native_scenes']):
@@ -126,6 +131,18 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
             continue
         with pymupdf.open(pdf) as doc:
             scene = next(s for s in scene_images(doc, doc[page]) if s['xref'] == xref)
+        if scene_record.get('mask_source') == 'largest_component':
+            # A piece drawn detached above the assembly is not in the body yet.
+            # Leaving it in the target makes its pixels permanently unexplained,
+            # which both drags the registration off the body and collapses the
+            # score. Restricting the target to the body's own image component
+            # scores the assembly against the assembly.
+            from placement_arrow_mask import conservative_components
+            graph = conservative_components(scene, protected_colors=palette['rgb'])
+            components = sorted((c for c in graph['components'] if c.get('mask') is not None),
+                                key=lambda c: -int(c['area']))
+            if len(components) > 1:
+                scene = dict(scene, mask=components[0]['mask'])
         hypotheses = []
         for index, matrix in enumerate(matrices):
             registered = register(scene, base, matrix, stable_colors=tuple(stable))
@@ -189,6 +206,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         detail = dict(selected_parts=result['selected_parts'], shapes=result['shapes'],
                       seconds=result['seconds'], xref=xref, scene_order=order,
                       reused_prior_camera=reused,
+                      mask_source=scene_record.get('mask_source'),
                       containment_fallback=contained['containment_fallback_used'],
                       attempts=attempts,
                       score=result['results'][0]['evidence']['score'])
