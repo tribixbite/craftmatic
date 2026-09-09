@@ -1265,3 +1265,37 @@ makes the unit-scale hypothesis *more* load-bearing early in a booklet than late
 and it makes using the fitted ratio on its own actively wrong on a small model -
 which is worth stating because the fitted ratio is what round three wired in as
 the camera gate's expected scale.
+
+### 41624 moves 3/109 to 5/109, and the gate's own expected scale was the next wall
+
+Driving 41624's pages 3 to 8 from its 3-of-3 opening with drawing-to-drawing
+registration, the repair and the gate enforcing:
+
+| page | emitted | structural | precision | selected score | registration |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 3 | 6 | 3 | 0.500 | 0.6171 | body template |
+| 4 | 9 | **5** | 0.556 | 0.6623 | **drawing to drawing** |
+| 5-8 | camera refused | - | - | - | - |
+
+Round three's corresponding rows, from the 2-of-3 opening, were 6/2 and 9/3 at
+precision 0.333, then 22/3 at 0.136 by page 8. So this run is **5/109 against
+3/109**, precision 0.556 against 0.333, with the four pages that used to emit
+thirteen wrong parts refused instead. Part of that gain is the better opening -
+round three built the 3-of-3 construction but never drove from it - and the control
+that separates the two is the same six pages without drawing-to-drawing
+registration, which is queued rather than measured. What is not in doubt is that
+page 4 selected the propagated camera and placed two of its three pieces.
+
+Pages 5 to 8 were then refused for exactly one reason, and it was the gate's own
+arithmetic rather than the camera. Containment was satisfied, coverage 0.577 to
+0.637, unexplained ink 0.199 to 0.392 - all passing - and the camera was
+**1.0860 px per LDU on all four pages, the same value the page that placed
+correctly used**. What moved was the expectation: round three set it to the
+previous accepted scale times the measured drawing ratio, and 4 to 5 fits at 1.23.
+The gate refused an unchanged camera for being 19% off an expectation 23% wrong.
+
+`scale_window` makes that criterion an interval - from the previous accepted scale
+to that scale times the ratio, widened by the tolerance at both ends - which is what
+`placement_drawing_scale` always said the ratio was good for. It collapses to the
+old point behaviour when no ratio is supplied, and a refusal now names the window
+it fell outside.
