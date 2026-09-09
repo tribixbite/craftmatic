@@ -39,6 +39,7 @@ import {
   type IndexModel, type LegoModelsIndex,
 } from '@engine/lego-sources.js';
 import { buildLegoDiagnostics, diagnosticsFilename } from '@ui/lego-diagnostics.js';
+import { contactCheckStatus } from '@ui/contact-check-status.js';
 
 /**
  * Pick the colour→block table for an extracted .io model.
@@ -366,9 +367,9 @@ function buildUI(): void {
         <input type="checkbox" id="lego-wireframe" style="margin:0">
         Wireframe
       </label>
-      <label title="Verify build connectivity: checks every piece's real surface touches the main structure and highlights detached candidates red. Face-contact based — pieces held only by clips/bars/pins can be flagged even though they're attached, so red = inspect, not proof of floating." style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+      <label title="Contact check (heuristic, not a certificate): highlights red every piece with no detected attachment to the main structure. Evidence is surface contact within ~4 LDU plus LDCad attachment points for clips, bars, pins and minifig headgear — coverage of that table is partial, so red means &quot;look at this&quot;, never proof of a floating piece. One component is not proof of correct assembly either: the 4 LDU tolerance closes small real gaps." style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
         <input type="checkbox" id="lego-verify" style="margin:0">
-        Verify
+        Contact check
       </label>
       <label title="Show FPS / draw calls / triangle count overlay (dev)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
         <input type="checkbox" id="lego-stats" style="margin:0">
@@ -571,11 +572,13 @@ function wireEvents(): void {
     currentLDrawViewer?.setWireframe(on);
   });
 
-  // ── Connectivity verify toggle ────────────────────────────────────────────
-  // Surfaces the geometry-contact connectivity audit (previously dev-only):
-  // ON runs the audit and highlights detached candidates red; OFF restores
-  // colors and the pre-audit status line. See connectivity-audit.ts for the
-  // honest limits (blind to clip/bar/pin joints → red = inspect, not proof).
+  // ── Contact-candidate check toggle ────────────────────────────────────────
+  // A HEURISTIC, and the copy here says so (audit P1 #5). ON runs the hybrid
+  // audit — surface contact within one voxel, fused with LDCad attachment
+  // points for the clip/bar/pin/headgear joints surfaces miss — and highlights
+  // every piece with no detected attachment; OFF restores colors and the
+  // pre-audit status. Neither outcome is a certificate: see
+  // viewer/ldraw/connectivity-audit.ts for the limits each message discloses.
   let statusBeforeVerify: { text: string; className: string } | null = null;
   document.getElementById('lego-verify')?.addEventListener('change', e => {
     void (async () => {
@@ -591,31 +594,31 @@ function wireEvents(): void {
         return;
       }
       if (!currentLDrawViewer) {
-        setStatus('Connectivity check needs the 3D render mode with a model loaded.', 'info');
+        setStatus('The contact check needs the 3D render mode with a model loaded.', 'info');
         box.checked = false;
         return;
       }
       const el = document.getElementById('lego-status');
       statusBeforeVerify = el ? { text: el.textContent ?? '', className: el.className } : null;
       const pieceCount = currentBricks?.length ?? 0;
-      setStatus(`Verifying connectivity of ${pieceCount.toLocaleString()} pieces… (surface-contact analysis${pieceCount > 3000 ? ', may take several seconds' : ''})`, 'info');
+      setStatus(`Checking contacts across ${pieceCount.toLocaleString()} pieces… (surface + attachment-point analysis${pieceCount > 3000 ? ', may take several seconds' : ''})`, 'info');
       // Yield a couple of frames so the status paints before the CPU-heavy
       // synchronous audit blocks the main thread.
       await new Promise(r => setTimeout(r, 60));
       try {
         const rep = await currentLDrawViewer.highlightDetached(4);
-        if (rep.components <= 1) {
-          setStatus(`✓ Verified: all ${rep.pieces.toLocaleString()} pieces form one connected structure (surface-contact audit)`, 'success');
-        } else {
-          const biggest = rep.detachedComponents[0];
-          const biggestNote = biggest ? ` — largest: ${biggest.size} piece(s) (${biggest.part.replace(/\.dat$/i, '')})` : '';
-          setStatus(
-            `${rep.largestPct}% of ${rep.pieces.toLocaleString()} pieces form the main structure; ${rep.detached.toLocaleString()} piece(s) in ${rep.components - 1} group(s) highlighted red${biggestNote}. Red = no detected surface contact — clip/bar/pin-mounted pieces are false positives; genuinely floating pieces are real. Uncheck to restore colors.`,
-            'info',
-          );
-        }
+        lastContactAudit = {
+          pieces: rep.pieces, components: rep.components,
+          largestPct: rep.largestPct, detached: rep.detached,
+          resolutionLDU: rep.resolutionLDU, snapAssisted: rep.snapOnlyUnions,
+        };
+        // Pass the PARSED placement count too: pieces whose part never resolved
+        // are not instanced, so the audit never sees them and its percentages
+        // are over a smaller model than the user loaded.
+        setStatus(contactCheckStatus(rep, currentBricks?.length),
+                  rep.components <= 1 ? 'success' : 'info');
       } catch (err) {
-        setStatus(`Connectivity check failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+        setStatus(`Contact check failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
         box.checked = false;
         statusBeforeVerify = null;
       }
@@ -1386,6 +1389,22 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
 }
 
 /**
+ * What to tell the user about a `.lxf` model's placement accuracy.
+ *
+ * `.lxf` needs a per-design LDD→LDraw origin correction. Since 2026-09-09 the
+ * primary one is MEASURED against authentic Studio placements (see
+ * lxf-parser.ts's header): held out against six sets with both a native `.lxf`
+ * and an authentic Studio `.io` it reaches 72.7 % geometric agreement, where the
+ * Studio `ldraw.xml` columns this used to rely on reached 7.2 %. So the caveat
+ * is no longer "approximate, prefer another source" — it is a real, quantified
+ * accuracy figure. Give the number rather than a vague hedge.
+ */
+const LXF_ALIGNMENT_CAVEAT =
+  'LDD .lxf: placements use a per-design alignment measured against authentic '
+  + 'Studio models (≈73% of parts land exactly on real ground truth) — an '
+  + 'authentic Studio .io of the same set, where one exists, is still exact';
+
+/**
  * Surface a `.lxf` load's alignment coverage: keep the structured record for the
  * diagnostic bundle, log it, and fold the one-line summary into
  * `currentSourceWarning` so the user sees it in the FINAL status (a bare
@@ -1477,7 +1496,7 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
   }
 
   if (ext === 'lxf' && bricks.length > 150) {
-    currentSourceWarning = 'LDD .lxf: part alignment is approximate for complex models — a Studio/LDraw source of the same set renders more accurately';
+    currentSourceWarning = LXF_ALIGNMENT_CAVEAT;
   }
   if (bricks.length === 0) throw new Error(`no brick placements in ${model.path}`);
   // Index-level conversion flag (lineage metadata — catches laundered LXF
@@ -1854,13 +1873,8 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
       const bricks = parsed.bricks;
       currentMpdContent = undefined;
       currentCustomParts = undefined;
-      // LDD .lxf placement relies on a per-part LDD→LDraw origin-alignment table
-      // (ldraw.xml). This is exact for simple/axis-aligned builds but imperfect
-      // for models with many angled/curved parts (vehicles) — a known limitation
-      // of free LDD→LDraw conversion that even dedicated converters share. Set
-      // expectations rather than imply false precision; Studio .io renders best.
       if (bricks.length > 150) {
-        currentSourceWarning = 'LDD .lxf: part alignment is approximate for complex models — a Studio .io of the same set renders most accurately';
+        currentSourceWarning = LXF_ALIGNMENT_CAVEAT;
       }
       reportLxfDiagnostics(parsed.diagnostics, file.name);
       await voxelizeAndDisplay(bricks, file.name);
