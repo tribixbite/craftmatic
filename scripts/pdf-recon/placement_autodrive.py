@@ -76,13 +76,16 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     complete search result is taken; every attempt is saved.
     """
     from placement_arrow_contacts import read_items
+    from placement_arrow_mask import conservative_components
     from placement_body_registration import register
+    from placement_evidence_closure import rank_parents
     from placement_material_scene_score import MaterialFeatureSceneScorer
-    from placement_multi_shape_batch import registry
+    from placement_multi_shape_batch import ShapeRegistry
     from placement_multi_shape_search import run as search_run
     from placement_occupancy_screen import screen
     from placement_origin_refine import refine
     from placement_page_camera import page_camera
+    from placement_page_mask import part_palette, restrict_to_body_component
     from placement_pdf_group_evidence import load_allocations
     import pymupdf
     from vector_scene import scene_images
@@ -102,20 +105,25 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         return ('camera_unsupported', dict(reason=camera['status'],
                                            scene_kinds=camera.get('scene_kinds')), None, ())
 
-    bank = registry(base, pieces, options['closure_rounds'],
-                    options['max_closure_parents'], options['max_poses'])
-    bank.update(provenance, pdf=str(pdf), page=page, base_source=str(base_model),
-                base_sha256=file_hash(base_model), allocated_pieces=pieces, runtime_vlm_calls=0)
-    write_atomic(step_dir / 'registry.json', json.dumps(bank, indent=2))
-    if not bank['poses']:
+    # Base-attached enumeration depends only on the body and the allocation, so
+    # it is done once; closure is per drawing because in evidence mode the
+    # parent order comes from that drawing's own refined registration.
+    seed = ShapeRegistry(base, pieces)
+    provenance_fields = dict(provenance, pdf=str(pdf), page=page, base_source=str(base_model),
+                             base_sha256=file_hash(base_model), allocated_pieces=pieces,
+                             runtime_vlm_calls=0)
+    if not seed.poses:
         return ('no_candidate_poses', dict(reason='No collision-free connector mate for any '
                                                   'allocated shape on the existing body'), None, ())
+    evidence_mode = options.get('closure_mode', 'bank') == 'evidence'
+    bank = None
+    if not evidence_mode:
+        bank = seed.branch().close(options['closure_rounds'], options['max_closure_parents'],
+                                   options['max_poses']).record()
+        bank.update(provenance_fields)
+        write_atomic(step_dir / 'registry.json', json.dumps(bank, indent=2))
 
-    from placement_arrow_mask import protected_cad_colors
-    palette = protected_cad_colors(list(dict.fromkeys(
-        list(pieces) + [(part, int(color)) for part, color, _ in base])))
-    if not palette['complete']:
-        raise ValueError('Cannot classify arrows without every known part CAD print colour')
+    palette = part_palette(list(pieces) + [(part, int(color)) for part, color, _ in base])
     stable = options['stable_colors'] or base_colors(base)
     attempts = []
     for order, scene_record in enumerate(camera['native_scenes']):
@@ -131,18 +139,14 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
             continue
         with pymupdf.open(pdf) as doc:
             scene = next(s for s in scene_images(doc, doc[page]) if s['xref'] == xref)
+        arrows = conservative_components(scene, protected_colors=palette['rgb'])['arrows']
         if scene_record.get('mask_source') == 'largest_component':
             # A piece drawn detached above the assembly is not in the body yet.
             # Leaving it in the target makes its pixels permanently unexplained,
             # which both drags the registration off the body and collapses the
             # score. Restricting the target to the body's own image component
             # scores the assembly against the assembly.
-            from placement_arrow_mask import conservative_components
-            graph = conservative_components(scene, protected_colors=palette['rgb'])
-            components = sorted((c for c in graph['components'] if c.get('mask') is not None),
-                                key=lambda c: -int(c['area']))
-            if len(components) > 1:
-                scene = dict(scene, mask=components[0]['mask'])
+            scene = restrict_to_body_component(scene, [], palette)
         hypotheses = []
         for index, matrix in enumerate(matrices):
             registered = register(scene, base, matrix, stable_colors=tuple(stable))
@@ -172,6 +176,30 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                                  best_overflow=min((r['best_containment']['outside_pixels']
                                                     for r in contained['evaluated']), default=None)))
             continue
+        attempt_bank = bank
+        if evidence_mode:
+            # Bank order carries no information about the page, and the closure
+            # expands only a bounded prefix of it, so a parent outside that
+            # prefix makes its children unreachable at any pose cap. Rank the
+            # parents by this drawing's own arrow and silhouette evidence first.
+            parent_order, ranking = rank_parents(
+                base, seed, pieces, contained['hypotheses'], scorer,
+                allowance=int(contained['hypotheses'][0].get('outside_pixels') or 0),
+                views=options['views'], arrows=arrows)
+            attempt_bank = seed.branch().close(
+                options['closure_rounds'], options['max_closure_parents'],
+                options['max_poses'], parent_order, 'pdf_evidence').record()
+            attempt_bank.update(provenance_fields)
+            attempt_bank['closure_parent_ranking'] = {
+                key: value for key, value in ranking.items() if key != 'merged'}
+            write_atomic(step_dir / f'registry-{order:02d}.json',
+                         json.dumps(attempt_bank, indent=2))
+            write_atomic(step_dir / f'closure-ranking-{order:02d}.json',
+                         json.dumps(dict(ranking, order=parent_order, page=page, xref=xref),
+                                    indent=2))
+            if not attempt_bank['poses']:
+                attempts.append(dict(xref=xref, status='no_candidate_poses'))
+                continue
         placement = step_dir / (f'placement-{order:02d}' if order else 'placement')
         placement.mkdir(exist_ok=True)
         snapshot = placement / 'source'
@@ -182,7 +210,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
             (snapshot / path.name).write_bytes(payload)
             code_hashes[path.name] = hashlib.sha256(payload).hexdigest()
         started = time.perf_counter()
-        result = search_run(bank, contained, scene, base, placement, views=options['views'],
+        result = search_run(attempt_bank, contained, scene, base, placement, views=options['views'],
                             scale=options['scale'], max_nodes=options['max_nodes'],
                             top_k=options['top_k'], host_bytes=options['host_bytes'],
                             method=options['method'], beam=options['beam'],
@@ -197,6 +225,10 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                       seconds=time.perf_counter() - started, code_sha256_start=code_hashes,
                       camera_source=str(step_dir / 'camera.json'), scene_order=order,
                       reused_prior_camera=reused, stable_colors=stable,
+                      closure_mode=options.get('closure_mode', 'bank'),
+                      closure_parent_order=attempt_bank['closure_parent_order'],
+                      registry_source=str(step_dir / (f'registry-{order:02d}.json' if evidence_mode
+                                                      else 'registry.json')),
                       registration_source=str(step_dir / f'registration-refined-{order:02d}.json'))
         write_atomic(placement / 'results.json', json.dumps(result, indent=2))
         if result['status'] != 'candidates':
@@ -318,6 +350,10 @@ if __name__ == '__main__':
     parser.add_argument('--closure-rounds', type=int, default=1)
     parser.add_argument('--max-closure-parents', type=int, default=64)
     parser.add_argument('--max-poses', type=int, default=8192)
+    parser.add_argument('--closure-mode', choices=('bank', 'evidence'), default='evidence',
+                        help="'evidence' ranks closure parents by the page's own arrowhead and "
+                             "silhouette evidence before spending the parent budget; 'bank' keeps "
+                             'the original enumeration order for reproducing earlier runs')
     parser.add_argument('--stable-colors', type=int, nargs='*', default=None)
     parser.add_argument('--method', choices=('beam', 'exact'), default='beam')
     parser.add_argument('--beam', type=int, default=96)
@@ -338,6 +374,7 @@ if __name__ == '__main__':
                    top_k=args.top_k, host_bytes=args.host_bytes,
                    closure_rounds=args.closure_rounds,
                    max_closure_parents=args.max_closure_parents, max_poses=args.max_poses,
+                   closure_mode=args.closure_mode,
                    stable_colors=args.stable_colors, method=args.method, beam=args.beam,
                    max_expansions=args.max_expansions, improve_rounds=args.improve_rounds,
                    improve_from=args.improve_from, restarts=args.restarts,

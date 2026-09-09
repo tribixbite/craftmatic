@@ -80,24 +80,33 @@ if __name__ == '__main__':
     parser.add_argument('--truth', default='C:/git/clego/lego_sets/OMR/40377-1.mpd')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--position-tolerance', type=float, default=1.0)
+    parser.add_argument('--symmetry-level', choices=('vertex', 'triangle'), default='vertex')
     args = parser.parse_args()
     registry = json.loads(args.registry.read_text())
     if registry.get('truth_used') is not False or registry.get('runtime_vlm_calls') != 0:
         raise ValueError('Registry provenance lacks truth-free zero-VLM attestation')
     from placement_diagnose_alias_poses import canonicalize
     from placement_part_library import PartLibrary
+    from placement_part_symmetry_table import symmetries as part_symmetries, table
     library = PartLibrary()
     truth, _ = canonicalize(read_parts(args.truth), library)
     base_items, _ = canonicalize(read_parts(args.base), library)
-    yaw = np.diag([-1., 1., -1.])
-    symmetries = {part: [np.eye(3), yaw] for part in
-                  ('3010', '3710', '3020', '3023b', '3005', '3069b', '3003', '4032a', '22885')}
+    # Local symmetries come from the saved universal-CAD proofs, not a hand list.
+    # The previous hand list omitted whole families - it had no entry for 60474
+    # at all - so a pose enumerated in an equivalent frame was reported missing
+    # and understated recall exactly where recall was being measured.
+    wanted = sorted({str(entry['part']) for entry in registry['poses']}
+                    | {str(part) for part, *_ in truth})
+    symmetries = {part: list(part_symmetries(part, args.symmetry_level)) for part in wanted}
     result = bank_recall(registry, truth, base_items, args.position_tolerance,
                          symmetries=symmetries)
     result.update(registry=str(args.registry), base=str(args.base), truth=str(args.truth),
                   bank_poses=len(registry['poses']),
                   base_attached=registry.get('base_attached_count'),
-                  closure_budget_hit=registry.get('closure_budget_hit'))
+                  closure_budget_hit=registry.get('closure_budget_hit'),
+                  closure_parent_order=registry.get('closure_parent_order'),
+                  closure_parents_processed=registry.get('closure_parents_processed'),
+                  symmetry_table=table(wanted, args.symmetry_level))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2))
     print(json.dumps(dict(reference_targets=result['reference_targets'],

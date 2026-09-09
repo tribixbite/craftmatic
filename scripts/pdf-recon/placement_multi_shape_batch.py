@@ -8,6 +8,17 @@ across all shapes so that joint cardinality search can enforce a per
 No reference model, set inventory or VLM participates. A bounded closure is
 never claimed to be an exhaustive pose enumeration, and the witnessed support
 graph may omit legal edges, which can only lose candidates, never invent them.
+
+`ShapeRegistry` separates the two stages the closure budget couples together:
+enumerating base-attached mates, and expanding a bounded number of those as
+closure parents. Because the budget stops after `max_closure_parents`, the
+*order* parents are visited in decides which second-layer poses exist at all.
+Measured on 40377 page index 17, the parent whose child is the stacked second
+60474 sits at bank index 3927 of 4147, so no budget below that index can reach
+it and the correct pose is absent from the bank however large the pose cap is.
+`close(parent_order=...)` therefore accepts an explicit permutation of the
+base-attached poses; `placement_evidence_closure` supplies one derived from PDF
+silhouette evidence at the page's own registration.
 """
 import argparse
 import hashlib
@@ -23,95 +34,162 @@ from placement_pdf_group_evidence import load_allocations
 CANDIDATE_KINDS = ('CYL', 'CLP', 'FGR', 'GEN')
 
 
-def registry(base, pieces, closure_rounds=1, max_closure_parents=64, max_poses=8192):
-    """Enumerate base-attached poses for every allocated shape, then close once.
+class ShapeRegistry:
+    """Mutable pose bank for one page's allocated shapes.
+
+    Construction enumerates every allocated shape's collision-free connector
+    mates on the existing body. `close` then expands bounded closure rounds over
+    a caller-chosen parent order. `record` emits the serialisable bank.
+    """
+
+    def __init__(self, base, pieces):
+        if not pieces:
+            raise ValueError('No allocated pieces')
+        self.started = time.perf_counter()
+        self.parts = sorted({str(part) for part, _ in pieces})
+        self.assembly = make_assembly(base)
+        self.poses, self.lookup = [], {}
+        self.anchored, self.edges = set(), set()
+        self.native = {}
+        for part in self.parts:
+            candidates = self.assembly.candidates(part, kinds=CANDIDATE_KINDS,
+                                                  check_collision=True, check_occlusion=False)
+            self.native[part] = len(candidates)
+            for candidate in candidates:
+                index, _ = self.add(part, candidate['T'])
+                self.anchored.add(index)
+        self.base_attached_count = len(self.poses)
+        self.relative = None
+        self.processed, self.limited, self.rounds_done = 0, False, 0
+        self.parent_order_source = 'bank_order'
+
+    def add(self, part, T):
+        key = (part, tuple(np.round(np.asarray(T, float).flatten(), 5)))
+        if key in self.lookup:
+            return self.lookup[key], False
+        self.lookup[key] = len(self.poses)
+        self.poses.append((part, np.asarray(T, float).copy()))
+        return len(self.poses) - 1, True
+
+    def branch(self):
+        """Independent bank sharing this one's immutable enumeration work.
+
+        Closure order depends on the page registration, and one page can offer
+        several drawings, so each attempt needs its own bank. The body assembly
+        and the relative-mate table are read-only and are shared rather than
+        recomputed; the pose list, index, anchors and edges are copied.
+        """
+        clone = object.__new__(type(self))
+        clone.__dict__.update(self.__dict__)
+        clone.poses = list(self.poses)
+        clone.lookup = dict(self.lookup)
+        clone.anchored = set(self.anchored)
+        clone.edges = set(self.edges)
+        clone.native = dict(self.native)
+        clone.processed, clone.limited, clone.rounds_done = 0, False, 0
+        clone.parent_order_source = 'bank_order'
+        return clone
+
+    def relative_mates(self):
+        """Relative mates of every child shape on one parent shape at identity.
+
+        The parent's own pose then maps the whole family into the scene frame,
+        so this table is computed once per page rather than per parent pose.
+        """
+        if self.relative is None:
+            self.relative = {}
+            for parent_part in self.parts:
+                single = make_assembly([(parent_part, 15, np.eye(4))])
+                for child_part in self.parts:
+                    self.relative[(parent_part, child_part)] = single.candidates(
+                        child_part, kinds=CANDIDATE_KINDS, check_collision=True,
+                        check_occlusion=False)
+        return self.relative
+
+    def close(self, closure_rounds=1, max_closure_parents=64, max_poses=8192,
+              parent_order=None, order_source=None):
+        """Expand bounded closure rounds, visiting parents in `parent_order`.
+
+        `parent_order` is a permutation of the current base-attached pose
+        indices. It changes only which parents fit inside the budget, never
+        which children are legal, so a better order can add correct poses but
+        can never invent an illegal one.
+        """
+        relative = self.relative_mates()
+        if parent_order is None:
+            frontier = list(range(len(self.poses)))
+        else:
+            frontier = [int(index) for index in parent_order]
+            if sorted(frontier) != list(range(self.base_attached_count)):
+                raise ValueError('Parent order must be a permutation of the base-attached poses')
+            self.parent_order_source = order_source or 'explicit'
+        for _ in range(max(0, closure_rounds)):
+            next_frontier = []
+            for parent in frontier:
+                if self.processed >= max_closure_parents:
+                    self.limited = True
+                    break
+                self.processed += 1
+                parent_part, parent_T = self.poses[parent]
+                for child_part in self.parts:
+                    for candidate in relative[(parent_part, child_part)]:
+                        T = parent_T @ candidate['T']
+                        key = (child_part, tuple(np.round(T.flatten(), 5)))
+                        existing = self.lookup.get(key)
+                        if existing is not None:
+                            if existing != parent:
+                                self.edges.add(tuple(sorted((parent, existing))))
+                            continue
+                        if len(self.poses) >= max_poses:
+                            self.limited = True
+                            continue
+                        if self.assembly.collides(child_part, T):
+                            continue
+                        child, _ = self.add(child_part, T)
+                        next_frontier.append(child)
+                        self.edges.add(tuple(sorted((parent, child))))
+            self.rounds_done += 1
+            if self.limited:
+                break
+            frontier = next_frontier
+            if not frontier:
+                break
+        return self
+
+    def record(self):
+        return dict(parts=self.parts,
+                    poses=[dict(part=part, T=T.tolist()) for part, T in self.poses],
+                    base_supported=sorted(self.anchored), support_edges=sorted(self.edges),
+                    base_attached_count=self.base_attached_count,
+                    native_base_candidate_count=self.native,
+                    relative_candidate_count={f'{a}->{b}': len(v)
+                                              for (a, b), v in (self.relative or {}).items()},
+                    closure_parents_processed=self.processed,
+                    closure_rounds_completed=self.rounds_done,
+                    closure_budget_hit=self.limited, closure_exhaustive=False,
+                    closure_parent_order=self.parent_order_source,
+                    seconds=time.perf_counter() - self.started, truth_used=False,
+                    candidate_settings=dict(kinds=list(CANDIDATE_KINDS), check_collision=True,
+                                            check_occlusion=False, with_slide=False),
+                    limitations='Bounded one-parent connector closure across shapes; not a complete '
+                                'multi-part occupancy/connectivity search. Native voxel collision, no '
+                                'sliding candidates. The support graph is witnessed, not proven '
+                                'complete: legal disconnected subsets may be false negatives. '
+                                'Base-attached candidates are retained without image pruning. '
+                                'Only the first max_closure_parents parents in the recorded order '
+                                'are expanded, so second-layer recall depends on that order.')
+
+
+def registry(base, pieces, closure_rounds=1, max_closure_parents=64, max_poses=8192,
+             parent_order=None, order_source=None):
+    """Enumerate base-attached poses for every allocated shape, then close.
 
     `pieces` is the PDF allocation as (part, colour) records; colours do not
     affect geometry and are used only to derive the distinct shape set.
     """
-    if not pieces:
-        raise ValueError('No allocated pieces')
-    started = time.perf_counter()
-    parts = sorted({str(part) for part, _ in pieces})
-    assembly = make_assembly(base)
-    poses, lookup = [], {}
-    anchored, edges = set(), set()
-
-    def add(part, T):
-        key = (part, tuple(np.round(np.asarray(T, float).flatten(), 5)))
-        if key in lookup:
-            return lookup[key], False
-        lookup[key] = len(poses)
-        poses.append((part, np.asarray(T, float).copy()))
-        return len(poses) - 1, True
-
-    native = {}
-    for part in parts:
-        candidates = assembly.candidates(part, kinds=CANDIDATE_KINDS,
-                                         check_collision=True, check_occlusion=False)
-        native[part] = len(candidates)
-        for candidate in candidates:
-            index, _ = add(part, candidate['T'])
-            anchored.add(index)
-    base_count = len(poses)
-
-    # Relative mates of every child shape on one parent shape at identity. The
-    # parent's own pose then maps the whole family into the scene frame.
-    relative = {}
-    for parent_part in parts:
-        single = make_assembly([(parent_part, 15, np.eye(4))])
-        for child_part in parts:
-            relative[(parent_part, child_part)] = single.candidates(
-                child_part, kinds=CANDIDATE_KINDS, check_collision=True, check_occlusion=False)
-
-    frontier = list(range(len(poses)))
-    processed, limited, rounds_done = 0, False, 0
-    for _ in range(max(0, closure_rounds)):
-        next_frontier = []
-        for parent in frontier:
-            if processed >= max_closure_parents:
-                limited = True
-                break
-            processed += 1
-            parent_part, parent_T = poses[parent]
-            for child_part in parts:
-                for candidate in relative[(parent_part, child_part)]:
-                    T = parent_T @ candidate['T']
-                    key = (child_part, tuple(np.round(T.flatten(), 5)))
-                    existing = lookup.get(key)
-                    if existing is not None:
-                        if existing != parent:
-                            edges.add(tuple(sorted((parent, existing))))
-                        continue
-                    if len(poses) >= max_poses:
-                        limited = True
-                        continue
-                    if assembly.collides(child_part, T):
-                        continue
-                    child, _ = add(child_part, T)
-                    next_frontier.append(child)
-                    edges.add(tuple(sorted((parent, child))))
-        rounds_done += 1
-        if limited:
-            break
-        frontier = next_frontier
-        if not frontier:
-            break
-    return dict(parts=parts,
-                poses=[dict(part=part, T=T.tolist()) for part, T in poses],
-                base_supported=sorted(anchored), support_edges=sorted(edges),
-                base_attached_count=base_count, native_base_candidate_count=native,
-                relative_candidate_count={f'{a}->{b}': len(v) for (a, b), v in relative.items()},
-                closure_parents_processed=processed, closure_rounds_completed=rounds_done,
-                closure_budget_hit=limited, closure_exhaustive=False,
-                seconds=time.perf_counter() - started, truth_used=False,
-                candidate_settings=dict(kinds=list(CANDIDATE_KINDS), check_collision=True,
-                                        check_occlusion=False, with_slide=False),
-                limitations='Bounded one-parent connector closure across shapes; not a complete '
-                            'multi-part occupancy/connectivity search. Native voxel collision, no '
-                            'sliding candidates. The support graph is witnessed, not proven '
-                            'complete: legal disconnected subsets may be false negatives. '
-                            'Base-attached candidates are retained without image pruning.')
+    bank = ShapeRegistry(base, pieces)
+    bank.close(closure_rounds, max_closure_parents, max_poses, parent_order, order_source)
+    return bank.record()
 
 
 def shape_bank(record, pieces):
