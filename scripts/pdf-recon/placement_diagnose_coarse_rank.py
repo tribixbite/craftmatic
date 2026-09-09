@@ -31,6 +31,11 @@ def main():
                         help="Proportional occupancy allowance in each candidate's own units")
     parser.add_argument('--translations', type=float, nargs='+', default=(),
                         help='Flat x y z triples to locate in both rankings')
+    parser.add_argument('--local', action='store_true',
+                        help='Also score each sampled placement by the local objective - the '
+                             'evidence restricted to the region the addition changes - which is '
+                             'the lever a late page adding one small piece to a large body needs '
+                             'measured, since the whole drawing is dominated by the body')
     args = parser.parse_args()
 
     from placement_arrow_contacts import read_items
@@ -77,18 +82,32 @@ def main():
             if np.allclose(placement['items'][0][2][:3, 3], target, atol=1e-6):
                 interesting.add(index)
     interesting.update(int(i) for i in order[:12])
-    native = {}
+    native, local = {}, {}
+    base_layer = None
+    if args.local:
+        from placement_local_delta import added_region, local_evidence, render_layers
+        fixed_native_score(scorer, base, M, origin)
+        base_layer = render_layers(scorer, base, M)
     for index in sorted(interesting):
         items = base + list(placements[index]['items'])
         native[index] = fixed_native_score(scorer, items, M, origin)['score']
+        if base_layer is not None:
+            layer = render_layers(scorer, items, M)
+            local[index] = local_evidence(scorer, base_layer, layer,
+                                          added_region(base_layer, layer,
+                                                       scorer.mask))['local_score']
     native_order = sorted(native, key=lambda i: -native[i])
     native_rank = {index: rank for rank, index in enumerate(native_order, 1)}
+    local_rank = {index: rank for rank, index in
+                  enumerate(sorted(local, key=lambda i: -local[i]), 1)}
     for index in sorted(interesting):
         translation = [float(v) for v in placements[index]['items'][0][2][:3, 3]]
         rows.append(dict(placement=index, translation=translation,
                          coarse_score=float(coarse_scores[index]),
                          coarse_rank=coarse_rank[index], native_score=native[index],
                          native_rank_within_sample=native_rank[index],
+                         local_score=local.get(index),
+                         local_rank_within_sample=local_rank.get(index),
                          requested=any(np.allclose(translation, t, atol=1e-6) for t in wanted)))
     rows.sort(key=lambda r: r['coarse_rank'])
     result = dict(run=str(args.run), registry=str(args.registry), view=args.view,
@@ -101,11 +120,15 @@ def main():
                               'nothing else.')
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2))
-    print(f'{"coarse#":>7} {"native#":>7} {"coarse":>8} {"native":>8}  translation')
+    print(f'{"coarse#":>7} {"native#":>7} {"local#":>7} {"coarse":>8} {"native":>8} '
+          f'{"local":>8}  translation')
     for row in rows:
         mark = ' <-' if row['requested'] else ''
-        print(f'{row["coarse_rank"]:>7} {row["native_rank_within_sample"]:>7} '
-              f'{row["coarse_score"]:>8.5f} {row["native_score"]:>8.5f}  '
+        local_rank_text = ('%7d' % row['local_rank_within_sample']
+                           if row['local_rank_within_sample'] else '      -')
+        local_text = '%8.5f' % row['local_score'] if row['local_score'] is not None else '       -'
+        print(f'{row["coarse_rank"]:>7} {row["native_rank_within_sample"]:>7} {local_rank_text} '
+              f'{row["coarse_score"]:>8.5f} {row["native_score"]:>8.5f} {local_text}  '
               f'{[round(v, 1) for v in row["translation"]]}{mark}')
 
 
