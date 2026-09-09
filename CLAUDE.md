@@ -42,6 +42,26 @@ The PDF BOM itself overlaps OMR at only 73/90 exact IDs: at least 14 of the
 differences have universal catalog/rename evidence. Do not mislabel these all
 as CNN errors. A 360-candidate page-filtered placement trial worsened to 1/90.
 Keep `scripts/pdf-recon/anchored_pipeline_trial.py` opt-in and quarantined.
+Round two of the placement program fixed candidate generation and the page-17
+camera. The bounded connector closure expands only a bounded number of
+base-attached poses and visited them in enumeration order, so on 40377 page
+index 17 the parent of the stacked second 60474 sat at bank index 3927 of 4147
+and no pose cap could reach it. Ranking closure parents by the page's own
+arrowhead evidence (an instruction arrow points at the connector receiving the
+next piece, so it names the parent) moves it to rank 39-70 and takes bank recall
+from 1/2 to 2/2 with a SMALLER bank. Page 17's stud-row camera is separately 13%
+small - 29.1-30.1 px/stud against 33.8-34.1 on pages 15 and 16 - which is what
+round one misread as a scoring failure after a VLM eyeballed the viewpoint;
+the previous page's measured scale is now offered as an extra camera hypothesis.
+The opt-in scale ladder inside containment refinement picks the WRONG direction
+on that page and is off by default. Page kinds are measured, not assumed: a
+drawing showing the assembly cannot be much smaller than the assembly's own
+silhouette (40k-83k px on 40377's body pages, 18k and 8k on its two subassembly
+pages), and the driver now holds a body table and schedules cross-page
+attachment itself. 41624's three unmapped identities are resolved by confirming
+the factorized universal-catalog bridge against the element's own inventory icon
+(modal foreground colour, not the mean - the mean makes white read as grey);
+all 109 pieces now carry one identity.
 **2026-09-08 driver + search rewrite:** 40377 coverage moved 26/90 → **46/90
 (51.1%, 46 correct of 49 emitted, precision 0.94)**, still far from 90%. The stage-specific runs are replaced by
 `placement_autodrive.py` (camera → registration → silhouette-containment
