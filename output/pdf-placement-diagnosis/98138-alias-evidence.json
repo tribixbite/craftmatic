@@ -1,0 +1,190 @@
+{
+  "bricklink_id": "98138pb072",
+  "ldraw_id": "98138pz0",
+  "header_evidence": {
+    "resolved_file": "C:\\git\\craftmatic\\output\\pdf-universal-parts\\98138pz0.dat",
+    "sha256": "f98e0e255025aad41ad98b0cfdd52fb7948c5f4d6b981f40f5448400ef9f22b5",
+    "lines": [
+      "0 !LDRAW_ORG Part UPDATE 2023-03",
+      "0 !KEYWORDS Brickheadz, BrickLink 98138pb072, Eye, Rebrickable 98138pr0060",
+      "0 !KEYWORDS Set 41490, Set 41491, Set 41492, Set 41493",
+      "0 !HISTORY 2017-12-30 [PTadmin] Official Update 2017-01",
+      "0 !HISTORY 2023-04-21 [Cheenzo] Subfiled pattern for reuse, added keywords",
+      "0 !HISTORY 2023-06-24 [OrionP] Official Update 2023-03"
+    ],
+    "declares_bricklink_alias": true,
+    "upstream_url": "https://library.ldraw.org/library/official/parts/98138pz0.dat"
+  },
+  "locally_installed_copy": {
+    "file": "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\parts\\98138pz0.dat",
+    "header": [
+      "0 !LDRAW_ORG Part UPDATE 2017-01",
+      "0 !LICENSE Redistributable under CCAL version 2.0 : see CAreadme.txt",
+      "0 !KEYWORDS BrickHeadz",
+      "0 !HISTORY 2017-12-30 [PTadmin] Official Update 2017-01"
+    ],
+    "note": "The Studio-bundled library is LDraw release 207; its copy predates the 2023-03 update that added the BrickLink keyword, which is why the alias was unavailable offline"
+  },
+  "studio_table_evidence": {
+    "file": "C:\\git\\clego\\extracted\\studio_release\\app\\data\\StudioPartDefinition2.txt",
+    "rows": [
+      {
+        "Studio ItemNo": "153546",
+        "BaseStudioItemNo": "105246",
+        "BL ItemNo": "98138pb072",
+        "BL ItemKey": "153546",
+        "LDraw ItemNo": "98138pb072.dat",
+        "LDD ItemNo": "",
+        "Description": "Tile, Round 1 x 1 with 2 White Squares Pattern (BrickHeadz Standard Eye)",
+        "isPerfectForCulling": "o",
+        "BLCatalogIndex": "98",
+        "BLCatalogSubIndex": "3",
+        "EasyModeIndex": "8",
+        "IsAssembly?": "False",
+        "flexible type": "",
+        "IsDecorated": "True",
+        "XPCatalogIndex": "5015",
+        "XPCatalogSubIndex": ""
+      },
+      {
+        "Studio ItemNo": "-153546",
+        "BaseStudioItemNo": "105246",
+        "BL ItemNo": "98138pb072",
+        "BL ItemKey": "153546",
+        "LDraw ItemNo": "98138pz0.dat",
+        "LDD ItemNo": "",
+        "Description": "Tile, Round 1 x 1 with 2 White Squares Pattern (BrickHeadz Standard Eye)",
+        "isPerfectForCulling": "o",
+        "BLCatalogIndex": "0",
+        "BLCatalogSubIndex": "0",
+        "EasyModeIndex": "0",
+        "IsAssembly?": "False",
+        "flexible type": "",
+        "IsDecorated": "True",
+        "XPCatalogIndex": "",
+        "XPCatalogSubIndex": ""
+      }
+    ],
+    "ldraw_names": [
+      "98138pb072.dat",
+      "98138pz0.dat"
+    ],
+    "item_keys": [
+      "153546"
+    ],
+    "descriptions": [
+      "Tile, Round 1 x 1 with 2 White Squares Pattern (BrickHeadz Standard Eye)"
+    ]
+  },
+  "cad_evidence": {
+    "studio_to_official": {
+      "distinct_vertices": 137,
+      "shared_with_other": 129,
+      "share": 0.9416058394160584
+    },
+    "official_to_studio": {
+      "distinct_vertices": 137,
+      "shared_with_other": 129,
+      "share": 0.9416058394160584
+    },
+    "bbox_max_difference_ldu": 0.0,
+    "area_ratio": 1.0000029956189844,
+    "studio": {
+      "part": "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\UnOfficial\\parts\\98138pb072.dat",
+      "triangles": 270,
+      "area": 1255.3265351437647,
+      "bbox_min": [
+        -10.0,
+        0.0,
+        -10.0
+      ],
+      "bbox_max": [
+        10.0,
+        8.0,
+        10.0
+      ],
+      "files": {
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\UnOfficial\\parts\\98138pb072.dat": "9e92fa6a896013a9b0543f7dc4a6baf502a4634cad96786a37587dff5888b427",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\UnOfficial\\parts\\s\\98138s01.dat": "dff4bf55eb5b4d6a8f3889fc208b5946a8f7b139e297a1edb67e2f976fc165b9",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\parts\\s\\98138s02.dat": "5bda194e7fcb4eaac3211f712ec73a18988f4312fc94aade40722b1e9da00548",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\stud4o.dat": "5709e692209667d0a415a459c60e2a5e62c900814a3bb2e6935be23304cca2d5",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4ring3.dat": "1f2835ac308154edc2d6f479d8e742a55be981f6167b20bfa100c195bc0731dd",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4cylc.dat": "1535177acbdf5b04fa32a14b78ef80e6ce8f2f786261a14c2f7d3d8759265a03",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4edge.dat": "54a52196e421fd1717d291ff52ea57553b1fb238907c1678cc1f1a84c698b1da",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4disc.dat": "a00b5547776f61a7389d303616987c76b3c4de86ad8ec32f22857e1bd5e5e40f",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4cyli.dat": "4a742c2765b6ebf98245baaf8a160a4ff587fc93d36c8ee2b9074712a2f968c4",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4ring8.dat": "9701c3b35792f1f8d3fac6f9d0351260aea293ff60761c5d485175fba2b8d038",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4cylo.dat": "d6ca97ee2e75918b3309a5c88aafcd2455b3a316f7cef8963517c19f1d86b38f",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4ring9.dat": "f1b98f891616369b58e4ff5d25ba9598ff7ef71b63e72cf3c500e72540390efb",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4ering.dat": "4c6053dbe39380ce2ee683668f1c3272013d5f0ca9a03e4f19d851f8221ea61a",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\1-16chrd.dat": "e429dd760eb6f0cf460a74e6ebf52c023bedbdea82de7801efa1694b5a1a82e8",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\empty.dat": "119cef0b2c9fa07100f710fb3dcac5f79ad60a4b4992046083b084f4083de1fe"
+      }
+    },
+    "official": {
+      "part": "C:\\git\\craftmatic\\output\\pdf-universal-parts\\98138pz0.dat",
+      "triangles": 270,
+      "area": 1255.3302956237649,
+      "bbox_min": [
+        -10.0,
+        0.0,
+        -10.0
+      ],
+      "bbox_max": [
+        10.0,
+        8.0,
+        10.0
+      ],
+      "files": {
+        "C:\\git\\craftmatic\\output\\pdf-universal-parts\\98138pz0.dat": "f98e0e255025aad41ad98b0cfdd52fb7948c5f4d6b981f40f5448400ef9f22b5",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\parts\\s\\98138s01.dat": "dff4bf55eb5b4d6a8f3889fc208b5946a8f7b139e297a1edb67e2f976fc165b9",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\parts\\s\\98138s02.dat": "5bda194e7fcb4eaac3211f712ec73a18988f4312fc94aade40722b1e9da00548",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\stud4o.dat": "5709e692209667d0a415a459c60e2a5e62c900814a3bb2e6935be23304cca2d5",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4ring3.dat": "1f2835ac308154edc2d6f479d8e742a55be981f6167b20bfa100c195bc0731dd",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4cylc.dat": "1535177acbdf5b04fa32a14b78ef80e6ce8f2f786261a14c2f7d3d8759265a03",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4edge.dat": "54a52196e421fd1717d291ff52ea57553b1fb238907c1678cc1f1a84c698b1da",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4disc.dat": "a00b5547776f61a7389d303616987c76b3c4de86ad8ec32f22857e1bd5e5e40f",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4cyli.dat": "4a742c2765b6ebf98245baaf8a160a4ff587fc93d36c8ee2b9074712a2f968c4",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4ring8.dat": "9701c3b35792f1f8d3fac6f9d0351260aea293ff60761c5d485175fba2b8d038",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4cylo.dat": "d6ca97ee2e75918b3309a5c88aafcd2455b3a316f7cef8963517c19f1d86b38f",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4ring9.dat": "f1b98f891616369b58e4ff5d25ba9598ff7ef71b63e72cf3c500e72540390efb",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\parts\\s\\98138pz0s01.dat": "73c8812af27c4d2a972eaaaa4333a5fcf606b6ec8cb30ca0013140347c70fd51",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\4-4ering.dat": "4c6053dbe39380ce2ee683668f1c3272013d5f0ca9a03e4f19d851f8221ea61a",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\1-16chrd.dat": "e429dd760eb6f0cf460a74e6ebf52c023bedbdea82de7801efa1694b5a1a82e8",
+        "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\p\\empty.dat": "119cef0b2c9fa07100f710fb3dcac5f79ad60a4b4992046083b084f4083de1fe"
+      }
+    },
+    "vertex_tolerance_ldu": 0.001
+  },
+  "library_provenance": {
+    "3010py3.dat": {
+      "sha256": "2ec03f011ac0ed5c4b2090320df9d06ba9d00423b666f9a214889b9f4d2cbb76",
+      "bricklink_aliases": [
+        "3010pb291"
+      ],
+      "alias_evidence": "LDraw part !KEYWORDS header",
+      "canonical_upstream_url": "https://library.ldraw.org/library/official/parts/3010py3.dat"
+    },
+    "3245cpzc.dat": {
+      "sha256": "c818252533f3766bf07c7f0540609aa14f89e3882ad4c8a58192b4e113e93b17",
+      "bricklink_aliases": [
+        "3245cpb117"
+      ],
+      "alias_evidence": "LDraw part !KEYWORDS header",
+      "canonical_upstream_url": "https://library.ldraw.org/library/official/parts/3245cpzc.dat"
+    },
+    "98138pz0.dat": {
+      "sha256": "f98e0e255025aad41ad98b0cfdd52fb7948c5f4d6b981f40f5448400ef9f22b5",
+      "bricklink_aliases": [
+        "98138pb072"
+      ],
+      "alias_evidence": "LDraw part !KEYWORDS header",
+      "canonical_upstream_url": "https://library.ldraw.org/library/official/parts/98138pz0.dat"
+    }
+  },
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "protocol": "Universal LDraw part header keywords, the Studio part table and a recursive CAD surface comparison, checked independently of each other",
+  "limitations": "An authoritative identity between two catalog namespaces, not a claim that either file is the mould a set actually contains, and not a placement result. The two files are authored differently, so triangle counts differ by construction and only the surface is compared."
+}

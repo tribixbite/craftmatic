@@ -60,6 +60,18 @@ def write_root(path, part, color):
     return [(str(part), int(color), transform)]
 
 
+def largest_scene(pdf, page, camera):
+    """The page's own biggest non-panel drawing, which is what a root registers against."""
+    import pymupdf
+    from vector_scene import scene_images
+    xrefs = [record['xref'] for record in camera.get('native_scenes', ())]
+    with pymupdf.open(pdf) as doc:
+        scenes = [s for s in scene_images(doc, doc[page]) if s['xref'] in xrefs]
+    if not scenes:
+        return None
+    return max(scenes, key=lambda s: int(np.asarray(s['mask'], bool).sum()))
+
+
 def construct(pdf, page, allocation_run, out, options, roots=2, prescan_pages=()):
     """Construct this page's body and return (status, detail, directory)."""
     from placement_autodrive import nearest_prescan, place_page, prescan_cameras, write_atomic
@@ -92,6 +104,24 @@ def construct(pdf, page, allocation_run, out, options, roots=2, prescan_pages=()
         return ('construction_camera_unsupported',
                 dict(reason=camera.get('status'), scene_kinds=camera.get('scene_kinds'),
                      prescan_pages=sorted(prescan) if prescan else []), None)
+    # A numbered subassembly step's parts strip lists what the *step* consumes,
+    # and some of that belongs to the attachment rather than to the subassembly.
+    # A colour with less drawn ink than one of its own pieces must cover cannot
+    # be in this drawing, so those pieces are withheld and stay outstanding.
+    undrawn_record = dict(withheld_keys=[], reason='disabled')
+    if options.get('withhold_undrawn'):
+        from placement_undrawn_pieces import split_pieces, undrawn
+        scene = largest_scene(pdf, page, camera)
+        if scene is None:
+            undrawn_record = dict(withheld_keys=[], reason='No non-panel drawing to measure')
+        else:
+            undrawn_record = undrawn(scene, pieces, matrices[0],
+                                     options.get('undrawn_min_share', 0.25))
+            undrawn_record['xref'] = scene['xref']
+            kept, held = split_pieces(pieces, undrawn_record)
+            if held and len(kept) >= 2:
+                pieces = kept
+        write_atomic(out / 'undrawn.json', json.dumps(undrawn_record, indent=2, default=str))
     order, areas = root_order(pieces, matrices[0])
     attempts, best = [], None
     for index, root in enumerate(order[:max(1, roots)]):
@@ -121,6 +151,8 @@ def construct(pdf, page, allocation_run, out, options, roots=2, prescan_pages=()
             best = record
     result = dict(pdf=str(pdf), page=page, pdf_sha256=provenance['pdf_sha256'],
                   allocation_run=str(allocation_run), allocated_pieces=[list(p) for p in pieces],
+                  undrawn=undrawn_record,
+                  withheld_pieces=undrawn_record.get('withheld', []),
                   roots_considered=[list(r) for r in order], attempts=attempts,
                   borrowed_camera_page=borrowed_from,
                   prescan_pages=sorted(prescan) if prescan else [],
@@ -131,7 +163,8 @@ def construct(pdf, page, allocation_run, out, options, roots=2, prescan_pages=()
                   limitations='Roots are tried in drawn-area order up to an explicit limit, so a '
                               'construction whose only registrable root is small can be missed. '
                               'A one-piece body registers weakly, and containment barely '
-                              'constrains it. Nothing here is certified.')
+                              'constrains it. Withheld pieces are not placed by anything here and '
+                              'remain outstanding for a later page. Nothing here is certified.')
     write_atomic(out / 'construction.json', json.dumps(result, indent=2, default=str))
     if best is None:
         return 'construction_failed', result, None
@@ -175,10 +208,19 @@ if __name__ == '__main__':
     parser.add_argument('--prescan-pages', type=int, nargs='+', default=[],
                         help='Pages whose own stud-row cameras may be borrowed when this page '
                              'exposes none of its own')
+    parser.add_argument('--withhold-undrawn', action='store_true',
+                        help="Withhold allocated pieces whose colour has too little ink in this "
+                             "page's own drawing to hold even one of them; they stay outstanding "
+                             'for a later page instead of being forced into the subassembly')
+    parser.add_argument('--undrawn-min-share', type=float, default=0.25,
+                        help='Drawn ink, as a share of one piece of that colour, below which the '
+                             'colour is treated as absent from the drawing')
     add_page_options(parser)
     args = parser.parse_args()
+    options = dict(build_options(args), withhold_undrawn=args.withhold_undrawn,
+                   undrawn_min_share=args.undrawn_min_share)
     status, detail, directory = construct(args.pdf, args.page, args.allocation_run, args.out,
-                                          build_options(args), args.roots, args.prescan_pages)
+                                          options, args.roots, args.prescan_pages)
     print(json.dumps(dict(status=status, construction=str(directory) if directory else None,
                           selected=detail.get('selected') if isinstance(detail, dict) else None,
                           attempts=[a for a in (detail.get('attempts') or [])]
