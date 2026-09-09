@@ -2961,3 +2961,200 @@ parent budget, page 26 recalls 3 of 5 reference poses at 128 parents and 5 of 5
 at 1024, and the enlarged bank places no better. The chain-level question needs a
 deterministic tie-break first, which is what the concurrent `pose_tie_ranks` work
 is for.
+
+### Finishing the closure is affordable; screening it is the next wall
+
+The driver runs the complete closure exactly as the standalone measurement said
+it would - 40377 page 19 at `--max-closure-parents 0`: 3,191 parents, 65,637
+poses, `closure_rounds_complete: true`, 29.8 s. What round seven did not
+anticipate is the stage after it. The occupancy screen renders one silhouette
+per candidate, and `build_bank` then rasterises a depth and a label layer per
+survivor at 363 KB to 750 KB each; both are linear in the bank. So a bank that
+grows 8x makes the screen cost 8x, and page 28's complete bank at a 69% screen
+retention would ask `build_bank` for far more than the 12 GB host budget - which
+raises `Bank requires ... bytes` and produces **nothing** for that page.
+
+Two things follow, and they are the honest shape of the "just raise the budget"
+recommendation. First, `stratified_cap` exists so that a page degrades to a
+smaller bank rather than to no bank, and it caps round robin over quota keys by
+**coverage rate** rather than by pixel count, because a count is bounded by the
+candidate's own area and would re-import the same scale bias that loses small
+pieces in the traversal. Second, the parent and pose budgets are not really
+enumeration parameters at all - they are *screen-cost* parameters, and that is
+the thing five rounds of tuning them never said out loud.
+
+### Where a correct pose is actually lost, measured a second time
+
+`placement_retention_stage` re-derives round six's retention table from the runs'
+own artifacts and reconciles with it exactly (40377: 32 targets, 24 in bank, 23
+screened, 10 in a retained assembly; 41624: 78/18/11/4), with one correction:
+round six's "13" on 40377 is a **net**. The distinct count of instances that are
+screened and in no retained assembly is **14**; the net is 13 because one
+target - `60474`:0 on page 17 - reaches the selected assembly *without*
+surviving the screen, because it is that page's withheld, arrow-attached piece
+and bypasses screen and bank entirely. The combined target class is **21
+distinct instances**.
+
+Four hypotheses were measured against those 21, and three are refuted:
+
+* **Bank truncation.** 92 of 92 driven views across both runs report
+  `bounded_search`; **zero** report `host_bank_budget_exceeded`, and on all 92
+  the rasterised placement count equals the screened count. **0 of 21.**
+* **Beam width.** Round six's own re-drive at beam 256 / top-k 64 retains 200
+  assemblies and the same 1 of 6. Replaying the shipped beam level by level on
+  page 19 reproduces the run (same 12 complete states, coarse score identical to
+  1e-16) and shows why width cannot help: **the reference-equivalent complete
+  assembly scores 0.293785093 against the beam's own best complete state
+  0.293821457**. The coarse objective's optimum over this bank is not the
+  reference, so an exhaustive search returns the same wrong answer. Three of the
+  six reference poses are *inside* the beam at level 1 (ranks 0, 1, 12, 13, 20)
+  and die later anyway.
+* **The low-paint tail.** The five lost page-19 targets paint 884 to 4,204 px;
+  the one **retained** target paints **874**, the least of them. Paint count does
+  not separate lost from retained. Refuted on its own fixture.
+* **Support connectivity.** All 42 screened placements are support-reachable, so
+  the stated hypothesis fails - but narrowly true for **5 of 21**: those are
+  closure poses one hop from an anchor, and every one of their eleven one-swap
+  probes fails on *connectivity*, never collision (0 collide, 11 disconnect). A
+  closure pose is legal only together with its witnessed parent, and both the
+  beam and the exchange move one placement at a time.
+
+**Collision** accounts for another **2 of 21** - the reference pose collides with
+every single-swap partner and needs two simultaneous swaps - and these are not
+weak candidates: 40377's `2431` on page 19 is the rank-0 single placement on the
+whole page.
+
+What kills the remaining 14 is a **plateau**. Beam and exchange both rank by the
+incremental per-class depth-composite IoU, and on page 19 view 1 **1,236 of
+2,637 screened candidates (46.9%) change it by exactly zero** - bit-identical to
+the empty-assembly score. Across all 40 driven pages of both fixtures the
+zero-delta share is **5.9% to 52.6%**. Inside that band `argsort(kind='stable')`
+orders by bank index, so admission is decided by enumeration order. The cause is
+structural rather than numerical: a candidate whose pixels are already painted
+with the same class contributes nothing - *including when a wrong piece is
+standing in the same place*. A white plate on a white body is invisible to the
+pruner.
+
+And the two objectives disagree. The one-swap that introduces page 19's correct
+`41740` moves the coarse score by **-1.11e-5** and the native selection score by
+**+5.63e-3**: opposite signs, 500x in magnitude. Only coarse survivors ever reach
+the native scorer.
+
+### The fix that follows, and the number it is actually worth
+
+The exchange renders only the `native_width` = 16 best same-key candidates,
+ordered by that same flat delta - and 47% to 59% of each key's eligible
+candidates tie exactly there, so the reference poses sit at window ranks 86-97,
+232-233 and 298-299. Width would have to be about 300 for page 19's correct
+`41740` to be rendered at all.
+
+`LayerComposite.own_agreement` counts a candidate's own painted pixels that
+already carry the drawing's class there - one bincount over segments the class
+already builds, **no extra render** - and nothing already placed can flatten it.
+The same poses move to ranks 0/1, 2/3 and 47/49/52. Measured on page 19 at the
+same budget:
+
+| exchange window ordering | native score | renders | reference targets |
+| --- | ---: | ---: | ---: |
+| incremental (shipped control) | 0.524585533 | 84 | **1 of 6** |
+| own agreement | **0.532939594** | 217 | **2 of 6** |
+| union of the two, 8 each | 0.532719515 | 314 | 2 of 6 |
+
+The honest negative control is page 26, where the losses are the objective's
+rather than the window's: **0 of 3 either way**, native identical at
+0.291810253. And the honest ceiling is small. Of the 21 instances, only **4**
+have a legal one-swap that *raises the run's own native score* - all four on
+40377 page 19, none on 41624. For **10 of 21** the native objective scores the
+reference-pose swap **lower**, by 6.5e-4 to 1.53e-2.
+
+**That is the round's headline, and it corrects round six's ladder.** Retention
+is the *smallest* lever measured, not the second largest: ten of the twenty-one
+instances filed under retention would simply be re-filed as ranking losses the
+moment retention were fixed, which is the same class-conversion round six saw
+when it lifted the closure budget. Round six's split put ranking at 4 of 100;
+counted this way it is at least 14 of the 21 in that class.
+
+### The absent colour class was a palette-order coin flip, and repairing it does not help
+
+Round six found that 40377 pages 26 and 27 allocate bright light orange (191)
+and that neither drawing contains one pixel classified as it, so 1,926 and 4,142
+candidates - **all** of them, not a subset - score exactly zero and traversal
+order is arbitrary. Round five's `placement_undrawn_pieces` had reported
+withholding nothing on all 13 pages. Both are right:
+
+| quantity | palette order | p26 -> 191 | p27 -> 191 | verdict |
+| --- | --- | ---: | ---: | --- |
+| the undrawn rule | allocated colours first | 12,236 | 14,882 | nothing withheld |
+| the coarse target the objective scores | numerically sorted | **0** | **0** | absent |
+
+They compute the same predicate on the same pixels and differ in **the order of
+the palette list**. LDraw 19 (Tan) and 191 (Bright Light Orange) both convert to
+OpenCV hue 20, `palette_labels` discriminates chromatic entries by hue alone, and
+`argmin` breaks the perfect tie by lower palette index. The defect is symmetric:
+pure 191 labels as 19 when 19 is listed first and pure 19 labels as 191 when 191
+is. The brief's own hypothesis - that the undrawn rule measures a footprint
+rather than a colour's presence - is **refuted**; so is the context-colours
+explanation, which changes no verdict on any of the 13 pages.
+
+`--chromatic-metric lab` fixes it properly rather than by a tuned weight, because
+the collision is a cluster and not a pair: 41624 has four colours inside nine hue
+degrees over 25 of its 109 parts, the bias inverts between fixtures because the
+commoner colour differs, and 14 and 191 are not separable in HSV at all. Verified
+directly: under hue, reversing the palette swaps tan and orange; under Lab both
+classify correctly either way. It is applied to the ordering only - acceptance
+stays the hue test and the saturation and brightness gates are untouched - so the
+same pixels are classified and only which class each gets can change.
+
+**And on the pages it was built for it makes things worse, measured.** Repairing
+the classifier drops page 26's zero-agreement candidates from 1,926 of 1,926 to
+739 of 1,926, so the priority becomes informative - and it points at the wrong
+poses. The three enumerated reference poses change the actual objective by
+**exactly 0.00000000 under both classifications**, because their visible pixels
+fall where the drawing carries no orange at all; the drawing's ~12,300 orange
+pixels belong to other parts. Their ranks under the repaired classifier are
+1,164, 1,216 and 1,639, while the wrong selected poses rise to ranks 3, 4, 28 and
+29. Of the seven reference targets on those two pages, **four were never
+enumerated** and three are visibility-blocked; none is blocked by the absent
+class. Withholding cannot even be expressed there, because the absent colour *is*
+the entire allocation on both pages - it would leave zero image-judged pieces,
+below the rule's own guard - and page 26 has no accepted arrowheads for the
+non-image channel to use. Page 27 has three, and places both pieces **wrong**, at
+104 px and 38 px mean arrowhead error against the documented good case of 0.5 px.
+
+So the classifier repair is adopted as a **correctness** fix, not as a lever, and
+it is recorded here that on the one place it was expected to buy parts it buys
+none and demotes the correct poses.
+
+### Every chain A/B in this program has been carrying an unmeasured coin flip
+
+`placement_score_ties` counts, from the runs' own `results.json`, how many
+retained assemblies share the top image score exactly:
+
+| run | pages | pages with an exact tie among *different* assemblies | widest tie |
+| --- | ---: | ---: | ---: |
+| 40377 `r5-contain-v1` | 13 | **7** | 4-way |
+| 41624 `r5-full-scope` | 27 | **15** | 12-way |
+
+Within a tie the correct-part counts are equal, so this is variance and not bias.
+It still matters, because each fork sends the chain down a different camera path.
+Round six's parent-budget chain is the worked example, and it is not a budget
+effect at all: it reproduces round five exactly through page 19, then page 19
+emits one `25269` quarter tile under either of two proper rotations a quarter
+turn apart - identical to sixteen significant figures, both structurally wrong -
+and page 22 falls from `drawing_to_drawing` registration at 1.6916 px/LDU to
+`body_template` at 1.4863, its score from 0.3668 to 0.2529. Pages 26 and 27,
+which round five placed, come back `camera_refused`.
+
+`argsort(kind='stable')` breaks such a tie by array position, which is bank
+index, which is closure enumeration order - so *any* configuration change that
+reorders the bank re-rolls every tie in the chain. `--tie-break pose` ranks by
+the rounded placement instead, in the beam's per-state expansion, in its
+cross-state cut and in the exchange window, so two configurations holding the
+same tied pair resolve it identically. Every driven page also now journals its
+own tie census, so a chain row carries its exposure rather than assuming none.
+
+**The consequence for this round's method is that round five's 53/90 is not a
+usable baseline for a configuration A/B**, and neither were rounds four's and
+five's own chain deltas. The control for everything below is a re-drive of round
+five's exact configuration with the deterministic tie-break and nothing else
+changed.
