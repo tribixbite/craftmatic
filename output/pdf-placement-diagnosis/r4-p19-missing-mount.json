@@ -1,0 +1,160 @@
+{
+  "fixture": "40377",
+  "page": 19,
+  "base": "output/pdf-placement-beam/40377-r3-gated-v1/page-017/placement/model.ldr",
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "nearest_enumerated": [
+    {
+      "part": "41740",
+      "color": 15,
+      "reference_position": [
+        0.0,
+        -102.0,
+        -56.0
+      ],
+      "nearest_enumerated_position": [
+        0.0,
+        -102.0,
+        -48.0
+      ],
+      "nearest_linf_ldu": 8.0,
+      "offset_ldu": [
+        0.0,
+        0.0,
+        -8.0
+      ],
+      "enumerated_poses_for_part": 8682
+    },
+    {
+      "part": "2431",
+      "color": 15,
+      "reference_position": [
+        0.0,
+        -122.0,
+        -56.0
+      ],
+      "nearest_enumerated_position": [
+        0.0,
+        -122.0,
+        -48.0
+      ],
+      "nearest_linf_ldu": 8.0,
+      "offset_ldu": [
+        0.0,
+        0.0,
+        -8.0
+      ],
+      "enumerated_poses_for_part": 5891
+    },
+    {
+      "part": "25269",
+      "color": 15,
+      "reference_position": [
+        -30.0,
+        -142.0,
+        -56.0
+      ],
+      "nearest_enumerated_position": [
+        -30.0,
+        -142.0,
+        -48.0
+      ],
+      "nearest_linf_ldu": 8.0,
+      "offset_ldu": [
+        0.0,
+        0.0,
+        -8.0
+      ],
+      "enumerated_poses_for_part": 1308
+    },
+    {
+      "part": "25269",
+      "color": 15,
+      "reference_position": [
+        -10.0,
+        -142.0,
+        -56.0
+      ],
+      "nearest_enumerated_position": [
+        -10.0,
+        -142.0,
+        -48.0
+      ],
+      "nearest_linf_ldu": 8.0,
+      "offset_ldu": [
+        0.0,
+        0.0,
+        -8.0
+      ],
+      "enumerated_poses_for_part": 1308
+    },
+    {
+      "part": "25269",
+      "color": 15,
+      "reference_position": [
+        10.0,
+        -142.0,
+        -56.0
+      ],
+      "nearest_enumerated_position": [
+        10.0,
+        -142.0,
+        -48.0
+      ],
+      "nearest_linf_ldu": 8.0,
+      "offset_ldu": [
+        0.0,
+        0.0,
+        -8.0
+      ],
+      "enumerated_poses_for_part": 1308
+    },
+    {
+      "part": "25269",
+      "color": 15,
+      "reference_position": [
+        30.0,
+        -142.0,
+        -56.0
+      ],
+      "nearest_enumerated_position": [
+        30.0,
+        -142.0,
+        -48.0
+      ],
+      "nearest_linf_ldu": 8.0,
+      "offset_ldu": [
+        0.0,
+        0.0,
+        -8.0
+      ],
+      "enumerated_poses_for_part": 1308
+    }
+  ],
+  "unplaced_reference_3031": [
+    {
+      "part": "3031",
+      "color": 15,
+      "position": [
+        0.0,
+        -112.0,
+        -48.0
+      ]
+    },
+    {
+      "part": "3031",
+      "color": 15,
+      "position": [
+        0.0,
+        -112.0,
+        48.0
+      ]
+    }
+  ],
+  "finding": "All six of page 19's reference poses sit at z = -56 and the nearest pose the enumeration can offer for each sits at the same x and y and z = -48: a uniform 8 LDU offset, one plate thickness, on every piece. The surface they mount on is a 4x4 plate the reference holds at (0, -112, -48), standing on its side, and that plate is not in the body: pages 16 and 18 each allocate one 3031 in white, and page 18 was refused by the camera gate. So page 19 cannot place anything correctly, and the cause is not its own camera, search or scorer - it is a piece an earlier page owed it. A refused page does not only cost its own piece.",
+  "scope": "Evaluation-only diagnostic executed after the runs; no reference pose participates in candidate generation, scoring or selection.",
+  "limitations": "Reference file order need not equal PDF step order, so which of the two unplaced 3031 plates belongs to page 16 and which to page 18 is not settled here. The measurement that is settled is the uniform 8 LDU offset and the absent mounting surface.",
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false
+}

@@ -1,0 +1,94 @@
+{
+  "fixture": "40377",
+  "page": 19,
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "base": "output/pdf-placement-beam/40377-r3-gated-v1/page-017/placement/model.ldr",
+  "allocation": [
+    [
+      "2431",
+      15
+    ],
+    [
+      "25269",
+      15
+    ],
+    [
+      "25269",
+      15
+    ],
+    [
+      "25269",
+      15
+    ],
+    [
+      "25269",
+      15
+    ],
+    [
+      "41740",
+      15
+    ]
+  ],
+  "banks": [
+    {
+      "bank": "evidence_order_run",
+      "reference_targets": 6,
+      "present": 3,
+      "bank_poses": 6620,
+      "base_attached": 3312,
+      "closure_rounds_completed": 1,
+      "closure_parents_processed": 128,
+      "closure_budget_hit": true,
+      "closure_parent_order": "pdf_evidence",
+      "missing": [
+        "25269",
+        "25269",
+        "25269"
+      ]
+    },
+    {
+      "bank": "bank_order_1_round_128_parents",
+      "reference_targets": 6,
+      "present": 0,
+      "bank_poses": 6191,
+      "base_attached": 3312,
+      "closure_rounds_completed": 1,
+      "closure_parents_processed": 128,
+      "closure_budget_hit": true,
+      "closure_parent_order": "bank_order",
+      "missing": [
+        "41740",
+        "2431",
+        "25269",
+        "25269",
+        "25269",
+        "25269"
+      ]
+    },
+    {
+      "bank": "bank_order_1_round_512_parents",
+      "reference_targets": 6,
+      "present": 0,
+      "bank_poses": 15881,
+      "base_attached": 3312,
+      "closure_rounds_completed": 1,
+      "closure_parents_processed": 512,
+      "closure_budget_hit": true,
+      "closure_parent_order": "bank_order",
+      "missing": [
+        "41740",
+        "2431",
+        "25269",
+        "25269",
+        "25269",
+        "25269"
+      ]
+    }
+  ],
+  "finding": "Page index 19 emits six parts and none is structurally correct, at two different camera scales - 1.4791 px per LDU in the round-three chain and 1.6918 in the gated chain, which carried page 17 correct. Its reference poses are not all in the enumerated bank, so no camera or scorer can select them: candidate generation is the binding constraint on this page, and the parent order is what decides recall at a feasible budget.",
+  "scope": "Evaluation-only diagnostic executed after the runs; no reference pose participates in candidate generation, scoring or selection.",
+  "limitations": "Reference file order need not equal PDF step order, so a missing target can also mean the part belongs to another page. The closure stops when its parent budget is exhausted, so a deeper round was never reached at these settings.",
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false
+}
