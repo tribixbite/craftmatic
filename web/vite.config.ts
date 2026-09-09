@@ -138,6 +138,25 @@ export default defineConfig({
         server.middlewares.use('/ldraw-parts', (req, res, next) => {
           const urlPath = (req.url ?? '').replace(/^\//, '').replace(/\.\./g, '');
           if (!urlPath) { next(); return; }
+          // Deployed-library revision, mirroring the prod worker's
+          // /ldraw-parts/_rev (parts.ts keys its persistent .dat cache off it).
+          // Dev's effective library is a MIX — the frozen local clego snapshot
+          // plus per-miss fallbacks to the prod mirror and upstream — so there
+          // is no honest content revision to report. A CONSTANT stamp is the
+          // truthful answer: it never claims the library changed, which is
+          // exactly right for a tree nobody syncs. Bump it by hand if you edit
+          // LDRAW_ROOT and need dev browsers to drop their cached parts.
+          if (urlPath.startsWith('_rev')) {
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end(JSON.stringify({
+              rev: 'dev-local-1',
+              generated: null,
+              source: 'vite middleware (local clego library + mirror fallback)',
+              note: 'constant by design — dev has no synced library revision',
+            }));
+            return;
+          }
           // Batched multi-get, mirroring the prod worker's /ldraw-parts/_batch:
           // ?files=parts/3001.dat,p/4-4cyli.dat,… → {found:{name:text}, missing:[…]}.
           // Local-file only (no upstream) — misses fall back to per-file probing

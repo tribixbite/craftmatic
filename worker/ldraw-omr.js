@@ -133,6 +133,41 @@ export default {
       }
     }
 
+    // ── Deployed parts-library revision ──────────────────────────────────────
+    // `{ rev, generated, files }`, written into R2 as `ldraw/_rev.json` by
+    // scripts/sync-ldraw-r2.mjs after a COMPLETE successful sync. `rev` is a
+    // content hash of the mirrored file set (not the run time), so a weekly
+    // no-op sync does not move it.
+    //
+    // The browser's persistent .dat cache keys its identity off this value
+    // (web/src/viewer/ldraw/parts.ts): a corrected part used to stay stale in a
+    // warm browser forever, because the cache entry is keyed only by part name.
+    // A 404 here is a SUPPORTED answer — the client treats an unknown revision
+    // as "keep the cache", never as "the library changed".
+    if (url.pathname === '/ldraw-parts/_rev' && (request.method === 'GET' || request.method === 'HEAD')) {
+      if (env?.MODELS) {
+        try {
+          const obj = await env.MODELS.get('ldraw/_rev.json');
+          if (obj) {
+            return new Response(request.method === 'HEAD' ? null : obj.body, {
+              status: 200,
+              headers: {
+                ...CORS_HEADERS,
+                'Content-Type': 'application/json',
+                // Short TTL: this is the signal that says "re-download the
+                // library", so it must not be pinned behind a week-long cache.
+                'Cache-Control': 'public, max-age=300',
+              },
+            });
+          }
+        } catch { /* R2 hiccup — 404 below, client keeps its cache */ }
+      }
+      return new Response(null, {
+        status: 404,
+        headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=60' },
+      });
+    }
+
     // ── Batched parts multi-get ──────────────────────────────────────────────
     // A cold big-set load needs hundreds of small .dat files; fetching them
     // one-by-one is round-trip-bound even over H2. The client aggregates
