@@ -478,7 +478,8 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                             seed=options['seed'], native_rounds=options['native_rounds'],
                             native_width=options['native_width'],
                             native_starts=options['native_starts'],
-                            image_pieces=image_pieces, withheld=withheld, arrows=arrows)
+                            image_pieces=image_pieces, withheld=withheld, arrows=arrows,
+                            outside_fraction=options.get('fraction', 0.))
         result.update(pdf=str(pdf), pdf_sha256=provenance['pdf_sha256'],
                       seconds=time.perf_counter() - started, code_sha256_start=code_hashes,
                       camera_source=str(step_dir / 'camera.json'), scene_order=order,

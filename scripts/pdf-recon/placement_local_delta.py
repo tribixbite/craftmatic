@@ -86,28 +86,54 @@ def target_edges(rgb, mask):
     return (cv2.Canny(gray, 35, 85) > 0) & np.asarray(mask, bool)
 
 
-def local_evidence(scorer, base_layer, layer, region_record):
-    """Colour-class, coverage and edge agreement inside the influenced region."""
+def local_evidence(scorer, base_layer, layer, region_record, class_weight=.4,
+                   edge_weight=.4, false_weight=.3):
+    """Colour, edge and overflow agreement inside the region an addition changes.
+
+    Colour is counted only on pixels where the addition actually *changes* the
+    class the body already renders. That restriction is what makes the term
+    usable: a red plate laid on a red plate changes no class anywhere, so on
+    41624 page index 2 the unrestricted colour IoU and the coverage fraction
+    both reward sliding the plate inboard - the body underneath is already red,
+    so a piece placed over it is "explained" for free - and they duly rank the
+    one-stud-wrong pose first, 0.8598 against 0.8518. With the restriction the
+    colour term abstains there and the visible-edge chamfer decides, which
+    ranks the reference pose first: 0.7841 against 0.7727 for the pose the run
+    selected and 0.7496 for the far edge.
+
+    On 40377 page index 17, where the addition is a black plate on a white head,
+    the colour term is measurable and agrees with the edge term: the reference
+    pose leads on both (0.2514 and 0.7990 against 0.2228 and 0.6691).
+
+    Two fixtures are not a population. This is a diagnostic instrument that
+    reports its parts separately; the caller decides what to weigh.
+    """
     region = region_record['region']
     target_mask = scorer.mask
     if not region.any():
-        return dict(local_score=0., local_class=0., local_coverage=0., local_false=1.,
-                    local_edge=0., local_classes=0)
+        return dict(local_score=0., local_class=None, local_coverage=0., local_false=1.,
+                    local_edge=0., local_classes=0, discriminative_pixels=0)
     palette = np.stack([_rgb(c) for c in layer['colors']]).astype(np.uint8)
     target_labels, valid = palette_labels(scorer.rgb, target_mask, palette)
+    changed = region & (layer['labels'] != base_layer['labels'])
     ious = []
     for index in range(1, len(layer['colors']) + 1):
-        a = (target_labels == index) & valid & region
-        b = (layer['labels'] == index) & valid & region
-        if not a.any():
+        a = (target_labels == index) & valid & changed
+        b = (layer['labels'] == index) & valid & changed
+        if not (a | b).any():
             continue
         ious.append(float((a & b).sum() / max(1, (a | b).sum())))
-    local_class = float(np.mean(ious)) if ious else 0.
+    local_class = float(np.mean(ious)) if ious else None
     ink = target_mask & region
     covered = float((ink & layer['mask']).sum() / max(1, ink.sum()))
     painted = layer['mask'] & region
     false = float((painted & ~target_mask).sum() / max(1, painted.sum()))
     edge = _chamfer(layer['edges'] & region, target_edges(scorer.rgb, target_mask) & region)
-    score = .4 * local_class + .3 * covered + .3 * edge - .3 * false
+    # When colour cannot discriminate, its weight moves to the edge term rather
+    # than to a constant, so candidates stay comparable.
+    weight = class_weight if local_class is not None else 0.
+    score = (weight * (local_class or 0.) + (edge_weight + class_weight - weight) * edge
+             - false_weight * false)
     return dict(local_score=float(score), local_class=local_class, local_coverage=covered,
-                local_false=false, local_edge=edge, local_classes=len(ious))
+                local_false=false, local_edge=edge, local_classes=len(ious),
+                discriminative_pixels=int(changed.sum()))

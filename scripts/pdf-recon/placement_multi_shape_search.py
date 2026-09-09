@@ -119,7 +119,7 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         top_k=32, host_bytes=512 * 1024 ** 2, method='beam', beam=64,
         max_expansions=2_000_000, improve_rounds=8, improve_from=4,
         restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16, native_starts=1,
-        image_pieces=None, withheld=(), arrows=()):
+        image_pieces=None, withheld=(), arrows=(), outside_fraction=0.):
     if method not in ('beam', 'exact'):
         raise ValueError('Unknown search method')
     withheld = [(str(part), int(color)) for part, color in withheld]
@@ -139,9 +139,16 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         # A view retained by containment refinement carries its own measured
         # body overflow. The occupancy screen must allow exactly that much, or
         # an explicitly uncontained fallback view is rejected here instead of
-        # being evaluated, and the page is silently lost.
+        # being evaluated, and the page is silently lost. That absolute number
+        # is the body's residual, though, not a budget for a candidate: on
+        # 40377 page index 17 it is 2 pixels, and the reference-equivalent
+        # plate's own antialiasing against the arrow notches in the mask is 19
+        # of its 9,551, so it was discarded before it could be scored.
+        # `outside_fraction` adds the proportional allowance in the candidate's
+        # own units.
         allowance = int(view.get('outside_pixels') or 0)
-        gate = screen(base, shapes, M, origin, scorer, outside_tolerance_px=allowance)
+        gate = screen(base, shapes, M, origin, scorer, outside_tolerance_px=allowance,
+                      outside_fraction=outside_fraction)
         gate['registration_overflow_allowance'] = allowance
         gate['contained'] = bool(view.get('contained', True))
         (out / f'view-{view_index:02}-occupancy.json').write_text(json.dumps(gate, indent=2))
