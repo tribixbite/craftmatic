@@ -36,6 +36,7 @@ from placement_cardinality_search import search_layers
 from placement_colored_cad import colored_triangles
 from placement_exploded_attach import attach_detached
 from placement_layer_beam import search_beam
+from placement_local_delta import added_region, local_evidence, render_layers
 from placement_mixed_batch_search import fixed_native_score
 from placement_part_library import PartLibrary
 from placement_multi_shape_batch import shape_bank
@@ -119,7 +120,7 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         top_k=32, host_bytes=512 * 1024 ** 2, method='beam', beam=64,
         max_expansions=2_000_000, improve_rounds=8, improve_from=4,
         restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16, native_starts=1,
-        image_pieces=None, withheld=(), arrows=(), outside_fraction=0.):
+        image_pieces=None, withheld=(), arrows=(), outside_fraction=0., local_rerank=0.):
     if method not in ('beam', 'exact'):
         raise ValueError('Unknown search method')
     withheld = [(str(part), int(color)) for part, color in withheld]
@@ -128,6 +129,8 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         raise ValueError('Image-judged and withheld pieces must partition the page allocation')
     if withheld and not arrows:
         raise ValueError('Withheld pieces need the page arrows that place them')
+    if not 0. <= local_rerank <= 1.:
+        raise ValueError('Local rerank weight must lie between zero and one')
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
     poses = [(str(entry['part']), np.asarray(entry['T'], float)) for entry in record['poses']]
     boxes = world_boxes(poses)
@@ -260,11 +263,25 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                 seen_sets.add(refined)
                 candidates.insert(0, dict(indices=list(refined), score=coarse.score(refined),
                                           native_exchange=True))
+        base_layer = None
+        if local_rerank:
+            # One render of the body per view: everything a candidate's own
+            # additions cannot change.
+            fixed_native_score(scorer, base, M, origin)
+            base_layer = render_layers(scorer, base, M)
         for candidate in candidates:
             drawn = base + [item for i in candidate['indices'] for item in placements[i]['items']]
             # The drawing shows the assembly without the withheld pieces, so the
             # image score is taken on exactly that assembly.
             evidence = fixed_native_score(scorer, drawn, M, origin)
+            local = None
+            if local_rerank:
+                layer = render_layers(scorer, drawn, M)
+                local = local_evidence(scorer, base_layer, layer,
+                                       added_region(base_layer, layer, scorer.mask))
+                evidence = dict(evidence, local=local,
+                                combined_score=(1 - local_rerank) * evidence['score']
+                                + local_rerank * local['local_score'])
             attached, attachment = [], None
             if withheld:
                 attached, attachment = attach_detached(drawn, withheld, record['poses'],
@@ -284,7 +301,8 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
     # An assembly that offers no arrow-supported contact for an incoming piece
     # contradicts the page's own arrows, so it ranks below one that does. Within
     # each group the drawn-assembly image score decides, unchanged.
-    native.sort(key=lambda r: (-r['attached_pieces'], -r['evidence']['score']))
+    native.sort(key=lambda r: (-r['attached_pieces'],
+                               -r['evidence'].get('combined_score', r['evidence']['score'])))
     for index, row in enumerate(native):
         model = row.pop('model')
         row.pop('_items')
@@ -308,7 +326,7 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                 xref=registration['xref'], shapes=record['parts'],
                 selected_parts=(len(base) + len(image_pieces) + native[0]['attached_pieces'])
                 if native else None,
-                image_pieces=[list(p) for p in image_pieces],
+                image_pieces=[list(p) for p in image_pieces], local_rerank=local_rerank,
                 withheld_pieces=[list(p) for p in withheld],
                 truth_used=False, runtime_vlm_calls=0, certified=False,
                 uncontained_views=[i for i, v in enumerate(registration['hypotheses'][:views])
