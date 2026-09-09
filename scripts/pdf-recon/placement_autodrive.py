@@ -551,10 +551,10 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
         record['last_checkpoint'] = str(current)
         write_atomic(journal, json.dumps(record, indent=2))
         print(json.dumps(dict(page=page, status=status, detail=detail)), flush=True)
+        if status in RETRYABLE:
+            # Only a camera was missing; a later page may supply one.
+            deferred.append(page)
         if status == 'subassembly_pending':
-            record['steps'][-1]['status'] = status
-            write_atomic(journal, json.dumps(record, indent=2))
-            print(json.dumps(dict(page=page, status=status, detail=detail)), flush=True)
             continue
         if placement is None and stop_on_unsupported:
             record['status'] = 'stopped_unsupported_page'
