@@ -24,22 +24,16 @@ nothing here is certified or published. Pages whose structure is not supported
 subassembly whose construction is not supplied) stop the run with saved evidence
 instead of guessing.
 
-A page's camera can come from a neighbour, not only from its predecessor. The
-prior is the previous page's measured matrix, so the first page of a scope has
-none and a drawing there exposing no stud row dies with `no_camera_hypothesis`
-- 41624 page index 3 does exactly that and loses three pieces. `--camera-prescan`
-measures every page's own camera up front and lets a page borrow the nearest
-page that has one, in either direction. Every page is in the same PDF, so this
-is not new information, and a borrowed matrix is recorded as such.
-
-A page that fails only for want of a camera can also be retried after later pages
-have supplied one. The driver's camera prior is the previous page's measured
-matrix, so the first page of a scope has none, and a drawing that exposes no
-stud row there dies with `no_camera_hypothesis` - 41624 page index 3 does
-exactly that. Every page is in the same PDF, so retrying it once a neighbour has
-been registered uses no new information; the pieces simply join a body that has
-grown, which the final assembly does not distinguish. Retries are recorded with
-their pass number and the order they were taken in.
+A page's camera is not only its own. Its stud rows can be missing, and they can
+also be wrong: 41624 page index 3 exposes none at all, and 40377 page index 17
+exposes rows that put the body 13% small and at the wrong orientation. So the
+previous page's whole matrix is offered alongside the page's own, its measured
+scale is offered as a rescaled variant, and `--camera-prescan` lets a page with
+no rows of its own borrow the nearest page that has some, in either direction.
+`--retry-passes` retries a page that failed for want of a camera once a later
+page has supplied one. Every page is in the same PDF, so none of this is new
+information; each is a proposal that registration and containment still have to
+accept, and where a matrix came from is recorded.
 
 The journal is written atomically and `--resume` re-verifies the PDF, the
 allocation, the starting body and every completed checkpoint before skipping a
@@ -322,10 +316,22 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         fallback_matrices = list(prior_matrices)
         if not proposed and not fallback_matrices and prescan:
             fallback_matrices, borrowed_from = nearest_prescan(prescan, page)
-        matrices = (proposed or fallback_matrices)[:options['camera_matrices']]
-        rescaled = (scale_prior_matrices(matrices, prior_scale) if options.get('scale_prior', True)
+        own = (proposed or fallback_matrices)[:options['camera_matrices']]
+        # The previous page's matrix is offered even when this page has stud rows
+        # of its own, because those rows can be wrong in orientation as well as
+        # scale. Measured on 40377 page index 17, whose drawing frames the body
+        # at 198x317 against page 16's 200x320: the page's own camera scores
+        # 0.337 body-only natively and page 16's whole matrix scores 0.595 on the
+        # same drawing. Rescaling page 17's own orientation to page 16's scale
+        # does not recover that - it reaches 0.281 - so the carried matrix, not
+        # the carried scale, is what the page needs. Both are proposals that
+        # registration and containment still have to choose between.
+        carried = [matrix for matrix in list(prior_matrices)[:options['camera_prior_matrices']]
+                   if proposed and not any(np.allclose(matrix, other, atol=1e-9)
+                                           for other in own)]
+        rescaled = (scale_prior_matrices(own, prior_scale) if options.get('scale_prior', True)
                     else [])
-        matrices = matrices + rescaled
+        matrices = own + carried + rescaled
         if not matrices:
             attempts.append(dict(xref=xref, status='no_camera_hypothesis'))
             continue
@@ -350,6 +356,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                                      xref=xref, reused_prior_camera=reused, pdf=str(pdf),
                                      scale_prior_px_per_ldu=prior_scale,
                                      scale_prior_matrices=len(rescaled),
+                                     carried_prior_matrices=len(carried),
                                      borrowed_camera_page=borrowed_from,
                                      matrix_scales=[projection_scale(m) for m in matrices],
                                      pdf_sha256=provenance['pdf_sha256'], base=str(base_model),
@@ -611,6 +618,10 @@ if __name__ == '__main__':
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--continue-on-unsupported', action='store_true')
     parser.add_argument('--camera-matrices', type=int, default=2)
+    parser.add_argument('--camera-prior-matrices', type=int, default=2,
+                        help="How many of the previous page's matrices to offer alongside this "
+                             "page's own; a page's stud rows can be wrong in orientation, not "
+                             'only in scale')
     parser.add_argument('--per-matrix', type=int, default=6)
     parser.add_argument('--refine-limit', type=int, default=16)
     parser.add_argument('--window', type=int, default=3)
@@ -667,7 +678,8 @@ if __name__ == '__main__':
     parser.add_argument('--native-width', type=int, default=16)
     parser.add_argument('--native-starts', type=int, default=1)
     args = parser.parse_args()
-    options = dict(camera_matrices=args.camera_matrices, per_matrix=args.per_matrix,
+    options = dict(camera_matrices=args.camera_matrices,
+                   camera_prior_matrices=args.camera_prior_matrices, per_matrix=args.per_matrix,
                    refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
                    fraction=args.fraction, fallback=args.fallback, scales=tuple(args.scales),
                    scale_prior=not args.no_scale_prior, retry_passes=args.retry_passes,
