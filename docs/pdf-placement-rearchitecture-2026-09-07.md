@@ -4619,3 +4619,61 @@ behind a length badge, one small part cropped to its lower half, and one crop
 that was the entire panel row of three parts. Translucent and light-coloured
 artwork fragmenting under a single ink threshold is a **corpus-wide** failure
 mode, not a property of 41601 page 5.
+
+### The third remedy, filed above and then measured: CAD-size consistency
+
+The size channel was refused a page ago because the statistic was wrong, not
+because the idea was. Crop area against **inventory icon** area cannot be
+constant across a page: a printed BOM scales each icon to its cell, so a big
+part's icon is relatively smaller and the ratio grows with part size - which is
+exactly the pattern that made a correct large plate look like the page's biggest
+outlier. Universal CAD is the yardstick that does not have that defect. For a
+candidate identity the part's own bounding-box diagonal is known in LDU, and
+
+    implied page scale = crop diagonal / CAD bounding-box diagonal
+
+must agree across one page's callouts, because one page draws its PLI at one
+scale. Nothing here is learned, nothing is fitted, and nothing reads a
+reference.
+
+On 41601 the separation is one-sided and wide:
+
+| assignment | implied scale | page median | log deviation | verdict |
+| --- | ---: | ---: | ---: | --- |
+| page 7 `3958`:0 | 0.341 | 0.865 | **0.931** | wrong |
+| page 2 `3022`:72 | 1.914 | 0.981 | **0.668** | wrong (the opening) |
+| page 27 `3031`:72 | 1.425 | 0.948 | **0.408** | wrong |
+| every other assignment, 25 pages | - | - | **<= 0.155** | - |
+
+`placement_slot_size_gate` applies it by **re-solving, not by overriding**:
+violating (callout, slot) pairs leave the solver's candidate set and the global
+assignment is solved again, to a fixed point. The solver still chooses, capacity
+stays exact, and the module asserts no identity of its own. A page with fewer
+than three callouts has no reliable median and is skipped rather than guessed
+at.
+
+**Calibrated on three fixtures, not on the one that motivated it.** At tolerance
+0.30 the gate fires twelve pairs on 41601 and **zero** on 41624 and 40377; only
+below 0.25 does it start firing on 40377, where it costs seven pieces of scope
+and buys nothing. 41601's own result is flat from 0.20 to 0.40, because its
+errors sit at 0.41 and above.
+
+| 41601 allocation | pages | in scope | accounted | exact pages | opening page |
+| --- | ---: | ---: | ---: | ---: | --- |
+| round nine | 23 | 96 | 76 | 11 | correct |
+| round ten, ungated | 25 | **108** | 80 | 11 | **wrong** |
+| round ten, **gated** | 24 | 103 | **81** | **12** | **correct** |
+
+The gate converges (zero residual violations, maximum deviation 0.155) and
+restores page 2 to exactly the reference's steps 1 and 2. It costs five pieces
+of scope - page 27's callout no longer matches any slot once the plate it was
+taking is denied it, and its page leaves the scope with it - and that is the
+honest trade: the opening page's identity against four pieces at the end of the
+booklet. On 41624 and 40377 nothing changes at all, and 40377's derived
+allocation still reproduces all seventeen hand-worked pages identically.
+
+This is the first **non-pixel evidence channel** in the program that has both
+separated a real error and cost nothing on the fixtures where there was no error
+to find. Round nine's list of non-pixel candidates - inventory capacity,
+connector-graph likelihood, seated contact - had produced zero, zero and a
+retracted claim.
