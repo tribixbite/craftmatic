@@ -25,9 +25,33 @@ export interface IndexModel {
   /** 1 = known-rotation-bug script conversion (LXF lineage, src 'lxf_conv') —
    *  parts may be misrotated/misplaced. Load, but label honestly. */
   conv?: number;
+  // ── schema 2 (2026-09-09): MEASURED per-file assembly metadata ─────────────
+  // Stamped by clego's build_model_index.py from geograde's full-catalog
+  // scoreboard. Every field is OPTIONAL: a schema-1 index (or an ungraded
+  // file in a schema-2 index) simply omits them, and the reader must treat
+  // absence as "not measured", never as a defect.
+  /** geograde verdict for THIS file. Absent = never graded, or graded before
+   *  the file was last modified → `assemblyStatus()` reports 'unverified'. */
+  asm?: 'verified' | 'defective';
+  /** geograde severity scalar (0 = clean). Present only alongside `asm`. */
+  sev?: number;
+  /** geograde's short defect strings (≤3). Present only when defective. */
+  defects?: string[];
+  /** The file's own `0 !LINEAGE <tool> <good|partial>` payload — the
+   *  converter/alignment version that produced it. LDraw-text sources only. */
+  lineage?: string;
+  /** sha256/12 of the file bytes: content identity for the diagnostic bundle. */
+  hash?: string;
 }
 export interface IndexSetEntry { name: string; year: string; parts: number; models: IndexModel[] }
-export interface LegoModelsIndex { generated: string; sets: Record<string, IndexSetEntry> }
+export interface LegoModelsIndex {
+  generated: string;
+  sets: Record<string, IndexSetEntry>;
+  /** Index schema version (absent/1 = no measured assembly metadata). */
+  schema?: number;
+  /** Provenance of the `asm`/`sev`/`defects` stamps, for the diagnostic bundle. */
+  geograde?: { generated?: string; graded?: number; stale?: number; thresholds?: Record<string, unknown> };
+}
 
 /** Strip the '-1', '-2' etc suffix to get the base set number used in clego filenames. */
 export function baseSetNum(setNum: string): string {
@@ -51,21 +75,134 @@ export function lookupIndexModels(idx: LegoModelsIndex, setNum: string): IndexMo
   return entry.models;
 }
 
+// ─── Measured assembly status (index schema 2) ────────────────────────────────
+
+/**
+ * What a MEASUREMENT says about a source's assembly, as opposed to what its
+ * provenance suggests (that's `sourceClass` / source-quality.ts).
+ *  • 'verified'   — geograde graded this exact file PASS on every calibrated
+ *                   threshold (floating clusters, interpenetration, sunk
+ *                   parts, unknown parts, duplicates).
+ *  • 'defective'  — geograde graded it and at least one threshold failed.
+ *  • 'unverified' — NOT MEASURED. Either never graded, or graded before the
+ *                   file was last modified. This is the absence of evidence,
+ *                   not evidence of a defect, and nothing may treat it as one.
+ */
+export type AssemblyStatus = 'verified' | 'unverified' | 'defective';
+
+export function assemblyStatus(m: IndexModel): AssemblyStatus {
+  return m.asm ?? 'unverified';
+}
+
+/** One-line human summary of the measured status (for badges/tooltips). */
+export function assemblyStatusLabel(m: IndexModel): string {
+  switch (assemblyStatus(m)) {
+    case 'verified':
+      return 'geometry-audited: no defects found';
+    case 'defective':
+      return `geometry-audited: ${m.defects?.join('; ') || 'defects found'}`;
+    default:
+      return 'assembly not measured';
+  }
+}
+
+/**
+ * Share of the incumbent's placement count a candidate must retain to be
+ * promoted over it. geograde's own rerank rule (clego build_model_index.py
+ * BEST_OVERRIDES) uses the same guard, and for the same reason: a source can
+ * pass every defect threshold simply by containing LESS of the model — legacy
+ * `dbix_conv` drops parts, `pdf_recon` reconstructs a subset — and promoting
+ * that trades a measurable defect for an unmeasured omission.
+ */
+const MIN_PLACEMENT_RETENTION = 0.95;
+
 /**
  * The order the indexed auto-loader tries a set's sources in.
  *
- * Honest default: if the top-ranked entry is a conv-flagged script conversion
- * but a non-conv source exists further down, the first non-conv entry goes
- * FIRST (the picker's own order stays untouched — conv entries remain
- * user-selectable, they just don't win the auto-pick).
+ * Two demotions, applied in this order:
+ *
+ * 1. **conv demotion** (unchanged): if the top-ranked entry is a conv-flagged
+ *    script conversion but a non-conv source exists further down, the first
+ *    non-conv entry goes FIRST.
+ *
+ * 2. **verified promotion** (schema 2): if the resulting first pick is graded
+ *    DEFECTIVE and a later entry is graded PASS, the graded-PASS entry goes
+ *    first — but ONLY under guards that keep this a refinement rather than a
+ *    new ranking:
+ *      – the incumbent must be graded 'defective'. An *unverified* incumbent
+ *        is never demoted: absence of a grade is not evidence against it.
+ *      – the candidate must not be conv-flagged (rule 1 still holds).
+ *      – the candidate's provenance class must be no worse than the
+ *        incumbent's, so a vision reconstruction can never displace a
+ *        conversion and a conversion can never displace an authentic build
+ *        file merely by grading better.
+ *      – the candidate must retain ≥95 % of the incumbent's placements and
+ *        must not grade WORSE on severity.
+ *    Measured over the 2026-09-05 index + the 2026-09-03 full scoreboard: the
+ *    unguarded "first verified wins" rule reordered 360 sets, 34 of them by
+ *    promoting a `pdf_recon`/`recon_v3` reconstruction over a conversion. The
+ *    guarded rule reorders 145, none across a class boundary.
+ *
+ * The picker's own order is never touched — every entry stays user-selectable
+ * with its caveats; only the auto-pick moves.
  */
 export function indexedTryOrder(models: IndexModel[]): number[] {
-  const order = models.map((_, i) => i);
+  return resolveTryOrder(models).order;
+}
+
+/** The try-order AND the reason the first pick moved — one source of truth for
+ *  `indexedTryOrder` and `tryOrderReason`, so the UI can never explain a pick
+ *  the loader didn't make. */
+function resolveTryOrder(models: IndexModel[]): { order: number[]; reason: string | null } {
+  let order = models.map((_, i) => i);
+  let reason: string | null = null;
+  // 1. conv demotion
   if (models[0]?.conv) {
     const firstNonConv = models.findIndex(m => !m.conv);
-    if (firstNonConv > 0) return [firstNonConv, ...order.filter(i => i !== firstNonConv)];
+    if (firstNonConv > 0) {
+      order = [firstNonConv, ...order.filter(i => i !== firstNonConv)];
+      reason = `${models[0]!.src} is a script conversion with known placement defects,`
+        + ` so ${models[firstNonConv]!.src} was tried first`;
+    }
   }
-  return order;
+  // 2. verified promotion
+  const promoted = verifiedPromotion(models, order);
+  if (promoted != null) {
+    const inc = models[order[0]!]!;
+    const why = inc.defects?.length ? inc.defects.join('; ') : 'geometry audit found defects';
+    reason = `${inc.src} is graded defective (${why}),`
+      + ` so ${models[promoted]!.src} — which passed the same audit — was tried first`;
+    order = [promoted, ...order.filter(i => i !== promoted)];
+  }
+  return { order, reason };
+}
+
+/**
+ * Index of the graded-PASS entry that should displace a graded-DEFECTIVE first
+ * pick, or null when no promotion applies. Exported so the UI can explain the
+ * pick without re-deriving the rule (see `tryOrderReason`).
+ */
+export function verifiedPromotion(models: IndexModel[], order: number[]): number | null {
+  const cur = models[order[0] ?? -1];
+  if (!cur || assemblyStatus(cur) !== 'defective') return null;
+  const curRank = sourceClassRank(sourceClass(cur.src));
+  for (const i of order.slice(1)) {
+    const cand = models[i];
+    if (!cand || cand.conv || assemblyStatus(cand) !== 'verified') continue;
+    if (sourceClassRank(sourceClass(cand.src)) > curRank) continue;
+    if (cand.n < MIN_PLACEMENT_RETENTION * cur.n) continue;
+    if (cand.sev != null && cur.sev != null && cand.sev > cur.sev) continue;
+    return i;
+  }
+  return null;
+}
+
+/**
+ * Why the auto-pick is not simply `models[0]`, phrased for the UI. null when
+ * the index's own first entry is the pick (nothing to explain).
+ */
+export function tryOrderReason(models: IndexModel[]): string | null {
+  return resolveTryOrder(models).reason;
 }
 
 /**
