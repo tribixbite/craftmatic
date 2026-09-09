@@ -42,6 +42,21 @@ The PDF BOM itself overlaps OMR at only 73/90 exact IDs: at least 14 of the
 differences have universal catalog/rename evidence. Do not mislabel these all
 as CNN errors. A 360-candidate page-filtered placement trial worsened to 1/90.
 Keep `scripts/pdf-recon/anchored_pipeline_trial.py` opt-in and quarantined.
+**Round six measured the failure population instead of buying another channel**
+(`placement_population_table`, `placement_retention_audit`). Across both fixtures
+110 distinct reference instances are lost as: **68 never enumerated, 8 rejected
+by the occupancy screen, 20 enumerated but in no retained assembly, 4 ranked
+below another.** Ranking is 4% of the loss — do not buy another selection
+objective. Visibility, which round five named as the plateau's cause, is 7 of 120
+in-scope failures. Mirror completion, inventory-capacity forcing and a
+mirror-consistency tie-break were built, measured and **not adopted** (2 of 25
+distinct parts, 0, and 0); a construction's own bilateral symmetry is worth +1 on
+40377 page 20. No page of either fixture has ever finished its closure — the
+128-parent budget was hit on all 40 driven pages — and raising it to 1024 takes
+page 26's bank recall 3/5 → 5/5 while changing its placement not at all, so the
+budget is a precondition, not a fix. Measured architecture ceiling: **79/90 on
+40377, 31/109 on 41624**. The two fixtures fail at different stages (retention
+vs enumeration), so nothing here generalises on two fixtures.
 **The `scripts/pdf-recon` tests use three harnesses and mixing them hides
 failures.** Most files are a `if __name__ == '__main__'` loop printing `ok  <name>`
 (run with `python -X utf8 -B <file>`), some are `unittest` (`Ran N tests`), and a
