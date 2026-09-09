@@ -62,6 +62,37 @@ one search candidate**, and admitting them takes 41601's drivable scope from 83
 pieces on 19 pages to 92 on 23 (`placement_slot_adapter --mould-policy
 withhold`). The open problem round nine created: every runtime-legal
 branch-selection rule shipped picks the *worse* branch when a better one exists.
+Round ten closes the on-ramp and leaves the drive where it was.
+`scripts/pdf-recon/placement_autonomous_run.py` runs the whole chain from a PDF
+and nothing else with **zero attended steps** - printed BOM, callout
+association, identity/slot MILP, CAD-size gate, mould pooling, derived page
+scope, construction, reference-free opening selection, drive. Across the six
+BrickHeadz fixtures with stepped references it puts a **median 95% (mean 90%)**
+of the printed inventory into a drivable page scope (round nine: 77% on one
+fixture with the scope chosen by hand), and on 40377 the derived allocation
+reproduces all seventeen hand-worked pages identically at part, colour and
+count. Two association classes were repaired generically - translucent artwork
+fragmenting under a single ink threshold, and anchor-to-component association
+solved as an assignment rather than per-anchor-nearest - and measured over 25
+PDFs / 1,104 anchors with **0 broken**. The **CAD-size consistency gate**
+(`placement_slot_size_gate`: crop diagonal over universal CAD bounding-box
+diagonal must agree across one page) is the program's first working non-pixel
+channel; it fires only where an error is demonstrated (12 pairs on 41601, 0 on
+41624 and 40377). Identity residue, measured: of 410 callouts 90.0% take their
+own best slot, 6.8% are solver compromises, 3.2% get nothing, all because the
+frozen encoder cannot separate small parts of the same shape. **The combined
+41601 run - the symmetry-selected 6-of-7 opening on the mould-pooled scope -
+lands 6/108 with 85 emitted and +0 of its own: exactly the maximum of the two
+gains, with no interaction.** The multi-view probe is **refuted**: scoring the
+36 retained bodies under a later page's accepted registration ranks them by
+whose camera that registration was propagated from (the two lineages disagree
+symmetrically, 5-6x either way) and the within-class 24-way tie survives every
+view - so do not build multi-view aggregation on accepted registrations.
+Do not raise the slot solver's acceptance floor (41601 prefers 0.50-0.70 by +1
+accounted piece, 41624 prefers 0.30 by +3) and do not use crop-area against
+inventory-icon area (a printed BOM scales each icon to its cell).
+**Run the pdf-recon tests from the repo root** - several read `output/`
+relative to the cwd. `placement_autodrive` needs `--continue-on-unsupported`.
 **Round six measured the failure population instead of buying another channel**
 (`placement_population_table`, `placement_retention_audit`). Across both fixtures
 110 distinct reference instances are lost as: **68 never enumerated, 8 rejected
