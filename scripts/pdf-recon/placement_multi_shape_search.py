@@ -315,7 +315,11 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
             # the recorded evidence scored; a withheld piece is not drawn on it.
             check = fixed_native_score(scorer, drawn, row['projection'], row['origin'],
                                        out / 'selected.png')
-            if check != row['evidence']:
+            # The local rerank adds its own keys to the recorded evidence; the
+            # check is on what the scorer itself produced.
+            recorded = {key: value for key, value in row['evidence'].items()
+                        if key not in ('local', 'combined_score')}
+            if check != recorded:
                 raise AssertionError('Selected native PNG render evidence changed')
     dependencies = {}
     for parsed in scorer.geometry.values():
