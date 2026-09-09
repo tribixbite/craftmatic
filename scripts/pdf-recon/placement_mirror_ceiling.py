@@ -95,9 +95,20 @@ def page_ceiling(run, page, truth, library, symmetries, minimum_fraction=0.5,
         row.update(status='plane_refused', proposals=0, admitted=0, hit=0,
                    false_positive_proposals=0, missed_targets=row['wrong_targets'])
         return row
+    # Two source scopes, because only one of them is available at runtime.
+    # `base` mirrors the body the page starts from, which the driver holds
+    # before it searches, so a rule built on it could actually fire. `oracle`
+    # additionally mirrors the page's own correct additions, which runtime
+    # cannot identify - it is the ceiling, not a proposal.
+    base_only = propose(body, outstanding, plane, position_tolerance)
     mirror_source = body + correct_additions
     result = propose(mirror_source, outstanding, plane, position_tolerance)
+    base_admitted = {tuple(np.round(np.asarray(p['transform'], float).flatten(), 4))
+                     for p in base_only['proposals'] if p['admitted']}
     admitted = [proposal for proposal in result['proposals'] if proposal['admitted']]
+    for proposal in admitted:
+        proposal['base_sourced'] = bool(
+            tuple(np.round(np.asarray(proposal['transform'], float).flatten(), 4)) in base_admitted)
     for proposal in admitted:
         T = np.asarray(proposal['transform'], float)
         symmetry = proper_symmetries(proposal['part'], 'vertex')
@@ -161,6 +172,11 @@ def main():
     distinct_hits = {proposal['reference_hit'] for row in rows
                      for proposal in row.get('admitted_rows', [])
                      if proposal.get('reference_hit') is not None}
+    base_hits = {proposal['reference_hit'] for row in rows
+                 for proposal in row.get('admitted_rows', [])
+                 if proposal.get('reference_hit') is not None and proposal.get('base_sourced')}
+    base_admitted = [proposal for row in rows for proposal in row.get('admitted_rows', [])
+                     if proposal.get('base_sourced')]
     distinct_wrong = {target['truth_index'] for row in rows for target in row.get('targets', [])
                       if not target['already_placed']}
     totals = dict(pages=len(rows),
@@ -172,7 +188,11 @@ def main():
                   hit_opportunities=sum(row.get('hit', 0) for row in rows),
                   distinct_reference_instances_hit=len(distinct_hits),
                   false_positive_proposals=sum(row.get('false_positive_proposals', 0)
-                                               for row in rows))
+                                               for row in rows),
+                  runtime_available_admitted=len(base_admitted),
+                  runtime_available_distinct_hits=len(base_hits),
+                  runtime_available_false_positives=sum(
+                      1 for proposal in base_admitted if proposal['reference_hit'] is None))
     record = dict(run=str(args.run), truth=args.truth, totals=totals, rows=rows,
                   truth_used_at_runtime=False, runtime_vlm_calls=0, certified=False,
                   scope='Proposals are generated from the run\'s own base body, allocation and '

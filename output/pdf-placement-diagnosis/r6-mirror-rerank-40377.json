@@ -1,0 +1,3801 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r5-contain-v1",
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "band": 0.05,
+  "totals": {
+    "pages": 13,
+    "measured": 13,
+    "selected_correct": 8,
+    "reranked_correct": 8,
+    "oracle_best": 10,
+    "pages_improved": 0,
+    "pages_worsened": 0
+  },
+  "rows": [
+    {
+      "page": 16,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 34,
+        "eligible": 40,
+        "parts": 48,
+        "fraction": 0.85,
+        "self_mapped": 16,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.6372338224690584,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            48
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.6372338224690584,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            48
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.6372338224690584,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            48
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.6372338224690584,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            48
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.630480362872652,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            48
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.630480362872652,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            48
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.630480362872652,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            48
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.630480362872652,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            48
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.5652649820436337,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.5652649820436337,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.5652649820436337,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.5652649820436337,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.5645770847301528,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.5645770847301528,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.5645770847301528,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_15.ldr",
+          "score": 0.5645770847301528,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_16.ldr",
+          "score": 0.5540116797301898,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_17.ldr",
+          "score": 0.5540116797301898,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_18.ldr",
+          "score": 0.5540116797301898,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_19.ldr",
+          "score": 0.5540116797301898,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_20.ldr",
+          "score": 0.5537951746098415,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_21.ldr",
+          "score": 0.5537951746098415,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_22.ldr",
+          "score": 0.5537951746098415,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_23.ldr",
+          "score": 0.5537951746098415,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_24.ldr",
+          "score": 0.5510777617679842,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_25.ldr",
+          "score": 0.5510777617679842,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_26.ldr",
+          "score": 0.5510777617679842,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_27.ldr",
+          "score": 0.5510777617679842,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_28.ldr",
+          "score": 0.5371838420972281,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_29.ldr",
+          "score": 0.5371838420972281,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_30.ldr",
+          "score": 0.5371838420972281,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_31.ldr",
+          "score": 0.5371838420972281,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_32.ldr",
+          "score": 0.5346070881740945,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_33.ldr",
+          "score": 0.5346070881740945,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_34.ldr",
+          "score": 0.5346070881740945,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_35.ldr",
+          "score": 0.5346070881740945,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 3,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.6372338224690584,
+        "additions": 1,
+        "correct": 1,
+        "correct_indices": [
+          48
+        ],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 8,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.6372338224690584,
+        "additions": 1,
+        "correct": 1,
+        "correct_indices": [
+          48
+        ],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 1
+    },
+    {
+      "page": 17,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 35,
+        "eligible": 41,
+        "parts": 49,
+        "fraction": 0.8536585365853658,
+        "self_mapped": 17,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.5780034952011921,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.5780034952011921,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.5780034952011921,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.5780034952011921,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.5701021999118507,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.5701021999118507,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.5701021999118507,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.5701021999118507,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.5583564348647038,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.5583564348647038,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.5583564348647038,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.5583564348647038,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            49,
+            50
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.5476546351144765,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.5476546351144765,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.5476546351144765,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_15.ldr",
+          "score": 0.5476546351144765,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_16.ldr",
+          "score": 0.546836657552297,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_17.ldr",
+          "score": 0.546836657552297,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_18.ldr",
+          "score": 0.546836657552297,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_19.ldr",
+          "score": 0.546836657552297,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_20.ldr",
+          "score": 0.5456265686887797,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_21.ldr",
+          "score": 0.5456265686887797,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_22.ldr",
+          "score": 0.5456265686887797,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_23.ldr",
+          "score": 0.5456265686887797,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_24.ldr",
+          "score": 0.5444855927040363,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_25.ldr",
+          "score": 0.5444855927040363,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_26.ldr",
+          "score": 0.5444855927040363,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_27.ldr",
+          "score": 0.5444855927040363,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_28.ldr",
+          "score": 0.543122246932761,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_29.ldr",
+          "score": 0.543122246932761,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_30.ldr",
+          "score": 0.543122246932761,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_31.ldr",
+          "score": 0.543122246932761,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_32.ldr",
+          "score": 0.540372138218729,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_33.ldr",
+          "score": 0.540372138218729,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_34.ldr",
+          "score": 0.540372138218729,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_35.ldr",
+          "score": 0.540372138218729,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 2,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.5780034952011921,
+        "additions": 2,
+        "correct": 2,
+        "correct_indices": [
+          49,
+          50
+        ],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 36,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.5780034952011921,
+        "additions": 2,
+        "correct": 2,
+        "correct_indices": [
+          49,
+          50
+        ],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 2
+    },
+    {
+      "page": 18,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 37,
+        "eligible": 43,
+        "parts": 51,
+        "fraction": 0.8604651162790697,
+        "self_mapped": 19,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.5357490227060575,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            51
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.5357490227060575,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            51
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.5357490227060575,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            51
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.5357490227060575,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            51
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.5217554370638154,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.5217554370638154,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.5217554370638154,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.5217554370638154,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.5105516192041005,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.5105516192041005,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.5105516192041005,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.5105516192041005,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.4887179444894622,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            51
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.4887179444894622,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            51
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.4887179444894622,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            51
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_15.ldr",
+          "score": 0.4887179444894622,
+          "additions": 1,
+          "correct": 1,
+          "correct_indices": [
+            51
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_16.ldr",
+          "score": 0.4732018348483383,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_17.ldr",
+          "score": 0.4732018348483383,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_18.ldr",
+          "score": 0.4732018348483383,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_19.ldr",
+          "score": 0.4732018348483383,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_20.ldr",
+          "score": 0.46960637909435765,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_21.ldr",
+          "score": 0.46960637909435765,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_22.ldr",
+          "score": 0.46960637909435765,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_23.ldr",
+          "score": 0.46960637909435765,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 2,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.5357490227060575,
+        "additions": 1,
+        "correct": 1,
+        "correct_indices": [
+          51
+        ],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 16,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.5357490227060575,
+        "additions": 1,
+        "correct": 1,
+        "correct_indices": [
+          51
+        ],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 1
+    },
+    {
+      "page": 19,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 44,
+        "parts": 52,
+        "fraction": 0.8636363636363636,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.5245855326837143,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.5245855326837143,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.5239265649465387,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.5227383723959911,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.5227084446053436,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_15.ldr",
+          "score": 0.5227084446053436,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_16.ldr",
+          "score": 0.5227084446053436,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_17.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_18.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_19.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_20.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_21.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_22.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_23.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_24.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_25.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_26.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_27.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_28.ldr",
+          "score": 0.5205060455125476,
+          "additions": 6,
+          "correct": 1,
+          "correct_indices": [
+            54
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_29.ldr",
+          "score": 0.4748766644192486,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_30.ldr",
+          "score": 0.4748766644192486,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_31.ldr",
+          "score": 0.4748766644192486,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_32.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_33.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_34.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_35.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_36.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_37.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_38.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_39.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_40.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_41.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 2
+        },
+        {
+          "file": "beam_42.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_43.ldr",
+          "score": 0.4727233702182955,
+          "additions": 6,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 6,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.5245855326837143,
+        "additions": 6,
+        "correct": 1,
+        "correct_indices": [
+          54
+        ],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 32,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.5245855326837143,
+        "additions": 6,
+        "correct": 1,
+        "correct_indices": [
+          54
+        ],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 1
+    },
+    {
+      "page": 22,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 50,
+        "parts": 58,
+        "fraction": 0.76,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.36675414911374304,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            70
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.3638134300704739,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.3638134300704739,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.3638134300704739,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.3638134300704739,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.3626972236187099,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            70,
+            71
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.3626972236187099,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            70,
+            71
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.3626972236187099,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            70,
+            71
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.3626972236187099,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            70,
+            71
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.3626176131210769,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.3626176131210769,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.3626176131210769,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.3626176131210769,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 6,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.36675414911374304,
+        "additions": 2,
+        "correct": 1,
+        "correct_indices": [
+          70
+        ],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 13,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.36675414911374304,
+        "additions": 2,
+        "correct": 1,
+        "correct_indices": [
+          70
+        ],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 2
+    },
+    {
+      "page": 23,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 52,
+        "parts": 60,
+        "fraction": 0.7307692307692307,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.35931943491593626,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.35931943491593626,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.35931943491593626,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.35931943491593626,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.35636666077795254,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.35636666077795254,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.35636666077795254,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.35636666077795254,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.35627376053510496,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.35627376053510496,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.35627376053510496,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.35627376053510496,
+          "additions": 1,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 1,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.35931943491593626,
+        "additions": 1,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 12,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.35931943491593626,
+        "additions": 1,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 0
+    },
+    {
+      "page": 24,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 53,
+        "parts": 61,
+        "fraction": 0.7169811320754716,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.37646535591009944,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.3722321697323855,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.3722321697323855,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.3720803940364775,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.3720803940364775,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.3706277034960244,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.3706277034960244,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.370303260136974,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.370303260136974,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.36742451722596114,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.35485275711684566,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.35485275711684566,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.3519501538099601,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.3519501538099601,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.35115394818966694,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_15.ldr",
+          "score": 0.35115394818966694,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_16.ldr",
+          "score": 0.3501761216109062,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_17.ldr",
+          "score": 0.3501761216109062,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_18.ldr",
+          "score": 0.3501761216109062,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_19.ldr",
+          "score": 0.3501761216109062,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_20.ldr",
+          "score": 0.3459067947383739,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_21.ldr",
+          "score": 0.3459067947383739,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_22.ldr",
+          "score": 0.34483214247587884,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_23.ldr",
+          "score": 0.34483214247587884,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_24.ldr",
+          "score": 0.34483214247587884,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_25.ldr",
+          "score": 0.34483214247587884,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 5,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.37646535591009944,
+        "additions": 2,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 26,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.37646535591009944,
+        "additions": 2,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 0
+    },
+    {
+      "page": 25,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 38,
+        "eligible": 55,
+        "parts": 63,
+        "fraction": 0.6909090909090909,
+        "self_mapped": 20,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.38417617921232566,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.37943888546921745,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.37943888546921745,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.37943888546921745,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.37943888546921745,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.3782306209000899,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.3782306209000899,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.3782306209000899,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.3782306209000899,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.37820858617778985,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.37820858617778985,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.37820858617778985,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.37820858617778985,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.37725357871621057,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.37725357871621057,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_15.ldr",
+          "score": 0.37725357871621057,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_16.ldr",
+          "score": 0.37725357871621057,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_17.ldr",
+          "score": 0.3720085194093512,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_18.ldr",
+          "score": 0.3720085194093512,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_19.ldr",
+          "score": 0.3720085194093512,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_20.ldr",
+          "score": 0.3720085194093512,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_21.ldr",
+          "score": 0.37026280729712546,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_22.ldr",
+          "score": 0.37026280729712546,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_23.ldr",
+          "score": 0.37026280729712546,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_24.ldr",
+          "score": 0.37026280729712546,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 5,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.38417617921232566,
+        "additions": 2,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 25,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.38417617921232566,
+        "additions": 2,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 0
+    },
+    {
+      "page": 26,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 39,
+        "eligible": 57,
+        "parts": 65,
+        "fraction": 0.6842105263157895,
+        "self_mapped": 21,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.291810253240777,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.291810253240777,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.291810253240777,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.2846867449984586,
+          "additions": 4,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 5,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.291810253240777,
+        "additions": 4,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 15,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.291810253240777,
+        "additions": 4,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 0
+    },
+    {
+      "page": 27,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 39,
+        "eligible": 57,
+        "parts": 69,
+        "fraction": 0.6842105263157895,
+        "self_mapped": 21,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.2899614275134469,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.2896025247935399,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.2881333222675134,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.2880755815455004,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.2871994074268314,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.2867902395994245,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.28451481659006733,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.28399541731771677,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.2831484826448335,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.28243846058878774,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.28141649211225633,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.2811268739074251,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.28084892416744744,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.28027391048334704,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.27991073983086745,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_15.ldr",
+          "score": 0.2795191521701118,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_16.ldr",
+          "score": 0.2794070702995246,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_17.ldr",
+          "score": 0.27933797226028323,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_18.ldr",
+          "score": 0.27911085565148175,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_19.ldr",
+          "score": 0.2785984215851707,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_20.ldr",
+          "score": 0.2778994632712211,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_21.ldr",
+          "score": 0.27788278068534633,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_22.ldr",
+          "score": 0.27723220545872534,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_23.ldr",
+          "score": 0.2770743232740605,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_24.ldr",
+          "score": 0.2761490513182107,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_25.ldr",
+          "score": 0.2758497213374463,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_26.ldr",
+          "score": 0.2754136161152685,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_27.ldr",
+          "score": 0.27418578504435465,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 2,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.2899614275134469,
+        "additions": 2,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 28,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.2899614275134469,
+        "additions": 2,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 0
+    },
+    {
+      "page": 28,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 39,
+        "eligible": 57,
+        "parts": 71,
+        "fraction": 0.6842105263157895,
+        "self_mapped": 21,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.34006751855258777,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.34006751855258777,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.34006751855258777,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.34006751855258777,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.3398196733983112,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.3398196733983112,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.3398196733983112,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.3398196733983112,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.33981135292675335,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.33981135292675335,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.33981135292675335,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.33981135292675335,
+          "additions": 3,
+          "correct": 1,
+          "correct_indices": [
+            79
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.33534717375824186,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.33534717375824186,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.33534717375824186,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_15.ldr",
+          "score": 0.3349128994835141,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_16.ldr",
+          "score": 0.3349128994835141,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_17.ldr",
+          "score": 0.3349128994835141,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_18.ldr",
+          "score": 0.3349128994835141,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_19.ldr",
+          "score": 0.334503762066497,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_20.ldr",
+          "score": 0.334503762066497,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_21.ldr",
+          "score": 0.334503762066497,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_22.ldr",
+          "score": 0.334503762066497,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_23.ldr",
+          "score": 0.334465616549885,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_24.ldr",
+          "score": 0.334465616549885,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_25.ldr",
+          "score": 0.334465616549885,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_26.ldr",
+          "score": 0.334465616549885,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_27.ldr",
+          "score": 0.32704215891050625,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_28.ldr",
+          "score": 0.32704215891050625,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_29.ldr",
+          "score": 0.32704215891050625,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_30.ldr",
+          "score": 0.32704215891050625,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_31.ldr",
+          "score": 0.32658805264115237,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_32.ldr",
+          "score": 0.32658805264115237,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_33.ldr",
+          "score": 0.32658805264115237,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_34.ldr",
+          "score": 0.32658805264115237,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_35.ldr",
+          "score": 0.32650271543515386,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_36.ldr",
+          "score": 0.32650271543515386,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_37.ldr",
+          "score": 0.32650271543515386,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_38.ldr",
+          "score": 0.32650271543515386,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 3,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.34006751855258777,
+        "additions": 3,
+        "correct": 1,
+        "correct_indices": [
+          79
+        ],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 39,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.34006751855258777,
+        "additions": 3,
+        "correct": 1,
+        "correct_indices": [
+          79
+        ],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 1
+    },
+    {
+      "page": 29,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 40,
+        "eligible": 60,
+        "parts": 74,
+        "fraction": 0.6666666666666666,
+        "self_mapped": 22,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.327508478466884,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.3266337352759763,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.32651271034707885,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            81,
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.3263837700895883,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            81,
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.32637568860016625,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.3249942526883888,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.32494555637782013,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.3247290730080304,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.32431085641740826,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.3240578235880156,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.32386383915083367,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.32334491939382165,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.323338429262897,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.3233381641685335,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.32277949490232577,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_15.ldr",
+          "score": 0.3220888963859502,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_16.ldr",
+          "score": 0.32155031184181204,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_17.ldr",
+          "score": 0.3214003510160135,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_18.ldr",
+          "score": 0.3213999909271816,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_19.ldr",
+          "score": 0.32081855333873305,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_20.ldr",
+          "score": 0.31755280724538404,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_21.ldr",
+          "score": 0.3171536283040486,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_22.ldr",
+          "score": 0.316854186539839,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_23.ldr",
+          "score": 0.31657954986466913,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_24.ldr",
+          "score": 0.31582576268861695,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_25.ldr",
+          "score": 0.31504752877129,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_26.ldr",
+          "score": 0.3145391053452228,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_27.ldr",
+          "score": 0.31439940759493534,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_28.ldr",
+          "score": 0.31410248486541986,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            81
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_29.ldr",
+          "score": 0.31360094126293303,
+          "additions": 2,
+          "correct": 2,
+          "correct_indices": [
+            81,
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_30.ldr",
+          "score": 0.3129240686552073,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_31.ldr",
+          "score": 0.312849864554511,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_32.ldr",
+          "score": 0.3114623381921251,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            82
+          ],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_33.ldr",
+          "score": 0.3106274410270211,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_34.ldr",
+          "score": 0.30959567127012344,
+          "additions": 2,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_35.ldr",
+          "score": 0.3083657193289271,
+          "additions": 2,
+          "correct": 1,
+          "correct_indices": [
+            82
+          ],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 2,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.327508478466884,
+        "additions": 2,
+        "correct": 1,
+        "correct_indices": [
+          82
+        ],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 36,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.327508478466884,
+        "additions": 2,
+        "correct": 1,
+        "correct_indices": [
+          82
+        ],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 2
+    },
+    {
+      "page": 30,
+      "plane": {
+        "axis": 2,
+        "offset": 0.0,
+        "matched": 41,
+        "eligible": 62,
+        "parts": 76,
+        "fraction": 0.6612903225806451,
+        "self_mapped": 23,
+        "accepted": true,
+        "minimum_fraction": 0.5,
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "beams": [
+        {
+          "file": "beam_00.ldr",
+          "score": 0.34571850947187266,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_01.ldr",
+          "score": 0.3450893224902574,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_02.ldr",
+          "score": 0.3450893224902574,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_03.ldr",
+          "score": 0.3444943231161004,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_04.ldr",
+          "score": 0.3444943231161004,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_05.ldr",
+          "score": 0.3433017338787033,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_06.ldr",
+          "score": 0.3433017338787033,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_07.ldr",
+          "score": 0.3427009143880641,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_08.ldr",
+          "score": 0.3427009143880641,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_09.ldr",
+          "score": 0.34093793096035885,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_10.ldr",
+          "score": 0.34093793096035885,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_11.ldr",
+          "score": 0.34034404374622057,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_12.ldr",
+          "score": 0.34034404374622057,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_13.ldr",
+          "score": 0.3358664834819984,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_14.ldr",
+          "score": 0.3358664834819984,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_15.ldr",
+          "score": 0.3344301666219167,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_16.ldr",
+          "score": 0.3344301666219167,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_17.ldr",
+          "score": 0.3331323784071723,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_18.ldr",
+          "score": 0.3331323784071723,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_19.ldr",
+          "score": 0.3328696799827724,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_20.ldr",
+          "score": 0.3328696799827724,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_21.ldr",
+          "score": 0.33280114227077573,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_22.ldr",
+          "score": 0.33280114227077573,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_23.ldr",
+          "score": 0.332523489325881,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_24.ldr",
+          "score": 0.332523489325881,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_25.ldr",
+          "score": 0.3320624444214392,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_26.ldr",
+          "score": 0.3320624444214392,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_27.ldr",
+          "score": 0.3311701797792535,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_28.ldr",
+          "score": 0.3311701797792535,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_29.ldr",
+          "score": 0.3310382800666516,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_30.ldr",
+          "score": 0.3310382800666516,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_31.ldr",
+          "score": 0.33046110548284835,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_32.ldr",
+          "score": 0.33046110548284835,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_33.ldr",
+          "score": 0.33012039213144545,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_34.ldr",
+          "score": 0.33012039213144545,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_35.ldr",
+          "score": 0.3299404993828202,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        },
+        {
+          "file": "beam_36.ldr",
+          "score": 0.3299404993828202,
+          "additions": 3,
+          "correct": 0,
+          "correct_indices": [],
+          "mirror_consistent": 0
+        }
+      ],
+      "band": 0.05,
+      "reference_targets": 3,
+      "selected": {
+        "file": "beam_00.ldr",
+        "score": 0.34571850947187266,
+        "additions": 3,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "status": "measured",
+      "eligible": 37,
+      "reranked": {
+        "file": "beam_00.ldr",
+        "score": 0.34571850947187266,
+        "additions": 3,
+        "correct": 0,
+        "correct_indices": [],
+        "mirror_consistent": 0
+      },
+      "delta": 0,
+      "best_available": 0
+    }
+  ],
+  "truth_used_at_runtime": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Evaluation-only. Beams, scores and planes come from the completed run; the reference model scores them afterwards and selects nothing.",
+  "limitations": "Each page is judged against the body the run actually gave it, so this is a per-page reordering and not a re-drive: a page whose selection changes would hand a different body to the next page."
+}

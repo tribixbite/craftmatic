@@ -10,7 +10,10 @@
     "admitted": 5,
     "hit_opportunities": 4,
     "distinct_reference_instances_hit": 2,
-    "false_positive_proposals": 1
+    "false_positive_proposals": 1,
+    "runtime_available_admitted": 3,
+    "runtime_available_distinct_hits": 1,
+    "runtime_available_false_positives": 1
   },
   "rows": [
     {
@@ -292,6 +295,7 @@
           "engaged": 1,
           "added_connectors": 1,
           "admitted": true,
+          "base_sourced": false,
           "reference_hit": 57
         }
       ],
@@ -429,6 +433,7 @@
           "engaged": 4,
           "added_connectors": 8,
           "admitted": true,
+          "base_sourced": false,
           "reference_hit": 65
         }
       ],
@@ -600,6 +605,7 @@
           "engaged": 4,
           "added_connectors": 8,
           "admitted": true,
+          "base_sourced": true,
           "reference_hit": 65
         }
       ],
@@ -729,6 +735,7 @@
           "engaged": 4,
           "added_connectors": 8,
           "admitted": true,
+          "base_sourced": true,
           "reference_hit": 65
         },
         {
@@ -775,6 +782,7 @@
           "engaged": 3,
           "added_connectors": 8,
           "admitted": true,
+          "base_sourced": true,
           "reference_hit": null
         }
       ],

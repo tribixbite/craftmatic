@@ -1979,3 +1979,45 @@ previous page placed correctly and whose partner is still outstanding. And both
 targets were already in that page's bank, so on this fixture mirror completion is
 a **selection prior**, not the reachability expansion the population table said
 was the larger class.
+
+### The mirror channel cannot be turned into a runtime rule, and here is why
+
+Having a ceiling of two parts is not the same as having a rule. Three
+formulations were built and measured, and none of them survives.
+
+**Post-hoc replacement.** When a page allocates three copies of a mould and gets
+one of them right, runtime cannot tell which one to overwrite. Every strict
+determinism gate - one unmatched addition, one admitted proposal - then declines
+to fire on exactly the pages where the ceiling exists.
+
+**A tie-break over the retained assemblies**, which is the shape of the existing
+local-rerank and seated levers. `placement_mirror_rerank` measures it over every
+retained beam of every driven page:
+
+| | pages | selected correct | mirror-reranked | best retained |
+| --- | ---: | ---: | ---: | ---: |
+| 40377 pages 16-30 | 13 | 8 | 8 | 10 |
+
+**Not one retained assembly on any page contains a single mirror-consistent
+addition.** The tie-break has nothing to reorder, and the reason is visible on
+page 22: its two correct 87079 tiles sit at the same z, stacked at y = -76 and
+-116, so they are not each other's reflection. The tile that *is* their mirror is
+allocated on a later page and never enters a retained assembly there at all -
+even though the bank holds its pose. That splits the population table's
+`mis_selected` class in two: *retained but not selected*, worth at most the +2
+this table shows across thirteen pages, and *enumerated but never retained*,
+which no re-ranking can reach.
+
+**Committing a base-sourced proposal before the search.** This is the only
+formulation the driver could actually execute, because the base body is the one
+thing it holds before searching. The ceiling tool now separates it: of the five
+admitted proposals, **three** are derivable from the base alone, and they hit
+**one** distinct reference instance and produce **one** false positive. A
+coin flip is not a channel.
+
+**Verdict: measured, and not adopted.** Mirror completion is correct where it
+fires, abstains cleanly on the asymmetric fixture, and its ceiling on the fixture
+built for it is 2 of 25 distinct wrong parts - of which 1 is runtime-reachable,
+at 50% precision. The tooling stays because the plane-agreement number is a
+useful independent readout of body quality (0.850 at page 16 falling to 0.661 at
+page 30, tracking the errors the chain accumulates), but no driver flag is added.
