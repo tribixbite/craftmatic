@@ -2385,3 +2385,36 @@ Raising both together is what the abandoned first attempt did, and its cost was
 the experiment itself — page 16's closure had not finished in fifty minutes at
 32768 poses. A budget policy that actually works has to be adaptive rather than a
 pair of constants, and neither constant has ever been tuned.
+
+### Widening the search does not fix retention
+
+Page 19 is the extreme retention case: all six of its reference targets are in
+the bank, all six survive the occupancy screen, and exactly one reaches a
+retained assembly. Re-driven from the identical page-18 body at `--beam 256
+--top-k 64` against round five's `--beam 96 --top-k 12`:
+
+| | retained assemblies | targets in bank | survive screen | in any retained assembly | selected |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| round five | 44 | 6 | 6 | 1 | 1 |
+| round six, wide | **200** | 6 | 6 | **1** | 1 |
+
+**Four and a half times as many retained assemblies contain exactly the same one
+correct pose.** The emitted result is 58 parts at 50 structural with score
+0.5245855326837143 — identical to round five to sixteen figures — for 1,017
+seconds of search.
+
+So the retention loss is in the *traversal*, not in the output width. A complete
+assembly has to place all six allocated pieces at once, and the layer search
+prunes by incremental image agreement, so a correct pose that paints little is
+dropped early in the traversal whatever the beam and `top_k` are afterwards.
+Widening the exit does not help when the candidate never reaches it.
+
+One confound, stated: the single-page scope changes the camera prescan, so this
+run's bank is 6,856 poses against round five's 7,467 rather than identical. The
+selected assembly and its score are identical regardless, and the six targets are
+in both banks, so the comparison holds on its own terms.
+
+That leaves the second-largest class — 20 of 100 losses across both fixtures, 13
+of them on 40377 — with **no measured lever at all**. Enumeration has one that
+works on 8 of 13 pages and converts nothing on its own; retention now has one
+that has been tried and does nothing.
