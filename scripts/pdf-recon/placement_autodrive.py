@@ -220,6 +220,23 @@ def page_allocation(pdf, page, allocation_run):
     return [(str(part), int(color)) for part, color in pieces]
 
 
+def update_outstanding(outstanding, page, placed, allocation=(), attached_pages=()):
+    """Record whether a page still owes its pieces, and return the flat list.
+
+    A page that placed owes nothing; a page that did not is drawn on every later
+    page regardless, so its allocation stays outstanding until something places
+    it. An attachment discharges the pages whose subassembly it consumed. The
+    returned order is by page so the record is stable and readable.
+    """
+    if placed:
+        outstanding.pop(page, None)
+        for source in attached_pages:
+            outstanding.pop(source, None)
+    elif allocation:
+        outstanding[page] = [(str(part), int(color)) for part, color in allocation]
+    return [piece for key in sorted(outstanding) for piece in outstanding[key]]
+
+
 def nearest_prescan(prescan, page):
     """Matrices of the page nearest `page` that has any, ties preferring earlier."""
     if not prescan:
@@ -838,16 +855,11 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
         except Exception as exc:  # keep the failed page's evidence, never a silent skip
             status, detail, placement = 'error', dict(error=str(exc),
                                                       traceback=traceback.format_exc()), None
-        if status == 'placed':
-            outstanding.pop(page, None)
-            for source in attached_from:
-                outstanding.pop(source, None)
-            attached_from.clear()
-        else:
-            allocated = page_allocation(pdf, page, allocation_run)
-            if allocated:
-                outstanding[page] = allocated
-        unplaced = [piece for key in sorted(outstanding) for piece in outstanding[key]]
+        unplaced = update_outstanding(
+            outstanding, page, status == 'placed',
+            () if status == 'placed' else page_allocation(pdf, page, allocation_run),
+            [source for source in attached_from if source is not None])
+        attached_from.clear()
         step = dict(page=page, status=status, detail=detail, directory=str(step_dir))
         step['unplaced_pieces_carried'] = [list(p) for p in unplaced]
         step['pending_body'] = dict(pending) if pending else None
@@ -892,8 +904,7 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
                 status, detail, placement = 'error', dict(error=str(exc),
                                                           traceback=traceback.format_exc()), None
             if status == 'placed':
-                outstanding.pop(page, None)
-                unplaced = [piece for key in sorted(outstanding) for piece in outstanding[key]]
+                unplaced = update_outstanding(outstanding, page, True)
             step = dict(page=page, status=status, detail=detail, directory=str(step_dir),
                         retry_pass=attempt_pass, pending_body=dict(pending) if pending else None,
                         unplaced_pieces_carried=[list(p) for p in unplaced])
