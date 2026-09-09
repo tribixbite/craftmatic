@@ -410,11 +410,13 @@ emitted parts at 41 structural, 28 canonical-alias and 22 raw-strict, precision
 0.976. Those are round one's numbers to the part; what changed is that no human
 issued the command.
 
-Continuing that same run through pages 15 and 16 reaches 48/45 and then 49/46,
-which is the 46/90 checkpoint reproduced end to end under one driver invocation
-with no hand-issued step in the middle. The subassembly's *construction* is
-still supplied to the driver; its scheduling, the choice of page to attach it
-on, and everything after are not.
+That run then completed pages 15 to 19 in the same invocation: 48/45, 49/46,
+51/46, 52/46, 58/46. So the 46/90 checkpoint - and the wrong tail after it - is
+reproduced end to end with no hand-issued step in the middle, matching the
+hand-assembled round-one chain row for row. The driver neither gains nor loses
+by scheduling the attachment itself. The subassembly's *construction* is still
+supplied to it; the scheduling, the choice of page to attach on, and everything
+downstream are not.
 
 Also verified on pages 19-21: page 19 places, page 20 reports `subassembly_page`
 carrying its measurement (8,136 against a 41,733 body and a 25,039 threshold)
