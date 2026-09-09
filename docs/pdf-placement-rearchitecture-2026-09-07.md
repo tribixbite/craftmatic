@@ -2236,3 +2236,21 @@ with the closure budget raised until no page reports a budget hit, report the
 trajectory, and only then choose between deepening retention on 40377 and adding
 fixtures. If the raised budget does not move the chain, the ladder above is the
 honest ceiling and breadth becomes the only remaining question worth asking.
+
+### The same page, placed: the budget converts one class into another
+
+Page 26 at 1024 parents does not place better. It emits 69 parts at 51 structural
+— **exactly round five's row**, from a bank nearly three times the size that now
+contains both poses the round-five bank was missing.
+
+So the correct reading of the previous section is narrower than it looked. Lifting
+the closure budget moves parts from `unreachable` to `mis_selected`; it does not
+move them to correct. On this page the two recovered 3023b poses are enumerated,
+and the search still prefers something else — which is the same wall the
+`mis_selected` class already describes, reached from the other side.
+
+That does not make the budget finding worthless: a pose that is not enumerated
+cannot be selected by any future selector, so the ceiling of every downstream
+improvement was 3 of 5 on this page and is now 5 of 5. It does mean the budget is
+a **precondition** rather than a fix, and the honest expected value of raising it
+alone is small. The whole-chain run measures that rather than assuming it.
