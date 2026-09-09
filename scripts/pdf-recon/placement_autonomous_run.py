@@ -86,7 +86,11 @@ def stage(journal, name, command, produces, log):
     return entry
 
 
-def run(pdf, inventory_run, out, truth=None, roots=3, mould_policy='withhold'):
+STOP_POINTS = ('allocation', 'construction', 'opening', 'drive')
+
+
+def run(pdf, inventory_run, out, truth=None, roots=3, mould_policy='withhold',
+        stop_after='drive'):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     log = out / 'pipeline.log'
@@ -109,6 +113,9 @@ def run(pdf, inventory_run, out, truth=None, roots=3, mould_policy='withhold'):
     if len(scope) < 2:
         raise SystemExit('Derived scope is too small to drive: %s' % scope)
     construction_page, drive_pages = scope[0], scope[1:]
+    if stop_after == 'allocation':
+        return finish(out, pdf, inventory_run, scope, construction_page, drive_pages, journal,
+                      None, None, truth, stop_after)
     construction = out / 'construction'
     stage(journal, 'construction',
           [HERE / 'placement_construct_body.py', '--pdf', pdf, '--allocation-run', allocation,
@@ -145,32 +152,43 @@ def run(pdf, inventory_run, out, truth=None, roots=3, mould_policy='withhold'):
     else:
         journal.append(dict(stage='opening', status='reused', produces=str(base),
                             sha256=digest(base / 'model.ldr')))
+    if stop_after == 'opening':
+        return finish(out, pdf, inventory_run, scope, construction_page, drive_pages, journal,
+                      base, None, truth, stop_after)
     drive = out / 'drive'
     stage(journal, 'drive',
           [HERE / 'placement_autodrive.py', '--pdf', pdf, '--allocation-run', allocation,
            '--base-run', base, '--out', drive, '--pages'] + [str(page) for page in drive_pages]
-          + PAGE_OPTIONS, drive / 'autodrive.json', log)
+          + PAGE_OPTIONS + ['--continue-on-unsupported'], drive / 'autodrive.json', log)
+    return finish(out, pdf, inventory_run, scope, construction_page, drive_pages, journal,
+                  base, drive, truth, stop_after)
+
+
+def finish(out, pdf, inventory_run, scope, construction_page, drive_pages, journal,
+           base, drive, truth, stop_after):
+    """The pipeline report, plus an evaluation-only score when a reference is given."""
     report = dict(pdf=str(pdf), inventory_run=str(inventory_run), out=str(out),
-                  attended_steps=0, truth_used_at_runtime=False, runtime_vlm_calls=0,
-                  certified=False, scope_pages=scope, construction_page=construction_page,
-                  drive_pages=drive_pages, stages=journal,
+                  attended_steps=0, stopped_after=stop_after, truth_used_at_runtime=False,
+                  runtime_vlm_calls=0, certified=False, scope_pages=scope,
+                  construction_page=construction_page, drive_pages=drive_pages, stages=journal,
                   limitations=['The inventory run supplies the printed BOM; identity, allocation, '
                                'scope, opening and drive are derived from the PDF alone.',
                                'No certification of the emitted model; scoring below is '
                                'evaluation-only and never re-enters the pipeline.'])
-    if truth:
+    if truth and base is not None:
         from pose_score import read_parts
         from placement_diagnose_alias_poses import (canonicalize, verified_local_symmetries,
                                                     yaw_equivalent_score)
         from placement_part_library import PartLibrary
         library = PartLibrary()
         reference, _ = canonicalize(read_parts(truth), library)
-        journal_data = json.loads((drive / 'autodrive.json').read_text())
-        final = journal_data.get('last_checkpoint')
-        opening, _ = canonicalize(read_parts(base / 'model.ldr'), library)
+        opening, _ = canonicalize(read_parts(Path(base) / 'model.ldr'), library)
         scored = dict(truth=str(truth), truth_pieces=len(reference),
                       opening_structural=int(yaw_equivalent_score(
                           opening, reference, verified_local_symmetries)['matched']))
+        final = None
+        if drive is not None:
+            final = json.loads((Path(drive) / 'autodrive.json').read_text()).get('last_checkpoint')
         if final and Path(final).is_file():
             emitted, _ = canonicalize(read_parts(final), library)
             scored.update(final_model=final, emitted=len(emitted),
@@ -178,9 +196,10 @@ def run(pdf, inventory_run, out, truth=None, roots=3, mould_policy='withhold'):
                               emitted, reference, verified_local_symmetries)['matched']))
             scored['driver_contribution'] = scored['final_structural'] - scored['opening_structural']
         report['evaluation'] = scored
-    (out / 'pipeline.json').write_text(json.dumps(report, indent=2))
-    print(json.dumps(report.get('evaluation', dict(scope_pages=len(scope))), indent=1))
-    print(out / 'pipeline.json')
+    (Path(out) / 'pipeline.json').write_text(json.dumps(report, indent=2))
+    print(json.dumps(report.get('evaluation', dict(scope_pages=len(scope),
+                                                   drive_pages=len(drive_pages))), indent=1))
+    print(Path(out) / 'pipeline.json')
     return report
 
 
@@ -193,8 +212,11 @@ def main():
     parser.add_argument('--truth', default=None, help='Evaluation only; never read by the pipeline')
     parser.add_argument('--roots', type=int, default=3)
     parser.add_argument('--mould-policy', default='withhold')
+    parser.add_argument('--stop-after', choices=STOP_POINTS, default='drive',
+                        help='Stop the chain early; the on-ramp stages need no GPU')
     args = parser.parse_args()
-    run(args.pdf, args.inventory_run, args.out, args.truth, args.roots, args.mould_policy)
+    run(args.pdf, args.inventory_run, args.out, args.truth, args.roots, args.mould_policy,
+        args.stop_after)
 
 
 if __name__ == '__main__':
