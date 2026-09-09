@@ -818,6 +818,8 @@ def build_options(args):
                 fraction=args.fraction, fallback=args.fallback, scales=tuple(args.scales),
                 scale_prior=not args.no_scale_prior, retry_passes=args.retry_passes,
                 exploded_target=not args.no_exploded_target,
+                drawing_scale=not args.no_drawing_scale,
+                local_rerank=args.local_rerank,
                 camera_gate=args.camera_gate,
                 camera_unexplained_max=(args.camera_unexplained_max
                                         if args.camera_unexplained_max is not None
