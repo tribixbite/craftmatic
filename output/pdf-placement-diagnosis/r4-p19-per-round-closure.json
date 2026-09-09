@@ -1,0 +1,60 @@
+{
+  "fixture": "40377",
+  "page": 19,
+  "base": "output/pdf-placement-diagnosis/r4-p18-reference-mount/model.ldr (evaluation-only)",
+  "rows": [
+    {
+      "setting": "global budget, 128 parents, 1 round",
+      "poses": 6466,
+      "rounds": 1,
+      "parents": 128,
+      "nearest_linf_ldu": {
+        "41740": 0.0,
+        "2431": 10.0,
+        "25269": [
+          26.0,
+          26.0,
+          26.0,
+          26.0
+        ]
+      }
+    },
+    {
+      "setting": "per-round budget, 128 parents, 2 rounds",
+      "poses": 8907,
+      "rounds": 2,
+      "parents": 256,
+      "nearest_linf_ldu": {
+        "41740": 0.0,
+        "2431": 10.0,
+        "25269": [
+          26.0,
+          26.0,
+          26.0,
+          26.0
+        ]
+      }
+    },
+    {
+      "setting": "per-round budget, 128 parents, 3 rounds",
+      "poses": 10977,
+      "rounds": 3,
+      "parents": 384,
+      "nearest_linf_ldu": {
+        "41740": 0.0,
+        "2431": 10.0,
+        "25269": [
+          26.0,
+          26.0,
+          26.0,
+          26.0
+        ]
+      }
+    }
+  ],
+  "finding": "A per-round parent budget does reach rounds two and three, where the global budget could not: the bank grows 6,466 to 8,907 to 10,977 poses and closure_rounds_completed goes 1 to 2 to 3. It does not by itself recover page 19, because the parent whose children are the 2431 tile and the four 25269 corner rounds is the correct 41740 pose, and in bank order that is one of 3,587 base-attached poses rather than one of the first 128 expanded. Reaching later rounds and choosing what to expand in them are separate problems; the evidence ordering the driver already computes applies to round one only.",
+  "scope": "Evaluation-only measurement of enumeration reach; nearest-pose distance is necessary for reachability, not sufficient.",
+  "truth_used": true,
+  "runtime_vlm_calls": 0,
+  "certified": false
+}

@@ -61,6 +61,7 @@ class ShapeRegistry:
         self.base_attached_count = len(self.poses)
         self.relative = None
         self.processed, self.limited, self.rounds_done = 0, False, 0
+        self.round_limited, self.pose_limited, self.per_round_parents = False, False, False
         self.parent_order_source = 'bank_order'
 
     def add(self, part, T):
@@ -87,6 +88,7 @@ class ShapeRegistry:
         clone.edges = set(self.edges)
         clone.native = dict(self.native)
         clone.processed, clone.limited, clone.rounds_done = 0, False, 0
+        clone.round_limited, clone.pose_limited, clone.per_round_parents = False, False, False
         clone.parent_order_source = 'bank_order'
         return clone
 
@@ -107,13 +109,29 @@ class ShapeRegistry:
         return self.relative
 
     def close(self, closure_rounds=1, max_closure_parents=64, max_poses=8192,
-              parent_order=None, order_source=None):
+              parent_order=None, order_source=None, per_round_parents=False):
         """Expand bounded closure rounds, visiting parents in `parent_order`.
 
         `parent_order` is a permutation of the current base-attached pose
         indices. It changes only which parents fit inside the budget, never
         which children are legal, so a better order can add correct poses but
         can never invent an illegal one.
+
+        `max_closure_parents` is counted **globally across rounds** by default,
+        and hitting it stops every remaining round. That makes a second hop
+        unreachable on any page whose base-attached set is larger than the
+        budget: 40377 page index 19 has 3,587 base-attached poses, so round one
+        alone exhausts 128 or 512 parents and `closure_rounds_completed` stays 1
+        however many rounds are asked for. Its `41740` plate is reachable in one
+        hop and the five pieces that mount on *it* need two.
+
+        `per_round_parents=True` counts the budget per round instead, so each
+        round expands its own best-ranked prefix. Round two's frontier is the
+        children of round one's expanded parents, in the order those parents were
+        visited, so an evidence-ordered first round hands the second round an
+        inherited ordering rather than an arbitrary one. Pose exhaustion still
+        stops everything, because a bank that is already full cannot hold another
+        round's children. The default is unchanged, byte for byte.
         """
         relative = self.relative_mates()
         if parent_order is None:
@@ -123,13 +141,18 @@ class ShapeRegistry:
             if sorted(frontier) != list(range(self.base_attached_count)):
                 raise ValueError('Parent order must be a permutation of the base-attached poses')
             self.parent_order_source = order_source or 'explicit'
+        self.per_round_parents = bool(per_round_parents)
         for _ in range(max(0, closure_rounds)):
             next_frontier = []
+            round_processed = 0
             for parent in frontier:
-                if self.processed >= max_closure_parents:
+                spent = round_processed if per_round_parents else self.processed
+                if spent >= max_closure_parents:
                     self.limited = True
+                    self.round_limited = True
                     break
                 self.processed += 1
+                round_processed += 1
                 parent_part, parent_T = self.poses[parent]
                 for child_part in self.parts:
                     for candidate in relative[(parent_part, child_part)]:
@@ -142,6 +165,7 @@ class ShapeRegistry:
                             continue
                         if len(self.poses) >= max_poses:
                             self.limited = True
+                            self.pose_limited = True
                             continue
                         if self.assembly.collides(child_part, T):
                             continue
@@ -149,7 +173,10 @@ class ShapeRegistry:
                         next_frontier.append(child)
                         self.edges.add(tuple(sorted((parent, child))))
             self.rounds_done += 1
-            if self.limited:
+            # A full pose bank cannot hold another round's children, so that stops
+            # everything. A spent per-round parent budget does not: the point of
+            # the per-round mode is that the next round gets its own.
+            if self.pose_limited or (self.limited and not per_round_parents):
                 break
             frontier = next_frontier
             if not frontier:
@@ -167,6 +194,9 @@ class ShapeRegistry:
                     closure_parents_processed=self.processed,
                     closure_rounds_completed=self.rounds_done,
                     closure_budget_hit=self.limited, closure_exhaustive=False,
+                    closure_parent_budget_hit=self.round_limited,
+                    closure_pose_budget_hit=self.pose_limited,
+                    closure_per_round_parents=self.per_round_parents,
                     closure_parent_order=self.parent_order_source,
                     seconds=time.perf_counter() - self.started, truth_used=False,
                     candidate_settings=dict(kinds=list(CANDIDATE_KINDS), check_collision=True,
@@ -181,14 +211,14 @@ class ShapeRegistry:
 
 
 def registry(base, pieces, closure_rounds=1, max_closure_parents=64, max_poses=8192,
-             parent_order=None, order_source=None):
+             parent_order=None, order_source=None, per_round_parents=False):
     """Enumerate base-attached poses for every allocated shape, then close.
 
     `pieces` is the PDF allocation as (part, colour) records; colours do not
     affect geometry and are used only to derive the distinct shape set.
     """
     bank = ShapeRegistry(base, pieces)
-    bank.close(closure_rounds, max_closure_parents, max_poses, parent_order, order_source)
+    bank.close(closure_rounds, max_closure_parents, max_poses, parent_order, order_source, per_round_parents)
     return bank.record()
 
 
@@ -220,6 +250,10 @@ if __name__ == '__main__':
     parser.add_argument('--closure-rounds', type=int, default=1)
     parser.add_argument('--max-closure-parents', type=int, default=64)
     parser.add_argument('--max-poses', type=int, default=8192)
+    parser.add_argument('--per-round-parents', action='store_true',
+                        help='Count the parent budget per closure round instead of '
+                             'globally, so a second hop is reachable on a page whose '
+                             'base-attached set already exceeds the budget')
     args = parser.parse_args()
     pieces, provenance = load_allocations(args.pdf, args.page, args.allocation_run)
     metadata = json.loads((args.base_run / 'results.json').read_text())
@@ -228,7 +262,8 @@ if __name__ == '__main__':
             or metadata.get('pdf_sha256') != provenance['pdf_sha256']):
         raise ValueError('Existing-body provenance mismatch')
     result = registry(read_items(path), pieces, args.closure_rounds,
-                      args.max_closure_parents, args.max_poses)
+                      args.max_closure_parents, args.max_poses,
+                      per_round_parents=args.per_round_parents)
     result.update(provenance, pdf=str(args.pdf), page=args.page, base_source=str(path),
                   base_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
                   allocated_pieces=pieces, runtime_vlm_calls=0)

@@ -106,3 +106,45 @@ def test_quota_keys_are_accepted_by_the_cardinality_search():
                            [('A', 15), ('B', 4)], {('A', 15): 1, ('B', 4): 1}, target)
     assert result['indices'] == (0, 1)
     assert result['search_exhaustive'] is True
+
+
+def test_the_parent_budget_is_global_across_rounds_by_default():
+    """Round one's frontier alone can exhaust it, which stops every later round."""
+    bank = multi.ShapeRegistry([('base', 0, np.eye(4))], [('A', 1), ('B', 2)])
+    assert bank.base_attached_count == 2
+    bank.close(closure_rounds=3, max_closure_parents=1, max_poses=1000)
+    record = bank.record()
+    assert record['closure_rounds_completed'] == 1
+    assert record['closure_parents_processed'] == 1
+    assert record['closure_parent_budget_hit'] is True
+    assert record['closure_pose_budget_hit'] is False
+    assert record['closure_per_round_parents'] is False
+
+
+def test_a_per_round_budget_reaches_the_later_rounds():
+    bank = multi.ShapeRegistry([('base', 0, np.eye(4))], [('A', 1), ('B', 2)])
+    bank.close(closure_rounds=3, max_closure_parents=1, max_poses=1000,
+               per_round_parents=True)
+    record = bank.record()
+    assert record['closure_rounds_completed'] == 3
+    assert record['closure_parents_processed'] == 3
+    assert record['closure_per_round_parents'] is True
+
+
+def test_pose_exhaustion_still_stops_every_round():
+    bank = multi.ShapeRegistry([('base', 0, np.eye(4))], [('A', 1), ('B', 2)])
+    bank.close(closure_rounds=3, max_closure_parents=100, max_poses=5,
+               per_round_parents=True)
+    record = bank.record()
+    assert record['closure_pose_budget_hit'] is True
+    assert record['closure_rounds_completed'] == 1
+    assert len(record['poses']) <= 5
+
+
+def test_the_per_round_mode_adds_poses_a_global_budget_cannot_reach():
+    small = multi.ShapeRegistry([('base', 0, np.eye(4))], [('A', 1), ('B', 2)])
+    small.close(closure_rounds=3, max_closure_parents=1, max_poses=1000)
+    wide = multi.ShapeRegistry([('base', 0, np.eye(4))], [('A', 1), ('B', 2)])
+    wide.close(closure_rounds=3, max_closure_parents=1, max_poses=1000,
+               per_round_parents=True)
+    assert len(wide.record()['poses']) > len(small.record()['poses'])
