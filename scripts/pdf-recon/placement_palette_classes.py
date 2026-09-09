@@ -10,20 +10,46 @@ import cv2
 import numpy as np
 
 
-def palette_labels(rgb,mask,palette):
+NEUTRAL_CHANNEL_SPREAD=30
+
+
+def palette_labels(rgb,mask,palette,neutral_spread=NEUTRAL_CHANNEL_SPREAD):
     """Return uint8 class(index+1,0unknown), valid mask; <=254palette entries.
 
-    Hue-bearing palette entries have S>=20; each requires image saturation
+    Hue-bearing palette entries are those whose RGB channels spread by more than
+    `neutral_spread`; each requires image saturation
     >=max(20,min(65,paletteS/2)) and V>=max(30,paletteV/4).
     The brightness floor suppresses unstable hue in near-black edge pixels.
     Neutral image classes require S<20.
     Neutral-dark target pixels stay unknown unless actual black is allowed.
+
+    Neutrality is decided on the channel spread rather than HSV saturation
+    because saturation is unstable at low value, and LDraw black #05131D is the
+    case that matters: its channels differ by only 24 levels, but at V=29 that
+    reads as S=211, so it was treated as a hue. Two consequences, both measured
+    on 40377 page index 17, whose drawing puts a black 4x4 round plate on the
+    head: the "actual black is allowed" flag never fired, so every dark neutral
+    target pixel was excluded as invalid, and the black class matched only
+    pixels with S>=105, which drawn black (median S of 0) never has. The class-0
+    target was 629 pixels where the plate covers about 12,700, so *placing* the
+    correct black plate rendered 4,581 class-0 pixels against that stub target
+    for an IoU of 0.0105, while hiding the plate scored 0.0576 - and the search
+    duly hid it. With the spread rule the class-0 target is 12,695 pixels, the
+    correct assembly's class-0 IoU is 0.3353, and the correct assembly outscores
+    the hiding one (0.5411 against 0.5215) where before it lost (0.5570 against
+    0.5699). Hue-bearing colours are unaffected: blue, red, tan, yellow, pink
+    and azure all spread by 55 to 192 levels, while black, white and the two
+    greys spread by 0 to 24.
+
+    Saved scores from before this fix are not comparable with scores after it.
     """
     palette=np.asarray(palette,np.uint8)
     if not 0<len(palette)<255:raise ValueError('Expected1..254 palette entries')
+    if neutral_spread<0:raise ValueError('Neutral channel spread must be nonnegative')
     ph=cv2.cvtColor(palette[None],cv2.COLOR_RGB2HSV)[0].astype(float)
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV).astype(float)
-    h,s,v=hsv.transpose(2,0,1);mask=np.asarray(mask,bool);chromatic=ph[:,1]>=20
+    h,s,v=hsv.transpose(2,0,1);mask=np.asarray(mask,bool)
+    chromatic=(palette.max(1).astype(int)-palette.min(1).astype(int))>neutral_spread
     labels=np.zeros(mask.shape,np.uint8)
     choices=np.flatnonzero(chromatic)
     if len(choices):
