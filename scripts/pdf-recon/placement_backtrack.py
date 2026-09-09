@@ -354,9 +354,26 @@ def drive(pdf, allocation_run, base_run, pages, out, options, label, parent=None
                 metrics=branch_metrics(journal, inherited_pages, inherited_pieces))
 
 
+def forced_plan(forced):
+    """`PAGE=CLASS` reopenings named on the command line.
+
+    A policy takes score classes in rank order, so reaching class three costs
+    three branches. When a measurement has already established *which* class
+    holds the better body - `placement_alternatives_oracle` reads the reference
+    to do that - driving straight to it measures the ceiling of the policy for
+    one branch instead of three. The result is a ceiling probe and the journal
+    says so: a run that used this is not a policy result.
+    """
+    plan = []
+    for entry in forced or ():
+        site, _, index = str(entry).partition('=')
+        plan.append((None if site == 'base' else int(site), int(index)))
+    return plan
+
+
 def run(pdf, allocation_run, base_run, pages, out, options, budget=1,
         triggers=('always',), order='base-first', alternatives_per_site=1,
-        selection='downstream', capacity_audit=None, reuse_root=None):
+        selection='downstream', capacity_audit=None, reuse_root=None, forced=()):
     """Drive, look for a contradiction, reopen a site, drive again - bounded.
 
     `reuse_root` adopts an already-completed run as branch 0 when its
@@ -439,6 +456,15 @@ def run(pdf, allocation_run, base_run, pages, out, options, budget=1,
             continue
         trigger_page = verdict['firings'][0]['page'] if verdict['firings'] else None
         sites = reopen_sites(branch, order)
+        plan = forced_plan(forced) if branch['index'] == 0 else []
+        if plan:
+            # A ceiling probe: the named sites, in the order given, and no others.
+            named = dict(sites)
+            sites = [(page, named[page]) for page, _ in plan if page in named]
+            record['probe'] = dict(
+                forced=[[page, index] for page, index in plan],
+                note='Score classes named from an evaluation-only measurement. This branch '
+                     'measures the ceiling of the policy, not what the policy would select.')
         spent = 0
         for page, site in sites:
             if len(record['branches']) - 1 >= budget or spent >= alternatives_per_site:
@@ -454,6 +480,12 @@ def run(pdf, allocation_run, base_run, pages, out, options, budget=1,
             if not (Path(site) / 'results.json').is_file():
                 continue
             census, options_here = alternatives(site, driven_digests.get(str(site), ()))
+            if plan:
+                wanted = [index for named, index in plan if named == page]
+                options_here = [entry for entry in options_here
+                                if entry['score_class'] in wanted]
+                if not options_here:
+                    raise ValueError(f'Forced score class {wanted} is not offered at site {site}')
             for member in options_here:
                 if len(record['branches']) - 1 >= budget or spent >= alternatives_per_site:
                     break
@@ -532,6 +564,10 @@ def main():
                         help='A placement_capacity audit whose deficits may fire a reopening')
     parser.add_argument('--reuse-root', type=Path,
                         help='Adopt this completed run as branch 0 after verifying its config')
+    parser.add_argument('--force-reopen', action='append', default=[], metavar='PAGE=CLASS',
+                        help='Reopen exactly these sites at these score classes (PAGE may be '
+                             '"base"). A ceiling probe, recorded as one: the class is chosen '
+                             'from a measurement the policy itself cannot make.')
     autodrive.add_page_options(parser)
     args = parser.parse_args()
     options = autodrive.build_options(args)
@@ -542,7 +578,7 @@ def main():
                  selection=args.selection,
                  capacity_audit=(json.loads(args.capacity_audit.read_text())
                                  if args.capacity_audit else None),
-                 reuse_root=args.reuse_root)
+                 reuse_root=args.reuse_root, forced=args.force_reopen)
     print(json.dumps(dict(branches=[dict(index=entry['index'], label=entry['label'],
                                          metrics=entry['metrics'])
                                     for entry in record['branches']],
