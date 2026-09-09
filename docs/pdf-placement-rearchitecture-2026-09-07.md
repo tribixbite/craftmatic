@@ -2141,3 +2141,98 @@ large enough to stop mattering on this page. Both 3023b poses that the round-fiv
 population table classified `unreachable` were enumerable all along; they were
 behind a resource limit set five rounds ago and never revisited. The cost of
 lifting it on this page was about a minute of closure.
+
+## The ceiling memo
+
+Round six was told to write this if coverage stayed below 65 of 90 after the
+population measurement and the two new channels. It did — 53/90 is unchanged
+since round four — so here is the measured ceiling, what would raise it, and
+where the program should go.
+
+### The ceiling is a ladder, and each rung has a named owner
+
+Every rung below is the population table's own class count added to the current
+score. Nothing here is an estimate.
+
+| rung | 40377 | 41624 (full scope) | what has to be true |
+| --- | ---: | ---: | --- |
+| today | **53/90** (58.9%) | **5/109** (4.6%) | — |
+| + `mis_selected` | 65/90 (72.2%) | 18/109 (16.5%) | a selector that beats the image objective on poses the bank already holds |
+| + `visibility_limited` | 69/90 (76.7%) | 21/109 (19.3%) | a channel that does not need the piece to be visible |
+| + `allocation_blocked` | **79/90** (87.8%) | 31/109 (28.4%) | both subassembly constructions solved |
+| residual | 11 | 78 | `unreachable` + `out_of_scope` |
+
+**79 of 90 is the ceiling of the current architecture on 40377**, and 31 of 109
+on 41624, *if* every enumerated pose were selected perfectly and both
+constructions were solved. The gap between the two fixtures is almost entirely
+the `unreachable` class: 8 parts against 60.
+
+Two of those rungs are much harder than their count suggests, and the round
+measured both:
+
+* Of 40377's 12 `mis_selected`, only **2** are reachable by re-ranking the
+  assemblies the search actually retains — `placement_mirror_rerank`'s oracle
+  column is 10 against a selected 8 across thirteen pages. The other ten are in
+  the bank and in no retained assembly, so they are a *retention* problem
+  (occupancy screen, coarse ranking, beam width), not a scoring one.
+* The `visibility_limited` rung was round six's brief, and three channels were
+  built and measured against it. Mirror completion reaches 2 of 25 distinct wrong
+  parts, of which 1 is runtime-reachable at 50% precision. Inventory-capacity
+  forcing cannot fire at all — the minimum over both fixtures is 64 distinct
+  one-stud locations for a piece whose quota is one. A construction's own
+  symmetry is worth +1, on the one construction it applies to. **The rung is
+  worth 4 parts on 40377 and the channels available to reach it deliver at most
+  1-2 of them.**
+
+### What would actually raise the number, in measured order
+
+**1. Finish the closure.** No page of either fixture has ever completed its
+candidate enumeration; the 128-parent budget was hit on all 40 driven pages.
+Page 26 at 1024 parents finishes at 808, and its bank recall goes 3/5 to 5/5.
+This is the largest class on both fixtures — 8 parts on 40377, **60 on 41624** —
+and it is a number in a config, not a missing evidence channel. Everything else
+in this memo is smaller.
+
+**2. Fix what the search retains, not how it ranks.** Ten of 40377's twelve
+`mis_selected` never reach a retained assembly. Re-ranking is worth +2 and has
+now been measured five ways across rounds three, five and six; retention has
+never been measured at all.
+
+**3. Solve one construction properly.** 10 parts on each fixture sit behind an
+undriven subassembly, and on 40377 pages 21 and 32 are attachments that would
+repair the body downstream of it. The construction's own bilateral symmetry is a
+real signal there (+1 of 5 on page 20) and it is the only evidence a body built
+from nothing has besides its single drawing.
+
+**What would *not* raise it, on this evidence.** More camera angles from inset or
+rotated views were the obvious answer to round five's finding. The population
+says visibility is 4 parts on 40377 and 3 on 41624 — **7 of 120 in-scope failures
+across both fixtures**. Even a perfect new viewpoint channel buys less than the
+closure budget does on one page.
+
+### Breadth or depth
+
+**Depth, on this fixture, for one more round — then breadth.**
+
+The case for depth is that the top of the ladder is not yet known to be reachable
+and the cheapest rung has not been tried. Rounds five and six each spent
+themselves on evidence channels and returned +0 poses between them, because both
+picked their target from the last page they had looked at rather than from a
+population. The population now exists, it names candidate enumeration as the
+largest class on both fixtures, and a one-page experiment already moved that
+class. Not testing it on the whole chain would repeat exactly the mistake this
+round was written to correct.
+
+The case for breadth after that is stronger than it was. Two fixtures cannot
+distinguish "this architecture reaches 79/90 on a BrickHeadz" from "this
+architecture reaches 79/90 on a model whose pages add one or two pieces to a body
+that is already most of the model". 41624 is the counter-example already in hand
+and its ceiling is 31/109 — and the whole difference is enumeration. A third and
+fourth fixture would say whether 41624 or 40377 is the outlier, which is the
+question that decides whether the program has a method or a fixture.
+
+The concrete recommendation is therefore: re-drive both fixtures' full scopes
+with the closure budget raised until no page reports a budget hit, report the
+trajectory, and only then choose between deepening retention on 40377 and adding
+fixtures. If the raised budget does not move the chain, the ladder above is the
+honest ceiling and breadth becomes the only remaining question worth asking.
