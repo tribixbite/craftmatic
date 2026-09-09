@@ -3661,3 +3661,32 @@ contribution to the chain is not a function of that page's objective value.
 
 **`--compound-width` therefore ships off by default.** It is correct, tested and
 journalled, and on this fixture turning it on costs three poses.
+
+### 40377's number is mostly inherited, and that reframes every fixture comparison
+
+Evaluating each fixture's **starting checkpoint** against its own reference, which
+this program had not done:
+
+| fixture | base structural | final structural | **the drive's own contribution** | placed pages |
+| --- | ---: | ---: | ---: | ---: |
+| 40377 (round seven, window) | **45** | 54 | **+9** | 13 |
+| 41624 (round seven, window) | 3 | 6 | **+3** | 31 |
+| 41601 (round eight, in flight) | 3 | 3 at page 9 | **+0 so far** | 5 |
+
+**Forty-five of 40377's fifty-four correct poses were already in the checkpoint
+the chain starts from.** That checkpoint was built by rounds one and two over
+pages 1-15, page by page, with a diagnostic pass per page - not by the autonomous
+driver over a whole booklet. Every number this program has quoted for 40377 -
+26/90, 46/90, 48/90, 53/90, 54/90 - is that inheritance plus a single-digit
+driven contribution, and the ladder's "79 of 90" ceiling is a ceiling on the
+inherited body plus emission, not on the driver.
+
+So the answer to the breadth plan's own question - *which failure stage is
+typical, and does it depend on a property of the set we can measure before
+driving it?* - is that the failure profile is **consistent**, and the property
+that separated the two existing fixtures was never a property of the set at all.
+Controlled for the checkpoint, all three fixtures do the same thing: an
+autonomous page-by-page drive contributes **single-digit** correct poses and then
+stops gaining, whatever the family, the part count, the colour variety or the
+page shape. 41601 is a near-identical BrickHeadz to 40377 and behaves like
+41624.
