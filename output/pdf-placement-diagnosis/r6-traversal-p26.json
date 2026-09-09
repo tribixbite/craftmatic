@@ -7,6 +7,32 @@
   "screened_placements": 1926,
   "reference_targets": 5,
   "located_reference_poses": 3,
+  "target_classes": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    9
+  ],
+  "candidate_classes": [
+    8
+  ],
+  "bank_colors": [
+    0,
+    1,
+    15,
+    19,
+    29,
+    71,
+    72,
+    191,
+    322
+  ],
+  "classes_shared": [],
+  "priority_is_uninformative": true,
   "rows": [
     {
       "kind": "reference",
@@ -16,7 +42,15 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 71,
-      "rate_rank": 71
+      "rate_rank": 71,
+      "drawing_classes_under_footprint": {
+        "0": 96,
+        "1": 289,
+        "3": 1421,
+        "4": 23,
+        "6": 130,
+        "7": 81
+      }
     },
     {
       "kind": "reference",
@@ -26,7 +60,14 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 33,
-      "rate_rank": 33
+      "rate_rank": 33,
+      "drawing_classes_under_footprint": {
+        "0": 555,
+        "1": 552,
+        "3": 626,
+        "6": 170,
+        "7": 126
+      }
     },
     {
       "kind": "reference",
@@ -36,7 +77,14 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 1493,
-      "rate_rank": 1493
+      "rate_rank": 1493,
+      "drawing_classes_under_footprint": {
+        "0": 1185,
+        "1": 414,
+        "3": 207,
+        "6": 137,
+        "7": 87
+      }
     },
     {
       "kind": "selected_by_the_run",
@@ -45,7 +93,18 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 382,
-      "rate_rank": 382
+      "rate_rank": 382,
+      "drawing_classes_under_footprint": {
+        "0": 140,
+        "1": 2,
+        "2": 2029,
+        "3": 4,
+        "4": 83,
+        "5": 27,
+        "6": 15,
+        "7": 5,
+        "9": 3
+      }
     },
     {
       "kind": "selected_by_the_run",
@@ -54,7 +113,18 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 385,
-      "rate_rank": 385
+      "rate_rank": 385,
+      "drawing_classes_under_footprint": {
+        "0": 140,
+        "1": 2,
+        "2": 2029,
+        "3": 4,
+        "4": 83,
+        "5": 27,
+        "6": 15,
+        "7": 5,
+        "9": 3
+      }
     },
     {
       "kind": "selected_by_the_run",
@@ -63,7 +133,15 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 432,
-      "rate_rank": 432
+      "rate_rank": 432,
+      "drawing_classes_under_footprint": {
+        "0": 321,
+        "1": 7,
+        "3": 1,
+        "4": 1693,
+        "6": 3,
+        "7": 4
+      }
     },
     {
       "kind": "selected_by_the_run",
@@ -72,7 +150,15 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 433,
-      "rate_rank": 433
+      "rate_rank": 433,
+      "drawing_classes_under_footprint": {
+        "0": 321,
+        "1": 7,
+        "3": 1,
+        "4": 1693,
+        "6": 3,
+        "7": 4
+      }
     },
     {
       "kind": "selected_by_the_run",
@@ -81,7 +167,15 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 495,
-      "rate_rank": 495
+      "rate_rank": 495,
+      "drawing_classes_under_footprint": {
+        "0": 161,
+        "1": 7,
+        "2": 1640,
+        "4": 347,
+        "5": 121,
+        "9": 2
+      }
     },
     {
       "kind": "selected_by_the_run",
@@ -90,7 +184,15 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 497,
-      "rate_rank": 497
+      "rate_rank": 497,
+      "drawing_classes_under_footprint": {
+        "0": 161,
+        "1": 7,
+        "2": 1640,
+        "4": 347,
+        "5": 121,
+        "9": 2
+      }
     },
     {
       "kind": "selected_by_the_run",
@@ -99,7 +201,12 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 527,
-      "rate_rank": 527
+      "rate_rank": 527,
+      "drawing_classes_under_footprint": {
+        "0": 244,
+        "1": 1,
+        "4": 2032
+      }
     },
     {
       "kind": "selected_by_the_run",
@@ -108,7 +215,12 @@
       "agreement": 0.0,
       "rate": 0.0,
       "count_rank": 528,
-      "rate_rank": 528
+      "rate_rank": 528,
+      "drawing_classes_under_footprint": {
+        "0": 244,
+        "1": 1,
+        "4": 2032
+      }
     }
   ],
   "median_count_rank": 71.0,
