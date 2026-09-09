@@ -73,6 +73,40 @@ palette index, so 40377 pages 26/27 had *zero* bright-light-orange in their
 coarse target and scored 0 agreement for all 1,926 and 4,142 candidates. Both
 fixtures carry the collision (41624: 17 tan vs 8 orange parts). Lab distance
 separates every pair in that warm cluster by ≥16.7 where hue separates two by 0.
+**Round seven: the closure is finishable, and retention is the SMALLEST lever.**
+`Assembly.collides` was 98.3% of parent-expansion time at 6.3 ms a call, so
+finishing one page's first round projected to 26 minutes.
+`placement_fast_collision` vectorises the predicate **bit-exactly** (same
+association order, so every intermediate is identical; `collides` short-circuits
+only on proven implications) — 18.4x, and now every 40377 page's *complete* first
+round runs in seconds to 2.4 min, ~11 min for the whole chain. Banks grow from
+the 8,192 cap to 50k–140k poses. **Finishing it buys nothing on its own** (third
+confirmation): page 19 at 65,637 poses / 19,222 screened reaches the same score
+as at 7,467. And the occupancy screen plus `build_bank` are **linear in the
+bank** (~6 min/view at 65k candidates; 363–750 KB per screened survivor), so the
+parent/pose budgets were always *screen-cost* parameters — use
+`--max-bank-candidates` with a completed closure or `build_bank` refuses and the
+page emits nothing. Retention re-measured (`placement_retention_stage`): of 21
+distinct instances, bank truncation 0, beam width 0 (the reference-equivalent
+complete assembly scores *below* the beam's own best complete state, so a perfect
+search returns the same wrong answer), the low-paint-tail hypothesis refuted (the
+one *retained* page-19 target paints the fewest pixels of all six), 5
+closure-parent connectivity, 2 collision, and **14 lost on a plateau** — 46.9% of
+page 19's screened candidates change the incremental score by *exactly* zero
+because a candidate whose pixels are already painted with the same class adds
+nothing, *including when a wrong piece stands there*. **10 of the 21 are the
+native objective preferring another pose**, i.e. already ranking losses. Adopted:
+`--exchange-window-order own_agreement` (order the exchange's rendered window by
+each candidate's own painted agreement — one bincount, no extra render), worth
+**+1 on the whole chain, exactly as predicted**; `--tie-break pose`;
+`--chromatic-metric lab` (a correctness fix, **not** a lever — on pages 26/27 it
+demotes the correct poses from the plateau to ranks 1,164–1,639). **Chain
+numbers: r5's 53/90 survives re-baselining under determinism; the window
+ordering reaches 54/90** (alias 38, strict 32, precision 0.684 at 79 emitted).
+Round six's 1024-parent chain finishing at **50/90 is a coin flip, not its
+configuration**. `placement_trajectory` now prints a `tied` column per row — do
+not quote an inter-round delta without it. The breadth clause has fired; the plan
+is in the doc.
 **The `scripts/pdf-recon` tests use three harnesses and mixing them hides
 failures.** Most files are a `if __name__ == '__main__'` loop printing `ok  <name>`
 (run with `python -X utf8 -B <file>`), some are `unittest` (`Ran N tests`), and a
