@@ -876,3 +876,103 @@ registration independence in (1).
    it is off by default until it is measured on more than that.
 4. **Repeated multiplicities, occlusion, flexible parts, global backtracking and
    population certification** remain untouched, as after rounds one and two.
+
+## Round four: registering against the drawings, and what pages 20-32 actually are
+
+### Round three's in-flight runs, absorbed
+
+Two of round three's runs were still executing at its checkpoint. Both completed
+and neither changes its 48/90 figure, but the gated one adds a measurement that
+reframes the whole tail.
+
+| run | page | emitted | structural | precision | selected native score |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| exploded target only, gate off | 16 | 49 | 46 | 0.939 | 0.6372 |
+| exploded target only, gate off | 17 | 51 | 46 | 0.902 | 0.5436 |
+| exploded target only, gate off | 18 | 52 | 46 | 0.885 | 0.2936 |
+| exploded target only, gate off | 19 | 58 | 46 | 0.793 | 0.3809 |
+| **overflow budget + gate** | **17** | **51** | **48** | **0.941** | **0.5679** |
+| overflow budget + gate | 18 | camera refused | - | - | - |
+| overflow budget + gate | 19 | 57 | 48 | 0.842 | 0.4748 |
+
+The gated run continued past the refusal, so page 19 was driven from the correct
+page-17 checkpoint at the *carried* scale of 1.6918 px per LDU rather than its own
+1.4791. It emitted six parts and got none of them right, exactly as it did at the
+wrong scale. Page 19 is therefore not a camera failure, and the round-three
+reading that scale propagation is what breaks the tail does not explain it.
+
+### Page 19 fails because page 18 was refused
+
+`placement_diagnose_bank_recall` on page 19's own bank finds three of its six
+reference poses present in the evidence-ordered bank and **none** in bank order at
+any budget tried - one round, 128 then 512 parents, 6,191 then 15,881 poses. The
+enumeration is not at fault, and the reason is exact and uniform.
+
+All six reference poses sit at z = -56. The nearest pose the enumeration can offer
+for each sits at the same x and the same y and **z = -48**: a uniform 8 LDU offset,
+one plate thickness, on all six. The surface they mount on is a 4x4 plate the
+reference holds at (0, -112, -48), standing on its side, and that plate is not in
+the body.
+
+Pages 16, 18 and 23 each allocate one white `3031`, and after page 17 the
+reference holds three unplaced, at (0, -160, 0) and (0, -112, ±48). Page 16's own
+bank contains all three and it took (0, -160, 0). Instruction order is monotone,
+so the plate page 19 mounts on is page 18's - the page the camera gate refused.
+
+**Page 18 is worth seven parts, not one.** A refused page emitting nothing is
+still better than a page emitting six wrong poses, but the refusal does not stop
+at its own piece: it removes the mount every later page needs. That is the same
+mechanism round one measured forwards, when attaching the page-13 subassembly was
+worth six extra correct poses downstream.
+
+### Drawing-to-drawing registration, and what it measurably changed
+
+`placement_drawing_registration.propagate` composes the previous page's *accepted*
+registration with the uniform similarity that aligns the two drawings, which
+`placement_drawing_scale.align` already measures from PDF pixels alone:
+
+    p_current = s · p_previous + t        (measured between the two drawings)
+    p_previous = M_previous · X + o_previous       (the accepted registration)
+    ⇒ M_current = s · M_previous,  o_current = s · o_previous + t
+
+The emitted body takes no part in choosing that camera or that origin. It still
+supplies containment, collision and scoring, so this is not a claim that the body
+is unnecessary - only that a body carrying a wrong part can no longer decide where
+the camera is. Six offline tests pin the arithmetic on synthetic masks, including
+refusal when the two drawings are of different viewpoints.
+
+Three corrections came out of driving it, each measured rather than argued.
+
+**The search chooses among views, so the registration a run *uses* is the selected
+view's.** Page 16 offered the propagated camera first and the search still picked
+the body-template view: native 0.6372 against 0.5511, the same selected pose, and
+a bit-identical score to the ungated round-three run. The carried registration now
+follows the selected view, so the chain propagates from the camera that was
+actually used rather than from the one that happened to be ranked first.
+
+**The drawing ratio over-states the camera ratio**, exactly as
+`placement_drawing_scale` warns, because the later drawing also holds the pieces
+the step adds. Page 15 to 16 optimises at 1.03 where both pages' own stud rows
+agree within 1%. `propagate` now always offers the unit-scale row beside the
+best-agreement row. On page 18 that is the difference between failure and success:
+
+| page 18 registration | px per LDU | coverage | outside px | contained |
+| --- | ---: | ---: | ---: | --- |
+| its own stud rows (round three) | 1.4791 | 0.7541 | 256 | yes, and refused by the gate |
+| propagated at the agreement optimum 1.03 | 1.7874 | 0.9925 | 2,491 of 60,219 | no |
+| **propagated at unit scale** | **1.7353** | **0.9837** | **564 of 56,740** | **yes** |
+
+The page's own camera explains three quarters of its drawing; the propagated one
+explains 98.4% of it and is contained inside the 1% allowance. The camera gate
+accepts it, and the search selects it over both body-template alternatives. So the
+memo's testable prediction is answered: **page 18's registration does become
+contained under image-to-image alignment**, where body-template registration could
+not be contained at any offset.
+
+**The camera gate charged all unexplained ink to the current page's own
+allocation.** A page the drive skips is drawn on every page after it, so its ink
+was being charged to whatever two pieces the later page happens to add, refusing
+those pages for a reason unrelated to their cameras. The driver now carries the
+allocations of pages it did not place, the gate may attribute ink to them, and an
+attachment removes the pages it consumed. Every verdict records the attributable
+list.
