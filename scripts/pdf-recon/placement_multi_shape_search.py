@@ -40,6 +40,7 @@ from placement_local_delta import added_region, local_evidence, render_layers
 from placement_mixed_batch_search import fixed_native_score
 from placement_part_library import PartLibrary
 from placement_multi_shape_batch import shape_bank
+from placement_seated_contact import reorder as seated_reorder, seated_contact
 from placement_occupancy_screen import screen
 from placement_material_scene_score import MaterialFeatureSceneScorer
 
@@ -120,7 +121,8 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         top_k=32, host_bytes=512 * 1024 ** 2, method='beam', beam=64,
         max_expansions=2_000_000, improve_rounds=8, improve_from=4,
         restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16, native_starts=1,
-        image_pieces=None, withheld=(), arrows=(), outside_fraction=0., local_rerank=0.):
+        image_pieces=None, withheld=(), arrows=(), outside_fraction=0., local_rerank=0.,
+        seated_tolerance=0.):
     if method not in ('beam', 'exact'):
         raise ValueError('Unknown search method')
     withheld = [(str(part), int(color)) for part, color in withheld]
@@ -131,6 +133,8 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         raise ValueError('Withheld pieces need the page arrows that place them')
     if not 0. <= local_rerank <= 1.:
         raise ValueError('Local rerank weight must lie between zero and one')
+    if not 0. <= seated_tolerance < 1.:
+        raise ValueError('Seated tie-break tolerance must be a fraction below one')
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
     poses = [(str(entry['part']), np.asarray(entry['T'], float)) for entry in record['poses']]
     boxes = world_boxes(poses)
@@ -291,6 +295,12 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
             for part, color, T in items:
                 lines.append('1 ' + str(color) + ' ' + ' '.join(
                     f'{v:.8g}' for v in np.r_[T[:3, 3], T[:3, :3].flatten()]) + ' ' + part + '.dat')
+            if seated_tolerance:
+                # A physical measurement of the same candidates, for the near-tie
+                # band only: LEGO joints seat, so a pose that leaves the joint
+                # proud has measurably less surface contact.
+                added = [item for i in candidate['indices'] for item in placements[i]['items']]
+                evidence = dict(evidence, seated=seated_contact(base, added + attached))
             native.append(dict(view=view_index, projection=M.tolist(), origin=origin.tolist(),
                                coarse=dict(indices=list(candidate['indices']),
                                            score=candidate['score']),
@@ -303,6 +313,13 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
     # each group the drawn-assembly image score decides, unchanged.
     native.sort(key=lambda r: (-r['attached_pieces'],
                                -r['evidence'].get('combined_score', r['evidence']['score'])))
+    # A 4 LDU depth difference on a plate mostly hidden behind the body it mounts
+    # on is not something an image objective resolves: on 40377 page index 18 the
+    # whole-drawing score separates the two by 0.0012 and gets it wrong. Inside a
+    # stated band below the image best, prefer the more fully seated joint.
+    seated_record = dict(applied=False, reason='disabled')
+    if seated_tolerance:
+        native, seated_record = seated_reorder(native, seated_tolerance)
     for index, row in enumerate(native):
         model = row.pop('model')
         row.pop('_items')
@@ -331,6 +348,7 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                 selected_parts=(len(base) + len(image_pieces) + native[0]['attached_pieces'])
                 if native else None,
                 image_pieces=[list(p) for p in image_pieces], local_rerank=local_rerank,
+                seated_tolerance=seated_tolerance, seated_tie_break=seated_record,
                 withheld_pieces=[list(p) for p in withheld],
                 truth_used=False, runtime_vlm_calls=0, certified=False,
                 uncontained_views=[i for i, v in enumerate(registration['hypotheses'][:views])
