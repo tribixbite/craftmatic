@@ -1,0 +1,266 @@
+{
+  "pdf": "C:\\git\\clego\\lego_sets\\PDF\\6314914.pdf",
+  "pdf_sha256": "d1a61a172273608fa407418a8c112ff542246017af62eddd9dc31d4b14770ed3",
+  "allocation_run": "output\\pdf-placement-diagnosis\\40377-corrected-late-allocation",
+  "base_source": "output\\pdf-placement-beam\\40377-r5-contain-v1\\page-019\\placement",
+  "runtime_vlm_calls": 0,
+  "truth_used": false,
+  "certified": false,
+  "status": "completed_requested_pages_uncertified",
+  "resume_config": {
+    "pdf_sha256": "d1a61a172273608fa407418a8c112ff542246017af62eddd9dc31d4b14770ed3",
+    "allocation_sha256": "c2e128cdcb4bbe7b7e17a5c59c7291630d43c0ca20e48bb69265f792ed95adbb",
+    "base_model_sha256": "ea12976997ed7da97691c268e6b797ee4c30482ccb3f7847686a92579e8cda53",
+    "base_manifest_sha256": "4a1d91ebef4fb7c6f21562c816df8be518adc92f5961be996f2983f98a6d9b95",
+    "pages": [
+      20,
+      21
+    ],
+    "options": {
+      "camera_matrices": 2,
+      "camera_prior_matrices": 2,
+      "per_matrix": 6,
+      "refine_limit": 16,
+      "window": 3,
+      "tolerance": 0,
+      "fraction": 0.01,
+      "fallback": 2,
+      "scales": [
+        1.0
+      ],
+      "containment_multiple": 4.0,
+      "containment_cap": 0.03,
+      "containment_coverage_order": false,
+      "scale_prior": true,
+      "retry_passes": 0,
+      "exploded_target": true,
+      "drawing_scale": true,
+      "repair_anti_studs": true,
+      "drawing_registration": "prefer",
+      "drawing_registration_keep": 2,
+      "drawing_registration_min_iou": 0.6,
+      "local_rerank": 0.0,
+      "seated_tolerance": 0.0,
+      "camera_gate": "enforce",
+      "camera_unexplained_max": 1.0,
+      "camera_scale_tolerance": 0.06,
+      "camera_prescan": true,
+      "body_area_ratio": 0.6,
+      "attach_limit": 4,
+      "attach_coarse_pairs": 256,
+      "group_runs": {},
+      "excluded_constructions": {
+        "20": "1 of 5 structural after withholding the two undrawn 98138pz0 tiles, i.e. nothing beyond the nailed root; and the seven allocated pieces are three connector components (5, 1, 1) in the independent model, so the seven-piece build was never well posed"
+      },
+      "pending_body": null,
+      "views": 2,
+      "scale": 1.0,
+      "max_nodes": 200000,
+      "top_k": 16,
+      "host_bytes": 4294967296,
+      "closure_rounds": 1,
+      "max_closure_parents": 64,
+      "max_poses": 8192,
+      "closure_mode": "evidence",
+      "per_round_parents": false,
+      "stable_colors": null,
+      "method": "beam",
+      "beam": 96,
+      "max_expansions": 2000000,
+      "improve_rounds": 8,
+      "improve_from": 4,
+      "restarts": 0,
+      "perturb": 2,
+      "seed": 0,
+      "native_rounds": 0,
+      "native_width": 16,
+      "native_starts": 1
+    },
+    "version": 2
+  },
+  "steps": [
+    {
+      "page": 20,
+      "status": "construction_excluded",
+      "detail": {
+        "reason": "A construction for this page was deliberately excluded rather than attached, so its error does not propagate into the pages that register against the body",
+        "exclusion_evidence": "1 of 5 structural after withholding the two undrawn 98138pz0 tiles, i.e. nothing beyond the nailed root; and the seven allocated pieces are three connector components (5, 1, 1) in the independent model, so the seven-piece build was never well posed",
+        "allocated_pieces": [
+          [
+            "3023b",
+            15
+          ],
+          [
+            "3069b",
+            191
+          ],
+          [
+            "6091",
+            191
+          ],
+          [
+            "6091",
+            191
+          ],
+          [
+            "3023b",
+            191
+          ],
+          [
+            "98138pb072",
+            0
+          ],
+          [
+            "98138pb072",
+            0
+          ]
+        ],
+        "kind_evidence": {
+          "largest_scene_area": 8136,
+          "body_render_area": 43667,
+          "body_area_threshold": 26200,
+          "shows_body": false,
+          "allocated_pieces": 7,
+          "pending_body": null,
+          "ratio": 0.6,
+          "scene_areas": [
+            7602,
+            8136,
+            6484,
+            6484
+          ],
+          "truth_used": false,
+          "runtime_vlm_calls": 0,
+          "certified": false,
+          "protocol": "Largest non-panel drawing foreground against the current body silhouette rendered at the page's camera",
+          "limitations": "A page can legitimately draw the body small, or draw a subassembly nearly as large as the body; the ratio is a stated threshold, not a proof. An unmeasurable body area abstains to the ordinary addition path.",
+          "page": 20,
+          "xrefs": [
+            162,
+            164,
+            168,
+            168
+          ],
+          "kind": "subassembly",
+          "body_area_source": "rendered_body",
+          "body_probe_camera": "borrowed",
+          "body_probe_borrowed_from": 21,
+          "previous_body_drawing_area": 0
+        }
+      },
+      "directory": "output\\pdf-placement-beam\\40377-r5-exclusion-record\\page-020",
+      "unplaced_pieces_carried": [
+        [
+          "3023b",
+          15
+        ],
+        [
+          "3069b",
+          191
+        ],
+        [
+          "6091",
+          191
+        ],
+        [
+          "6091",
+          191
+        ],
+        [
+          "3023b",
+          191
+        ],
+        [
+          "98138pb072",
+          0
+        ],
+        [
+          "98138pb072",
+          0
+        ]
+      ],
+      "pending_body": null
+    },
+    {
+      "page": 21,
+      "status": "no_allocation",
+      "detail": {
+        "reason": "Page adds no allocated piece and no subassembly is pending",
+        "kind_evidence": {
+          "largest_scene_area": 56986,
+          "body_render_area": 43667,
+          "body_area_threshold": 26200,
+          "shows_body": true,
+          "allocated_pieces": 0,
+          "pending_body": null,
+          "ratio": 0.6,
+          "scene_areas": [
+            56986
+          ],
+          "truth_used": false,
+          "runtime_vlm_calls": 0,
+          "certified": false,
+          "protocol": "Largest non-panel drawing foreground against the current body silhouette rendered at the page's camera",
+          "limitations": "A page can legitimately draw the body small, or draw a subassembly nearly as large as the body; the ratio is a stated threshold, not a proof. An unmeasurable body area abstains to the ordinary addition path.",
+          "page": 21,
+          "xrefs": [
+            171
+          ],
+          "kind": "no_allocation",
+          "body_area_source": "rendered_body",
+          "body_probe_camera": "own",
+          "body_probe_borrowed_from": null,
+          "previous_body_drawing_area": 0
+        }
+      },
+      "directory": "output\\pdf-placement-beam\\40377-r5-exclusion-record\\page-021",
+      "unplaced_pieces_carried": [
+        [
+          "3023b",
+          15
+        ],
+        [
+          "3069b",
+          191
+        ],
+        [
+          "6091",
+          191
+        ],
+        [
+          "6091",
+          191
+        ],
+        [
+          "3023b",
+          191
+        ],
+        [
+          "98138pb072",
+          0
+        ],
+        [
+          "98138pb072",
+          0
+        ]
+      ],
+      "pending_body": null
+    }
+  ],
+  "limitations": [
+    "Starts from an existing PDF-derived checkpoint",
+    "Subassembly construction from nothing is not implemented: such a page is classified and recorded, and its attachment is scheduled only when a PDF-derived construction is supplied for it",
+    "Selected checkpoints freeze earlier poses; no global backtracking",
+    "Bounded connector closure and finite node budget lose optimality",
+    "No complete-model or population certification; no publication"
+  ],
+  "drawing_registration_seed": {
+    "page": 19,
+    "source": "output\\pdf-placement-beam\\40377-r5-contain-v1\\page-019\\placement"
+  },
+  "camera_prescan_pages": [
+    21
+  ],
+  "last_checkpoint": "output\\pdf-placement-beam\\40377-r5-contain-v1\\page-019\\placement\\model.ldr",
+  "deferred_pages_unplaced": []
+}
