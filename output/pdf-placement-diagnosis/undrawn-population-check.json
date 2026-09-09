@@ -1,0 +1,211 @@
+{
+  "rows": [
+    {
+      "fixture": "40377",
+      "page": 16,
+      "withheld": [],
+      "shares": {
+        "15": 2.139
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 17,
+      "withheld": [],
+      "shares": {
+        "0": 5.337
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 18,
+      "withheld": [],
+      "shares": {
+        "15": 2.31
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 19,
+      "withheld": [],
+      "shares": {
+        "15": 37.559
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 22,
+      "withheld": [],
+      "shares": {
+        "15": 5.602
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 23,
+      "withheld": [],
+      "shares": {
+        "15": 2.925
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 24,
+      "withheld": [],
+      "shares": {
+        "15": 6.304
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 25,
+      "withheld": [],
+      "shares": {
+        "15": 6.409
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 26,
+      "withheld": [],
+      "shares": {
+        "191": 6.373
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 27,
+      "withheld": [],
+      "shares": {
+        "191": 4.252
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 28,
+      "withheld": [],
+      "shares": {
+        "1": 7.381
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 29,
+      "withheld": [],
+      "shares": {
+        "1": 6.561
+      }
+    },
+    {
+      "fixture": "40377",
+      "page": 30,
+      "withheld": [],
+      "shares": {
+        "0": 14.454,
+        "1": 10.612
+      }
+    },
+    {
+      "fixture": "41624",
+      "page": 3,
+      "withheld": [
+        [
+          "2431",
+          0
+        ]
+      ],
+      "shares": {
+        "0": 0.061,
+        "4": 3.629
+      }
+    },
+    {
+      "fixture": "41624",
+      "page": 4,
+      "withheld": [],
+      "shares": {
+        "2": 1.1,
+        "4": 6.422
+      }
+    },
+    {
+      "fixture": "41624",
+      "page": 5,
+      "withheld": [],
+      "shares": {
+        "0": 0.77,
+        "4": 1.741,
+        "71": 1.261
+      }
+    },
+    {
+      "fixture": "41624",
+      "page": 6,
+      "withheld": [],
+      "shares": {
+        "0": 1.779
+      }
+    },
+    {
+      "fixture": "41624",
+      "page": 7,
+      "withheld": [],
+      "shares": {
+        "0": 5.212
+      }
+    },
+    {
+      "fixture": "41624",
+      "page": 8,
+      "withheld": [],
+      "shares": {
+        "0": 10.064
+      }
+    },
+    {
+      "fixture": "41624",
+      "page": 9,
+      "withheld": [],
+      "shares": {
+        "0": 4.097
+      }
+    },
+    {
+      "fixture": "41624",
+      "page": 10,
+      "withheld": [],
+      "shares": {
+        "71": 3.102
+      }
+    },
+    {
+      "fixture": "41624",
+      "page": 11,
+      "withheld": [],
+      "shares": {
+        "2": 0.62,
+        "19": 2.829
+      }
+    }
+  ],
+  "fired": [
+    {
+      "fixture": "41624",
+      "page": 3,
+      "withheld": [
+        [
+          "2431",
+          0
+        ]
+      ],
+      "shares": {
+        "0": 0.061,
+        "4": 3.629
+      }
+    }
+  ],
+  "scope": "Does the undrawn-colour rule ever fire on an ordinary addition page, where it would be wrong? Measured on every driven page of both fixtures.",
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false
+}
