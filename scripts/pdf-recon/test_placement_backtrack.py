@@ -201,6 +201,18 @@ class SelectionTest(unittest.TestCase):
             placed_pages=placed, pieces_emitted=pieces, camera_failures=failures,
             registration_collapses=collapses, mean_page_score=score))
 
+    def test_the_two_rules_disagree_on_the_two_branches_this_round_drove(self):
+        # 41601: branch 1 is the 6-of-108 model, with one fewer placed page and
+        # one fewer camera failure than the 3-of-108 root.
+        fixture = [self.branch(0, 17, 77, 2, 0, 0.5152), self.branch(1, 16, 75, 1, 0, 0.4910)]
+        self.assertEqual(select(fixture)[0]['index'], 0)
+        self.assertEqual(select(fixture, 'contradictions')[0]['index'], 1)
+        # 40377: branch 1 is the 53-of-90 model, with the collapse repaired and
+        # two camera refusals its retry pass then placed.
+        fixture = [self.branch(0, 13, 79, 0, 1, 0.36738), self.branch(1, 13, 79, 2, 0, 0.36878)]
+        self.assertEqual(select(fixture)[0]['index'], 0)
+        self.assertEqual(select(fixture, 'contradictions')[0]['index'], 1)
+
     def test_more_of_the_booklet_placed_outranks_a_higher_mean_score(self):
         branches = [self.branch(0, 10, 40, 2, 1, 0.62), self.branch(1, 12, 44, 2, 0, 0.41)]
         chosen, order = select(branches)
@@ -252,6 +264,26 @@ class ForcedPlanTest(unittest.TestCase):
         from placement_backtrack import forced_plan
         with self.assertRaises(ValueError):
             forced_plan(['page-three=1'])
+
+
+
+class AdoptedConfigTest(unittest.TestCase):
+    """An older journal may lack an option; it may not disagree about one."""
+
+    def test_a_flag_added_after_the_run_reconciles_only_at_its_default(self):
+        from placement_backtrack import default_options
+        defaults = default_options()
+        self.assertEqual(defaults['compound_width'], 0)
+        # The reconciliation rule, stated as the code applies it.
+        recorded = {key: value for key, value in defaults.items()
+                    if key not in ('compound_width', 'compound_mode', 'compound_budget')}
+        stored = dict(defaults)
+        absent = set(recorded) ^ set(stored)
+        self.assertEqual(sorted(absent), ['compound_budget', 'compound_mode', 'compound_width'])
+        self.assertTrue(all(stored[key] == defaults[key] for key in absent))
+        # A non-default value of the same absent key is a real difference.
+        stored['compound_width'] = 8
+        self.assertNotEqual(stored['compound_width'], defaults['compound_width'])
 
 
 

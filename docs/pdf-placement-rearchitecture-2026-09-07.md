@@ -4130,3 +4130,41 @@ which branch 1 never placed), so `downstream` ordered it first - selecting a
 of them can see the model. The mechanism reached a better body; the criterion
 could not identify it. That is round eight's finding in a new place: not the
 image objective this time, but every runtime-legal proxy the driver has.
+
+### 40377's validation: the policy fires, reopens the right page, and recovers +2
+
+The only chain in the program whose journal contains a contradiction. The
+trigger fired exactly where round eight's regression is: page 22, a
+`body_template` fallback at 1.4863 px/LDU against page 19's 1.6916, a **-12.1%**
+camera-scale move and a **-51.7%** score move. `nearest` reopened page 19 - the
+latest committed page strictly before the trigger - and took its second score
+class, which the oracle says is one pose **worse** than the one the run had.
+
+| | round seven (window) | round eight (window + compound) | **round nine (+ backtracking)** |
+| --- | ---: | ---: | ---: |
+| page 19 structural | 51 | 51 | **50** (the reopened class) |
+| page 22 registration | `drawing_to_drawing` 1.6916 | `body_template` **1.4863** | **`drawing_to_drawing` 1.6749** |
+| page 22 score | 0.3738 | 0.2583 | **0.3797** |
+| emitted | 79 | 79 | 79 |
+| **final structural** | **54** | **51** | **53** |
+| coverage | 0.600 | 0.567 | **0.589** |
+
+**The mechanism works end to end.** Starting one pose down, the branch avoided
+the collapse, and pages 28 and 29 delivered the +1 and +2 that round eight lost
+- 50 to 53 - recovering two of round eight's three-pose regression. The
+prediction registered before the drive ("about 53 if the collapse is avoided,
+about 50 if it recurs") held.
+
+**And the selection rule chose the losing branch again.** Both branches placed
+thirteen pages and emitted seventy-nine pieces, so `downstream` fell through to
+its next term - camera failures - where the root scores 0 and the repaired
+branch scores 2, because pages 26 and 27 needed the retry pass in the branch and
+not in the root. It selected 51 over 53.
+
+Twice now, on two fixtures, the mechanism reached the better model and the
+runtime-legal criterion refused it. Ordering the terms the other way round -
+instrument contradictions before coverage - would have selected correctly on
+both: 40377 on the registration collapse (0 against 1), 41601 on the camera
+failures (1 against 2). That rule is in the module as `contradictions`, and it
+is **fitted to two observations**; it is a hypothesis the next round can test on
+a fixture it was not derived from, not a validated criterion.
