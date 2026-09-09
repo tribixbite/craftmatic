@@ -15,6 +15,14 @@ Pipeline per retained camera view:
 The depth-first traversal does not scale past roughly three additions on a bank
 of this size; the beam is the default for that reason and reports its own
 incompleteness.
+
+A page can also draw one of its new pieces detached above the assembly. The
+image then shows the assembly *without* it, so that piece is withheld from the
+image-judged search (`image_pieces`) and attached afterwards from the page's own
+arrows (`withheld` plus `arrows`, see `placement_exploded_attach`). Candidates
+that cannot receive every withheld piece rank below those that can, because an
+assembly with no arrow-supported contact for the incoming piece contradicts the
+page's arrows.
 """
 import argparse
 import hashlib
@@ -26,6 +34,7 @@ from placement_attach_group import make_assembly
 from placement_cardinality_bank import build_bank
 from placement_cardinality_search import search_layers
 from placement_colored_cad import colored_triangles
+from placement_exploded_attach import attach_detached
 from placement_layer_beam import search_beam
 from placement_mixed_batch_search import fixed_native_score
 from placement_part_library import PartLibrary
@@ -109,9 +118,16 @@ def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
 def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200000,
         top_k=32, host_bytes=512 * 1024 ** 2, method='beam', beam=64,
         max_expansions=2_000_000, improve_rounds=8, improve_from=4,
-        restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16, native_starts=1):
+        restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16, native_starts=1,
+        image_pieces=None, withheld=(), arrows=()):
     if method not in ('beam', 'exact'):
         raise ValueError('Unknown search method')
+    withheld = [(str(part), int(color)) for part, color in withheld]
+    image_pieces = list(record['allocated_pieces'] if image_pieces is None else image_pieces)
+    if len(image_pieces) + len(withheld) != len(record['allocated_pieces']):
+        raise ValueError('Image-judged and withheld pieces must partition the page allocation')
+    if withheld and not arrows:
+        raise ValueError('Withheld pieces need the page arrows that place them')
     scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
     poses = [(str(entry['part']), np.asarray(entry['T'], float)) for entry in record['poses']]
     boxes = world_boxes(poses)
@@ -137,7 +153,7 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         ids = gate['retained_indices']
         subset = dict(record, poses=[record['poses'][i] for i in ids])
         try:
-            placements, quotas = shape_bank(subset, record['allocated_pieces'])
+            placements, quotas = shape_bank(subset, image_pieces)
         except ValueError:
             results.append(dict(view=view_index, status='no_occupancy_compatible_candidates'))
             continue
@@ -238,8 +254,15 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                 candidates.insert(0, dict(indices=list(refined), score=coarse.score(refined),
                                           native_exchange=True))
         for candidate in candidates:
-            items = base + [item for i in candidate['indices'] for item in placements[i]['items']]
-            evidence = fixed_native_score(scorer, items, M, origin)
+            drawn = base + [item for i in candidate['indices'] for item in placements[i]['items']]
+            # The drawing shows the assembly without the withheld pieces, so the
+            # image score is taken on exactly that assembly.
+            evidence = fixed_native_score(scorer, drawn, M, origin)
+            attached, attachment = [], None
+            if withheld:
+                attached, attachment = attach_detached(drawn, withheld, record['poses'],
+                                                       M, origin, arrows)
+            items = drawn + attached
             lines = ['0 Quarantined PDF multi-shape batch; uncertified bounded search']
             for part, color, T in items:
                 lines.append('1 ' + str(color) + ' ' + ' '.join(
@@ -247,17 +270,25 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
             native.append(dict(view=view_index, projection=M.tolist(), origin=origin.tolist(),
                                coarse=dict(indices=list(candidate['indices']),
                                            score=candidate['score']),
-                               evidence=evidence, model='\n'.join(lines) + '\n', _items=items))
+                               evidence=evidence, arrow_attachment=attachment,
+                               attached_pieces=len(attached),
+                               model='\n'.join(lines) + '\n', _items=items, _drawn=drawn))
         results.append(result)
-    native.sort(key=lambda r: -r['evidence']['score'])
+    # An assembly that offers no arrow-supported contact for an incoming piece
+    # contradicts the page's own arrows, so it ranks below one that does. Within
+    # each group the drawn-assembly image score decides, unchanged.
+    native.sort(key=lambda r: (-r['attached_pieces'], -r['evidence']['score']))
     for index, row in enumerate(native):
         model = row.pop('model')
-        items = row.pop('_items')
+        row.pop('_items')
+        drawn = row.pop('_drawn')
         row['file'] = f'beam_{index:02}.ldr'
         (out / row['file']).write_text(model)
         if index == 0:
             (out / 'model.ldr').write_text(model)
-            check = fixed_native_score(scorer, items, row['projection'], row['origin'],
+            # The saved render is the assembly the drawing shows, which is what
+            # the recorded evidence scored; a withheld piece is not drawn on it.
+            check = fixed_native_score(scorer, drawn, row['projection'], row['origin'],
                                        out / 'selected.png')
             if check != row['evidence']:
                 raise AssertionError('Selected native PNG render evidence changed')
@@ -268,7 +299,10 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                 pdf_only=True, base_source=record['base_source'], base_sha256=record['base_sha256'],
                 geometry_dependencies=dependencies, page=record['page'],
                 xref=registration['xref'], shapes=record['parts'],
-                selected_parts=len(base) + len(record['allocated_pieces']) if native else None,
+                selected_parts=(len(base) + len(image_pieces) + native[0]['attached_pieces'])
+                if native else None,
+                image_pieces=[list(p) for p in image_pieces],
+                withheld_pieces=[list(p) for p in withheld],
                 truth_used=False, runtime_vlm_calls=0, certified=False,
                 uncontained_views=[i for i, v in enumerate(registration['hypotheses'][:views])
                                    if not v.get('contained', True)],
