@@ -2149,6 +2149,13 @@ population measurement and the two new channels. It did — 53/90 is unchanged
 since round four — so here is the measured ceiling, what would raise it, and
 where the program should go.
 
+Two sections written after this memo refine it and are not superseded by it, so
+read them together: *The same page, placed* shows that lifting the closure budget
+converts `unreachable` into `mis_selected` rather than into correct, which makes
+lever 1 below a precondition rather than a fix; and *Where a correct pose is
+actually lost* splits `mis_selected` into screen, retention and ranking and puts
+numbers on lever 2, which this memo could only name.
+
 ### The ceiling is a ladder, and each rung has a named owner
 
 Every rung below is the population table's own class count added to the current
