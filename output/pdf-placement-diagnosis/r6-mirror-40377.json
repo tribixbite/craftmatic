@@ -1,0 +1,92 @@
+{
+  "body": "output\\pdf-placement-beam\\40377-r5-contain-v1\\page-030\\placement\\model.ldr",
+  "plane": {
+    "axis": 2,
+    "offset": 0.0,
+    "matched": 41,
+    "eligible": 65,
+    "parts": 79,
+    "fraction": 0.6307692307692307,
+    "self_mapped": 23,
+    "accepted": true,
+    "minimum_fraction": 0.5,
+    "normal": [
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "outstanding": [
+    [
+      "3023b",
+      15
+    ],
+    [
+      "3069b",
+      191
+    ],
+    [
+      "6091",
+      191
+    ],
+    [
+      "6091",
+      191
+    ],
+    [
+      "3023b",
+      191
+    ],
+    [
+      "98138pz0",
+      0
+    ],
+    [
+      "98138pz0",
+      0
+    ],
+    [
+      "2431",
+      0
+    ],
+    [
+      "3958",
+      0
+    ],
+    [
+      "87079",
+      0
+    ],
+    [
+      "92593",
+      0
+    ]
+  ],
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "quota": {
+    "3023b:15": 1,
+    "3069b:191": 1,
+    "6091:191": 2,
+    "3023b:191": 1,
+    "98138pz0:0": 2,
+    "2431:0": 1,
+    "3958:0": 1,
+    "87079:0": 1,
+    "92593:0": 1
+  },
+  "proposals": [],
+  "admitted": 0,
+  "decisions": [],
+  "reference_score": {
+    "rows": [],
+    "proposals": 0,
+    "correct": 0,
+    "determined_proposals": 0,
+    "determined_correct": 0,
+    "scope": "Evaluation-only. The reference model is read after the proposals exist and selects nothing.",
+    "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd"
+  },
+  "limitations": "Axis-aligned planes only; a mould with no saved mirror proof is treated as chiral; mirror-mould pairs (a left and right hand of different part numbers) are not proposed. A proposal is gated on collision and connector engagement, which is a physical necessary condition and not a proof of correctness."
+}
