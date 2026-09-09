@@ -304,9 +304,25 @@ export class LDrawViewer {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.fxaaPass = new ShaderPass(FXAAShader);
     this.composer.addPass(this.fxaaPass);
+    // Vignette. `darkness` is NOT a strength â€” read the shader:
+    //   mix(texel.rgb, vec3(1.0 - darkness), dot(uv, uv))
+    // it is the COMPLEMENT of the colour every pixel is dragged toward. The old
+    // 0.8 therefore blended toward LINEAR 0.2, which the OutputPass tone-maps
+    // and sRGB-encodes to a ~124/255 mid grey â€” and with offset 1.2 the corners
+    // took 72% of it. That is not a vignette, it is a grey veil laid over the
+    // whole frame: measured (scripts/renderer-pass-isolation.mjs, 4 sets) it
+    // lifted mean frame luminance by 14-18 and the darkest 1% by 3-13, and
+    // because the target is achromatic it desaturated every colour it touched.
+    // It is what users see as haze/glare over the model.
+    //
+    // darkness = 1.0 targets pure black, so the pass becomes a plain multiply
+    // (mix(c, 0, t) === c * (1 - t)) â€” it can only darken, never lift, and it
+    // preserves chromaticity exactly, which is what keeps the calibrated ABS
+    // colours intact. offset 0.95 puts the corners at ~55% linear â‰ˆ 79% after
+    // tone mapping: a visible frame, no veil.
     const vignettePass = new ShaderPass(VignetteShader);
-    vignettePass.uniforms['offset']!.value = 1.2;
-    vignettePass.uniforms['darkness']!.value = 0.8;
+    vignettePass.uniforms['offset']!.value = 0.95;
+    vignettePass.uniforms['darkness']!.value = 1.0;
     this.composer.addPass(vignettePass);
     this.composer.addPass(new OutputPass());
 
