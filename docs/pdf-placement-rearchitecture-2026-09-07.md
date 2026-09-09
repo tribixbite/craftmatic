@@ -4168,3 +4168,37 @@ both: 40377 on the registration collapse (0 against 1), 41601 on the camera
 failures (1 against 2). That rule is in the module as `contradictions`, and it
 is **fitted to two observations**; it is a hypothesis the next round can test on
 a fixture it was not derived from, not a validated criterion.
+
+### The opening is selectable without the drawing, and the channel already existed
+
+The capacity probe asked whether a non-pixel signal separates 41601's two
+opening classes and answered no. A second non-pixel signal does, and it was
+built in round six for a different fixture: `placement_construction_symmetry`
+ranks a construction's retained candidates by the bilateral plane agreement each
+one reaches **on its own parts**, reading nothing but the candidate assemblies
+and universal CAD.
+
+| 41601 construction | bodies | objective score | plane agreement | eligible parts matched | structural |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| score class 0 | 24 | 0.650320 | **0.600** | 3 of 5 | 3 of 7 |
+| score class 1 | 12 | 0.637095 | **1.000** | **5 of 5** | **6 of 7** |
+
+The separation is total and it is on the right side: every body the image
+objective put on its 24-way top plateau is bilaterally *incomplete*, and every
+body in the class it demoted by 0.0132 is bilaterally complete. Ranking by plane
+agreement first selects `beam_24` - the same body the backtracking branch drove -
+and the delta is **+3, equal to the oracle best**.
+
+So the whole chain is runtime-legal end to end: construct, rank the retained
+constructions by their own symmetry, drive. That is 41601 at **6 of 108** with no
+reference anywhere in the loop, and it costs one CPU minute rather than a second
+drive - the backtracking branch was how the opening's value was *measured*, and
+the symmetry channel is how a production pipeline would *choose* it.
+
+Three constructions have now been measured with this channel and it has never
+been negative: 40377 page 20's head **+1** (three eligible parts, round six),
+41624's three-piece opening **+0** (one eligible part - it abstains, and the run's
+own pick was already the best body it retained), 41601's seven-piece opening
+**+3** (five eligible parts). The discrimination scales with the number of
+mirror-eligible parts, which is the honest way to read it and the reason the
+eligibility count is printed beside every fraction.
