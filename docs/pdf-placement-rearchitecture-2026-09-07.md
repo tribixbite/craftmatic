@@ -3256,6 +3256,28 @@ window ordering alone buys, which is the third independent confirmation of round
 six's "the budget converts one class into another" finding — and this time the
 conversion is measured at eight times the bank size rather than three.
 
+### 41624, driven to its full scope under the same configuration
+
+The same two flags on 41624's 36-page scope, from the same round-three
+construction checkpoint and the same element-bridge allocation round five used:
+
+| checkpoint | page 3 | page 4 | **page 5** | page 8 | page 16 | page 38 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| emitted | 6 | 9 | 13 | 21 | 42 | 86 |
+| structural, round five | 3 | 5 | 5 | 5 | 5 | **5** |
+| structural, round seven | 3 | 5 | **6** | 6 | 6 | **6** |
+
+**5/109 to 6/109**, and the extra part arrives on page 5 - the first page after
+the opening, which is where round five's run stopped gaining. 86 parts emitted
+against round five's 75, at precision 0.070. Twenty of the 31 placed pages end in
+an exact tie among genuinely different assemblies, which is the highest exposure
+measured anywhere in the program and the reason 41624's number should be quoted
+with that column attached.
+
+So the round moves both fixtures by exactly one part: **54/90 and 6/109**. That
+is the honest size of the only lever the diagnosis said was live, and it is the
+size the diagnosis predicted before either chain was driven.
+
 ### Round seven's trajectory
 
 | round | 40377 | 41624 | what the round bought |
@@ -3266,7 +3288,7 @@ conversion is measured at eight times the bank size rather than three.
 | 4 | 48/90 → 53/90 | 5/109 | drawing-to-drawing registration, per-round closure |
 | 5 | 53/90 | 5/109 | containment judged in-page, the 98138 alias |
 | 6 | 53/90 | 5/109 (full scope) | the population, and three channels not adopted |
-| **7** | **54/90** | *(re-drive in flight)* | **an affordable closure, a deterministic tie-break, and the measurement that retention is the smallest lever** |
+| **7** | **54/90** | **6/109** | **an affordable closure, a deterministic tie-break, and the measurement that retention is the smallest lever** |
 
 Round seven's number is +1. What it actually delivered is three things the
 number does not show:
