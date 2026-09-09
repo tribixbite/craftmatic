@@ -11,8 +11,20 @@
  *   // 2. Voxelize — async drop-in for voxelizeLDraw()
  *   const result = await voxelizeLDrawGeometry(bricks, colorFn, options);
  *
- * Only works in dev (requires /ldraw-parts static middleware in vite.config.ts).
- * In production, all parts fall back to no-geometry (fallbackPartCount = total).
+ * `/ldraw-parts` RESOLVES IN PRODUCTION TOO. (The header used to say this was
+ * dev-only and that every part fell back to no-geometry in prod — untrue since
+ * 2026-06, and corrected here per the 2026-09-08 audit's P2 item.) In dev a
+ * Vite middleware serves the local clego library; on craftmatic.click the
+ * Cloudflare Worker serves the same paths R2-first from the `lego-models`
+ * bucket, with library.ldraw.org as a fallback. See CLAUDE.md, "LDraw parts
+ * library — DEV vs PROD".
+ *
+ * The one deployment where geometry genuinely is unavailable is the GitHub
+ * Pages mirror, which has no Worker routes at all — see README, "Web App".
+ *
+ * When a part still does not resolve, that part alone falls back to its
+ * bounding box and is counted in `fallbackPartCount`; the rest of the model
+ * voxelizes from real triangles.
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';

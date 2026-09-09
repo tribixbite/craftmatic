@@ -133,7 +133,8 @@ const uvMap = atlas.toJSON();
 
 ## Web App
 
-A full-featured browser-based toolkit is included. Try the [live demo](https://tribixbite.github.io/craftmatic/) or run it locally:
+A full-featured browser-based toolkit is included. The supported deployment is
+**[craftmatic.click](https://craftmatic.click/)** — run it locally with:
 
 ```bash
 npm run dev:web      # Dev server on port 4000
@@ -148,6 +149,28 @@ npm run preview:web  # Preview production build
 - Interactive Three.js viewer with cutaway slider, orbit controls, non-cube geometries, and Faithful 32x textures
 - Export to GLB (binary glTF), `.schem`, or standalone HTML
 - Responsive dark-mode UI optimized for mobile and desktop
+
+### Deployments
+
+`deploy.yml` publishes the same static build to two places, and they are **not
+equivalent** (corrected 2026-09-09 — this section previously advertised the
+GitHub Pages copy as *the* demo):
+
+| | craftmatic.click | tribixbite.github.io/craftmatic |
+| --- | --- | --- |
+| Static app | ✅ | ✅ |
+| Generate / Import / Upload / Gallery / Map / Tiles | ✅ | ✅ |
+| LEGO model corpus (`/lego-models/*`, `/lego-models-index.json`) | ✅ | ❌ 404 |
+| LDraw parts library (`/ldraw-parts/*`) — 3D brick geometry | ✅ | ❌ 404 |
+| LDraw OMR proxy (`/ldraw-omr/*`), BrickLink inventory (`/bff/*`) | ✅ | ❌ 404 |
+
+Everything in the ❌ column is served by the Cloudflare Worker
+(`worker/ldraw-omr.js`), whose routes are bound to the `craftmatic.click` zone
+in `wrangler.toml`. The Pages mirror has no Worker in front of it, so on that
+host the LEGO tab can search the bundled catalog but cannot load a model or any
+brick geometry. Use `craftmatic.click` for anything LEGO, and when reporting a
+LEGO rendering issue say which host it came from — the `⤓ diagnostics` link in
+the LEGO tab records it.
 
 ## Textures
 

@@ -6,6 +6,24 @@
  * as ASCII art so shapes are visually recognizable.
  *
  * Usage: bun scripts/verify-lego-visual.ts
+ *
+ * WHAT THIS DOES NOT COVER (audit 2026-09-08, P2 "refresh misleading
+ * documentation" — the name reads like a general LEGO visual check, and it is
+ * not one):
+ *  • Not the direct 3D renderer. It drives `voxelizeLDraw`, the Minecraft
+ *    conversion path. `lego.ts voxelizeAndDisplay()` BYPASSES voxelization in
+ *    3D-render mode, so a pass here says nothing about what the viewer shows.
+ *  • Not per-part placement. A coarse top-down silhouette plus width/length
+ *    bounds cannot see a hair piece floating above a head, a splayed
+ *    sub-assembly, or a wrong local origin — every defect the audit was opened
+ *    for is invisible at this resolution.
+ *  • Not these sets. It checks four fixed OMR sets (21309, 10030, 10179,
+ *    75060); nothing here touches 10316 or 71043, and it reads OMR, not the
+ *    model index the app actually loads from.
+ *  • Not offline or pinned. It fetches from library.ldraw.org at run time with
+ *    no library revision recorded, so two runs are not comparable.
+ * A direct-render regression fixture is still open — see the audit's P2
+ * "focused visual fixtures" item.
  */
 
 import { parseLDraw } from '../web/src/engine/ldraw-parser.js';
