@@ -277,8 +277,47 @@ driven as an ordinary addition.
 ## Dev / commands
 - Dev server: `bun dev:web` (port 4000). Add `--host` to expose on LAN (phone testing at the box's LAN IP:4000).
 - Typecheck: root is `bun run typecheck` (`tsc --noEmit`, the `src/` tree); the whole `web/` tree is `bun run typecheck:web` (`tsc --noEmit -p web/tsconfig.json`). **Both run in CI** (ci.yml + deploy.yml) so a careless edit can't silently compile-break. The `web` tree is currently type-clean — keep it that way (the old ~34 `ui/*` errors were fixed; the app still *builds* via Vite/esbuild without type-gating, but CI now gates it).
-- Build: `bun run build:web`. Tests: `bun test` (vitest). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression). Export-side offline suites: `test/schem-pipeline.test.ts` (the shared export module's grid path — byte-identical to a direct encode, no re-voxelization), `test/schem-settings.test.ts` (resolution planning vs the legacy ladder as an oracle), `test/light-fill.test.ts` (sealed room lit / open porch untouched), `test/palette-lint.test.ts` (every emitted block id is a real Minecraft block), `test/schem-seeded-geometry.test.ts` (the seeded resolver short-circuits fetch and matches the networked bytes; per-part progress advances; geometry is independent of fetch timing). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests).
+- Build: `bun run build:web`. Tests: `bun test` (vitest). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression). Export-side offline suites: `test/schem-pipeline.test.ts` (the shared export module's grid path — byte-identical to a direct encode, no re-voxelization), `test/schem-settings.test.ts` (resolution planning vs the legacy ladder as an oracle), `test/light-fill.test.ts` (sealed room lit / open porch untouched), `test/palette-lint.test.ts` (every emitted block id is a real Minecraft block), `test/schem-seeded-geometry.test.ts` (the seeded resolver short-circuits fetch and matches the networked bytes; per-part progress advances; geometry is independent of fetch timing). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests). Two more from the 2026-09-08 audit: `test/part-cache-revision.test.ts` (persistent-cache identity + transitive geometry invalidation, over a fake IndexedDB that survives `vi.resetModules()` — the WARM-browser path, not an incognito one) and `test/schem-real-set.test.ts` (real set through the real export pipeline; skips without the local corpus).
 - Use **Chrome** for browser testing, not Edge.
+
+## Manual gates (Chrome + the local corpus — deliberately NOT in CI)
+Run these after touching the renderer, the part resolver, the LXF/alignment
+path or the exporters. Each drives the REAL app in headless Chrome against
+`bun dev:web`, so none of them can run on a CI box. Output lands in
+`output/visual-fixtures/<date>/`.
+- **`node scripts/lego-visual-fixtures.mjs`** — 4 fixtures (10316 headgear
+  close-up, 71043 foundation/tower close-ups, 10182 official-OMR control, 21309
+  rotated/SNOT control), each pinning its index path AND sha256/12 `hash`, the
+  camera, explode 0 and all layers, with targeted numeric assertions (headgear
+  seated on its head; only the 3 documented unmodelled moulds missing; assembled
+  matrices restored after 0→100→0; a pinned rotation-profile baseline). **A
+  corpus change FAILS the fixture** — re-baseline it deliberately, don't widen
+  the tolerance. Exit non-zero names what moved.
+- **`node scripts/lego-perf-baseline.mjs`** — cold/warm load, request counts,
+  draw calls/triangles, heap, forced-composite time. Numbers +
+  what-is-not-claimed: `docs/lego-perf-baseline-2026-09-09.md`. Works against
+  prod too (`DEV_URL=https://craftmatic.click`), minus the in-page stats — the
+  `window.__ldrawViewer` hook is DEV-only.
+- **`node scripts/lego-export-validate.mjs`** — OBJ/STL/GLB byte-identity
+  across explode 0→100→0, plus the OBJ bbox against 8 mm/stud. Byte identity is
+  a WITHIN-run statement only: dev part resolution is nondeterministic.
+- **`bunx vitest run test/schem-real-set.test.ts`** — the Minecraft half. Real
+  set, real pipeline, cellLDU 20/10/8, bridging on vs off. Skips silently
+  without the local corpus.
+- **Kill stray dev servers first.** Three `vite` processes were running at once
+  (4000/4001/4002) and `/` took 264 s to answer; after killing the extras it was
+  0.1 s. A load-time or "model never finished rendering" result taken on that
+  box is about the box, not the code — check
+  `Get-NetTCPConnection -State Listen` and the CPU before believing one.
+
+## InstancedMesh metadata contract (probes depend on it)
+Each brick mesh carries `partName`, `brickColor`, `meshKind`
+(`main`/`color`/`texture`) and, on exactly ONE mesh per (part, colour) bucket,
+`primary: true`. Keep them: without part identity an offline probe can measure
+where things are but never what they are, and **`primary` is what makes
+placements countable** — a multi-coloured part emits several meshes over the
+SAME matrices, so summing every instance over-counts (10182: 2,432 instances
+for 2,417 placements). `mirrorOf` marks the floor-reflection clones; skip those.
 
 ## Key tabs
 Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO**
@@ -288,7 +327,35 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
 - `web/src/engine/ldraw-parser.ts` — MPD/LDR → `ParsedBrick[]` (world transform = parentRot×local + parentPos, recursive; det<0 → winding flip). `countSteps()` counts `0 STEP` at ANY depth (sets that nest steps in sub-assemblies, e.g. 31084, depend on this).
 - `web/src/viewer/ldraw/` — the direct 3D renderer (modular):
   - `viewer.ts` — Three.js scene/renderer/camera, lighting, env, post FX, camera framing/transitions, explode, picking, export (`exportMeshes()`). **Global instancing**: ONE InstancedMesh per (part,color) across the WHOLE model (not per step) + ONE global edge `LineSegments2`. Instances/segments are sorted step-ascending; the step slider sets `InstancedMesh.count` / `LineSegmentsGeometry.instanceCount` to a binary-search prefix — so a 1226-step set (UCS Falcon) is ~300 meshes / ~950 draw calls, not thousands. Static shadow map (`shadowMap.autoUpdate=false`, refreshed on scene change). **On-demand rendering**: the rAF loop only composites when `needsRender` is set (or a camera anim / autoRotate / Stats overlay is active) — idle scenes cost ~0 GPU. **Any new state mutation that changes the picture MUST call `this.invalidate()`** (or `requestShadowUpdate()`, which also invalidates); camera moves auto-invalidate via the OrbitControls `change` listener. Dev-only `window.__ldrawViewer` hook for `renderer.info` metrics.
-  - `parts.ts` — fetch/parse/resolve `.dat` geometry; module-level caches **plus a persistent IndexedDB .dat-text cache** (`craftmatic-ldraw` db; positive results only — repeat sessions load big sets with ~zero part fetches; bump `IDB_VERSION_KEY` to invalidate); `prewarmCommonParts()`; `partTextureUrls` (TEXMAP); `preloadDatTexts()` (archive-bundled parts, model-specific, cleared by `clearMpdInlines`); `unresolvedDatNames` → `viewer.unresolvedSubparts` (sub-file refs that resolved nowhere = silent holes, surfaced in status). Candidate-path order is name-shape-aware (`looksLikePrimitive` → `p/` first) with a **`p/48/` hi-res alias tail** for bare primitive refs that only exist as 48-variants (e.g. `1-12ring14`). `LDRAW_BASE = /ldraw-parts`.
+  - `parts.ts` — fetch/parse/resolve `.dat` geometry; module-level caches **plus a persistent IndexedDB .dat-text cache** (`craftmatic-ldraw` db; positive results only — repeat sessions load big sets with ~zero part fetches; **prod 10316: cold 19.25 s → warm 2.68 s**); `prewarmCommonParts()`; `partTextureUrls` (TEXMAP); `preloadDatTexts()` (archive-bundled parts, model-specific, cleared by `clearMpdInlines`); `unresolvedDatNames` → `viewer.unresolvedSubparts` (sub-file refs that resolved nowhere = silent holes, surfaced in status). Candidate-path order is name-shape-aware (`looksLikePrimitive` → `p/` first) with a **`p/48/` hi-res alias tail** for bare primitive refs that only exist as 48-variants (e.g. `1-12ring14`). `LDRAW_BASE = /ldraw-parts`.
+    - **Cache identity is tied to the DEPLOYED library revision (2026-09-09,
+      audit P1 #6).** `IDB_VERSION_KEY` is now only the cache FORMAT version;
+      the real identity is `GET /ldraw-parts/_rev` → `{rev}`, written into R2 as
+      `ldraw/_rev.json` by `scripts/sync-ldraw-r2.mjs` and served by the worker
+      (dev: a constant `dev-local-1` from the vite middleware, because dev's
+      library is a frozen snapshot plus per-miss fallbacks and has no honest
+      content revision). `rev` is a **content hash** of the mirrored file set,
+      NOT the run time — the sync is weekly and usually a no-op, and a timestamp
+      would evict every visitor's whole part cache every week for nothing. The
+      stamp is published ONLY after a complete, fully successful run. A KNOWN,
+      different revision clears the store once; an UNKNOWN one (no endpoint,
+      404, offline, malformed, timeout) never invalidates and never records —
+      guessing "changed" on a blip would re-download the library on the worst
+      connections. (A canary set of part texts was rejected: a canary only
+      detects changes to the canary, and the corrected part is exactly the one
+      it doesn't contain.) `primePartCache()` runs the probe at app idle;
+      `partCacheRevision()` feeds the diagnostics bundle (`library: null` means
+      "could not be established", not "unversioned").
+    - **Geometry invalidation is TRANSITIVE and RETURNS what it dropped.**
+      `resolvePartGeometry` FLATTENS a child's triangles into its parent, so
+      dropping only the child leaves every parent holding the old definition —
+      a real leak, because a `.io`'s `CustomParts/` ships the exact primitives
+      its modified parts need, names shared library parts also reference.
+      `geomDependents` records the reverse edges; `invalidatePartGeom` walks
+      them. **Any caller that invalidates in order to REBUILD must re-resolve
+      the whole returned set** — the viewer's repair pass re-resolved only the
+      empty parts it named, left the invalidated ancestors with no geometry at
+      all, and that reported 71043's `90398` (25 placements) as missing.
   - `materials.ts` — LDraw color → THREE material (ABS / rubber / metallic / transparent / glow).
   - `types.ts` — Vec3/Triangle/Edge/PartGeom/TexturedTriangle.
 - `web/src/engine/ldraw-colors.ts` — LDraw color id → hex (and → Minecraft block for voxelizer).
@@ -1218,6 +1285,12 @@ to the Worker. Those last two used to live only in the CF dashboard and were
 Pages' 404, so the LEGO tab's last-resort source was dead in prod while fine in
 dev. Declare routes in `wrangler.toml`, never only in the dashboard. Run
 `bunx wrangler deploy` after changing the Worker or routes.
+**Pending deploy (2026-09-09):** `/ldraw-parts/_rev` is a new worker route and
+`ldraw/_rev.json` is written by the next full `sync-ldraw-r2.mjs` run. Until
+BOTH land, prod returns 404 there and every browser keeps its part cache — the
+documented "unknown revision" behaviour, not a failure. `test/prod-smoke.test.ts`
+accepts 200-or-404 for exactly this window; tighten it to 200 once a stamp
+exists.
 
 ## Source freshness (new sets over time)
 Two halves, split by what can run without the local corpus. See
