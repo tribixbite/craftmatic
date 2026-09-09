@@ -1103,3 +1103,58 @@ reach 3 of 6 against the wrong body, so the mount, the parent order and the
 per-round budget are three separate additive constraints on this one page rather
 than one defect seen three times. A per-round budget with an evidence-ordered
 second frontier is the implied fix and is not implemented.
+
+### Neither selection lever moved page 18, and one of them was mis-measured
+
+Two candidate levers were tried on page 18's 0.0012 margin and both are recorded
+as failures, because a lever that does not move a number should not be described
+as if it might.
+
+`--local-rerank 0.5` selects the identical candidate and widens the margin to
+0.0172. Its class term prefers the reference (0.131837 against 0.090475) and its
+edge term prefers the wrong pose more strongly (0.607061 against 0.692133). That
+is the second measurement against the local rerank as a general lever, after
+round three's single success on 41624's opening.
+
+`--seated-tolerance 0.01` also selects the same pose, and the reason is worth
+stating exactly, because the first reading of it was wrong. Measuring the
+candidates physically:
+
+| pose | engaged mates | voxel contacts | voxel overlap |
+| --- | ---: | ---: | ---: |
+| selected (0, -112, -44) | 12 | 653 | 281 |
+| reference (0, -112, -48) | 12 | 645 | 364 |
+| a third (0, -132, -48) | 10 | 594 | 303 |
+
+Both candidates engage **twelve** connectors under the exact predicate
+`Assembly._consume_coincident` uses. They are two physically valid seatings of the
+same plate on different stud rows of the same body, not a seated pose against a
+proud one, so no seating measure can separate them - and the voxel-contact column
+prefers the wrong one. The first version of the tie-break ranked by that column
+and claimed a 16% margin for the reference; that figure counted the additions'
+*overlapping* voxels' neighbours as contacts, so it measured interpenetration
+rather than seating. Excluding overlap it is 1% the other way. The tie-break stays,
+opt-in and off by default and ranked by engaged mates, for the case it does address
+- a candidate that leaves its joint proud engages nothing - and page 18 is outside
+its scope.
+
+What is left for page 18 is therefore cross-page evidence. Page 19's drawing shows
+the same plate from the next accumulated state, and page 19's own six pieces only
+fit on one of the two candidates: the run that follows page 18 knows which pose was
+right. Using that means either backtracking over page 18's retained alternatives or
+solving pages 18 and 19 jointly, and neither is implemented.
+
+### The generic constructor completes both subassemblies and gets one of them wrong
+
+With the closure at four rounds and 512 parents - a one-piece root has only 432 to
+1,284 base-attached poses, so the global parent budget does reach later rounds
+there, unlike on a full body - `placement_construct_body` completes page 31's
+four-piece build from all three roots it tries, publishing three distinct group
+hypotheses for the attachment to choose between. Post hoc, every one of them is
+**1 of 4** structurally correct.
+
+That is a data limit rather than a search limit, and the page says so itself: its
+two drawings align at scale 1.00 with IoU 0.9914, because the pieces are three
+flat black tiles laid on a black 6x6 plate and they barely change the silhouette.
+Colour is uniform, the silhouette is nearly invariant, and the visible-edge channel
+sees little. A drawing that does not distinguish the alternatives cannot be made to.
