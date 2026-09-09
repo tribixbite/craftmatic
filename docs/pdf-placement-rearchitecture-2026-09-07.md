@@ -3564,3 +3564,47 @@ candidate with several legal names; resolving it by geometry rather than by
 guessing would recover 4 of the 25 lost pieces on this fixture without emitting
 an arbitrary variant as fact. That is a *new* channel this round measured into
 existence, and it is filed rather than built.
+
+### The single-page gate: the move fires, the objective improves, the model does not
+
+One page-19 drive from the round-seven window chain's own page-18 body, control
+and treatment differing in exactly one flag, both under the deterministic
+tie-break.
+
+| | control (`--compound-width 0`) | treatment (`--compound-width 8`) |
+| --- | ---: | ---: |
+| emitted | 58 | 58 |
+| **structural** | **51** | **51** |
+| authoritative-alias | 35 | 35 |
+| raw strict | 29 | 29 |
+| best native score | 0.532679984 | **0.534664523** |
+| native renders per start | 79-153 | 151-203 |
+| single-swap rejections per pass | 32-34 collision, 102-182 connectivity | 16-87 collision, 104-186 connectivity |
+| legal compound assemblies found | - | 64-70 per pass |
+| compound moves **taken** | - | **1 per start, every start, every view** |
+
+**The control reproduces the chain exactly** (58/51/35/29 against the chain's own
+page-19 row), so the gate is measuring what it claims to.
+
+**And the treatment is the clearest demonstration this program has produced that
+the objective is the problem.** The compound move is not marginal: it fires on
+every start of every view, it is the *first* move the pass takes each time, and
+it raises the selection score by +0.001985 - more than the window ordering was
+worth on this page. The emitted assembly changes substantially (indices
+`[383, 698, 704, 708, 714, 1385]` to `[490, 522, 698, 722, 725, 1226]`, four of
+six placements different). **Not one additional pose is correct.** A strictly
+larger legal search space, searched with a strictly better move set, returns a
+strictly better-scoring assembly that is exactly as wrong.
+
+Two honest caveats, both recorded rather than buried:
+
+* the 64-render budget was **exhausted on every pass** (`budget_exhausted: true`,
+  against 64-70 legal compound assemblies enumerated per pass and 130-200
+  rejected window entries), so the compound reach was truncated. The move that
+  *was* taken was found inside that truncation;
+* the probe predicted +1 from a different start - the round-five run's page-19
+  assembly - and the window chain's page-19 start already contains the correct
+  `41740` the probe's start lacked. A prediction made from one local optimum does
+  not transfer to another, and that is a limitation of the probe, not a failure
+  of the prediction. It is also the third independent observation this round that
+  what a search improvement finds depends on which wrong assembly it starts from.
