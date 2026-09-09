@@ -741,7 +741,10 @@ scorer prefers the wrong one 0.87677 to 0.87575. Restricting the evidence to the
 region the addition changes, and counting colour only where the addition changes
 the class the body already renders - a red plate on a red plate changes none, so
 colour abstains and the visible-edge chamfer decides - ranks the reference pose
-first at 0.7841 against 0.7727. That is `--local-rerank`, and it is off by
-default: one fixture is not evidence for a default objective, and 40377 page
-index 17 does not need it, since under the corrected exploded target the
-whole-drawing scorer already ranks the reference pose first there.
+first at 0.7841 against 0.7727. That is `--local-rerank`, and switching it on takes the whole
+construction from 2 of 3 to **3 of 3**: the emitted pair is (0, -8, -30) and
+(0, -8, 30) relative to the root, which is the reference pair exactly. It stays
+off by default all the same - one fixture is not evidence for a default
+objective, and 40377 page index 17 does not need it, since under the corrected
+exploded target the whole-drawing scorer already ranks the reference pose first
+there.
