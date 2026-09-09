@@ -1,0 +1,1381 @@
+{
+  "run": "output\\pdf-placement-beam\\41624-r5-full-scope",
+  "truth": "C:/git/clego/lego_sets/OMR/41624-1.mpd",
+  "totals": {
+    "distinct_reference_targets": 78,
+    "in_bank": 18,
+    "survived_screen": 11,
+    "in_any_retained_assembly": 4,
+    "in_selected_assembly": 2,
+    "lost_before_enumeration": 60,
+    "lost_to_occupancy_screen": 7,
+    "lost_to_search_retention": 7,
+    "lost_to_ranking": 2
+  },
+  "rows": [
+    {
+      "page": 3,
+      "bank_poses": 7479,
+      "view": 2,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 2319,
+      "targets": [
+        {
+          "part": "3700",
+          "color": 4,
+          "truth_index": 3,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": true,
+          "in_selected": false
+        },
+        {
+          "part": "3700",
+          "color": 4,
+          "truth_index": 5,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "2431",
+          "color": 0,
+          "truth_index": 74,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "2431",
+          "color": 0,
+          "truth_index": 79,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "2431",
+          "color": 0,
+          "truth_index": 105,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 4,
+      "bank_poses": 1654,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 821,
+      "targets": [
+        {
+          "part": "3005",
+          "color": 4,
+          "truth_index": 6,
+          "in_bank": true,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3005",
+          "color": 4,
+          "truth_index": 7,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": true,
+          "in_selected": true
+        },
+        {
+          "part": "3004",
+          "color": 2,
+          "truth_index": 8,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": true,
+          "in_selected": true
+        },
+        {
+          "part": "3004",
+          "color": 2,
+          "truth_index": 31,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 5,
+      "bank_poses": 8192,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 1985,
+      "targets": [
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 9,
+          "in_bank": true,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 10,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": true,
+          "in_selected": false
+        },
+        {
+          "part": "3010",
+          "color": 0,
+          "truth_index": 11,
+          "in_bank": true,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3010pzt",
+          "color": 4,
+          "truth_index": 12,
+          "in_bank": true,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3010",
+          "color": 0,
+          "truth_index": 13,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 26,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 27,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 28,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 41,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 42,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 6,
+      "bank_poses": 7174,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 1656,
+      "targets": [
+        {
+          "part": "3010",
+          "color": 0,
+          "truth_index": 11,
+          "in_bank": true,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3010",
+          "color": 0,
+          "truth_index": 13,
+          "in_bank": true,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 7,
+      "bank_poses": 3471,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 960,
+      "targets": [
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 16,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 17,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 39,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 40,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "87079",
+          "color": 0,
+          "truth_index": 83,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "87079",
+          "color": 0,
+          "truth_index": 84,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "87079",
+          "color": 0,
+          "truth_index": 106,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 8,
+      "bank_poses": 1483,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 940,
+      "targets": [
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 18,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 19,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 20,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 21,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 86,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 87,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 97,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 9,
+      "bank_poses": 806,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 196,
+      "targets": [
+        {
+          "part": "87079",
+          "color": 0,
+          "truth_index": 83,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "87079",
+          "color": 0,
+          "truth_index": 84,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "87079",
+          "color": 0,
+          "truth_index": 106,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 10,
+      "bank_poses": 8192,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 3105,
+      "targets": [
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 9,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 10,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 26,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 27,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 28,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 41,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 42,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 11,
+      "bank_poses": 4812,
+      "view": 2,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 2504,
+      "targets": [
+        {
+          "part": "3023b",
+          "color": 19,
+          "truth_index": 29,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 19,
+          "truth_index": 30,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3004",
+          "color": 2,
+          "truth_index": 31,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 19,
+          "truth_index": 35,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 19,
+          "truth_index": 59,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 12,
+      "bank_poses": 4670,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 2381,
+      "targets": [
+        {
+          "part": "32952",
+          "color": 4,
+          "truth_index": 32,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "32952",
+          "color": 4,
+          "truth_index": 33,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 13,
+      "bank_poses": 8192,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 3794,
+      "targets": [
+        {
+          "part": "3023b",
+          "color": 19,
+          "truth_index": 29,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 19,
+          "truth_index": 30,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 19,
+          "truth_index": 35,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "11211",
+          "color": 72,
+          "truth_index": 36,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "11211",
+          "color": 72,
+          "truth_index": 53,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "11211",
+          "color": 72,
+          "truth_index": 54,
+          "in_bank": true,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "11211",
+          "color": 72,
+          "truth_index": 55,
+          "in_bank": true,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3021",
+          "color": 0,
+          "truth_index": 57,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3021",
+          "color": 0,
+          "truth_index": 58,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 19,
+          "truth_index": 59,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 14,
+      "bank_poses": 8192,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 1135,
+      "targets": [
+        {
+          "part": "3031",
+          "color": 0,
+          "truth_index": 82,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 15,
+      "bank_poses": 8192,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 3713,
+      "targets": [
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 9,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 10,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 26,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 27,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 28,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 41,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "22885",
+          "color": 71,
+          "truth_index": 42,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 16,
+      "bank_poses": 3292,
+      "view": 2,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 1704,
+      "targets": [
+        {
+          "part": "3003",
+          "color": 29,
+          "truth_index": 46,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "6256",
+          "color": 0,
+          "truth_index": 102,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "6256",
+          "color": 0,
+          "truth_index": 103,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 19,
+      "bank_poses": 8192,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 3854,
+      "targets": [
+        {
+          "part": "3710",
+          "color": 71,
+          "truth_index": 51,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3710",
+          "color": 71,
+          "truth_index": 52,
+          "in_bank": true,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 20,
+      "bank_poses": 8192,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 4899,
+      "targets": [
+        {
+          "part": "11211",
+          "color": 72,
+          "truth_index": 36,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "11211",
+          "color": 72,
+          "truth_index": 53,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "11211",
+          "color": 72,
+          "truth_index": 54,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "11211",
+          "color": 72,
+          "truth_index": 55,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 21,
+      "bank_poses": 8192,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 3742,
+      "targets": [
+        {
+          "part": "3020",
+          "color": 0,
+          "truth_index": 15,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3020",
+          "color": 0,
+          "truth_index": 56,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 23,
+      "bank_poses": 8192,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 5919,
+      "targets": [
+        {
+          "part": "2431",
+          "color": 19,
+          "truth_index": 60,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "92593",
+          "color": 19,
+          "truth_index": 61,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "25269",
+          "color": 19,
+          "truth_index": 62,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "25269",
+          "color": 19,
+          "truth_index": 63,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "25269",
+          "color": 19,
+          "truth_index": 64,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "25269",
+          "color": 19,
+          "truth_index": 65,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "15573",
+          "color": 191,
+          "truth_index": 90,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "15573",
+          "color": 191,
+          "truth_index": 91,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "15573",
+          "color": 191,
+          "truth_index": 94,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "15573",
+          "color": 191,
+          "truth_index": 95,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 24,
+      "bank_poses": 1087,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 1087,
+      "targets": [
+        {
+          "part": "6141",
+          "color": 0,
+          "truth_index": 69,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 25,
+      "bank_poses": 2014,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 1665,
+      "targets": [
+        {
+          "part": "6091",
+          "color": 19,
+          "truth_index": 70,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "6091",
+          "color": 19,
+          "truth_index": 71,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 26,
+      "bank_poses": 6365,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 5285,
+      "targets": [
+        {
+          "part": "3024",
+          "color": 19,
+          "truth_index": 72,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "63864",
+          "color": 0,
+          "truth_index": 73,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "2431",
+          "color": 0,
+          "truth_index": 74,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3024",
+          "color": 19,
+          "truth_index": 77,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "63864",
+          "color": 0,
+          "truth_index": 78,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "2431",
+          "color": 0,
+          "truth_index": 79,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "2431",
+          "color": 0,
+          "truth_index": 105,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 27,
+      "bank_poses": 1947,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 1627,
+      "targets": [
+        {
+          "part": "26603",
+          "color": 0,
+          "truth_index": 75,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3069b",
+          "color": 19,
+          "truth_index": 76,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3069b",
+          "color": 19,
+          "truth_index": 80,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "26603",
+          "color": 0,
+          "truth_index": 81,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 30,
+      "bank_poses": 2878,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 2130,
+      "targets": [
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 16,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 17,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 39,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "33909",
+          "color": 0,
+          "truth_index": 40,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 36,
+      "bank_poses": 4653,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 4187,
+      "targets": [
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 18,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 19,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 20,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 21,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 86,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 87,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3023b",
+          "color": 0,
+          "truth_index": 97,
+          "in_bank": true,
+          "survived_screen": true,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 37,
+      "bank_poses": 2946,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 1827,
+      "targets": [
+        {
+          "part": "93273",
+          "color": 0,
+          "truth_index": 100,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "93273",
+          "color": 0,
+          "truth_index": 101,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 38,
+      "bank_poses": 371,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 299,
+      "targets": [
+        {
+          "part": "6256",
+          "color": 0,
+          "truth_index": 102,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "6256",
+          "color": 0,
+          "truth_index": 103,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    },
+    {
+      "page": 39,
+      "bank_poses": 8192,
+      "view": 0,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 5900,
+      "targets": [
+        {
+          "part": "3020",
+          "color": 0,
+          "truth_index": 15,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3022",
+          "color": 25,
+          "truth_index": 37,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3022",
+          "color": 25,
+          "truth_index": 38,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "3020",
+          "color": 0,
+          "truth_index": 56,
+          "in_bank": false,
+          "survived_screen": false,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    }
+  ],
+  "truth_used_at_runtime": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Evaluation-only. Bank membership, screen survival and beam membership are read from the run's own artifacts; the reference model supplies the poses and selects nothing.",
+  "limitations": "Screen survival is measured on the view the search selected, so a pose kept on another view is reported as dropped. Beam membership is over the assemblies the run wrote, which is the top of the beam and not everything the search touched."
+}

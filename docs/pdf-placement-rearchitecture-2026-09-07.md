@@ -2277,3 +2277,33 @@ alone is small. The whole-chain run measures that rather than assuming it.
   comparable with the `p2to8` runs — it uses a different allocation whose page-3
   third callout is disputed — but the fixture reaches 5/109 on all three
   configurations measured, so the non-comparability changes no conclusion.
+
+### Where a correct pose is actually lost
+
+`mis_selected` was three failures wearing one name. `placement_retention_audit`
+separates them exactly — a page's occupancy record stores `input_candidates`
+equal to its bank size and `retained_indices` as indices into that same bank, so
+screen survival is a set membership test rather than a re-derivation — and then
+reads the assemblies the run wrote to see which targets any retained assembly
+contains.
+
+Counted in **distinct reference instances**, not per-page opportunities:
+
+| stage the pose was lost at | 40377 pages 16-30 | 41624 pages 3-39 | both |
+| --- | ---: | ---: | ---: |
+| never enumerated | 8 | **60** | **68** |
+| rejected by the occupancy screen | 1 | 7 | 8 |
+| enumerated, screened, in no retained assembly | **13** | 7 | **20** |
+| in a retained assembly, ranked below another | 2 | 2 | **4** |
+| selected correctly | 8 | 2 | 10 |
+| distinct targets | 32 | 78 | 110 |
+
+**Ranking is 4 of the 100 losses.** Rounds two through six bought and measured
+selection objectives — the local rerank five times, the seated tie-break twice,
+a mirror-consistency tie-break once — against the smallest stage in the pipeline.
+Round five's "do not buy another selection objective" was right for a reason it
+did not have.
+
+The two fixtures fail at different stages, which is the strongest argument in this
+memo for more fixtures: 40377 is dominated by retention and 41624 by enumeration,
+and with two fixtures there is no way to tell which is typical.
