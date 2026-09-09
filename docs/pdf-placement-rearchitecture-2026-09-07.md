@@ -297,3 +297,137 @@ the search rewrite solved.
    existing three-piece bootstrap is 2/3 structural.
 6. Repeated multiplicities, occlusion, flexible parts, global backtracking and
    whole-PDF autonomous startup remain unimplemented, as before.
+
+## Round two: generation, the camera, identity and the body table
+
+### The candidate-generation gap was a budget spent in the wrong order
+
+The bounded connector closure expands only `max_closure_parents` of the
+base-attached poses, and it visited them in connector-enumeration order, which
+carries no information about the page. On page index 17 the parent whose child
+is the stacked second `60474` is bank index **3927 of 4147**, so no budget below
+that index could reach it however large the pose cap was — which is exactly why
+raising 64 to 1,024 parents and 8,192 to 24,000 poses changed nothing. The
+relative mate itself was never missing: a lone `60474` offers the stacked
+`t = (0, -8, 0)` mount in all four yaws.
+
+`ShapeRegistry` now separates enumeration from expansion and accepts an explicit
+parent permutation, so ordering can add correct children and can never make an
+illegal one legal. `placement_evidence_closure` derives that order from the
+page's own refined registration:
+
+* silhouette overflow, and ink inside the drawing that the placed body does not
+  already explain — this alone moved the correct parent to rank 1,662, because
+  the correct plate is 84% occluded by the body drawn around it, so novelty is
+  weak precisely where it is needed;
+* `placement_arrow_parent`, which assigns the page's accepted arrowheads to each
+  candidate pose's own receiving stud caps. An instruction arrow points at the
+  connector that receives the next piece, so when that connector belongs to a
+  piece the same page adds, the arrowheads name the parent outright. Page 17's
+  two red arrows give the correct parent a 14.4 px residual against a 145.5 px
+  median, and rank **39** on the best view.
+
+Shapes are ranked separately and interleaved, because bank order groups every
+pose of one shape before the next and a parent budget could be consumed entirely
+by the first shape. Per-view *ranks* are merged rather than pixel residuals,
+which are not comparable across camera hypotheses; that costs a little (rank 70
+instead of 39) and is the honest combination.
+
+Measured on page index 17: bank recall goes from **1/2 to 2/2** reference poses
+with a *smaller* bank, 14,357 poses against 24,000. The recall diagnostic also
+stopped using a hand-written symmetry list — which had no entry for `60474` at
+all — in favour of the derived universal-CAD proof table; it still reports 1/2
+for the old bank, so the gain is generation, not a looser equivalence.
+
+### Page 17 was a mis-scaled camera, and the previous verdict was wrong
+
+Fixing recall did not fix the page: all 28 retained candidates still scored 46
+of 51 emitted, and the target-score diagnostic returned *scoring failure* — the
+reference-equivalent assembly scored 0.151 against the selected 0.320. But an
+absolute 0.15 for a correct assembly is not a scoring failure, it is a bad
+registration, and the previous round's conclusion that "the camera is not the
+defect" rested on a development-only VLM eyeballing the viewpoint.
+
+Measuring instead: the stud-row camera returns **29.1-30.1 pixels per stud on
+page 17 where pages 15 and 16 both return 33.8-34.1**. The body duly renders a
+175x276 silhouette against a 199x318 drawing — the same 13% — containment fails
+at every offset in the window, the refiner falls back to the least-overflowing
+view, and the search fills the 43-pixel band left over on the right with a
+misplaced plate. That band is visible in the selected render.
+
+Consecutive instruction pages draw the same assembly at the same size, so the
+previous page's measured scale is a PDF-derived proposal of exactly the kind the
+driver already makes when a drawing exposes no stud row at all. Each page's own
+orientations are now also offered rescaled to that prior, as extra hypotheses
+that registration and containment still have to choose, and the accepted
+registration's scale becomes the next page's prior.
+
+`placement_origin_refine` also gained an opt-in scale ladder judged by target
+coverage among contained registrations, since containment alone cannot compare
+scales — a render that is too small is trivially contained. Reported honestly: on
+page 17 that ladder selects 0.90/0.95, the wrong direction, because a tight
+overflow allowance rejects the correct larger scale before coverage is ever
+consulted. It is off by default and the cross-page prior is the mechanism that
+works.
+
+### The driver holds a body table, and page kinds are measured
+
+Three of 40377's pages are not additions to one body, and each previously failed
+as something else: page index 20 draws two small part views and a numbered
+substep and reported `camera_unsupported`; page index 14 allocates nothing and
+attaches page 13's four-piece stack but reported `no_allocation`; page index 21
+finishes page 20's subassembly and attaches it.
+
+The discriminator is physical: a drawing that shows the current assembly cannot
+be much smaller than that assembly's own rendered silhouette. Measured on 40377,
+the largest non-panel drawing per page is
+
+| body views | 12 | 14 | 15 | 16 | 17 | 18 | 19 | 21 | 22 | 32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| pixels | 40k | 42k | 50k | 52k | 66k | 56k | 56k | 57k | 60k | 83k |
+
+against **18k on page 13 and 8k on page 20**, with a body that renders 42k.
+`placement_page_kind` turns that into four kinds; where no camera exists to
+render the body — exactly the case on a subassembly page — the last page that
+did draw the body supplies the reference, which is still PDF-only because an
+assembly only grows.
+
+Verified on pages 19-21: page 19 places, page 20 reports `subassembly_page`
+carrying its measurement (8,136 against a 41,733 body and a 25,039 threshold)
+instead of a camera failure, and page 21 reports that it would attach were a
+subassembly pending. The driver now carries that pending body and runs
+`placement_attach_group` itself on the page the booklet points at. Construction
+of a body from nothing is still not implemented, so a construction is supplied
+per page with `--group-run` and the run stops with an explicit record when one is
+not; what moved into the driver is the scheduling that previously needed a
+hand-issued command.
+
+### 41624's identity blocker: catalog proposes, the icon confirms
+
+Two inventory elements of 41624 are in no universal catalog the reader consults:
+`4121715` (page index 3, one piece) and `6046979` (page index 15, two pieces).
+`placement_catalog_factor_bridge` already learns the two namespace relations
+from the 41,549 element IDs both catalogs resolve unambiguously, and it
+correctly refuses to collapse the colour relation: Rebrickable colour 0 was
+co-observed against LDraw 0 in 3,443 elements and against seven other codes in
+11. It therefore proposes one part and eight or sixteen colours, which is not an
+identity, and the slot adapter refuses the page.
+
+The evidence that settles it is set-specific and already in hand: the element's
+own inventory icon is drawn in the part's colour. `placement_element_bridge`
+compares each candidate's LDraw RGB against the icon's **modal** foreground
+colour with an explicit separation margin, and confirms nothing when the part
+itself is disputed. The mode is load-bearing — instruction icons are a flat base
+colour with darker shading and a dark outline, so the foreground *mean* of a
+white part lands on grey, and the first attempt duly resolved white `99206` to
+Light Bluish Grey.
+
+Measured: `6046979` to LDraw 15 at distance 11.5 against 108.3 for the nearest
+rival, `4121715` to LDraw 0 at 17.4 against 158.7. Both agree with the universal
+CAD headers — `2780.dat` is "Technic Pin with Friction and Slots", `99206.dat`
+is "Plate 2 x 2 x 0.667 with Two Studs On Side and Two Raised" — and with the
+icons, which draw a black Technic pin and a white two-studs-on-side plate. The
+slot assignment's unmapped identity count goes from 3 to 0, and the whole
+inventory now carries one identity per piece. As a control, the slot adapter
+refuses page index 3 outright on the pre-bridge assignment and produces a
+19-piece page 3-8 allocation on the bridged one.
