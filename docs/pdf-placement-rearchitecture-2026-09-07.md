@@ -4419,3 +4419,22 @@ making the model no better than its own opening. The driver does not degrade a
 good body; it simply adds nothing to it. Whatever the next architecture is, the
 per-page image-scored addition step is not the part that has to be repaired
 first: **the parts that pick a body are, and they now demonstrably work.**
+
+## Round ten: the on-ramp, closed; the opening, combined; and what a second view says
+
+Round nine's costed plan put the on-ramp first ("the largest lever of any kind":
+one equivalence table moved 41601's scope by nine pieces against search-side
+levers worth +1 to +3), the multi-view probe second, and left the two 41601
+gains - a symmetry-selected 6-of-7 opening and a mould-pooled wider scope -
+never combined. This round runs all three.
+
+### The predictions, registered before any of them ran
+
+Written 2026-09-09 16:40 local, before the combined drive reached page 7 and
+before the autonomous drive or the probe started.
+
+| trial | what the prior rounds say | prediction |
+| --- | --- | --- |
+| **41601 combined** (6-of-7 opening + 92-piece/23-page mould-pooled scope) | branch 1 reached 6/108 from that opening on 18 pages with +0 of its own; the wide scope reached 3/108 on 22 pages with +0 of its own | If the drive keeps contributing +0 the chain lands at **6/108** on about 21 placed pages and 84-88 emitted. Anything above 8 would be the first evidence that scope and opening interact. |
+| **41601 autonomous** (zero attended steps, 25 pages, 108 pieces) | the repaired on-ramp reallocates the opening page's plate to `3022`:72 where the reference's steps 1+2 say `3031`:72 | The opening cannot reach 6 of 7 with a wrong piece in it, so **opening <= 5 of 7 and the chain 3-6 of 108**, with the driver at +0. The scope is 12 pieces wider and the opening is worse: this measures which of the two matters. |
+| **multi-view probe** (36 bodies, two later pages, two lineages) | round eight and nine both located the failure in the objective's FORMULATION, and a second view scores with the same formulation | The exact tie **breaks** - different pixels give generically distinct numbers - but the two classes are **not cleanly separated with the 6-of-7 class above the 3-of-7 class under both lineages**. A clean separation would be the first evidence that the pathology is the single view rather than the objective. |
