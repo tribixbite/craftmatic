@@ -1,0 +1,121 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r5-contain-v1",
+  "page": 26,
+  "view": 0,
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "mask_source": "whole_scene",
+  "screened_placements": 1926,
+  "reference_targets": 5,
+  "located_reference_poses": 3,
+  "rows": [
+    {
+      "kind": "reference",
+      "truth_index": 72,
+      "placement": 70,
+      "painted": 2040.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 71,
+      "rate_rank": 71
+    },
+    {
+      "kind": "reference",
+      "truth_index": 74,
+      "placement": 32,
+      "painted": 2029.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 33,
+      "rate_rank": 33
+    },
+    {
+      "kind": "reference",
+      "truth_index": 75,
+      "placement": 1492,
+      "painted": 2030.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 1493,
+      "rate_rank": 1493
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 381,
+      "painted": 2308.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 382,
+      "rate_rank": 382
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 384,
+      "painted": 2308.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 385,
+      "rate_rank": 385
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 431,
+      "painted": 2029.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 432,
+      "rate_rank": 432
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 432,
+      "painted": 2029.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 433,
+      "rate_rank": 433
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 494,
+      "painted": 2278.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 495,
+      "rate_rank": 495
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 496,
+      "painted": 2278.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 497,
+      "rate_rank": 497
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 526,
+      "painted": 2277.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 527,
+      "rate_rank": 527
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 527,
+      "painted": 2277.0,
+      "agreement": 0.0,
+      "rate": 0.0,
+      "count_rank": 528,
+      "rate_rank": 528
+    }
+  ],
+  "median_count_rank": 71.0,
+  "median_rate_rank": 71.0,
+  "truth_used_at_runtime": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Evaluation-only. The bank, screen and camera are the run's own; the reference model supplies the poses to locate and selects nothing. No runtime code is changed by this measurement.",
+  "limitations": "Ranks are over the screened bank for this page and view only. A better rank is a necessary condition for the traversal to reach a pose, not a proof that the search would then keep it, because the traversal is over combinations and this ranks single placements."
+}
