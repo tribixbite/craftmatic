@@ -24,7 +24,15 @@ nothing here is certified or published. Pages whose structure is not supported
 subassembly whose construction is not supplied) stop the run with saved evidence
 instead of guessing.
 
-A page that fails only for want of a camera can be retried after later pages
+A page's camera can come from a neighbour, not only from its predecessor. The
+prior is the previous page's measured matrix, so the first page of a scope has
+none and a drawing there exposing no stud row dies with `no_camera_hypothesis`
+- 41624 page index 3 does exactly that and loses three pieces. `--camera-prescan`
+measures every page's own camera up front and lets a page borrow the nearest
+page that has one, in either direction. Every page is in the same PDF, so this
+is not new information, and a borrowed matrix is recorded as such.
+
+A page that fails only for want of a camera can also be retried after later pages
 have supplied one. The driver's camera prior is the previous page's measured
 matrix, so the first page of a scope has none, and a drawing that exposes no
 stud row there dies with `no_camera_hypothesis` - 41624 page index 3 does
@@ -41,10 +49,14 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 import time
 import traceback
 from pathlib import Path
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from placement_arrow_contacts import read_items
 
 
 def file_hash(path):
@@ -153,8 +165,51 @@ def attach_pending(pdf, page, base_model, step_dir, options, pending, kind_evide
     return 'placed', detail, placement, (), None
 
 
+def prescan_cameras(pdf, allocation_run, pages, base, out):
+    """Every page's own stud-row camera proposals, measured before the drive.
+
+    Returned as {page: [matrix, ...]} for pages that expose a camera at all, so
+    a page with none can borrow the nearest neighbour's. This reads only PDF
+    pixels and the existing allocation; it places nothing.
+    """
+    from placement_page_camera import page_camera
+    out.mkdir(parents=True, exist_ok=True)
+    prior_parts = [(part, color) for part, color, _ in base]
+    found = {}
+    for page in pages:
+        try:
+            camera = page_camera(pdf, page, allocation_run, out / f'page-{page:03d}',
+                                 prior_parts=prior_parts)
+        except Exception:  # a page the camera stage cannot read simply has none
+            continue
+        matrices = [h['matrix'] for record in camera.get('native_scenes', ())
+                    for h in record['multirow']['hypotheses']]
+        if matrices:
+            found[page] = matrices
+    write_atomic(out / 'prescan.json',
+                 json.dumps(dict(pages={str(k): len(v) for k, v in found.items()},
+                                 scope=list(pages), truth_used=False, runtime_vlm_calls=0,
+                                 certified=False,
+                                 protocol='Per-page stud-row camera proposals measured before the '
+                                          'drive so a page with none can borrow the nearest '
+                                          "neighbour's",
+                                 limitations='A neighbouring page can legitimately draw the '
+                                             'assembly at another scale or viewpoint; a borrowed '
+                                             'matrix is a proposal that registration and '
+                                             'containment still have to accept.'), indent=2))
+    return found
+
+
+def nearest_prescan(prescan, page):
+    """Matrices of the page nearest `page` that has any, ties preferring earlier."""
+    if not prescan:
+        return (), None
+    source = min(prescan, key=lambda other: (abs(other - page), other))
+    return list(prescan[source]), source
+
+
 def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_matrices=(),
-               prior_scale=None, pending=None, prior_body_area=0):
+               prior_scale=None, pending=None, prior_body_area=0, prescan=None):
     """Return (status, detail, placement_dir_or_None, matrices, scale) for one page.
 
     Several drawings on a page can be non-panel scenes: a subassembly beside
@@ -263,7 +318,11 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         # A drawing with no detectable stud row still has to be registered. The
         # camera changes slowly between instruction pages, so an earlier page's
         # matrices are a legitimate PDF-derived proposal - recorded as reused.
-        matrices = (proposed or list(prior_matrices))[:options['camera_matrices']]
+        borrowed_from = None
+        fallback_matrices = list(prior_matrices)
+        if not proposed and not fallback_matrices and prescan:
+            fallback_matrices, borrowed_from = nearest_prescan(prescan, page)
+        matrices = (proposed or fallback_matrices)[:options['camera_matrices']]
         rescaled = (scale_prior_matrices(matrices, prior_scale) if options.get('scale_prior', True)
                     else [])
         matrices = matrices + rescaled
@@ -291,6 +350,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                                      xref=xref, reused_prior_camera=reused, pdf=str(pdf),
                                      scale_prior_px_per_ldu=prior_scale,
                                      scale_prior_matrices=len(rescaled),
+                                     borrowed_camera_page=borrowed_from,
                                      matrix_scales=[projection_scale(m) for m in matrices],
                                      pdf_sha256=provenance['pdf_sha256'], base=str(base_model),
                                      base_sha256=file_hash(base_model),
@@ -308,7 +368,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                      json.dumps(contained, indent=2))
         if not contained['hypotheses']:
             attempts.append(dict(xref=xref, status='no_contained_registration',
-                                 reused_prior_camera=reused,
+                                 reused_prior_camera=reused, borrowed_camera_page=borrowed_from,
                                  best_overflow=min((r['best_containment']['outside_pixels']
                                                     for r in contained['evaluated']), default=None)))
             continue
@@ -374,7 +434,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
             continue
         detail = dict(selected_parts=result['selected_parts'], shapes=result['shapes'],
                       seconds=result['seconds'], xref=xref, scene_order=order,
-                      reused_prior_camera=reused,
+                      reused_prior_camera=reused, borrowed_camera_page=borrowed_from,
                       mask_source=scene_record.get('mask_source'),
                       containment_fallback=contained['containment_fallback_used'],
                       attempts=attempts, scale_prior_px_per_ldu=prior_scale,
@@ -441,6 +501,12 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
     # lets the driver schedule its attachment on the page that asks for it
     # instead of the attachment being issued by hand.
     pending, prior_body_area = options.get('pending_body'), 0
+    prescan = (prescan_cameras(pdf, allocation_run, pages, read_items(base_model),
+                               out / 'camera-prescan')
+               if options.get('camera_prescan') else None)
+    if prescan is not None:
+        record['camera_prescan_pages'] = sorted(prescan)
+        write_atomic(journal, json.dumps(record, indent=2))
     for page in pages:
         if page in completed:
             current = completed[page] / 'model.ldr'
@@ -453,7 +519,7 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
         try:
             status, detail, placement, matrices, scale = place_page(
                 pdf, page, allocation_run, current, step_dir, options, prior_matrices, prior_scale,
-                pending, prior_body_area)
+                pending, prior_body_area, prescan)
             if status == 'placed' and (detail or {}).get('kind') != 'attachment':
                 kind_file = step_dir / 'page-kind.json'
                 if kind_file.is_file():
@@ -503,7 +569,7 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
             try:
                 status, detail, placement, matrices, scale = place_page(
                     pdf, page, allocation_run, current, step_dir, options, prior_matrices,
-                    prior_scale, pending, prior_body_area)
+                    prior_scale, pending, prior_body_area, prescan)
                 if matrices:
                     prior_matrices = matrices
                 if scale:
@@ -553,6 +619,9 @@ if __name__ == '__main__':
                         help='Overflow allowed as a fraction of the rendered body area')
     parser.add_argument('--fallback', type=int, default=0,
                         help='Proceed on this many least-overflowing views when none is contained')
+    parser.add_argument('--camera-prescan', action='store_true',
+                        help="Measure every page's own camera before the drive so a page with "
+                             "none can borrow the nearest neighbour's")
     parser.add_argument('--retry-passes', type=int, default=0,
                         help='After the main pass, retry pages that failed for want of a camera, '
                              'now that later pages have supplied one')
@@ -602,6 +671,7 @@ if __name__ == '__main__':
                    refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
                    fraction=args.fraction, fallback=args.fallback, scales=tuple(args.scales),
                    scale_prior=not args.no_scale_prior, retry_passes=args.retry_passes,
+                   camera_prescan=args.camera_prescan,
                    body_area_ratio=args.body_area_ratio, attach_limit=args.attach_limit,
                    attach_coarse_pairs=args.attach_coarse_pairs,
                    group_runs={entry.split('=', 1)[0]: entry.split('=', 1)[1]

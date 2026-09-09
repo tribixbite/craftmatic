@@ -83,3 +83,18 @@ def test_scale_ladder_rejects_a_degenerate_ladder():
         refine([], hypotheses, FakeScorer(), screen_fn=fake_screen(600), scales=())
     with pytest.raises(ValueError):
         refine([], hypotheses, FakeScorer(), screen_fn=fake_screen(600), scales=(0.0,))
+
+
+def test_nearest_prescan_prefers_the_closest_page_then_the_earlier_one():
+    from placement_autodrive import nearest_prescan
+    assert nearest_prescan({4: ['a'], 9: ['b']}, 3) == (['a'], 4)
+    assert nearest_prescan({2: ['a'], 4: ['b']}, 3) == (['a'], 2)
+    assert nearest_prescan({}, 3) == ((), None)
+
+
+def test_nearest_prescan_returns_a_copy_the_caller_cannot_corrupt():
+    from placement_autodrive import nearest_prescan
+    store = {4: ['a']}
+    matrices, _ = nearest_prescan(store, 3)
+    matrices.append('b')
+    assert store[4] == ['a']
