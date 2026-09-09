@@ -1,0 +1,52 @@
+{
+  "fixture": "40377",
+  "page": 19,
+  "bodies": {
+    "emitted": "output/pdf-placement-beam/40377-r4-draw-v2/page-018/placement/model.ldr",
+    "reference_mount": "output/pdf-placement-diagnosis/r4-p18-reference-mount/model.ldr"
+  },
+  "nearest_enumerated_linf_ldu": {
+    "emitted": {
+      "41740": 4.0,
+      "2431": 10.0,
+      "25269": [
+        26.0,
+        26.0,
+        26.0,
+        26.0
+      ]
+    },
+    "reference_mount": {
+      "41740": 0.0,
+      "2431": 10.0,
+      "25269": [
+        26.0,
+        26.0,
+        26.0,
+        26.0
+      ]
+    }
+  },
+  "bank": {
+    "order": "bank_order",
+    "closure_rounds": 1,
+    "max_closure_parents": 128,
+    "max_poses": 8192,
+    "emitted": {
+      "poses": 6095,
+      "base_attached": 3216,
+      "recall": "0/6"
+    },
+    "reference_mount": {
+      "poses": 6466,
+      "base_attached": 3587,
+      "recall": "0/6"
+    }
+  },
+  "finding": "Page 19 is a three-level chain inside one page, and page 18 owns its root. With the plate page 18 emits, the 41740 plate that mounts on it is 4 LDU out of reach; with the plate at the reference pose the same 41740 pose becomes exactly enumerable, linf 0.0 LDU. Its rotation still differs from the reference, and the 2431 tile and four 25269 corner-round tiles remain 10 and 26 LDU away because they mount on the 41740, which is not in the body yet - reaching them needs a second closure hop that 128 parents of 3,587 in bank order do not buy. The evidence-ordered closure the driver actually uses reached 3 of 6 against the wrong body, so parent ordering and the mount are separate, additive constraints on this page.",
+  "scope": "Evaluation-only. The reference-mount body is page 18's emitted body with its plate relocated to the reference pose, built purely to measure the dependency; it never feeds a run, and the provenance guard in placement_multi_shape_batch refused it as a base run, which is the guard working.",
+  "limitations": "One page of one fixture. Nearest-pose distance is a necessary condition for reachability, not a sufficient one: a pose at the right position with the wrong rotation is still not the reference pose.",
+  "truth_used": true,
+  "runtime_vlm_calls": 0,
+  "certified": false
+}
