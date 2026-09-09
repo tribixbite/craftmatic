@@ -59,18 +59,21 @@ MIN_SHARE = 0.25
 def drawn_class_pixels(scene, colors, context=()):
     """Foreground pixels of the drawing per LDraw colour, plus the unclassified.
 
-    `context` adds colours that are present in the scene but not allocated - in
-    practice the body's own colours. It is load-bearing rather than cosmetic:
-    `palette_labels` assigns each pixel to the nearest palette entry, so a
-    palette built only from the allocated colours has nothing for a pixel to
-    lose to, and a page allocating a single colour classifies the *entire*
-    drawing as that colour. Measured on 40377 page 26, which allocates only 191:
-    against the allocated palette alone the drawn share is far above threshold,
-    and against the same drawing with the body's eight colours competing, not one
-    pixel is classified 191 at all.
+    `context` adds colours present in the scene but not allocated - in practice
+    the body's own colours - so an allocated colour is measured under real
+    competition instead of against nothing. Counts are returned for `colors`
+    only; the context entries exist to take pixels away from them.
 
-    Counts are returned for `colors` only; the context entries exist to take
-    pixels away from them, which is the whole point.
+    **It does not change any verdict on 40377, and the reason is worth keeping.**
+    The hypothesis it was added to test - that a single-colour allocation has no
+    competitor and absorbs the whole drawing - was measured over all thirteen
+    driven pages by `placement_undrawn_context` and changed nothing; page 26's
+    drawn share for 191 stays at 6.244 against a 0.25 threshold. The real cause
+    of that page's empty coarse target is in `palette_labels`: LDraw 19 and 191
+    share OpenCV hue 20, hue is the only discriminator, and `argmin` breaks the
+    tie by lower palette index. Allocated colours are listed first here, so 191
+    wins the tie in this function and loses it in `placement_cardinality_bank`,
+    which sorts numerically. Fixing that belongs in the classifier, not here.
     """
     sys.path.insert(0, 'C:/git/clego')
     from recon_v7.render import color_rgb
