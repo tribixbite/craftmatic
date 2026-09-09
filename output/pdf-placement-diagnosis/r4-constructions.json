@@ -1,0 +1,103 @@
+{
+  "fixture": "40377",
+  "constructions": [
+    {
+      "page": 20,
+      "run": "output/pdf-placement-beam/40377-r4-p20-repair/construction.json",
+      "allocated": 7,
+      "roots": [
+        {
+          "root": [
+            "6091",
+            191
+          ],
+          "status": "placed",
+          "score": 0.41104590143264297,
+          "selected_parts": 7,
+          "seconds": 150,
+          "structural": 1
+        },
+        {
+          "root": [
+            "3023b",
+            15
+          ],
+          "status": "placed",
+          "score": 0.45429173643639237,
+          "selected_parts": 7,
+          "seconds": 147,
+          "structural": 1
+        },
+        {
+          "root": [
+            "3023b",
+            191
+          ],
+          "status": "placed",
+          "score": 0.2812177346173761,
+          "selected_parts": 7,
+          "seconds": 87,
+          "structural": 1
+        }
+      ],
+      "selected_root": [
+        "3023b",
+        15
+      ],
+      "group_hypotheses": 3,
+      "structural_of_emitted": "1 of 7"
+    },
+    {
+      "page": 31,
+      "run": "output/pdf-placement-beam/40377-r4-p31-deep/construction.json",
+      "allocated": 4,
+      "roots": [
+        {
+          "root": [
+            "3958",
+            0
+          ],
+          "status": "placed",
+          "score": 0.44472986560901656,
+          "selected_parts": 4,
+          "seconds": 300,
+          "structural": 1
+        },
+        {
+          "root": [
+            "87079",
+            0
+          ],
+          "status": "placed",
+          "score": 0.41404622414403874,
+          "selected_parts": 4,
+          "seconds": 578,
+          "structural": 1
+        },
+        {
+          "root": [
+            "92593",
+            0
+          ],
+          "status": "placed",
+          "score": 0.4356203683185061,
+          "selected_parts": 4,
+          "seconds": 576,
+          "structural": 1
+        }
+      ],
+      "selected_root": [
+        "3958",
+        0
+      ],
+      "group_hypotheses": 3,
+      "structural_of_emitted": "1 of 4"
+    }
+  ],
+  "finding": "With the anti-stud repair and a four-round closure at 512 parents, the generic constructor completes both of 40377's subassembly pages from every root it tries - page 20 seven parts from three roots, page 31 four parts from three roots - where before the repair page 20 returned no_models at every root and every drawing. Post hoc every one of the six results is 1 structurally correct part of its emitted set. Completion and correctness are different achievements and only the first was reached.",
+  "scope": "Evaluation-only structural scoring after the runs; the constructions are PDF-derived and the reference model chooses nothing at runtime.",
+  "limitations": "A construction nails one piece at the identity transform, so the aligned root is matched by construction and the interesting number is the remaining pieces: 0 of 6 on page 20 and 0 of 3 on page 31.",
+  "truth_used": true,
+  "runtime_vlm_calls": 0,
+  "certified": false
+}
