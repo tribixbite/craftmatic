@@ -9,11 +9,20 @@ Chains, for each instruction page in an explicit scope:
       -> joint exact-cardinality placement search, natively reranked
       -> the selected assembly becomes the next page's body
 
+The driver holds a table of bodies, not one body. A page whose largest drawing
+is far smaller than the current assembly's own silhouette is not adding to it -
+it is building a separate subassembly - and a page that allocates no piece while
+drawing the assembly is attaching one that is already pending. Both are recorded
+as such (`placement_page_kind`), and a pending subassembly whose construction is
+supplied is attached by `placement_attach_group` on the page the booklet points
+at, without a hand-issued command.
+
 Every stage is PDF pixels, PDF text allocations and universal CAD only. No
 reference model, set inventory, manual pose or VLM participates at runtime, and
 nothing here is certified or published. Pages whose structure is not supported
-(no allocation, no unique main scene, no contained camera, empty search) stop
-the run with saved evidence instead of guessing.
+(no allocation, no unique main scene, no contained camera, empty search, or a
+subassembly whose construction is not supplied) stop the run with saved evidence
+instead of guessing.
 
 The journal is written atomically and `--resume` re-verifies the PDF, the
 allocation, the starting body and every completed checkpoint before skipping a
@@ -101,8 +110,42 @@ def scale_prior_matrices(matrices, prior_scale, tolerance=0.02):
     return extra
 
 
+def attach_pending(pdf, page, base_model, step_dir, options, pending, kind_evidence):
+    """Attach a pending subassembly to the main body on this page.
+
+    The subassembly's own construction is a separate stage and is supplied as a
+    directory of PDF-derived group hypotheses; this schedules the attachment the
+    booklet asks for on the page that draws the incoming arrow, which previously
+    required a hand-issued command. Page index 14 of 40377 is the case: it
+    allocates nothing and attaches the four-piece stack page index 13 builds,
+    and doing so repaired the body every later page registers against.
+    """
+    from placement_attach_group import run as attach_run
+    groups = Path(pending['groups'])
+    placement = step_dir / 'attachment'
+    if placement.exists():
+        raise ValueError('Attachment output already exists')
+    base_run = Path(base_model).parent
+    started = time.perf_counter()
+    attach_run(pdf, base_run, groups, page, placement,
+               limit=options.get('attach_limit', 4), gpu_render=True,
+               camera_mode='multirow', any_anchor=True, plane_depth=True,
+               coarse_pairs=options.get('attach_coarse_pairs', 256),
+               coarse_method='layers', feature_edges=True, material_colors=True)
+    report = json.loads((placement / 'results.json').read_text())
+    detail = dict(kind='attachment', kind_evidence=kind_evidence,
+                  groups=str(groups), source_page=pending.get('page'),
+                  selected_parts=report.get('selected_parts'),
+                  legal_groups=report.get('legal_groups'),
+                  tested_views=report.get('tested_views'),
+                  seconds=time.perf_counter() - started)
+    if not (placement / 'model.ldr').is_file():
+        return 'attachment_failed', detail, None, (), None
+    return 'placed', detail, placement, (), None
+
+
 def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_matrices=(),
-               prior_scale=None):
+               prior_scale=None, pending=None, prior_body_area=0):
     """Return (status, detail, placement_dir_or_None, matrices, scale) for one page.
 
     Several drawings on a page can be non-panel scenes: a subassembly beside
@@ -120,6 +163,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     from placement_occupancy_screen import screen
     from placement_origin_refine import refine
     from placement_page_camera import page_camera
+    from placement_page_kind import body_area, classify
     from placement_page_mask import part_palette, restrict_to_body_component
     from placement_pdf_group_evidence import load_allocations
     import pymupdf
@@ -128,17 +172,58 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     step_dir.mkdir(parents=True, exist_ok=True)
     base = read_items(base_model)
     pieces, provenance = load_allocations(pdf, page, allocation_run)
-    if not pieces:
-        return ('no_allocation', dict(reason='Page adds no allocated piece; cross-page state '
-                                             'and separate subassemblies are not implemented'),
-                None, (), None)
-
     camera = page_camera(pdf, page, allocation_run, step_dir / 'camera',
                          prior_parts=[(part, color) for part, color, _ in base])
     write_atomic(step_dir / 'camera.json', json.dumps(camera, indent=2, default=str))
     if not camera['native_scenes']:
+        if not pieces:
+            return ('no_allocation', dict(reason='Page adds no allocated piece and exposes no '
+                                                 'drawing to attach a pending body against'),
+                    None, (), None)
         return ('camera_unsupported', dict(reason=camera['status'],
                                            scene_kinds=camera.get('scene_kinds')), None, (), None)
+
+    # What kind of step is this? A drawing that shows the current assembly
+    # cannot be much smaller than that assembly's own silhouette, so the page
+    # itself says whether it adds to the body, builds a separate one, or
+    # attaches one that is already pending.
+    with pymupdf.open(pdf) as doc:
+        page_scenes = {s['xref']: s for s in scene_images(doc, doc[page])}
+    areas = [int(np.asarray(page_scenes[record['xref']]['mask'], bool).sum())
+             for record in camera['native_scenes'] if record['xref'] in page_scenes]
+    reference_matrix = (list(prior_matrices) or
+                        [h['matrix'] for record in camera['native_scenes']
+                         for h in record['multirow']['hypotheses']])[:1]
+    measured = 0
+    if reference_matrix and base:
+        probe = MaterialFeatureSceneScorer(page_scenes[camera['native_scenes'][0]['xref']],
+                                           plane_depth=True)
+        measured = body_area(base, reference_matrix[0], probe)
+    # A page with no camera at all cannot render the body, and that is exactly
+    # when the page is most likely to be drawing something other than it. The
+    # last page that did draw the body is then the reference: an assembly only
+    # grows, so its drawn area is a valid lower bound and is PDF-only.
+    reference_area = measured or prior_body_area
+    kind, kind_evidence = classify(areas, reference_area, len(pieces), pending is not None,
+                                   options.get('body_area_ratio', 0.6))
+    kind_evidence.update(page=page, xrefs=[r['xref'] for r in camera['native_scenes']],
+                         kind=kind, pending_body=str(pending) if pending else None,
+                         body_area_source='rendered_body' if measured else
+                         ('previous_body_drawing' if prior_body_area else 'unavailable'),
+                         previous_body_drawing_area=int(prior_body_area))
+    write_atomic(step_dir / 'page-kind.json', json.dumps(kind_evidence, indent=2))
+    if kind == 'attachment':
+        return attach_pending(pdf, page, base_model, step_dir, options, pending, kind_evidence)
+    if kind == 'no_allocation':
+        return ('no_allocation', dict(reason='Page adds no allocated piece and no subassembly is '
+                                             'pending', kind_evidence=kind_evidence),
+                None, (), None)
+    if kind == 'subassembly':
+        return ('subassembly_page',
+                dict(reason='The page draws no view of the current assembly, so it builds a '
+                            'separate body; construction of a body from nothing is not '
+                            'implemented in the driver',
+                     kind_evidence=kind_evidence), None, (), None)
 
     # Base-attached enumeration depends only on the body and the allocation, so
     # it is done once; closure is per drawing because in evidence mode the
@@ -314,8 +399,9 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
                   runtime_vlm_calls=0, truth_used=False, certified=False,
                   status='running', resume_config=config, steps=[],
                   limitations=['Starts from an existing PDF-derived checkpoint',
-                               'Pages adding no allocated piece are unsupported: cross-page groups '
-                               'and separate subassemblies are not implemented',
+                               'Subassembly construction from nothing is not implemented: such a '
+                               'page is classified and recorded, and its attachment is scheduled '
+                               'only when a PDF-derived construction is supplied for it',
                                'Selected checkpoints freeze earlier poses; no global backtracking',
                                'Bounded connector closure and finite node budget lose optimality',
                                'No complete-model or population certification; no publication'])
@@ -333,6 +419,10 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
     write_atomic(journal, json.dumps(record, indent=2))
     current = base_model
     prior_matrices, prior_scale = (), None
+    # Subassembly constructions supplied for specific pages; the driver decides
+    # when to attach them, which page the booklet points at, and records both.
+    supplied = dict(options.get('group_runs') or {})
+    pending, prior_body_area = None, 0
     for page in pages:
         if page in completed:
             current = completed[page] / 'model.ldr'
@@ -344,15 +434,30 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
             step_dir = out / f'page-{page:03d}-attempt-{attempt}'
         try:
             status, detail, placement, matrices, scale = place_page(
-                pdf, page, allocation_run, current, step_dir, options, prior_matrices, prior_scale)
+                pdf, page, allocation_run, current, step_dir, options, prior_matrices, prior_scale,
+                pending, prior_body_area)
+            if status == 'placed' and (detail or {}).get('kind') != 'attachment':
+                kind_file = step_dir / 'page-kind.json'
+                if kind_file.is_file():
+                    prior_body_area = max(prior_body_area,
+                                          json.loads(kind_file.read_text())['largest_scene_area'])
             if matrices:
                 prior_matrices = matrices
             if scale:
                 prior_scale = scale
+            if status == 'subassembly_page' and str(page) in supplied:
+                # Construction was supplied for this page: register it as
+                # pending so a later page's attachment step can schedule it.
+                pending = dict(page=page, groups=supplied[str(page)])
+                detail = dict(detail, pending_registered=pending)
+                status = 'subassembly_pending'
+            elif status == 'placed' and (detail or {}).get('kind') == 'attachment':
+                pending = None
         except Exception as exc:  # keep the failed page's evidence, never a silent skip
             status, detail, placement = 'error', dict(error=str(exc),
                                                       traceback=traceback.format_exc()), None
         step = dict(page=page, status=status, detail=detail, directory=str(step_dir))
+        step['pending_body'] = dict(pending) if pending else None
         if placement is not None:
             step['placement'] = str(placement)
             step['checkpoint_hashes'] = {name: file_hash(placement / name)
@@ -362,6 +467,11 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
         record['last_checkpoint'] = str(current)
         write_atomic(journal, json.dumps(record, indent=2))
         print(json.dumps(dict(page=page, status=status, detail=detail)), flush=True)
+        if status == 'subassembly_pending':
+            record['steps'][-1]['status'] = status
+            write_atomic(journal, json.dumps(record, indent=2))
+            print(json.dumps(dict(page=page, status=status, detail=detail)), flush=True)
+            continue
         if placement is None and stop_on_unsupported:
             record['status'] = 'stopped_unsupported_page'
             write_atomic(journal, json.dumps(record, indent=2))
@@ -389,6 +499,14 @@ if __name__ == '__main__':
                         help='Overflow allowed as a fraction of the rendered body area')
     parser.add_argument('--fallback', type=int, default=0,
                         help='Proceed on this many least-overflowing views when none is contained')
+    parser.add_argument('--group-run', action='append', default=[], metavar='PAGE=DIRECTORY',
+                        help='PDF-derived subassembly construction for a page that builds a '
+                             'separate body; the driver schedules its attachment itself')
+    parser.add_argument('--body-area-ratio', type=float, default=0.6,
+                        help='A drawing below this fraction of the body silhouette is not a view '
+                             'of the body')
+    parser.add_argument('--attach-limit', type=int, default=4)
+    parser.add_argument('--attach-coarse-pairs', type=int, default=256)
     parser.add_argument('--no-scale-prior', action='store_true',
                         help="Do not offer the previous page's measured camera scale as an extra "
                              'hypothesis on this page')
@@ -424,6 +542,10 @@ if __name__ == '__main__':
                    refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
                    fraction=args.fraction, fallback=args.fallback, scales=tuple(args.scales),
                    scale_prior=not args.no_scale_prior,
+                   body_area_ratio=args.body_area_ratio, attach_limit=args.attach_limit,
+                   attach_coarse_pairs=args.attach_coarse_pairs,
+                   group_runs={entry.split('=', 1)[0]: entry.split('=', 1)[1]
+                               for entry in args.group_run},
                    views=args.views, scale=args.scale, max_nodes=args.max_nodes,
                    top_k=args.top_k, host_bytes=args.host_bytes,
                    closure_rounds=args.closure_rounds,
