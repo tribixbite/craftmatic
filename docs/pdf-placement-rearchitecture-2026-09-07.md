@@ -2482,7 +2482,20 @@ image score. Four of the first four pages hit the pose cap before exhausting eve
 The chain continues past page 20 on a resume; pages 22 to 30 are where the
 parent budget was the binding one and where any effect has to appear.
 
-(The first attempt at this chain stopped at page 20 because
-`--continue-on-unsupported` was omitted, which is a driver argument rather than a
-page option and so is not recorded in the resume config a run writes. The resumed
-run carries pages 16-19 forward unchanged.)
+Two driver defects surfaced getting there, and the second is worth more than the
+experiment.
+
+* The first attempt stopped at page 20 because `--continue-on-unsupported` was
+  omitted. It is a driver argument rather than a page option, so it is not part
+  of the resume config a run writes — which is why the omission is invisible in
+  the journal.
+* **The resume then refused, and nothing had changed.** `resume_checkpoints`
+  compared a live options dict against one parsed from the journal, so it
+  compared Python types rather than configuration: `scales` is built as a tuple
+  and JSON reads it back as a list, and the two are never equal. **Every run that
+  ever wrote that option was unresumable**, and the failure message says
+  "configuration changed", which is exactly wrong. Both sides are now
+  round-tripped through JSON before comparison, which asks the question the
+  guard intends; a changed option, a changed page scope and a checkpoint without
+  hashes are still refused, and now tested. The resumed run carries pages 16-19
+  forward unchanged.
