@@ -63,8 +63,10 @@ the factorized universal-catalog bridge against the element's own inventory icon
 (modal foreground colour, not the mean - the mean makes white read as grey);
 all 109 pieces now carry one identity. RESULTS, honestly: whole-model coverage
 on 40377 stays at 46/90 - fixing recall, the camera and the colour classifier
-each changed the failure mode without moving the count, because page 17's
-residual is a sub-stud pose difference. The colour fix is a correctness fix, not
+each changed the failure mode without moving the count. Round two blamed a
+sub-stud pose difference; that was WRONG - page 17 draws one plate placed and
+one exploded, so its target shows a one-plate assembly and every added plate
+lowers the score (0.5954 body, 0.5679 one, 0.5409 both). Superseded by 64224c0. The colour fix is a correctness fix, not
 an accuracy gain: it costs one structural match on 41624. The page-13 to
 page-14 attachment now runs under the driver and reproduces the hand-issued
 result to the part (42 emitted / 41 structural / precision 0.976). 41624 is

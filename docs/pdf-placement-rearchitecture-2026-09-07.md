@@ -519,8 +519,9 @@ four rows: 49/46, 51/46, 52/46, 58/46.
 
 So whole-model coverage stands where round one left it, at **46/90 (51.1%)** at
 the page-16 checkpoint. Fixing recall did not raise it, and neither did fixing
-the camera or the colour classifier, because page 17's remaining error is a
-sub-stud pose difference the scorer cannot resolve. The emitted-but-wrong tail
+the camera or the colour classifier. **Round two's reading of why - a sub-stud
+pose difference the scorer cannot resolve - was wrong**, and is corrected below.
+The emitted-but-wrong tail
 did not retract either: pages 17 to 19 still emit 12 parts and get none of them
 right. What round two can claim is that three of the four reasons for that tail
 are now measured and removed, and the fourth is characterised precisely enough
@@ -560,14 +561,23 @@ would build that first body properly, remains the unimplemented gap it was.
 The round-one list above is superseded. Items 1, 2 and 5 of it are closed and
 are replaced by what is now binding.
 
-1. **The scorer cannot separate sub-stud pose differences.** With generation,
-   camera and black classification all repaired, 40377 page index 17 still
-   selects an assembly that beats the reference-equivalent by 0.0033. Both put
-   black plates on the head; one is 14 LDU off. Nothing above will move the
-   count until the objective can resolve that, and equal-weighted per-class IoU
-   over a whole drawing plainly cannot.
-2. **A page's own stud-row camera is not reliable and there is no test for
-   when.** Page index 17 needed its predecessor's matrix (native score 0.595
+1. **The target of an exploded page does not contain the piece being added.**
+   Round two concluded that page index 17's residual was a sub-stud pose
+   difference the scorer could not resolve. That was wrong. The page draws one
+   black plate placed and an identical one exploded above it under two arrows,
+   so the body component shows a *one*-plate assembly, and scoring a complete
+   two-plate candidate against it rewards leaving the second plate out. Measured
+   at the run's own registration and mask: body only 0.5954, body plus the lower
+   plate 0.5679, body plus both 0.5409. Every added plate lowers the score
+   monotonically, so completeness itself is penalised - no amount of pose
+   resolution can win against that target. This was found and fixed by
+   `64224c0`, which also caught that
+   `placement_diagnose_target_score` had been rebuilding the drawing without the
+   run's own mask, comparing two different questions; the offline numbers round
+   two reported did apply the run's mask and stand, but the diagnostic's did
+   not.
+2. **A page's own stud-row camera is not reliable.** An acceptance test, absent
+   when round two wrote this, now exists in `placement_camera_gate`. Page index 17 needed its predecessor's matrix (native score 0.595
    against 0.337); pages 18 and 19 rejected it and kept their own, which score
    0.29 and 0.32. Carrying, rescaling, borrowing and retrying are all now
    available and all are *proposals* chosen by a template score that was wrong
