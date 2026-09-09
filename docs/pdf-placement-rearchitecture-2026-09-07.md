@@ -4438,3 +4438,144 @@ before the autonomous drive or the probe started.
 | **41601 combined** (6-of-7 opening + 92-piece/23-page mould-pooled scope) | branch 1 reached 6/108 from that opening on 18 pages with +0 of its own; the wide scope reached 3/108 on 22 pages with +0 of its own | If the drive keeps contributing +0 the chain lands at **6/108** on about 21 placed pages and 84-88 emitted. Anything above 8 would be the first evidence that scope and opening interact. |
 | **41601 autonomous** (zero attended steps, 25 pages, 108 pieces) | the repaired on-ramp reallocates the opening page's plate to `3022`:72 where the reference's steps 1+2 say `3031`:72 | The opening cannot reach 6 of 7 with a wrong piece in it, so **opening <= 5 of 7 and the chain 3-6 of 108**, with the driver at +0. The scope is 12 pieces wider and the opening is worse: this measures which of the two matters. |
 | **multi-view probe** (36 bodies, two later pages, two lineages) | round eight and nine both located the failure in the objective's FORMULATION, and a second view scores with the same formulation | The exact tie **breaks** - different pixels give generically distinct numbers - but the two classes are **not cleanly separated with the 6-of-7 class above the 3-of-7 class under both lineages**. A clean separation would be the first evidence that the pathology is the single view rather than the objective. |
+
+### The on-ramp's two association classes, repaired generically
+
+Round nine named them and priced them at twelve pieces of 41601's scope: page 5
+"a callout the assignment could not match to any inventory slot" and page 19 "an
+ambiguous artwork association between two crop components". Reproduced, they are
+two different defects and neither is about inventory matching.
+
+**Page 5 is a translucent part.** Its callout is a trans-light-blue 2x2 round
+brick, and the PLI ink threshold (colour distance > 90 from the panel
+background) catches only its studs and outline. The part's own body sits at
+distance ~46 - between the background's spread and opaque plastic - so the
+artwork fragments, and the fragment NEAREST the quantity label is an 8x9 stud.
+The crop was that stud, and `canonical` then rejected it because an 8x9 crop of
+solid ink has no background border from which to estimate a background.
+
+The repair is a hysteresis GROUPING, not a lower threshold: strong components
+that one weak component joins are one candidate, and the reported box is the
+union of their **strong** boxes. A part whose strong mask is already one
+component is therefore byte-identical, a weak halo is never mistaken for an
+edge, and a weak component too large to be one part's artwork groups nothing -
+so the white page surround, which is itself far from the PLI background, cannot
+merge unrelated callouts. Page 5's crop goes from `[95,63,103,72]` to
+`[95,35,130,75]`, the whole brick.
+
+**Page 19 is a solved assignment problem misread as ambiguity.** Its two
+candidates score 22.317 and 22.437 - inside the 3px indistinguishability window,
+so the anchor was refused - but the second component is already the
+unambiguous, uncontested match of a DIFFERENT quantity on the same page at
+10.482. One drawn component belongs to one label, so the association is an
+assignment, and `crop_items` now solves it as one. An anchor is called ambiguous
+only when forbidding its match costs the whole page almost nothing; where a
+rival anchor has no substitute, forbidding is expensive and exclusivity decides
+it. The case the old post-hoc rule protected - two labels whose artwork merged
+into one component - still refuses both, and has its own test.
+
+**Measured before adoption, on a corpus rather than the fixture that motivated
+it**: `placement_association_ab` drives every non-inventory page of 13 PDFs
+under each configuration and reports the per-anchor transitions.
+
+| configuration | anchors | repaired | broken | boxes changed | boxes identical |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| fragment grouping only | 788 | 0 | **0** | 4 | 784 |
+| exclusive association only | 788 | 2 | **0** | 0 | 786 |
+| both | 788 | **2** | **0** | 4 | 784 |
+| both + panel geometry | 788 | **3** | 1 | 4 | 783 |
+
+**And the four changed boxes are invisible to the matcher.** `canonical` crops
+back to the largest foreground component, so for all three changed boxes that
+already worked its output is **byte-identical**; the fourth is 41601 page 5,
+which goes from no usable crop at all to a usable one. The one "broken" anchor
+under panel geometry is 6191970 page 43, where the baseline had associated the
+quantity with the PLI **panel frame** - a 250x158 component of 3% fill - and the
+rule correctly refuses it. An honest refusal replacing a wrong crop is not a
+regression, and it is the only one in 788.
+
+With the panel rule (which already existed and was simply off) all three
+fixtures resolve **every** anchor: 41601 69/70 -> 70/70, 41624 68/69 -> 69/69,
+40377 55/55 unchanged.
+
+### The scope is now derived, and the pipeline has no attended step
+
+`placement_slot_adapter --auto-scope` admits every page that carries evidence
+and no refused row, and records each excluded page with the rows that refused it
+and the pieces that scope loses. `placement_autonomous_run` runs the whole chain
+- slot assignment, mould equivalence, allocation, construction, opening
+selection, drive - as one command with no human decision in it, and
+`placement_construction_symmetry` no longer needs a reference to select an
+opening (it never used one to *choose*; it required one to *report*).
+
+| fixture | allocation | pages | allocated | withheld | in scope | of printed |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 41601 | round eight `refuse` | 19 | 83 | 0 | 83 | 76.9% |
+| 41601 | round nine `withhold` | 23 | 92 | 4 | 96 | 88.9% |
+| 41601 | **round ten, derived** | **25** | **104** | 4 | **108** | **100%** |
+| 41624 | legacy element bridge | 37 | 99 | 0 | 99 | 90.8% |
+| 41624 | **round ten, derived** | 37 | 100 | 6 | **106** | **97.2%** |
+
+### What the wider scope costs, and the instrument that can see it
+
+A global piece count cannot see an on-ramp regression: the slot solver maximises
+`qty x similarity` over a GLOBAL assignment, so two more callouts can reshuffle
+identities elsewhere while the whole multiset stays exactly the printed
+inventory. `placement_allocation_audit` scores an allocation against the
+reference's own step structure by order-preserving alignment - each page in
+booklet order takes a contiguous run of steps - because one page is not one step
+(41601's page 2 carries the reference's steps 1 AND 2, and a page-to-step
+assignment was measured understating a correct allocation by exactly that).
+
+| fixture | allocation | pieces | accounted | fraction | exactly matched pages |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 41601 | round nine | 96 | 76 | 0.792 | 11 |
+| 41601 | round ten | 108 | **80** | 0.741 | 11 |
+| 41624 | legacy | 99 | 69 | 0.697 | 19 |
+| 41624 | round ten | 106 | **85** | **0.802** | **26** |
+
+**On 41624 the repair is better on every axis** - seven more pieces of scope,
+sixteen more accounted, seven more exactly matched pages, and a higher fraction.
+**On 41601 it buys four accounted pieces for twelve of scope, and one of the
+losses is the opening.** Four callouts move:
+
+| page | round nine | round ten | reference |
+| ---: | --- | --- | --- |
+| 2 | `3031`:72 at **0.998** | `3022`:72 at 0.939 | steps 1+2 are exactly `3031`:72, `3023b`:71 x2, `3005`:71 x4 |
+| 7 | `3022`:72 at 0.938 | `3958`:0 at **0.483** | - |
+| 19 | *not a callout at all* | `3031`:71 at 0.997 | - |
+| 27 | `3031`:71 at 0.971 | `3031`:72 at 0.978 | - |
+
+Three callouts now compete for the inventory's two `3031` slots, and the solver
+resolves it by taking page 2's near-certain match away. So round ten's opening
+page carries one wrong identity, on the page every prior round has shown
+dominates the whole chain.
+
+### Two candidate remedies, both measured, both refused
+
+**The acceptance floor is not a lever.** `placement_slot_floor` re-solves from
+the saved scores at a sweep of floors and pairs each with the audit - no
+encoder, no GPU:
+
+| floor | 41601 scope | 41601 accounted | 41624 scope | 41624 accounted |
+| ---: | --- | ---: | --- | ---: |
+| **0.30 (shipped)** | 25 pages / 108 | 80 | 37 pages / 106 | **85** |
+| 0.50 | 23 / 99 | **81** | 36 / 101 | 82 |
+| 0.70 | 23 / 99 | **81** | 35 / 98 | 81 |
+| 0.90 | 15 / 67 | 63 | 30 / 81 | 65 |
+
+At 0.50 41601's page 2 is `3031`:72 again and its accounted count is one higher;
+41624's is three LOWER. The two fixtures point opposite ways by one and three
+pieces, so **no fixture-independent floor helps both** and the shipped 0.30
+stands.
+
+**A crop-size channel is non-discriminating as formulated.** A 4x4 plate and a
+2x2 plate are the same shape and differ only in size, which `canonical`
+normalises away - so the obvious extra evidence is the crop's area against its
+inventory icon's, relative to the page. At floor 0.30 the wrong page-2
+assignment is indeed the single largest deviation on the fixture (log-deviation
+0.573); at floor 0.50 the **correct** one is the second largest (0.420). The
+statistic is dominated by a large part drawn on a page of small parts, not by
+identity error. A joint identity/size/capacity assignment - a per-page scale
+variable solved WITH the identities rather than after them - is the principled
+form, and it is filed rather than fitted.
