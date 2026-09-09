@@ -49,16 +49,21 @@ def page_retention(run, page, truth, library, symmetries, position_tolerance=1.0
     base_items, _ = canonicalize(read_parts(base_source), library)
     recall = bank_recall(registry, truth, base_items, symmetries=symmetries)
     view = int(result['results'][0].get('view') or 0)
-    occupancy_path = placement / f'view-{view:02d}-occupancy.json'
-    retained = None
-    if occupancy_path.is_file():
-        occupancy = json.loads(occupancy_path.read_text())
+    # Two readings, because they differ and the difference is the tool's own
+    # stated limitation made measurable. The selected view is the screen the
+    # winning assembly passed through; the union over every scored view is what
+    # the search collectively still had available. On 41624 page 3 the union is
+    # 3,658 candidates against the selected view's 2,319.
+    retained, union, screen_skipped = None, None, None
+    for path in sorted(placement.glob('view-*-occupancy.json')):
+        occupancy = json.loads(path.read_text())
         if occupancy.get('input_candidates') != len(registry['poses']):
             raise ValueError('Occupancy record does not index this page bank')
-        retained = set(occupancy['retained_indices'])
-        screen_skipped = bool(occupancy.get('candidate_screen_skipped'))
-    else:
-        screen_skipped = None
+        kept = set(occupancy['retained_indices'])
+        union = kept if union is None else (union | kept)
+        if path.name == f'view-{view:02d}-occupancy.json':
+            retained = kept
+            screen_skipped = bool(occupancy.get('candidate_screen_skipped'))
     # Which reference targets appear in ANY retained assembly, and in the selected
     # one. Read from the beams the run wrote, so this is what the search really
     # held rather than what it could have held.
@@ -79,6 +84,9 @@ def page_retention(run, page, truth, library, symmetries, position_tolerance=1.0
                             survived_screen=(None if retained is None else
                                              any(index in retained
                                                  for index in entry['bank_indices'])),
+                            survived_any_view=(None if union is None else
+                                               any(index in union
+                                                   for index in entry['bank_indices'])),
                             in_any_beam=False, in_selected=False))
     for order, entry in enumerate(result['results']):
         path = placement / entry['file']
@@ -101,6 +109,7 @@ def page_retention(run, page, truth, library, symmetries, position_tolerance=1.0
     return dict(page=page, bank_poses=len(registry['poses']), view=view,
                 candidate_screen_skipped=screen_skipped,
                 retained_candidates=(None if retained is None else len(retained)),
+                retained_candidates_any_view=(None if union is None else len(union)),
                 targets=[{k: v for k, v in target.items() if k not in ('position', 'frame')}
                          for target in targets])
 
@@ -137,14 +146,18 @@ def main():
         for target in row['targets']:
             key = target['truth_index']
             current = stages.setdefault(key, dict(in_bank=False, survived_screen=False,
+                                                  survived_any_view=False,
                                                   in_any_beam=False, in_selected=False))
             current['in_bank'] |= bool(target['in_bank'])
             current['survived_screen'] |= bool(target['survived_screen'])
+            current['survived_any_view'] |= bool(target['survived_any_view'])
             current['in_any_beam'] |= bool(target['in_any_beam'])
             current['in_selected'] |= bool(target['in_selected'])
     totals = dict(distinct_reference_targets=len(stages),
                   in_bank=sum(1 for v in stages.values() if v['in_bank']),
                   survived_screen=sum(1 for v in stages.values() if v['survived_screen']),
+                  survived_screen_any_view=sum(1 for v in stages.values()
+                                               if v['survived_any_view']),
                   in_any_retained_assembly=sum(1 for v in stages.values() if v['in_any_beam']),
                   in_selected_assembly=sum(1 for v in stages.values() if v['in_selected']))
     totals['lost_before_enumeration'] = totals['distinct_reference_targets'] - totals['in_bank']
@@ -157,20 +170,23 @@ def main():
                   scope='Evaluation-only. Bank membership, screen survival and beam membership are '
                         "read from the run's own artifacts; the reference model supplies the poses "
                         'and selects nothing.',
-                  limitations='Screen survival is measured on the view the search selected, so a '
-                              'pose kept on another view is reported as dropped. Beam membership '
-                              'is over the assemblies the run wrote, which is the top of the beam '
-                              'and not everything the search touched.')
+                  limitations='Screen survival is reported twice - on the view the search '
+                              'selected, and over the union of every scored view - because the two '
+                              'differ and neither alone is the whole answer. Beam membership is '
+                              'over the assemblies the run wrote, which is the top of the beam and '
+                              'not everything the search touched.')
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(record, indent=2))
-    print(f"{'page':>5} {'bank':>7} {'kept':>7} {'targets':>8} {'inbank':>7} {'screen':>7} "
-          f"{'beam':>5} {'sel':>4}")
+    print(f"{'page':>5} {'bank':>7} {'kept':>7} {'anyview':>8} {'targets':>8} {'inbank':>7} "
+          f"{'screen':>7} {'anyscr':>7} {'beam':>5} {'sel':>4}")
     for row in rows:
         targets = row['targets']
         print(f"{row['page']:>5} {row['bank_poses']:>7} "
-              f"{str(row['retained_candidates']):>7} {len(targets):>8} "
+              f"{str(row['retained_candidates']):>7} "
+              f"{str(row['retained_candidates_any_view']):>8} {len(targets):>8} "
               f"{sum(1 for t in targets if t['in_bank']):>7} "
               f"{sum(1 for t in targets if t['survived_screen']):>7} "
+              f"{sum(1 for t in targets if t['survived_any_view']):>7} "
               f"{sum(1 for t in targets if t['in_any_beam']):>5} "
               f"{sum(1 for t in targets if t['in_selected']):>4}")
     print(json.dumps(totals, indent=1))
