@@ -147,7 +147,15 @@ def registration_of_run(directory):
     if not record.get('hypotheses'):
         return None, 'The starting checkpoint retained no registration'
     (scene, _), _ = run_scene_from_directory(directory)
-    best = record['hypotheses'][0]
+    # The refined-registration file is written before the search, so its first
+    # entry is the gate's first accepted registration, not necessarily the view
+    # the search then chose. Prefer the recorded selected view when the run has
+    # one, so the seed is the camera the checkpoint was actually built at.
+    index = 0
+    selected = (meta.get('results') or [{}])[0].get('view')
+    if isinstance(selected, int) and 0 <= selected < len(record['hypotheses']):
+        index = selected
+    best = record['hypotheses'][index]
     return dict(mask=np.asarray(scene['mask'], bool), projection=best['projection'],
                 origin=best['origin'], rotation_index=best.get('rotation_index'),
                 page=meta['page'], xref=meta['xref'], source=str(directory)), None
