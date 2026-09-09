@@ -266,5 +266,118 @@ class RankOptionTest(unittest.TestCase):
                                       tie_ranks=np.array([2, 0, 1])), [1, 2, 0])
 
 
+class ProductionExchangeTest(unittest.TestCase):
+    """`native_exchange` itself, on a four-pixel synthetic bank - no GPU, no PDF.
+
+    The pure module above proves the moves are enumerated correctly. This proves
+    the production pass *reaches* them, and - the property that matters more -
+    that `compound_width` 0 leaves the shipped pass exactly where it was.
+    """
+
+    def setUp(self):
+        import placement_multi_shape_search as search
+        from placement_layer_beam import LayerComposite
+        self.search = search
+        self.original_score = search.fixed_native_score
+
+        def stub(scorer, items, M, origin, out=None):
+            # The two correct placements are the only ones worth anything, so a
+            # pass that cannot reach them stays where it started.
+            return dict(score=0.1 * sum(1 for part, _, _ in items if part in ('p0', 'p2')))
+        search.fixed_native_score = stub
+        # One row of four pixels; classes 1 and 2 own two pixels each.
+        target = np.array([[1, 1, 2, 2]], np.uint8)
+        base_depth = np.full((1, 4), -np.inf)
+        base_labels = np.zeros((1, 4), np.uint8)
+        depths, labels = [], []
+        for pixel, value in ((0, 1), (0, 2), (2, 2), (2, 1)):
+            depth = np.full((1, 4), -np.inf)
+            depth[0, pixel] = 1.
+            label = np.zeros((1, 4), np.uint8)
+            label[0, pixel] = value
+            depths.append(depth)
+            labels.append(label)
+        self.coarse = LayerComposite(base_depth, base_labels, np.array(depths),
+                                     np.array(labels), target)
+        self.placements = [dict(key=k, items=[(f'p{i}', 15, np.eye(4))])
+                           for i, k in enumerate([('a', 1), ('a', 1), ('b', 1), ('b', 1)])]
+        self.keys = [p['key'] for p in self.placements]
+        self.quotas = {('a', 1): 1, ('b', 1): 1}
+
+    def tearDown(self):
+        self.search.fixed_native_score = self.original_score
+
+    def exchange(self, conflict, adjacency, anchored, compound_width):
+        def connected(group):
+            wanted = set(int(i) for i in group)
+            seen = wanted & anchored
+            todo = list(seen)
+            while todo:
+                fresh = (adjacency[todo.pop()] & wanted) - seen
+                seen.update(fresh)
+                todo.extend(fresh)
+            return seen == wanted
+        return self.search.native_exchange(
+            None, [], self.placements, self.keys, [1, 3], np.eye(4), np.zeros(3), self.coarse,
+            conflict, connected, rounds=3, width=4, window_order='own_agreement',
+            adjacency=adjacency, quotas=self.quotas, compound_width=compound_width)
+
+    def collision_case(self):
+        pairs = {(0, 3), (1, 2)}
+
+        def conflict(a, b):
+            return tuple(sorted((int(a), int(b)))) in pairs
+        return conflict, [{1, 2, 3}, {0, 2, 3}, {0, 1, 3}, {0, 1, 2}], {0, 1, 2, 3}
+
+    def connectivity_case(self):
+        return never, [{2}, {3}, {0, 3}, {1, 2}], {2, 3}
+
+    def test_the_shipped_pass_cannot_reach_a_collision_blocked_pose(self):
+        chosen, best, report = self.exchange(*self.collision_case(), compound_width=0)
+        self.assertEqual(chosen, (1, 3))
+        self.assertAlmostEqual(best['score'], 0.)
+        self.assertEqual(report['compound']['rejected_single'], dict(collision=2, connectivity=0))
+        self.assertEqual(report['compound']['renders'], 0)
+
+    def test_the_conflict_guided_double_exchange_reaches_it(self):
+        chosen, best, report = self.exchange(*self.collision_case(), compound_width=4)
+        self.assertEqual(chosen, (0, 2))
+        self.assertAlmostEqual(best['score'], 0.2)
+        self.assertEqual(report['native_swaps'], 1)
+        self.assertEqual(report['compound']['taken'][0]['kind'], 'compound')
+
+    def test_the_shipped_pass_cannot_reach_a_disconnected_closure_pose(self):
+        chosen, best, report = self.exchange(*self.connectivity_case(), compound_width=0)
+        self.assertEqual(chosen, (1, 3))
+        self.assertAlmostEqual(best['score'], 0.)
+        self.assertEqual(report['compound']['rejected_single'],
+                         dict(collision=0, connectivity=2))
+
+    def test_closure_parent_connectivity_reaches_it(self):
+        chosen, best, report = self.exchange(*self.connectivity_case(), compound_width=4)
+        self.assertEqual(chosen, (0, 2))
+        self.assertAlmostEqual(best['score'], 0.2)
+        self.assertTrue(report['compound']['taken'])
+
+    def test_the_render_budget_is_honoured_and_journalled(self):
+        _, _, report = self.exchange(*self.collision_case(), compound_width=4)
+        unbudgeted = report['compound']['renders']
+        chosen, _, capped = self.search.native_exchange(
+            None, [], self.placements, self.keys, [1, 3], np.eye(4), np.zeros(3), self.coarse,
+            self.collision_case()[0], lambda group: True, rounds=3, width=4,
+            window_order='own_agreement', adjacency=self.collision_case()[1],
+            quotas=self.quotas, compound_width=4, compound_budget=0)
+        self.assertGreater(unbudgeted, 0)
+        self.assertEqual(capped['compound']['renders'], 0)
+        self.assertTrue(capped['compound']['budget_exhausted'])
+        self.assertEqual(chosen, (1, 3))
+
+    def test_compound_without_an_adjacency_is_an_error(self):
+        with self.assertRaises(ValueError):
+            self.search.native_exchange(
+                None, [], self.placements, self.keys, [1, 3], np.eye(4), np.zeros(3),
+                self.coarse, never, lambda group: True, compound_width=4)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
