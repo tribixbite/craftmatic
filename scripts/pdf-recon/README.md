@@ -220,6 +220,81 @@ depending on which. Local
 symmetries come from saved universal-CAD proofs
 (`placement_verify_part_symmetries.py`), never a hand list.
 
+## Round seven: closure cost, determinism, and the retention stage
+
+**Cost the predicate before tuning its budget.** `placement_closure_profile`
+rebuilds a page's `ShapeRegistry` from the registry the run itself wrote and
+times one closure round with the stages separated. Do not read the registry's
+own `seconds` for this: in evidence mode `branch()` copies `started` from the
+page seed, so that field spans the registration and ranking done in between.
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_closure_profile.py `
+  --registry output/pdf-placement-beam/40377-r5-contain-v1/page-018/registry-00.json `
+  --parents 64 --out output/pdf-placement-diagnosis/r7-closure-profile/profile-64.json
+```
+
+98.3% of parent-expansion time was inside `Assembly.collides`, at 6.3 ms a call.
+`placement_fast_collision` vectorises that predicate **bit-exactly** - same
+association order, so every intermediate is identical, and the short-circuits in
+`collides` are proven implications rather than heuristics. Switch it off with
+`placement_multi_shape_batch.FAST_COLLISION = False` to A/B; the recorded
+registry must hash identically either way, and `test_placement_fast_collision`
+asserts that as well as the packed voxel set, the erosion and the verdict.
+
+**Finishing the closure is now affordable, and the screen is the next wall.**
+`--max-closure-parents 0` removes the parent budget; `--closure-max-seconds`
+bounds the wall clock instead, and the registry records which of parent, pose and
+clock stopped it plus `closure_rounds_complete`. But the occupancy screen renders
+one silhouette per candidate and `build_bank` rasterises 363-750 KB per survivor,
+so both are linear in the bank: page 28's complete first round is 140,430 poses
+against the 8,192 the search has ever seen. Use `--max-bank-candidates` with it,
+or `build_bank` refuses and the page produces nothing at all. The cap fills round
+robin over quota keys by coverage rate, never by pixel count - a count is bounded
+by a candidate's own area and re-imports the scale bias that loses small pieces.
+
+**A chain A/B is only as trustworthy as its tie exposure.** Count it first:
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_score_ties.py `
+  --run output/pdf-placement-beam/40377-r5-contain-v1 `
+  --out output/pdf-placement-diagnosis/r7-ties/r5-baseline.json
+```
+
+Exact top-score ties among genuinely different assemblies occur on 7 of 13
+driven 40377 pages and 15 of 27 on 41624, up to twelve ways. `argsort` breaks
+them by bank index, which is closure enumeration order, so any configuration
+change that reorders the bank re-rolls every tie downstream - that, not the
+budget, is why round six's parent-budget chain diverged from round five at page
+22. **Drive every A/B with `--tie-break pose`**, and treat pre-round-seven chain
+numbers as un-baselined for configuration comparison.
+
+**Where a correct pose is lost.** `placement_retention_stage` separates the
+stages on the runs' own artifacts and reconciles with `placement_retention_audit`
+exactly; read its distinct-instance counts, not the audit's nets. Bank
+truncation is zero of them; beam width is refuted (the reference-equivalent
+complete assembly scores *below* the beam's own best complete state, so an
+exhaustive search returns the same answer); and 46.9% of page 19's screened
+candidates change the incremental score by **exactly** zero, because a candidate
+whose pixels are already painted with the same class contributes nothing even
+when a wrong piece is standing there. `--exchange-window-order own_agreement`
+orders the exchange's rendered window by each candidate's own painted agreement
+instead - one bincount, no extra render - and moves page 19's reference poses
+from window ranks 86-299 to 0-52.
+
+**The classifier.** `--chromatic-metric lab` orders chromatic palette entries by
+CIE Lab distance instead of hue. Hue collides: LDraw 19 and 191 both convert to
+hue 20 and `argmin` breaks the tie by palette position, symmetrically, which is
+why the undrawn rule (allocated colours first) and the coarse target
+(numerically sorted) disagreed about whether 40377 pages 26-27 draw any orange.
+Ordering only - acceptance stays the hue test, so the same pixels are classified.
+It is a correctness fix and **not** a lever: on those two pages the three
+enumerated reference poses change the objective by exactly zero under both
+classifications, and the repair demotes them from the plateau to ranks
+1,164-1,639 while lifting wrong poses to ranks 3 and 4. Any classifier change
+makes saved scores incomparable; runs that set it are comparable only with each
+other.
+
 ## Inventory identity
 
 `placement_catalog_factor_bridge.py` learns Rebrickable-to-LDraw part and colour
