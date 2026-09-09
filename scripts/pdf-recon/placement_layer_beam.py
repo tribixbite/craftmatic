@@ -158,8 +158,17 @@ class LayerComposite:
 def search_beam(base_depth, base_labels, depths, labels, keys, quotas, target,
                 base_supported=(), support_edges=(), conflict_test=None,
                 beam=64, top_k=16, max_expansions=2_000_000,
-                improve_rounds=8, improve_from=4, restarts=0, perturb=2, seed=0):
-    """Return the highest exactly-scored complete assemblies found."""
+                improve_rounds=8, improve_from=4, restarts=0, perturb=2, seed=0,
+                tie_ranks=None):
+    """Return the highest exactly-scored complete assemblies found.
+
+    `tie_ranks` replaces the array-position tie-break with one that depends on
+    the pose. Without it an exact score tie is resolved by bank index, which is
+    closure enumeration order, so two configurations holding the same tied pair
+    can resolve it differently for a reason that has nothing to do with the
+    drawing - and everything downstream inherits the divergence. Passing it
+    makes a chain A/B measure the configuration it claims to.
+    """
     depths = np.asarray(depths)
     labels = np.asarray(labels)
     n = len(labels)
@@ -223,7 +232,9 @@ def search_beam(base_depth, base_labels, depths, labels, keys, quotas, target,
                 continue
             scores = rank(state['chosen'], allowed)
             taken = 0
-            for index in np.argsort(-scores, kind='stable'):
+            ranked = (np.argsort(-scores, kind='stable') if tie_ranks is None
+                      else np.lexsort((tie_ranks, -scores)))
+            for index in ranked:
                 if not np.isfinite(scores[index]) or taken >= beam:
                     break
                 expansions += 1
@@ -239,7 +250,13 @@ def search_beam(base_depth, base_labels, depths, labels, keys, quotas, target,
         if not nominees:
             states = []
             break
-        nominees.sort(key=lambda row: -row[0])
+        # The same tie exposure applies to the cross-state cut: nominees from
+        # different states can score identically, and without a pose-derived key
+        # the survivor is decided by the order states happened to be visited in.
+        if tie_ranks is None:
+            nominees.sort(key=lambda row: -row[0])
+        else:
+            nominees.sort(key=lambda row: (-row[0], int(tie_ranks[row[2]])))
         fresh, seen = [], set()
         for score, state, index in nominees:
             chosen = tuple(sorted(state['chosen'] + (index,)))
