@@ -3194,3 +3194,101 @@ The conclusion is not that the budget is bad. It is that **this fixture cannot
 resolve a three-pose chain-level effect at all** until the tie-break is
 deterministic, and that is now the precondition for every A/B this program runs,
 not a refinement of one.
+
+## The breadth plan
+
+Round six's memo said: depth for one more round, then breadth, and named the
+trigger — if enumeration and retention leave the chain below about 65/90 and
+15/109, stop deepening and go wide. Round seven did the enumeration and the
+retention work and the trigger fires. It fires for a better reason than "the
+number did not move", though, and the reason decides what breadth is *for*.
+
+### Why depth is finished on these two fixtures
+
+Every remaining lever on 40377 has now been costed in distinct parts, and the
+costing is what closes the question:
+
+| lever | measured ceiling on 40377 | measured on 41624 |
+| --- | ---: | ---: |
+| finish the closure | converts 8 `unreachable` into `mis_selected`; **0** into correct on the one page tested twice | 60 `unreachable`, untested at completion |
+| exchange window ordering | **4** reachable, **1** realised | **0** |
+| parent-child compound exchange | 5 reachable, 0 realised | included above |
+| conflict-guided double exchange | 2 reachable, 0 realised | included above |
+| mirror completion (round six) | 2 of 25 distinct, 1 runtime-reachable at 50% precision | abstains |
+| inventory-capacity forcing (round six) | **0** — cannot fire | **0** |
+| construction symmetry (round six) | +1, on the one construction | +0 |
+| a better selection objective | 10 of 21 retention losses are *already* objective preferences | 2 |
+
+The last row is the one that ends the depth argument. Ten of the twenty-one
+instances filed under retention are cases where the run's own native objective
+scores the reference pose **lower** than what it chose. They are not reachable
+by any traversal, retention or enumeration change; they are the objective being
+wrong about which assembly explains the drawing. And the coarse objective agrees
+with itself about that: on page 19 the reference-equivalent complete assembly
+scores **0.293785093** against the beam's own best complete state
+**0.293821457**, so a *perfect* search over that bank returns the same wrong
+answer. Five rounds of search work have been improving the machinery that finds
+the optimum of an objective whose optimum is not the model.
+
+That is a finding about the *objective*, and an objective cannot be fixed on the
+fixture that motivated it without overfitting to it. Which is precisely what
+breadth is for.
+
+### What two fixtures cannot tell us, stated as the question
+
+40377 is a 90-part BrickHeadz whose pages add one or two pieces to a body that
+is already most of the model. 41624 is a 109-part set whose six-page opening
+carries every correct pose it will ever have. They fail at different stages —
+40377 is dominated by retention and objective disagreement, 41624 by enumeration
+— and with two fixtures there is no way to say which is typical. The ladder says
+"79 of 90 on 40377 and 31 of 109 on 41624"; nothing in the program says whether
+either is representative of anything.
+
+The question the next round should answer is therefore **not** "can we place
+more of 40377". It is: *which failure stage is typical, and does it depend on a
+property of the set we can measure before driving it?*
+
+### The five fixtures, and why each one
+
+Chosen to vary the two properties that plausibly decide the failure stage —
+**how much body a page registers against** and **how many pieces a page adds** —
+while keeping every one inside the constraints the program already satisfies: a
+PDF in the local corpus, an OMR reference to evaluate against strictly after the
+run, and a part count small enough that a whole-scope drive is affordable.
+
+| # | property being varied | what it discriminates |
+| ---: | --- | --- |
+| 1 | another BrickHeadz, ~90 parts | is 40377 typical *of its own family*, or is it the outlier? The cheapest possible control, and if this one fails differently the program has a fixture problem, not a method |
+| 2 | a small set whose pages add **one** piece each to a growing body | isolates "page adds little" from "body is nearly complete": 40377 confounds them |
+| 3 | a set with a large flat baseplate opening | 41624's enumeration blow-up should be a function of base-attached count; a big flat base is the extreme case and predicts the `unreachable` share before driving |
+| 4 | a set with several sub-assembly pages | `allocation_blocked` is 10 parts on each fixture today and is *entirely* undriven work; one fixture cannot say whether that class is 11% or 50% of a typical set |
+| 5 | a set with strong colour variety and no hue collisions | the classifier defects found this round were both colour-degeneracy defects; a fixture where colour is informative measures what the objective is worth when its evidence is clean |
+
+### Cost, honestly
+
+The per-fixture cost is now dominated by the screen, not the closure. Measured
+this round on 40377 page 19: a complete first-round closure is **29.8 s**, and
+screening its 65,637 candidates is **about six minutes per view**, three views
+per page. At the shipped 8,192-pose bank a page screens in well under a minute.
+So:
+
+* **Per fixture, at shipped budgets:** roughly one hour of driving for a 15-30
+  page scope, plus the allocation work upstream of it — which is the part that
+  is *not* automated and is where a new fixture actually costs. Call it a day per
+  fixture, most of it identity and allocation, and say so rather than quoting the
+  driving time alone.
+* **Per fixture, at completed closures:** add roughly an order of magnitude to
+  the screen unless `--max-bank-candidates` is used, which makes it a different
+  experiment. Complete closures are not the default for a breadth round.
+
+Five fixtures is therefore about a week, and the deliverable is a population
+table and a retention table per fixture — the same two tools, unchanged, which
+is the point of having built them.
+
+### The one thing that would change the plan
+
+If fixture 1 — another BrickHeadz — fails at the *same* stages as 40377, with a
+similar objective-disagreement share, then the objective is the target and the
+breadth round should be three fixtures rather than five, with the saved effort
+spent on a scoring experiment instead. Run fixture 1 first and decide on its
+population table.
