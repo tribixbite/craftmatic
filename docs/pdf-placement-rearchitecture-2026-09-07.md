@@ -712,6 +712,13 @@ accepted scale times the ratio. The ratio slightly over-states the camera ratio
 because the later drawing also holds the pieces the step adds, so it is a
 proposal and a bound, never a calibration.
 
+Reported honestly: the measurements above are offline. The first drive that
+would have exercised the channel end to end failed on pages 17 to 19 with an
+ordering defect - the block read the page's drawing before the drawing was
+loaded, so `drawing` was unbound - and produced no numbers. The defect is fixed;
+the channel has no end-to-end result from this round, and the 48/90 checkpoint
+above was reached without it.
+
 ### A body can be built from a drawing with nothing to register against
 
 The observation that makes a first page ordinary is that the reconstruction's
