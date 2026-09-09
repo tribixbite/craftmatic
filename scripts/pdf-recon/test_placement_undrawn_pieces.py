@@ -12,8 +12,12 @@ PIECES = [('3023b', 15), ('3069b', 191), ('6091', 191), ('6091', 191), ('3023b',
 
 def fake_measurements(monkeypatch, counts, areas):
     """Pin the two measurements so the rule itself is what is under test."""
+    # `drawn_class_pixels` grew a third `context_colors` argument when the rule
+    # learned to classify against the body's colours as well as the page's own;
+    # the stand-in has to accept it or the rule under test never runs.
     monkeypatch.setattr(undrawn_module, 'drawn_class_pixels',
-                        lambda scene, colors: (dict(counts), sum(counts.values()), 0))
+                        lambda scene, colors, context_colors=(): (dict(counts),
+                                                                  sum(counts.values()), 0))
     import placement_exploded_page
     monkeypatch.setattr(placement_exploded_page, 'silhouette_area_range',
                         lambda part, color, projection, resolver=None: (areas[color],
