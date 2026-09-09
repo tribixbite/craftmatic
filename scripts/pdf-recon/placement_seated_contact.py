@@ -1,4 +1,4 @@
-"""Prefer the more fully seated joint when the image cannot separate two poses.
+"""Physical seating as a tie-break when the image cannot separate two poses.
 
 40377 page index 18 adds one 4x4 plate to a 51-part body. Both the reference
 pose and a pose 4 LDU shallower are enumerated, both survive screening, and the
@@ -10,28 +10,43 @@ Restricting the evidence to the region the addition changes does not help; it
 splits the same way and more strongly.
 
 An image objective is the wrong instrument for a 4 LDU depth difference on a
-plate that is mostly behind the body it mounts on. A physical one separates them
-easily. LEGO joints seat: a piece is pressed home until its faces touch, and a
-pose that leaves the same joint 4 LDU proud has measurably less surface contact.
-Measured on those two candidates against the page-17 body, in the coarse voxel
-model the collision test already uses:
+plate mostly hidden behind the body it mounts on, so this module measures the
+physical question instead. **On page 18 it does not separate them either, and
+that is the measured result.**
 
-| pose                    | own voxels | face contacts with the body |
-| ----------------------- | ---------: | --------------------------: |
-| selected (0, -112, -44) |      1,310 |                       1,949 |
-| reference (0, -112, -48)|      1,302 |                     **2,256** |
+| pose on page 18          | engaged mates | voxel contacts | voxel overlap |
+| ------------------------ | ------------: | -------------: | ------------: |
+| selected (0, -112, -44)  |            12 |            653 |           281 |
+| reference (0, -112, -48) |            12 |            645 |           364 |
+| a third (0, -132, -48)   |            10 |            594 |           303 |
 
-A 16% margin where the image margin is 0.25%.
+Both candidates engage twelve connectors: they are two *physically valid*
+seatings of the same plate on different stud rows of the same body, not a seated
+pose against a proud one. So seating cannot decide page 18, and neither can any
+of the three measures - the voxel-contact column even prefers the wrong pose.
 
-This is a **tie-break, never an objective**. Round two measured that maximising
+The first version of this module ranked by that contact column and claimed a 16%
+margin for the reference. That number was wrong: it came from counting the
+additions' *overlapping* voxels' neighbours as contacts, so it was measuring
+interpenetration rather than seating. Excluding overlap, as `seated_contact` now
+does, the margin is 1% the other way. The correction is recorded rather than
+deleted because the wrong version looked convincing.
+
+What remains, then, is that seating is a real instrument with a real scope and
+page 18 is outside it. It stays because the case it addresses - a candidate that
+leaves its joint proud engages no connector at all - is common and cheap to
+exclude, and because the ranking key is now the exact predicate
+`Assembly._consume_coincident` uses rather than a voxel proxy.
+
+It is a **tie-break, never an objective**. Round two measured that maximising
 occupancy alone buries pieces inside the model, because a hidden piece explains
-the drawing better than a placed one; maximising contact alone would do the same.
+the drawing better than a placed one; maximising seating alone would do the same.
 So it applies only inside a stated tolerance band below the best image score, and
 only among candidates that are otherwise ranked equally - same number of
 arrow-attached pieces - so it can reorder near-ties and can never promote a
-candidate the image rejected.
+candidate the image rejected. Off by default.
 
-Contact is comparable only between alternative poses of the same pieces, which is
+Seating is comparable only between alternative poses of the same pieces, which is
 exactly this scope: every candidate in a band adds the same multiset of parts to
 the same body. It is not comparable between different part sets, and nothing here
 compares those.
@@ -62,12 +77,66 @@ def _voxels(part, color, transform):
     return _cache[key]
 
 
-def seated_contact(body_items, added_items):
-    """Face-adjacent voxel pairs between the additions and the body.
+def _world_connectors(items, owner_offset=0):
+    """Each item's connectors in world coordinates, as `recon_v8` builds them."""
+    from recon_v8.assembly import WorldConn, part_conns
+    out = []
+    for index, (part, color, transform) in enumerate(items):
+        matrix = np.asarray(transform, float)
+        for connector in part_conns(str(part)):
+            out.append(WorldConn(owner_offset + index, connector, matrix))
+    return out
 
-    `overlap` is reported beside it because the coarse lattice counts a seated
-    stud as an overlap; it is descriptive, and the collision test upstream is
-    what actually rejects a real interpenetration.
+
+def engaged_mates(body_items, added_items):
+    """How many of the additions' connectors actually mate with something.
+
+    This is the physical question a voxel proxy only approximates: a pose that
+    leaves its joint 4 LDU proud engages no connector, and a seated one engages
+    every stud it covers. It reimplements `Assembly._consume_coincident`'s exact
+    predicate - opposite gender, compatible end radius, aligned axis, coincident
+    reference point - against tolerances imported from `recon_v8.assembly`, so
+    the two cannot drift apart, and without mutating an assembly per candidate.
+
+    Mates between two added pieces count too: a page that adds a stack is more
+    seated when its own pieces engage each other.
+    """
+    from recon_v8.assembly import AXIS_DOT, MATE_POS_TOL, RADIUS_TOL
+    body = _world_connectors(body_items)
+    added = _world_connectors(added_items, owner_offset=len(body_items))
+    engaged, pairs = 0, 0
+    for connector in added:
+        if connector.kind != 'CYL' or connector.gender not in 'MF':
+            continue
+        for other in body + added:
+            if other is connector or other.owner == connector.owner:
+                continue
+            if other.kind != 'CYL' or other.gender == connector.gender:
+                continue
+            if abs((other.r_end or other.radius) - (connector.r_end or connector.radius)) \
+                    > RADIUS_TOL:
+                continue
+            if float(other.axis @ connector.axis) < AXIS_DOT:
+                continue
+            if float(np.linalg.norm(other.pos - connector.pos)) > MATE_POS_TOL:
+                continue
+            engaged += 1
+            pairs += 1 if other.owner >= len(body_items) else 0
+            break
+    return dict(engaged=int(engaged), internal_pairs=int(pairs),
+                added_connectors=int(len(added)), body_connectors=int(len(body)))
+
+
+def seated_contact(body_items, added_items):
+    """How seated the additions are: engaged connectors first, contact beside it.
+
+    `contacts` counts face-adjacent voxel pairs between the additions' own
+    voxels and the body's, excluding voxels that overlap. It is reported for
+    inspection and is *not* the ranking key: a first attempt used it and the
+    apparent 16% margin on page 18 turned out to come from overlapping voxels,
+    i.e. from interpenetration rather than from seating. `overlap` is reported
+    for the same reason - the coarse lattice counts a seated stud as an overlap,
+    and the collision test upstream is what rejects a real one.
     """
     body = set()
     for part, color, transform in body_items:
@@ -81,8 +150,10 @@ def seated_contact(body_items, added_items):
         for dx, dy, dz in FACES:
             if (x + dx, y + dy, z + dz) in body:
                 contacts += 1
-    return dict(contacts=int(contacts), overlap=int(len(added & body)),
-                added_voxels=int(len(added)), body_voxels=int(len(body)))
+    record = dict(contacts=int(contacts), overlap=int(len(added & body)),
+                  added_voxels=int(len(added)), body_voxels=int(len(body)))
+    record.update(engaged_mates(body_items, added_items))
+    return record
 
 
 def reorder(rows, tolerance, score_of=None, contacts_of=None, group_of=None):
@@ -100,7 +171,7 @@ def reorder(rows, tolerance, score_of=None, contacts_of=None, group_of=None):
     score_of = score_of or (lambda row: row['evidence'].get(
         'combined_score', row['evidence']['score']))
     contacts_of = contacts_of or (lambda row: (row['evidence'].get('seated') or {}).get(
-        'contacts', -1))
+        'engaged', -1))
     group_of = group_of or (lambda row: row.get('attached_pieces', 0))
     best = score_of(rows[0])
     key = group_of(rows[0])

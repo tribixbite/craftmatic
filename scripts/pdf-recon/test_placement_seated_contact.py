@@ -10,18 +10,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from placement_seated_contact import reorder
 
 
-def row(score, contacts, attached=0, tag=None):
-    return dict(evidence=dict(score=score, seated=dict(contacts=contacts)),
+def row(score, engaged, attached=0, tag=None):
+    return dict(evidence=dict(score=score, seated=dict(engaged=engaged)),
                 attached_pieces=attached, tag=tag)
 
 
-def test_a_near_tie_is_decided_by_contact():
-    rows = [row(0.488517, 1949, tag='shallow'), row(0.487312, 2256, tag='reference')]
+def test_a_near_tie_is_decided_by_seating():
+    rows = [row(0.488517, 0, tag='proud'), row(0.487312, 12, tag='seated')]
     out, record = reorder(rows, 0.01)
-    assert out[0]['tag'] == 'reference', [r['tag'] for r in out]
+    assert out[0]['tag'] == 'seated', [r['tag'] for r in out]
     assert record['applied'] and record['moved']
     assert record['band'] == 2
-    assert record['chosen_contacts'] == 2256
+    assert record['chosen_contacts'] == 12
 
 
 def test_a_candidate_outside_the_band_is_never_promoted():
@@ -32,9 +32,9 @@ def test_a_candidate_outside_the_band_is_never_promoted():
 
 
 def test_zero_tolerance_is_the_untouched_order():
-    rows = [row(0.488517, 1949, tag='shallow'), row(0.487312, 2256, tag='reference')]
+    rows = [row(0.488517, 0, tag='proud'), row(0.487312, 12, tag='seated')]
     out, record = reorder(rows, 0.0)
-    assert [r['tag'] for r in out] == ['shallow', 'reference']
+    assert [r['tag'] for r in out] == ['proud', 'seated']
     assert not record['applied']
 
 
@@ -53,7 +53,7 @@ def test_rows_beyond_the_band_keep_their_relative_order():
     assert [r['tag'] for r in out] == ['b', 'a', 'c', 'd']
 
 
-def test_a_missing_contact_measurement_abstains_rather_than_guessing():
+def test_a_missing_seating_measurement_abstains_rather_than_guessing():
     rows = [row(0.50, 10, tag='a'), dict(evidence=dict(score=0.499), attached_pieces=0, tag='b')]
     out, record = reorder(rows, 0.01)
     assert [r['tag'] for r in out] == ['a', 'b']
@@ -61,9 +61,9 @@ def test_a_missing_contact_measurement_abstains_rather_than_guessing():
 
 
 def test_the_combined_score_is_used_when_the_local_rerank_supplied_one():
-    rows = [dict(evidence=dict(score=0.10, combined_score=0.50, seated=dict(contacts=1)),
+    rows = [dict(evidence=dict(score=0.10, combined_score=0.50, seated=dict(engaged=1)),
                  attached_pieces=0, tag='a'),
-            dict(evidence=dict(score=0.90, combined_score=0.499, seated=dict(contacts=2)),
+            dict(evidence=dict(score=0.90, combined_score=0.499, seated=dict(engaged=2)),
                  attached_pieces=0, tag='b')]
     out, record = reorder(rows, 0.01)
     assert [r['tag'] for r in out] == ['b', 'a']
@@ -79,7 +79,7 @@ def test_an_invalid_tolerance_is_refused():
         raise AssertionError(f'tolerance {bad} must be refused')
 
 
-def test_contact_is_measured_against_real_geometry_when_available():
+def test_seating_is_measured_against_real_geometry_when_available():
     try:
         import numpy as np
         from placement_seated_contact import seated_contact
@@ -97,8 +97,10 @@ def test_contact_is_measured_against_real_geometry_when_available():
     except Exception:                                                       # noqa: BLE001
         print('    (skipped: recon_v8 geometry unavailable)')
         return
-    assert separated['contacts'] == 0, separated
-    assert touching['contacts'] > 0, touching
+    # A piece 80 LDU away engages nothing and touches nothing; a stacked one does
+    # both. This is the case seating is for.
+    assert separated['contacts'] == 0 and separated['engaged'] == 0, separated
+    assert touching['contacts'] > 0 and touching['engaged'] > 0, touching
 
 
 if __name__ == '__main__':
