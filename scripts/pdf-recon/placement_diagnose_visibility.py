@@ -32,7 +32,44 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
-def visibility(run, pages, part, color, transform, view=0):
+def reference_body(model, alignment, transform, part=None, color=None, tolerance=1.0):
+    """The independent model in reconstruction coordinates, minus one pose.
+
+    The control for "is this piece hidden because our body is wrong?" - if it is
+    still hidden inside the *complete, correct* assembly, the viewpoint hides it
+    and no amount of repairing the body will reveal it. `alignment` is the
+    reconstruction-to-reference rigid map a recall diagnostic measured; it is
+    inverted here. Evaluation only.
+    """
+    from placement_diagnose_alias_poses import canonicalize
+    from placement_part_library import PartLibrary
+    from pose_score import read_parts
+    rotation = np.asarray(alignment['rotation'], float)
+    translation = np.asarray(alignment['translation'], float)
+    inverse, offset = rotation.T, -rotation.T @ translation
+    truth, _ = canonicalize(read_parts(model), PartLibrary())
+    body, removed = [], []
+    # Matched on part, colour and translation rather than on the whole frame:
+    # the pose supplied here is whichever bank representative a recall
+    # diagnostic reported, and for a part with a proper local symmetry that is
+    # not literally the reference frame. Orientation does not change what a
+    # square plate occludes, and the position identifies the instance.
+    wanted = np.asarray(transform, float)[:3, 3]
+    for name, code, position, frame in truth:
+        placed = np.eye(4)
+        placed[:3, :3] = inverse @ frame
+        placed[:3, 3] = inverse @ position + offset
+        matches = (not removed and np.max(np.abs(placed[:3, 3] - wanted)) <= tolerance
+                   and (part is None or str(name) == str(part))
+                   and (color is None or int(code) == int(color)))
+        if matches:
+            removed.append((str(name), int(code), placed))
+            continue
+        body.append((str(name), int(code), placed))
+    return body, removed
+
+
+def visibility(run, pages, part, color, transform, view=0, control_body=None):
     """Pixels the pose paints, per page, against that page's own body and camera."""
     from placement_arrow_contacts import read_items
     from placement_local_delta import added_region, render_layers
@@ -77,7 +114,16 @@ def visibility(run, pages, part, color, transform, view=0):
         with_pose = render_layers(scorer, items, M)
         changed = added_region(base_layer, with_pose, scorer.mask)
         painted = int(np.asarray(changed['changed'], bool).sum())
+        control = None
+        if control_body:
+            fixed_native_score(scorer, control_body, M, origin)
+            control_base = render_layers(scorer, control_body, M)
+            whole = control_body + [(part, int(color), np.asarray(transform, float))]
+            fixed_native_score(scorer, whole, M, origin)
+            control = int(np.asarray(added_region(control_base, render_layers(scorer, whole, M),
+                                                  scorer.mask)['changed'], bool).sum())
         rows.append(dict(page=page, status='measured', painted_pixels=painted,
+                         painted_against_complete_reference=control,
                          body_only_native_score=float(body_score),
                          body_plus_pose_native_score=float(pose_score),
                          body_parts=len(body), body_source=str(body_source),
@@ -97,12 +143,28 @@ if __name__ == '__main__':
     parser.add_argument('--transform', type=float, nargs=12, required=True,
                         help='x y z then the nine rotation entries, LDraw order')
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--reference-model',
+                        help='Independent model for the complete-assembly control: is the pose '
+                             'still hidden inside the finished model, or only behind our errors?')
+    parser.add_argument('--alignment', type=Path,
+                        help='A recall diagnostic whose alignment maps reconstruction into '
+                             'reference coordinates; inverted to place the reference model here')
     args = parser.parse_args()
     transform = np.eye(4)
     transform[:3, 3] = args.transform[:3]
     transform[:3, :3] = np.asarray(args.transform[3:], float).reshape(3, 3)
-    rows = visibility(args.run, args.pages, args.part, args.color, transform)
+    control, removed = (None, [])
+    if args.reference_model and args.alignment:
+        alignment = json.loads(args.alignment.read_text())['alignment']['alignment']
+        control, removed = reference_body(args.reference_model, alignment, transform,
+                                          args.part, args.color)
+        if not removed:
+            raise ValueError('The requested pose is not in the reference model at this alignment')
+    rows = visibility(args.run, args.pages, args.part, args.color, transform,
+                      control_body=control)
     record = dict(run=str(args.run), part=args.part, color=args.color,
+                  reference_model=args.reference_model,
+                  reference_body_parts=(len(control) if control else None),
                   transform=[float(v) for v in args.transform], rows=rows,
                   scope='Evaluation-only. The pose comes from the reference model and is used to '
                         'ask what the booklet shows, never to select anything.',
@@ -112,13 +174,15 @@ if __name__ == '__main__':
                               'no registration to measure at.')
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(record, indent=2))
-    print(f'{"page":>5} {"painted":>8} {"target":>8} {"body":>5} {"body only":>10} '
+    print(f'{"page":>5} {"painted":>8} {"whole":>7} {"target":>8} {"body":>5} {"body only":>10} '
           f'{"with pose":>10}  registration')
     for row in rows:
         if row['status'] != 'measured':
             print(f'{row["page"]:>5} {row["status"]:>8}')
             continue
-        print(f'{row["page"]:>5} {row["painted_pixels"]:>8} {row["target_pixels"]:>8} '
+        whole = ('%7d' % row['painted_against_complete_reference']
+                 if row.get('painted_against_complete_reference') is not None else '      -')
+        print(f'{row["page"]:>5} {row["painted_pixels"]:>8} {whole} {row["target_pixels"]:>8} '
               f'{row["body_parts"]:>5} {row["body_only_native_score"]:>10.5f} '
               f'{row["body_plus_pose_native_score"]:>10.5f}  {row["registration_source"]}')
     print(args.out)
