@@ -976,3 +976,94 @@ those pages for a reason unrelated to their cameras. The driver now carries the
 allocations of pages it did not place, the gate may attribute ink to them, and an
 attachment removes the pages it consumed. Every verdict records the attributable
 list.
+
+### What pages 20-32 actually are, measured from the layout
+
+`placement_step_graph` on pages 19-32 of 40377, against the drawn foreground
+areas of each page's non-panel images:
+
+| page | allocated | largest drawing | structure |
+| ---: | ---: | ---: | --- |
+| 20 | 7 | 8,136 | unframed numbered group, substeps in order 168, 162, 164 |
+| 21 | 0 | 56,986 | attaches page 20's group (cross-page edge to xref 171) |
+| 22-25 | 2, 1, 2, 2 | 59k-62k | ordinary additions |
+| 26 | 4 | 60,789 | addition, plus a 32k second drawing and a 2x inset |
+| 27-30 | 2, 3, 2, 3 | 63k-70k | ordinary additions |
+| 31 | 4 | 24,599 | unframed numbered group, substeps 224 then 228 |
+| 32 | 0 | 83,378 | attaches page 31's group (cross-page edge to xref 235) |
+
+So the thirteen pages hold exactly 32 pieces, two of them build separate bodies
+and two attach them, and the driver's page-kind test classifies all four
+correctly from the drawn areas alone. The two constructions are cumulative in
+their own drawings - page 20's substeps 2 and 3 align at scale 1.00 with IoU
+0.9334 and containment 1.0, page 31's two at 1.00 and IoU 0.9914 - so the last
+substep of each shows the whole subassembly and is a legitimate target for
+placing all of its pieces at once.
+
+### A printed round tile had no legal mate at all
+
+Page 20's construction failed at every root and every drawing with `no_models`,
+and not for want of closure depth. Its allocation includes two printed round
+tiles, `98138pb072`, and the enumeration reports zero base candidates and zero
+relative candidates for that part against anything. Measured directly against a
+plate host: **twelve legal mates with collision checking off, zero with it on.**
+Every mate the part has is rejected as an overlap.
+
+LDCad's convention, quoted in `recon_v8.connectors` itself, puts a female
+anti-stud's reference point on the part's bottom face with its axis pointing out;
+`3024` declares `[gender=F] [pos=0 8 0]` against a bbox of y in [-4, 8], and
+`s/25269s01` declares the same. `98138` has no shadow record of its own or its
+subparts, so its female is recovered from the primitive tree instead:
+`s/98138s02` references `stud4o` at (0, 4, 0) through diag(1, -1, 1). That puts
+the tube at y in [4, 8] correctly, but it puts the *primitive's origin*, and so
+the connector's reference point, at the tube's inner end - and a stud mating 4 LDU
+inside the tile is driven too deep, which the collision test rightly refuses.
+
+`placement_connector_repair` moves such a record to the other end, under four
+conditions that make it a correction rather than a guess: female CYL at the
+anti-stud radius and depth, axis parallel to y, reference point off the
+maximum-y face, and the opposite end of the same tube on that face at the same x
+and z. Over the fixture's parts it repairs exactly the two `98138` variants and
+leaves every other one untouched, including the structurally identical `25269`
+that already declares the convention. After it, the repaired part yields twelve
+collision-legal candidates at exactly the transforms `25269` yields.
+
+The first attempt moved the orientation without the record's explicit `axis`
+field, which is what `expand_variants` actually reads, and produced a 16 LDU
+discrepancy instead - a reminder that a connector record carries its mating
+direction twice. It is installed by seeding `recon_v8.assembly`'s connector
+cache, so no upstream file changes and the scope is the parts a run asks for.
+
+### An image objective cannot resolve 4 LDU of depth; contact can
+
+Page 18 under the new registration adds its plate at (0, -112, -44) where the
+reference holds (0, -112, -48). Bank recall is 2 of 2 and the reference-equivalent
+assembly is retained at rank 4, so this is selection. The margin is **0.0012** -
+0.488517 against 0.487312 - and the channels disagree about it:
+
+| candidate | colour | visible edge | blended | local class | local edge |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| selected (0, -112, -44) | 0.259430 | 0.717604 | **0.488517** | 0.090475 | 0.692133 |
+| reference (0, -112, -48) | **0.265415** | 0.709210 | 0.487312 | **0.131837** | 0.607061 |
+
+Colour prefers the reference in both objectives, the visible-edge chamfer prefers
+the wrong pose in both, and the edge term is the larger. `--local-rerank 0.5`
+therefore makes it *worse*, not better: it selects the same candidate and widens
+the margin to 0.0172. That is the second measurement against the local rerank as
+a general lever, after round three's one success.
+
+A physical measurement separates them easily. LEGO joints seat, so a pose that
+leaves the same joint 4 LDU proud has less surface contact, and in the coarse
+voxel lattice the collision test already uses:
+
+| pose | own voxels | face contacts with the body |
+| --- | ---: | ---: |
+| selected (0, -112, -44) | 1,310 | 1,949 |
+| reference (0, -112, -48) | 1,302 | **2,256** |
+
+A 16% margin where the image margin is 0.25%. `placement_seated_contact` reorders
+**only** the leading near-tie band by that measure - inside a stated fraction
+below the image best, and only among candidates the earlier keys rank equally - so
+it can break a near-tie and can never promote a candidate the image rejected.
+Round two measured that maximising occupancy alone buries pieces inside the model,
+which is exactly why this is a tie-break and not an objective.
