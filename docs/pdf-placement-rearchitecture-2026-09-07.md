@@ -4057,6 +4057,14 @@ refuses its whole page:
 | `withhold` | **23** | **92** | 4 | **85.2%** |
 | `canonical` | 23 | 96 | 0 | 88.9% |
 
+**The same class blocks 40377, and was worked around by hand a round at a time.**
+Its inventory has exactly one ambiguous slot and it is `4032a`/`4032b` again -
+the record round one dropped, then recovered by preserving one capacity and both
+mould ids, then resolved by building **two hand-made construction branches** for
+page index 13 whose poses agree and whose mould identity does not. So this is a
+recurring structural blocker across both BrickHeadz fixtures rather than a
+property of 41601, and the proven table handles it without a branch pair.
+
 `withhold` declares the class row without allocating it: the page's other pieces
 are drivable, the withheld piece's ink is attributable at the camera gate
 (`placement_autodrive.page_withheld`, the same mechanism a skipped page's pieces
@@ -4316,3 +4324,81 @@ two before it:
 Every gain this round came from **choosing a different body**, and none from
 driving better. The wide scope was driven from the round-eight opening, so the
 two 41601 gains have not been combined; that run is not measured.
+
+### 41624's ceiling probe: thirteen more pieces, five more pages, the same six poses
+
+Its page 3 retains exactly one body with a fourth correct pose, in score class
+three - three branches away for a policy that takes classes in order, so this
+drive was pointed straight at it with `--force-reopen 3=3` and is recorded as a
+ceiling probe rather than a policy result.
+
+| | branch 0 (round seven) | **branch 1 (the +1 page-3 body)** |
+| --- | ---: | ---: |
+| page 3 structural | 3 | **4** |
+| pages placed | 31 | **36** |
+| camera failures in the main pass | 11 | **8** |
+| emitted | 86 | **99** |
+| **final structural** | **6 of 109** | **6 of 109** |
+| coverage | 0.055 | 0.055 |
+| precision | 0.070 | 0.061 |
+| **driver-own contribution** | **+3** (3 to 6) | **+2** (4 to 6) |
+| pages ending in an exact tie | 20 of 31 | 24 of 35 |
+
+A better opening bought **thirteen more emitted pieces and five more placed
+pages** - the camera path survived on pages the root refused - and **not one more
+correct pose**. Both chains reach 6 and stop: the root at page 5, the branch at
+page 4. This is the same shape as 41601's, from the opposite direction: body
+quality changes what the driver can *place*, never what it places *correctly*.
+
+### The checkpoint, answered on its own metric
+
+Round eight's metric is the drive's own contribution, base checkpoint against
+final structural:
+
+| chain | base | final | **contribution** | placed pages |
+| --- | ---: | ---: | ---: | ---: |
+| 40377 round seven (window) | 45 | 54 | +9 | 13 |
+| 40377 round eight (compound) | 45 | 51 | +6 | 13 |
+| **40377 round nine (backtracking)** | 45 | **53** | **+8** | 13 |
+| 41624 round seven | 3 | 6 | +3 | 31 |
+| **41624 round nine (better opening)** | 4 | 6 | **+2** | 35 |
+| 41601 round eight | 3 | 3 | +0 | 17 |
+| **41601 round nine (better opening)** | 6 | 6 | **+0** | 16 |
+| **41601 round nine (wider scope)** | 3 | 3 | **+0** | 21 |
+
+**The checkpoint asked for about +10 each on the two from-scratch fixtures and
+got +0 and -1.** Backtracking moved 41601's contribution by nothing at all and
+41624's by minus one, and the inventory-capacity term produced zero deficits and
+zero reorderings over 75 candidate bodies. The next tier is therefore costed
+above and not built.
+
+What the round *did* move is worth stating beside that, because it is not zero
+and it is all of one kind:
+
+| | round eight | round nine | by what mechanism |
+| --- | ---: | ---: | --- |
+| 40377 | 51 of 90 | **53 of 90** | a trigger, a reopening, and a re-drive that avoided the collapse |
+| 41601 | 3 of 108 | **6 of 108** | a different opening, chosen by the construction's own symmetry |
+| 41601 emitted | 77 on 17 pages | **86 on 21 pages** | the mould-equivalence classes admitting four refused pages |
+| 41624 emitted | 86 on 31 pages | **99 on 36 pages** | a different page-3 body |
+
+Every one of those came from **choosing a different body to drive from**. None
+came from the drive placing better, and the drive's own contribution is
+single-digit or zero on every fixture the program has measured.
+
+### Round nine's trajectory
+
+| round | 40377 | 41624 | 41601 | what the round bought |
+| ---: | ---: | ---: | ---: | --- |
+| 6 | 53/90 | 5/109 | - | the population, three channels not adopted |
+| 7 | 54/90 | 6/109 | - | affordable closure, deterministic ties, retention is the smallest lever |
+| 8 | 51/90 | 6/109 | 3/108 | the two-placement move measured negative; 45 of 54 shown inherited; the objective wrong on 78.6% of reachable losses |
+| **9** | **53/90** | **6/109** (99 emitted, was 86) | **6/108** | **backtracking recovers two of round eight's three; a 6-of-7 opening doubles 41601 and the drive still contributes +0; the construction's own symmetry selects that opening with no reference; capacity refuted on 75 bodies; the mould classes are one pool and not one identity, worth +9 pieces of scope** |
+
+The round's most useful number is **+0**. Round eight showed a better optimum of
+the objective making the model worse; round nine shows a *materially better body*
+- twice as many correct poses, chosen by a channel the reference never touches -
+making the model no better than its own opening. The driver does not degrade a
+good body; it simply adds nothing to it. Whatever the next architecture is, the
+per-page image-scored addition step is not the part that has to be repaired
+first: **the parts that pick a body are, and they now demonstrably work.**

@@ -491,3 +491,46 @@ filename - takes the drivable scope from **83 pieces on 19 pages to 92 on 23**
 driver attributes a withheld piece's ink at the camera gate exactly as it
 attributes a skipped page's (`placement_autodrive.page_withheld`), or admitting
 the page would refuse it again one stage later.
+
+### Round nine's measured results, in one place
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_trajectory.py `
+  output/pdf-placement-beam/41601-r9-backtrack/branch-01 `
+  --truth C:/git/clego/lego_sets/OMR/41601-1.mpd `
+  --out output/pdf-placement-diagnosis/r9-alt/41601-branch01-trajectory.json
+python -X utf8 -B scripts/pdf-recon/placement_score_ties.py `
+  --run output/pdf-placement-beam/41601-r9-backtrack/branch-01 `
+  --run output/pdf-placement-beam/40377-r9-backtrack/branch-01 `
+  --out output/pdf-placement-diagnosis/r9-ties/r9-chains.json
+python -X utf8 -B scripts/pdf-recon/placement_construction_symmetry.py `
+  output/pdf-placement-beam/41601-r8-construction/construction `
+  --truth C:/git/clego/lego_sets/OMR/41601-1.mpd `
+  --out output/pdf-placement-diagnosis/r9-alt/41601-construction-symmetry.json
+```
+
+| drive | site | final structural | driver-own contribution | emitted | tie exposure |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 41601 opening search | construction class 1 | **6 of 108** (was 3) | **+0** | 75 | 11 of 16 |
+| 41601 wider scope (mould classes) | - | 3 of 108 | +0 | **86** (was 77) | 16 of 21 |
+| 40377 validation | page 19 class 1, on a `registration_collapse` | **53 of 90** (round eight 51) | +8 whole chain | 79 | 5 of 9 |
+| 41624 ceiling probe | page 3 class 3, forced | 6 of 109 | +2 | **99** (was 86) | 24 of 35 |
+
+Read them together: every gain came from **choosing a different body**, and the
+per-page drive contributed +0, +0, +3 (over its own nine pages) and +2. A
+6-of-7 opening on 41601 doubles the model and adds nothing across sixteen driven
+pages; a +1 opening on 41624 buys thirteen emitted pieces and five placed pages
+and no correct pose.
+
+`placement_construction_symmetry` - round six's channel - separates 41601's two
+opening classes completely (plane agreement 0.600 at 3 of 5 eligible parts
+against **1.000** at 5 of 5) and selects the 6-of-7 body, which is the oracle
+best, reading only the candidate assemblies and universal CAD. Three
+constructions measured: **+1** (40377 page 20, three eligible), **+0** (41624,
+one eligible - it abstains), **+3** (41601, five eligible).
+
+**The branch-selection rule is the open problem this round created.** `downstream`
+chose the worse model on both fixtures where a better one existed (3 over 6, and
+51 over 53); `contradictions` - instrument contradictions before coverage - would
+have chosen correctly on both and is fitted to exactly those two observations.
+Use `--selection` to compare; do not treat either as validated.
