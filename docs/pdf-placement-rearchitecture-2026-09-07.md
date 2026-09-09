@@ -1330,3 +1330,65 @@ driven rather than untouched - and what replaces them is this.
 5. **Repeated multiplicities, occlusion, flexible parts, whole-PDF autonomous
    startup and population certification** remain untouched, as after rounds one,
    two and three.
+
+### Round four's whole-chain result: 48/90 to 53/90
+
+Pages 16 to 32 driven in one invocation from the page-15 checkpoint, with
+drawing-to-drawing registration, the anti-stud repair, the camera gate enforcing
+with its scale criterion as a window, and no `--group-run` (both constructions
+being 1-of-N, attaching one would poison the pages after it):
+
+| page | status | emitted | structural | precision | coverage | registration |
+| ---: | --- | ---: | ---: | ---: | ---: | --- |
+| 16 | placed | 49 | 46 | 0.939 | 51.1% | body template |
+| 17 | placed | 51 | 48 | 0.941 | 53.3% | body template |
+| **18** | placed | 52 | **49** | **0.942** | 54.4% | **drawing to drawing** |
+| 19 | placed | 58 | 50 | 0.862 | 55.6% | drawing to drawing |
+| 20 | subassembly page | - | - | - | - | - |
+| 21 | no allocation (nothing pending) | - | - | - | - | - |
+| 22 | camera refused | - | - | - | - | - |
+| 23 | placed | 59 | 50 | 0.847 | 55.6% | drawing to drawing |
+| 24 | placed | 61 | 50 | 0.820 | 55.6% | drawing to drawing |
+| 25 | placed | 63 | 50 | 0.794 | 55.6% | drawing to drawing |
+| 26 | camera refused (placed on retry) | 75 | 53 | 0.707 | 58.9% | body template |
+| 27 | camera refused (placed on retry) | 77 | 53 | 0.688 | 58.9% | drawing to drawing |
+| 28 | placed | 66 | 51 | 0.773 | 56.7% | drawing to drawing |
+| 29 | placed | 68 | **53** | 0.779 | **58.9%** | drawing to drawing |
+| 30 | placed | 71 | 53 | 0.746 | 58.9% | drawing to drawing |
+| 31 | subassembly page | - | - | - | - | - |
+| 32 | no allocation (nothing pending) | - | - | - | - | - |
+
+**Whole-model coverage moves 48/90 to 53/90 (58.9%).** Ten of the thirteen pages
+20-32 were reached; nine placements after page 19 used the propagated camera.
+
+The gain traces exactly where the measurement predicted. **Page 18 placed its 4x4
+plate at (0, -112, -48), the reference pose**, where every earlier run put it 4 LDU
+shallow - so the drawing-to-drawing registration that made the page registrable at
+all also made its selection right in the full chain. Page 19 then placed one of its
+four corner-round tiles at (-30, -142, -56), on that plate: the piece that was 8 LDU
+out of reach in every previous run, reachable because the mount finally exists.
+Pages 28 and 29 added three more between them.
+
+The honest checkpoints, since coverage and precision move opposite ways: page 18 is
+the most accurate at 49 correct of 52 emitted (0.942), page 29 is the highest
+coverage at 53 of 68 (0.779), and the run ends at 53 of 77 (0.688). The 19 parts
+emitted after page 19 contribute three correct poses between them.
+
+### Where the three refused pages died, measured
+
+Page 22 was refused twice, in the main pass and the retry, and the reason is
+precise and worth 116 pixels. Its propagated registrations cover 90.3% and 92.4% of
+the drawing; the body-template alternatives cover 76-80%. But the body now carries
+page 19's five wrong parts, so the propagated ones overflow the artwork by 669 and
+1,199 pixels against a 1% allowance of 553 and 576 - the unit-scale one **misses
+containment by 116 pixels out of 55,333**. Containment then keeps only the small
+body-template registrations, and the gate correctly refuses those for being 0.6-2.5%
+below the scale window.
+
+So the drawing-to-drawing work removed the body from *choosing* the camera, and
+containment still passes through the body. A body carrying five wrong parts
+protrudes, and the allowance that was calibrated on a nearly-correct body rejects
+the correct camera by a fifth of one per cent. The unexplained-ink criterion, by
+contrast, passed comfortably at 0.496-0.579 - the attribution fix worked, charging
+page 20's seven unplaced pieces where they belonged, with nine pieces attributable
+in total.
