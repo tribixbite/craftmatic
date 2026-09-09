@@ -2307,3 +2307,10 @@ did not have.
 The two fixtures fail at different stages, which is the strongest argument in this
 memo for more fixtures: 40377 is dominated by retention and 41624 by enumeration,
 and with two fixtures there is no way to tell which is typical.
+
+The two tools were built independently and reconcile exactly, which is the check
+that either of them is counting the right objects. `placement_population_table`'s
+`unreachable` equals `placement_retention_audit`'s `lost_before_enumeration` on
+both fixtures (8 and 60), and the population's `mis_selected` plus
+`visibility_limited` equals the audit's screen plus retention plus ranking on
+both (16 = 1 + 13 + 2 on 40377, and 16 = 7 + 7 + 2 on 41624).
