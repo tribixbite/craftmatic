@@ -1034,7 +1034,7 @@ discrepancy instead - a reminder that a connector record carries its mating
 direction twice. It is installed by seeding `recon_v8.assembly`'s connector
 cache, so no upstream file changes and the scope is the parts a run asks for.
 
-### An image objective cannot resolve 4 LDU of depth; contact can
+### An image objective cannot resolve 4 LDU of depth
 
 Page 18 under the new registration adds its plate at (0, -112, -44) where the
 reference holds (0, -112, -48). Bank recall is 2 of 2 and the reference-equivalent
@@ -1052,21 +1052,14 @@ therefore makes it *worse*, not better: it selects the same candidate and widens
 the margin to 0.0172. That is the second measurement against the local rerank as
 a general lever, after round three's one success.
 
-A physical measurement separates them easily. LEGO joints seat, so a pose that
-leaves the same joint 4 LDU proud has less surface contact, and in the coarse
-voxel lattice the collision test already uses:
-
-| pose | own voxels | face contacts with the body |
-| --- | ---: | ---: |
-| selected (0, -112, -44) | 1,310 | 1,949 |
-| reference (0, -112, -48) | 1,302 | **2,256** |
-
-A 16% margin where the image margin is 0.25%. `placement_seated_contact` reorders
-**only** the leading near-tie band by that measure - inside a stated fraction
-below the image best, and only among candidates the earlier keys rank equally - so
-it can break a near-tie and can never promote a candidate the image rejected.
-Round two measured that maximising occupancy alone buries pieces inside the model,
-which is exactly why this is a tie-break and not an objective.
+A physical measurement looked at first as if it separated them easily - the
+reference pose has 2,256 face-adjacent voxel contacts with the body against the
+selected pose's 1,949, a 16% margin where the image margin is 0.25%. **That
+reading was wrong**, and the section below records what the correct measurement
+says instead: the 16% came from counting the additions' *overlapping* voxels'
+neighbours, so it measured interpenetration rather than seating, and both
+candidates in fact engage twelve connectors. `placement_seated_contact` exists and
+is opt-in, but page 18 is outside its scope.
 
 ### Page 19 is a three-level chain, and its second hop is unreachable by construction
 
@@ -1144,14 +1137,12 @@ fit on one of the two candidates: the run that follows page 18 knows which pose 
 right. Using that means either backtracking over page 18's retained alternatives or
 solving pages 18 and 19 jointly, and neither is implemented.
 
-### The generic constructor completes both subassemblies and gets one of them wrong
+### Page 31's construction is limited by its own drawing, not by the search
 
-With the closure at four rounds and 512 parents - a one-piece root has only 432 to
-1,284 base-attached poses, so the global parent budget does reach later rounds
-there, unlike on a full body - `placement_construct_body` completes page 31's
-four-piece build from all three roots it tries, publishing three distinct group
-hypotheses for the attachment to choose between. Post hoc, every one of them is
-**1 of 4** structurally correct.
+`placement_construct_body` completes page 31's four-piece build from all three
+roots it tries, publishing three distinct group hypotheses for the attachment to
+choose between. Post hoc, every one of them is **1 of 4** structurally correct -
+and since the root is nailed at the identity transform, that is 0 of 3 beyond it.
 
 That is a data limit rather than a search limit, and the page says so itself: its
 two drawings align at scale 1.00 with IoU 0.9914, because the pieces are three
