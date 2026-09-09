@@ -27,6 +27,8 @@ def main():
     parser.add_argument('--run', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--view', type=int, default=0)
+    parser.add_argument('--outside-fraction', type=float, default=0.,
+                        help="Proportional occupancy allowance in each candidate's own units")
     parser.add_argument('--translations', type=float, nargs='+', default=(),
                         help='Flat x y z triples to locate in both rankings')
     args = parser.parse_args()
@@ -55,7 +57,8 @@ def main():
 
     shapes = [dict(items=[(str(e['part']), 15, np.asarray(e['T'], float))])
               for e in registry['poses']]
-    gate = screen(base, shapes, M, origin, scorer, outside_tolerance_px=allowance)
+    gate = screen(base, shapes, M, origin, scorer, outside_tolerance_px=allowance,
+                  outside_fraction=args.outside_fraction)
     ids = gate['retained_indices']
     subset = dict(registry, poses=[registry['poses'][i] for i in ids])
     pieces = run.get('image_pieces') or registry['allocated_pieces']
