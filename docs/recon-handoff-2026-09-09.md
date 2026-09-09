@@ -86,6 +86,45 @@ Known on-ramp gaps: page-drop decisions are the one attended step (cost: 25/108
 pieces on 41601); mould-variant pairs with LDU-identical CAD need the
 equivalence-class treatment (filed; round 9 may have built it).
 
+## Round 9 landed — read these five results before planning anything
+
+Detail and every table: the ledger's "Round nine" section. In brief:
+
+1. **Backtracking is built and works, and the drive still contributes +0.**
+   `placement_backtrack.py` reopens a committed site, takes one representative
+   per exact objective-score class and re-drives. On 40377 the
+   `registration_collapse` trigger fired on round eight's known regression,
+   reopened page 19 and recovered **51 → 53/90**. On 41601, driving from a
+   **6-of-7** opening (against the selected 3-of-7) lands **6/108** and adds
+   nothing across sixteen pages; 41624 from a +1 opening gains 13 emitted pieces
+   and 5 placed pages and **zero** correct poses. Driver-own contribution: +0,
+   +0, +2, +3-over-nine-pages.
+2. **Retained sets, measured (`placement_alternatives_oracle.py`): 15 of 17
+   pages on 41601 and 30 of 31 on 41624 retain NOTHING better than what was
+   selected.** Any rescoring lever's ceiling on the driven pages is +2 and +1.
+   The openings are the exception and are where all correct poses came from.
+3. **A construction's own symmetry selects the right opening, with no
+   reference**: round six's `placement_construction_symmetry` separates 41601's
+   two opening classes completely (plane agreement 1.000 at 5/5 eligible parts
+   against 0.600 at 3/5) and picks the 6-of-7 body — the oracle best. Three
+   constructions measured: +1, +0 (abstains on one eligible part), +3.
+4. **Inventory capacity is refuted as a ranker — do not rebuild it.** Count
+   capacity is vacuous where the page quota is exact (34 of 46 keys fully
+   allocated, every page placed its whole allocation); the draw-down audit finds
+   0 deficits; the look-ahead is *identical* on all 75 candidate bodies measured
+   and its one varying term ranks the wrong class higher.
+5. **Mould variants are one capacity pool, not one search candidate**
+   (`placement_mould_equivalence.py`): `15573`/`3794a`/`3794b` and
+   `4032a`/`4032b` have exactly equal universal bounds (0.0 LDU) and differing
+   voxels, cores and connectors. `placement_slot_adapter --mould-policy withhold`
+   admits their pages: 41601's scope goes **83 pieces on 19 pages → 92 on 23**,
+   and driving it emits **86 against 77** with 3 correct, unchanged.
+
+**The open problem round 9 created:** every runtime-legal branch-selection rule
+shipped picks the *worse* branch when a better one exists (3 over 6; 51 over 53).
+`--selection contradictions` would have picked right on both and is fitted to
+those two observations — test it on a fixture it was not derived from.
+
 ## Where the program should go (round-8 memo, priority-ordered, partly in flight)
 1. Opening + page-level backtracking (round 9, in flight — read its result).
 2. Non-pixel evidence: BOM-capacity likelihood (round 9), then connector-graph
