@@ -100,13 +100,17 @@ def run(pdf, inventory_run, out, truth=None, roots=3, mould_policy='withhold',
           [HERE / 'global_pdf_slot_assignment.py', pdf, '--allocation-run', inventory_run,
            '--out', slots, '--color-constraints', '--panel-geometry'],
           slots / 'slot-assignment.json', log)
+    gated = out / 'slots-gated'
+    stage(journal, 'CAD-size consistency gate',
+          [HERE / 'placement_slot_size_gate.py', slots, '--apply', '--out', gated],
+          gated / 'slot-assignment.json', log)
     moulds = out / 'mould-classes.json'
     stage(journal, 'mould equivalence',
-          [HERE / 'placement_mould_equivalence.py', '--slots', slots / 'slot-assignment.json',
+          [HERE / 'placement_mould_equivalence.py', '--slots', gated / 'slot-assignment.json',
            '--out', moulds], moulds, log)
     allocation = out / 'allocation'
     stage(journal, 'auto-scoped allocation',
-          [HERE / 'placement_slot_adapter.py', '--source', slots / 'slot-assignment.json',
+          [HERE / 'placement_slot_adapter.py', '--source', gated / 'slot-assignment.json',
            '--auto-scope', '--mould-classes', moulds, '--mould-policy', mould_policy,
            '--out', allocation], allocation / 'global-assignment.json', log)
     scope = json.loads((allocation / 'global-assignment.json').read_text())['allocation_pages']
