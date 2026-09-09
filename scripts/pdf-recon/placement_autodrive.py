@@ -379,6 +379,15 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     # Base-attached enumeration depends only on the body and the allocation, so
     # it is done once; closure is per drawing because in evidence mode the
     # parent order comes from that drawing's own refined registration.
+    # A female anti-stud whose reference point sits at the inner end of its own
+    # tube rather than on the part's bottom face makes every mate of that part
+    # collide, so the part can never be attached at all. Opt-in, recorded, and
+    # scoped to the parts this page needs.
+    if options.get('repair_anti_studs'):
+        from placement_connector_repair import install as install_repairs
+        repair = install_repairs([part for part, _ in pieces]
+                                 + [part for part, _, _ in base])
+        write_atomic(step_dir / 'connector-repair.json', json.dumps(repair, indent=2))
     seed = ShapeRegistry(base, pieces)
     provenance_fields = dict(provenance, pdf=str(pdf), page=page, base_source=str(base_model),
                              base_sha256=file_hash(base_model), allocated_pieces=pieces,
@@ -985,6 +994,10 @@ def add_page_options(parser):
                              'refuses the drawing rather than falling back')
     parser.add_argument('--drawing-registration-keep', type=int, default=2,
                         help='How many of the alignment ladder’s best scales to propagate')
+    parser.add_argument('--repair-anti-studs', action='store_true',
+                        help="Move a female anti-stud whose reference point sits inside its own "
+                             "tube onto the part's bottom face, where LDCad's own convention puts "
+                             'it; without this such a part has no collision-legal mate at all')
     parser.add_argument('--drawing-registration-min-iou', type=float, default=0.6,
                         help='Silhouette agreement below which the two drawings are not treated '
                              'as the same assembly at the same viewpoint')
@@ -1033,6 +1046,7 @@ def build_options(args):
                 scale_prior=not args.no_scale_prior, retry_passes=args.retry_passes,
                 exploded_target=not args.no_exploded_target,
                 drawing_scale=not args.no_drawing_scale,
+                repair_anti_studs=args.repair_anti_studs,
                 drawing_registration=args.drawing_registration,
                 drawing_registration_keep=args.drawing_registration_keep,
                 drawing_registration_min_iou=args.drawing_registration_min_iou,

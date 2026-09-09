@@ -1,0 +1,60 @@
+{
+  "seeded": [
+    "98138pb072",
+    "98138pz0",
+    "25269",
+    "3024",
+    "3023b",
+    "3069b",
+    "6091",
+    "2431",
+    "41740",
+    "3031",
+    "60474"
+  ],
+  "repairs": [
+    {
+      "part": "98138pb072",
+      "kind": "CYL",
+      "from_pos": [
+        0.0,
+        4.0,
+        0.0
+      ],
+      "to_pos": [
+        0.0,
+        8.0,
+        0.0
+      ],
+      "bottom_y": 8.0,
+      "radius": 6.0,
+      "length": 4.0
+    },
+    {
+      "part": "98138pz0",
+      "kind": "CYL",
+      "from_pos": [
+        0.0,
+        4.0,
+        0.0
+      ],
+      "to_pos": [
+        0.0,
+        8.0,
+        0.0
+      ],
+      "bottom_y": 8.0,
+      "radius": 6.0,
+      "length": 4.0
+    }
+  ],
+  "unavailable": [],
+  "radius_ldu": 6.0,
+  "depth_ldu": 4.0,
+  "face_tolerance_ldu": 0.51,
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "protocol": "A female CYL at the anti-stud radius and depth, with its axis parallel to y, whose reference point is not on the part's maximum-y face while the opposite end of the same tube is, is that tube described from its inner end; it is moved to the face and its axis reversed",
+  "limitations": "A correction to connector metadata, not to geometry: it changes which mates are enumerated, and a part whose real joint genuinely sits off the bottom face at the anti-stud radius and depth would be moved wrongly. It is applied only to the parts a run asks for, and every change is recorded."
+}
