@@ -1392,3 +1392,66 @@ the correct camera by a fifth of one per cent. The unexplained-ink criterion, by
 contrast, passed comfortably at 0.496-0.579 - the attribution fix worked, charging
 page 20's seven unplaced pieces where they belonged, with nine pieces attributable
 in total.
+
+### Strategy memo, after the whole chain — and a correction to the one above
+
+The checkpoint condition was met: 53 of 90 is not 60, so this records the measured
+case rather than continuing to drive. It also corrects the memo written earlier in
+this round, which was drafted before the full chain ran.
+
+**The page-18 tie was not an irreducible scorer limit, and saying so was wrong.**
+That memo concluded that three objectives fail to separate page 18's two candidates
+by more than 0.25%, that the page does not contain the information, and that a
+bounded two-page decision window was therefore the requirement. The full chain
+falsifies the premise: **the same page, with the same candidates, selected the
+reference pose (0, -112, -48).** What differed was the registration it inherited -
+reach-v3 built pages 16 and 17 itself under the scale window and the prescan, and
+page 18's native score rose from 0.4885 to 0.5357. A 4 LDU tie that flips when the
+camera upstream improves is downstream of registration quality, not a resolution
+limit of the scorer. The look-ahead window remains the strongest *untried* channel,
+and the reach measurement supports it - the `41740` goes from 4 LDU out of reach to
+exactly enumerable the moment the mount is right, which is a decisive signal - but
+it is a second-order lever now, not the binding one.
+
+**What binds now, measured.**
+
+1. *Containment still passes through the emitted body.* Camera **choice** no longer
+   does, which is what this round fixed, but the containment filter does, and page
+   22 is the measurement: its propagated registration covers 90.3% of the drawing
+   against 76-80% for the body-template alternatives, and is rejected for
+   overflowing by 669 pixels against a 553-pixel allowance - **116 pixels of
+   55,333**, because the body carries page 19's five wrong parts. The gate then
+   correctly refuses the small survivors. One threshold, calibrated on a
+   nearly-correct body, costs three pages.
+2. *Eleven of the thirty-two parts on pages 20-32 sit behind two subassembly
+   constructions that complete and are wrong.* Both are 1 structural of N, which is
+   0 beyond the nailed root. Page 31's is a data limit its own drawings prove;
+   page 20's is undiagnosed, and two of its seven pieces cannot be scored at all
+   because the PDF BOM says `98138pb072` and the model says `98138pz0`.
+3. *The pages that were reached place little.* Pages 23-30 emitted 14 parts for 3
+   correct. That is better than round three's tail, which emitted 12 for 0, but it
+   is not accuracy, and precision falls from 0.942 at page 18 to 0.688 at the end.
+
+**Recommendation, in order.**
+
+1. *Stop judging containment against an absolute fraction of the body's area.*
+   Two PDF-derived alternatives, both measurable on the pages already driven.
+   Either scale the allowance by how wrong the body is already known to be - the
+   previous accepted page's own unexplained-ink share is exactly that number and is
+   already computed - or, better, compare a page's registrations by *coverage*
+   among those within a relative multiple of the best achievable overflow. Coverage
+   cannot be a threshold across pages, as round three proved, but within one page
+   and one body it is directly comparable, and on page 22 no coverage-aware rule
+   would have preferred a 76% registration over a 90% one.
+2. *Make the two constructions right, or leave them out and say so.* They are worth
+   11 parts directly and more downstream, since page 21 and page 32 are attachments
+   that repair the body every later page registers against. Start by unifying
+   `98138pb072` with `98138pz0` in the **evaluation** - it is parked as a candidate
+   with its evidence, and until it is settled page 20 cannot score above 5 of 7
+   however well it is built.
+3. *Aim the later closure rounds.* The per-round parent budget reaches rounds two
+   and three; the evidence ordering that makes round one spend well does not apply
+   to them. Page 19 placed one of its four corner-round tiles and the other three
+   are one correct parent away.
+4. *Then the look-ahead window*, as the first memo said, but as the fourth item
+   rather than the first.
