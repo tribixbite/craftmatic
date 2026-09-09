@@ -122,3 +122,102 @@ def test_invalid_allowances_are_rejected():
         refine([], [], None, fraction=1.5, screen_fn=make_screen([0, 0]))
     with pytest.raises(ValueError):
         refine([], [], None, fallback=-1, screen_fn=make_screen([0, 0]))
+    with pytest.raises(ValueError):
+        refine([], [], None, relative_multiple=-1, screen_fn=make_screen([0, 0]))
+    with pytest.raises(ValueError):
+        refine([], [], None, relative_cap=1.0, screen_fn=make_screen([0, 0]))
+
+
+def fixed_screen(table):
+    """Screen returning a stated (outside, occupied, covered) per origin.
+
+    Keys are the integer origin the caller probes; anything else is far worse,
+    so each hypothesis's best offset is the one the table names.
+    """
+    def screen_fn(base, placements, projection, origin, scorer):
+        key = (int(round(origin[0])), int(round(origin[1])))
+        outside, occupied, covered = table.get(key, (10 ** 6, 1000, 0))
+        return dict(base=dict(outside_pixels=outside, occupied_pixels=occupied,
+                              covered_pixels=covered, target_pixels=1000,
+                              allowed=outside == 0))
+    return screen_fn
+
+
+# Page index 22 of 40377, to the pixel: two propagated registrations that cover
+# 92.4% and 90.3% of the drawing and overflow by 1,199 and 669 pixels, against
+# body-template alternatives that are contained and cover 76-80%.
+PAGE22 = fixed_screen({(0, 0): (1199, 57638, 55026),
+                       (10, 0): (669, 55333, 53777),
+                       (20, 0): (147, 46380, 45953),
+                       (30, 0): (273, 48244, 47540)})
+PAGE22_HYPOTHESES = [dict(projection=IDENTITY, origin=[0, 0], score=0.892, rotation_index=3),
+                     dict(projection=IDENTITY, origin=[10, 0], score=0.890, rotation_index=3),
+                     dict(projection=IDENTITY, origin=[20, 0], score=0.306, rotation_index=23),
+                     dict(projection=IDENTITY, origin=[30, 0], score=0.310, rotation_index=23)]
+
+
+def test_the_absolute_allowance_alone_keeps_only_the_small_registrations():
+    result = refine([], PAGE22_HYPOTHESES, None, window=0, fraction=0.01,
+                    screen_fn=PAGE22)
+    kept = {row['source_index'] for row in result['hypotheses']}
+    assert kept == {2, 3}
+    assert result['relative_admissions'] == 0
+
+
+def test_the_within_page_rule_admits_the_high_coverage_registration():
+    result = refine([], PAGE22_HYPOTHESES, None, window=0, fraction=0.01,
+                    relative_multiple=4.0, screen_fn=PAGE22)
+    kept = {row['source_index'] for row in result['hypotheses']}
+    # 669/55,333 is 1.209% against a 0.317% floor; 1,199/57,638 is 2.081% and
+    # stays out, so the rule is not "admit everything".
+    assert kept == {1, 2, 3}
+    admitted = next(row for row in result['hypotheses'] if row['source_index'] == 1)
+    assert admitted['admission'] == 'relative'
+    assert admitted['outside_pixels'] == 669
+    assert result['relative_admissions'] == 1
+
+
+def test_coverage_ordering_prefers_the_ninety_per_cent_registration():
+    result = refine([], PAGE22_HYPOTHESES, None, window=0, fraction=0.01,
+                    relative_multiple=4.0, coverage_order=True, screen_fn=PAGE22)
+    assert [row['source_index'] for row in result['hypotheses']] == [1, 3, 2]
+
+
+def test_the_rule_is_inert_when_something_is_cleanly_contained():
+    # A page whose best hypothesis overflows by nothing has a zero floor, so the
+    # relative allowance collapses to the absolute one and admits nothing extra.
+    screen = fixed_screen({(0, 0): (0, 40000, 39000), (10, 0): (900, 50000, 48000)})
+    hypotheses = [dict(projection=IDENTITY, origin=[0, 0], score=0.5, rotation_index=0),
+                  dict(projection=IDENTITY, origin=[10, 0], score=0.9, rotation_index=0)]
+    strict = refine([], hypotheses, None, window=0, fraction=0.01, screen_fn=screen)
+    loose = refine([], hypotheses, None, window=0, fraction=0.01, relative_multiple=4.0,
+                   screen_fn=screen)
+    assert ({r['source_index'] for r in strict['hypotheses']}
+            == {r['source_index'] for r in loose['hypotheses']} == {0})
+    assert loose['overflow_ratio_floor'] == 0.0
+    assert loose['relative_admissions'] == 0
+
+
+def test_a_page_with_no_registration_worth_comparing_against_is_left_alone():
+    # 40377 page index 26's second drawing: the best hypothesis overflows by
+    # 7.3% of its own area, so there is no reference and the rule withholds.
+    screen = fixed_screen({(0, 0): (2072, 28369, 25596), (10, 0): (9825, 36976, 26386)})
+    hypotheses = [dict(projection=IDENTITY, origin=[0, 0], score=0.4, rotation_index=0),
+                  dict(projection=IDENTITY, origin=[10, 0], score=0.9, rotation_index=0)]
+    result = refine([], hypotheses, None, window=0, fraction=0.01, relative_multiple=4.0,
+                    screen_fn=screen)
+    assert result['hypotheses'] == []
+    assert result['relative_ratio_ceiling'] is None
+    assert round(result['overflow_ratio_floor'], 5) == round(2072 / 28369, 5)
+
+
+def test_the_cap_bounds_the_relative_allowance():
+    # A 1% floor would admit 4% at multiple four; the cap holds it to 3%.
+    screen = fixed_screen({(0, 0): (100, 10000, 9000), (10, 0): (350, 10000, 9500),
+                           (20, 0): (250, 10000, 9400)})
+    hypotheses = [dict(projection=IDENTITY, origin=[o, 0], score=0.5, rotation_index=0)
+                  for o in (0, 10, 20)]
+    result = refine([], hypotheses, None, window=0, tolerance=0, relative_multiple=4.0,
+                    relative_cap=0.03, screen_fn=screen)
+    assert {row['source_index'] for row in result['hypotheses']} == {0, 2}
+    assert result['relative_ratio_ceiling'] == 0.03

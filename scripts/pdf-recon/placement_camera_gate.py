@@ -129,6 +129,12 @@ def measure(hypothesis, prior_scale=None, new_piece_area=None):
                 occupied_pixels=hypothesis.get('occupied_pixels',
                                                containment.get('occupied_pixels')),
                 contained=bool(hypothesis.get('contained')),
+                # 'absolute' satisfied the fixed allowance; 'relative' was
+                # admitted by comparison with the page's own best achievable
+                # overflow, which is the honest label for a body that protrudes
+                # because it carries a wrong part rather than because the camera
+                # is wrong. Recorded, never a separate criterion.
+                admission=hypothesis.get('admission'),
                 containment_fallback=bool(hypothesis.get('containment_fallback')))
 
 

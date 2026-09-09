@@ -528,19 +528,34 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                                      camera_matrices=len(matrices), truth_used=False,
                                      runtime_vlm_calls=0, certified=False), indent=2))
         scorer = MaterialFeatureSceneScorer(scene, plane_depth=True)
+        # Containment still passes through the emitted body even though camera
+        # *choice* no longer does, and one absolute allowance calibrated on a
+        # nearly-correct body cost page index 22 three pages: its propagated
+        # registration covers 90.3% of the drawing and was rejected for 116
+        # pixels of 55,333. The within-page relative rule compares this page's
+        # hypotheses against each other instead.
         contained = refine(base, hypotheses[:options['refine_limit']], scorer,
                            window=options['window'], tolerance=options['tolerance'],
                            fraction=options['fraction'], fallback=options['fallback'],
-                           screen_fn=screen, scales=tuple(options.get('scales') or (1.0,)))
+                           screen_fn=screen, scales=tuple(options.get('scales') or (1.0,)),
+                           relative_multiple=options.get('containment_multiple', 0.0),
+                           relative_cap=options.get('containment_cap', 0.03),
+                           coverage_order=options.get('containment_coverage_order', False))
+        # Within one page and against one body, coverage is directly comparable
+        # between registrations and a propagated one carries no template score.
+        # Across pages it is not, which is why it orders and never gates.
+        def registration_rank(row):
+            if options.get('containment_coverage_order'):
+                return -(row.get('covered_pixels') or 0)
+            return -(row['template_score'] if row['template_score'] is not None else 0.0)
+
         if propagated:
             # `refine` orders what it retains by template score, which a
             # propagated registration does not have and must not be judged by.
             # Keep every propagated survivor ahead of every body-template one,
             # each group in its own order.
             contained['hypotheses'].sort(
-                key=lambda row: (row['source_index'] >= len(propagated),
-                                 -(row['template_score'] if row['template_score'] is not None
-                                   else 0.0)))
+                key=lambda row: (row['source_index'] >= len(propagated), registration_rank(row)))
             for row in contained['hypotheses']:
                 row['registration_source'] = ('drawing_to_drawing'
                                               if row['source_index'] < len(propagated)
@@ -603,8 +618,7 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
             # registrations the gate accepted.
             accepted = sorted(accepted,
                               key=lambda row: (row['source_index'] >= len(propagated),
-                                               -(row['template_score']
-                                                 if row['template_score'] is not None else 0.0)))
+                                               registration_rank(row)))
         contained['hypotheses'] = accepted
         contained['camera_gate'] = {key: value for key, value in gate_record.items()
                                     if key != 'verdicts'}
@@ -963,6 +977,17 @@ def add_page_options(parser):
                         help='Overflow allowed as a fraction of the rendered body area')
     parser.add_argument('--fallback', type=int, default=0,
                         help='Proceed on this many least-overflowing views when none is contained')
+    parser.add_argument('--containment-multiple', type=float, default=0.0,
+                        help='Also admit a registration whose overflow, as a fraction of its own '
+                             "rendered area, is within this multiple of the page's own smallest "
+                             'such fraction. An absolute allowance cannot express how wrong the '
+                             'body already is; this compares the page against itself. 0 disables it')
+    parser.add_argument('--containment-cap', type=float, default=0.03,
+                        help='Ceiling on that relative allowance, and the overflow floor above '
+                             'which a page has no registration worth comparing against')
+    parser.add_argument('--containment-coverage-order', action='store_true',
+                        help='Order retained registrations by how much of the drawing the body '
+                             'covers instead of by template score')
     parser.add_argument('--camera-prescan', action='store_true',
                         help="Measure every page's own camera before the drive so a page with "
                              "none can borrow the nearest neighbour's")
@@ -1058,6 +1083,9 @@ def build_options(args):
                 camera_prior_matrices=args.camera_prior_matrices, per_matrix=args.per_matrix,
                 refine_limit=args.refine_limit, window=args.window, tolerance=args.tolerance,
                 fraction=args.fraction, fallback=args.fallback, scales=tuple(args.scales),
+                containment_multiple=args.containment_multiple,
+                containment_cap=args.containment_cap,
+                containment_coverage_order=args.containment_coverage_order,
                 scale_prior=not args.no_scale_prior, retry_passes=args.retry_passes,
                 exploded_target=not args.no_exploded_target,
                 drawing_scale=not args.no_drawing_scale,
