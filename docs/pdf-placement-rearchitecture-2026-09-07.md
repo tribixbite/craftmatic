@@ -2314,3 +2314,28 @@ that either of them is counting the right objects. `placement_population_table`'
 both fixtures (8 and 60), and the population's `mis_selected` plus
 `visibility_limited` equals the audit's screen plus retention plus ranking on
 both (16 = 1 + 13 + 2 on 40377, and 16 = 7 + 7 + 2 on 41624).
+
+### Round six's trajectory: unchanged, and that is the result
+
+| round | 40377 | 41624 | what the round bought |
+| ---: | ---: | ---: | --- |
+| 1 | 26/90 | — | native scenes, calibrated cameras, CAD geometry |
+| 2 | 46/90 | 3/109 | camera, identity, the body table |
+| 3 | 46/90 | 3/109 | the target, the budget, construction |
+| 4 | 48/90 → 53/90 | 5/109 | drawing-to-drawing registration, per-round closure |
+| 5 | 53/90 | 5/109 | containment judged in-page, the 98138 alias |
+| **6** | **53/90** | **5/109 (full scope)** | **the population, and three channels not adopted** |
+
+Round six adopted no runtime change, so the chain number is unchanged by
+construction. What it produced instead is the measurement that says why rounds
+four and five also produced nothing: 96% of the loss is upstream of the objective
+those rounds improved, and the class round five identified as the cause is 6% of
+it. 41624's number is now measured over its whole 37-page scope rather than six
+pages, and it is the same 5.
+
+Two experiments were left running at the end of the round and are **not** included
+in any number above: a whole-chain 40377 re-drive at `--max-closure-parents 1024
+--max-poses 32768`, and a page-19 re-drive at `--beam 256 --top-k 64` aimed at the
+retention stage, which loses 6 of that page's 6 enumerated-and-screened targets
+to 1. Neither had finished; both are far slower per page than the round-five
+settings, which is itself a cost that any adoption has to carry.
