@@ -95,6 +95,11 @@ def run(pdf, inventory_run, out, truth=None, roots=3, mould_policy='withhold',
     out.mkdir(parents=True, exist_ok=True)
     log = out / 'pipeline.log'
     journal = []
+    if inventory_run is None:
+        inventory_run = out / 'inventory'
+        stage(journal, 'printed inventory',
+              [HERE / 'placement_pdf_inventory.py', pdf, '--out', inventory_run],
+              inventory_run / 'inventory.json', log)
     slots = out / 'slots'
     stage(journal, 'slot assignment',
           [HERE / 'global_pdf_slot_assignment.py', pdf, '--allocation-run', inventory_run,
@@ -210,8 +215,9 @@ def finish(out, pdf, inventory_run, scope, construction_page, drive_pages, journ
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--pdf', type=Path, required=True)
-    parser.add_argument('--inventory-run', type=Path, required=True,
-                        help='Directory holding the printed inventory (inventory.json)')
+    parser.add_argument('--inventory-run', type=Path, default=None,
+                        help='Directory holding a printed inventory (inventory.json); omit to '
+                             'extract it from the PDF, which makes the PDF the only input')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--truth', default=None, help='Evaluation only; never read by the pipeline')
     parser.add_argument('--roots', type=int, default=3)
