@@ -4282,3 +4282,37 @@ bank truncation zero, beam width refuted, the reference-equivalent complete
 assembly scoring *below* the beam's own best complete state - the loss is at the
 same place it has always been. Making the body right changes which poses are
 enumerable and does not change which assemblies the objective keeps.
+
+### The wider scope, driven: nine more pieces, no more correct poses
+
+The mould classes admitted four pages the round-eight allocation refused. Same
+construction, same options, `--mould-policy withhold`, one variable.
+
+| | round eight scope | **round nine scope (mould classes admitted)** |
+| --- | ---: | ---: |
+| pages driven | 18 | **22** |
+| pages placed | 17 | **21** |
+| emitted | 77 | **86** |
+| **structural** | **3** | **3** |
+| precision | 0.039 | 0.035 |
+| pages ending in an exact tie | 13 of 17 | 16 of 21 |
+
+Pages 8, 10, 17 and 21 placed - the on-ramp lever works end to end, and the
+camera gate accepted every one of them with the withheld class piece's ink
+attributed rather than charged to the pieces the page adds. They contributed
+**nine pieces and zero correct poses**, which is what every other page in this
+program's from-scratch drives contributes.
+
+So the three levers this round built are consistent with each other and with the
+two before it:
+
+| lever | what it moved | what it did not |
+| --- | --- | --- |
+| a better opening (41601) | 3 of 108 to **6 of 108** | the drive's own contribution: +0 |
+| repairing a collapse (40377) | 51 of 90 to **53 of 90** | the pages after the repair still add poses only where round seven's chain did |
+| a wider scope (41601) | 77 emitted to **86** | 3 correct, unchanged |
+| inventory capacity | nothing: 0 deficits, 0 reorderings over 75 candidates | - |
+
+Every gain this round came from **choosing a different body**, and none from
+driving better. The wide scope was driven from the round-eight opening, so the
+two 41601 gains have not been combined; that run is not measured.
