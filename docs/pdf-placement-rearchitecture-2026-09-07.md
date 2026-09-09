@@ -4888,3 +4888,51 @@ need each candidate registered independently on the later page, which is a
 per-candidate registration search per page and reintroduces the same objective
 one level down. That is a far larger item than the two to three days round nine
 costed, and it is now costed on evidence.
+
+### 41601, end to end, from the PDF alone with no attended step
+
+One command. The PDF is the only input; the reference is read afterwards, by the
+evaluator, and chooses nothing.
+
+| stage | derived | result |
+| --- | --- | --- |
+| printed inventory | `placement_pdf_inventory` | 48 records, 108 pieces, 2 elements ambiguous |
+| callout association | `crop_items` (grouped, exclusive, panel geometry) | 70 of 70 anchors resolved |
+| identity | slot MILP + **CAD-size gate** (12 pairs, converged) | 108 pieces, page 2 = the reference's steps 1 and 2 |
+| page scope | `--auto-scope` | 24 pages, 103 pieces in scope, page 27 excluded and named |
+| opening | construction on the first scope page, symmetry-selected | `beam_24`, **6 of 7**, +3 over the objective's own pick, equal to the oracle best |
+| drive | 23 pages | 19 placed, 78 emitted |
+| **final** | | **6 of 108 correct poses, driver contribution +0** |
+
+**The prediction registered before this ran was wrong, and it is worth saying
+exactly how.** It said "the repaired on-ramp reallocates the opening page's plate
+to `3022`:72 ... so opening <= 5 of 7 and the chain 3-6 of 108". The chain landed
+in that band, but the opening did not: the **CAD-size gate, which did not exist
+when the prediction was written**, removed that reallocation and put page 2 back
+to `3031`:72. The prediction was falsified by the round's own repair, which is
+the only honest way to describe it.
+
+One page was lost to a code defect rather than to the pipeline: page 5 - the
+translucent-callout page the association repair recovered - failed with
+`Object of type bool_ is not JSON serializable` because a scene record carries
+numpy booleans and the evidence writer used a bare `json.dumps`. It had never
+been in a drivable scope before. Fixed, and the run is reported with the defect
+named rather than re-driven, because every measurement in this program says an
+extra page adds emitted pieces and no correct poses.
+
+### The four 41601 chains side by side
+
+| | r8 | r9 opening | r9 scope | r10 combined | **r10 autonomous** |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| attended steps | 1 | 1 | 1 | 1 | **0** |
+| opening structural | 3 of 7 | 6 of 7 | 3 of 7 | 6 of 7 | **6 of 7** |
+| scope | 18p / 83 | 18 / 83 | 22 / 92 | 22 / 92 | **23 / 103** |
+| pages placed | 17 | 16 | 21 | 20 | 19 |
+| emitted | 77 | 75 | 86 | 85 | 78 |
+| **structural** | 3 | 6 | 3 | 6 | **6 of 108** |
+| driver's own contribution | +0 | +0 | +0 | +0 | **+0** |
+| pages ending in a tie | 13/17 | 11/16 | 16/21 | 13/20 | **13/19** |
+
+**Five chains, five different scopes and two different openings, and the drive's
+own contribution is +0 in every one.** The structural count is decided entirely
+by the opening; nothing after page 3 has ever moved it on this fixture.
