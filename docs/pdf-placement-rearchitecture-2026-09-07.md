@@ -3475,3 +3475,92 @@ target is *also* a `3023b`:0. A quota-preserving exchange cannot admit two
 placements of a key the page allocates once, so no two-placement move - and no
 larger one that keeps the allocation - can contain both the pose and its witness.
 That instance is blocked by the page allocation, not by the search.
+
+### Pooled across both fixtures, the objective is wrong three times in four
+
+Round seven's one-swap probes and round eight's two-placement probes compute the
+same quantity - the best signed native delta of a legal quota-preserving edit
+that introduces one reference instance - so they pool. `placement_objective_gap`
+does that, per distinct reference instance rather than per page opportunity:
+
+| | instances | with a legal edit | the objective would take | it prefers its own |
+| --- | ---: | ---: | ---: | ---: |
+| 40377 | 14 | 14 | 5 | 9 |
+| 41624 | 7 | 6 | **0** | 6 |
+| **pooled** | **21** | **20** | **5** | **15 (75%)** |
+
+**The concentration is the finding, not the share.** All five instances a better
+search could convert are on 40377, and all five are on **page 19**. The entire
+measured upside of every search-side lever this program has built or costed -
+beam width, closure completion, retention, window ordering, compound exchange -
+is five parts on one page of one fixture. Every other instance is the selection
+objective preferring the assembly the run already had, by 6e-4 to 5.9e-2.
+
+That is the measurement the breadth round was supposed to produce, arriving one
+fixture early, and it points the same way round seven's page-19 replay did: the
+optimum of this objective is not the model.
+
+## The third fixture: 41601-1 Cyborg, and what the on-ramp actually costs
+
+The breadth plan's fixture 1 is "another BrickHeadz, ~90 parts - the cheapest
+possible control". `41601-1` (DC series 2, 2018, 108 parts, BI document
+`6220569.pdf`, OMR `41601-1.mpd`) was chosen over 21 other in-band BrickHeadz
+candidates because it is the only one besides 40377 whose **catalog part count,
+OMR leaf placements and PDF BOM quantities all agree exactly at 108**, removing
+the reconciliation confound 40377's own 73/90 BOM-vs-OMR overlap introduced.
+
+A structural discriminator worth recording for every future fixture: the OMR
+corpus has two authors and only one is usable. **Damien Roux [Darats]** files
+carry **zero `0 STEP` markers** and inflated placement counts (41485: 188 leaf
+against a 91-part catalog); **Vincent Messenet [Cheenzo]** files carry real step
+structure and near-exact BOM agreement. Both existing fixtures are Cheenzo, and
+ten of the 22 in-band BrickHeadz are Darats and are not comparable references.
+
+### The automation gap, measured rather than estimated
+
+The breadth plan's cost note says allocation "is the part that is *not*
+automated". Driven end to end on a fresh fixture, that is half right - every
+stage ran unattended, and the gap is not missing tooling but **what the tooling
+correctly refuses**:
+
+| stage | tool | outcome on 41601 | attended? |
+| --- | --- | --- | --- |
+| identity / BOM | `anchored_pipeline_trial --joint` | 48 records, **108/108 pieces**, 2 elements ambiguous | no |
+| colour confirmation | `placement_element_bridge` | **0 proposals, 0 confirmations** | no |
+| slot assignment | `global_pdf_slot_assignment` | 68 callouts, 105 pieces, 101 unambiguous | no |
+| page-scoped allocation | `placement_slot_adapter` | **refuses 6 pages**; 83 of 108 pieces drivable | **yes - the page scope is a human choice** |
+| opening body | `placement_construct_body` | see below | no |
+| the chain | `placement_autodrive` | see below | no |
+
+**The whole attended cost is one decision: which pages to drop.** Everything
+else is a command. But that decision costs 25 of 108 pieces before a single pose
+is searched, so the pipeline's *allocation ceiling* on a fresh fixture is
+**77%**, and that is a property of the fixture rather than of the driver.
+
+### 41601's ambiguity is a different class from 40377's, and colour cannot touch it
+
+40377 reached zero unresolved rows with `--color-constraints` and one ambiguous
+piece. 41601 has four ambiguous pieces and **`--color-constraints` changes
+nothing**, because the ambiguity is not about colour at all:
+
+| page | qty | candidates |
+| ---: | ---: | --- |
+| 8, 17, 21 | 1 each | `15573`:72 / `3794a`:72 / `3794b`:72 |
+| 10 | 1 | `4032a`:25 / `4032b`:25 |
+
+These are **mould variants of one physical part**. Their universal CAD bounding
+boxes are identical to the LDU (`15573`/`3794a`/`3794b` all span
+[-20,-4,-10]-[20,8,10]; `4032a`/`4032b` both [-20,-4,-20]-[20,8,20]) and differ
+only in under-the-plate tube geometry - 172, 188 and 220 triangles for the same
+outside. No drawing can separate them and no colour evidence can either, so the
+slot adapter is right to refuse them and no amount of pixel evidence will change
+that. Two further rows are lost upstream for unrelated reasons: page 5 has a
+callout the assignment could not match to any inventory slot, and page 19 an
+"ambiguous artwork association" between two crop components.
+
+**The principled fix is an equivalence class, not better evidence.** A
+mould-variant group whose external CAD agrees within tolerance is one search
+candidate with several legal names; resolving it by geometry rather than by
+guessing would recover 4 of the 25 lost pieces on this fixture without emitting
+an arbitrary variant as fact. That is a *new* channel this round measured into
+existence, and it is filed rather than built.
