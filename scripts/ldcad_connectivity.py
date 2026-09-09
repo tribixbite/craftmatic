@@ -103,30 +103,47 @@ def parse_kv(line):
     return dict(re.findall(r'\[(\w+)=([^\]]*)\]', line))
 
 def expand_grid(g):
-    """[grid=<X> <countX> <Z> <countZ> <spaceX> <spaceZ>] -> list of (x,z) offsets.
-    X/Z entries: 'C'=centered or an integer count token; LDCad uses tokens like
-    'C 4 C 2 20 20' (centered 4, centered 2, spacing 20 20) or '2 3 20 20'."""
+    """[grid=...] -> list of (dx, dy, dz) offsets in part space.
+
+    LDCad's grid attribute is `<axis spec> x k` followed by `<spacing> x k`,
+    where an axis spec is an optional 'C' (centered) plus an integer count.
+    k is 2 (offsets in the XZ plane, the common case) or 3 (a full 3D grid).
+
+    k is DERIVED rather than assumed: with nC 'C' tokens, len == 2k + nC, so
+    k = (len - nC) / 2. That covers every form in the shipped shadow library:
+      'C 4 C 2 20 20'      -> k=2, centered 4 x centered 2, 20 LDU pitch
+      '2 3 20 20'          -> k=2, corner-anchored
+      '1 C 2 C 2 0 80 60'  -> k=3  (13 such lines; the old 2-axis-only parser
+                              raised ValueError on the third spec's 'C' and
+                              took the whole part's snaps down with it)
+    Unparseable input degrades to a single offset at the snap's own position —
+    that loses grid duplicates, which costs matches but never invents one.
+    """
     t = g.split()
-    # normalise: collect counts + centered flags + spacings
-    # common forms: 'C n C m sx sz'  |  'n m sx sz'  |  'C n m sx sz'
-    nums=[]; cent=[]
-    i=0
-    while i < len(t):
-        if t[i] in ('C','c'):
-            cent.append(True); i+=1
-            nums.append(int(float(t[i]))); i+=1
-        else:
-            cent.append(False); nums.append(int(float(t[i]))); i+=1
-        if len(nums)==2: break
-    rest=[float(x) for x in t[i:]]
-    sx = rest[0] if len(rest)>0 else 20.0
-    sz = rest[1] if len(rest)>1 else 20.0
-    nx,nz = nums[0], nums[1]
-    cx = cent[0] if len(cent)>0 else True
-    cz = cent[1] if len(cent)>1 else True
-    xs = [ (k-(nx-1)/2)*sx if cx else k*sx for k in range(nx) ]
-    zs = [ (k-(nz-1)/2)*sz if cz else k*sz for k in range(nz) ]
-    return [(x,z) for x in xs for z in zs]
+    nc = sum(1 for x in t if x in ('C', 'c'))
+    k = (len(t) - nc) // 2
+    if k < 2 or k > 3 or len(t) != 2 * k + nc:
+        return [(0.0, 0.0, 0.0)]
+    counts = []
+    cent = []
+    i = 0
+    try:
+        for _ in range(k):
+            if t[i] in ('C', 'c'):
+                cent.append(True); i += 1
+            else:
+                cent.append(False)
+            counts.append(int(float(t[i]))); i += 1
+        spacing = [float(x) for x in t[i:]]
+    except (ValueError, IndexError):
+        return [(0.0, 0.0, 0.0)]
+    axes = []
+    for n, c, s in zip(counts, cent, spacing):
+        n = max(1, n)
+        axes.append([(j - (n - 1) / 2) * s if c else j * s for j in range(n)])
+    if k == 2:                       # 2D grids lie in the XZ plane
+        return [(x, 0.0, z) for x in axes[0] for z in axes[1]]
+    return [(x, y, z) for x in axes[0] for y in axes[1] for z in axes[2]]
 
 def radius_of(secs):
     # secs like 'R 6 20' or 'R 8 2 R 6 16 R 8 2' -> representative radius (max)
@@ -155,9 +172,9 @@ def harvest_snaps(text, connectors, mat, pos):
         lori = tuple(lori)
         axis_local = mvec(lori, (0,1,0))  # cylinder axis = local Y
         group = kv.get('group') or kv.get('ID') or kv.get('id')
-        offsets = expand_grid(kv['grid']) if 'grid' in kv else [(0,0)]
-        for (gx,gz) in offsets:
-            p_local = (lp[0]+gx, lp[1], lp[2]+gz)
+        offsets = expand_grid(kv['grid']) if 'grid' in kv else [(0.0,0.0,0.0)]
+        for (gx,gy,gz) in offsets:
+            p_local = (lp[0]+gx, lp[1]+gy, lp[2]+gz)
             wp = vadd(mvec(mat, p_local), pos)
             wax = mvec(mat, axis_local)
             connectors.append({'pos':wp,'axis':wax,'r':rad,'g':gender,'k':kind,'grp':group})

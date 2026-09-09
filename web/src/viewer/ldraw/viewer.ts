@@ -1123,9 +1123,15 @@ export class LDrawViewer {
    * GLB / OBJ / STL.
    */
   /**
-   * Diagnostic: geometry-contact connectivity audit (are all pieces connected,
-   * or do some float?). Uses real triangle-surface voxel contact, not bounding
-   * boxes, so SNOT/clip/microscale joints are detected correctly. Lazy-loaded.
+   * Diagnostic: CONTACT-CANDIDATE audit — which pieces have no detected
+   * attachment to the main build. Real triangle-surface voxel contact (not
+   * bounding boxes) fused with LDCad attachment points for the clip/bar/pin/
+   * headgear joints surfaces miss. Lazy-loaded.
+   *
+   * It is a heuristic, not a certificate: the voxel tolerance closes small real
+   * gaps and the attachment table's coverage is partial. The report carries
+   * both so a caller cannot honestly present it as verification — see
+   * connectivity-audit.ts and ui/contact-check-status.ts.
    */
   async auditConnectivity(resLDU = 4): Promise<ConnectivityReport> {
     const bricks = this.collectAuditBricks();
@@ -1143,11 +1149,11 @@ export class LDrawViewer {
   }
 
   /**
-   * Run the connectivity audit and, when candidates exist, recolor pieces the
-   * audit marks as NOT in the main component bright red (everything else grey)
-   * so they're visually obvious. Returns the full report. When the model is
-   * fully connected nothing is recolored (a success shouldn't grey the model).
-   * Restore original colors with clearDetachedHighlight().
+   * Run the contact-candidate audit and, when candidates exist, recolor the
+   * pieces with no detected attachment bright red (everything else grey) so
+   * they're visually obvious. Red = INSPECT THIS, never "this piece floats".
+   * Returns the full report. When nothing is unattached nothing is recolored (a
+   * success shouldn't grey the model). Restore with clearDetachedHighlight().
    */
   async highlightDetached(resLDU = 4): Promise<ConnectivityReport> {
     const bricks = this.collectAuditBricks();
