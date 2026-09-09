@@ -127,6 +127,43 @@ scale there are right, so it is not registration. Nothing emitted after page 16
 is correct — do not read a rising part count as rising accuracy. Structural evaluation itself was wrong until
 `placement_part_symmetry_table.py` replaced a hand-written symmetry list with
 per-part universal-CAD proofs (a square 4x4 plate's four-fold yaw was missing).
+Round four did round three's first recommendation and it worked on its own terms
+without moving the count. `placement_drawing_registration` propagates the previous
+page's ACCEPTED registration through the similarity that aligns the two DRAWINGS
+(`M' = s·M`, `o' = s·o + t`), so the emitted body no longer chooses the camera or
+the origin: page 18 registers at 98.4% coverage inside the containment allowance
+where its own stud rows reach 75.4% and round three could not contain it at any
+offset, the gate accepts it and the search selects it. Three corrections came out
+of driving it: the registration a run USES is the selected view's, not the first
+accepted one; the drawing ratio OVER-states the camera ratio (15→16 optimises at
+1.03 where both pages' stud rows agree within 1%) so the unit scale must always be
+offered beside it; and the camera gate must charge a SKIPPED page's ink to that
+page or it refuses every page after one. **Coverage stays 48/90.** The reason is
+the commitment ORDER, not any part round four touched: page 18's single 4x4 plate
+is the root of ≥13 further parts (page 19's six mount on it via the 41740, page
+20's seven attach into the same region), its two candidates differ by 4 LDU, BOTH
+engage twelve connectors, and three objectives rank them within 0.25% with two
+wrong (whole-drawing 0.488517 vs 0.487312; local rerank widens it to 0.0172;
+seated tie-break ties at 12 mates each). Page 19's drawing settles it — the fix is
+a bounded TWO-PAGE decision window, not a fourth objective. Do not build another
+selection objective for sub-stud ties. Two real defects were also fixed:
+`98138pb072`'s female anti-stud reference point sat at the INNER end of its own
+tube (from a flipped `stud4o` reference), so the printed tile had twelve legal
+mates and ZERO collision-legal ones and page 20's construction returned
+`no_models` at every root — `placement_connector_repair` moves it to the bottom
+face where LDCad's own convention puts it (0→12 mates, exactly `25269`'s
+transforms; opt-in `--repair-anti-studs`, seeds `recon_v8.assembly._pconn_cache`,
+no upstream edit); and `ShapeRegistry.close` counted its parent budget GLOBALLY
+across rounds, so a second connector hop was unreachable on any page whose
+base-attached set exceeds the budget (page 19: 3,587) — `--per-round-parents`
+reaches rounds 2-3 but does NOT recover page 19, because choosing WHAT to expand
+in a later round is a separate problem the round-one evidence ordering does not
+cover. Both subassembly constructions now COMPLETE (page 20 seven parts, page 31
+four, from every root) and both are 1 structural of N, i.e. 0 of 6 and 0 of 3
+beyond the nailed root — page 31's two drawings align at IoU 0.9914 because flat
+black tiles on a black 6x6 plate barely change the silhouette, so that one is a
+DATA limit. Attaching a 1-of-7 body would poison the pages after it, so the reach
+drive runs without `--group-run`.
 
 > **Where to go next** → see **[ROADMAP.md](ROADMAP.md)**: the near-term (~100h)
 > priorities (tests/CI first, then the user on-ramp, mobile, MC bridge,
