@@ -3608,3 +3608,56 @@ Two honest caveats, both recorded rather than buried:
   not transfer to another, and that is a limitation of the probe, not a failure
   of the prediction. It is also the third independent observation this round that
   what a search improvement finds depends on which wrong assembly it starts from.
+
+### Round eight's whole-chain result on 40377: 54/90 to **51/90**
+
+Same base checkpoint, same 17-page scope, same allocation, same deterministic
+tie-break as round seven's window chain. One flag differs.
+
+| | round seven (window) | **round eight (window + compound)** |
+| --- | ---: | ---: |
+| emitted | 79 | 79 |
+| **structural** | **54** | **51** |
+| authoritative-alias | 38 | 35 |
+| raw strict | 32 | 29 |
+| precision | 0.684 | 0.646 |
+| coverage | 0.600 | 0.567 |
+| pages with a tie among different assemblies | 9 of 13 | 9 of 13 |
+| widest tie | 12-way | 4-way |
+
+**The chain lands three poses lower, and unlike round six's regression this one is
+attributable.** Both chains are deterministic, both hold the same tie-break, and
+page 19's two assemblies are not tied - the compound one scores **0.534665**
+against the control's **0.532680**, a genuine 0.002 preference by the objective
+that selects. The mechanism is then exactly round six's:
+
+| page | round seven | round eight |
+| ---: | --- | --- |
+| 19 | `drawing_to_drawing` 1.6916, score 0.5327, **51 structural** | `drawing_to_drawing` 1.6916, score 0.5347, **51 structural** |
+| 22 | `drawing_to_drawing` **1.6916**, 0.3738 | `body_template` **1.4863**, 0.2583 |
+| 23-30 | 1.6916 throughout; 52 at p28, **54** at p29 | **1.5010** throughout; **51** frozen from p19 |
+
+Page 19 itself is a wash - the compound move changes four of six placements and
+the correct count does not move - and then page 22 falls off
+`drawing_to_drawing` onto a `body_template` registration at the wrong scale,
+every later page inherits 1.5010 instead of 1.6916, and the three poses round
+seven gained at pages 28-29 never arrive. Pages 22 to 30 add 21 parts and **not
+one correct pose**, which is the third time this program has recorded that
+signature.
+
+**So the honest track-one number is 51/90, and the honest reading is stronger
+than "the lever was worth nothing".** A strictly larger legal search space,
+searched with a strictly better move set, found a strictly better optimum of the
+selection objective - and the model got **worse**. That is not an
+under-optimisation result and no further search work addresses it. It is direct
+evidence that the objective is misspecified.
+
+The measured expectation was +1 and the delivered result is -3. Both are inside
+the same finding: the probe's +1 was measured from a different local optimum, and
+the -3 is the chain's camera path reacting to a better-scoring page-19 body. The
+prediction protocol round seven introduced held for the mechanism (6 of 7
+reachable, exactly as designed) and failed for the outcome, because a page's
+contribution to the chain is not a function of that page's objective value.
+
+**`--compound-width` therefore ships off by default.** It is correct, tested and
+journalled, and on this fixture turning it on costs three poses.
