@@ -527,7 +527,9 @@ can be driven. Its first honest numbers, from its existing three-piece bootstrap
 | page index 4 | 9 | 3 | 0.333 |
 | page index 8 | 22 | 3 | 0.136 |
 
-That is **3/109 (2.8%) coverage**. The drive works mechanically - six pages, no
+That is **3/109 (2.8%) coverage**, and it is the run *without* the colour
+neutrality fix; with it the same six pages emit the same 22 parts at 2
+structural, which is the negative result recorded above. The drive works mechanically - six pages, no
 unsupported page, every camera contained or explicitly fallen back - and places
 almost nothing correctly. Page index 3 is only drivable at all because of the
 camera prescan: its drawing exposes no stud row, and as the first page of the
