@@ -3158,3 +3158,39 @@ usable baseline for a configuration A/B**, and neither were rounds four's and
 five's own chain deltas. The control for everything below is a re-drive of round
 five's exact configuration with the deterministic tie-break and nothing else
 changed.
+
+### The parent-budget chain, finished: 50/90, and why that number cannot be read
+
+| checkpoint | round five (128 parents) | round six (1024 parents) |
+| --- | --- | --- |
+| page 18 | 52 emitted / **49** | 52 / **49** (models byte-identical) |
+| page 19 | 58 / **50** | 58 / **50** (one line differs, same score) |
+| page 25 | 65 / 51 | 65 / **50** |
+| page 30 | 79 / **53** | 73 / **50** |
+| final, after retries | 79 / **53** (0.589) | 79 / **50** (0.556) |
+
+The chain lands **three poses lower**, and after page 19 its structural count is
+frozen at 50: pages 22 to 30 and both retries add 21 parts and **not one correct
+pose**, where round five's added three.
+
+**That difference cannot be attributed.** Two things changed at once and this run
+cannot separate them:
+
+* page 19's tied set grew from two members to three at an identical score, and
+  the sort handed the page to a different one — every later page inherits that
+  body and, at page 22, a different registration mechanism and camera scale;
+* pages 22 onward also got genuinely larger banks (page 22 retained 13 assemblies
+  in round five and 42 here, page 23 12 against 38), so the search itself is not
+  the same experiment.
+
+Either could account for three poses. The one thing measured cleanly is the size
+of the exposure: **8 of this chain's 13 placed pages end in an exact tie among
+genuinely different assemblies**, and a single such tie at page 19 is enough to
+change the camera path for the remaining nine. So a chain-level delta of three on
+this fixture is inside the noise a tie-break draw can produce, which retroactively
+puts round four's 48-to-53 and round five's hold at 53 in the same band.
+
+The conclusion is not that the budget is bad. It is that **this fixture cannot
+resolve a three-pose chain-level effect at all** until the tie-break is
+deterministic, and that is now the precondition for every A/B this program runs,
+not a refinement of one.

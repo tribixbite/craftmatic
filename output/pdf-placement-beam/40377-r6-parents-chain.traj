@@ -1,7 +1,7 @@
 {
   "run": "output\\pdf-placement-beam\\40377-r6-parents-chain",
   "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
-  "status": "stopped_unsupported_page",
+  "status": "completed_requested_pages_uncertified",
   "rows": [
     {
       "page": 16,
@@ -15,7 +15,10 @@
       "truth_parts": 90,
       "precision": 0.9387755102040817,
       "coverage": 0.5111111111111111,
-      "legacy_structural": 45
+      "legacy_structural": 45,
+      "tied_at_top": 4,
+      "distinct_tied_models": 4,
+      "pose_tie_break": null
     },
     {
       "page": 17,
@@ -31,7 +34,10 @@
       "truth_parts": 90,
       "precision": 0.9411764705882353,
       "coverage": 0.5333333333333333,
-      "legacy_structural": 45
+      "legacy_structural": 45,
+      "tied_at_top": 4,
+      "distinct_tied_models": 4,
+      "pose_tie_break": null
     },
     {
       "page": 18,
@@ -45,7 +51,10 @@
       "truth_parts": 90,
       "precision": 0.9423076923076923,
       "coverage": 0.5444444444444444,
-      "legacy_structural": 46
+      "legacy_structural": 46,
+      "tied_at_top": 4,
+      "distinct_tied_models": 4,
+      "pose_tie_break": null
     },
     {
       "page": 19,
@@ -59,12 +68,193 @@
       "truth_parts": 90,
       "precision": 0.8620689655172413,
       "coverage": 0.5555555555555556,
-      "legacy_structural": 47
+      "legacy_structural": 47,
+      "tied_at_top": 3,
+      "distinct_tied_models": 3,
+      "pose_tie_break": null
     },
     {
       "page": 20,
       "status": "subassembly_page",
       "reason": "The page draws no view of the current assembly, so it builds a separate body; no construction is supplied for it"
+    },
+    {
+      "page": 21,
+      "status": "no_allocation",
+      "reason": "Page adds no allocated piece and no subassembly is pending"
+    },
+    {
+      "page": 22,
+      "status": "placed",
+      "score": 0.2528512410174161,
+      "withheld": [],
+      "emitted": 60,
+      "strict": 28,
+      "canonical": 34,
+      "structural": 50,
+      "truth_parts": 90,
+      "precision": 0.8333333333333334,
+      "coverage": 0.5555555555555556,
+      "legacy_structural": 47,
+      "tied_at_top": 2,
+      "distinct_tied_models": 2,
+      "pose_tie_break": null
+    },
+    {
+      "page": 23,
+      "status": "placed",
+      "score": 0.307561691148708,
+      "withheld": [],
+      "emitted": 61,
+      "strict": 28,
+      "canonical": 34,
+      "structural": 50,
+      "truth_parts": 90,
+      "precision": 0.819672131147541,
+      "coverage": 0.5555555555555556,
+      "legacy_structural": 47,
+      "tied_at_top": 1,
+      "distinct_tied_models": 1,
+      "pose_tie_break": null
+    },
+    {
+      "page": 24,
+      "status": "placed",
+      "score": 0.29275817616842104,
+      "withheld": [],
+      "emitted": 63,
+      "strict": 28,
+      "canonical": 34,
+      "structural": 50,
+      "truth_parts": 90,
+      "precision": 0.7936507936507936,
+      "coverage": 0.5555555555555556,
+      "legacy_structural": 47,
+      "tied_at_top": 1,
+      "distinct_tied_models": 1,
+      "pose_tie_break": null
+    },
+    {
+      "page": 25,
+      "status": "placed",
+      "score": 0.29755857851220596,
+      "withheld": [],
+      "emitted": 65,
+      "strict": 28,
+      "canonical": 34,
+      "structural": 50,
+      "truth_parts": 90,
+      "precision": 0.7692307692307693,
+      "coverage": 0.5555555555555556,
+      "legacy_structural": 47,
+      "tied_at_top": 2,
+      "distinct_tied_models": 2,
+      "pose_tie_break": null
+    },
+    {
+      "page": 26,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 27,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 28,
+      "status": "placed",
+      "score": 0.2936288358782173,
+      "withheld": [],
+      "emitted": 68,
+      "strict": 28,
+      "canonical": 34,
+      "structural": 50,
+      "truth_parts": 90,
+      "precision": 0.7352941176470589,
+      "coverage": 0.5555555555555556,
+      "legacy_structural": 47,
+      "tied_at_top": 2,
+      "distinct_tied_models": 2,
+      "pose_tie_break": null
+    },
+    {
+      "page": 29,
+      "status": "placed",
+      "score": 0.2942056926819243,
+      "withheld": [],
+      "emitted": 70,
+      "strict": 28,
+      "canonical": 34,
+      "structural": 50,
+      "truth_parts": 90,
+      "precision": 0.7142857142857143,
+      "coverage": 0.5555555555555556,
+      "legacy_structural": 47,
+      "tied_at_top": 1,
+      "distinct_tied_models": 1,
+      "pose_tie_break": null
+    },
+    {
+      "page": 30,
+      "status": "placed",
+      "score": 0.2960338309047711,
+      "withheld": [],
+      "emitted": 73,
+      "strict": 28,
+      "canonical": 34,
+      "structural": 50,
+      "truth_parts": 90,
+      "precision": 0.684931506849315,
+      "coverage": 0.5555555555555556,
+      "legacy_structural": 47,
+      "tied_at_top": 1,
+      "distinct_tied_models": 1,
+      "pose_tie_break": null
+    },
+    {
+      "page": 31,
+      "status": "subassembly_page",
+      "reason": "The page draws no view of the current assembly, so it builds a separate body; no construction is supplied for it"
+    },
+    {
+      "page": 32,
+      "status": "no_allocation",
+      "reason": "Page adds no allocated piece and no subassembly is pending"
+    },
+    {
+      "page": 26,
+      "status": "placed",
+      "score": 0.24384088444029695,
+      "withheld": [],
+      "emitted": 77,
+      "strict": 28,
+      "canonical": 34,
+      "structural": 50,
+      "truth_parts": 90,
+      "precision": 0.6493506493506493,
+      "coverage": 0.5555555555555556,
+      "legacy_structural": 47,
+      "tied_at_top": 12,
+      "distinct_tied_models": 12,
+      "pose_tie_break": null
+    },
+    {
+      "page": 27,
+      "status": "placed",
+      "score": 0.23907718378839626,
+      "withheld": [],
+      "emitted": 79,
+      "strict": 28,
+      "canonical": 34,
+      "structural": 50,
+      "truth_parts": 90,
+      "precision": 0.6329113924050633,
+      "coverage": 0.5555555555555556,
+      "legacy_structural": 47,
+      "tied_at_top": 1,
+      "distinct_tied_models": 1,
+      "pose_tie_break": null
     }
   ],
   "scope": "Evaluation-only, executed after the run; the reference model chooses nothing at runtime.",
