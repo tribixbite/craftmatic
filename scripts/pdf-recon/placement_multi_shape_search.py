@@ -67,7 +67,7 @@ def world_boxes(poses):
 
 
 def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
-                    conflict, connected, rounds=3, width=16):
+                    conflict, connected, rounds=3, width=16, window_order='incremental'):
     """Quota-preserving exchange judged by the scorer that actually selects.
 
     The layer search optimises the coarse per-class depth-composite IoU, but the
@@ -77,7 +77,24 @@ def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
     ranking best on the coarse metric. This pass optimises the selection
     objective directly, over the `width` best coarse alternatives per slot so
     the number of GPU renders stays bounded.
+
+    `window_order` decides which `width` alternatives get rendered, and that is
+    the whole reach of the pass. `incremental` is the shipped rule and inherits
+    the coarse plateau: on 40377 page 19, 47-59% of each key's eligible
+    candidates tie exactly, so the window is filled in bank order and the
+    reference poses sit at window ranks 86-97, 232-233 and 298-299 - width would
+    have to be about 300 for the correct `41740` to be rendered at all.
+    `own_agreement` orders by how many of a candidate's *own* painted pixels
+    already carry the drawing's class there, which nothing already placed can
+    flatten; the same reference poses move to ranks 0/1, 2/3 and 47/49/52.
+    Measured at the same budget on page 19: native 0.524586 -> 0.532940, and the
+    reference targets in the emitted assembly go 1 of 6 to 2 of 6, at 217
+    renders against 84. The honest negative control is page 26, where all three
+    screened targets are lost to the objective rather than the window and the
+    ordering changes nothing: 0 of 3 either way, native identical.
     """
+    if window_order not in ('incremental', 'own_agreement'):
+        raise ValueError('Unknown exchange window ordering')
     chosen = list(indices)
     best = fixed_native_score(scorer, base + [item for i in chosen
                                               for item in placements[i]['items']], M, origin)
@@ -89,7 +106,10 @@ def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
             depth, label = coarse.composite(rest)
             correct, false = coarse.counts(label)
             dc, df = coarse.deltas(depth, label)
-            order = np.mean((correct + dc) / np.maximum(1, coarse.areas + false + df), axis=1)
+            if window_order == 'own_agreement':
+                order = coarse.own_agreement().astype(float)
+            else:
+                order = np.mean((correct + dc) / np.maximum(1, coarse.areas + false + df), axis=1)
             order = np.where([keys[i] == keys[outgoing] for i in range(len(keys))], order, -np.inf)
             order[chosen] = -np.inf
             for incoming in np.argsort(-order, kind='stable')[:width]:
@@ -114,7 +134,62 @@ def native_exchange(scorer, base, placements, keys, indices, M, origin, coarse,
         chosen[position] = incoming
         swaps += 1
     return tuple(sorted(chosen)), best, dict(native_renders=renders, native_swaps=swaps,
-                                             trail=trail, width=width, rounds=rounds)
+                                             trail=trail, width=width, rounds=rounds,
+                                             window_order=window_order)
+
+
+def stratified_cap(placements, original, gate, limit):
+    """Cap the screened candidate set without letting one identity crowd out another.
+
+    `build_bank` rasterises one depth and one label layer per candidate, so its
+    host cost is linear in how many survive the screen. Round seven's completed
+    closures make that a real constraint for the first time: 40377 page 28's
+    complete first round holds 140,430 poses against the 8,192 the search has
+    ever seen, and the screen keeps 69% of them. Without a cap the page raises
+    `Bank requires ... bytes` and produces *nothing*, which is a worse outcome
+    than a smaller bank.
+
+    The cap is stratified by quota key and ranked by **coverage rate** - the
+    share of a candidate's own painted silhouette that lands inside the drawn
+    target. Both properties are deliberate. A raw pixel count is bounded above
+    by the candidate's own area, so it ranks an 11,000 px piece above a 500 px
+    piece however well the small one agrees, which is the same scale bias that
+    loses small pieces in the traversal; a rate is scale-free. And filling the
+    limit round robin across keys means the page's rarest identity keeps its own
+    share of the budget rather than competing against a commoner shape's poses.
+
+    Returns the retained positions in their original order, so the bank, the
+    support edges and the anchors keep the indexing everything downstream uses.
+    """
+    if limit is None or len(placements) <= limit:
+        return list(range(len(placements))), None
+    evidence = {int(row['index']): row for row in gate['candidates']}
+    groups = {}
+    for position, placement in enumerate(placements):
+        row = evidence.get(int(original[position]), {})
+        occupied = max(1, int(row.get('occupied_pixels') or 0))
+        rate = float(row.get('covered_pixels') or 0) / occupied
+        groups.setdefault(placement['key'], []).append(
+            (-rate, int(row.get('outside_pixels') or 0), int(original[position]), position))
+    for rows in groups.values():
+        rows.sort()
+    keys = sorted(groups, key=lambda key: (str(key[0]), int(key[1])))
+    kept, cursor = [], 0
+    while len(kept) < limit and any(cursor < len(groups[key]) for key in keys):
+        for key in keys:
+            if cursor < len(groups[key]):
+                kept.append(groups[key][cursor][3])
+                if len(kept) >= limit:
+                    break
+        cursor += 1
+    kept.sort()
+    return kept, dict(limit=int(limit), input_placements=len(placements), retained=len(kept),
+                      per_key_input={f'{p}:{c}': len(rows) for (p, c), rows in groups.items()},
+                      per_key_retained={f'{p}:{c}': sum(1 for row in rows if row[3] in set(kept))
+                                        for (p, c), rows in groups.items()},
+                      protocol='Round-robin over quota keys by coverage rate '
+                               '(covered pixels / the candidate\'s own painted pixels), '
+                               'ties by silhouette overflow then bank index')
 
 
 def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200000,
@@ -122,7 +197,7 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         max_expansions=2_000_000, improve_rounds=8, improve_from=4,
         restarts=0, perturb=2, seed=0, native_rounds=0, native_width=16, native_starts=1,
         image_pieces=None, withheld=(), arrows=(), outside_fraction=0., local_rerank=0.,
-        seated_tolerance=0.):
+        seated_tolerance=0., max_bank_candidates=None, exchange_window_order='incremental'):
     if method not in ('beam', 'exact'):
         raise ValueError('Unknown search method')
     withheld = [(str(part), int(color)) for part, color in withheld]
@@ -171,6 +246,11 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
         except ValueError:
             results.append(dict(view=view_index, status='no_occupancy_compatible_candidates'))
             continue
+        original = [ids[p['pose_index']] for p in placements]
+        kept, cap_record = stratified_cap(placements, original, gate, max_bank_candidates)
+        if cap_record is not None:
+            placements = [placements[position] for position in kept]
+            original = [original[position] for position in kept]
         try:
             bank = build_bank(base, placements, M, origin, scorer, scale=scale,
                               max_host_bytes=host_bytes)
@@ -180,7 +260,6 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
             results.append(dict(view=view_index, status='host_bank_budget_exceeded',
                                 reason=str(exc), occupancy_retained_shapes=len(ids)))
             continue
-        original = [ids[p['pose_index']] for p in placements]
         keys = [p['key'] for p in placements]
         anchored = [i for i, p in enumerate(original) if p in set(record['base_supported'])]
         witnesses = {tuple(edge) for edge in record['support_edges']}
@@ -221,7 +300,7 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
                                    max_nodes=max_nodes, conflict_test=conflict,
                                    priorities=priorities, top_k=top_k)
         result.update(view=view_index, status='bounded_search', search_method=method,
-                      bank_metadata=bank['metadata'],
+                      bank_metadata=bank['metadata'], stratified_cap=cap_record,
                       occupancy_retained_shapes=len(ids), placements=len(placements),
                       quotas={f'{p}:{c}': q for (p, c), q in quotas.items()},
                       collision_pairs_tested=len(collision_cache))
@@ -253,7 +332,8 @@ def run(record, registration, scene, base, out, views=3, scale=1., max_nodes=200
             for start in candidates[:max(1, native_starts)]:
                 refined, evidence, report = native_exchange(
                     scorer, base, placements, keys, start['indices'], M, origin, coarse,
-                    conflict, connected, rounds=native_rounds, width=native_width)
+                    conflict, connected, rounds=native_rounds, width=native_width,
+                    window_order=exchange_window_order)
                 report['start'] = list(start['indices'])
                 report['native_score'] = evidence['score']
                 reports.append(report)

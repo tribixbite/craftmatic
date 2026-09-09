@@ -12,8 +12,17 @@ import numpy as np
 
 NEUTRAL_CHANNEL_SPREAD=30
 
+# Process-wide defaults, so one driver flag settles the classifier for every
+# consumer at once. The classifier is shared by the coarse target, the
+# undrawn-colour rule and the camera gate, and those three must agree about
+# which class a pixel is: turning something on for one of them would produce a
+# run that contradicts itself. Callers that pass an explicit value still win.
+SATURATION_TIEBREAK=0.
+CHROMATIC_METRIC='hue'
 
-def palette_labels(rgb,mask,palette,neutral_spread=NEUTRAL_CHANNEL_SPREAD,saturation_tiebreak=0.):
+
+def palette_labels(rgb,mask,palette,neutral_spread=NEUTRAL_CHANNEL_SPREAD,saturation_tiebreak=None,
+                   chromatic_metric=None):
     """Return uint8 class(index+1,0unknown), valid mask; <=254palette entries.
 
     Hue-bearing palette entries are those whose RGB channels spread by more than
@@ -43,8 +52,10 @@ def palette_labels(rgb,mask,palette,neutral_spread=NEUTRAL_CHANNEL_SPREAD,satura
 
     Saved scores from before this fix are not comparable with scores after it.
 
-    `saturation_tiebreak` is opt-in and defaults to off, so nothing changes
-    unless it is asked for. It adds that multiple of the saturation difference to
+    `saturation_tiebreak` is opt-in and defaults to the module-level
+    `SATURATION_TIEBREAK`, which is off, so nothing changes unless it is asked
+    for - and asking for it once settles it for every consumer of the
+    classifier at the same time, which is the only coherent way to ask. It adds that multiple of the saturation difference to
     the hue distance, which only orders palette entries the hue test has already
     made equal. It exists because hue is currently the sole discriminator among
     chromatic entries, and two LDraw colours can share one: 19 (Tan) and 191
@@ -52,7 +63,26 @@ def palette_labels(rgb,mask,palette,neutral_spread=NEUTRAL_CHANNEL_SPREAD,satura
     them by palette position. Turning it on changes classifications and therefore
     scores; before-and-after numbers are not comparable, exactly as for the
     neutral-spread fix above.
+
+    `chromatic_metric='lab'` replaces hue with CIE Lab nearest neighbour, and
+    subsumes the tie-break: the hue collision is not one unlucky pair. 40377
+    collides 19 and 191 at hue 20; 41624 has four colours inside nine hue
+    degrees covering 25 of its 109 parts, and the bias inverts between the two
+    fixtures because the commoner colour differs. A weight tuned on one pair
+    cannot fix a cluster, and 14 and 191 are not separable in HSV at all, while
+    Lab separates every pair in that cluster by at least 16.7.
+
+    It is applied to the ORDERING only, exactly like the tie-break, and for the
+    same reason: acceptance stays the 20-degree hue test and the saturation and
+    brightness gates are untouched, so the same pixels are classified as before
+    and only *which* class each gets can change. A full Lab acceptance rule
+    would also move the accept/refuse boundary that the containment and camera
+    gates are calibrated against, which is a different change wearing this one's
+    name, and it is not adopted here.
     """
+    saturation_tiebreak=SATURATION_TIEBREAK if saturation_tiebreak is None else saturation_tiebreak
+    chromatic_metric=CHROMATIC_METRIC if chromatic_metric is None else chromatic_metric
+    if chromatic_metric not in ('hue','lab'):raise ValueError('Unknown chromatic metric')
     palette=np.asarray(palette,np.uint8)
     if not 0<len(palette)<255:raise ValueError('Expected1..254 palette entries')
     if neutral_spread<0:raise ValueError('Neutral channel spread must be nonnegative')
@@ -69,7 +99,15 @@ def palette_labels(rgb,mask,palette,neutral_spread=NEUTRAL_CHANNEL_SPREAD,satura
         bright=np.maximum(30,ph[choices,2]/4)
         difference=np.where((s[:,:,None]>=minimum)&(v[:,:,None]>=bright),difference,np.inf)
         order=difference
-        if saturation_tiebreak:
+        if chromatic_metric=='lab':
+            # Ordering only: `difference` still decides acceptance below, and
+            # the infinities it carries are the saturation and brightness gates,
+            # so an entry this pixel is not eligible for stays ineligible.
+            pl=cv2.cvtColor(palette[None],cv2.COLOR_RGB2LAB)[0].astype(float)[choices]
+            il=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2LAB).astype(float)
+            distance=np.sqrt(((il[:,:,None,:]-pl[None,None,:,:])**2).sum(3))
+            order=np.where(np.isfinite(difference),distance,np.inf)
+        elif saturation_tiebreak:
             # Hue alone cannot separate two palette entries that share one, and
             # argmin then resolves a perfect tie by lower palette index - so which
             # colour wins is decided by the order of the list passed in. LDraw 19

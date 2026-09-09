@@ -69,6 +69,36 @@ class LayerComposite:
         self.target_column = self.column[self.tgt] if self.tgt.size else np.zeros(0, np.int64)
         self.cells = len(self.lengths) * len(self.classes)
         self.base_cell = self.seg * len(self.classes)
+        self._own = None
+
+    def own_agreement(self):
+        """Per candidate: its own painted pixels that already carry the drawing's class.
+
+        The incremental ranking everything else uses asks what a candidate adds
+        to the composite, which is zero whenever those pixels are already
+        painted with the same class - *including by a wrong piece standing in
+        the same place*, so a white plate on a white body is invisible to it.
+        Measured on 40377 page 19 view 1, 1,236 of 2,637 screened candidates
+        (46.9%) change the incremental score by exactly zero, bit for bit, and
+        `argsort(kind='stable')` then orders that plateau by bank index - which
+        is enumeration order, not evidence. The plateau is 5.9% to 52.6% of the
+        screened set across all 40 driven pages of the two fixtures.
+
+        This statistic cannot be flattened by anything already placed, because
+        it never consults the composite. It is occlusion-free by construction -
+        it counts the candidate's painted pixels whether or not they would win
+        the depth test - which is exactly what makes it independent, and also
+        its limitation: it cannot tell a visible pose from a buried one. One
+        bincount over the sparse segments already built here, so no render.
+        """
+        if self._own is None:
+            if self.pix.size == 0:
+                self._own = np.zeros(len(self.lengths), np.int64)
+            else:
+                hit = (self.lab == self.tgt) & (self.tgt > 0)
+                self._own = np.bincount(self.seg[hit],
+                                        minlength=len(self.lengths)).astype(np.int64)
+        return self._own
 
     def composite(self, chosen):
         depth = self.base_depth.copy()
