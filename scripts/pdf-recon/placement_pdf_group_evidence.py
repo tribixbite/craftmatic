@@ -96,7 +96,15 @@ def extract(pdf,page,allocation_run,out,prior_parts=None,refine_halo=False):
     result=dict(pdf=str(pdf.resolve()),source_page=page,truth_used=False,runtime_vlm_calls=0,part_ids_derived_from_pdf=True,parts=pieces,
         page_text=text,scenes=records,status=status,pair_groups=groups,protected_cad_palette=palette,prior_palette_provided=prior_parts is not None,overlap_diagnostics=overlaps,**provenance,
         limitations=['Frozen allocation identity errors remain possible','Unique same-panel quantity repetition supported; arbitrary numbered or cross-page subassembly segmentation remains unresolved','Only newly allocated part palettes known unless prior_parts supplied; main scene remains unsegmented when prior print colors unknown','This extracts evidence only; does not invent poses or certify an assembly'])
-    (out/'results.json').write_text(json.dumps(result,indent=2));print(json.dumps(dict(status=status,parts=pieces,scenes=[(r['xref'],r['kind']) for r in records])))
+    # Scene records carry numpy scalars from the geometry probes; a bare
+    # json.dumps raises on them and the whole page fails with a serialisation
+    # error rather than a placement one. 41601 page 5 is such a page and only
+    # entered a drivable scope in round ten.
+    def plain(value):
+        item=getattr(value,'item',None)
+        if callable(item):return item()
+        raise TypeError(repr(value)+' is not JSON serialisable')
+    (out/'results.json').write_text(json.dumps(result,indent=2,default=plain));print(json.dumps(dict(status=status,parts=pieces,scenes=[(r['xref'],r['kind']) for r in records]),default=plain))
     return result
 
 
