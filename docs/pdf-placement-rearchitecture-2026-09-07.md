@@ -4936,3 +4936,96 @@ extra page adds emitted pieces and no correct poses.
 **Five chains, five different scopes and two different openings, and the drive's
 own contribution is +0 in every one.** The structural count is decided entirely
 by the opening; nothing after page 3 has ever moved it on this fixture.
+
+## Round ten's strategy checkpoint: where the 90%-from-PDF mission stands
+
+Ten rounds have produced enough measurement to say this stage by stage rather
+than as an impression. Every line below is a number some tool in
+`scripts/pdf-recon/` reproduces.
+
+| stage, from a PDF and nothing else | state | the measurement |
+| --- | --- | --- |
+| printed BOM extraction | works | six fixtures; reproduces the historical inventories record for record |
+| callout association | **~100% of anchors resolve** on the fixtures | 25 PDFs, 1,104 anchors: 0 broken, 3 repaired, 8 crops corrected |
+| identity: callout to slot | 90.0% own-best, 6.8% compromise, 3.2% unassigned | 410 callouts over six fixtures |
+| identity at the multiset level | **mean 91% correct** | allocated multiset against the canonicalised reference |
+| page scope | **median 95%, mean 90% of printed pieces**, zero attended steps | six fixtures |
+| page assignment | mean 74% of allocated pieces | order-preserving audit against reference steps |
+| opening selection | reference-free; equals the oracle best where five parts are mirror-eligible | three constructions: +3, +1, +0 |
+| **per-page placement drive** | **+0 own contribution on from-scratch fixtures** | five 41601 chains, plus 41624 and 40377 |
+| **correct poses, from scratch** | **6 of 108** | round ten's autonomous run |
+
+**The on-ramp was the largest lever and it has now largely been pulled.** Round
+nine called it that on the strength of nine pieces of scope; round ten took
+41601 from 83 drivable pieces to 103, 41624 from 99 to 106, 40377 from a
+hand-worked 54 to a derived 90, removed the last attended step, and made the PDF
+the only input. What that bought in correct poses is zero. The constraint moved;
+it did not lift.
+
+### The binding constraint is the per-page objective, and that is now five measurements
+
+1. **Its optimum is not the model.** A deterministic A/B produced a strictly
+   better optimum and a strictly worse chain (54 to 51). Pooled over three
+   fixtures, 78.6% of reachable losses are already objective *preferences*.
+2. **It cannot separate materially different assemblies.** 41601's opening ends
+   in a 24-way EXACT tie whose members share on average 3.5 of 7 placements, and
+   it *prefers* the bilaterally incomplete class by 2%.
+3. **A second view does not fix (2).** Round ten scored all 36 retained bodies
+   under two later pages' accepted registrations, in two lineages: the ranking
+   is decided by whose camera the registration was propagated from, the lineages
+   disagree symmetrically, and the within-class tie survives every view intact.
+4. **Perfect selection over everything enumerable caps at 79/90 and 31/109.**
+   Even a flawless ranker over today's banks cannot reach 90% on 41624.
+5. **Repairing the opening converts `unreachable` into `mis_selected`, not into
+   `correct`.** The candidate generator and the ranker are *both* inadequate and
+   fixing either alone exposes the other.
+
+(4) and (5) decide the strategy. The program spent five rounds improving
+selection over a bank that does not contain the answer 68% of the time, and one
+round proving that a better bank is then mis-ranked.
+
+### What the evidence says the next investment is
+
+Not more search, not more rescoring, not another tie-break, and - after round
+ten - not multi-view aggregation over accepted registrations. Two things, in
+this order, and each is a subsystem rather than a parameter.
+
+**1. A per-instance objective.** Today's score is a per-colour-class
+depth-composite IoU over the whole drawing plus a visible-edge term. It has no
+way to say *this part, in this pose, explains this region*, which is exactly why
+a wrong piece standing in the right place costs it nothing and why 24 different
+assemblies score identically to sixteen significant figures. The replacement is
+local correspondence: a candidate's projected CAD silhouette and visible-edge set
+matched against the drawing's own strokes in the neighbourhood it claims, scored
+per instance and aggregated. Validate it on **single pages**, where the answer is
+known and a chain's variance cannot hide a regression, before any chain is driven
+with it.
+
+**2. Candidate generation driven by the drawing.** 68% of losses are poses the
+bank never contained, and the bank is generated model-side, by connector closure
+around the body already placed. The booklet supplies a signal the pipeline does
+not use: consecutive pages draw the same assembly, and the *difference* between
+two registered drawings localises exactly where new ink appeared. Enumerating at
+that difference rather than everywhere the connectors allow attacks the largest
+loss class at its source. Note this is not the refuted multi-view idea: it uses
+the later page to say **where to look**, not to **rank** what was found, and the
+circularity that killed the probe does not apply to a difference image.
+
+### How large is that, honestly
+
+Both are new scoring or generation stacks. On the evidence of ten rounds, in
+which every costed lever returned between +0 and +3 correct poses, this is a
+**multi-month programme**, not two or three more rounds. It is worth saying
+plainly: **90% correct poses from PDF alone is not reachable by continuing to
+tune the current architecture**, and five independent measurements say so rather
+than one.
+
+### What is worth shipping now, because it works
+
+The on-ramp is a usable product on its own. From a PDF and nothing else the
+pipeline emits a page-scoped, identity-checked bill of materials - which piece,
+which colour, how many, on which step page - at a median 95% of the printed
+inventory with no human in the loop, with every refusal named and none guessed.
+That is a per-step parts list for any set whose booklet is in the corpus, and it
+does not depend on the placement problem being solved. The poses are the part
+that is not ready, and the scoreboard says so in the same numbers it always has.
