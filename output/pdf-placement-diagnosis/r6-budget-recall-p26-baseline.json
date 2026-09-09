@@ -1,0 +1,389 @@
+{
+  "alignment": {
+    "matched": 34,
+    "truth_parts": 90,
+    "recon_parts": 65,
+    "coverage": 0.37777777777777777,
+    "precision": 0.5230769230769231,
+    "inventory_coverage": 0.7222222222222222,
+    "inventory_precision": 1.0,
+    "pos_tolerance_ldu": 1.0,
+    "rotation_tolerance": 0.0001,
+    "allows_mirror": false,
+    "alignment": {
+      "rotation": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "translation": [
+        0.0,
+        -16.0,
+        30.0
+      ]
+    },
+    "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+  },
+  "allocated_quotas": {
+    "3023b:191": 4
+  },
+  "reference_targets": 5,
+  "present": 3,
+  "rows": [
+    {
+      "part": "3023b",
+      "color": 191,
+      "reference_position": [
+        0.0,
+        -82.0,
+        -64.0
+      ],
+      "truth_index": 59,
+      "reference_frame": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ]
+      ],
+      "bank_indices": [],
+      "present": false
+    },
+    {
+      "part": "3023b",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        0.0,
+        0.0
+      ],
+      "truth_index": 72,
+      "reference_frame": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "bank_indices": [
+        70,
+        72
+      ],
+      "present": true
+    },
+    {
+      "part": "3023b",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        8.0,
+        0.0
+      ],
+      "truth_index": 73,
+      "reference_frame": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "bank_indices": [],
+      "present": false
+    },
+    {
+      "part": "3023b",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        0.0,
+        0.0
+      ],
+      "truth_index": 74,
+      "reference_frame": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "bank_indices": [
+        32,
+        36
+      ],
+      "present": true
+    },
+    {
+      "part": "3023b",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        8.0,
+        0.0
+      ],
+      "truth_index": 75,
+      "reference_frame": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "bank_indices": [
+        1576,
+        1578
+      ],
+      "present": true
+    }
+  ],
+  "position_tolerance_ldu": 1.0,
+  "rotation_tolerance": 0.0001,
+  "scope": "Evaluation-only diagnostic executed after the run; no reference pose participates in candidate generation, scoring or selection.",
+  "limitations": "Reference targets are the reference parts of this page allocation not already present in the body; the reference file order need not equal PDF step order, so a missing target can also mean the part genuinely belongs to another page. Local symmetries are applied only when supplied and never to printed parts.",
+  "registry": "output\\pdf-placement-beam\\40377-r5-contain-v1\\page-026\\registry-00.json",
+  "base": "output\\pdf-placement-beam\\40377-r5-contain-v1\\page-025\\placement\\model.ldr",
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "bank_poses": 2090,
+  "base_attached": 808,
+  "closure_budget_hit": true,
+  "closure_parent_order": "pdf_evidence",
+  "closure_parents_processed": 128,
+  "symmetry_table": {
+    "level": "vertex",
+    "parts": {
+      "11476": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\11476-full-symmetry.json"
+      },
+      "15068": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\15068-full-symmetry.json"
+      },
+      "15571": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\15571-full-symmetry.json"
+      },
+      "22885": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\22885-full-symmetry.json"
+      },
+      "2420": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\2420-full-symmetry.json"
+      },
+      "2431": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\2431-full-symmetry.json"
+      },
+      "25269": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\25269-full-symmetry.json"
+      },
+      "3003": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3003-full-symmetry.json"
+      },
+      "3005": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3005-full-symmetry.json"
+      },
+      "3010": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3010-full-symmetry.json"
+      },
+      "3010py3": {
+        "order": 1,
+        "printed": true,
+        "proof": null
+      },
+      "3020": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3020-full-symmetry.json"
+      },
+      "3023b": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3023b-full-symmetry.json"
+      },
+      "3031": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3031-full-symmetry.json"
+      },
+      "3069b": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3069b-full-symmetry.json"
+      },
+      "3245cpzc": {
+        "order": 1,
+        "printed": false,
+        "proof": null
+      },
+      "3623": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3623-full-symmetry.json"
+      },
+      "3710": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3710-full-symmetry.json"
+      },
+      "3941": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3941-full-symmetry.json"
+      },
+      "3958": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3958-full-symmetry.json"
+      },
+      "4032a": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\4032a-full-symmetry.json"
+      },
+      "41740": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\41740-full-symmetry.json"
+      },
+      "43722": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\43722-full-symmetry.json"
+      },
+      "43723": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\43723-full-symmetry.json"
+      },
+      "60474": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\60474-full-symmetry.json"
+      },
+      "60478": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\60478-full-symmetry.json"
+      },
+      "6091": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\6091-full-symmetry.json"
+      },
+      "61252": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\61252-full-symmetry.json"
+      },
+      "85984": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\85984-full-symmetry.json"
+      },
+      "87079": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\87079-full-symmetry.json"
+      },
+      "92593": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\92593-full-symmetry.json"
+      },
+      "98138pz0": {
+        "order": 1,
+        "printed": true,
+        "proof": null
+      },
+      "99780": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\99780-full-symmetry.json"
+      }
+    },
+    "unproven": [
+      "3010py3",
+      "3245cpzc",
+      "98138pz0"
+    ],
+    "protocol": "Proper cube rotations recorded by placement_verify_part_symmetries; vertex level compares universal CAD vertex sets, triangle level compares full colored triangle sets; printed moulds keep identity only",
+    "limitations": "Embossed stud logo orientation and triangle tessellation are outside the vertex level. A part with no saved proof is treated as having no symmetry, which understates equivalence rather than overstating it."
+  }
+}

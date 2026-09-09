@@ -2110,3 +2110,34 @@ The population table on that run is the round's most useful single number:
 
 On the deepest drive either fixture has ever had, **seven of ten failures are a
 reference pose the page's own bank never contained**.
+
+### The largest class is a budget, not an evidence limit
+
+`unreachable` — the reference pose is absent from the page's own enumerated bank
+— is 8 of 34 in-scope failures on 40377 and **60 of 86** on 41624's full-scope
+drive. Rounds one through five treated the bank as given and spent their effort
+on cameras, registration, containment and objectives. It is not given.
+
+Every registry of both runs says so in a field nobody had read across pages:
+
+| run | pages | parent budget hit | pose budget hit | closure exhaustive |
+| --- | ---: | ---: | ---: | ---: |
+| 40377 `r5-contain-v1` | 13 | **13** | 5 | 0 |
+| 41624 `r5-full-scope` | 27 | **27** | 10 | 0 |
+
+Not one page of either fixture ever finished its closure. The parent budget of
+128 was reached on all 40 of them.
+
+Re-running 40377 page 26 from the identical base body and camera with
+`--max-closure-parents 1024 --max-poses 32768`:
+
+| | parents processed | bank poses | budget hit | reference targets in bank |
+| --- | ---: | ---: | --- | ---: |
+| round five (128) | 128 | 2,090 | parent | **3 of 5** |
+| round six (1024) | 808 | 5,889 | none | **5 of 5** |
+
+The closure *finished* at 808 parents, so 1024 is not a new wall but a budget
+large enough to stop mattering on this page. Both 3023b poses that the round-five
+population table classified `unreachable` were enumerable all along; they were
+behind a resource limit set five rounds ago and never revisited. The cost of
+lifting it on this page was about a minute of closure.
