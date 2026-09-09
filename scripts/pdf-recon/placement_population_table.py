@@ -251,7 +251,14 @@ def build(run, truth_path, allocation_run, render=True, visibility_ratio=0.25):
             if key in blocked:
                 entry.update(primary_class='allocation_blocked', blocked_pages=blocked[key])
             else:
-                entry.update(primary_class='out_of_scope')
+                # Distinguish "no page of the booklet allocates this identity"
+                # from "a page before this run's scope did". 40377's three
+                # 22885 are the second: page 12 allocates five of them and the
+                # chain starts from a page-15 checkpoint, so they are an error
+                # this run inherited rather than one it could have avoided.
+                elsewhere = sorted(page for page, bucket in allocations.items() if key in bucket)
+                entry.update(primary_class='out_of_scope',
+                             allocated_by_pages_outside_the_run=elsewhere)
             rows.append(entry)
             continue
         # A reference instance can be a target of several pages, because the bank

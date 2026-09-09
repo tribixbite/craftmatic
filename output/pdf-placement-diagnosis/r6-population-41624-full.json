@@ -903,7 +903,8 @@
         -70.0,
         20.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 5,
@@ -1067,7 +1068,8 @@
         -104.0,
         0.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 15,
@@ -1232,7 +1234,8 @@
         -94.0,
         0.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 23,
@@ -1243,7 +1246,8 @@
         -94.0,
         0.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 24,
@@ -1254,7 +1258,8 @@
         -74.0,
         0.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 25,
@@ -1265,7 +1270,8 @@
         -74.0,
         0.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 26,
@@ -1453,7 +1459,8 @@
         -120.0,
         -30.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 35,
@@ -1640,7 +1647,8 @@
         -168.0,
         0.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 44,
@@ -1651,7 +1659,8 @@
         -168.0,
         0.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 45,
@@ -1662,7 +1671,8 @@
         -168.0,
         0.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 46,
@@ -2098,7 +2108,8 @@
         -122.0,
         -60.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 67,
@@ -2109,7 +2120,8 @@
         -142.0,
         -64.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 68,
@@ -2120,7 +2132,8 @@
         -142.0,
         -64.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 69,
@@ -2747,7 +2760,8 @@
         -208.0,
         10.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 99,
@@ -2758,7 +2772,8 @@
         -208.0,
         10.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 100,
@@ -2855,7 +2870,8 @@
         -8.0,
         0.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 105,
@@ -2910,7 +2926,8 @@
         -16.0,
         -10.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     },
     {
       "truth_index": 108,
@@ -2921,7 +2938,8 @@
         -16.0,
         -10.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": []
     }
   ],
   "scope": "Evaluation-only, executed after the run. The reference model supplies the targets, the alignment and the poses measured; none of it participates in candidate generation, scoring or selection, and nothing here is certified.",

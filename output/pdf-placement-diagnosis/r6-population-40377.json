@@ -522,7 +522,11 @@
         -112.0,
         -20.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": [
+        12,
+        15
+      ]
     },
     {
       "truth_index": 42,
@@ -533,7 +537,11 @@
         -152.0,
         0.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": [
+        12,
+        15
+      ]
     },
     {
       "truth_index": 43,
@@ -544,7 +552,11 @@
         -152.0,
         30.0
       ],
-      "primary_class": "out_of_scope"
+      "primary_class": "out_of_scope",
+      "allocated_by_pages_outside_the_run": [
+        12,
+        15
+      ]
     },
     {
       "truth_index": 52,
