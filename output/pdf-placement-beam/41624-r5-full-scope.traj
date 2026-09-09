@@ -1,7 +1,7 @@
 {
   "run": "output\\pdf-placement-beam\\41624-r5-full-scope",
   "truth": "C:/git/clego/lego_sets/OMR/41624-1.mpd",
-  "status": "running",
+  "status": "completed_requested_pages_uncertified",
   "rows": [
     {
       "page": 3,
@@ -158,6 +158,322 @@
       "precision": 0.14705882352941177,
       "coverage": 0.045871559633027525,
       "legacy_structural": 3
+    },
+    {
+      "page": 14,
+      "status": "placed",
+      "score": 0.4696983771014989,
+      "withheld": [],
+      "emitted": 36,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.1388888888888889,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 15,
+      "status": "placed",
+      "score": 0.4423258076810189,
+      "withheld": [],
+      "emitted": 38,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.13157894736842105,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 16,
+      "status": "placed",
+      "score": 0.46909459893206606,
+      "withheld": [],
+      "emitted": 40,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.125,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 17,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 18,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 19,
+      "status": "placed",
+      "score": 0.4751650059706031,
+      "withheld": [],
+      "emitted": 42,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.11904761904761904,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 20,
+      "status": "placed",
+      "score": 0.48756620131499706,
+      "withheld": [],
+      "emitted": 45,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.1111111111111111,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 21,
+      "status": "placed",
+      "score": 0.47849162828411484,
+      "withheld": [],
+      "emitted": 46,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.10869565217391304,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 22,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 23,
+      "status": "placed",
+      "score": 0.4982576484858049,
+      "withheld": [],
+      "emitted": 53,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.09433962264150944,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 24,
+      "status": "placed",
+      "score": 0.49531085120726914,
+      "withheld": [],
+      "emitted": 56,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.08928571428571429,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 25,
+      "status": "placed",
+      "score": 0.48565769516756807,
+      "withheld": [
+        "6091:19"
+      ],
+      "emitted": 58,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.08620689655172414,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 26,
+      "status": "placed",
+      "score": 0.456877441990291,
+      "withheld": [],
+      "emitted": 61,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.08196721311475409,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 27,
+      "status": "placed",
+      "score": 0.452780953087451,
+      "withheld": [],
+      "emitted": 63,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.07936507936507936,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 28,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 29,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 30,
+      "status": "placed",
+      "score": 0.4297203664896355,
+      "withheld": [],
+      "emitted": 64,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.078125,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 32,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 33,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 34,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 35,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 36,
+      "status": "placed",
+      "score": 0.37522544871906477,
+      "withheld": [],
+      "emitted": 67,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.07462686567164178,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 37,
+      "status": "placed",
+      "score": 0.3750011435359323,
+      "withheld": [],
+      "emitted": 69,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.07246376811594203,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 38,
+      "status": "placed",
+      "score": 0.35250526613346167,
+      "withheld": [],
+      "emitted": 71,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.07042253521126761,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 39,
+      "status": "placed",
+      "score": 0.28022361099516346,
+      "withheld": [],
+      "emitted": 75,
+      "strict": 2,
+      "canonical": 3,
+      "structural": 5,
+      "truth_parts": 109,
+      "precision": 0.06666666666666667,
+      "coverage": 0.045871559633027525,
+      "legacy_structural": 3
+    },
+    {
+      "page": 17,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 18,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 22,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 28,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 29,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 32,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 33,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 34,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
+    },
+    {
+      "page": 35,
+      "status": "camera_refused",
+      "reason": "No page drawing produced a usable registration"
     }
   ],
   "scope": "Evaluation-only, executed after the run; the reference model chooses nothing at runtime.",
