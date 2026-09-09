@@ -2334,8 +2334,20 @@ it. 41624's number is now measured over its whole 37-page scope rather than six
 pages, and it is the same 5.
 
 Two experiments were left running at the end of the round and are **not** included
-in any number above: a whole-chain 40377 re-drive at `--max-closure-parents 1024
---max-poses 32768`, and a page-19 re-drive at `--beam 256 --top-k 64` aimed at the
-retention stage, which loses 6 of that page's 6 enumerated-and-screened targets
-to 1. Neither had finished; both are far slower per page than the round-five
-settings, which is itself a cost that any adoption has to carry.
+in any number above.
+
+* A whole-chain 40377 re-drive at `--max-closure-parents 1024`, everything else
+  identical to round five, in `40377-r6-parents-chain`. A first attempt also
+  raised `--max-poses` to 32768 and was abandoned: page 16's closure had not
+  finished after fifty minutes, against about one minute for page 26 at the
+  parent budget alone. The pose budget was never the binding one — it was hit on
+  5 of 13 pages against the parent budget's 13 of 13 — so raising it buys nothing
+  and costs the whole experiment. Isolating the one measured constraint is both
+  cheaper and a cleaner test.
+* A page-19 re-drive at `--beam 256 --top-k 64`, aimed at the retention stage.
+  Page 19 is the extreme case: all six of its reference targets are in the bank
+  and all six survive the occupancy screen, and exactly one reaches a retained
+  assembly.
+
+Both are far slower per page than the round-five settings, and that cost is
+itself a result any adoption has to carry.
