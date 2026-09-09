@@ -2859,3 +2859,47 @@ single tie broken differently, on a pose no objective can rank, redirects the
 camera path five pages later. That is a property of the pipeline worth knowing
 independently of any lever, and it means chain-level comparisons of two
 configurations are only as trustworthy as the number of such ties between them.
+
+### Ties are pervasive, and they are variance rather than lost coverage
+
+`placement_score_ties` counts, from each run's own `results.json`, how many
+retained assemblies share the top image score, and hashes their files to
+separate "two names for one answer" from "two answers and no way to choose":
+
+| run | pages | exact tie at the top | of which genuinely different assemblies | most tied |
+| --- | ---: | ---: | ---: | ---: |
+| 40377 `r5-contain-v1` | 13 | **7** | **7** | 4 |
+| 41624 `r5-full-scope` | 27 | **15** | **15** | **12** |
+
+**Every tie is between distinct assemblies** — not one duplicated. On more than
+half of all driven pages, across both fixtures, the run picks among 2 to 12
+different assemblies that the image objective scores bit-identically, and it
+picks by list order.
+
+The obvious follow-up is whether a better tie-break is free coverage. It is not.
+Comparing the correct-part count of every assembly inside each exact tie on
+40377:
+
+| page | tied assemblies | correct in each | selected |
+| ---: | ---: | --- | ---: |
+| 16 | 4 | 1, 1, 1, 1 | 1 |
+| 17 | 4 | 2, 2, 2, 2 | 2 |
+| 18 | 4 | 1, 1, 1, 1 | 1 |
+| 19 | 2 | 1, 1 | 1 |
+| 23 | 4 | 0, 0, 0, 0 | 0 |
+| 26 | 3 | 0, 0, 0 | 0 |
+| 28 | 4 | 1, 1, 1, 1 | 1 |
+
+Total selected 8, best available inside the ties 8: **a perfect tie-break is
+worth zero on this fixture**. The tied assemblies differ in which pose they use
+and are equally right or equally wrong about how many.
+
+So ties are a **variance** source, not a bias one, and that is exactly why they
+matter for method rather than for score. Page 19's two-way tie costs nothing on
+page 19 and still sends page 22 from `drawing_to_drawing` at 1.6916 px/LDU to
+`body_template` at 1.4863, and its score from 0.3668 to 0.2529. With 7 and 15
+such forks in a chain, two configurations can differ by several pages of camera
+path without either being better. **Every chain comparison in rounds two through
+six carries this exposure and none of them measured it**; the honest way to run a
+chain-level A/B from here is to report it alongside, or to fix the tie-break to
+something deterministic under both configurations before comparing.
