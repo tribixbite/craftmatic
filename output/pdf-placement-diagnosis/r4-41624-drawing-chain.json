@@ -1,0 +1,88 @@
+{
+  "fixture": "41624",
+  "pages": {
+    "2": 3,
+    "3": 3,
+    "4": 3,
+    "5": 4,
+    "6": 2,
+    "7": 3,
+    "8": 4
+  },
+  "largest_drawing_px": {
+    "2": 7368,
+    "3": 7123,
+    "4": 8745,
+    "5": 11222,
+    "6": 11596,
+    "7": 12371,
+    "8": 13779
+  },
+  "pairs": [
+    {
+      "previous": 2,
+      "current": 3,
+      "scale": 1.01,
+      "iou": 0.7001,
+      "offset": [
+        -1,
+        -35
+      ]
+    },
+    {
+      "previous": 3,
+      "current": 4,
+      "scale": 1.0,
+      "iou": 0.8044,
+      "offset": [
+        0,
+        58
+      ]
+    },
+    {
+      "previous": 4,
+      "current": 5,
+      "scale": 1.23,
+      "iou": 0.747,
+      "offset": [
+        -12,
+        -65
+      ]
+    },
+    {
+      "previous": 5,
+      "current": 6,
+      "scale": 1.0,
+      "iou": 0.9664,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    {
+      "previous": 6,
+      "current": 7,
+      "scale": 1.05,
+      "iou": 0.953,
+      "offset": [
+        -4,
+        0
+      ]
+    },
+    {
+      "previous": 7,
+      "current": 8,
+      "scale": 1.01,
+      "iou": 0.8194,
+      "offset": [
+        -1,
+        -4
+      ]
+    }
+  ],
+  "finding": "The propagation applies on the second fixture too - every consecutive pair aligns at IoU 0.70 to 0.97, above the 0.60 refusal floor - but the fitted scale over-states the camera ratio much more badly there. 4 to 5 fits at 1.23, because page 5 adds four pieces to a nine-piece assembly and the fit absorbs that growth. On 40377 the same measure stays between 0.99 and 1.11 because a step adds one to six pieces to a 49-part body. So the over-statement scales with the fraction of the assembly the step adds, which makes the unit-scale hypothesis more load-bearing on a small model, not less, and makes using the fitted ratio alone actively wrong early in a booklet.",
+  "scope": "PDF pixels only.",
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false
+}
