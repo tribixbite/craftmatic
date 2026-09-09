@@ -19,6 +19,13 @@ enough for its own template to register, so roots are tried in descending drawn
 area and the best complete result by the page's own image score is kept. Every
 root that is tried is recorded with its outcome.
 
+The result is published twice over: as an ordinary placement directory a driver
+can start from with `--base-run`, and as `group_*.ldr` rigid-group hypotheses
+the attachment stage consumes with `--group-run`. Every root that produced a
+complete result is published, because two roots can disagree about the relative
+placement of the same pieces; the attachment deduplicates them by full coloured
+triangle geometry rather than this stage guessing which to keep.
+
 PDF pixels, PDF text allocations and universal CAD only. No reference model, set
 inventory, manual pose or VLM participates, and nothing here is certified.
 """
@@ -134,6 +141,24 @@ def construct(pdf, page, allocation_run, out, options, roots=2, prescan_pages=()
     if selected.exists():
         shutil.rmtree(selected)
     shutil.copytree(best['directory'], selected)
+    # A construction is also a rigid-group hypothesis, and the attachment stage
+    # reads `group_*.ldr`. Every root that produced a complete result is
+    # published, best-scoring first: two roots can disagree about the relative
+    # placement of the same pieces, and that disagreement is a real alternative
+    # the attachment should get to see. Attachment deduplicates by full coloured
+    # triangle geometry, so roots that differ only by the free global frame
+    # collapse to one there rather than being pruned here on a guess.
+    published = []
+    for record in sorted((a for a in attempts if a['status'] == 'placed' and a['directory']),
+                         key=lambda a: -(a['score'] or 0)):
+        model = Path(record['directory']) / 'model.ldr'
+        if not model.is_file():
+            continue
+        target = selected / f'group_{len(published):02d}.ldr'
+        shutil.copyfile(model, target)
+        published.append(dict(root=record['root'], score=record['score'], path=str(target),
+                              source=record['directory']))
+    result['group_hypotheses'] = published
     result['construction'] = str(selected)
     write_atomic(out / 'construction.json', json.dumps(result, indent=2, default=str))
     return 'constructed', result, selected

@@ -205,6 +205,21 @@ def prescan_cameras(pdf, allocation_run, pages, base, out):
     return found
 
 
+def page_allocation(pdf, page, allocation_run):
+    """A page's PDF allocation, or nothing when the page is out of its scope.
+
+    Used to carry the pieces of a page the drive could not place, so a later
+    page's unexplained ink can be attributed to them instead of to the two
+    pieces that page happens to add.
+    """
+    from placement_pdf_group_evidence import load_allocations
+    try:
+        pieces, _ = load_allocations(pdf, page, allocation_run)
+    except Exception:                                                       # noqa: BLE001
+        return []
+    return [(str(part), int(color)) for part, color in pieces]
+
+
 def nearest_prescan(prescan, page):
     """Matrices of the page nearest `page` that has any, ties preferring earlier."""
     if not prescan:
@@ -231,7 +246,8 @@ def largest_drawing(pdf, page, palette):
 
 def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_matrices=(),
                prior_scale=None, pending=None, prior_body_area=0, prescan=None,
-               pieces_override=None, prior_page=None, prior_registration=None):
+               pieces_override=None, prior_page=None, prior_registration=None,
+               unplaced_pieces=()):
     """Return (status, detail, placement_dir, matrices, scale, registration) for one page.
 
     Several drawings on a page can be non-panel scenes: a subassembly beside
@@ -250,6 +266,11 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
     between the two drawings instead of being template-matched against the
     emitted body, so a body carrying a wrong part can no longer take the camera
     down with it. The returned sixth value is this page's own such record.
+
+    `unplaced_pieces` are allocations of earlier pages in the scope that the
+    drive did not place. Their ink is drawn on every page after them and has to
+    be attributable to something, or the camera gate refuses each of those pages
+    for a reason that has nothing to do with its camera.
     """
     from placement_arrow_contacts import read_items
     from placement_arrow_mask import conservative_components
@@ -517,20 +538,40 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
         # unchanged.
         expected_scale = (prior_scale * drawing_fit['scale']
                           if prior_scale and drawing_fit else prior_scale)
+        # Unexplained ink is attributed to what the drawing can legitimately show
+        # that the body does not hold: this page's own allocation, plus anything
+        # an earlier page of this scope allocated and the drive did not place. A
+        # skipped subassembly page is drawn on every page after it, so charging
+        # its ink to the current page's two pieces refuses every later page for a
+        # reason that is nothing to do with the camera. The list is PDF-derived
+        # (it is the allocation) and is recorded with the verdict.
+        attributable = list(pieces) + list(unplaced_pieces or ())
         accepted, gate_record = camera_gate(
             contained['hypotheses'], expected_scale,
-            addable_area(pieces, contained['hypotheses'][0]['projection']) if pieces else None,
+            addable_area(attributable, contained['hypotheses'][0]['projection'])
+            if attributable else None,
             mode=options.get('camera_gate', 'enforce'),
             unexplained_max=options.get('camera_unexplained_max', UNEXPLAINED_MAX),
             scale_tolerance=options.get('camera_scale_tolerance', SCALE_TOLERANCE))
         write_atomic(step_dir / f'camera-gate-{order:02d}.json',
-                     json.dumps(dict(gate_record, page=page, xref=xref), indent=2))
+                     json.dumps(dict(gate_record, page=page, xref=xref,
+                                     attributable_pieces=[list(p) for p in attributable],
+                                     unplaced_pieces=[list(p) for p in (unplaced_pieces or ())]),
+                                indent=2))
         if not accepted:
             attempts.append(dict(xref=xref, status='camera_refused',
                                  reused_prior_camera=reused, borrowed_camera_page=borrowed_from,
                                  reason=gate_record.get('refusal'),
                                  best=gate_record['verdicts'][0] if gate_record['verdicts'] else None))
             continue
+        if propagated:
+            # The gate re-orders by template score, which would undo the
+            # registration-source preference above. Restore it among the
+            # registrations the gate accepted.
+            accepted = sorted(accepted,
+                              key=lambda row: (row['source_index'] >= len(propagated),
+                                               -(row['template_score']
+                                                 if row['template_score'] is not None else 0.0)))
         contained['hypotheses'] = accepted
         contained['camera_gate'] = {key: value for key, value in gate_record.items()
                                     if key != 'verdicts'}
@@ -623,6 +664,20 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
             attempts.append(dict(xref=xref, status='search_produced_no_model',
                                  reason=result['status']))
             continue
+        # The search scores each of the top `views` registrations independently
+        # and selects the best, so the registration the run actually used is the
+        # selected view's - not necessarily the first accepted one. That is the
+        # one to report and the one the next page must propagate from.
+        selected_view = int(result['results'][0].get('view') or 0)
+        if 0 <= selected_view < len(contained['hypotheses']):
+            accepted_registration = dict(
+                contained['hypotheses'][selected_view],
+                registration_source=contained['hypotheses'][selected_view].get(
+                    'registration_source', 'body_template'),
+                drawing_iou=(propagated[contained['hypotheses'][selected_view]['source_index']]
+                             ['drawing_iou']
+                             if propagated and contained['hypotheses'][selected_view]['source_index']
+                             < len(propagated) else None))
         detail = dict(selected_parts=result['selected_parts'], shapes=result['shapes'],
                       seconds=result['seconds'], xref=xref, scene_order=order,
                       reused_prior_camera=reused, borrowed_camera_page=borrowed_from,
@@ -633,6 +688,9 @@ def place_page(pdf, page, allocation_run, base_model, step_dir, options, prior_m
                       drawing_scale_iou=drawing_fit and drawing_fit['iou'],
                       registration_source=accepted_registration['registration_source'],
                       drawing_registration_iou=accepted_registration.get('drawing_iou'),
+                      selected_view=selected_view,
+                      selected_view_px_per_ldu=projection_scale(
+                          accepted_registration['projection']),
                       arrow_attachment=result['results'][0].get('arrow_attachment'),
                       containment_fallback=contained['containment_fallback_used'],
                       attempts=attempts, scale_prior_px_per_ldu=prior_scale,
@@ -705,6 +763,10 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
     # Failures a later page's camera could repair, retried after the main pass.
     RETRYABLE = ('camera_unsupported', 'no_contained_registration', 'camera_refused')
     deferred = []
+    # Allocations of pages this drive did not place. A later page draws them
+    # whether or not we placed them, so the camera gate must be allowed to
+    # attribute their ink to them.
+    unplaced, outstanding, attached_from = [], {}, []
     current = base_model
     prior_matrices, prior_scale, prior_page = (), None, None
     # Subassembly constructions supplied for specific pages; the driver decides
@@ -747,7 +809,7 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
             status, detail, placement, matrices, scale, registration = place_page(
                 pdf, page, allocation_run, current, step_dir, options, prior_matrices, prior_scale,
                 pending, prior_body_area, prescan, prior_page=prior_page,
-                prior_registration=prior_registration)
+                prior_registration=prior_registration, unplaced_pieces=unplaced)
             if status == 'placed':
                 # The page whose drawing this one is measured against next.
                 prior_page = page
@@ -769,11 +831,25 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
                 detail = dict(detail, pending_registered=pending)
                 status = 'subassembly_pending'
             elif status == 'placed' and (detail or {}).get('kind') == 'attachment':
+                # The attached subassembly's pieces are in the body now, so the
+                # page that built them stops being unexplained ink.
+                attached_from.append((detail or {}).get('source_page'))
                 pending = None
         except Exception as exc:  # keep the failed page's evidence, never a silent skip
             status, detail, placement = 'error', dict(error=str(exc),
                                                       traceback=traceback.format_exc()), None
+        if status == 'placed':
+            outstanding.pop(page, None)
+            for source in attached_from:
+                outstanding.pop(source, None)
+            attached_from.clear()
+        else:
+            allocated = page_allocation(pdf, page, allocation_run)
+            if allocated:
+                outstanding[page] = allocated
+        unplaced = [piece for key in sorted(outstanding) for piece in outstanding[key]]
         step = dict(page=page, status=status, detail=detail, directory=str(step_dir))
+        step['unplaced_pieces_carried'] = [list(p) for p in unplaced]
         step['pending_body'] = dict(pending) if pending else None
         if placement is not None:
             step['placement'] = str(placement)
@@ -803,7 +879,7 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
                 status, detail, placement, matrices, scale, registration = place_page(
                     pdf, page, allocation_run, current, step_dir, options, prior_matrices,
                     prior_scale, pending, prior_body_area, prescan, prior_page=prior_page,
-                    prior_registration=prior_registration)
+                    prior_registration=prior_registration, unplaced_pieces=unplaced)
                 if status == 'placed':
                     prior_page = page
                 if registration is not None:
@@ -815,8 +891,12 @@ def run(pdf, allocation_run, base_run, pages, out, options, resume=False, stop_o
             except Exception as exc:
                 status, detail, placement = 'error', dict(error=str(exc),
                                                           traceback=traceback.format_exc()), None
+            if status == 'placed':
+                outstanding.pop(page, None)
+                unplaced = [piece for key in sorted(outstanding) for piece in outstanding[key]]
             step = dict(page=page, status=status, detail=detail, directory=str(step_dir),
-                        retry_pass=attempt_pass, pending_body=dict(pending) if pending else None)
+                        retry_pass=attempt_pass, pending_body=dict(pending) if pending else None,
+                        unplaced_pieces_carried=[list(p) for p in unplaced])
             if placement is not None:
                 step['placement'] = str(placement)
                 step['checkpoint_hashes'] = {name: file_hash(placement / name)
