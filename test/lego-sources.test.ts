@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import {
   bestIndexedModel, indexedTryOrder, lookupIndexModels, sourceClass,
   bestSourceClass, sortByBestSourceClass, SOURCE_GROUPS, sourceBadgeLabel,
+  assemblyStatus, assemblyStatusLabel, tryOrderReason, verifiedPromotion,
   type IndexModel, type LegoModelsIndex,
 } from '../web/src/engine/lego-sources.js';
 
@@ -162,6 +163,111 @@ describe('sortByBestSourceClass — stable quality partition', () => {
     const before = list.map(s => s.set_num);
     sortByBestSourceClass(list, IDX);
     expect(list.map(s => s.set_num)).toEqual(before);
+  });
+});
+
+// ─── Measured assembly status (index schema 2) ────────────────────────────────
+
+describe('assemblyStatus — absence of a grade is not a defect', () => {
+  it('reads the stamped verdict, defaulting to unverified', () => {
+    expect(assemblyStatus(M('omr', 'a.mpd'))).toBe('unverified');
+    expect(assemblyStatus(M('omr', 'a.mpd', { asm: 'verified' }))).toBe('verified');
+    expect(assemblyStatus(M('omr', 'a.mpd', { asm: 'defective' }))).toBe('defective');
+  });
+
+  it('labels each state without inventing a measurement', () => {
+    expect(assemblyStatusLabel(M('omr', 'a.mpd'))).toMatch(/not measured/);
+    expect(assemblyStatusLabel(M('omr', 'a.mpd', { asm: 'verified' }))).toMatch(/no defects/);
+    expect(assemblyStatusLabel(M('omr', 'a.mpd', {
+      asm: 'defective', defects: ['overlap 4.32 % of parts'],
+    }))).toContain('overlap 4.32 % of parts');
+  });
+});
+
+describe('indexedTryOrder — verified promotion over a graded-defective pick', () => {
+  const two = (a: Partial<IndexModel>, b: Partial<IndexModel>): IndexModel[] => [
+    M('dbix_conv_v3', 'DbixConvV3/x.ldr', { n: 1000, ...a }),
+    M('dbix_conv_v2', 'DbixConvV2/x.ldr', { n: 1000, ...b }),
+  ];
+
+  it('promotes a graded-PASS alternative over a graded-DEFECTIVE first pick', () => {
+    const models = two({ asm: 'defective', sev: 4.15, defects: ['overlap 3.6 % of parts'] },
+                       { asm: 'verified', sev: 0.2 });
+    expect(indexedTryOrder(models)).toEqual([1, 0]);
+    expect(verifiedPromotion(models, [0, 1])).toBe(1);
+    expect(tryOrderReason(models)).toMatch(/graded defective \(overlap 3\.6 % of parts\)/);
+  });
+
+  it('does NOT demote an UNVERIFIED first pick — no grade is not evidence', () => {
+    const models = two({}, { asm: 'verified' });
+    expect(indexedTryOrder(models)).toEqual([0, 1]);
+    expect(tryOrderReason(models)).toBeNull();
+  });
+
+  it('does NOT promote an unverified or defective alternative', () => {
+    expect(indexedTryOrder(two({ asm: 'defective' }, {}))).toEqual([0, 1]);
+    expect(indexedTryOrder(two({ asm: 'defective' }, { asm: 'defective' }))).toEqual([0, 1]);
+  });
+
+  it('never promotes across a source-class boundary (recon must not win)', () => {
+    // A PASSing vision reconstruction may not displace a defective conversion:
+    // it can pass simply by reconstructing a cleaner but different model.
+    const models = [
+      M('mecabricks', 'MecabricksLDR/x.ldr', { asm: 'defective', sev: 9, n: 3000 }),
+      M('pdf_recon', 'Reconstructed/x.ldr', { tier: 2, asm: 'verified', sev: 0.1, n: 3100 }),
+    ];
+    expect(indexedTryOrder(models)).toEqual([0, 1]);
+    // …and a conversion may not displace a defective authentic build file.
+    const auth = [
+      M('omr', 'OMR/x.mpd', { asm: 'defective', sev: 3, n: 500 }),
+      M('mecabricks', 'MecabricksLDR/x.ldr', { asm: 'verified', sev: 0, n: 500 }),
+    ];
+    expect(indexedTryOrder(auth)).toEqual([0, 1]);
+  });
+
+  it('rejects a candidate that passes by containing less of the model', () => {
+    // 94 % of the incumbent's placements — below the 95 % retention guard.
+    const models = two({ asm: 'defective', sev: 5, n: 1000 },
+                       { asm: 'verified', sev: 0, n: 940 });
+    expect(indexedTryOrder(models)).toEqual([0, 1]);
+    // 95 % exactly is accepted.
+    expect(indexedTryOrder(two({ asm: 'defective', sev: 5, n: 1000 },
+                               { asm: 'verified', sev: 0, n: 950 }))).toEqual([1, 0]);
+  });
+
+  it('rejects a candidate whose severity is worse than the incumbent it replaces', () => {
+    const models = two({ asm: 'defective', sev: 1.2 }, { asm: 'verified', sev: 3.4 });
+    expect(indexedTryOrder(models)).toEqual([0, 1]);
+  });
+
+  it('never promotes a conv-flagged candidate (rule 1 still holds)', () => {
+    const models = two({ asm: 'defective', sev: 5 }, { asm: 'verified', sev: 0, conv: 1 });
+    expect(indexedTryOrder(models)).toEqual([0, 1]);
+  });
+
+  it('composes with the conv demotion — grades are applied to its result', () => {
+    // index order: conv (skipped by rule 1) → defective → verified.
+    const models = [
+      M('lxf_conv', 'LDR/x.ldr', { conv: 1, n: 900 }),
+      M('mecabricks', 'MecabricksLDR/x.ldr', { asm: 'defective', sev: 7, n: 1000 }),
+      M('lxf', 'LXF/x.lxf', { asm: 'verified', sev: 0.3, n: 1010 }),
+    ];
+    expect(indexedTryOrder(models)).toEqual([2, 1, 0]);
+    expect(bestIndexedModel({ generated: 't', sets: {
+      '1': { name: '', year: '', parts: 0, models },
+    } }, '1')?.src).toBe('lxf');
+    expect(tryOrderReason(models)).toMatch(/mecabricks is graded defective/);
+  });
+
+  it('leaves a single-entry set and an ungraded index untouched', () => {
+    expect(indexedTryOrder([M('omr', 'a.mpd')])).toEqual([0]);
+    expect(tryOrderReason([M('omr', 'a.mpd')])).toBeNull();
+    expect(indexedTryOrder(IDX.sets['71040']!.models)).toEqual([0, 1]);
+  });
+
+  it('still reports the conv demotion as the pick reason when no grades exist', () => {
+    expect(tryOrderReason(IDX.sets['60502']!.models))
+      .toMatch(/lxf_conv is a script conversion/);
   });
 });
 

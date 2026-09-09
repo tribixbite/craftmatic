@@ -33,8 +33,10 @@ import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 import {
   baseSetNum, lookupIndexModels, indexedTryOrder, bestIndexedModel,
   sortByBestSourceClass, SOURCE_GROUPS, sourceBadgeLabel, sourceClass,
+  assemblyStatus, assemblyStatusLabel, tryOrderReason,
   type IndexModel, type LegoModelsIndex,
 } from '@engine/lego-sources.js';
+import { buildLegoDiagnostics, diagnosticsFilename } from '@ui/lego-diagnostics.js';
 
 /**
  * Pick the colour→block table for an extracted .io model.
@@ -199,6 +201,41 @@ let loadEpoch = 0;
 let currentSourceWarning: string | undefined;
 const newLoadEpoch = (): number => { currentSourceWarning = undefined; return ++loadEpoch; };
 const loadIsStale = (epoch: number): boolean => epoch !== loadEpoch;
+
+/**
+ * INTENDED vs ACTUAL source, plus what the loader walked past to get there.
+ *
+ * The audit's distinction (P1 item 4): the try-order names a first pick, but a
+ * gated/404/empty source throws and the chain moves on — so the model on screen
+ * is often NOT the source the card advertised, and nothing said so. Recorded
+ * here for the badge, the status note and the diagnostic bundle.
+ *
+ * Deliberately NOT reset by newLoadEpoch(): each attempt in the chain bumps the
+ * epoch, so an epoch-scoped record could never accumulate the fallback trail.
+ * The chain resets it once, at its start; single-shot load paths overwrite it.
+ */
+interface LoadDiagnostics {
+  models: IndexModel[] | null;
+  intendedIndex: number | null;
+  loadedIndex: number | null;
+  attempts: { src: string; path: string; error: string }[];
+  url?: string;
+  loader?: string;
+}
+let loadDiag: LoadDiagnostics = {
+  models: null, intendedIndex: null, loadedIndex: null, attempts: [],
+};
+/** Build-time version string injected by vite (a DATE, not a commit). */
+declare const __APP_VERSION__: string;
+/** Last contact-candidate audit result, for the diagnostic bundle. */
+let lastContactAudit: {
+  pieces: number; components: number; largestPct: number;
+  detached: number; resolutionLDU: number; snapAssisted?: number;
+} | null = null;
+const resetLoadDiag = (loader: string, models: IndexModel[] | null = null,
+                       intendedIndex: number | null = null): void => {
+  loadDiag = { models, intendedIndex, loadedIndex: null, attempts: [], loader };
+};
 /**
  * Persistent 3D viewer instance — kept alive across step-slider drags so
  * setMaxStep() is an O(1) visibility toggle instead of a full rebuild.
@@ -259,6 +296,13 @@ function buildUI(): void {
   rootEl.innerHTML = `
     <!-- Status (shared) -->
     <div class="lego-status" id="lego-status" hidden></div>
+    <!-- Reproduction bundle: source URL + content hash + measured verdict +
+         mapping/render state. A set number alone does not identify the FILE
+         that rendered (audit P1 #4). Hidden until something has loaded. -->
+    <div id="lego-diag-row" hidden style="margin-top:4px;text-align:right">
+      <button id="lego-diag-download" type="button" title="Download a small JSON bundle identifying the exact source, part-resolution and render state — attach it to a bug report"
+        style="background:none;border:none;padding:0;color:#a78bfa;font-size:0.72rem;cursor:pointer;text-decoration:underline">⤓ diagnostics</button>
+    </div>
     <div id="lego-progress" hidden style="margin-top:6px;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden">
       <div id="lego-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#a78bfa);transition:width 120ms ease-out"></div>
     </div>
@@ -567,6 +611,13 @@ function wireEvents(): void {
         statusBeforeVerify = null;
       }
     })();
+  });
+
+  // ── Diagnostic bundle download ────────────────────────────────────────────
+  document.getElementById('lego-diag-download')?.addEventListener('click', () => {
+    void downloadDiagnostics().catch(err => {
+      setStatus(`Diagnostics export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    });
   });
 
   // ── Stats overlay toggle ──────────────────────────────────────────────────
@@ -1078,6 +1129,7 @@ function selectSet(set: CatalogSet): void {
     // Shared with the search filter/sort/badges (@engine/lego-sources) so the
     // source a card advertises is the source this loop actually tries first.
     const tryOrder = indexedTryOrder(models);
+    resetLoadDiag('indexed', models, tryOrder[0] ?? null);
     for (const i of tryOrder) {
       try {
         await loadIndexedModel(set, models, i);
@@ -1085,6 +1137,10 @@ function selectSet(set: CatalogSet): void {
         break;
       } catch (err) {
         if (selectedSet !== set) return; // stale selection — stop entirely
+        const msg = err instanceof Error ? err.message : String(err);
+        // Record the fall-through so the badge/status/diagnostics can say WHY
+        // the model on screen isn't the one the card advertised.
+        loadDiag.attempts.push({ src: models[i]!.src, path: models[i]!.path, error: msg });
         console.warn(`[lego] indexed source ${models[i]!.src} (${models[i]!.path}) failed:`, err);
       }
     }
@@ -1128,11 +1184,51 @@ function selectSet(set: CatalogSet): void {
 
 // ─── Unified-index model loading + source picker ─────────────────────────────
 
-/** Compact option label: `omr · tier1 · 246 steps · 965 parts · B-Model`. */
+/** Compact option label: `omr · tier1 · 246 steps · 965 parts · ✓verified`. */
 function sourceLabel(m: IndexModel): string {
   const variant = m.variant ? ` · ${m.variant}` : '';
   const conv = m.conv ? ' · conversion' : '';
-  return `${m.src} · tier${m.tier}${m.steps > 1 ? ` · ${m.steps} steps` : ''} · ${m.n} parts${variant}${conv}`;
+  // Measured assembly status (index schema 2). '?' is honest: the file was
+  // never geometry-audited, which is not the same as "fine" — see
+  // engine/lego-sources.ts assemblyStatus().
+  const asm = { verified: ' · ✓verified', defective: ' · ✗defects', unverified: ' · ?unverified' };
+  return `${m.src} · tier${m.tier}${m.steps > 1 ? ` · ${m.steps} steps` : ''} · ${m.n} parts${variant}${conv}${asm[assemblyStatus(m)]}`;
+}
+
+/**
+ * Badge text + tooltip for the source that ACTUALLY rendered.
+ *
+ * `⚠ fallback` is shown whenever the loaded entry is not the one the try-order
+ * intended, so the UI never advertises a source it isn't showing.
+ */
+function loadedSourceBadge(): { text: string; title: string } | null {
+  const { models, intendedIndex, loadedIndex, attempts } = loadDiag;
+  if (!models || loadedIndex == null) return null;
+  const loaded = models[loadedIndex];
+  if (!loaded) return null;
+  const fellBack = intendedIndex != null && intendedIndex !== loadedIndex;
+  const lines = [`${loaded.src} — ${loaded.path}`, assemblyStatusLabel(loaded)];
+  if (loaded.lineage) lines.push(`lineage: ${loaded.lineage}`);
+  const pickReason = tryOrderReason(models);
+  if (pickReason) lines.push(`pick: ${pickReason}`);
+  for (const a of attempts) lines.push(`skipped ${a.src}: ${a.error}`);
+  return { text: fellBack ? `${loaded.src} ⚠ fallback` : loaded.src, title: lines.join('\n') };
+}
+
+/**
+ * Concise "not the source we meant to load" note for the render status.
+ *
+ * Takes the entry being loaded rather than reading `loadDiag.loadedIndex` —
+ * this runs INSIDE the load, before success is recorded.
+ */
+function fallbackNote(loadingIndex: number): string | undefined {
+  const { models, intendedIndex, attempts } = loadDiag;
+  if (!models || intendedIndex == null) return undefined;
+  if (intendedIndex === loadingIndex || attempts.length === 0) return undefined;
+  const first = attempts[0]!;
+  const more = attempts.length > 1 ? ` (+${attempts.length - 1} more)` : '';
+  return `fell back to ${models[loadingIndex]?.src ?? 'another source'}`
+    + ` — ${first.src} failed: ${first.error}${more}`;
 }
 
 /** Build the source <select> + active-source badge for the selected set. */
@@ -1149,6 +1245,10 @@ function renderSourcePicker(set: CatalogSet, models: IndexModel[]): void {
   select.onchange = () => {
     const i = parseInt(select.value, 10);
     if (!Number.isFinite(i) || !models[i]) return;
+    // An explicit pick makes the auto-chain's fallback trail irrelevant — the
+    // user's choice IS the intent, so the record restarts here (otherwise the
+    // badge would keep claiming a fallback the user overrode).
+    resetLoadDiag('manual-pick', models, i);
     // Explicit user choice → allowBroken: load even known-broken conversions,
     // clearly labelled (the auto path skips them and falls back instead).
     void loadIndexedModel(set, models, i, true).catch(err => {
@@ -1167,6 +1267,75 @@ function updateSourcePickerUI(models: IndexModel[], idx: number): void {
   const select = document.getElementById('lego-source-select') as HTMLSelectElement | null;
   if (badge) badge.textContent = models[idx]?.src ?? '';
   if (select && select.value !== String(idx)) select.value = String(idx);
+}
+
+// ─── Diagnostic bundle (audit P1 #4) ────────────────────────────────────────
+
+/** Reveal the "⤓ diagnostics" link once something has actually rendered. */
+function updateDiagnosticsButton(): void {
+  const row = document.getElementById('lego-diag-row');
+  if (row) row.hidden = currentBricks == null;
+}
+
+/**
+ * Assemble + download the reproduction bundle for whatever is on screen.
+ *
+ * Reads the LDD alignment table's size straight from the served file: it is the
+ * one mapping revision that changes placement for every .lxf load, and after an
+ * .lxf render the browser already has it cached, so this is normally free.
+ */
+async function downloadDiagnostics(): Promise<void> {
+  const { LDRAW_PART_ALIASES } = await import('@engine/ldraw-part-aliases.js');
+  let lddEntries: number | null = null;
+  try {
+    const r = await fetch('/ldd-part-map.json');
+    if (r.ok) lddEntries = Object.keys(await r.json() as Record<string, unknown>).length;
+  } catch { /* absent table is itself a finding — reported as null */ }
+  const explodeEl = document.getElementById('lego-explode-slider') as HTMLInputElement | null;
+  const v = currentLDrawViewer;
+  const bundle = buildLegoDiagnostics({
+    setNum: selectedSet?.set_num,
+    setName: selectedSet?.name,
+    index: _modelsIndex,
+    models: loadDiag.models,
+    intendedIndex: loadDiag.intendedIndex,
+    loadedIndex: loadDiag.loadedIndex,
+    attempts: loadDiag.attempts,
+    sourceUrl: loadDiag.url,
+    fallbackLoader: loadDiag.loader,
+    warning: currentSourceWarning,
+    appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : undefined,
+    mapping: {
+      lddPartMapEntries: lddEntries,
+      partAliasEntries: Object.keys(LDRAW_PART_ALIASES).length,
+      // TODO(audit P1 #6): parts.ts's IDB_VERSION_KEY is module-private, so the
+      // .dat cache revision cannot be reported yet. Export it when cache
+      // identity is tied to the deployed library revision.
+      datCacheVersion: null,
+    },
+    render: {
+      mode: directRenderMode ? 'direct-3d' : 'voxel',
+      bricks: currentBricks?.length ?? null,
+      steps: totalSteps,
+      sliderMode,
+      maxStep: currentStep ?? null,
+      explodeFactor: explodeEl ? Number(explodeEl.value) / 100 : null,
+      edgesDropped: v?.edgesDroppedForSize ?? false,
+    },
+    parts: {
+      missing: v?.missingParts ?? [],
+      substituted: v?.substitutedParts ?? [],
+      unresolvedSubparts: v?.unresolvedSubparts ?? [],
+    },
+    contactAudit: lastContactAudit,
+  });
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = diagnosticsFilename(selectedSet?.set_num);
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 100);
+  setStatus(`Saved ${a.download} — attach it to a bug report`, 'success');
 }
 
 /**
@@ -1189,8 +1358,16 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
   if (srcBadge) srcBadge.textContent = `${model.src} · loading…`;
   if (srcSelect) srcSelect.disabled = true;
   try {
-    await loadIndexedModelBody(set, model, epoch, allowBroken);
-    if (!loadIsStale(epoch) && srcBadge) srcBadge.textContent = model.src;
+    await loadIndexedModelBody(set, model, idx, epoch, allowBroken);
+    loadDiag.loadedIndex = idx;
+    // Badge reports the source that ACTUALLY rendered, flagged when the
+    // try-order fell through to it (audit P1 #4: intended vs actual).
+    const badge = loadedSourceBadge();
+    if (!loadIsStale(epoch) && srcBadge) {
+      srcBadge.textContent = badge?.text ?? model.src;
+      srcBadge.title = badge?.title ?? '';
+    }
+    if (!loadIsStale(epoch)) updateDiagnosticsButton();
   } catch (err) {
     if (!loadIsStale(epoch) && srcBadge) srcBadge.textContent = `${model.src} · failed`;
     throw err;
@@ -1199,9 +1376,10 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
   }
 }
 
-async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
+async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: number,
                                     epoch: number, allowBroken: boolean): Promise<void> {
   const url = `${MODELS_BASE}/${encodeModelPath(model.path)}`;
+  loadDiag.url = url;
   setStatus(`Loading ${sourceLabel(model)}: ${model.path}…`, 'info');
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${model.path}`);
@@ -1278,6 +1456,19 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel,
   if (model.conv && !currentSourceWarning) {
     currentSourceWarning = 'script-converted model (LXF lineage) — some parts may be misrotated/misplaced; prefer another source if available';
   }
+  // Measured-defect note (index schema 2): geograde graded THIS file and it
+  // failed a calibrated threshold. Distinct from the provenance caveats above —
+  // it says what was measured, not what the lineage suggests. An 'unverified'
+  // source says nothing here: absence of a grade is not a defect.
+  if (assemblyStatus(model) === 'defective') {
+    const why = model.defects?.length ? model.defects.join('; ') : 'defects found';
+    const note = `geometry audit of this source found: ${why}`;
+    currentSourceWarning = currentSourceWarning ? `${note}; ${currentSourceWarning}` : note;
+  }
+  // The chain reached this source only after earlier ones failed — say so in
+  // the SAME status line the render writes (a later setStatus is clobbered).
+  const fell = fallbackNote(idx);
+  if (fell) currentSourceWarning = currentSourceWarning ? `${fell}; ${currentSourceWarning}` : fell;
   await voxelizeAndDisplay(bricks, `${set.set_num}-${model.src}`, colorFn);
 }
 
@@ -1297,13 +1488,17 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
   if (inOmr) {
     const filename = `${set.set_num}.mpd`;
     const url = `${OMR_FETCH_BASE}/${encodeURIComponent(filename)}`;
+    // This chain has no index entry, so the diagnostic bundle records the
+    // loader name + URL instead of a source entry.
+    resetLoadDiag('omr-chain');
+    loadDiag.url = url;
     setStatus(`Trying LDraw OMR: ${filename}…`, 'info');
     try {
       const resp = await fetch(url);
       if (resp.ok) {
         const text = await resp.text();
         if (loadIsStale(epoch) || selectedSet !== set) return;
-        await parseMpdFile(new File([text], filename, { type: 'text/plain' }));
+        await parseMpdFile(new File([text], filename, { type: 'text/plain' }), 'omr-chain');
         return;
       }
       // 404 → not found; fall through to the next source
@@ -1321,6 +1516,8 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
   if (reconIdx.has(baseNum)) {
     const filename = `${baseNum}_reconstructed.ldr`;
     setStatus(`Trying reconstructed 3D model: ${filename}…`, 'info');
+    resetLoadDiag('reconstructed-chain');
+    loadDiag.url = `${RECONSTRUCTED_BASE}/${filename}`;
     try {
       const resp = await fetch(`${RECONSTRUCTED_BASE}/${filename}`);
       if (resp.ok) {
@@ -1353,6 +1550,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
 
   // ── Source 3: BrickLink BFF inventory (flat colour layout — last resort) ─
   setStatus(`No 3D model found — trying BL parts inventory for ${set.set_num}…`, 'info');
+  resetLoadDiag('bff-inventory');
   try {
     const parts = await fetchBffInventory(set.set_num);
     if (parts.length > 0) {
@@ -1596,9 +1794,15 @@ function maybeSynthesize(text: string): string {
   return r.text;
 }
 
-async function parseMpdFile(file: File): Promise<void> {
+/**
+ * Parse + display an LDraw/Studio/LDD file. Shared by the upload zone and the
+ * OMR auto-load chain (which hands it a synthetic File), so the caller names
+ * the loader for the diagnostic bundle — 'upload' would misreport an OMR fetch.
+ */
+async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
   if (!onResult) return;
   const epoch = newLoadEpoch();
+  if (loadDiag.loader !== loader) resetLoadDiag(loader);
   // An upload replaces whatever set was selected — clear it, or the display
   // label and the catalog-completeness note describe the WRONG set (seen:
   // uploading a 374-piece train right after browsing a 6,838-piece set
@@ -1744,7 +1948,11 @@ async function voxelizeAndDisplay(
   currentBricks = bricks;
   currentBricksLabel = filename;
   currentBricksColorFn = colorFn;
+  // Something is on screen from here on, so the diagnostic bundle is meaningful
+  // (every load path funnels through here — upload, indexed, OMR chain, BFF).
+  updateDiagnosticsButton();
   if (isNewModel) {
+    lastContactAudit = null;   // a new model invalidates the previous audit
     totalSteps = countSteps(bricks);
     currentStep = undefined;
     // Explicit slider-key rule: >1 distinct step values → the file carries
