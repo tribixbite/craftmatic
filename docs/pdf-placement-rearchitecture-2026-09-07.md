@@ -4202,3 +4202,83 @@ own pick was already the best body it retained), 41601's seven-piece opening
 **+3** (five eligible parts). The discrimination scales with the number of
 mirror-eligible parts, which is the honest way to read it and the reason the
 eligibility count is printed beside every fraction.
+
+### The next tier, costed rather than built
+
+Round eight's checkpoint: if backtracking and capacity move the from-scratch
+fixtures' *driver-own contribution* by less than about +10 each, the next tier
+gets a costed plan. Measured, that contribution moved by **+0 on 41601** - the
+drive adds nothing from either opening - and capacity produced **zero**
+reorderings and **zero** deficits. The checkpoint is not close, so the tier below
+is costed and not built. Each item states the probe that would decide it and the
+rule for stopping.
+
+**1. Multi-view / cross-page consistency - the highest-value untested item.**
+41601's 24-way exact tie is a single-view artefact and can be shown to be one:
+the 24 bodies are geometrically distinct (any two share on average **3.5 of 7**
+placements, as few as 2), the four `3005` bricks alone occupy seven different
+positions inside the tie, and the objective scores every one of them identically
+to sixteen significant figures. The next page draws the same assembly from a
+camera the driver already computes. *Probe*: re-score the construction's 36
+retained bodies against pages 3 and 4 under those pages' accepted registrations
+and ask whether the tie breaks, and in which direction. ~72 GPU renders,
+minutes. *Cost*: two to three engineering days, because a candidate has to be
+rendered under a registration belonging to a page it was not searched at.
+*Adopt if*: the multi-view score ranks 41601's 6-of-7 class above its 3-of-7
+class **and** leaves 40377 page 19's selection where it is. *Stop if*: the tie
+survives, which would say the pathology is the per-class IoU formulation rather
+than the single view.
+
+**2. Connector-graph likelihood - cheap, and with a measured ceiling that argues
+against it.** Turning the witnessed support graph from a legality predicate into
+a score rescores bodies already on disk: no GPU, no re-search, and
+`placement_capacity.probe_directory` is the harness shape it needs. *Cost*: one
+day, ten CPU minutes to run. *But its ceiling is now measured*: on driven pages
+there is nothing for any rescoring to reach - 15 of 17 retained sets on 41601 and
+30 of 31 on 41624 contain nothing better than what was selected - so its whole
+reachable upside on the two from-scratch fixtures is **+2 and +1**, plus the
+openings, where the symmetry channel already reaches the oracle best. *Adopt
+if*: it separates the correct class on at least two of the three censused sites.
+The prior is poor: `placement_seated_contact` measured non-discriminating on the
+one case it was built for and its own docstring records a retracted claim.
+
+**3. The branch-selection criterion, which this round created.** The mechanism
+now reaches better models than the run selects, twice, and every runtime-legal
+rule shipped picked the worse one. `contradictions` would have picked correctly
+on both and is fitted to exactly those two observations. *Probe*: one branch pair
+on a fixture the rule was not derived from - about one GPU hour, since the
+baseline can be adopted. *Adopt if*: it picks the better branch there too.
+*Note*: for the opening specifically this may be moot, because the symmetry
+channel chooses the opening **before** any branch is driven, which is both
+cheaper and measured.
+
+**4. The on-ramp, which this round measured as the largest lever of any kind.**
+One equivalence table moved 41601's drivable scope from 83 pieces to 92, against
+search-side levers worth +1 to +3. The remaining refusals on that fixture are
+identity and association failures rather than placement failures - page 5's two
+callouts that match no inventory slot (costing the page's four allocated pieces)
+and page 19's ambiguous artwork association (costing five) - and they are worth
+**twelve more pieces of scope**. *Cost*: hours, no GPU. This is where the next
+round's first day belongs.
+
+### Where the ten recovered instances stop, measured a second way
+
+The population table says a correct opening moved ten reference instances out of
+`unreachable` and into `mis_selected`. `placement_alternatives_oracle` on the
+same branch says where they stopped:
+
+| | branch 0 (3-of-7 opening) | branch 1 (6-of-7 opening) |
+| --- | ---: | ---: |
+| placed pages | 17 | 16 |
+| pages whose retained set holds a better body | 2 | **1** |
+| summed page-level reachable delta | +2 | **+1** |
+| pages ending in an exact tie | 13 | 11 |
+
+So the instances that became reachable entered the page's enumerated **bank**
+and never reached a **retained assembly**: 15 of 16 pages still retain nothing
+better than what was selected, and the one that does holds a single body one
+pose better, at rank 13. Combined with round seven's retention measurement -
+bank truncation zero, beam width refuted, the reference-equivalent complete
+assembly scoring *below* the beam's own best complete state - the loss is at the
+same place it has always been. Making the body right changes which poses are
+enumerable and does not change which assemblies the objective keeps.
