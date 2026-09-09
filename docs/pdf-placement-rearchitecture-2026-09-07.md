@@ -1226,3 +1226,29 @@ at a bounded two-page window rather than at a better objective.
    round and all three fail on page 18. Two of them - the local rerank and the
    seated tie-break - were built and measured in this round specifically to attack
    it. The information is not in the page.
+
+### The drawing chain holds across the whole remaining scope
+
+The propagation's only precondition is that consecutive body-view drawings align.
+Measured on every consecutive pair of 40377's body views from page 15 to page 32,
+by silhouette intersection-over-union over the scale ladder:
+
+| pair | 15-16 | 16-17 | 17-18 | 18-19 | 19-21 | 21-22 | 22-23 | 23-24 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| scale | 1.03 | 1.01 | 1.00 | 1.00 | 1.00 | 1.01 | 1.00 | 1.00 |
+| IoU | 0.972 | 0.779 | 0.794 | 0.987 | 0.972 | 0.908 | 0.923 | 0.983 |
+
+| pair | 24-25 | 25-26 | 26-27 | 27-28 | 28-29 | 29-30 | 30-32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| scale | 1.00 | 0.99 | 1.00 | 1.06 | 1.00 | 1.00 | 1.11 |
+| IoU | 0.927 | 0.847 | 0.955 | 0.821 | 0.987 | 0.951 | 0.838 |
+
+Every pair aligns, IoU 0.779 to 0.987 with a median of 0.927, all well above the
+0.60 floor at which the propagation refuses. Two things in the table are worth
+naming. The 16-17 and 17-18 pairs fit at 0.78-0.79 with offsets of about 100
+pixels in y, because those pages place their drawing differently on the sheet -
+which is not a problem for the mechanism, since the offset is exactly what it
+measures. And 27-28 fits at 1.06 while 30-32 fits at 1.11, the latter because page
+32 draws the model on the stand it has just attached: that is the over-statement
+`placement_drawing_scale` warns about, and it is why the unit scale has to be
+offered alongside the fitted one rather than instead of it.
