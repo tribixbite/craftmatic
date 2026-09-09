@@ -2739,3 +2739,38 @@ distance rather than on list position. That is a change to a shared classifier
 and, as the module's own docstring already warns about the neutral-spread fix,
 scores from before and after are not comparable; it is the first thing to do next
 round rather than something to slip in beside a measurement.
+
+### The discriminator, measured and left off by default
+
+`palette_labels` gains an opt-in `saturation_tiebreak`, defaulting to 0 so no
+existing number moves. It adds a multiple of the saturation difference to the hue
+distance **for the ordering only**, never for the 20-degree acceptance test —
+adding it to both tightened acceptance as a side effect, pushing 184 pixels of
+page 26 into unclassified, which is a different change wearing this one's name.
+With the split, the unclassified count is identical at every weight.
+
+Page 26's own drawing, numerically sorted palette, by tie-break weight:
+
+| weight | 19 (Tan) | 191 (Bright Light Orange) | 0 | 15 | 71 | 72 | unclassified |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 (today) | **12,353** | **0** | 4,107 | 25,183 | 2,702 | 2,453 | 5,495 |
+| 0.01 | 161 | **12,372** | 4,107 | 25,183 | 2,702 | 2,453 | 5,495 |
+| 0.05 | 161 | 12,441 | 4,107 | 25,183 | 2,702 | 2,453 | 5,495 |
+| 0.2 | 163 | 12,451 | 4,107 | 25,183 | 2,702 | 2,453 | 5,495 |
+
+At 0.01 the well-separated colours are byte-identical and only the tied pair
+moves; by 0.2 the drift reaches the other chromatic entries (322 goes 9 to 546,
+blue 8,211 to 7,674), so 0.01 to 0.05 is the usable band and 0.2 is not.
+
+Six tests pin the behaviour, including the one that matters: **without the
+tie-break the same orange pixel classifies as tan or as orange depending only on
+which order the palette was built in**, and with it the verdict is the same
+either way. A real hue difference is never overridden, and acceptance never
+changes.
+
+**Not wired into any run.** The classifier is shared by the coarse target, the
+undrawn rule and the camera gate, so turning it on moves every score that depends
+on colour and makes saved numbers incomparable — the same warning the module's
+own neutral-spread fix carries. Enabling it and re-driving both fixtures is a
+round's work on its own, and it is now a one-argument experiment instead of an
+unknown.

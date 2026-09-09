@@ -13,7 +13,7 @@ import numpy as np
 NEUTRAL_CHANNEL_SPREAD=30
 
 
-def palette_labels(rgb,mask,palette,neutral_spread=NEUTRAL_CHANNEL_SPREAD):
+def palette_labels(rgb,mask,palette,neutral_spread=NEUTRAL_CHANNEL_SPREAD,saturation_tiebreak=0.):
     """Return uint8 class(index+1,0unknown), valid mask; <=254palette entries.
 
     Hue-bearing palette entries are those whose RGB channels spread by more than
@@ -42,10 +42,21 @@ def palette_labels(rgb,mask,palette,neutral_spread=NEUTRAL_CHANNEL_SPREAD):
     greys spread by 0 to 24.
 
     Saved scores from before this fix are not comparable with scores after it.
+
+    `saturation_tiebreak` is opt-in and defaults to off, so nothing changes
+    unless it is asked for. It adds that multiple of the saturation difference to
+    the hue distance, which only orders palette entries the hue test has already
+    made equal. It exists because hue is currently the sole discriminator among
+    chromatic entries, and two LDraw colours can share one: 19 (Tan) and 191
+    (Bright Light Orange) both convert to hue 20, so `argmin` decides between
+    them by palette position. Turning it on changes classifications and therefore
+    scores; before-and-after numbers are not comparable, exactly as for the
+    neutral-spread fix above.
     """
     palette=np.asarray(palette,np.uint8)
     if not 0<len(palette)<255:raise ValueError('Expected1..254 palette entries')
     if neutral_spread<0:raise ValueError('Neutral channel spread must be nonnegative')
+    if saturation_tiebreak<0:raise ValueError('Saturation tie-break weight must be nonnegative')
     ph=cv2.cvtColor(palette[None],cv2.COLOR_RGB2HSV)[0].astype(float)
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV).astype(float)
     h,s,v=hsv.transpose(2,0,1);mask=np.asarray(mask,bool)
@@ -57,7 +68,27 @@ def palette_labels(rgb,mask,palette,neutral_spread=NEUTRAL_CHANNEL_SPREAD):
         minimum=np.maximum(20,np.minimum(65,ph[choices,1]/2))
         bright=np.maximum(30,ph[choices,2]/4)
         difference=np.where((s[:,:,None]>=minimum)&(v[:,:,None]>=bright),difference,np.inf)
-        nearest=np.argmin(difference,2);accepted=mask&(difference.min(2)<=20)
+        order=difference
+        if saturation_tiebreak:
+            # Hue alone cannot separate two palette entries that share one, and
+            # argmin then resolves a perfect tie by lower palette index - so which
+            # colour wins is decided by the order of the list passed in. LDraw 19
+            # (Tan) and 191 (Bright Light Orange) both convert to hue 20, and on
+            # 40377 page 26 that hands all 12,353 of the drawing's orange pixels
+            # to tan under a numerically sorted palette and all 12,236 back to
+            # orange under an allocated-first one. Saturation separates them
+            # cleanly (78 against 192), so it breaks the tie here.
+            #
+            # Applied to the ORDERING only, never to acceptance. Adding it to the
+            # accepted distance as well would tighten the 20-degree test as a
+            # side effect - measured on page 26 that pushed 182 pink pixels and
+            # two others into unclassified, which is a different change wearing
+            # this one's name. With this split the unclassified count is
+            # identical at every weight.
+            saturation=abs(s[:,:,None]-ph[choices,1])
+            order=difference+np.where(np.isfinite(difference),
+                                      saturation*saturation_tiebreak,0.)
+        nearest=np.argmin(order,2);accepted=mask&(difference.min(2)<=20)
         labels[accepted]=choices[nearest[accepted]]+1
     choices=np.flatnonzero(~chromatic);black=bool(np.any((~chromatic)&(ph[:,2]<85)))
     if len(choices):
