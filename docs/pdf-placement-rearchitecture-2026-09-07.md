@@ -336,9 +336,12 @@ instead of 39) and is the honest combination.
 How far the arrow channel reaches is worth stating plainly: on 40377 the
 conservative arrow classifier accepts at least one arrowhead in the largest
 drawing of **7 of the 26 instruction pages** (indices 13, 17, 22, 27, 28, 29,
-30). It is decisive where it exists and silent elsewhere, where silhouette
-novelty and containment carry the ordering on their own. This is not a
-universal parent selector.
+30). That is the booklet's layout rather than the classifier's conservatism:
+pages 15, 16, 18 and 19 show their new piece in the top-left inset panel and
+draw it already installed on the assembly, so there is no arrow to find. The
+channel is decisive where it exists and silent elsewhere, where silhouette
+novelty and containment carry the ordering on their own. It is not a universal
+parent selector.
 
 Measured on page index 17: bank recall goes from **1/2 to 2/2** reference poses
 with a *smaller* bank, 14,357 poses against 24,000. The recall diagnostic also
