@@ -1,0 +1,93 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r6-retain-p19",
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "totals": {
+    "distinct_reference_targets": 6,
+    "in_bank": 6,
+    "survived_screen": 6,
+    "survived_screen_any_view": 6,
+    "in_any_retained_assembly": 1,
+    "in_selected_assembly": 1,
+    "lost_before_enumeration": 0,
+    "lost_to_occupancy_screen": 0,
+    "lost_to_search_retention": 5,
+    "lost_to_ranking": 0
+  },
+  "rows": [
+    {
+      "page": 19,
+      "bank_poses": 6856,
+      "view": 1,
+      "candidate_screen_skipped": false,
+      "retained_candidates": 2567,
+      "retained_candidates_any_view": 3617,
+      "targets": [
+        {
+          "part": "41740",
+          "color": 15,
+          "truth_index": 52,
+          "in_bank": true,
+          "survived_screen": true,
+          "survived_any_view": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "2431",
+          "color": 15,
+          "truth_index": 53,
+          "in_bank": true,
+          "survived_screen": true,
+          "survived_any_view": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 54,
+          "in_bank": true,
+          "survived_screen": true,
+          "survived_any_view": true,
+          "in_any_beam": true,
+          "in_selected": true
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 55,
+          "in_bank": true,
+          "survived_screen": true,
+          "survived_any_view": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 56,
+          "in_bank": true,
+          "survived_screen": true,
+          "survived_any_view": true,
+          "in_any_beam": false,
+          "in_selected": false
+        },
+        {
+          "part": "25269",
+          "color": 15,
+          "truth_index": 57,
+          "in_bank": true,
+          "survived_screen": true,
+          "survived_any_view": true,
+          "in_any_beam": false,
+          "in_selected": false
+        }
+      ]
+    }
+  ],
+  "truth_used_at_runtime": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Evaluation-only. Bank membership, screen survival and beam membership are read from the run's own artifacts; the reference model supplies the poses and selects nothing.",
+  "limitations": "Screen survival is reported twice - on the view the search selected, and over the union of every scored view - because the two differ and neither alone is the whole answer. Beam membership is over the assemblies the run wrote, which is the top of the beam and not everything the search touched."
+}
