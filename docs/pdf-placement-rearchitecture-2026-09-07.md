@@ -542,3 +542,33 @@ parts are wrong, and every later page registers against that. 40377 already
 showed what this costs - attaching the page-13 subassembly was worth six extra
 correct poses downstream purely by repairing the body. Whole-PDF startup, which
 would build that first body properly, remains the unimplemented gap it was.
+
+### Open gaps after round two
+
+The round-one list above is superseded. Items 1, 2 and 5 of it are closed and
+are replaced by what is now binding.
+
+1. **The scorer cannot separate sub-stud pose differences.** With generation,
+   camera and black classification all repaired, 40377 page index 17 still
+   selects an assembly that beats the reference-equivalent by 0.0033. Both put
+   black plates on the head; one is 14 LDU off. Nothing above will move the
+   count until the objective can resolve that, and equal-weighted per-class IoU
+   over a whole drawing plainly cannot.
+2. **A page's own stud-row camera is not reliable and there is no test for
+   when.** Page index 17 needed its predecessor's matrix (native score 0.595
+   against 0.337); pages 18 and 19 rejected it and kept their own, which score
+   0.29 and 0.32. Carrying, rescaling, borrowing and retrying are all now
+   available and all are *proposals* chosen by a template score that was wrong
+   on page 17 and may be wrong when it accepts. A camera acceptance test is
+   missing.
+3. **Whole-PDF startup is now the binding constraint on 41624, not identity.**
+   Its three-piece bootstrap is 2 of 3 structural and every later page registers
+   against that. 40377 already measured what a repaired body is worth - six
+   extra correct poses downstream from one four-piece attachment - so the first
+   body is worth more than any later page.
+4. **Subassembly construction from nothing remains unimplemented.** The driver
+   now recognises such a page and schedules the attachment, but the construction
+   is supplied to it. 40377 pages 13, 20 and 21 need it; page 21 needs it twice,
+   since it both finishes page 20's subassembly and attaches it.
+5. Repeated multiplicities, occlusion, flexible parts, global backtracking and
+   population certification remain untouched.
