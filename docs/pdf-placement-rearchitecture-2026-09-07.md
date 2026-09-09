@@ -1067,3 +1067,39 @@ below the image best, and only among candidates the earlier keys rank equally - 
 it can break a near-tie and can never promote a candidate the image rejected.
 Round two measured that maximising occupancy alone buries pieces inside the model,
 which is exactly why this is a tie-break and not an objective.
+
+### Page 19 is a three-level chain, and its second hop is unreachable by construction
+
+Fixing page 18 is necessary and not sufficient, and the measurement separates the
+two cleanly. Rebuilding page 18's body with its plate relocated to the reference
+pose - an evaluation-only body; the provenance guard in
+`placement_multi_shape_batch` refused it as a base run, which is the guard working
+- and asking what page 19 can then enumerate:
+
+| piece | nearest enumerated pose, emitted body | nearest, reference-mount body |
+| --- | ---: | ---: |
+| `41740` plate | 4.0 LDU | **0.0 LDU** |
+| `2431` tile | 10.0 LDU | 10.0 LDU |
+| four `25269` corner rounds | 26.0 LDU each | 26.0 LDU each |
+
+So page 18's plate is demonstrably the mount for the `41740`: with it right, that
+pose becomes exactly enumerable. The other five mount on the `41740` rather than
+on the plate, and stay where they were until the `41740` is in the body - a second
+closure hop.
+
+That hop is not reachable at any budget the current closure admits, and the reason
+is structural rather than a tuning question. `ShapeRegistry.close` counts
+`max_closure_parents` **globally across rounds** and stops every remaining round
+the moment the budget is hit, while round one's frontier is the entire
+base-attached set: 3,587 poses on this page. Reaching round two therefore requires
+a parent budget larger than the whole base-attached set *and* a pose cap large
+enough to hold its children - about 320,000 - which is neither feasible nor usable
+by the search. Raising the budget from 128 to 512 duly changed
+`closure_rounds_completed` not at all, in either bank or evidence order.
+
+Evidence ordering does not close the gap either, because it is a permutation of
+the base-attached poses only and says nothing about round two's frontier. It did
+reach 3 of 6 against the wrong body, so the mount, the parent order and the
+per-round budget are three separate additive constraints on this one page rather
+than one defect seen three times. A per-round budget with an evidence-ordered
+second frontier is the implied fix and is not implemented.
