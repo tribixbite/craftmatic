@@ -82,7 +82,7 @@ def main():
             if np.allclose(placement['items'][0][2][:3, 3], target, atol=1e-6):
                 interesting.add(index)
     interesting.update(int(i) for i in order[:12])
-    native, local = {}, {}
+    native, local, region = {}, {}, {}
     base_layer = None
     if args.local:
         from placement_local_delta import added_region, local_evidence, render_layers
@@ -93,9 +93,12 @@ def main():
         native[index] = fixed_native_score(scorer, items, M, origin)['score']
         if base_layer is not None:
             layer = render_layers(scorer, items, M)
-            local[index] = local_evidence(scorer, base_layer, layer,
-                                          added_region(base_layer, layer,
-                                                       scorer.mask))['local_score']
+            # How many drawn pixels this candidate can change at all. A pose the
+            # body hides contributes nothing to any image objective, which is a
+            # different failure from a pose that explains the wrong ink.
+            changed = added_region(base_layer, layer, scorer.mask)
+            region[index] = int(np.asarray(changed['changed'], bool).sum())
+            local[index] = local_evidence(scorer, base_layer, layer, changed)['local_score']
     native_order = sorted(native, key=lambda i: -native[i])
     native_rank = {index: rank for rank, index in enumerate(native_order, 1)}
     local_rank = {index: rank for rank, index in
@@ -108,9 +111,16 @@ def main():
                          native_rank_within_sample=native_rank[index],
                          local_score=local.get(index),
                          local_rank_within_sample=local_rank.get(index),
+                         drawn_pixels_the_addition_paints=region.get(index),
                          requested=any(np.allclose(translation, t, atol=1e-6) for t in wanted)))
     rows.sort(key=lambda r: r['coarse_rank'])
+    # What the drawing says about the body alone. A candidate that scores below
+    # it is being penalised for the piece it adds, which is the shape of failure
+    # the exploded-target fix addressed on page 17 and is worth separating from
+    # a candidate that simply explains the wrong ink.
+    body_only = fixed_native_score(scorer, base, M, origin)['score']
     result = dict(run=str(args.run), registry=str(args.registry), view=args.view,
+                  body_only_native_score=float(body_only),
                   mask_source=mask_source, screened_placements=len(placements),
                   quotas={f'{p}:{c}': q for (p, c), q in quotas.items()},
                   natively_scored=len(native), rows=rows,
@@ -121,14 +131,16 @@ def main():
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2))
     print(f'{"coarse#":>7} {"native#":>7} {"local#":>7} {"coarse":>8} {"native":>8} '
-          f'{"local":>8}  translation')
+          f'{"local":>8} {"paints":>7}  translation')
     for row in rows:
         mark = ' <-' if row['requested'] else ''
         local_rank_text = ('%7d' % row['local_rank_within_sample']
                            if row['local_rank_within_sample'] else '      -')
         local_text = '%8.5f' % row['local_score'] if row['local_score'] is not None else '       -'
+        paints = ('%7d' % row['drawn_pixels_the_addition_paints']
+                  if row['drawn_pixels_the_addition_paints'] is not None else '      -')
         print(f'{row["coarse_rank"]:>7} {row["native_rank_within_sample"]:>7} {local_rank_text} '
-              f'{row["coarse_score"]:>8.5f} {row["native_score"]:>8.5f} {local_text}  '
+              f'{row["coarse_score"]:>8.5f} {row["native_score"]:>8.5f} {local_text} {paints}  '
               f'{[round(v, 1) for v in row["translation"]]}{mark}')
 
 

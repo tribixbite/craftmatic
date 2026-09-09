@@ -1,0 +1,101 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r4-reach-v3",
+  "part": "3031",
+  "color": 15,
+  "transform": [
+    -18.0,
+    -96.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    -1.0,
+    -1.0,
+    0.0,
+    0.0
+  ],
+  "rows": [
+    {
+      "page": 23,
+      "status": "measured",
+      "painted_pixels": 899,
+      "body_only_native_score": 0.37983008463119394,
+      "body_plus_pose_native_score": 0.3868790494861423,
+      "body_parts": 58,
+      "body_source": "output\\pdf-placement-beam\\40377-r4-reach-v3\\page-019\\placement\\model.ldr",
+      "target_pixels": 58519,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "px_per_ldu": 1.691648280160689
+    },
+    {
+      "page": 24,
+      "status": "measured",
+      "painted_pixels": 74,
+      "body_only_native_score": 0.34505498588588923,
+      "body_plus_pose_native_score": 0.3446003125752467,
+      "body_parts": 59,
+      "body_source": "output\\pdf-placement-beam\\40377-r4-reach-v3\\page-023\\placement\\model.ldr",
+      "target_pixels": 59485,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "px_per_ldu": 1.691648280160689
+    },
+    {
+      "page": 25,
+      "status": "measured",
+      "painted_pixels": 74,
+      "body_only_native_score": 0.364922095429412,
+      "body_plus_pose_native_score": 0.3653533019490663,
+      "body_parts": 61,
+      "body_source": "output\\pdf-placement-beam\\40377-r4-reach-v3\\page-024\\placement\\model.ldr",
+      "target_pixels": 61901,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "px_per_ldu": 1.691648280160689
+    },
+    {
+      "page": 28,
+      "status": "measured",
+      "painted_pixels": 74,
+      "body_only_native_score": 0.32041284287929556,
+      "body_plus_pose_native_score": 0.3211287675324931,
+      "body_parts": 63,
+      "body_source": "output\\pdf-placement-beam\\40377-r4-reach-v3\\page-025\\placement\\model.ldr",
+      "target_pixels": 66731,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "px_per_ldu": 1.691648280160689
+    },
+    {
+      "page": 29,
+      "status": "measured",
+      "painted_pixels": 74,
+      "body_only_native_score": 0.3222270276695023,
+      "body_plus_pose_native_score": 0.3229701332743008,
+      "body_parts": 66,
+      "body_source": "output\\pdf-placement-beam\\40377-r4-reach-v3\\page-028\\placement\\model.ldr",
+      "target_pixels": 67445,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "px_per_ldu": 1.691648280160689
+    },
+    {
+      "page": 30,
+      "status": "measured",
+      "painted_pixels": 74,
+      "body_only_native_score": 0.31858120881628504,
+      "body_plus_pose_native_score": 0.31923622150999986,
+      "body_parts": 68,
+      "body_source": "output\\pdf-placement-beam\\40377-r4-reach-v3\\page-029\\placement\\model.ldr",
+      "target_pixels": 70051,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "px_per_ldu": 1.691648280160689
+    }
+  ],
+  "scope": "Evaluation-only. The pose comes from the reference model and is used to ask what the booklet shows, never to select anything.",
+  "limitations": "Painted pixels are measured against each page's own emitted body, which carries whatever error that page inherited, and at that page's own accepted registration. A page the run did not place has no registration to measure at."
+}
