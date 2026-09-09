@@ -748,3 +748,109 @@ off by default all the same - one fixture is not evidence for a default
 objective, and 40377 page index 17 does not need it, since under the corrected
 exploded target the whole-drawing scorer already ranks the reference pose first
 there.
+
+### Round three's whole-chain result
+
+Every run below starts from the same page-15 checkpoint and differs only in what
+is switched on. Coverage is against the independent 90-part model and structural
+agreement uses the derived universal-CAD symmetry proofs.
+
+| what is on | page | emitted | structural | precision |
+| --- | ---: | ---: | ---: | ---: |
+| round two, reproduced | 16 | 49 | 46 | 0.939 |
+| round two, reproduced | 17 | 51 | 46 | 0.902 |
+| round two, reproduced | 18 | 52 | 46 | 0.885 |
+| round two, reproduced | 19 | 58 | 46 | 0.793 |
+| + exploded target only | 16 | 49 | 46 | 0.939 |
+| + exploded target only | 17 | 51 | 46 | 0.902 |
+| + exploded target only | 18 | 52 | 46 | 0.885 |
+| + exploded target only | 19 | 58 | 46 | 0.793 |
+| + candidate overflow budget + camera gate | 16 | 49 | 46 | 0.939 |
+| **+ candidate overflow budget + camera gate** | **17** | **51** | **48** | **0.941** |
+| + candidate overflow budget + camera gate | 18 | camera refused | - | - |
+
+The exploded target alone reproduces round two to the part, which is what
+pointed at the occupancy screen. With both, page index 17 places the drawn plate
+at (30, -152, 0) - the pose the diagnostic predicted it would select, at the
+score it predicted, 0.5679 - and the arrows place the stacked one at
+(30, -160, 0) with 0.51 px of arrowhead error. Whole-model coverage moves
+**46/90 to 48/90 (53.3%)** and precision recovers from 0.902 to 0.941.
+
+Page index 18 is then refused rather than driven: its registration leaves 1.05
+times more drawn ink unexplained than the page can possibly add, and its scale
+is 12.6% below the previous accepted page. Round two emitted seven more parts
+across pages 17 to 19 and got none of them right, taking precision to 0.793; the
+gate now emits nothing there instead, with both numbers recorded.
+
+On 41624 the constructor plus the local rerank take the opening from 2 of 3 to
+3 of 3, which is the first page of that fixture placed exactly right.
+
+### Strategy: what the per-page drive can and cannot reach
+
+The round's checkpoint condition was reached - 48 of 90 is not 55 - so this
+records the measured case rather than continuing to drive.
+
+**The reachable page scope caps the number far below the target.** 40377's 90
+parts are allocated as 32 on pages 7-11 (the existing base), 6 on page 12, 4 on
+13, 6 on 15, 1 on 16, 2 on 17, 1 on 18 and 6 on 19 - 58 through page index 19 -
+and exactly 32 on pages 20 to 32. A *perfect* drive through page 19 is therefore
+58 of 90, 64%. No improvement to pages 12-19 can reach 90%; pages 20-32 have to
+work.
+
+**Selection is not what is missing.** Evaluating every retained candidate rather
+than the selected one on the round-two chain: page 16 selected 46 of 49 and the
+best retained is also 46; page 17 selected 46 and the best retained is 47; page
+18 selected 46 and the best retained is 47; page 19 selected 46 and the best
+retained is 46. Re-ranking, backtracking over retained alternatives, or a better
+selection objective is worth at most one pose per page. Every gain this round
+came from what enters the bank - the target the page is scored against, and the
+budget a candidate is screened with.
+
+**What propagates failure is registering against the emitted body.** Page index
+18 rejected the carried camera because the body it renders overflows the drawing
+by 4,007 pixels and covers 88.6% of it, and the body overflows because it
+carries page 17's wrong parts. Its own camera, 12.6% small, then wins on
+template score, and every later page inherits that scale. One wrong page does
+not cost its own pieces; it costs every page after it. The same mechanism run
+forwards is why attaching the page-13 subassembly was worth six extra correct
+poses downstream in round one.
+
+**Recommendation, in order.**
+
+1. *Register a page against the previous page's drawing, not against the emitted
+   body.* Consecutive drawings differ only by the pieces the step adds, and
+   `placement_drawing_scale` already measures the similarity between them from
+   PDF pixels alone - 0.99 to 1.03 with IoU 0.89 to 0.99 across 40377, including
+   a non-adjacent pair. This round wired that measurement in as an extra camera
+   hypothesis and as the gate's expected scale; the deeper version replaces
+   body-template registration with drawing-to-drawing registration entirely, so
+   the emitted body supplies geometry for scoring and collision only and can no
+   longer destroy the camera. It is directly testable: page 18's registration
+   either becomes contained under image-to-image alignment or it does not.
+2. *Then extend the scope to pages 20-32.* Eight of those thirteen pages expose
+   their own stud-row camera (21, 22, 23, 24, 25, 28, 31, 32) and five do not
+   (20, 26, 27, 29, 30) and can borrow one by prescan, so camera availability is
+   not the blocker; they have never been driven from a body worth registering
+   against. Page 20 is a subassembly page and page 21 both finishes and attaches
+   it, which the new constructor and the driver's body table now cover between
+   them.
+3. *Keep the camera gate refusing.* A refused page emits nothing, which is worth
+   more than a page that emits six wrong poses.
+
+The alternative the checkpoint names - solving pages independently and
+reconciling globally - is not available in its literal form, because a page's
+drawing shows the whole accumulated assembly and cannot be solved without
+knowing where the earlier pieces went. The useful independence is exactly the
+registration independence in (1).
+
+### Open gaps after round three
+
+1. **Pages 20-32 of 40377 are untouched and hold 32 of its 90 parts.** Nothing
+   above reaches 90% without them.
+2. **Registration still passes through the emitted body**, which is the measured
+   mechanism by which one wrong page costs every later one.
+3. **The local rerank is measured on one page of one fixture.** It is the only
+   selection-side gain found this round (41624's opening, 2 of 3 to 3 of 3) and
+   it is off by default until it is measured on more than that.
+4. **Repeated multiplicities, occlusion, flexible parts, global backtracking and
+   population certification** remain untouched, as after rounds one and two.
