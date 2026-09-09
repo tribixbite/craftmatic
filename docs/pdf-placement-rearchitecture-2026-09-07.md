@@ -2254,3 +2254,26 @@ cannot be selected by any future selector, so the ceiling of every downstream
 improvement was 3 of 5 on this page and is now 5 of 5. It does mean the budget is
 a **precondition** rather than a fix, and the honest expected value of raising it
 alone is small. The whole-chain run measures that rather than assuming it.
+
+### Round five's leftovers, closed
+
+* **Page 20's 3-of-5 retained-but-not-selected candidate.** Addressed, partly:
+  ranking the retained candidates by their own bilateral symmetry moves the
+  selection from 1 of 5 to 2 of 5 against an oracle of 3, on a discrimination
+  three eligible parts wide. It is the only runtime-legal signal found for a body
+  that has no parent to register against and only one drawing.
+* **The withheld undrawn pieces.** Round five withheld page 20's black colour
+  class from its construction because the drawing contains 57 black pixels where
+  one such piece must cover about 510, and noted the withheld pieces are then
+  placed by nothing. Round six's two new channels cannot place them either, and
+  the reason is not a gap: they are the two `98138pb072` BrickHeadz eyes, and a
+  printed mould is exactly what mirror completion must abstain on. The abstention
+  is doubly evidenced here — the print rule refuses it, and the mould's universal
+  CAD is *independently* chiral, its closest octahedral reflection missing by
+  1.41 LDU. Forcing cannot fire on them either. They remain outstanding and the
+  population table counts them under `allocation_blocked`, with page 20's other
+  five pieces.
+* **41624's full-scope run.** Absorbed above. Its early rows are indeed not
+  comparable with the `p2to8` runs — it uses a different allocation whose page-3
+  third callout is disputed — but the fixture reaches 5/109 on all three
+  configurations measured, so the non-comparability changes no conclusion.

@@ -168,6 +168,49 @@ disagreeing can be told apart; `--outside-fraction` applies the proportional
 occupancy allowance. `placement_diagnose_local_delta.py` reports the same
 candidates under the whole-drawing scorer and under region-local evidence.
 
+## Population, and the round-six channels
+
+Before choosing a lever, cost the class it addresses. `placement_population_table`
+assigns every reference part a completed run fails to place exactly one primary
+class — `out_of_scope`, `allocation_blocked`, `unreachable`, `visibility_limited`
+or `mis_selected` — from the run's own journal, registries and accepted cameras:
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_population_table.py `
+  --run output/pdf-placement-beam/RUN --truth C:/git/clego/lego_sets/OMR/40377-1.mpd `
+  --allocation-run output/pdf-placement-diagnosis/ALLOCATION `
+  --out output/pdf-placement-diagnosis/population.json
+```
+
+It reports two controls beside the table and both matter. Correctly placed
+reference instances are measured the same way, so "paints too little" can be
+checked against what a *successful* placement paints; and the complete-reference
+control is declared **inapplicable** where a page's body is a small fraction of
+the model, because the finished model then buries every addition at that page's
+camera. Classification always uses the body the run actually scored against.
+
+Round six's channels, all measured and none adopted:
+
+```powershell
+python -X utf8 -B scripts/pdf-recon/placement_verify_part_mirrors.py 3020 3024 4032a
+python -X utf8 -B scripts/pdf-recon/placement_mirror_ceiling.py --run RUN --truth OMR.mpd --out out.json
+python -X utf8 -B scripts/pdf-recon/placement_mirror_rerank.py --run RUN --truth OMR.mpd --out out.json
+python -X utf8 -B scripts/pdf-recon/placement_inventory_forcing.py --run RUN --truth OMR.mpd --out out.json
+python -X utf8 -B scripts/pdf-recon/placement_construction_symmetry.py CONSTRUCTION --truth OMR.mpd --out out.json
+python -X utf8 -B scripts/pdf-recon/test_placement_mirror.py
+```
+
+`placement_verify_part_mirrors` records which of the 24 improper octahedral
+elements a mould's universal CAD is invariant under, and
+`placement_part_mirror_table` turns those proofs into the group a mirror channel
+may use — at a stated 0.01 LDU vertex tolerance, because LDraw's rounded curved
+primitives are not exactly mirror-symmetric, and never for a printed mould.
+`placement_mirror_ceiling` separates opportunities from distinct parts and
+separates proposals the driver could actually make (base-sourced) from ones only
+an oracle could. `placement_inventory_forcing` counts a piece's distinct
+one-stud locations; read the `cells` column, not `chain` — single-linkage
+clustering chains through a dense body and reports the whole bank as one region.
+
 Every diagnostic rebuilds the run's own target through `placement_run_scene`,
 which reads the `mask_source` the run recorded. A diagnostic that rebuilds the
 drawing from the PDF without it scores a different question: on 40377 page index
