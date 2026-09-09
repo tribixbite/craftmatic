@@ -1,0 +1,63 @@
+{
+  "pdf_bom_id": "98138pb072",
+  "reference_id": "98138pz0",
+  "descriptions": {
+    "98138pb072": "Tile, Round 1 x 1 with 2 White Squares Pattern (BrickHeadz Standard Eye)",
+    "98138pz0": "Tile  1 x  1 Round with Two White Squares Pattern"
+  },
+  "evidence": {
+    "triangles": {
+      "98138pb072": 270,
+      "98138pz0": 270
+    },
+    "colour_counts": {
+      "98138pb072": {
+        "0": 266,
+        "15": 4
+      },
+      "98138pz0": {
+        "0": 266,
+        "15": 4
+      }
+    },
+    "bbox": {
+      "98138pb072": [
+        [
+          -10,
+          0,
+          -10
+        ],
+        [
+          10,
+          8,
+          10
+        ]
+      ],
+      "98138pz0": [
+        [
+          -10,
+          0,
+          -10
+        ],
+        [
+          10,
+          8,
+          10
+        ]
+      ]
+    },
+    "keywords": {
+      "98138pz0": [
+        "BrickHeadz"
+      ]
+    },
+    "rotation_invariant_vertex_radii_identical": false,
+    "max_radius_difference_ldu": 1.618
+  },
+  "finding": "40377 page 20 allocates two BrickHeadz eye tiles. The PDF BOM names the mould 98138pb072 (BrickLink print naming) and the independent model names it 98138pz0 (LDraw print naming). They are separate part files, and the evaluation aliases neither to the other, so those two pieces cannot be scored as correct however they are placed: page 20 has an evaluation ceiling of 5 of 7, not 7 of 7. The evidence that they are the same mould and the same print is strong - identical description, identical bounding box, 270 triangles each, the same 266 base and 4 white triangles, the BrickHeadz keyword - but it is not a CAD-equality proof: the rotation-invariant vertex radii differ by up to 1.618 LDU, so the two files draw the same design with slightly different print geometry. No header on either part names the other, unlike 3010py3 which names BrickLink 3010pb291 outright.",
+  "decision": "Recorded as an authoritative-alias CANDIDATE and NOT wired into the evaluation this round. Adding it would raise reported numbers on the strength of circumstantial evidence; leaving it out under-reports page 20 by at most two pieces, and the under-report is now stated rather than hidden.",
+  "scope": "Evaluation instrument only; nothing here is a runtime input.",
+  "truth_used": true,
+  "runtime_vlm_calls": 0,
+  "certified": false
+}
