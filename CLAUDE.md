@@ -202,7 +202,15 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
 - Other importers: `bff-loader.ts` (BrickLink inventory → flat layout), `studio-colors.ts`, `ldd-colors.ts`.
   - `io-extractor.ts` (.io) — `extractIoModel()` returns `{text, customParts, sourceEntry, colorSpace, colorSpaceReason}` (see "Color systems" — the colour table MUST follow `colorSpace`, not the file extension): tries `model.ldr` → `model2.ldr` → `modelv2.ldr` (first with type-1 lines wins) AND pulls every **`CustomParts/**/*.dat`** from the archive (Studio's user-modified `m<hash>_<date>_<time>.dat` parts + the exact primitives they need). Without CustomParts, big Technic sets silently lose pieces (42110 was missing 24). They flow `lego.ts currentCustomParts` → `viewer.load(opts.datFiles)` → `preloadDatTexts`.
   - `zip-utils.ts` + `aes-zip.ts` — ZIP reader. Handles plain DEFLATE, legacy **ZipCrypto** (pw `soho0909`), and **WinZip AES-256** (method 99, pw `soho0909`) used by older/early-access .io exports. AES = PBKDF2-HMAC-SHA1 + pure-JS AES in little-endian CTR (Web Crypto's big-endian AES-CTR is incompatible).
-  - `lxf-parser.ts` (.lxf/LDD) — applies per-part LDD→LDraw origin alignment from `web/public/ldd-part-map.json` (gen: `scripts/gen-ldd-part-map.py` from clego `ldraw.xml`, 4467 parts). The intricate transform math is extracted into pure, unit-tested functions: `parseBoneTransform` (LXFML column-major→row-major), `axisAngleToMatrix`, `composeLxfPlacement` (`R_world=R_bone·R_align`, `t_world=R_bone·t_align+t_bone`, then F=diag(1,−1,1) conjugation + ×25). Angles in `ldraw.xml` are RADIANS (verified: clego's `convert_lxf.py` has a latent bug here — `math.radians()` on the already-radian value, treating π/2 as 1.57° — so OUR handling is more correct). A `<Brick>` may hold MULTIPLE `<Part>` assemblies (e.g. hinge 73983 = parts 2430+2429), each with its own designID/materials/Bone — the parser iterates every Part (not just the first), or assembly halves vanish. **Known limitation (verified, not a bug):** alignment is exact for simple/axis-aligned builds (Tree ✓) but IMPERFECT for complex models with many angled/curved parts (vehicles splay) — our output matches clego's `convert_lxf.py` reference exactly (426/487 exact rotations, 0 transposed) and that reference renders the SAME splay, so it's an inherent limit of free LDD→LDraw alignment, shared with the state-of-the-art tool, NOT a cheap fix. The Studio `.io` of the same set renders correctly (different/better alignment source) — the UI says so on big `.lxf` loads. Don't sink hours out-engineering LDD alignment without ground-truth LDD-aligned placements to test against.
+  - `lxf-parser.ts` (.lxf/LDD) — **TWO alignment tables, measured-first (2026-09-09, audit P0 #2).** `parseBoneTransform` (LXFML column-major→row-major) and `axisAngleToMatrix` are unchanged; the placement maths is not.
+    - **`F = diag(1,−1,−1)`, NOT `diag(1,−1,1)`.** The old value has **det = −1** — a reflection, so every `.lxf` model was MIRRORED and every chiral part (slopes, wedges, curved shells) landed in a physically wrong slot. LDD (Y-up) and LDraw (Y-down) are BOTH right-handed, so the map between them is a 180° rotation about X. `FRAME_SIGN` is exported and a test pins `det = +1`. Do not "simplify" it back to a Y-flip.
+    - **`/ldd-measured-align.json` is primary** (`scripts/gen-ldd-measured-align.py` from clego `dbix_part_align.json`, 1,841 designs, 145 KB): clego's per-design correction MEASURED against authentic Studio placements over 207 sets. It is already in LDU and already in the flipped LDraw basis, so `composeLxfMeasured` applies it POST-flip: `rot = (F·R_bone·F)·D`, `pos = 25·(F·t_bone) + (F·R_bone·F)·e`. The generator re-orthonormalises the 302 rotations the learner's 1/20 quantisation left off (det 0.94–1.06) so no SVD is needed in the browser, and the row validator rejects any det off by >2 %.
+    - **`/ldd-part-map.json` is the FALLBACK** (Studio's own `ldraw.xml` columns, 4,467 designs) and still the source of the LDraw FILENAME (60583 → 60583b.dat) for the ~8 % of placements the measured table doesn't name. `composeLxfPlacement` keeps composing it in LDD space. Angles there are RADIANS (clego's `convert_lxf.py` has a latent `math.radians()` bug on the already-radian value — ours is more correct).
+    - **MEASURED, held out** against six sets with BOTH a native `.lxf` and an authentic (non-laundered) Studio `.io`, none in clego's training cohort, scored with clego's `dbix_gt_compare` over 10,327 GT parts: **ldraw.xml + old F 7.15 % · ldraw.xml + proper F 7.06 % · measured + old F 48.12 % · measured + proper F 72.70 % · no correction at all 3.78 %.** The shipped path was barely above the do-nothing control. **Both halves matter**: payload +65 pts, basis +25 pts. The old CLAUDE.md note that this was "an inherent limit shared with the state-of-the-art tool, NOT a cheap fix" was WRONG — it compared us to `convert_lxf.py`, which carries the same two faults. It WAS fixable; what was missing was ground truth, which clego now has.
+    - **Coverage is not the failure mode.** 71043 Hogwarts had **100.00 % coverage** (5,967/5,967 placements, 310/310 design ids) while rendering as a splayed pile. Measure entry CORRECTNESS against ground truth, not entry presence.
+    - `loadPartMap`/`loadMeasuredAlign` share a generic loader: schema-validated rows (bad rows dropped AND counted), transient failures retried (404/410 definitive), **a failure is never cached** (the old `{}`-forever bug — audit P1 #3), separate cache slots so a measured failure can't break the fallback. `parseLxfWithDiagnostics` returns `LxfDiagnostics` (per-table state/source/version/entries/rejected + measured vs fallback vs unaligned placement counts + skips); `describeLxfDiagnostics` turns it into the user-facing line. Tests: `test/lxf-alignment.test.ts` (maths), `test/lxf-part-map.test.ts` (loading + coverage, incl. the REAL shipped tables).
+    - Still true: a `<Brick>` may hold MULTIPLE `<Part>` assemblies (hinge 73983 = 2430+2429), each with its own designID/materials/Bone — iterate every Part or halves vanish.
+    - **Honest limit:** 72.70 %, not 100 %. 71043 has no authentic `.io` of its own (its `.io` files are laundered repacks per clego `io_authenticity.json`), so its accuracy is inferred from the held-out cohort. An authentic Studio `.io` of a set is still exact and still preferred.
 
 ## LDraw parts library — DEV vs PROD (critical)
 The 3D renderer needs individual `.dat` geometry from `/ldraw-parts/*`.
@@ -371,6 +379,30 @@ ghost tires). Pipeline defenses (classifier extracted to
   (all 3 entries identical, LDD colors) and its `Reconstructed/*_reconstructed
   .ldr` mirrors it. Text-level detection is impossible client-side; the model
   index (clego-generated) needs lineage/authenticity ranking.
+- **A floating ACCESSORY on a mecabricks-lineage model is an upstream per-mould
+  FRAME error — fix it in clego, never in the renderer (2026-09-09, audit P0
+  #1).** 10316 Rivendell's five elf hairs (`10055`) sat 60.5 LDU above their
+  heads; 40239 52.0, 92083 35.5, 10048 22.5. Craftmatic was measured innocent:
+  `substitutedParts` empty, `unresolvedSubparts` empty, no alias hop, and the
+  offset was CONSTANT IN THE HEAD'S LOCAL FRAME across every rotation and every
+  instance — the signature of a per-mould source error, not an instance,
+  renderer or alias fault. Root cause was `geograde/mb_align.py`'s NO-MESH
+  fallback (7,696 mecabricks meshes are CDN 404s) assuming the mecabricks
+  "origin on the bottom plane" convention for a part whose LDraw origin is
+  INSIDE its geometry. Fixed as MB_ALIGN v5 (clego `772252b3`); corpus
+  regenerated + republished. **The ground truth to check against**: LDraw's
+  convention is that HEADGEAR ORIGIN == HEAD ORIGIN, i.e. the head-local offset
+  is (0,0,~0) — verified over 100+ OMR instances (30210, 9469, 9470, 10224 …),
+  and corpus-wide the OMR median local `dy` is 0.00 for every such mould. A
+  quick scan of headgear-vs-head local `dy` in any flat `.ldr` is therefore a
+  cheap, sharp detector for this whole class.
+- **`bridgePartContacts` in the VOXEL path cannot fix a source float, and never
+  hid one.** It only bridges gaps smaller than half a cell (pure quantization
+  error). Measured on the 10316 elf: with the hair 60.5 LDU out, bridging added
+  **0 cells** — grids byte-identical with and without it — at cellLDU 4/5/8/10/20.
+  Don't reach for a voxel-side contact patch to explain or fix a direct-render
+  placement defect; they are separate pipelines (`voxelizeAndDisplay` bypasses
+  voxelization entirely in 3D-render mode).
 
 ## LSynth flexible parts (hoses / tubes / cables) — VERIFIED already-handled + synth fallback
 - **Reality (measured across the whole corpus):** flexible parts already render.
