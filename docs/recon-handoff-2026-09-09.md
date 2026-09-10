@@ -33,15 +33,26 @@ from-scratch chain this program has measured.
 
 ## The honest scoreboard
 
-| fixture | truth | best structural | driver's own contribution | notes |
-| --- | ---: | ---: | ---: | --- |
-| 40377 | 90 | **54** | +9 (45 inherited) | opening pages 1-15 were HAND-BUILT; the allocation it was driven from held only 54 of 90 pieces. Round ten's derived allocation reproduces those 17 pages exactly and adds the other 11 — a from-scratch drive was still running at handoff |
-| 41624 | 109 | 6 | +3 | attended. **Autonomous: 2 of 109** — same page-2 allocation, same root, but the *derived* prescan set gives a 2-of-3 opening where the human's gave 3-of-3 |
-| 41601 | 108 | **6** | **+0** | from scratch, **zero attended steps**, PDF-only (round ten) |
+**Quote the autonomous totals. They are the only numbers with no human decision
+anywhere in the chain, and they supersede every earlier scoreboard entry.**
 
-**Autonomous totals (the number the 90% is measured against): 6 of 108 on 41601
-and 2 of 109 on 41624** — 5.6% and 1.8%, with the whole booklet in scope and no
-human in the loop.
+| fixture | printed | in scope | pages placed | emitted | **correct poses** | share | driver's own |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 40377 | 90 | 90 (100%) | 24 | 75 | **2** | 2.2% | +1 |
+| 41601 | 108 | 103 (95%) | 19 | 78 | **6** | 5.6% | +0 |
+| 41624 | 109 | 106 (97%) | 36 | 100 | **2** | 1.8% | +0 |
+
+**Mean 3.2% correct poses from a PDF alone, against a 90% target.** The pipeline
+gets essentially the whole booklet into scope and emits three quarters of it;
+what it cannot do is put the pieces in the right places.
+
+The older, attended numbers and what they actually measured:
+
+| fixture | attended best | what it was |
+| --- | ---: | --- |
+| 40377 | 54 of 90 | **45 pieces hand-built** as the opening, plus a driver contribution of +9, driven from an allocation holding only 54 of the 90 pieces |
+| 41624 | 6 of 109 | driven from a construction body that is **not its objective's maximum** (0.750012 against 0.876768); the maximum is 2 of 3 and is what an unattended run selects |
+| 41601 | 6 of 108 | matches the autonomous run exactly |
 
 Round ten's five 41601 chains, all of which end at the same number:
 
