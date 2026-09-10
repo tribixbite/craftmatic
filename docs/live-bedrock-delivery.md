@@ -25,7 +25,9 @@ Java downloads preserve the chest inventories and sign text represented in the s
 
 Choose **Auto** for source-based detection or explicitly choose **Car** or **Plane** for a standalone model. Auto separates named vehicle submodels and wheel clusters; ambiguous flattened models may need an explicit whole-model choice. It does not certify automatic recognition of every vehicle in the catalog.
 
-Cars use native ride and ground controls. Planes use native ride and air controls. Both use fast movement settings. Computer-screen interactions open controls for nearby lights, doors, and vehicle status. Geometry keeps the exported voxel colors and complete cuboids; exports exceeding the 16,384-cuboid budget ask for a lower resolution instead of silently truncating the vehicle.
+Cars use native ride and ground controls. Planes use native ride and air controls. Both use fast movement settings. Computer-screen interactions open controls for nearby lights, doors, scanner vision, and vehicle locations. Geometry keeps the exported voxel colors and complete cuboids; exports exceeding the 16,384-cuboid budget ask for a lower resolution instead of silently truncating the vehicle.
+
+Re-exporting a pack keeps its UUID and increases its manifest version so Minecraft can update the previous import. Rejoin the world after updating an active pack. Vehicle seats sit above the opaque voxel body to keep the rider's view clear.
 
 For the verified flattened 76252 source, the wheel-based selection identifies a 339-placement Batmobile separately from the 3,976-placement Batcave and attaches two screen controls to measured source coordinates. Component geometry is removed from the static scenery and spawned separately.
 
@@ -44,3 +46,5 @@ Prior Pixel testing demonstrated an encrypted WebSocket handshake, a Planner scr
 The deployed Cloudflare relay passes a complete protocol-simulator transfer, including its crypto, bounded command window, and receiver-commit check. Actual retail Pixel hosting remains under investigation: `wss://` has not reached the relay and `ws://` attempts have disconnected during setup. The production pairing command remains `wss://`. The UI does not report a successful delivery for these failures.
 
 Playwright MCP on port 8989 verified real browser downloads of Java schematics, native Bedrock packs, and playable add-ons. Default-resolution 76252 produced a 585,511-byte add-on containing 12 structure tiles, 8,251 colored Batmobile cuboids, and two screens. Actual 8855 Prop Plane export also produced its flight behavior and resources. In-game control validation is separate from these archive checks.
+
+On September 10, 2026, production deployment and Playwright checks passed on `craftmatic.click`. Testing the browser-before-Minecraft connection order exposed a pairing race; the relay now waits for the encrypted game handshake before sending commands, and the integration simulator covers this order. In a dedicated retail Pixel test world, the Batmobile mounted successfully and traveled approximately 94 blocks horizontally during a three-second forward input on a clear platform. A computer entity also opened its control menu through native touch. Flight verification is still pending; archive/schema checks alone do not establish flight behavior.

@@ -6,11 +6,34 @@ import {
   COMMAND_WINDOW,
   HS1_CHUNK_SIZE,
   MAX_HS1_BYTES,
+  LiveDeliverySession,
   validateHs1,
 } from '../worker/live-delivery.js';
 import { checksum, makeParts } from '../web/src/engine/hotschem/live-import.js';
 
 describe('live delivery protocol boundary', () => {
+  it('keeps a browser-first import pending until Minecraft pairing resolves', async () => {
+    const relay = new LiveDeliverySession({ storage: {} });
+    const sent: Array<{ type: string; phase?: string }> = [];
+    relay.browser = { readyState: 1, bufferedAmount: 0, send: (raw: string) => sent.push(JSON.parse(raw)) };
+    relay.browserAuthed = true;
+    relay.deliveryRunning = true;
+    relay.deliveryGeneration = 1;
+    relay.checkedCommand = async () => ({ statusCode: 0 });
+    relay.waitForTag = async () => {};
+    relay.waitForCompletion = async () => {};
+    let settled = false;
+    const pending = relay.deliver('AAA', fnv1a32('AAA'), 1, 1).then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(sent.at(-1)).toMatchObject({ type: 'progress', phase: 'pairing' });
+    relay.player = 'BrowserFirst';
+    relay.pairingResolve('BrowserFirst');
+    await pending;
+    expect(settled).toBe(true);
+    expect(sent.at(-1)).toMatchObject({ type: 'complete', player: 'BrowserFirst' });
+  });
+
   it('matches Node crypto AES-256-CFB8 across stateful updates', () => {
     const key = Uint8Array.from({ length: 32 }, (_, i) => i * 7 & 255);
     const iv = key.slice(0, 16);

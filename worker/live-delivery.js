@@ -120,12 +120,17 @@ export class LiveDeliverySession {
     this.browser = null;
     this.browserAuthed = false;
     this.minecraftReady = null;
+    this.pairingResolve = null;
+    this.pairingReject = null;
+    this.pairingSettled = false;
     this.player = null;
     this.encrypt = null;
     this.decrypt = null;
     this.pending = new Map();
     this.deliveryRunning = false;
+    this.deliveryGeneration = 0;
     this.stages = [];
+    this.resetPairing();
   }
 
   async fetch(request) {
@@ -153,6 +158,7 @@ export class LiveDeliverySession {
   }
 
   async alarm() {
+    this.pairingReject?.(new Error('Delivery session expired'));
     this.sendBrowser({ type: 'error', code: 'expired', message: 'Delivery session expired' });
     this.browser?.close(1000, 'Session expired');
     this.minecraft?.close(1000, 'Session expired');
@@ -201,6 +207,7 @@ export class LiveDeliverySession {
     }
     if (message?.type === 'cancel') {
       this.deliveryRunning = false;
+      this.deliveryGeneration++;
       this.sendBrowser({ type: 'cancelled' });
       return;
     }
@@ -208,10 +215,11 @@ export class LiveDeliverySession {
     if (this.deliveryRunning) throw new Error('A delivery is already running');
     const count = validateHs1(message.encoded, message.checksum);
     this.deliveryRunning = true;
+    const generation = ++this.deliveryGeneration;
     try {
-      await this.deliver(message.encoded, message.checksum, count);
+      await this.deliver(message.encoded, message.checksum, count, generation);
     } finally {
-      this.deliveryRunning = false;
+      if (this.deliveryGeneration === generation) this.deliveryRunning = false;
     }
   }
 
@@ -232,11 +240,11 @@ export class LiveDeliverySession {
     // Some retail clients treat a data frame coalesced with the HTTP 101 as a
     // WebSocket protocol error. Let the upgrade response leave the edge before
     // sending Minecraft's first application frame.
-    this.minecraftReady = new Promise(resolve => setTimeout(resolve, 100))
+    const handshake = new Promise(resolve => setTimeout(resolve, 100))
       .then(() => this.startMinecraftHandshake(server));
     // A failed/abandoned pairing may happen before a browser connects. Keep the
     // rejection observable to deliver() without creating an unhandled promise.
-    this.minecraftReady.catch(error => {
+    handshake.then(player => this.pairingResolve?.(player)).catch(error => {
       this.sendBrowser({ type: 'error', code: 'minecraft_handshake', message: error instanceof Error ? error.message : String(error) });
     });
     server.addEventListener('message', event => this.onMinecraftMessage(event.data));
@@ -245,6 +253,7 @@ export class LiveDeliverySession {
       if (this.minecraft === server) {
         this.minecraft = null;
         this.player = null;
+        if (this.pairingSettled) this.resetPairing();
         for (const pending of this.pending.values()) pending.reject(new Error('Minecraft disconnected'));
         this.pending.clear();
         this.sendBrowser({ type: 'unpaired' });
@@ -349,16 +358,16 @@ export class LiveDeliverySession {
     return response;
   }
 
-  async deliver(encoded, checksum, count) {
+  async deliver(encoded, checksum, count, generation) {
     this.sendBrowser({ type: 'progress', phase: 'pairing', acknowledged: 0, total: count });
     const player = await this.minecraftReady;
-    if (!this.deliveryRunning) return;
+    if (!this.deliveryRunning || this.deliveryGeneration !== generation) return;
     const selector = this.selector();
     this.sendBrowser({ type: 'progress', phase: 'probing', acknowledged: 0, total: count });
     await this.checkedCommand(`execute as ${selector} at @s run scriptevent hotschem:probe HS1`);
     await this.waitForTag('hs_stream_v1', 6000);
     for (let start = 0; start < count; start += COMMAND_WINDOW) {
-      if (!this.deliveryRunning) return;
+      if (!this.deliveryRunning || this.deliveryGeneration !== generation) return;
       const end = Math.min(count, start + COMMAND_WINDOW);
       const commands = [];
       for (let index = start; index < end; index++) {
@@ -375,9 +384,10 @@ export class LiveDeliverySession {
       await Promise.all(commands);
       this.sendBrowser({ type: 'progress', phase: 'transferring', acknowledged: end, total: count });
     }
-    if (!this.deliveryRunning) return;
+    if (!this.deliveryRunning || this.deliveryGeneration !== generation) return;
     this.sendBrowser({ type: 'progress', phase: 'committing', acknowledged: count, total: count });
     await this.waitForCompletion(checksum);
+    if (!this.deliveryRunning || this.deliveryGeneration !== generation) return;
     this.sendBrowser({ type: 'complete', checksum, chunks: count, bytes: encoded.length, player });
   }
 
@@ -410,6 +420,16 @@ export class LiveDeliverySession {
       return;
     }
     this.browser.send(JSON.stringify(message));
+  }
+
+  resetPairing() {
+    this.pairingSettled = false;
+    this.minecraftReady = new Promise((resolve, reject) => {
+      this.pairingResolve = value => { this.pairingSettled = true; resolve(value); };
+      this.pairingReject = error => { this.pairingSettled = true; reject(error); };
+    });
+    // A session can expire without a browser ever awaiting this promise.
+    this.minecraftReady.catch(() => {});
   }
 
   recordStage(stage, detail = {}) {
