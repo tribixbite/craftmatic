@@ -83,7 +83,11 @@ own best slot, 6.8% are solver compromises, 3.2% get nothing, all because the
 frozen encoder cannot separate small parts of the same shape. **The combined
 41601 run - the symmetry-selected 6-of-7 opening on the mould-pooled scope -
 lands 6/108 with 85 emitted and +0 of its own: exactly the maximum of the two
-gains, with no interaction.** The multi-view probe is **refuted**: scoring the
+gains, with no interaction. The three AUTONOMOUS totals - PDF-only, zero
+attended steps - are 2/90, 6/108 and 2/109, a mean of 3.2% against the 90%
+target; quote these and not the older attended numbers, because 40377's 54/90
+was 45 HAND-BUILT pieces plus nine and 41624's 6/109 rests on a construction
+body its own objective does not prefer.** The multi-view probe is **refuted**: scoring the
 36 retained bodies under a later page's accepted registration ranks them by
 whose camera that registration was propagated from (the two lineages disagree
 symmetrically, 5-6x either way) and the within-class 24-way tie survives every
