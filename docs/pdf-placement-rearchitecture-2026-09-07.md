@@ -5029,3 +5029,41 @@ inventory with no human in the loop, with every refusal named and none guessed.
 That is a per-step parts list for any set whose booklet is in the corpus, and it
 does not depend on the placement problem being solved. The poses are the part
 that is not ready, and the scoreboard says so in the same numbers it always has.
+
+### 41624, end to end from the PDF alone: 2 of 109, and the derivation that cost it
+
+| stage | result |
+| --- | --- |
+| printed inventory | 51 records, 109 pieces |
+| callout association | 69 of 69 anchors resolved |
+| identity | 108 pieces assigned, 1 callout unplaced; size gate fires **0** pairs |
+| page scope | 37 pages, **106 of 109 pieces**, page 13 excluded and named |
+| opening | `beam_00`, **2 of 3**; the symmetry channel abstains (one mirror-eligible part) |
+| drive | 36 pages, **36 placed**, 100 emitted |
+| **final** | **2 of 109 correct poses, driver contribution +0** |
+| ties | 26 of 36 pages end in an exact tie |
+
+That is **worse than round seven's attended 6 of 109**, and the whole difference
+is in the opening. The cause is precise and is not the association work or the
+scope: page 2's allocation is **byte-identical** to the legacy one
+(`3023b`:4 x2, `3031`:4 x1) and the construction selects the same root
+(`3031`:4) at the same score to sixteen digits - but a **different body**. The
+one input that differs is the prescan page set, which round ten *derives* ("the
+next two scope pages", giving `[4]` after page 3 yielded no stud row) where the
+round-three human run used `[4, 5]`.
+
+| 41624 opening | prescan | structural |
+| --- | --- | ---: |
+| round three (human) | `[4, 5]` | **3 of 3** |
+| round ten (derived) | `[4]` | 2 of 3 |
+
+**One prescan page costs one opening pose, and one opening pose costs four in the
+final chain**: the round-seven chain went 3 to 6 (+3) and the autonomous chain
+goes 2 to 2 (+0). It is the sharpest illustration this program has produced of
+its own central finding - the opening decides the chain and nothing after it
+does - and it arrived as a cost of automating a choice, which is the honest
+price of removing the last attended step.
+
+The derivation is a one-line rule and the fix is a measurement, not a guess: a
+wider prescan set can only add camera candidates, so the probe is to derive the
+next **three** scope pages instead of two and check both fixtures. Queued.
