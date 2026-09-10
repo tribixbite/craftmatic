@@ -161,6 +161,8 @@ const MAX_DIM = 384; // Modern Minecraft supports builds up to 4096; 384 is a pr
 
 export interface VoxelizeResult {
   grid: BlockGrid;
+  /** Source-cell origin and resampling scale, for source-aligned component exports. */
+  gridOrigin?: { x: number; y: number; z: number; scale: number; cellXZ: number; cellY: number };
   brickCount: number;
   uniqueColors: number;
   dimensions: { w: number; h: number; l: number };

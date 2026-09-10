@@ -84,7 +84,22 @@ export const JAVA_TO_BEDROCK_ID: Readonly<Record<string, string>> = {
   // meaning, so this needs the explicit entry even though "snow" looks fine.
   snow_block: 'snow',
   terracotta: 'hardened_clay',
+  wall_torch: 'torch',
+  stone_bricks_slab: 'stone_brick_slab',
+  water_cauldron: 'cauldron',
+  armor_stand: 'oak_fence',
+  stonecutter: 'stonecutter_block',
+  oak_wall_sign: 'wall_sign',
+  oak_sign: 'standing_sign',
 };
+
+function renamedId(id: string): string {
+  if (/^potted_/.test(id)) return 'flower_pot';
+  if (/^(white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)_bed$/.test(id)) return 'bed';
+  if (/^(white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)_banner$/.test(id)) return 'standing_banner';
+  if (/^(white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)_wall_banner$/.test(id)) return 'wall_banner';
+  return JAVA_TO_BEDROCK_ID[id] ?? id;
+}
 
 /**
  * Java `facing` → Bedrock `facing_direction` int.
@@ -182,7 +197,7 @@ function defaultStates(bedrockId: string): Record<string, string | number | bool
  */
 export function toBedrockBlock(javaEntry: string): BedrockBlock | null {
   const { id, props } = parseJavaState(javaEntry);
-  let bedrockId = JAVA_TO_BEDROCK_ID[id] ?? id;
+  let bedrockId = renamedId(id);
 
   // A double slab is a different BLOCK in Bedrock, not a slab state. Resolve it
   // before the state pass so the state pass sees the right block's schema.
@@ -213,6 +228,29 @@ export function toBedrockBlock(javaEntry: string): BedrockBlock | null {
     const f = FACING_DIRECTION[props['facing']];
     if (f !== undefined) states['facing_direction'] = f;
   }
+
+  if (has('minecraft:cardinal_direction') && props['facing'] && /^(north|south|east|west)$/.test(props['facing'])) {
+    states['minecraft:cardinal_direction'] = props['facing'];
+  }
+
+  // Legacy horizontal direction: south=0, west=1, north=2, east=3.
+  if (has('direction') && props['facing']) {
+    const d: Record<string, number> = { south: 0, west: 1, north: 2, east: 3 };
+    if (d[props['facing']] !== undefined) states['direction'] = d[props['facing']]!;
+  }
+  if (has('torch_facing_direction') && props['facing']) states['torch_facing_direction'] = props['facing'] === 'up' ? 'top' : props['facing'];
+  if (has('open_bit') && props['open']) states['open_bit'] = props['open'] === 'true';
+  if (has('door_hinge_bit') && props['hinge']) states['door_hinge_bit'] = props['hinge'] === 'right';
+  if (has('upper_block_bit') && props['half']) states['upper_block_bit'] = props['half'] === 'upper';
+  if (has('head_piece_bit') && props['part']) states['head_piece_bit'] = props['part'] === 'head';
+  if (has('upside_down_bit') && props['half'] && !has('weirdo_direction')) states['upside_down_bit'] = props['half'] === 'top';
+  if (has('lit') && props['lit']) states['lit'] = props['lit'] === 'true';
+  if (has('extinguished') && props['lit']) states['extinguished'] = props['lit'] !== 'true';
+  if (has('candles') && props['candles']) states['candles'] = Math.max(0, Math.min(3, Number(props['candles']) - 1));
+  if (has('cauldron_liquid') && id === 'water_cauldron') states['cauldron_liquid'] = 'water';
+  if (has('fill_level') && props['level']) states['fill_level'] = Math.max(0, Math.min(6, Number(props['level']) * 2));
+  if (has('composter_fill_level') && props['level']) states['composter_fill_level'] = Math.max(0, Math.min(8, Number(props['level'])));
+  if (has('ground_sign_direction') && props['rotation']) states['ground_sign_direction'] = Math.max(0, Math.min(15, Number(props['rotation'])));
 
   // ── Walls: per-side connection, with Java's "low" spelled "short" ──────────
   for (const side of ['north', 'south', 'east', 'west'] as const) {

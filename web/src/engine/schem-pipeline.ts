@@ -21,13 +21,14 @@
 
 import type { ParsedBrick } from './ldraw-parser.js';
 import { voxelizeLDrawGeometry, seedDatTexts } from './ldraw-geometry.js';
-import { voxelizeLDraw, fillSingleVoxelGaps, type VoxelizeOptions } from './ldraw-voxelizer.js';
+import { voxelizeLDraw, fillSingleVoxelGaps, type VoxelizeOptions, type VoxelizeResult } from './ldraw-voxelizer.js';
 import { encodeSchemBytes, encodeLitematicBytes } from './schem-encode.js';
 import { addInteriorLights, type LightFillResult } from './light-fill.js';
 import { applyBlockShapes, type ShapeHints, type ShapeStats } from './block-shapes.js';
 import { applyPartElements, type ElementStats } from './part-elements.js';
 import { getBlockProfile, type BrickColorSpace } from './block-profiles.js';
 import { BlockGrid } from '@craft/schem/types.js';
+import type { BlockEntity } from '@craft/types/index.js';
 
 /**
  * `mcpack` is the Bedrock Edition target: a behavior pack of `.mcstructure`
@@ -36,7 +37,7 @@ import { BlockGrid } from '@craft/schem/types.js';
  * was converting our `.schem` with an external tool, and that hop is where a
  * Java→Bedrock translation loses blocks and block states.
  */
-export type SchemWorkerFormat = 'schem' | 'litematic' | 'guide' | 'mcpack';
+export type SchemWorkerFormat = 'schem' | 'litematic' | 'guide' | 'mcpack' | 'live' | 'mcaddon';
 
 /** A parsed LDraw model that still needs voxelizing. */
 export interface BrickSource {
@@ -55,6 +56,7 @@ export interface GridSource {
   length: number;
   data: Uint16Array;
   palette: string[];
+  blockEntities?: BlockEntity[];
 }
 
 export type SchemSource = BrickSource | GridSource;
@@ -91,10 +93,14 @@ export interface SchemWorkerInput {
   packStem?: string;
   /** Human label for the pack (`Colosseum (10276)`); defaults to `packStem`. */
   packLabel?: string;
+  /** Explicit whole-model vehicle override; auto preserves scenery. */
+  vehicleMode?: 'auto' | 'car' | 'plane' | 'static';
 }
 
 /** What a Bedrock `.mcpack` export produced, for the status line. */
 export interface McpackSummary {
+  warnings?: string[];
+  components?: string[];
   /** `/function craftmatic/<name>` the player runs to place the model. */
   functionCommand: string;
   /** One `.mcstructure` per entry. */
@@ -152,12 +158,14 @@ export async function runSchemPipeline(
 ): Promise<SchemPipelineResult> {
   const profile = getBlockProfile(input.profile);
   let grid: BlockGrid;
+  let sourceOrigin: VoxelizeResult['gridOrigin'];
   let shapeStats: ShapeStats | undefined;
   let elementStats: ElementStats | undefined;
 
   if (input.source.kind === 'grid') {
     const s = input.source;
     grid = BlockGrid.fromRaw(s.width, s.height, s.length, s.data, s.palette);
+    if (s.blockEntities) grid.blockEntities.push(...s.blockEntities);
   } else {
     const s = input.source;
     const colorFn = profile.colorFn(s.colorSpace);
@@ -177,6 +185,7 @@ export async function runSchemPipeline(
       // Near-empty result = part geometry unavailable → bbox fallback.
       if (r.grid.countNonAir() >= s.bricks.length) {
         grid = r.grid;
+        sourceOrigin = r.gridOrigin;
         hints = r.shapeHints;
       } else {
         grid = voxelizeLDraw(s.bricks, colorFn, options).grid;
@@ -217,9 +226,61 @@ export async function runSchemPipeline(
   const lights = lightFill?.lights ?? 0;
   if (input.format === 'guide') return { grid, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats };
 
+  if (input.format === 'live') {
+    onProgress('preparing live Bedrock delivery');
+    const { encodeLiveGrid } = await import('./live-model.js');
+    const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
+    return { grid, bytes: encodeLiveGrid(grid, input.packLabel ?? input.packStem ?? 'Imported build'), nonAir, lights,
+      mcpack: { functionCommand: '', tileCount: 0, unmapped: [], warnings: bedrockExportNotes(grid) } };
+  }
+
+  if (input.format === 'mcaddon') {
+    const { buildPlayableAddon } = await import('./playable-addon.js');
+    const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
+    const { discoverPlayableComponents, knownScreenAnchors } = await import('./playable-components.js');
+    const label = input.packLabel ?? input.packStem ?? 'Imported build';
+    const components = [];
+    const warnings: string[] = bedrockExportNotes(grid);
+    const screens = [];
+    if (input.source.kind === 'bricks') {
+      const source = input.source;
+      const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto');
+      warnings.push(...found.warnings);
+      for (const component of found.components) {
+        onProgress(`preparing ${component.label}`);
+        if (component.bricks.length === source.bricks.length) {
+          components.push({ ...component, grid });
+          grid = new BlockGrid(grid.width, grid.height, grid.length);
+          continue;
+        }
+        const part = await voxelizeLDrawGeometry(component.bricks, profile.colorFn(source.colorSpace), source.options, onProgress);
+        if (!sourceOrigin || !part.gridOrigin) throw new Error('Component alignment requires resolved source geometry.');
+        const a = sourceOrigin, b = part.gridOrigin;
+        const dx = Math.round((b.x - a.x) * a.scale), dy = Math.round((b.y - a.y) * a.scale), dz = Math.round((b.z - a.z) * a.scale);
+        for (let y = 0; y < part.grid.height; y++) for (let z = 0; z < part.grid.length; z++) for (let x = 0; x < part.grid.width; x++) {
+          if (part.grid.get(x, y, z) !== 'minecraft:air') {
+            const px = dx + x, py = dy + y, pz = dz + z;
+            if (px >= 0 && py >= 0 && pz >= 0 && px < grid.width && py < grid.height && pz < grid.length) grid.set(px, py, pz, 'minecraft:air');
+          }
+        }
+        components.push({ ...component, grid: part.grid, x: dx + part.grid.width / 2, y: dy, z: dz + part.grid.length / 2 });
+      }
+      if (sourceOrigin) for (const anchor of knownScreenAnchors(label)) {
+        const a = sourceOrigin;
+        screens.push({ id: anchor.id, label: anchor.label,
+          x: (anchor.ldraw[0] / a.cellXZ - a.x) * a.scale,
+          y: (-anchor.ldraw[1] / a.cellY - a.y) * a.scale,
+          z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
+      }
+    }
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, components: components.length ? components : undefined, screens, onProgress });
+    return { grid, bytes: pack.bytes, nonAir, lights, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
+  }
+
   if (input.format === 'mcpack') {
     // Bedrock: same grid, different (little-endian, per-tile) encoder.
     const { buildMcpack } = await import('./mcpack.js');
+    const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     const pack = await buildMcpack(grid, {
       stem: input.packStem ?? 'model',
       ...(input.packLabel ? { label: input.packLabel } : {}),
@@ -232,10 +293,12 @@ export async function runSchemPipeline(
         functionCommand: pack.functionCommand,
         tileCount: pack.tiles.length,
         unmapped: pack.unmapped,
+        warnings: bedrockExportNotes(grid),
       },
     };
   }
 
+  if (input.format !== 'schem' && input.format !== 'litematic') throw new Error(`Unsupported export format: ${input.format}`);
   onProgress(input.format === 'schem' ? 'writing NBT' : 'writing Litematica NBT');
   const bytes = input.format === 'schem' ? encodeSchemBytes(grid) : encodeLitematicBytes(grid);
   return { grid, bytes, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats };

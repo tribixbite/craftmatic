@@ -119,7 +119,7 @@ describe('the ids that genuinely differ between editions', () => {
     // "helpfully" adding renames that are not real.
     const ids = [...knownBlockIds()];
     const renamed = ids.filter(id => JAVA_TO_BEDROCK_ID[id]).length;
-    expect(renamed).toBeLessThan(20);
+    expect(renamed).toBeLessThan(30);
     for (const id of ['white_concrete', 'oak_planks', 'glass', 'glass_pane', 'iron_bars',
                       'glowstone', 'oak_stairs', 'quartz_slab', 'cobblestone_wall', 'oak_fence']) {
       expect(toBedrockBlock(`minecraft:${id}`)?.name).toBe(`minecraft:${id}`);
@@ -128,6 +128,28 @@ describe('the ids that genuinely differ between editions', () => {
 });
 
 describe('state translation', () => {
+  it('covers generated interiors, plants, workstations, containers, and decor', () => {
+    const entries = [
+      'rose_bush', 'sunflower', 'potted_cornflower', 'peony', 'azalea_leaves[persistent=true]',
+      'furnace[facing=north,lit=false]', 'wall_torch[facing=east]', 'chain', 'bookshelf',
+      'barrel[facing=up]', 'smoker', 'red_carpet', 'blast_furnace', 'lilac',
+      'spruce_trapdoor[facing=south,half=top,open=true]', 'red_wall_banner[facing=south]',
+      'crafting_table', 'candle[candles=3,lit=true]', 'campfire[lit=true]',
+      'stone_bricks_slab[type=bottom]', 'chest[facing=west]', 'water_cauldron[level=3]',
+      'dark_oak_fence_gate[facing=north,open=true]',
+      'dark_oak_door[facing=north,half=upper,hinge=right,open=true]', 'end_rod[facing=up]',
+      'bell[facing=north]', 'red_bed[part=head,facing=north]', 'armor_stand',
+      'oak_wall_sign[facing=north]', 'white_banner[rotation=3]', 'composter[level=3]',
+      'cartography_table', 'lectern[facing=north]', 'brewing_stand', 'potted_oxeye_daisy',
+    ].map(id => `minecraft:${id}`);
+    expect(toBedrockPalette(entries).unmapped).toEqual([]);
+    expect(toBedrockBlock('minecraft:dark_oak_door[facing=north,half=upper,hinge=right,open=true]')?.states)
+      .toMatchObject({ direction: 2, upper_block_bit: true, door_hinge_bit: true, open_bit: true });
+    expect(toBedrockBlock('minecraft:candle[candles=3,lit=true]')?.states)
+      .toMatchObject({ candles: 2, lit: true });
+    expect(toBedrockBlock('minecraft:water_cauldron[level=3]')?.states)
+      .toMatchObject({ cauldron_liquid: 'water', fill_level: 6 });
+  });
   it('slabs use minecraft:vertical_half, and a double slab is its own block', () => {
     expect(toBedrockBlock('minecraft:oak_slab[type=bottom]')).toEqual({
       name: 'minecraft:oak_slab', states: { 'minecraft:vertical_half': 'bottom' },

@@ -175,15 +175,22 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid, legoYScale?: 
         <svg class="download-chevron" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="download-menu download-menu-up" id="inline-dl-menu" hidden>
-        <button class="download-item" data-format="schem">.schem<span class="download-desc">Minecraft</span></button>
+        <button class="download-item" data-format="live">Send to Minecraft<span class="download-desc">Bedrock · experimental Planner delivery</span></button>
+        <button class="download-item" data-format="mcaddon">Bedrock Add-On (.mcaddon)<span class="download-desc">Controls detected or selected components</span></button>
+        <button class="download-item" data-format="mcpack">Bedrock Structure (.mcpack)<span class="download-desc">Static build</span></button>
+        <button class="download-item" data-format="schem">Java Schematic (.schem)<span class="download-desc">WorldEdit</span></button>
         <button class="download-item" data-format="litematic">.litematic<span class="download-desc">Litematica</span></button>
-        <button class="download-item" data-format="mcpack">.mcpack<span class="download-desc">Bedrock add-on</span></button>
         <button class="download-item" data-format="stl">STL<span class="download-desc">3D print</span></button>
         <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF</span></button>
         <button class="download-item" data-format="obj">OBJ<span class="download-desc">Universal</span></button>
         <button class="download-item" data-format="three">Three.js JSON<span class="download-desc">Scene</span></button>
         <button class="download-item" data-format="html">HTML<span class="download-desc">Standalone</span></button>
         <button class="download-item" data-format="layer-guide">Layer Guide<span class="download-desc">Print to PDF</span></button>
+        <label class="download-option">Interactive vehicle
+          <select data-export-vehicle title="Choose how the Bedrock add-on should make this model move">
+            <option value="auto">Detect vehicle components</option><option value="car">Car (whole model)</option><option value="plane">Plane (whole model)</option><option value="static">Structure only</option>
+          </select>
+        </label>
       </div>
     </div>
     <button class="btn btn-secondary btn-sm" id="inline-expand" title="Expand to full viewer">
@@ -356,12 +363,15 @@ function wireDownloadDropdown(
           // Bedrock: the same shared module, encoding the grid as a behavior
           // pack of .mcstructure files instead of a single Java NBT file.
           case 'mcpack':
+          case 'mcaddon':
+          case 'live':
             if (!grid) return;
             await runMinecraftExport({
               source: { kind: 'grid', grid },
               format,
               basename: exportBasename,
               settings: getSchemSettings(),
+              vehicleMode: (menuEl.querySelector<HTMLSelectElement>('[data-export-vehicle]')?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'static',
             });
             break;
           case 'stl':

@@ -49,6 +49,8 @@ const refIdx = args.indexOf('--ref');
 // one, 15 of our ids do not resolve at all.
 const REF = refIdx >= 0 ? args[refIdx + 1] : 'v1.21.40.3';
 const CHECK = args.includes('--check');
+const sourceIdx = args.indexOf('--source');
+const forwardSourceIdx = args.indexOf('--forward-source');
 
 /**
  * The newest release the table is ALSO checked against, so an id Mojang removed
@@ -58,6 +60,12 @@ const FORWARD_REF = 'main';
 
 const META_URL =
   `https://raw.githubusercontent.com/Mojang/bedrock-samples/${REF}/metadata/vanilladata_modules/mojang-blocks.json`;
+async function loadMetadata(path, url) {
+  if (path) return JSON.parse(readFileSync(path, 'utf8'));
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
+  return res.json();
+}
 
 /**
  * Java id → Bedrock id, for the ids where the two editions genuinely differ.
@@ -87,6 +95,13 @@ const RENAME = {
   slime_block: 'slime',
   snow_block: 'snow',
   terracotta: 'hardened_clay',
+  wall_torch: 'torch',
+  stone_bricks_slab: 'stone_brick_slab',
+  water_cauldron: 'cauldron',
+  armor_stand: 'oak_fence',
+  stonecutter: 'stonecutter_block',
+  oak_wall_sign: 'wall_sign',
+  oak_sign: 'standing_sign',
 };
 
 /** Every Java id our exports may emit (same expansion as palette-lint.ts). */
@@ -117,9 +132,7 @@ function findDoubleSlab(slabId, blockProps) {
 }
 
 const main = async () => {
-  const res = await fetch(META_URL);
-  if (!res.ok) throw new Error(`${META_URL} → HTTP ${res.status}`);
-  const meta = await res.json();
+  const meta = await loadMetadata(sourceIdx >= 0 ? args[sourceIdx + 1] : null, META_URL);
 
   /** Bedrock id → ordered property names. */
   const blockProps = new Map();
@@ -132,7 +145,12 @@ const main = async () => {
     propDefs.set(p.name, { type: p.type, values: p.values.map(v => v.value) });
   }
 
-  const wanted = new Set();
+  // Ship the complete pinned registry. Craftmatic generators are broader than
+  // the profile palette (rooms add workstations, plants, signs, containers,
+  // and decor), and trimming this file to one registry caused valid blocks to
+  // become air whenever a new generator used them.
+  const internal = new Set(['client_request_placeholder_block','deprecated_anvil','deprecated_purpur_block_1','deprecated_purpur_block_2','end_gateway','glowingobsidian','info_update','info_update2','invisible_bedrock','moving_block','netherreactor','reserved6','stonecutter']);
+  const wanted = new Set([...blockProps.keys()].filter(id => !internal.has(id)));
   const doubleSlabs = {};
   const missing = [];
   for (const javaId of ourJavaIds()) {
@@ -145,6 +163,11 @@ const main = async () => {
       doubleSlabs[bedrockId] = dbl;
       wanted.add(dbl);
     }
+  }
+  for (const bedrockId of blockProps.keys()) {
+    if (!bedrockId.endsWith('_slab')) continue;
+    const dbl = findDoubleSlab(bedrockId, blockProps);
+    if (dbl) doubleSlabs[bedrockId] = dbl;
   }
   wanted.add('air');
 
@@ -174,13 +197,11 @@ const main = async () => {
 
   // Forward check: every id and property we are about to ship must still exist in
   // the newest release, or a modern client will not resolve it.
-  const fwd = await fetch(META_URL.replace(REF, FORWARD_REF));
-  if (!fwd.ok) throw new Error(`forward check → HTTP ${fwd.status}`);
-  const fwdMeta = await fwd.json();
+  const fwdMeta = await loadMetadata(forwardSourceIdx >= 0 ? args[forwardSourceIdx + 1] : null, META_URL.replace(REF, FORWARD_REF));
   const fwdBlocks = new Set(fwdMeta.data_items.map(i => i.name.replace(/^minecraft:/, '')));
   const fwdProps = new Set(fwdMeta.block_properties.map(p => p.name));
   const gone = [
-    ...Object.keys(blocks).filter(id => !fwdBlocks.has(id)).map(id => `block ${id}`),
+    ...Object.keys(blocks).filter(id => !fwdBlocks.has(id) && !(id === 'chain' && fwdBlocks.has('iron_chain'))).map(id => `block ${id}`),
     ...Object.keys(properties).filter(n => !fwdProps.has(n)).map(n => `property ${n}`),
   ];
   if (gone.length) {

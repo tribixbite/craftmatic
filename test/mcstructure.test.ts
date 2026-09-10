@@ -26,7 +26,7 @@ import {
   encodeMcstructureTile, planStructureTiles,
   BEDROCK_BLOCK_VERSION, BEDROCK_MAX_TILE, MCSTRUCTURE_FORMAT_VERSION,
 } from '../web/src/engine/mcstructure-encode.js';
-import { buildMcpack, deterministicUuid, toBedrockIdentifier, PACK_NAMESPACE } from '../web/src/engine/mcpack.js';
+import { buildMcpack, deterministicUuid, exportVersion, toBedrockIdentifier, PACK_NAMESPACE } from '../web/src/engine/mcpack.js';
 import { listZipEntries, extractFile } from '../web/src/engine/zip-utils.js';
 
 /** Decode `.mcstructure` bytes with the third-party little-endian NBT reader. */
@@ -291,7 +291,8 @@ describe('.mcpack', () => {
 
     expect(manifest.format_version).toBe(2);
     expect(manifest.header.name).toBe('Colosseum (10276)');
-    expect(manifest.header.version).toEqual([1, 0, 0]);
+    expect(manifest.header.version[0]).toBe(1);
+    expect(manifest.header.version).toEqual(manifest.modules[0].version);
     // Pinned to the oldest release that has every id we emit.
     expect(manifest.header.min_engine_version).toEqual([1, 21, 40]);
     // Structures and functions are behavior-pack data.
@@ -344,6 +345,12 @@ describe('.mcpack', () => {
 });
 
 describe('pack identity', () => {
+  it('orders export versions by time without changing stable pack UUID inputs', () => {
+    expect(exportVersion(Date.UTC(2026, 8, 9, 12, 0, 0))).toEqual([1, 20_705, 43_200_000]);
+    expect(exportVersion(Date.UTC(2026, 8, 9, 12, 0, 1))).toEqual([1, 20_705, 43_201_000]);
+    expect(exportVersion(Date.UTC(2026, 8, 10, 0, 0, 0))).toEqual([1, 20_706, 0]);
+  });
+
   it('is deterministic — the same set re-exports as the same pack', () => {
     const a = deterministicUuid('craftmatic.pack.header:Colosseum-10276');
     const b = deterministicUuid('craftmatic.pack.header:Colosseum-10276');

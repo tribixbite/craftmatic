@@ -1238,6 +1238,7 @@ export async function voxelizeLDrawGeometry(
     uniqueColors: colors.size,
     dimensions: { w, h, l },
     warning,
+    gridOrigin: { x: minX, y: minY, z: minZ, scale, cellXZ: LDU_XZ, cellY: LDU_PER_Y },
     unmappedColors: [...unmappedColorSet],
     wasFlipped: shouldFlip,
     fallbackPartCount,
