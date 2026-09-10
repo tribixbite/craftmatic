@@ -18,7 +18,7 @@
     "postinstall": "node scripts/fix-android-binaries.mjs",
     "setup": "bun install --cwd $PWD --backend=copyfile && node scripts/fix-android-binaries.mjs",
     "build": "tsc",
-    "build:web": "vite build --config web/vite.config.ts",
+    "build:web": "node scripts/build-hotschem.mjs && vite build --config web/vite.config.ts",
     "dev": "tsc --watch",
     "dev:web": "vite --config web/vite.config.ts",
     "serve": "vite --config web/vite.config.ts --host 0.0.0.0 --port 4000",

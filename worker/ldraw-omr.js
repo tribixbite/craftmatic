@@ -1,3 +1,7 @@
+import { handleLiveDeliveryRequest, LiveDeliverySession } from './live-delivery.js';
+
+export { LiveDeliverySession };
+
 /**
  * Cloudflare Worker: CORS proxy for LDraw model sources + BFF API.
  *
@@ -74,6 +78,9 @@ async function getBffInventory(setNum) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    const liveDelivery = await handleLiveDeliveryRequest(request, env);
+    if (liveDelivery) return liveDelivery;
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: CORS_HEADERS });

@@ -418,11 +418,13 @@ function buildUI(): void {
           <option value="3mf">3MF, color 3D print (.3mf)</option>
         </optgroup>
         <optgroup label="Minecraft: Java">
-          <option value="schem">Schematic (.schem)</option>
+          <option value="schem">Java schematic / WorldEdit (.schem)</option>
           <option value="litematic">Litematica (.litematic)</option>
         </optgroup>
         <optgroup label="Minecraft: Bedrock">
-          <option value="mcpack">Add-on, placeable in-game (.mcpack)</option>
+          <option value="live">Send to Minecraft Planner (experimental)</option>
+          <option value="mcaddon">Add-on — controls detected or selected components (.mcaddon)</option>
+          <option value="mcpack">Static structure pack (.mcpack)</option>
         </optgroup>
         <optgroup label="Minecraft: any edition">
           <option value="guide">Build guide, layer-by-layer (.html)</option>
@@ -431,6 +433,11 @@ function buildUI(): void {
           <option value="csv">Parts list (.csv)</option>
         </optgroup>
       </select>
+      <label title="Override automatic vehicle detection for the interactive Bedrock add-on" style="margin-left:6px;font-size:0.7rem;white-space:nowrap">Vehicle
+        <select id="lego-vehicle-mode" style="font-size:0.7rem;padding:2px 4px;border-radius:3px">
+          <option value="auto">Detect vehicle components</option><option value="car">Car (whole model)</option><option value="plane">Plane (whole model)</option><option value="static">Structure only</option>
+        </select>
+      </label>
       <span id="lego-mc-settings" style="margin-left:6px;display:inline-flex"></span>
     </div>
 
@@ -1801,7 +1808,7 @@ async function exportLoadedModel(fmt: string): Promise<void> {
       return;
     }
 
-    if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide' || fmt === 'mcpack') {
+    if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide' || fmt === 'mcpack' || fmt === 'mcaddon' || fmt === 'live') {
       // Everything Minecraft-shaped goes through the ONE shared export module
       // (ui/schem-export.ts → engine/schem-pipeline.ts, in a Web Worker) that
       // the Upload tab also uses — Bedrock `.mcpack` included, so it shares the
@@ -1821,6 +1828,7 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         // (10276)" reads better than the filename stem.
         label: selectedSet ? `${selectedSet.name} (${selectedSet.set_num})` : base,
         settings: getSchemSettings(),
+        vehicleMode: ((document.getElementById('lego-vehicle-mode') as HTMLSelectElement | null)?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'static',
         onStatus: (m, k) => setStatus(m, k),
       });
       return;

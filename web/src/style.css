@@ -518,6 +518,95 @@ html, body {
   white-space: nowrap;
 }
 .download-item:hover { background: var(--bg-card); }
+.download-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.download-option select {
+  min-width: 92px;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Bedrock live-delivery pairing dialog. */
+.live-delivery-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(6, 6, 15, 0.78);
+  backdrop-filter: blur(5px);
+}
+.live-delivery-card {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+.live-delivery-card h2 { margin: 0 0 14px; font-size: 1.25rem; }
+.live-delivery-steps { margin: 0; padding-left: 22px; }
+.live-delivery-steps li { margin: 10px 0; line-height: 1.45; }
+.live-delivery-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+.live-delivery-command code {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+  user-select: all;
+  padding: 9px;
+  border-radius: 5px;
+  background: var(--bg-primary);
+  color: var(--accent-light, #c4b5fd);
+}
+.live-delivery-warnings {
+  margin-top: 12px;
+  padding: 9px 11px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 6px;
+  background: rgba(251, 191, 36, 0.08);
+  color: #fde68a;
+  font-size: 0.78rem;
+}
+.live-delivery-warnings ul { margin: 5px 0 0; padding-left: 18px; }
+.live-delivery-meter {
+  height: 7px;
+  margin-top: 18px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-primary);
+}
+.live-delivery-meter span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 160ms ease;
+}
+.live-delivery-status { min-height: 2.8em; margin: 10px 0; font-size: 0.88rem; }
+.live-delivery-status.success { color: var(--success); }
+.live-delivery-status.error { color: var(--danger); }
+.live-delivery-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 .download-desc {
   font-family: var(--font);

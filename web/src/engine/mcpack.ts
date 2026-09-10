@@ -123,8 +123,18 @@ export function deterministicUuid(text: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
+/**
+ * A monotonically ordered manifest version for browser-generated pack updates.
+ * UUIDs stay stable per export name, while a later export replaces the earlier
+ * pack in Minecraft instead of appearing as a duplicate.
+ */
+export function exportVersion(now = Date.now()): [number, number, number] {
+  const dayMs = 86_400_000;
+  return [1, Math.floor(now / dayMs), Math.floor(now % dayMs)];
+}
+
 /** The behavior-pack manifest. `format_version` 2 is the modern pack format. */
-function buildManifest(stem: string, label: string, tileCount: number): string {
+function buildManifest(stem: string, label: string, tileCount: number, version: [number, number, number]): string {
   const manifest = {
     format_version: 2,
     header: {
@@ -135,7 +145,7 @@ function buildManifest(stem: string, label: string, tileCount: number): string {
       // Header and module UUIDs must differ (manifest validation CHKMANIF110),
       // so the two are salted differently.
       uuid: deterministicUuid(`craftmatic.pack.header:${stem}`),
-      version: [1, 0, 0],
+      version,
       min_engine_version: [...BEDROCK_MIN_ENGINE],
     },
     modules: [
@@ -144,7 +154,7 @@ function buildManifest(stem: string, label: string, tileCount: number): string {
         // module type that carries them.
         type: 'data',
         uuid: deterministicUuid(`craftmatic.pack.module:${stem}`),
-        version: [1, 0, 0],
+        version,
       },
     ],
   };
@@ -267,7 +277,7 @@ export async function buildMcpack(grid: BlockGrid, options: McpackOptions): Prom
 
   const enc = new TextEncoder();
   const dims = { width: grid.width, height: grid.height, length: grid.length };
-  files.unshift({ name: 'manifest.json', data: enc.encode(buildManifest(stem, label, tiles.length)) });
+  files.unshift({ name: 'manifest.json', data: enc.encode(buildManifest(stem, label, tiles.length, exportVersion())) });
   files.push({ name: `functions/${PACK_NAMESPACE}/${id}.mcfunction`, data: enc.encode(buildFunction(tiles)) });
   files.push({
     name: 'README.txt',

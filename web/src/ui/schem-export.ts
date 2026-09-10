@@ -29,6 +29,11 @@ import { safeFilenameStem } from '@engine/export-name.js';
 import { exportLayerGuide } from '@viewer/exporter.js';
 import { collectDatTexts } from '@viewer/ldraw/parts.js';
 import { beginExportProgress, type ExportProgressHandle } from '@ui/export-progress.js';
+import {
+  createLiveSession, LiveDelivery,
+  type LiveDeliveryProgress, type LiveDeliveryResult,
+} from '@engine/live-delivery.js';
+import { checksum } from '@engine/hotschem/live-import.js';
 
 export type { SchemWorkerFormat };
 /** Re-exported so UI callers have one import for everything export-related. */
@@ -44,6 +49,176 @@ export function downloadBytes(bytes: Uint8Array, filename: string): void {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+}
+
+const LIVE_ADDON_URL = '/downloads/HotSchem-Live-0.6.0.mcaddon';
+
+/** Copy text even on local HTTP, where the async Clipboard API may be absent. */
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const input = document.createElement('textarea');
+  input.value = text;
+  input.style.position = 'fixed';
+  input.style.opacity = '0';
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand('copy');
+  input.remove();
+}
+
+function liveProgressText(p: LiveDeliveryProgress): string {
+  if (p.message) return p.message;
+  switch (p.phase) {
+    case 'connecting': return 'Connecting securely to the Craftmatic relay…';
+    case 'pairing': return 'Waiting for the Minecraft world host to run the pairing command…';
+    case 'probing': return 'Minecraft connected. Checking the HotSchem add-on…';
+    case 'transferring': return p.total > 0
+      ? `Sending build to Minecraft… ${p.acknowledged.toLocaleString()} / ${p.total.toLocaleString()}`
+      : 'Sending build to Minecraft…';
+    case 'committing': return 'Transfer complete. Waiting for Minecraft to commit the build…';
+    case 'complete': return 'Minecraft committed the build.';
+  }
+}
+
+/**
+ * Pair the browser with a Bedrock world and deliver one already-encoded HS1
+ * model. The promise resolves only after the add-on acknowledges its commit.
+ */
+async function deliverLiveModel(
+  encoded: string,
+  onProgress: (phase: string, pct?: number) => void,
+  warnings: readonly string[] = [],
+): Promise<LiveDeliveryResult> {
+  document.getElementById('live-delivery-dialog')?.remove();
+
+  const dialog = document.createElement('div');
+  dialog.id = 'live-delivery-dialog';
+  dialog.className = 'live-delivery-backdrop';
+  dialog.innerHTML = `
+    <section class="live-delivery-card" role="dialog" aria-modal="true" aria-labelledby="live-delivery-title">
+      <h2 id="live-delivery-title">Send to Minecraft Planner <small>(experimental)</small></h2>
+      <p>This saves the build in the HotSchem Planner library. Choose its position and place it from the Planner in Minecraft; delivery does not place blocks immediately.</p>
+      <p>Experimental: the hosted connection is not yet working on our Android test device. Use a Bedrock download if pairing fails.</p>
+      <ol class="live-delivery-steps">
+        <li><a class="btn btn-secondary btn-sm" href="${LIVE_ADDON_URL}" download>Download HotSchem Live add-on</a> <span>Install it once, then activate it on the world.</span></li>
+        <li>Enable WebSockets in Minecraft’s General settings and keep Require Encrypted WebSockets enabled. Open a single-player world with cheats enabled as its host.</li>
+        <li><span>Run in Minecraft chat:</span><div class="live-delivery-command"><code>Creating pairing command…</code><button type="button" class="btn btn-secondary btn-sm" data-action="copy" disabled>Copy</button></div></li>
+      </ol>
+      <div class="live-delivery-warnings" hidden><strong>Before sending:</strong><ul></ul></div>
+      <div class="live-delivery-meter" role="progressbar" aria-label="Live delivery progress"><span></span></div>
+      <p class="live-delivery-status" aria-live="polite">Creating a secure delivery session…</p>
+      <div class="live-delivery-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-action="retry" hidden>Retry</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-action="cancel">Cancel</button>
+      </div>
+    </section>`;
+  document.body.appendChild(dialog);
+
+  const command = dialog.querySelector<HTMLElement>('.live-delivery-command code')!;
+  const copy = dialog.querySelector<HTMLButtonElement>('[data-action="copy"]')!;
+  const retry = dialog.querySelector<HTMLButtonElement>('[data-action="retry"]')!;
+  const cancel = dialog.querySelector<HTMLButtonElement>('[data-action="cancel"]')!;
+  const status = dialog.querySelector<HTMLElement>('.live-delivery-status')!;
+  const warningBox = dialog.querySelector<HTMLElement>('.live-delivery-warnings')!;
+  const warningList = warningBox.querySelector<HTMLUListElement>('ul')!;
+  const meter = dialog.querySelector<HTMLElement>('.live-delivery-meter')!;
+  const bar = meter.querySelector<HTMLElement>('span')!;
+
+  for (const warning of warnings) {
+    const item = document.createElement('li');
+    item.textContent = warning;
+    warningList.appendChild(item);
+  }
+  warningBox.hidden = warnings.length === 0;
+
+  let controller: AbortController | null = null;
+  let delivery: LiveDelivery | null = null;
+  let pairingCommand = '';
+  let settled = false;
+
+  copy.addEventListener('click', async () => {
+    if (!pairingCommand) return;
+    try {
+      await copyText(pairingCommand);
+      copy.textContent = 'Copied';
+      setTimeout(() => { if (copy.isConnected) copy.textContent = 'Copy'; }, 1400);
+    } catch {
+      status.textContent = 'Copy was blocked. Select the command and copy it manually.';
+    }
+  });
+
+  return await new Promise<LiveDeliveryResult>((resolve, reject) => {
+    const finishCancel = (): void => {
+      controller?.abort();
+      delivery?.close();
+      dialog.remove();
+      if (!settled) {
+        settled = true;
+        reject(new DOMException('Live delivery canceled.', 'AbortError'));
+      }
+    };
+
+    cancel.addEventListener('click', finishCancel);
+    dialog.addEventListener('click', e => { if (e.target === dialog) finishCancel(); });
+
+    const attempt = async (): Promise<void> => {
+      controller?.abort();
+      delivery?.close();
+      controller = new AbortController();
+      const { signal } = controller;
+      retry.hidden = true;
+      cancel.textContent = 'Cancel';
+      copy.disabled = true;
+      pairingCommand = '';
+      command.textContent = 'Creating pairing command…';
+      status.textContent = 'Creating a secure delivery session…';
+      meter.removeAttribute('aria-valuenow');
+      bar.style.width = '0%';
+
+      try {
+        const info = await createLiveSession(location.origin, signal);
+        pairingCommand = info.pairingCommand;
+        command.textContent = pairingCommand;
+        copy.disabled = false;
+        delivery = new LiveDelivery(info);
+        await delivery.connect(signal);
+        const result = await delivery.deliver(encoded, checksum(encoded), {
+          signal,
+          onProgress: p => {
+            const text = liveProgressText(p);
+            status.textContent = text;
+            const pct = p.total > 0 ? Math.round(p.acknowledged / p.total * 100) : undefined;
+            if (pct != null) {
+              bar.style.width = `${pct}%`;
+              meter.setAttribute('aria-valuenow', String(pct));
+            }
+            onProgress(text, pct);
+          },
+        });
+        if (signal.aborted || settled) return;
+        settled = true;
+        status.textContent = `Minecraft committed the build for ${result.player}. You can close this window.`;
+        status.classList.add('success');
+        bar.style.width = '100%';
+        meter.setAttribute('aria-valuenow', '100');
+        cancel.textContent = 'Done';
+        delivery.close();
+        resolve(result);
+      } catch (err) {
+        if (signal.aborted || settled) return;
+        delivery?.close();
+        status.textContent = `Delivery stopped: ${err instanceof Error ? err.message : String(err)}`;
+        status.classList.add('error');
+        retry.hidden = false;
+      }
+    };
+
+    retry.addEventListener('click', () => { status.classList.remove('error'); void attempt(); });
+    void attempt();
+  });
 }
 
 export interface SchemExportJob {
@@ -134,6 +309,8 @@ export interface MinecraftExportRequest {
    */
   label?: string;
   settings?: SchemExportSettings;
+  /** Override the interactive Bedrock add-on's automatic vehicle classifier. */
+  vehicleMode?: 'auto' | 'car' | 'plane' | 'static';
   /** Mirror phase/result text into a tab's own status line (the LEGO tab's log). */
   onStatus?: (message: string, kind: 'info' | 'success' | 'error') => void;
 }
@@ -187,6 +364,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         datTexts,
         packStem: base,
         packLabel: req.label ?? base,
+        vehicleMode: req.vehicleMode ?? 'auto',
       };
     } else {
       const g = req.source.grid;
@@ -197,12 +375,14 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         source: {
           kind: 'grid', width: g.width, height: g.height, length: g.length,
           data: new Uint16Array(g.rawData), palette: g.reversePalette(),
+          blockEntities: structuredClone(g.blockEntities),
         },
         // An uploaded grid is already blocks — there is no sub-cell occupancy
         // left to refine from, so the shape pass has nothing to work with.
         format, profile: settings.profile, lightFill: settings.lightFill, shapes: false,
         packStem: base,
         packLabel: req.label ?? base,
+        vehicleMode: req.vehicleMode ?? 'auto',
       };
     }
 
@@ -218,6 +398,17 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
     const blocks = job.nonAir;
     const lightNote = job.lights > 0 ? `, ${job.lights.toLocaleString()} interior lights` : '';
 
+    if (format === 'live') {
+      const encoded = new TextDecoder().decode(job.bytes!);
+      const liveWarnings = job.mcpack?.warnings ?? [];
+      for (const warning of liveWarnings) status(`Live-delivery warning: ${warning}`, 'info');
+      const delivered = await deliverLiveModel(encoded, (phase, pct) => progress?.update(phase, pct), liveWarnings);
+      const msg = `Minecraft committed ${base} for ${delivered.player} — ${blocks.toLocaleString()} blocks, ${delivered.bytes.toLocaleString()} bytes`;
+      status(msg, 'success');
+      progress.done(msg);
+      return { ok: true, message: msg, width: job.width, height: job.height, length: job.length, nonAir: blocks, lights: job.lights };
+    }
+
     if (format === 'guide') {
       progress.update('writing build guide');
       exportLayerGuide(job.grid!, base, `${base}-build-guide.html`);
@@ -232,19 +423,28 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
 
     // Bedrock: the file alone is not actionable — the user needs the command
     // that places it and a warning about the blocks that had no equivalent.
-    if (format === 'mcpack' && job.mcpack) {
-      const { functionCommand, tileCount, unmapped } = job.mcpack;
+    if ((format === 'mcpack' || format === 'mcaddon') && job.mcpack) {
+      const { functionCommand, tileCount, unmapped, warnings = [], components = [] } = job.mcpack;
       const tileNote = tileCount > 1
         ? `, split into ${tileCount} structures (Bedrock caps one at 64×384×64)`
         : '';
-      const msg = `Exported ${base}.mcpack — ${blocks.toLocaleString()} blocks${resNote}, `
-        + `${job.width}×${job.height}×${job.length}${lightNote}${tileNote}. `
-        + `Open it with Minecraft, activate the behavior pack, then run ${functionCommand} where the model should go.`;
+      const componentNote = format === 'mcaddon'
+        ? (components.length > 0 ? ` Interactive components: ${components.join(', ')}.` : ' No interactive component was identified; the structure remains static.')
+        : '';
+      const activation = format === 'mcaddon'
+        ? `Open it with Minecraft, activate both the behavior and resource packs, rejoin the world, then run ${functionCommand} where the model should go.`
+        : `Open it with Minecraft, activate the behavior pack, then run ${functionCommand} where the model should go.`;
+      const msg = `Exported ${base}.${format} — ${blocks.toLocaleString()} blocks${resNote}, `
+        + `${job.width}×${job.height}×${job.length}${lightNote}${tileNote}. ${activation}${componentNote}`;
       status(msg, 'success');
       if (unmapped.length > 0) {
         status(`${unmapped.length} block type(s) had no Bedrock equivalent and were left as air: ${unmapped.join(', ')}`, 'info');
       }
-      progress.done(`${blocks.toLocaleString()} blocks · ${tileCount} structure${tileCount === 1 ? '' : 's'} · ${functionCommand}`);
+      for (const warning of warnings) status(`Add-on warning: ${warning}`, 'info');
+      const interactionSummary = format === 'mcaddon'
+        ? ` · ${components.length} interactive component${components.length === 1 ? '' : 's'}${warnings.length ? ` · ${warnings.length} warning${warnings.length === 1 ? '' : 's'}` : ''}`
+        : '';
+      progress.done(`${blocks.toLocaleString()} blocks · ${tileCount} structure${tileCount === 1 ? '' : 's'}${interactionSummary} · ${functionCommand}`);
       return {
         ok: true, message: msg,
         width: job.width, height: job.height, length: job.length,

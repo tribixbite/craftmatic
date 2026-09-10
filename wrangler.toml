@@ -1,6 +1,20 @@
 name = "ldraw-omr-proxy"
 main = "worker/ldraw-omr.js"
 compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[durable_objects]
+bindings = [
+  { name = "LIVE_DELIVERY", class_name = "LiveDeliverySession" }
+]
+
+[[migrations]]
+tag = "v1-live-delivery"
+new_sqlite_classes = ["LiveDeliverySession"]
+
+[[routes]]
+pattern = "craftmatic.click/connect*"
+zone_name = "craftmatic.click"
 
 [[routes]]
 pattern = "craftmatic.click/ldraw-omr/*"
