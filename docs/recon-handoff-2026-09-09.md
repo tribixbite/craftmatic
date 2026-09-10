@@ -35,9 +35,13 @@ from-scratch chain this program has measured.
 
 | fixture | truth | best structural | driver's own contribution | notes |
 | --- | ---: | ---: | ---: | --- |
-| 40377 | 90 | **54** | +9 (45 inherited) | opening pages 1-15 were HAND-BUILT; the allocation it was driven from held only 54 of 90 pieces |
-| 41624 | 109 | 6 | +3 | from scratch |
+| 40377 | 90 | **54** | +9 (45 inherited) | opening pages 1-15 were HAND-BUILT; the allocation it was driven from held only 54 of 90 pieces. Round ten's derived allocation reproduces those 17 pages exactly and adds the other 11 — a from-scratch drive was still running at handoff |
+| 41624 | 109 | 6 | +3 | attended. **Autonomous: 2 of 109** — same page-2 allocation, same root, but the *derived* prescan set gives a 2-of-3 opening where the human's gave 3-of-3 |
 | 41601 | 108 | **6** | **+0** | from scratch, **zero attended steps**, PDF-only (round ten) |
+
+**Autonomous totals (the number the 90% is measured against): 6 of 108 on 41601
+and 2 of 109 on 41624** — 5.6% and 1.8%, with the whole booklet in scope and no
+human in the loop.
 
 Round ten's five 41601 chains, all of which end at the same number:
 
