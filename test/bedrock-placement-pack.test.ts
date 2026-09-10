@@ -40,7 +40,8 @@ describe('Bedrock Brick Wand placement pack', () => {
     expect(assets.script).toContain('entity.setRotation');
     expect(assets.script).toContain('Undo last placement');
     expect(assets.script).toContain("defaultValue: String(a.x)");
-    expect(assets.script).toContain('world.tickingAreaManager.createTickingArea');
+    expect(assets.script).toContain('tickingarea add ${fx} ${y} ${fz} ${tx} ${y} ${tz} ${areaId} true');
+    expect(assets.script).toContain('dimension.getBlock(q)');
     expect(assets.script).toContain('previewPoints":[{"x":0');
     expect(assets.script).not.toContain('"x":120,"y":1,"z":2');
     expect(() => new Function(assets.script.replace(/^import .*;$/gm, ''))).not.toThrow();

@@ -94,12 +94,31 @@ function placementRuntime(config: any) {
     finally { showing.delete(p.id); }
   };
   const areaId = `cm_${config.shortAlias}`;
-  const unload = () => { try { if (world.tickingAreaManager.hasTickingArea(areaId)) world.tickingAreaManager.removeTickingArea(areaId); } catch {} };
+  let loadedDimension: any;
+  const unload = () => {
+    try { loadedDimension?.runCommand(`tickingarea remove ${areaId}`); } catch {}
+    loadedDimension = undefined;
+  };
   const load = async (dimension: any, from: any, to: any) => {
     unload();
-    const options = { dimension, from: { x: Math.floor(from.x), y: 0, z: Math.floor(from.z) }, to: { x: Math.floor(to.x), y: 0, z: Math.floor(to.z) } };
-    if (!world.tickingAreaManager.hasCapacity(options)) throw new Error('No chunk-loading capacity is available. Move closer or try again after another placement finishes.');
-    await world.tickingAreaManager.createTickingArea(areaId, options);
+    const fx = Math.floor(Math.min(from.x, to.x)), fz = Math.floor(Math.min(from.z, to.z));
+    const tx = Math.floor(Math.max(from.x, to.x)), tz = Math.floor(Math.max(from.z, to.z));
+    const range = dimension.heightRange, y = Math.max(range.min, Math.min(range.max - 1, Math.floor(from.y ?? 0)));
+    try { dimension.runCommand(`tickingarea remove ${areaId}`); } catch {}
+    try { dimension.runCommand(`tickingarea add ${fx} ${y} ${fz} ${tx} ${y} ${tz} ${areaId} true`); loadedDimension = dimension; }
+    catch (e: any) { throw new Error(`Could not preload the build area: ${e.message || e}`); }
+    const probes = [];
+    for (let cx = Math.floor(fx / 16); cx <= Math.floor(tx / 16); cx++) for (let cz = Math.floor(fz / 16); cz <= Math.floor(tz / 16); cz++) {
+      probes.push({ x: Math.max(fx, Math.min(tx, cx * 16 + 8)), y, z: Math.max(fz, Math.min(tz, cz * 16 + 8)) });
+    }
+    for (let elapsed = 0; elapsed <= 600; elapsed += 2) {
+      if (active?.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+      let ready = true;
+      for (const q of probes) try { if (!dimension.getBlock(q)) { ready = false; break; } } catch { ready = false; break; }
+      if (ready) return;
+      if (elapsed === 600) throw new Error('Timed out waiting for the build area to load. Use Undo to restore any changed area.');
+      await wait(2);
+    }
   };
   const state = (p: any) => {
     if (!states.has(p.id)) states.set(p.id, { anchor: undefined, dimension: undefined, rotation: 0 });
@@ -131,30 +150,39 @@ function placementRuntime(config: any) {
     if (s.anchor.y < range.min || s.anchor.y + d.height - 1 >= range.max) throw new Error(`Build exceeds world height ${range.min}–${range.max - 1}.`);
     return d;
   };
-  const outline = (s: any) => {
-    const d = size(s.rotation), points = [], step = Math.max(1, Math.ceil(Math.max(d.width, d.height, d.length) / 12));
-    for (let x = 0; x <= d.width; x += step) for (const y of [0, d.height]) for (const z of [0, d.length]) points.push({ x: Math.min(x, d.width), y, z });
-    for (let y = 0; y <= d.height; y += step) for (const x of [0, d.width]) for (const z of [0, d.length]) points.push({ x, y: Math.min(y, d.height), z });
-    for (let z = 0; z <= d.length; z += step) for (const x of [0, d.width]) for (const y of [0, d.height]) points.push({ x, y, z: Math.min(z, d.length) });
-    return points.slice(0, 72);
+  const outline = (d: any) => {
+    const points: any[] = [], along = (axis: string, fixed: any, end: number) => {
+      for (let i = 0; i < 6; i++) points.push({ ...fixed, [axis]: end * i / 5 });
+    };
+    for (const y of [0, d.height]) for (const z of [0, d.length]) along('x', { y, z }, d.width);
+    for (const x of [0, d.width]) for (const z of [0, d.length]) along('y', { x, z }, d.height);
+    for (const x of [0, d.width]) for (const y of [0, d.height]) along('z', { x, y }, d.length);
+    return points;
   };
   const draw = (p: any) => {
     const s = state(p); if (!previews.has(p.id) || !s.anchor || active) return;
     if (s.dimension !== p.dimension.id) { p.onScreenDisplay.setActionBar(`PREVIEW PAUSED · origin is in ${s.dimension} · re-pin here`); return; }
     const distance = Math.hypot(s.anchor.x - p.location.x, s.anchor.z - p.location.z);
     p.onScreenDisplay.setActionBar(`PREVIEW · ${config.label} · ${s.rotation}° · ${Math.round(distance)}m away`);
-    if (distance > 64) return;
-    const points = outline(s);
-    for (const sample of config.previewPoints) points.push(pointAt(sample, s.rotation));
+    const d = size(s.rotation), particles = [];
+    if (distance <= 64) for (const q of outline(d)) particles.push({ x: s.anchor.x + q.x, y: s.anchor.y + q.y, z: s.anchor.z + q.z });
+    let view: any; try { view = p.getViewDirection(); } catch {}
+    const rawX = Number(view?.x) || 0, rawZ = Number(view?.z) || 0, magnitude = Math.hypot(rawX, rawZ) || 1;
+    const vx = rawX / magnitude, vz = rawX || rawZ ? rawZ / magnitude : 1;
+    const scale = Math.min(1, 8 / Math.max(d.width, d.height, d.length));
+    const miniature = { x: p.location.x + vx * 10 - d.width * scale / 2, y: Math.max(p.location.y + .5, p.location.y + 1.6 - d.height * scale / 2), z: p.location.z + vz * 10 - d.length * scale / 2 };
+    const mini = (q: any) => ({ x: miniature.x + q.x * scale, y: miniature.y + q.y * scale, z: miniature.z + q.z * scale });
+    for (const q of outline(d)) particles.push(mini(q));
+    for (const sample of config.previewPoints) particles.push(mini(pointAt(sample, s.rotation)));
     const front = [
-      { x: config.width / 2, y: config.height + 1, z: 0 },
-      { x: config.width / 2, y: config.height + 1, z: -2 },
-      { x: config.width / 2, y: config.height + 1, z: -4 },
-      { x: config.width / 2 - 2, y: config.height + 1, z: -2 },
-      { x: config.width / 2 + 2, y: config.height + 1, z: -2 },
+      { x: config.width / 2, y: config.height + .5 / scale, z: 0 },
+      { x: config.width / 2, y: config.height + .5 / scale, z: -.5 / scale },
+      { x: config.width / 2, y: config.height + .5 / scale, z: -1 / scale },
+      { x: config.width / 2 - .5 / scale, y: config.height + .5 / scale, z: -.5 / scale },
+      { x: config.width / 2 + .5 / scale, y: config.height + .5 / scale, z: -.5 / scale },
     ];
-    for (const q of front) points.push(pointAt(q, s.rotation));
-    for (const q of points.slice(0, 197)) try { p.dimension.spawnParticle('minecraft:basic_flame_particle', { x: s.anchor.x + q.x, y: s.anchor.y + q.y, z: s.anchor.z + q.z }); } catch {}
+    for (const q of front) particles.push(mini(pointAt(q, s.rotation)));
+    for (const q of particles.slice(0, 360)) try { p.dimension.spawnParticle('minecraft:basic_flame_particle', q); } catch {}
   };
   system.runInterval(() => { for (const p of world.getAllPlayers()) draw(p); }, 12);
   system.runInterval(() => {
@@ -188,6 +216,7 @@ function placementRuntime(config: any) {
     const s = { ...state(p), anchor: { ...state(p).anchor } }, dim = p.dimension;
     validate(p, s); active = { player: p.id, cancelled: false }; previews.delete(p.id);
     const key = `${config.id}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`, backups: any[] = [], entities: string[] = [];
+    const previous = histories.get(p.id);
     try {
       for (let i = 0; i < config.tiles.length; i++) {
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
@@ -207,10 +236,16 @@ function placementRuntime(config: any) {
         const entity = dim.spawnEntity(actor.typeId, { x: s.anchor.x + q.x, y: s.anchor.y + q.y, z: s.anchor.z + q.z });
         entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + s.rotation }); entities.push(entity.id);
       }
-      const old = histories.get(p.id); if (old) for (const b of old.backups) try { world.structureManager.delete(b.name); } catch {}
+      if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
       histories.set(p.id, { dimension: dim.id, backups, entities });
       tell(p, `§aPlaced ${config.label}. Use the Brick Wand to undo.`);
-    } catch (e: any) { histories.set(p.id, { dimension: dim.id, backups, entities }); tell(p, `§cPlacement stopped: ${e.message || e}`); }
+    } catch (e: any) {
+      if (backups.length || entities.length) {
+        if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
+        histories.set(p.id, { dimension: dim.id, backups, entities });
+      }
+      tell(p, `§cPlacement stopped: ${e.message || e}`);
+    }
     finally { unload(); active = undefined; }
   }
   async function undo(p: any) {
@@ -227,7 +262,7 @@ function placementRuntime(config: any) {
   }
   async function menu(p: any): Promise<any> {
     const s = state(p), running = active?.player === p.id;
-    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(s)}\n\nPreview first; Place is always a separate confirmation.`);
+    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(s)}\n\nPreview first: a miniature appears in front of you; the full-size boundary marks placement. Place is always a separate confirmation.`);
     if (running) f.button('Cancel placement');
     else f.button('Pin at my feet').button('Edit coordinates').button(`Rotate → ${(s.rotation + 90) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview');
     const r = await show(p, f); if (r.canceled) return;
@@ -235,7 +270,7 @@ function placementRuntime(config: any) {
     if (r.selection === 0) { s.anchor = { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) }; s.dimension = p.dimension.id; previews.add(p.id); return menu(p); }
     if (r.selection === 1) return edit(p);
     if (r.selection === 2) { s.rotation = rotations[(rotations.indexOf(s.rotation) + 1) % 4]; if (s.anchor) previews.add(p.id); return menu(p); }
-    if (r.selection === 3) { try { validate(p, s); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, 'Preview visible. Switch away from the wand and back to rotate or place.'); }
+    if (r.selection === 3) { try { validate(p, s); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, 'Preview visible: miniature in front of you; full-size boundary marks placement. Switch away from the wand and back to rotate or place.'); }
     if (r.selection === 4) return confirmPlace(p);
     if (r.selection === 5) return undo(p);
     if (r.selection === 6) { previews.delete(p.id); return tell(p, 'Preview hidden.'); }
