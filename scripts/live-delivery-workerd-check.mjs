@@ -13,6 +13,17 @@ const localWs = remote => `${base.replace(/^http/, 'ws')}${new URL(remote).pathn
 const received = new Map();
 let expected = 0;
 
+// Deliberately submit before Minecraft connects. This pins the production UI
+// order and catches regressions where an absent peer is mistaken for ready.
+const browser = new WebSocket(localWs(session.browserUrl));
+await new Promise((resolve, reject) => { browser.once('open', resolve); browser.once('error', reject); });
+browser.send(JSON.stringify({ type: 'auth', token: session.browserToken }));
+await waitFor(browser, m => m.type === 'authenticated');
+const encoded = 'AbCd_09-'.repeat(91);
+browser.send(JSON.stringify({ type: 'import', encoded, checksum: checksum(encoded) }));
+const completedPromise = waitFor(browser, m => m.type === 'complete' || m.type === 'error', 15000);
+await new Promise(resolve => setTimeout(resolve, 100));
+
 const minecraft = new WebSocket(localWs(session.minecraftUrl), 'com.microsoft.minecraft.wsencrypt');
 let encrypt = null;
 let decrypt = null;
@@ -52,13 +63,7 @@ minecraft.on('message', (wire, binary) => {
 });
 await new Promise((resolve, reject) => { minecraft.once('open', resolve); minecraft.once('error', reject); });
 
-const browser = new WebSocket(localWs(session.browserUrl));
-await new Promise((resolve, reject) => { browser.once('open', resolve); browser.once('error', reject); });
-browser.send(JSON.stringify({ type: 'auth', token: session.browserToken }));
-await waitFor(browser, m => m.type === 'authenticated');
-const encoded = 'AbCd_09-'.repeat(91);
-browser.send(JSON.stringify({ type: 'import', encoded, checksum: checksum(encoded) }));
-const completed = await waitFor(browser, m => m.type === 'complete' || m.type === 'error', 15000);
+const completed = await completedPromise;
 if (completed.type !== 'complete') throw new Error(JSON.stringify(completed));
 if ([...received.keys()].some((n, i) => n !== i + 1)) throw new Error('HS1 indices were not one-based and contiguous');
 console.log(JSON.stringify({ ok: true, player: completed.player, chunks: completed.chunks, crypto: 'P-384/AES-256-CFB8 in workerd' }));

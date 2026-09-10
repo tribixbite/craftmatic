@@ -607,6 +607,7 @@ html, body {
 .live-delivery-status.success { color: var(--success); }
 .live-delivery-status.error { color: var(--danger); }
 .live-delivery-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.live-delivery-actions [hidden] { display: none; }
 
 .download-desc {
   font-family: var(--font);

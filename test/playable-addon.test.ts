@@ -31,6 +31,7 @@ describe('playable Bedrock add-on',()=>{
     const components=entity['minecraft:entity'].components;
     expect(components['minecraft:input_ground_controlled']).toEqual({});
     expect(components['minecraft:movement'].value).toBeGreaterThan(1);
+    expect(components['minecraft:rideable'].seats.position[1]).toBeGreaterThan(model().height);
     const fn=new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/functions/craftmatic/batmobile.mcfunction'));
     expect(fn).toContain('summon craftmatic:batmobile_batmobile "Batmobile" ~12 ~2 ~7');
   });
@@ -41,6 +42,7 @@ describe('playable Bedrock add-on',()=>{
     const entity=JSON.parse(new TextDecoder().decode(await extractFile(buffer,'Craftmatic_jet_BP/entities/jet_jet.json')));
     expect(entity['minecraft:entity'].components['minecraft:input_air_controlled']).toBeTruthy();
     expect(entity['minecraft:entity'].components['minecraft:physics'].has_gravity).toBe(false);
+    expect(entity['minecraft:entity'].components['minecraft:movement.fly'].start_speed).toBe(0);
     expect(entries).toContain('Craftmatic_jet_RP/entity/jet_control_screen.entity.json');
     expect(entries).toContain('Craftmatic_jet_BP/scripts/main.js');
     const script = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_jet_BP/scripts/main.js'));
