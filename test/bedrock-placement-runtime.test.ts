@@ -12,7 +12,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
     textField(_label: string, _placeholder: string, options: any) { expect(typeof options).toBe('object'); return this; }
     async show() { showCalls++; return responses.shift() ?? { canceled: true }; }
   }
-  let use: any, selectedItem: any, loaded = false, loadCalls = 0, blockedLoadCall = 0, blockEveryLoad = false;
+  let use: any, selectedItem: any, loaded = false, loadCalls = 0, blockedLoadCall = 0, blockEveryLoad = false, addSuccessCount = 1;
   const intervals = new Map<number, any>();
   const commands: string[] = [], areaCommands: string[] = [], blockProbes: any[] = [], particles: any[] = [], snapshots: any[] = [], restores: any[] = [];
   const entity = { id: 'entity-1', nameTag: '', setRotation: vi.fn(), remove: vi.fn() };
@@ -20,7 +20,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
     spawnParticle: (_id: string, point: any) => particles.push(point),
     runCommand: (command: string) => {
       if (command.startsWith('tickingarea remove ')) { areaCommands.push(command); loaded = false; return { successCount: 1 }; }
-      if (command.startsWith('tickingarea add ')) { areaCommands.push(command); loaded = true; loadCalls++; return { successCount: 1 }; }
+      if (command.startsWith('tickingarea add ')) { areaCommands.push(command); loaded = addSuccessCount > 0; loadCalls++; return { successCount: addSuccessCount }; }
       expect(loaded).toBe(true); commands.push(command); return { successCount: 1 };
     },
     getBlock: (point: any) => { blockProbes.push(point); return loaded && !blockEveryLoad && loadCalls !== blockedLoadCall ? { typeId: 'minecraft:air' } : undefined; },
@@ -78,6 +78,10 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   expect(dimension.spawnEntity).toHaveBeenCalledWith('craftmatic:car', { x: 28.5, y: 21, z: 30.5 });
   expect(entity.setRotation).toHaveBeenCalledWith({ x: 0, y: 90 });
   expect(loaded).toBe(false);
+  const successfulAddNames = areaCommands.filter(command => command.startsWith('tickingarea add ')).map(command => command.split(' ')[8]);
+  const removedAreaNames = areaCommands.filter(command => command.startsWith('tickingarea remove ')).map(command => command.split(' ')[2]);
+  expect(new Set(successfulAddNames).size).toBe(successfulAddNames.length);
+  expect(removedAreaNames).toEqual(expect.arrayContaining(successfulAddNames));
 
   // Cancel before the next placement mutates anything: the previous complete
   // placement must remain the one available to Undo.
@@ -120,11 +124,19 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(800);
   expect(dimension.spawnEntity).toHaveBeenCalledOnce();
   expect(loaded).toBe(false);
-  expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Timed out waiting for the build area to load.'));
+  expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('probe 28,20,30 returned undefined'));
   blockEveryLoad = false;
   responses.push({ selection: 5 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(restores).toHaveLength(4);
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Undo complete.'));
   expect(player.sendMessage).not.toHaveBeenCalledWith(expect.stringContaining('Nothing to undo'));
+
+  // A command that runs but reports no successful ticking area fails immediately
+  // with an actionable diagnostic rather than entering the 600-tick poll.
+  addSuccessCount = 0;
+  responses.push({ selection: 4 }, { selection: 0 });
+  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('tickingarea command reported successCount 0'));
+  expect(dimension.spawnEntity).toHaveBeenCalledOnce();
 });

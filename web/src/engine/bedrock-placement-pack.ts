@@ -93,30 +93,46 @@ function placementRuntime(config: any) {
     catch (e: any) { tell(p, `Menu unavailable: ${e.message || e}`); return { canceled: true }; }
     finally { showing.delete(p.id); }
   };
-  const areaId = `cm_${config.shortAlias}`;
-  let loadedDimension: any;
-  const unload = () => {
-    try { loadedDimension?.runCommand(`tickingarea remove ${areaId}`); } catch {}
-    loadedDimension = undefined;
+  const areaPrefix = `cm_${config.shortAlias}_${Date.now().toString(36).slice(-4)}`;
+  let areaCounter = 0, loadedAreaId: any, loadedDimension: any;
+  const unload = async () => {
+    const id = loadedAreaId, dimension = loadedDimension;
+    loadedAreaId = undefined; loadedDimension = undefined;
+    if (!id || !dimension) return;
+    try { dimension.runCommand(`tickingarea remove ${id}`); } catch {}
+    await wait(2);
   };
   const load = async (dimension: any, from: any, to: any) => {
-    unload();
+    await unload();
     const fx = Math.floor(Math.min(from.x, to.x)), fz = Math.floor(Math.min(from.z, to.z));
     const tx = Math.floor(Math.max(from.x, to.x)), tz = Math.floor(Math.max(from.z, to.z));
     const range = dimension.heightRange, y = Math.max(range.min, Math.min(range.max - 1, Math.floor(from.y ?? 0)));
-    try { dimension.runCommand(`tickingarea remove ${areaId}`); } catch {}
-    try { dimension.runCommand(`tickingarea add ${fx} ${y} ${fz} ${tx} ${y} ${tz} ${areaId} true`); loadedDimension = dimension; }
+    const areaId = `${areaPrefix}_${++areaCounter}`;
+    try {
+      const result = dimension.runCommand(`tickingarea add ${fx} ${y} ${fz} ${tx} ${y} ${tz} ${areaId} true`);
+      if (result?.successCount === 0) throw new Error('tickingarea command reported successCount 0');
+      loadedAreaId = areaId; loadedDimension = dimension;
+    }
     catch (e: any) { throw new Error(`Could not preload the build area: ${e.message || e}`); }
+    await wait(2);
     const probes = [];
     for (let cx = Math.floor(fx / 16); cx <= Math.floor(tx / 16); cx++) for (let cz = Math.floor(fz / 16); cz <= Math.floor(tz / 16); cz++) {
       probes.push({ x: Math.max(fx, Math.min(tx, cx * 16 + 8)), y, z: Math.max(fz, Math.min(tz, cz * 16 + 8)) });
     }
+    let lastFailure = 'no probe result';
     for (let elapsed = 0; elapsed <= 600; elapsed += 2) {
       if (active?.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
       let ready = true;
-      for (const q of probes) try { if (!dimension.getBlock(q)) { ready = false; break; } } catch { ready = false; break; }
+      for (const q of probes) try {
+        if (!dimension.getBlock(q)) { ready = false; lastFailure = `${q.x},${q.y},${q.z} returned undefined`; break; }
+      } catch (e: any) {
+        ready = false; lastFailure = `${q.x},${q.y},${q.z} threw ${e?.name || 'Error'}: ${e?.message || e}`; break;
+      }
       if (ready) return;
-      if (elapsed === 600) throw new Error('Timed out waiting for the build area to load. Use Undo to restore any changed area.');
+      if (elapsed === 600) {
+        console.warn(`BRICK_WAND_LOAD_TIMEOUT ${areaId} ${lastFailure}`);
+        throw new Error(`Timed out waiting for the build area to load; probe ${lastFailure}. Use Undo to restore any changed area.`);
+      }
       await wait(2);
     }
   };
@@ -246,7 +262,7 @@ function placementRuntime(config: any) {
       }
       tell(p, `§cPlacement stopped: ${e.message || e}`);
     }
-    finally { unload(); active = undefined; }
+    finally { await unload(); active = undefined; }
   }
   async function undo(p: any) {
     if (active) return tell(p, 'Wait for placement to finish or cancel it first.');
@@ -258,7 +274,7 @@ function placementRuntime(config: any) {
       for (const b of h.backups) { const structure = world.structureManager.get(b.name); if (!structure) continue; const to = { x: b.from.x + structure.size.x - 1, y: b.from.y + structure.size.y - 1, z: b.from.z + structure.size.z - 1 }; await load(dim, b.from, to); world.structureManager.place(b.name, dim, b.from, { includeEntities: false, includeBlocks: true }); world.structureManager.delete(b.name); await wait(1); }
       histories.delete(p.id); tell(p, '§aUndo complete.');
     } catch (e: any) { tell(p, `Undo stopped: ${e.message || e}`); }
-    finally { unload(); active = undefined; }
+    finally { await unload(); active = undefined; }
   }
   async function menu(p: any): Promise<any> {
     const s = state(p), running = active?.player === p.id;
