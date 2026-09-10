@@ -5095,3 +5095,48 @@ Three of the round's own repairs land on the same lesson from different sides:
 Automating a human choice is not free, and the last row is the price. It is also
 the clearest confirmation of the program's central finding: the only thing that
 has ever moved a from-scratch number is which body the chain starts from.
+
+### Correction: the prescan set is not what cost 41624 its opening
+
+The section above blamed the derived prescan set, on the grounds that it was the
+one input that differed. Probed rather than assumed - two constructions, one per
+fixture, with the prescan derived as the next **three** scope pages instead of
+two - it is wrong:
+
+| construction | prescan recorded | retained | structural histogram | selected | oracle |
+| --- | --- | ---: | --- | ---: | ---: |
+| 41624 round ten (derived) | `[4]` | 37 | 35 at 2, 2 at 3 | 2 | 3 |
+| 41624 prescan `[3,4,5]` | `[4, 5]` | 37 | 35 at 2, 2 at 3 | **2** | 3 |
+| 41601 round ten (derived) | `[3, 4]` | 36 | 24 at 3, 12 at 6 | 3 (6 after symmetry) | 6 |
+| 41601 prescan `[3,4,5]` | `[3, 4, 5]` | 36 | 24 at 3, 12 at 6 | **3 (6 after symmetry)** | 6 |
+
+**A wider prescan changes neither fixture's census nor its pick.** The prescan
+derivation is exonerated and the rule stays as it is.
+
+What actually differs is the selection inside the construction, and it is the
+program's own finding #4 wearing a new hat. Both runs' retained sets contain the
+same best objective score to twelve decimals - `0.876767536996` - and:
+
+| construction | the body the run SELECTED | its objective score | its structural |
+| --- | --- | ---: | ---: |
+| round three (`41624-r3-construct-local-v1`) | `beam_00` | **0.750012** | **3 of 3** |
+| round ten (autonomous) | `beam_00` | **0.876768** | 2 of 3 |
+
+Round three's chain drove from a body that was **not its objective's maximum** -
+the maximum in its own retained set is `beam_10`/`beam_11` at 0.876768, and both
+are 2 of 3. Round ten's construction selects the true maximum, and the true
+maximum is structurally worse. So **41624's attended 6 of 109 rests on an
+opening the objective does not prefer**, and the autonomous 2 of 109 is what the
+objective's own maximum is worth.
+
+Which code change moved the selection between round three and round ten is not
+established here and should not be guessed at; what is established is that the
+difference is a *selection* inside the construction, not the prescan set, not
+the allocation (byte-identical) and not the root (same root, same root score).
+
+And the channel that rescues this on 41601 cannot rescue it here: 41601's
+construction has five mirror-eligible parts, so plane agreement separates its
+two classes completely and lifts the pick from 3 to 6; 41624's has **one**, so
+`placement_construction_symmetry` abstains - exactly as round nine measured it
+would. The reference-free opening selector works where a body is wide enough to
+have a bilateral plane and says nothing where it is not.
