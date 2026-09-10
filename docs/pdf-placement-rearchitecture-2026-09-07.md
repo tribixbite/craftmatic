@@ -5140,3 +5140,50 @@ two classes completely and lifts the pick from 3 to 6; 41624's has **one**, so
 `placement_construction_symmetry` abstains - exactly as round nine measured it
 would. The reference-free opening selector works where a body is wide enough to
 have a bilateral plane and says nothing where it is not.
+
+### 40377 from scratch: 2 of 90, and what the program's best-looking number was
+
+40377 has been the program's strongest fixture at 54 of 90 — and round ten's
+allocation work made it possible to say what that number actually measured. Its
+opening covering pages 1-15 was **hand-built** with 45 pieces already correct,
+and the allocation the driver was given held **54 of 90 pieces on 17 pages**. The
+driver's own contribution to 54 was +9.
+
+Driven autonomously, from the PDF alone, with the derived 28-page/90-piece
+allocation and a construction on page 2:
+
+| | attended (rounds 1-9) | **autonomous (round ten)** |
+| --- | ---: | ---: |
+| attended steps | several, including a hand-built opening | **0** |
+| opening | 45 pieces, **45 correct** (hand-built) | 4 pieces, **1 correct** |
+| allocation | 17 pages / 54 pieces | **28 pages / 90 pieces** |
+| pages placed | 13 | **24** |
+| emitted | 79 | 75 |
+| **final structural** | **54 of 90** | **2 of 90** |
+| driver's own contribution | +9 | **+1** |
+| pages ending in a tie | 7 of 13 | 19 of 24 |
+
+**54 of 90 was 45 hand-placed pieces plus nine.** From scratch the same fixture,
+the same booklet and the same driver reach **2 of 90**. Nothing about the driver
+changed between those two rows; what changed is that nobody built the first
+forty-five pieces.
+
+The construction is at its own ceiling and the ceiling is low: 36 retained
+bodies, thirty-five of them 1 of 4 correct and one 2 of 4, and the symmetry
+channel picks a 1 (two mirror-eligible parts of four). A four-piece opening does
+not carry enough of the model to constrain anything downstream.
+
+### The three autonomous totals, which supersede the scoreboard
+
+| fixture | printed pieces | in scope | pages placed | emitted | **correct poses** | share | driver's own |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 40377 | 90 | 90 (100%) | 24 | 75 | **2** | 2.2% | +1 |
+| 41601 | 108 | 103 (95%) | 19 | 78 | **6** | 5.6% | +0 |
+| 41624 | 109 | 106 (97%) | 36 | 100 | **2** | 1.8% | +0 |
+
+**From a PDF and nothing else, with no human decision anywhere in the chain, the
+pipeline places 2 to 6 of about a hundred pieces correctly — a mean of 3.2%
+against a 90% target.** It gets essentially the whole booklet into scope and
+emits three quarters of it; what it cannot do is put the pieces in the right
+places. That is the number the mission is measured against and it should be
+quoted instead of any earlier one.
