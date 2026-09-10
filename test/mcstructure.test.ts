@@ -331,7 +331,7 @@ describe('.mcpack', () => {
 
     const script = new TextDecoder().decode(await extractFile(buf, 'scripts/placement.js'));
     for (const t of pack.tiles) expect(script).toContain(JSON.stringify(t.identifier));
-    expect(script).toContain('Preview first; Place is always a separate confirmation.');
+    expect(script).toContain('a miniature appears in front of you; the full-size boundary marks placement');
     expect(script).toContain('structure load ${t.identifier}');
   });
 
