@@ -5,6 +5,7 @@ import { deterministicUuid, exportVersion, PACK_NAMESPACE, toBedrockIdentifier }
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
+import { buildPlacementPackAssets, placementAlias, type PlacementActor } from './bedrock-placement-pack.js';
 export interface PlayableGridComponent {
     id: string;
     label: string;
@@ -54,6 +55,16 @@ const text = (s: string) => enc.encode(s.endsWith('\n') ? s : `${s}\n`);
 const json = (v: unknown) => text(JSON.stringify(v, null, 2));
 const safe = (s: string) => toBedrockIdentifier(s).slice(0, 48);
 
+function previewSamples(grid: BlockGrid, limit: number): Array<{ x: number; y: number; z: number }> {
+    if (limit < 1) return [];
+    const every = Math.max(1, Math.ceil(grid.countNonAir() / limit)), points = [];
+    let seen = 0;
+    for (let y = 0; y < grid.height; y++) for (let z = 0; z < grid.length; z++) for (let x = 0; x < grid.width; x++) {
+        if (grid.get(x, y, z) !== 'minecraft:air' && seen++ % every === 0 && points.length < limit) points.push({ x: x + .5, y: y + .5, z: z + .5 });
+    }
+    return points;
+}
+
 function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid): unknown {
     const horizontal = Math.max(grid.width, grid.length);
     const scale = Math.min(1, 8 / Math.max(1, horizontal));
@@ -61,10 +72,12 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid): unknow
         'minecraft:type_family': { family: ['craftmatic_vehicle', kind] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
         'minecraft:health': { value: 100, max: 100 },
+        'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+        'minecraft:fire_immune': {},
         'minecraft:collision_box': { width: Math.max(0.8, horizontal * scale * .8), height: Math.max(.8, grid.height * scale * .8) },
         'minecraft:rideable': { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, Math.max(.5, grid.height * scale + .15), 0] } },
         'minecraft:pushable': { is_pushable: false, is_pushable_by_piston: true },
-        'minecraft:movement': { value: kind === 'car' ? 1.4 : 1.8, max: kind === 'car' ? 1.8 : 2.4 },
+        'minecraft:movement': { value: kind === 'car' ? 1.05 : 1.35, max: kind === 'car' ? 1.35 : 1.8 },
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 160, max_dropped_ticks: 7, use_motion_prediction_hints: true } },
     };
     if (kind === 'car')
@@ -80,9 +93,9 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid): unknow
             'minecraft:physics': { has_gravity: false, has_collision: true },
             'minecraft:can_fly': {},
             'minecraft:input_air_controlled': { strafe_speed_modifier: 1, backwards_movement_modifier: .4 },
-            'minecraft:movement.fly': { max_turn: 18, start_speed: 0, speed_when_turning: 1.15 },
-            'minecraft:flying_speed': { value: 1.8 },
-            'minecraft:vertical_movement_action': { vertical_velocity: 1.2 },
+            'minecraft:movement.fly': { max_turn: 18, start_speed: 0, speed_when_turning: .86 },
+            'minecraft:flying_speed': { value: 1.35 },
+            'minecraft:vertical_movement_action': { vertical_velocity: .9 },
             'minecraft:body_rotation_always_follows_head': {},
         });
     return { format_version: '1.21.90', 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: common } };
@@ -142,6 +155,7 @@ function greedyBoxes(grid: BlockGrid): Box[] {
 function geometry(id: string, grid: BlockGrid): {
     value: unknown;
     palette: string[];
+    meshIds: string[];
 } {
     const boxes = greedyBoxes(grid), cap = 16384;
     if (boxes.length > cap)
@@ -149,9 +163,24 @@ function geometry(id: string, grid: BlockGrid): {
     const palette = [...new Set(boxes.map(b => b.state))];
     const scale = Math.min(1, 8 / Math.max(1, grid.width, grid.length));
     const cubes = boxes.map(b => { const uv = [palette.indexOf(b.state) % 16, Math.floor(palette.indexOf(b.state) / 16)], face = { uv, uv_size: [1, 1] }; return { origin: [(b.x - grid.width / 2) * 16 * scale, b.y * 16 * scale, (b.z - grid.length / 2) * 16 * scale], size: [b.sx * 16 * scale, b.sy * 16 * scale, b.sz * 16 * scale], uv: { north: face, south: face, east: face, west: face, up: face, down: face } }; });
-    return { value: { format_version: '1.12.0', 'minecraft:geometry': [{ description: { identifier: `geometry.${PACK_NAMESPACE}.${id}`, texture_width: 16, texture_height: Math.max(1, Math.ceil(palette.length / 16)), visible_bounds_width: Math.max(2, grid.width * scale), visible_bounds_height: Math.max(2, grid.height * scale), visible_bounds_offset: [0, grid.height * scale / 2, 0] }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes }] }] }, palette };
+    // Each render controller owns a small mesh. A single 8,000-cube mesh can
+    // exceed 16-bit vertex/index ranges on mobile renderers (24 vertices/cube).
+    // Partitioning preserves every cube and its coordinates without decimation.
+    const meshIds: string[] = [], meshes = [];
+    for (let offset = 0; offset < cubes.length; offset += 1024) {
+        const meshId = `geometry.${PACK_NAMESPACE}.${id}_mesh_${meshIds.length}`;
+        meshIds.push(meshId);
+        meshes.push({ description: { identifier: meshId, texture_width: 16, texture_height: Math.max(1, Math.ceil(palette.length / 16)), visible_bounds_width: Math.max(2, grid.width * scale, grid.length * scale), visible_bounds_height: Math.max(2, grid.height * scale), visible_bounds_offset: [0, grid.height * scale / 2, 0] }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: cubes.slice(offset, offset + 1024) }] });
+    }
+    return { value: { format_version: '1.12.0', 'minecraft:geometry': meshes }, palette, meshIds };
 }
-function clientEntity(id: string): unknown { return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_alphatest' }, textures: { default: `textures/entity/${id}` }, geometry: { default: `geometry.${PACK_NAMESPACE}.${id}` }, render_controllers: ['controller.render.default'], spawn_egg: { base_color: '#151515', overlay_color: '#f5c542' } } } }; }
+function clientEntity(id: string, meshIds: string[]): unknown { return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_alphatest' }, textures: { default: `textures/entity/${id}` }, geometry: Object.fromEntries(meshIds.map((mesh, i) => [`mesh_${i}`, mesh])), render_controllers: meshIds.map((_, i) => `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`), spawn_egg: { base_color: '#151515', overlay_color: '#f5c542' } } } }; }
+function meshControllers(id: string, meshIds: string[]): unknown {
+    return { format_version: '1.8.0', render_controllers: Object.fromEntries(meshIds.map((_, i) => [
+        `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`,
+        { geometry: `Geometry.mesh_${i}`, materials: [{ '*': 'Material.default' }], textures: ['Texture.default'] },
+    ])) };
+}
 function screenClient(id: string): unknown { return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_emissive_alpha' }, textures: { default: 'textures/entity/craftmatic_screen' }, geometry: { default: `geometry.${PACK_NAMESPACE}.control_screen` }, render_controllers: ['controller.render.default'] } } }; }
 const SCREEN_GEOMETRY = { format_version: '1.12.0', 'minecraft:geometry': [{ description: { identifier: `geometry.${PACK_NAMESPACE}.control_screen`, texture_width: 1, texture_height: 1, visible_bounds_width: 2, visible_bounds_height: 2, visible_bounds_offset: [0, 1, 0] }, bones: [{ name: 'screen', pivot: [0, 0, 0], cubes: [{ origin: [-8, 0, -1], size: [16, 16, 2], uv: [0, 0] }] }] }] };
 function screenBehavior(id: string): unknown { return { format_version: '1.21.90', 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: false, is_summonable: true }, components: { 'minecraft:type_family': { family: ['craftmatic_screen'] }, 'minecraft:health': { value: 20, max: 20 }, 'minecraft:collision_box': { width: 1, height: 1 }, 'minecraft:physics': { has_gravity: false, has_collision: false }, 'minecraft:persistent': {}, 'minecraft:nameable': {}, 'minecraft:interact': { interactions: [{ interact_text: 'action.interact.craftmatic_screen' }] } } } }; }
@@ -214,6 +243,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (!grid.countNonAir() && !options.components?.some(c => c.grid.countNonAir()))
         throw new Error('Nothing to export — the model has no blocks.');
     const label = options.label ?? options.stem, id = safe(options.stem), mode = options.vehicleMode ?? 'auto';
+    const shortAlias = placementAlias(id);
     const components = options.components?.slice() ?? [];
     const warnings: string[] = [];
     if (!components.length && (mode === 'car' || mode === 'plane'))
@@ -228,34 +258,47 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     }> = [];
     const version = exportVersion();
     const bpHeader = deterministicUuid(`craftmatic.addon.bp.header:${id}`), rpHeader = deterministicUuid(`craftmatic.addon.rp.header:${id}`);
-    files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable`, description: `Place with /function ${PACK_NAMESPACE}/${id}; ride vehicles and use computer screens.`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${id}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${id}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
+    files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable`, description: `Place with /function ${shortAlias}; ride vehicles and use computer screens.`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${id}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${id}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
     files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable Resources`, description: 'Faithful Craftmatic vehicle geometry', uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${id}`), version }] }) });
     const scenery = components.some(c => c.grid === grid) ? new BlockGrid(grid.width, grid.height, grid.length) : grid;
-    const plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE), functionLines = ['# Generated by Craftmatic'];
+    const plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE);
+    const actors: PlacementActor[] = [];
     const unmapped = new Set<string>();
     for (let i = 0; i < plan.length; i++) {
         const tile = plan[i]!, out = encodeMcstructureTile(grid, tile);
         for (const state of out.unmapped) unmapped.add(state);
         files.push({ name: `${bp}structures/${PACK_NAMESPACE}/${tile.name}.mcstructure`, data: out.bytes });
-        functionLines.push(`structure load ${PACK_NAMESPACE}:${tile.name} ~${tile.x} ~${tile.y} ~${tile.z}`);
         options.onProgress?.(`encoding structure ${i + 1}/${plan.length}`, Math.round((i + 1) / plan.length * 70));
     }
     for (const c of components) {
         const cid = safe(`${id}_${c.id}`).length === `${id}_${c.id}`.length ? safe(`${id}_${c.id}`) : safe(`${id.slice(0, 24)}_${c.id.slice(0, 12)}_${deterministicUuid(`${id}:${c.id}`).slice(0, 8)}`);
         files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid)) });
         const geo = geometry(cid, c.grid);
-        files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}textures/entity/${cid}.png`, data: palettePng(geo.palette) });
-        functionLines.push(`summon ${PACK_NAMESPACE}:${cid} ${JSON.stringify(c.label)} ~${Math.round(c.x ?? grid.width / 2)} ~${Math.round(c.y ?? 1)} ~${Math.round(c.z ?? grid.length / 2)}`);
+        files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: palettePng(geo.palette) });
+        actors.push({ typeId: `${PACK_NAMESPACE}:${cid}`, label: c.label, x: Math.round(c.x ?? grid.width / 2), y: Math.round(c.y ?? 1), z: Math.round(c.z ?? grid.length / 2) });
     }
     const screens = options.screens ?? [], screenId = `${id}_control_screen`;
     if (screens.length) {
         files.push({ name: `${bp}entities/${screenId}.json`, data: json(screenBehavior(screenId)) }, { name: `${rp}entity/${screenId}.entity.json`, data: json(screenClient(screenId)) }, { name: `${rp}models/entity/control_screen.geo.json`, data: json(SCREEN_GEOMETRY) }, { name: `${rp}textures/entity/craftmatic_screen.png`, data: palettePng(['cyan']) });
         for (const s of screens)
-            functionLines.push(`summon ${PACK_NAMESPACE}:${screenId} ${JSON.stringify(s.label)} ~${Math.round(s.x)} ~${Math.round(s.y)} ~${Math.round(s.z)}`);
+            actors.push({ typeId: `${PACK_NAMESPACE}:${screenId}`, label: s.label, x: Math.round(s.x), y: Math.round(s.y), z: Math.round(s.z) });
     }
     if (unmapped.size) warnings.push(`${unmapped.size} block type${unmapped.size === 1 ? '' : 's'} had no Bedrock equivalent and ${unmapped.size === 1 ? 'was' : 'were'} omitted: ${[...unmapped].join(', ')}`);
-    files.push({ name: `${bp}functions/${PACK_NAMESPACE}/${id}.mcfunction`, data: text(functionLines.join('\n')) }, { name: `${bp}scripts/main.js`, data: text('const SCREEN_TYPE = ' + JSON.stringify(PACK_NAMESPACE + ':' + screenId) + ';\n' + SCREEN_SCRIPT) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world, then run /function ${PACK_NAMESPACE}/${id}.\nCars: interact to ride and use normal movement controls. Planes: ride, then use movement plus camera pitch. Computer screens: interact for lights, doors, scanner vision, and named vehicle coordinates.\n`) });
+    const previewPoints = previewSamples(scenery, components.length ? 90 : 120);
+    const perVehicle = Math.floor((120 - previewPoints.length) / Math.max(1, components.length));
+    for (const c of components) {
+        const scale = Math.min(1, 8 / Math.max(1, c.grid.width, c.grid.length));
+        for (const p of previewSamples(c.grid, perVehicle)) previewPoints.push({
+            x: Math.round(c.x ?? grid.width / 2) + (p.x - c.grid.width / 2) * scale,
+            y: Math.round(c.y ?? 1) + p.y * scale,
+            z: Math.round(c.z ?? grid.length / 2) + (p.z - c.grid.length / 2) * scale,
+        });
+    }
+    const placement = buildPlacementPackAssets({ stem: id, label, width: grid.width, height: grid.height, length: grid.length,
+        tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints });
+    files.push(...placement.files.map(file => ({ ...file, name: bp + file.name })));
+    files.push({ name: `${bp}scripts/main.js`, data: text("import './placement.js';\nconst SCREEN_TYPE = " + JSON.stringify(PACK_NAMESPACE + ':' + screenId) + ';\n' + SCREEN_SCRIPT) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, preview, rotate, place, and undo.\nCars: interact to ride and use normal movement controls. Planes: ride, then use movement and ascent controls. Vehicles resist damage. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
-    return { bytes, functionCommand: `/function ${PACK_NAMESPACE}/${id}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings };
+    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings };
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createCipheriv, createDecipheriv } from 'node:crypto';
 import { Aes256Cfb8 } from '../worker/aes-cfb8.js';
 import {
@@ -6,12 +6,55 @@ import {
   COMMAND_WINDOW,
   HS1_CHUNK_SIZE,
   MAX_HS1_BYTES,
+  handleLiveDeliveryRequest,
   LiveDeliverySession,
   validateHs1,
 } from '../worker/live-delivery.js';
 import { checksum, makeParts } from '../web/src/engine/hotschem/live-import.js';
 
 describe('live delivery protocol boundary', () => {
+  it('does not send a delayed handshake into a replacement connection', async () => {
+    const relay = new LiveDeliverySession({ storage: {} });
+    const oldSocket = {}, replacement = {};
+    relay.minecraft = oldSocket;
+    relay.command = vi.fn();
+    const handshake = relay.startMinecraftHandshake(oldSocket);
+    relay.minecraft = replacement;
+    await expect(handshake).rejects.toThrow('connection was replaced');
+    expect(relay.command).not.toHaveBeenCalled();
+    expect(relay.encrypt).toBeFalsy();
+    expect(relay.decrypt).toBeFalsy();
+  });
+
+  it('returns Minecraft\'s shorter documented /connect alias', async () => {
+    const fetch = async () => new Response('{}', { status: 201 });
+    const env = {
+      LIVE_DELIVERY: {
+        idFromName: (value: string) => value,
+        get: () => ({ fetch }),
+      },
+    };
+    const response = await handleLiveDeliveryRequest(
+      new Request('https://craftmatic.click/connect', { method: 'POST' }),
+      env,
+    );
+    const session = await response.json();
+    expect(response.status).toBe(201);
+    expect(session.pairingCommand).toBe(`/connect ${session.minecraftUrl}`);
+    expect(session.minecraftUrl).toMatch(/^wss:\/\/craftmatic\.click\/connect\/[0-9a-f]{32}$/);
+  });
+
+  it('rejects a failed handshake waiter and resets pairing for retry', async () => {
+    const relay = new LiveDeliverySession({ storage: {} });
+    const originalReady = relay.minecraftReady;
+    relay.failMinecraftPairing('minecraft_handshake_closed', 'Minecraft closed during pairing');
+    await expect(originalReady).rejects.toThrow('Minecraft closed during pairing');
+    expect(relay.minecraftReady).not.toBe(originalReady);
+    expect(relay.lastMinecraftFailure).toMatchObject({
+      type: 'error', code: 'minecraft_handshake_closed',
+    });
+  });
+
   it('keeps a browser-first import pending until Minecraft pairing resolves', async () => {
     const relay = new LiveDeliverySession({ storage: {} });
     const sent: Array<{ type: string; phase?: string }> = [];
