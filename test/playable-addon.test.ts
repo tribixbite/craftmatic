@@ -27,13 +27,39 @@ describe('playable Bedrock add-on',()=>{
     expect(entries).toContain('Craftmatic_batmobile_RP/manifest.json');
     expect(entries).toContain('Craftmatic_batmobile_BP/entities/batmobile_batmobile.json');
     expect(entries).toContain('Craftmatic_batmobile_RP/textures/entity/batmobile_batmobile.png');
+    const manifest=JSON.parse(new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/manifest.json')));
+    expect(manifest.header.description).toContain(`Place with ${result.functionCommand};`);
     const entity=JSON.parse(new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/entities/batmobile_batmobile.json')));
     const components=entity['minecraft:entity'].components;
     expect(components['minecraft:input_ground_controlled']).toEqual({});
     expect(components['minecraft:movement'].value).toBeGreaterThan(1);
+    expect(components['minecraft:movement'].value).toBeLessThan(1.4);
+    expect(components['minecraft:damage_sensor'].triggers).toEqual([{ cause: 'all', deals_damage: 'no' }]);
+    expect(components['minecraft:fire_immune']).toEqual({});
     expect(components['minecraft:rideable'].seats.position[1]).toBeGreaterThan(model().height);
     const fn=new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/functions/craftmatic/batmobile.mcfunction'));
-    expect(fn).toContain('summon craftmatic:batmobile_batmobile "Batmobile" ~12 ~2 ~7');
+    expect(fn).toContain('give @s craftmatic:batmobile_brick_wand');
+    expect(fn).not.toContain('summon ');
+    const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/placement.js'));
+    expect(placement).toContain('"typeId":"craftmatic:batmobile_batmobile","label":"Batmobile","x":12,"y":2,"z":7');
+  });
+
+  it('preserves a complex model across bounded independently rendered meshes', async () => {
+    const grid = new BlockGrid(17, 9, 17);
+    for (let y=0;y<9;y++) for(let z=0;z<17;z++) for(let x=0;x<17;x++) grid.set(x,y,z,(x+y+z)%2 ? 'minecraft:gold_block' : 'minecraft:stone');
+    const result = await buildPlayableAddon(grid, { stem: 'Checker', vehicleMode: 'car' });
+    const buffer = ab(result.bytes);
+    const meshes = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_checker_RP/models/entity/checker_checker.geo.json')))['minecraft:geometry'];
+    expect(meshes).toHaveLength(3);
+    expect(meshes.flatMap((m: any) => m.bones[0].cubes)).toHaveLength(17*9*17);
+    expect(meshes.every((m: any) => m.bones[0].cubes.length <= 1024)).toBe(true);
+    const client = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_checker_RP/entity/checker_checker.entity.json')))['minecraft:client_entity'].description;
+    const controllers = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_checker_RP/render_controllers/checker_checker.render_controllers.json'))).render_controllers;
+    expect(client.render_controllers).toHaveLength(3);
+    for (const key of client.render_controllers) {
+      const alias = controllers[key].geometry.replace('Geometry.', '');
+      expect(meshes.some((m: any) => m.description.identifier === client.geometry[alias])).toBe(true);
+    }
   });
 
   it('uses three-dimensional air controls and visible script-backed screens',async()=>{
@@ -80,7 +106,7 @@ describe('playable Bedrock add-on',()=>{
       const a = await manifests(first.bytes), b = await manifests(second.bytes);
       expect(b.bp.header.uuid).toBe(a.bp.header.uuid);
       expect(b.rp.header.uuid).toBe(a.rp.header.uuid);
-      expect(b.bp.header.version).toEqual([1, 20_705, 43_201_000]);
+      expect(b.bp.header.version).toEqual([2, 663, 4_417]);
       expect(b.bp.header.version).not.toEqual(a.bp.header.version);
       expect(b.bp.modules.every((module: { version: number[] }) =>
         JSON.stringify(module.version) === JSON.stringify(b.bp.header.version))).toBe(true);

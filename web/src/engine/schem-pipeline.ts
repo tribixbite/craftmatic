@@ -101,7 +101,7 @@ export interface SchemWorkerInput {
 export interface McpackSummary {
   warnings?: string[];
   components?: string[];
-  /** `/function craftmatic/<name>` the player runs to place the model. */
+  /** Short `/function` command that gives the model's BrickWand. */
   functionCommand: string;
   /** One `.mcstructure` per entry. */
   tileCount: number;
@@ -136,6 +136,7 @@ export type ProgressFn = (phase: string, pct?: number) => void;
 
 export interface SchemPipelineResult {
   grid: BlockGrid;
+  gridOrigin?: VoxelizeResult['gridOrigin'];
   bytes?: Uint8Array;
   nonAir: number;
   lights: number;
@@ -224,7 +225,7 @@ export async function runSchemPipeline(
 
   const nonAir = grid.countNonAir();
   const lights = lightFill?.lights ?? 0;
-  if (input.format === 'guide') return { grid, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats };
+  if (input.format === 'guide') return { grid, gridOrigin: sourceOrigin, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats };
 
   if (input.format === 'live') {
     onProgress('preparing live Bedrock delivery');
@@ -246,7 +247,9 @@ export async function runSchemPipeline(
       const source = input.source;
       const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto');
       warnings.push(...found.warnings);
+      const movable = new Set<ParsedBrick>();
       for (const component of found.components) {
+        for (const brick of component.bricks) movable.add(brick);
         onProgress(`preparing ${component.label}`);
         if (component.bricks.length === source.bricks.length) {
           components.push({ ...component, grid });
@@ -256,14 +259,19 @@ export async function runSchemPipeline(
         const part = await voxelizeLDrawGeometry(component.bricks, profile.colorFn(source.colorSpace), source.options, onProgress);
         if (!sourceOrigin || !part.gridOrigin) throw new Error('Component alignment requires resolved source geometry.');
         const a = sourceOrigin, b = part.gridOrigin;
-        const dx = Math.round((b.x - a.x) * a.scale), dy = Math.round((b.y - a.y) * a.scale), dz = Math.round((b.z - a.z) * a.scale);
-        for (let y = 0; y < part.grid.height; y++) for (let z = 0; z < part.grid.length; z++) for (let x = 0; x < part.grid.width; x++) {
-          if (part.grid.get(x, y, z) !== 'minecraft:air') {
-            const px = dx + x, py = dy + y, pz = dz + z;
-            if (px >= 0 && py >= 0 && pz >= 0 && px < grid.width && py < grid.height && pz < grid.length) grid.set(px, py, pz, 'minecraft:air');
-          }
-        }
-        components.push({ ...component, grid: part.grid, x: dx + part.grid.width / 2, y: dy, z: dz + part.grid.length / 2 });
+        const dx = (b.x - a.x) * a.scale, dy = (b.y - a.y) * a.scale, dz = (b.z - a.z) * a.scale;
+        const ratio = a.scale / b.scale;
+        components.push({ ...component, grid: part.grid, x: dx + part.grid.width * ratio / 2, y: dy, z: dz + part.grid.length * ratio / 2 });
+      }
+      if (movable.size > 0 && movable.size < source.bricks.length) {
+        // Rebuild scenery from its own source assembly. Subtracting a separate
+        // vehicle voxel mask leaves gap-fill/bridge fragments and can erase
+        // scenery where the two assemblies touch.
+        onProgress('rebuilding scenery without movable components');
+        const scenery = await runSchemPipeline({ ...input, format: 'guide',
+          source: { ...source, bricks: source.bricks.filter(b => !movable.has(b)) } }, onProgress);
+        if (!sourceOrigin || !scenery.gridOrigin) throw new Error('Scenery alignment requires resolved source geometry.');
+        grid = alignVoxelGrid(scenery.grid, scenery.gridOrigin, sourceOrigin, grid);
       }
       if (sourceOrigin) for (const anchor of knownScreenAnchors(label)) {
         const a = sourceOrigin;
@@ -302,4 +310,19 @@ export async function runSchemPipeline(
   onProgress(input.format === 'schem' ? 'writing NBT' : 'writing Litematica NBT');
   const bytes = input.format === 'schem' ? encodeSchemBytes(grid) : encodeLitematicBytes(grid);
   return { grid, bytes, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats };
+}
+
+/** Keep separately voxelized assemblies in the original model's coordinate frame. */
+export function alignVoxelGrid(source: BlockGrid, from: NonNullable<VoxelizeResult['gridOrigin']>,
+  to: NonNullable<VoxelizeResult['gridOrigin']>, bounds: BlockGrid): BlockGrid {
+  const result = new BlockGrid(bounds.width, bounds.height, bounds.length);
+  for (let y = 0; y < source.height; y++) for (let z = 0; z < source.length; z++) for (let x = 0; x < source.width; x++) {
+    const state = source.get(x, y, z);
+    if (state === 'minecraft:air') continue;
+    const px = Math.round((from.x + x / from.scale - to.x) * to.scale);
+    const py = Math.round((from.y + y / from.scale - to.y) * to.scale);
+    const pz = Math.round((from.z + z / from.scale - to.z) * to.scale);
+    if (px >= 0 && py >= 0 && pz >= 0 && px < result.width && py < result.height && pz < result.length) result.set(px, py, pz, state);
+  }
+  return result;
 }

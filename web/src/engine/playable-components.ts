@@ -22,6 +22,18 @@ const ROAD_WHEELS = new Set(['55982', '58090', '30027', '30028', '11208', '11209
 
 const stem = (part: string) => part.replace(/^.*[/\\]/, '').replace(/\.dat$/i, '').toLowerCase();
 
+/** The source's first assembly is the complete 399-part Batmobile. Match every
+ * placement (including its transform), not just the set number or a box around
+ * its wheels: that old crop lost 112 car parts and captured 52 scenery parts. */
+function verifiedBatmobile(bricks: ParsedBrick[]): ParsedBrick[] | null {
+  if (bricks.length <= 399) return null;
+  const car = bricks.slice(0, 399);
+  const signature = JSON.stringify(car.map(b => [b.part, b.color, b.x, b.y, b.z, b.rot]));
+  let hash = 2166136261;
+  for (let i = 0; i < signature.length; i++) hash = Math.imul(hash ^ signature.charCodeAt(i), 16777619);
+  return (hash >>> 0) === 0x1001363b ? car : null;
+}
+
 export function classifyVehicleKind(label: string, mode: VehicleMode): PlayableKind | null {
   if (mode === 'car' || mode === 'plane') return mode;
   if (mode === 'static') return null;
@@ -91,13 +103,21 @@ export function discoverPlayableComponents(
     return {...component,bounds:{min:[Math.min(...xs),Math.min(...ys),Math.min(...zs)],max:[Math.max(...xs),Math.max(...ys),Math.max(...zs)]}};
   };
 
+  if (/\b76252\b|batcave shadow/i.test(label) && kind === 'car') {
+    const car = verifiedBatmobile(bricks);
+    if (car) return {
+      components: [withBounds({ id: 'batmobile', label: 'Batmobile', kind: 'car', bricks: car,
+        provenance: 'verified complete 399-part Mecabricks Batmobile assembly' })], warnings: [],
+    };
+  }
+
   const named = namedSubmodels(bricks, kind);
   if (named.length) return {
     components: named.map((group, i) => withBounds({ id: `${kind}_${i + 1}`, label, kind, bricks: group, provenance: 'named MPD submodel ancestry' })),
     warnings: [],
   };
 
-  if (kind === 'car') {
+  if (kind === 'car' && !/\b76252\b|batcave shadow/i.test(label)) {
     const wheeled = wheelComponents(bricks);
     if (wheeled.length) return {
       components: wheeled.map((group, i) => withBounds({

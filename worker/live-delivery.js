@@ -99,7 +99,10 @@ export async function handleLiveDeliveryRequest(request, env) {
       minecraftUrl,
       browserUrl: publicWsUrl(request, `/connect/${sessionId}/browser`),
       browserToken,
-      pairingCommand: `/wsserver ${minecraftUrl}`,
+      // `/connect` is Minecraft's documented alias for `/wsserver`; using it
+      // saves three characters on the command players must enter on touch
+      // keyboards while preserving the exact same Bedrock code path.
+      pairingCommand: `/connect ${minecraftUrl}`,
       expiresAt,
     }, 201, { ...corsHeaders(request), 'referrer-policy': 'no-referrer' });
   }
@@ -129,6 +132,8 @@ export class LiveDeliverySession {
     this.pending = new Map();
     this.deliveryRunning = false;
     this.deliveryGeneration = 0;
+    this.minecraftAttempt = 0;
+    this.lastMinecraftFailure = null;
     this.stages = [];
     this.resetPairing();
   }
@@ -203,6 +208,7 @@ export class LiveDeliverySession {
       this.sendBrowser({ type: 'authenticated', expiresAt: new Date(session.expiresAt).toISOString() });
       this.sendBrowser({ type: 'diagnostic', stages: this.stages });
       if (this.player) this.sendBrowser({ type: 'paired', player: this.player });
+      else if (this.lastMinecraftFailure) this.sendBrowser(this.lastMinecraftFailure);
       return;
     }
     if (message?.type === 'cancel') {
@@ -225,6 +231,8 @@ export class LiveDeliverySession {
 
   acceptMinecraft(request) {
     if (this.minecraft && this.minecraft.readyState === 1) this.minecraft.close(1012, 'Replaced by reconnect');
+    const attempt = ++this.minecraftAttempt;
+    this.lastMinecraftFailure = null;
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
@@ -233,6 +241,11 @@ export class LiveDeliverySession {
     this.player = null;
     this.encrypt = null;
     this.decrypt = null;
+    if (this.pairingSettled) this.resetPairing();
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('Minecraft connection was replaced'));
+    }
     this.pending.clear();
     this.recordStage('minecraft_accepted', {
       protocol: request.headers.get('sec-websocket-protocol') || '',
@@ -244,34 +257,85 @@ export class LiveDeliverySession {
       .then(() => this.startMinecraftHandshake(server));
     // A failed/abandoned pairing may happen before a browser connects. Keep the
     // rejection observable to deliver() without creating an unhandled promise.
-    handshake.then(player => this.pairingResolve?.(player)).catch(error => {
-      this.sendBrowser({ type: 'error', code: 'minecraft_handshake', message: error instanceof Error ? error.message : String(error) });
+    handshake.then(player => {
+      if (attempt === this.minecraftAttempt && this.minecraft === server) this.pairingResolve?.(player);
+    }).catch(error => {
+      if (attempt !== this.minecraftAttempt || this.minecraft !== server) return;
+      this.minecraftAttempt++;
+      this.minecraft = null;
+      this.player = null;
+      this.failMinecraftPairing(
+        'minecraft_handshake',
+        error instanceof Error ? error.message : String(error),
+      );
+      for (const pending of this.pending.values()) pending.reject(new Error('Minecraft pairing failed'));
+      this.pending.clear();
+      this.sendBrowser({ type: 'unpaired' });
+      server.close(1011, 'Encrypted pairing failed');
     });
-    server.addEventListener('message', event => this.onMinecraftMessage(event.data));
+    server.addEventListener('message', event => {
+      if (this.minecraft === server) this.onMinecraftMessage(event.data);
+    });
     server.addEventListener('close', event => {
       this.recordStage('minecraft_closed', { code: event.code, reason: String(event.reason || '').slice(0, 80) });
       if (this.minecraft === server) {
+        // Invalidate the asynchronous handshake before resetting its promise;
+        // otherwise its catch handler can reject the next pairing attempt.
+        this.minecraftAttempt++;
+        const wasPaired = !!this.player;
         this.minecraft = null;
         this.player = null;
-        if (this.pairingSettled) this.resetPairing();
+        if (!this.pairingSettled) {
+          this.failMinecraftPairing(
+            'minecraft_handshake_closed',
+            'Minecraft reached the secure relay but closed before encrypted pairing completed. Retry from a single-player host world with cheats and WebSockets enabled. If Minecraft still says Connection closed, download the Bedrock pack while hosted pairing remains unavailable on this device or network.',
+          );
+        } else {
+          this.resetPairing();
+          if (wasPaired && this.deliveryRunning) {
+            this.sendBrowser({
+              type: 'error',
+              code: 'minecraft_disconnected',
+              message: 'Minecraft disconnected during delivery. Reopen the host world and retry with a new pairing command.',
+            });
+          }
+        }
         for (const pending of this.pending.values()) pending.reject(new Error('Minecraft disconnected'));
         this.pending.clear();
         this.sendBrowser({ type: 'unpaired' });
       }
     });
     server.addEventListener('error', () => this.sendBrowser({ type: 'error', code: 'minecraft_socket', message: 'Minecraft connection failed' }));
-    return new Response(null, { status: 101, webSocket: client, headers: { 'sec-websocket-protocol': WS_PROTOCOL } });
+    // Retail Bedrock currently compares the Connection response value
+    // case-sensitively even though HTTP tokens are case-insensitive. Explicit
+    // title casing prevents an immediate malformed 59907 close on runtimes
+    // that otherwise serialize this value as `upgrade`.
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: {
+        Connection: 'Upgrade',
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Protocol': WS_PROTOCOL,
+      },
+    });
   }
 
   async startMinecraftHandshake(socket) {
+    const assertCurrent = () => {
+      if (socket !== this.minecraft) throw new Error('Minecraft connection was replaced');
+    };
+    assertCurrent();
     this.recordStage('key_generation_started');
     const pair = await globalThis.crypto.subtle.generateKey(
       { name: 'ECDH', namedCurve: 'P-384' }, true, ['deriveBits'],
     );
     const salt = randomBytes(16);
     const publicKey = Buffer.from(await globalThis.crypto.subtle.exportKey('spki', pair.publicKey)).toString('base64').replace(/=+$/, '');
+    assertCurrent();
     this.recordStage('encryption_request_sending', { publicKeyChars: publicKey.length });
     const response = await this.command(`enableencryption "${publicKey}" "${salt.toString('base64').replace(/=+$/, '')}" cfb8`, false);
+    assertCurrent();
     this.recordStage('encryption_key_received', { hasPublicKey: !!response?.publicKey });
     if (!response?.publicKey) throw new Error('Minecraft refused encrypted WebSockets');
     const peerKey = await globalThis.crypto.subtle.importKey(
@@ -280,6 +344,7 @@ export class LiveDeliverySession {
     let shared = Buffer.from(await globalThis.crypto.subtle.deriveBits(
       { name: 'ECDH', public: peerKey }, pair.privateKey, 384,
     ));
+    assertCurrent();
     while (shared.length > 1 && shared[0] === 0) shared = shared.subarray(1);
     const secret = createHash('sha256').update(salt).update(shared).digest();
     const iv = secret.subarray(0, 16);
@@ -430,6 +495,14 @@ export class LiveDeliverySession {
     });
     // A session can expire without a browser ever awaiting this promise.
     this.minecraftReady.catch(() => {});
+  }
+
+  failMinecraftPairing(code, message) {
+    const failure = { type: 'error', code, message };
+    this.lastMinecraftFailure = failure;
+    this.pairingReject?.(new Error(message));
+    this.resetPairing();
+    this.sendBrowser(failure);
   }
 
   recordStage(stage, detail = {}) {

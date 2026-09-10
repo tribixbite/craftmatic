@@ -30,7 +30,7 @@ import { exportLayerGuide } from '@viewer/exporter.js';
 import { collectDatTexts } from '@viewer/ldraw/parts.js';
 import { beginExportProgress, type ExportProgressHandle } from '@ui/export-progress.js';
 import {
-  createLiveSession, LiveDelivery,
+  createLiveSession, LiveDelivery, LiveDeliveryError,
   type LiveDeliveryProgress, type LiveDeliveryResult,
 } from '@engine/live-delivery.js';
 import { checksum } from '@engine/hotschem/live-import.js';
@@ -81,6 +81,21 @@ function liveProgressText(p: LiveDeliveryProgress): string {
     case 'committing': return 'Transfer complete. Waiting for Minecraft to commit the build…';
     case 'complete': return 'Minecraft committed the build.';
   }
+}
+
+function liveFailureText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error instanceof LiveDeliveryError ? error.code : undefined;
+  if (code === 'expired') return 'This pairing command expired. Choose Retry, then run the new command in Minecraft.';
+  if (code === 'minecraft_disconnected') return 'Minecraft disconnected. Reopen the single-player host world, choose Retry, and run the new pairing command.';
+  if (code?.startsWith('minecraft_')) {
+    return `${message}. Confirm the HotSchem Live behavior pack is active on the host world, cheats and WebSockets are enabled, and Require Encrypted WebSockets remains enabled. Hosted pairing is still known not to complete on our Android test device.`;
+  }
+  if (code === 'delivery_failed' || /receiver|rejected|acknowledge/i.test(message)) {
+    return `${message}. Confirm the HotSchem Live behavior pack is active, rejoin the host world after activation, and keep cheats enabled.`;
+  }
+  if (/auth/i.test(message)) return `${message}. The browser session could not authenticate; choose Retry to create a fresh pairing command.`;
+  return `${message}. Check the host world's WebSocket settings and network, then choose Retry for a fresh pairing command.`;
 }
 
 /**
@@ -210,7 +225,7 @@ async function deliverLiveModel(
       } catch (err) {
         if (signal.aborted || settled) return;
         delivery?.close();
-        status.textContent = `Delivery stopped: ${err instanceof Error ? err.message : String(err)}`;
+        status.textContent = `Delivery stopped: ${liveFailureText(err)}`;
         status.classList.add('error');
         retry.hidden = false;
       }
@@ -421,8 +436,8 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
     progress.update('downloading');
     downloadBytes(job.bytes!, `${base}.${format}`);
 
-    // Bedrock: the file alone is not actionable — the user needs the command
-    // that places it and a warning about the blocks that had no equivalent.
+    // Bedrock: the file alone is not actionable — explain how to acquire and
+    // use the included BrickWand without implying that import places anything.
     if ((format === 'mcpack' || format === 'mcaddon') && job.mcpack) {
       const { functionCommand, tileCount, unmapped, warnings = [], components = [] } = job.mcpack;
       const tileNote = tileCount > 1
@@ -432,8 +447,8 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         ? (components.length > 0 ? ` Interactive components: ${components.join(', ')}.` : ' No interactive component was identified; the structure remains static.')
         : '';
       const activation = format === 'mcaddon'
-        ? `Open it with Minecraft, activate both the behavior and resource packs, rejoin the world, then run ${functionCommand} where the model should go.`
-        : `Open it with Minecraft, activate the behavior pack, then run ${functionCommand} where the model should go.`;
+        ? `Open it with Minecraft, activate both packs, and rejoin the world. Find the model BrickWand in Creative inventory or run ${functionCommand} to receive it. Select it in your hotbar to open; switch away and back to reopen. Pin or edit coordinates, rotate the visible preview, place explicitly, cancel, or undo.`
+        : `Open it with Minecraft and activate the behavior pack. Find the model BrickWand in Creative inventory or run ${functionCommand} to receive it. Select it in your hotbar to open; switch away and back to reopen. Pin or edit coordinates, rotate the visible preview, place explicitly, cancel, or undo.`;
       const msg = `Exported ${base}.${format} — ${blocks.toLocaleString()} blocks${resNote}, `
         + `${job.width}×${job.height}×${job.length}${lightNote}${tileNote}. ${activation}${componentNote}`;
       status(msg, 'success');

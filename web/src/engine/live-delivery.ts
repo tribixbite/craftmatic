@@ -47,6 +47,13 @@ interface ServerMessage {
   player?: string;
 }
 
+export class LiveDeliveryError extends Error {
+  constructor(message: string, readonly code?: string) {
+    super(message);
+    this.name = 'LiveDeliveryError';
+  }
+}
+
 const DEFAULT_BASE_URL = 'https://craftmatic.click';
 const MAX_HS1_BYTES = 4 * 1024 * 1024;
 
@@ -169,7 +176,16 @@ export class LiveDelivery {
       resolve?.({ checksum: message.checksum, chunks: message.chunks, bytes: message.bytes, player: message.player });
       return;
     }
-    if (message.type === 'error') this.fail(new Error(message.message || message.code || 'Live delivery failed'));
+    if (message.type === 'unpaired' && this.deliveryReject) {
+      this.fail(new LiveDeliveryError(
+        'Minecraft disconnected during delivery. Reopen the host world and retry with a new pairing command.',
+        'minecraft_disconnected',
+      ));
+      return;
+    }
+    if (message.type === 'error') {
+      this.fail(new LiveDeliveryError(message.message || message.code || 'Live delivery failed', message.code));
+    }
   }
 
   private fail(error: Error): void {

@@ -279,6 +279,9 @@ describe('.mcpack', () => {
     // silently become `mystructure:<name>` instead.
     expect(entries).toContain(`structures/${PACK_NAMESPACE}/colosseum_10276.mcstructure`);
     expect(entries).toContain(`functions/${PACK_NAMESPACE}/colosseum_10276.mcfunction`);
+    expect(entries).toContain(`functions/${pack.shortCommand.replace('/function ', '')}.mcfunction`);
+    expect(entries).toContain('items/colosseum_10276_brick_wand.json');
+    expect(entries).toContain('scripts/placement.js');
     expect(entries).toContain('README.txt');
     for (const e of entries) expect(e).not.toContain('\\');   // zip paths use /
   });
@@ -291,13 +294,18 @@ describe('.mcpack', () => {
 
     expect(manifest.format_version).toBe(2);
     expect(manifest.header.name).toBe('Colosseum (10276)');
-    expect(manifest.header.version[0]).toBe(1);
+    expect(manifest.header.version[0]).toBeGreaterThanOrEqual(2);
     expect(manifest.header.version).toEqual(manifest.modules[0].version);
     // Pinned to the oldest release that has every id we emit.
-    expect(manifest.header.min_engine_version).toEqual([1, 21, 40]);
-    // Structures and functions are behavior-pack data.
-    expect(manifest.modules).toHaveLength(1);
+    expect(manifest.header.min_engine_version).toEqual([1, 26, 40]);
+    // Structures/functions/items are data; the Brick Wand UI is a script.
+    expect(manifest.modules).toHaveLength(2);
     expect(manifest.modules[0].type).toBe('data');
+    expect(manifest.modules[1].type).toBe('script');
+    expect(manifest.dependencies).toEqual([
+      { module_name: '@minecraft/server', version: '2.9.0' },
+      { module_name: '@minecraft/server-ui', version: '2.1.0' },
+    ]);
     // Canonical UUID shape, and header/module must differ (manifest validation).
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
     expect(manifest.header.uuid).toMatch(uuidRe);
@@ -305,7 +313,7 @@ describe('.mcpack', () => {
     expect(manifest.header.uuid).not.toBe(manifest.modules[0].uuid);
   });
 
-  it('ships a placement function whose commands match the tile offsets', async () => {
+  it('ships a Brick Wand grant function while runtime metadata keeps every tile offset', async () => {
     const g = new BlockGrid(100, 10, 30);
     for (let x = 0; x < 100; x += 2) g.set(x, 4, 15, 'minecraft:stone');
     const pack = await buildMcpack(g, { stem: 'Wide-1' });
@@ -316,14 +324,15 @@ describe('.mcpack', () => {
     const fn = new TextDecoder().decode(
       await extractFile(buf, `functions/${PACK_NAMESPACE}/wide_1.mcfunction`));
 
-    // One relative-coordinate load per tile, so the player stands at the corner
-    // and runs a single /function.
-    for (const t of pack.tiles) {
-      expect(fn).toContain(`structure load ${t.identifier} ~${t.dx} ~${t.dy} ~${t.dz}`);
-    }
-    // mcfunction lines carry no leading slash.
-    for (const line of fn.split('\n')) expect(line.startsWith('/')).toBe(false);
-    expect(pack.functionCommand).toBe(`/function ${PACK_NAMESPACE}/wide_1`);
+    expect(fn).toContain(`give @s ${pack.itemId} 1`);
+    expect(fn).not.toContain('structure load');
+    expect(pack.functionCommand).toBe(pack.shortCommand);
+    expect(pack.shortCommand).toMatch(/^\/function b_[0-9a-f]{6}$/);
+
+    const script = new TextDecoder().decode(await extractFile(buf, 'scripts/placement.js'));
+    for (const t of pack.tiles) expect(script).toContain(JSON.stringify(t.identifier));
+    expect(script).toContain('Preview first; Place is always a separate confirmation.');
+    expect(script).toContain('structure load ${t.identifier}');
   });
 
   it('refuses an empty model instead of shipping a pack that does nothing', async () => {
@@ -345,10 +354,24 @@ describe('.mcpack', () => {
 });
 
 describe('pack identity', () => {
-  it('orders export versions by time without changing stable pack UUID inputs', () => {
-    expect(exportVersion(Date.UTC(2026, 8, 9, 12, 0, 0))).toEqual([1, 20_705, 43_200_000]);
-    expect(exportVersion(Date.UTC(2026, 8, 9, 12, 0, 1))).toEqual([1, 20_705, 43_201_000]);
-    expect(exportVersion(Date.UTC(2026, 8, 10, 0, 0, 0))).toEqual([1, 20_706, 0]);
+  it('orders compact export versions across component boundaries', () => {
+    const epoch = Date.UTC(2026, 0, 1), second = 1_000, radix = 32_768;
+    const versions = [
+      exportVersion(epoch - 1),
+      exportVersion(epoch),
+      exportVersion(epoch + (radix - 1) * second),
+      exportVersion(epoch + radix * second),
+      exportVersion(epoch + (radix * radix - 1) * second),
+      exportVersion(epoch + radix * radix * second),
+    ];
+    expect(versions).toEqual([
+      [2, 0, 0], [2, 0, 0], [2, 0, 32_767],
+      [2, 1, 0], [2, 32_767, 32_767], [3, 0, 0],
+    ]);
+    expect(versions.every(version => version.every(part => Number.isInteger(part) && part >= 0 && part <= 32_767))).toBe(true);
+    const ordered = versions.slice(1).map(version => version[0] * radix * radix + version[1] * radix + version[2]);
+    expect(ordered).toEqual([...ordered].sort((a, b) => a - b));
+    expect(() => exportVersion(Number.NaN)).toThrow('finite');
   });
 
   it('is deterministic — the same set re-exports as the same pack', () => {

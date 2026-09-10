@@ -15,7 +15,7 @@ New block models can arrive without leaving the world once the receiver is activ
 ## Formats
 
 - Java `.schem` and `.litematic` downloads contain static blocks for their respective Java tools.
-- Bedrock `.mcpack` contains native tiled structures and a placement function.
+- Bedrock `.mcpack` contains native tiled structures and a BrickWand for positioning and placement.
 - Playable Bedrock `.mcaddon` combines behavior, resources, and model components. Vehicle behavior belongs to this format.
 - Send to Minecraft streams compressed, validated Bedrock placement operations into the active HotSchem library.
 
@@ -25,11 +25,19 @@ Java downloads preserve the chest inventories and sign text represented in the s
 
 Choose **Auto** for source-based detection or explicitly choose **Car** or **Plane** for a standalone model. Auto separates named vehicle submodels and wheel clusters; ambiguous flattened models may need an explicit whole-model choice. It does not certify automatic recognition of every vehicle in the catalog.
 
-Cars use native ride and ground controls. Planes use native ride and air controls. Both use fast movement settings. Computer-screen interactions open controls for nearby lights, doors, scanner vision, and vehicle locations. Geometry keeps the exported voxel colors and complete cuboids; exports exceeding the 16,384-cuboid budget ask for a lower resolution instead of silently truncating the vehicle.
+Cars use native ride and ground controls. Planes use native ride and air controls. Speed settings have been reduced by about 25% from the initial release and remain fast. Vehicles reject damage, including falls and fire, so normal collisions do not destroy them. Computer-screen interactions open controls for nearby lights, doors, scanner vision, and vehicle locations. Geometry keeps the exported voxel colors and complete cuboids, split into independently rendered meshes of at most 1,024 cuboids. Exports exceeding the 16,384-cuboid budget ask for a lower resolution instead of silently truncating the vehicle.
 
 Re-exporting a pack keeps its UUID and increases its manifest version so Minecraft can update the previous import. Rejoin the world after updating an active pack. Vehicle seats sit above the opaque voxel body to keep the rider's view clear.
 
-For the verified flattened 76252 source, the wheel-based selection identifies a 339-placement Batmobile separately from the 3,976-placement Batcave and attaches two screen controls to measured source coordinates. Component geometry is removed from the static scenery and spawned separately.
+For the verified flattened 76252 source, all 399 placements of the Batmobile's original assembly are identified by their complete placement signature. The former wheel-box crop omitted 112 car parts and included 52 scenery parts. The corrected exporter rebuilds scenery from the remaining source records instead of subtracting a voxel mask, which could leave fragments behind. Sources that do not match the verified assembly need named submodel metadata; they are not assigned the old approximate crop. Two screen controls use measured source coordinates.
+
+## BrickWand placement
+
+Activate the exported pack and find its named **BrickWand** in Creative inventory. The short function `/function b76252` grants the Batcave wand; `/function b8855` grants the plane wand. Other models have a short generated alias shown after downloading. The old `craftmatic/<model>` function alias also grants the wand. Functions no longer place immediately.
+
+Select the wand in your hotbar to open its menu. Switch to another slot and back to reopen it. Pin the model's bottom corner, enter XYZ coordinates, and rotate in 90-degree steps. **View preview in world** closes the menu and shows an outline, sampled model points, and a direction marker; it does not place blocks. Reopen the wand for **Place**, which separately confirms replacement of blocks in the target area. Structures and interactive entities use the same rotated coordinate frame. Each area is loaded before placement so large exports can extend beyond the player's currently loaded chunks.
+
+The wand can cancel a running placement and undo the last placement during the current play session. Undo restores saved blocks and removes the entities spawned by that placement. Importing or granting the wand does not modify the world.
 
 ## Delivery protocol
 
@@ -43,9 +51,11 @@ The starter source is checked in under `bedrock/hotschem`. Rebuild its download 
 
 Prior Pixel testing demonstrated an encrypted WebSocket handshake, a Planner script event, and a browser-triggered command while the same phone's Minecraft process remained loaded. That experiment used an ADB tunnel. Hosted endpoint and complete-transfer results must be recorded separately; a working browser UI alone does not prove Minecraft compatibility.
 
-The deployed Cloudflare relay passes a complete protocol-simulator transfer, including its crypto, bounded command window, and receiver-commit check. Actual retail Pixel hosting remains under investigation: `wss://` has not reached the relay and `ws://` attempts have disconnected during setup. The production pairing command remains `wss://`. The UI does not report a successful delivery for these failures.
+The Cloudflare relay passes a complete protocol-simulator transfer, including its crypto, bounded command window, and receiver-commit check. A controlled retail Pixel experiment identified the immediate-close bug: the identical encrypted Node fixture succeeds with `Connection: Upgrade` and fails with `Connection: upgrade`. The relay now explicitly requests the capitalization Minecraft accepts. Local workerd preserves it and passes encrypted transfer; whether the deployed Cloudflare edge preserves it still requires verification. The pairing command uses the shorter `/connect` alias and remains `wss://`. Disconnects and failed handshakes now fail promptly, including when the browser arrives after the failure, rather than leaving delivery waiting indefinitely.
 
 Playwright MCP on port 8989 verified real browser downloads of Java schematics, native Bedrock packs, and playable add-ons. Default-resolution 76252 produced a 585,511-byte add-on containing 12 structure tiles, 8,251 colored Batmobile cuboids, and two screens. Actual 8855 Prop Plane export also produced its flight behavior and resources. In-game control validation is separate from these archive checks.
+
+On September 10, 2026, a fresh local Playwright run loaded the catalog's default `MecabricksLDR/76252.ldr` source and downloaded [`output/current-qa/76252-Batcave-release.mcpack`](../output/current-qa/76252-Batcave-release.mcpack) (350,783 bytes) and [`output/current-qa/76252-Batcave-release.mcaddon`](../output/current-qa/76252-Batcave-release.mcaddon) (540,353 bytes). Both use compact, import-safe manifest versions whose components stay at or below 32,767. The playable archive identifies the verified complete 399-placement Batmobile assembly, contains one Batmobile and two screens, and preserves 6,823 colored cuboids across seven meshes of at most 1,024 cubes. Its vehicle movement is reduced to `1.05` with a `1.35` maximum and rejects all damage. Executing the extracted serialized Brick Wand runtimes against mocked Bedrock APIs verified exact-item hotbar activation without repeated menus while held, dimension-bound pinning, a rotated particle preview, all 18 rotated structure loads, rotated actor placement, cancellation after asynchronous loading without spawning an actor, and complete undo. The source load warned that `11402p1` through `11402p9` were unavailable and that the deployed source hash did not match the catalog metadata; those missing placements occur after the Batmobile's first 399 placements.
 
 On September 10, 2026, production deployment and Playwright checks passed on `craftmatic.click`. Testing the browser-before-Minecraft connection order exposed a pairing race; the relay now waits for the encrypted game handshake before sending commands, and the integration simulator covers this order. In a dedicated retail Pixel test world, the Batmobile mounted successfully and traveled approximately 94 blocks horizontally during a three-second forward input on a clear platform. A computer entity also opened its control menu through native touch.
 
