@@ -5067,3 +5067,31 @@ price of removing the last attended step.
 The derivation is a one-line rule and the fix is a measurement, not a guess: a
 wider prescan set can only add camera candidates, so the probe is to derive the
 next **three** scope pages instead of two and check both fixtures. Queued.
+
+### Round ten's trajectory
+
+| round | 40377 | 41624 | 41601 | what the round bought |
+| ---: | ---: | ---: | ---: | --- |
+| 6 | 53/90 | 5/109 | - | the population, three channels not adopted |
+| 7 | 54/90 | 6/109 | - | affordable closure, deterministic ties, retention is the smallest lever |
+| 8 | 51/90 | 6/109 | 3/108 | the two-placement move measured negative; 45 of 54 shown inherited; the objective wrong on 78.6% of reachable losses |
+| 9 | 53/90 | 6/109 | 6/108 | backtracking recovers two of round eight's three; a 6-of-7 opening doubles 41601 and the drive still contributes +0; the construction's own symmetry selects that opening with no reference; capacity refuted; mould classes are one pool |
+| **10** | 54/90 (attended) | **2/109 autonomous** (6 attended) | **6/108 autonomous** | **the on-ramp closed: the PDF is the only input, the page scope is derived, two association classes repaired, a CAD-size gate added, median 95% of the printed inventory in scope on six fixtures. Multi-view refuted. Combining round nine's two 41601 gains yields exactly the larger of them.** |
+
+The round's most useful numbers are **+0** and **95%**. The pipeline can now
+find, identify, count and page-assign essentially a whole booklet's pieces
+without a human, and placing them correctly remains where it was: the opening
+supplies every correct pose and the twenty pages after it supply none.
+
+Three of the round's own repairs land on the same lesson from different sides:
+
+| repair | what it fixed | what it cost |
+| --- | --- | --- |
+| association (grouping + exclusivity + panels) | 3 anchors, 8 crops, 0 broken over 1,104 | none measured |
+| derived page scope | the last attended step; 83 -> 103 pieces on 41601 | a global slot solver then reshuffled four identities |
+| CAD-size gate | that reshuffle, including the opening page | 5 pieces of scope on 41601, -1 accounted on 41604 |
+| derived prescan pages | (nothing) | **41624's opening, 3 of 3 -> 2 of 3, and the chain 6 -> 2** |
+
+Automating a human choice is not free, and the last row is the price. It is also
+the clearest confirmation of the program's central finding: the only thing that
+has ever moved a from-scratch number is which body the chain starts from.
