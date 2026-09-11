@@ -16,7 +16,27 @@ describe('Batcave movable assembly', () => {
     expect(components[0]!.bricks).toEqual(bricks.slice(0, 399));
     expect(components[0]!.bounds!.min[0]).toBe(-48);
     expect(components[0]!.bounds!.max[0]).toBe(540);
+    expect(components[0]!.longitudinalAxis).toBe('x');
+    expect(components[0]!.forwardDirection).toBe('+x');
+    expect(components[0]!.seatAnchor).toEqual({ x: .456, y: .42, z: .5 });
     expect(components[0]!.bricks).not.toContain(bricks[399]);
+  });
+
+  it('recognizes the 10300 DeLorean time machine as a whole-model car', () => {
+    const brick = fixture()[0]!;
+    const result = discoverPlayableComponents([brick], '10300 Back to the Future Time Machine');
+    expect(result.components).toHaveLength(1);
+    expect(result.components[0]!.kind).toBe('car');
+    expect(result.components[0]!.bricks).toEqual([brick]);
+  });
+
+  it('keeps the entire standalone Technic car instead of cropping around wheels', () => {
+    const bricks = fixture().slice(0, 399);
+    for (const label of ['Ferrari Daytona SP3', 'McLaren P1', 'Porsche 911 GT3 RS']) {
+      const result = discoverPlayableComponents(bricks, label);
+      expect(result.components).toHaveLength(1);
+      expect(result.components[0]!.bricks).toEqual(bricks);
+    }
   });
 
   it('does not apply a known-source crop to a different source with the same set number', () => {

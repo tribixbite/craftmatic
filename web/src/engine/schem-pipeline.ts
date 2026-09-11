@@ -68,6 +68,10 @@ export interface SchemWorkerInput {
   profile: string;
   /** Light up enclosed interiors after voxelization. */
   lightFill: boolean;
+  lightCoverage?: 'sealed' | 'covered';
+  lightStyle?: 'profile' | 'lantern' | 'sea_lantern';
+  lightSpacing?: number;
+  vehicleFacing?: 'auto' | '+x' | '-x' | '+z' | '-z';
   /**
    * Refine solid cells into partial Minecraft blocks (slabs, stairs) where the
    * geometry is genuinely partial — engine/block-shapes.ts. Bricks only: a grid
@@ -213,13 +217,17 @@ export async function runSchemPipeline(
 
   let lightFill: LightFillResult | undefined;
   if (input.lightFill) {
-    onProgress('lighting enclosed interiors');
+    onProgress('lighting interiors');
     lightFill = addInteriorLights(grid, {
-      lightBlock: profile.lightBlock,
+      coverage: input.lightCoverage,
+      spacing: input.lightSpacing,
+      lightBlock: input.lightStyle === 'sea_lantern' ? 'minecraft:sea_lantern' : profile.lightBlock,
       // A lantern is the partial-block form of a light, so it is only reached
       // when the shape passes are on — with them off the light fill behaves
       // exactly as it did before slice 6.
-      ...(input.shapes === true && profile.lightElement ? { floorLightBlock: profile.lightElement } : {}),
+      ...(input.lightStyle === 'lantern' ? { floorLightBlock: 'minecraft:lantern[hanging=false]' }
+        : input.lightStyle === 'sea_lantern' ? { floorLightBlock: 'minecraft:sea_lantern' }
+        : input.shapes === true && profile.lightElement ? { floorLightBlock: profile.lightElement } : {}),
     });
   }
 
@@ -261,7 +269,7 @@ export async function runSchemPipeline(
         const a = sourceOrigin, b = part.gridOrigin;
         const dx = (b.x - a.x) * a.scale, dy = (b.y - a.y) * a.scale, dz = (b.z - a.z) * a.scale;
         const ratio = a.scale / b.scale;
-        components.push({ ...component, grid: part.grid, x: dx + part.grid.width * ratio / 2, y: dy, z: dz + part.grid.length * ratio / 2 });
+        components.push({ ...component, grid: part.grid, sceneScale: ratio, x: dx + part.grid.width * ratio / 2, y: dy, z: dz + part.grid.length * ratio / 2 });
       }
       if (movable.size > 0 && movable.size < source.bricks.length) {
         // Rebuild scenery from its own source assembly. Subtracting a separate
@@ -281,7 +289,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, components: components.length ? components : undefined, screens, onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, components: components.length ? components : undefined, screens, onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 

@@ -21,7 +21,7 @@ describe('playable Bedrock add-on',()=>{
   });
 
   it('pairs behavior and resource packs and emits native fast car controls',async()=>{
-    const result=await buildPlayableAddon(new BlockGrid(1,1,1),{stem:'Batmobile',components:[{id:'batmobile',label:'Batmobile',kind:'car',grid:model(),x:12,y:2,z:7,provenance:'test source'}]});
+    const result=await buildPlayableAddon(new BlockGrid(1,1,1),{stem:'Batmobile',components:[{id:'batmobile',label:'Batmobile',kind:'car',grid:model(),x:12,y:2,z:7,forwardDirection:'+x',seatAnchor:{x:.456,y:.42,z:.5},provenance:'test source'}]});
     const buffer=ab(result.bytes), entries=listZipEntries(buffer);
     expect(entries).toContain('Craftmatic_batmobile_BP/manifest.json');
     expect(entries).toContain('Craftmatic_batmobile_RP/manifest.json');
@@ -36,12 +36,68 @@ describe('playable Bedrock add-on',()=>{
     expect(components['minecraft:movement'].value).toBeLessThan(1.4);
     expect(components['minecraft:damage_sensor'].triggers).toEqual([{ cause: 'all', deals_damage: 'no' }]);
     expect(components['minecraft:fire_immune']).toEqual({});
-    expect(components['minecraft:rideable'].seats.position[1]).toBeGreaterThan(model().height);
+    expect(components['minecraft:rideable'].seats.position[1]).toBeGreaterThan(0);
+    expect(components['minecraft:rideable'].seats.position[1]).toBeLessThan(model().height);
+    expect(components['minecraft:rideable'].seats.position[0]).toBe(0);
+    expect(components['minecraft:rideable'].seats.position[1]).toBeCloseTo(1.26);
+    expect(components['minecraft:rideable'].seats.position[2]).toBeCloseTo(.264);
+    expect(components['minecraft:rideable'].seats.lock_rider_rotation).toBe(0);
     const fn=new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/functions/craftmatic/batmobile.mcfunction'));
     expect(fn).toContain('give @s craftmatic:batmobile_brick_wand');
     expect(fn).not.toContain('summon ');
     const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/placement.js'));
     expect(placement).toContain('"typeId":"craftmatic:batmobile_batmobile","label":"Batmobile","x":12,"y":2,"z":7');
+    expect(placement).toContain('"yaw":-90');
+  });
+
+  it('keeps component scale aligned to the scene and turns an X-long car onto entity forward', async () => {
+    const car = new BlockGrid(24, 6, 8);
+    car.fill(0, 0, 0, 23, 2, 7, 'minecraft:black_concrete');
+    const result = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: 'Technic Racer', components: [{
+      id: 'racer', label: 'Technic Racer', kind: 'car', grid: car, sceneScale: .5,
+      longitudinalAxis: 'x', x: 30, y: 2, z: 20, provenance: 'test source',
+    }] });
+    const buffer = ab(result.bytes);
+    const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_technic_racer_BP/entities/technic_racer_racer.json')))['minecraft:entity'].components;
+    expect(entity['minecraft:rideable'].seats.position[1]).toBeCloseTo(1.35);
+    expect(entity['minecraft:rideable'].seats.position[1]).toBeLessThan(car.height * .5);
+    expect(entity['minecraft:collision_box'].width).toBeCloseTo(3.4);
+    const meshes = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_technic_racer_RP/models/entity/technic_racer_racer.geo.json')))['minecraft:geometry'];
+    const cubes = meshes.flatMap((mesh: any) => mesh.bones[0].cubes);
+    const xSpan = Math.max(...cubes.map((cube: any) => cube.origin[0] + cube.size[0])) - Math.min(...cubes.map((cube: any) => cube.origin[0]));
+    const zSpan = Math.max(...cubes.map((cube: any) => cube.origin[2] + cube.size[2])) - Math.min(...cubes.map((cube: any) => cube.origin[2]));
+    expect(xSpan / 16).toBe(4);
+    expect(zSpan / 16).toBe(12);
+    const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_technic_racer_BP/scripts/placement.js'));
+    expect(placement).toContain('"x":30,"y":2,"z":20,"yaw":-90');
+    expect(result.warnings).toContain('Technic Racer: front/rear direction was not identifiable from source geometry; select an explicit vehicle facing if it drives backward.');
+  });
+
+  it('honors an explicit negative-X front without changing the placed world footprint', async () => {
+    const car = new BlockGrid(10, 3, 4);
+    car.fill(0, 0, 0, 9, 0, 3, 'minecraft:black_concrete');
+    const result = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: 'Racer', vehicleFacing: '-x', components: [{
+      id: 'car', label: 'Racer', kind: 'car', grid: car, longitudinalAxis: 'x', x: 2.25, y: 1, z: 3.5, provenance: 'test',
+    }] });
+    const buffer = ab(result.bytes);
+    const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_racer_BP/scripts/placement.js'));
+    expect(placement).toContain('"x":2.25,"y":1,"z":3.5,"yaw":90');
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('uses proper rotations rather than mirroring asymmetric cars', async () => {
+    const car = new BlockGrid(4, 2, 6);
+    car.set(0, 0, 1, 'minecraft:red_concrete');
+    car.set(3, 0, 4, 'minecraft:blue_concrete');
+    const result = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: 'Asymmetric', vehicleFacing: '+z', components: [{
+      id: 'car', label: 'Asymmetric', kind: 'car', grid: car, longitudinalAxis: 'z', provenance: 'test',
+    }] });
+    const buffer = ab(result.bytes);
+    const meshes = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_asymmetric_RP/models/entity/asymmetric_car.geo.json')))['minecraft:geometry'];
+    const cubes = meshes.flatMap((mesh: any) => mesh.bones[0].cubes);
+    expect(cubes.map((cube: any) => cube.origin.slice(0, 3))).toEqual([[16, 0, 16], [-32, 0, -32]]);
+    const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_asymmetric_BP/scripts/placement.js'));
+    expect(placement).toContain('"yaw":0');
   });
 
   it('preserves a complex model across bounded independently rendered meshes', async () => {

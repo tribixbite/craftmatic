@@ -22,6 +22,7 @@ export default defineConfig({
       '@craft': path.resolve(__dirname, 'src'),
       '@ui': path.resolve(__dirname, 'web/src/ui'),
       '@engine': path.resolve(__dirname, 'web/src/engine'),
+      '@viewer': path.resolve(__dirname, 'web/src/viewer'),
     },
   },
   test: {

@@ -46,6 +46,7 @@ describe('planResolution — auto', () => {
     // already solid, so the worst case is the previous all-cubes output.
     expect(DEFAULT_SCHEM_SETTINGS).toEqual({
       resolution: 'auto', profile: 'default', lightFill: false, shapes: true,
+      lightCoverage: 'covered', lightStyle: 'profile', lightSpacing: 6, vehicleFacing: 'auto',
     });
   });
 

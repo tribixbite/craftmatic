@@ -39,9 +39,18 @@ describe('Bedrock Brick Wand placement pack', () => {
     expect(assets.script).toContain("structure load ${t.identifier}");
     expect(assets.script).toContain('entity.setRotation');
     expect(assets.script).toContain('Undo last placement');
+    expect(assets.script).toContain('Lighting / night vision');
+    expect(assets.script).toContain('p.addEffect');
+    expect(assets.script).toContain('minecraft:night_vision');
+    expect(assets.script).toContain('showParticles: false');
     expect(assets.script).toContain("defaultValue: String(a.x)");
     expect(assets.script).toContain('tickingarea add ${fx} ${y} ${fz} ${tx} ${y} ${tz} ${areaId} true');
     expect(assets.script).toContain('dimension.getBlock(q)');
+    expect(assets.script).toContain('PINNED PREVIEW');
+    expect(assets.script).toContain("minecraft:redstone_ore_dust_particle");
+    expect(assets.script).not.toContain('getViewDirection');
+    expect(assets.script).not.toContain('basic_flame_particle');
+    expect(assets.script).not.toContain('miniature');
     expect(assets.script).toContain('previewPoints":[{"x":0');
     expect(assets.script).not.toContain('"x":120,"y":1,"z":2');
     expect(() => new Function(assets.script.replace(/^import .*;$/gm, ''))).not.toThrow();
