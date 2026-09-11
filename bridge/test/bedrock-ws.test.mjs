@@ -94,6 +94,16 @@ function openClient(port) {
   });
 }
 
+async function waitUntil(predicate, timeoutMs = 1_000) {
+  // A client close frame can arrive before the server processes its own close event.
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  return true;
+}
+
 test('successful raw handshake emits exact Connection: Upgrade capitalization', async (t) => {
   const backend = await createBackend();
   const { bridge, port } = await createBridge(backend.origin);
@@ -173,7 +183,7 @@ test('backend connection failure closes and removes the front session', async (t
   const client = await openClient(port);
   const [code] = await once(client, 'close');
   assert.equal(code, 1011);
-  assert.equal(bridge.activeConnections, 0);
+  assert.equal(await waitUntil(() => bridge.activeConnections === 0), true);
 });
 
 test('expires a session at its bounded lifetime and cleans up both sockets', async (t) => {
@@ -189,7 +199,7 @@ test('expires a session at its bounded lifetime and cleans up both sockets', asy
   const [code] = await once(client, 'close');
   assert.equal(code, 1000);
   await backendClosed;
-  assert.equal(bridge.activeConnections, 0);
+  assert.equal(await waitUntil(() => bridge.activeConnections === 0), true);
 });
 
 test('rejects upgrades above the simultaneous session limit', async (t) => {
