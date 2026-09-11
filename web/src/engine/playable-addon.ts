@@ -215,7 +215,7 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
     }
     return { value: { format_version: '1.12.0', 'minecraft:geometry': meshes }, palette, meshIds };
 }
-function clientEntity(id: string, meshIds: string[]): unknown { return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_alphatest' }, textures: { default: `textures/entity/${id}` }, geometry: Object.fromEntries(meshIds.map((mesh, i) => [`mesh_${i}`, mesh])), render_controllers: meshIds.map((_, i) => `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`), spawn_egg: { base_color: '#151515', overlay_color: '#f5c542' } } } }; }
+function clientEntity(id: string, meshIds: string[]): unknown { return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_alphablend' }, textures: { default: `textures/entity/${id}` }, geometry: Object.fromEntries(meshIds.map((mesh, i) => [`mesh_${i}`, mesh])), render_controllers: meshIds.map((_, i) => `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`), spawn_egg: { base_color: '#151515', overlay_color: '#f5c542' } } } }; }
 function meshControllers(id: string, meshIds: string[]): unknown {
     return { format_version: '1.8.0', render_controllers: Object.fromEntries(meshIds.map((_, i) => [
         `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`,
@@ -252,6 +252,10 @@ function blockRgb(state: string): [
     number,
     number
 ] { return getBlockColor(state) ?? [145, 145, 140]; }
+function blockAlpha(state: string): number {
+    const id = state.split('[', 1)[0]!;
+    return id === 'minecraft:glass' || id === 'minecraft:glass_pane' || /_stained_glass(?:_pane)?$/.test(id) ? 96 : 255;
+}
 const PNG_CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) {
     let c = n;
     for (let k = 0; k < 8; k++)
@@ -270,7 +274,7 @@ function palettePng(palette: string[]): Uint8Array { const w = 16, h = Math.max(
     raw[y * (1 + w * 4)] = 0;
     for (let x = 0; x < w; x++) {
         const [r, g, b] = blockRgb(palette[y * 16 + x] ?? 'gray'), o = y * (1 + w * 4) + 1 + x * 4;
-        raw.set([r, g, b, 255], o);
+        raw.set([r, g, b, blockAlpha(palette[y * 16 + x] ?? 'gray')], o);
     }
 } let a = 1, b = 0; for (const v of raw) {
     a = (a + v) % 65521;

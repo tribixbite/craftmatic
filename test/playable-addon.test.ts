@@ -1,10 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
+import { inflateSync } from 'node:zlib';
 import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const model = () => { const g=new BlockGrid(6,3,4);g.fill(0,0,0,5,0,3,'minecraft:black_concrete');g.fill(1,1,1,4,1,2,'minecraft:red_concrete');return g; };
+const pngAlphas = (bytes: ArrayBuffer | Uint8Array): number[] => {
+  const png = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const idat: Uint8Array[] = [];
+  for (let p = 8; p < png.length;) {
+    const n = (png[p]! << 24) | (png[p + 1]! << 16) | (png[p + 2]! << 8) | png[p + 3]!;
+    const type = new TextDecoder().decode(png.subarray(p + 4, p + 8));
+    if (type === 'IDAT') idat.push(png.slice(p + 8, p + 8 + n));
+    p += 12 + n;
+  }
+  const compressed = new Uint8Array(idat.reduce((n, part) => n + part.length, 0));
+  let offset = 0; for (const part of idat) { compressed.set(part, offset); offset += part.length; }
+  const raw = inflateSync(compressed);
+  expect(raw[0]).toBe(0); // PNG filter type for the first 16-pixel row.
+  return Array.from({ length: 16 }, (_, x) => raw[1 + x * 4 + 3]!);
+};
 
 describe('playable Bedrock add-on',()=>{
   it('moves the selected whole model without leaving a stationary duplicate', async () => {
@@ -48,6 +64,25 @@ describe('playable Bedrock add-on',()=>{
     const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/placement.js'));
     expect(placement).toContain('"typeId":"craftmatic:batmobile_batmobile","label":"Batmobile","x":12,"y":2,"z":7');
     expect(placement).toContain('"yaw":-90');
+  });
+
+  it('renders vehicle glass translucent while solids and computer screens stay opaque', async () => {
+    const vehicle = new BlockGrid(3, 1, 1);
+    vehicle.set(0, 0, 0, 'minecraft:glass');
+    vehicle.set(1, 0, 0, 'minecraft:light_blue_stained_glass');
+    vehicle.set(2, 0, 0, 'minecraft:stone');
+    const result = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: 'Glass Car', components: [{
+      id: 'car', label: 'Glass Car', kind: 'car', grid: vehicle, provenance: 'test source',
+    }], screens: [{ id: 'screen', label: 'Computer', x: 0, y: 0, z: 0 }] });
+    const buffer = ab(result.bytes);
+    const client = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_glass_car_RP/entity/glass_car_car.entity.json')))['minecraft:client_entity'].description;
+    expect(client.materials.default).toBe('entity_alphablend');
+    const vehicleAlpha = pngAlphas(await extractFile(buffer, 'Craftmatic_glass_car_RP/textures/entity/glass_car_car.png'));
+    expect(vehicleAlpha[0]).toBe(96);
+    expect(vehicleAlpha[1]).toBe(96);
+    expect(vehicleAlpha[2]).toBe(255);
+    const screenAlpha = pngAlphas(await extractFile(buffer, 'Craftmatic_glass_car_RP/textures/entity/craftmatic_screen.png'));
+    expect(screenAlpha[0]).toBe(255);
   });
 
   it('keeps component scale aligned to the scene and turns an X-long car onto entity forward', async () => {
