@@ -51,13 +51,14 @@ Native `/wsserver` or `/connect` permission errors occur before networking: chea
 - Successful deployment: `36ec419b-311c-4904-9df5-507748e52188`; managed domain ID `1301236a-54bc-4fed-8631-80a2233353ac`.
 - Managed public TLS, private HTTP to Node, explicit `TRUST_PROXY_TLS_TERMINATION=1`. No custom certificate or TCP proxy was needed: actual public ingress preserved `Connection: Upgrade`.
 - Candidate public TLS inspection passed and a three-chunk encrypted transfer to the production Cloudflare backend completed successfully. Bridge tests: 7/7; live-delivery tests: 15/15.
-- `wrangler.toml` declares `MINECRAFT_WS_ORIGIN` with this endpoint. The Pages/Worker deployment workflow activates it on main; browser authentication and uploads remain on Cloudflare.
+- `wrangler.toml` declares `MINECRAFT_WS_ORIGIN` with this endpoint. Release `e679386` deployed successfully; CI run `34588658110` and deployment run `34588658103` both passed. Production `/connect` advertises Railway for Minecraft and Cloudflare for the browser. Raw TLS inspection and encrypted transfer also passed **without** a game-origin override, testing the actual advertised route.
+- Production Playwright MCP on port 8989 opened the actual **Send to Minecraft Planner** dialog: session creation on `https://craftmatic.click/connect` returned 201, the displayed `/connect` command used Railway WSS, and the dialog waited for the world host. The unused session was cancelled cleanly. This is browser verification, not a native Minecraft connection.
 
 Railway CLI 3.19.1 could not upload directly from this worktree (`prefix not found`). Use a clean temporary staging directory containing only bridge deployment files, link this existing project/service, then upload that directory. Do not upload the entire repo, `node_modules`, credentials, or output diagnostics. Railway deployments are separate from the GitHub Pages/Worker workflow; future bridge code changes need a Railway redeploy as well as a git push.
 
 ## Remaining verification and next steps
 
-1. Verify the advertised production route with both scripts **without** `CRAFTMATIC_GAME_WS_ORIGIN`, and check the actual browser pairing command after the Worker deployment.
+1. For future redeploys, repeat both scripts **without** `CRAFTMATIC_GAME_WS_ORIGIN` and inspect the actual browser pairing command. The production API, raw TLS handshake, encrypted transfer and actual browser pairing-dialog checks passed for `e679386`.
 2. Reconnect the Pixel or obtain its current ADB address, then test a fresh `/connect` command in the existing enabled HotSchem QA world. The last address `192.168.0.216:5555` was unreachable and `adb devices` was empty. No device/world changes were made. Distinguish native pairing, receiver receipt, and actual placement; the simulator only establishes protocol delivery.
 3. Verify DeLorean acceleration, cockpit/rider behavior and one-shot teleport natively using the assembled source. The runtime simulation is not proof of Bedrock driving feel.
 4. Coordinate the default 10300 reconstruction fallback issue with the other agent; do not silently substitute or edit their pipeline.
