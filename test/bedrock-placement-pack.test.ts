@@ -40,6 +40,7 @@ describe('Bedrock Brick Wand placement pack', () => {
     expect(assets.script).toContain('entity.setRotation');
     expect(assets.script).toContain('Undo last placement');
     expect(assets.script).toContain('Lighting / night vision');
+    expect(assets.script).not.toContain('import { showTimeMachineControls }');
     expect(assets.script).toContain('p.addEffect');
     expect(assets.script).toContain('minecraft:night_vision');
     expect(assets.script).toContain('showParticles: false');
