@@ -24,7 +24,10 @@ browser.send(JSON.stringify({ type: 'import', encoded, checksum: checksum(encode
 const completedPromise = waitFor(browser, m => m.type === 'complete' || m.type === 'error', 15000);
 await new Promise(resolve => setTimeout(resolve, 100));
 
-const minecraft = new WebSocket(localWs(session.minecraftUrl), 'com.microsoft.minecraft.wsencrypt');
+// A local diagnostic bridge can be selected without changing production pairing URLs.
+const gameOrigin = process.env.CRAFTMATIC_GAME_WS_ORIGIN;
+const minecraftUrl = gameOrigin ? new URL(new URL(session.minecraftUrl).pathname, gameOrigin).toString() : session.minecraftUrl;
+const minecraft = new WebSocket(minecraftUrl, 'com.microsoft.minecraft.wsencrypt');
 let encrypt = null;
 let decrypt = null;
 minecraft.on('message', (wire, binary) => {

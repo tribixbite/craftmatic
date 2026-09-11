@@ -79,3 +79,15 @@ Vehicles no longer shrink independently to eight blocks. Component voxel scale i
 A fresh production 10300 add-on imported successfully on the retail Pixel during this investigation (`output/current-qa/10300-import-result.png`). Its behavior/resource header, module, and cross-pack dependency versions were matching numeric arrays. The reported wrong-type error could not be reproduced with that fresh download; no speculative manifest-version change was made.
 
 The updated local Batcave export contains a 61 x 37 x 150-block Batmobile mesh (6,823 cuboids across seven meshes) inside a 327 x 186 x 161-block scene, replacing the old independent eight-block cap. Covered dense lighting added 5,210 lamps. The actual browser archive is `output/current-qa/76252-Batcave-vehicle-lighting-final.mcaddon`; its 18 scenery tiles and vehicle were inspected separately. Model 10300 at one block per stud exported a complete 45 x 18 x 36-block car. Its finer default resolution exceeded the 16,384-cuboid budget; that error now propagates without a second inline export. Choose a coarser resolution when prompted.
+
+
+## Direct TLS compatibility bridge
+
+The Worker already requests `Connection: Upgrade`, but the public Cloudflare edge still writes `Connection: upgrade`. A direct Node TLS bridge is available in `bridge/`; it preserves the case-sensitive handshake required by the tested retail client and forwards unchanged text/binary frames to the existing Cloudflare session. The game encryption exchange still terminates at the original session handler. The bridge accepts only game session paths; browser authentication and payload upload stay on Cloudflare.
+
+Once a public bridge has a trusted certificate and its raw handshake is verified, set the Worker variable `MINECRAFT_WS_ORIGIN` to its bare `wss://` origin. This changes only the generated Minecraft URL. Plaintext, credentials, paths and query strings are rejected. No bridge origin is configured by default, so merely deploying the code does not claim to resolve public pairing.
+
+An alternative narrow experiment is prepared in `bridge/cloudflare-header-rule.json`: append a response-header Transform Rule for status 101 under `/connect/`, setting `Connection` to `Upgrade`. Whether Cloudflare applies that phase to upgraded responses remains unproven. The current API token lacks Rulesets permissions, and the browser dashboard is not authenticated; the rule has not been applied. Append this individual rule rather than replacing an existing ruleset, inspect the actual TLS response, and remove only this rule if it does not help.
+
+
+The loopback bridge completed the existing three-chunk P-384/AES-256-CFB8 simulator against the production Cloudflare backend. Its raw handshake test verifies exact `Connection: Upgrade` capitalization; six bridge tests cover opcode preservation, strict routes/protocol, backend failure, TTL cleanup and the 64-connection admission limit. This proves the bridge mechanism, not deployment or a native-device success at a new public hostname. The standalone Docker build uses a locked `ws` dependency and direct TLS certificate/key files.
