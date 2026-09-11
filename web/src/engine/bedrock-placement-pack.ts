@@ -167,8 +167,12 @@ function placementRuntime(config: any) {
     return d;
   };
   const outline = (d: any) => {
-    const points: any[] = [], along = (axis: string, fixed: any, end: number) => {
-      for (let i = 0; i < 6; i++) points.push({ ...fixed, [axis]: end * i / 5 });
+    const points: any[] = [], seen = new Set(), along = (axis: string, fixed: any, end: number) => {
+      const count = Math.max(2, Math.min(12, Math.ceil(end / 8) + 1));
+      for (let i = 0; i < count; i++) {
+        const point = { ...fixed, [axis]: end * i / (count - 1) }, key = `${point.x || 0}:${point.y || 0}:${point.z || 0}`;
+        if (!seen.has(key)) { seen.add(key); points.push(point); }
+      }
     };
     for (const y of [0, d.height]) for (const z of [0, d.length]) along('x', { y, z }, d.width);
     for (const x of [0, d.width]) for (const z of [0, d.length]) along('y', { x, z }, d.height);
@@ -178,27 +182,27 @@ function placementRuntime(config: any) {
   const draw = (p: any) => {
     const s = state(p); if (!previews.has(p.id) || !s.anchor || active) return;
     if (s.dimension !== p.dimension.id) { p.onScreenDisplay.setActionBar(`PREVIEW PAUSED · origin is in ${s.dimension} · re-pin here`); return; }
-    const distance = Math.hypot(s.anchor.x - p.location.x, s.anchor.z - p.location.z);
-    p.onScreenDisplay.setActionBar(`PREVIEW · ${config.label} · ${s.rotation}° · ${Math.round(distance)}m away`);
-    const d = size(s.rotation), particles = [];
-    if (distance <= 64) for (const q of outline(d)) particles.push({ x: s.anchor.x + q.x, y: s.anchor.y + q.y, z: s.anchor.z + q.z });
-    let view: any; try { view = p.getViewDirection(); } catch {}
-    const rawX = Number(view?.x) || 0, rawZ = Number(view?.z) || 0, magnitude = Math.hypot(rawX, rawZ) || 1;
-    const vx = rawX / magnitude, vz = rawX || rawZ ? rawZ / magnitude : 1;
-    const scale = Math.min(1, 8 / Math.max(d.width, d.height, d.length));
-    const miniature = { x: p.location.x + vx * 10 - d.width * scale / 2, y: Math.max(p.location.y + .5, p.location.y + 1.6 - d.height * scale / 2), z: p.location.z + vz * 10 - d.length * scale / 2 };
-    const mini = (q: any) => ({ x: miniature.x + q.x * scale, y: miniature.y + q.y * scale, z: miniature.z + q.z * scale });
-    for (const q of outline(d)) particles.push(mini(q));
-    for (const sample of config.previewPoints) particles.push(mini(pointAt(sample, s.rotation)));
+    const d = size(s.rotation), particles: any[] = [];
+    const worldPoint = (q: any) => ({ x: s.anchor.x + q.x, y: s.anchor.y + q.y, z: s.anchor.z + q.z });
+    const mark = (effect: string, q: any) => particles.push({ effect, point: worldPoint(q) });
+    p.onScreenDisplay.setActionBar(`PINNED PREVIEW · ${config.label} · ${d.width}×${d.height}×${d.length} · ${s.rotation}° · §cX §aY §9Z §6MODEL -Z`);
+    for (const q of outline(d)) mark('minecraft:endrod', q);
+    const axisLength = 6;
+    for (let i = 0; i <= axisLength; i++) {
+      mark('minecraft:redstone_ore_dust_particle', { x: i, y: 0, z: 0 });
+      mark('minecraft:villager_happy', { x: 0, y: i, z: 0 });
+      mark('minecraft:water_splash_particle_manual', { x: 0, y: 0, z: i });
+    }
     const front = [
-      { x: config.width / 2, y: config.height + .5 / scale, z: 0 },
-      { x: config.width / 2, y: config.height + .5 / scale, z: -.5 / scale },
-      { x: config.width / 2, y: config.height + .5 / scale, z: -1 / scale },
-      { x: config.width / 2 - .5 / scale, y: config.height + .5 / scale, z: -.5 / scale },
-      { x: config.width / 2 + .5 / scale, y: config.height + .5 / scale, z: -.5 / scale },
+      { x: config.width / 2, y: 1, z: 0 },
+      { x: config.width / 2, y: 1, z: -1 },
+      { x: config.width / 2, y: 1, z: -2 },
+      { x: config.width / 2 - 1, y: 1, z: -1 },
+      { x: config.width / 2 + 1, y: 1, z: -1 },
     ];
-    for (const q of front) particles.push(mini(pointAt(q, s.rotation)));
-    for (const q of particles.slice(0, 360)) try { p.dimension.spawnParticle('minecraft:basic_flame_particle', q); } catch {}
+    for (const q of front) mark('minecraft:totem_particle', pointAt(q, s.rotation));
+    for (const sample of config.previewPoints) mark('minecraft:villager_happy', pointAt(sample, s.rotation));
+    for (const marker of particles.slice(0, 320)) try { p.dimension.spawnParticle(marker.effect, marker.point); } catch {}
   };
   system.runInterval(() => { for (const p of world.getAllPlayers()) draw(p); }, 12);
   system.runInterval(() => {
@@ -226,6 +230,14 @@ function placementRuntime(config: any) {
     const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(s)}\n\nBlocks in this area will be replaced.`).button('Place now').button('Back'));
     if (!r.canceled && r.selection === 0) return place(p);
     return menu(p);
+  }
+  async function lighting(p: any): Promise<any> {
+    const r = await show(p, new ActionFormData().title(`${config.label} · Lighting`).body('Night vision changes only your view. It does not place lights or change the build.').button('Enable night vision · 10 min').button('Disable night vision').button('Back'));
+    if (r.canceled || r.selection === 2) return menu(p);
+    try {
+      if (r.selection === 0) { p.addEffect('minecraft:night_vision', 12000, { showParticles: false }); return tell(p, 'Night vision enabled for 10 minutes.'); }
+      if (r.selection === 1) { p.removeEffect('minecraft:night_vision'); return tell(p, 'Night vision disabled.'); }
+    } catch (e: any) { return tell(p, `Could not change night vision: ${e.message || e}`); }
   }
   async function place(p: any) {
     if (active) return tell(p, 'Another placement is running.');
@@ -278,18 +290,19 @@ function placementRuntime(config: any) {
   }
   async function menu(p: any): Promise<any> {
     const s = state(p), running = active?.player === p.id;
-    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(s)}\n\nPreview first: a miniature appears in front of you; the full-size boundary marks placement. Place is always a separate confirmation.`);
+    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(s)}\n\nPreview first: a full-size outline and model markers stay fixed at the pinned placement. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Place is always a separate confirmation.`);
     if (running) f.button('Cancel placement');
-    else f.button('Pin at my feet').button('Edit coordinates').button(`Rotate → ${(s.rotation + 90) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview');
+    else f.button('Pin at my feet').button('Edit coordinates').button(`Rotate → ${(s.rotation + 90) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview').button('Lighting / night vision');
     const r = await show(p, f); if (r.canceled) return;
     if (running) { if (active?.player === p.id) active.cancelled = true; return tell(p, 'Cancel requested.'); }
     if (r.selection === 0) { s.anchor = { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) }; s.dimension = p.dimension.id; previews.add(p.id); return menu(p); }
     if (r.selection === 1) return edit(p);
     if (r.selection === 2) { s.rotation = rotations[(rotations.indexOf(s.rotation) + 1) % 4]; if (s.anchor) previews.add(p.id); return menu(p); }
-    if (r.selection === 3) { try { validate(p, s); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, 'Preview visible: miniature in front of you; full-size boundary marks placement. Switch away from the wand and back to rotate or place.'); }
+    if (r.selection === 3) { try { validate(p, s); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, "Full-size preview fixed at the pin. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Switch away from the wand and back to rotate or place."); }
     if (r.selection === 4) return confirmPlace(p);
     if (r.selection === 5) return undo(p);
     if (r.selection === 6) { previews.delete(p.id); return tell(p, 'Preview hidden.'); }
+    if (r.selection === 7) return lighting(p);
   }
   world.afterEvents.itemUse.subscribe((ev: any) => { if (ev.itemStack.typeId === config.itemId) system.run(() => menu(ev.source).catch((e: any) => tell(ev.source, e.message || String(e)))); });
   console.warn(`BRICK_WAND_READY ${config.id}`);

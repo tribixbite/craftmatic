@@ -2,6 +2,7 @@ import type { ParsedBrick } from './ldraw-parser.js';
 
 export type VehicleMode = 'auto' | 'car' | 'plane' | 'static';
 export type PlayableKind = 'car' | 'plane';
+export type VehicleFacing = 'auto' | '+x' | '-x' | '+z' | '-z';
 
 export interface PlayableBrickComponent {
   id: string;
@@ -11,9 +12,15 @@ export interface PlayableBrickComponent {
   /** Why this exact subset, rather than the complete set, was selected. */
   provenance: string;
   bounds?: { min: [number, number, number]; max: [number, number, number] };
+  /** Longitudinal source axis inferred from the car's measured horizontal bounds. */
+  longitudinalAxis?: 'x' | 'z';
+  /** Known nose direction. Omitted when source geometry establishes only the axis. */
+  forwardDirection?: Exclude<VehicleFacing, 'auto'>;
+  /** Driver's feet as fractions of the component grid, before entity reorientation. */
+  seatAnchor?: { x: number; y: number; z: number };
 }
 
-const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|vehicle|tractor|loader|motorcycle|bike|kart)\b/i;
+const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|vehicle|tractor|loader|motorcycle|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1)\b/i;
 const PLANE_WORDS = /\b(plane|airplane|aeroplane|jet|aircraft|starfighter|fighter|helicopter|copter|spaceship|shuttle)\b/i;
 const SCENERY_WORDS = /\b(garage|airport|hangar|museum|station|batcave|shadowbox|shadow box|workshop|city|showroom)\b/i;
 export const isWholeVehicleLabel = (label: string): boolean => !SCENERY_WORDS.test(label) && (CAR_WORDS.test(label) || PLANE_WORDS.test(label));
@@ -37,7 +44,7 @@ function verifiedBatmobile(bricks: ParsedBrick[]): ParsedBrick[] | null {
 export function classifyVehicleKind(label: string, mode: VehicleMode): PlayableKind | null {
   if (mode === 'car' || mode === 'plane') return mode;
   if (mode === 'static') return null;
-  if (/\b76252\b|batcave shadow/i.test(label)) return 'car';
+  if (/\b(?:76252|10300)\b|batcave shadow/i.test(label)) return 'car';
   if (PLANE_WORDS.test(label)) return 'plane';
   if (CAR_WORDS.test(label)) return 'car';
   return null;
@@ -100,16 +107,29 @@ export function discoverPlayableComponents(
   if (!kind) return { components: [], warnings: [] };
   const withBounds = (component: Omit<PlayableBrickComponent, 'bounds'>): PlayableBrickComponent => {
     const xs=component.bricks.map(b=>b.x), ys=component.bricks.map(b=>b.y), zs=component.bricks.map(b=>b.z);
-    return {...component,bounds:{min:[Math.min(...xs),Math.min(...ys),Math.min(...zs)],max:[Math.max(...xs),Math.max(...ys),Math.max(...zs)]}};
+    const bounds = {min:[Math.min(...xs),Math.min(...ys),Math.min(...zs)] as [number,number,number],max:[Math.max(...xs),Math.max(...ys),Math.max(...zs)] as [number,number,number]};
+    const longitudinalAxis = component.kind === 'car'
+      ? (bounds.max[0] - bounds.min[0] >= bounds.max[2] - bounds.min[2] ? 'x' : 'z')
+      : undefined;
+    return {...component,bounds,...(longitudinalAxis ? { longitudinalAxis } : {})};
   };
 
   if (/\b76252\b|batcave shadow/i.test(label) && kind === 'car') {
     const car = verifiedBatmobile(bricks);
     if (car) return {
       components: [withBounds({ id: 'batmobile', label: 'Batmobile', kind: 'car', bricks: car,
-        provenance: 'verified complete 399-part Mecabricks Batmobile assembly' })], warnings: [],
+        provenance: 'verified complete 399-part Mecabricks Batmobile assembly',
+        // Axles are at X=60/400 LDU; the canopy/cockpit is centered near X=220.
+        // Its position behind the wheelbase midpoint establishes +X as the nose.
+        forwardDirection: '+x', seatAnchor: { x: .456, y: .42, z: .5 } })], warnings: [],
     };
   }
+
+  // A source whose title itself is a vehicle is safe to make wholly rideable.
+  // Container builds (for example 76252) must never take this route.
+  if (mode === 'auto' && isWholeVehicleLabel(label)) return {
+    components: [withBounds({ id: kind, label, kind, bricks, provenance: 'whole model identified by source title' })], warnings: [],
+  };
 
   const named = namedSubmodels(bricks, kind);
   if (named.length) return {
@@ -129,12 +149,6 @@ export function discoverPlayableComponents(
       warnings: [],
     };
   }
-
-  // A source whose title itself is a vehicle is safe to make wholly rideable.
-  // Container builds (for example 76252) must never take this route.
-  if (mode === 'auto' && isWholeVehicleLabel(label)) return {
-    components: [withBounds({ id: kind, label, kind, bricks, provenance: 'whole model identified by source title' })], warnings: [],
-  };
 
   // An explicit override means the user really did choose the whole model.
   if (mode === kind) return {

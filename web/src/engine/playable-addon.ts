@@ -3,7 +3,7 @@ import { getBlockColor } from '@craft/blocks/colors.js';
 import { createZip } from './zip-utils.js';
 import { deterministicUuid, exportVersion, PACK_NAMESPACE, toBedrockIdentifier } from './mcpack.js';
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
-import type { PlayableKind, VehicleMode } from './playable-components.js';
+import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
 import { buildPlacementPackAssets, placementAlias, type PlacementActor } from './bedrock-placement-pack.js';
 export interface PlayableGridComponent {
@@ -12,6 +12,12 @@ export interface PlayableGridComponent {
     kind: PlayableKind;
     grid: BlockGrid;
     provenance: string;
+    /** Convert this independently voxelized grid back to stationary-scene blocks. */
+    sceneScale?: number;
+    /** Longitudinal source axis; its sign is intentionally not inferred. */
+    longitudinalAxis?: 'x' | 'z';
+    forwardDirection?: Exclude<VehicleFacing, 'auto'>;
+    seatAnchor?: { x: number; y: number; z: number };
     /** Spawn center in the stationary model's block coordinates. */
     x?: number;
     y?: number;
@@ -28,6 +34,8 @@ export interface PlayableAddonOptions {
     stem: string;
     label?: string;
     vehicleMode?: VehicleMode;
+    /** Override ambiguous source orientation; auto uses verified metadata or the measured long axis. */
+    vehicleFacing?: VehicleFacing;
     /** Exact, separately voxelized source components. Required for a vehicle embedded in a larger build. */
     components?: PlayableGridComponent[];
     screens?: PlayableScreenAnchor[];
@@ -65,17 +73,37 @@ function previewSamples(grid: BlockGrid, limit: number): Array<{ x: number; y: n
     return points;
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid): unknown {
-    const horizontal = Math.max(grid.width, grid.length);
-    const scale = Math.min(1, 8 / Math.max(1, horizontal));
+function componentLayout(kind: PlayableKind, grid: BlockGrid, requestedScale = 1, requestedAxis?: 'x' | 'z', requestedFacing: VehicleFacing = 'auto') {
+    const scale = Number.isFinite(requestedScale) && requestedScale > 0 ? requestedScale : 1;
+    const facing = requestedFacing === 'auto' ? undefined : requestedFacing;
+    const longitudinalAxis = facing?.endsWith('x') ? 'x' : facing?.endsWith('z') ? 'z' : requestedAxis ?? (kind === 'car' && grid.width >= grid.length ? 'x' : 'z');
+    const forwardSign = facing?.startsWith('-') ? -1 : 1;
+    const width = (longitudinalAxis === 'x' ? grid.length : grid.width) * scale;
+    const length = (longitudinalAxis === 'x' ? grid.width : grid.length) * scale;
+    const height = grid.height * scale;
+    const actorYaw = longitudinalAxis === 'x' ? -90 * forwardSign : forwardSign < 0 ? 180 : 0;
+    return { scale, longitudinalAxis, forwardSign, width, length, height, actorYaw };
+}
+
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}): unknown {
+    const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
+    const seat = seatAnchor ?? { x: .5, y: .45, z: .5 };
+    const ox = (seat.x - .5) * grid.width * layout.scale, oz = (seat.z - .5) * grid.length * layout.scale;
+    // Mojang's vanilla horse geometry establishes -Z as model-forward. Keep
+    // the source footprint fixed while its selected nose follows that axis.
+    const seatX = layout.longitudinalAxis === 'x' ? layout.forwardSign * oz : -layout.forwardSign * ox;
+    const seatZ = layout.longitudinalAxis === 'x' ? -layout.forwardSign * ox : -layout.forwardSign * oz;
+    const seatY = Math.max(.35, Math.min(layout.height - .35, layout.height * seat.y));
     const common: Record<string, unknown> = {
         'minecraft:type_family': { family: ['craftmatic_vehicle', kind] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
         'minecraft:health': { value: 100, max: 100 },
         'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
         'minecraft:fire_immune': {},
-        'minecraft:collision_box': { width: Math.max(0.8, horizontal * scale * .8), height: Math.max(.8, grid.height * scale * .8) },
-        'minecraft:rideable': { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, Math.max(.5, grid.height * scale + .15), 0] } },
+        // Bedrock exposes one horizontal diameter, not a rectangular box. Use
+        // the transverse body width so a long car can still pass a doorway.
+        'minecraft:collision_box': { width: Math.max(0.8, layout.width * .85), height: Math.max(.8, layout.height * .8) },
+        'minecraft:rideable': { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [seatX, seatY, seatZ], lock_rider_rotation: 0 } },
         'minecraft:pushable': { is_pushable: false, is_pushable_by_piston: true },
         'minecraft:movement': { value: kind === 'car' ? 1.05 : 1.35, max: kind === 'car' ? 1.35 : 1.8 },
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 160, max_dropped_ticks: 7, use_motion_prediction_hints: true } },
@@ -152,7 +180,7 @@ function greedyBoxes(grid: BlockGrid): Box[] {
             }
     return boxes;
 }
-function geometry(id: string, grid: BlockGrid): {
+function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto'): {
     value: unknown;
     palette: string[];
     meshIds: string[];
@@ -161,8 +189,21 @@ function geometry(id: string, grid: BlockGrid): {
     if (boxes.length > cap)
         throw new Error(`${id} needs ${boxes.length} geometry cuboids (export budget ${cap}); lower export resolution to preserve the complete model.`);
     const palette = [...new Set(boxes.map(b => b.state))];
-    const scale = Math.min(1, 8 / Math.max(1, grid.width, grid.length));
-    const cubes = boxes.map(b => { const uv = [palette.indexOf(b.state) % 16, Math.floor(palette.indexOf(b.state) / 16)], face = { uv, uv_size: [1, 1] }; return { origin: [(b.x - grid.width / 2) * 16 * scale, b.y * 16 * scale, (b.z - grid.length / 2) * 16 * scale], size: [b.sx * 16 * scale, b.sy * 16 * scale, b.sz * 16 * scale], uv: { north: face, south: face, east: face, west: face, up: face, down: face } }; });
+    const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing), { scale } = layout;
+    const cubes = boxes.map(b => {
+        const uv = [palette.indexOf(b.state) % 16, Math.floor(palette.indexOf(b.state) / 16)], face = { uv, uv_size: [1, 1] };
+        const origin = layout.longitudinalAxis === 'x'
+            ? [layout.forwardSign > 0 ? (b.z - grid.length / 2) * 16 * scale : (grid.length / 2 - b.z - b.sz) * 16 * scale,
+                b.y * 16 * scale,
+                layout.forwardSign > 0 ? (grid.width / 2 - b.x - b.sx) * 16 * scale : (b.x - grid.width / 2) * 16 * scale]
+            : [layout.forwardSign > 0 ? (grid.width / 2 - b.x - b.sx) * 16 * scale : (b.x - grid.width / 2) * 16 * scale,
+                b.y * 16 * scale,
+                layout.forwardSign > 0 ? (grid.length / 2 - b.z - b.sz) * 16 * scale : (b.z - grid.length / 2) * 16 * scale];
+        const size = layout.longitudinalAxis === 'x'
+            ? [b.sz * 16 * scale, b.sy * 16 * scale, b.sx * 16 * scale]
+            : [b.sx * 16 * scale, b.sy * 16 * scale, b.sz * 16 * scale];
+        return { origin, size, uv: { north: face, south: face, east: face, west: face, up: face, down: face } };
+    });
     // Each render controller owns a small mesh. A single 8,000-cube mesh can
     // exceed 16-bit vertex/index ranges on mobile renderers (24 vertices/cube).
     // Partitioning preserves every cube and its coordinates without decimation.
@@ -170,7 +211,7 @@ function geometry(id: string, grid: BlockGrid): {
     for (let offset = 0; offset < cubes.length; offset += 1024) {
         const meshId = `geometry.${PACK_NAMESPACE}.${id}_mesh_${meshIds.length}`;
         meshIds.push(meshId);
-        meshes.push({ description: { identifier: meshId, texture_width: 16, texture_height: Math.max(1, Math.ceil(palette.length / 16)), visible_bounds_width: Math.max(2, grid.width * scale, grid.length * scale), visible_bounds_height: Math.max(2, grid.height * scale), visible_bounds_offset: [0, grid.height * scale / 2, 0] }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: cubes.slice(offset, offset + 1024) }] });
+        meshes.push({ description: { identifier: meshId, texture_width: 16, texture_height: Math.max(1, Math.ceil(palette.length / 16)), visible_bounds_width: Math.max(2, layout.width, layout.length), visible_bounds_height: Math.max(2, layout.height), visible_bounds_offset: [0, layout.height / 2, 0] }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: cubes.slice(offset, offset + 1024) }] });
     }
     return { value: { format_version: '1.12.0', 'minecraft:geometry': meshes }, palette, meshIds };
 }
@@ -272,10 +313,13 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     }
     for (const c of components) {
         const cid = safe(`${id}_${c.id}`).length === `${id}_${c.id}`.length ? safe(`${id}_${c.id}`) : safe(`${id.slice(0, 24)}_${c.id.slice(0, 12)}_${deterministicUuid(`${id}:${c.id}`).slice(0, 8)}`);
-        files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid)) });
-        const geo = geometry(cid, c.grid);
+        const facing = options.vehicleFacing && options.vehicleFacing !== 'auto' ? options.vehicleFacing : c.forwardDirection ?? 'auto';
+        if (c.kind === 'car' && facing === 'auto') warnings.push(`${c.label}: front/rear direction was not identifiable from source geometry; select an explicit vehicle facing if it drives backward.`);
+        const layout = componentLayout(c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
+        files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor)) });
+        const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
         files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: palettePng(geo.palette) });
-        actors.push({ typeId: `${PACK_NAMESPACE}:${cid}`, label: c.label, x: Math.round(c.x ?? grid.width / 2), y: Math.round(c.y ?? 1), z: Math.round(c.z ?? grid.length / 2) });
+        actors.push({ typeId: `${PACK_NAMESPACE}:${cid}`, label: c.label, x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2, yaw: layout.actorYaw });
     }
     const screens = options.screens ?? [], screenId = `${id}_control_screen`;
     if (screens.length) {
@@ -287,11 +331,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const previewPoints = previewSamples(scenery, components.length ? 90 : 120);
     const perVehicle = Math.floor((120 - previewPoints.length) / Math.max(1, components.length));
     for (const c of components) {
-        const scale = Math.min(1, 8 / Math.max(1, c.grid.width, c.grid.length));
+        const scale = componentLayout(c.kind, c.grid, c.sceneScale, c.longitudinalAxis).scale;
         for (const p of previewSamples(c.grid, perVehicle)) previewPoints.push({
-            x: Math.round(c.x ?? grid.width / 2) + (p.x - c.grid.width / 2) * scale,
-            y: Math.round(c.y ?? 1) + p.y * scale,
-            z: Math.round(c.z ?? grid.length / 2) + (p.z - c.grid.length / 2) * scale,
+            x: (c.x ?? grid.width / 2) + (p.x - c.grid.width / 2) * scale,
+            y: (c.y ?? 1) + p.y * scale,
+            z: (c.z ?? grid.length / 2) + (p.z - c.grid.length / 2) * scale,
         });
     }
     const placement = buildPlacementPackAssets({ stem: id, label, width: grid.width, height: grid.height, length: grid.length,

@@ -180,3 +180,32 @@ describe('addInteriorLights', () => {
     expect(r.lights).toBeGreaterThanOrEqual(2);
   });
 });
+
+
+describe('covered interior lighting', () => {
+  it('lights an open-front room without changing its walls or exposed ground', () => {
+    const g = sealedRoom(8);
+    for (let y = 2; y <= 9; y++) for (let x = 2; x <= 9; x++) g.set(x, y, 1, 'minecraft:air');
+    const before = snapshot(g);
+    expect(addInteriorLights(g).lights).toBe(0);
+    const result = addInteriorLights(g, { coverage: 'covered', spacing: 3, floorLightBlock: 'minecraft:sea_lantern' });
+    expect(result.lights).toBeGreaterThan(0);
+    for (let i = 0; i < before.length; i++) if (before[i] !== 0) expect(g.rawData[i]).toBe(before[i]);
+    expect(g.get(0, 0, 0)).toBe('minecraft:air');
+  });
+  it('lets dense lighting add more lamps than sparse lighting', () => {
+    const dense = addInteriorLights(sealedRoom(12), { coverage: 'covered', spacing: 3 });
+    const sparse = addInteriorLights(sealedRoom(12), { coverage: 'covered', spacing: 10 });
+    expect(dense.lights).toBeGreaterThan(sparse.lights);
+  });
+});
+
+it('covered lighting ignores isolated overhead bricks and small air bubbles', () => {
+  const g = new BlockGrid(7, 8, 7);
+  for (let x = 0; x < 7; x++) for (let z = 0; z < 7; z++) g.set(x, 0, z, STONE);
+  g.set(3, 7, 3, STONE);
+  expect(addInteriorLights(g, { coverage: 'covered' }).lights).toBe(0);
+  for (let y = 1; y < 7; y++) for (let x = 1; x < 6; x++) for (let z = 1; z < 6; z++) g.set(x, y, z, STONE);
+  g.set(3, 2, 3, 'minecraft:air'); g.set(3, 3, 3, 'minecraft:air');
+  expect(addInteriorLights(g, { coverage: 'covered' }).lights).toBe(0);
+});

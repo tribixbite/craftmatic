@@ -34,6 +34,7 @@ import {
   type LiveDeliveryProgress, type LiveDeliveryResult,
 } from '@engine/live-delivery.js';
 import { checksum } from '@engine/hotschem/live-import.js';
+import { pipelineWorkerError, shouldRetryWorkerInline } from '@engine/schem-worker-failure.js';
 
 export type { SchemWorkerFormat };
 /** Re-exported so UI callers have one import for everything export-related. */
@@ -89,7 +90,7 @@ function liveFailureText(error: unknown): string {
   if (code === 'expired') return 'This pairing command expired. Choose Retry, then run the new command in Minecraft.';
   if (code === 'minecraft_disconnected') return 'Minecraft disconnected. Reopen the single-player host world, choose Retry, and run the new pairing command.';
   if (code?.startsWith('minecraft_')) {
-    return `${message}. Confirm the HotSchem Live behavior pack is active on the host world, cheats and WebSockets are enabled, and Require Encrypted WebSockets remains enabled. Hosted pairing is still known not to complete on our Android test device.`;
+    return `${message}. Confirm the HotSchem Live behavior pack is active on the host world, you are the world host or an operator, cheats and WebSockets are enabled, and Require Encrypted WebSockets remains enabled. Hosted pairing is still known not to complete on our Android test device.`;
   }
   if (code === 'delivery_failed' || /receiver|rejected|acknowledge/i.test(message)) {
     return `${message}. Confirm the HotSchem Live behavior pack is active, rejoin the host world after activation, and keep cheats enabled.`;
@@ -119,7 +120,7 @@ async function deliverLiveModel(
       <p>Experimental: the hosted connection is not yet working on our Android test device. Use a Bedrock download if pairing fails.</p>
       <ol class="live-delivery-steps">
         <li><a class="btn btn-secondary btn-sm" href="${LIVE_ADDON_URL}" download>Download HotSchem Live add-on</a> <span>Install it once, then activate it on the world.</span></li>
-        <li>Enable WebSockets in Minecraft’s General settings and keep Require Encrypted WebSockets enabled. Open a single-player world with cheats enabled as its host.</li>
+        <li>Enable WebSockets in Minecraft’s General settings and keep Require Encrypted WebSockets enabled. Open a single-player world with cheats enabled, and run the command as its host or an operator; Minecraft restricts <code>/connect</code> to admins.</li>
         <li><span>Run in Minecraft chat:</span><div class="live-delivery-command"><code>Creating pairing command…</code><button type="button" class="btn btn-secondary btn-sm" data-action="copy" disabled>Copy</button></div></li>
       </ol>
       <div class="live-delivery-warnings" hidden><strong>Before sending:</strong><ul></ul></div>
@@ -270,7 +271,11 @@ export async function runSchemExportWorker(
         w.onmessage = (ev: MessageEvent<SchemWorkerOutput>) => {
           const msg = ev.data;
           if (msg.type === 'progress') { onProgress(msg.phase, msg.pct); return; }
-          if (msg.type === 'error') { w.terminate(); reject(new Error(msg.message)); return; }
+          if (msg.type === 'error') {
+            w.terminate();
+            reject(pipelineWorkerError(msg.message));
+            return;
+          }
           w.terminate();
           resolve({
             bytes: msg.bytes,
@@ -287,6 +292,7 @@ export async function runSchemExportWorker(
         w.postMessage(input);
       });
     } catch (err) {
+      if (!shouldRetryWorkerInline(err)) throw err;
       console.warn('[schem-export] worker failed, retrying inline:', err);
     }
   }
@@ -374,6 +380,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
       input = {
         source: { kind: 'bricks', bricks: req.source.bricks, colorSpace: req.source.colorSpace, options: opts },
         format, profile: settings.profile, lightFill: settings.lightFill,
+        lightCoverage: settings.lightCoverage, lightStyle: settings.lightStyle, lightSpacing: settings.lightSpacing, vehicleFacing: settings.vehicleFacing,
         shapes: settings.shapes,
         ldrawBase: new URL('/ldraw-parts', location.origin).toString(),
         datTexts,
@@ -394,7 +401,8 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         },
         // An uploaded grid is already blocks — there is no sub-cell occupancy
         // left to refine from, so the shape pass has nothing to work with.
-        format, profile: settings.profile, lightFill: settings.lightFill, shapes: false,
+        format, profile: settings.profile, lightFill: settings.lightFill,
+        lightCoverage: settings.lightCoverage, lightStyle: settings.lightStyle, lightSpacing: settings.lightSpacing, vehicleFacing: settings.vehicleFacing, shapes: false,
         packStem: base,
         packLabel: req.label ?? base,
         vehicleMode: req.vehicleMode ?? 'auto',

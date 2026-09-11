@@ -14,10 +14,10 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   }
   let use: any, selectedItem: any, loaded = false, loadCalls = 0, blockedLoadCall = 0, blockEveryLoad = false, addSuccessCount = 1;
   const intervals = new Map<number, any>();
-  const commands: string[] = [], areaCommands: string[] = [], blockProbes: any[] = [], particles: any[] = [], snapshots: any[] = [], restores: any[] = [];
+  const commands: string[] = [], areaCommands: string[] = [], blockProbes: any[] = [], particles: Array<{ id: string; point: any }> = [], snapshots: any[] = [], restores: any[] = [];
   const entity = { id: 'entity-1', nameTag: '', setRotation: vi.fn(), remove: vi.fn() };
   const dimension = { id: 'overworld', heightRange: { min: -64, max: 320 },
-    spawnParticle: (_id: string, point: any) => particles.push(point),
+    spawnParticle: (id: string, point: any) => particles.push({ id, point }),
     runCommand: (command: string) => {
       if (command.startsWith('tickingarea remove ')) { areaCommands.push(command); loaded = false; return { successCount: 1 }; }
       if (command.startsWith('tickingarea add ')) { areaCommands.push(command); loaded = addSuccessCount > 0; loadCalls++; return { successCount: addSuccessCount }; }
@@ -25,9 +25,10 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
     },
     getBlock: (point: any) => { blockProbes.push(point); return loaded && !blockEveryLoad && loadCalls !== blockedLoadCall ? { typeId: 'minecraft:air' } : undefined; },
     spawnEntity: vi.fn(() => { expect(loaded).toBe(true); return entity; }) };
-  const player: any = { id: 'player', location: { x: 10, y: 20, z: 30 }, dimension, selectedSlotIndex: 0,
+  let view = { x: 0, y: 0, z: 1 };
+  const player: any = { id: 'player', location: { x: 10, y: 20, z: 30 }, dimension, selectedSlotIndex: 0, getViewDirection: () => view,
     getComponent: (id: string) => id === 'minecraft:inventory' ? { container: { getItem: () => selectedItem } } : undefined,
-    sendMessage: vi.fn(), onScreenDisplay: { setActionBar: vi.fn() } };
+    addEffect: vi.fn(), removeEffect: vi.fn(), sendMessage: vi.fn(), onScreenDisplay: { setActionBar: vi.fn() } };
   const world = { afterEvents: { itemUse: { subscribe: (fn: any) => { use = fn; } } },
     getAllPlayers: () => [player], getDimension: () => dimension, getEntity: () => entity,
     structureManager: {
@@ -60,14 +61,23 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(commands).toHaveLength(0);
   drawPreview();
-  // The rotated point cloud is scaled to an eight-block miniature ten blocks
-  // ahead (fallback +Z view), while the full-size outline remains at the pin.
-  expect(particles.some(q => Math.abs(q.x - 10.68) < 1e-6 && Math.abs(q.y - 20.54) < 1e-6 && Math.abs(q.z - 38.44) < 1e-6)).toBe(true);
-  expect(particles.some(q => Math.abs(q.x - 10.8) < 1e-6 && q.y === 29 && q.z === 40)).toBe(true);
-  expect(particles.some(q => Math.abs(q.x - 11.8) < 1e-6 && q.y === 29 && q.z === 40)).toBe(true);
-  expect(particles).toContainEqual({ x: 10, y: 20, z: 30 });
-  expect(particles).toContainEqual({ x: 30, y: 120, z: 70 });
-  expect(particles.length).toBeLessThanOrEqual(360);
+  // Every marker is full-size at the pinned, rotated placement. Looking in a
+  // different direction must not move this world-space preview.
+  expect(particles).toContainEqual({ id: 'minecraft:villager_happy', point: { x: 28.5, y: 20.5, z: 30.5 } });
+  expect(particles).toContainEqual({ id: 'minecraft:endrod', point: { x: 10, y: 20, z: 30 } });
+  expect(particles).toContainEqual({ id: 'minecraft:endrod', point: { x: 30, y: 120, z: 70 } });
+  expect(particles.filter(({ id, point }) => id === 'minecraft:endrod' && point.x === 10 && point.z === 30)).toHaveLength(12);
+  expect(particles).toContainEqual({ id: 'minecraft:redstone_ore_dust_particle', point: { x: 16, y: 20, z: 30 } });
+  expect(particles).toContainEqual({ id: 'minecraft:water_splash_particle_manual', point: { x: 10, y: 20, z: 36 } });
+  expect(particles).toContainEqual({ id: 'minecraft:totem_particle', point: { x: 32, y: 21, z: 50 } });
+  expect(particles.every(({ id }) => !id.includes('flame'))).toBe(true);
+  expect(particles.length).toBeLessThanOrEqual(320);
+  const firstPreview = structuredClone(particles);
+  particles.length = 0;
+  player.location = { x: -100, y: 80, z: 200 }; view = { x: -1, y: 0, z: 0 };
+  drawPreview();
+  expect(particles).toEqual(firstPreview);
+  player.location = { x: 10, y: 20, z: 30 };
   responses.push({ selection: 4 }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(commands).toEqual(['structure load craftmatic:t0 28 20 30 90_degrees none', 'structure load craftmatic:t1 28 20 48 90_degrees none']);
@@ -139,4 +149,16 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('tickingarea command reported successCount 0'));
   expect(dimension.spawnEntity).toHaveBeenCalledOnce();
+
+  // Lighting is an appended player-only aid; existing menu indexes stay stable
+  // and neither choice performs a dimension command or block mutation.
+  const commandsBeforeLighting = commands.length, snapshotsBeforeLighting = snapshots.length;
+  responses.push({ selection: 7 }, { selection: 0 });
+  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  expect(player.addEffect).toHaveBeenCalledWith('minecraft:night_vision', 12000, { showParticles: false });
+  responses.push({ selection: 7 }, { selection: 1 });
+  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  expect(player.removeEffect).toHaveBeenCalledWith('minecraft:night_vision');
+  expect(commands).toHaveLength(commandsBeforeLighting);
+  expect(snapshots).toHaveLength(snapshotsBeforeLighting);
 });

@@ -57,6 +57,10 @@ export interface SchemExportSettings {
   profile: string;
   /** Add light-emitting blocks to enclosed dark interiors. OFF by default. */
   lightFill: boolean;
+  lightCoverage?: 'sealed' | 'covered';
+  lightStyle?: 'profile' | 'lantern' | 'sea_lantern';
+  lightSpacing?: number;
+  vehicleFacing?: 'auto' | '+x' | '-x' | '+z' | '-z';
   /**
    * Emit partial Minecraft blocks (slabs, stairs) where the LEGO geometry is
    * genuinely partial — engine/block-shapes.ts. ON by default (the proposal's
@@ -71,6 +75,10 @@ export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
   resolution: 'auto',
   profile: DEFAULT_PROFILE_ID,
   lightFill: false,
+  lightCoverage: 'covered',
+  lightStyle: 'profile',
+  lightSpacing: 6,
+  vehicleFacing: 'auto',
   shapes: true,
 };
 

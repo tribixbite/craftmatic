@@ -33,6 +33,8 @@
 import type { BlockGrid } from '@craft/schem/types.js';
 
 export interface LightFillOptions {
+  /** Also light covered spaces with open doors/fronts, such as the Shadowbox. */
+  coverage?: 'sealed' | 'covered';
   /** Block placed in the pockets. Default `minecraft:glowstone`. */
   lightBlock?: string;
   /**
@@ -96,6 +98,48 @@ export function addInteriorLights(grid: BlockGrid, opts: LightFillOptions = {}):
   // Flat index = (y * length + z) * width + x  (BlockGrid's own layout).
   const zStride = width;
   const yStride = width * length;
+
+  // Covered mode works even when an opening connects the room to exterior air.
+  // Scan columns top-down: floor-supported air beneath a roof gets one lamp
+  // per spatial bucket. Never replace source geometry or light exposed roofs.
+  if (opts.coverage === 'covered') {
+    const buckets = new Set<string>();
+    const enoughAir = (start: number): boolean => {
+      const pending = [start], seen = new Set<number>(pending);
+      for (let n = 0; n < pending.length && seen.size < minPocketCells; n++) {
+        const i = pending[n]!, y = Math.floor(i / yStride), z = Math.floor(i % yStride / width), x = i % width;
+        const next = [x > 0 ? i - 1 : -1, x + 1 < width ? i + 1 : -1,
+          z > 0 ? i - width : -1, z + 1 < length ? i + width : -1,
+          y > 0 ? i - yStride : -1, y + 1 < height ? i + yStride : -1];
+        for (const j of next) if (j >= 0 && data[j] === 0 && !seen.has(j)) { seen.add(j); pending.push(j); }
+      }
+      return seen.size >= minPocketCells;
+    };
+    for (let z = 0; z < length; z++) for (let x = 0; x < width; x++) {
+      let roofY = -1;
+      for (let y = height - 1; y > 0; y--) {
+        const i = y * yStride + z * width + x;
+        if (data[i] !== 0) { roofY = y; continue; }
+        if (roofY < 0 || data[i - yStride] === 0) continue;
+        // Require headroom; exclude tiny gaps between bricks.
+        if (y + 1 >= height || data[i + yStride] !== 0) continue;
+        const key = `${Math.floor(x / spacing)},${Math.floor(y / spacing)},${Math.floor(z / spacing)}`;
+        if (buckets.has(key)) continue;
+        // An isolated antenna or single floating brick is not a room ceiling.
+        let roofCells = 0;
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+          if (x + dx >= 0 && x + dx < width && z + dz >= 0 && z + dz < length
+            && data[roofY * yStride + (z + dz) * width + x + dx] !== 0) roofCells++;
+        }
+        if (roofCells < 4 || !enoughAir(i)) continue;
+        buckets.add(key);
+        data[i] = grid.paletteIndexOf(floorLightBlock);
+        result.lights++;
+      }
+    }
+    result.pockets = result.lights ? 1 : 0;
+    return result;
+  }
 
   // 0 = untouched, 1 = exterior air, 2 = pocket air (visited)
   const state = new Uint8Array(size);
