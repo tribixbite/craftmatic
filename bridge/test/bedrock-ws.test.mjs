@@ -8,6 +8,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import {
   BEDROCK_PROTOCOL,
   createBedrockBridge,
+  resolveListenerMode,
 } from '../bedrock-ws.mjs';
 
 const SESSION = '0123456789abcdef0123456789abcdef';
@@ -41,13 +42,35 @@ async function createBackend(onConnection = () => {}) {
 
 async function createBridge(backendOriginForTests, options = {}) {
   const bridge = createBedrockBridge({
-    insecureHttp: true,
+    tlsTerminatedProxy: true,
     backendOriginForTests,
     ...options,
   });
   const address = await bridge.listen(0, '127.0.0.1');
   return { bridge, port: address.port };
 }
+
+test('private HTTP listener requires explicit proxy trust and rejects mixed TLS', () => {
+  assert.throws(
+    () => createBedrockBridge(),
+    /Direct TLS or explicit TLS-terminated proxy mode is required/,
+  );
+  assert.throws(
+    () => createBedrockBridge({ tls: {}, tlsTerminatedProxy: true }),
+    /mutually exclusive/,
+  );
+  assert.deepEqual(resolveListenerMode({ TRUST_PROXY_TLS_TERMINATION: '1' }), {
+    tlsTerminatedProxy: true,
+  });
+  assert.throws(
+    () => resolveListenerMode({
+      TRUST_PROXY_TLS_TERMINATION: '1',
+      TLS_CERT_FILE: '/cert.pem',
+      TLS_KEY_FILE: '/key.pem',
+    }),
+    /Do not combine/,
+  );
+});
 
 function rawUpgrade(port, path, protocol = BEDROCK_PROTOCOL) {
   return new Promise((resolve, reject) => {
