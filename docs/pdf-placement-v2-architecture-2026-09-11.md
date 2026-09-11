@@ -1,6 +1,7 @@
 # PDF placement v2: instance correspondence and revisable assembly inference
 
-Status: proposed architecture, not an implemented or validated reconstructor.
+Status: architecture with an initial implementation slice; not a validated
+full-booklet reconstructor. See the [implementation and experiment ledger](pdf-placement-v2-results-2026-09-11.md).
 Prepared against the September 9 handoff and the round-ten development ledger.
 Runtime input remains the PDF, optional inventory, and universal part CAD and
 catalog data. No runtime VLM, set model lookup, reference poses, or manually
