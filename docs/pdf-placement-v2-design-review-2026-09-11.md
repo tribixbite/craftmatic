@@ -17,6 +17,8 @@ Sources: [v2 measurements](pdf-placement-v2-results-2026-09-11.md),
 [3D generation audit](lego-3d-generation-audit-2026-09-08.md).
 This review inspected current code and documents; it did not rerun historical
 experiments or independently reproduce the audit's production measurements.
+Implementation assignments, evidence gates and remaining TODOs now live in the
+[rework tracker](pdf-placement-v2-work-plan-2026-09-11.md).
 
 ## What should change before refinement
 

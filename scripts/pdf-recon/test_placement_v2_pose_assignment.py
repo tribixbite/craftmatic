@@ -1,5 +1,8 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import placement_v2_pose_assignment as pose_assignment
 from placement_v2_correspondence import (
     CorrespondenceConfig, ObservedFeatureToken, PredictedFeatureToken,
 )
@@ -78,7 +81,34 @@ class PoseAssignmentTest(unittest.TestCase):
         self.assertTrue(result.optimal)
         self.assertEqual(result.status, "optimal")
         self.assertEqual(result.mip_gap, 0.0)
+        self.assertAlmostEqual(result.raw_primal_bound, 1.0)
+        self.assertAlmostEqual(result.raw_dual_bound, 1.0)
+        self.assertAlmostEqual(result.objective_constant, 2.0)
+        self.assertAlmostEqual(result.absolute_gap, 0.0)
+        self.assertGreaterEqual(result.solver_time_seconds, 0.0)
+        self.assertGreater(result.variable_count, 0)
+        self.assertGreater(result.constraint_count, 0)
+        self.assertGreater(result.nonzero_count, 0)
         self.assertEqual(len(result.matches), 1)
+
+    def test_support_flow_diagnostics_count_only_physical_graph_variables(self):
+        options = [
+            PoseOption("root", "root", ()),
+            PoseOption("child", "child", (), False, ("root",)),
+        ]
+        result = solve_pose_assignment(options, [], {"root": 1, "child": 1})
+        self.assertEqual(result.physical_flow_variable_count, 2)  # one arc + one root source
+        self.assertEqual(result.visibility_variable_count, 0)
+        self.assertEqual(result.variable_count, 4)
+
+    def test_invalid_dual_above_primal_is_rejected_instead_of_masked(self):
+        invalid_result = SimpleNamespace(
+            x=[1.0, 1.0], fun=0.0, status=0, message="invalid test bound",
+            mip_gap=0.0, mip_dual_bound=1.0)
+        with patch.object(pose_assignment, "milp", return_value=invalid_result):
+            with self.assertRaisesRegex(ValueError, "invalid objective bound"):
+                solve_pose_assignment([PoseOption("root", "piece", ())], [],
+                                      {"piece": 1})
 
     def test_non_base_pose_requires_a_selected_parent(self):
         options = [

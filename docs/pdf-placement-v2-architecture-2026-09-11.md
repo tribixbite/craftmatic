@@ -2,6 +2,9 @@
 
 Status: architecture with an initial implementation slice; not a validated
 full-booklet reconstructor. See the [implementation and experiment ledger](pdf-placement-v2-results-2026-09-11.md).
+Active implementation, test gates and deferred work are tracked in the
+[rework plan](pdf-placement-v2-work-plan-2026-09-11.md); see also the
+[post-implementation design review](pdf-placement-v2-design-review-2026-09-11.md).
 Prepared against the September 9 handoff and the round-ten development ledger.
 Runtime input remains the PDF, optional inventory, and universal part CAD and
 catalog data. No runtime VLM, set model lookup, reference poses, or manually
