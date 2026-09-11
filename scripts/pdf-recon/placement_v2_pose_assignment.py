@@ -7,8 +7,9 @@ observation neighborhood is capped, deterministically, at 24 edges.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
+import time
 from typing import Iterable, Mapping, Sequence, Tuple
 
 import numpy as np
@@ -57,6 +58,40 @@ class PoseAssignmentResult:
     matches: Tuple[PoseAssignmentMatch, ...]
     mip_gap: float | None = None
     solver_message: str = ""
+    raw_primal_bound: float | None = None
+    raw_dual_bound: float | None = None
+    objective_constant: float = 0.0
+    absolute_gap: float | None = None
+    solver_time_seconds: float = 0.0
+    variable_count: int = 0
+    integer_variable_count: int = 0
+    visibility_variable_count: int = 0
+    physical_flow_variable_count: int = 0
+    constraint_count: int = 0
+    nonzero_count: int = 0
+    _conditional_matches: tuple["_ConditionalAssignmentMatch", ...] = field(
+        default=(), repr=False)
+    _visible_conditional_feature_ids: Tuple[str, ...] = field(default=(), repr=False)
+
+
+@dataclass(frozen=True)
+class _ConditionalFeature:
+    """A non-physical feature visible iff none of its conditions are selected."""
+
+    feature_id: str
+    tokens: Tuple[PredictedFeatureToken, ...]
+    hidden_if_any_pose_ids: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _ConditionalAssignmentMatch:
+    feature_id: str
+    predicted_token_ids: Tuple[str, ...]
+    observed_token_id: str
+    owner_ids: Tuple[str, ...]
+    cost: float
+    distance_sigma: float
+    tangent_residual: float
 
 
 def _required_text(value: object, label: str) -> str:
@@ -82,6 +117,7 @@ def solve_pose_assignment(
     time_limit: float = 30.0,
     minimum_matches_per_selected_pose: int = 0,
     minimum_matches_by_pose: Mapping[str, int] | None = None,
+    _conditional_features: Iterable[_ConditionalFeature] = (),
 ) -> PoseAssignmentResult:
     """Select poses and jointly assign exclusive observed stroke intervals.
 
@@ -103,6 +139,7 @@ def solve_pose_assignment(
     minimum_matches = int(minimum_matches_per_selected_pose)
 
     options = tuple(options)
+    conditional_features = tuple(_conditional_features)
     observations = _prepare_observations(observed)
     pose_index = {}
     prepared = []
@@ -139,6 +176,27 @@ def solve_pose_assignment(
         clean_match_overrides[pose_id] = int(value)
     _validate_support_graph(options, pose_index)
 
+    conditional_ids = set()
+    prepared_conditional = []
+    for feature in conditional_features:
+        if not isinstance(feature, _ConditionalFeature):
+            raise ValueError("_conditional_features must contain _ConditionalFeature records")
+        feature_id = _required_text(feature.feature_id, "conditional feature_id")
+        if feature_id in conditional_ids:
+            raise ValueError(f"duplicate conditional feature_id: {feature_id}")
+        conditional_ids.add(feature_id)
+        conditions = tuple(_required_text(item, f"{feature_id} hidden condition pose_id")
+                           for item in feature.hidden_if_any_pose_ids)
+        if len(set(conditions)) != len(conditions):
+            raise ValueError(f"duplicate hidden conditions for conditional feature {feature_id}")
+        unknown = sorted(set(conditions) - set(pose_index))
+        if unknown:
+            raise ValueError(f"unknown hidden condition pose for {feature_id}: {unknown[0]}")
+        groups = _prepare_predictions(feature.tokens, config)
+        if not groups:
+            raise ValueError(f"conditional feature {feature_id} must contain tokens")
+        prepared_conditional.append(groups)
+
     conflict_rows = []
     seen_conflicts = set()
     for pair in conflicts:
@@ -153,11 +211,15 @@ def solve_pose_assignment(
             conflict_rows.append(canonical)
             seen_conflicts.add(canonical)
 
-    # Each row is (pose index, prepared prediction group). Hidden features have
-    # no visual cost or confidence and therefore need no assignment variable.
+    # Each row names a physical pose or conditional visibility owner. Hidden
+    # token groups have no visual cost and need no assignment variable.
     predictions = []
     for option_index, groups in enumerate(prepared):
-        predictions.extend((option_index, group) for group in groups if group.visible)
+        predictions.extend(("pose", option_index, group)
+                           for group in groups if group.visible)
+    for feature_index, groups in enumerate(prepared_conditional):
+        predictions.extend(("conditional", feature_index, group)
+                           for group in groups if group.visible)
 
     observation_penalties = np.asarray([
         config.unmatched_observation_cost * (1.0 - item[6])
@@ -170,7 +232,7 @@ def solve_pose_assignment(
         observation_tree = cKDTree(np.asarray([item[1] for item in observations], dtype=float))
         search_radius = (config.max_distance_sigma
                          * max(item[3] for item in observations))
-    for prediction_index, (option_index, prediction) in enumerate(predictions):
+    for prediction_index, (owner_kind, owner_index, prediction) in enumerate(predictions):
         eligible = []
         nearby = (() if observation_tree is None else
                   observation_tree.query_ball_point(prediction.position, search_radius))
@@ -193,11 +255,13 @@ def solve_pose_assignment(
         eligible.sort()
         for distance_sigma, _, observation_index, cost, tangent_residual in (
                 eligible[:config.max_neighbors_per_prediction]):
-            edges.append((prediction_index, option_index, observation_index,
+            edges.append((prediction_index, owner_kind, owner_index, observation_index,
                           cost, float(distance_sigma), tangent_residual))
 
     n_x = len(options)
     n_y = len(edges)
+    n_visibility = len(conditional_features)
+    visibility_start = n_x + n_y
     support_arcs = [
         (pose_index[parent], child_index)
         for child_index, option in enumerate(options) if not option.base_supported
@@ -205,7 +269,7 @@ def solve_pose_assignment(
     ]
     source_roots = [i for i, option in enumerate(options) if option.base_supported]
     n_support_flow = len(support_arcs)
-    flow_start = n_x + n_y
+    flow_start = visibility_start + n_visibility
     source_flow_start = flow_start + n_support_flow
     n_variables = source_flow_start + len(source_roots)
     edges_by_prediction = [[] for _ in predictions]
@@ -213,19 +277,27 @@ def solve_pose_assignment(
     edges_by_option = [[] for _ in options]
     for edge_index, edge in enumerate(edges):
         edges_by_prediction[edge[0]].append(edge_index)
-        edges_by_observation[edge[2]].append(edge_index)
-        edges_by_option[edge[1]].append(edge_index)
+        edges_by_observation[edge[3]].append(edge_index)
+        if edge[1] == "pose":
+            edges_by_option[edge[2]].append(edge_index)
     constant = float(observation_penalties.sum())
     if n_variables == 0:
         if any(clean_quotas.values()):
             raise ValueError("pose assignment is infeasible: quota has no pose options")
-        return PoseAssignmentResult((), constant, True, "optimal", (), 0.0,
-                                    "solved without MILP variables")
+        return PoseAssignmentResult(
+            (), constant, True, "optimal", (), 0.0,
+            "solved without MILP variables", raw_primal_bound=0.0,
+            raw_dual_bound=0.0, objective_constant=constant, absolute_gap=0.0)
 
     objective = np.zeros(n_variables, dtype=float)
-    for option_index, _ in predictions:
-        objective[option_index] += config.unmatched_visible_prediction_cost
-    for edge_index, (_, _, observation_index, cost, _, _) in enumerate(edges):
+    def owner_column(owner_kind, owner_index):
+        return (owner_index if owner_kind == "pose"
+                else visibility_start + owner_index)
+
+    for owner_kind, owner_index, _ in predictions:
+        objective[owner_column(owner_kind, owner_index)] += (
+            config.unmatched_visible_prediction_cost)
+    for edge_index, (_, _, _, observation_index, cost, _, _) in enumerate(edges):
         objective[n_x + edge_index] = (
             cost - config.unmatched_visible_prediction_cost
             - observation_penalties[observation_index])
@@ -243,12 +315,12 @@ def solve_pose_assignment(
         add_constraint([(i, 1.0) for i, option in enumerate(options)
                         if option.quota_key == key], clean_quotas[key], clean_quotas[key])
     # A predicted feature can match once and only when its owning pose is selected.
-    for prediction_index, (option_index, _) in enumerate(predictions):
+    for prediction_index, (owner_kind, owner_index, _) in enumerate(predictions):
         add_constraint([(n_x + edge_index, 1.0)
                         for edge_index in edges_by_prediction[prediction_index]]
-                       + [(option_index, -1.0)],
+                       + [(owner_column(owner_kind, owner_index), -1.0)],
                        -np.inf, 0.0)
-    # One drawing interval cannot reward two selected physical features.
+    # One drawing interval cannot reward two selected visible features.
     for observation_index in range(len(observations)):
         add_constraint([(n_x + edge_index, 1.0)
                         for edge_index in edges_by_observation[observation_index]],
@@ -265,6 +337,16 @@ def solve_pose_assignment(
     for left, right in conflict_rows:
         add_constraint([(pose_index[left], 1.0), (pose_index[right], 1.0)],
                        -np.inf, 1.0)
+    # Direct Boolean visibility: v_f = NOT OR(x_o for each occluder o).
+    # These feature-state variables have no place in the physical support graph.
+    for feature_index, feature in enumerate(conditional_features):
+        variable = visibility_start + feature_index
+        occluders = [pose_index[pose_id] for pose_id in feature.hidden_if_any_pose_ids]
+        for option_index in occluders:
+            add_constraint([(variable, 1.0), (option_index, 1.0)], -np.inf, 1.0)
+        add_constraint([(variable, 1.0)]
+                       + [(option_index, 1.0) for option_index in occluders],
+                       1.0, np.inf)
     flow_capacity = float(max(1, sum(clean_quotas.values())))
     incoming_flow = [[] for _ in options]
     outgoing_flow = [[] for _ in options]
@@ -293,12 +375,15 @@ def solve_pose_assignment(
     constraints = LinearConstraint(matrix, np.asarray(lower), np.asarray(upper))
     integrality = np.zeros(n_variables, dtype=np.uint8)
     integrality[:n_x] = 1
+    integrality[visibility_start:flow_start] = 1
     upper_bounds = np.ones(n_variables)
     upper_bounds[flow_start:] = flow_capacity
+    solve_started = time.perf_counter()
     result = milp(objective, integrality=integrality,
                   bounds=Bounds(np.zeros(n_variables), upper_bounds),
                   constraints=constraints,
                   options={"time_limit": time_limit, "mip_rel_gap": 0.0})
+    solver_time_seconds = time.perf_counter() - solve_started
 
     if result.x is None:
         label = "infeasible" if result.status == 2 else "no feasible integral incumbent"
@@ -312,6 +397,10 @@ def solve_pose_assignment(
     selected_values = solution[:n_x]
     if np.any(np.abs(selected_values - np.rint(selected_values)) > 1e-6):
         raise ValueError(f"pose assignment has no feasible integral incumbent: {result.message}")
+    visibility_values = solution[visibility_start:flow_start]
+    if np.any(np.abs(visibility_values - np.rint(visibility_values)) > tolerance):
+        raise ValueError(
+            f"pose assignment has no integral conditional visibility incumbent: {result.message}")
     # Although y is declared continuous, its fixed-x bipartite matching polytope
     # has integral vertices. Refuse an interrupted fractional credit rather than
     # silently thresholding it into a different reported correspondence.
@@ -330,22 +419,36 @@ def solve_pose_assignment(
                                 rel_tol=1e-7, abs_tol=1e-7)):
         raise ValueError(f"pose assignment solver returned an inconsistent objective: {result.message}")
     selected_indices = {i for i, value in enumerate(selected_values) if value > 0.5}
+    visible_conditional_indices = {
+        i for i, value in enumerate(solution[visibility_start:flow_start]) if value > 0.5}
 
     matches = []
-    for edge_index, (prediction_index, option_index, observation_index,
+    conditional_matches = []
+    for edge_index, (prediction_index, owner_kind, owner_index, observation_index,
                      cost, distance_sigma, tangent_residual) in enumerate(edges):
         if solution[n_x + edge_index] <= 0.5:
             continue
-        prediction = predictions[prediction_index][1]
-        matches.append(PoseAssignmentMatch(
-            pose_id=options[option_index].pose_id,
-            predicted_token_ids=prediction.token_ids,
-            observed_token_id=observations[observation_index][0],
-            owner_ids=prediction.owner_ids,
-            cost=cost, distance_sigma=distance_sigma,
-            tangent_residual=tangent_residual))
+        prediction = predictions[prediction_index][2]
+        if owner_kind == "pose":
+            matches.append(PoseAssignmentMatch(
+                pose_id=options[owner_index].pose_id,
+                predicted_token_ids=prediction.token_ids,
+                observed_token_id=observations[observation_index][0],
+                owner_ids=prediction.owner_ids,
+                cost=cost, distance_sigma=distance_sigma,
+                tangent_residual=tangent_residual))
+        else:
+            conditional_matches.append(_ConditionalAssignmentMatch(
+                feature_id=conditional_features[owner_index].feature_id,
+                predicted_token_ids=prediction.token_ids,
+                observed_token_id=observations[observation_index][0],
+                owner_ids=prediction.owner_ids,
+                cost=cost, distance_sigma=distance_sigma,
+                tangent_residual=tangent_residual))
     matches.sort(key=lambda item: (item.pose_id, item.predicted_token_ids,
                                    item.observed_token_id))
+    conditional_matches.sort(key=lambda item: (
+        item.feature_id, item.predicted_token_ids, item.observed_token_id))
     optimal = result.status == 0
     if optimal:
         status = "optimal"
@@ -356,10 +459,31 @@ def solve_pose_assignment(
     raw_gap = getattr(result, "mip_gap", None)
     mip_gap = (float(raw_gap) if raw_gap is not None and math.isfinite(float(raw_gap))
                else None)
+    raw_primal_bound = float(result.fun)
+    raw_dual = getattr(result, "mip_dual_bound", None)
+    raw_dual_bound = (float(raw_dual) if raw_dual is not None
+                      and math.isfinite(float(raw_dual)) else None)
+    absolute_gap = None
+    if raw_dual_bound is not None:
+        bound_difference = raw_primal_bound - raw_dual_bound
+        if bound_difference < -tolerance:
+            raise ValueError(
+                f"pose assignment solver returned an invalid objective bound: {result.message}")
+        absolute_gap = max(0.0, bound_difference)
     return PoseAssignmentResult(
         selected_pose_ids=tuple(sorted(options[i].pose_id for i in selected_indices)),
         total_cost=float(constant + result.fun), optimal=optimal, status=status,
-        matches=tuple(matches), mip_gap=mip_gap, solver_message=str(result.message))
+        matches=tuple(matches), mip_gap=mip_gap, solver_message=str(result.message),
+        raw_primal_bound=raw_primal_bound, raw_dual_bound=raw_dual_bound,
+        objective_constant=constant, absolute_gap=absolute_gap,
+        solver_time_seconds=solver_time_seconds, variable_count=n_variables,
+        integer_variable_count=int(np.count_nonzero(integrality)),
+        visibility_variable_count=n_visibility,
+        physical_flow_variable_count=n_support_flow + len(source_roots),
+        constraint_count=len(lower), nonzero_count=int(matrix.nnz),
+        _conditional_matches=tuple(conditional_matches),
+        _visible_conditional_feature_ids=tuple(sorted(
+            conditional_features[i].feature_id for i in visible_conditional_indices)))
 
 
 __all__ = [

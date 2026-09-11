@@ -1,11 +1,8 @@
 """Joint base/new-pose feature ownership through the existing pose MILP.
 
-Each stable base feature becomes an exact-quota choice between a visible
-auxiliary pose carrying its feature token group and an empty hidden auxiliary
-pose supported by its possible occluders. Visible/occluder conflicts plus
-rooted support encode the exact OR: the hidden state is selectable iff at least
-one occluding real pose is selected. Auxiliary identities never leave the
-public result.
+Stable base-feature visibility is represented by direct Boolean constraints.
+Only real pose options participate in inventory, conflicts, and rooted physical
+support flow.
 """
 from __future__ import annotations
 
@@ -16,12 +13,8 @@ from placement_v2_correspondence import (
     CorrespondenceConfig, ObservedFeatureToken, PredictedFeatureToken,
 )
 from placement_v2_pose_assignment import (
-    PoseAssignmentMatch, PoseOption, solve_pose_assignment,
+    PoseAssignmentMatch, PoseOption, _ConditionalFeature, solve_pose_assignment,
 )
-
-
-_AUX_PREFIX = "__joint_base_aux__:"
-_QUOTA_PREFIX = "__joint_base_quota__:"
 
 
 @dataclass(frozen=True)
@@ -56,18 +49,23 @@ class JointPoseAssignmentResult:
     suppressed_base_feature_ids: Tuple[str, ...]
     mip_gap: float | None = None
     solver_message: str = ""
+    raw_primal_bound: float | None = None
+    raw_dual_bound: float | None = None
+    objective_constant: float = 0.0
+    absolute_gap: float | None = None
+    solver_time_seconds: float = 0.0
+    variable_count: int = 0
+    integer_variable_count: int = 0
+    visibility_variable_count: int = 0
+    physical_flow_variable_count: int = 0
+    constraint_count: int = 0
+    nonzero_count: int = 0
 
 
 def _text(value, label):
     if not isinstance(value, str) or not value:
         raise ValueError(f"{label} must be a non-empty string")
     return value
-
-
-def _aux_ids(feature_id):
-    return (f"{_AUX_PREFIX}visible:{feature_id}",
-            f"{_AUX_PREFIX}hidden:{feature_id}",
-            f"{_QUOTA_PREFIX}{feature_id}")
 
 
 def solve_joint_base_assignment(
@@ -84,25 +82,18 @@ def solve_joint_base_assignment(
     real_options = tuple(options)
     features = tuple(base_features)
     real_ids = set()
-    real_quota_keys = set(quotas)
-    if any(isinstance(key, str) and key.startswith(_QUOTA_PREFIX)
-           for key in real_quota_keys):
-        raise ValueError("real quotas cannot use the joint-base auxiliary namespace")
     for option in real_options:
         if not isinstance(option, PoseOption):
             raise ValueError("options must contain PoseOption records")
         pose_id = _text(option.pose_id, "real pose_id")
-        if pose_id.startswith(_AUX_PREFIX) or pose_id in real_ids:
-            raise ValueError(f"reserved or duplicate real pose_id: {pose_id}")
+        if pose_id in real_ids:
+            raise ValueError(f"duplicate real pose_id: {pose_id}")
         real_ids.add(pose_id)
 
     feature_ids = set()
     predicted_ids = set()
     seam_owners = {}
-    auxiliary_options = []
-    auxiliary_conflicts = []
-    visible_lookup = {}
-    hidden_lookup = {}
+    conditional_features = []
     for feature in features:
         if not isinstance(feature, BaseFeature):
             raise ValueError("base_features must contain BaseFeature records")
@@ -138,60 +129,54 @@ def solve_joint_base_assignment(
         unknown = sorted(set(occluders) - real_ids)
         if unknown:
             raise ValueError(f"unknown occluding pose for {feature_id}: {unknown[0]}")
-        visible_id, hidden_id, quota_key = _aux_ids(feature_id)
-        if quota_key in real_quota_keys or visible_id in real_ids or hidden_id in real_ids:
-            raise ValueError(f"auxiliary namespace collision for base feature {feature_id}")
-        visible_lookup[visible_id] = feature_id
-        hidden_lookup[hidden_id] = feature_id
-        auxiliary_options.append(PoseOption(visible_id, quota_key, tokens, True, ()))
-        auxiliary_options.append(PoseOption(hidden_id, quota_key, (), False, occluders))
-        auxiliary_conflicts.extend((visible_id, pose_id) for pose_id in occluders)
+        conditional_features.append(_ConditionalFeature(feature_id, tokens, occluders))
 
     real_conflicts = tuple(conflicts)
     for pair in real_conflicts:
         if len(pair) != 2 or any(pose_id not in real_ids for pose_id in pair):
             raise ValueError("joint-base caller conflicts must reference two real poses")
-    combined_quotas = dict(quotas)
-    for feature_id in feature_ids:
-        combined_quotas[_aux_ids(feature_id)[2]] = 1
-    combined_conflicts = real_conflicts + tuple(auxiliary_conflicts)
-    auxiliary_ids = set(visible_lookup) | set(hidden_lookup)
-    minimum_overrides = {pose_id: 0 for pose_id in auxiliary_ids}
     assignment = solve_pose_assignment(
-        real_options + tuple(auxiliary_options), observed, combined_quotas,
-        conflicts=combined_conflicts, config=config, time_limit=time_limit,
+        real_options, observed, quotas,
+        conflicts=real_conflicts, config=config, time_limit=time_limit,
         minimum_matches_per_selected_pose=minimum_matches_per_real_pose,
-        minimum_matches_by_pose=minimum_overrides)
+        _conditional_features=conditional_features)
 
     selected = set(assignment.selected_pose_ids)
-    leaked = selected - real_ids - auxiliary_ids
+    leaked = selected - real_ids
     if leaked:
         raise AssertionError(f"unknown solver identities: {sorted(leaked)}")
-    visible = tuple(sorted(visible_lookup[pose_id] for pose_id in selected
-                           if pose_id in visible_lookup))
-    suppressed = tuple(sorted(hidden_lookup[pose_id] for pose_id in selected
-                              if pose_id in hidden_lookup))
+    visible = assignment._visible_conditional_feature_ids
+    suppressed = tuple(sorted(feature_ids - set(visible)))
     if set(visible) | set(suppressed) != feature_ids or set(visible) & set(suppressed):
         raise AssertionError("solver did not choose exactly one state per base feature")
-    real_matches = tuple(match for match in assignment.matches if match.pose_id in real_ids)
+    real_matches = assignment.matches
     base_matches = tuple(BaseAssignmentMatch(
-        base_feature_id=visible_lookup[match.pose_id],
+        base_feature_id=match.feature_id,
         predicted_token_ids=match.predicted_token_ids,
         observed_token_id=match.observed_token_id,
         owner_ids=match.owner_ids,
         cost=match.cost,
         distance_sigma=match.distance_sigma,
         tangent_residual=match.tangent_residual)
-        for match in assignment.matches if match.pose_id in visible_lookup)
-    if any(match.pose_id in hidden_lookup for match in assignment.matches):
-        raise AssertionError("empty hidden base state produced a feature match")
+        for match in assignment._conditional_matches)
     return JointPoseAssignmentResult(
         selected_pose_ids=tuple(sorted(selected & real_ids)),
         total_cost=assignment.total_cost, optimal=assignment.optimal,
         status=assignment.status, matches=real_matches,
         base_matches=base_matches, visible_base_feature_ids=visible,
         suppressed_base_feature_ids=suppressed, mip_gap=assignment.mip_gap,
-        solver_message=assignment.solver_message)
+        solver_message=assignment.solver_message,
+        raw_primal_bound=assignment.raw_primal_bound,
+        raw_dual_bound=assignment.raw_dual_bound,
+        objective_constant=assignment.objective_constant,
+        absolute_gap=assignment.absolute_gap,
+        solver_time_seconds=assignment.solver_time_seconds,
+        variable_count=assignment.variable_count,
+        integer_variable_count=assignment.integer_variable_count,
+        visibility_variable_count=assignment.visibility_variable_count,
+        physical_flow_variable_count=assignment.physical_flow_variable_count,
+        constraint_count=assignment.constraint_count,
+        nonzero_count=assignment.nonzero_count)
 
 
 __all__ = [

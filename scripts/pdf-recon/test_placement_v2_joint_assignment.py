@@ -52,6 +52,53 @@ class JointBaseAssignmentTest(unittest.TestCase):
         self.assertEqual(result.suppressed_base_feature_ids, ())
         self.assertEqual(len(result.base_matches), 1)
 
+    def test_visibility_is_exact_or_over_multiple_occluders(self):
+        options = [
+            PoseOption("left", "piece", ()),
+            PoseOption("right", "piece", ()),
+        ]
+        feature = BaseFeature(
+            "base-edge", (predicted("base-edge", 0),), ("left", "right"))
+        visible = solve_joint_base_assignment(
+            options, [observed("ink", 0)], {"piece": 0}, [feature],
+            minimum_matches_per_real_pose=0)
+        self.assertEqual(visible.visible_base_feature_ids, ("base-edge",))
+        self.assertEqual(len(visible.base_matches), 1)
+        for quota in (1, 2):
+            hidden = solve_joint_base_assignment(
+                options, [observed("ink", 0)], {"piece": quota}, [feature],
+                minimum_matches_per_real_pose=0)
+            self.assertEqual(hidden.visible_base_feature_ids, ())
+            self.assertEqual(hidden.suppressed_base_feature_ids, ("base-edge",))
+            self.assertEqual(hidden.base_matches, ())
+
+    def test_hidden_base_states_create_no_physical_flow_variables(self):
+        features = [
+            BaseFeature(f"base-{index}", (predicted(f"edge-{index}", index),),
+                        ("root",))
+            for index in range(20)
+        ]
+        result = solve_joint_base_assignment(
+            [PoseOption("root", "piece", ())], [], {"piece": 1}, features,
+            minimum_matches_per_real_pose=0)
+        self.assertEqual(result.suppressed_base_feature_ids,
+                         tuple(f"base-{index}" for index in sorted(
+                             range(20), key=lambda index: f"base-{index}")))
+        self.assertEqual(result.visibility_variable_count, 20)
+        self.assertEqual(result.physical_flow_variable_count, 1)
+        self.assertEqual(result.variable_count, 22)  # pose + visibility + root source
+
+    def test_base_visibility_cannot_root_a_physical_support_cycle(self):
+        options = [
+            PoseOption("a", "piece", (), False, ("b",)),
+            PoseOption("b", "piece", (), False, ("a",)),
+        ]
+        with self.assertRaisesRegex(ValueError, "infeasible"):
+            solve_joint_base_assignment(
+                options, [], {"piece": 2},
+                [BaseFeature("base-edge", (predicted("base-edge", 0),), ("a",))],
+                minimum_matches_per_real_pose=0)
+
     def test_real_quotas_and_conflicts_are_preserved(self):
         options = [
             PoseOption("a", "piece", (predicted("a-edge", 0),)),
