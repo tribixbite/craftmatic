@@ -1,0 +1,12 @@
+{
+  "name": "craftmatic-bedrock-ws-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "start": "node bedrock-ws.mjs"
+  },
+  "dependencies": {
+    "ws": "8.20.1"
+  }
+}

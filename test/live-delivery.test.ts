@@ -44,6 +44,27 @@ describe('live delivery protocol boundary', () => {
     expect(session.minecraftUrl).toMatch(/^wss:\/\/craftmatic\.click\/connect\/[0-9a-f]{32}$/);
   });
 
+  it('uses an encrypted bridge only for the game URL, retaining browser authentication on Cloudflare', async () => {
+    const fetch = vi.fn(async () => new Response('{}', { status: 201 }));
+    const env = { MINECRAFT_WS_ORIGIN: 'wss://bedrock.example.com:443',
+      LIVE_DELIVERY: { idFromName: (value: string) => value, get: () => ({ fetch }) } };
+    const response = await handleLiveDeliveryRequest(new Request('https://craftmatic.click/connect', { method: 'POST' }), env);
+    const session = await response.json();
+    expect(session.minecraftUrl).toBe(`wss://bedrock.example.com/connect/${session.sessionId}`);
+    expect(session.browserUrl).toBe(`wss://craftmatic.click/connect/${session.sessionId}/browser`);
+    expect(session.browserToken).toHaveLength(43);
+    expect(session.pairingCommand).toBe(`/connect ${session.minecraftUrl}`);
+  });
+
+  it.each(['ws://bridge.example.com', 'https://bridge.example.com', 'wss://user:pass@bridge.example.com',
+    'wss://bridge.example.com/path', 'wss://bridge.example.com?token=x', 'not a URL'])('rejects an unsafe bridge origin: %s', async origin => {
+    const get = vi.fn();
+    const response = await handleLiveDeliveryRequest(new Request('https://craftmatic.click/connect', { method: 'POST' }),
+      { MINECRAFT_WS_ORIGIN: origin, LIVE_DELIVERY: { get } });
+    expect(response.status).toBe(503);
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it('rejects a failed handshake waiter and resets pairing for retry', async () => {
     const relay = new LiveDeliverySession({ storage: {} });
     const originalReady = relay.minecraftReady;

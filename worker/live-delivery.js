@@ -74,6 +74,18 @@ function publicWsUrl(request, pathname) {
   return url.toString();
 }
 
+/** An optional direct TLS bridge changes only the game-facing origin. Browser
+ * authentication and delivery remain on the existing Cloudflare endpoint. */
+function minecraftWsUrl(request, pathname, configuredOrigin) {
+  if (!configuredOrigin) return publicWsUrl(request, pathname);
+  const origin = new URL(configuredOrigin);
+  if (origin.protocol !== 'wss:' || origin.username || origin.password ||
+      origin.search || origin.hash || origin.pathname !== '/') {
+    throw new Error('MINECRAFT_WS_ORIGIN must be a bare wss:// origin');
+  }
+  return new URL(pathname, origin).toString();
+}
+
 /** Handle only the public live-delivery routes; return null for existing proxy routes. */
 export async function handleLiveDeliveryRequest(request, env) {
   const url = new URL(request.url);
@@ -85,6 +97,9 @@ export async function handleLiveDeliveryRequest(request, env) {
     const origin = allowedOrigin(request);
     if (request.headers.has('origin') && !origin) return json({ error: 'Origin not allowed' }, 403);
     const sessionId = randomBytes(16).toString('hex');
+    let minecraftUrl;
+    try { minecraftUrl = minecraftWsUrl(request, `/connect/${sessionId}`, env.MINECRAFT_WS_ORIGIN); }
+    catch { return json({ error: 'Minecraft TLS bridge origin is misconfigured' }, 503, corsHeaders(request)); }
     const browserToken = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + LIVE_SESSION_TTL_MS).toISOString();
     const stub = env.LIVE_DELIVERY.get(env.LIVE_DELIVERY.idFromName(sessionId));
@@ -93,7 +108,6 @@ export async function handleLiveDeliveryRequest(request, env) {
       body: JSON.stringify({ browserToken, expiresAt }),
     });
     if (!init.ok) return json({ error: 'Unable to create delivery session' }, 503, corsHeaders(request));
-    const minecraftUrl = publicWsUrl(request, `/connect/${sessionId}`);
     return json({
       sessionId,
       minecraftUrl,
