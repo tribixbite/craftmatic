@@ -3,20 +3,22 @@ import tls from 'node:tls';
 import crypto from 'node:crypto';
 
 const local = process.env.LOCAL_WS_INSPECT === '1';
-const host = local ? '127.0.0.1' : 'craftmatic.click';
-const port = local ? 19135 : 443;
-let path = '/';
-{
-  const origin = local ? `http://${host}:${port}` : `https://${host}`;
-  const created = await fetch(`${origin}/connect`, { method: 'POST' });
-  if (!created.ok) throw new Error(`session HTTP ${created.status}`);
-  const session = await created.json();
-  path = new URL(session.minecraftUrl).pathname;
-}
+const origin = process.env.CRAFTMATIC_WORKER_URL || (local ? 'http://127.0.0.1:19135' : 'https://craftmatic.click');
+const created = await fetch(`${origin}/connect`, { method: 'POST' });
+if (!created.ok) throw new Error(`session HTTP ${created.status}`);
+const session = await created.json();
+const advertised = new URL(session.minecraftUrl);
+const gameOrigin = process.env.CRAFTMATIC_GAME_WS_ORIGIN || (local ? 'ws://127.0.0.1:19135' : undefined);
+const endpoint = gameOrigin ? new URL(advertised.pathname, gameOrigin) : advertised;
+if (!['ws:', 'wss:'].includes(endpoint.protocol)) throw new Error('Expected a WebSocket endpoint');
+const host = endpoint.hostname;
+const secure = endpoint.protocol === 'wss:';
+const port = Number(endpoint.port || (secure ? 443 : 80));
+const path = endpoint.pathname;
 const key = crypto.randomBytes(16).toString('base64');
 const request = [
   `GET ${path} HTTP/1.1`,
-  `Host: ${host}${local ? `:${port}` : ''}`,
+  `Host: ${endpoint.host}`,
   'Connection: Upgrade',
   'Upgrade: websocket',
   `Sec-WebSocket-Key: ${key}`,
@@ -27,7 +29,7 @@ const request = [
 ].join('\r\n');
 
 const bytes = await new Promise((resolve, reject) => {
-  const socket = local
+  const socket = !secure
     ? net.connect(port, host, () => socket.write(request))
     : tls.connect({ port, host, servername: host }, () => socket.write(request));
   let buffered = Buffer.alloc(0);
@@ -44,6 +46,7 @@ const bytes = await new Promise((resolve, reject) => {
     const message = JSON.parse(frame.payload.toString('utf8'));
     const command = message.body?.commandLine ?? '';
     resolve({
+      origin: endpoint.origin,
       status: headers[0],
       responseHeaders: headers.slice(1).filter(h => /^(upgrade|connection|sec-websocket)/i.test(h)),
       frame: { fin: frame.fin, rsv: frame.rsv, opcode: frame.opcode, masked: frame.masked, bytes: frame.payload.length },

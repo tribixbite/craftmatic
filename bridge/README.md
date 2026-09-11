@@ -33,11 +33,17 @@ docker run --rm -p 8443:8443 \
   craftmatic-bedrock-ws-bridge
 ```
 
-Production always terminates TLS in this Node process. A load balancer is safe only
+The default production mode terminates TLS in this Node process. A load balancer is safe only
 when it forwards native TCP without rewriting the HTTP upgrade, or when its exact
 raw `101` response has been verified to retain `Connection: Upgrade`. Do not assume
 that a managed HTTP ingress preserves capitalization. Verify the public response
 bytes with a real upgrade request before configuring `MINECRAFT_WS_ORIGIN`.
+
+For a managed HTTPS ingress whose public handshake has been verified, set
+`TRUST_PROXY_TLS_TERMINATION=1` and leave both certificate variables unset. This is
+an explicit opt-in to private HTTP between that trusted ingress and the container.
+The service refuses to start if proxy mode and certificate files are combined. Do
+not expose the container port directly or advertise a plaintext `ws://` endpoint.
 
 Sessions expire after 15 minutes, and the process accepts at most 64 simultaneous
 sessions. Individual frames and each direction's buffered data are capped at 4 MiB.

@@ -56,7 +56,7 @@ function createHttpHandler() {
  */
 export function createBedrockBridge({
   tls,
-  insecureHttp = false,
+  tlsTerminatedProxy = false,
   backendOriginForTests,
   sessionTtlMs = SESSION_TTL_MS,
   backendHandshakeTimeoutMs = 10_000,
@@ -65,8 +65,11 @@ export function createBedrockBridge({
   maxConnections = MAX_CONNECTIONS,
   closeGraceMs = 2_000,
 } = {}) {
-  if (!tls && !insecureHttp) {
-    throw new Error('TLS certificate and key are required');
+  if (tls && tlsTerminatedProxy) {
+    throw new Error('Direct TLS and TLS-terminated proxy mode are mutually exclusive');
+  }
+  if (!tls && !tlsTerminatedProxy) {
+    throw new Error('Direct TLS or explicit TLS-terminated proxy mode is required');
   }
 
   const backendOrigin = backendOriginForTests ?? BACKEND_ORIGIN;
@@ -252,17 +255,27 @@ export function createBedrockBridge({
   };
 }
 
-async function main() {
-  const certFile = process.env.TLS_CERT_FILE;
-  const keyFile = process.env.TLS_KEY_FILE;
+export function resolveListenerMode(environment = process.env) {
+  const certFile = environment.TLS_CERT_FILE;
+  const keyFile = environment.TLS_KEY_FILE;
+  const tlsTerminatedProxy = environment.TRUST_PROXY_TLS_TERMINATION === '1';
+  if (tlsTerminatedProxy && (certFile || keyFile)) {
+    throw new Error('Do not combine proxy TLS termination with certificate files');
+  }
+  if (tlsTerminatedProxy) return { tlsTerminatedProxy: true };
   if (!certFile || !keyFile) {
     throw new Error('TLS_CERT_FILE and TLS_KEY_FILE are required');
   }
-  const tls = {
-    cert: await readFile(certFile),
-    key: await readFile(keyFile),
+  return { certFile, keyFile, tlsTerminatedProxy: false };
+}
+
+async function main() {
+  const listener = resolveListenerMode();
+  const tls = listener.tlsTerminatedProxy ? undefined : {
+    cert: await readFile(listener.certFile),
+    key: await readFile(listener.keyFile),
   };
-  const bridge = createBedrockBridge({ tls });
+  const bridge = createBedrockBridge({ tls, tlsTerminatedProxy: listener.tlsTerminatedProxy });
   const port = Number.parseInt(process.env.PORT ?? '8443', 10);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('PORT must be an integer from 1 through 65535');
