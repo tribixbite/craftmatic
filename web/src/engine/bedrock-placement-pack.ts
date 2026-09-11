@@ -19,6 +19,8 @@ export interface PlacementPackSpec {
   width: number; height: number; length: number;
   tiles: PlacementTile[];
   actors?: PlacementActor[];
+  /** Enable controls supplied by the playable DeLorean runtime. */
+  vehicleControls?: boolean;
   /** Sparse non-air model points used to make rotation obvious in preview. */
   previewPoints?: Array<{ x: number; y: number; z: number }>;
 }
@@ -80,7 +82,7 @@ const text = (value: string) => enc.encode(value.endsWith('\n') ? value : `${val
 
 // Serialized into each generated pack. Keep this function plain JavaScript so
 // its toString() output is a valid Bedrock script module after TS transpilation.
-function placementRuntime(config: any) {
+function placementRuntime(config: any, openVehicleControls?: (player: any) => Promise<void>) {
   const states = new Map(), previews = new Set(), histories = new Map(), held = new Set(), showing = new Set();
   let active: any;
   const rotations = [0, 90, 180, 270];
@@ -293,6 +295,7 @@ function placementRuntime(config: any) {
     const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(s)}\n\nPreview first: a full-size outline and model markers stay fixed at the pinned placement. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Place is always a separate confirmation.`);
     if (running) f.button('Cancel placement');
     else f.button('Pin at my feet').button('Edit coordinates').button(`Rotate → ${(s.rotation + 90) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview').button('Lighting / night vision');
+    if (!running && config.vehicleControls) f.button('DeLorean controls');
     const r = await show(p, f); if (r.canceled) return;
     if (running) { if (active?.player === p.id) active.cancelled = true; return tell(p, 'Cancel requested.'); }
     if (r.selection === 0) { s.anchor = { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) }; s.dimension = p.dimension.id; previews.add(p.id); return menu(p); }
@@ -303,6 +306,7 @@ function placementRuntime(config: any) {
     if (r.selection === 5) return undo(p);
     if (r.selection === 6) { previews.delete(p.id); return tell(p, 'Preview hidden.'); }
     if (r.selection === 7) return lighting(p);
+    if (r.selection === 8 && config.vehicleControls && openVehicleControls) return openVehicleControls(p);
   }
   world.afterEvents.itemUse.subscribe((ev: any) => { if (ev.itemStack.typeId === config.itemId) system.run(() => menu(ev.source).catch((e: any) => tell(ev.source, e.message || String(e)))); });
   console.warn(`BRICK_WAND_READY ${config.id}`);
@@ -312,8 +316,9 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   const id = spec.stem.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'model';
   const itemId = `craftmatic:${id}_brick_wand`;
   const shortAlias = placementAlias(spec.stem);
-  const config = { id, shortAlias, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120) };
-  const script = `import { world, system, StructureSaveMode } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG);\n`;
+  const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120) };
+  const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
+  const script = `${controlsImport}import { world, system, StructureSaveMode } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG${spec.vehicleControls ? ", showTimeMachineControls" : ""});\n`;
   const item = {
     format_version: '1.21.30',
     'minecraft:item': {

@@ -91,3 +91,9 @@ An alternative narrow experiment is prepared in `bridge/cloudflare-header-rule.j
 
 
 The loopback bridge completed the existing three-chunk P-384/AES-256-CFB8 simulator against the production Cloudflare backend. Its raw handshake test verifies exact `Connection: Upgrade` capitalization; six bridge tests cover opcode preservation, strict routes/protocol, backend failure, TTL cleanup and the 64-connection admission limit. This proves the bridge mechanism, not deployment or a native-device success at a new public hostname. The standalone Docker build uses a locked `ws` dependency and direct TLS certificate/key files.
+
+## DeLorean time circuit
+
+New playable 10300/DeLorean exports add **DeLorean controls** to the Brick Wand menu. Mount the car or stand within 32 blocks, enter destination X/Y/Z and a trigger speed (10–150 mph, default 88), then wait for “Destination ready.” Hold forward to accelerate gradually. The circuit jumps once when measured forward speed reaches the selected threshold, stops the car at the exact entered coordinates, and preserves or restores its riders. Set the circuit again for another jump. Destination preparation expires after 60 seconds or a rider dismount; obstructed or unloaded destinations report an error and require rearming.
+
+The controller targets a 6 mph-per-second ramp, compensates for retained velocity under drag, and uses interval-start velocity to avoid false jumps while pushing against a wall. Units use one block as one metre. Runtime tests cover strong simulated drag, stationary collisions, braking, exact coordinates, a single jump, and oversized-coordinate rejection. These tests and browser archive inspection do not establish native Bedrock driving feel or physics; device verification remains separate.

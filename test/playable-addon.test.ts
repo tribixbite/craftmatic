@@ -168,6 +168,79 @@ describe('playable Bedrock add-on',()=>{
     expect(script).toContain("(vehicle.nameTag||vehicle.typeId)+' @ '");
   });
 
+  it('adds configurable 10300 time circuits with slow forward acceleration', async () => {
+    const result = await buildPlayableAddon(model(), { stem: 'BackToThe-10300', label: 'Back to the Future Time Machine', vehicleMode: 'car' });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    expect(entries).toContain('Craftmatic_backtothe_10300_BP/scripts/time-machine.js');
+    const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_backtothe_10300_BP/entities/backtothe_10300_backtothe_10300.json')))['minecraft:entity'].components;
+    expect(entity['minecraft:movement']).toEqual({ value: .02, max: 6 });
+    const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_backtothe_10300_BP/scripts/placement.js'));
+    expect(placement).toContain('import { showTimeMachineControls } from "./time-machine.js"');
+    expect(placement).toContain('"vehicleControls":true');
+    const script = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_backtothe_10300_BP/scripts/time-machine.js'));
+    expect(script).toContain('MPH_PER_BLOCK_TICK = 20 * 2.236936');
+    expect(script).toContain('ACCEL_MPH_PER_SECOND = 6');
+    expect(script).toContain('BRAKE_MPH_PER_SECOND = 60');
+    expect(script).toContain('e.typeId === config.typeId');
+    expect(script).toContain("getMovementVector()?.y");
+    expect(script).toContain('slider("Teleport speed (mph) · mph = blocks/sec × 2.236936"');
+    expect(script).toContain('destination vehicle-height clearance is obstructed');
+    expect(script).toContain('vehicle.tryTeleport');
+    expect(script).toContain('rideable?.addRider?.(rider)');
+    expect(script).toContain('time circuit disarmed');
+    const named = await buildPlayableAddon(model(), { stem: 'custom-delorean', label: 'DeLorean', vehicleMode: 'car' });
+    const namedEntity = JSON.parse(new TextDecoder().decode(await extractFile(ab(named.bytes), 'Craftmatic_custom_delorean_BP/entities/custom_delorean_custom_delorean.json')))['minecraft:entity'].components;
+    expect(namedEntity['minecraft:movement']).toEqual({ value: .02, max: 6 });
+  });
+
+  it('ramps through drag, brakes, and performs one exact armed time jump', async () => {
+    const result = await buildPlayableAddon(model(), { stem: 'BackToThe-10300', label: 'Back to the Future Time Machine', vehicleMode: 'car' });
+    let script = new TextDecoder().decode(await extractFile(ab(result.bytes), 'Craftmatic_backtothe_10300_BP/scripts/time-machine.js'));
+    script = script.replace(/^import .*;$/gm, '').replace('export { showTimeMachineControls };', 'return showTimeMachineControls;');
+    let interval: (() => void) | undefined;
+    const commands: string[] = [], teleports: Array<{x:number;y:number;z:number}> = [], dynamic = new Map<string, unknown>();
+    let movementY = 1, velocity = { x: 0, y: 0, z: 0 };
+    const player: any = { id: 'player', typeId: 'minecraft:player', location: { x: 0, y: 70, z: 0 },
+      inputInfo: { getMovementVector: () => ({ x: 0, y: movementY }) }, sendMessage: vi.fn(), onScreenDisplay: { setActionBar: vi.fn() } };
+    const rideable = { getRiders: () => [player], addRider: vi.fn(() => true) };
+    const dimension: any = { heightRange: { min: -64, max: 320 },
+      getEntities: ({ type }: any) => type === 'craftmatic:backtothe_10300_backtothe_10300' ? [vehicle] : [],
+      getBlock: () => ({ typeId: 'minecraft:air' }), runCommand: (command: string) => { commands.push(command); return { successCount: 1 }; } };
+    const vehicle: any = { id: 'car', typeId: 'craftmatic:backtothe_10300_backtothe_10300', dimension, location: { x: 0, y: 70, z: 0 },
+      getComponent: (id: string) => id === 'minecraft:rideable' ? rideable : undefined, getVelocity: () => ({ ...velocity }), getViewDirection: () => ({ x: 0, y: 0, z: 1 }),
+      applyImpulse: (v: any) => { velocity = { x: velocity.x + v.x, y: velocity.y + v.y, z: velocity.z + v.z }; }, clearVelocity: () => { velocity = { x: 0, y: 0, z: 0 }; },
+      getRotation: () => ({ x: 0, y: 0 }), tryTeleport: (p: any) => { teleports.push({ ...p }); vehicle.location = { ...p }; return true; },
+      getDynamicProperty: (key: string) => dynamic.get(key), setDynamicProperty: (key: string, value: unknown) => dynamic.set(key, value) };
+    player.dimension = dimension;
+    let formValues = [10, 80, 20, 150];
+    class Form { title() { return this; } textField() { return this; } slider() { return this; } async show() { return { canceled: false, formValues }; } }
+    const world = { getDimension: (id: string) => { if (id !== 'overworld') throw new Error('missing'); return dimension; } };
+    const system = { runInterval: (fn: () => void) => { interval = fn; }, runTimeout: (fn: () => void) => fn() };
+    const show = new Function('world', 'system', 'ModalFormData', script)(world, system, Form);
+    await show(player);
+    expect(dynamic.get('craftmatic:time_armed')).toBe(true);
+    expect(commands.some(c => c.startsWith('tickingarea add '))).toBe(true);
+    interval!();
+    expect(Math.hypot(velocity.x, velocity.z) * 20 * 2.236936).toBeLessThan(2);
+    for (let i = 0; i < 500 && !teleports.length; i++) { velocity.x *= .3; velocity.z *= .3; interval!(); await Promise.resolve(); }
+    expect(teleports).toEqual([{ x: 10, y: 80, z: 20 }]);
+    expect(dynamic.get('craftmatic:time_armed')).toBe(false);
+    for (let i = 0; i < 40; i++) { velocity.x *= .7; velocity.z *= .7; interval!(); await Promise.resolve(); }
+    expect(teleports).toHaveLength(1);
+    await show(player);
+    for (let i = 0; i < 500; i++) { velocity = { x: 0, y: 0, z: 0 }; interval!(); await Promise.resolve(); }
+    expect(teleports).toHaveLength(1);
+    movementY = 0;
+    for (let i = 0; i < 60; i++) { velocity.x *= .7; velocity.z *= .7; interval!(); }
+    expect(Math.hypot(velocity.x, velocity.z) * 20 * 2.236936).toBeLessThan(1);
+    expect(commands.some(c => c.startsWith('tickingarea remove '))).toBe(true);
+    const adds = commands.filter(c => c.startsWith('tickingarea add ')).length;
+    formValues = [1e100, 80, 20, 88];
+    await show(player);
+    expect(commands.filter(c => c.startsWith('tickingarea add '))).toHaveLength(adds);
+    expect(player.sendMessage).toHaveBeenLastCalledWith('Use coordinates within +/-29,999,999 and a speed from 10 to 150 mph.');
+  });
+
   it('reports deduplicated structure blocks that Bedrock cannot encode', async () => {
     const grid = new BlockGrid(2, 1, 1);
     grid.set(0, 0, 0, 'minecraft:unknown_fixture');

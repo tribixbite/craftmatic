@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { buildPlacementPackAssets } from '../web/src/engine/bedrock-placement-pack.js';
 
 it('executes the exported wand through pin, rotate, preview, confirmed placement and undo', async () => {
-  const assets = buildPlacementPackAssets({ stem: 'runtime', label: 'Runtime', width: 40, height: 100, length: 20,
+  const assets = buildPlacementPackAssets({ stem: 'runtime', label: 'Runtime', vehicleControls: true, width: 40, height: 100, length: 20,
     tiles: [0, 18].map((dx, i) => ({ identifier: `craftmatic:t${i}`, dx, dy: 0, dz: 0, width: 18, height: 2, length: 2, nonAir: 1 })),
     actors: [{ typeId: 'craftmatic:car', label: 'Car', x: .5, y: 1, z: 1.5 }], previewPoints: [{ x: .5, y: .5, z: 1.5 }] });
   const responses: any[] = [];
@@ -38,7 +38,8 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
     } };
   const system = { run: (fn: any) => fn(), runTimeout: (fn: any) => queueMicrotask(fn), runInterval: (fn: any, ticks: number) => { intervals.set(ticks, fn); } };
   const source = assets.script.replace(/^import .*;\s*$/gm, '');
-  new Function('world', 'system', 'StructureSaveMode', 'ActionFormData', 'ModalFormData', source)(world, system, { Memory: 'memory' }, Form, Form);
+  const showTimeMachineControls = vi.fn(async () => {});
+  new Function('world', 'system', 'StructureSaveMode', 'ActionFormData', 'ModalFormData', 'showTimeMachineControls', source)(world, system, { Memory: 'memory' }, Form, Form, showTimeMachineControls);
   const flush = async (turns = 60) => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
   const pollHeldItem = intervals.get(5), drawPreview = intervals.get(12);
 
@@ -161,4 +162,9 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   expect(player.removeEffect).toHaveBeenCalledWith('minecraft:night_vision');
   expect(commands).toHaveLength(commandsBeforeLighting);
   expect(snapshots).toHaveLength(snapshotsBeforeLighting);
+  expect(showTimeMachineControls).not.toHaveBeenCalled();
+  responses.push({ selection: 8 });
+  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  expect(showTimeMachineControls).toHaveBeenCalledExactlyOnceWith(player);
+  expect(commands).toHaveLength(commandsBeforeLighting);
 });
