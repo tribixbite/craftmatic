@@ -95,3 +95,16 @@ Railway CLI 3.19.1 could not upload directly from this worktree (`prefix not fou
 - **DeLorean 10300 Polish**:
   - Sonic explosion and electric sparks FX added around the 88 mph time jump.
 
+### 3. Live Playwright MCP Production Verification (`craftmatic.click`)
+Verified against the live production deployment via Playwright MCP (`http://localhost:8989/mcp`):
+- **Cars Verified (4/4)**:
+  1. `30572-1` (Race Car, 68 parts): 13,750 bytes, `variable_max_auto_step` controlled value `1.56`, `vehicle-driver.js` present & imported into `main.js`, rideable seats & wand item present.
+  2. `31027-1` (Blue Racer, 67 parts): 14,266 bytes, `autoStep` controlled value `1.56`, `vehicle-driver.js` present & imported into `main.js`, rideable seats & wand item present.
+  3. `31040-1` (Desert Racers, 65 parts): 13,974 bytes, `autoStep` controlled value `1.56`, `vehicle-driver.js` present & imported into `main.js`, rideable seats & wand item present.
+  4. `42026-1` (Black Champion Racer, 138 parts): 17,358 bytes, `autoStep` controlled value `1.56`, `vehicle-driver.js` present & imported into `main.js`, rideable seats & wand item present.
+- **Planes Verified (2/2)**:
+  5. `1775-1` (Jet, 165 parts): 21,516 bytes, `minecraft:input_air_controlled: true`, flight physics, `vehicle-driver.js` present & imported into `main.js`.
+  6. `31028-1` (Sea Plane, 53 parts): 15,069 bytes, `minecraft:input_air_controlled: true`, flight physics, `vehicle-driver.js` present & imported into `main.js`.
+All 6/6 downloaded `.mcaddon` archives validated successfully for valid manifests, sound definitions, item definitions, and Bedrock client/server entity schemas.
+
+
