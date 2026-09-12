@@ -62,3 +62,36 @@ Railway CLI 3.19.1 could not upload directly from this worktree (`prefix not fou
 2. Reconnect the Pixel or obtain its current ADB address, then test a fresh `/connect` command in the existing enabled HotSchem QA world. The last address `192.168.0.216:5555` was unreachable and `adb devices` was empty. No device/world changes were made. Distinguish native pairing, receiver receipt, and actual placement; the simulator only establishes protocol delivery.
 3. Verify DeLorean acceleration, cockpit/rider behavior and one-shot teleport natively using the assembled source. The runtime simulation is not proof of Bedrock driving feel.
 4. Coordinate the default 10300 reconstruction fallback issue with the other agent; do not silently substitute or edit their pipeline.
+
+---
+
+## Update: September 12, 2026 — HotSchem Migration and Arcade Vehicle UX
+
+### 1. Migrated Tools & Pipelines
+- **Shape-Aware Detail Materials Slope Smoother (`schem-detail`)**:
+  - Ported from HotSchem slope smoother into `web/src/engine/schem-detail.ts`.
+  - Intelligently replaces stepped colored concrete/wool/terracotta edges with tonally matched vanilla stairs and slabs (quartz, diorite, polished blackstone, mud brick, waxed cut copper, sandstone, purpur, prismarine, etc.).
+  - Preserves flat surface tops and internal solid blocks.
+  - Fully tested (`test/schem-detail.test.ts`, 6/6 tests passing) and integrated with pipeline/settings UI toggles (`schem-settings.ts`, `schem-pipeline.ts`, `schem-settings-panel.ts`, `schem-export.ts`).
+- **Offline HTML Importer**:
+  - Mirrored standalone browser schematic-to-mcaddon pack builder to `web/public/hotschem.html`.
+- **Windows Bedrock Installation Utility**:
+  - Created `scripts/install-windows-bedrock.ps1` supporting automatic discovery of `.mcaddon` archives, dry-run directory verification, and `-Install` extraction directly to Windows Bedrock `com.mojang` behavior/resource packs.
+- **Vehicle Component Detection Expansion**:
+  - Added rich set of vehicle naming keywords (`jeep`, `suv`, `van`, `speed champions`, `dragster`, `rover`, `hypercar`, `supercar`, `hotrod`, `biplane`, `chopper`, `fighter`, `starship`) and wheel parts (`6014`, `6015`, `56898`, `56902`, `4488`, `4266`, etc.) in `web/src/engine/playable-components.ts`.
+
+### 2. Vehicle Arcade Driving UX in Minecraft Bedrock
+- **Climbing Auto-Step**:
+  - Raised car `variable_max_auto_step` controlled value to `1.56` in `behaviorEntity`.
+  - Vehicles effortlessly climb 1-block steps, curbs, and slabs without stalling.
+- **Universal Arcade Vehicle Controller (`vehicle-driver.js`)**:
+  - Generated and imported for all playable cars and planes.
+  - **Speedometer HUD**: Dynamic action bar readout with speed in mph, plane altitude, and turbo cooldown status.
+  - **Nitro Turbo Boost**: Player pressing Jump applies an instant forward impulse with campfire smoke and flame exhaust particles.
+  - **Suspension Obstacle Hop**: Automatic upward impulse kicks in if a car stalls against small barriers or bumps.
+  - **Drift Tire Smoke**: Tight turns at high speed spawn tire smoke and skid audio.
+  - **Automatic Headlights**: Night vision applied seamlessly while driving.
+  - **Horn Audio**: Interaction and impact triggers playful horn audio.
+- **DeLorean 10300 Polish**:
+  - Sonic explosion and electric sparks FX added around the 88 mph time jump.
+

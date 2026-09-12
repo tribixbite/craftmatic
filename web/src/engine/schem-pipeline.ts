@@ -25,6 +25,7 @@ import { voxelizeLDraw, fillSingleVoxelGaps, type VoxelizeOptions, type Voxelize
 import { encodeSchemBytes, encodeLitematicBytes } from './schem-encode.js';
 import { addInteriorLights, type LightFillResult } from './light-fill.js';
 import { applyBlockShapes, type ShapeHints, type ShapeStats } from './block-shapes.js';
+import { applyDetailMaterials, type DetailMaterialsStats } from './schem-detail.js';
 import { applyPartElements, type ElementStats } from './part-elements.js';
 import { getBlockProfile, type BrickColorSpace } from './block-profiles.js';
 import { BlockGrid } from '@craft/schem/types.js';
@@ -79,6 +80,8 @@ export interface SchemWorkerInput {
    * `false` reproduces the pre-2026-09-08 all-cubes output byte for byte.
    */
   shapes: boolean;
+  /** Smooth slopes into tonally-matched stairs/slabs (HotSchem detail engine). */
+  detailMaterials?: boolean;
   /** Absolute origin for /ldraw-parts fetches inside the worker (bricks only). */
   ldrawBase?: string;
   /**
@@ -147,6 +150,8 @@ export interface SchemPipelineResult {
   lightFill?: LightFillResult;
   /** Non-null only when the block-shape pass ran (bricks source, shapes on). */
   shapes?: ShapeStats;
+  /** Non-null only when slope detail materials pass ran. */
+  detailMaterials?: DetailMaterialsStats;
   /** Non-null only when a mapped part was small enough for a Minecraft element. */
   elements?: ElementStats;
   /** Non-null only for `format: 'mcpack'`. */
@@ -215,6 +220,12 @@ export async function runSchemPipeline(
     }
   }
 
+  let detailStats: DetailMaterialsStats | undefined;
+  if (input.detailMaterials) {
+    onProgress('smoothing slopes with detail materials');
+    detailStats = applyDetailMaterials(grid, { stairs: true, slabs: false });
+  }
+
   let lightFill: LightFillResult | undefined;
   if (input.lightFill) {
     onProgress('lighting interiors');
@@ -233,13 +244,14 @@ export async function runSchemPipeline(
 
   const nonAir = grid.countNonAir();
   const lights = lightFill?.lights ?? 0;
-  if (input.format === 'guide') return { grid, gridOrigin: sourceOrigin, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats };
+  if (input.format === 'guide') return { grid, gridOrigin: sourceOrigin, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats };
 
   if (input.format === 'live') {
     onProgress('preparing live Bedrock delivery');
     const { encodeLiveGrid } = await import('./live-model.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     return { grid, bytes: encodeLiveGrid(grid, input.packLabel ?? input.packStem ?? 'Imported build'), nonAir, lights,
+      shapes: shapeStats, elements: elementStats, detailMaterials: detailStats,
       mcpack: { functionCommand: '', tileCount: 0, unmapped: [], warnings: bedrockExportNotes(grid) } };
   }
 
@@ -290,7 +302,7 @@ export async function runSchemPipeline(
       }
     }
     const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, components: components.length ? components : undefined, screens, onProgress });
-    return { grid, bytes: pack.bytes, nonAir, lights, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
+    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 
   if (input.format === 'mcpack') {
@@ -304,7 +316,7 @@ export async function runSchemPipeline(
     });
     return {
       grid, bytes: pack.bytes, nonAir, lights, lightFill,
-      shapes: shapeStats, elements: elementStats,
+      shapes: shapeStats, elements: elementStats, detailMaterials: detailStats,
       mcpack: {
         functionCommand: pack.functionCommand,
         tileCount: pack.tiles.length,
@@ -317,7 +329,7 @@ export async function runSchemPipeline(
   if (input.format !== 'schem' && input.format !== 'litematic') throw new Error(`Unsupported export format: ${input.format}`);
   onProgress(input.format === 'schem' ? 'writing NBT' : 'writing Litematica NBT');
   const bytes = input.format === 'schem' ? encodeSchemBytes(grid) : encodeLitematicBytes(grid);
-  return { grid, bytes, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats };
+  return { grid, bytes, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats };
 }
 
 /** Keep separately voxelized assemblies in the original model's coordinate frame. */

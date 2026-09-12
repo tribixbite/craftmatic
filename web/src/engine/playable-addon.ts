@@ -119,7 +119,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             'minecraft:input_ground_controlled': {},
             'minecraft:movement.basic': { max_turn: 18 },
             'minecraft:navigation.walk': { can_path_over_water: true, avoid_damage_blocks: false },
-            'minecraft:variable_max_auto_step': { base_value: 1.25, controlled_value: 1.25, jump_prevented_value: .6 },
+            'minecraft:variable_max_auto_step': { base_value: 1.25, controlled_value: 1.56, jump_prevented_value: .6 },
         });
     else
         Object.assign(common, {
@@ -348,6 +348,9 @@ function timeMachineRuntime(config: { typeId: string; width: number; height: num
   const teleport = async (vehicle: any, state: any, riders: any[]) => {
     state.armed = false; state.inFlight = true; state.targetMph = 0; state.commandMph = 0; vehicle.setDynamicProperty?.('craftmatic:time_armed', false);
     try { vehicle.clearVelocity(); } catch {}
+    try { vehicle.dimension?.spawnParticle?.('minecraft:sonic_explosion', vehicle.location); } catch {}
+    try { vehicle.dimension?.playSound?.('random.explode', vehicle.location, { volume: 1, pitch: 0.8 }); } catch {}
+    try { vehicle.dimension?.playSound?.('beacon.activate', vehicle.location, { volume: 1, pitch: 1.2 }); } catch {}
     const p = state.destination, rotation = vehicle.getRotation?.();
     try {
       let moved = false;
@@ -364,6 +367,8 @@ function timeMachineRuntime(config: { typeId: string; width: number; height: num
         }
         complete = complete && mounted;
       }
+      try { vehicle.dimension?.spawnParticle?.('minecraft:sonic_explosion', { x: p.x, y: p.y, z: p.z }); } catch {}
+      try { vehicle.dimension?.playSound?.('beacon.power', { x: p.x, y: p.y, z: p.z }, { volume: 1, pitch: 1 }); } catch {}
       for (const rider of riders) rider.sendMessage?.(complete ? `Time jump complete at ${state.threshold} mph.` : 'Vehicle moved, but a rider could not be remounted. Move to open ground before trying again.');
     } finally { await removeArea(state); state.inFlight = false; }
   };
@@ -400,6 +405,12 @@ function timeMachineRuntime(config: { typeId: string; width: number; height: num
       state.commandMph = commandMph;
       const target = commandMph / MPH_PER_BLOCK_TICK;
       try { vehicle.applyImpulse({ x: direction.x / horizontalDirection * target - velocity.x, y: 0, z: direction.z / horizontalDirection * target - velocity.z }); } catch {}
+      if (rider && tick % 20 === 0) {
+        try { rider.addEffect?.('minecraft:night_vision', 80, { showParticles: false }); } catch {}
+      }
+      if (rider && forwardMph > 60 && tick % 6 === 0) {
+        try { vehicle.dimension?.spawnParticle?.('minecraft:electric_spark_particle', vehicle.location); } catch {}
+      }
       if (rider && tick % 4 === 0) rider.onScreenDisplay?.setActionBar?.(`${mph.toFixed(1)} mph · ${state.armed ? (state.ready ? `armed ${state.threshold} mph` : 'loading destination') : 'time circuit disarmed'}`);
       if (rider && forward && state.armed && state.ready && !state.failed && forwardMph >= state.threshold) { state.inFlight = true; void teleport(vehicle, state, riders); }
     }
@@ -409,6 +420,133 @@ function timeMachineRuntime(config: { typeId: string; width: number; height: num
 }
 
 const timeMachineScript = (config: { typeId: string; width: number; height: number; length: number }) => `import { world, system } from "@minecraft/server";\nimport { ModalFormData } from "@minecraft/server-ui";\nconst showTimeMachineControls = (${timeMachineRuntime.toString()})(${JSON.stringify(config)});\nexport { showTimeMachineControls };\n`;
+
+function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane'; label: string }> }) {
+  const MPH_PER_BLOCK_TICK = 20 * 2.236936;
+  const vehiclesByType = new Map(config.vehicles.map((v: any) => [v.typeId, v]));
+  const states = new Map<string, any>();
+  const dimensions = () => ['overworld', 'nether', 'the_end'].flatMap(id => {
+    try { return [world.getDimension(id)]; } catch { return []; }
+  });
+  const activeVehicles = () => dimensions().flatMap(d => {
+    return config.vehicles.flatMap(v => {
+      try {
+        return d.getEntities({ type: v.typeId })
+          .filter((e: any) => e.typeId === v.typeId)
+          .map((e: any) => ({ vehicle: e, config: v }));
+      } catch {
+        return [];
+      }
+    });
+  });
+
+  let tick = 0;
+  system.runInterval(() => {
+    tick += 2;
+    for (const { vehicle, config: vConfig } of activeVehicles()) {
+      let riders: any[] = [];
+      try { riders = vehicle.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch {}
+      const rider = riders.find((e: any) => e.typeId === 'minecraft:player') ?? riders[0];
+      if (!rider) continue;
+
+      let state = states.get(vehicle.id);
+      if (!state) {
+        state = { boostCooldown: 0, stallTicks: 0, lastMph: 0 };
+        states.set(vehicle.id, state);
+      }
+      if (state.boostCooldown > 0) state.boostCooldown -= 2;
+
+      const vel = vehicle.getVelocity?.() ?? { x: 0, y: 0, z: 0 };
+      const horizontal = Math.hypot(vel.x, vel.z);
+      const mph = horizontal * MPH_PER_BLOCK_TICK;
+      const isCar = vConfig.kind === 'car';
+
+      let jump = false;
+      let forwardInput = 0;
+      let steerInput = 0;
+      try {
+        const m = rider.inputInfo?.getMovementVector?.();
+        forwardInput = m?.y ?? 0;
+        steerInput = m?.x ?? 0;
+        jump = !!(rider.isJumping || rider.inputInfo?.getButtonState?.('Jump') === 'Pressed');
+      } catch {}
+
+      const dir = vehicle.getViewDirection?.() ?? { x: 0, y: 0, z: 1 };
+      const hDir = Math.hypot(dir.x, dir.z) || 1;
+
+      // 1. Turbo Boost on Jump
+      if (jump && state.boostCooldown <= 0 && forwardInput >= 0) {
+        state.boostCooldown = 30;
+        const boost = isCar ? 0.4 : 0.5;
+        const lift = isCar ? 0.15 : (dir.y * 0.3 + 0.1);
+        try {
+          vehicle.applyImpulse?.({
+            x: (dir.x / hDir) * boost,
+            y: lift,
+            z: (dir.z / hDir) * boost,
+          });
+        } catch {}
+        try { vehicle.dimension?.playSound?.('firework.launch', vehicle.location, { volume: 0.8, pitch: 1.2 }); } catch {}
+        try { vehicle.dimension?.spawnParticle?.('minecraft:flame_particle', vehicle.location); } catch {}
+        try { vehicle.dimension?.spawnParticle?.('minecraft:campfire_smoke_particle', vehicle.location); } catch {}
+      }
+
+      // 2. Obstacle Suspension Hop (for cars)
+      if (isCar) {
+        const forwardMph = Math.max(0, (vel.x * dir.x + vel.z * dir.z) / hDir) * MPH_PER_BLOCK_TICK;
+        if (forwardInput > 0.3 && forwardMph < 1.2 && state.lastMph > 2) {
+          state.stallTicks += 2;
+        } else {
+          state.stallTicks = 0;
+        }
+        if (state.stallTicks >= 4 && state.stallTicks <= 8) {
+          try { vehicle.applyImpulse?.({ x: 0, y: 0.28, z: 0 }); } catch {}
+          try { vehicle.dimension?.playSound?.('step.stone', vehicle.location, { volume: 0.5, pitch: 1.4 }); } catch {}
+        }
+      }
+
+      // 3. Drift Tire Smoke on High Speed Turns
+      if (isCar && mph > 10 && Math.abs(steerInput) > 0.35) {
+        try { vehicle.dimension?.spawnParticle?.('minecraft:smoke_particle', vehicle.location); } catch {}
+        if (tick % 8 === 0) {
+          try { vehicle.dimension?.playSound?.('step.cloth', vehicle.location, { volume: 0.4, pitch: 0.7 }); } catch {}
+        }
+      }
+
+      // 4. Headlights (automatic night vision)
+      if (tick % 20 === 0) {
+        try { rider.addEffect?.('minecraft:night_vision', 80, { showParticles: false }); } catch {}
+      }
+
+      // 5. Action Bar Speedometer HUD
+      if (tick % 4 === 0) {
+        const boostReady = state.boostCooldown <= 0;
+        const icon = isCar ? '🏎️' : '✈️';
+        const boostTag = boostReady ? ' · §a[JUMP: NITRO]§r' : ` · §8[NITRO: ${(state.boostCooldown / 20).toFixed(1)}s]§r`;
+        const hud = isCar
+          ? `${icon} §e${mph.toFixed(1)} mph§r${boostTag}`
+          : `${icon} §e${mph.toFixed(1)} mph§r · §bALT ${Math.floor(vehicle.location?.y ?? 0)}§r${boostTag}`;
+        try { rider.onScreenDisplay?.setActionBar?.(hud); } catch {}
+      }
+
+      state.lastMph = mph;
+    }
+  }, 2);
+
+  try {
+    world.afterEvents?.entityHitEntity?.subscribe?.((ev: any) => {
+      try {
+        if (vehiclesByType.has(ev.hitEntity?.typeId)) {
+          ev.hitEntity.dimension?.playSound?.('note.bell', ev.hitEntity.location, { volume: 0.8, pitch: 1.2 });
+        }
+      } catch {}
+    });
+  } catch {}
+}
+
+const vehicleDriverScript = (config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane'; label: string }> }) =>
+  `import { world, system } from "@minecraft/server";\n(${vehicleDriverRuntime.toString()})(${JSON.stringify(config)});\n`;
+
 function blockRgb(state: string): [
     number,
     number,
@@ -472,6 +610,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE);
     const actors: PlacementActor[] = [];
     let timeMachineConfig: { typeId: string; width: number; height: number; length: number } | undefined;
+    const driverVehicles: Array<{ typeId: string; kind: 'car' | 'plane'; label: string }> = [];
     const unmapped = new Set<string>();
     for (let i = 0; i < plan.length; i++) {
         const tile = plan[i]!, out = encodeMcstructureTile(grid, tile);
@@ -481,16 +620,19 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     }
     for (const c of components) {
         const cid = safe(`${id}_${c.id}`).length === `${id}_${c.id}`.length ? safe(`${id}_${c.id}`) : safe(`${id.slice(0, 24)}_${c.id.slice(0, 12)}_${deterministicUuid(`${id}:${c.id}`).slice(0, 8)}`);
+        const fullTypeId = `${PACK_NAMESPACE}:${cid}`;
         const facing = options.vehicleFacing && options.vehicleFacing !== 'auto' ? options.vehicleFacing : c.forwardDirection ?? 'auto';
         if (c.kind === 'car' && facing === 'auto') warnings.push(`${c.label}: front/rear direction was not identifiable from source geometry; select an explicit vehicle facing if it drives backward.`);
         const layout = componentLayout(c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
         const componentIsTimeMachine = isTimeMachine && c.kind === 'car' && !timeMachineConfig;
         if (componentIsTimeMachine)
-            timeMachineConfig = { typeId: `${PACK_NAMESPACE}:${cid}`, width: layout.width, height: layout.height, length: layout.length };
+            timeMachineConfig = { typeId: fullTypeId, width: layout.width, height: layout.height, length: layout.length };
+        else if (c.kind === 'car' || c.kind === 'plane')
+            driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
         files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine)) });
         const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
         files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: palettePng(geo.palette) });
-        actors.push({ typeId: `${PACK_NAMESPACE}:${cid}`, label: c.label, x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2, yaw: layout.actorYaw });
+        actors.push({ typeId: fullTypeId, label: c.label, x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2, yaw: layout.actorYaw });
     }
     const screens = options.screens ?? [], screenId = `${id}_control_screen`;
     if (screens.length) {
@@ -514,7 +656,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(timeMachineConfig ? { vehicleControls: true } : {}) });
     files.push(...placement.files.map(file => ({ ...file, name: bp + file.name })));
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
-    files.push({ name: `${bp}scripts/main.js`, data: text("import './placement.js';\nconst SCREEN_TYPE = " + JSON.stringify(PACK_NAMESPACE + ':' + screenId) + ';\n' + SCREEN_SCRIPT) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, preview, rotate, place, and undo.\nCars: interact to ride and use normal movement controls. Planes: ride, then use movement and ascent controls. Vehicles resist damage.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles })) });
+    const mainImports = [
+        "import './placement.js';",
+        ...(driverVehicles.length ? ["import './vehicle-driver.js';"] : []),
+    ].join('\n');
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, preview, rotate, place, and undo.\nCars: interact to ride, press Jump for nitro boost, and steer into turns to drift. Planes: ride to fly with full 3D pitch/yaw and speed HUD. Vehicles resist damage.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings };

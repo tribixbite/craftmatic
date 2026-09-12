@@ -20,12 +20,16 @@ export interface PlayableBrickComponent {
   seatAnchor?: { x: number; y: number; z: number };
 }
 
-const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|vehicle|tractor|loader|motorcycle|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1)\b/i;
-const PLANE_WORDS = /\b(plane|airplane|aeroplane|jet|aircraft|starfighter|fighter|helicopter|copter|spaceship|shuttle)\b/i;
+const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|vehicle|tractor|loader|motorcycle|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1|jeep|suv|van|pickup|dragster|hot rod|hotrod|rover|speed champions|speed champion|hypercar|supercar|automobile|limo|limousine|cab|taxi|crawler|quad|atv|go-kart|speedster|hovercraft|locomotive|camper|convertible|coupe|sedan)\b/i;
+const PLANE_WORDS = /\b(plane|airplane|aeroplane|jet|aircraft|starfighter|fighter|helicopter|copter|spaceship|shuttle|biplane|monoplane|seaplane|bomber|rotorcraft|starship|rocket|x-wing|tie fighter|falcon|interceptor|speeder|gunship|drone)\b/i;
 const SCENERY_WORDS = /\b(garage|airport|hangar|museum|station|batcave|shadowbox|shadow box|workshop|city|showroom)\b/i;
 export const isWholeVehicleLabel = (label: string): boolean => !SCENERY_WORDS.test(label) && (CAR_WORDS.test(label) || PLANE_WORDS.test(label));
-// Small/medium road wheels used by the verified 76252 source and common System cars.
-const ROAD_WHEELS = new Set(['55982', '58090', '30027', '30028', '11208', '11209', '18976', '18977', '30391']);
+// Small/medium road wheels and tires used by System and Technic vehicles.
+const ROAD_WHEELS = new Set([
+  '55982', '58090', '30027', '30028', '11208', '11209', '18976', '18977', '30391',
+  '6014', '6014b', '6015', '56898', '56897', '56902', '4488', '4266', '55981',
+  '30699', '4624', '44309', '87697', '56145', '4185',
+]);
 
 const stem = (part: string) => part.replace(/^.*[/\\]/, '').replace(/\.dat$/i, '').toLowerCase();
 

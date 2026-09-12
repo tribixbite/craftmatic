@@ -44,6 +44,7 @@ function load(): SchemExportSettings {
         lightSpacing: [3, 6, 10].includes(parsed.lightSpacing ?? 0) ? parsed.lightSpacing : 6,
         // Default ON, so a value stored before the setting existed opts in.
         shapes: parsed.shapes !== false,
+        detailMaterials: parsed.detailMaterials === true,
       };
     }
   } catch { /* private mode / corrupt value → defaults */ }
@@ -167,6 +168,14 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
     </div>
     <div class="mc-set-field">
       <label class="mc-set-check">
+        <input type="checkbox" id="mc-set-detail">
+        <span>Smooth slopes with detail materials<br>
+          <span class="mc-set-note">Upgrades step edges on colored solids to tonally-matched stairs & slabs (HotSchem detail engine).</span>
+        </span>
+      </label>
+    </div>
+    <div class="mc-set-field">
+      <label class="mc-set-check">
         <input type="checkbox" id="mc-set-light">
         <span>Light interiors<br>
           <span class="mc-set-note">Add lamps without replacing model blocks. Enable for dark builds.</span>
@@ -199,6 +208,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
   syncLights(current);
   const shapeBox = pop.querySelector('#mc-set-shapes') as HTMLInputElement;
+  const detailBox = pop.querySelector('#mc-set-detail') as HTMLInputElement;
   const preview = pop.querySelector('[data-role="preview"]') as HTMLElement;
   const profNote = pop.querySelector('[data-role="profile-note"]') as HTMLElement;
 
@@ -206,6 +216,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   profSel.value = current.profile;
   lightBox.checked = current.lightFill;
   shapeBox.checked = current.shapes;
+  detailBox.checked = current.detailMaterials === true;
   resSel.disabled = !opts.resolutionApplicable;
 
   const refresh = (): void => {
@@ -229,6 +240,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       lightStyle: styleSel.value as 'profile' | 'lantern' | 'sea_lantern',
       lightSpacing: Number(spacingSel.value),
       shapes: shapeBox.checked,
+      detailMaterials: detailBox.checked,
     });
     refresh();
   };
@@ -237,13 +249,14 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   lightBox.addEventListener('change', commit, sig);
   for (const select of [facingSel, coverageSel, styleSel, spacingSel]) select.addEventListener('change', commit, sig);
   shapeBox.addEventListener('change', commit, sig);
+  detailBox.addEventListener('change', commit, sig);
 
   const close = (): void => { pop.classList.remove('is-open'); };
   const open = (): void => {
     // Sync from module state — the other surface's popover may have changed it.
     const s = load();
     resSel.value = s.resolution; profSel.value = s.profile;
-    lightBox.checked = s.lightFill; shapeBox.checked = s.shapes; syncLights(s);
+    lightBox.checked = s.lightFill; shapeBox.checked = s.shapes; detailBox.checked = s.detailMaterials === true; syncLights(s);
     refresh();
     const r = btn.getBoundingClientRect();
     pop.classList.add('is-open');

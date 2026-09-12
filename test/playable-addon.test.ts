@@ -58,6 +58,19 @@ describe('playable Bedrock add-on',()=>{
     expect(components['minecraft:rideable'].seats.position[1]).toBeCloseTo(1.26);
     expect(components['minecraft:rideable'].seats.position[2]).toBeCloseTo(.264);
     expect(components['minecraft:rideable'].seats.lock_rider_rotation).toBe(0);
+    expect(components['minecraft:variable_max_auto_step']).toEqual({
+      base_value: 1.25,
+      controlled_value: 1.56,
+      jump_prevented_value: .6,
+    });
+    expect(entries).toContain('Craftmatic_batmobile_BP/scripts/vehicle-driver.js');
+    const mainScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/main.js'));
+    expect(mainScript).toContain("import './vehicle-driver.js';");
+    const driverScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/vehicle-driver.js'));
+    expect(driverScript).toContain('craftmatic:batmobile_batmobile');
+    expect(driverScript).toContain('boostCooldown');
+    expect(driverScript).toContain('stallTicks');
+    expect(driverScript).toContain('setActionBar');
     const fn=new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/functions/craftmatic/batmobile.mcfunction'));
     expect(fn).toContain('give @s craftmatic:batmobile_brick_wand');
     expect(fn).not.toContain('summon ');
@@ -188,6 +201,7 @@ describe('playable Bedrock add-on',()=>{
     expect(script).toContain('vehicle.tryTeleport');
     expect(script).toContain('rideable?.addRider?.(rider)');
     expect(script).toContain('time circuit disarmed');
+    expect(script).toContain('minecraft:sonic_explosion');
     const named = await buildPlayableAddon(model(), { stem: 'custom-delorean', label: 'DeLorean', vehicleMode: 'car' });
     const namedEntity = JSON.parse(new TextDecoder().decode(await extractFile(ab(named.bytes), 'Craftmatic_custom_delorean_BP/entities/custom_delorean_custom_delorean.json')))['minecraft:entity'].components;
     expect(namedEntity['minecraft:movement']).toEqual({ value: .02, max: 6 });
