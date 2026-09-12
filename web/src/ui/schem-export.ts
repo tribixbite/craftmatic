@@ -382,6 +382,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         format, profile: settings.profile, lightFill: settings.lightFill,
         lightCoverage: settings.lightCoverage, lightStyle: settings.lightStyle, lightSpacing: settings.lightSpacing, vehicleFacing: settings.vehicleFacing,
         shapes: settings.shapes,
+        detailMaterials: settings.detailMaterials,
         ldrawBase: new URL('/ldraw-parts', location.origin).toString(),
         datTexts,
         packStem: base,
@@ -403,6 +404,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         // left to refine from, so the shape pass has nothing to work with.
         format, profile: settings.profile, lightFill: settings.lightFill,
         lightCoverage: settings.lightCoverage, lightStyle: settings.lightStyle, lightSpacing: settings.lightSpacing, vehicleFacing: settings.vehicleFacing, shapes: false,
+        detailMaterials: settings.detailMaterials,
         packStem: base,
         packLabel: req.label ?? base,
         vehicleMode: req.vehicleMode ?? 'auto',

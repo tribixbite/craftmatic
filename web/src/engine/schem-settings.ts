@@ -69,6 +69,11 @@ export interface SchemExportSettings {
    * output byte for byte.
    */
   shapes: boolean;
+  /**
+   * Smooth block-staircased slopes into real Minecraft stairs and slabs using
+   * tonally-matched materials for colored concrete/wool (HotSchem detail engine).
+   */
+  detailMaterials?: boolean;
 }
 
 export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
@@ -80,6 +85,7 @@ export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
   lightSpacing: 6,
   vehicleFacing: 'auto',
   shapes: true,
+  detailMaterials: false,
 };
 
 /** Model extent in LDU (already padded by the caller). */
