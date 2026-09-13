@@ -125,3 +125,12 @@ All 6/6 downloaded `.mcaddon` archives validated successfully for valid manifest
   - Added candidate discovery fallback: if none of `['model.ldr', 'model2.ldr', 'modelv2.ldr']` exist, scans the archive for any `.ldr` or `.mpd` model file, allowing custom-named `.io` archives to load seamlessly.
 - **LXF Parser XML Fallback (`lxf-parser`)**:
   - Added fallback search for any `.lxfml` file inside `.lxf` archives if `IMAGE100.LXFML` is not found by exact name.
+
+### 5. Live Playwright MCP Watercraft Verification (`craftmatic.click`)
+Verified against the live production deployment via Playwright MCP (`http://localhost:8989/mcp`):
+- **Watercraft / Boats Verified (2/2)**:
+  7. `4641-1` (Speed Boat, 41 bricks): 15,475 bytes, `minecraft:buoyant` with `base_buoyancy: 1.0`, `navigation.walk.can_path_over_water: true`, `vehicle-driver.js` with water wake particles, `random.splash` sound FX, speedometer HUD with `⛵`, auto-step `1.56`.
+  8. `4010-1` (Police Rescue Boat, 98 bricks): 19,198 bytes, `minecraft:buoyant` with `base_buoyancy: 1.0`, `navigation.walk.can_path_over_water: true`, `vehicle-driver.js` with water wake particles, `random.splash` sound FX, speedometer HUD with `⛵`, auto-step `1.56`.
+
+**Total Live Verified Vehicles**: 8 (4 cars, 2 planes, 2 boats) exported directly from production `https://craftmatic.click`, with full Bedrock manifests, rideable seats, brick wands, and arcade driving physics.
+
