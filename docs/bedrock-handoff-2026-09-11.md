@@ -107,4 +107,21 @@ Verified against the live production deployment via Playwright MCP (`http://loca
   6. `31028-1` (Sea Plane, 53 parts): 15,069 bytes, `minecraft:input_air_controlled: true`, flight physics, `vehicle-driver.js` present & imported into `main.js`.
 All 6/6 downloaded `.mcaddon` archives validated successfully for valid manifests, sound definitions, item definitions, and Bedrock client/server entity schemas.
 
-
+### 4. Watercraft Physics & Model Pipeline Hardening (LDR/IO/LXF/ZIP)
+- **Bedrock Boat & Watercraft Mechanics (`playable-components`, `playable-addon`)**:
+  - Expanded `PlayableKind` and `VehicleMode` to include `'boat'`.
+  - Added comprehensive watercraft keyword classifier (`BOAT_WORDS`) identifying boats, ships, yachts, sailboats, speedboats, catamarans, galleons, ferries, etc.
+  - Implemented `minecraft:buoyant` fluid physics on `minecraft:water` and `minecraft:flowing_water` with `base_buoyancy: 1.0`, keeping watercraft afloat instead of sinking.
+  - Added watercraft controller mechanics: water propeller nitro boost on Jump, `random.splash` sound effects, water spray/wake particle FX, and action bar speedometer HUD with boat icon (`⛵`).
+  - Added UI mode `<option value="boat">Boat / Ship (whole model)</option>` in the LEGO tab and exporter.
+- **LDraw Parser Direct Hex Colors & Quoted Names (`ldraw-parser`)**:
+  - Added support for direct hex color IDs (`0x2RRGGBB` format) so colors are parsed as 24-bit hex RGB rather than being truncated to `0` (Black) by `parseInt(..., 10)`.
+  - Added automatic stripping of enclosing double quotes from `0 FILE "<name>"` and line type 1 `"<filename>"`.
+- **Color Resolvers (`ldraw-colors`, `textured-palette`)**:
+  - Decode direct 24-bit RGB channels from `0x2RRGGBB` colors and map perceptually to the closest solid Minecraft block in standard and textured palette modes.
+- **ZIP Utilities Central Directory Scanning (`zip-utils`)**:
+  - Added EOCD and Central Directory parsing (`scanCentralEntries`). Accurately reads compressed entry sizes, local header offsets, and uncompressed sizes for standard and streamed ZIP files (with fallback to local headers if EOCD is absent).
+- **Studio IO Extractor Model Discovery (`io-extractor`)**:
+  - Added candidate discovery fallback: if none of `['model.ldr', 'model2.ldr', 'modelv2.ldr']` exist, scans the archive for any `.ldr` or `.mpd` model file, allowing custom-named `.io` archives to load seamlessly.
+- **LXF Parser XML Fallback (`lxf-parser`)**:
+  - Added fallback search for any `.lxfml` file inside `.lxf` archives if `IMAGE100.LXFML` is not found by exact name.

@@ -22,7 +22,7 @@
  * older ones (model2.ldr) and keeps a last-resort fallback.
  */
 
-import { extractFile, extractMatching } from './zip-utils';
+import { extractFile, extractMatching, listZipEntries } from './zip-utils';
 import { BL_TO_LDRAW } from './bl-ldraw-map';
 
 const CANDIDATES = ['model.ldr', 'model2.ldr', 'modelv2.ldr'];
@@ -164,6 +164,19 @@ async function readCandidates(buffer: ArrayBuffer): Promise<Map<string, string>>
       // entry absent / decrypt failure — skip it
     }
   }
+  if (out.size === 0) {
+    // Fallback: discover any .ldr or .mpd model in the archive (excluding custom parts)
+    const allNames = listZipEntries(buffer);
+    for (const name of allNames) {
+      if (/\.(ldr|mpd)$/i.test(name) && !/^customparts\//i.test(name.replace(/\\/g, '/'))) {
+        try {
+          out.set(name, dec.decode(await extractFile(buffer, name, IO_PASSWORD)));
+        } catch {
+          // skip
+        }
+      }
+    }
+  }
   return out;
 }
 
@@ -173,6 +186,10 @@ function chooseEntry(entries: ReadonlyMap<string, string>): { entry: string; tex
   for (const name of CANDIDATES) {
     const text = entries.get(name);
     if (text === undefined) continue;
+    if (/^\s*1\s/m.test(text)) return { entry: name, text };
+    if (!fallback) fallback = { entry: name, text };
+  }
+  for (const [name, text] of entries) {
     if (/^\s*1\s/m.test(text)) return { entry: name, text };
     if (!fallback) fallback = { entry: name, text };
   }

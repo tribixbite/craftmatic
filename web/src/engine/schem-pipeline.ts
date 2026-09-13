@@ -101,7 +101,7 @@ export interface SchemWorkerInput {
   /** Human label for the pack (`Colosseum (10276)`); defaults to `packStem`. */
   packLabel?: string;
   /** Explicit whole-model vehicle override; auto preserves scenery. */
-  vehicleMode?: 'auto' | 'car' | 'plane' | 'static';
+  vehicleMode?: 'auto' | 'car' | 'plane' | 'boat' | 'static';
 }
 
 /** What a Bedrock `.mcpack` export produced, for the status line. */

@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
-import { extractFile, extractMatching, listZipEntries } from '../web/src/engine/zip-utils.js';
+import { createZip, extractFile, extractMatching, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { extractIoLDraw, extractIoModel } from '../web/src/engine/io-extractor.js';
 
 const PW = 'soho0909';
@@ -301,4 +301,29 @@ describe('zip entry enumeration + .io CustomParts extraction', () => {
     const m = await extractIoModel(zip);
     expect(m.customParts.size).toBe(0);
   });
+
+  it('correctly reads archives with Central Directory headers (via createZip)', async () => {
+    const enc = new TextEncoder();
+    const zipBytes = await createZip([
+      { name: 'folder/test.txt', data: enc.encode('Central directory content') },
+      { name: 'another.dat', data: enc.encode('1 16 0 0 0 1 0 0 0 1 0 0 0 1 3001.dat\n') },
+    ]);
+    const ab = zipBytes.buffer.slice(zipBytes.byteOffset, zipBytes.byteOffset + zipBytes.byteLength) as ArrayBuffer;
+    expect(listZipEntries(ab)).toEqual(['folder/test.txt', 'another.dat']);
+    const extracted = await extractFile(ab, 'folder/test.txt');
+    expect(new TextDecoder().decode(extracted)).toBe('Central directory content');
+  });
+
+  it('extractIoModel discovers custom-named .ldr models when standard candidates are absent', async () => {
+    const enc = new TextEncoder();
+    const zipBytes = await createZip([
+      { name: 'custom_car.ldr', data: enc.encode('1 4 0 0 0 1 0 0 0 1 0 0 0 1 3001.dat\n') },
+      { name: 'readme.txt', data: enc.encode('Build notes') },
+    ]);
+    const ab = zipBytes.buffer.slice(zipBytes.byteOffset, zipBytes.byteOffset + zipBytes.byteLength) as ArrayBuffer;
+    const m = await extractIoModel(ab);
+    expect(m.sourceEntry).toBe('custom_car.ldr');
+    expect(m.text).toContain('3001.dat');
+  });
 });
+

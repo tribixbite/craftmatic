@@ -87,7 +87,8 @@ function splitIntoSections(content: string): Section[] {
     // MPD file boundary marker: "0 FILE <name>"
     const fileMatch = /^0\s+FILE\s+(.+)$/i.exec(line);
     if (fileMatch) {
-      current = { name: fileMatch[1].trim().toLowerCase().replace(/\\/g, '/'), lines: [] };
+      const rawName = fileMatch[1].trim().replace(/^"(.*)"$/, '$1').trim();
+      current = { name: rawName.toLowerCase().replace(/\\/g, '/'), lines: [] };
       sections.push(current);
       continue;
     }
@@ -139,7 +140,9 @@ function expandSection(
     const tokens = line.split(/\s+/);
     if (tokens.length < 15 || tokens[0] !== '1') continue;
 
-    const rawColor = parseInt(tokens[1], 10);
+    const rawColor = tokens[1].toLowerCase().startsWith('0x')
+      ? parseInt(tokens[1], 16)
+      : parseInt(tokens[1], 10);
     // LDraw color 16 = "Main Color" — inherit from parent reference context
     const color = rawColor === 16 ? parentColor : rawColor;
     const lx = parseFloat(tokens[2]);
@@ -149,8 +152,8 @@ function expandSection(
     // Local rotation matrix (tokens 5–13, row-major)
     const localRot = tokens.slice(5, 14).map(Number);
 
-    // Filename may contain spaces (tokens 14+)
-    const rawFilename = tokens.slice(14).join(' ').trim();
+    // Filename may contain spaces (tokens 14+) and optional enclosing quotes
+    const rawFilename = tokens.slice(14).join(' ').trim().replace(/^"(.*)"$/, '$1').trim();
     const filename = rawFilename.toLowerCase().replace(/\\/g, '/');
     // Strip any path prefix — sections are indexed by bare filename
     const basename = filename.includes('/') ? filename.slice(filename.lastIndexOf('/') + 1) : filename;

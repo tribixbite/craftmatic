@@ -435,7 +435,7 @@ function buildUI(): void {
       </select>
       <label title="Override automatic vehicle detection for the interactive Bedrock add-on" style="margin-left:6px;font-size:0.7rem;white-space:nowrap">Vehicle
         <select id="lego-vehicle-mode" style="font-size:0.7rem;padding:2px 4px;border-radius:3px">
-          <option value="auto">Detect vehicle components</option><option value="car">Car (whole model)</option><option value="plane">Plane (whole model)</option><option value="static">Structure only</option>
+          <option value="auto">Detect vehicle components</option><option value="car">Car (whole model)</option><option value="plane">Plane (whole model)</option><option value="boat">Boat / Ship (whole model)</option><option value="static">Structure only</option>
         </select>
       </label>
       <span id="lego-mc-settings" style="margin-left:6px;display:inline-flex"></span>
@@ -1828,7 +1828,7 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         // (10276)" reads better than the filename stem.
         label: selectedSet ? `${selectedSet.name} (${selectedSet.set_num})` : base,
         settings: getSchemSettings(),
-        vehicleMode: ((document.getElementById('lego-vehicle-mode') as HTMLSelectElement | null)?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'static',
+        vehicleMode: ((document.getElementById('lego-vehicle-mode') as HTMLSelectElement | null)?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'boat' | 'static',
         onStatus: (m, k) => setStatus(m, k),
       });
       return;

@@ -110,10 +110,10 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         'minecraft:pushable': { is_pushable: false, is_pushable_by_piston: true },
         'minecraft:movement': isTimeMachine
             ? { value: .02, max: 6 }
-            : { value: kind === 'car' ? 1.05 : 1.35, max: kind === 'car' ? 1.35 : 1.8 },
+            : { value: kind === 'car' ? 1.05 : kind === 'boat' ? 1.15 : 1.35, max: kind === 'car' ? 1.35 : kind === 'boat' ? 1.5 : 1.8 },
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 160, max_dropped_ticks: 7, use_motion_prediction_hints: true } },
     };
-    if (kind === 'car')
+    if (kind === 'car') {
         Object.assign(common, {
             'minecraft:physics': { has_gravity: true, has_collision: true },
             'minecraft:input_ground_controlled': {},
@@ -121,7 +121,21 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             'minecraft:navigation.walk': { can_path_over_water: true, avoid_damage_blocks: false },
             'minecraft:variable_max_auto_step': { base_value: 1.25, controlled_value: 1.56, jump_prevented_value: .6 },
         });
-    else
+    } else if (kind === 'boat') {
+        Object.assign(common, {
+            'minecraft:physics': { has_gravity: true, has_collision: true },
+            'minecraft:buoyant': {
+                base_buoyancy: 1.0,
+                apply_gravity: true,
+                simulate_fluid_physics: true,
+                liquid_blocks: ['minecraft:water', 'minecraft:flowing_water'],
+            },
+            'minecraft:input_ground_controlled': {},
+            'minecraft:movement.basic': { max_turn: 20 },
+            'minecraft:navigation.walk': { can_path_over_water: true, avoid_damage_blocks: false },
+            'minecraft:variable_max_auto_step': { base_value: 1.25, controlled_value: 1.56, jump_prevented_value: .6 },
+        });
+    } else {
         Object.assign(common, {
             'minecraft:physics': { has_gravity: false, has_collision: true },
             'minecraft:can_fly': {},
@@ -131,6 +145,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             'minecraft:vertical_movement_action': { vertical_velocity: .9 },
             'minecraft:body_rotation_always_follows_head': {},
         });
+    }
     return { format_version: '1.21.90', 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: common } };
 }
 interface Box {
@@ -421,7 +436,7 @@ function timeMachineRuntime(config: { typeId: string; width: number; height: num
 
 const timeMachineScript = (config: { typeId: string; width: number; height: number; length: number }) => `import { world, system } from "@minecraft/server";\nimport { ModalFormData } from "@minecraft/server-ui";\nconst showTimeMachineControls = (${timeMachineRuntime.toString()})(${JSON.stringify(config)});\nexport { showTimeMachineControls };\n`;
 
-function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane'; label: string }> }) {
+function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }> }) {
   const MPH_PER_BLOCK_TICK = 20 * 2.236936;
   const vehiclesByType = new Map(config.vehicles.map((v: any) => [v.typeId, v]));
   const states = new Map<string, any>();
@@ -460,6 +475,7 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
       const horizontal = Math.hypot(vel.x, vel.z);
       const mph = horizontal * MPH_PER_BLOCK_TICK;
       const isCar = vConfig.kind === 'car';
+      const isBoat = vConfig.kind === 'boat';
 
       let jump = false;
       let forwardInput = 0;
@@ -477,8 +493,8 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
       // 1. Turbo Boost on Jump
       if (jump && state.boostCooldown <= 0 && forwardInput >= 0) {
         state.boostCooldown = 30;
-        const boost = isCar ? 0.4 : 0.5;
-        const lift = isCar ? 0.15 : (dir.y * 0.3 + 0.1);
+        const boost = isCar ? 0.4 : isBoat ? 0.45 : 0.5;
+        const lift = isCar ? 0.15 : isBoat ? 0.08 : (dir.y * 0.3 + 0.1);
         try {
           vehicle.applyImpulse?.({
             x: (dir.x / hDir) * boost,
@@ -486,9 +502,15 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
             z: (dir.z / hDir) * boost,
           });
         } catch {}
-        try { vehicle.dimension?.playSound?.('firework.launch', vehicle.location, { volume: 0.8, pitch: 1.2 }); } catch {}
-        try { vehicle.dimension?.spawnParticle?.('minecraft:flame_particle', vehicle.location); } catch {}
-        try { vehicle.dimension?.spawnParticle?.('minecraft:campfire_smoke_particle', vehicle.location); } catch {}
+        if (isBoat) {
+          try { vehicle.dimension?.playSound?.('random.splash', vehicle.location, { volume: 0.9, pitch: 1.1 }); } catch {}
+          try { vehicle.dimension?.spawnParticle?.('minecraft:water_splash_particle', vehicle.location); } catch {}
+          try { vehicle.dimension?.spawnParticle?.('minecraft:water_wake_particle', vehicle.location); } catch {}
+        } else {
+          try { vehicle.dimension?.playSound?.('firework.launch', vehicle.location, { volume: 0.8, pitch: 1.2 }); } catch {}
+          try { vehicle.dimension?.spawnParticle?.('minecraft:flame_particle', vehicle.location); } catch {}
+          try { vehicle.dimension?.spawnParticle?.('minecraft:campfire_smoke_particle', vehicle.location); } catch {}
+        }
       }
 
       // 2. Obstacle Suspension Hop (for cars)
@@ -505,12 +527,14 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         }
       }
 
-      // 3. Drift Tire Smoke on High Speed Turns
+      // 3. Drift Tire Smoke or Water Wake on High Speed Turns
       if (isCar && mph > 10 && Math.abs(steerInput) > 0.35) {
         try { vehicle.dimension?.spawnParticle?.('minecraft:smoke_particle', vehicle.location); } catch {}
         if (tick % 8 === 0) {
           try { vehicle.dimension?.playSound?.('step.cloth', vehicle.location, { volume: 0.4, pitch: 0.7 }); } catch {}
         }
+      } else if (isBoat && mph > 6) {
+        try { vehicle.dimension?.spawnParticle?.('minecraft:water_wake_particle', vehicle.location); } catch {}
       }
 
       // 4. Headlights (automatic night vision)
@@ -521,9 +545,9 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
       // 5. Action Bar Speedometer HUD
       if (tick % 4 === 0) {
         const boostReady = state.boostCooldown <= 0;
-        const icon = isCar ? '🏎️' : '✈️';
+        const icon = isCar ? '🏎️' : isBoat ? '⛵' : '✈️';
         const boostTag = boostReady ? ' · §a[JUMP: NITRO]§r' : ` · §8[NITRO: ${(state.boostCooldown / 20).toFixed(1)}s]§r`;
-        const hud = isCar
+        const hud = (isCar || isBoat)
           ? `${icon} §e${mph.toFixed(1)} mph§r${boostTag}`
           : `${icon} §e${mph.toFixed(1)} mph§r · §bALT ${Math.floor(vehicle.location?.y ?? 0)}§r${boostTag}`;
         try { rider.onScreenDisplay?.setActionBar?.(hud); } catch {}
@@ -544,7 +568,7 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
   } catch {}
 }
 
-const vehicleDriverScript = (config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane'; label: string }> }) =>
+const vehicleDriverScript = (config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }> }) =>
   `import { world, system } from "@minecraft/server";\n(${vehicleDriverRuntime.toString()})(${JSON.stringify(config)});\n`;
 
 function blockRgb(state: string): [
@@ -592,7 +616,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const shortAlias = placementAlias(id);
     const components = options.components?.slice() ?? [];
     const warnings: string[] = [];
-    if (!components.length && (mode === 'car' || mode === 'plane'))
+    if (!components.length && (mode === 'car' || mode === 'plane' || mode === 'boat'))
         components.push({ id, label, kind: mode, grid, provenance: 'explicit whole-model vehicle override' });
     if (!components.length && mode === 'auto' && isWholeVehicleLabel(label))
         components.push({ id, label, kind: classifyVehicleKind(label, mode)!, grid, provenance: 'whole model identified by source title' });
@@ -610,7 +634,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE);
     const actors: PlacementActor[] = [];
     let timeMachineConfig: { typeId: string; width: number; height: number; length: number } | undefined;
-    const driverVehicles: Array<{ typeId: string; kind: 'car' | 'plane'; label: string }> = [];
+    const driverVehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }> = [];
     const unmapped = new Set<string>();
     for (let i = 0; i < plan.length; i++) {
         const tile = plan[i]!, out = encodeMcstructureTile(grid, tile);
@@ -627,7 +651,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         const componentIsTimeMachine = isTimeMachine && c.kind === 'car' && !timeMachineConfig;
         if (componentIsTimeMachine)
             timeMachineConfig = { typeId: fullTypeId, width: layout.width, height: layout.height, length: layout.length };
-        else if (c.kind === 'car' || c.kind === 'plane')
+        else if (c.kind === 'car' || c.kind === 'plane' || c.kind === 'boat')
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
         files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine)) });
         const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);

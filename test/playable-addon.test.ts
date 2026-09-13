@@ -79,6 +79,31 @@ describe('playable Bedrock add-on',()=>{
     expect(placement).toContain('"yaw":-90');
   });
 
+  it('pairs behavior and resource packs and emits buoyant watercraft controls for boats/ships', async () => {
+    const result = await buildPlayableAddon(model(), { stem: 'Pirate Ship', vehicleMode: 'boat' });
+    const buffer = ab(result.bytes);
+    const entries = listZipEntries(buffer);
+    expect(entries).toContain('Craftmatic_pirate_ship_BP/manifest.json');
+    expect(entries).toContain('Craftmatic_pirate_ship_BP/entities/pirate_ship_pirate_ship.json');
+    const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_pirate_ship_BP/entities/pirate_ship_pirate_ship.json')));
+    const components = entity['minecraft:entity'].components;
+    expect(components['minecraft:buoyant']).toBeDefined();
+    expect(components['minecraft:buoyant'].base_buoyancy).toBe(1.0);
+    expect(components['minecraft:buoyant'].liquid_blocks).toContain('minecraft:water');
+    expect(components['minecraft:navigation.walk'].can_path_over_water).toBe(true);
+    expect(components['minecraft:variable_max_auto_step'].controlled_value).toBe(1.56);
+    const driverScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_pirate_ship_BP/scripts/vehicle-driver.js'));
+    expect(driverScript).toContain('isBoat');
+    expect(driverScript).toContain('water_splash_particle');
+    expect(driverScript).toContain('water_wake_particle');
+  });
+
+  it('auto-detects ships and boats from label keywords', async () => {
+    const result = await buildPlayableAddon(model(), { stem: 'Speedboat', vehicleMode: 'auto' });
+    expect(result.components).toHaveLength(1);
+    expect(result.components[0]?.kind).toBe('boat');
+  });
+
   it('renders vehicle glass translucent while solids and computer screens stay opaque', async () => {
     const vehicle = new BlockGrid(3, 1, 1);
     vehicle.set(0, 0, 0, 'minecraft:glass');

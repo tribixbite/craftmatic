@@ -267,6 +267,67 @@ function* scanLocalEntries(buffer: ArrayBuffer): Generator<ZipLocalEntry> {
   }
 }
 
+const SIG_CENTRAL = 0x02014b50;
+const SIG_EOCD = 0x06054b50;
+
+/**
+ * Scan Central Directory entries from EOCD when available.
+ * Accurately reads compressed sizes and offsets even for streamed ZIPs with data descriptors.
+ */
+function scanCentralEntries(buffer: ArrayBuffer): ZipLocalEntry[] | null {
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  const minPos = Math.max(0, bytes.length - 65557);
+  let eocdPos = -1;
+  for (let i = bytes.length - 22; i >= minPos; i--) {
+    if (view.getUint32(i, true) === SIG_EOCD) {
+      const commentLen = view.getUint16(i + 20, true);
+      if (i + 22 + commentLen === bytes.length) {
+        eocdPos = i;
+        break;
+      }
+    }
+  }
+  if (eocdPos === -1) return null;
+
+  const totalEntries = view.getUint16(eocdPos + 10, true);
+  const cdOffset = view.getUint32(eocdPos + 16, true);
+  if (cdOffset >= bytes.length) return null;
+
+  const entries: ZipLocalEntry[] = [];
+  let pos = cdOffset;
+  for (let idx = 0; idx < totalEntries && pos + 46 <= bytes.length; idx++) {
+    if (view.getUint32(pos, true) !== SIG_CENTRAL) break;
+
+    const flags = view.getUint16(pos + 8, true);
+    const method = view.getUint16(pos + 10, true);
+    const compSize = view.getUint32(pos + 20, true);
+    const fnLen = view.getUint16(pos + 28, true);
+    const extraLen = view.getUint16(pos + 30, true);
+    const commentLen = view.getUint16(pos + 32, true);
+    const localHeaderOffset = view.getUint32(pos + 42, true);
+
+    const name = new TextDecoder().decode(bytes.subarray(pos + 46, pos + 46 + fnLen));
+    pos += 46 + fnLen + extraLen + commentLen;
+
+    if (localHeaderOffset + 30 > bytes.length) continue;
+    if (view.getUint32(localHeaderOffset, true) !== SIG_LOCAL) continue;
+    const localFnLen = view.getUint16(localHeaderOffset + 26, true);
+    const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
+    const extraStart = localHeaderOffset + 30 + localFnLen;
+    const dataStart = extraStart + localExtraLen;
+
+    entries.push({ name, flags, method, compSize, extraStart, extraLen: localExtraLen, dataStart });
+  }
+
+  return entries.length > 0 ? entries : null;
+}
+
+function getZipEntries(buffer: ArrayBuffer): Iterable<ZipLocalEntry> {
+  const central = scanCentralEntries(buffer);
+  return central ?? scanLocalEntries(buffer);
+}
+
 /** Decrypt (if needed) + decompress one scanned entry's payload. */
 async function readEntry(
   buffer: ArrayBuffer,
@@ -301,7 +362,7 @@ async function readEntry(
 /** List the names of all local file entries in the ZIP. */
 export function listZipEntries(buffer: ArrayBuffer): string[] {
   const names: string[] = [];
-  for (const e of scanLocalEntries(buffer)) names.push(e.name);
+  for (const e of getZipEntries(buffer)) names.push(e.name);
   return names;
 }
 
@@ -316,7 +377,7 @@ export async function extractFile(
   password?: string,
 ): Promise<ArrayBuffer> {
   const target = filename.toLowerCase();
-  for (const entry of scanLocalEntries(buffer)) {
+  for (const entry of getZipEntries(buffer)) {
     if (entry.name.toLowerCase() === target) return readEntry(buffer, entry, password);
   }
   throw new Error(`File "${filename}" not found in ZIP`);
@@ -333,7 +394,7 @@ export async function extractMatching(
   password?: string,
 ): Promise<Map<string, ArrayBuffer>> {
   const out = new Map<string, ArrayBuffer>();
-  for (const entry of scanLocalEntries(buffer)) {
+  for (const entry of getZipEntries(buffer)) {
     if (!predicate(entry.name)) continue;
     try {
       out.set(entry.name, await readEntry(buffer, entry, password));
