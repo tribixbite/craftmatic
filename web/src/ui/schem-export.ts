@@ -331,7 +331,7 @@ export interface MinecraftExportRequest {
   label?: string;
   settings?: SchemExportSettings;
   /** Override the interactive Bedrock add-on's automatic vehicle classifier. */
-  vehicleMode?: 'auto' | 'car' | 'plane' | 'static';
+  vehicleMode?: 'auto' | 'car' | 'plane' | 'boat' | 'static';
   /** Mirror phase/result text into a tab's own status line (the LEGO tab's log). */
   onStatus?: (message: string, kind: 'info' | 'success' | 'error') => void;
 }

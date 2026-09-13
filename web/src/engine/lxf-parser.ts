@@ -60,7 +60,7 @@
  *   ldraw.xml R_world = F·(R_bone·R_align)·F,  t_world = 25·F·(R_bone·t_align + t_bone)
  */
 
-import { extractFile } from './zip-utils';
+import { extractFile, extractMatching } from './zip-utils';
 import { lddToLDraw } from './ldd-colors';
 import type { ParsedBrick } from './ldraw-parser';
 
@@ -599,9 +599,23 @@ export async function parseLxfWithDiagnostics(
   // ZIP magic instead of trusting the extension.
   const head = new Uint8Array(buffer.slice(0, 2));
   const isZip = head[0] === 0x50 && head[1] === 0x4B; // 'PK'
-  const xmlBytes = isZip
-    ? await extractFile(buffer, 'IMAGE100.LXFML')
-    : new Uint8Array(buffer);
+  let xmlBytes: Uint8Array;
+  if (isZip) {
+    try {
+      xmlBytes = new Uint8Array(await extractFile(buffer, 'IMAGE100.LXFML'));
+    } catch {
+      // Fallback: search for any .lxfml entry in the archive
+      const matching = await extractMatching(buffer, name => /\.lxfml$/i.test(name));
+      const first = matching.values().next().value;
+      if (first) {
+        xmlBytes = new Uint8Array(first);
+      } else {
+        throw new Error('No LXFML file found in LXF archive');
+      }
+    }
+  } else {
+    xmlBytes = new Uint8Array(buffer);
+  }
   const xmlText = new TextDecoder('utf-8').decode(xmlBytes);
 
   const doc = new DOMParser().parseFromString(xmlText, 'text/xml');

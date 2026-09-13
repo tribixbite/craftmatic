@@ -371,7 +371,7 @@ function wireDownloadDropdown(
               format,
               basename: exportBasename,
               settings: getSchemSettings(),
-              vehicleMode: (menuEl.querySelector<HTMLSelectElement>('[data-export-vehicle]')?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'static',
+              vehicleMode: (menuEl.querySelector<HTMLSelectElement>('[data-export-vehicle]')?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'boat' | 'static',
             });
             break;
           case 'stl':

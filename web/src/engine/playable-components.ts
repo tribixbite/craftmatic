@@ -1,7 +1,7 @@
 import type { ParsedBrick } from './ldraw-parser.js';
 
-export type VehicleMode = 'auto' | 'car' | 'plane' | 'static';
-export type PlayableKind = 'car' | 'plane';
+export type VehicleMode = 'auto' | 'car' | 'plane' | 'boat' | 'static';
+export type PlayableKind = 'car' | 'plane' | 'boat';
 export type VehicleFacing = 'auto' | '+x' | '-x' | '+z' | '-z';
 
 export interface PlayableBrickComponent {
@@ -22,8 +22,9 @@ export interface PlayableBrickComponent {
 
 const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|vehicle|tractor|loader|motorcycle|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1|jeep|suv|van|pickup|dragster|hot rod|hotrod|rover|speed champions|speed champion|hypercar|supercar|automobile|limo|limousine|cab|taxi|crawler|quad|atv|go-kart|speedster|hovercraft|locomotive|camper|convertible|coupe|sedan)\b/i;
 const PLANE_WORDS = /\b(plane|airplane|aeroplane|jet|aircraft|starfighter|fighter|helicopter|copter|spaceship|shuttle|biplane|monoplane|seaplane|bomber|rotorcraft|starship|rocket|x-wing|tie fighter|falcon|interceptor|speeder|gunship|drone)\b/i;
+const BOAT_WORDS = /\b(boat|ship|yacht|sailboat|speedboat|cruiser|ferry|canoe|kayak|raft|vessel|barge|pirate ship|watercraft|rowboat|cutter|catamaran|schooner|galleon|tugboat|steamboat|dinghy|skiff|hydrofoil)\b/i;
 const SCENERY_WORDS = /\b(garage|airport|hangar|museum|station|batcave|shadowbox|shadow box|workshop|city|showroom)\b/i;
-export const isWholeVehicleLabel = (label: string): boolean => !SCENERY_WORDS.test(label) && (CAR_WORDS.test(label) || PLANE_WORDS.test(label));
+export const isWholeVehicleLabel = (label: string): boolean => !SCENERY_WORDS.test(label) && (CAR_WORDS.test(label) || PLANE_WORDS.test(label) || BOAT_WORDS.test(label));
 // Small/medium road wheels and tires used by System and Technic vehicles.
 const ROAD_WHEELS = new Set([
   '55982', '58090', '30027', '30028', '11208', '11209', '18976', '18977', '30391',
@@ -46,9 +47,10 @@ function verifiedBatmobile(bricks: ParsedBrick[]): ParsedBrick[] | null {
 }
 
 export function classifyVehicleKind(label: string, mode: VehicleMode): PlayableKind | null {
-  if (mode === 'car' || mode === 'plane') return mode;
+  if (mode === 'car' || mode === 'plane' || mode === 'boat') return mode;
   if (mode === 'static') return null;
   if (/\b(?:76252|10300)\b|batcave shadow/i.test(label)) return 'car';
+  if (BOAT_WORDS.test(label)) return 'boat';
   if (PLANE_WORDS.test(label)) return 'plane';
   if (CAR_WORDS.test(label)) return 'car';
   return null;
@@ -60,7 +62,7 @@ export function classifyVehicleKind(label: string, mode: VehicleMode): PlayableK
  * building with it when driven.
  */
 function namedSubmodels(bricks: ParsedBrick[], kind: PlayableKind): ParsedBrick[][] {
-  const re = kind === 'car' ? CAR_WORDS : PLANE_WORDS;
+  const re = kind === 'car' ? CAR_WORDS : kind === 'plane' ? PLANE_WORDS : BOAT_WORDS;
   const groups = new Map<string, ParsedBrick[]>();
   for (const brick of bricks) {
     const path = brick.sourcePath ?? [];
