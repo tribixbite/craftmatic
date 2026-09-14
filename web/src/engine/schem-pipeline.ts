@@ -102,6 +102,8 @@ export interface SchemWorkerInput {
   packLabel?: string;
   /** Explicit whole-model vehicle override; auto preserves scenery. */
   vehicleMode?: 'auto' | 'car' | 'plane' | 'boat' | 'static';
+  /** Number of passenger seats (1 for single driver, 2+ for co-pilot/passengers). */
+  seatCount?: number;
 }
 
 /** What a Bedrock `.mcpack` export produced, for the status line. */
@@ -301,7 +303,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, components: components.length ? components : undefined, screens, onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, components: components.length ? components : undefined, screens, onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 

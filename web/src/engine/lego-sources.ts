@@ -146,14 +146,14 @@ const MIN_PLACEMENT_RETENTION = 0.95;
  * The picker's own order is never touched — every entry stays user-selectable
  * with its caveats; only the auto-pick moves.
  */
-export function indexedTryOrder(models: IndexModel[]): number[] {
-  return resolveTryOrder(models).order;
+export function indexedTryOrder(models: IndexModel[], catalogParts?: number): number[] {
+  return resolveTryOrder(models, catalogParts).order;
 }
 
 /** The try-order AND the reason the first pick moved — one source of truth for
  *  `indexedTryOrder` and `tryOrderReason`, so the UI can never explain a pick
  *  the loader didn't make. */
-function resolveTryOrder(models: IndexModel[]): { order: number[]; reason: string | null } {
+function resolveTryOrder(models: IndexModel[], catalogParts?: number): { order: number[]; reason: string | null } {
   let order = models.map((_, i) => i);
   let reason: string | null = null;
   // 1. conv demotion
@@ -165,7 +165,18 @@ function resolveTryOrder(models: IndexModel[]): { order: number[]; reason: strin
         + ` so ${models[firstNonConv]!.src} was tried first`;
     }
   }
-  // 2. verified promotion
+  // 2. assembled promotion over inflated parts tray (> 2.2x catalog parts)
+  if (catalogParts != null && catalogParts >= 40) {
+    const inflatedPromotion = findInflatedPromotion(models, order, catalogParts);
+    if (inflatedPromotion != null) {
+      const inc = models[order[0]!]!;
+      const cand = models[inflatedPromotion]!;
+      reason = `${inc.src} (${inc.path}) has inflated piece count (${inc.n} vs ${catalogParts} catalog parts),`
+        + ` so assembled model ${cand.src} (${cand.n} parts) was tried first`;
+      order = [inflatedPromotion, ...order.filter(i => i !== inflatedPromotion)];
+    }
+  }
+  // 3. verified promotion
   const promoted = verifiedPromotion(models, order);
   if (promoted != null) {
     const inc = models[order[0]!]!;
@@ -175,6 +186,31 @@ function resolveTryOrder(models: IndexModel[]): { order: number[]; reason: strin
     order = [promoted, ...order.filter(i => i !== promoted)];
   }
   return { order, reason };
+}
+
+/**
+ * Promote an authentic assembled model matching catalog part count over an
+ * incumbent whose part count is massively inflated (> 2.2x catalog parts,
+ * typical of unbuilt parts trays, multi-variant packs, or exploded sheets).
+ */
+export function findInflatedPromotion(
+  models: IndexModel[],
+  order: number[],
+  catalogParts: number,
+): number | null {
+  const cur = models[order[0] ?? -1];
+  if (!cur || cur.n <= catalogParts * 2.2) return null;
+  const curRank = sourceClassRank(sourceClass(cur.src));
+
+  for (const i of order.slice(1)) {
+    const cand = models[i];
+    if (!cand || cand.conv) continue;
+    if (sourceClassRank(sourceClass(cand.src)) > curRank) continue;
+    if (Math.abs(cand.n - catalogParts) / catalogParts <= 0.35) {
+      return i;
+    }
+  }
+  return null;
 }
 
 /**
@@ -201,8 +237,8 @@ export function verifiedPromotion(models: IndexModel[], order: number[]): number
  * Why the auto-pick is not simply `models[0]`, phrased for the UI. null when
  * the index's own first entry is the pick (nothing to explain).
  */
-export function tryOrderReason(models: IndexModel[]): string | null {
-  return resolveTryOrder(models).reason;
+export function tryOrderReason(models: IndexModel[], catalogParts?: number): string | null {
+  return resolveTryOrder(models, catalogParts).reason;
 }
 
 /**
@@ -214,7 +250,8 @@ export function tryOrderReason(models: IndexModel[]): string | null {
 export function bestIndexedModel(idx: LegoModelsIndex, setNum: string): IndexModel | null {
   const models = lookupIndexModels(idx, setNum);
   if (!models) return null;
-  const first = indexedTryOrder(models)[0];
+  const entry = idx.sets[setNum] ?? idx.sets[baseSetNum(setNum)];
+  const first = indexedTryOrder(models, entry?.parts)[0];
   return first == null ? null : (models[first] ?? null);
 }
 

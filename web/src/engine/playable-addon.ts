@@ -39,6 +39,8 @@ export interface PlayableAddonOptions {
     vehicleMode?: VehicleMode;
     /** Override ambiguous source orientation; auto uses verified metadata or the measured long axis. */
     vehicleFacing?: VehicleFacing;
+    /** Number of passenger seats (1 for single driver, 2+ for co-pilot/passengers). Defaults to 1. */
+    seatCount?: number;
     /** Exact, separately voxelized source components. Required for a vehicle embedded in a larger build. */
     components?: PlayableGridComponent[];
     screens?: PlayableScreenAnchor[];
@@ -88,7 +90,7 @@ function componentLayout(kind: PlayableKind, grid: BlockGrid, requestedScale = 1
     return { scale, longitudinalAxis, forwardSign, width, length, height, actorYaw };
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false): unknown {
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1): unknown {
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
     const seat = seatAnchor ?? { x: .5, y: .45, z: .5 };
     const ox = (seat.x - .5) * grid.width * layout.scale, oz = (seat.z - .5) * grid.length * layout.scale;
@@ -97,6 +99,34 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     const seatX = layout.longitudinalAxis === 'x' ? layout.forwardSign * oz : -layout.forwardSign * ox;
     const seatZ = layout.longitudinalAxis === 'x' ? -layout.forwardSign * ox : -layout.forwardSign * oz;
     const seatY = Math.max(.35, Math.min(layout.height - .35, layout.height * seat.y));
+    const rideableComponent: Record<string, unknown> = seatCount <= 1
+        ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [seatX, seatY, seatZ], lock_rider_rotation: 0 } }
+        : {
+            seat_count: seatCount,
+            controlling_seat: 0,
+            family_types: ['player'],
+            interact_text: 'action.interact.mount',
+            crouching_skip_interact: true,
+            seats: (() => {
+                const latOffset = Math.min(0.45, Math.max(0.25, layout.width * 0.2));
+                const driverX = layout.longitudinalAxis === 'x' ? seatX : seatX - latOffset;
+                const driverZ = layout.longitudinalAxis === 'x' ? seatZ + latOffset : seatZ;
+                const passX = layout.longitudinalAxis === 'x' ? seatX : seatX + latOffset;
+                const passZ = layout.longitudinalAxis === 'x' ? seatZ - latOffset : seatZ;
+                const seatList: Array<Record<string, unknown>> = [
+                    { min_rider_count: 0, max_rider_count: 1, position: [driverX, seatY, driverZ], lock_rider_rotation: 0 },
+                    { min_rider_count: 1, max_rider_count: 2, position: [passX, seatY, passZ], lock_rider_rotation: 0 },
+                ];
+                if (seatCount >= 4) {
+                    const backZOffset = Math.min(1.2, Math.max(0.6, layout.length * 0.25));
+                    seatList.push(
+                        { min_rider_count: 2, max_rider_count: 3, position: [driverX, seatY, driverZ + backZOffset], lock_rider_rotation: 0 },
+                        { min_rider_count: 3, max_rider_count: 4, position: [passX, seatY, passZ + backZOffset], lock_rider_rotation: 0 },
+                    );
+                }
+                return seatList;
+            })(),
+        };
     const common: Record<string, unknown> = {
         'minecraft:type_family': { family: ['craftmatic_vehicle', kind] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
@@ -106,7 +136,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // Bedrock exposes one horizontal diameter, not a rectangular box. Use
         // the transverse body width so a long car can still pass a doorway.
         'minecraft:collision_box': { width: Math.max(0.8, layout.width * .85), height: Math.max(.8, layout.height * .8) },
-        'minecraft:rideable': { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [seatX, seatY, seatZ], lock_rider_rotation: 0 } },
+        'minecraft:rideable': rideableComponent,
         'minecraft:pushable': { is_pushable: false, is_pushable_by_piston: true },
         'minecraft:movement': isTimeMachine
             ? { value: .02, max: 6 }
@@ -554,6 +584,26 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         } catch {}
       }
 
+      // 2d. Engine Audio Loop & Dynamic Speed Pitch
+      if (forwardInput > 0.1 && mph > 1.5) {
+        if (tick % 10 === 0) {
+          const enginePitch = Math.min(2.0, Math.max(0.6, 0.6 + (mph / 45) * 0.9));
+          try {
+            if (isBoat) {
+              vehicle.dimension?.playSound?.('random.splash', vehicle.location, { volume: 0.35, pitch: enginePitch });
+            } else if (isCar) {
+              vehicle.dimension?.playSound?.('minecart.base', vehicle.location, { volume: 0.32, pitch: enginePitch });
+            } else {
+              vehicle.dimension?.playSound?.('elytra.loop', vehicle.location, { volume: 0.38, pitch: Math.min(1.8, 0.8 + (mph / 50) * 0.8) });
+            }
+          } catch {}
+        }
+      } else if (forwardInput <= 0.1 && mph < 1.0 && tick % 30 === 0) {
+        try {
+          vehicle.dimension?.playSound?.('minecart.base', vehicle.location, { volume: 0.12, pitch: 0.5 });
+        } catch {}
+      }
+
       // 3. Drift Tire Smoke or Water Wake on High Speed Turns
       if (isCar && mph > 10 && Math.abs(steerInput) > 0.35) {
         try { vehicle.dimension?.spawnParticle?.('minecraft:smoke_particle', vehicle.location); } catch {}
@@ -569,11 +619,12 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         try { rider.addEffect?.('minecraft:night_vision', 80, { showParticles: false }); } catch {}
       }
 
-      // 5. Action Bar Speedometer HUD with Gear and Reverse
+      // 5. Action Bar Speedometer HUD with Gear, Reverse, and Multi-seat Co-Pilot
       if (tick % 4 === 0) {
         const boostReady = state.boostCooldown <= 0;
         const icon = isCar ? '🏎️' : isBoat ? '⛵' : '✈️';
         const boostTag = boostReady ? ' · §a[JUMP: NITRO]§r' : ` · §8[NITRO: ${(state.boostCooldown / 20).toFixed(1)}s]§r`;
+        const coPilotTag = riders.length > 1 ? ` · §d[👥 ${riders.length}]§r` : '';
         let speedText = `§e${mph.toFixed(1)} mph§r`;
         if (forwardInput < -0.1) {
           speedText = `§c[REV]§r §e-${mph > 0.5 ? mph.toFixed(1) : '0.0'} mph§r`;
@@ -582,9 +633,11 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
           speedText = `§e${mph.toFixed(1)} mph§r · §bGEAR ${gear}§r`;
         }
         const hud = (isCar || isBoat)
-          ? `${icon} ${speedText}${boostTag}`
-          : `${icon} §e${mph.toFixed(1)} mph§r · §bALT ${Math.floor(vehicle.location?.y ?? 0)}§r${boostTag}`;
-        try { rider.onScreenDisplay?.setActionBar?.(hud); } catch {}
+          ? `${icon} ${speedText}${coPilotTag}${boostTag}`
+          : `${icon} §e${mph.toFixed(1)} mph§r · §bALT ${Math.floor(vehicle.location?.y ?? 0)}§r${coPilotTag}${boostTag}`;
+        for (const r of riders) {
+          try { r.onScreenDisplay?.setActionBar?.(hud); } catch {}
+        }
       }
 
       state.lastMph = mph;
@@ -687,7 +740,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             timeMachineConfig = { typeId: fullTypeId, width: layout.width, height: layout.height, length: layout.length };
         else if (c.kind === 'car' || c.kind === 'plane' || c.kind === 'boat')
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
-        files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine)) });
+        files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1)) });
         const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
         files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: palettePng(geo.palette) });
         actors.push({ typeId: fullTypeId, label: c.label, x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2, yaw: layout.actorYaw });

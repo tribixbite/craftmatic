@@ -1162,7 +1162,7 @@ function selectSet(set: CatalogSet): void {
     let loaded = false;
     // Shared with the search filter/sort/badges (@engine/lego-sources) so the
     // source a card advertises is the source this loop actually tries first.
-    const tryOrder = indexedTryOrder(models);
+    const tryOrder = indexedTryOrder(models, set.num_parts);
     resetLoadDiag('indexed', models, tryOrder[0] ?? null);
     for (const i of tryOrder) {
       try {
