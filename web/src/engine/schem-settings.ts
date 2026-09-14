@@ -62,6 +62,11 @@ export interface SchemExportSettings {
   lightSpacing?: number;
   vehicleFacing?: 'auto' | '+x' | '-x' | '+z' | '-z';
   /**
+   * Cuboid budget for the playable add-on's vehicle entities: how finely each
+   * LEGO part is decomposed (balanced 4 LDU / high 2 LDU / ultra 1 LDU).
+   */
+  addonDetail?: 'balanced' | 'high' | 'ultra';
+  /**
    * Emit partial Minecraft blocks (slabs, stairs) where the LEGO geometry is
    * genuinely partial — engine/block-shapes.ts. ON by default (the proposal's
    * recommendation): it only ever refines a cell that is already solid, so the
@@ -84,6 +89,7 @@ export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
   lightStyle: 'profile',
   lightSpacing: 6,
   vehicleFacing: 'auto',
+  addonDetail: 'balanced',
   shapes: true,
   detailMaterials: false,
 };

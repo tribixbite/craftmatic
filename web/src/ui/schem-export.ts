@@ -388,6 +388,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         packStem: base,
         packLabel: req.label ?? base,
         vehicleMode: req.vehicleMode ?? 'auto',
+        entityQuality: settings.addonDetail,
       };
     } else {
       const g = req.source.grid;
@@ -408,6 +409,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         packStem: base,
         packLabel: req.label ?? base,
         vehicleMode: req.vehicleMode ?? 'auto',
+        entityQuality: settings.addonDetail,
       };
     }
 

@@ -64,6 +64,51 @@ function pngChunk(name: string, data: Uint8Array): Uint8Array {
   return concat(u32(data.length), body, u32(pngCrc(body)));
 }
 
+/** zlib stream of stored (uncompressed) deflate blocks with the Adler-32 trailer. */
+function zlibStore(raw: Uint8Array): Uint8Array {
+  let a = 1, b = 0;
+  for (const v of raw) {
+    a = (a + v) % 65521;
+    b = (b + a) % 65521;
+  }
+  const blocks: Uint8Array[] = [];
+  for (let p = 0; p < raw.length;) {
+    const len = Math.min(65535, raw.length - p);
+    const last = p + len === raw.length;
+    blocks.push(
+      Uint8Array.of(last ? 1 : 0, len & 255, len >>> 8, (~len) & 255, ((~len) >>> 8) & 255),
+      raw.slice(p, p + len),
+    );
+    p += len;
+  }
+  return concat(Uint8Array.of(0x78, 0x01), ...blocks, u32((b << 16) | a));
+}
+
+/**
+ * Encode 8-bit RGBA scanlines that ALREADY carry their PNG filter byte
+ * (`height` rows of `1 + width*4` bytes) as a stored-deflate PNG.
+ */
+export function encodePngFilteredRows(width: number, height: number, raw: Uint8Array): Uint8Array {
+  if (raw.length !== height * (1 + width * 4)) throw new Error(`encodePngFilteredRows: expected ${height * (1 + width * 4)} bytes, got ${raw.length}`);
+  return concat(
+    Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
+    pngChunk('IHDR', concat(u32(width), u32(height), Uint8Array.of(8, 6, 0, 0, 0))),
+    pngChunk('IDAT', zlibStore(raw)),
+    pngChunk('IEND', new Uint8Array()),
+  );
+}
+
+/** Encode packed 8-bit RGBA pixels (`width*height*4` bytes) as a stored-deflate PNG. */
+export function encodePngRgba(width: number, height: number, rgba: Uint8Array): Uint8Array {
+  if (rgba.length !== width * height * 4) throw new Error(`encodePngRgba: expected ${width * height * 4} bytes, got ${rgba.length}`);
+  const raw = new Uint8Array(height * (1 + width * 4));
+  for (let y = 0; y < height; y++) {
+    raw[y * (1 + width * 4)] = 0; // filter: None
+    raw.set(rgba.subarray(y * width * 4, (y + 1) * width * 4), y * (1 + width * 4) + 1);
+  }
+  return encodePngFilteredRows(width, height, raw);
+}
+
 /**
  * Generate a 16x16 PNG with authentic embossed LEGO stud and beveled edges.
  */
@@ -129,31 +174,7 @@ export function generateStudBlockPng(r: number, g: number, b: number, isTop = tr
     }
   }
 
-  // Zlib deflate uncompressed blocks
-  let a = 1;
-  let bVal = 0;
-  for (const v of raw) {
-    a = (a + v) % 65521;
-    bVal = (bVal + a) % 65521;
-  }
-  const blocks: Uint8Array[] = [];
-  for (let p = 0; p < raw.length;) {
-    const len = Math.min(65535, raw.length - p);
-    const last = p + len === raw.length;
-    blocks.push(
-      Uint8Array.of(last ? 1 : 0, len & 255, len >>> 8, (~len) & 255, ((~len) >>> 8) & 255),
-      raw.slice(p, p + len)
-    );
-    p += len;
-  }
-  const z = concat(Uint8Array.of(0x78, 0x01), ...blocks, u32((bVal << 16) | a));
-
-  return concat(
-    Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
-    pngChunk('IHDR', concat(u32(size), u32(size), Uint8Array.of(8, 6, 0, 0, 0))),
-    pngChunk('IDAT', z),
-    pngChunk('IEND', new Uint8Array())
-  );
+  return encodePngFilteredRows(size, size, raw);
 }
 
 /**
@@ -319,30 +340,7 @@ export function generateEntityLegoAtlasPng(
     }
   }
 
-  // Zlib deflate uncompressed blocks
-  let aVal = 1, bVal = 0;
-  for (const v of raw) {
-    aVal = (aVal + v) % 65521;
-    bVal = (bVal + aVal) % 65521;
-  }
-  const blocks: Uint8Array[] = [];
-  for (let p = 0; p < raw.length;) {
-    const len = Math.min(65535, raw.length - p);
-    const last = p + len === raw.length;
-    blocks.push(
-      Uint8Array.of(last ? 1 : 0, len & 255, len >>> 8, (~len) & 255, ((~len) >>> 8) & 255),
-      raw.slice(p, p + len)
-    );
-    p += len;
-  }
-  const z = concat(Uint8Array.of(0x78, 0x01), ...blocks, u32((bVal << 16) | aVal));
-
-  return concat(
-    Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
-    pngChunk('IHDR', concat(u32(atlasW), u32(atlasH), Uint8Array.of(8, 6, 0, 0, 0))),
-    pngChunk('IDAT', z),
-    pngChunk('IEND', new Uint8Array())
-  );
+  return encodePngFilteredRows(atlasW, atlasH, raw);
 }
 
 /**

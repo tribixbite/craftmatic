@@ -39,6 +39,7 @@ function load(): SchemExportSettings {
         profile: BLOCK_PROFILES.some(p => p.id === parsed.profile) ? parsed.profile! : DEFAULT_SCHEM_SETTINGS.profile,
         lightFill: parsed.lightFill === true,
         vehicleFacing: ['+x', '-x', '+z', '-z'].includes(parsed.vehicleFacing ?? '') ? parsed.vehicleFacing : 'auto',
+        addonDetail: ['high', 'ultra'].includes(parsed.addonDetail ?? '') ? parsed.addonDetail : 'balanced',
         lightCoverage: parsed.lightCoverage === 'covered' ? 'covered' : 'sealed',
         lightStyle: ['lantern', 'sea_lantern'].includes(parsed.lightStyle ?? '') ? parsed.lightStyle : 'profile',
         lightSpacing: [3, 6, 10].includes(parsed.lightSpacing ?? 0) ? parsed.lightSpacing : 6,
@@ -186,6 +187,9 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       <label for="mc-set-vehicle-facing">Vehicle front (playable add-on)</label>
       <select id="mc-set-vehicle-facing"><option value="auto">Auto - detected model orientation</option><option value="+x">+X</option><option value="-x">-X</option><option value="+z">+Z</option><option value="-z">-Z</option></select>
       <p class="mc-set-note">For a car that drives backward, choose the opposite direction and export again.</p>
+      <label for="mc-set-addon-detail">Vehicle detail (playable add-on)</label>
+      <select id="mc-set-addon-detail"><option value="balanced">Balanced - 4 LDU cuboids, ≤4,096 per vehicle</option><option value="high">High - 2 LDU, ≤8,192</option><option value="ultra">Ultra - 1 LDU, ≤16,384 (desktop-class devices)</option></select>
+      <p class="mc-set-note">Each LEGO part becomes real cuboids at this grain; higher is closer to the mould and heavier to render.</p>
       <label for="mc-set-light-coverage">Lighting coverage</label>
       <select id="mc-set-light-coverage"><option value="covered">Covered interiors, including open fronts</option><option value="sealed">Sealed rooms only</option></select>
       <label for="mc-set-light-style">Lamp style</label>
@@ -208,10 +212,11 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   const profSel = pop.querySelector('#mc-set-profile') as HTMLSelectElement;
   const lightBox = pop.querySelector('#mc-set-light') as HTMLInputElement;
   const facingSel = pop.querySelector('#mc-set-vehicle-facing') as HTMLSelectElement;
+  const detailSel = pop.querySelector('#mc-set-addon-detail') as HTMLSelectElement;
   const coverageSel = pop.querySelector('#mc-set-light-coverage') as HTMLSelectElement;
   const styleSel = pop.querySelector('#mc-set-light-style') as HTMLSelectElement;
   const spacingSel = pop.querySelector('#mc-set-light-spacing') as HTMLSelectElement;
-  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
+  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
   syncLights(current);
   const shapeBox = pop.querySelector('#mc-set-shapes') as HTMLInputElement;
   const detailBox = pop.querySelector('#mc-set-detail') as HTMLInputElement;
@@ -242,6 +247,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       profile: profSel.value,
       lightFill: lightBox.checked,
       vehicleFacing: facingSel.value as SchemExportSettings['vehicleFacing'],
+      addonDetail: detailSel.value as SchemExportSettings['addonDetail'],
       lightCoverage: coverageSel.value as 'sealed' | 'covered',
       lightStyle: styleSel.value as 'profile' | 'lantern' | 'sea_lantern',
       lightSpacing: Number(spacingSel.value),
@@ -253,7 +259,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   resSel.addEventListener('change', commit, sig);
   profSel.addEventListener('change', commit, sig);
   lightBox.addEventListener('change', commit, sig);
-  for (const select of [facingSel, coverageSel, styleSel, spacingSel]) select.addEventListener('change', commit, sig);
+  for (const select of [facingSel, detailSel, coverageSel, styleSel, spacingSel]) select.addEventListener('change', commit, sig);
   shapeBox.addEventListener('change', commit, sig);
   detailBox.addEventListener('change', commit, sig);
 
