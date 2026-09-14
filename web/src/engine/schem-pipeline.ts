@@ -274,7 +274,7 @@ export async function runSchemPipeline(
         for (const brick of component.bricks) movable.add(brick);
         onProgress(`preparing ${component.label}`);
         if (component.bricks.length === source.bricks.length) {
-          components.push({ ...component, grid });
+          components.push({ ...component, grid, bricks: component.bricks });
           grid = new BlockGrid(grid.width, grid.height, grid.length);
           continue;
         }
@@ -283,7 +283,7 @@ export async function runSchemPipeline(
         const a = sourceOrigin, b = part.gridOrigin;
         const dx = (b.x - a.x) * a.scale, dy = (b.y - a.y) * a.scale, dz = (b.z - a.z) * a.scale;
         const ratio = a.scale / b.scale;
-        components.push({ ...component, grid: part.grid, sceneScale: ratio, x: dx + part.grid.width * ratio / 2, y: dy, z: dz + part.grid.length * ratio / 2 });
+        components.push({ ...component, grid: part.grid, sceneScale: ratio, x: dx + part.grid.width * ratio / 2, y: dy, z: dz + part.grid.length * ratio / 2, bricks: component.bricks });
       }
       if (movable.size > 0 && movable.size < source.bricks.length) {
         // Rebuild scenery from its own source assembly. Subtracting a separate
