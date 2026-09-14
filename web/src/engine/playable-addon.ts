@@ -8,7 +8,10 @@ import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.
 import { buildPlacementPackAssets, placementAlias, type PlacementActor } from './bedrock-placement-pack.js';
 import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
-import { compileLdrawEntityGeometry } from './ldraw-entity-compiler.js';
+import { compileLdrawEntityGeometry, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
+import { generateLegoEntityTextureAtlas } from './ldraw-entity-atlas.js';
+import type { PartGeometryProvider } from './ldraw-part-geometry.js';
+import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -54,6 +57,12 @@ export interface PlayableAddonOptions {
         z: number;
     };
     onProgress?: (phase: string, pct?: number) => void;
+    /** Part geometry source for brick components; defaults to the shared `.dat` cache. */
+    partGeometry?: PartGeometryProvider;
+    /** Cuboid budget profile for brick components (default balanced). */
+    entityQuality?: LegoEntityQualityName;
+    /** Emit Vibrant Visuals texture sets (MER + normal) for brick components. Default true. */
+    pbr?: boolean;
 }
 export interface PlayableAddonResult {
     bytes: Uint8Array;
@@ -66,6 +75,8 @@ export interface PlayableAddonResult {
         provenance: string;
     }>;
     warnings: string[];
+    /** Geometry diagnostics per brick-compiled entity id (also written into the BP). */
+    diagnostics: Record<string, LegoGeometryDiagnostics>;
 }
 const enc = new TextEncoder();
 const text = (s: string) => enc.encode(s.endsWith('\n') ? s : `${s}\n`);
@@ -281,8 +292,13 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
     }
     return { value: { format_version: '1.12.0', 'minecraft:geometry': meshes }, palette, meshIds };
 }
-function clientEntity(id: string, meshIds: string[], canopyMeshId?: string): unknown {
-    const materials: Record<string, string> = { default: 'entity_alphablend' };
+/**
+ * `opaqueMaterial` is `entity` for brick-compiled bodies (their translucent
+ * pieces live in the canopy mesh) and `entity_alphablend` for the BlockGrid
+ * fallback, whose single mesh mixes glass blocks with solids.
+ */
+function clientEntity(id: string, meshIds: string[], canopyMeshId?: string, opaqueMaterial = 'entity_alphablend'): unknown {
+    const materials: Record<string, string> = { default: opaqueMaterial };
     const textures: Record<string, string> = { default: `textures/entity/${id}` };
     if (canopyMeshId) {
         materials.canopy = 'entity_alphablend';
@@ -782,7 +798,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const version = exportVersion();
     const bpHeader = deterministicUuid(`craftmatic.addon.bp.header:${id}`), rpHeader = deterministicUuid(`craftmatic.addon.rp.header:${id}`);
     files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable`, description: `Place with /function ${shortAlias}; ride vehicles and use computer screens.`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${id}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${id}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
-    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable Resources`, description: 'Faithful Craftmatic vehicle geometry and HD LEGO textures', uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${id}`), version }] }) });
+    // Vibrant Visuals texture sets are emitted for brick-compiled entities; the
+    // manifest must declare the capability or the game ignores the MER/normal maps.
+    const pbr = options.pbr ?? true;
+    const emitsPbr = pbr && components.some(c => c.bricks && c.bricks.length > 0);
+    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable Resources`, description: 'Faithful Craftmatic vehicle geometry and HD LEGO textures', uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${id}`), version }], ...(emitsPbr ? { capabilities: ['pbr'] } : {}) }) });
+    const diagnostics: Record<string, LegoGeometryDiagnostics> = {};
     // Bundle authentic embossed LEGO stud & seam textures for Minecraft concrete blocks
     const terrainTextures: Record<string, { textures: string }> = {};
     for (const [colorName, [r, g, b]] of Object.entries(CONCRETE_COLORS)) {
@@ -826,25 +847,38 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         else if (c.kind === 'car' || c.kind === 'plane' || c.kind === 'boat')
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
         if (c.bricks && c.bricks.length > 0) {
-            const ldrawGeo = compileLdrawEntityGeometry(cid, c.kind, c.bricks, {
+            options.onProgress?.(`compiling ${c.label} geometry`);
+            const ldrawGeo = await compileLdrawEntityGeometry(cid, c.kind, c.bricks, {
                 facing,
                 userSeatAnchor: c.seatAnchor,
+                partGeometry: options.partGeometry,
+                quality: options.entityQuality,
+                pbr,
             });
+            warnings.push(...ldrawGeo.warnings);
+            diagnostics[cid] = ldrawGeo.diagnostics;
             files.push({
                 name: `${bp}entities/${cid}.json`,
                 data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox)),
             });
             files.push(
-                { name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, ldrawGeo.meshIds, ldrawGeo.canopyMeshId)) },
+                { name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, ldrawGeo.meshIds, ldrawGeo.canopyMeshId, 'entity')) },
                 { name: `${rp}models/entity/${cid}.geo.json`, data: json(ldrawGeo.value) },
                 { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, ldrawGeo.meshIds, ldrawGeo.canopyMeshId)) },
-                { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(ldrawGeo.palette, blockRgb, blockAlpha) },
             );
-            if (ldrawGeo.canopyMeshId && ldrawGeo.canopyPalette.length > 0) {
-                files.push({
-                    name: `${rp}textures/entity/${cid}_canopy.png`,
-                    data: generateEntityLegoAtlasPng(ldrawGeo.canopyPalette, blockRgb, blockAlpha),
-                });
+            // One atlas per mesh material: exact LDraw RGB, plus the PBR maps.
+            const atlases: Array<[string, typeof ldrawGeo.materials]> = [[cid, ldrawGeo.materials]];
+            if (ldrawGeo.canopyMeshId) atlases.push([`${cid}_canopy`, ldrawGeo.canopyMaterials]);
+            for (const [name, materials] of atlases) {
+                const atlas = generateLegoEntityTextureAtlas(materials, { pbr, fallbackHighlights: !pbr, textureName: name });
+                files.push({ name: `${rp}textures/entity/${name}.png`, data: atlas.colorPng });
+                if (atlas.merPng && atlas.normalPng && atlas.textureSetJson) {
+                    files.push(
+                        { name: `${rp}textures/entity/${name}_mer.png`, data: atlas.merPng },
+                        { name: `${rp}textures/entity/${name}_normal.png`, data: atlas.normalPng },
+                        { name: `${rp}textures/entity/${name}.texture_set.json`, data: text(atlas.textureSetJson) },
+                    );
+                }
             }
         } else {
             files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1)) });
@@ -861,6 +895,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             actors.push({ typeId: `${PACK_NAMESPACE}:${screenId}`, label: s.label, x: Math.round(s.x), y: Math.round(s.y), z: Math.round(s.z) });
     }
     if (unmapped.size) warnings.push(`${unmapped.size} block type${unmapped.size === 1 ? '' : 's'} had no Bedrock equivalent and ${unmapped.size === 1 ? 'was' : 'were'} omitted: ${[...unmapped].join(', ')}`);
+    // Every fidelity degradation is inspectable from the pack itself.
+    if (Object.keys(diagnostics).length) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({ generator: 'craftmatic', label, entities: diagnostics }) });
     const previewPoints = previewSamples(scenery, components.length ? 90 : 120);
     const perVehicle = Math.floor((120 - previewPoints.length) / Math.max(1, components.length));
     for (const c of components) {
@@ -884,5 +920,5 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, preview, rotate, place, and undo.\nCars: interact to ride, press Jump for nitro boost, and steer into turns to drift. Planes: ride to fly with full 3D pitch/yaw and speed HUD. Vehicles resist damage.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
-    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings };
+    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics };
 }

@@ -351,3 +351,82 @@ describe('playable Bedrock add-on',()=>{
     expect(driverScript).toContain('coPilotTag');
   });
 });
+
+describe('playable add-on — brick-compiled entities', () => {
+  const box6 = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): string[] => {
+    const q = (a: number[], b: number[], c: number[], d: number[]): string => `4 16 ${[...a, ...b, ...c, ...d].join(' ')}`;
+    return [
+      q([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]), q([x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]),
+      q([x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]), q([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]),
+      q([x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]), q([x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]),
+    ];
+  };
+  const LIB: Record<string, string> = {
+    '3001': ['0 Brick 2 x 4', ...box6(-40, 40, -24, 0, -20, 20), '1 16 -30 -24 -10 1 0 0 0 1 0 0 0 1 stud.dat'].join('\n'),
+    '3823': ['0 Windscreen', ...box6(-20, 20, -40, 0, -2, 2)].join('\n'),
+  };
+  const providerFor = async () => {
+    const { createPartGeometryProvider } = await import('../web/src/engine/ldraw-part-geometry.js');
+    return createPartGeometryProvider({ fetchPartText: async id => LIB[id.replace(/^.*\//, '')] ?? null });
+  };
+  const bricks = [
+    { part: '3001.dat', color: 4, x: 0, y: 0, z: 0 },
+    { part: '3823.dat', color: 47, x: 0, y: -24, z: 30 },
+    { part: '99999.dat', color: 1, x: 100, y: 0, z: 0 },
+  ];
+
+  it('emits real-geometry meshes, exact-colour PBR atlases, an opaque material and diagnostics', async () => {
+    const grid = new BlockGrid(4, 4, 4);
+    grid.set(1, 1, 1, 'minecraft:red_concrete');
+    const result = await buildPlayableAddon(grid, {
+      stem: 'senna', components: [{ id: 'car', label: 'Senna', kind: 'car', grid, provenance: 'test', bricks }],
+      partGeometry: await providerFor(), vehicleFacing: '+z',
+    });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    for (const name of [
+      'Craftmatic_senna_RP/models/entity/senna_car.geo.json',
+      'Craftmatic_senna_RP/textures/entity/senna_car.png',
+      'Craftmatic_senna_RP/textures/entity/senna_car_mer.png',
+      'Craftmatic_senna_RP/textures/entity/senna_car_normal.png',
+      'Craftmatic_senna_RP/textures/entity/senna_car.texture_set.json',
+      'Craftmatic_senna_RP/textures/entity/senna_car_canopy.png',
+      'Craftmatic_senna_RP/textures/entity/senna_car_canopy.texture_set.json',
+      'Craftmatic_senna_BP/craftmatic-diagnostics.json',
+    ]) expect(entries).toContain(name);
+    const rpManifest = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/manifest.json')));
+    expect(rpManifest.capabilities).toEqual(['pbr']);
+    const client = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/entity/senna_car.entity.json')))['minecraft:client_entity'].description;
+    expect(client.materials).toEqual({ default: 'entity', canopy: 'entity_alphablend' });
+    const textureSet = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/textures/entity/senna_car.texture_set.json')));
+    expect(textureSet['minecraft:texture_set']).toEqual({ color: 'senna_car', metalness_emissive_roughness: 'senna_car_mer', normal: 'senna_car_normal' });
+    // Exact LDraw red in the palette scanline; trans-clear alpha in the canopy atlas.
+    const alphas = pngAlphas(await extractFile(buffer, 'Craftmatic_senna_RP/textures/entity/senna_car.png'));
+    expect(alphas[0]).toBe(255);
+    const canopyAlphas = pngAlphas(await extractFile(buffer, 'Craftmatic_senna_RP/textures/entity/senna_car_canopy.png'));
+    expect(canopyAlphas[0]).toBe(128);
+    const geo = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/models/entity/senna_car.geo.json')));
+    expect(geo['minecraft:geometry'].map((m: { description: { identifier: string } }) => m.description.identifier)).toEqual([
+      'geometry.craftmatic.senna_car_mesh_0', 'geometry.craftmatic.senna_car_canopy',
+    ]);
+    const diag = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_BP/craftmatic-diagnostics.json')));
+    expect(diag.entities.senna_car).toMatchObject({ sourcePartCount: 3, uniquePartCount: 3, resolvedPartCount: 2, unresolvedParts: ['99999'] });
+    expect(result.diagnostics.senna_car).toBeDefined();
+    expect(result.warnings.some(w => /bounding box/.test(w))).toBe(true);
+    const behavior = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_BP/entities/senna_car.json')));
+    expect(behavior['minecraft:entity'].components['minecraft:rideable'].seats.position[1]).toBeGreaterThan(0);
+  });
+
+  it('can be exported without PBR assets for classic rendering', async () => {
+    const grid = new BlockGrid(2, 2, 2);
+    grid.set(0, 0, 0, 'minecraft:red_concrete');
+    const result = await buildPlayableAddon(grid, {
+      stem: 'plain', components: [{ id: 'car', label: 'Plain', kind: 'car', grid, provenance: 'test', bricks: bricks.slice(0, 1) }],
+      partGeometry: await providerFor(), pbr: false,
+    });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    expect(entries).toContain('Craftmatic_plain_RP/textures/entity/plain_car.png');
+    expect(entries.some(e => e.endsWith('_mer.png') || e.endsWith('.texture_set.json'))).toBe(false);
+    const rpManifest = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_plain_RP/manifest.json')));
+    expect(rpManifest.capabilities).toBeUndefined();
+  });
+});
