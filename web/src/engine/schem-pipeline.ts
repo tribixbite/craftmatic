@@ -329,11 +329,12 @@ export async function runSchemPipeline(
   }
 
   if (input.format === 'display') {
-    const { buildDisplayEntitiesFunction } = await import('./display-entities.js');
+    const { buildDisplayEntitiesFunction, ldrawToDisplayEntities } = await import('./display-entities.js');
     onProgress('generating Java block_display entities');
-    const res = buildDisplayEntitiesFunction(grid, {
-      tag: (input.packStem ?? 'craftmatic_model').replace(/[^a-zA-Z0-9_]/g, '_'),
-    });
+    const tag = (input.packStem ?? 'craftmatic_model').replace(/[^a-zA-Z0-9_]/g, '_');
+    const res = input.source.kind === 'bricks' && input.source.bricks.length > 0
+      ? ldrawToDisplayEntities(input.source.bricks, { tag })
+      : buildDisplayEntitiesFunction(grid, { tag });
     return {
       grid,
       bytes: new TextEncoder().encode(res.mcfunction),

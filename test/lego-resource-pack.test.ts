@@ -61,5 +61,11 @@ describe('LEGO Resource Pack Generator', () => {
     expect(atlasPng[2]).toBe(78);
     expect(atlasPng[3]).toBe(71);
     expect(atlasPng.length).toBeGreaterThan(100);
+
+    // Verify IHDR width is 64 (4 channels: stud, side, tile, grille)
+    expect(atlasPng[16]).toBe(0);
+    expect(atlasPng[17]).toBe(0);
+    expect(atlasPng[18]).toBe(0);
+    expect(atlasPng[19]).toBe(64);
   });
 });

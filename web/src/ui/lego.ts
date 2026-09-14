@@ -1811,13 +1811,28 @@ async function exportLoadedModel(fmt: string): Promise<void> {
     }
 
     if (fmt === 'lego-mcpack') {
-      const a = document.createElement('a');
-      a.href = '/downloads/Craftmatic-Lego-Pack.mcpack';
-      a.download = 'Craftmatic-Lego-Pack.mcpack';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setStatus('Downloaded Craftmatic-Lego-Pack.mcpack — double-click to install LEGO ABS plastic textures with embossed studs into Minecraft Bedrock.', 'success');
+      try {
+        const { buildLegoResourcePack } = await import('../engine/lego-resource-pack.js');
+        const packBytes = await buildLegoResourcePack();
+        const blob = new Blob([packBytes as Uint8Array<ArrayBuffer>], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'Craftmatic-Lego-Pack.mcpack';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        setStatus('Downloaded Craftmatic-Lego-Pack.mcpack — double-click to install LEGO ABS plastic textures into Minecraft Bedrock.', 'success');
+      } catch {
+        const a = document.createElement('a');
+        a.href = '/downloads/Craftmatic-Lego-Pack.mcpack';
+        a.download = 'Craftmatic-Lego-Pack.mcpack';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setStatus('Downloaded Craftmatic-Lego-Pack.mcpack — double-click to install into Minecraft Bedrock.', 'success');
+      }
       return;
     }
 

@@ -7,6 +7,8 @@
  */
 
 import type { BlockGrid } from '@craft/schem/types.js';
+import { getPartDims } from './ldraw-part-dims.js';
+import { ldrawColorToBlock } from './ldraw-colors.js';
 
 export interface DisplayEntityBox {
   x: number;
@@ -153,5 +155,125 @@ export function buildDisplayEntitiesFunction(
     mcfunction,
     spawnCommand: `/function <namespace>:${tag}`,
     boxCount: boxes.length,
+  };
+}
+
+/**
+ * Convert row-major 3x3 rotation matrix to quaternion [qx, qy, qz, qw] for Java Display Entities.
+ * LDraw has +Y down, Minecraft has +Y up.
+ */
+export function matrixToQuaternion(r: number[]): [number, number, number, number] {
+  const r00 = r[0], r01 = -r[1], r02 = r[2];
+  const r10 = -r[3], r11 = r[4], r12 = -r[5];
+  const r20 = r[6], r21 = -r[7], r22 = r[8];
+
+  const trace = r00 + r11 + r22;
+  let qx = 0, qy = 0, qz = 0, qw = 1;
+
+  if (trace > 0) {
+    const s = 0.5 / Math.sqrt(trace + 1.0);
+    qw = 0.25 / s;
+    qx = (r21 - r12) * s;
+    qy = (r02 - r20) * s;
+    qz = (r10 - r01) * s;
+  } else if (r00 > r11 && r00 > r22) {
+    const s = 2.0 * Math.sqrt(1.0 + r00 - r11 - r22);
+    qw = (r21 - r12) / s;
+    qx = 0.25 * s;
+    qy = (r01 + r10) / s;
+    qz = (r02 + r20) / s;
+  } else if (r11 > r22) {
+    const s = 2.0 * Math.sqrt(1.0 + r11 - r00 - r22);
+    qw = (r02 - r20) / s;
+    qx = (r01 + r10) / s;
+    qy = 0.25 * s;
+    qz = (r12 + r21) / s;
+  } else {
+    const s = 2.0 * Math.sqrt(1.0 + r22 - r00 - r11);
+    qw = (r10 - r01) / s;
+    qx = (r02 + r20) / s;
+    qy = (r12 + r21) / s;
+    qz = 0.25 * s;
+  }
+
+  const len = Math.hypot(qx, qy, qz, qw);
+  if (len > 1e-6) {
+    qx /= len; qy /= len; qz /= len; qw /= len;
+  }
+
+  return [
+    Math.round(qx * 10000) / 10000,
+    Math.round(qy * 10000) / 10000,
+    Math.round(qz * 10000) / 10000,
+    Math.round(qw * 10000) / 10000,
+  ];
+}
+
+/**
+ * Direct LDraw-to-Java Display Entities Compiler.
+ * Translates parsed LDraw bricks directly into minecraft:block_display entities
+ * with sub-block fractional scales and exact rotations (Pillar 4).
+ */
+export function ldrawToDisplayEntities(
+  bricks: Array<{ part: string; color: number; x: number; y: number; z: number; rot?: number[] }>,
+  options: {
+    tag?: string;
+    scale?: number;
+    originOffset?: [number, number, number];
+  } = {}
+): DisplayEntitiesResult {
+  const tag = options.tag ?? 'craftmatic_model';
+  // 1 stud = 20 LDU = 0.2 blocks in Minecraft (at 1:1 minifig scale)
+  const lduToBlock = options.scale ?? (0.2 / 20);
+
+  const xs = bricks.map(b => b.x), ys = bricks.map(b => b.y), zs = bricks.map(b => b.z);
+  const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const maxY = Math.max(...ys); // ground in LDraw (+Y is down)
+  const midZ = (Math.min(...zs) + Math.max(...zs)) / 2;
+
+  const [ox, oy, oz] = options.originOffset ?? [0, 0, 0];
+
+  const lines: string[] = [
+    `# Craftmatic Java Display Entities Model (Direct Non-Voxelized LDraw)`,
+    `# Java Edition 1.19.4+ required (block_display entities)`,
+    `# Total bricks: ${bricks.length}`,
+    `# Despawn previous: /kill @e[type=block_display,tag=${tag}]`,
+    `kill @e[type=block_display,tag=${tag},distance=..64]`,
+    ``,
+  ];
+
+  for (const b of bricks) {
+    const [sW, sH, sL] = getPartDims(b.part);
+
+    const sx = (sW * 20 * lduToBlock).toFixed(3);
+    const sy = (sH * 8 * lduToBlock).toFixed(3);
+    const sz = (sL * 20 * lduToBlock).toFixed(3);
+
+    const cx = (b.x - midX) * lduToBlock;
+    const cy = (maxY - b.y) * lduToBlock;
+    const cz = (b.z - midZ) * lduToBlock;
+
+    const tx = (ox + cx).toFixed(3);
+    const ty = (oy + cy).toFixed(3);
+    const tz = (oz + cz).toFixed(3);
+
+    const r = b.rot ?? [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const [qx, qy, qz, qw] = matrixToQuaternion(r);
+
+    // Map color to closest concrete/glass block
+    const isTrans = (b.color >= 33 && b.color <= 47) || b.color === 52 || b.color === 54 || b.color === 57 || b.color === 111 || b.color === 114;
+    const blockState = isTrans ? 'minecraft:glass' : ldrawColorToBlock(b.color);
+    const blockNbt = parseBlockStateNbt(blockState);
+
+    lines.push(
+      `summon block_display ~${tx} ~${ty} ~${tz} {Tags:["${tag}"],block_state:${blockNbt},transformation:{left_rotation:[${qx}f,${qy}f,${qz}f,${qw}f],right_rotation:[0f,0f,0f,1f],translation:[0f,0f,0f],scale:[${sx}f,${sy}f,${sz}f]}}`
+    );
+  }
+
+  const mcfunction = lines.join('\n') + '\n';
+  return {
+    mcfunction,
+    spawnCommand: `/function <namespace>:${tag}`,
+    boxCount: bricks.length,
   };
 }

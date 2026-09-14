@@ -786,7 +786,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Bundle authentic embossed LEGO stud & seam textures for Minecraft concrete blocks
     const terrainTextures: Record<string, { textures: string }> = {};
     for (const [colorName, [r, g, b]] of Object.entries(CONCRETE_COLORS)) {
-        files.push({ name: `${rp}textures/blocks/concrete_${colorName}.png`, data: generateStudBlockPng(r, g, b, true) });
+        files.push({ name: `${rp}textures/blocks/concrete_${colorName}.png`, data: generateStudBlockPng(r, g, b, false) });
         terrainTextures[`concrete_${colorName}`] = { textures: `textures/blocks/concrete_${colorName}` };
     }
     files.push({
