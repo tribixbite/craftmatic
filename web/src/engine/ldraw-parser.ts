@@ -43,9 +43,28 @@ export interface ParsedBrick {
   sourcePath?: string[];
 }
 
-interface Section {
+/** One `0 FILE` section of an MPD (or the whole of a plain `.ldr`). */
+export interface LDrawSection {
+  /** Normalised name: lower-case, forward slashes, as referenced by type-1 lines. */
   name: string;
+  /** Trimmed source lines, `0 FILE` header excluded. */
   lines: string[];
+}
+
+type Section = LDrawSection;
+
+/**
+ * A parsed document: the flattened placements PLUS every section the file
+ * carried, so a consumer that needs the geometry of an embedded part (Studio
+ * `.io` exports and OMR MPDs inline `.dat` definitions) can get at its text
+ * instead of having to re-fetch a part that only exists inside this file.
+ */
+export interface LDrawDocument {
+  bricks: ParsedBrick[];
+  /** Keyed by normalised section name. A plain `.ldr` has one `__main__` entry. */
+  sections: Map<string, LDrawSection>;
+  /** Name of the section that was expanded as the model root. */
+  rootSection: string;
 }
 
 /**
@@ -54,14 +73,52 @@ interface Section {
  * Bricks include a `step` number (1-based) derived from `0 STEP` meta-commands.
  */
 export function parseLDraw(content: string): ParsedBrick[] {
+  return parseLDrawDocument(content).bricks;
+}
+
+/**
+ * Parse an LDraw MPD or LDR file and keep the sections. Placement expansion is
+ * exactly `parseLDraw()`'s (same transforms, colour-16 inheritance, steps,
+ * `sourcePath`); the sections are copies, so callers cannot mutate parser
+ * state through them.
+ */
+export function parseLDrawDocument(content: string): LDrawDocument {
   const sections = splitIntoSections(content);
-  if (sections.length === 0) return [];
+  const sectionMap = new Map<string, LDrawSection>();
+  for (const s of sections) {
+    // The parser's own lookup finds the FIRST section of a name; keep that one.
+    if (!sectionMap.has(s.name)) sectionMap.set(s.name, { name: s.name, lines: s.lines.slice() });
+  }
+  if (sections.length === 0) return { bricks: [], sections: sectionMap, rootSection: '__main__' };
 
   const bricks: ParsedBrick[] = [];
   const IDENTITY = [1, 0, 0,  0, 1, 0,  0, 0, 1];
   const stepRef = { step: 1 };
   expandSection(sections[0].lines, sections, IDENTITY, [0, 0, 0], bricks, 0, 16, stepRef, [sections[0].name]);
-  return bricks;
+  return { bricks, sections: sectionMap, rootSection: sections[0].name };
+}
+
+/**
+ * The embedded PART definitions of a document (every `.dat` section), as
+ * `[name, text]` pairs ready for a part-geometry resolver's seed. Sub-model
+ * (`.ldr` / extension-less) sections are assemblies the placement parser has
+ * already expanded and are not part definitions, so they are left out.
+ */
+export function embeddedPartTexts(doc: LDrawDocument): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  for (const s of doc.sections.values()) {
+    if (!s.name.endsWith('.dat')) continue;
+    out.push([s.name, s.lines.join('\n')]);
+  }
+  return out;
+}
+
+/**
+ * LDraw colour token → id. Direct colours are written as hex (`0x2RRGGBB`,
+ * `0x3RRGGBB`); a decimal parse would turn those into 0 (black).
+ */
+export function parseLDrawColor(token: string): number {
+  return /^0x/i.test(token) ? parseInt(token, 16) : parseInt(token, 10);
 }
 
 /**
@@ -140,9 +197,7 @@ function expandSection(
     const tokens = line.split(/\s+/);
     if (tokens.length < 15 || tokens[0] !== '1') continue;
 
-    const rawColor = tokens[1].toLowerCase().startsWith('0x')
-      ? parseInt(tokens[1], 16)
-      : parseInt(tokens[1], 10);
+    const rawColor = parseLDrawColor(tokens[1]);
     // LDraw color 16 = "Main Color" — inherit from parent reference context
     const color = rawColor === 16 ? parentColor : rawColor;
     const lx = parseFloat(tokens[2]);

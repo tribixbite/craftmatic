@@ -203,6 +203,17 @@ async function fetchDatText(id: string): Promise<string | null> {
   return result;
 }
 
+/**
+ * The `.dat` text of a part through THIS module's cache — seeded texts first
+ * (`seedDatTexts`, i.e. everything the viewer already loaded, MPD inlines and
+ * `.io` CustomParts included), then the library. Exported so the Bedrock entity
+ * resolver (`ldraw-part-geometry.ts`) shares one text cache with the voxelizer
+ * and is zero-network in the Worker exactly like the `.schem` path.
+ */
+export function getDatText(id: string): Promise<string | null> {
+  return fetchDatText(id);
+}
+
 // ─── Triangle resolution ──────────────────────────────────────────────────────
 
 /**
