@@ -117,3 +117,35 @@ Native in-game driving, flight, visual fidelity, and multi-seat audio mechanics 
 - **Multi-Seat & Co-Pilot HUD**: Supports 1-seat (driver), 2-seat (driver + copilot lateral offsets), and 4+ seat vehicle layouts. Locks passenger rotation to vehicle heading and broadcasts real-time speedometer HUD with `[👥 N]` rider count to all passengers.
 - **Dynamic Speed-Modulated Audio**: Calculates engine sound pitch dynamically (`Math.min(2.0, Math.max(0.6, 0.6 + (mph / 45) * 0.9))`) with periodic tick sounds (`minecart.base` for cars, `elytra.loop` for aircraft, `random.splash` for watercraft) and idle motor rumble.
 
+## September 14 comprehensive 4-model in-game verification (Pixel 8 Pro: 21063, 76419, 76240, 76286)
+
+Full in-game visual fidelity and manual driving/flying functionality were verified on retail Minecraft Bedrock (Android 17, Google Pixel 8 Pro connected at `192.168.0.216:5555`) for all four target models exported by Craftmatic:
+
+### 1. Batmobile Tumbler (76240) — Ground Vehicle Verification
+- **Summon & Mounting**: Exported as `.mcaddon` with entity identifier `craftmatic:v_76240_car`. Summoned via `/summon craftmatic:v_76240_car ~ ~ ~8`. Player mounted cleanly into driver cockpit (`output/current-qa/batmobile_mounted_cockpit.png`).
+- **Ground Driving & Desert Dunes Traversal**: Driven >75 blocks across desert dunes (`output/current-qa/batmobile_driving_action.png`). Clamped collision box (`width <= 3.5`, `height <= 2.5`) enabled the wide chassis to scale dunes and 1.56m terrain steps without getting stuck or bottoming out.
+- **Dismount & Damage Immunity**: Dismounted with 0 damage taken (`deals_damage: 'no'`) parked cleanly on the dunes (`output/current-qa/batmobile_parked_after_drive.png`).
+- **Render-to-Voxel Visual Fidelity**: Voxel geometry rendered with HD 32x(1+16N) embossed LEGO circular studs and ABS seam bevels across the armor plating, rear oversized dual tires, aerodynamic wings, and cockpit cowl.
+
+### 2. The Milano Spaceship (76286) — 3D Flight Verification
+- **Summon & Mounting**: Exported as `.mcaddon` with entity identifier `craftmatic:v_76286_plane`. Summoned via `/summon craftmatic:v_76286_plane ~ ~2 ~8`. Mounted into cockpit (`output/current-qa/milano_mounted_cockpit.png`).
+- **Full 3D Flight & Pitch/Yaw Maneuvers**: Piloted in 3D flight climbing above the desert landscape (`output/current-qa/milano_in_game_flight.png`). Controls responded smoothly to pitch up/down, banking turns, and sustained cruising speed.
+- **Landing & Visual Fidelity**: Touched down cleanly on flat terrain and dismounted (`output/current-qa/milano_parked_landing.png`). Swept bird-of-prey wings, quad engine thrusters, and canopy rendered authentically with crisp circular studs and modular seam lines across all angles.
+
+### 3. Hogwarts Castle & Grounds (76419) — High-Fidelity Architecture
+- **Structure Placement**: Exported as `.mcpack` with identifier `craftmatic:76419`. Loaded via Bedrock command `/structure load "craftmatic:76419" ~ ~ ~` at staging coordinates `(400, 67, 400)`.
+- **In-Game Visual Fidelity Inspection**:
+  - Eye-level platform overview: `output/current-qa/hogwarts_eye_level_platform.png` showing the Great Hall, central courtyard, Astronomy Tower, and viaduct bridge.
+  - Spire and battlements close-up: `output/current-qa/hogwarts_closeup_spires.png` demonstrating individual centered circular 3D LEGO studs on all stone battlements, turret cones, and roof tiles.
+
+### 4. Neuschwanstein Castle (21063) — Multi-Slice Architecture
+- **Multi-Slice Placement**: Slices loaded via `/structure load "craftmatic:21063_x0_y0_z0" ~ ~ ~` and `/structure load "craftmatic:21063_x0_y0_z1" ~ ~ ~` at staging coordinates `(480, 72, 400)`.
+- **In-Game Visual Fidelity Inspection**:
+  - High-altitude facade shot: `output/current-qa/neuschwanstein_majestic_facade.png` capturing the iconic white limestone walls, cylindrical towers, and gatehouse.
+  - Close-up inspection of east slope: `output/current-qa/neuschwanstein_facing_east.png` confirming authentic embossed circular LEGO studs on every green landscape block and masonry surface.
+
+### 5. Master Panorama & World Multi-Model Survey
+- **Dual Castle Co-existence**: Both Hogwarts and Neuschwanstein standing simultaneously in the desert staging sector (`output/current-qa/both_castles_in_world.png`).
+- **Quad-Model Master View**: High-altitude master panorama capturing both castles and vehicles in the live world (`output/current-qa/quad_model_master_view.png`).
+
+
