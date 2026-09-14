@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   generateStudBlockPng,
+  generateEntityLegoAtlasPng,
   buildLegoResourcePack,
 } from '../web/src/engine/lego-resource-pack.js';
 import { listZipEntries, extractFile } from '../web/src/engine/zip-utils.js';
@@ -46,5 +47,19 @@ describe('LEGO Resource Pack Generator', () => {
     expect(manifest.format_version).toBe(2);
     expect(manifest.header.name).toContain('Craftmatic LEGO');
     expect(manifest.modules[0].type).toBe('resources');
+  });
+
+  it('generates a valid entity LEGO atlas with studs, seams, and glass sheen', () => {
+    const palette = ['minecraft:black_concrete', 'minecraft:glass', 'minecraft:yellow_concrete'];
+    const rgbFn = (s: string): [number, number, number] =>
+      s.includes('black') ? [20, 20, 24] : s.includes('yellow') ? [241, 175, 21] : [200, 220, 255];
+    const alphaFn = (s: string): number => s.includes('glass') ? 96 : 255;
+
+    const atlasPng = generateEntityLegoAtlasPng(palette, rgbFn, alphaFn);
+    expect(atlasPng[0]).toBe(137);
+    expect(atlasPng[1]).toBe(80);
+    expect(atlasPng[2]).toBe(78);
+    expect(atlasPng[3]).toBe(71);
+    expect(atlasPng.length).toBeGreaterThan(100);
   });
 });

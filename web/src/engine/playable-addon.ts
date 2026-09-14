@@ -6,6 +6,7 @@ import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './m
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
 import { buildPlacementPackAssets, placementAlias, type PlacementActor } from './bedrock-placement-pack.js';
+import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -241,7 +242,10 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
     const palette = [...new Set(boxes.map(b => b.state))];
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing), { scale } = layout;
     const cubes = boxes.map(b => {
-        const uv = [palette.indexOf(b.state) % 16, Math.floor(palette.indexOf(b.state) / 16)], face = { uv, uv_size: [1, 1] };
+        const colorIdx = palette.indexOf(b.state);
+        // Map top face to embossed stud tile; sides and bottom to beveled seam tile
+        const topFace = { uv: [0, 1 + colorIdx * 16], uv_size: [16, 16] };
+        const sideFace = { uv: [16, 1 + colorIdx * 16], uv_size: [16, 16] };
         const origin = layout.longitudinalAxis === 'x'
             ? [layout.forwardSign > 0 ? (b.z - grid.length / 2) * 16 * scale : (grid.length / 2 - b.z - b.sz) * 16 * scale,
                 b.y * 16 * scale,
@@ -252,16 +256,18 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
         const size = layout.longitudinalAxis === 'x'
             ? [b.sz * 16 * scale, b.sy * 16 * scale, b.sx * 16 * scale]
             : [b.sx * 16 * scale, b.sy * 16 * scale, b.sz * 16 * scale];
-        return { origin, size, uv: { north: face, south: face, east: face, west: face, up: face, down: face } };
+        return { origin, size, uv: { north: sideFace, south: sideFace, east: sideFace, west: sideFace, up: topFace, down: sideFace } };
     });
     // Each render controller owns a small mesh. A single 8,000-cube mesh can
     // exceed 16-bit vertex/index ranges on mobile renderers (24 vertices/cube).
     // Partitioning preserves every cube and its coordinates without decimation.
     const meshIds: string[] = [], meshes = [];
+    const atlasW = 32;
+    const atlasH = 1 + palette.length * 16;
     for (let offset = 0; offset < cubes.length; offset += 1024) {
         const meshId = `geometry.${PACK_NAMESPACE}.${id}_mesh_${meshIds.length}`;
         meshIds.push(meshId);
-        meshes.push({ description: { identifier: meshId, texture_width: 16, texture_height: Math.max(1, Math.ceil(palette.length / 16)), visible_bounds_width: Math.max(2, layout.width, layout.length), visible_bounds_height: Math.max(2, layout.height), visible_bounds_offset: [0, layout.height / 2, 0] }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: cubes.slice(offset, offset + 1024) }] });
+        meshes.push({ description: { identifier: meshId, texture_width: atlasW, texture_height: atlasH, visible_bounds_width: Math.max(2, layout.width, layout.length), visible_bounds_height: Math.max(2, layout.height), visible_bounds_offset: [0, layout.height / 2, 0] }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: cubes.slice(offset, offset + 1024) }] });
     }
     return { value: { format_version: '1.12.0', 'minecraft:geometry': meshes }, palette, meshIds };
 }
@@ -716,7 +722,25 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const version = exportVersion();
     const bpHeader = deterministicUuid(`craftmatic.addon.bp.header:${id}`), rpHeader = deterministicUuid(`craftmatic.addon.rp.header:${id}`);
     files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable`, description: `Place with /function ${shortAlias}; ride vehicles and use computer screens.`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${id}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${id}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
-    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable Resources`, description: 'Faithful Craftmatic vehicle geometry', uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${id}`), version }] }) });
+    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable Resources`, description: 'Faithful Craftmatic vehicle geometry and HD LEGO textures', uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${id}`), version }] }) });
+    // Bundle authentic embossed LEGO stud & seam textures for Minecraft concrete blocks
+    const terrainTextures: Record<string, { textures: string }> = {};
+    for (const [colorName, [r, g, b]] of Object.entries(CONCRETE_COLORS)) {
+        files.push({ name: `${rp}textures/blocks/concrete_${colorName}.png`, data: generateStudBlockPng(r, g, b, true) });
+        terrainTextures[`concrete_${colorName}`] = { textures: `textures/blocks/concrete_${colorName}` };
+    }
+    files.push({
+        name: `${rp}textures/terrain_texture.json`,
+        data: json({
+            resource_pack_name: `craftmatic_${id}`,
+            texture_name: 'atlas.terrain',
+            texture_data: terrainTextures,
+        }),
+    });
+    files.push({
+        name: `${rp}pack_icon.png`,
+        data: generateStudBlockPng(220, 32, 32, true),
+    });
     const scenery = components.some(c => c.grid === grid) ? new BlockGrid(grid.width, grid.height, grid.length) : grid;
     const plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE);
     const actors: PlacementActor[] = [];
@@ -742,7 +766,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
         files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1)) });
         const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
-        files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: palettePng(geo.palette) });
+        files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
         actors.push({ typeId: fullTypeId, label: c.label, x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2, yaw: layout.actorYaw });
     }
     const screens = options.screens ?? [], screenId = `${id}_control_screen`;
