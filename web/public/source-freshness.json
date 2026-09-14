@@ -1,24 +1,24 @@
 {
- "generated": "2026-09-07 12:49:05",
+ "generated": "2026-09-14 13:06:07",
  "model_index": {
   "source": "https://craftmatic.click/lego-models-index.json",
-  "generated": "2026-09-05",
-  "sets": 10092
+  "generated": "2026-09-09",
+  "sets": 10169
  },
  "catalog": {
-  "sets": 28193,
-  "buildable": 16650
+  "sets": 28327,
+  "buildable": 16651
  },
  "channels": {
   "dbix_skulist": 1959,
   "omr_sets": 1419
  },
  "sourceless": {
-  "total": 6245,
-  "recent": 474,
+  "total": 6166,
+  "recent": 475,
   "harvestable_dbix": 0,
   "harvestable_omr": 1,
-  "no_known_channel": 6244
+  "no_known_channel": 6165
  },
  "harvest_dbix": [],
  "harvest_omr": [
@@ -42,13 +42,14 @@
   "45521-1 Computer Science & AI Kit 3-5 (2026, 321p)",
   "76340-1 Super Heroes Marvel Advent Calendar 2026 (2026, 316p)",
   "43298-1 Disney Princess Advent Calendar 2026 (2026, 292p)",
-  "75456-1 Star Wars Advent Calendar 2026 (2026, 290p)",
+  "75456-1 Star Wars Advent Calendar 2026 (2026, 292p)",
   "45520-1 Computer Science & AI Kit K-2 (2026, 276p)",
   "60510-1 City Advent Calendar 2026 (2026, 256p)",
   "45547-1 Computer Science & AI 6-8 Replacement Pack (2026, 244p)",
   "45546-1 Computer Science & AI 3-5 Replacement Pack (2026, 224p)",
   "42698-1 Friends Advent Calendar 2026 (2026, 210p)",
   "EG00172-1 Multipack Baby Animals Trio (2 of each) (2026, 204p)",
+  "45545-1 Computer Science & AI K-2 Replacement Pack (2026, 201p)",
   "6611596-1 Father's Day Coffee Cup (2026, 159p)",
   "6641299-1 LEGO Store Grand Opening (2026, 158p)",
   "5010173-1 Happy Hummingbird (2026, 156p)",
@@ -208,9 +209,9 @@
   "LCS6003YDE-1 City: Space Spectacular (2026, 16p)",
   "LCS6702YDE-1 Ninjago: Dragons Rising: Ninja Training Stories (2026, 16p)",
   "112601-1 Lloyd vs. Dragonian Warrior (2026, 14p)",
+  "DATABASE-2026 2026 - Unused Parts Database Set (2026, 14p)",
   "L0002222-1 Stunt Rider with Motorcycle (2026, 14p)",
   "122506-1 Raptor Breakout (2026, 13p)",
-  "DATABASE-2026 2026 - Unused Parts Database Set (2026, 13p)",
   "L0002213-1 Kai vs. Rox (2026, 13p)",
   "LCS6201YDE-1 Jurassic World: A New Era of Dinosaurs! (2026, 13p)",
   "71052-2 Marine Biologist (2026, 12p)",
@@ -223,7 +224,6 @@
   "9781837251773-1 Star Wars: Grogu's Adventures (2026, 11p)",
   "L0002200-1 Dragon Jay (2026, 11p)",
   "L0002201-1 Dragon Lloyd (2026, 11p)",
-  "L0002204-1 Kai - Draconus Form (2026, 11p)",
-  "L0002206-1 Cole (2026, 11p)"
+  "L0002204-1 Kai - Draconus Form (2026, 11p)"
  ]
 }
