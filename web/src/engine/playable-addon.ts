@@ -7,6 +7,8 @@ import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-compon
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
 import { buildPlacementPackAssets, placementAlias, type PlacementActor } from './bedrock-placement-pack.js';
 import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
+import type { ParsedBrick } from './ldraw-parser.js';
+import { compileLdrawEntityGeometry } from './ldraw-entity-compiler.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -26,6 +28,7 @@ export interface PlayableGridComponent {
     x?: number;
     y?: number;
     z?: number;
+    bricks?: ParsedBrick[];
 }
 export interface PlayableScreenAnchor {
     id: string;
@@ -91,15 +94,20 @@ function componentLayout(kind: PlayableKind, grid: BlockGrid, requestedScale = 1
     return { scale, longitudinalAxis, forwardSign, width, length, height, actorYaw };
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1): unknown {
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }): unknown {
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
-    const seat = seatAnchor ?? { x: .5, y: .45, z: .5 };
-    const ox = (seat.x - .5) * grid.width * layout.scale, oz = (seat.z - .5) * grid.length * layout.scale;
-    // Mojang's vanilla horse geometry establishes -Z as model-forward. Keep
-    // the source footprint fixed while its selected nose follows that axis.
-    const seatX = layout.longitudinalAxis === 'x' ? layout.forwardSign * oz : -layout.forwardSign * ox;
-    const seatZ = layout.longitudinalAxis === 'x' ? -layout.forwardSign * ox : -layout.forwardSign * oz;
-    const seatY = Math.max(.35, Math.min(layout.height - .35, layout.height * seat.y));
+    let seatX: number, seatY: number, seatZ: number;
+    if (seatPositionOverride) {
+        [seatX, seatY, seatZ] = seatPositionOverride;
+    } else {
+        const seat = seatAnchor ?? { x: .5, y: .45, z: .5 };
+        const ox = (seat.x - .5) * grid.width * layout.scale, oz = (seat.z - .5) * grid.length * layout.scale;
+        // Mojang's vanilla horse geometry establishes -Z as model-forward. Keep
+        // the source footprint fixed while its selected nose follows that axis.
+        seatX = layout.longitudinalAxis === 'x' ? layout.forwardSign * oz : -layout.forwardSign * ox;
+        seatZ = layout.longitudinalAxis === 'x' ? -layout.forwardSign * ox : -layout.forwardSign * oz;
+        seatY = Math.max(.35, Math.min(layout.height - .35, layout.height * seat.y));
+    }
     const rideableComponent: Record<string, unknown> = seatCount <= 1
         ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [seatX, seatY, seatZ], lock_rider_rotation: 0 } }
         : {
@@ -138,7 +146,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // the transverse body width so a long car can still pass a doorway.
         // Clamp to practical navigation bounds (<= 3.5m wide, <= 2.5m tall) so oversized models
         // can navigate dunes, terrain steps, and doorways without clipping into terrain.
-        'minecraft:collision_box': { width: Math.min(3.5, Math.max(0.8, layout.width * .85)), height: Math.min(2.5, Math.max(.8, layout.height * .8)) },
+        'minecraft:collision_box': collisionBoxOverride ?? { width: Math.min(3.5, Math.max(0.8, layout.width * .85)), height: Math.min(2.5, Math.max(.8, layout.height * .8)) },
         'minecraft:rideable': rideableComponent,
         'minecraft:pushable': { is_pushable: false, is_pushable_by_piston: true },
         'minecraft:movement': isTimeMachine
@@ -273,12 +281,62 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
     }
     return { value: { format_version: '1.12.0', 'minecraft:geometry': meshes }, palette, meshIds };
 }
-function clientEntity(id: string, meshIds: string[]): unknown { return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_alphablend' }, textures: { default: `textures/entity/${id}` }, geometry: Object.fromEntries(meshIds.map((mesh, i) => [`mesh_${i}`, mesh])), render_controllers: meshIds.map((_, i) => `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`), spawn_egg: { base_color: '#151515', overlay_color: '#f5c542' } } } }; }
-function meshControllers(id: string, meshIds: string[]): unknown {
-    return { format_version: '1.8.0', render_controllers: Object.fromEntries(meshIds.map((_, i) => [
-        `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`,
-        { geometry: `Geometry.mesh_${i}`, materials: [{ '*': 'Material.default' }], textures: ['Texture.default'] },
-    ])) };
+function clientEntity(id: string, meshIds: string[], canopyMeshId?: string): unknown {
+    const materials: Record<string, string> = { default: 'entity_alphablend' };
+    const textures: Record<string, string> = { default: `textures/entity/${id}` };
+    if (canopyMeshId) {
+        materials.canopy = 'entity_alphablend';
+        textures.canopy = `textures/entity/${id}_canopy`;
+    }
+    const geometryMap: Record<string, string> = {};
+    for (let i = 0; i < meshIds.length; i++) {
+        const mesh = meshIds[i]!;
+        if (mesh === canopyMeshId) {
+            geometryMap.canopy = mesh;
+        } else {
+            geometryMap[`mesh_${i}`] = mesh;
+        }
+    }
+    return {
+        format_version: '1.10.0',
+        'minecraft:client_entity': {
+            description: {
+                identifier: `${PACK_NAMESPACE}:${id}`,
+                materials,
+                textures,
+                geometry: geometryMap,
+                render_controllers: meshIds.map((mesh, i) =>
+                    mesh === canopyMeshId
+                        ? `controller.render.${PACK_NAMESPACE}.${id}_canopy`
+                        : `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`
+                ),
+                spawn_egg: { base_color: '#151515', overlay_color: '#f5c542' },
+            },
+        },
+    };
+}
+function meshControllers(id: string, meshIds: string[], canopyMeshId?: string): unknown {
+    const controllers: Record<string, unknown> = {};
+    for (let i = 0; i < meshIds.length; i++) {
+        const mesh = meshIds[i]!;
+        if (mesh === canopyMeshId) {
+            controllers[`controller.render.${PACK_NAMESPACE}.${id}_canopy`] = {
+                geometry: 'Geometry.canopy',
+                materials: [{ '*': 'Material.canopy' }],
+                textures: ['Texture.canopy'],
+            };
+        } else {
+            controllers[`controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`] = {
+                geometry: `Geometry.mesh_${i}`,
+                materials: [{ '*': 'Material.default' }],
+                textures: ['Texture.default'],
+            };
+        }
+    }
+    return {
+        format_version: '1.8.0',
+        render_controllers: controllers,
+    };
 }
 function screenClient(id: string): unknown { return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_emissive_alpha' }, textures: { default: 'textures/entity/craftmatic_screen' }, geometry: { default: `geometry.${PACK_NAMESPACE}.control_screen` }, render_controllers: ['controller.render.default'] } } }; }
 const SCREEN_GEOMETRY = { format_version: '1.12.0', 'minecraft:geometry': [{ description: { identifier: `geometry.${PACK_NAMESPACE}.control_screen`, texture_width: 1, texture_height: 1, visible_bounds_width: 2, visible_bounds_height: 2, visible_bounds_offset: [0, 1, 0] }, bones: [{ name: 'screen', pivot: [0, 0, 0], cubes: [{ origin: [-8, 0, -1], size: [16, 16, 2], uv: [0, 0] }] }] }] };
@@ -767,9 +825,32 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             timeMachineConfig = { typeId: fullTypeId, width: layout.width, height: layout.height, length: layout.length };
         else if (c.kind === 'car' || c.kind === 'plane' || c.kind === 'boat')
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
-        files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1)) });
-        const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
-        files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
+        if (c.bricks && c.bricks.length > 0) {
+            const ldrawGeo = compileLdrawEntityGeometry(cid, c.kind, c.bricks, {
+                facing,
+                userSeatAnchor: c.seatAnchor,
+            });
+            files.push({
+                name: `${bp}entities/${cid}.json`,
+                data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox)),
+            });
+            files.push(
+                { name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, ldrawGeo.meshIds, ldrawGeo.canopyMeshId)) },
+                { name: `${rp}models/entity/${cid}.geo.json`, data: json(ldrawGeo.value) },
+                { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, ldrawGeo.meshIds, ldrawGeo.canopyMeshId)) },
+                { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(ldrawGeo.palette, blockRgb, blockAlpha) },
+            );
+            if (ldrawGeo.canopyMeshId && ldrawGeo.canopyPalette.length > 0) {
+                files.push({
+                    name: `${rp}textures/entity/${cid}_canopy.png`,
+                    data: generateEntityLegoAtlasPng(ldrawGeo.canopyPalette, blockRgb, blockAlpha),
+                });
+            }
+        } else {
+            files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1)) });
+            const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
+            files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
+        }
         actors.push({ typeId: fullTypeId, label: c.label, x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2, yaw: layout.actorYaw });
     }
     const screens = options.screens ?? [], rawScreenId = `${id}_control_screen`;

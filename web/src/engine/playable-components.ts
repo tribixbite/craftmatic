@@ -117,7 +117,35 @@ export function discoverPlayableComponents(
     const longitudinalAxis = component.kind === 'car'
       ? (bounds.max[0] - bounds.min[0] >= bounds.max[2] - bounds.min[2] ? 'x' : 'z')
       : undefined;
-    return {...component,bounds,...(longitudinalAxis ? { longitudinalAxis } : {})};
+
+    let seatAnchor = component.seatAnchor;
+    if (!seatAnchor && component.bricks.length) {
+      const CANOPY_SET = new Set([
+        '35654', '65633', '4594', '2483', '2437', '3823', '4872', '57783',
+        '62360', '84954', '92579', '98834', '4474', '2447', '50747', '62576',
+        '23447', '30372', '58181', '48288', '60581', '60803', '59349', '87544',
+        '4079', '4079b', '3829', '3829c01', '73081'
+      ]);
+      const cockpitParts = component.bricks.filter(b => {
+        const p = b.part.replace(/^.*[/\\]/, '').replace(/\.dat$/i, '').toLowerCase();
+        return CANOPY_SET.has(p) || (b.color >= 33 && b.color <= 47) || b.color === 52 || b.color === 54 || b.color === 111;
+      });
+      if (cockpitParts.length) {
+        const avgX = cockpitParts.reduce((a, b) => a + b.x, 0) / cockpitParts.length;
+        const avgY = cockpitParts.reduce((a, b) => a + b.y, 0) / cockpitParts.length;
+        const avgZ = cockpitParts.reduce((a, b) => a + b.z, 0) / cockpitParts.length;
+        const spanX = Math.max(1, bounds.max[0] - bounds.min[0]);
+        const spanY = Math.max(1, bounds.max[1] - bounds.min[1]);
+        const spanZ = Math.max(1, bounds.max[2] - bounds.min[2]);
+        seatAnchor = {
+          x: Math.max(0.1, Math.min(0.9, (avgX - bounds.min[0]) / spanX)),
+          y: Math.max(0.2, Math.min(0.95, (bounds.max[1] - avgY) / spanY * 0.95)),
+          z: Math.max(0.1, Math.min(0.9, (avgZ - bounds.min[2]) / spanZ)),
+        };
+      }
+    }
+
+    return {...component,bounds,...(longitudinalAxis ? { longitudinalAxis } : {}), ...(seatAnchor ? { seatAnchor } : {})};
   };
 
   if (/\b76252\b|batcave shadow/i.test(label) && kind === 'car') {
