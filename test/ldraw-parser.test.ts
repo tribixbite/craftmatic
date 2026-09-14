@@ -173,3 +173,25 @@ describe('parseLDraw — malformed lines', () => {
     expect(parseLDraw(ldr).map((b) => b.part)).toEqual(['3001.dat']);
   });
 });
+
+describe('parseLDraw — quoted filenames and direct hex colors', () => {
+  it('strips double quotes from 0 FILE and line type 1 filenames', () => {
+    const MPD = [
+      '0 FILE "main.ldr"',
+      `1 16 0 0 0 ${I} "sub model.ldr"`,
+      '0 FILE "sub model.ldr"',
+      `1 4 0 0 0 ${I} "3001.dat"`,
+    ].join('\n');
+    const bricks = parseLDraw(MPD);
+    expect(bricks).toHaveLength(1);
+    expect(bricks[0].part).toBe('3001.dat');
+  });
+
+  it('parses direct hex colors (0x2RRGGBB)', () => {
+    const ldr = `1 0x2ff0088 10 20 30 ${I} 3001.dat`;
+    const bricks = parseLDraw(ldr);
+    expect(bricks).toHaveLength(1);
+    expect(bricks[0].color).toBe(0x2ff0088);
+  });
+});
+

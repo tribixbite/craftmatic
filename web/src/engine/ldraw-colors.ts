@@ -232,6 +232,15 @@ export const LDRAW_COLOR_TO_BLOCK: Record<number, string> = {
 export function ldrawColorToBlock(colorId: number): string {
   const explicit = LDRAW_COLOR_TO_BLOCK[colorId];
   if (explicit) return explicit;
+  // Direct RGB color: 0x2RRGGBB (standard LDraw direct color format)
+  if ((colorId & 0x2000000) === 0x2000000) {
+    const r = (colorId >> 16) & 0xff;
+    const g = (colorId >> 8) & 0xff;
+    const b = colorId & 0xff;
+    const match = closestBlock(r, g, b);
+    LDRAW_COLOR_TO_BLOCK[colorId] = match;
+    return match;
+  }
   // Perceptual fallback: if we know the RGB, find the closest Minecraft block
   const hex = LDRAW_COLOR_RGB[colorId];
   if (hex) {

@@ -1,0 +1,58 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "HotSchem Live",
+    "description": "Receive builds from Craftmatic, then preview, place and undo with the Planner.",
+    "uuid": "8d419448-afe9-4756-9297-e761b7c4a9c5",
+    "version": [
+      0,
+      6,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      40
+    ]
+  },
+  "modules": [
+    {
+      "type": "data",
+      "uuid": "584866ac-5e5a-484b-8e73-7e010b01119c",
+      "version": [
+        0,
+        6,
+        0
+      ]
+    },
+    {
+      "type": "script",
+      "language": "javascript",
+      "entry": "scripts/main.js",
+      "uuid": "1d3ebb6a-8d7a-45ad-87df-2510416bc708",
+      "version": [
+        0,
+        6,
+        0
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "uuid": "298372e0-5d85-49c1-837b-e0d57b1a6dc7",
+      "version": [
+        0,
+        6,
+        0
+      ]
+    },
+    {
+      "module_name": "@minecraft/server",
+      "version": "2.9.0"
+    },
+    {
+      "module_name": "@minecraft/server-ui",
+      "version": "2.1.0"
+    }
+  ]
+}

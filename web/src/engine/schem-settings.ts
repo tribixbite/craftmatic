@@ -45,10 +45,10 @@ export const RESOLUTION_OPTIONS: readonly ResolutionOption[] = [
   // 107,191 non-air, 98 → 186 ms) and only small models clear the caps at all
   // (21063, 60380, 71043 and 76416 are all refused — see scripts/_res_survey.ts).
   // Adding it to the ladder would silently make every small export 7× bigger.
-  { value: '2', label: '10 blocks per stud (2 LDU)', cellLDU: 2 },
-  { value: '4', label: '5 blocks per stud (4 LDU)', cellLDU: 4 },
-  { value: '8', label: '2.5 blocks per stud (8 LDU)', cellLDU: 8 },
-  { value: '20', label: '1 block per stud (20 LDU)', cellLDU: 20 },
+  { value: '2', label: '10 blocks per stud (2 LDU) · Museum 10×', cellLDU: 2 },
+  { value: '4', label: '5 blocks per stud (4 LDU) · Museum 5×', cellLDU: 4 },
+  { value: '8', label: '2.5 blocks per stud (8 LDU) · Display 2.5×', cellLDU: 8 },
+  { value: '20', label: '1 block per stud (20 LDU) · Minifig 1:1', cellLDU: 20 },
 ];
 
 export interface SchemExportSettings {
@@ -57,6 +57,10 @@ export interface SchemExportSettings {
   profile: string;
   /** Add light-emitting blocks to enclosed dark interiors. OFF by default. */
   lightFill: boolean;
+  lightCoverage?: 'sealed' | 'covered';
+  lightStyle?: 'profile' | 'lantern' | 'sea_lantern';
+  lightSpacing?: number;
+  vehicleFacing?: 'auto' | '+x' | '-x' | '+z' | '-z';
   /**
    * Emit partial Minecraft blocks (slabs, stairs) where the LEGO geometry is
    * genuinely partial — engine/block-shapes.ts. ON by default (the proposal's
@@ -65,13 +69,23 @@ export interface SchemExportSettings {
    * output byte for byte.
    */
   shapes: boolean;
+  /**
+   * Smooth block-staircased slopes into real Minecraft stairs and slabs using
+   * tonally-matched materials for colored concrete/wool (HotSchem detail engine).
+   */
+  detailMaterials?: boolean;
 }
 
 export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
   resolution: 'auto',
   profile: DEFAULT_PROFILE_ID,
   lightFill: false,
+  lightCoverage: 'covered',
+  lightStyle: 'profile',
+  lightSpacing: 6,
+  vehicleFacing: 'auto',
   shapes: true,
+  detailMaterials: false,
 };
 
 /** Model extent in LDU (already padded by the caller). */

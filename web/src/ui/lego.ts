@@ -418,11 +418,15 @@ function buildUI(): void {
           <option value="3mf">3MF, color 3D print (.3mf)</option>
         </optgroup>
         <optgroup label="Minecraft: Java">
-          <option value="schem">Schematic (.schem)</option>
+          <option value="schem">Java schematic / WorldEdit (.schem)</option>
           <option value="litematic">Litematica (.litematic)</option>
+          <option value="display">Java 1.19.4+ Display Entities (.mcfunction)</option>
         </optgroup>
         <optgroup label="Minecraft: Bedrock">
-          <option value="mcpack">Add-on, placeable in-game (.mcpack)</option>
+          <option value="live">Send to Minecraft Planner (experimental)</option>
+          <option value="mcaddon">Add-on — controls detected or selected components (.mcaddon)</option>
+          <option value="mcpack">Static structure pack (.mcpack)</option>
+          <option value="lego-mcpack">Craftmatic LEGO Texture Pack (.mcpack)</option>
         </optgroup>
         <optgroup label="Minecraft: any edition">
           <option value="guide">Build guide, layer-by-layer (.html)</option>
@@ -431,6 +435,11 @@ function buildUI(): void {
           <option value="csv">Parts list (.csv)</option>
         </optgroup>
       </select>
+      <label title="Override automatic vehicle detection for the interactive Bedrock add-on" style="margin-left:6px;font-size:0.7rem;white-space:nowrap">Vehicle
+        <select id="lego-vehicle-mode" style="font-size:0.7rem;padding:2px 4px;border-radius:3px">
+          <option value="auto">Detect vehicle components</option><option value="car">Car (whole model)</option><option value="plane">Plane (whole model)</option><option value="boat">Boat / Ship (whole model)</option><option value="static">Structure only</option>
+        </select>
+      </label>
       <span id="lego-mc-settings" style="margin-left:6px;display:inline-flex"></span>
     </div>
 
@@ -1153,7 +1162,7 @@ function selectSet(set: CatalogSet): void {
     let loaded = false;
     // Shared with the search filter/sort/badges (@engine/lego-sources) so the
     // source a card advertises is the source this loop actually tries first.
-    const tryOrder = indexedTryOrder(models);
+    const tryOrder = indexedTryOrder(models, set.num_parts);
     resetLoadDiag('indexed', models, tryOrder[0] ?? null);
     for (const i of tryOrder) {
       try {
@@ -1801,7 +1810,33 @@ async function exportLoadedModel(fmt: string): Promise<void> {
       return;
     }
 
-    if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide' || fmt === 'mcpack') {
+    if (fmt === 'lego-mcpack') {
+      try {
+        const { buildLegoResourcePack } = await import('../engine/lego-resource-pack.js');
+        const packBytes = await buildLegoResourcePack();
+        const blob = new Blob([packBytes as Uint8Array<ArrayBuffer>], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'Craftmatic-Lego-Pack.mcpack';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        setStatus('Downloaded Craftmatic-Lego-Pack.mcpack — double-click to install LEGO ABS plastic textures into Minecraft Bedrock.', 'success');
+      } catch {
+        const a = document.createElement('a');
+        a.href = '/downloads/Craftmatic-Lego-Pack.mcpack';
+        a.download = 'Craftmatic-Lego-Pack.mcpack';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setStatus('Downloaded Craftmatic-Lego-Pack.mcpack — double-click to install into Minecraft Bedrock.', 'success');
+      }
+      return;
+    }
+
+    if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide' || fmt === 'mcpack' || fmt === 'mcaddon' || fmt === 'live' || fmt === 'display') {
       // Everything Minecraft-shaped goes through the ONE shared export module
       // (ui/schem-export.ts → engine/schem-pipeline.ts, in a Web Worker) that
       // the Upload tab also uses — Bedrock `.mcpack` included, so it shares the
@@ -1821,6 +1856,7 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         // (10276)" reads better than the filename stem.
         label: selectedSet ? `${selectedSet.name} (${selectedSet.set_num})` : base,
         settings: getSchemSettings(),
+        vehicleMode: ((document.getElementById('lego-vehicle-mode') as HTMLSelectElement | null)?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'boat' | 'static',
         onStatus: (m, k) => setStatus(m, k),
       });
       return;

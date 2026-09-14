@@ -35,6 +35,12 @@ export interface ParsedBrick {
    * Undefined for parsers that don't emit step info.
    */
   step?: number;
+  /**
+   * MPD submodel ancestry, outermost first.  This survives recursive expansion
+   * so exporters can distinguish a removable car/aircraft from its containing
+   * building (for example 76252's Batmobile from the Batcave shell).
+   */
+  sourcePath?: string[];
 }
 
 interface Section {
@@ -54,7 +60,7 @@ export function parseLDraw(content: string): ParsedBrick[] {
   const bricks: ParsedBrick[] = [];
   const IDENTITY = [1, 0, 0,  0, 1, 0,  0, 0, 1];
   const stepRef = { step: 1 };
-  expandSection(sections[0].lines, sections, IDENTITY, [0, 0, 0], bricks, 0, 16, stepRef);
+  expandSection(sections[0].lines, sections, IDENTITY, [0, 0, 0], bricks, 0, 16, stepRef, [sections[0].name]);
   return bricks;
 }
 
@@ -81,7 +87,8 @@ function splitIntoSections(content: string): Section[] {
     // MPD file boundary marker: "0 FILE <name>"
     const fileMatch = /^0\s+FILE\s+(.+)$/i.exec(line);
     if (fileMatch) {
-      current = { name: fileMatch[1].trim().toLowerCase().replace(/\\/g, '/'), lines: [] };
+      const rawName = fileMatch[1].trim().replace(/^"(.*)"$/, '$1').trim();
+      current = { name: rawName.toLowerCase().replace(/\\/g, '/'), lines: [] };
       sections.push(current);
       continue;
     }
@@ -109,6 +116,7 @@ function expandSection(
   depth: number,
   parentColor: number = 16, // inherited color context for color-16 resolution
   stepRef: { step: number } = { step: 1 }, // shared step counter (mutated at depth 0)
+  sourcePath: string[] = [],
 ): void {
   // Guard against runaway recursion (circular references or deep nesting)
   if (depth > 50) return;
@@ -132,7 +140,9 @@ function expandSection(
     const tokens = line.split(/\s+/);
     if (tokens.length < 15 || tokens[0] !== '1') continue;
 
-    const rawColor = parseInt(tokens[1], 10);
+    const rawColor = tokens[1].toLowerCase().startsWith('0x')
+      ? parseInt(tokens[1], 16)
+      : parseInt(tokens[1], 10);
     // LDraw color 16 = "Main Color" — inherit from parent reference context
     const color = rawColor === 16 ? parentColor : rawColor;
     const lx = parseFloat(tokens[2]);
@@ -142,8 +152,8 @@ function expandSection(
     // Local rotation matrix (tokens 5–13, row-major)
     const localRot = tokens.slice(5, 14).map(Number);
 
-    // Filename may contain spaces (tokens 14+)
-    const rawFilename = tokens.slice(14).join(' ').trim();
+    // Filename may contain spaces (tokens 14+) and optional enclosing quotes
+    const rawFilename = tokens.slice(14).join(' ').trim().replace(/^"(.*)"$/, '$1').trim();
     const filename = rawFilename.toLowerCase().replace(/\\/g, '/');
     // Strip any path prefix — sections are indexed by bare filename
     const basename = filename.includes('/') ? filename.slice(filename.lastIndexOf('/') + 1) : filename;
@@ -178,12 +188,18 @@ function expandSection(
     if (subSection && !isEmbeddedPartDef) {
       // Recurse into sub-model assembly, passing resolved color as the new parentColor.
       // Step tracking is only done at depth 0; sub-models don't have their own STEP markers.
-      expandSection(subSection.lines, allSections, childRot, [wx, wy, wz], output, depth + 1, color, stepRef);
+      expandSection(
+        subSection.lines, allSections, childRot, [wx, wy, wz], output,
+        depth + 1, color, stepRef, [...sourcePath, subSection.name],
+      );
     } else if (!isLDrawPrimitive(basename)) {
       // Terminal part (.dat or unknown) — record brick placement with rotation.
       // Skip LDraw geometry primitives (fraction-named files, anti-stud shapes, etc.)
       // which are sub-part geometry files, not complete LEGO parts.
-      output.push({ color, x: wx, y: wy, z: wz, rot: childRot, part: basename, step: stepRef.step });
+      output.push({
+        color, x: wx, y: wy, z: wz, rot: childRot, part: basename,
+        step: stepRef.step, sourcePath: [...sourcePath],
+      });
     }
   }
 }

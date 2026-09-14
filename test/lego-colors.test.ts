@@ -36,6 +36,13 @@ describe('LDraw colour ids', () => {
     expect(ldrawColorToBlock(987654)).toBe('minecraft:gray_concrete');
   });
 
+  it('maps direct hex colors (0x2RRGGBB) to perceptual matching concrete', () => {
+    // Red direct color 0x2C91A09 (matches LDraw Red #C91A09) -> redstone_block (closest solid block)
+    expect(ldrawColorToBlock(0x2c91a09)).toBe('minecraft:redstone_block');
+    // Pure white direct color 0x2FFFFFF -> snow_block
+    expect(ldrawColorToBlock(0x2ffffff)).toBe('minecraft:snow_block');
+  });
+
   it('uses a perceptual nearest-block fallback for ids known only by RGB', () => {
     // Find an id present in the RGB table but absent from the explicit block table.
     const rgbOnly = Object.keys(LDRAW_COLOR_RGB)

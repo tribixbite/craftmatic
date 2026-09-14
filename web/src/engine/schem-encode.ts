@@ -13,6 +13,7 @@ import pako from 'pako';
 import type { BlockGrid } from '@craft/schem/types.js';
 import { encodeBitPackedStates, decomposeBlockState, calcBitsPerEntry } from '@craft/schem/litematic-encode.js';
 import { ByteWriter } from './byte-writer.js';
+import { writeJavaBlockEntity } from './java-block-entities.js';
 
 /**
  * Encode a BlockGrid as gzipped .schem bytes (no file download).
@@ -53,7 +54,8 @@ export function encodeSchemBytes(grid: BlockGrid): Uint8Array {
   wb(3); wstr('WEOffsetZ'); wi(0);
   wb(0); // end metadata
   wb(11); wstr('Offset'); wi(3); wi(0); wi(0); wi(0);
-  wb(9); wstr('BlockEntities'); wb(10); wi(0);
+  wb(9); wstr('BlockEntities'); wb(10); wi(grid.blockEntities.length);
+  for (const entity of grid.blockEntities) writeJavaBlockEntity(parts, entity, true);
   wb(0); // end root
 
   return pako.gzip(parts.toUint8Array());
@@ -187,8 +189,10 @@ export function encodeLitematicBytes(grid: BlockGrid, timestampSec?: number): Ui
   writeInt(packed.length);
   for (const v of packed) writeLong(v);
 
-  // Empty lists (TileEntities, Entities, PendingBlockTicks, PendingFluidTicks)
-  for (const listName of ['TileEntities', 'Entities', 'PendingBlockTicks', 'PendingFluidTicks']) {
+  writeTagHeader(TAG_LIST, 'TileEntities'); writeByte(TAG_COMPOUND); writeInt(grid.blockEntities.length);
+  for (const entity of grid.blockEntities) writeJavaBlockEntity(parts, entity, false);
+  // Runtime entities and pending ticks are not part of BlockGrid.
+  for (const listName of ['Entities', 'PendingBlockTicks', 'PendingFluidTicks']) {
     writeTagHeader(TAG_LIST, listName);
     writeByte(TAG_COMPOUND);
     writeInt(0);
@@ -200,4 +204,3 @@ export function encodeLitematicBytes(grid: BlockGrid, timestampSec?: number): Ui
 
   return pako.gzip(parts.toUint8Array());
 }
-

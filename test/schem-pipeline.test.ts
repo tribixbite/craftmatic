@@ -107,6 +107,20 @@ describe('runSchemPipeline — grid source', () => {
     expect(await paletteOf(on.bytes!)).toContain('minecraft:glowstone');
   });
 
+  it('passes coverage, lamp style and spacing through the shared exporter', async () => {
+    const g = new BlockGrid(16, 8, 16);
+    for (let x = 1; x < 15; x++) for (let z = 1; z < 15; z++) {
+      g.set(x, 1, z, 'minecraft:stone'); g.set(x, 6, z, 'minecraft:stone');
+    }
+    const base = { source: asSource(g), format: 'guide' as const, profile: 'default', lightFill: true, shapes: false };
+    const sealed = await runSchemPipeline(base);
+    const dense = await runSchemPipeline({ ...base, lightCoverage: 'covered', lightStyle: 'sea_lantern', lightSpacing: 3 });
+    const sparse = await runSchemPipeline({ ...base, lightCoverage: 'covered', lightStyle: 'sea_lantern', lightSpacing: 10 });
+    expect(sealed.lights).toBe(0);
+    expect(dense.lights).toBeGreaterThan(sparse.lights);
+    expect(dense.grid.reversePalette()).toContain('minecraft:sea_lantern');
+  });
+
   it('returns the grid (and no bytes) for the build-guide format', async () => {
     const g = hollowBox();
     const r = await runSchemPipeline({
@@ -123,7 +137,26 @@ describe('runSchemPipeline — grid source', () => {
       { source: asSource(hollowBox()), format: 'schem', profile: 'default', lightFill: true, shapes: false },
       (phase) => phases.push(phase),
     );
-    expect(phases).toContain('lighting enclosed interiors');
+    expect(phases).toContain('lighting interiors');
     expect(phases).toContain('writing NBT');
+  });
+
+  it('exports Java 1.19.4+ block_display entities function', async () => {
+    const g = new BlockGrid(3, 2, 2);
+    g.set(0, 0, 0, 'minecraft:gold_block');
+    g.set(1, 0, 0, 'minecraft:gold_block');
+    const r = await runSchemPipeline({
+      source: asSource(g),
+      format: 'display',
+      profile: 'default',
+      lightFill: false,
+      shapes: false,
+      packStem: 'gold_statue',
+    });
+    expect(r.bytes).toBeDefined();
+    const text = new TextDecoder().decode(r.bytes);
+    expect(text).toContain('summon block_display');
+    expect(text).toContain('gold_statue');
+    expect(r.mcpack?.tileCount).toBe(1); // 2 merged blocks
   });
 });
