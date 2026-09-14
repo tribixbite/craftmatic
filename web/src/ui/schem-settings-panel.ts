@@ -193,6 +193,12 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       <label for="mc-set-light-spacing">Lamp spacing</label>
       <select id="mc-set-light-spacing"><option value="3">Dense - every 3 blocks</option><option value="6">Balanced - every 6 blocks</option><option value="10">Sparse - every 10 blocks</option></select>
     </div>
+    <div class="mc-set-field" style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.14)">
+      <a href="/downloads/Craftmatic-Lego-Pack.mcpack" download="Craftmatic-Lego-Pack.mcpack" class="mc-set-btn" style="display:block;text-align:center;text-decoration:none;padding:5px 8px;background:rgba(124,58,237,0.22);border-color:rgba(167,139,250,0.5);color:#c4b5fd;font-weight:600">
+        🧱 Download LEGO Texture Pack (.mcpack)
+      </a>
+      <p class="mc-set-note" style="margin-top:5px;line-height:1.35">Replaces flat concrete with glossy ABS plastic finishes, embossed top studs, and beveled brick seams for Bedrock Edition.</p>
+    </div>
   `;
 
   host.appendChild(btn);

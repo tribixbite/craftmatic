@@ -411,7 +411,8 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
       };
     }
 
-    const bannerTitle = format === 'guide' ? `${base} build guide` : `${base}.${format}`;
+    const ext = format === 'display' ? 'mcfunction' : format;
+    const bannerTitle = format === 'guide' ? `${base} build guide` : `${base}.${ext}`;
     progress = beginExportProgress(bannerTitle);
     // Indeterminate until the pipeline reports its first real phase — claiming
     // "voxelizing" here was a lie (part geometry is resolved first).
@@ -444,7 +445,14 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
     }
 
     progress.update('downloading');
-    downloadBytes(job.bytes!, `${base}.${format}`);
+    downloadBytes(job.bytes!, `${base}.${ext}`);
+
+    if (format === 'display') {
+      const msg = `Exported ${base}.mcfunction — ${blocks.toLocaleString()} blocks (${job.mcpack?.tileCount ?? 1} display boxes). Place in your datapack or run /function to summon!`;
+      status(msg, 'success');
+      progress.done(msg);
+      return { ok: true, message: msg, width: job.width, height: job.height, length: job.length, nonAir: blocks, lights: job.lights, mcpack: job.mcpack };
+    }
 
     // Bedrock: the file alone is not actionable — explain how to acquire and
     // use the included BrickWand without implying that import places anything.
