@@ -527,6 +527,33 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         }
       }
 
+      // 2b. Reverse Gear & Dynamic Brake Lights
+      if (forwardInput < -0.1) {
+        const revSpeed = isCar ? -0.16 : isBoat ? -0.12 : -0.1;
+        try {
+          vehicle.applyImpulse?.({
+            x: (dir.x / hDir) * revSpeed,
+            y: 0,
+            z: (dir.z / hDir) * revSpeed,
+          });
+        } catch {}
+        if (tick % 4 === 0) {
+          try {
+            const rX = vehicle.location.x - (dir.x / hDir) * 1.2;
+            const rZ = vehicle.location.z - (dir.z / hDir) * 1.2;
+            vehicle.dimension?.spawnParticle?.('minecraft:redstone_ore_dust_particle', { x: rX, y: vehicle.location.y + 0.4, z: rZ });
+          } catch {}
+        }
+      }
+
+      // 2c. Interactive Horn on Sneak / Crouch
+      if (rider.isSneaking && tick % 14 === 0) {
+        try {
+          vehicle.dimension?.playSound?.('note.cow_bell', vehicle.location, { volume: 1.0, pitch: 1.0 });
+          vehicle.dimension?.spawnParticle?.('minecraft:note_particle', { x: vehicle.location.x, y: vehicle.location.y + 1.2, z: vehicle.location.z });
+        } catch {}
+      }
+
       // 3. Drift Tire Smoke or Water Wake on High Speed Turns
       if (isCar && mph > 10 && Math.abs(steerInput) > 0.35) {
         try { vehicle.dimension?.spawnParticle?.('minecraft:smoke_particle', vehicle.location); } catch {}
@@ -542,13 +569,20 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         try { rider.addEffect?.('minecraft:night_vision', 80, { showParticles: false }); } catch {}
       }
 
-      // 5. Action Bar Speedometer HUD
+      // 5. Action Bar Speedometer HUD with Gear and Reverse
       if (tick % 4 === 0) {
         const boostReady = state.boostCooldown <= 0;
         const icon = isCar ? '🏎️' : isBoat ? '⛵' : '✈️';
         const boostTag = boostReady ? ' · §a[JUMP: NITRO]§r' : ` · §8[NITRO: ${(state.boostCooldown / 20).toFixed(1)}s]§r`;
+        let speedText = `§e${mph.toFixed(1)} mph§r`;
+        if (forwardInput < -0.1) {
+          speedText = `§c[REV]§r §e-${mph > 0.5 ? mph.toFixed(1) : '0.0'} mph§r`;
+        } else if (isCar) {
+          const gear = mph < 10 ? 1 : mph < 22 ? 2 : mph < 36 ? 3 : mph < 50 ? 4 : 5;
+          speedText = `§e${mph.toFixed(1)} mph§r · §bGEAR ${gear}§r`;
+        }
         const hud = (isCar || isBoat)
-          ? `${icon} §e${mph.toFixed(1)} mph§r${boostTag}`
+          ? `${icon} ${speedText}${boostTag}`
           : `${icon} §e${mph.toFixed(1)} mph§r · §bALT ${Math.floor(vehicle.location?.y ?? 0)}§r${boostTag}`;
         try { rider.onScreenDisplay?.setActionBar?.(hud); } catch {}
       }
