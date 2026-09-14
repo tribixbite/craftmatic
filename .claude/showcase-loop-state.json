@@ -1,0 +1,37 @@
+{
+  "active": false,
+  "pass": 35,
+  "max_passes": 30,
+  "scores": {
+    "10030-1": 9,
+    "8855-1": 8,
+    "42049-1": 8,
+    "60067-1": 8,
+    "6545-1": 8,
+    "1472-1": 5
+  },
+  "issues": [
+    "10030-1: Dorsal hull ridges simplified to flat stepped layers",
+    "10030-1: Minor colour noise from blue/dark voxels on hull surface",
+    "8855-1: Centre top-down panel confirms the wide double-wing span with central fuselage and crossbar wing struts matching biplane layout",
+    "8855-1: Right side profile is somewhat cluttered/noisy making the fuselage depth and rear propeller disc harder to distinguish clearly",
+    "42049-1: The isometric left panel clearly shows yellow boxy body, large black wheel clusters at front and rear, and the red cylindrical drum attachment at bottom-right — key identifying features present",
+    "42049-1: Side/right panel shows the elongated profile with wheels and arm linkage but lacks clear bucket detail",
+    "42049-1: Articulated front loader arm is somewhat ambiguous in voxel form but overall shape matches mine loader category well",
+    "60067-1: Speedboat shape discernible in right panel as a separate elongated hull",
+    "60067-1: Isometric left panel shows large rounded helicopter body with rotor disc but colour palette (yellow/blue dominance) obscures dark navy police scheme",
+    "60067-1: Tail boom not clearly distinct in isometric view",
+    "60067-1: Small accessory elements (crocodile, tree) not represented but not required for identification",
+    "6545-1: Yellow boat/motorboat shape identifiable in LEFT panel (yellow rectangular mass)",
+    "6545-1: Police van/truck shape harder to distinguish as separate vehicle",
+    "6545-1: TOP-DOWN CENTRE panel shows rotor disc with central body convincingly",
+    "6545-1: RIGHT side profile panel is fragmented and harder to read",
+    "1472-1: No clear A-frame/peaked triangular roof structure is identifiable in any panel — the isometric view shows a chaotic mass of coloured blocks without a distinguishable house silhouette",
+    "1472-1: The top-down and side profile panels show scattered, disconnected pixel clusters that don't resolve into recognizable elements (house, cars, boat/trailer)",
+    "1472-1: While some colour hints (red, white, yellow) loosely echo the set's palette, the shapes are too fragmented to identify the central house structure or supporting vehicles",
+    "1472-1: The right panel's side profile is the most structured but reads more like an abstract vehicle shape than a lakeside holiday home scene"
+  ],
+  "passing_count": 5,
+  "pass_threshold": 5,
+  "score_threshold": 8
+}

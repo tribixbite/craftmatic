@@ -1,0 +1,72 @@
+{
+  "benchmarks": [
+    {
+      "file": "71043_hogwarts_castle.ldr",
+      "name": "Hogwarts Castle"
+    },
+    {
+      "file": "42083 Bugatti Chiron.mpd",
+      "name": "Bugatti Chiron"
+    },
+    {
+      "file": "10179 UCS Millenium Falcon.mpd",
+      "name": "UCS Millennium Falcon"
+    },
+    {
+      "file": "10255 Assembly Square.ldr",
+      "name": "Assembly Square"
+    },
+    {
+      "file": "60216 Downtown Fire Brigade.mpd",
+      "name": "Downtown Fire Brigade"
+    },
+    {
+      "file": "31084 Pirate Roller Coaster [Model A].mpd",
+      "name": "Pirate Roller Coaster"
+    },
+    {
+      "file": "8010 Darth Vader.mpd",
+      "name": "Darth Vader Figure"
+    },
+    {
+      "file": "6986 Mission Commander.mpd",
+      "name": "Mission Commander Spaceship"
+    },
+    {
+      "file": "8849 Tractor.ldr",
+      "name": "Technic Tractor"
+    },
+    {
+      "file": "1924 Viking Line Ferry.ldr",
+      "name": "Viking Line Ferry"
+    }
+  ],
+  "scores": {
+    "71043_hogwarts_castle.ldr": 0,
+    "42083 Bugatti Chiron.mpd": 0,
+    "10179 UCS Millenium Falcon.mpd": 0,
+    "10255 Assembly Square.ldr": 0,
+    "60216 Downtown Fire Brigade.mpd": 0,
+    "31084 Pirate Roller Coaster [Model A].mpd": 0,
+    "8010 Darth Vader.mpd": 0,
+    "6986 Mission Commander.mpd": 0,
+    "8849 Tractor.ldr": 0,
+    "1924 Viking Line Ferry.ldr": 0
+  },
+  "issues": [
+    "Hogwarts Castle: no API key",
+    "Bugatti Chiron: no API key",
+    "UCS Millennium Falcon: no API key",
+    "Assembly Square: no API key",
+    "Downtown Fire Brigade: no API key",
+    "Pirate Roller Coaster: no API key",
+    "Darth Vader Figure: no API key",
+    "Mission Commander Spaceship: no API key",
+    "Technic Tractor: no API key",
+    "Viking Line Ferry: no API key"
+  ],
+  "passing_count": 0,
+  "total": 10,
+  "threshold": 9,
+  "timestamp": "2026-04-10T03:11:45.920Z"
+}
