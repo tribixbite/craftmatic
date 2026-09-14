@@ -32,6 +32,54 @@ const SEAT_PARTS = new Set([
   '4079', '4079b', '3829', '3829c01', '73081', '2432'
 ]);
 
+/** Known smooth tile parts (no studs on top) */
+const TILE_PARTS = new Set([
+  '3068', '3068a', '3068b', // 2x2 tile
+  '3069', '3069a', '3069b', // 1x2 tile
+  '3070', '3070a', '3070b', // 1x1 tile
+  '2431', // 1x4 tile
+  '6636', // 1x6 tile
+  '4162', // 1x8 tile
+  '14719', // 2x2 corner tile
+  '17571', // curved tile
+  '98138', // 1x1 round tile
+  '27263', // 2x2 corner tile
+  '63864', // 1x3 tile
+  '87079', // 2x4 tile
+  '6179', // 4x4 tile with studs on edge
+  '24246', // 1x1 half round tile
+  '22385', // 2x3 pentagonal tile
+  '35399', '35398',
+  '4150', // 2x2 round tile
+  '10202', // 6x6 tile
+  '68888', '69729',
+  '11203', // 2x2 inverted tile
+  '33909', // 2x2 modified tile
+  '89523', // 10x10 octagonal tile
+  '27507', '78666'
+]);
+
+/** Known curved and smooth slope parts (no studs on top slope) */
+const SMOOTH_SLOPE_PARTS = new Set([
+  '15068', '11477', '50950', '61678', '60477', '85984', '87609',
+  '93273', '24201', '29119', '29120', '49307', '43710', '43711'
+]);
+
+/** Known grille and ventilation parts */
+const GRILLE_PARTS = new Set([
+  '2412', '2412a', '2412b', '50746', '30244'
+]);
+
+function isGrillePart(part: string): boolean {
+  const p = cleanPartId(part);
+  return GRILLE_PARTS.has(p) || p.includes('grille');
+}
+
+function isSmoothTopPart(part: string): boolean {
+  const p = cleanPartId(part);
+  return TILE_PARTS.has(p) || SMOOTH_SLOPE_PARTS.has(p) || p.includes('tile') || p.includes('curved');
+}
+
 /** Technic internal pins and axles that add geometry weight without visual silhouette */
 const TECHNIC_INTERNAL = new Set([
   '2780', '3673', '3749', '6558', '32054', '4274', '43093', '3705', '3706', '3707', '3708', '6587'
@@ -171,8 +219,44 @@ export function compileLdrawEntityGeometry(
   const minZ = Math.min(...zs), maxZ = Math.max(...zs);
 
   const midX = (minX + maxX) / 2;
+  // Vehicles are physically symmetric across X=0. If bounds are roughly centered, snap centerline to X=0.
+  const effectiveMidX = Math.abs(midX) < 50 ? 0 : midX;
   const floorY = maxY; // in LDraw, +Y is down, so maxY is the bottom/ground
   const midZ = (minZ + maxZ) / 2;
+
+  // Pre-calculate which bricks have another brick directly above them covering their top studs
+  const coveredBricks = new Set<ParsedBrick>();
+  const brickBoxes = activeBricks.map(b => {
+    const [sW, sH, sL] = getPartDims(b.part);
+    const halfW = (sW * 20) / 2;
+    const halfL = (sL * 20) / 2;
+    const height = sH * 8;
+    return {
+      brick: b,
+      minX: b.x - halfW,
+      maxX: b.x + halfW,
+      minZ: b.z - halfL,
+      maxZ: b.z + halfL,
+      topY: b.y - height,
+      bottomY: b.y,
+    };
+  });
+
+  for (const a of brickBoxes) {
+    for (const b of brickBoxes) {
+      if (a === b) continue;
+      // In LDraw, brick B directly above brick A means B's bottom sits on A's top: |b.bottomY - a.topY| <= 4 LDU
+      if (Math.abs(b.bottomY - a.topY) <= 4) {
+        const overlapX = Math.max(0, Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX));
+        const overlapZ = Math.max(0, Math.min(a.maxZ, b.maxZ) - Math.max(a.minZ, b.minZ));
+        const aArea = (a.maxX - a.minX) * (a.maxZ - a.minZ);
+        if (aArea > 0 && (overlapX * overlapZ) >= aArea * 0.70) {
+          coveredBricks.add(a.brick);
+          break;
+        }
+      }
+    }
+  }
 
   // Determine forward heading and axis:
   const spanX = maxX - minX;
@@ -241,7 +325,7 @@ export function compileLdrawEntityGeometry(
   // - Vanilla riding convention is that -Z is model forward.
   // We align longitudinal axis to Z, pointing nose to -Z.
   const transformPoint = (x: number, y: number, z: number): [number, number, number] => {
-    const cx = x - midX;
+    const cx = x - effectiveMidX;
     const cy = floorY - y; // vertical height above ground
     const cz = z - midZ;
 
@@ -268,10 +352,10 @@ export function compileLdrawEntityGeometry(
   const cockpitBedrockUnits = transformPoint(cockpitLdu.x, cockpitLdu.y, cockpitLdu.z);
   // Seat sits inside the cockpit:
   // Player eyes are at Y + 1.62. To align eye level with the canopy windshield,
-  // place the seat ~1.1 blocks below the canopy center, slightly set back.
-  const seatX = Math.round((cockpitBedrockUnits[0] / 16) * 100) / 100;
-  const seatY = Math.max(0.4, Math.round(((cockpitBedrockUnits[1] / 16) - 1.05) * 100) / 100);
-  const seatZ = Math.round(((cockpitBedrockUnits[2] / 16) + 0.4) * 100) / 100;
+  // place the seat ~1.25 blocks below the canopy center, slightly set back.
+  const seatX = Math.abs(cockpitBedrockUnits[0] / 16) < 0.8 ? 0.0 : Math.round((cockpitBedrockUnits[0] / 16) * 100) / 100;
+  const seatY = Math.max(0.4, Math.round(((cockpitBedrockUnits[1] / 16) - 1.25) * 100) / 100);
+  const seatZ = Math.round(((cockpitBedrockUnits[2] / 16) + 0.35) * 100) / 100;
 
   // Collision box in meters (blocks)
   const totalWidth = (isXLongitudinal ? spanZ : spanX) * scale / 16;
@@ -344,9 +428,19 @@ export function compileLdrawEntityGeometry(
         const blockState = ldrawColorToBlock(b.color);
         const colorIdx = Math.max(0, colorList.indexOf(blockState));
 
-        // UV mapping
-        const topFace = { uv: [0, 1 + colorIdx * 16] as [number, number], uv_size: [16, 16] as [number, number] };
+        // UV mapping: 4 atlas channels per color (width = 64)
+        // Col 0: Embossed stud (for exposed top studs)
+        // Col 1: Smooth side face with seam bevels (for vertical sides and bottoms)
+        // Col 2: Smooth tile face with 4-side bevel (for tiles, smooth slopes, and covered bricks)
+        // Col 3: Grille face with cooling slots (for grille and vent parts)
+        const studFace = { uv: [0, 1 + colorIdx * 16] as [number, number], uv_size: [16, 16] as [number, number] };
         const sideFace = { uv: [16, 1 + colorIdx * 16] as [number, number], uv_size: [16, 16] as [number, number] };
+        const tileFace = { uv: [32, 1 + colorIdx * 16] as [number, number], uv_size: [16, 16] as [number, number] };
+        const grilleFace = { uv: [48, 1 + colorIdx * 16] as [number, number], uv_size: [16, 16] as [number, number] };
+
+        const isGrille = isGrillePart(b.part);
+        const hasTopStud = !isCanopy && !isGrille && !isSmoothTopPart(b.part) && !coveredBricks.has(b);
+        const topFace = hasTopStud ? studFace : (isCanopy ? sideFace : (isGrille ? grilleFace : tileFace));
 
         // Position relative to bone pivot
         const bPos = transformPoint(b.x, b.y, b.z);
@@ -403,7 +497,7 @@ export function compileLdrawEntityGeometry(
     }
   }
 
-  const atlasW = 32;
+  const atlasW = 64;
   const atlasH = 1 + palette.length * 16;
 
   for (let offset = 0; offset < allSolidCubes.length; offset += 1024) {

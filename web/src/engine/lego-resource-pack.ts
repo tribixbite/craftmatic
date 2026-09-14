@@ -171,7 +171,7 @@ export function generateEntityLegoAtlasPng(
   blockAlphaFn: (state: string) => number,
 ): Uint8Array {
   const count = Math.max(1, palette.length);
-  const atlasW = 32;
+  const atlasW = 64;
   const atlasH = 1 + count * 16;
   const raw = new Uint8Array(atlasH * (1 + atlasW * 4));
 
@@ -196,7 +196,7 @@ export function generateEntityLegoAtlasPng(
       const rowOffset = globalY * (1 + atlasW * 4);
       raw[rowOffset] = 0; // PNG filter None
 
-      // Column 0: Top face (x = 0..15)
+      // Column 0: Studded Top Face (x = 0..15)
       for (let tx = 0; tx < 16; tx++) {
         const idx = rowOffset + 1 + tx * 4;
         let pr = r, pg = g, pb = b, pa = a;
@@ -233,7 +233,7 @@ export function generateEntityLegoAtlasPng(
         raw[idx] = pr; raw[idx + 1] = pg; raw[idx + 2] = pb; raw[idx + 3] = pa;
       }
 
-      // Column 1: Side face (x = 16..31)
+      // Column 1: Side Face (x = 16..31)
       for (let tx = 0; tx < 16; tx++) {
         const globalX = 16 + tx;
         const idx = rowOffset + 1 + globalX * 4;
@@ -252,6 +252,66 @@ export function generateEntityLegoAtlasPng(
             pr = Math.floor(pr * 0.72); pg = Math.floor(pg * 0.72); pb = Math.floor(pb * 0.72);
           } else if (ty === 0 || ty === 1) {
             pr = Math.min(255, pr + 24); pg = Math.min(255, pg + 24); pb = Math.min(255, pb + 24);
+          }
+        }
+        raw[idx] = pr; raw[idx + 1] = pg; raw[idx + 2] = pb; raw[idx + 3] = pa;
+      }
+
+      // Column 2: Smooth Tile / Covered Face (x = 32..47)
+      for (let tx = 0; tx < 16; tx++) {
+        const globalX = 32 + tx;
+        const idx = rowOffset + 1 + globalX * 4;
+        let pr = r, pg = g, pb = b, pa = a;
+
+        if (isGlass) {
+          const isBorder = (tx === 0 || tx === 15 || ty === 0 || ty === 15);
+          if (isBorder) {
+            pr = Math.floor(pr * 0.75); pg = Math.floor(pg * 0.75); pb = Math.floor(pb * 0.75);
+          } else if (tx + ty >= 12 && tx + ty <= 15) {
+            pr = Math.min(255, pr + 120); pg = Math.min(255, pg + 120); pb = Math.min(255, pb + 120);
+          }
+        } else {
+          // Smooth tile: 4-side ambient occlusion seam + subtle specular plastic sheen
+          const isBorder = (tx === 0 || tx === 15 || ty === 0 || ty === 15);
+          if (isBorder) {
+            pr = Math.floor(pr * 0.72); pg = Math.floor(pg * 0.72); pb = Math.floor(pb * 0.72);
+          } else if (tx + ty < 5) {
+            pr = Math.min(255, pr + 18); pg = Math.min(255, pg + 18); pb = Math.min(255, pb + 18);
+          }
+        }
+        raw[idx] = pr; raw[idx + 1] = pg; raw[idx + 2] = pb; raw[idx + 3] = pa;
+      }
+
+      // Column 3: Grille / Vent Face (x = 48..63)
+      for (let tx = 0; tx < 16; tx++) {
+        const globalX = 48 + tx;
+        const idx = rowOffset + 1 + globalX * 4;
+        let pr = r, pg = g, pb = b, pa = a;
+
+        if (isGlass) {
+          const isBorder = (tx === 0 || tx === 15 || ty === 0 || ty === 15);
+          if (isBorder) {
+            pr = Math.floor(pr * 0.75); pg = Math.floor(pg * 0.75); pb = Math.floor(pb * 0.75);
+          } else if (tx + ty >= 12 && tx + ty <= 15) {
+            pr = Math.min(255, pr + 120); pg = Math.min(255, pg + 120); pb = Math.min(255, pb + 120);
+          }
+        } else {
+          const isBorder = (tx === 0 || tx === 15 || ty === 0 || ty === 15);
+          if (isBorder) {
+            pr = Math.floor(pr * 0.72); pg = Math.floor(pg * 0.72); pb = Math.floor(pb * 0.72);
+          } else {
+            // Horizontal grille cooling slots
+            const slotPhase = (ty - 1) % 3;
+            if (slotPhase === 0) {
+              // Deep dark ventilation recess
+              pr = Math.floor(pr * 0.48); pg = Math.floor(pg * 0.48); pb = Math.floor(pb * 0.48);
+            } else if (slotPhase === 1) {
+              // Slat top ridge highlight
+              pr = Math.min(255, pr + 32); pg = Math.min(255, pg + 32); pb = Math.min(255, pb + 32);
+            } else {
+              // Slat body
+              pr = Math.min(255, pr + 8); pg = Math.min(255, pg + 8); pb = Math.min(255, pb + 8);
+            }
           }
         }
         raw[idx] = pr; raw[idx + 1] = pg; raw[idx + 2] = pb; raw[idx + 3] = pa;
@@ -295,7 +355,7 @@ export async function buildLegoResourcePack(): Promise<Uint8Array> {
     format_version: 2,
     header: {
       name: 'Craftmatic LEGO HD Textures',
-      description: 'Authentic embossed LEGO studs and beveled plastic seams for Minecraft concrete blocks.',
+      description: 'Authentic glossy ABS plastic finishes and beveled brick seams for Minecraft concrete blocks.',
       uuid: 'd8a39120-e2b4-4b5c-a294-b19736c92041',
       version: [1, 0, 0],
       min_engine_version: [1, 20, 0],
@@ -318,7 +378,9 @@ export async function buildLegoResourcePack(): Promise<Uint8Array> {
 
   for (const [colorName, [r, g, b]] of Object.entries(CONCRETE_COLORS)) {
     const texPath = `textures/blocks/concrete_${colorName}.png`;
-    const pngBytes = generateStudBlockPng(r, g, b, true);
+    // For world concrete blocks, generate smooth plastic with beveled seams (isTop = false)
+    // so vertical walls of castles and buildings do not have studs sticking out horizontally!
+    const pngBytes = generateStudBlockPng(r, g, b, false);
     entries.push({ name: texPath, data: pngBytes });
     terrainTextures[`concrete_${colorName}`] = { textures: `textures/blocks/concrete_${colorName}` };
   }

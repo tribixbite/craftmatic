@@ -180,6 +180,7 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid, legoYScale?: 
         <button class="download-item" data-format="mcpack">Bedrock Structure (.mcpack)<span class="download-desc">Static build</span></button>
         <button class="download-item" data-format="schem">Java Schematic (.schem)<span class="download-desc">WorldEdit</span></button>
         <button class="download-item" data-format="litematic">.litematic<span class="download-desc">Litematica</span></button>
+        <button class="download-item" data-format="display">Java Display Entities (.mcfunction)<span class="download-desc">1.19.4+ command function</span></button>
         <button class="download-item" data-format="stl">STL<span class="download-desc">3D print</span></button>
         <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF</span></button>
         <button class="download-item" data-format="obj">OBJ<span class="download-desc">Universal</span></button>
@@ -360,6 +361,7 @@ function wireDownloadDropdown(
           // pipeline skips voxelization and just encodes it.
           case 'schem':
           case 'litematic':
+          case 'display':
           // Bedrock: the same shared module, encoding the grid as a behavior
           // pack of .mcstructure files instead of a single Java NBT file.
           case 'mcpack':
