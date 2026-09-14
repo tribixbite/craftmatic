@@ -381,6 +381,36 @@ driven as an ordinary addition.
 > as the moat. Read it before planning large work; it also lists the anti-goals
 > (don't micro-polish the renderer; don't re-verify settled questions).
 
+## Bedrock playable add-on — entity geometry (2026-09-14)
+Tracker + architecture: **[TASKS-BEDROCK-ADDON.md](TASKS-BEDROCK-ADDON.md)**;
+spec: `docs/bedrock-entity-spec-2026-09-14.md`. The `.mcaddon` vehicle entity is
+compiled from REAL part geometry (`engine/ldraw-part-geometry.ts` →
+`ldraw-part-prototype.ts` → `ldraw-entity-compiler.ts`), colours are LDraw RGB
+(`ldraw-entity-materials.ts`, classes generated from LDConfig), and each entity
+ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
+- **Bedrock's entity frame is left-handed.** Compile in a right-handed render
+  frame (Y up, nose −Z, right +X; LDraw→render is a proper rotation `A`) and
+  mirror ONLY at the JSON step: `origin.x = −max.x`, `pivot.x = −pivot.x`,
+  bone `rotation = (−a, −b, c)` from a ZYX Euler of `A·R·Aᵀ`. That is
+  Blockbench's codec convention and it was proven on the Pixel with an
+  asymmetric calibration model. The previous `transformPoint` mirrored one
+  facing (det −1) and nobody noticed because vehicles are symmetric.
+- **LDraw parts are open at the bottom and model the inner ceiling.** Ray
+  parity leaves every brick hollow; the prototype compiler floods air from
+  the top and four sides instead (six sides for translucent parts), so a brick
+  is one cuboid and a pin hole stays open. Stud primitives are stripped from
+  prototypes and re-emitted only where the model leaves them exposed.
+- **Budgets are device policy**: balanced 6,144 cuboids keeps a 340-part
+  X-wing at 4 LDU and a 1,906-part DeLorean at 8 LDU, both ≥ 0.95 six-view
+  silhouette IoU (`scripts/_entity_silhouette.ts`); the spec's 4,096 pushed
+  them to 8/16 LDU. `scripts/_playable_ref.ts` is the CLI export gate.
+- **Pixel QA mechanics**: import via
+  `content://com.android.externalstorage.documents/document/primary%3ADownload%2F<f>.mcaddon`
+  with `--grant-read-uri-permission` (a `file://` VIEW imports nothing);
+  activate packs by editing the world's `world_*_packs.json` ONLY after
+  `am force-stop` (the running app rewrites them from memory); type commands
+  by re-opening chat, focusing the field, Ctrl+A, Del, then the full `/cmd`.
+
 ## Dev / commands
 - Dev server: `bun dev:web` (port 4000). Add `--host` to expose on LAN (phone testing at the box's LAN IP:4000).
 - Typecheck: root is `bun run typecheck` (`tsc --noEmit`, the `src/` tree); the whole `web/` tree is `bun run typecheck:web` (`tsc --noEmit -p web/tsconfig.json`). **Both run in CI** (ci.yml + deploy.yml) so a careless edit can't silently compile-break. The `web` tree is currently type-clean — keep it that way (the old ~34 `ui/*` errors were fixed; the app still *builds* via Vite/esbuild without type-gating, but CI now gates it).

@@ -43,11 +43,19 @@ export interface LegoEntityQuality {
   maxStudCubes: number;
 }
 
-/** Craftmatic policy defaults, NOT Bedrock engine limits; tune from device tests. */
+/**
+ * Craftmatic policy defaults, NOT Bedrock engine limits. Tuned 2026-09-14
+ * against a Pixel 8 Pro (Bedrock 1.26.45): the previous greedy path shipped
+ * 6,823 cuboids for the Batmobile and it rendered fine there, and at a
+ * 6,144 balanced budget the 340-part X-wing keeps its 4 LDU grain (4,681
+ * cuboids) and the 1,906-part DeLorean lands at 8 LDU (5,401) — both above the
+ * 0.95 six-view silhouette gate, where the spec's 4,096 pushed them to 8 and 16
+ * LDU and the X-wing under the gate (TASKS-BEDROCK-ADDON.md §6).
+ */
 export const LEGO_ENTITY_QUALITY = {
-  balanced: { maxModelCubes: 4096, maxPartCubes: 128, microcellLdu: 4, meshChunkCubes: 1024, maxStudCubes: 1024 },
-  high: { maxModelCubes: 8192, maxPartCubes: 256, microcellLdu: 2, meshChunkCubes: 1024, maxStudCubes: 2048 },
-  ultra: { maxModelCubes: 16384, maxPartCubes: 512, microcellLdu: 1, meshChunkCubes: 1024, maxStudCubes: 4096 },
+  balanced: { maxModelCubes: 6144, maxPartCubes: 128, microcellLdu: 4, meshChunkCubes: 1024, maxStudCubes: 1536 },
+  high: { maxModelCubes: 12288, maxPartCubes: 256, microcellLdu: 2, meshChunkCubes: 1024, maxStudCubes: 3072 },
+  ultra: { maxModelCubes: 24576, maxPartCubes: 512, microcellLdu: 1, meshChunkCubes: 1024, maxStudCubes: 6144 },
 } as const satisfies Record<string, LegoEntityQuality>;
 
 export type LegoEntityQualityName = keyof typeof LEGO_ENTITY_QUALITY;
