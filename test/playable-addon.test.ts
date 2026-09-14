@@ -70,6 +70,10 @@ describe('playable Bedrock add-on',()=>{
     expect(driverScript).toContain('craftmatic:batmobile_batmobile');
     expect(driverScript).toContain('boostCooldown');
     expect(driverScript).toContain('stallTicks');
+    expect(driverScript).toContain('revSpeed');
+    expect(driverScript).toContain('isSneaking');
+    expect(driverScript).toContain('note.cow_bell');
+    expect(driverScript).toContain('GEAR');
     expect(driverScript).toContain('setActionBar');
     const fn=new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/functions/craftmatic/batmobile.mcfunction'));
     expect(fn).toContain('give @s craftmatic:batmobile_brick_wand');
