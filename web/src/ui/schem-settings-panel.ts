@@ -188,7 +188,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       <select id="mc-set-vehicle-facing"><option value="auto">Auto - detected model orientation</option><option value="+x">+X</option><option value="-x">-X</option><option value="+z">+Z</option><option value="-z">-Z</option></select>
       <p class="mc-set-note">For a car that drives backward, choose the opposite direction and export again.</p>
       <label for="mc-set-addon-detail">Vehicle detail (playable add-on)</label>
-      <select id="mc-set-addon-detail"><option value="balanced">Balanced - 4 LDU cuboids, ≤4,096 per vehicle</option><option value="high">High - 2 LDU, ≤8,192</option><option value="ultra">Ultra - 1 LDU, ≤16,384 (desktop-class devices)</option></select>
+      <select id="mc-set-addon-detail"><option value="balanced">Balanced - 4 LDU cuboids, ≤6,144 per vehicle</option><option value="high">High - 2 LDU, ≤12,288</option><option value="ultra">Ultra - 1 LDU, ≤24,576 (desktop-class devices)</option></select>
       <p class="mc-set-note">Each LEGO part becomes real cuboids at this grain; higher is closer to the mould and heavier to render.</p>
       <label for="mc-set-light-coverage">Lighting coverage</label>
       <select id="mc-set-light-coverage"><option value="covered">Covered interiors, including open fronts</option><option value="sealed">Sealed rooms only</option></select>

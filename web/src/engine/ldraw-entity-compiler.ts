@@ -150,14 +150,31 @@ export interface LegoGeometryDiagnostics {
   printFallbackParts: string[];
   /** Parts skipped as buried Technic internals. */
   skippedInternalCount: number;
-  /** Prototype cuboids dropped because the whole-model budget forced coarsening. */
+  /** How many times the whole model was coarsened to meet `maxModelCubes`. */
   modelCoarsened: number;
+  /** Body cuboid count at the requested microcell, before any coarsening. */
+  cubesAtRequestedDetail: number;
   quality: LegoEntityQuality;
   pbr: boolean;
 }
 
+/**
+ * How LDraw world coordinates became model units: `units = ((A·p) − origin) · scale`
+ * in the right-handed render frame; the JSON additionally mirrors X. Lets an
+ * offline harness put the source triangles and the emitted cuboids in one frame.
+ */
+export interface LdrawToBedrockTransform {
+  /** Row-major 3×3 rotation LDraw → render frame (det +1). */
+  A: number[];
+  /** Render-frame LDU subtracted before scaling (floor at y = 0, centred in X/Z). */
+  origin: [number, number, number];
+  /** Model units per LDU. */
+  scale: number;
+}
+
 export interface CompiledLdrawGeometry {
   value: unknown;
+  transform: LdrawToBedrockTransform;
   /** Opaque palette; index = atlas row. */
   materials: LdrawEntityMaterial[];
   /** Translucent palette for the canopy mesh. */
@@ -405,6 +422,7 @@ export async function compileLdrawEntityGeometry(
   let quality = { ...baseQuality };
   let modelCoarsened = 0;
   let built = compileAt(quality);
+  const cubesAtRequestedDetail = built.renderCuboids.length;
   while (built.renderCuboids.length > quality.maxModelCubes && modelCoarsened < 3) {
     quality = { ...quality, microcellLdu: quality.microcellLdu * 2 };
     modelCoarsened++;
@@ -601,6 +619,7 @@ export async function compileLdrawEntityGeometry(
     printFallbackParts: report.printFallbacks.map(f => f.part),
     skippedInternalCount,
     modelCoarsened,
+    cubesAtRequestedDetail,
     quality,
     pbr: options.pbr ?? false,
   };
@@ -615,6 +634,7 @@ export async function compileLdrawEntityGeometry(
 
   return {
     value: { format_version: '1.12.0', 'minecraft:geometry': geometryMeshes },
+    transform: { A: [...A], origin: [midX, floorY, midZ], scale },
     materials: opaque,
     canopyMaterials: translucent,
     meshIds,
