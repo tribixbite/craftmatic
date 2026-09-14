@@ -1,8 +1,8 @@
 # PDF placement rework: implementation plan and task tracker
 
 Owner: primary agent; implementation/testing delegated to GPT-5.6 Sol.
-Status: first implementation wave validated; objective-consistency gate remains
-open. This is the canonical TODO list for the work following
+Status: second implementation wave active on objective consistency; first wave
+validated. This is the canonical TODO list for the work following
 [the architectural review](pdf-placement-v2-design-review-2026-09-11.md).
 The [architecture](pdf-placement-v2-architecture-2026-09-11.md) defines the target;
 the [experiment ledger](pdf-placement-v2-results-2026-09-11.md) records prior runs.
@@ -32,6 +32,10 @@ the [experiment ledger](pdf-placement-v2-results-2026-09-11.md) records prior ru
 | T1 | `independent_controls` / Sol | New `placement_v2_controls.py`, its test; [controls work log](pdf-placement-v2-controls-work-2026-09-11.md) | Complete for bounded scope | Eleven controls; complete tiny feasible sets, optimum/ties and refusal at limits |
 | F1 | `real_fixture_controls` / Sol | New `placement_v2_fixture_controls.py`, its test; [fixture work log](pdf-placement-v2-fixture-work-2026-09-11.md) | Complete for first fixture | Correct combination feasible; surrogate/final preference reversal reproduced with guards and old-score parity |
 | I1 | Primary | This tracker, documentation links, integration review and task-only commits | Review and tests complete | 121 tests passed; only owned files included in the integration commit |
+| O2 | `complete_objective` / Sol | New `placement_v2_complete_objective.py`, its test; [objective work log](pdf-placement-v2-objective-work-2026-09-11.md) | In progress | One reusable full-assembly objective, unchanged v8 weights; parity with sealed complete renders |
+| S2 | `complete_search` / Sol | New `placement_v2_complete_search.py`, its test; [complete-search work log](pdf-placement-v2-complete-search-work-2026-09-11.md) | In progress | Enumerate every mechanically feasible complete assembly within declared bounds, score with O2, preserve ties |
+| F2 | `complete_fixture` / Sol | New `placement_v2_complete_fixture.py`, its test; [complete-fixture work log](pdf-placement-v2-complete-fixture-work-2026-09-11.md) | In progress | All 12 exact-quota combinations of the frozen six-pose diagnostic domain; independent evaluation after selection |
+| I2 | Primary | This tracker and second-wave integration | In progress | Review scorer/search contracts, guard evidence, run combined tests and commit only owned files |
 
 All paths in the table are under `scripts/pdf-recon/` unless linked as docs.
 Workers must log changes, tests, limitations and handoff in their own MD, avoiding
@@ -68,6 +72,14 @@ concurrent edits to this master tracker. The primary updates consolidated status
 ## Phase B: representation and objective gates
 
 Dependencies: validated Phase A harness, not merely completed source files.
+
+Current B3/B5 slice is O2/S2/F2 above. Freeze the six-pose union from the previous
+evaluation-only fixture (two pins and four bricks, choose one and two) before
+running. Score all mechanically feasible combinations, including mixed correct/
+wrong hybrids, using the existing complete objective without a weight sweep.
+The search consumes no truth labels, but the domain is reference-selected
+diagnostic data and cannot establish autonomous candidate recall or accuracy.
+No permanent runtime switch or full-booklet run is part of this slice.
 
 - [ ] B1. Independent CAD → camera → image and export round-trip fixtures,
   including rotated/chiral parts, units, origin/basis and nested transforms.
