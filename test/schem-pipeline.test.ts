@@ -140,4 +140,23 @@ describe('runSchemPipeline — grid source', () => {
     expect(phases).toContain('lighting interiors');
     expect(phases).toContain('writing NBT');
   });
+
+  it('exports Java 1.19.4+ block_display entities function', async () => {
+    const g = new BlockGrid(3, 2, 2);
+    g.set(0, 0, 0, 'minecraft:gold_block');
+    g.set(1, 0, 0, 'minecraft:gold_block');
+    const r = await runSchemPipeline({
+      source: asSource(g),
+      format: 'display',
+      profile: 'default',
+      lightFill: false,
+      shapes: false,
+      packStem: 'gold_statue',
+    });
+    expect(r.bytes).toBeDefined();
+    const text = new TextDecoder().decode(r.bytes);
+    expect(text).toContain('summon block_display');
+    expect(text).toContain('gold_statue');
+    expect(r.mcpack?.tileCount).toBe(1); // 2 merged blocks
+  });
 });

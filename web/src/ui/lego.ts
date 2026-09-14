@@ -420,11 +420,13 @@ function buildUI(): void {
         <optgroup label="Minecraft: Java">
           <option value="schem">Java schematic / WorldEdit (.schem)</option>
           <option value="litematic">Litematica (.litematic)</option>
+          <option value="display">Java 1.19.4+ Display Entities (.mcfunction)</option>
         </optgroup>
         <optgroup label="Minecraft: Bedrock">
           <option value="live">Send to Minecraft Planner (experimental)</option>
           <option value="mcaddon">Add-on — controls detected or selected components (.mcaddon)</option>
           <option value="mcpack">Static structure pack (.mcpack)</option>
+          <option value="lego-mcpack">Craftmatic LEGO Texture Pack (.mcpack)</option>
         </optgroup>
         <optgroup label="Minecraft: any edition">
           <option value="guide">Build guide, layer-by-layer (.html)</option>
@@ -1808,7 +1810,18 @@ async function exportLoadedModel(fmt: string): Promise<void> {
       return;
     }
 
-    if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide' || fmt === 'mcpack' || fmt === 'mcaddon' || fmt === 'live') {
+    if (fmt === 'lego-mcpack') {
+      const a = document.createElement('a');
+      a.href = '/downloads/Craftmatic-Lego-Pack.mcpack';
+      a.download = 'Craftmatic-Lego-Pack.mcpack';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setStatus('Downloaded Craftmatic-Lego-Pack.mcpack — double-click to install LEGO ABS plastic textures with embossed studs into Minecraft Bedrock.', 'success');
+      return;
+    }
+
+    if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide' || fmt === 'mcpack' || fmt === 'mcaddon' || fmt === 'live' || fmt === 'display') {
       // Everything Minecraft-shaped goes through the ONE shared export module
       // (ui/schem-export.ts → engine/schem-pipeline.ts, in a Web Worker) that
       // the Upload tab also uses — Bedrock `.mcpack` included, so it shares the

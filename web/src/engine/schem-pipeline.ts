@@ -38,7 +38,7 @@ import type { BlockEntity } from '@craft/types/index.js';
  * was converting our `.schem` with an external tool, and that hop is where a
  * Java→Bedrock translation loses blocks and block states.
  */
-export type SchemWorkerFormat = 'schem' | 'litematic' | 'guide' | 'mcpack' | 'live' | 'mcaddon';
+export type SchemWorkerFormat = 'schem' | 'litematic' | 'guide' | 'mcpack' | 'live' | 'mcaddon' | 'display';
 
 /** A parsed LDraw model that still needs voxelizing. */
 export interface BrickSource {
@@ -322,6 +322,30 @@ export async function runSchemPipeline(
         tileCount: pack.tiles.length,
         unmapped: pack.unmapped,
         warnings: bedrockExportNotes(grid),
+      },
+    };
+  }
+
+  if (input.format === 'display') {
+    const { buildDisplayEntitiesFunction } = await import('./display-entities.js');
+    onProgress('generating Java block_display entities');
+    const res = buildDisplayEntitiesFunction(grid, {
+      tag: (input.packStem ?? 'craftmatic_model').replace(/[^a-zA-Z0-9_]/g, '_'),
+    });
+    return {
+      grid,
+      bytes: new TextEncoder().encode(res.mcfunction),
+      nonAir,
+      lights,
+      lightFill,
+      shapes: shapeStats,
+      elements: elementStats,
+      detailMaterials: detailStats,
+      mcpack: {
+        functionCommand: res.spawnCommand,
+        tileCount: res.boxCount,
+        unmapped: [],
+        warnings: [],
       },
     };
   }
