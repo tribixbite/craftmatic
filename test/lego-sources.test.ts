@@ -16,6 +16,7 @@ import {
   bestIndexedModel, indexedTryOrder, lookupIndexModels, sourceClass,
   bestSourceClass, sortByBestSourceClass, SOURCE_GROUPS, sourceBadgeLabel,
   assemblyStatus, assemblyStatusLabel, tryOrderReason, verifiedPromotion,
+  findInflatedPromotion,
   type IndexModel, type LegoModelsIndex,
 } from '../web/src/engine/lego-sources.js';
 
@@ -268,6 +269,32 @@ describe('indexedTryOrder — verified promotion over a graded-defective pick', 
   it('still reports the conv demotion as the pick reason when no grades exist', () => {
     expect(tryOrderReason(IDX.sets['60502']!.models))
       .toMatch(/lxf_conv is a script conversion/);
+  });
+
+  it('promotes an authentic assembled model when incumbent has massively inflated piece count', () => {
+    // Mimicking 10300 DeLorean (1872 catalog parts, 9866 in raw .io tray, 1906 in assembled io_model2_v2)
+    const models = [
+      M('io', 'IO/10300.io', { n: 9866 }),
+      M('io', 'IO/10300-all.io', { n: 14523 }),
+      M('io_model2_v2', 'IOModel2V2/10300-1-present.ldr', { n: 1906 }),
+      M('recon_v3', 'ReconV3/10300.ldr', { n: 2084, tier: 2 }),
+    ];
+    // Without catalogParts, order is unchanged
+    expect(indexedTryOrder(models)).toEqual([0, 1, 2, 3]);
+
+    // With 1872 catalogParts, candidate 2 (io_model2_v2, 1906 parts) is promoted over inflated tray (9866 parts)
+    expect(indexedTryOrder(models, 1872)).toEqual([2, 0, 1, 3]);
+    expect(tryOrderReason(models, 1872)).toMatch(/inflated piece count \(9866 vs 1872 catalog parts\)/);
+
+    // bestIndexedModel passes catalog parts from index
+    const syntheticIdx: LegoModelsIndex = {
+      generated: 't',
+      sets: {
+        '10300': { name: 'DeLorean', year: '2022', parts: 1872, models },
+      },
+    };
+    expect(bestIndexedModel(syntheticIdx, '10300-1')?.src).toBe('io_model2_v2');
+    expect(bestIndexedModel(syntheticIdx, '10300-1')?.path).toBe('IOModel2V2/10300-1-present.ldr');
   });
 });
 

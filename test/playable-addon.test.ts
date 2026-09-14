@@ -323,4 +323,31 @@ describe('playable Bedrock add-on',()=>{
       vi.useRealTimers();
     }
   });
+
+  it('emits multi-seat co-pilot configuration when seatCount > 1', async () => {
+    const result = await buildPlayableAddon(model(), { stem: 'Galaxy Cruiser', vehicleMode: 'plane', seatCount: 2 });
+    const buffer = ab(result.bytes);
+    const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_galaxy_cruiser_BP/entities/galaxy_cruiser_galaxy_cruiser.json')));
+    const rideable = entity['minecraft:entity'].components['minecraft:rideable'];
+    expect(rideable.seat_count).toBe(2);
+    expect(rideable.controlling_seat).toBe(0);
+    expect(Array.isArray(rideable.seats)).toBe(true);
+    expect(rideable.seats).toHaveLength(2);
+    expect(rideable.seats[0].min_rider_count).toBe(0);
+    expect(rideable.seats[0].max_rider_count).toBe(1);
+    expect(rideable.seats[1].min_rider_count).toBe(1);
+    expect(rideable.seats[1].max_rider_count).toBe(2);
+    // Driver and passenger seats are separated laterally
+    expect(rideable.seats[0].position[0]).not.toEqual(rideable.seats[1].position[0]);
+  });
+
+  it('includes engine sound audio loop and co-pilot HUD in vehicle-driver.js', async () => {
+    const result = await buildPlayableAddon(model(), { stem: 'Supercar', vehicleMode: 'car' });
+    const buffer = ab(result.bytes);
+    const driverScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_supercar_BP/scripts/vehicle-driver.js'));
+    expect(driverScript).toContain('minecart.base');
+    expect(driverScript).toContain('enginePitch');
+    expect(driverScript).toContain('elytra.loop');
+    expect(driverScript).toContain('coPilotTag');
+  });
 });
