@@ -45,3 +45,19 @@ __pycache__/
 
 # pdf-recon research artifacts written beside the scripts by their own tests
 scripts/pdf-recon/output/
+
+# Browser-automation downloads and base64 screenshot dumps left by agent sessions
+.playwright-mcp/
+cap-*.txt
+
+# Generated analysis / experiment output. The subtrees below are deliberately
+# tracked (reports, the PDF universal-parts data, comparison + tiles fixtures);
+# everything else under output/ is a private run artifact. Adding a new file to
+# an ignored path needs `git add -f`.
+output/*
+!output/*.md
+!output/*.html
+!output/comparison/
+!output/pdf-placement-diagnosis/
+!output/pdf-universal-parts/
+!output/tiles/
