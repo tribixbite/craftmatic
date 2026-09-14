@@ -38,8 +38,13 @@ function load(): SchemExportSettings {
         resolution: RESOLUTION_OPTIONS.some(o => o.value === res) ? res as ResolutionChoice : 'auto',
         profile: BLOCK_PROFILES.some(p => p.id === parsed.profile) ? parsed.profile! : DEFAULT_SCHEM_SETTINGS.profile,
         lightFill: parsed.lightFill === true,
+        vehicleFacing: ['+x', '-x', '+z', '-z'].includes(parsed.vehicleFacing ?? '') ? parsed.vehicleFacing : 'auto',
+        lightCoverage: parsed.lightCoverage === 'covered' ? 'covered' : 'sealed',
+        lightStyle: ['lantern', 'sea_lantern'].includes(parsed.lightStyle ?? '') ? parsed.lightStyle : 'profile',
+        lightSpacing: [3, 6, 10].includes(parsed.lightSpacing ?? 0) ? parsed.lightSpacing : 6,
         // Default ON, so a value stored before the setting existed opts in.
         shapes: parsed.shapes !== false,
+        detailMaterials: parsed.detailMaterials === true,
       };
     }
   } catch { /* private mode / corrupt value → defaults */ }
@@ -48,7 +53,7 @@ function load(): SchemExportSettings {
 
 /** Current export settings (defaults until the user changes something). */
 export function getSchemSettings(): SchemExportSettings {
-  return { ...load() };
+  return { lightCoverage: 'covered', lightStyle: 'profile', lightSpacing: 6, ...load() };
 }
 
 function save(next: SchemExportSettings): void {
@@ -66,6 +71,7 @@ const CSS = `
 .mc-set-pop {
   position: fixed; z-index: 10001; display: none;
   width: 290px; max-width: calc(100vw - 20px);
+  max-height: calc(100vh - 16px); overflow-y: auto;
   box-sizing: border-box; padding: 10px 12px 12px;
   background: rgba(20, 22, 30, 0.98); color: #e8e8ef;
   border: 1px solid rgba(255,255,255,0.16); border-radius: 6px;
@@ -162,11 +168,36 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
     </div>
     <div class="mc-set-field">
       <label class="mc-set-check">
-        <input type="checkbox" id="mc-set-light">
-        <span>Light enclosed interiors<br>
-          <span class="mc-set-note">Adds glowstone to sealed rooms (rooms open to the outside are left alone). Off by default.</span>
+        <input type="checkbox" id="mc-set-detail">
+        <span>Smooth slopes with detail materials<br>
+          <span class="mc-set-note">Upgrades step edges on colored solids to tonally-matched stairs & slabs (HotSchem detail engine).</span>
         </span>
       </label>
+    </div>
+    <div class="mc-set-field">
+      <label class="mc-set-check">
+        <input type="checkbox" id="mc-set-light">
+        <span>Light interiors<br>
+          <span class="mc-set-note">Add lamps without replacing model blocks. Enable for dark builds.</span>
+        </span>
+      </label>
+    </div>
+    <div class="mc-set-field">
+      <label for="mc-set-vehicle-facing">Vehicle front (playable add-on)</label>
+      <select id="mc-set-vehicle-facing"><option value="auto">Auto - detected model orientation</option><option value="+x">+X</option><option value="-x">-X</option><option value="+z">+Z</option><option value="-z">-Z</option></select>
+      <p class="mc-set-note">For a car that drives backward, choose the opposite direction and export again.</p>
+      <label for="mc-set-light-coverage">Lighting coverage</label>
+      <select id="mc-set-light-coverage"><option value="covered">Covered interiors, including open fronts</option><option value="sealed">Sealed rooms only</option></select>
+      <label for="mc-set-light-style">Lamp style</label>
+      <select id="mc-set-light-style"><option value="profile">Match block mapping</option><option value="lantern">Warm lanterns</option><option value="sea_lantern">Bright sea lanterns</option></select>
+      <label for="mc-set-light-spacing">Lamp spacing</label>
+      <select id="mc-set-light-spacing"><option value="3">Dense - every 3 blocks</option><option value="6">Balanced - every 6 blocks</option><option value="10">Sparse - every 10 blocks</option></select>
+    </div>
+    <div class="mc-set-field" style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.14)">
+      <a href="/downloads/Craftmatic-Lego-Pack.mcpack" download="Craftmatic-Lego-Pack.mcpack" class="mc-set-btn" style="display:block;text-align:center;text-decoration:none;padding:5px 8px;background:rgba(124,58,237,0.22);border-color:rgba(167,139,250,0.5);color:#c4b5fd;font-weight:600">
+        🧱 Download LEGO Texture Pack (.mcpack)
+      </a>
+      <p class="mc-set-note" style="margin-top:5px;line-height:1.35">Replaces flat concrete with glossy ABS plastic finishes, embossed top studs, and beveled brick seams for Bedrock Edition.</p>
     </div>
   `;
 
@@ -176,7 +207,14 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   const resSel = pop.querySelector('#mc-set-res') as HTMLSelectElement;
   const profSel = pop.querySelector('#mc-set-profile') as HTMLSelectElement;
   const lightBox = pop.querySelector('#mc-set-light') as HTMLInputElement;
+  const facingSel = pop.querySelector('#mc-set-vehicle-facing') as HTMLSelectElement;
+  const coverageSel = pop.querySelector('#mc-set-light-coverage') as HTMLSelectElement;
+  const styleSel = pop.querySelector('#mc-set-light-style') as HTMLSelectElement;
+  const spacingSel = pop.querySelector('#mc-set-light-spacing') as HTMLSelectElement;
+  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
+  syncLights(current);
   const shapeBox = pop.querySelector('#mc-set-shapes') as HTMLInputElement;
+  const detailBox = pop.querySelector('#mc-set-detail') as HTMLInputElement;
   const preview = pop.querySelector('[data-role="preview"]') as HTMLElement;
   const profNote = pop.querySelector('[data-role="profile-note"]') as HTMLElement;
 
@@ -184,6 +222,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   profSel.value = current.profile;
   lightBox.checked = current.lightFill;
   shapeBox.checked = current.shapes;
+  detailBox.checked = current.detailMaterials === true;
   resSel.disabled = !opts.resolutionApplicable;
 
   const refresh = (): void => {
@@ -202,21 +241,28 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       resolution: resSel.value as ResolutionChoice,
       profile: profSel.value,
       lightFill: lightBox.checked,
+      vehicleFacing: facingSel.value as SchemExportSettings['vehicleFacing'],
+      lightCoverage: coverageSel.value as 'sealed' | 'covered',
+      lightStyle: styleSel.value as 'profile' | 'lantern' | 'sea_lantern',
+      lightSpacing: Number(spacingSel.value),
       shapes: shapeBox.checked,
+      detailMaterials: detailBox.checked,
     });
     refresh();
   };
   resSel.addEventListener('change', commit, sig);
   profSel.addEventListener('change', commit, sig);
   lightBox.addEventListener('change', commit, sig);
+  for (const select of [facingSel, coverageSel, styleSel, spacingSel]) select.addEventListener('change', commit, sig);
   shapeBox.addEventListener('change', commit, sig);
+  detailBox.addEventListener('change', commit, sig);
 
   const close = (): void => { pop.classList.remove('is-open'); };
   const open = (): void => {
     // Sync from module state — the other surface's popover may have changed it.
     const s = load();
     resSel.value = s.resolution; profSel.value = s.profile;
-    lightBox.checked = s.lightFill; shapeBox.checked = s.shapes;
+    lightBox.checked = s.lightFill; shapeBox.checked = s.shapes; detailBox.checked = s.detailMaterials === true; syncLights(s);
     refresh();
     const r = btn.getBoundingClientRect();
     pop.classList.add('is-open');

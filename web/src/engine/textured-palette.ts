@@ -390,7 +390,11 @@ export function texturedLdrawColorToBlock(colorId: number): string {
   const hit = ldrawCache.get(colorId);
   if (hit !== undefined) return hit;
   const fallback = ldrawColorToBlock(colorId);
-  const hex = LDRAW_COLOR_RGB[colorId];
+  const hex = LDRAW_COLOR_RGB[colorId] ?? (
+    (colorId & 0x2000000) === 0x2000000
+      ? `#${((colorId & 0xffffff) | 0x1000000).toString(16).slice(1)}`
+      : undefined
+  );
   const m = keepAsIs(fallback) || !hex ? null : matchTexturedHex(hex);
   const matched = m?.shapeable ? m.block : fallback;
   ldrawCache.set(colorId, matched);
