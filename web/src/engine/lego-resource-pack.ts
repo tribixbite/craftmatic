@@ -8,7 +8,7 @@
 
 import { createZip, type ZipInputFile } from './zip-utils.js';
 
-const CONCRETE_COLORS: Record<string, [number, number, number]> = {
+export const CONCRETE_COLORS: Record<string, [number, number, number]> = {
   white: [238, 238, 238],
   orange: [224, 97, 1],
   magenta: [169, 48, 159],
@@ -151,6 +151,135 @@ export function generateStudBlockPng(r: number, g: number, b: number, isTop = tr
   return concat(
     Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
     pngChunk('IHDR', concat(u32(size), u32(size), Uint8Array.of(8, 6, 0, 0, 0))),
+    pngChunk('IDAT', z),
+    pngChunk('IEND', new Uint8Array())
+  );
+}
+
+/**
+ * Generate a complete 32x(1 + N*16) PNG atlas for Bedrock vehicle entity geometry.
+ *
+ * Layout:
+ * - Row 0 (y = 0): Exact 1-pixel color palette for solid color sampling & alpha tests
+ * - Rows 1..16 + i*16:
+ *   - Column 0 (x: 0..15): Top face with authentic embossed LEGO stud (or sleek glass)
+ *   - Column 1 (x: 16..31): Side face with beveled plastic seams & specular highlight
+ */
+export function generateEntityLegoAtlasPng(
+  palette: string[],
+  blockRgbFn: (state: string) => [number, number, number],
+  blockAlphaFn: (state: string) => number,
+): Uint8Array {
+  const count = Math.max(1, palette.length);
+  const atlasW = 32;
+  const atlasH = 1 + count * 16;
+  const raw = new Uint8Array(atlasH * (1 + atlasW * 4));
+
+  // Row 0: Palette scanline for exact single-pixel alpha and color reads
+  raw[0] = 0; // PNG filter None
+  for (let x = 0; x < atlasW; x++) {
+    const state = palette[x] ?? (palette[x % count] ?? 'minecraft:gray_concrete');
+    const [r, g, b] = blockRgbFn(state);
+    const a = blockAlphaFn(state);
+    const o = 1 + x * 4;
+    raw.set([r, g, b, a], o);
+  }
+
+  for (let colorIdx = 0; colorIdx < count; colorIdx++) {
+    const state = palette[colorIdx] ?? 'minecraft:gray_concrete';
+    const [r, g, b] = blockRgbFn(state);
+    const a = blockAlphaFn(state);
+    const isGlass = a < 255 || /glass/i.test(state);
+
+    for (let ty = 0; ty < 16; ty++) {
+      const globalY = 1 + colorIdx * 16 + ty;
+      const rowOffset = globalY * (1 + atlasW * 4);
+      raw[rowOffset] = 0; // PNG filter None
+
+      // Column 0: Top face (x = 0..15)
+      for (let tx = 0; tx < 16; tx++) {
+        const idx = rowOffset + 1 + tx * 4;
+        let pr = r, pg = g, pb = b, pa = a;
+
+        if (isGlass) {
+          const isBorder = (tx === 0 || tx === 15 || ty === 0 || ty === 15);
+          if (isBorder) {
+            pr = Math.floor(pr * 0.75); pg = Math.floor(pg * 0.75); pb = Math.floor(pb * 0.75);
+          } else if (tx + ty >= 12 && tx + ty <= 15) {
+            // Specular windshield reflection streak
+            pr = Math.min(255, pr + 120); pg = Math.min(255, pg + 120); pb = Math.min(255, pb + 120);
+          }
+        } else {
+          // Embossed stud
+          const isBorder = (tx === 0 || tx === 15 || ty === 0 || ty === 15);
+          if (isBorder) {
+            pr = Math.floor(pr * 0.72); pg = Math.floor(pg * 0.72); pb = Math.floor(pb * 0.72);
+          } else {
+            const dx = tx - 7.5;
+            const dy = ty - 7.5;
+            const dist = Math.hypot(dx, dy);
+            if (dist >= 3.0 && dist <= 5.2) {
+              const angle = Math.atan2(dy, dx);
+              if (angle < -0.3 && angle > -2.8) {
+                pr = Math.min(255, pr + 42); pg = Math.min(255, pg + 42); pb = Math.min(255, pb + 42);
+              } else {
+                pr = Math.floor(pr * 0.76); pg = Math.floor(pg * 0.76); pb = Math.floor(pb * 0.76);
+              }
+            } else if (dist < 3.0) {
+              pr = Math.min(255, pr + 16); pg = Math.min(255, pg + 16); pb = Math.min(255, pb + 16);
+            }
+          }
+        }
+        raw[idx] = pr; raw[idx + 1] = pg; raw[idx + 2] = pb; raw[idx + 3] = pa;
+      }
+
+      // Column 1: Side face (x = 16..31)
+      for (let tx = 0; tx < 16; tx++) {
+        const globalX = 16 + tx;
+        const idx = rowOffset + 1 + globalX * 4;
+        let pr = r, pg = g, pb = b, pa = a;
+
+        if (isGlass) {
+          const isBorder = (tx === 0 || tx === 15 || ty === 0 || ty === 15);
+          if (isBorder) {
+            pr = Math.floor(pr * 0.75); pg = Math.floor(pg * 0.75); pb = Math.floor(pb * 0.75);
+          } else if (tx + ty >= 12 && tx + ty <= 15) {
+            pr = Math.min(255, pr + 120); pg = Math.min(255, pg + 120); pb = Math.min(255, pb + 120);
+          }
+        } else {
+          const isBorder = (tx === 0 || tx === 15 || ty === 15);
+          if (isBorder) {
+            pr = Math.floor(pr * 0.72); pg = Math.floor(pg * 0.72); pb = Math.floor(pb * 0.72);
+          } else if (ty === 0 || ty === 1) {
+            pr = Math.min(255, pr + 24); pg = Math.min(255, pg + 24); pb = Math.min(255, pb + 24);
+          }
+        }
+        raw[idx] = pr; raw[idx + 1] = pg; raw[idx + 2] = pb; raw[idx + 3] = pa;
+      }
+    }
+  }
+
+  // Zlib deflate uncompressed blocks
+  let aVal = 1, bVal = 0;
+  for (const v of raw) {
+    aVal = (aVal + v) % 65521;
+    bVal = (bVal + aVal) % 65521;
+  }
+  const blocks: Uint8Array[] = [];
+  for (let p = 0; p < raw.length;) {
+    const len = Math.min(65535, raw.length - p);
+    const last = p + len === raw.length;
+    blocks.push(
+      Uint8Array.of(last ? 1 : 0, len & 255, len >>> 8, (~len) & 255, ((~len) >>> 8) & 255),
+      raw.slice(p, p + len)
+    );
+    p += len;
+  }
+  const z = concat(Uint8Array.of(0x78, 0x01), ...blocks, u32((bVal << 16) | aVal));
+
+  return concat(
+    Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
+    pngChunk('IHDR', concat(u32(atlasW), u32(atlasH), Uint8Array.of(8, 6, 0, 0, 0))),
     pngChunk('IDAT', z),
     pngChunk('IEND', new Uint8Array())
   );
