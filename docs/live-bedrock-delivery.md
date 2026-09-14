@@ -97,3 +97,23 @@ The Railway deployment and the earlier loopback bridge both completed the three-
 New playable 10300/DeLorean exports add **DeLorean controls** to the Brick Wand menu. Mount the car or stand within 32 blocks, enter destination X/Y/Z and a trigger speed (10–150 mph, default 88), then wait for “Destination ready.” Hold forward to accelerate gradually. The circuit jumps once when measured forward speed reaches the selected threshold, stops the car at the exact entered coordinates, and preserves or restores its riders. Set the circuit again for another jump. Destination preparation expires after 60 seconds or a rider dismount; obstructed or unloaded destinations report an error and require rearming.
 
 The controller targets a 6 mph-per-second ramp, compensates for retained velocity under drag, and uses interval-start velocity to avoid false jumps while pushing against a wall. Units use one block as one metre. Runtime tests cover strong simulated drag, stationary collisions, braking, exact coordinates, a single jump, and oversized-coordinate rejection. These tests and browser archive inspection do not establish native Bedrock driving feel or physics; device verification remains separate.
+
+## September 14 native vehicle driving and flight verification (Pixel 8 Pro)
+
+Native in-game driving, flight, visual fidelity, and multi-seat audio mechanics were directly verified on retail Minecraft Bedrock (Android 17, Google Pixel 8 Pro connected at `192.168.0.216:5555`).
+
+### 1. Lego Batmobile (`craftmatic:batcave_76252_batmobile`)
+- **Ground Driving & Elevation**: Mounted via `/ride @s start_riding @e[type=craftmatic:batcave_76252_batmobile,c=1]`. Drove >50 blocks across rugged mesa badlands from `(286, 71, 145)` to `(331, 69, 112)` overlooking the river canyon. Auto-step (1.25 blocks) handled stepped sandstone terrain smoothly without catching or losing momentum.
+- **Reverse Gear & Steering**: Tested reverse gear with backward touch control; verified speed HUD displaying `[REV] -mph` and rear steering responsiveness.
+- **Visual Fidelity**: Inspected from first-person cockpit, third-person front (`output/screen-camera-executed.png`), third-person rear (`output/screen-near-batmobile.png`), and high-altitude chase camera (`output/screen-after-enter.png`). Verified authentic 76252 geometry: round rear jet turbine with red center cone, dual red taillights, swept bat-wing fins, and canopy roof.
+
+### 2. Lego Prop Plane (`craftmatic:propplane_8855_plane`)
+- **3D Flight & Climb**: Summoned at `(313, 66, 13)` and mounted via `/ride`. Cruised and climbed >115 blocks horizontally across terrain from `(313, 67, 13)` to `(428, 72, -10)` using air controls (`can_fly: {}`, `input_air_controlled`). Ascent verified with vertical pitch input (`output/screen-flew-plane.png`, `output/screen-plane-high-altitude.png`).
+- **Visual Fidelity**: Verified yellow biplane wings with ribbed aerofoil slats, grey wing struts, black tail elevator, landing gear, and nametag `Prop Plane (8855-1)`.
+- **Clean Landing & Dismount**: Dismounted cleanly on a ridge at `(428, 71, -11)` (`output/screen-plane-dismounted.png`).
+
+### 3. Model Engine Enhancements
+- **Inflated Parts Tray Demotion**: Prioritizes authentic assembled models (`io_model2_v2` / `.ldr`) whose part counts closely match the official catalog count (within ±35%) while penalizing inflated loose-parts tray `.io` sources (`n > catalogParts * 2.2`). Fixes 401 sets across the catalog.
+- **Multi-Seat & Co-Pilot HUD**: Supports 1-seat (driver), 2-seat (driver + copilot lateral offsets), and 4+ seat vehicle layouts. Locks passenger rotation to vehicle heading and broadcasts real-time speedometer HUD with `[👥 N]` rider count to all passengers.
+- **Dynamic Speed-Modulated Audio**: Calculates engine sound pitch dynamically (`Math.min(2.0, Math.max(0.6, 0.6 + (mph / 45) * 0.9))`) with periodic tick sounds (`minecart.base` for cars, `elytra.loop` for aircraft, `random.splash` for watercraft) and idle motor rumble.
+
