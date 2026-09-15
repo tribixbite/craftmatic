@@ -21,8 +21,18 @@ export interface PlacementPackSpec {
   actors?: PlacementActor[];
   /** Enable controls supplied by the playable DeLorean runtime. */
   vehicleControls?: boolean;
-  /** Sparse non-air model points used to make rotation obvious in preview. */
+  /** Sparse non-air model points used to make rotation obvious in preview (drawn only when no ghost entity ships). */
   previewPoints?: Array<{ x: number; y: number; z: number }>;
+  /** Translucent ghost entity of the whole placement (bedrock-preview-entity.ts); spawned at the pin, turned with the rotation. */
+  preview?: { typeId: string };
+  /**
+   * Ticks each tile's ticking area stays alive after its `structure load`, and
+   * ticks the last area is held after the final piece. A ticking area removed
+   * the moment the command returns can unload the chunk before its block
+   * updates reach the client, which read as "nothing appeared until I came back".
+   */
+  settleTicks?: number;
+  finalHoldTicks?: number;
 }
 
 export interface PlacementPackAssets {
@@ -142,6 +152,37 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     if (!states.has(p.id)) states.set(p.id, { anchor: undefined, dimension: undefined, rotation: 0 });
     return states.get(p.id);
   };
+  // Ghost preview entity, one per player, pinned at the rotated footprint
+  // centre with yaw = the wand rotation (see bedrock-preview-entity.ts).
+  const ghosts = new Map<string, string>();
+  const removeGhost = (playerId: string) => {
+    const eid = ghosts.get(playerId); ghosts.delete(playerId);
+    if (!eid) return;
+    try { world.getEntity(eid)?.remove(); } catch {}
+  };
+  const syncGhost = (p: any, s: any, visible: boolean) => {
+    if (!config.preview) return;
+    if (!visible) { removeGhost(p.id); return; }
+    const c = pointAt({ x: config.width / 2, y: 0, z: config.length / 2 }, s.rotation);
+    const at = { x: s.anchor.x + c.x, y: s.anchor.y, z: s.anchor.z + c.z };
+    let ghost: any;
+    const eid = ghosts.get(p.id);
+    if (eid) { try { ghost = world.getEntity(eid); } catch {} }
+    if (ghost && ghost.dimension?.id !== p.dimension.id) { removeGhost(p.id); ghost = undefined; }
+    if (!ghost) {
+      try { ghost = p.dimension.spawnEntity(config.preview.typeId, at); ghosts.set(p.id, ghost.id); } catch { return; }
+    }
+    try { ghost.teleport(at, { rotation: { x: 0, y: s.rotation } }); }
+    catch { try { ghost.setRotation({ x: 0, y: s.rotation }); } catch {} }
+  };
+  // A ghost outliving its script (crash, reload) is swept when the pack starts.
+  if (config.preview) system.run(() => {
+    for (const id of ['overworld', 'nether', 'the_end']) {
+      let d: any; try { d = world.getDimension(id); } catch { continue; }
+      try { for (const e of d.getEntities({ type: config.preview.typeId })) e.remove(); } catch {}
+    }
+  });
+  try { world.afterEvents.playerLeave.subscribe((ev: any) => removeGhost(ev.playerId)); } catch {}
   const size = (r: number) => r % 180
     ? { width: config.length, height: config.height, length: config.width }
     : { width: config.width, height: config.height, length: config.length };
@@ -182,7 +223,9 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     return points;
   };
   const draw = (p: any) => {
-    const s = state(p); if (!previews.has(p.id) || !s.anchor || active) return;
+    const s = state(p);
+    syncGhost(p, s, previews.has(p.id) && !!s.anchor && !active && s.dimension === p.dimension.id);
+    if (!previews.has(p.id) || !s.anchor || active) return;
     if (s.dimension !== p.dimension.id) { p.onScreenDisplay.setActionBar(`PREVIEW PAUSED · origin is in ${s.dimension} · re-pin here`); return; }
     const d = size(s.rotation), particles: any[] = [];
     const worldPoint = (q: any) => ({ x: s.anchor.x + q.x, y: s.anchor.y + q.y, z: s.anchor.z + q.z });
@@ -203,7 +246,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       { x: config.width / 2 + 1, y: 1, z: -1 },
     ];
     for (const q of front) mark('minecraft:totem_particle', pointAt(q, s.rotation));
-    for (const sample of config.previewPoints) mark('minecraft:villager_happy', pointAt(sample, s.rotation));
+    if (!config.preview) for (const sample of config.previewPoints) mark('minecraft:villager_happy', pointAt(sample, s.rotation));
     for (const marker of particles.slice(0, 320)) try { p.dimension.spawnParticle(marker.effect, marker.point); } catch {}
   };
   system.runInterval(() => { for (const p of world.getAllPlayers()) draw(p); }, 12);
@@ -247,27 +290,47 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     validate(p, s); active = { player: p.id, cancelled: false }; previews.delete(p.id);
     const key = `${config.id}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`, backups: any[] = [], entities: string[] = [];
     const previous = histories.get(p.id);
+    removeGhost(p.id);
+    // Live progress on the action bar (the chat log scrolls away); one chat
+    // line at the start and one at the end.
+    const total = config.tiles.length + config.actors.length, settle = config.settleTicks, hold = config.finalHoldTicks;
+    const progress = (done: number, what: string) => {
+      const n = 12, k = Math.max(0, Math.min(n, Math.round(done / Math.max(1, total) * n)));
+      try { p.onScreenDisplay.setActionBar(`§b[Brick Wand]§r ${'▰'.repeat(k)}§8${'▱'.repeat(n - k)}§r ${Math.round(done / Math.max(1, total) * 100)}% · ${what}`); } catch {}
+    };
+    const pieces = `${config.tiles.length} structure piece${config.tiles.length === 1 ? '' : 's'}${config.actors.length ? ` and ${config.actors.length} entit${config.actors.length === 1 ? 'y' : 'ies'}` : ''}`;
+    tell(p, `Placing ${config.label}: ${pieces}. Watch the bar above the hotbar.`);
     try {
       for (let i = 0; i < config.tiles.length; i++) {
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
         const t = tileAt(config.tiles[i], s.rotation), from = { x: s.anchor.x + t.dx, y: s.anchor.y + t.dy, z: s.anchor.z + t.dz }, to = { x: from.x + t.width - 1, y: from.y + t.height - 1, z: from.z + t.length - 1 }, name = `craftmatic:${key}_${i}`;
+        progress(i, `loading area for piece ${i + 1}/${config.tiles.length}`);
         await load(dim, from, to);
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
         world.structureManager.createFromWorld(name, dim, from, to, { includeEntities: false, saveMode: StructureSaveMode.Memory });
         backups.push({ name, from });
         await dim.runCommand(`structure load ${t.identifier} ${from.x} ${from.y} ${from.z} ${s.rotation}_degrees none`);
-        tell(p, `${Math.round((i + 1) / Math.max(1, config.tiles.length) * 100)}% · ${i + 1}/${config.tiles.length} structure pieces`); await wait(1);
+        progress(i + 1, `piece ${i + 1}/${config.tiles.length} placed`);
+        // Let the chunks tick with the area still alive so the block updates
+        // reach every client before the area (and maybe the chunk) goes away.
+        await wait(settle);
       }
-      for (const actor of config.actors) {
+      for (let j = 0; j < config.actors.length; j++) {
+        const actor = config.actors[j];
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
         const q = pointAt(actor, s.rotation);
+        progress(config.tiles.length + j, `spawning ${actor.label}`);
         await load(dim, { x: s.anchor.x + q.x - 1, z: s.anchor.z + q.z - 1 }, { x: s.anchor.x + q.x + 1, z: s.anchor.z + q.z + 1 });
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
         const entity = dim.spawnEntity(actor.typeId, { x: s.anchor.x + q.x, y: s.anchor.y + q.y, z: s.anchor.z + q.z });
         entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + s.rotation }); entities.push(entity.id);
+        progress(config.tiles.length + j + 1, `${actor.label} placed`);
+        await wait(settle);
       }
       if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
       histories.set(p.id, { dimension: dim.id, backups, entities });
+      progress(total, 'done');
+      await wait(hold);
       tell(p, `§aPlaced ${config.label}. Use the Brick Wand to undo.`);
     } catch (e: any) {
       if (backups.length || entities.length) {
@@ -292,7 +355,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
   }
   async function menu(p: any): Promise<any> {
     const s = state(p), running = active?.player === p.id;
-    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(s)}\n\nPreview first: a full-size outline and model markers stay fixed at the pinned placement. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Place is always a separate confirmation.`);
+    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(s)}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. Place is always a separate confirmation.`);
     if (running) f.button('Cancel placement');
     else f.button('Pin at my feet').button('Edit coordinates').button(`Rotate → ${(s.rotation + 90) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview').button('Lighting / night vision');
     if (!running && config.vehicleControls) f.button('DeLorean controls');
@@ -304,7 +367,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     if (r.selection === 3) { try { validate(p, s); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, "Full-size preview fixed at the pin. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Switch away from the wand and back to rotate or place."); }
     if (r.selection === 4) return confirmPlace(p);
     if (r.selection === 5) return undo(p);
-    if (r.selection === 6) { previews.delete(p.id); return tell(p, 'Preview hidden.'); }
+    if (r.selection === 6) { previews.delete(p.id); removeGhost(p.id); return tell(p, 'Preview hidden.'); }
     if (r.selection === 7) return lighting(p);
     if (r.selection === 8 && config.vehicleControls && openVehicleControls) return openVehicleControls(p);
   }
@@ -316,7 +379,8 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   const id = spec.stem.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'model';
   const itemId = `craftmatic:${id}_brick_wand`;
   const shortAlias = placementAlias(spec.stem);
-  const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120) };
+  const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
+    preview: spec.preview ?? null, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
   const script = `${controlsImport}import { world, system, StructureSaveMode } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG${spec.vehicleControls ? ", showTimeMachineControls" : ""});\n`;
   const item = {
@@ -330,7 +394,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
       },
     },
   };
-  const grant = `give @s ${itemId} 1\ntellraw @s ${JSON.stringify({ rawtext: [{ text: `§b[BrickWand]§r Select ${spec.label} BrickWand in your hotbar to open it. Switch away and back to reopen.` }] })}\n`;
+  const grant = `give @s ${itemId} 1\ntellraw @s ${JSON.stringify({ rawtext: [{ text: `§b[BrickWand]§r Select ${spec.label} BrickWand in your hotbar to open it. Switch away and back to reopen. Pin, then "View preview" shows a translucent ghost of the whole build at its rotation.` }] })}\n`;
   return {
     itemId, shortAlias, script,
     files: [

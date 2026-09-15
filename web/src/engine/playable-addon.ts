@@ -6,6 +6,7 @@ import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './m
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
 import { buildPlacementPackAssets, placementAlias, type PlacementActor } from './bedrock-placement-pack.js';
+import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
 import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
@@ -1103,8 +1104,22 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             z: (c.z ?? grid.length / 2) + (p.z - c.grid.length / 2) * scale,
         });
     }
+    // Ghost preview of the whole placement: scenery plus each vehicle at its scene position.
+    options.onProgress?.('building placement preview', 85);
+    const ghost = buildPreviewGhost(id, scenery, components.map((c): PreviewComponentPlacement => ({
+        grid: c.grid, scale: componentLayout(c.kind, c.grid, c.sceneScale, c.longitudinalAxis).scale,
+        x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2,
+    })));
+    files.push(
+        { name: `${bp}entities/${id}_preview.json`, data: json(ghost.behavior) },
+        { name: `${rp}entity/${id}_preview.entity.json`, data: json(ghost.clientEntity) },
+        { name: `${rp}models/entity/${id}_preview.geo.json`, data: json(ghost.geometry) },
+        { name: `${rp}render_controllers/${id}_preview.render_controllers.json`, data: json(ghost.renderControllers) },
+        { name: `${rp}textures/entity/${id}_preview.png`, data: ghost.texturePng },
+    );
     const placement = buildPlacementPackAssets({ stem: id, label, width: grid.width, height: grid.height, length: grid.length,
         tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints,
+        preview: { typeId: ghost.typeId },
         ...(timeMachineConfig ? { vehicleControls: true } : {}) });
     files.push(...placement.files.map(file => ({ ...file, name: bp + file.name })));
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
@@ -1115,7 +1130,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(driverVehicles.length ? ["import './vehicle-driver.js';"] : []),
         ...(cameraVehicles.length ? ["import './vehicle-camera.js';"] : []),
     ].join('\n');
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, preview, rotate, place, and undo.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - forward flies where you look, look up or down to climb or dive, Jump climbs straight up, Dismount (sneak) exits. Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation; rotate until it faces the way you want, place, and undo if needed. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - forward flies where you look, look up or down to climb or dive, Jump climbs straight up, Dismount (sneak) exits. Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics };
