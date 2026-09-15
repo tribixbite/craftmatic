@@ -793,7 +793,7 @@ const vehicleDriverScript = (config: { vehicles: Array<{ typeId: string; kind: '
  * driving is unchanged. Presets live in the behavior pack's `cameras/presets/`.
  */
 export function chaseCameraPreset(cid: string, size: { width: number; height: number; length: number }): { id: string; radius: number; value: unknown } {
-    // follow_orbit has no block collision (measured on the Pixel: an 8-block
+    // follow_orbit has no block collision (measured on the Pixel: a 10-block
     // boom behind a car parked at a hillside put the camera inside the hill),
     // so the boom is kept short and the orbit pivot sits at the vehicle's roof
     // line, where it clears terrain most of the time.
