@@ -61,6 +61,7 @@ const SEAT_PARTS = new Set(['4079', '4079b', '3829', '3829c01', '73081', '2432']
 /** Technic pins and axles buried inside the model: geometry weight without silhouette. */
 const TECHNIC_INTERNAL = new Set([
   '2780', '3673', '3749', '6558', '32054', '4274', '43093', '3705', '3706', '3707', '3708', '6587',
+  '61332', '65304', // Type-2 friction pins (76240: 106 + 24 placements, one buried cuboid each)
 ]);
 
 const WHEEL_PARTS = new Set(['56908', '44771', '44772', '87697', '92912', '15413', '41897', '23798', '23799']);
@@ -264,8 +265,18 @@ export interface LegoGeometryDiagnostics {
   leveled: { angleDeg: number; alignedBefore: number; alignedAfter: number } | null;
   /** Placements left out because they form separate objects beside the vehicle (a standing driver, a display). */
   detached: { placements: number; groups: number };
+  /**
+   * Placements left out by the display-stand rule BEFORE the cluster test: a car
+   * keeps only what sits inside its wheel envelope and above its wheel line; a
+   * plane drops a small cluster far below its canopy. Was silent until
+   * 2026-09-15, when 76240's base plate and minifigs turned out to be 20 % of
+   * the silhouette the gate was measuring against.
+   */
+  displayDropped: { placements: number; rule: 'wheel-envelope' | 'stand-below-canopy' | null };
   /** Body cuboids removed because every face was buried behind opaque cuboids (never visible from any viewpoint). */
   hiddenCubesCulled: number;
+  /** Body cuboids absorbed by a same-colour face-adjacent neighbour (`mergeAlignedCuboids`, lossless). */
+  mergedCubes: number;
   /** The parts that cost the most cuboids in total (prototype cuboids × placements), heaviest first. */
   heaviestParts: Array<{ part: string; placements: number; cubesEach: number; cubes: number }>;
   /** Which LDraw end became the nose, with every vote that decided it (`vehicle-facing.ts`). */
@@ -303,6 +314,8 @@ export interface CompiledLdrawGeometry {
   sizeBlocks: { width: number; height: number; length: number };
   /** The LDraw nose direction the geometry was compiled with (explicit or inferred). */
   facing: NoseDirection;
+  /** Indices into the INPUT `bricks` of every placement that made it into the geometry (after the stand, internal and cluster drops). */
+  keptSourceIndices: number[];
   diagnostics: LegoGeometryDiagnostics;
   /** Human-readable degradations worth surfacing in the export status. */
   warnings: string[];
@@ -500,6 +513,50 @@ export function cullHiddenCuboids(
 
 // ─── Compiler ─────────────────────────────────────────────────────────────────
 
+/**
+ * Merge same-material, face-adjacent BODY cuboids into one. The union of the
+ * boxes is unchanged, every face texture is a flat colour tile, and the shared
+ * internal face was never visible - so the geometry is identical and the cube
+ * count drops, which is what lets the whole-model budget loop keep a finer
+ * microcell on a 2,000-part model. Repeated per axis until nothing merges.
+ * Studs, rotated cubes and cuboids inside rotated bones are left alone.
+ */
+export function mergeAlignedCuboids(cuboids: RenderCuboid[], eps = 0.01): { cuboids: RenderCuboid[]; merged: number } {
+  const eligible: RenderCuboid[] = [], rest: RenderCuboid[] = [];
+  for (const c of cuboids) (c.aligned && c.bone === 'body' && !c.studFace && !c.rotation ? eligible : rest).push(c);
+  let current = eligible;
+  let merged = 0;
+  const key = (v: number): string => String(Math.round(v / eps));
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+    for (const axis of [0, 1, 2] as const) {
+      const o1 = (axis + 1) % 3, o2 = (axis + 2) % 3;
+      const groups = new Map<string, RenderCuboid[]>();
+      for (const c of current) {
+        const k = `${c.material.colorId}|${key(c.min[o1])}|${key(c.max[o1])}|${key(c.min[o2])}|${key(c.max[o2])}`;
+        const g = groups.get(k);
+        if (g) g.push(c); else groups.set(k, [c]);
+      }
+      const next: RenderCuboid[] = [];
+      for (const g of groups.values()) {
+        if (g.length === 1) { next.push(g[0]!); continue; }
+        g.sort((a, b) => a.min[axis] - b.min[axis]);
+        let acc = { ...g[0]!, min: [...g[0]!.min] as Vec3, max: [...g[0]!.max] as Vec3 };
+        for (let i = 1; i < g.length; i++) {
+          const c = g[i]!;
+          if (Math.abs(c.min[axis] - acc.max[axis]) <= eps) { acc.max[axis] = Math.max(acc.max[axis], c.max[axis]); merged++; changed = true; }
+          else if (c.min[axis] < acc.max[axis] - eps && c.max[axis] <= acc.max[axis] + eps) { merged++; changed = true; } // fully contained duplicate
+          else { next.push(acc); acc = { ...c, min: [...c.min] as Vec3, max: [...c.max] as Vec3 }; }
+        }
+        next.push(acc);
+      }
+      current = next;
+    }
+    if (!changed) break;
+  }
+  return { cuboids: [...current, ...rest], merged };
+}
+
 export async function compileLdrawEntityGeometry(
   cid: string,
   kind: PlayableKind,
@@ -516,8 +573,12 @@ export async function compileLdrawEntityGeometry(
   const level = levelModel(bricks);
   bricks = level.bricks;
 
-  // 0. Display stands / plaques and wheel-yaw alignment (unchanged policy).
+  // 0. Display stands / plaques and wheel-yaw alignment. Every drop is
+  //    tracked by SOURCE INDEX so the caller (and the silhouette gate) knows
+  //    exactly which placements the geometry represents.
   let activeBricks = bricks;
+  let activeIdx = bricks.map((_, i) => i);
+  let displayRule: LegoGeometryDiagnostics['displayDropped']['rule'] = null;
   const wheels = bricks.filter(b => {
     const p = cleanPartId(b.part);
     return WHEEL_PARTS.has(p) || p.includes('wheel') || p.includes('tire');
@@ -528,8 +589,10 @@ export async function compileLdrawEntityGeometry(
     const wheelXs = wheels.map(b => b.x), wheelZs = wheels.map(b => b.z);
     const minWheelX = Math.min(...wheelXs) - 120, maxWheelX = Math.max(...wheelXs) + 120;
     const minWheelZ = Math.min(...wheelZs) - 120, maxWheelZ = Math.max(...wheelZs) + 120;
-    const filtered = bricks.filter(b => b.y <= groundY + 40 && b.x >= minWheelX && b.x <= maxWheelX && b.z >= minWheelZ && b.z <= maxWheelZ);
-    if (filtered.length >= bricks.length * 0.6) activeBricks = filtered;
+    const filteredIdx = activeIdx.filter(i => { const b = bricks[i]!; return b.y <= groundY + 40 && b.x >= minWheelX && b.x <= maxWheelX && b.z >= minWheelZ && b.z <= maxWheelZ; });
+    if (filteredIdx.length >= bricks.length * 0.6 && filteredIdx.length < bricks.length) {
+      activeIdx = filteredIdx; activeBricks = filteredIdx.map(i => bricks[i]!); displayRule = 'wheel-envelope';
+    }
 
     const midZw = (Math.min(...wheelZs) + Math.max(...wheelZs)) / 2;
     const front = wheels.filter(b => b.z < midZw), rear = wheels.filter(b => b.z >= midZw);
@@ -553,14 +616,20 @@ export async function compileLdrawEntityGeometry(
     if (canopyParts.length) {
       const canopyY = canopyParts.reduce((a, b) => a + b.y, 0) / canopyParts.length;
       const stand = bricks.filter(b => b.y > canopyY + 250);
-      if (stand.length > 0 && stand.length < bricks.length * 0.2) activeBricks = bricks.filter(b => b.y <= canopyY + 250);
+      if (stand.length > 0 && stand.length < bricks.length * 0.2) {
+        activeIdx = activeIdx.filter(i => bricks[i]!.y <= canopyY + 250); activeBricks = activeIdx.map(i => bricks[i]!); displayRule = 'stand-below-canopy';
+      }
     }
   }
+  const displayDropped = { placements: bricks.length - activeBricks.length, rule: displayRule };
+  if (displayDropped.placements) warnings.push(`${cid}: ${displayDropped.placements} placement${displayDropped.placements === 1 ? '' : 's'} left out as a display stand (${displayRule === 'wheel-envelope' ? 'outside the wheel envelope or below the wheel line' : 'a small cluster far below the canopy'}).`);
 
   // 1. Resolve every unique part to a mesh (parallel, cached by the provider).
   let skippedInternalCount = 0;
-  let placed = activeBricks.filter(b => {
+  let placedIdx: number[] = [];
+  let placed = activeBricks.filter((b, k) => {
     if (TECHNIC_INTERNAL.has(cleanPartId(b.part))) { skippedInternalCount++; return false; }
+    placedIdx.push(activeIdx[k]!);
     return true;
   });
   let uniqueParts = [...new Set(placed.map(b => b.part))];
@@ -581,6 +650,7 @@ export async function compileLdrawEntityGeometry(
   const detached = { placements: detachedReport.drop.size, groups: detachedReport.groups };
   if (detachedReport.drop.size) {
     placed = placed.filter((_, i) => !detachedReport.drop.has(i));
+    placedIdx = placedIdx.filter((_, i) => !detachedReport.drop.has(i));
     uniqueParts = [...new Set(placed.map(b => b.part))];
     warnings.push(`${cid}: ${detached.placements} placement${detached.placements === 1 ? '' : 's'} in ${detached.groups} separate object${detached.groups === 1 ? '' : 's'} beside the vehicle left out (they do not touch it).`);
   }
@@ -706,11 +776,13 @@ export async function compileLdrawEntityGeometry(
       : { ...(() => { const wb = worldBoxes[i]!; return aabbOfCorners(cornersOf(wb.min, wb.max).map(v => apply(A, v))); })(), translucent: c.material.alpha < 1, aligned: false });
     const hidden = cullHiddenCuboids(forCull, Math.min(4, quality.microcellLdu));
     const visibleCuboids = hidden.size ? renderCuboids.filter((_, i) => !hidden.has(i)) : renderCuboids;
+    // Lossless: same-colour face-adjacent body boxes become one (see mergeAlignedCuboids).
+    const mergedResult = mergeAlignedCuboids(visibleCuboids);
 
     const heaviestParts = [...perPart].map(([part, v]) => ({ part, placements: v.placements, cubesEach: v.cubesEach, cubes: v.placements * v.cubesEach }))
       .sort((a, b) => b.cubes - a.cubes || a.part.localeCompare(b.part)).slice(0, 12);
 
-    return { cache, renderCuboids: visibleCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, heaviestParts };
+    return { cache, renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, mergedCubes: mergedResult.merged, heaviestParts };
   };
 
   // Whole-model budget: coarsen everything (deterministically) before giving up detail per part.
@@ -726,7 +798,7 @@ export async function compileLdrawEntityGeometry(
   if (built.renderCuboids.length > quality.maxModelCubes) {
     warnings.push(`${cid}: ${built.renderCuboids.length} cuboids exceed the ${quality.maxModelCubes} budget even at ${quality.microcellLdu} LDU; the pack keeps them all, expect a heavy entity.`);
   }
-  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, cache, hiddenCubesCulled, heaviestParts } = built;
+  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, cache, hiddenCubesCulled, mergedCubes, heaviestParts } = built;
 
   // 5. Exposed studs: a stud whose top is inside another part's box is covered.
   const CELL = 40;
@@ -970,7 +1042,9 @@ export async function compileLdrawEntityGeometry(
     cockpit: { source: cockpitSource, units: [round(cockpitUnits[0]), round(cockpitUnits[1]), round(cockpitUnits[2])] },
     leveled: level.rotation ? { angleDeg: round(level.angleDeg), alignedBefore: level.alignedBefore, alignedAfter: level.alignedAfter } : null,
     detached,
+    displayDropped,
     hiddenCubesCulled,
+    mergedCubes,
     heaviestParts,
     facing,
   };
@@ -1000,6 +1074,7 @@ export async function compileLdrawEntityGeometry(
     collisionBox,
     sizeBlocks: { width: round(totalWidth), height: round(totalHeight), length: round(totalLength) },
     facing: nose,
+    keptSourceIndices: placedIdx,
     diagnostics,
     warnings,
   };

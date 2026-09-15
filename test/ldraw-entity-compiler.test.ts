@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileLdrawEntityGeometry, cullHiddenCuboids, detachedClusters, eulerZYX, ldrawToRenderRotation, levelModel, snapSignedPermutation } from '../web/src/engine/ldraw-entity-compiler.js';
+import { compileLdrawEntityGeometry, cullHiddenCuboids, detachedClusters, eulerZYX, ldrawToRenderRotation, levelModel, mergeAlignedCuboids, snapSignedPermutation } from '../web/src/engine/ldraw-entity-compiler.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDRAW_COLOR_RGB } from '../web/src/engine/ldraw-colors.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -31,6 +31,8 @@ const LIBRARY: Record<string, string> = {
     '3 16 10 -24 -20 10 0 -20 10 0 20'].join('\n'),
   // A 2-wide "windscreen": a thin vertical sheet.
   '3823': ['0 Windscreen', ...box6(-20, 20, -40, 0, -2, 2, 'xXyYzZ')].join('\n'),
+  // A wheel rim the compiler recognises by id (WHEEL_PARTS): a flat 20 x 20 x 8 box.
+  '56908': ['0 Wheel Rim', ...box6(-10, 10, -10, 10, -4, 4, 'xXyYzZ')].join('\n'),
 };
 const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '')] ?? null });
 
@@ -194,11 +196,12 @@ describe('compileLdrawEntityGeometry', () => {
     expect(r.diagnostics.leveled!.angleDeg).toBeCloseTo(19, 1);
     expect(r.diagnostics.rotatedBoneCount).toBe(0);
     expect(r.transform.level).toBeDefined();
-    // Nose +X → the row runs along JSON Z with every brick at the same X.
+    // Nose +X → the row runs along JSON Z; twelve same-colour face-adjacent bricks merge into ONE box spanning them.
     const body = bodyCubes(r.value as Geo);
-    expect(body).toHaveLength(12);
-    expect(new Set(body.map(b => b.origin[0])).size).toBe(1);
-    expect(Math.max(...body.map(b => b.origin[2]!)) - Math.min(...body.map(b => b.origin[2]!))).toBeCloseTo(11 * 3.2, 1);
+    expect(body).toHaveLength(1);
+    expect(r.diagnostics.mergedCubes).toBe(11);
+    expect(body[0]!.size[2]).toBeCloseTo(12 * 3.2, 1);
+    expect(body[0]!.size[0]).toBeCloseTo(3.2, 1);
   });
 
   it('drops separate objects beside the vehicle on real part bounds, keeps what touches or sits inside it', async () => {
@@ -209,7 +212,9 @@ describe('compileLdrawEntityGeometry', () => {
     const lone: ParsedBrick = { part: '3005.dat', color: 15, x: -3000, y: 0, z: 0 };
     const r = await compileLdrawEntityGeometry('t', 'car', [...row, seated, ...driver, lone], { partGeometry: provider(), facing: '+x' });
     expect(r.diagnostics.detached).toEqual({ placements: 4, groups: 2 });
-    expect(bodyCubes(r.value as Geo)).toHaveLength(21);
+    // The 20 red bricks merge into one box; the blue seated brick stays its own.
+    expect(bodyCubes(r.value as Geo)).toHaveLength(2);
+    expect(r.diagnostics.mergedCubes).toBe(19);
     expect(r.warnings.some(w => /4 placements in 2 separate objects/.test(w))).toBe(true);
     // A piece floating INSIDE the body (between two decks that do not touch each other) is kept:
     // it is a source defect to render as-is, not a separate object.
@@ -217,7 +222,7 @@ describe('compileLdrawEntityGeometry', () => {
     const floating: ParsedBrick = { part: '3005.dat', color: 15, x: 800, y: -34, z: 0 };
     const r2 = await compileLdrawEntityGeometry('t', 'car', [...row, ...upper, floating], { partGeometry: provider(), facing: '+x' });
     expect(r2.diagnostics.detached).toEqual({ placements: 0, groups: 0 });
-    expect(bodyCubes(r2.value as Geo)).toHaveLength(41);
+    expect(bodyCubes(r2.value as Geo)).toHaveLength(3); // lower row, upper row, the floating white brick
   });
 
   it('detachedClusters keeps two similar-sized vehicles', () => {
@@ -327,5 +332,57 @@ describe('compileLdrawEntityGeometry', () => {
     expect(r.diagnostics.studsOmitted).toBe(12);
     expect(r.warnings.some(w => /stud budget/.test(w))).toBe(true);
     expect(r.diagnostics.prototypeCacheHits).toBe(11);
+  });
+});
+
+describe('mergeAlignedCuboids', () => {
+  const mat = (id: number) => ({ colorId: id } as any);
+  const box = (min: [number, number, number], max: [number, number, number], extra: Partial<Parameters<typeof mergeAlignedCuboids>[0][number]> = {}) =>
+    ({ min, max, material: mat(4), bone: 'body', aligned: true, ...extra });
+  it('merges a row of three same-colour boxes into one and keeps an L-shape as two', () => {
+    const row = [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10]), box([20, 0, 0], [30, 10, 10])];
+    const r = mergeAlignedCuboids(row);
+    expect(r.merged).toBe(2);
+    expect(r.cuboids).toHaveLength(1);
+    expect(r.cuboids[0]!.min).toEqual([0, 0, 0]);
+    expect(r.cuboids[0]!.max).toEqual([30, 10, 10]);
+    const ell = [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10]), box([0, 10, 0], [10, 20, 10])];
+    const e = mergeAlignedCuboids(ell);
+    expect(e.cuboids).toHaveLength(2);
+  });
+  it('merges across two axes when a 2×2 slab is built from four boxes', () => {
+    const quad = [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10]), box([0, 0, 10], [10, 10, 20]), box([10, 0, 10], [20, 10, 20])];
+    const r = mergeAlignedCuboids(quad);
+    expect(r.cuboids).toHaveLength(1);
+    expect(r.cuboids[0]!.max).toEqual([20, 10, 20]);
+  });
+  it('never merges different colours, studs, rotated cubes, rotated-bone cuboids, or boxes that only touch at an edge', () => {
+    const cases = [
+      [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10], { material: mat(1) })],
+      [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10], { studFace: 'up' })],
+      [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10], { rotation: [0, 45, 0], pivot: [15, 5, 5] })],
+      [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10], { aligned: false, bone: 'r1' })],
+      [box([0, 0, 0], [10, 10, 10]), box([10, 10, 0], [20, 20, 10])],
+      [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 12])],
+    ];
+    for (const c of cases) { const r = mergeAlignedCuboids(c); expect(r.merged).toBe(0); expect(r.cuboids).toHaveLength(2); }
+  });
+});
+
+describe('display-stand drop is reported and the kept placements are indexed', () => {
+  it('a car keeps its wheel envelope and reports the base plate and figures it left out', async () => {
+    // A 6-brick body with four "wheels" (part names the compiler recognises by substring), plus a base
+    // plate 200 LDU below the wheel line and a figure standing 400 LDU beside the car.
+    // Body bricks rest on the wheel line (their boxes span y −24..0; the wheel rims span −10..10, so they touch).
+    const body: ParsedBrick[] = Array.from({ length: 6 }, (_, i) => ({ part: '3001.dat', color: 4, x: i * 80, y: 0, z: 0 }));
+    const wheels: ParsedBrick[] = [[0, -22], [400, -22], [0, 22], [400, 22]].map(([x, z]) => ({ part: '56908.dat', color: 0, x: x!, y: 0, z: z! }));
+    const plate: ParsedBrick[] = Array.from({ length: 5 }, (_, i) => ({ part: '3001.dat', color: 7, x: i * 80, y: 200, z: 0 }));
+    const figure: ParsedBrick = { part: '3005.dat', color: 14, x: 200, y: 0, z: 500 };
+    const bricks = [...body, ...wheels, ...plate, figure];
+    const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+x' });
+    expect(r.diagnostics.displayDropped).toEqual({ placements: 6, rule: 'wheel-envelope' });
+    expect(r.warnings.some(w => /6 placements left out as a display stand/.test(w))).toBe(true);
+    // Kept = the six body bricks and four wheels, by their input indices.
+    expect(r.keptSourceIndices).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 });
