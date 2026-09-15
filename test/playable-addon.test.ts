@@ -48,6 +48,10 @@ describe('playable Bedrock add-on',()=>{
     const entity=JSON.parse(new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/entities/batmobile_batmobile.json')));
     const components=entity['minecraft:entity'].components;
     expect(components['minecraft:input_ground_controlled']).toEqual({});
+    // Native camel-style dash on the Jump button (so Jump is a boost, not a dismount).
+    expect(components['minecraft:dash_action']).toEqual({ cooldown_time: 1.5, horizontal_momentum: 20, vertical_momentum: 0.6 });
+    expect(entity.format_version).toBe('1.26.30');
+    expect(components['minecraft:rideable'].seats.third_person_camera_radius).toBeGreaterThanOrEqual(5);
     expect(components['minecraft:movement'].value).toBeGreaterThan(1);
     expect(components['minecraft:movement'].value).toBeLessThan(1.4);
     expect(components['minecraft:damage_sensor'].triggers).toEqual([{ cause: 'all', deals_damage: 'no' }]);
@@ -69,6 +73,15 @@ describe('playable Bedrock add-on',()=>{
     const driverScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/vehicle-driver.js'));
     expect(driverScript).toContain('craftmatic:batmobile_batmobile');
     expect(driverScript).toContain('boostCooldown');
+    expect(driverScript).toContain('JUMP: DASH');
+    expect(driverScript).toContain('"dashCooldownTicks":30');
+    // Both chase presets ship; the joystick steers under player_relative; orbit is the default.
+    const chase = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/cameras/presets/batmobile_batmobile_chase.json')));
+    expect(chase['minecraft:camera_preset']).toMatchObject({ inherit_from: 'minecraft:follow_orbit', control_scheme: 'player_relative' });
+    const boom = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/cameras/presets/batmobile_batmobile_boom.json')));
+    expect(boom['minecraft:camera_preset']).toMatchObject({ inherit_from: 'minecraft:fixed_boom', control_scheme: 'player_relative' });
+    const cameraScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/vehicle-camera.js'));
+    expect(cameraScript).toContain('"preset":"craftmatic:batmobile_batmobile_chase"');
     expect(driverScript).toContain('stallTicks');
     expect(driverScript).toContain('revSpeed');
     expect(driverScript).toContain('isSneaking');
@@ -199,9 +212,16 @@ describe('playable Bedrock add-on',()=>{
     const result=await buildPlayableAddon(new BlockGrid(1,1,1),{stem:'Jet',components:[{id:'jet',label:'Jet',kind:'plane',grid:model(),provenance:'test source'}],screens:[{id:'screen',label:'Computer',x:1,y:2,z:3}]});
     const buffer=ab(result.bytes), entries=listZipEntries(buffer);
     const entity=JSON.parse(new TextDecoder().decode(await extractFile(buffer,'Craftmatic_jet_BP/entities/jet_jet.json')));
-    expect(entity['minecraft:entity'].components['minecraft:input_air_controlled']).toBeTruthy();
+    // Happy-Ghast pattern: fly where the rider looks, Jump climbs, hover keeps it up.
+    expect(entity['minecraft:entity'].components['minecraft:free_camera_controlled']).toEqual({ strafe_speed_modifier: 1, backwards_movement_modifier: .5 });
+    expect(entity['minecraft:entity'].components['minecraft:vertical_movement_action']).toEqual({ vertical_velocity: .9 });
+    expect(entity['minecraft:entity'].components['minecraft:movement.hover']).toEqual({});
     expect(entity['minecraft:entity'].components['minecraft:physics'].has_gravity).toBe(false);
-    expect(entity['minecraft:entity'].components['minecraft:movement.fly'].start_speed).toBe(0);
+    expect(entity['minecraft:entity'].components['minecraft:movement.fly']).toBeUndefined();
+    // An aircraft keeps the locked scheme (look pitch flies it) and gets no boom preset.
+    const chase = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_jet_BP/cameras/presets/jet_jet_chase.json')));
+    expect(chase['minecraft:camera_preset'].control_scheme).toBe('locked_player_relative_strafe');
+    expect(entries).not.toContain('Craftmatic_jet_BP/cameras/presets/jet_jet_boom.json');
     expect(entries).toContain('Craftmatic_jet_RP/entity/jet_control_screen.entity.json');
     expect(entries).toContain('Craftmatic_jet_BP/scripts/main.js');
     const script = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_jet_BP/scripts/main.js'));

@@ -106,6 +106,8 @@ export interface SchemWorkerInput {
   seatCount?: number;
   /** Cuboid budget for brick-compiled vehicle entities (ldraw-part-prototype.ts). */
   entityQuality?: 'balanced' | 'high' | 'ultra';
+  /** Ground-vehicle chase camera style for the .mcaddon (default orbit). */
+  cameraStyle?: 'orbit' | 'boom';
 }
 
 /** What a Bedrock `.mcpack` export produced, for the status line. */
@@ -305,7 +307,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, components: components.length ? components : undefined, screens, onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, components: components.length ? components : undefined, screens, onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 
