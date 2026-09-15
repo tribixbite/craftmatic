@@ -421,6 +421,11 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   touch; `/execute at @e[type=…,c=1] run tp @s ~ ~5 ~-7 facing ~ ~ ~` places the
   camera; `/testfor` only sees entities in ticking chunks. Screens are
   2244×1008 landscape; `adb exec-out screencap` then `magick -resize 1999x1999>`.
+  **After an elevated `/tp` the player FALLS back to the ground before the
+  screenshot** (Creative, not flying) — a whole afternoon of "entities vanish
+  when viewed from above" was the camera pitched into the grass at ground
+  level. For an exact viewpoint use `/camera @s set minecraft:free pos X Y Z
+  facing X Y Z`, then `/camera @s clear`; check the Position readout.
 - **Riding facts measured 2026-09-15 (Pixel, 1.26.45)**: a first-person rider
   sits inside the entity's cuboids, so every vehicle ships a `follow_orbit`
   camera preset (`cameras/presets/<cid>_chase.json`) that `vehicle-camera.js`

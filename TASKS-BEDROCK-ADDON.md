@@ -229,21 +229,31 @@ brick at the nose. Recorded under §6.
 - [x] E3 `scripts/_entity_silhouette.ts` six-view IoU + PNG diffs; numbers in §6.
 - [x] E4 golden-model tests (corpus-gated).
 - [x] E5 UI setting "Vehicle detail" (balanced/high/ultra) threaded to the worker.
-- [ ] E6 Alias ladder (`partAliasCandidates`) for the CLI/offline resolver — the viewer
-      substitutes `6538c`→`6538` before seeding the Worker, the bare library fetch does not.
+- [x] E6 Alias ladder (`partAliasCandidates`, now in `engine/ldraw-part-aliases.ts`) for
+      the CLI/offline resolver, plus a prod-mirror fallback after a local-library miss;
+      substitutions are reported (`substitutedParts`), never silent. 10300: 27 AABB
+      placements → 0; 76240: 133 → 2 (`67687` is in no library).
 
 ### Phase F — in-game verification (Pixel 8 Pro, retail Bedrock 1.26.45)
 - [x] F1 calibration add-on → handedness proof (§6).
 - [x] F2 three golden add-ons imported, activated, summoned and photographed; Mount
       prompt appears on all three; riding not exercised this session.
+- [x] F5 (2026-09-15) DeLorean, Senna, 76240 Tumbler and 76286 Milano ridden on the
+      Pixel: chase camera on mount / cleared on dismount, steering under it, HUD
+      speed, translucent windshield, studs, free-camera views from above (§6).
 - [-] F3 Vibrant Visuals comparison — the phone ran the classic renderer; see D3.
 - [x] F4 phone left in the world the user had open (the QA "My World"), with the four
       packs activated and the summoned entities in place.
 
 ### Follow-ups worth doing
-- Component discovery keeps a set's driver minifig / service cart standing beside the
-  vehicle (whole-model policy for sets named as vehicles) — a `sourcePath`/distance
-  filter would drop them; not a compiler issue.
+- 76240 and 76286 clear the 0.95 silhouette gate on NO profile (0.85 / 0.88 at `high`,
+  §6): both are 2,000+-part posed models that the budget coarsens to 16 / 8 LDU. The
+  `heaviestParts` diagnostic names where the cuboids go (76240: `70695` ×184 = 920);
+  a per-part prototype simplification for such repeated small parts, or an `ultra`
+  default for models over ~1,500 parts, is the next lever.
+- The 76240 index source (`MecabricksLDR/76240.ldr`) carries 135 unknown parts and a
+  19.4° display pose; the local `IO/76240-1.io` is the better source and is what the
+  LEGO tab loads when the user uploads it.
 - Move the app's colour table to the generated LDConfig values in one deliberate step
   (viewer + entity together), see `ldraw-entity-materials.ts` header.
 - A real Vibrant Visuals device check (D3).
@@ -345,3 +355,35 @@ evidence under `output/bedrock-entity-qa/` (downscaled captures `p27`…`p38`):
 - `input text` into Chat and Commands: sometimes the field keeps a `/` after a
   command, sometimes `Enter` closes the chat screen; re-open chat, focus, Ctrl+A,
   Del, then type the full `/command` — that sequence has been reliable.
+
+### 2026-09-15 — Pixel report fixes (commits `cb6ab9b`, `adf2534`, `600fa29`)
+
+Reported from the phone: mounted DeLorean shows nothing and cannot steer; the Senna
+seat lands on a black-and-white structure outside the car; studs are square; models
+have floating / missing pieces; windshield status unknown. Each was measured first.
+
+| Report | Cause | Fix | Verified |
+|---|---|---|---|
+| Blind, unsteerable DeLorean | first-person rider sits inside opaque cabin cuboids | per-vehicle `follow_orbit` preset (`cameras/presets/<cid>_chase.json`) applied by `scripts/vehicle-camera.js` on mount, cleared on dismount; default control scheme keeps look-to-steer | `sv1.jpg`: Senna 126 blocks in 5.5 s, HUD 56.7 mph; `tmv1.jpg` DeLorean HUD 8.8 mph |
+| Senna seat outside the car | 75892 OMR root places `Car.ldr` beside `Wind Tunnel.ldr`/`Pilot.ldr`; seat = mean of ALL bricks | `dominantNamedGroup`: a vehicle-named submodel holding ≥ ½ the placements is the vehicle (190 of 227); flattened sources drop clusters that do not touch the vehicle on REAL part bounds (`detachedClusters`) | seat source `seat-parts` at [−0.16, 6.56, 6.37] units; `senna-thirdperson.jpg` |
+| Square studs | one axis-aligned cuboid per stud | fan of 4 rotated cuboids per exposed stud, corners on the stud circle (3 → 1 under budget) | `cal-round*.jpg`, `senna-round.jpg` |
+| Missing pieces | CLI/Worker resolver had no alias ladder and no mirror fallback (local library is release 207) | shared `partAliasCandidates` + `craftmatic.click/ldraw-parts` fallback; substitutions in diagnostics | 10300 27 → 0 box placements, 76240 133 → 2 |
+| Floating pieces | Mecabricks display pose (76240 19.4°, 76286 7.2°) put every brick in its own bone; driver/stand beside vehicle | `levelModel` (histogram pose removal, 66 → 1,171 aligned on 76240) + float-noise snap; detached-cluster drop | 76240 rotated bones 2,063 → 1,024 |
+| Windshield | — (material alpha path was already correct) | none | `tm-windshield2.jpg`: translucent sheet, interior visible |
+| HUD 0.0 mph while driving | rider-driven vehicle is client-authoritative, `getVelocity()` ≈ 0 | `riddenVelocity`: max(reported, position delta) | `sv1.jpg` |
+
+**Silhouette IoU** (`_entity_silhouette.ts`, six views, level applied): 75892 0.982 (balanced,
+was 0.971) · 10300 0.951 (balanced) · 76240 **0.855** (high, 9,634 cubes at 16 LDU) ·
+76286 **0.876** (high, 8,539 at 8 LDU). The two posed 2,000-part models do not clear the
+gate; they render and drive (`free-tumbler-*.jpg`, `free-milano-80.jpg`, `milano-flying.jpg`).
+
+**Not a bug (measured):** "entities vanish when viewed from above" was the test method —
+after an elevated `/tp` the player falls back to the ground before the capture. The free
+camera preset shows all four vehicles from above (`free-*.jpg`). `follow_orbit` has no
+block collision: a 10-block boom behind a car at a hillside put the camera inside the hill,
+so the boom is `longest + 2.5` blocks with the pivot at roof height.
+
+**Tests**: 1,546 passing / 26 skipped; the two `import-nlcd` failures are the live API.
+New: `test/ldraw-geometry-alias.test.ts`; compiler tests for facets, snapping, levelling,
+detached clusters, hidden-cuboid culling; component tests for the named-submodel rule.
+Evidence: `output/bedrock-entity-qa/captures-2026-09-15/`.
