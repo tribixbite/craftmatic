@@ -37,6 +37,7 @@ import {
 } from './ldraw-part-prototype.js';
 import { resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { ATLAS_TILE, ATLAS_WIDTH } from './ldraw-entity-atlas.js';
+import { inferVehicleNose, type FacingDecision, type NoseDirection } from './vehicle-facing.js';
 
 const PACK_NAMESPACE = 'craftmatic';
 
@@ -267,6 +268,8 @@ export interface LegoGeometryDiagnostics {
   hiddenCubesCulled: number;
   /** The parts that cost the most cuboids in total (prototype cuboids × placements), heaviest first. */
   heaviestParts: Array<{ part: string; placements: number; cubesEach: number; cubes: number }>;
+  /** Which LDraw end became the nose, with every vote that decided it (`vehicle-facing.ts`). */
+  facing: FacingDecision;
 }
 
 /**
@@ -298,6 +301,8 @@ export interface CompiledLdrawGeometry {
   collisionBox: { width: number; height: number };
   /** Entity extent in blocks (render frame: width across, length nose-to-tail). */
   sizeBlocks: { width: number; height: number; length: number };
+  /** The LDraw nose direction the geometry was compiled with (explicit or inferred). */
+  facing: NoseDirection;
   diagnostics: LegoGeometryDiagnostics;
   /** Human-readable degradations worth surfacing in the export status. */
   warnings: string[];
@@ -580,12 +585,24 @@ export async function compileLdrawEntityGeometry(
     warnings.push(`${cid}: ${detached.placements} placement${detached.placements === 1 ? '' : 's'} in ${detached.groups} separate object${detached.groups === 1 ? '' : 's'} beside the vehicle left out (they do not touch it).`);
   }
 
-  // 2. Frame: nose direction → A.
+  // 2. Frame: nose direction → A. The nose is INFERRED from the placements
+  //    (driver parts, windscreen lean, tail lights, wheel asymmetry, canopy
+  //    position, narrow end) unless the caller fixed it; see vehicle-facing.ts.
   const xs = placed.map(b => b.x), zs = placed.map(b => b.z);
   const spanX = Math.max(...xs) - Math.min(...xs), spanZ = Math.max(...zs) - Math.min(...zs);
-  const isXLongitudinal = options.facing && options.facing !== 'auto' ? options.facing.endsWith('x') : (kind === 'car' && spanX > spanZ * 1.1);
-  const forwardSign = options.facing?.startsWith('-') ? -1 : 1;
-  const nose = (isXLongitudinal ? (forwardSign > 0 ? '+x' : '-x') : (forwardSign > 0 ? '+z' : '-z')) as '+x' | '-x' | '+z' | '-z';
+  const facing = inferVehicleNose(placed, kind, {
+    explicit: options.facing && options.facing !== 'auto' ? options.facing : undefined,
+    meshes,
+    isWheel: b => { const p = cleanPartId(b.part); return WHEEL_PARTS.has(p) || p.includes('wheel') || p.includes('tire'); },
+  });
+  const nose = facing.nose;
+  const isXLongitudinal = facing.axis === 'x';
+  const forwardSign = facing.sign;
+  if (facing.source === 'convention') {
+    warnings.push(`${cid}: front/rear direction was not identifiable from the parts; assumed the LDraw convention (nose toward ${nose}). Select an explicit vehicle facing if it drives backward.`);
+  } else if (facing.agreement < 0.75) {
+    warnings.push(`${cid}: facing evidence disagreed (${Math.round(facing.agreement * 100)}% agreement, chose nose ${nose}: ${facing.votes.map(v => v.signal).join(', ')}). Select an explicit vehicle facing if it drives backward.`);
+  }
   const A = ldrawToRenderRotation(nose);
   const At = transpose(A);
 
@@ -955,6 +972,7 @@ export async function compileLdrawEntityGeometry(
     detached,
     hiddenCubesCulled,
     heaviestParts,
+    facing,
   };
 
   if (aabbFallbackParts.length) {
@@ -981,6 +999,7 @@ export async function compileLdrawEntityGeometry(
     seatPosition: [seatX, seatY, seatZ],
     collisionBox,
     sizeBlocks: { width: round(totalWidth), height: round(totalHeight), length: round(totalLength) },
+    facing: nose,
     diagnostics,
     warnings,
   };
