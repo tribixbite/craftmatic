@@ -886,11 +886,13 @@ export async function compileLdrawEntityGeometry(
     identifier,
     texture_width: ATLAS_WIDTH,
     texture_height: 1 + Math.max(1, materialCount) * ATLAS_TILE,
-    // Culling box, deliberately generous: the 6-block Tumbler vanished from a
-    // camera 8 blocks above it with a tight box (Pixel, 1.26.45) while its
-    // collision box still took the Mount prompt. Overdraw is the cheaper error.
-    visible_bounds_width: Math.max(4, Math.ceil(Math.max(totalWidth, totalLength) * 2) + 2),
-    visible_bounds_height: Math.max(4, Math.ceil(totalHeight * 2) + 2),
+    // Culling box. A rotated bone's cuboids are authored unrotated at the
+    // pivot, so their true extent can exceed the render-frame AABB by up to a
+    // cuboid diagonal; two blocks of padding covers every LEGO part at 0.16
+    // units/LDU. (A "vanishes from above" report on the Pixel was the tester
+    // falling back to the ground after an elevated /tp - not culling.)
+    visible_bounds_width: Math.max(4, Math.ceil(Math.max(totalWidth, totalLength)) + 2),
+    visible_bounds_height: Math.max(4, Math.ceil(totalHeight) + 2),
     visible_bounds_offset: [0, Math.round(totalHeight / 2 * 100) / 100, 0],
   });
 
