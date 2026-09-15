@@ -8,7 +8,7 @@
  */
 
 import type { Vec3, Triangle, Edge, PartGeom, UV } from './types.js';
-import { LDRAW_PART_ALIASES } from '../../engine/ldraw-part-aliases.js';
+import { partAliasCandidates } from '../../engine/ldraw-part-aliases.js';
 
 const datTextCache = new Map<string, string | null>();
 const partGeomCache = new Map<string, PartGeom>();
@@ -573,56 +573,11 @@ async function flushBatch(): Promise<void> {
 }
 
 /**
- * Alias ladder for part names that exist in NO LDraw library. Converted models
- * name pieces by mould/decoration variants LDraw either never adopted or names
- * differently: mecabricks writes `3626d1024` (head, decoration 1024) and
- * `30367v2` (mould version); BrickLink-lineage sources write `6538c`, `4085d`,
- * `4589b` (lettered mould revisions) and `98138pb042` / `60169p1` (prints).
- *
- * Each hop strips ONE trailing suffix group, most specific first, and the
- * result is only accepted if it really resolves — so a wrong guess costs a
- * cache lookup, never a wrong render. Substituting a sibling mould revision or
- * the undecorated base is a near-identical shape; the alternative is a hole.
- * Every substitution is recorded in `substitutedDatNames` and surfaced by the
- * viewer, so the swap is visible rather than silent.
- *
- * Measured over the clego corpus (6,325 tier-1 .ldr files, 2026-09-02): the
- * ladder resolves 1,323 of 2,639 otherwise-unresolvable names = 20,289 of
- * 39,081 orphaned placements. Chained suffixes need the loop (`u9132v1d1` →
- * `u9132v1` → `u9132`).
- *
- * Deliberately NOT covered: names with no strippable suffix and no entry in
- * LDRAW_PART_ALIASES (`x346`, `88355`), Studio custom-part hashes
- * (`m102bdfd2_…`, only ever inside a .io archive), `bl_*` Studio synthetics,
- * and genuinely unmodelled moulds (10316 Rivendell's `20926`/`20932`/`1000341`
- * — see ldraw-part-aliases.ts for why guessing those is worse than a hole).
+ * The alias ladder now lives in the engine (`ldraw-part-aliases.ts`) so the
+ * export/entity resolver and the offline census share it; re-exported here
+ * because the renderer and its tests import it from this module.
  */
-export function partAliasCandidates(stem: string): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>([stem]);
-  // Explicit design-id → LDraw-name map first: these numbers differ outright
-  // (LEGO re-tooled the mould and issued a new design id, LDraw kept the old
-  // part number), so no amount of suffix stripping finds them.
-  const mapped = LDRAW_PART_ALIASES[stem];
-  if (mapped) { out.push(mapped); seen.add(mapped); }
-  let s = stem;
-  for (let hop = 0; hop < 4; hop++) {
-    const m =
-      // decoration / mould-version / print suffix: d1024, v2, p1, pb042, pr0011.
-      // The base must END in a digit (optionally + one mould letter) — LDraw
-      // part numbers do, and without that guard primitives get shredded
-      // (`stud4` → `stu`, substituting nonsense inside every part using it).
-      s.match(/^(.+?\d[a-z]?)(?:d\d+|v\d+|p[a-z]{0,2}\d+[a-z]?\d*)$/) ??
-      // lettered mould revision: 6538c → 6538, 3626av → 3626a
-      s.match(/^(.*\d[a-z]?)[a-z]$/);
-    const next = m?.[1];
-    if (!next || seen.has(next)) break;
-    seen.add(next);
-    out.push(next);
-    s = next;
-  }
-  return out;
-}
+export { partAliasCandidates };
 
 /**
  * Every library-relative path a part name may live at, in probe order.

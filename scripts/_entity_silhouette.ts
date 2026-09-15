@@ -65,7 +65,14 @@ type Tri = [Vec3, Vec3, Vec3];
 const apply = (m: number[], v: Vec3): Vec3 => [
   m[0]! * v[0] + m[1]! * v[1] + m[2]! * v[2], m[3]! * v[0] + m[4]! * v[1] + m[5]! * v[2], m[6]! * v[0] + m[7]! * v[1] + m[8]! * v[2],
 ];
-const toUnits = (p: Vec3): Vec3 => { const r = apply(A, p); return [(r[0] - origin[0]) * scale, (r[1] - origin[1]) * scale, (r[2] - origin[2]) * scale]; };
+// A posed source is levelled by the compiler first (`transform.level`); replay that before A.
+const level = compiled.transform.level;
+const preLevel = (p: Vec3): Vec3 => {
+  if (!level) return p;
+  const c = level.centre, r = apply(level.rotation, [p[0] - c[0], p[1] - c[1], p[2] - c[2]]);
+  return [r[0] + c[0], r[1] + c[1], r[2] + c[2]];
+};
+const toUnits = (p: Vec3): Vec3 => { const r = apply(A, preLevel(p)); return [(r[0] - origin[0]) * scale, (r[1] - origin[1]) * scale, (r[2] - origin[2]) * scale]; };
 
 // Source triangles in render units (studs included — they are part of the silhouette).
 const sourceTris: Tri[] = [];

@@ -41,6 +41,8 @@ export interface LegoEntityQuality {
   meshChunkCubes: number;
   /** Cap on exposed-stud cuboids; studs are the first detail dropped over budget. */
   maxStudCubes: number;
+  /** Cuboids fanned per stud so it reads round (4 = a 16-sided outline); 1 is a square peg. */
+  studFacets: number;
 }
 
 /**
@@ -53,9 +55,9 @@ export interface LegoEntityQuality {
  * LDU and the X-wing under the gate (TASKS-BEDROCK-ADDON.md §6).
  */
 export const LEGO_ENTITY_QUALITY = {
-  balanced: { maxModelCubes: 6144, maxPartCubes: 128, microcellLdu: 4, meshChunkCubes: 1024, maxStudCubes: 1536 },
-  high: { maxModelCubes: 12288, maxPartCubes: 256, microcellLdu: 2, meshChunkCubes: 1024, maxStudCubes: 3072 },
-  ultra: { maxModelCubes: 24576, maxPartCubes: 512, microcellLdu: 1, meshChunkCubes: 1024, maxStudCubes: 6144 },
+  balanced: { maxModelCubes: 6144, maxPartCubes: 128, microcellLdu: 4, meshChunkCubes: 1024, maxStudCubes: 1536, studFacets: 4 },
+  high: { maxModelCubes: 12288, maxPartCubes: 256, microcellLdu: 2, meshChunkCubes: 1024, maxStudCubes: 3072, studFacets: 4 },
+  ultra: { maxModelCubes: 24576, maxPartCubes: 512, microcellLdu: 1, meshChunkCubes: 1024, maxStudCubes: 6144, studFacets: 4 },
 } as const satisfies Record<string, LegoEntityQuality>;
 
 export type LegoEntityQualityName = keyof typeof LEGO_ENTITY_QUALITY;
