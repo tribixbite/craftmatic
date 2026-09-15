@@ -8,7 +8,7 @@ import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.
 import { buildPlacementPackAssets, placementAlias, type PlacementActor } from './bedrock-placement-pack.js';
 import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
-import { compileLdrawEntityGeometry, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
+import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { generateLegoEntityTextureAtlas } from './ldraw-entity-atlas.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
@@ -954,23 +954,32 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         const rawCid = safe(`${id}_${c.id}`).length === `${id}_${c.id}`.length ? safe(`${id}_${c.id}`) : safe(`${id.slice(0, 24)}_${c.id.slice(0, 12)}_${deterministicUuid(`${id}:${c.id}`).slice(0, 8)}`);
         const cid = /^[0-9]/.test(rawCid) ? `v_${rawCid}` : rawCid;
         const fullTypeId = `${PACK_NAMESPACE}:${cid}`;
-        const facing = options.vehicleFacing && options.vehicleFacing !== 'auto' ? options.vehicleFacing : c.forwardDirection ?? 'auto';
-        if (c.kind === 'car' && facing === 'auto') warnings.push(`${c.label}: front/rear direction was not identifiable from source geometry; select an explicit vehicle facing if it drives backward.`);
+        const requestedFacing = options.vehicleFacing && options.vehicleFacing !== 'auto' ? options.vehicleFacing : c.forwardDirection ?? 'auto';
+        // A brick component's nose is inferred by the compiler from its parts
+        // (vehicle-facing.ts) and comes back resolved; a grid-only component
+        // has no parts to read, so an unspecified car facing stays a guess.
+        let ldrawGeo: CompiledLdrawGeometry | undefined;
+        let facing: VehicleFacing = requestedFacing;
+        if (c.bricks && c.bricks.length > 0) {
+            options.onProgress?.(`compiling ${c.label} geometry`);
+            ldrawGeo = await compileLdrawEntityGeometry(cid, c.kind, c.bricks, {
+                facing: requestedFacing,
+                userSeatAnchor: c.seatAnchor,
+                partGeometry: options.partGeometry,
+                quality: options.entityQuality,
+                pbr,
+            });
+            facing = ldrawGeo.facing;
+        } else if (c.kind === 'car' && facing === 'auto') {
+            warnings.push(`${c.label}: front/rear direction was not identifiable from source geometry; select an explicit vehicle facing if it drives backward.`);
+        }
         const layout = componentLayout(c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
         const componentIsTimeMachine = isTimeMachine && c.kind === 'car' && !timeMachineConfig;
         if (componentIsTimeMachine)
             timeMachineConfig = { typeId: fullTypeId, width: layout.width, height: layout.height, length: layout.length };
         else if (c.kind === 'car' || c.kind === 'plane' || c.kind === 'boat')
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
-        if (c.bricks && c.bricks.length > 0) {
-            options.onProgress?.(`compiling ${c.label} geometry`);
-            const ldrawGeo = await compileLdrawEntityGeometry(cid, c.kind, c.bricks, {
-                facing,
-                userSeatAnchor: c.seatAnchor,
-                partGeometry: options.partGeometry,
-                quality: options.entityQuality,
-                pbr,
-            });
+        if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
             files.push({
