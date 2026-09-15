@@ -46,8 +46,8 @@ it('spawns a ghost at the rotated footprint centre, turns it with the rotation, 
   const drawPreview = intervals.get(12);
   expect(world.afterEvents.playerLeave.subscribe).toHaveBeenCalled();
 
-  // Pin at the feet: the ghost appears at the footprint centre (20, 0, 10) from the pin, yaw 0.
-  responses.push({ selection: 0 }, { canceled: true });
+  // Pin the corner at the feet: the ghost appears at the footprint centre (20, 0, 10) from the pin, yaw 0.
+  responses.push({ selection: 1 }, { canceled: true });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   drawPreview();
   expect(spawned).toHaveLength(1);
@@ -58,25 +58,32 @@ it('spawns a ghost at the rotated footprint centre, turns it with the rotation, 
   expect(dimension.spawnParticle.mock.calls.some((c: any[]) => c[0] === 'minecraft:endrod')).toBe(true);
 
   // Rotate → 90°: the same ghost is moved to the rotated centre (length − z, x) = (10, 20) and turned.
-  responses.push({ selection: 2 }, { canceled: true });
+  responses.push({ selection: 3 }, { canceled: true });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   drawPreview();
   expect(spawned).toHaveLength(1);
   expect(spawned[0]!.entity.teleport).toHaveBeenLastCalledWith({ x: 110, y: 64, z: 220 }, { rotation: { x: 0, y: 90 } });
+  // "Pin centred on me" puts the rotated footprint centre (10, 20 at 90°) on the player: anchor = feet − centre.
+  responses.push({ selection: 0 }, { canceled: true });
+  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  drawPreview();
+  expect(spawned[0]!.entity.teleport).toHaveBeenLastCalledWith({ x: 100, y: 64, z: 200 }, { rotation: { x: 0, y: 90 } });
+  responses.push({ selection: 1 }, { canceled: true });
+  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
 
   // Hide preview removes it; showing it again spawns a fresh one.
-  responses.push({ selection: 6 });
+  responses.push({ selection: 7 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(removed).toEqual(['e1']);
   drawPreview();
   expect(spawned).toHaveLength(1);
-  responses.push({ selection: 3 });
+  responses.push({ selection: 4 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   drawPreview();
   expect(spawned).toHaveLength(2);
 
   // Place: the ghost goes away before the first tile, the bar runs 0 → 100 %, the area is held after the last piece.
-  responses.push({ selection: 4 }, { selection: 0 });
+  responses.push({ selection: 5 }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(200);
   expect(removed).toEqual(['e1', 'e2']);
   expect(commands).toEqual(['structure load craftmatic:t0 100 64 200 90_degrees none']);

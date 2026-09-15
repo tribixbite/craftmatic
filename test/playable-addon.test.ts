@@ -82,6 +82,11 @@ describe('playable Bedrock add-on',()=>{
     expect(boom['minecraft:camera_preset']).toMatchObject({ inherit_from: 'minecraft:fixed_boom', control_scheme: 'player_relative' });
     const cameraScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/vehicle-camera.js'));
     expect(cameraScript).toContain('"preset":"craftmatic:batmobile_batmobile_chase"');
+    // Ground vehicles: joystick steering via the control scheme, and a free chase camera behind the rider's yaw.
+    expect(cameraScript).toContain('"kind":"car"');
+    expect(cameraScript).toContain("controlscheme @s ${value}");
+    expect(cameraScript).toContain('minecraft:free');
+    expect(cameraScript).toContain('"radius":');
     expect(driverScript).toContain('stallTicks');
     expect(driverScript).toContain('revSpeed');
     expect(driverScript).toContain('isSneaking');
@@ -214,7 +219,9 @@ describe('playable Bedrock add-on',()=>{
     const entity=JSON.parse(new TextDecoder().decode(await extractFile(buffer,'Craftmatic_jet_BP/entities/jet_jet.json')));
     // Happy-Ghast pattern: fly where the rider looks, Jump climbs, hover keeps it up.
     expect(entity['minecraft:entity'].components['minecraft:free_camera_controlled']).toEqual({ strafe_speed_modifier: 1, backwards_movement_modifier: .5 });
-    expect(entity['minecraft:entity'].components['minecraft:vertical_movement_action']).toEqual({ vertical_velocity: .9 });
+    expect(entity['minecraft:entity'].components['minecraft:vertical_movement_action']).toEqual({ vertical_velocity: .5 });
+    expect(entity['minecraft:entity'].components['minecraft:is_tamed']).toEqual({});
+    expect(entity['minecraft:entity'].components['minecraft:flying_speed']).toEqual({ value: .3 });
     expect(entity['minecraft:entity'].components['minecraft:movement.hover']).toEqual({});
     expect(entity['minecraft:entity'].components['minecraft:physics'].has_gravity).toBe(false);
     expect(entity['minecraft:entity'].components['minecraft:movement.fly']).toBeUndefined();

@@ -127,7 +127,7 @@ function componentLayout(kind: PlayableKind, grid: BlockGrid, requestedScale = 1
     return { scale, longitudinalAxis, forwardSign, width, length, height, actorYaw };
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }): unknown {
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }): unknown {
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
     let seatX: number, seatY: number, seatZ: number;
     if (seatPositionOverride) {
@@ -143,7 +143,9 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     }
     // Vanilla third-person camera distance for a rider (Happy Ghast: 8 / 6),
     // sized to the vehicle so the player's own camera toggle is usable too.
-    const cameraSeat = { third_person_camera_radius: chaseRadius({ width: layout.width, height: layout.height, length: layout.length }), camera_relax_distance_smoothing: 6 };
+    // A brick-compiled entity is at player scale (0.2 blocks per stud); the
+    // scene grid is 12x that, so its size only stands in for the grid fallback.
+    const cameraSeat = { third_person_camera_radius: chaseRadius(entitySize ?? { width: layout.width, height: layout.height, length: layout.length }), camera_relax_distance_smoothing: 6 };
     const rideableComponent: Record<string, unknown> = seatCount <= 1
         ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [seatX, seatY, seatZ], lock_rider_rotation: 0, ...cameraSeat } }
         : {
@@ -184,10 +186,20 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // can navigate dunes, terrain steps, and doorways without clipping into terrain.
         'minecraft:collision_box': collisionBoxOverride ?? { width: Math.min(3.5, Math.max(0.8, layout.width * .85)), height: Math.min(2.5, Math.max(.8, layout.height * .8)) },
         'minecraft:rideable': rideableComponent,
-        'minecraft:pushable': { is_pushable: false, is_pushable_by_piston: true },
+        // Format 1.26.30 dropped `minecraft:pushable` from the schema (the whole
+        // entity then fails to parse - measured on the Pixel's content log);
+        // vanilla mobs declare `pushable_by_block` (pistons) and, only when they
+        // may be shoved by entities, `pushable_by_entity`. A vehicle is not.
+        'minecraft:pushable_by_block': {},
+        // Aircraft speed is the Happy Ghast's (movement 0.3, flying_speed 0.083)
+        // scaled: at 1.35 the X-wing climbed 206 blocks in about a second on the
+        // Pixel (vertical velocity scales with the flying speed).
         'minecraft:movement': isTimeMachine
             ? { value: .02, max: 6 }
-            : { value: kind === 'car' ? 1.05 : kind === 'boat' ? 1.15 : 1.35, max: kind === 'car' ? 1.35 : kind === 'boat' ? 1.5 : 1.8 },
+            : { value: kind === 'car' ? 1.05 : kind === 'boat' ? 1.15 : .3, max: kind === 'car' ? 1.35 : kind === 'boat' ? 1.5 : .6 },
+        // Ridden vanilla mounts (horse, camel, Happy Ghast) are all tamed; the
+        // `player_ride_tamed` goal that steers by rider input depends on it.
+        'minecraft:is_tamed': {},
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 160, max_dropped_ticks: 7, use_motion_prediction_hints: true } },
     };
     // Ground vehicles follow the vanilla CAMEL: `input_ground_controlled` steers
@@ -233,8 +245,8 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             'minecraft:movement.hover': {},
             'minecraft:navigation.hover': { can_path_over_water: true, avoid_damage_blocks: false },
             'minecraft:free_camera_controlled': { strafe_speed_modifier: 1, backwards_movement_modifier: .5 },
-            'minecraft:flying_speed': { value: 1.35 },
-            'minecraft:vertical_movement_action': { vertical_velocity: .9 },
+            'minecraft:flying_speed': { value: .3 },
+            'minecraft:vertical_movement_action': { vertical_velocity: .5 },
             'minecraft:behavior.player_ride_tamed': { priority: 1 },
             'minecraft:body_rotation_always_follows_head': {},
         });
@@ -872,31 +884,65 @@ export function boomCameraPreset(cid: string, size: { width: number; height: num
  * clears the camera on dismount. If the preset is rejected (a client without
  * the orbit presets) the vanilla `minecraft:third_person` preset stands in.
  */
-function vehicleCameraRuntime(config: { vehicles: Array<{ typeId: string; preset: string }> }) {
-  const presetByType = new Map(config.vehicles.map((v: any) => [v.typeId, v.preset] as const));
-  const tracked = new Map<string, string>();
+/** Per-vehicle camera config serialised into the pack. */
+interface VehicleCameraConfig { typeId: string; preset: string; kind: 'car' | 'plane' | 'boat'; radius: number; height: number; pivotY: number }
+
+/**
+ * Runs in the pack. Measured on the Pixel (1.26.45, 2026-09-15): a camera
+ * preset's `control_scheme` key is ignored, but `/controlscheme` works, and
+ * under `player_relative` the joystick's left/right ROTATES the rider (the
+ * heading `input_ground_controlled` drives along) instead of strafing. Neither
+ * `follow_orbit` nor `fixed_boom` turns with the rider, so a ground vehicle
+ * gets a script-driven `minecraft:free` chase camera placed behind the rider's
+ * yaw every tick (eased), which is what keeps the view on the vehicle's tail
+ * through a turn. Aircraft keep the orbit preset: their look pitch is the
+ * climb/dive input under `free_camera_controlled`. Everything is cleared on
+ * dismount. If the free camera is rejected, the vanilla third person stands in.
+ */
+function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[] }) {
+  const byType = new Map(config.vehicles.map((v: any) => [v.typeId, v] as const));
+  const tracked = new Map<string, { typeId: string; chase: boolean }>();
   const dimensions = () => ['overworld', 'nether', 'the_end'].flatMap(id => { try { return [world.getDimension(id)]; } catch { return []; } });
   const applyPreset = (player: any, preset: string): boolean => {
     try { player.camera.setCamera(preset); return true; } catch {}
     try { player.camera.setCamera('minecraft:third_person'); return true; } catch {}
     return false;
   };
+  const chase = (player: any, vehicle: any, cfg: any): void => {
+    let yaw = 0;
+    try { yaw = player.getRotation().y; } catch {}
+    const rad = yaw * Math.PI / 180;
+    // Bedrock yaw: 0 faces +Z, 90 faces -X; forward = (-sin, cos).
+    const fx = -Math.sin(rad), fz = Math.cos(rad);
+    let v: any;
+    try { v = vehicle.location; } catch { return; }
+    const location = { x: v.x - fx * cfg.radius, y: v.y + cfg.height, z: v.z - fz * cfg.radius };
+    const facingLocation = { x: v.x, y: v.y + cfg.pivotY, z: v.z };
+    try { player.camera.setCamera('minecraft:free', { location, facingLocation, easeOptions: { easeTime: 0.15, easeType: 'Linear' } }); } catch {}
+  };
+  const scheme = (player: any, value: string): void => { try { player.runCommand(`controlscheme @s ${value}`); } catch {} };
   system.runInterval(() => {
-    const riding = new Map<string, { player: any; preset: string }>();
+    const riding = new Map<string, { player: any; vehicle: any; cfg: any }>();
     for (const d of dimensions()) {
       let vehicles: any[] = [];
       try { vehicles = d.getEntities({ families: ['craftmatic_vehicle'] }); } catch { continue; }
       for (const vehicle of vehicles) {
-        const preset = presetByType.get(vehicle.typeId);
-        if (!preset) continue;
+        const cfg = byType.get(vehicle.typeId);
+        if (!cfg) continue;
         let riders: any[] = [];
         try { riders = vehicle.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch {}
-        for (const rider of riders) if (rider?.typeId === 'minecraft:player') riding.set(rider.id, { player: rider, preset });
+        for (const rider of riders) if (rider?.typeId === 'minecraft:player') riding.set(rider.id, { player: rider, vehicle, cfg });
       }
     }
-    for (const [id, { player, preset }] of riding) {
-      if (tracked.get(id) === preset) continue;
-      if (applyPreset(player, preset)) tracked.set(id, preset);
+    for (const [id, { player, vehicle, cfg }] of riding) {
+      const t = tracked.get(id);
+      const wantChase = cfg.kind !== 'plane';
+      if (!t || t.typeId !== cfg.typeId) {
+        if (wantChase) scheme(player, 'set player_relative');
+        else applyPreset(player, cfg.preset);
+        tracked.set(id, { typeId: cfg.typeId, chase: wantChase });
+      }
+      if (wantChase) chase(player, vehicle, cfg);
     }
     if (tracked.size) {
       let players: any[] = [];
@@ -904,15 +950,15 @@ function vehicleCameraRuntime(config: { vehicles: Array<{ typeId: string; preset
       for (const id of [...tracked.keys()]) {
         if (riding.has(id)) continue;
         const player = players.find((p: any) => p.id === id);
-        if (player) { try { player.camera.clear(); } catch {} }
+        if (player) { try { player.camera.clear(); } catch {} scheme(player, 'clear'); }
         tracked.delete(id);
       }
     }
-  }, 4);
+  }, 1);
   try { world.afterEvents?.playerLeave?.subscribe?.((ev: any) => tracked.delete(ev.playerId)); } catch {}
 }
 
-const vehicleCameraScript = (config: { vehicles: Array<{ typeId: string; preset: string }> }) =>
+const vehicleCameraScript = (config: { vehicles: VehicleCameraConfig[] }) =>
   `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)});\n`;
 
 function blockRgb(state: string): [
@@ -1002,17 +1048,18 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const actors: PlacementActor[] = [];
     let timeMachineConfig: { typeId: string; width: number; height: number; length: number } | undefined;
     const driverVehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }> = [];
-    const cameraVehicles: Array<{ typeId: string; preset: string }> = [];
+    const cameraVehicles: VehicleCameraConfig[] = [];
     const unmapped = new Set<string>();
     const cameraStyle: VehicleCameraStyle = options.cameraStyle ?? 'orbit';
     /** Writes the orbit preset (and, for ground vehicles, the boom preset) and returns the id the runtime applies. */
-    const emitCameraPresets = (cid: string, kind: PlayableKind, size: { width: number; height: number; length: number }): string => {
+    const emitCameraPresets = (cid: string, kind: PlayableKind, size: { width: number; height: number; length: number }): VehicleCameraConfig => {
         const chase = chaseCameraPreset(cid, kind, size);
         files.push({ name: `${bp}cameras/presets/${cid}_chase.json`, data: json(chase.value) });
-        if (kind === 'plane') return chase.id;
+        const base = { typeId: `${PACK_NAMESPACE}:${cid}`, kind, radius: chase.radius, height: Math.round((size.height * 0.75 + 1.5) * 100) / 100, pivotY: Math.round(Math.max(0.5, size.height * 0.5) * 100) / 100 };
+        if (kind === 'plane') return { ...base, preset: chase.id };
         const boom = boomCameraPreset(cid, size);
         files.push({ name: `${bp}cameras/presets/${cid}_boom.json`, data: json(boom.value) });
-        return cameraStyle === 'boom' ? boom.id : chase.id;
+        return { ...base, preset: cameraStyle === 'boom' ? boom.id : chase.id };
     };
     for (let i = 0; i < plan.length; i++) {
         const tile = plan[i]!, out = encodeMcstructureTile(grid, tile);
@@ -1054,9 +1101,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             diagnostics[cid] = ldrawGeo.diagnostics;
             files.push({
                 name: `${bp}entities/${cid}.json`,
-                data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox)),
+                data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks)),
             });
-            cameraVehicles.push({ typeId: fullTypeId, preset: emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks) });
+            cameraVehicles.push(emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks));
             files.push(
                 { name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, ldrawGeo.meshIds, ldrawGeo.canopyMeshId, 'entity')) },
                 { name: `${rp}models/entity/${cid}.geo.json`, data: json(ldrawGeo.value) },
@@ -1078,7 +1125,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             }
         } else {
             files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1)) });
-            cameraVehicles.push({ typeId: fullTypeId, preset: emitCameraPresets(cid, c.kind, { width: layout.width, height: layout.height, length: layout.length }) });
+            cameraVehicles.push(emitCameraPresets(cid, c.kind, { width: layout.width, height: layout.height, length: layout.length }));
             const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
             files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
         }
@@ -1130,7 +1177,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(driverVehicles.length ? ["import './vehicle-driver.js';"] : []),
         ...(cameraVehicles.length ? ["import './vehicle-camera.js';"] : []),
     ].join('\n');
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation; rotate until it faces the way you want, place, and undo if needed. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - forward flies where you look, look up or down to climb or dive, Jump climbs straight up, Dismount (sneak) exits. Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation; rotate until it faces the way you want, place, and undo if needed. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - forward flies where you look, look up or down to climb or dive, Jump climbs straight up, Dismount (sneak) exits. Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics };

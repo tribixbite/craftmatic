@@ -427,15 +427,62 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   viewpoint use `/camera @s set minecraft:free pos X Y Z facing X Y Z`, then
   `/camera @s clear`, and check the Position readout.
 - **Riding facts measured 2026-09-15 (Pixel, 1.26.45)**: a first-person rider
-  sits inside the entity's cuboids, so every vehicle ships a `follow_orbit`
-  camera preset (`cameras/presets/<cid>_chase.json`) that `vehicle-camera.js`
-  applies on mount and clears on dismount — its default control scheme is
-  *locked player relative strafe*, so look input still steers. `follow_orbit`
-  has NO block collision (an 8-block boom behind a car at a hillside put the
-  camera inside the hill): keep the boom short and the pivot at roof height.
-  A rider-driven ground vehicle is client-authoritative: `getVelocity()` reads
-  ~0 while it visibly drives (planes report fine), so speed is measured from
-  the position delta — `riddenVelocity` in both runtimes.
+  sits inside the entity's cuboids. A rider-driven ground vehicle is
+  client-authoritative: `getVelocity()` reads ~0 while it visibly drives (planes
+  report fine), so speed is measured from the position delta — `riddenVelocity`
+  in both runtimes. `follow_orbit` has NO block collision.
+- **Second device round (2026-09-15, captures in
+  `output/bedrock-entity-qa/captures-2026-09-15b/`), all measured:**
+  - **The nose is inferred, never assumed** (`vehicle-facing.ts`): driver parts
+    (minifig torso/head/legs, seats, steering stands all face local −Z),
+    windscreen lean, trans-red tail lights, wheel count/size asymmetry, canopy
+    position and the narrow end (planes) vote; the decision and votes ship in
+    `craftmatic-diagnostics.json`. Before this every golden model drove
+    tail-first and an X-long plane flew sideways. Check a change with
+    `_entity_silhouette.ts --out`: in `left.png` the nose must be on the LEFT.
+  - **A camera preset's `control_scheme` key is IGNORED; `/controlscheme` works.**
+    Under the default locked scheme the joystick's left/right STRAFES (the
+    "just forward and backwards" report); `vehicle-camera.js` runs
+    `controlscheme @s set player_relative` on mount so the stick ROTATES the
+    rider, which is the heading `input_ground_controlled` follows. Neither
+    `follow_orbit` nor `fixed_boom` turns with the rider, so ground vehicles
+    get a script-driven `minecraft:free` camera placed behind the rider's yaw
+    every tick (`easeTime 0.15`); aircraft keep the orbit preset because look
+    pitch is their climb/dive input. Cleared on dismount.
+  - **Jump is a native camel `dash_action`** (hold charges, release dashes;
+    the touch UI shows horse-style Jump + Dismount buttons, so Jump no longer
+    exits). The driver script only plays effects and the cooldown HUD.
+  - **Aircraft follow bedrock-samples' Happy Ghast at format 1.26.30**:
+    `free_camera_controlled` (NOT `input_air_controlled`, which needs
+    ≥1.21.90 and the entity declared 1.20.80), `vertical_movement_action`,
+    `movement.hover`/`navigation.hover`, `jump.static`, `is_tamed` +
+    `behavior.player_ride_tamed`. Speeds are the ghast's scaled
+    (movement 0.3, flying_speed 0.3, vertical 0.5): at 1.35/0.9 the X-wing
+    climbed 206 blocks in a second; at these it climbs ~17 blocks/s and flies
+    forward ~5 blocks/s.
+  - **Format 1.26.30 removed `minecraft:pushable` from the schema** — the whole
+    entity fails to parse (`… is not a valid entity type` at spawn). Vanilla
+    mobs use `pushable_by_block` (pistons) and, only when shovable,
+    `pushable_by_entity`. **A Bedrock identifier's name may not start with a
+    digit** (`craftmatic:75892mclaren_preview` never registered; structures
+    named that way fail `structure load` silently — the wand now checks
+    `successCount`). Every id in the pack carries a `v_`/`p_` guard; the
+    export stem from the LEGO tab is name-first, so real exports are safe, but
+    a CLI `--label` starting with the set number is not.
+  - **Reading the Pixel's content log**: Settings → Creator → "Enable content
+    log file" + "Show content log UI" (both ON now); errors show on world load
+    and land in `games/com.mojang/logs/ContentLog*.txt` (adb-pullable). Android
+    logcat has nothing. `options.txt` is in internal storage — not reachable.
+  - **Brick Wand**: a ghost entity (`bedrock-preview-entity.ts`) shows the
+    whole build at the pin, turned with the rotation; the action bar carries a
+    progress bar; "Pin centred on me" puts the footprint centre on the player
+    (a vehicle-only pack used to land half a model away — the "nothing
+    appeared" report); each tile's ticking area is held 8 ticks after its load
+    and the last one 40. World-tile taps on the Play screen need a 120 ms press
+    (`input swipe x y x y 120`); a plain `input tap` does nothing. Joystick
+    steering over adb is a DRAG from the stick centre (`input swipe 337 550 470
+    550 1500`); a press at the stick edge does nothing, and look-area swipes did
+    not register at all.
 
 ## Dev / commands
 - Dev server: `bun dev:web` (port 4000). Add `--host` to expose on LAN (phone testing at the box's LAN IP:4000).

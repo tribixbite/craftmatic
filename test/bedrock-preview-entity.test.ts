@@ -67,6 +67,8 @@ describe('ghost preview entity', () => {
   it('ships a translucent material, a tinted texture, and a non-persistent, non-colliding behaviour', () => {
     const ghost = buildPreviewGhost('m', solid(3, 3, 3, () => true), []);
     expect(ghost.typeId).toBe('craftmatic:m_preview');
+    // A name starting with a digit is not a legal Bedrock identifier; measured on the Pixel: the type never registered.
+    expect(buildPreviewGhost('75892mclaren', solid(1, 1, 1, () => true), []).typeId).toBe('craftmatic:p_75892mclaren_preview');
     expect((ghost.clientEntity as any)['minecraft:client_entity'].description.materials.default).toBe('entity_alphablend');
     expect((ghost.behavior as any)['minecraft:entity'].components['minecraft:physics']).toEqual({ has_gravity: false, has_collision: false });
     expect((ghost.behavior as any)['minecraft:entity'].components['minecraft:despawn']).toBeDefined();
