@@ -404,7 +404,12 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   X-wing at 4 LDU and a 1,906-part DeLorean at 8 LDU, both ≥ 0.95 six-view
   silhouette IoU (`scripts/_entity_silhouette.ts`); the spec's 4,096 pushed
   them to 8/16 LDU. `scripts/_playable_ref.ts` is the CLI export gate.
-- **Pixel QA mechanics**: import with the game at its main menu via
+- **Pixel QA mechanics** (helpers: `scripts/_pixel_shot.sh <name>` screenshots
+  to a ≤1999 px jpg, `scripts/_pixel_cmd.sh "/cmd"` types one chat command; both
+  set `MSYS_NO_PATHCONV=1`, without which Git Bash rewrites `/tp …` into
+  `C:/Program Files/Git/tp`). The Pixel's wireless-adb address rotates and its
+  mDNS entry doubles it ("more than one device"): `adb devices -l`, then
+  `export ANDROID_SERIAL=<ip:port>`. Import with the game at its main menu via
   `am start -n com.mojang.minecraftpe/.MainActivity -a android.intent.action.VIEW
   -d 'content://com.android.externalstorage.documents/document/primary%3ADownload%2F<f>.mcaddon'
   -t application/octet-stream --grant-read-uri-permission` (a `file://` VIEW
@@ -413,19 +418,14 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   NEW version. Activate packs by editing the world's `world_*_packs.json` ONLY
   after `am force-stop` (the running app rewrites them from memory); `adb shell
   rm` inside `Android/data/com.mojang.minecraftpe` is denied, `adb push` works.
-  Type commands by re-opening chat (tap the chat icon), tapping the field,
-  Ctrl+A, Del, `input text` with spaces as `%s`, Enter — and set
-  `MSYS_NO_PATHCONV=1` first, or Git Bash rewrites `/tp …` into
-  `C:/Program Files/Git/tp` and `/sdcard/…` into a local path. `/ride @s
-  start_riding @e[type=craftmatic:<cid>,c=1] teleport_rider` mounts without a
-  touch; `/execute at @e[type=…,c=1] run tp @s ~ ~5 ~-7 facing ~ ~ ~` places the
-  camera; `/testfor` only sees entities in ticking chunks. Screens are
-  2244×1008 landscape; `adb exec-out screencap` then `magick -resize 1999x1999>`.
-  **After an elevated `/tp` the player FALLS back to the ground before the
-  screenshot** (Creative, not flying) — a whole afternoon of "entities vanish
-  when viewed from above" was the camera pitched into the grass at ground
-  level. For an exact viewpoint use `/camera @s set minecraft:free pos X Y Z
-  facing X Y Z`, then `/camera @s clear`; check the Position readout.
+  The world list is sorted by last played — screenshot it before tapping a tile.
+  `/ride @s start_riding @e[type=craftmatic:<cid>,c=1] teleport_rider` mounts
+  without a touch; `/testfor` only sees entities in ticking chunks. **After an
+  elevated `/tp` the player FALLS back to the ground before the screenshot**
+  (Creative, not flying) — an afternoon of "entities vanish when viewed from
+  above" was the camera pitched into the grass at ground level. For an exact
+  viewpoint use `/camera @s set minecraft:free pos X Y Z facing X Y Z`, then
+  `/camera @s clear`, and check the Position readout.
 - **Riding facts measured 2026-09-15 (Pixel, 1.26.45)**: a first-person rider
   sits inside the entity's cuboids, so every vehicle ships a `follow_orbit`
   camera preset (`cameras/presets/<cid>_chase.json`) that `vehicle-camera.js`
