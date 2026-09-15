@@ -74,12 +74,20 @@ const preLevel = (p: Vec3): Vec3 => {
 };
 const toUnits = (p: Vec3): Vec3 => { const r = apply(A, preLevel(p)); return [(r[0] - origin[0]) * scale, (r[1] - origin[1]) * scale, (r[2] - origin[2]) * scale]; };
 
-// Source triangles in render units (studs included — they are part of the silhouette).
-const sourceTris: Tri[] = [];
+// Source triangles in render units (studs included — they are part of the
+// silhouette). Two sets: what the compiler KEPT (the gate: approximation
+// quality of the geometry it emitted) and the full component (what the entity
+// leaves out — display stands, minifigs on plaques, internal pins). Before
+// 2026-09-15 only the full set was scored, so 76240's base plate counted as
+// 20 % missing silhouette against a compiler that had dropped it on purpose.
+const sourceTrisKept: Tri[] = [];
+const droppedTris: Tri[] = [];
+const kept = new Set(compiled.keptSourceIndices);
 const IDENT = [1, 0, 0, 0, 1, 0, 0, 0, 1];
-for (const b of bricks) {
+for (const [bi, b] of bricks.entries()) {
   const mesh = await provider.getPartMesh(b.part);
   if (!mesh) continue;
+  const sourceTris: Tri[] = kept.has(bi) ? sourceTrisKept : droppedTris;
   const R = b.rot ?? IDENT, t: Vec3 = [b.x, b.y, b.z];
   const world = (v: Vec3): Vec3 => { const r = apply(R, v); return toUnits([r[0] + t[0], r[1] + t[1], r[2] + t[2]]); };
   for (const tr of mesh.triangles) sourceTris.push([world(tr.a), world(tr.b), world(tr.c)]);
@@ -154,7 +162,9 @@ const VIEWS: Record<string, number[]> = {
   })(),
 };
 
-const all = [...sourceTris, ...approxTris].flat();
+const sourceTris = sourceTrisKept;
+const fullSourceTris = [...sourceTrisKept, ...droppedTris];
+const all = [...fullSourceTris, ...approxTris].flat();
 let radius = 0;
 const centre: Vec3 = [0, 0, 0];
 {
@@ -189,10 +199,16 @@ function rasterize(tris: Tri[], view: number[]): Uint8Array {
   return bmp;
 }
 
-const results: Record<string, { iou: number; sourcePx: number; approxPx: number; missing: number; extra: number }> = {};
+const results: Record<string, { iou: number; iouFullSource: number; sourcePx: number; approxPx: number; missing: number; extra: number }> = {};
 if (outDir) mkdirSync(outDir, { recursive: true });
+let fullSum = 0;
 for (const [name, view] of Object.entries(VIEWS)) {
   const s = rasterize(sourceTris, view), a = rasterize(approxTris, view);
+  const full = droppedTris.length ? rasterize(fullSourceTris, view) : s;
+  let fInter = 0, fUnion = 0;
+  for (let i = 0; i < full.length; i++) { if (full[i]! && a[i]!) fInter++; if (full[i]! || a[i]!) fUnion++; }
+  const iouFullSource = fUnion ? fInter / fUnion : 1;
+  fullSum += iouFullSource;
   let inter = 0, union = 0, sp = 0, ap = 0, missing = 0, extra = 0;
   for (let i = 0; i < s.length; i++) {
     const sv = s[i]!, av = a[i]!;
@@ -202,7 +218,7 @@ for (const [name, view] of Object.entries(VIEWS)) {
     if (sv && !av) missing++;
     if (!sv && av) extra++;
   }
-  results[name] = { iou: union ? inter / union : 1, sourcePx: sp, approxPx: ap, missing, extra };
+  results[name] = { iou: union ? inter / union : 1, iouFullSource: Math.round(iouFullSource * 10000) / 10000, sourcePx: sp, approxPx: ap, missing, extra };
   if (outDir) {
     const rgba = new Uint8Array(PX * PX * 4);
     for (let i = 0; i < s.length; i++) {
@@ -217,5 +233,10 @@ const mean = Object.values(results).reduce((n, r) => n + r.iou, 0) / Object.keys
 console.log(JSON.stringify({
   file, label, kind, bricks: bricks.length, quality, cubeCount, sourceTriangles: sourceTris.length,
   diagnostics: { cubeCount: compiled.diagnostics.cubeCount, studs: compiled.diagnostics.studCubeCount, rotatedBones: compiled.diagnostics.rotatedBoneCount, aabbFallbacks: compiled.diagnostics.aabbFallbackParts.length, coarsened: compiled.diagnostics.modelCoarsened, microcellLdu: compiled.diagnostics.quality.microcellLdu },
-  views: results, meanIoU: Math.round(mean * 10000) / 10000, px: PX, out: outDir ?? null,
+  views: results, meanIoU: Math.round(mean * 10000) / 10000,
+  // Full-component score and what the compiler left out (display stand, internal pins, detached objects).
+  meanIoUFullSource: Math.round(fullSum / Object.keys(results).length * 10000) / 10000,
+  keptPlacements: compiled.keptSourceIndices.length, droppedPlacements: bricks.length - compiled.keptSourceIndices.length,
+  displayDropped: compiled.diagnostics.displayDropped, detached: compiled.diagnostics.detached, skippedInternal: compiled.diagnostics.skippedInternalCount,
+  px: PX, out: outDir ?? null,
 }, null, 1));

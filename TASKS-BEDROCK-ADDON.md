@@ -42,35 +42,47 @@ not `"75892 …"`): Bedrock rejects digit-leading identifiers.
 
 ## Measurements that still drive decisions
 
-| Model (source) | Profile | Cubes | Cell | Six-view IoU | Notes |
-|---|---|---|---|---|---|
-| 75892 (OMR) | balanced | 1,840 | 4 LDU | **0.981** | nose −z (steering wheel + windscreen + tail lights) |
-| 10300 (IO present) | balanced | 6,042 | 8 LDU | **0.953** | nose −x (tail lights + windscreen) |
-| 7140 (OMR) | balanced | 4,933 | 4 LDU | 0.964 | nose −z (seated pilot + canopy) |
-| 76240 (MecabricksLDR) | balanced | 3,569 | 16 LDU | 0.839 | nose −z (2 vs 4 wheels); `high` 0.855 |
-| 76286 (DbixConvV3) | balanced | 5,674 | 8 LDU | 0.871 | nose −x (narrow end, agreement 1.0); `high` 0.876 |
+Silhouette gate (`_entity_silhouette.ts`, six views, px 512). **`IoU kept`** scores
+the emitted cuboids against the placements the compiler actually kept — the
+approximation quality the gate is for; **`IoU full`** scores them against the
+whole component, so the difference is what the entity leaves out (display
+stand, plaque minifigs, buried pins). Before 2026-09-15 only the full score was
+reported and the stand drop was silent, which is why the two big models read
+0.84/0.87: 76240's base plate and figures were 20 % of the front silhouette.
 
-Gate is ≥ 0.95 mean. `IO/76240-1.io` is a flat parts grid, NOT a model — the
-Mecabricks LDR is the only real 76240 source.
+| Model (source) | Profile | Cubes | Cell | IoU kept | IoU full | Left out (stand / detached / internal) |
+|---|---|---|---|---|---|---|
+| 75892 (OMR) | balanced | 1,840 | 4 LDU | 0.981 | 0.981 | 0 / 0 / 0 (wind tunnel excluded upstream by the submodel rule) |
+| 10300 (IO present) | balanced | 6,071 | 8 LDU | 0.981 | 0.953 | 0 / 3 / 47 |
+| 7140 (OMR) | balanced | 4,754 | 4 LDU | 0.960 | 0.960 | 0 / 0 / 0 |
+| 76240 (MecabricksLDR) | balanced | 3,225 | 32 LDU | **0.957** | 0.840 | 135 / 0 / 210 |
+| 76240 | high | 9,201 | 16 LDU | **0.969** | 0.849 | 135 / 0 / 210 |
+| 76286 (DbixConvV3) | balanced | 5,478 | 8 LDU | **0.966** | 0.873 | 93 / 10 / 17 (716 studs omitted) |
+| 76286 | high | 8,342 | 8 LDU | **0.969** | 0.876 | 93 / 10 / 17 |
+
+Gate is ≥ 0.95 on `IoU kept`: every golden model passes on `balanced`. Cell
+size is NOT what limits the full score — 76240 at `ultra` (39,189 cubes, 4 LDU)
+still reads 0.854 full. The lossless same-colour cuboid merge
+(`mergeAlignedCuboids`) removed 225–267 cubes on 76240 (6–7 %), not enough to
+change its cell; the tractor tyre `70695` ×184 is 47 % of its budget.
+`IO/76240-1.io` is a flat parts grid, NOT a model — the Mecabricks LDR is the
+only real 76240 source.
 
 ## Open
 
-- [ ] **76240 / 76286 under the silhouette gate on every profile.** Lever not
-      yet tried: lossless merge of same-material, face-adjacent body cuboids
-      after `cullHiddenCuboids` (union unchanged, fewer cubes ⇒ finer microcell
-      survives the budget loop). Then per-part simplification for repeated small
-      parts (`heaviestParts`), analytic templates (spec §7B).
-- [ ] **76240 unresolved parts**: the Mecabricks LDR has 135 unknown part
-      names; at `balanced` 2 placements render as boxes (`67687`). Census the
-      `unresolvedParts` of the golden models and route filename aliases to
-      `ldraw-part-aliases.ts`, frame-changing ones to clego.
-- [ ] **Device-verify 76240 and 76286 themselves** (facing, steering at 3.5-wide
-      collision box, Milano climb) — this round verified the mechanism on 75892
-      and 7140; the heavy packs were not re-imported.
+- [ ] **Repeated-part budget** (76240: `70695` ×184 = 4,416 cubes at 16 LDU):
+      a stricter per-part cube cap for parts with many placements would let the
+      whole model keep a finer cell. Not started.
+- [ ] **Device-verify 76240 and 76286 themselves** (facing, steering at a
+      3.5-wide collision box, Milano climb) — this round verified the mechanism
+      on 75892 and 7140; the heavy packs were not re-imported.
+- [ ] **`67687`** (2 placements on 76240) has no geometry on the prod mirror
+      either (empty response); everything else on the five golden models
+      resolves (242/243 unique parts on 76240).
 - [ ] **Dive / look-pitch on aircraft** and swipe-to-look were not testable over
       adb (`input swipe` on the look area did nothing); check by hand.
 - [ ] **Molang errors `unable to find member variable .r/.g/.b`** appeared in the
-      content-log UI while mounting the X-wing (not in the pulled log file yet);
+      content-log UI while mounting the X-wing (not in the pulled log file);
       source unknown (render controller? vanilla ride UI?).
 - [ ] **D3 Vibrant Visuals**: MER/normal response never seen on a device that
       renders it (the Pixel runs the classic renderer).
