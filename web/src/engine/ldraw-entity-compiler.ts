@@ -265,6 +265,8 @@ export interface LegoGeometryDiagnostics {
   detached: { placements: number; groups: number };
   /** Body cuboids removed because every face was buried behind opaque cuboids (never visible from any viewpoint). */
   hiddenCubesCulled: number;
+  /** The parts that cost the most cuboids in total (prototype cuboids × placements), heaviest first. */
+  heaviestParts: Array<{ part: string; placements: number; cubesEach: number; cubes: number }>;
 }
 
 /**
@@ -605,6 +607,7 @@ export async function compileLdrawEntityGeometry(
     const bones = new Map<string, { pivot: Vec3; rotation?: [number, number, number] }>();
     bones.set('body', { pivot: [0, 0, 0] });
     const aabbFallback = new Map<string, { count: number; reason: string }>();
+    const perPart = new Map<string, { placements: number; cubesEach: number }>();
     let rotatedBoneCount = 0;
     let unresolvedCount = 0;
 
@@ -652,6 +655,9 @@ export async function compileLdrawEntityGeometry(
         }
       }
 
+      const pp = perPart.get(proto.partId) ?? { placements: 0, cubesEach: proto.cuboids.length };
+      pp.placements++;
+      perPart.set(proto.partId, pp);
       for (const c of proto.cuboids as PartCuboid[]) {
         const cubeMaterial = c.color === 16 ? material : resolveLdrawEntityMaterial(c.color);
         // World LDraw box (for stud exposure): exact for aligned parts, the OBB's AABB otherwise.
@@ -684,7 +690,10 @@ export async function compileLdrawEntityGeometry(
     const hidden = cullHiddenCuboids(forCull, Math.min(4, quality.microcellLdu));
     const visibleCuboids = hidden.size ? renderCuboids.filter((_, i) => !hidden.has(i)) : renderCuboids;
 
-    return { cache, renderCuboids: visibleCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size };
+    const heaviestParts = [...perPart].map(([part, v]) => ({ part, placements: v.placements, cubesEach: v.cubesEach, cubes: v.placements * v.cubesEach }))
+      .sort((a, b) => b.cubes - a.cubes || a.part.localeCompare(b.part)).slice(0, 12);
+
+    return { cache, renderCuboids: visibleCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, heaviestParts };
   };
 
   // Whole-model budget: coarsen everything (deterministically) before giving up detail per part.
@@ -700,7 +709,7 @@ export async function compileLdrawEntityGeometry(
   if (built.renderCuboids.length > quality.maxModelCubes) {
     warnings.push(`${cid}: ${built.renderCuboids.length} cuboids exceed the ${quality.maxModelCubes} budget even at ${quality.microcellLdu} LDU; the pack keeps them all, expect a heavy entity.`);
   }
-  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, cache, hiddenCubesCulled } = built;
+  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, cache, hiddenCubesCulled, heaviestParts } = built;
 
   // 5. Exposed studs: a stud whose top is inside another part's box is covered.
   const CELL = 40;
@@ -877,8 +886,11 @@ export async function compileLdrawEntityGeometry(
     identifier,
     texture_width: ATLAS_WIDTH,
     texture_height: 1 + Math.max(1, materialCount) * ATLAS_TILE,
-    visible_bounds_width: Math.max(2, Math.ceil(Math.max(totalWidth, totalLength))),
-    visible_bounds_height: Math.max(2, Math.ceil(totalHeight)),
+    // Culling box, deliberately generous: the 6-block Tumbler vanished from a
+    // camera 8 blocks above it with a tight box (Pixel, 1.26.45) while its
+    // collision box still took the Mount prompt. Overdraw is the cheaper error.
+    visible_bounds_width: Math.max(4, Math.ceil(Math.max(totalWidth, totalLength) * 2) + 2),
+    visible_bounds_height: Math.max(4, Math.ceil(totalHeight * 2) + 2),
     visible_bounds_offset: [0, Math.round(totalHeight / 2 * 100) / 100, 0],
   });
 
@@ -940,6 +952,7 @@ export async function compileLdrawEntityGeometry(
     leveled: level.rotation ? { angleDeg: round(level.angleDeg), alignedBefore: level.alignedBefore, alignedAfter: level.alignedAfter } : null,
     detached,
     hiddenCubesCulled,
+    heaviestParts,
   };
 
   if (aabbFallbackParts.length) {
