@@ -20,8 +20,8 @@ export interface PlayableBrickComponent {
   seatAnchor?: { x: number; y: number; z: number };
 }
 
-const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|vehicle|tractor|loader|motorcycle|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1|jeep|suv|van|pickup|dragster|hot rod|hotrod|rover|speed champions|speed champion|hypercar|supercar|automobile|limo|limousine|cab|taxi|crawler|quad|atv|go-kart|speedster|hovercraft|locomotive|camper|convertible|coupe|sedan)\b/i;
-const PLANE_WORDS = /\b(plane|airplane|aeroplane|jet|aircraft|starfighter|fighter|helicopter|copter|spaceship|shuttle|biplane|monoplane|seaplane|bomber|rotorcraft|starship|rocket|x-wing|tie fighter|falcon|interceptor|speeder|gunship|drone)\b/i;
+const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|tumbler|vehicle|tractor|loader|motorcycle|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1|jeep|suv|van|pickup|dragster|hot rod|hotrod|rover|speed champions|speed champion|hypercar|supercar|automobile|limo|limousine|cab|taxi|crawler|quad|atv|go-kart|speedster|hovercraft|locomotive|camper|convertible|coupe|sedan)\b/i;
+const PLANE_WORDS = /\b(plane|airplane|aeroplane|jet|aircraft|starfighter|fighter|helicopter|copter|spaceship|shuttle|biplane|monoplane|seaplane|bomber|rotorcraft|starship|rocket|x-wing|tie fighter|falcon|milano|interceptor|speeder|gunship|drone)\b/i;
 const BOAT_WORDS = /\b(boat|ship|yacht|sailboat|speedboat|cruiser|ferry|canoe|kayak|raft|vessel|barge|pirate ship|watercraft|rowboat|cutter|catamaran|schooner|galleon|tugboat|steamboat|dinghy|skiff|hydrofoil)\b/i;
 const SCENERY_WORDS = /\b(garage|airport|hangar|museum|station|batcave|shadowbox|shadow box|workshop|city|showroom)\b/i;
 export const isWholeVehicleLabel = (label: string): boolean => !SCENERY_WORDS.test(label) && (CAR_WORDS.test(label) || PLANE_WORDS.test(label) || BOAT_WORDS.test(label));
@@ -56,24 +56,46 @@ export function classifyVehicleKind(label: string, mode: VehicleMode): PlayableK
   return null;
 }
 
-/**
- * Find independently named MPD submodels first.  This is the strongest
- * provenance: it prevents a vehicle contained in a building from taking the
- * building with it when driven.
- */
-function namedSubmodels(bricks: ParsedBrick[], kind: PlayableKind): ParsedBrick[][] {
+/** Every group of placements that descends from a submodel whose NAME matches the vehicle words. */
+function namedGroups(bricks: ParsedBrick[], kind: PlayableKind): Array<{ name: string; bricks: ParsedBrick[] }> {
   const re = kind === 'car' ? CAR_WORDS : kind === 'plane' ? PLANE_WORDS : BOAT_WORDS;
-  const groups = new Map<string, ParsedBrick[]>();
+  const groups = new Map<string, { name: string; bricks: ParsedBrick[] }>();
   for (const brick of bricks) {
     const path = brick.sourcePath ?? [];
     let matched: string | undefined;
     for (let i = path.length - 1; i >= 0; i--) if (re.test(path[i]!)) { matched = path[i]; break; }
     if (!matched) continue;
     const key = [...path.slice(0, path.lastIndexOf(matched) + 1)].join('/');
-    const group = groups.get(key) ?? [];
-    group.push(brick); groups.set(key, group);
+    const group = groups.get(key) ?? { name: matched, bricks: [] };
+    group.bricks.push(brick); groups.set(key, group);
   }
-  return [...groups.values()].filter(group => group.length >= 8 && group.length < bricks.length * 0.8);
+  return [...groups.values()];
+}
+
+/**
+ * Find independently named MPD submodels first.  This is the strongest
+ * provenance: it prevents a vehicle contained in a building from taking the
+ * building with it when driven.
+ */
+function namedSubmodels(bricks: ParsedBrick[], kind: PlayableKind): ParsedBrick[][] {
+  return namedGroups(bricks, kind).map(g => g.bricks).filter(group => group.length >= 8 && group.length < bricks.length * 0.8);
+}
+
+/**
+ * For a source whose TITLE is the vehicle, the file may still be an OMR-style
+ * MPD whose root places the vehicle beside its display (75892: `Car.ldr` next to
+ * `Wind Tunnel.ldr` and `Pilot.ldr`). When one vehicle-named submodel holds at
+ * least half of the placements, that submodel is the vehicle; a smaller match
+ * (a `Car body` next to a sibling `Chassis`) would be a partial vehicle, so it
+ * is not trusted and the whole model goes through the cluster filter instead.
+ */
+function dominantNamedGroup(bricks: ParsedBrick[], kind: PlayableKind): { name: string; bricks: ParsedBrick[] } | null {
+  let best: { name: string; bricks: ParsedBrick[] } | null = null;
+  for (const g of namedGroups(bricks, kind)) {
+    if (g.bricks.length < 8 || g.bricks.length >= bricks.length || g.bricks.length < bricks.length * 0.5) continue;
+    if (!best || g.bricks.length > best.bricks.length) best = g;
+  }
+  return best;
 }
 
 /**
@@ -160,10 +182,20 @@ export function discoverPlayableComponents(
   }
 
   // A source whose title itself is a vehicle is safe to make wholly rideable.
-  // Container builds (for example 76252) must never take this route.
-  if (mode === 'auto' && isWholeVehicleLabel(label)) return {
-    components: [withBounds({ id: kind, label, kind, bricks, provenance: 'whole model identified by source title' })], warnings: [],
-  };
+  // Container builds (for example 76252) must never take this route. Even so,
+  // the file may carry the vehicle's display and driver beside it: a named
+  // vehicle submodel is preferred when it dominates, and everything that does
+  // not physically touch the vehicle is left behind.
+  if (mode === 'auto' && isWholeVehicleLabel(label)) {
+    const named = dominantNamedGroup(bricks, kind);
+    if (!named) return { components: [withBounds({ id: kind, label, kind, bricks, provenance: 'whole model identified by source title' })], warnings: [] };
+    const name = named.name.replace(/\.(ldr|mpd|dat)$/i, '');
+    const outside = bricks.length - named.bricks.length;
+    return {
+      components: [withBounds({ id: kind, label, kind, bricks: named.bricks, provenance: `whole model identified by source title; vehicle submodel "${name}" (${named.bricks.length} of ${bricks.length} placements)` })],
+      warnings: [`${label}: ${outside} placement${outside === 1 ? '' : 's'} outside the "${name}" submodel left out of the vehicle.`],
+    };
+  }
 
   const named = namedSubmodels(bricks, kind);
   if (named.length) return {

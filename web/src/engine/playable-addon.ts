@@ -740,6 +740,76 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
 const vehicleDriverScript = (config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }> }) =>
   `import { world, system } from "@minecraft/server";\n(${vehicleDriverRuntime.toString()})(${JSON.stringify(config)});\n`;
 
+/**
+ * Chase camera preset, one per vehicle. A rider in first person sits INSIDE
+ * the entity's geometry — the DeLorean's cabin walls and dashboard are opaque
+ * cuboids at eye height — sees nothing and cannot steer. Every rider is put on
+ * a `minecraft:follow_orbit` preset sized to the vehicle (radius from its
+ * longest side, orbit pivot raised to mid-body) for as long as they ride.
+ * `follow_orbit`'s default control scheme is "locked player relative strafe"
+ * (learn.microsoft.com/minecraft/creator/documents/controlschemes): look input
+ * still turns the PLAYER, which is what `input_ground_controlled` steers by, so
+ * driving is unchanged. Presets live in the behavior pack's `cameras/presets/`.
+ */
+export function chaseCameraPreset(cid: string, size: { width: number; height: number; length: number }): { id: string; radius: number; value: unknown } {
+    const longest = Math.max(size.width, size.length, 1);
+    const radius = Math.min(40, Math.max(6, Math.round((longest * 1.4 + 3) * 10) / 10));
+    const id = `${PACK_NAMESPACE}:${cid}_chase`;
+    const pivotY = Math.round(Math.max(0.5, size.height * 0.5) * 100) / 100;
+    return {
+        id, radius,
+        value: { format_version: '1.21.0', 'minecraft:camera_preset': { identifier: id, inherit_from: 'minecraft:follow_orbit', radius, entity_offset: [0, pivotY, 0] } },
+    };
+}
+
+/**
+ * Runs in the pack: applies each vehicle's chase preset to its riders and
+ * clears the camera on dismount. If the preset is rejected (a client without
+ * the orbit presets) the vanilla `minecraft:third_person` preset stands in.
+ */
+function vehicleCameraRuntime(config: { vehicles: Array<{ typeId: string; preset: string }> }) {
+  const presetByType = new Map(config.vehicles.map((v: any) => [v.typeId, v.preset] as const));
+  const tracked = new Map<string, string>();
+  const dimensions = () => ['overworld', 'nether', 'the_end'].flatMap(id => { try { return [world.getDimension(id)]; } catch { return []; } });
+  const applyPreset = (player: any, preset: string): boolean => {
+    try { player.camera.setCamera(preset); return true; } catch {}
+    try { player.camera.setCamera('minecraft:third_person'); return true; } catch {}
+    return false;
+  };
+  system.runInterval(() => {
+    const riding = new Map<string, { player: any; preset: string }>();
+    for (const d of dimensions()) {
+      let vehicles: any[] = [];
+      try { vehicles = d.getEntities({ families: ['craftmatic_vehicle'] }); } catch { continue; }
+      for (const vehicle of vehicles) {
+        const preset = presetByType.get(vehicle.typeId);
+        if (!preset) continue;
+        let riders: any[] = [];
+        try { riders = vehicle.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch {}
+        for (const rider of riders) if (rider?.typeId === 'minecraft:player') riding.set(rider.id, { player: rider, preset });
+      }
+    }
+    for (const [id, { player, preset }] of riding) {
+      if (tracked.get(id) === preset) continue;
+      if (applyPreset(player, preset)) tracked.set(id, preset);
+    }
+    if (tracked.size) {
+      let players: any[] = [];
+      try { players = world.getAllPlayers(); } catch {}
+      for (const id of [...tracked.keys()]) {
+        if (riding.has(id)) continue;
+        const player = players.find((p: any) => p.id === id);
+        if (player) { try { player.camera.clear(); } catch {} }
+        tracked.delete(id);
+      }
+    }
+  }, 4);
+  try { world.afterEvents?.playerLeave?.subscribe?.((ev: any) => tracked.delete(ev.playerId)); } catch {}
+}
+
+const vehicleCameraScript = (config: { vehicles: Array<{ typeId: string; preset: string }> }) =>
+  `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)});\n`;
+
 function blockRgb(state: string): [
     number,
     number,
@@ -827,6 +897,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const actors: PlacementActor[] = [];
     let timeMachineConfig: { typeId: string; width: number; height: number; length: number } | undefined;
     const driverVehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }> = [];
+    const cameraVehicles: Array<{ typeId: string; preset: string }> = [];
     const unmapped = new Set<string>();
     for (let i = 0; i < plan.length; i++) {
         const tile = plan[i]!, out = encodeMcstructureTile(grid, tile);
@@ -861,6 +932,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 name: `${bp}entities/${cid}.json`,
                 data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox)),
             });
+            const chase = chaseCameraPreset(cid, ldrawGeo.sizeBlocks);
+            files.push({ name: `${bp}cameras/presets/${cid}_chase.json`, data: json(chase.value) });
+            cameraVehicles.push({ typeId: fullTypeId, preset: chase.id });
             files.push(
                 { name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, ldrawGeo.meshIds, ldrawGeo.canopyMeshId, 'entity')) },
                 { name: `${rp}models/entity/${cid}.geo.json`, data: json(ldrawGeo.value) },
@@ -882,6 +956,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             }
         } else {
             files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1)) });
+            const chase = chaseCameraPreset(cid, { width: layout.width, height: layout.height, length: layout.length });
+            files.push({ name: `${bp}cameras/presets/${cid}_chase.json`, data: json(chase.value) });
+            cameraVehicles.push({ typeId: fullTypeId, preset: chase.id });
             const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
             files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
         }
@@ -913,11 +990,13 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     files.push(...placement.files.map(file => ({ ...file, name: bp + file.name })));
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
     if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles })) });
+    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles })) });
     const mainImports = [
         "import './placement.js';",
         ...(driverVehicles.length ? ["import './vehicle-driver.js';"] : []),
+        ...(cameraVehicles.length ? ["import './vehicle-camera.js';"] : []),
     ].join('\n');
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, preview, rotate, place, and undo.\nCars: interact to ride, press Jump for nitro boost, and steer into turns to drift. Planes: ride to fly with full 3D pitch/yaw and speed HUD. Vehicles resist damage.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, preview, rotate, place, and undo.\nCars: interact to ride, press Jump for nitro boost, and steer into turns to drift. Planes: ride to fly with full 3D pitch/yaw and speed HUD. Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you (look input still steers); it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics };

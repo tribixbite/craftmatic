@@ -28,6 +28,7 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
+import { partAliasCandidates } from './ldraw-part-aliases.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { type VoxelizeResult, type VoxelizeOptions, TECHNIC_INTERNAL_PARTS } from './ldraw-voxelizer.js';
@@ -149,49 +150,111 @@ export function seedDatTexts(entries: Iterable<readonly [string, string | null]>
   return changed;
 }
 
+/**
+ * Prod part mirror (R2-first Worker) consulted by the CLI resolver after the
+ * LOCAL library misses. The local install is Studio's frozen LDraw release 207,
+ * so every mould released since 2020 misses there and used to become an AABB
+ * (10300: `6538c`, `4085d`, `6628a`, `x346` …). In the browser this step is
+ * skipped: `/ldraw-parts` already IS the mirror (dev middleware → R2 → upstream).
+ */
+let LDRAW_MIRROR: string | null = 'https://craftmatic.click/ldraw-parts';
+
+/** Point the CLI fallback at another mirror, or `null` to stay offline (tests). */
+export function setLDrawMirror(base: string | null): void {
+  LDRAW_MIRROR = base ? base.replace(/\/$/, '') : null;
+}
+
+/**
+ * Requested part name → the name whose text actually served it, for every
+ * substitution the alias ladder made (`6538c` → `6538`). Read by the entity
+ * diagnostics so a near-mould swap is never silent; never cleared, because a
+ * substitution is a property of the library, not of one export.
+ */
+const datSubstitutions = new Map<string, string>();
+
+/** The alias that served `id`, if the ladder had to substitute one. */
+export function datSubstitutionFor(id: string): string | undefined {
+  return datSubstitutions.get(normId(id));
+}
+
+/** Library-relative paths a name may live at, in probe order (mirrors the viewer's ladder). */
+function libraryRelPaths(key: string): string[] {
+  const stem = key.split('/').pop()!;
+  const paths: string[] = [];
+  if (key.includes('/')) {
+    if (key.startsWith('s/')) paths.push(`parts/${key}.dat`);
+    else paths.push(`p/${key}.dat`, `UnOfficial/p/${key}.dat`);
+  }
+  paths.push(`parts/${stem}.dat`, `p/${stem}.dat`, `parts/s/${stem}.dat`, `UnOfficial/parts/${stem}.dat`, `UnOfficial/p/${stem}.dat`);
+  return paths;
+}
+
+/** One probe of the configured library (filesystem in the CLI, `fetch` in the browser); no caching. */
+async function probeLibrary(key: string): Promise<string | null> {
+  for (const rel of libraryRelPaths(key)) {
+    const path = `${LDRAW_BASE}/${rel}`;
+    try {
+      if (useFilesystem) {
+        const { readFileSync, existsSync } = await import('node:fs');
+        if (existsSync(path)) return readFileSync(path, 'utf-8');
+      } else {
+        const r = await fetch(path);
+        if (r.ok) return await r.text();
+      }
+    } catch { /* try next path */ }
+  }
+  return null;
+}
+
+/**
+ * One probe of the prod mirror. A 404 is a definitive miss; a throttle or
+ * transport error is retried once and then treated as a miss for this run —
+ * the CLI is one-shot, and a hole is reported in the diagnostics either way.
+ */
+async function probeMirror(key: string): Promise<string | null> {
+  if (!LDRAW_MIRROR) return null;
+  const stem = key.split('/').pop()!;
+  const rels = key.includes('/')
+    ? (key.startsWith('s/') ? [`parts/${key}.dat`] : [`p/${key}.dat`])
+    : [`parts/${stem}.dat`, `p/${stem}.dat`, `parts/s/${stem}.dat`];
+  for (const rel of rels) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await fetch(`${LDRAW_MIRROR}/${rel}`, { signal: AbortSignal.timeout(15000) });
+        if (r.ok) return await r.text();
+        if (r.status === 404 || r.status === 410) break;
+      } catch { /* retry once */ }
+      await new Promise(res => setTimeout(res, 1000));
+    }
+  }
+  return null;
+}
+
 async function fetchDatText(id: string): Promise<string | null> {
   const key = normId(id);
   if (datTextCache.has(key)) return datTextCache.get(key)!;
   if (datInFlight.has(key))  return datInFlight.get(key)!;
 
-  const stem = key.split('/').pop()!;
-
-  const paths: string[] = [];
-  if (key.includes('/')) {
-    if (key.startsWith('s/'))
-      paths.push(`${LDRAW_BASE}/parts/${key}.dat`);
-    else
-      paths.push(`${LDRAW_BASE}/p/${key}.dat`, `${LDRAW_BASE}/UnOfficial/p/${key}.dat`);
-  }
-  paths.push(
-    `${LDRAW_BASE}/parts/${stem}.dat`,
-    `${LDRAW_BASE}/p/${stem}.dat`,
-    `${LDRAW_BASE}/parts/s/${stem}.dat`,
-    `${LDRAW_BASE}/UnOfficial/parts/${stem}.dat`,
-    `${LDRAW_BASE}/UnOfficial/p/${stem}.dat`,
-  );
-
   const promise = (async (): Promise<string | null> => {
-    for (const path of paths) {
-      try {
-        if (useFilesystem) {
-          // CLI: read from local filesystem
-          const { readFileSync, existsSync } = await import('node:fs');
-          if (existsSync(path)) {
-            const text = readFileSync(path, 'utf-8');
-            datTextCache.set(key, text);
-            return text;
-          }
-        } else {
-          // Browser: fetch from dev server
-          const r = await fetch(path);
-          if (r.ok) {
-            const text = await r.text();
-            datTextCache.set(key, text);
-            return text;
-          }
+    const direct = await probeLibrary(key);
+    if (direct !== null) { datTextCache.set(key, direct); return direct; }
+    // The alias ladder applies to bare part names only (a `s/` or `48/` ref is
+    // a primitive path, which the ladder must never shred).
+    const aliases = key.includes('/') ? [] : partAliasCandidates(key);
+    for (const alias of aliases) {
+      const text = await probeLibrary(alias);
+      if (text !== null) { datSubstitutions.set(key, alias); datTextCache.set(key, text); return text; }
+    }
+    // CLI only: the local snapshot is five years stale; the mirror is current.
+    if (useFilesystem) {
+      for (const name of [key, ...aliases]) {
+        const text = await probeMirror(name);
+        if (text !== null) {
+          if (name !== key) datSubstitutions.set(key, name);
+          datTextCache.set(key, text);
+          return text;
         }
-      } catch { /* try next path */ }
+      }
     }
     datTextCache.set(key, null);
     return null;

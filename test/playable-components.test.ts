@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseLDraw } from '../web/src/engine/ldraw-parser.js';
+import { parseLDraw, type ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 import { discoverPlayableComponents } from '../web/src/engine/playable-components.js';
 import { alignVoxelGrid } from '../web/src/engine/schem-pipeline.js';
 import { BlockGrid } from '../src/schem/types.js';
@@ -57,5 +57,26 @@ describe('Batcave movable assembly', () => {
     expect(result.get(3, 0, 0)).toBe('minecraft:gold_block');
     expect(result.countNonAir()).toBe(2);
     expect(result.get(0, 0, 0)).toBe('minecraft:air');
+  });
+});
+
+describe('vehicle-titled MPD with a display beside the vehicle', () => {
+  const row = (n: number, x0 = 0): ParsedBrick[] => Array.from({ length: n }, (_, i) => ({ part: '3001.dat', color: 4, x: x0 + i * 80, y: 0, z: 0 }));
+
+  it('prefers a dominant vehicle-named submodel over its siblings and says what it left out', () => {
+    const car = row(20).map(b => ({ ...b, sourcePath: ['75892 - main.ldr', '75892 - car.ldr'] }));
+    const tunnel = row(5, 20000).map(b => ({ ...b, sourcePath: ['75892 - main.ldr', '75892 - wind tunnel.ldr'] }));
+    const pilot = row(3, 40000).map(b => ({ ...b, sourcePath: ['75892 - main.ldr', '75892 - pilot.ldr'] }));
+    const { components, warnings } = discoverPlayableComponents([...car, ...tunnel, ...pilot], 'McLaren Senna (75892)');
+    expect(components[0]!.bricks).toHaveLength(20);
+    expect(components[0]!.provenance).toContain('vehicle submodel "75892 - car"');
+    expect(warnings[0]).toContain('8 placements outside');
+  });
+
+  it('does not trust a vehicle-named submodel that holds less than half the model', () => {
+    const body = row(6).map(b => ({ ...b, sourcePath: ['main.ldr', 'car body.ldr'] }));
+    const chassis = row(14, 0).map(b => ({ ...b, y: -24, sourcePath: ['main.ldr', 'chassis.ldr'] }));
+    const { components } = discoverPlayableComponents([...body, ...chassis], 'Speed Champions Racer');
+    expect(components[0]!.bricks).toHaveLength(20);
   });
 });

@@ -24,7 +24,7 @@
 
 import type { LDrawDocument } from './ldraw-parser.js';
 import { embeddedPartTexts, parseLDrawColor } from './ldraw-parser.js';
-import { getDatText } from './ldraw-geometry.js';
+import { datSubstitutionFor, getDatText } from './ldraw-geometry.js';
 
 export type Vec3 = [number, number, number];
 
@@ -64,7 +64,12 @@ export interface LdrawPartMesh {
 export interface PartGeometryProvider {
   getPartMesh(part: string): Promise<LdrawPartMesh | null>;
   /** What could not be resolved and what degraded, for diagnostics. */
-  report(): { unresolved: string[]; printFallbacks: Array<{ part: string; base: string }> };
+  report(): {
+    unresolved: string[];
+    printFallbacks: Array<{ part: string; base: string }>;
+    /** Names the library served through the alias ladder (`6538c` → `6538`): a near-mould stand-in, not the exact part. */
+    substitutions: Array<{ part: string; alias: string }>;
+  };
 }
 
 export interface PartGeometryProviderOptions {
@@ -74,6 +79,8 @@ export interface PartGeometryProviderOptions {
   embedded?: Iterable<readonly [string, string]>;
   /** Library text lookup; defaults to the voxelizer's seeded cache + `/ldraw-parts`. */
   fetchPartText?: (normalizedId: string) => Promise<string | null>;
+  /** Which alias (if any) served a library name; defaults to the shared cache's ladder record. */
+  substitutionFor?: (normalizedId: string) => string | undefined;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -143,6 +150,7 @@ const MAX_DEPTH = 12;
 
 export function createPartGeometryProvider(options: PartGeometryProviderOptions = {}): PartGeometryProvider {
   const fetchPartText = options.fetchPartText ?? getDatText;
+  const substitutionFor = options.substitutionFor ?? (options.fetchPartText ? () => undefined : datSubstitutionFor);
   const embedded = new Map<string, string>();
   const addEmbedded = (id: string, text: string): void => {
     const key = normPartId(id);
@@ -158,11 +166,17 @@ export function createPartGeometryProvider(options: PartGeometryProviderOptions 
   const meshCache = new Map<string, Promise<LdrawPartMesh | null>>();
   const unresolved = new Set<string>();
   const printFallbacks = new Map<string, string>();
+  const substitutions = new Map<string, string>();
 
   async function textFor(key: string): Promise<string | null> {
     const own = embedded.get(key) ?? embedded.get(stemOf(key));
     if (own !== undefined) return own;
-    return fetchPartText(key);
+    const text = await fetchPartText(key);
+    if (text !== null) {
+      const alias = substitutionFor(key);
+      if (alias && alias !== key) substitutions.set(key, alias);
+    }
+    return text;
   }
 
   /**
@@ -311,6 +325,7 @@ export function createPartGeometryProvider(options: PartGeometryProviderOptions 
       return {
         unresolved: [...unresolved].sort(),
         printFallbacks: [...printFallbacks].map(([part, base]) => ({ part, base })).sort((a, b) => a.part.localeCompare(b.part)),
+        substitutions: [...substitutions].map(([part, alias]) => ({ part, alias })).sort((a, b) => a.part.localeCompare(b.part)),
       };
     },
   };

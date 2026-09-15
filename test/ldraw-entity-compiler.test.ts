@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileLdrawEntityGeometry, eulerZYX, ldrawToRenderRotation } from '../web/src/engine/ldraw-entity-compiler.js';
+import { compileLdrawEntityGeometry, cullHiddenCuboids, detachedClusters, eulerZYX, ldrawToRenderRotation, levelModel, snapSignedPermutation } from '../web/src/engine/ldraw-entity-compiler.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDRAW_COLOR_RGB } from '../web/src/engine/ldraw-colors.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -34,8 +34,13 @@ const LIBRARY: Record<string, string> = {
 };
 const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '')] ?? null });
 
-type Geo = { 'minecraft:geometry': Array<{ description: { identifier: string; texture_width: number; texture_height: number }; bones: Array<{ name: string; pivot: number[]; rotation?: number[]; cubes: Array<{ origin: number[]; size: number[]; uv: Record<string, { uv: number[] }> }> }> }> };
-const allCubes = (g: Geo) => g['minecraft:geometry'].flatMap(m => m.bones.flatMap(b => b.cubes.map(c => ({ ...c, bone: b.name, mesh: m.description.identifier }))));
+type Geo = { 'minecraft:geometry': Array<{ description: { identifier: string; texture_width: number; texture_height: number }; bones: Array<{ name: string; pivot: number[]; rotation?: number[]; cubes: Array<{ origin: number[]; size: number[]; pivot?: number[]; rotation?: number[]; uv: Record<string, { uv: number[] }> }> }> }> };
+type Cube = { origin: number[]; size: number[]; pivot?: number[]; rotation?: number[]; uv: Record<string, { uv: number[] }> };
+const allCubes = (g: Geo) => g['minecraft:geometry'].flatMap(m => m.bones.flatMap(b => b.cubes.map(c => ({ ...(c as Cube), bone: b.name, mesh: m.description.identifier }))));
+// A stud cuboid is 4 LDU (0.64 units) tall and no wider than the 12 LDU disc; nothing in the synthetic library is that thin.
+const isStud = (c: { size: number[] }) => Math.abs(c.size[1]! - 0.64) < 1e-9 && Math.max(c.size[0]!, c.size[2]!) <= 1.92 + 1e-9;
+const bodyCubes = (g: Geo) => allCubes(g).filter(c => !isStud(c));
+const studCubes = (g: Geo) => allCubes(g).filter(isStud);
 
 describe('frame helpers', () => {
   it('ldrawToRenderRotation is a proper rotation (det +1) for every nose', () => {
@@ -66,11 +71,22 @@ describe('frame helpers', () => {
   });
 });
 
+describe('snapSignedPermutation', () => {
+  it('snaps near-axis matrices and rejects real rotations', () => {
+    expect(snapSignedPermutation([0.9999, 0.0001, 0, -0.0001, 0.9999, 0, 0, 0, 1.0001])).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    expect(snapSignedPermutation([0, 0, -1, 0, 1, 0, 1, 0, 0])).toEqual([0, 0, -1, 0, 1, 0, 1, 0, 0]);
+    const a = 5 * Math.PI / 180;
+    expect(snapSignedPermutation([Math.cos(a), 0, Math.sin(a), 0, 1, 0, -Math.sin(a), 0, Math.cos(a)])).toBeNull();
+    // Two rows claiming the same column is not a permutation.
+    expect(snapSignedPermutation([1, 0, 0, 1, 0, 0, 0, 0, 1])).toBeNull();
+  });
+});
+
 describe('compileLdrawEntityGeometry', () => {
   it('instances a box part as ONE cuboid of exact size with exact LDraw colour', async () => {
     const bricks: ParsedBrick[] = [{ part: '3001.dat', color: 4, x: 0, y: 0, z: 0 }];
     const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
-    const cubes = allCubes(r.value as Geo).filter(c => c.uv.up!.uv[0] === 0); // body cubes (studs use the stud tile on 'up')
+    const cubes = bodyCubes(r.value as Geo);
     expect(cubes).toHaveLength(1);
     // 80×24×40 LDU → 12.8 × 3.84 × 6.4 units, floor at y=0, centred in X/Z.
     expect(cubes[0]!.size).toEqual([12.8, 3.84, 6.4]);
@@ -78,7 +94,8 @@ describe('compileLdrawEntityGeometry', () => {
     expect(r.materials).toHaveLength(1);
     const hex = '#' + r.materials[0]!.rgb.map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
     expect(hex).toBe(LDRAW_COLOR_RGB[4]);
-    expect(r.diagnostics).toMatchObject({ sourcePartCount: 1, uniquePartCount: 1, resolvedPartCount: 1, unresolvedParts: [], aabbFallbackParts: [], studCubeCount: 8 });
+    // Eight exposed studs × four facets each.
+    expect(r.diagnostics).toMatchObject({ sourcePartCount: 1, uniquePartCount: 1, resolvedPartCount: 1, unresolvedParts: [], aabbFallbackParts: [], studCubeCount: 32, studFacets: 4, rotatedBoneCount: 0, leveled: null, cockpit: { source: 'default-cabin' } });
     expect(r.meshIds).toEqual(['geometry.craftmatic.t_mesh_0']);
   });
 
@@ -90,7 +107,7 @@ describe('compileLdrawEntityGeometry', () => {
       { part: '3005.dat', color: 1, x: 0, y: 0, z: 100 },   // nose
     ];
     const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
-    const body = allCubes(r.value as Geo).filter(c => c.uv.up!.uv[0] === 0);
+    const body = bodyCubes(r.value as Geo);
     const byRow = new Map(r.materials.map((m, i) => [i, m.colorId]));
     const rowOf = (c: { uv: Record<string, { uv: number[] }> }) => (c.uv.north!.uv[1]! - 1) / 16;
     const red = body.find(c => byRow.get(rowOf(c)) === 4)!;
@@ -111,7 +128,7 @@ describe('compileLdrawEntityGeometry', () => {
       { part: '3005.dat', color: 4, x: 0, y: 0, z: -100 },  // LDraw −Z: with nose +X, the right side is −Z? no — right = nose × up
     ];
     const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+x' });
-    const body = allCubes(r.value as Geo).filter(c => c.uv.up!.uv[0] === 0);
+    const body = bodyCubes(r.value as Geo);
     const rowOf = (c: { uv: Record<string, { uv: number[] }> }) => (c.uv.north!.uv[1]! - 1) / 16;
     const idOf = (c: { uv: Record<string, { uv: number[] }> }) => r.materials[rowOf(c)]!.colorId;
     const blue = body.find(c => idOf(c) === 1)!, white = body.find(c => idOf(c) === 15)!, red = body.find(c => idOf(c) === 4)!;
@@ -128,13 +145,110 @@ describe('compileLdrawEntityGeometry', () => {
       { part: '3005.dat', color: 14, x: 40, y: 0, z: 0 }, // free-standing: exposed
     ];
     const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
-    expect(r.diagnostics.studCubeCount).toBe(2);
-    const studs = allCubes(r.value as Geo).filter(c => c.uv.up!.uv[0] === 16);
-    expect(studs).toHaveLength(2);
-    // A stud is a 12×4×12 LDU box: 1.92 × 0.64 × 1.92 units.
-    expect(studs[0]!.size).toEqual([1.92, 0.64, 1.92]);
-    const rows = studs.map(s => (s.uv.up!.uv[1]! - 1) / 16).map(i => r.materials[i]!.colorId).sort();
+    // Two exposed studs, four facets each; the covered red stud is gone.
+    expect(r.diagnostics.studCubeCount).toBe(8);
+    const studs = studCubes(r.value as Geo);
+    expect(studs).toHaveLength(8);
+    const rows = [...new Set(studs.map(s => (s.uv.up!.uv[1]! - 1) / 16).map(i => r.materials[i]!.colorId))].sort();
     expect(rows).toEqual([1, 14]);
+  });
+
+  it('fans each exposed stud into rotated facets whose corners lie on the stud circle', async () => {
+    const bricks: ParsedBrick[] = [{ part: '3005.dat', color: 4, x: 0, y: 0, z: 0 }];
+    const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
+    const studs = studCubes(r.value as Geo);
+    expect(studs).toHaveLength(4);
+    // Facet: 2·6·cos(22.5°) = 11.09 LDU long, 2·6·sin(22.5°) = 4.59 LDU wide, 4 LDU tall → units ×0.16.
+    for (const c of studs) expect(c.size).toEqual([0.73, 0.64, 1.77]); // long side along Z before rotation
+    const rotations = studs.map(c => c.rotation?.[1] ?? 0).sort((a, b) => a - b);
+    // Bedrock's frame negates the Y angle: 0, −45, −90, −135.
+    expect(rotations).toEqual([-135, -90, -45, 0]);
+    // Every rotated facet pivots on the stud axis, on the brick's top face.
+    const pivots = studs.filter(c => c.rotation).map(c => c.pivot!.join(','));
+    expect(new Set(pivots).size).toBe(1);
+    expect(studs.find(c => c.rotation)!.pivot).toEqual([0, 3.84, 0]);
+    // Plain tile on every face: the facets share one flat colour, so their coplanar tops cannot z-fight.
+    for (const c of studs) for (const face of Object.values(c.uv)) expect(face.uv[0]).toBe(0);
+  });
+
+  it('snaps float-noise rotations to the exact axis frame instead of spending a bone', async () => {
+    const bricks: ParsedBrick[] = [
+      { part: '3001.dat', color: 4, x: 0, y: 0, z: 0, rot: [0.9999, 0.0001, 0, -0.0001, 0.9999, 0, 0, 0, 1.0001] },
+      { part: '3005.dat', color: 1, x: 100, y: 0, z: 0, rot: [0, 0, 1, 0, 1, 0, -1, 0, 0.0002] },
+    ];
+    const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
+    expect(r.diagnostics.rotatedBoneCount).toBe(0);
+    expect(bodyCubes(r.value as Geo).every(c => c.bone === 'body')).toBe(true);
+  });
+
+  it('levels a posed source: a 19°-yawed model comes out axis-aligned with the pose recorded', async () => {
+    const yaw = 19 * Math.PI / 180, c = Math.cos(yaw), s = Math.sin(yaw);
+    const rot = [c, 0, s, 0, 1, 0, -s, 0, c];
+    // Twelve 1×1 bricks in a row along the model's own X, then the whole row turned by the pose.
+    const bricks: ParsedBrick[] = Array.from({ length: 12 }, (_, i) => {
+      const x = i * 20 - 110, z = 0;
+      return { part: '3005.dat', color: 4, x: c * x + s * z, y: 0, z: -s * x + c * z, rot: [...rot] };
+    });
+    const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+x' });
+    expect(r.diagnostics.leveled).toMatchObject({ alignedBefore: 0, alignedAfter: 12 });
+    expect(r.diagnostics.leveled!.angleDeg).toBeCloseTo(19, 1);
+    expect(r.diagnostics.rotatedBoneCount).toBe(0);
+    expect(r.transform.level).toBeDefined();
+    // Nose +X → the row runs along JSON Z with every brick at the same X.
+    const body = bodyCubes(r.value as Geo);
+    expect(body).toHaveLength(12);
+    expect(new Set(body.map(b => b.origin[0])).size).toBe(1);
+    expect(Math.max(...body.map(b => b.origin[2]!)) - Math.min(...body.map(b => b.origin[2]!))).toBeCloseTo(11 * 3.2, 1);
+  });
+
+  it('drops separate objects beside the vehicle on real part bounds, keeps what touches or sits inside it', async () => {
+    // A 20-brick row (touching end to end), a stacked brick on it, a 3-brick "driver" standing far away, a lone brick far away.
+    const row: ParsedBrick[] = Array.from({ length: 20 }, (_, i) => ({ part: '3001.dat', color: 4, x: i * 80, y: 0, z: 0 }));
+    const seated: ParsedBrick = { part: '3005.dat', color: 1, x: 0, y: -24, z: 0 };
+    const driver: ParsedBrick[] = [0, -24, -48].map(y => ({ part: '3005.dat', color: 14, x: 5000, y, z: 0 }));
+    const lone: ParsedBrick = { part: '3005.dat', color: 15, x: -3000, y: 0, z: 0 };
+    const r = await compileLdrawEntityGeometry('t', 'car', [...row, seated, ...driver, lone], { partGeometry: provider(), facing: '+x' });
+    expect(r.diagnostics.detached).toEqual({ placements: 4, groups: 2 });
+    expect(bodyCubes(r.value as Geo)).toHaveLength(21);
+    expect(r.warnings.some(w => /4 placements in 2 separate objects/.test(w))).toBe(true);
+    // A piece floating INSIDE the body (between two decks that do not touch each other) is kept:
+    // it is a source defect to render as-is, not a separate object.
+    const upper: ParsedBrick[] = row.map(b => ({ ...b, y: -72 }));
+    const floating: ParsedBrick = { part: '3005.dat', color: 15, x: 800, y: -34, z: 0 };
+    const r2 = await compileLdrawEntityGeometry('t', 'car', [...row, ...upper, floating], { partGeometry: provider(), facing: '+x' });
+    expect(r2.diagnostics.detached).toEqual({ placements: 0, groups: 0 });
+    expect(bodyCubes(r2.value as Geo)).toHaveLength(41);
+  });
+
+  it('detachedClusters keeps two similar-sized vehicles', () => {
+    const box = (x: number): { min: [number, number, number]; max: [number, number, number] } => ({ min: [x - 40, -24, -20], max: [x + 40, 0, 20] });
+    const boxes = [...Array.from({ length: 20 }, (_, i) => box(i * 80)), ...Array.from({ length: 16 }, (_, i) => box(9000 + i * 80))];
+    const r = detachedClusters(boxes);
+    expect(r.clusters).toBe(2);
+    expect(r.drop.size).toBe(0);
+  });
+
+  it('culls a cuboid buried on every side, but not one behind glass or beside a rotated box', () => {
+    type B = { min: [number, number, number]; max: [number, number, number]; translucent: boolean; aligned: boolean };
+    const box = (x: number, y: number, z: number, extra: Partial<B> = {}): B => ({ min: [x, y, z], max: [x + 20, y + 20, z + 20], translucent: false, aligned: true, ...extra });
+    // A 3×3×3 block of 20-LDU cubes: only the centre one is hidden.
+    const block: B[] = [];
+    for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) block.push(box(x * 20, y * 20, z * 20));
+    const centre = block.findIndex(b => b.min[0] === 20 && b.min[1] === 20 && b.min[2] === 20);
+    expect([...cullHiddenCuboids(block, 4)]).toEqual([centre]);
+    // The cube above the centre made of glass: the centre is visible through it.
+    const glass = block.map((b, i) => (b.min[0] === 20 && b.min[1] === 40 && b.min[2] === 20 ? { ...b, translucent: true } : b));
+    expect(cullHiddenCuboids(glass, 4).size).toBe(0);
+    // The cube above the centre inside a rotated bone: its box is an over-estimate, so it never occludes.
+    const rotated = block.map(b => (b.min[0] === 20 && b.min[1] === 40 && b.min[2] === 20 ? { ...b, aligned: false } : b));
+    expect(cullHiddenCuboids(rotated, 4).size).toBe(0);
+  });
+
+  it('levelModel leaves an already level model alone', () => {
+    const bricks: ParsedBrick[] = Array.from({ length: 10 }, (_, i) => ({ part: '3005.dat', color: 4, x: i * 20, y: 0, z: 0 }));
+    const r = levelModel(bricks);
+    expect(r.rotation).toBeNull();
+    expect(r.bricks).toBe(bricks);
   });
 
   it('does not reduce a slope to its bounding box and stays within the part budget', async () => {
